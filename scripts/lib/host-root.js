@@ -13,7 +13,9 @@
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
  * The harness sets `CLAUDE_PROJECT_DIR` to the main checkout even for a session
  * in a linked worktree, so the host root never says which tree is the
- * session's; only the hook input's `cwd` does.
+ * session's; only the hook input's `cwd` does. A script that writes tracked
+ * files writes `worktreeRoot()`: through `hostRoot()` a worktree session's
+ * write lands in the main checkout as an orphaned edit (#4438).
  *
  * NEVER `__dirname`. In a plugin install the core's files live in the plugin
  * cache, so a root resolved from this file's own location names the cache and
@@ -36,7 +38,7 @@
  */
 
 const path = require("node:path");
-const { execGit, gitCommonDir } = require("./git.js");
+const { execGit, gitCommonDir, gitCommonDirOrThrow } = require("./git.js");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { writeFd } = require("./write-fd.js");
@@ -123,8 +125,9 @@ function sessionTree({ cwd }) {
 }
 
 /**
- * The tree a test run reads: the git top level of the working directory where
- * that is a linked worktree of the host repository, else `hostRoot()`.
+ * The session's tree: the git top level of the working directory where that
+ * is a linked worktree of the host repository, else `hostRoot()`. It is what a
+ * test run reads and where a script writing tracked files writes (#4438).
  *
  * NOT `hostRoot()` ALONE (#2940). The harness sets `CLAUDE_PROJECT_DIR` to the
  * main checkout for every Bash call, so a run launched inside a linked worktree
@@ -133,24 +136,31 @@ function sessionTree({ cwd }) {
  * store on the git common dir: only which files are under test follows the
  * worktree.
  * @param {string} [cwd]
- * @param {{ host?: string }} [opts] the host, where the caller already holds
- *   it, so the answer reads no ambient `CLAUDE_PROJECT_DIR` (#3327); else
- *   `hostRoot()`, and with neither the git top level is host and worktree alike
+ * @param {{ host?: string, timeoutMs?: number, onTimeout?: () => void }} [opts]
+ *   `host`, where the caller already holds it, so the answer reads no ambient
+ *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`, and with neither the git
+ *   top level is host and worktree alike. `timeoutMs` bounds each git read,
+ *   none by default; a read past it answers the host and calls `onTimeout`
  * @returns {string}
  */
-function worktreeRoot(cwd = process.cwd(), { host: given } = {}) {
+function worktreeRoot(
+	cwd = process.cwd(),
+	{ host: given, timeoutMs, onTimeout } = {},
+) {
 	if (!given && !process.env.CLAUDE_PROJECT_DIR) return hostRoot(cwd);
 	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);
-	let top;
 	try {
-		top = gitTopLevel(cwd);
-	} catch {
+		const top = gitTopLevel(cwd, timeoutMs);
+		if (top === host) return host;
+		const bound = { timeout: timeoutMs };
+		return gitCommonDirOrThrow(cwd, bound) === gitCommonDirOrThrow(host, bound)
+			? top
+			: host;
+	} catch (e) {
+		if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 		/* Outside any repository there is no worktree to prefer. */
 		return host;
 	}
-	if (top === host) return host;
-	const mine = gitCommonDir(cwd);
-	return mine !== null && mine === gitCommonDir(host) ? top : host;
 }
 
 /**

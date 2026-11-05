@@ -41,8 +41,8 @@ const ROUND = fs.readFileSync(
 );
 const refusedRun = secondaryOf(REFUSED, subjects);
 const roundRun = secondaryOf(ROUND, subjects);
-/** The `git add` call the guard warned in REFUSED. */
-const WARNED_CALL = "toolu_01XSfYVxvmqLzPmaY2SS8cJV";
+/** The vitest call the guard warned in REFUSED. */
+const WARNED_CALL = "toolu_01BkDqSsptTHYBzmHD6Kw5qg";
 
 const lines = (text: string) =>
 	text
@@ -141,7 +141,7 @@ const HUSKY = "husky - pre-commit script failed (code 1)";
 describe("warns acted against", () => {
 	it("counts each warned call once, though the transcript writes every call twice, and none acted against", () => {
 		expect(refusedRun.warnsActedAgainst).toEqual({
-			warnedCalls: 2,
+			warnedCalls: 1,
 			actedAgainst: 0,
 			repeated: 0,
 			rewarned: 0,
@@ -150,15 +150,20 @@ describe("warns acted against", () => {
 
 	it("counts a warned call whose next call repeats its command", () => {
 		expect(withNextCall({})).toMatchObject({
-			warnedCalls: 2,
+			warnedCalls: 1,
 			actedAgainst: 1,
 			repeated: 1,
 		});
 	});
 
 	it("counts a warned call whose next call draws the same warn", () => {
-		expect(withNextCall({ command: "git add b.js", warned: true })).toEqual({
-			warnedCalls: 3,
+		expect(
+			withNextCall({
+				command: "npx vitest run scripts/x.test.ts",
+				warned: true,
+			}),
+		).toEqual({
+			warnedCalls: 2,
 			actedAgainst: 1,
 			repeated: 0,
 			rewarned: 1,
@@ -516,7 +521,7 @@ describe("an arm's summary", () => {
 		const s = summariseSecondary([refusedRun, roundRun]);
 		expect(s.warnsActedAgainst).toMatchObject({
 			actedAgainst: 0,
-			warnedCalls: 5,
+			warnedCalls: 4,
 		});
 		expect(s.commitGateRefusals.byGate).toEqual({ "citation-tracker": 1 });
 		expect(s.commitGateRefusals.perRun.mean).toBe(0.5);

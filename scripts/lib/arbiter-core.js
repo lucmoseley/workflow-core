@@ -24,7 +24,7 @@ const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
-const { hostRoot } = require("./host-root.js");
+const { hostRoot, worktreeRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -712,13 +712,42 @@ const DETECT_ONLY = ["scripts/"];
  */
 const EXEMPT = [SCRATCH_DIR];
 
+/*
+ * THE SESSION'S TREE (#4397): the git top level of the working directory where
+ * that is a linked worktree of the host, else the host. A hook runs in the
+ * session's directory, so this is the tree the session writes. A claim's key is
+ * spelt from it and every read of a claimed file's bytes — its content pin, its
+ * pre-claim blob, its dirt — runs in it. The stores
+ * themselves stay on the host (stateDir), where every session reads them.
+ *
+ * `lib/host-root.js`'s `worktreeRoot` answers it, under gitBound's ceiling; an overrun answers the
+ * host. Memoised per working directory and host, an overrun answer aside:
+ * the suite chdirs between trees inside one process.
+ */
+let treeMemo = { cwd: "", host: "", tree: "" };
+
+function treeRoot() {
+	const cwd = process.cwd();
+	const host = repoRoot();
+	if (treeMemo.cwd === cwd && treeMemo.host === host) return treeMemo.tree;
+	if (gitBound.overran) return host;
+	const tree = worktreeRoot(cwd, {
+		host,
+		timeoutMs: gitBound.ms,
+		onTimeout: markOverrun,
+	});
+	if (!gitBound.overran) treeMemo = { cwd, host, tree };
+	return tree;
+}
+
 /**
- * Repo-relative, or null when the path is outside the repo entirely.
+ * The key a path is claimed under: relative to the session's tree, a relative
+ * path resolved against it; null for a path outside that tree.
  * @param {string} filePath
  */
-function relativeToRepo(filePath) {
-	const root = repoRoot();
-	const rel = path.relative(root, path.resolve(root, filePath));
+function claimKey(filePath) {
+	const tree = treeRoot();
+	const rel = path.relative(tree, path.resolve(tree, filePath));
 	if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
 	return rel.split(path.sep).join("/");
 }
@@ -863,7 +892,7 @@ function withGitTimeout(ms, fn) {
 }
 
 /**
- * git's stdout in the repo, or null where it could not answer: gitOrNull's
+ * git's stdout in the session's tree, or null where it could not answer: gitOrNull's
  * nulls, and every call once one has overrun gitBound.
  * @param {string[]} args
  * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding">} [opts]
@@ -871,11 +900,11 @@ function withGitTimeout(ms, fn) {
  */
 function boundedGit(args, opts = {}) {
 	if (gitBound.overran) return null;
-	const cwd = repoRoot();
+	const cwd = opts.cwd ?? treeRoot();
 	if (gitBound.overran) return null;
 	const { out, timedOut } = gitAnswer(args, {
-		cwd,
 		...opts,
+		cwd,
 		timeout: gitBound.ms,
 	});
 	if (timedOut) markOverrun();
@@ -883,8 +912,8 @@ function boundedGit(args, opts = {}) {
 }
 
 /**
- * Run git in the repo, or in `cwd` where a caller names the session's own
- * tree, or null where it could not answer — no git, not a repo, a non-zero
+ * Run git in the session's tree (treeRoot), or in `cwd` where a caller names
+ * another, or null where it could not answer — no git, not a repo, a non-zero
  * exit. Every caller here treats null as "unknown", never as an answer.
  * @param {string[]} args
  * @param {{cwd?: string}} [opts]
@@ -975,7 +1004,7 @@ function subjectDirty(subject) {
 	if (head === null || staged === null) return gitDirty(rel);
 	let worktree;
 	try {
-		worktree = fs.readFileSync(path.join(repoRoot(), rel), "utf8");
+		worktree = fs.readFileSync(path.join(treeRoot(), rel), "utf8");
 	} catch {
 		return gitDirty(rel);
 	}
@@ -1495,8 +1524,9 @@ module.exports = {
 	REFUSING,
 	registryLookup,
 	registryNames,
-	relativeToRepo,
+	claimKey,
 	repoRoot,
+	treeRoot,
 	liveOrResumed,
 	resumedHolderTest,
 	sayOnce,

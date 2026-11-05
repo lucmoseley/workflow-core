@@ -41,15 +41,16 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { trimEndRun, trimRun } = require("./lib/trim-run.js");
 const { caught } = require("./lib/caught.js");
 
-/* Every path here — the source documents and the fragment store — is host
- * content (#1): a plugin install keeps this script beside the core's own
- * files, but `docs/agents/rules` lives in the repository being worked on. */
-const ROOT = hostRoot();
+/* Every path here — the source documents and the fragment store — is in the
+ * session's own tree (#1, #4438): a plugin install keeps this script beside
+ * the core's own files, but `docs/agents/rules` lives in the repository being
+ * worked on. */
+const ROOT = worktreeRoot();
 const STORE = path.join(ROOT, "docs", "agents", "rules");
 /* The host's store, never rule-text's store in force: that falls back to the
  * core's own where the host has none, and a write there from an adopter

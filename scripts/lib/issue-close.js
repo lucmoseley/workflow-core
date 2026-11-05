@@ -493,7 +493,7 @@ function judgeCard(run, close) {
 
 /**
  * The session tree's working roadmap, null where it cannot be read.
- * @param {import("./guard-dispatch.js").TreePorts} tree
+ * @param {import("./guard-host-ports.js").TreePorts} tree
  * @returns {string | null}
  */
 function readRoadmap(tree) {

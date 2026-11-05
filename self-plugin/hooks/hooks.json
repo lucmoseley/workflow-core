@@ -84,6 +84,12 @@
 					},
 					{
 						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-divergence.js",
+						"if": "Bash(git *)",
+						"timeout": 10
+					},
+					{
+						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-failed-call-rules.js",
 						"timeout": 10
 					}

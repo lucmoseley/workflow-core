@@ -28,6 +28,10 @@
  * hand `git merge` is not read: its output does not say whether it made a
  * commit.
  *
+ * THE LANDING RATES, from the same calls, a week: lands that merged a moved
+ * origin/landing first, against #4229's predicted 491 to 587, and lands a
+ * neighbour's push beat (#4446), against #4166's race window.
+ *
  * A reaped worktree's HEAD reflog is gone, so check 3's reflog half sees only
  * the worktrees still registered; the merge-subject half sees every merge.
  *
@@ -301,7 +305,7 @@ function readDirt(root, all, w) {
 }
 
 /**
- * @typedef {{ edits: { rel: string, ms: number }[], editErrors: number, merges: { sha: string, start: number, end: number }[], landFailed: number }} Spans
+ * @typedef {{ edits: { rel: string, ms: number }[], editErrors: number, merges: { sha: string, start: number, end: number }[], land: Omit<import("./lib/worktree-model-reading.js").LandCounts, "merged"> }} Spans
  */
 
 /**
@@ -317,9 +321,9 @@ function fileSpan(root, span, spans) {
 	if (rel !== null && span.isError) spans.editErrors++;
 	else if (rel !== null) spans.edits.push({ rel, ms: span.end - span.start });
 	const landed = reading.landingOutcome(span);
-	if (landed?.kind === "failed") spans.landFailed++;
-	else if (landed)
+	if (landed?.kind === "merged")
 		spans.merges.push({ sha: landed.sha, start: span.start, end: span.end });
+	else if (landed) spans.land[landed.kind]++;
 }
 
 /**
@@ -357,7 +361,12 @@ async function readCosts(root, w) {
 		(f) => fs.existsSync(f) && fs.statSync(f).mtimeMs >= w.since,
 	);
 	/** @type {Spans} */
-	const spans = { edits: [], editErrors: 0, merges: [], landFailed: 0 };
+	const spans = {
+		edits: [],
+		editErrors: 0,
+		merges: [],
+		land: { pushed: 0, moved: 0, failed: 0 },
+	};
 	let unparsed = 0;
 	for (const file of files) {
 		const read = await readRecords(file);
@@ -378,7 +387,7 @@ async function readCosts(root, w) {
 			spans.edits.filter((e) => tracked.has(e.rel)).map((e) => e.ms),
 		),
 		editErrors: spans.editErrors,
-		landFailed: spans.landFailed,
+		land: { ...spans.land, merged: spans.merges.length },
 		...readMergeCosts(root, spans.merges),
 	};
 }

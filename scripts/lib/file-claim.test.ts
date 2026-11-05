@@ -19,6 +19,7 @@
  * fault that denies instead of logging wedges every write.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -30,17 +31,14 @@ import {
 	store,
 	storeAt,
 } from "./arbiter-testkit";
+import { recordToolWrite } from "./arbiter-tool-record.js";
 import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
 import { cutWorktree } from "./git-fixture";
 import { loadedCores, runCore, splitCheckout } from "./guard-core-testkit";
-import {
-	type Adapters,
-	dispatch,
-	hostAdapters,
-	type Output,
-} from "./guard-dispatch.js";
+import { dispatch, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
+import { type Adapters, hostAdapters } from "./guard-host-ports.js";
 import { registrationsOf } from "./hook-wiring";
 import { readHookPersistChars, readRuleCap } from "./rule-emission.js";
 import { readRuleText } from "./rule-text.js";
@@ -49,7 +47,7 @@ import { runInProcess } from "./run-in-process";
 type Answer =
 	| { ok: true; stdout: string }
 	| { ok: false; why: string; stdout: string };
-type ArbiterCheck = (args: string[]) => Answer;
+type ArbiterCheck = (args: string[], cwd: string) => Answer;
 
 const CORE_SRC = path.join(__dirname, "file-claim.js");
 
@@ -65,8 +63,8 @@ const docMap = () => path.join(sb.repo, "docs/doc-map.md");
 const plainDoc = () => path.join(sb.repo, "docs/plain.md");
 
 /** The real arbiter, run through the process harness. */
-const inProcessArbiter: ArbiterCheck = (args) => {
-	const r = runInProcess(ARBITER, args, { cwd: sb.repo });
+const inProcessArbiter: ArbiterCheck = (args, cwd) => {
+	const r = runInProcess(ARBITER, args, { cwd });
 	return r.status === 0
 		? { ok: true, stdout: r.stdout }
 		: { ok: false, why: `exited ${r.status}`, stdout: r.stdout };
@@ -1630,49 +1628,96 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		storeAt(root);
 		store.acquire("docs/plain.md", live(split, "alice"));
 	};
-	const bobWrites = () => {
+	const writeFrom = (tree: string, session: string, rel = "docs/plain.md") => {
 		storeAt(at.main);
-		live(split, "bob");
+		live(split, session);
 		return runCore(
 			"guard-file-claim",
-			writePayload(path.join(at.main, "docs/plain.md"), { session_id: "bob" }),
-			{ root: at.main, worktree: at.worktree },
-		).output;
+			writePayload(path.join(tree, rel), { session_id: session }),
+			{ root: at.main, worktree: tree },
+		);
 	};
 
-	it("warns of the shared tree's file a session holds in the host's claim store (#4274)", () => {
+	it("warns of the file a session holds in the host's claim store, keyed by its path in the tree (#4397)", () => {
 		aliceHoldsIn(at.main);
-		const warned = bobWrites();
+		const warned = writeFrom(at.worktree, "bob").output;
 		expect(warned?.permissionDecision).toBeUndefined();
 		expect(warned?.additionalContext).toContain("also held by session alice");
 	});
 
 	it("allows it where only the worktree's claim store holds the claim (#4274)", () => {
 		aliceHoldsIn(at.worktree);
-		expect(bobWrites()?.permissionDecision).toBeUndefined();
+		expect(
+			writeFrom(at.worktree, "bob").output?.permissionDecision,
+		).toBeUndefined();
+		expect((store.listLocks() as Lock[]).map((l) => l.sessionId)).toEqual([
+			"bob",
+		]);
 	});
 
-	/* Cut where the checkout module cuts one, the host's store spells the
-	 * worktree's scratch `.claude/worktrees/…`, under the guarded `.claude/`
-	 * tier, so only the session-tree test keeps it unclaimed (#4275). */
-	const writeIn = (rel: string) => {
-		const nested = cutWorktree(at.main);
+	it("takes no claim on a main-checkout file written from a worktree", () => {
 		storeAt(at.main);
 		live(split, "bob");
-		return runCore(
+		const r = runCore(
 			"guard-file-claim",
-			writePayload(path.join(nested, rel), { session_id: "bob" }),
-			{ root: at.main, worktree: nested },
+			writePayload(path.join(at.main, "docs/plain.md"), { session_id: "bob" }),
+			{ root: at.main, worktree: at.worktree },
 		);
-	};
-
-	it("takes no claim on the worktree's own .claude/tmp/", () => {
-		expect(writeIn(".claude/tmp/scratch.md").output).toBeNull();
+		expect(r.output?.permissionDecision).toBeUndefined();
 		expect(store.listLocks()).toEqual([]);
 	});
 
-	it("takes the claim on the same worktree's doc", () => {
-		writeIn("docs/plain.md");
-		expect(store.listLocks()).toHaveLength(1);
+	/* Cut where the checkout module cuts them, under the main checkout. */
+	it("warns when two sessions in two worktrees write one doc (#4397)", () => {
+		const first = cutWorktree(at.main, "s1");
+		const second = cutWorktree(at.main, "s2");
+		writeFrom(first, "alice");
+		const warned = writeFrom(second, "bob").output;
+		expect(warned?.additionalContext).toContain("also held by session alice");
+		expect(
+			(store.listLocks() as Lock[]).map((l) => [l.sessionId, l.path]),
+		).toEqual([["alice", "docs/plain.md"]]);
+	});
+
+	it("pins the worktree's copy, not the main checkout's (#4397)", () => {
+		const wt = cutWorktree(at.main);
+		const hashOf = (tree: string, body: string) => {
+			const file = path.join(tree, "docs/plain.md");
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, body);
+			return spawnSync("git", ["hash-object", file], {
+				encoding: "utf8",
+			}).stdout.trim();
+		};
+		hashOf(at.main, "main copy\n");
+		const mine = hashOf(wt, "worktree copy\n");
+		writeFrom(wt, "bob");
+		/* The pin is the after-write record's, which the PostToolUse hook makes
+		 * in the session's directory. */
+		const back = process.cwd();
+		process.chdir(wt);
+		try {
+			recordToolWrite(path.join(wt, "docs/plain.md"), "bob");
+		} finally {
+			process.chdir(back);
+		}
+		const [lock] = store.listLocks() as (Lock & {
+			blob?: string;
+			preBlob?: string;
+		})[];
+		expect([lock?.blob, lock?.preBlob]).toEqual([mine, mine]);
+	});
+
+	it("takes no claim on the worktree's own .claude/tmp/", () => {
+		const nested = cutWorktree(at.main);
+		expect(
+			writeFrom(nested, "bob", ".claude/tmp/scratch.md").output,
+		).toBeNull();
+		expect(store.listLocks()).toEqual([]);
+	});
+
+	it("takes the claim on the same worktree's doc by its path there", () => {
+		writeFrom(cutWorktree(at.main), "bob");
+		expect(heldPaths()).toEqual(["docs/plain.md"]);
 	});
 });

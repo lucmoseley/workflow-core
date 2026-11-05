@@ -157,7 +157,8 @@ function pricedTokens(usage) {
 /** The committed table, in the HOST repo: it is derived from that repo's own
  * dispatch ledger. */
 const SESSION_COST_TABLE = "docs/data/session-cost-table.json";
-const tablePath = () => path.join(hostRoot(), SESSION_COST_TABLE);
+/** @param {string} [root] */
+const tablePath = (root = hostRoot()) => path.join(root, SESSION_COST_TABLE);
 
 /**
  * A listed session with no transcript yet started within this window is a
@@ -388,7 +389,9 @@ function readSessionFiles(mainFile) {
  */
 
 /**
- * The committed table, or null where it is missing or malformed.
+ * The committed table, or null where it is missing or malformed. By default
+ * the host's copy: the main checkout carries the landed table, never a
+ * session's unlanded measurement.
  * `WFC_SESSION_COST_TABLE` points the default elsewhere, so a test fixes the
  * figures a refresh would otherwise move; readCostTableIn's never moves.
  * @param {string} [file]

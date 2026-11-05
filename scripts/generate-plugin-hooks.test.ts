@@ -359,6 +359,37 @@ describe("a render in a fixture repo", () => {
 		);
 	});
 
+	it("writes a linked worktree's own tree and leaves the main checkout clean (#4438)", () => {
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+		stage();
+		git(
+			"-c",
+			"user.email=t@example.com",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-qm",
+			"base",
+		);
+		const linked = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-hooks-wt-"));
+		try {
+			const tree = path.join(linked, "tree");
+			git("worktree", "add", "-q", "--detach", tree);
+			/* The harness names the main checkout as the project even for a
+			 * session in a linked worktree. */
+			const r = runInProcess(SCRIPT, [], {
+				cwd: tree,
+				env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+			});
+			expect(r.status).toBe(0);
+			expect(fs.existsSync(path.join(tree, "hooks/hooks.json"))).toBe(true);
+			expect(git("status", "--porcelain")).toBe("");
+		} finally {
+			fs.rmSync(linked, { recursive: true, force: true });
+		}
+	});
+
 	it("names the entry module under modules only where the repo carries one", () => {
 		const readModules = () =>
 			JSON.parse(fs.readFileSync(path.join(dir, "hooks/hooks.json"), "utf8"))

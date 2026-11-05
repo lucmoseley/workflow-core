@@ -304,6 +304,7 @@ Blocking edges and parent links use GitHub's **native** sub-issue and dependency
 - **The independence test.** Two chunks may run in parallel only where all hold: each has its own oracle, a test or check that passes or fails on that chunk alone; neither changes an interface or schema the other reads; neither needs the other's result; the code they touch has little co-change history. File overlap alone settles nothing either way.
 - **A pair that fails is chained by a native `blocked_by` edge; a pair that passes gets no edge**.
 - **The quiz step presents the breakdown as build units**: each with its slice list, slice count and edges.
+- **Enforced** at filing, on every route through `file-issue.js` (#4450): it refuses a `takes:implement` ticket, printing this rule, while an open one this session filed, or an open `takes:implement` sibling naming a source file the new body names, is left off `--size-line-checked`. Residual: the flag records a claim, never a reading.
 
 Specs already split into tickets stay as they are.
 <!-- rule:size-line:end -->
