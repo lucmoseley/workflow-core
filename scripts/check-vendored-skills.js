@@ -1218,7 +1218,7 @@ function recordFault(file, staged) {
  * Whether `root` is the main checkout itself, cut over to the worktree model.
  * @param {string} root
  */
-function cutOverMainCheckout(root) {
+function isCutOverMainCheckout(root) {
 	const top = mainCheckout(root);
 	if (top === null || fs.realpathSync(top) !== fs.realpathSync(root))
 		return false;
@@ -1235,7 +1235,7 @@ function cutOverMainCheckout(root) {
  * @param {string} root
  */
 function upstreamMode(ctx, root) {
-	if (ctx.has("--write") && cutOverMainCheckout(root))
+	if (ctx.has("--write") && isCutOverMainCheckout(root))
 		ctx.usageError(
 			`--write refused: ${root} is the main checkout, which takes no edits once cut over (#4229). Run it in your own worktree.`,
 		);

@@ -480,7 +480,7 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "SessionStart",
-		id: "scripts/check-ci-status.js --notify",
+		id: "scripts/check-ci-status.js --notify --write",
 		matcher: null,
 		covers: [],
 	},

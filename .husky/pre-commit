@@ -246,7 +246,7 @@ if armed '^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.j
 fi
 
 # A staged skills-lock.json is covered by the staged record of a completed
-# `check-vendored-skills.js --upstream` run, its lock and licence-notice hashes
+# `check-vendored-skills.js --upstream --write` run, its lock and licence-notice hashes
 # matching (#2394, ruled at #2377). The index, not the worktree: the record
 # vouches for the bytes this commit lands. Every path is optional: a deleted
 # lock or manifest owes no record, and a missing record is the finding.

@@ -299,7 +299,7 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify --write || true",
 						"timeout": 40,
 						"async": true
 					},

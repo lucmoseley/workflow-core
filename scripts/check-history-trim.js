@@ -188,8 +188,8 @@ runCheck({
 		const recorded = ctx.has("--write") ? recordReading(roots, t) : "unwritten";
 		/* dirtied(): status-report.js's verdict() (the DEFEAT note above) drops
 		 * a clean checker's whole body, so a landed or failed reading must say
-		 * so here to survive that drop. Silent only on "throttled" — nothing
-		 * was attempted. */
+		 * so here to survive that drop. Silent on "throttled" and "unwritten" —
+		 * nothing was attempted. */
 		if (recorded === "recorded")
 			ctx.dirtied(`${WATCH_FILE()} gained a new reading — needs committing.`);
 		else if (recorded === "failed")

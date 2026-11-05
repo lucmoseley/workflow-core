@@ -100,9 +100,6 @@ function dirty(rel: string, hours: number, content = "edited\n") {
 	fs.utimesSync(file, at, at);
 }
 
-/* Passes --write, as the hook does, unless BARE is among the args. */
-const BARE = "<bare>";
-
 /* GITHUB_ACTIONS off: check.js writes ::warning:: to stdout when it is set. */
 /* A hand run by default, which exits on a fault where the hook run (`notify`)
  * stays at 0. */
@@ -110,23 +107,24 @@ const run = (
 	args: string[] = [],
 	notify = false,
 	env: NodeJS.ProcessEnv = {},
+	write = true,
 ) => {
-	const argv = [...(notify ? ["--notify"] : []), ...args];
-	if (!argv.includes(BARE)) argv.push("--write");
-	const r = runInProcess(
-		SCRIPT,
-		argv.filter((a) => a !== BARE),
-		{
-			env: {
-				...process.env,
-				...env,
-				GITHUB_ACTIONS: "",
-				WFC_ORACLE_CACHE: "0",
-				CLAUDE_PROJECT_DIR: sb.repo,
-			},
-			cwd: sb.repo,
+	/* --write as the hook passes it, unless `write` is false. */
+	const argv = [
+		...(notify ? ["--notify"] : []),
+		...args,
+		...(write ? ["--write"] : []),
+	];
+	const r = runInProcess(SCRIPT, argv, {
+		env: {
+			...process.env,
+			...env,
+			GITHUB_ACTIONS: "",
+			WFC_ORACLE_CACHE: "0",
+			CLAUDE_PROJECT_DIR: sb.repo,
 		},
-	);
+		cwd: sb.repo,
+	});
 	return { ...r, out: r.stdout + r.stderr };
 };
 
@@ -147,11 +145,11 @@ describe("check-orphaned-edits", () => {
 
 	it("files nothing without --write, and says --write files it, taking no marker (#4449)", () => {
 		dirty("a.txt", 25);
-		const r = run([BARE]);
+		const r = run([], false, {}, false);
 		expect(r.out).toContain("triage:  not filed: `--write` files it");
 		expect(readFilings()).toEqual([]);
 		expect(run().out).toContain("triage:  https://github.com/o/r/issues/7");
-		expect(run([BARE]).out).toContain(
+		expect(run([], false, {}, false).out).toContain(
 			"triage:  already filed: https://github.com/o/r/issues/7",
 		);
 	});

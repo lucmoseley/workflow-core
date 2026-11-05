@@ -31,9 +31,9 @@
  * `--write` (`npm run status -- --write`): a check run writes nothing to the
  * tracker (#4449), and says what it would have filed.
  *
- * FILES, NEVER FAILS. Either band reading below half its baseline files (under
- * --write) or
- * refreshes one tracking issue through lib/tracking-issue.js, the top-figure
+ * FILES, NEVER FAILS. Either band reading below half its baseline files or
+ * refreshes one tracking issue (under --write) through lib/tracking-issue.js,
+ * the top-figure
  * share above 1.5 times its baseline another, and the run WARNs. Nothing here
  * is a FAIL: drift is the founder's to judge. scripts/check-cleared-trackers.js
  * reports each issue once its readings recover.

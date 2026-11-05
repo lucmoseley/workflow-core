@@ -169,7 +169,7 @@ function takeFiling(dir, o) {
 		if (code !== "EEXIST")
 			return { taken: null, status: `not filed: ${message}` };
 	}
-	return { taken: null, status: filedStatus(marker) };
+	return { taken: null, status: readFiledStatus(marker) };
 }
 
 /**
@@ -193,7 +193,7 @@ function markerPath(dir, o) {
  * What an existing marker says of its filing.
  * @param {string} marker
  */
-function filedStatus(marker) {
+function readFiledStatus(marker) {
 	let ref = "";
 	try {
 		ref = JSON.parse(fs.readFileSync(marker, "utf8")).ref ?? "";
@@ -211,13 +211,13 @@ function filedStatus(marker) {
  * @param {Orphan[]} orphans
  * @param {string} root
  */
-function unfiled(orphans, root) {
+function readUnfiledOrphans(orphans, root) {
 	const dir = orphans.length > 0 ? filedDir(root) : null;
 	return orphans.map((o) => {
 		const marker = dir === null ? null : markerPath(dir, o);
 		const filed =
 			marker !== null && fs.existsSync(marker)
-				? filedStatus(marker)
+				? readFiledStatus(marker)
 				: "not filed: `--write` files it";
 		return { ...o, filed };
 	});
@@ -699,7 +699,7 @@ runCheck({
 
 		const { filings, orphans } = ctx.has("--write")
 			? fileOrphans(found, { root, now })
-			: { filings: 0, orphans: unfiled(found, root) };
+			: { filings: 0, orphans: readUnfiledOrphans(found, root) };
 
 		const threshold = describeThreshold(hours, cutOver);
 		if (!ctx.notify) reportOrphans(ctx, orphans, threshold);
