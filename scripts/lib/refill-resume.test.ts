@@ -215,7 +215,7 @@ describe("resumeStopped", () => {
 });
 
 describe("moveSession (#3734, #3736)", () => {
-	const job = { ...LAUNCH, jobId: "job7" } as never;
+	const job = { ...LAUNCH, jobId: "job7", prompt: "/implement 7" } as never;
 
 	it("names a transcript it could not copy, resuming nothing", () => {
 		const { steps, callsTo } = fakeIo({
@@ -235,6 +235,55 @@ describe("moveSession (#3734, #3736)", () => {
 		const r = steps.moveSession(job, { seat: TARGET }, PROMPT, IDS);
 		expect(r.failed).toContain("not confirmed");
 		expect(callsTo("stop")).toEqual([[TARGET, "s-job7"]]);
+	});
+
+	it("names a plan session moved onto a key with the overflow prefix, its job's name after it (#4395)", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: (seat) =>
+				seat === SEAT
+					? { name: "Implement 7: a title" }
+					: { state: "working", sessionId: "s-copy" },
+		});
+		steps.moveSession(
+			job,
+			{ seat: TARGET, keyVar: "K2", allowanceUsd: 40 },
+			PROMPT,
+			IDS,
+		);
+		const [[args]] = callsTo("runClaude") as [[string[]]];
+		expect(args.slice(0, 5)).toEqual([
+			"--bg",
+			"--resume",
+			"s-job7",
+			"-n",
+			"Overflow · Implement 7: a title",
+		]);
+	});
+
+	it("names an unnamed job moved onto a key after its prompt, and never prefixes twice (#4395)", () => {
+		const nameOf = (name: string | null) => {
+			const { steps, callsTo } = fakeIo({
+				readJobRecord: (seat) =>
+					seat === SEAT ? { name } : { state: "working", sessionId: "s-copy" },
+			});
+			steps.moveSession(
+				job,
+				{ seat: TARGET, keyVar: "K2", allowanceUsd: 40 },
+				PROMPT,
+				IDS,
+			);
+			const [[args]] = callsTo("runClaude") as [[string[]]];
+			return args[args.indexOf("-n") + 1];
+		};
+		expect(nameOf(null)).toBe("Overflow · /implement 7");
+		expect(nameOf("Overflow · Implement 7")).toBe("Overflow · Implement 7");
+	});
+
+	it("leaves a session moved onto a plan seat its own name", () => {
+		const { steps, callsTo } = fakeIo();
+		steps.moveSession(job, { seat: TARGET }, PROMPT, IDS);
+		const [[args]] = callsTo("runClaude") as [[string[]]];
+		expect(args).not.toContain("-n");
 	});
 
 	it("stops the copy and hands it nothing where its ledger row will not write (#3730)", () => {

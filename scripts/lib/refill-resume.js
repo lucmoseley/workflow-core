@@ -15,7 +15,11 @@ const { transcriptPath } = require("./project-slug.js");
 const { MODEL } = require("./refill-decide.js");
 const { seatIdOf } = require("./refill-seats.js");
 const { buildErrorText } = require("./caught.js");
+
 const { movedOnto } = require("./refill-blocks.js");
+
+/* dispatch-sessions.sh's and name-issue-session.sh's. */
+const OVERFLOW_PREFIX = "Overflow · ";
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -353,6 +357,24 @@ function resumeSteps(io) {
 	}
 
 	/**
+	 * The name `l`'s session takes moved onto a key: its job's name, else its
+	 * prompt, after the prefix dispatch-sessions.sh names an overflow launch
+	 * with, so its row says it spends credits. A copy inherits its session's
+	 * name, which on a plan seat carries no prefix (#4395).
+	 * @param {JobLaunch} l
+	 */
+	function overflowNameOf(l) {
+		const job = /** @type {{name?: unknown}|null} */ (
+			io.readJobRecord(l.seat, l.jobId)
+		);
+		const name =
+			typeof job?.name === "string" && job.name ? job.name : l.prompt;
+		return name.startsWith(OVERFLOW_PREFIX)
+			? name
+			: `${OVERFLOW_PREFIX}${name}`;
+	}
+
+	/**
 	 * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from
 	 * its cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On
 	 * 2.1.310 it wakes a stopped job in place, else starts a copy under a new
@@ -365,19 +387,22 @@ function resumeSteps(io) {
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
-	 * @param {MoveTarget} [move] the target of a move onto `l`'s seat, which
-	 *   `l` already names
+	 * @param {{move?: MoveTarget, name?: string}} [moved] `move`, the target
+	 *   of a move onto `l`'s seat, which `l` already names; `name`, the name
+	 *   the resumed job takes, which left out keeps the session's, a copy
+	 *   inheriting it (#4395)
 	 * @returns {Resumed}
 	 */
-	function resumeStopped(l, prompt, { sessionId, cwd }, move) {
+	function resumeStopped(l, prompt, { sessionId, cwd }, { move, name } = {}) {
 		const launch = buildSeatLaunch(l);
 		if ("why" in launch) return { failed: launch.why };
 		const { env, settings } = launch;
 		const refusal = io.authRefusal({ env, cwd, settings });
 		if (refusal) return { failed: refusal };
 		const keyArgs = settings === undefined ? [] : ["--settings", settings];
+		const nameArgs = name === undefined ? [] : ["-n", name];
 		const r = io.runClaude(
-			["--bg", "--resume", sessionId, ...keyArgs, prompt],
+			["--bg", "--resume", sessionId, ...nameArgs, ...keyArgs, prompt],
 			{
 				cwd,
 				env,
@@ -486,7 +511,11 @@ function resumeSteps(io) {
 			io.copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
 			removeJobRecord(seat, sessionId, cwd);
 		if (prepared) return { failed: prepared };
-		const r = resumeStopped(movedOnto(l, target), prompt, ids, target);
+		const name = target.keyVar ? overflowNameOf(l) : undefined;
+		const r = resumeStopped(movedOnto(l, target), prompt, ids, {
+			move: target,
+			name,
+		});
 		if (r.failed === null) return r;
 		const stop = io.stop(seat, shortJobId(sessionId));
 		if (!stop.ok && !stop.noJob)
