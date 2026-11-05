@@ -1938,37 +1938,51 @@ function readTakeoverJob(dir, sessionId, transcript, row) {
 
 /**
  * A recordless session's directory: its agents row's, else the checkout its
- * transcript was written from, else the main checkout, marked a guess.
+ * transcript last ran in, else the main checkout, marked a guess (#4464). The
+ * guess still gives the commit and artefact readers a directory to read.
+ * Residual: a session whose worktree was reaped always gets the guess.
  * @param {string} transcript
  * @param {AgentRecord | undefined} row
  * @returns {{cwd: string, cwdGuessed?: true}}
  */
 function readUnrecordedCwd(transcript, row) {
-	const cwd = row?.cwd ?? readTranscriptCwd(transcript);
+	const { deref } = require("./lib/deref.js");
+	const { hostRoot } = require("./lib/host-root.js");
+	const { mainCheckout } = require("./lib/main-checkout.js");
+	const cwd = row?.cwd || readTranscriptCwd(transcript);
 	if (cwd) return { cwd };
-	return { cwd: require("./lib/arbiter-core").repoRoot(), cwdGuessed: true };
+	const root = hostRoot();
+	return { cwd: deref(mainCheckout(root) ?? root), cwdGuessed: true };
 }
 
 /**
- * The checkout a transcript was written from: the one git lists — the main
- * checkout or a linked worktree — whose project slug names the transcript's
- * directory. Null where none does, as for a reaped worktree.
+ * The checkout a transcript last ran in: the git top level of the newest
+ * `cwd` its records carry, where that directory still exists — a session
+ * launched in the main checkout may have moved into a worktree — else the
+ * linked worktree whose project slug names the transcript's directory. Null
+ * where neither answers.
  * @param {string} transcript
  * @returns {string | null}
  */
 function readTranscriptCwd(transcript) {
-	const core = require("./lib/arbiter-core");
-	const { gitRead } = require("./lib/dirty-tree.js");
+	const { gitTopLevel } = require("./lib/host-root.js");
 	const { projectSlug } = require("./lib/project-slug.js");
-	const { worktreePaths } = require("./lib/worktree-paths.js");
-	const listed = gitRead(
-		["worktree", "list", "--porcelain", "-z"],
-		core.repoRoot(),
-	);
-	if (listed === null) return null;
+	const { readLinkedWorktrees } = require("./lib/session-worktrees.js");
+	const last = readTranscriptRecords(transcript).findLast(
+		(r) => typeof r?.cwd === "string" && r.cwd && fs.existsSync(r.cwd),
+	)?.cwd;
+	if (last)
+		try {
+			return gitTopLevel(last);
+		} catch {
+			/* Not a checkout any more: the slug below may still name one. */
+		}
 	const slug = path.basename(path.dirname(transcript));
+	const core = require("./lib/arbiter-core");
 	return (
-		worktreePaths(() => listed).find((dir) => projectSlug(dir) === slug) ?? null
+		readLinkedWorktrees(core.repoRoot())?.find(
+			(dir) => projectSlug(dir) === slug,
+		) ?? null
 	);
 }
 
@@ -2244,18 +2258,20 @@ function buildResumptionText(job, t) {
 			: "Its file claims, listed and not moved — your next write takes each:",
 		...readFileClaimLines(t.sessionId),
 		"",
-		`Read the narration yourself, then continue its intent ${job.cwdGuessed ? "in the worktree git worktree list shows it worked in" : buildWhereLine(job.cwd)}.`,
+		`Read the narration yourself, then continue its intent ${buildWhereLine(job)}.`,
 	].join("\n");
 }
 
 /**
  * Where RESUMPTION.md sends the successor: into the dead session's own
  * worktree, by `cd` or a relaunch there — `--into` takes only a session
- * worktree, so the main checkout gets the `cd` alone.
- * @param {string} cwd the job's recorded directory, or ""
+ * worktree, so the main checkout gets the `cd` alone, and a guessed one
+ * neither.
+ * @param {Pick<Job, "cwd" | "cwdGuessed">} job
  */
-function buildWhereLine(cwd) {
+function buildWhereLine({ cwd, cwdGuessed }) {
 	if (!cwd) return "in this session";
+	if (cwdGuessed) return "in the worktree git worktree list shows it worked in";
 	const { isSessionWorktreeDir } = require("./lib/session-checkout.js");
 	const { scriptPath } = require("./lib/script-path.js");
 	const { shellQuote } = require("./lib/sh-quote.js");

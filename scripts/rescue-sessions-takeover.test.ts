@@ -253,6 +253,25 @@ describe("takeover: the success path", () => {
 			expect(r.stdout).toContain(`cd ${fs.realpathSync(wt)}, or relaunch`);
 		});
 
+		it("names the worktree its transcript's records last ran in, under the main checkout's slug", async () => {
+			recordless();
+			gitRepo(sb);
+			commitAll(sb);
+			const wt = path.join(sb.repo, ".claude", "worktrees", "implement-621");
+			execFileSync("git", ["worktree", "add", "-q", "--detach", wt], {
+				cwd: sb.repo,
+			});
+			fs.mkdirSync(path.join(wt, "sub"));
+			writeTranscript([
+				JSON.stringify({ type: "user", cwd: sb.repo }),
+				JSON.stringify({ type: "user", cwd: path.join(wt, "sub") }),
+				said("Delegated the suite.\n\nwaiting: the suite run"),
+			]);
+			const r = await takeover();
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(`Worktree: ${fs.realpathSync(wt)}\n`);
+		});
+
 		it("marks the main checkout a guess where no listed checkout's slug matches", async () => {
 			recordless();
 			const r = await takeover();
