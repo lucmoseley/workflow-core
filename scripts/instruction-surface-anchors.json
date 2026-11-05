@@ -229,13 +229,13 @@
 			"source": "#2791, #3443, #3519"
 		},
 		"scripts/lib/agent-poll.js": {
-			"digest": "3e8d2d0fcc357721",
+			"digest": "322c623b5b71068e",
 			"verdict": "too late — deny lands on the 3rd call for agents and read:<file> (and for a subagent's read), on the 2nd for noop; check and check:job never deny, warning from the 4th call inside 5 minutes. The harmful look has already run 2 times (1 for noop) before any text reaches the session. Run as a core of scripts/guard-dispatch.js, on Bash, Read and ListAgents since #3224 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion); at #2896 an import move only (segment from review-suffix.js), measured by agent-poll.test.ts exact-text cases. Re-fed at 6f96cb55e under #3583 through `--only guard-agent-poll`: byte-identical to ecefc2819, aimed at 61bcf56a0's no-op regex with `true ; # done` and `exit 0 ;` (a no-op) and `true ;; ` (not one). At #4129 the check:job warn's ceiling sentence comes from docs/agents/rules/job-wait-ceiling.txt, in that fragment's capitals.",
 			"selfSufficient": "yes, but late — each parent deny carries the #845 mechanism and the corrected step, the agents and read denies opening with it as a command, the noop deny with \"Ending a turn is not a tool call\"; subagent variant correctly says wait inside the turn instead of ending it, on all five limbs, and carries no #845 clause. The parent's check:job warn ends \"the backgrounded watch is what wakes this session\" though its own advice names no backgrounded watch, only `sleep 120` spacing.",
 			"source": "#2791, #3583, #4129"
 		},
 		"scripts/lib/echo-call.js": {
-			"digest": "1421b0ce29455de8",
+			"digest": "2150ef1090567b3e",
 			"verdict": "at need for the runaway (3rd identical call, before it runs); the two wasted repeats are its design, not a lag. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — says end the turn (to a subagent: wait inside it, Bash and Read alike), or vary the command, and how the chain clears",
 			"source": "#2791"
@@ -343,7 +343,7 @@
 			"source": "#2789"
 		},
 		"scripts/lib/dispatch-rewrite.js": {
-			"digest": "563b6ee767ed62e2",
+			"digest": "0e3d06faf2799b3e",
 			"verdict": "at need — it rewrites the dispatch itself rather than warning, so the fix is already applied when the session reads the note; the watch or end-the-turn note, and a wrong-tier or untracked-search rule, arrive as the agent launches; a subagent's own dispatch is denied before it runs. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion). Re-fed at 6f96cb55e under #3583 through `guard-dispatch.js --only guard-dispatch-rewrite`, at a 48-char root: no artefact 1072 B, with burn on 1137 B at a shorter description; the prompt's own artefact 411 B, with burn on 674 B; exempt or remote 186 B; the tier note and fragment 925 B, repeat 572 B; the search note and fragment 853 B, repeat 478 B; subagent deny 353 B. Against f774038a5: a first search fire 1011 to 853 B, and with a tier departure 1525 to 1367 B, 7f35ffce7 (#3024) cutting the corpus sentence from dispatch-search-tracker.txt; an artefact path with a mid-word `~` 413 to 411 B, b82cc8080 (#3483)'s shared shellQuote leaving it unquoted. Payloads aimed at 61bcf56a0's marker, token, slug and trailing-space reads are byte-identical.",
 			"selfSufficient": "yes — the watch command, the stop-on-completion step and the abandon condition are all in the note, on the prompt's own artefact as on a supplied one, except a prompt's `~/` artefact, whose quoted tilde the watcher reads literally, printing MISSING with the file present (fed at 6f96cb55e under #3583); a dispatch with none is told to end the turn; the burn note names its off switch; a tripped tier or search rule prints its whole fragment once a session, and the subagent deny prints the whole rule. The supplied Artefact line reaches the subagent with two instructions, to append findings as they land and to search a long source on disk rather than read it whole; a prompt already naming a usable artefact gets neither",
 			"source": "#2791, #3583"
