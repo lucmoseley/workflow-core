@@ -102,10 +102,10 @@ describe("a plan seat", () => {
 
 describe("an overflow seat's helper under its plan dir (#3699)", () => {
 	const plan = () => path.join(home, ".claude2");
-	const declarePlanOverflow = () =>
+	const declarePlanOverflow = (cycleDay = 20) =>
 		fs.writeFileSync(
 			path.join(home, ".claude", "refill-seats"),
-			`${plan()}\n${plan()} api key=K grant=200 cycle-day=20\n`,
+			`${plan()}\n${plan()} api key=K grant=200 cycle-day=${cycleDay}\n`,
 		);
 	const withHelper = (extra: Record<string, string>, keyVar = "K") =>
 		launchAuthRefusal({
@@ -168,11 +168,8 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 		).toContain("no declared overflow seat's");
 	});
 
-	it("refuses the helper once the seat file refuses", () => {
-		fs.writeFileSync(
-			path.join(home, ".claude", "refill-seats"),
-			`${plan()}\n${plan()} api key=K grant=200 cycle-day=99\n`,
-		);
+	it("refuses the helper as no declared seat where the seat file will not parse", () => {
+		declarePlanOverflow(99);
 		expect(
 			withHelper({ WFC_FAKE_AUTH_NO_LOGIN: "1", CLAUDE_CONFIG_DIR: plan() }),
 		).toContain("no declared overflow seat's");

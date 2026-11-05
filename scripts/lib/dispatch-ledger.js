@@ -150,6 +150,10 @@ function entryHolds(rec, command) {
  */
 
 /**
+ * @typedef {Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf"|"offKeyUsd">} OverflowFields
+ */
+
+/**
  * A launch the refill loop handed off (#2744): `released` is its job id. It
  * ends that launch's hold. It carries no `jobId` or `issues`, so a reader of
  * raw lines never takes it for a launch.
@@ -324,19 +328,13 @@ const readEveryOverflowLookup = () => readOverflowLookup(readEveryLedgerRoot());
  * What a later row on the same job must repeat, as the lookup answers from
  * the latest row alone.
  * @param {OverflowLaunch} l
+ * @returns {Omit<OverflowFields, "sessionId">}
  */
-const overflowFieldsOf = ({
+const overflowFieldsOf = ({ keyVar, allowanceUsd, copyOf, offKeyUsd }) => ({
 	keyVar,
 	allowanceUsd,
-	sessionId,
 	copyOf,
 	offKeyUsd,
-}) => ({
-	keyVar,
-	allowanceUsd,
-	sessionId,
-	...(copyOf === undefined ? {} : { copyOf }),
-	...(offKeyUsd === undefined ? {} : { offKeyUsd }),
 });
 
 /**
@@ -417,7 +415,7 @@ function release(entry) {
 /**
  * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
  * launch reads the same clock; now where absent.
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf"|"offKeyUsd">}} entry
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: OverflowFields}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {
