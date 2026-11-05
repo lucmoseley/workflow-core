@@ -1,13 +1,14 @@
 /*
  * resume-io.js — the production adapter of lib/refill-resume.js's ResumeIo
- * port, which lib/refill-tick.js wires. Held to lib/resume-io-fake.ts by
- * resume-io.contract.test.ts (§G7).
+ * port, which lib/refill-tick.js wires (#4386). Its own module so its
+ * contract test, resume-io.contract.test.ts, builds it without loading the
+ * tick, and holds lib/resume-io-fake.ts to it (§G7).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { claudeBin } = require("./claude-bin.js");
-const { CHILD_TIMEOUT_MS, spawnChild } = require("./child-spawn.js");
+const { runTickChild: runChild } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
 const { readOverflowLookup, record } = require("./dispatch-ledger.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
@@ -21,14 +22,6 @@ const { copyTranscript } = require("./seat-move.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 
 const SCRIPTS = path.dirname(__dirname);
-
-/**
- * @param {string} file
- * @param {string[]} args
- * @param {{cwd: string, env: NodeJS.ProcessEnv}} opts
- */
-const runChild = (file, args, opts) =>
-	spawnChild(file, args, { timeout: CHILD_TIMEOUT_MS, ...opts });
 
 /**
  * The ResumeIo that logs through `log`.

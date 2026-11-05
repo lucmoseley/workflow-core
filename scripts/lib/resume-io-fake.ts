@@ -1,8 +1,9 @@
 /*
- * The one fake of lib/refill-resume.js's ResumeIo port, for its module cases.
- * Each port serves the answer a test picks by name from ANSWERS, every port
- * defaulting to its first, and records what it was handed. Held to
- * lib/resume-io.js by resume-io.contract.test.ts (§G7).
+ * The one fake of lib/refill-resume.js's ResumeIo port, for its module cases
+ * (#4386). Each port serves the answer a test picks by name from ANSWERS, or
+ * throws the fault it picks from FAULTS, every port defaulting to its first
+ * answer, and records what it was handed. Held to lib/resume-io.js by
+ * resume-io.contract.test.ts (§G7).
  */
 
 import {
@@ -17,9 +18,10 @@ type OverflowLaunch = NonNullable<
 	ReturnType<ReturnType<ResumeIo["overflowLookup"]>>
 >;
 
-/** The stopped session every answer is about, and its short job id. */
-export const SESSION = "s-job7";
-export const JOB = "job7";
+/** The stopped session every answer is about, and its short job id, which
+ * `claude stop` and the job store key on. */
+export const SESSION = "5e55101d-job7";
+export const JOB = SESSION.slice(0, 8);
 /** The session id a copy's job record names. */
 export const COPY_SESSION = "s-copy";
 export const KEY_VAR = "K2";
@@ -85,7 +87,17 @@ export const ANSWERS = {
 			"copying its transcript /a to /b: EISDIR: illegal operation on a directory",
 	},
 	hasJobRecord: { none: false, present: true },
-	stop: { stopped: { ok: true, said: "stopped" } },
+	stop: {
+		stopped: { ok: true, said: "stopped" },
+		/* A job that never started, or has gone. */
+		noJob: {
+			ok: false,
+			why: `exit 1: No job matching ${JOB}`,
+			said: `No job matching ${JOB}`,
+			timedOut: false,
+			noJob: true,
+		},
+	},
 	overflowLookup: {
 		none: () => null,
 		/* The key's first launch of SESSION, and nothing else. */
@@ -105,7 +117,19 @@ export const ANSWERS = {
 	[P in keyof ResumeIo]?: Record<string, ReturnType<ResumeIo[P]>>;
 };
 
-export type Picks = { [P in keyof typeof ANSWERS]?: keyof (typeof ANSWERS)[P] };
+/** What a port throws, by the fault a test picks. */
+export const FAULTS = {
+	/* A dispatch ledger that will not read. */
+	overflowLookup: { unreadable: "dispatched.jsonl would not read: EISDIR" },
+};
+
+type Answers = typeof ANSWERS;
+type Faults = typeof FAULTS;
+export type Picks = {
+	[P in keyof Answers]?:
+		| keyof Answers[P]
+		| (P extends keyof Faults ? keyof Faults[P] : never);
+};
 
 /**
  * A ResumeIo serving the picked answers over `env`, what each port was
@@ -122,6 +146,10 @@ export function fakeResumeIo(
 			calls.push({ port: name, args });
 			const named: Record<string, unknown> = ANSWERS[name];
 			const pick = String(picks[name] ?? Object.keys(named)[0]);
+			const fault = (FAULTS as Record<string, Record<string, string>>)[name]?.[
+				pick
+			];
+			if (fault) throw new Error(fault);
 			return named[pick];
 		}) as ResumeIo[P];
 	const io: ResumeIo = {

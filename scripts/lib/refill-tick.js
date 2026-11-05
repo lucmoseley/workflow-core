@@ -35,7 +35,7 @@ const seatReading = require("./seat-reading.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
-const { CHILD_TIMEOUT_MS, spawnChild } = require("./child-spawn.js");
+const { runTickChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
@@ -151,13 +151,7 @@ const log = (line) => say(`${new Date().toISOString()} ${line}`);
 
 const readControl = () => readControlChecked(log);
 
-/**
- * @param {string} file
- * @param {string[]} args
- * @param {import("node:child_process").SpawnSyncOptions} [opts]
- */
-const runChild = (file, args, opts = {}) =>
-	spawnChild(file, args, { timeout: CHILD_TIMEOUT_MS, ...opts });
+const runChild = runTickChild;
 
 /**
  * The roots a scope serves now.

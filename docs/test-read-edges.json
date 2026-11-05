@@ -36890,6 +36890,7 @@
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/refill-loop.test.ts",
 			"scripts/lib/registry-atomicity.worktree.test.ts",
+			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/review-tier.test.ts",
 			"scripts/lib/root-scratch.test.ts",

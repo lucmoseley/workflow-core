@@ -37,4 +37,18 @@ function spawnChild(file, args, opts) {
 	return { ...child, ...childVerdict(child) };
 }
 
-module.exports = { CHILD_TIMEOUT_MS, CHROME_TIMEOUT_MS_A_PAGE, spawnChild };
+/**
+ * spawnChild under a refill-loop tick's bound.
+ * @param {string} file
+ * @param {string[]} args
+ * @param {import("node:child_process").SpawnSyncOptions} [opts]
+ */
+const runTickChild = (file, args, opts = {}) =>
+	spawnChild(file, args, { timeout: CHILD_TIMEOUT_MS, ...opts });
+
+module.exports = {
+	CHILD_TIMEOUT_MS,
+	CHROME_TIMEOUT_MS_A_PAGE,
+	runTickChild,
+	spawnChild,
+};

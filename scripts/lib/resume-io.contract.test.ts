@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
- * The contract lib/resume-io-fake.ts keeps with lib/resume-io.js (§G7): each
- * answer the fake serves, its failures included, is the shape and verdict the
- * real adapter gives in the situation the answer names. Only the situation's
+ * The contract lib/resume-io-fake.ts keeps with lib/resume-io.js (#4386,
+ * §G7): each answer the fake serves, its failures included, and each fault it
+ * throws, is the shape and verdict the real adapter gives in the situation the
+ * answer names. Only the situation's
  * own values — paths, ids, the text a message carries — differ. The real side
  * runs over real fs, git and the real session-arbiter.js in a temp HOME, with
  * `claude` stubbed at WFC_CLAUDE_BIN by the port fakes its own contracts hold
@@ -36,6 +37,8 @@ import {
 	ALLOWANCE_USD,
 	ANSWERS,
 	COPY_SESSION,
+	FAULTS,
+	fakeResumeIo,
 	JOB,
 	KEY_VAR,
 	SESSION,
@@ -124,7 +127,7 @@ function holdPassMarker(state: string) {
 	);
 	writeClaudeStub(bin, [
 		buildAgentsBranch([
-			buildJobRow(JOB, state),
+			buildJobRow(JOB, state, { sessionId: SESSION }),
 			buildJobRow("copy", "working"),
 		]),
 	]);
@@ -156,9 +159,25 @@ const childShape = (v: unknown) => {
 	};
 };
 
-/** The errno a failure message names. */
+/** A failure message's type and the errno it names. */
 const errnoOf = (v: unknown) =>
-	v === null ? null : /: (E[A-Z]+)\b/.exec(v as string)?.[1];
+	v === null
+		? null
+		: { type: typeof v, errno: /: (E[A-Z]+)\b/.exec(String(v))?.[1] };
+
+/** What `act` threw, as its type and errno, or that it threw nothing. */
+function thrownBy(act: () => unknown) {
+	try {
+		act();
+		return "threw nothing";
+	} catch (e) {
+		return { error: e instanceof Error, ...errnoOf((e as Error).message) };
+	}
+}
+
+/* The arbiter runArbiter crosses for real, named so a change to it selects
+ * this file (§X10). */
+const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
 /** An answer less its situation's values, keyed by port. */
 const SHAPES: Record<string, (v: unknown) => unknown> = {
@@ -181,8 +200,19 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 	copyTranscript: errnoOf,
 	hasJobRecord: (v) => v,
 	stop: (v) => {
-		const r = v as { ok: boolean; said: unknown };
-		return { keys: Object.keys(r).sort(), ok: r.ok, said: typeof r.said };
+		const r = v as ReturnType<ResumeIo["stop"]>;
+		return {
+			keys: Object.keys(r).sort(),
+			ok: r.ok,
+			said: typeof r.said,
+			...(r.ok
+				? {}
+				: {
+						why: typeof r.why,
+						noJob: r.noJob,
+						timedOut: r.timedOut,
+					}),
+		};
 	},
 	overflowLookup: (v) => {
 		const lookup = v as ReturnType<ResumeIo["overflowLookup"]>;
@@ -293,6 +323,10 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			writeClaudeStub(bin, [buildStopBranch(path.join(dir, "calls"))]);
 			return io().stop(seat, JOB);
 		},
+		noJob: () => {
+			writeClaudeStub(bin, [buildStopBranch(path.join(dir, "calls"), "noJob")]);
+			return io().stop(seat, JOB);
+		},
 	},
 	overflowLookup: {
 		none: () => io().overflowLookup(root),
@@ -316,6 +350,7 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	},
 	runArbiter: {
 		released: () => {
+			expect(fs.existsSync(ARBITER)).toBe(true);
 			const real = io();
 			expect(
 				real.runArbiter(root, "claim-issue", 7, SESSION).failed,
@@ -348,6 +383,20 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	},
 };
 
+/* What the real adapter throws in each situation a fault names. */
+const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
+	overflowLookup: {
+		unreadable: () => {
+			fs.mkdirSync(ledgerPath(root), { recursive: true });
+			return io().overflowLookup(root);
+		},
+	},
+};
+
+const FAULT_CASES = Object.entries(FAULT_SITUATIONS).flatMap(([port, faults]) =>
+	Object.keys(faults).map((fault) => [port, fault] as const),
+);
+
 const CASES = Object.entries(SITUATIONS).flatMap(([port, answers]) =>
 	Object.keys(answers).map((answer) => [port, answer] as const),
 );
@@ -359,6 +408,7 @@ describe("the fake answers as the adapter does", () => {
 				Object.entries(t).map(([p, a]) => [p, Object.keys(a)]),
 			);
 		expect(names(SITUATIONS)).toEqual(names(ANSWERS));
+		expect(names(FAULT_SITUATIONS)).toEqual(names(FAULTS));
 	});
 
 	it.each(CASES)(
@@ -372,6 +422,19 @@ describe("the fake answers as the adapter does", () => {
 				port
 			]?.[answer];
 			expect(shape(real)).toEqual(shape(faked));
+		},
+	);
+
+	it.each(FAULT_CASES)(
+		"the %s port's %s fault is thrown as the adapter throws it",
+		(port, fault) => {
+			const real = (FAULT_SITUATIONS[port] as Record<string, () => unknown>)[
+				fault
+			] as () => unknown;
+			const faked = fakeResumeIo({ [port]: fault }).io[
+				port as keyof ResumeIo
+			] as () => unknown;
+			expect(thrownBy(real)).toEqual(thrownBy(faked));
 		},
 	);
 });

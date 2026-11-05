@@ -16,6 +16,7 @@ import { resumeSteps } from "./refill-resume.js";
 import {
 	ANSWERS,
 	COPY_SESSION,
+	FAULTS,
 	fakeResumeIo,
 	JOB,
 	KEY_VAR,
@@ -30,6 +31,8 @@ const PROMPT = "carry on";
 const LAUNCH = { root: ROOT, issues: [7], seat: SEAT };
 const IDS = { sessionId: SESSION, cwd: ROOT };
 
+/** The resume steps over the fake serving `picks`, its env `env`, else
+ * fakeResumeIo's bare PATH. */
 function fakeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 	const fake = fakeResumeIo(picks, env);
 	return { ...fake, steps: resumeSteps(fake.io) };
@@ -175,10 +178,24 @@ describe("moveSession (#3734, #3736)", () => {
 		const { steps, callsTo } = fakeIo({
 			runClaude: "continued",
 			readJobRecord: "unread",
+			stop: "noJob",
 		});
 		const r = steps.moveSession(job, { seat: TARGET }, PROMPT, IDS);
 		expect(r.failed).toContain("not confirmed");
-		expect(callsTo("stop")).toEqual([[TARGET, SESSION.slice(0, 8)]]);
+		expect(callsTo("stop")).toEqual([[TARGET, JOB]]);
+	});
+
+	it("stops the job and names the fault where the dispatch ledger will not read (#3730)", () => {
+		const { steps, callsTo } = fakeIo({ overflowLookup: "unreadable" });
+		const r = steps.moveSession(
+			job,
+			{ seat: SEAT, keyVar: KEY_VAR, allowanceUsd: 40 },
+			PROMPT,
+			IDS,
+		);
+		expect(r.failed).toContain(FAULTS.overflowLookup.unreadable);
+		expect(callsTo("stop")).toContainEqual([SEAT, FAKE_COPY]);
+		expect(callsTo("runArbiter")).toEqual([]);
 	});
 
 	it("stops the copy and hands it nothing where its ledger row will not write (#3730)", () => {
