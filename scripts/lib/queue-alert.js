@@ -16,6 +16,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { formatHoursMin } = require("./landing-stall.js");
+const { scriptPath } = require("./script-path.js");
 const { buildCrossingLines } = require("./queue-gauge.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
 const {
@@ -73,7 +74,7 @@ ${line}.
 
 - Refs waiting: ${g.waiting.length > 0 ? g.waiting.map((w) => `\`queue/${w.name}\` since ${new Date(w.since).toISOString()}`).join(", ") : "none"}
 
-${kind === "age" ? "The queue lander takes every waiting ref" : "Each ref waits for the queue lander"}; its runs log to \`.queue-log.jsonl\` in the checkout's markers directory, and \`node scripts/landing-status.js\` prints the queue's line.
+${kind === "age" ? "The queue lander takes every waiting ref" : "Each ref waits for the queue lander"}; its runs log to \`.queue-log.jsonl\` in the checkout's markers directory, and \`node ${scriptPath("landing-status.js")}\` prints the queue's line.
 
 ## Acceptance criteria
 
