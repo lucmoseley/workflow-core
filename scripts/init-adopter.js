@@ -53,7 +53,7 @@
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { readPluginRecord } = require("./lib/plugin-record.js");
 const { claudeBin: resolveClaudeBin } = require("./lib/claude-bin.js");
 const {
@@ -1316,7 +1316,7 @@ function readDeclared(root) {
  * @returns {number}
  */
 function adopt({ values, flags, categories, commands }) {
-	const root = path.resolve(values.root ?? hostRoot());
+	const root = path.resolve(values.root ?? worktreeRoot());
 	const pluginRoot = path.resolve(
 		values["plugin-root"] ??
 			process.env.CLAUDE_PLUGIN_ROOT ??

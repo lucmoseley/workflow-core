@@ -84,7 +84,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { claimDataFile, releaseClaim } = require("./lib/doc-map-generator");
 const { ROW_PREFIX, SIDECAR_PATH } = require("./lib/doc-map-regions");
@@ -623,8 +623,10 @@ function claimAndRead(docPath, value, flag) {
 
 	/* The HOST repo's sidecar, through the one seam (#1), never
 	 * `path.join(__dirname, "..")` — in a plugin install that is the plugin root,
-	 * and the register looked for the adopter's sidecar inside the plugin. */
-	const dataFile = value("--data-file") || path.join(hostRoot(), SIDECAR_PATH);
+	 * and the register looked for the adopter's sidecar inside the plugin. The
+	 * session's own tree, never the main checkout behind it (#4438). */
+	const dataFile =
+		value("--data-file") || path.join(worktreeRoot(), SIDECAR_PATH);
 	try {
 		const sidecar = JSON.parse(fs.readFileSync(dataFile, "utf8"));
 		return { dataFile, sidecar, refuse };

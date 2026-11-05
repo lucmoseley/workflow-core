@@ -13,7 +13,9 @@
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
  * The harness sets `CLAUDE_PROJECT_DIR` to the main checkout even for a session
  * in a linked worktree, so the host root never says which tree is the
- * session's; only the hook input's `cwd` does.
+ * session's; only the hook input's `cwd` does. A script that writes tracked
+ * files writes `worktreeRoot()`: through `hostRoot()` a worktree session's
+ * write lands in the main checkout as an orphaned edit (#4438).
  *
  * NEVER `__dirname`. In a plugin install the core's files live in the plugin
  * cache, so a root resolved from this file's own location names the cache and

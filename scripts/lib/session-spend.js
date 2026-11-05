@@ -523,7 +523,6 @@ module.exports = {
 	priceFor,
 	readCostTableIn,
 	SESSION_COST_TABLE,
-	tablePath,
 	fileSpend,
 	flatUsage,
 	hasUsage,

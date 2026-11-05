@@ -29,12 +29,13 @@ const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
 const {
+	SESSION_COST_TABLE,
 	priceFor,
-	tablePath,
 	readSessionSpendEvents,
 } = require("./lib/session-spend");
 const { requiredGroup } = require("./lib/regex-group");
 const { scriptPath } = require("./lib/script-path.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 
 /** 41 points, every 2.5%: a first guess at "small" (#371 item 2), not tuned. */
 const QUANTILE_STEPS = 40;
@@ -158,7 +159,8 @@ function landedCurve(sessions, totalUsd) {
  */
 function writeClaimed(body) {
 	const arbiter = path.join(__dirname, "session-arbiter.js");
-	const table = tablePath();
+	/* The session's own tree, never the main checkout behind it (#4438). */
+	const table = path.join(worktreeRoot(), SESSION_COST_TABLE);
 	const claim = spawnSync("node", [arbiter, "claim", table], {
 		encoding: "utf8",
 	});

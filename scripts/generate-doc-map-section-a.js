@@ -41,7 +41,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { claimDataFile, releaseClaim } = require("./lib/doc-map-generator");
@@ -78,8 +78,9 @@ function main(argv) {
 	const value = (/** @type {string} */ name) => flagValue(flags, name) ?? null;
 	/* The HOST repo, through the one seam (#1): in a plugin install
 	 * `path.join(__dirname, "..")` is the plugin root, and the map and sidecar
-	 * were looked for inside the plugin. */
-	const repoRoot = hostRoot();
+	 * were looked for inside the plugin. The session's own tree, never the main
+	 * checkout behind it (#4438). */
+	const repoRoot = worktreeRoot();
 	const mapPath = value("--map") || path.join(repoRoot, DEFAULT_MAP);
 	const dataFile = value("--data-file") || path.join(repoRoot, SIDECAR_PATH);
 

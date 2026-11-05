@@ -20,6 +20,10 @@
  * lib/plugin-hooks-render.js. A run writes `onFailure` into the self-plugin
  * file itself, which the core loads in place, and `--check` exits 1 naming
  * each registration out of step.
+ *
+ * A RUN WRITES THE SESSION'S OWN TREE, `worktreeRoot()`, never `hostRoot()`:
+ * from a linked worktree the host is the main checkout, and the render landed
+ * there as an orphaned edit (#4438).
  */
 
 const fs = require("node:fs");
@@ -27,7 +31,7 @@ const os = require("node:os");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { extractTree, indexTree } = require("./lib/check.js");
 const { guardDirs, isDenyCapableIn } = require("./lib/deny-capable.js");
@@ -143,7 +147,7 @@ function main() {
 		parseOrExit(process.argv.slice(2), CLI).flags["--check"],
 	);
 	try {
-		return check ? checkIndex() : writeAt(hostRoot());
+		return check ? checkIndex() : writeAt(worktreeRoot());
 	} catch (err) {
 		writeFd(2, `generate-plugin-hooks: ${caught(err).message}\n`);
 		return 2;
