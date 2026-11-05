@@ -21,6 +21,7 @@ import {
 	commit,
 	git,
 	landerSandbox,
+	levelled,
 	markers,
 	remote,
 	runLander,
@@ -50,6 +51,20 @@ it("lands a commit pushed to landing on main in one run, beating while the teste
 		fs.readFileSync(path.join(markers(), ".landing-green-ledger"), "utf8"),
 	).toMatch(new RegExp(`^${sha} `, "m"));
 	expect(fs.existsSync(path.join(markers(), ".lander.pid"))).toBe(false);
+});
+
+it("starts a quiet levelling pass in the checkout once it moves main (#4248)", async () => {
+	commit("work");
+	git(work, "push", "-q", "origin", "HEAD:landing");
+
+	const r = await runLander(stubTester(0));
+
+	expect(r.status, r.stderr).toBe(0);
+	await expect
+		.poll(() =>
+			fs.existsSync(levelled()) ? fs.readFileSync(levelled(), "utf8") : "",
+		)
+		.toBe(`${fs.realpathSync(work)} --quiet\n`);
 });
 
 it("lands the green first of three commits, reverts the red middle one on landing and lands the third with the revert", async () => {

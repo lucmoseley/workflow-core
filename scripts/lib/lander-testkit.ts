@@ -52,6 +52,20 @@ export const commit = (message: string) => commitIn(work, message);
 
 export const markers = () => path.join(work, ".claude", "tmp", "markers");
 
+/** Where the levelling stub records each start, one `<cwd> <args>` line. */
+export const levelled = () => path.join(tmp, "levelled");
+
+/** The script the lander starts after a move in place of level-main.js. */
+const levelStub = () => {
+	const stub = path.join(tmp, "level-stub.js");
+	if (!fs.existsSync(stub))
+		fs.writeFileSync(
+			stub,
+			`require("node:fs").appendFileSync(${JSON.stringify(levelled())}, process.cwd() + " " + process.argv.slice(2).join(" ") + "\\n");\n`,
+		);
+	return stub;
+};
+
 /** Register the hooks that build the seeded template once and copy it per case. */
 export function landerSandbox(): void {
 	let template: string;
@@ -114,6 +128,7 @@ export const runLander = (
 		...process.env,
 		WFC_MODULES: modules,
 		CLAUDE_PROJECT_DIR: work,
+		WFC_LEVEL_MAIN_SCRIPT: levelStub(),
 		...extraEnv,
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;

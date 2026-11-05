@@ -190,7 +190,9 @@ function liveFiler(root) {
 
 /**
  * The levelling pass, header. Fails open (#3765): a failed start is said, and
- * the next move or refill-loop tick starts another.
+ * the next move or refill-loop tick starts another. `WFC_LEVEL_MAIN_SCRIPT`
+ * names another script to start, the suite's seam: a real pass would move the
+ * sandbox's `main` under a lander test.
  * @param {string} root
  */
 function startLevelling(root) {
@@ -200,7 +202,11 @@ function startLevelling(root) {
 	try {
 		const child = spawn(
 			process.execPath,
-			[path.join(__dirname, "level-main.js"), "--quiet"],
+			[
+				process.env.WFC_LEVEL_MAIN_SCRIPT ||
+					path.join(__dirname, "level-main.js"),
+				"--quiet",
+			],
 			{ cwd: root, detached: true, stdio: ["ignore", "ignore", "inherit"] },
 		);
 		child.on("error", notStarted);
