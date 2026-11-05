@@ -9,6 +9,7 @@
  * anything.
  */
 
+const { EXCLUSION_CATEGORIES } = require("./pick-next-verdict.js");
 const { NO_COMMAND_VALUES, takesValue } = require("./takes-label.js");
 
 /** @typedef {import("./pick-next-verdict.js").Issue} Issue */
@@ -124,48 +125,21 @@ function frontierRow(i, ctx) {
 	};
 }
 
-/*
- * The EXCLUDED table's own categories, read off the reason string the
- * exclusion cascade (lib/pick-next-verdict.js) wrote, so the tally cannot
- * drift from the table.
- */
-/** @type {[string, string][]} */
-const EXCLUSION_CATEGORIES = [
-	["readiness unknown", "degraded"],
-	["blocked by", "blocked"],
-	["claimed by", "claimed"],
-	["claimed through parent", "claimed"],
-	["dispatched ", "already dispatched"],
-	["container", "container"],
-	["gated ", "gated"],
-];
-
 /**
  * Why the open issues outside the frontier were never takeable (#591).
  * @param {{enriched: Issue[], frontier: Issue[]}} state
  */
 function openTallyOf(state) {
-	/** @type {Record<string, number[]>} */
-	const by = {};
-	for (const [, name] of EXCLUSION_CATEGORIES) by[name] = [];
-	for (const i of state.enriched) {
-		if (!i.excluded) continue;
-		const hit = EXCLUSION_CATEGORIES.find(([prefix]) =>
-			String(i.excluded).startsWith(prefix),
-		);
-		/* Fail-open: a new cascade limb with no row above is counted, not lost,
-		 * and never crashes the run. */
-		const name = hit ? hit[1] : "other";
-		by[name] = [...(by[name] ?? []), i.number];
-	}
 	return {
 		open: state.enriched.length,
 		frontier: state.frontier.length,
-		categories: Object.entries(by).map(([category, numbers]) => ({
-			category,
-			count: numbers.length,
-			numbers: [...numbers].sort((a, b) => a - b),
-		})),
+		categories: EXCLUSION_CATEGORIES.map((category) => {
+			const numbers = state.enriched
+				.filter((i) => i.exclusionCategory === category)
+				.map((i) => i.number)
+				.sort((a, b) => a - b);
+			return { category, count: numbers.length, numbers };
+		}),
 	};
 }
 

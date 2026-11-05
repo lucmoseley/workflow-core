@@ -2,11 +2,12 @@
 
 Several `/implement` sessions on one of this machine's Claude plans hit that
 plan's session limit mid-flight and were stopped. Their processes are dead, their
-file claims are stranded and yours to retake, and their work sits UNCOMMITTED in
-the shared tree.
+file claims are stranded and yours to retake, and each one's work sits
+UNCOMMITTED in its own worktree.
 
 You are taking one over. Your `<ticket>-brief.md` alongside this file carries
-the ticket-specific facts.
+the ticket-specific facts, the dead session's worktree among them: `cd` into it
+and work there.
 
 ## 1. Read the dead session's own account first
 
@@ -24,23 +25,14 @@ never followed by a green run anyone can see. Where it says a review finding was
 applied, a mutation was reversed or a gate went clean, CHECK IT against the
 working tree.
 
-## 3. The tree is dirty with the other rescued sessions' work
+## 3. Test and commit only your ticket's work
 
-Every session in this rescue died with its work uncommitted, and those edits are
-interleaved in the shared tree until each ticket lands. Your own brief names the
-tickets; `git status --porcelain` names the files.
-
-- **A full-suite red is probably not yours.** Do not chase it and do not "fix"
-  a failing file you do not own. To prove a red is a neighbour's, run the failing
-  files in a detached worktree at clean HEAD (`git worktree add --detach`, symlink
-  the canonical `node_modules` in).
 - **Run only the tests you touched,** never the full suite: the bare
   `npm run test` with the `landing` module on, the lander running the full
   suite; `npm run test:changed` with it off.
-- **Commit by pathspec, your files only** —
+- **Commit by pathspec** —
   `node scripts/commit-paths.js -m "..." -- <paths>` (Bash `timeout: 600000`).
-  Never `git add`. Anything outside your ticket's files belongs to a dead
-  neighbour: not yours to commit, and NOT yours to revert or clean up.
+  Never `git add`.
 
 ## 4. Finish properly
 

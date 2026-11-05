@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * commit-paths.js — commit named paths in one call, new files included: the
- * prescribed `git commit -m "…" -- <paths>` without its two avoidable failures
- * (#583; spec #574, ruled at #481).
+ * prescribed `git commit -m "…" -- <paths>` without its failure on a path git
+ * does not track yet (#583; spec #574, ruled at #481).
  *
  *   node scripts/commit-paths.js -m "<message>" -- <path>...
  *   node scripts/commit-paths.js -F <file|-> -- <path>...
@@ -15,41 +15,35 @@
  * review hold's `tree=` and the `refs/reviewed/` pin both take. It takes no
  * message, runs no tests, and logs no outcome line.
  *
- * --PATCH (#801) commits only your own lines of a file a neighbour has also
- * edited, and never writes the working tree. The patch — your hunks of
- * `git diff HEAD -U0 -- <file>`, theirs deleted — is applied to HEAD's blob in
- * a private index (`GIT_INDEX_FILE`), any whole paths after `--` are added to
- * that same index, and the commit is made from it with no pathspec. The shared
- * index is then reset to the new HEAD for every path committed: skipped, it
- * would still hold the old blob and stage the reverse of this commit for the
- * next bare `git commit` (docs/agents/partial-commit.md). A neighbour's staged
- * copy of a patched file instead moves onto the new HEAD, their hunks still
- * staged, unless they conflict with the commit's (#3723). The patch's lines
- * must already be in this tree's files, or the commit is refused (#4338).
- *
- * HEAD moving between the private index's `read-tree` and the commit would
- * write HEAD's older blobs back over the neighbour's commit. The base is
- * re-read just before the commit and the index rebuilt where it moved, and the
- * ref update refuses a HEAD that has moved from that base since.
+ * --PATCH (#801) commits some of a file's changed lines and not the rest, so
+ * a session's work in one file can be split across commits, and never writes
+ * the working tree. The patch — the hunks of `git diff HEAD -U0 -- <file>` this
+ * commit is to carry, the rest deleted — is applied to HEAD's blob in a private
+ * index (`GIT_INDEX_FILE`), any whole paths after `--` are added to that same
+ * index, and the commit is made from it with no pathspec. The worktree's index
+ * is then reset to the new HEAD for every path committed: skipped, it would
+ * still hold the old blob and stage the reverse of this commit for the next
+ * bare `git commit` (docs/agents/partial-commit.md). The patch's lines must
+ * already be in this tree's files, or the commit is refused (#4338).
  *
  * The --patch commit is made step by step, never by `git commit`, which
- * routes the message through the shared `COMMIT_EDITMSG` (#2638): see
- * commitIndex.
+ * routes the message through `COMMIT_EDITMSG`, one file for every commit the
+ * worktree runs at once (#2638): see commitIndex.
  *
- * ORDER: every refusal, then the neighbour warning, then the pre-lock gates,
- * then the pre-lock test run, then the pre-lock mutation hold, then
- * intent-add, then commit. Under --patch: every refusal, the neighbour
- * warning, the private index built on a steady HEAD, the pre-lock gates, the
- * pre-lock test run, the pre-lock mutation hold, each slow gate's index
- * rebuilt on a steady HEAD before and after it, the commit. Nothing is written to the
- * shared index before the last refusal has passed.
+ * ORDER: every refusal, then the pre-lock gates, then the pre-lock test run,
+ * then the pre-lock mutation hold, then intent-add, then commit. Under
+ * --patch: every refusal, the private index built on HEAD, the pre-lock gates,
+ * the pre-lock test run, the pre-lock mutation hold, each slow gate's index
+ * rebuilt before and after it, the commit. Nothing is written to the
+ * worktree's index before the last refusal has passed.
  *
  * THE PRE-LOCK TEST RUN (#1651, spec #1639). Where test-gate.js says the
  * declared `commands.test` is gated at commit, it runs here, before the commit
- * takes the index lock, so a long suite holds up no neighbour's commit. It runs
- * in a throwaway worktree (lib/isolated-worktree.js) holding HEAD plus every
- * named path as on disk, in its index and on disk alike, and no other file, so
- * a neighbour's unsaved edit cannot turn it red (#1760); stdin closed, through
+ * takes the index lock, so the worktree's other git commands are not held up
+ * for a suite's length. It runs in a throwaway worktree
+ * (lib/isolated-worktree.js) holding HEAD plus every named path as on disk, in
+ * its index and on disk alike, and no other file, so an unsaved edit the commit
+ * does not carry cannot turn it red or green (#1760); stdin closed, through
  * `sh -c`. Its only other files are the gitignored ones that helper links in,
  * `node_modules` among them, and those the host's `worktreeLinks` declares
  * (#1767): a suite needing any other gitignored file goes red here. A green
@@ -58,8 +52,7 @@
  * commit's hooks alone by $WFC_TEST_STAMP; the
  * hook's test gate stands down on it where the key still matches, and runs the
  * suite in the lock otherwise. The key is taken again after the run, and where
- * it moved — a named file edited, or a neighbour's commit changing what this
- * one adds — no stamp is written (#1652). Under --patch the run sees the
+ * it moved — a named file edited while it ran — no stamp is written (#1652). Under --patch the run sees the
  * patch's own private index, rebuilt and re-keyed after it alike (#1653).
  * The worktree goes when the suite ends, and one a kill leaves is swept by the
  * next run. The stamp and the private index go at exit however the run ends — a throw
@@ -79,10 +72,10 @@
  *
  * THE PRE-LOCK GATES (#1763). Before either slow gate, the hook's own gates
  * above them — .husky/pre-commit down to GATES_END — run on the same
- * private index, in the shared tree as the hook runs them, so a lint finding
+ * private index, in this worktree as the hook runs them, so a lint finding
  * that takes a second refuses before a suite that takes twenty minutes. The
- * hook runs every one of them again in the lock: they cost seconds, and some
- * judge against a HEAD that may move meanwhile. A hook carrying no such line
+ * hook runs every one of them again in the lock: they cost seconds, and no
+ * stamp stands them down. A hook carrying no such line
  * runs them in the lock alone, and `.husky/pre-commit.local` is never run
  * here, its contract being that it runs after every core gate.
  *
@@ -104,55 +97,31 @@
  * cli-args-exempt: its own parseArgs refuses every unknown flag, `--help`
  * included, before anything is written.
  *
- * THE INDEX LOCK (#585). A neighbour's commit holds `index.lock` for its whole
- * run, hooks included. Detected by git's own refusal — exit 128, stderr opening
- * `fatal: Unable to create '…index.lock': File exists.` — never by polling the
- * file: git takes the lock before any hook runs, so a refused attempt ran
- * nothing and is safe to repeat. A hook refusal exits 1, so a hook whose own
- * output names the lock is never mistaken for it. The intent-add and the commit
- * each wait, on one shared budget, with jittered backoff.
- *
- * HEAD MOVING (#819) is waited out the same way. `git commit` reads HEAD before
- * it takes the index lock, so a neighbour's commit landing in between moves HEAD
- * and the late one fails at the ref update — exit 128, `fatal: cannot lock ref
- * '<ref>': is at <sha> but expected <sha>`. Git aborts that commit whole, so the
- * retry re-runs it, hooks included. Any other `cannot lock ref`, a stale
- * `HEAD.lock` among them, is a refusal. Under --patch the ref update meets it,
- * and the retry first rebuilds the private index on the new HEAD (#3280).
- *
  * Joins no §N3 family: it is not a check, guard, generator or report, and its
  * exits extend the tracker scripts' alphabet (spec #528) instead. Exits: 0
- * committed, or under --tree printed; 1 the index lock stayed held, or HEAD kept moving under the
- * commit, to the ceiling, or under --patch HEAD kept moving while the index was built — re-run later; 2
+ * committed, or under --tree printed; 2
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
  * with untracked files or no tracked ones, nothing to commit, a patch not cut
- * against HEAD, not applying to it or whose lines this tree lacks — under --patch, after a green pre-lock
- * run or a HEAD-moved retry too, a neighbour's commit having left it so); 3 a pre-lock gate or the
+ * against HEAD, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
  * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
  * just works — the output above being the work either way; 4
- * (--patch only) the commit landed but the shared index was not reset — never
+ * (--patch only) the commit landed but the worktree's index was not reset — never
  * re-run, do what the output says.
  */
 
 const { spawn, spawnSync } = require("node:child_process");
 const { spawnGitSync } = require("./lib/git.js");
-const { worktreePaths } = require("./lib/worktree-paths.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 
 const core = require("./lib/arbiter-core.js");
-const { readProcStartOf } = require("./lib/arbiter-proc.js");
-const { listTree } = require("./lib/git-objects.js");
-const { readAncestorsOf } = require("./lib/proc-stat.js");
-const { procRoot } = require("./lib/proc-root.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { isUnder } = require("./lib/is-under.js");
 const { numstatPaths } = require("./lib/patch-files.js");
 const { notInTree } = require("./lib/patch-in-tree.js");
 const { formatHeader, parseHeader } = require("./lib/hunk-header.js");
-const { requiredGroup } = require("./lib/regex-group.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const {
@@ -176,19 +145,15 @@ const out = (text) => writeFd(1, text);
 /** @param {string} text */
 const err = (text) => writeFd(2, text);
 
-/** Each exit's name in the outcome log. */
-const OUTCOMES = [
-	"committed",
-	"lock-ceiling",
-	"refused",
-	"git-refused",
-	"committed-unsettled",
-];
+/** Each exit's name in the outcome log. @type {Record<number, string>} */
+const OUTCOMES = {
+	0: "committed",
+	2: "refused",
+	3: "git-refused",
+	4: "committed-unsettled",
+};
 
-/** Milliseconds this run has spent waiting on the index lock or a moving HEAD, both steps together. */
-let waitedMs = 0;
-
-/** Milliseconds the pre-lock test run and mutation hold took, never counted as waiting; `finish` logs it. */
+/** Milliseconds the pre-lock test run and mutation hold took; `finish` logs it. */
 let preLockMs = 0;
 /** @param {number} ms */
 function countPreLockMs(ms) {
@@ -245,7 +210,7 @@ const finish = (code) => {
 		fs.mkdirSync(path.dirname(log), { recursive: true });
 		fs.appendFileSync(
 			log,
-			`${new Date().toISOString()}\t${OUTCOMES[code]}\t${(waitedMs / 1000).toFixed(1)}\t${(preLockMs / 1000).toFixed(1)}\n`,
+			`${new Date().toISOString()}\t${OUTCOMES[code]}\t${(preLockMs / 1000).toFixed(1)}\n`,
 		);
 	} catch (e) {
 		const { code: errCode, message } = caught(e);
@@ -262,11 +227,10 @@ const fail = (text, code) => {
 	return finish(code);
 };
 
-/** The --patch commit that has landed, until runPostCommit has run. @type {string|null} */
-let owedPostCommitSha = null;
-/** @param {string} sha */
-const owePostCommit = (sha) => {
-	owedPostCommitSha = sha;
+/** Set once the --patch commit has landed, until runPostCommit has run. */
+let owedPostCommit = false;
+const owePostCommit = () => {
+	owedPostCommit = true;
 };
 
 /** Set once `git add -N` has run: a fault after it can no longer say "nothing written". */
@@ -299,335 +263,17 @@ function git(args, index, input, extra) {
 	return { status: r.status ?? 1, stdout: r.stdout, stderr: r.stderr };
 }
 
-// Spec #574: clears the longest single commit measured here, which is how long
-// a neighbour holds the lock. A queue of several neighbours can exceed it; exit
-// 1 is for that. It also bounds a moving HEAD (#819), a case never measured.
-const CEILING_MS = 180_000;
-// Spec #574's backoff.
-const FIRST_NAP_MS = 1000;
-const MAX_NAP_MS = 5000;
-// So a test can reach the ceiling in under a second. The backoff scales with it.
-const CEILING_ENV = "WFC_COMMIT_LOCK_CEILING_MS";
-// So a test can fix the jitter's draw, in [0, 1), and bound the waits it makes.
-const JITTER_ENV = "WFC_COMMIT_LOCK_JITTER";
-
-// Not `[^']*`: git leaves a `'` or a newline in the path unescaped (#3975, #4038).
-// Lazy, as a hook's output can hold a second refusal.
-const LOCK_REFUSAL =
-	/^fatal: Unable to create '(.*?index\.lock)': File exists\./s;
-// A line of its own: the hooks ran before the ref update, so their output comes first.
-const HEAD_MOVED =
-	/^fatal: cannot lock ref '[^']+': is at [0-9a-f]+ but expected [0-9a-f]+$/m;
-// `git update-ref HEAD <new> <old>` refused on a HEAD no longer at <old>.
-const HEAD_MOVED_UNDER =
-	/cannot lock ref 'HEAD': is at [0-9a-f]+ but expected [0-9a-f]+$/m;
-// `git ls-files -s`: `<mode> <blob> <stage>\t<path>`.
-const STAGED_ENTRY = /^(\d+) ([0-9a-f]+) (\d)\t(.*)$/s;
-
-/**
- * What a refusal was waiting on, or null where it was a real refusal.
- * @param {{status: number, stderr: string}} r
- * @returns {{kind: "index-lock", lock: string}|{kind: "head-moved"}|null}
- */
-function contention(r) {
-	if (r.status !== 128) return null;
-	const lock = LOCK_REFUSAL.exec(r.stderr);
-	if (lock)
-		return { kind: "index-lock", lock: requiredGroup(lock, 1, LOCK_REFUSAL) };
-	return HEAD_MOVED.test(r.stderr) ? { kind: "head-moved" } : null;
-}
-
-/** @typedef {NonNullable<ReturnType<typeof contention>>} Held */
-
 /** @param {number} ms */
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
-/** @param {number} ms */
-const sleep = (ms) =>
-	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms));
-
-/**
- * This worktree's top level, and every other worktree of the repository — each
- * has an index, and so an `index.lock`, of its own.
- * @type {{root: string, others: string[]}|undefined}
- */
-let treesCache;
-function readWorktrees() {
-	if (!treesCache) {
-		// Git's one newline, not `trim()`: a checkout's name can end in whitespace.
-		const root = fs.realpathSync(
-			git(["rev-parse", "--show-toplevel"]).stdout.replace(/\n$/, ""),
-		);
-		const others = [];
-		for (const listed of worktreePaths((args) => git(args).stdout)) {
-			try {
-				const tree = fs.realpathSync(listed);
-				if (tree !== root) others.push(tree);
-			} catch {
-				/* a worktree whose directory is gone holds no file to collide with */
-			}
-		}
-		treesCache = { root, others };
-	}
-	return treesCache;
-}
-
-/**
- * The live git processes working in this worktree — not in a worktree nested
- * inside it — each with the session it runs under where the registry names one
- * of its ancestors. Null where /proc cannot be read. Any of them may be the
- * holder: /proc does not say which, if any, took the lock.
- */
-function gitProcesses() {
-	const pids = readProcPids();
-	if (pids === null) return null;
-	const { root, others } = readWorktrees();
-	const entries = core.readSessionEntries("best-effort");
-	const sessions = registrySessions(entries);
-	const found = [];
-	for (const pid of pids) {
-		const proc = readProc(pid);
-		if (!proc) continue;
-		if (!isWorktreeGit({ pid, ...proc, root, others })) continue;
-		found.push({
-			pid,
-			command: proc.argv.filter(Boolean).join(" "),
-			session: sessionOf(pid, sessions, entries === null),
-		});
-	}
-	return found;
-}
-
-/**
- * Every pid /proc lists, or null where /proc cannot be read.
- * @returns {string[] | null}
- */
-function readProcPids() {
-	try {
-		return fs.readdirSync(procRoot()).filter((d) => /^\d+$/.test(d));
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Each registered session's live pid, to the name it is known by.
- * @param {ReturnType<typeof core.readSessionEntries>} entries
- * @returns {Map<string, string>}
- */
-function registrySessions(entries) {
-	/** @type {Map<string, string>} */
-	const sessions = new Map();
-	for (const { entry } of entries ?? [])
-		if (entry.pid && readProcStartOf(entry.pid) === String(entry.procStart))
-			sessions.set(String(entry.pid), String(entry.name ?? entry.sessionId));
-	return sessions;
-}
-
-/**
- * A process's argv and resolved cwd, or null where either cannot be read.
- * @param {string} pid
- * @returns {{argv: string[], cwd: string} | null}
- */
-function readProc(pid) {
-	try {
-		const dir = `${procRoot()}/${pid}`;
-		const argv = fs.readFileSync(`${dir}/cmdline`, "utf8").split("\0");
-		const cwd = fs.realpathSync(`${dir}/cwd`);
-		return { argv, cwd };
-	} catch {
-		return null;
-	}
-}
-
-/**
- * True for a live git process working in this worktree, not in a worktree
- * nested inside it.
- * @param {{pid: string, argv: string[], cwd: string, root: string, others: string[]}} a
- * @returns {boolean}
- */
-function isWorktreeGit({ pid, argv, cwd, root, others }) {
-	const [argv0] = argv;
-	if (argv0 === undefined)
-		throw new Error(`${procRoot()}/${pid}/cmdline split into no fields`);
-	if (path.basename(argv0) !== "git" || readProcStartOf(pid) === null)
-		return false;
-	if (!isUnder(cwd, [root])) return false;
-	return !others.some((t) => t.length > root.length && isUnder(cwd, [t]));
-}
-
-/**
- * The session a process runs under, by the nearest ancestor the registry
- * names.
- * @param {string} pid
- * @param {Map<string, string>} sessions
- * @param {boolean} unreadable  the registry could not be read
- * @returns {string | null}
- */
-function sessionOf(pid, sessions, unreadable) {
-	const session = unreadable
-		? "a session the registry could not be read to name"
-		: null;
-	for (const p of readAncestorsOf(Number(pid))) {
-		const name = sessions.get(String(p));
-		if (name) return `session "${name}"`;
-	}
-	return session;
-}
-
-/**
- * One clause on who may hold the lock, as far as /proc shows it.
- * @param {ReturnType<typeof gitProcesses>} procs
- */
-function buildHolderText(procs) {
-	if (procs === null) return "this machine has no /proc to find its holder in";
-	if (procs.length === 0)
-		return "no live git process in this worktree could be found to name";
-	return procs
-		.map(
-			(p) =>
-				`git pid ${p.pid} is live in this worktree (\`${p.command.slice(0, 80)}\`), under ${p.session ?? "no session the registry names"}`,
-		)
-		.join("; ");
-}
-
-/**
- * Stop at the ceiling: exit `code`, saying the lock's age and whether any git process
- * is live, and — where none is — the command to remove it, never run here.
- * HEAD moving holds nothing to age or remove.
- * @param {Held} held
- * @param {number} ceiling
- * @param {{ after: string, remedy: string, code: number }} opts
- * @returns {never}
- */
-function giveUp(held, ceiling, { after, remedy, code }) {
-	const gaveUp = `gave up after ${seconds(ceiling)}`;
-	if (held.kind === "head-moved")
-		return fail(
-			`${gaveUp}: HEAD kept moving under the commit, so neighbours are committing faster than it can land. ${after} ${remedy}`,
-			code,
-		);
-	const { lock } = held;
-	let age;
-	try {
-		age = `it is ${Math.round((Date.now() - fs.statSync(lock).mtimeMs) / 1000)}s old`;
-	} catch {
-		age =
-			"it was gone by the time its age was read, so a re-run may simply succeed";
-	}
-	const procs = gitProcesses();
-	const stale =
-		procs !== null && procs.length === 0
-			? `\nNo git process is running in this worktree, so the lock looks left behind by a crashed one. If you are sure, remove it yourself — this command never does:\n  rm -f ${shellQuote(lock)}`
-			: "";
-	return fail(
-		`${gaveUp} waiting for ${lock}; ${age}, ${buildHolderText(procs)}. ${after} ${remedy}${stale}`,
-		code,
+/** This worktree's top level. @type {string|undefined} */
+let rootCache;
+function readRoot() {
+	// Git's one newline, not `trim()`: a checkout's name can end in whitespace.
+	rootCache ??= fs.realpathSync(
+		git(["rev-parse", "--show-toplevel"]).stdout.replace(/\n$/, ""),
 	);
-}
-
-/** Set once the wait-start line has printed: one per run, whichever step waits. */
-let announced = false;
-
-/**
- * Run a git step that takes the index lock, retrying while a neighbour holds it
- * or, for a commit, while a neighbour's commit moves HEAD under it.
- * @param {string[]} args
- * @param {string} after what a give-up leaves behind, for its message
- * @param {{remedy?: string, code?: number, env?: NodeJS.ProcessEnv}} [opts]
- *   `remedy`, what to do about a give-up where re-running is wrong, and `code`,
- *   its exit; `env`, more environment for the git child
- */
-function gitLocked(args, after, { env, ...opts } = {}) {
-	return waitOut(
-		/** @returns {Attempt<ReturnType<typeof git>>} */
-		() => {
-			const r = git(args, undefined, undefined, env);
-			const held = contention(r);
-			return held ? { held } : { held: null, done: r };
-		},
-		after,
-		opts,
-	);
-}
-
-/**
- * An attempt that met a held lock or a moving HEAD, or the value it gave.
- * @template T
- * @typedef {{held: Held}|{held: null, done: T}} Attempt
- */
-
-/**
- * Repeat `attempt` while it meets a held lock or a moving HEAD, on the run's
- * one shared budget, with jittered backoff; gives up at the ceiling.
- * @template T
- * @param {() => Attempt<T>} attempt
- * @param {string} after what a give-up leaves behind, for its message
- * @param {{remedy?: string, code?: number}} [opts] as gitLocked's
- * @returns {T}
- */
-function waitOut(
-	attempt,
-	after,
-	{ remedy = "Re-run the same command later.", code = 1 } = {},
-) {
-	const ceiling = lockCeiling();
-	const scale = ceiling / CEILING_MS;
-	const before = waitedMs;
-	let nap = FIRST_NAP_MS * scale;
-	/** When this step first met the lock. @type {number|null} */
-	let since = null;
-	for (;;) {
-		// Taken before the attempt, so the run of the one that succeeds — a whole
-		// commit, gates included — is not counted as waiting. A HEAD-moved attempt
-		// ran its gates before failing, so its run is counted, and slow gates
-		// reach the ceiling in fewer retries.
-		const at = Date.now();
-		const a = attempt();
-		if (since !== null) waitedMs = before + (a.held ? Date.now() : at) - since;
-		if (a.held === null) return a.done;
-		const { held } = a;
-		if (since === null) since = at;
-		announceWait(held, ceiling);
-		const left = ceiling - waitedMs;
-		if (left <= 0) giveUp(held, ceiling, { after, remedy, code });
-		// Jitter, so two waiters do not retry in step.
-		sleep(Math.min(nap * (0.5 + jitterDraw()), MAX_NAP_MS * scale, left));
-		nap = Math.min(nap * 2, MAX_NAP_MS * scale);
-	}
-}
-
-/**
- * The lock wait's ceiling: the test override where set, else CEILING_MS.
- * @returns {number}
- */
-function lockCeiling() {
-	const envCeiling = Number(process.env[CEILING_ENV]);
-	return envCeiling > 0 ? envCeiling : CEILING_MS;
-}
-
-/**
- * The jitter's draw in [0, 1): the test override where set, else random.
- * @returns {number}
- */
-function jitterDraw() {
-	const raw = process.env[JITTER_ENV];
-	const fixed = raw ? Number(raw) : Number.NaN;
-	return fixed >= 0 && fixed < 1 ? fixed : Math.random();
-}
-
-/**
- * @param {Held} held
- * @param {number} ceiling
- */
-function announceWait(held, ceiling) {
-	if (announced) return;
-	announced = true;
-	const why =
-		held.kind === "head-moved"
-			? "HEAD moved under the commit — a neighbour's commit landed first — so git made none"
-			: `${held.lock} is held; ${buildHolderText(gitProcesses())}`;
-	err(`${NAME}: ${why}. Waiting up to ${seconds(ceiling)} in all, retrying.\n`);
+	return rootCache;
 }
 
 /** @param {string} stdout */
@@ -705,7 +351,7 @@ function requireMessage(message, tree) {
 function refuseNoPaths({ patch, dash, paths }) {
 	if (patch === null && (dash === -1 || paths.length === 0))
 		fail(
-			`no paths after \`--\`. A commit with none would take whatever the shared index holds, a neighbour's staged work included. Nothing written.\n${USAGE}`,
+			`no paths after \`--\`. A commit with none would take whatever the index holds. Nothing written.\n${USAGE}`,
 			2,
 		);
 }
@@ -939,18 +585,6 @@ function stalePreimages(sections, base) {
 const readBlobSha = (rev, file) =>
 	git(["rev-parse", "-q", "--verify", `${rev}:${file}`]).stdout.trim();
 
-/**
- * The commit's own sha, from `git commit`'s `[<branch> <sha>]` line: by the
- * time it returns a neighbour may have committed on top (#1161), so HEAD is
- * not it. Lazy, because a branch name may hold `]` but never a space. HEAD is
- * the fallback, and the race returns with it, but git prints the line on every
- * commit not run with `-q`.
- * @type {(stdout: string) => string}
- */
-const parseCommittedSha = (stdout) =>
-	/^\[[^\n]*? ([0-9a-f]{4,})\]/m.exec(stdout)?.[1] ??
-	git(["rev-parse", "HEAD"]).stdout.trim();
-
 /** @param {string} sha */
 const printCommitted = (sha) =>
 	out(`committed ${git(["log", "-1", "--format=%h %s", sha, "--"]).stdout}`);
@@ -1006,15 +640,15 @@ function renumberHeader(line, shift) {
 
 /**
  * --patch: commit the patch's hunks, plus `whole` as on disk, from a private
- * index, leaving the shared index and the working tree alone until the commit
- * has landed.
+ * index, leaving the worktree's index and the working tree alone until the
+ * commit has landed.
  * @param {string} message
  * @param {string} cut the patch as the session cut it
  * @param {string[]} whole
  * @returns {never}
  */
 function commitPatch(message, cut, whole) {
-	const { patch, root, patched, sections } = preparePatch(cut, whole);
+	const { patch, root, sections } = preparePatch(cut, whole);
 
 	// The commit itself is made from this private index, so its sweeper starts
 	// whatever the test gate.
@@ -1022,52 +656,23 @@ function commitPatch(message, cut, whole) {
 	const { index } = files;
 
 	const patchBuild = { index, whole, root, patch, sections };
-	let base = buildOnSteadyHead(patchBuild);
+	const base = buildOnHead(patchBuild);
 	// A refused rebuild exits, nothing written, rather than falling back to
 	// the hook (#1653).
 	const stampEnv = preLockRun(
 		() => files,
-		(privateIndex) => {
-			base = buildOnSteadyHead({ ...patchBuild, index: privateIndex });
-		},
+		(privateIndex) => buildIndex({ ...patchBuild, index: privateIndex }, base),
 	);
 
-	// A HEAD that moved while the hooks ran rebuilds the index on the new one —
-	// refusing, nothing written, where the patch no longer applies there — and
-	// the commit, hooks included, runs again (#3280). The pre-lock stamps carry
-	// over: they key on the commit's own changes, so a neighbour's commit
-	// elsewhere leaves them standing, and one that changes them voids them and
-	// the hook runs its gates in the lock.
-	const first = base;
-	let attempts = 0;
-	const landed = waitOut(
-		/** @returns {Attempt<{sha: string, changed: string[], on: string}>} */
-		() => {
-			let on = first;
-			if (attempts++ > 0) {
-				on = git(["rev-parse", "HEAD"]).stdout.trim();
-				buildIndex(patchBuild, on);
-				if (git(["rev-parse", "HEAD"]).stdout.trim() !== on)
-					return { held: { kind: "head-moved" } };
-			}
-			// Every path the commit changes, a rename's both sides included, which
-			// `git apply --numstat` reports only the new name of.
-			const changed = nulList(
-				git(
-					["diff", "--cached", "--name-only", "-z", "--no-renames", on],
-					index,
-				).stdout,
-			);
-			const sha = commitIndex(message, files, on, stampEnv);
-			return sha === null
-				? { held: { kind: "head-moved" } }
-				: { held: null, done: { sha, changed, on } };
-		},
-		"Nothing was committed.",
+	// Every path the commit changes, a rename's both sides included, which
+	// `git apply --numstat` reports only the new name of.
+	const changed = nulList(
+		git(["diff", "--cached", "--name-only", "-z", "--no-renames", base], index)
+			.stdout,
 	);
-	const { sha, changed } = landed;
+	const sha = commitIndex(message, files, base, stampEnv);
 
-	syncSharedIndex(changed, patched, landed.on);
+	resetIndex(changed);
 	runPostCommit();
 
 	out(git(["show", "--stat", "--format=", sha]).stdout);
@@ -1077,24 +682,24 @@ function commitPatch(message, cut, whole) {
 
 /**
  * `git commit -m <message>` from the private index, made step by step so the
- * message never passes through the shared `$GIT_DIR/COMMIT_EDITMSG` (#2638).
- * git's own commit writes it there, hands its hooks that path and reads the
- * message back from it; a private index takes no shared lock, so a neighbour's
- * commit running alongside overwrote it and each landed under the other's
- * message. Here it lives in this run's own file. The hooks run as git's commit
+ * message never passes through `$GIT_DIR/COMMIT_EDITMSG` (#2638). git's own
+ * commit writes it there, hands its hooks that path and reads the message back
+ * from it; a private index takes no lock on the worktree's, so a second commit
+ * running alongside in the same worktree overwrites it and each lands under
+ * the other's message. Here it lives in this run's own file. The hooks run as git's commit
  * runs them — pre-commit, prepare-commit-msg `<file> message` and commit-msg
  * `<file>` — each seeing the private index and `GIT_EDITOR=:`; post-commit is
  * left owed to runPostCommit. The
  * tree is the index as pre-commit leaves it, refused where it matches the
  * base's. The message is cleaned by `commit.cleanup` as `-m`'s is, before the
  * hooks see it and again after, and signed where `commit.gpgSign` says. The
- * ref update names `base` as HEAD's old value, so a HEAD that moved since the
- * index was built refuses, nothing written, and returns null.
+ * ref update names `base` as HEAD's old value, so a HEAD another commit in
+ * this worktree moved since the index was built refuses, nothing written.
  * @param {string} message
  * @param {RunFiles} files
  * @param {string} base
  * @param {NodeJS.ProcessEnv|undefined} stampEnv
- * @returns {string|null} the commit's sha, or null where HEAD moved
+ * @returns {string} the commit's sha
  */
 function commitIndex(message, { index, messageFile }, base, stampEnv) {
 	const env = { ...stampEnv, GIT_EDITOR: ":" };
@@ -1106,7 +711,7 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 		out(r.stdout);
 		err(r.stderr);
 		return fail(
-			`git or a hook refused the commit (exit ${r.status}); the output above is the work. The shared index and the working tree were never touched, so re-running the same command after the fix is safe.`,
+			`git or a hook refused the commit (exit ${r.status}); the output above is the work. The worktree's index and the working tree were never touched, so re-running the same command after the fix is safe.`,
 			3,
 		);
 	};
@@ -1157,62 +762,50 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 		run(["commit-tree", ...sign, tree, "-p", base], cleaned),
 	).trim();
 	const subject = cleaned.split("\n", 1)[0];
-	const moved = run([
-		"update-ref",
-		"-m",
-		`commit: ${subject}`,
-		"HEAD",
-		sha,
-		base,
-	]);
-	if (moved.status !== 0 && HEAD_MOVED_UNDER.test(moved.stderr)) return null;
-	stdoutOrRefuse(moved);
+	stdoutOrRefuse(
+		run(["update-ref", "-m", `commit: ${subject}`, "HEAD", sha, base]),
+	);
 	markTouched();
-	owePostCommit(sha);
+	owePostCommit();
 	return sha;
 }
 
 /**
  * What git's commit runs once its commit has landed and the index matches it:
  * post-commit, whose exit git ignores, then the auto maintenance. Run after
- * the shared index is reset, because post-commit's claim release reads it, and
- * before the reset it still holds the old copies, reading every committed file
- * as dirt nothing proves a neighbour's (#3565). finish runs it too, so a reset
- * that fails still runs the hook on the commit that landed.
- *
- * Named to the hook in WFC_COMMITTED_SHA: the reset can wait minutes on a
- * neighbour's index lock, and a neighbour's commit landing in them is HEAD by
- * the time the hook runs (#3746).
+ * the worktree's index is reset, because post-commit's claim release reads it,
+ * and before the reset it still holds the old copies, reading every committed
+ * file as still uncommitted (#3565). finish runs it too, so a reset that fails
+ * still runs the hook on the commit that landed.
  *
  * Residual: after a failed reset the hook reads the old copies still in the
- * shared index, so its claim release keeps every committed file's claim.
+ * index, so its claim release keeps every committed file's claim.
  */
 function runPostCommit() {
-	if (!owedPostCommitSha) return;
+	if (!owedPostCommit) return;
 	const env = { GIT_EDITOR: ":" };
-	const hookEnv = { ...env, WFC_COMMITTED_SHA: owedPostCommitSha };
-	owedPostCommitSha = null;
+	owedPostCommit = false;
 	// git runs every hook with its stdout sent to stderr.
 	const r = git(
 		["hook", "run", "--ignore-missing", "post-commit"],
 		undefined,
 		undefined,
-		hookEnv,
+		env,
 	);
 	err(r.stderr);
 	git(["maintenance", "run", "--auto", "--quiet"], undefined, undefined, env);
 }
 
 /**
- * The patch renumbered, the top level it applies from, the files it
- * touches and its sections as cut; refuses where `whole` or the patch cannot be committed together.
+ * The patch renumbered, the top level it applies from and its sections as
+ * cut; refuses where `whole` or the patch cannot be committed together.
  * @param {string} cut the patch as the session cut it
  * @param {string[]} whole
  */
 function preparePatch(cut, whole) {
 	classify(whole);
 	const patch = renumberHunks(cut);
-	const root = readWorktrees().root;
+	const root = readRoot();
 	const patched = readPatched(root, patch);
 
 	refuseWholeInPatch(whole, patched);
@@ -1229,7 +822,7 @@ function preparePatch(cut, whole) {
 				`${ref} is set: a merge, cherry-pick or revert is in progress, and --patch commits outside one. Finish or abort it first. Nothing written.`,
 				2,
 			);
-	return { patch, root, patched, sections };
+	return { patch, root, sections };
 }
 
 /**
@@ -1370,8 +963,8 @@ function readPatched(root, patch) {
 }
 
 /**
- * A whole path takes the working-tree file, a neighbour's lines included —
- * the very thing the patch exists to leave out.
+ * A whole path takes the working-tree file whole, the lines the patch leaves
+ * out included.
  * @param {string[]} whole
  * @param {string[]} patched
  */
@@ -1398,26 +991,13 @@ function refuseWholeInPatch(whole, patched) {
  */
 
 /**
- * Builds the private index on HEAD, rebuilding while HEAD moves under it;
- * returns the HEAD it was built on.
+ * Builds the private index on HEAD; returns the HEAD it was built on.
  * @param {PatchBuild} b
  * @returns {string}
  */
-function buildOnSteadyHead(b) {
-	// A bound, not a measured rate: HEAD moving inside a build that takes
-	// milliseconds is already rare, three times running a sign to stop.
-	const maxTries = 3;
-	let base = "";
-	for (let tries = 1; ; tries++) {
-		base = git(["rev-parse", "HEAD"]).stdout.trim();
-		buildIndex(b, base);
-		if (git(["rev-parse", "HEAD"]).stdout.trim() === base) break;
-		if (tries === maxTries)
-			fail(
-				`HEAD moved ${maxTries} times while the private index was being built, so neighbours are committing fast. Nothing written; re-run the same command later.`,
-				1,
-			);
-	}
+function buildOnHead(b) {
+	const base = git(["rev-parse", "HEAD"]).stdout.trim();
+	buildIndex(b, base);
 	return base;
 }
 
@@ -1467,7 +1047,7 @@ function buildIndex({ index, whole, root, patch, sections }, base) {
 	);
 	if (r.status !== 0)
 		fail(
-			`the patch does not apply to HEAD (${r.stderr.trim()}). Cut it from \`git diff HEAD -U0 -- <path>\`, which diffs against HEAD rather than the shared index. Nothing written.`,
+			`the patch does not apply to HEAD (${r.stderr.trim()}). Cut it from \`git diff HEAD -U0 -- <path>\`, which diffs against HEAD rather than the index. Nothing written.`,
 			2,
 		);
 	if (git(["diff", "--cached", "--quiet", base], index).status === 0)
@@ -1477,195 +1057,19 @@ function buildIndex({ index, whole, root, patch, sections }, base) {
 		);
 }
 
-/** @typedef {ReturnType<typeof listTree>[number]} TreeEntry */
-/** @typedef {{mode: string, blob: string, file: string}} IndexEntry */
-
 /**
- * `file`'s entry at `rev`, or null where it has none.
- * @param {string} rev
- * @param {string} file from the top level
- * @returns {TreeEntry|null}
- */
-const readTreeEntry = (rev, file) =>
-	listTree(rev, [topLiteral(file)], {
-		cwd: readWorktrees().root,
-		recursive: false,
-	})[0] ?? null;
-
-/**
- * `staged`'s hunks against `base` moved onto `tip`: the merged blob, or why
- * they cannot move.
- * @param {string} staged
- * @param {TreeEntry|null} base
- * @param {TreeEntry|null} tip
- * @returns {{blob: string}|{why: string}}
- */
-function mergeStagedBlob(staged, base, tip) {
-	if (!base || !tip || base.mode !== tip.mode)
-		return { why: "the commit added or removed the file or changed its mode" };
-	const r = git(["merge-file", "--object-id", staged, base.sha, tip.sha]);
-	if (r.status === 0) return { blob: r.stdout.trim() };
-	// git exits with the conflict count, capped at 127, and above that on a
-	// fault, a binary file among them.
-	return {
-		why:
-			r.status <= 127
-				? "its hunks conflict with the commit's"
-				: `git merge-file: ${r.stderr.trim().split("\n", 1)[0]}`,
-	};
-}
-
-/**
- * What the shared index's staged copies of the committed paths come to. A
- * staged copy of a patched file is a neighbour's `git add`, against the commit
- * rule, but theirs to keep: left at `base` it would stage the reverse of the
- * commits since, so its hunks move onto the tip. Those that cannot move, a rename
- * source's among them, go in `lost`. A whole path's staged copy is left out:
- * the commit took that file as on disk.
+ * Brings the worktree's index to the new HEAD for every path committed; a
+ * failure exits 4, saying how to do it by hand. Anything staged in those paths
+ * is unstaged with it, and stays in the working tree.
  * @param {string[]} changed
- * @param {string[]} patched
- * @param {string} base the commit the staged copies stand on
  */
-function planStagedCopies(changed, patched, base) {
-	const tip = git(["rev-parse", "HEAD"]).stdout.trim();
-	const staged = git([
-		"ls-files",
-		"-s",
-		"-z",
-		"--full-name",
-		"--",
-		...changed.map(topLiteral),
-	]).stdout;
-	/** @type {IndexEntry[]} */
-	const kept = [];
-	/** @type {Map<string, string>} */
-	const lost = new Map();
-	for (const entry of nulList(staged)) {
-		const m = STAGED_ENTRY.exec(entry);
-		if (!m)
-			throw new Error(`git ls-files -s gave an unreadable entry: ${entry}`);
-		const stagedBlob = requiredGroup(m, 2, STAGED_ENTRY);
-		const file = requiredGroup(m, 4, STAGED_ENTRY);
-		const after = readTreeEntry(tip, file);
-		if (!patched.includes(file) && after) continue;
-		if (requiredGroup(m, 3, STAGED_ENTRY) !== "0") {
-			lost.set(file, "it is an unresolved conflict");
-			continue;
-		}
-		const before = readTreeEntry(base, file);
-		if (stagedBlob === before?.sha || stagedBlob === after?.sha) continue;
-		const merged = mergeStagedBlob(stagedBlob, before, after);
-		if ("why" in merged) lost.set(file, merged.why);
-		else if (merged.blob !== after?.sha)
-			kept.push({
-				mode: requiredGroup(m, 1, STAGED_ENTRY),
-				blob: merged.blob,
-				file,
-			});
-	}
-	return { tip, kept, lost };
-}
-
-/**
- * The git steps that reset `changed` and write `kept` over the rest. A bare
- * `git reset --` would reset the whole index, a neighbour's included.
- * @param {string[]} changed
- * @param {IndexEntry[]} kept
- * @returns {string[][]}
- */
-function syncSteps(changed, kept) {
-	const toReset = changed.filter((p) => !kept.some((k) => k.file === p));
-	return [
-		...(toReset.length > 0
-			? [["reset", "-q", "--", ...toReset.map(topLiteral)]]
-			: []),
-		...(kept.length > 0
-			? [
-					[
-						"update-index",
-						...kept.flatMap((k) => [
-							"--cacheinfo",
-							`${k.mode},${k.blob},${k.file}`,
-						]),
-					],
-				]
-			: []),
-	];
-}
-
-/**
- * Brings the shared index to the new HEAD for every path committed, bar the
- * staged copies that move onto it, naming both kinds; a failure exits 4, saying
- * how to do it by hand. A neighbour's commit landing meanwhile moves the tip the
- * copies merge onto, so they are read again on every lock wait, and merged again
- * from the tip they reached where HEAD has moved past it.
- *
- * Residual: a neighbour's `git add` of the same file between the read and the
- * write is written over.
- * @param {string[]} changed
- * @param {string[]} patched
- * @param {string} base the commit's parent
- */
-function syncSharedIndex(changed, patched, base) {
-	const remedy = `Do not re-run this command: the commit has landed. Reset the shared index yourself, or it stages the reverse of this commit for the next bare \`git commit\`:\n  git reset -q -- ${changed.map(topLiteral).map(shellQuote).join(" ")}\nAny neighbour's staged hunks in those files leave the index with it, and stay in the working tree.`;
-	/** @type {Map<string, string>} */
-	const lost = new Map();
-	/** @type {ReturnType<typeof planStagedCopies>} */
-	let plan;
-	let from = base;
-	do {
-		plan = writeStagedCopies(changed, patched, from, remedy);
-		for (const [file, why] of plan.lost) lost.set(file, why);
-		from = plan.tip;
-	} while (git(["rev-parse", "HEAD"]).stdout.trim() !== from);
-	for (const [file, why] of lost)
-		err(
-			`${NAME}: the shared index held a staged copy of ${file} that could not move onto this commit (${why}), so the reset replaced it with this commit's. The working tree is untouched, so restage it from there if it was yours.\n`,
-		);
-	for (const { file } of plan.kept)
-		err(
-			`${NAME}: ${file} still holds a neighbour's staged hunks in the shared index, moved onto this commit.\n`,
-		);
-}
-
-/**
- * One pass of syncSharedIndex, waiting out the index lock.
- * @param {string[]} changed
- * @param {string[]} patched
- * @param {string} from the commit the staged copies stand on
- * @param {string} remedy
- * @returns {ReturnType<typeof planStagedCopies>}
- */
-function writeStagedCopies(changed, patched, from, remedy) {
-	return waitOut(
-		/** @returns {Attempt<ReturnType<typeof planStagedCopies>>} */
-		() => {
-			/** @type {ReturnType<typeof planStagedCopies>} */
-			let plan;
-			try {
-				plan = planStagedCopies(changed, patched, from);
-			} catch (e) {
-				return fail(
-					`could not read the shared index's staged copies (${caught(e).message}). ${remedy}`,
-					4,
-				);
-			}
-			for (const args of syncSteps(changed, plan.kept)) {
-				const r = git(args);
-				const held = contention(r);
-				if (held) return { held };
-				if (r.status !== 0) {
-					err(r.stdout + r.stderr);
-					fail(
-						`git refused to bring the shared index to the commit (exit ${r.status}). ${remedy}`,
-						4,
-					);
-				}
-			}
-			return { held: null, done: plan };
-		},
-		"The commit has landed, but the shared index still holds the old copies.",
-		{ remedy, code: 4 },
+function resetIndex(changed) {
+	const r = git(["reset", "-q", "--", ...changed.map(topLiteral)]);
+	if (r.status === 0) return;
+	err(r.stdout + r.stderr);
+	fail(
+		`git refused to bring the index to the commit (exit ${r.status}). Do not re-run this command: the commit has landed. Reset the index yourself, or it stages the reverse of this commit for the next bare \`git commit\`:\n  git reset -q -- ${changed.map(topLiteral).map(shellQuote).join(" ")}`,
+		4,
 	);
 }
 
@@ -1810,7 +1214,7 @@ function preLockRun(runFilesNow, build) {
 		);
 		return;
 	}
-	const { root } = readWorktrees();
+	const root = readRoot();
 	const common = git([
 		"rev-parse",
 		"--path-format=absolute",
@@ -1950,7 +1354,7 @@ function preLockTest(root, index, command, env) {
 		// its own run: change both together.
 		fail(
 			`the declared test command is RED — '${command}' — so this commit is refused. Nothing written.
-  It ran on HEAD plus this commit's own paths, so no neighbour's unsaved file reached it (#1760): the red is in HEAD, in this commit, or in a gitignored file the suite needs that its worktree lacks.
+  It ran on HEAD plus this commit's own paths, so no unsaved edit outside them reached it (#1760): the red is in HEAD, in this commit, or in a gitignored file the suite needs that its worktree lacks.
   Fix the failing test and commit again. Where the red is a gitignored file the worktree lacks, name it in \`worktreeLinks\` in .claude/workflow-core.json, and the worktree links it in (#1767).`,
 			3,
 		);
@@ -2036,9 +1440,8 @@ function readHookGatesText(root) {
 
 /**
  * Runs the hook's gates above its slow ones against `index`, as the hook runs
- * them in the lock: in the shared tree, where the stale-write-back gate judges
- * and a linked worktree is skipped, so this refuses only what the hook would
- * (#1763). A red refuses, nothing written; their output is held and shown on
+ * them in the lock, in this worktree, so this refuses only what the hook
+ * would (#1763). A red refuses, nothing written; their output is held and shown on
  * a red alone, the hook printing it again in the lock. Gates that cannot be
  * read, or a run that does not finish, are said and left to the hook. The
  * hook's own stamp is written below
@@ -2081,15 +1484,15 @@ function preLockGates({ root, index, gates, env, slowLabel }) {
 		);
 	fail(
 		`a pre-commit gate refused this commit (exit ${r.status}), so ${slowLabel} never started. Nothing written.
-  The gates ran on what the commit would carry, in the shared tree, as the hook runs them in the lock, so it would refuse the same. A gate reading the working tree rather than the commit, as tsc and ESLint do, may be red on a parallel session's half-written file, not yours (mantahostels#273). Fix the finding above, or re-run on a still tree, and commit again.`,
+  The gates ran on what the commit would carry, in this worktree, as the hook runs them in the lock, so it would refuse the same. A gate reading the working tree rather than the commit, as tsc and ESLint do, may be red on an unsaved edit this commit does not carry (mantahostels#273). Fix the finding above, or set that edit aside, and commit again.`,
 		3,
 	);
 }
 
 /**
- * Builds into `index`, without touching the shared one, the index
+ * Builds into `index`, without touching the worktree's, the index
  * `git commit -- <specs>` builds in the lock: HEAD (nothing on an unborn
- * branch) plus every path the specs reach in the shared index or HEAD, and
+ * branch) plus every path the specs reach in the index or HEAD, and
  * every untracked named file, each as the worktree has it — one gone from disk
  * as a deletion. Throws, saying why, where git refuses a step.
  * @param {{index: string, specs: string[], toAdd: string[]}} b
@@ -2102,7 +1505,6 @@ function buildCommitIndex({ index, specs, toAdd }) {
 		return r.stdout;
 	};
 	fs.rmSync(index, { force: true });
-	// Read afresh: a neighbour may give an unborn branch its first commit mid-run (#1652).
 	const hasHead = hasHeadCommit();
 	const withTree = hasHead ? ["--with-tree=HEAD"] : [];
 	let listed = ok(
@@ -2125,15 +1527,7 @@ function buildCommitIndex({ index, specs, toAdd }) {
 		ok(git(["read-tree", "HEAD"], index), "read HEAD into a private index");
 	ok(
 		git(
-			[
-				"-C",
-				readWorktrees().root,
-				"update-index",
-				"--add",
-				"--remove",
-				"-z",
-				"--stdin",
-			],
+			["-C", readRoot(), "update-index", "--add", "--remove", "-z", "--stdin"],
 			index,
 			listed,
 		),
@@ -2180,7 +1574,7 @@ function printTree(whole, cut) {
 		}
 	} else {
 		const { patch, root, sections } = preparePatch(cut, whole);
-		buildOnSteadyHead({ index, whole, root, patch, sections });
+		buildOnHead({ index, whole, root, patch, sections });
 	}
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
@@ -2212,10 +1606,7 @@ function main() {
 			: "";
 
 	if (toAdd.length > 0) {
-		const r = gitLocked(
-			["add", "-N", "--", ...toAdd.map(literal)],
-			"Nothing was intent-added or committed.",
-		);
+		const r = git(["add", "-N", "--", ...toAdd.map(literal)]);
 		if (r.status !== 0) {
 			err(r.stdout + r.stderr);
 			fail(
@@ -2226,12 +1617,11 @@ function main() {
 		markTouched();
 	}
 
-	const r = gitLocked(
+	const r = git(
 		["commit", "-m", message, "--", ...specs],
-		toAdd.length > 0
-			? `Nothing was committed; the intent-add entries for ${toAdd.join(", ")} stay in the index and commit nothing on their own.`
-			: "Nothing was committed.",
-		{ env: stampEnv },
+		undefined,
+		undefined,
+		stampEnv,
 	);
 	out(r.stdout);
 	err(r.stderr);
@@ -2241,7 +1631,7 @@ function main() {
 			3,
 		);
 
-	printCommitted(parseCommittedSha(r.stdout));
+	printCommitted("HEAD");
 	finish(0);
 }
 

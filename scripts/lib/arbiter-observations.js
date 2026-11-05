@@ -13,7 +13,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const bases = require("./arbiter-bases.js");
 // biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
@@ -166,9 +165,6 @@ function recordObservation(rel, me, { viaBash = false } = {}) {
 		core.logError(`observe ${rel}`, e);
 		return null;
 	}
-	// The detect-only write's first-write base (#110), and — through `viaBash` —
-	// the tier scan's, under the scan's own per-tick cap.
-	bases.mintBase(rel, me.sessionId);
 	return sha;
 }
 

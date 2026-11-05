@@ -71,8 +71,9 @@
  * (mantahostels#2345). The bound above holds the line instead, and nothing
  * gates it.
  *
- * THE HOLDER IS NAMED BY SESSION ID, on lib/stale-script.js's reasoning
- * (mantahostels#317).
+ * THE HOLDER IS NAMED BY SESSION ID, not by the name `claude agents --json`
+ * would give: that oracle is too slow (mantahostels#317) to run ahead of
+ * ordinary Bash calls.
  */
 
 /** @typedef {import("./arbiter-store").ListedLock} Lock */

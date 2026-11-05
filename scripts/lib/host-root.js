@@ -7,11 +7,11 @@
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
  *
- * TWO TREES A HOOK CAN MEAN (#4229). The host root is the shared tree, where
+ * TWO TREES A HOOK CAN MEAN (#4229). The host root is the main checkout, where
  * the shared stores live: claims, markers, ledgers. `sessionTree()` is the
  * session's own tree, a linked worktree of it where the session runs in one:
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
- * The harness sets `CLAUDE_PROJECT_DIR` to the shared tree even for a session
+ * The harness sets `CLAUDE_PROJECT_DIR` to the main checkout even for a session
  * in a linked worktree, so the host root never says which tree is the
  * session's; only the hook input's `cwd` does.
  *
@@ -127,8 +127,8 @@ function sessionTree({ cwd }) {
  * that is a linked worktree of the host repository, else `hostRoot()`.
  *
  * NOT `hostRoot()` ALONE (#2940). The harness sets `CLAUDE_PROJECT_DIR` to the
- * shared tree for every Bash call, so a run launched inside a linked worktree
- * would otherwise test the shared tree's files and say nothing. State keyed on
+ * main checkout for every Bash call, so a run launched inside a linked worktree
+ * would otherwise test the main checkout's files and say nothing. State keyed on
  * the host stays there — the arbiter's directory on `hostRoot()`, the marker
  * store on the git common dir: only which files are under test follows the
  * worktree.
@@ -157,7 +157,7 @@ function worktreeRoot(cwd = process.cwd(), { host: given } = {}) {
  * The host a git hook at `cwd` is handed: `scripts/lib/hook-root.sh`'s answer,
  * for a script that must agree with the hook whatever its shell inherited
  * (#3830). `CLAUDE_PROJECT_DIR` where it shares this repository's git common
- * dir; else, in a linked worktree, the shared tree owning a common dir called
+ * dir; else, in a linked worktree, the main checkout owning a common dir called
  * `.git`; else the top level. A bare repository or a git directory has no top
  * level, so that answers the working directory and says so on stderr; a
  * directory outside any repository answers `hostRoot()`'s fail-open, silently.

@@ -273,13 +273,15 @@ describe("check-test-marker", () => {
 			full(sha, {
 				dirtyAtStart: true,
 				dirtyCount: 2,
-				foreign: [{ path: "docs/doc-map.md", why: "held by sess-9" }],
+				foreign: [
+					{ path: "docs/doc-map.md", why: "changed while the suite ran" },
+				],
 			}),
 		);
 		const r = run(dir, buildRefLine(sha, root));
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("dirty tree:");
-		expect(r.stderr).toContain("read 1 file(s) another session held");
+		expect(r.stderr).toContain("read 1 file(s) that moved while it ran");
 		expect(r.stderr.endsWith(ATTESTED)).toBe(true);
 	});
 

@@ -16,13 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-	commitAll,
-	freshSandbox,
-	gitRepo,
-	liveHolder,
-	putLock,
-} from "./lib/arbiter-testkit";
+import { commitAll, freshSandbox, gitRepo } from "./lib/arbiter-testkit";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import { runTeardown, setup, teardown } from "./vitest-tree-watch";
 
@@ -271,31 +265,5 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 		const [marker] = markerLib.readFailures({ root: markerSandbox });
 		expect(marker.isolated).toBe(false);
 		expect(marker.treeAtEnd).toBe(tree.sha);
-	});
-});
-
-/*
- * The wiring itself: a claim held as the run starts is named as it ends. Who
- * counts as a neighbour is `lib/tree-drift.test.ts`'s to pin.
- */
-describe("a neighbour's claim on a file dirty at the run's start (mantahostels#392)", () => {
-	afterEach(() => {
-		// `setup` pointed the module at a scratch repository the outer afterEach deletes.
-		setup({ config: { root: process.cwd() } });
-	});
-
-	it("is named on stderr at the teardown", () => {
-		const file = path.join(sb.repo, "scripts", "x.js");
-		gitRepo(sb);
-		fs.mkdirSync(path.dirname(file));
-		fs.writeFileSync(file, "one\n");
-		commitAll(sb);
-		fs.writeFileSync(file, "two\n");
-		putLock("scripts/x.js", { sessionId: "them", ...liveHolder() });
-
-		setup({ config: { root: sb.repo } });
-		const err = captureStderr(() => runTeardown(path.join(sb.dir, "markers")));
-
-		expect(err).toContain("scripts/x.js  held by them");
 	});
 });

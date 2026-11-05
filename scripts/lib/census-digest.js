@@ -827,7 +827,7 @@ const hasCensusLine = (text) => hasLine(text, "Census", "\\S");
 
 /**
  * readRowsExpiredByTicket over the repo's own anchors file as HEAD holds it, so
- * a neighbour's uncommitted copy neither refuses a close nor excuses one
+ * an uncommitted copy neither refuses a close nor excuses one
  * (#3521). A repo with none has no census to owe. Throws where git, the file or
  * a formatter cannot answer.
  *

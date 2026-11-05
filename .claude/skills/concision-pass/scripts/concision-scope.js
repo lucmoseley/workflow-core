@@ -9,9 +9,8 @@
  * this session (mantahostels#1147).
  *
  * NOT the same number as scripts/concision-backstop.sh's, deliberately. That
- * one is session-wide across a REPO-GLOBAL working tree, so it counts a
- * neighbour's uncommitted files; this one counts only the paths named, which
- * are the paths this session wrote.
+ * one is session-wide, every file this session wrote; this one counts only the
+ * paths named.
  *
  * FAILS CLOSED, per mantahostels#1114's third limb, the bar this script was built against.
  * A fixed point git cannot resolve, or a path that is neither in the diff nor

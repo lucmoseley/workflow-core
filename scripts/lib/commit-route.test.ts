@@ -632,7 +632,6 @@ const CALLERS = [
 	".husky/commit-msg",
 	".husky/pre-applypatch",
 	".husky/post-commit",
-	"scripts/stale-write-back-gate.sh",
 ];
 
 describe("the callers", () => {

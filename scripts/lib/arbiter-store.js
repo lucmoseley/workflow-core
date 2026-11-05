@@ -8,7 +8,7 @@
  *
  * THIS FILE IS A FACADE (mantahostels#1795): one file per record family, re-exported here.
  * A caller wanting ONE family requires that family instead, and learns its
- * handful of names rather than this file's sixty-four:
+ * handful of names rather than this file's seventy-three:
  *
  *   arbiter-core.js           paths, the one reader and writer, the error log,
  *                             the git shims, the subject vocabulary, the
@@ -18,8 +18,6 @@
  *   arbiter-content.js        content pins, prior versions, clobber reporting
  *   arbiter-observations.js   the second writer's baseline on detect-only paths
  *   arbiter-snapshots.js      the tier scan, for writes no hook sees
- *   arbiter-bases.js          HEAD at a session's first write to a path, and
- *                             at its start (#110); accept-head and its log (#112)
  *   arbiter-breaks.js         break records, which outlive the lock they broke
  *   arbiter-ledger.js         which paths a session has written, which
  *                             commits it made (#766), which paths its
@@ -57,7 +55,7 @@
  * a second copy of the path; priced-options-limbs.js at #1474, for the same
  * reason about guard-priced-options.js's prefixes.
  *
- * THE OTHER TWELVE FAMILIES WRITE `module.exports = {...}`. The three keep one
+ * THE OTHER ELEVEN FAMILIES WRITE `module.exports = {...}`. The three keep one
  * line per name rather than one `Object.assign(module.exports, {...})`, because
  * checkJs types an `exports.<name> =` export and not a name assigned through
  * Object.assign. check-code-standards.js's §N7 scan reads the
@@ -113,7 +111,6 @@
 /** @typedef {import("./arbiter-records.js").LivenessOracle} LivenessOracle */
 /** @typedef {import("./arbiter-records.js").ClaimResult} ClaimResult */
 
-const bases = require("./arbiter-bases.js");
 const breaks = require("./arbiter-breaks.js");
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
@@ -128,8 +125,6 @@ const sweep = require("./arbiter-sweep.js");
 const wants = require("./arbiter-wants.js");
 
 module.exports = {
-	acceptHead: bases.acceptHead,
-	advanceBases: bases.advanceBases,
 	acquire: locksMod.acquire,
 	buildBreakNotice: breaks.buildBreakNotice,
 	claimVersions: contentMod.claimVersions,
@@ -159,15 +154,12 @@ module.exports = {
 	isGuarded: core.isGuarded,
 	isWatched: core.isWatched,
 	isReleasable: core.isReleasable,
-	judgeStaged: bases.judgeStaged,
-	judgeStagedAll: bases.judgeStagedAll,
 	listDebts: debts.listDebts,
 	listIssueClaims: issues.listIssueClaims,
 	listLocks: locksMod.listLocks,
 	listLocksJudged: locksMod.listLocksJudged,
 	liveClaimElsewhereOnFile: locksMod.liveClaimElsewhereOnFile,
 	logError: core.logError,
-	mintSessionBase: bases.mintSessionBase,
 	observationState: observations.observationState,
 	readObservedBy: observations.readObservedBy,
 	observedVersions: observations.observedVersions,
@@ -201,7 +193,6 @@ module.exports = {
 	buildRequestNotice: requests.buildRequestNotice,
 	scanChanged: snapshots.scanChanged,
 	splitSubject: core.splitSubject,
-	readStagedModifications: bases.readStagedModifications,
 	stateDir: core.stateDir,
 	subjectFor: core.subjectFor,
 	subjectPath: core.subjectPath,

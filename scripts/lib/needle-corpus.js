@@ -191,7 +191,7 @@ function entryTexts(key, entry) {
  * take different refusals, so the flag travels with the entry.
  *
  * ONLY the ones this commit breaks. A literal already missing before it — a
- * neighbour's half-written file, a registry entry that landed ahead of its
+ * half-written file, a registry entry that landed ahead of its
  * printer — is not this commit's to answer for.
  *
  * `landing` is the commit's repo-root-relative paths; `readHead(rel)` returns

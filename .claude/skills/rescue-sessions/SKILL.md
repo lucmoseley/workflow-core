@@ -76,6 +76,8 @@ one short brief per ticket, `<ticket>-brief.md`, carrying only:
   for that job;
 - **where it died**, in one or two sentences, and each in-flight subagent's
   `Artefact:` path;
+- **its worktree**, `index.json`'s `cwd` for that job, where its uncommitted
+  work sits;
 - anything that has changed *under* the ticket since it died — a neighbour's
   commit touching its files, a blocker that has cleared.
 
@@ -90,22 +92,13 @@ the allowance gate, so read the allowance yourself first; never add
 `--force-memory`, which skips the per-member memory re-read.
 
 Then dispatch the rest in one call — `dispatch-sessions.sh` staggers them and
-re-reads memory per member — tickets whose half-written files break *other*
-sessions' tests first.
+re-reads memory per member.
 
-### 5. Watch, and expect the tree to be red
+### 5. Watch
 
-While the rescue runs, the shared tree holds several dead sessions' uncommitted
-work at once, so **no full suite can go green for anyone** until each lands. Every
-successor must be told to run only the tests it touched — the bare
-`npm run test` with the `landing` module on, `npm run test:changed` with it
-off — commit by pathspec, and
-prove a red is a neighbour's by running the failing files in a detached worktree
-at clean `HEAD` rather than trusting the `mantahostels#291` banner.
-
-Watch with one backgrounded beat. A beat checks the issue states and
-`git status --porcelain | grep -c '^ M'`; the dirty count falling is the
-progress signal that matters. `claude agents --json` reads ONE plan, so scope it
+Watch with one backgrounded beat. A beat checks the issue states and each dead
+session's worktree's `git status --porcelain | grep -c '^ M'`; the dirty count
+falling is the progress signal that matters. `claude agents --json` reads ONE plan, so scope it
 to the destination dir.
 
 ## Takeover: one frozen session
@@ -172,9 +165,8 @@ transcript copies:
   the job ran, read as the guards read commands: a `--tree` pin is none.
 - `commitsLanded` — which of THOSE attempts actually landed, matched by
   message against `git log` in a lookback window around the job's death.
-  Matched, not merely dated: several sessions commit to `main` concurrently
-  here, and a bare time window would attribute a neighbour's commit to this
-  job. `null` means git could not be asked at all; `[]` means it answered and
+  Matched, not merely dated: several sessions land concurrently here, and a
+  bare time window would attribute another session's commit to this job. `null` means git could not be asked at all; `[]` means it answered and
   nothing matched.
 - `artefactsSurvived` — every `Write`/`Edit` path in the PARENT session's own
   narration that still exists on disk. **Does not see a subagent's own

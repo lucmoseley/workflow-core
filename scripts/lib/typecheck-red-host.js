@@ -17,7 +17,7 @@ const { repoRoot } = require("./test-pass-marker.js");
 
 const PREFIX = ".typecheck-red-";
 /* A judgement: room for about twenty `tsc` errors, and little context spent where
- * a neighbour's half-written file is what is RED. */
+ * a file saved mid-run is what is RED. */
 const OUTPUT_CAP = 2000;
 
 /**

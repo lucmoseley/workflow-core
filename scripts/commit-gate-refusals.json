@@ -35,10 +35,6 @@
 			"lines": ["leaks found: "]
 		},
 		{
-			"id": "stale-write-back",
-			"lines": ["the stale-write-back gate refused this commit"]
-		},
-		{
 			"id": "review-hold",
 			"lines": ["the review hold refused this commit (rule:review-hold)"]
 		},

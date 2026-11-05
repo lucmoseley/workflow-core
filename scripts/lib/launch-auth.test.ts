@@ -102,10 +102,10 @@ describe("a plan seat", () => {
 
 describe("an overflow seat's helper under its plan dir (#3699)", () => {
 	const plan = () => path.join(home, ".claude2");
-	const declarePlanOverflow = () =>
+	const declarePlanOverflow = (cycleDay = 20) =>
 		fs.writeFileSync(
 			path.join(home, ".claude", "refill-seats"),
-			`${plan()}\n${plan()} api key=K grant=200 cycle-day=20\n`,
+			`${plan()}\n${plan()} api key=K grant=200 cycle-day=${cycleDay}\n`,
 		);
 	const withHelper = (extra: Record<string, string>, keyVar = "K") =>
 		launchAuthRefusal({
@@ -166,6 +166,23 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 		expect(
 			withHelper({ CLAUDE_CONFIG_DIR: path.join(home, ".claude3") }),
 		).toContain("no declared overflow seat's");
+	});
+
+	it("refuses the helper as no declared seat where the seat file will not parse", () => {
+		declarePlanOverflow(99);
+		expect(
+			withHelper({ WFC_FAKE_AUTH_NO_LOGIN: "1", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("no declared overflow seat's");
+	});
+
+	it("still refuses ANTHROPIC_BASE_URL and a third-party provider", () => {
+		declarePlanOverflow();
+		expect(
+			withHelper({ ANTHROPIC_BASE_URL: "http://x", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("ANTHROPIC_BASE_URL");
+		expect(
+			withHelper({ CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("CLAUDE_CODE_USE_VERTEX");
 	});
 
 	it("refuses any other apiKeyHelper in the settings", () => {

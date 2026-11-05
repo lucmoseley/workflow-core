@@ -63,12 +63,6 @@
  */
 
 /**
- * The base a path is judged against (arbiter-bases.js resolveBase): `blob` null
- * where the path was absent at `head`.
- * @typedef {{source: "path"|"session", head: string, blob: string|null}} Base
- */
-
-/**
  * @typedef {object} ObservationRecord
  * @property {string} path
  * @property {string|null} sessionId

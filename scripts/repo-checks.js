@@ -43,7 +43,7 @@
  *
  * FROM A LINKED WORKTREE IT READS THE MAIN CHECKOUT (#1555): it points
  * CLAUDE_PROJECT_DIR there for itself and every check it launches, so the
- * day's shared reading checks the shared tree, not a worktree's branch. Its
+ * day's shared reading checks the main checkout, not a worktree's work. Its
  * notify report and error log land in the main checkout's store too: the
  * launching worktree session is never handed the report live, and its own
  * `npm run check:guard-errors` never shows the run's faults.

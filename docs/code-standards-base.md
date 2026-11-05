@@ -139,7 +139,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
 | Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
 | Holding a lock for a program's whole run, which a crashed holder cannot wedge | `pidLock` in `scripts/lib/pid-lock.js`, stale only once its holder has gone | `scripts/file-morning-review.js` | §G1 | Standards axis criterion |
-| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/stale-write-back-gate.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
+| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/review-hold-gate.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
 
 ---
 
@@ -226,7 +226,7 @@ The push gate asks whether certificates attest a commit, so its verdict is `atte
 
 **Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (#1308, #1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
 
-`scripts/lib/suite-handoff.js:200-219` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:173-193` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:382`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+`scripts/lib/suite-handoff.js:200-219` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:148-168` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:382`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
 
 The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
 
@@ -385,7 +385,7 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises nor exits and cites no ticket, so (b) is a duplicate finding there. Whether (a)'s comment gives a reason, and (c), stay review's.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:361-362`) — and `scripts/session-arbiter.js:2423` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:361-362`) — and `scripts/session-arbiter.js:2398` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
@@ -437,7 +437,7 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 ### §N10 · An arbiter record is reached through the arbiter's one reader and one writer — **hard**
 
-*House*. The session arbiter keeps its records (file claims, issue claims, wants, debts, observations, bases, session bases, breaks, requests) as JSON files in its state directory, and what a reader does with a torn, absent or refused record is decided once: absent and torn read as no record, a refused read throws (mantahostels#174, `scripts/lib/arbiter-core.js:450-458`). A record's path comes from `paths` in `scripts/lib/arbiter-core.js`, or joins one of its directories to a name that directory's listing returned; its bytes are read through `readRecord`, `probeRecord`, `readRecordOrLog` or `readRecordOrFlag` and written through `writeRecord` or `createOnce`, there or through an arbiter family function built on them, such as `heldIssues` in `scripts/lib/arbiter-issue-claims.js`. A path to a record built by hand, or a record opened with `fs` and parsed in place, is the breach.
+*House*. The session arbiter keeps its records (file claims, issue claims, wants, debts, observations, breaks, requests) as JSON files in its state directory, and what a reader does with a torn, absent or refused record is decided once: absent and torn read as no record, a refused read throws (mantahostels#174, `scripts/lib/arbiter-core.js:428-436`). A record's path comes from `paths` in `scripts/lib/arbiter-core.js`, or joins one of its directories to a name that directory's listing returned; its bytes are read through `readRecord`, `probeRecord`, `readRecordOrLog` or `readRecordOrFlag` and written through `writeRecord` or `createOnce`, there or through an arbiter family function built on them, such as `heldIssues` in `scripts/lib/arbiter-issue-claims.js`. A path to a record built by hand, or a record opened with `fs` and parsed in place, is the breach.
 
 **Outside the rule:** a file in the state directory that holds no arbiter record, read and written by the one module that names its path, such as the ledgers, the error log, `firstSay`'s sentinels, `scripts/lib/notify-report.js`'s reports and `scripts/check-hook-liveness.js`'s state; and a proving run reading the store as an outside observer of the code under test, as `scripts/proving-run.ts`'s `debts` does.
 

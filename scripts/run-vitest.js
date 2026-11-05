@@ -1171,10 +1171,10 @@ function runDefault(route, options = {}) {
 		/*
 		 * THE FROZEN-WORKTREE INVARIANT (mantahostels#2169) COMES FIRST: `runIsolated` ->
 		 * `runOnce({ root: dir })` lets `expandChanged` run AGAINST THE
-		 * WORKTREE, so the file list selected reflects HEAD, not whatever a
-		 * neighbour has uncommitted in the shared tree right now. The plan
+		 * WORKTREE, so the file list selected reflects HEAD, not whatever is
+		 * uncommitted in the working tree right now. The plan
 		 * `narrowDefault` computes here, before the worktree exists, is
-		 * necessarily against the shared root — so it is used ONLY to decide
+		 * necessarily against the working tree — so it is used ONLY to decide
 		 * escalate-or-not and is then discarded. That is a second `vitest list`
 		 * call, paid only on this explicit `--isolated` path.
 		 */
@@ -1521,7 +1521,7 @@ function isolatedRefusal(mine) {
 		rest
 			? "Commit them by pathspec first, reading the full set off `git status --porcelain` — NOT `-uno`, which drops the untracked half of this set (mantahostels#2196)."
 			: `Commit them first — \`git commit -m "<why, in plain language>" -- ${shown.map(shellQuote).join(" ")}\`.`,
-		"Or run with --shared to accept a shared-tree run instead.",
+		"Or run with --shared to run in the working tree instead.",
 		"",
 	].join("\n");
 }
@@ -1536,7 +1536,7 @@ function isolatedRefusal(mine) {
  * construction. The run then prints its banner and returns 0 without spawning —
  * a no-op that reads as a certificate. `--changed <ref>` is unaffected and stays allowed.
  *
- * AN ABSOLUTE PATH INTO THE CANONICAL CHECKOUT reads the live shared tree from
+ * AN ABSOLUTE PATH INTO THE CANONICAL CHECKOUT reads its live files from
  * inside a run advertised as frozen. It is the form a session pastes out of a
  * failure report, so it is refused rather than rewritten: rewriting would
  * silently run a different file from the one asked for.
@@ -1551,7 +1551,7 @@ function isolatedArgvRefusal(argv, root) {
 		return (
 			"\n--isolated REFUSED: a bare `--changed` selects nothing in a worktree checked\n" +
 			"out at HEAD — there is no diff against HEAD there, because the frozen worktree\n" +
-			"is a clean checkout and any uncommitted edits in the shared tree are unseen\n" +
+			"is a clean checkout and any uncommitted edits in the working tree are unseen\n" +
 			"inside it — so the run would exit 0 having tested nothing, its certificate\n" +
 			"looking exactly like a real one.\n\n" +
 			"Name a ref (`--changed HEAD~1`), or drop --isolated.\n\n"
@@ -1759,7 +1759,7 @@ function runThenTeardown(run, teardown) {
  * through `runIsolated`, refusal and all.
  *
  * THE NARROWING IS JUDGED INSIDE THE WORKTREE, escalation included, so a
- * neighbour's dirty `package.json` neither widens the selection nor escalates
+ * dirty `package.json` neither widens the selection nor escalates
  * the run.
  *
  * A file of this session's that `mine` misses is read at HEAD's version: a
@@ -1842,7 +1842,7 @@ function withOverlay(route, options, label, run) {
 	const instead =
 		route.fallback === "worktree"
 			? "running in a frozen worktree instead"
-			: "reading the shared tree instead";
+			: "reading the working tree instead";
 	/** @param {string} why */
 	const fallback = (why) => {
 		err.write(`${label}: ${why} — ${instead} (#812).\n`);
@@ -1884,7 +1884,7 @@ function withOverlay(route, options, label, run) {
  * and names it among the paths the certificate attests.
  *
  * @param {string} dir the overlay
- * @param {string} home the shared checkout
+ * @param {string} home the working tree the run was launched in
  * @param {Parameters<typeof runDefault>[1] & {}} options
  */
 function freshenOverlay(dir, home, options) {
@@ -1909,11 +1909,11 @@ function freshenOverlay(dir, home, options) {
 /** @typedef {OwnSet & { label: string }} ProbeSet what the probe says it read */
 
 /**
- * The path set an overlaid run will select from, read in the shared tree with
- * `ownSelection` (#1221), so a probe never counts a neighbour's file the
+ * The path set an overlaid run will select from, read in the working tree with
+ * `ownSelection` (#1221), so a probe never counts a file the
  * overlay leaves out, nor misses an own new file it carries. Null where the
  * route selects from anything but the session's own work, or where the set
- * will not read, said on `err`: the probe then reads the shared tree's diff.
+ * will not read, said on `err`: the probe then reads the working tree's diff.
  *
  * @param {LaunchRoute} route
  * @param {Parameters<typeof runDefault>[1] & {}} options
@@ -1940,7 +1940,7 @@ function ownProbeSet(route, options) {
 			};
 	}
 	err.write(
-		"--queue: this session's own work could not be read, so the probe reads the shared tree's diff instead (#1221).\n",
+		"--queue: this session's own work could not be read, so the probe reads the working tree's diff instead (#1221).\n",
 	);
 	return null;
 }
@@ -1949,7 +1949,7 @@ function ownProbeSet(route, options) {
  * What a narrowed run's EMPTY selection was taken from — `the diff against
  * <base>`, the session's own work, or the adopted path list — or null where the
  * run is full, escalates, selects anything, or the probe fails. Judged in the
- * shared tree before a `--queue` run joins the queue (#1016), so a run with
+ * working tree before a `--queue` run joins the queue (#1016), so a run with
  * nothing to test never waits for a slot, and again during the wait where
  * `buildQueueRecheck` lets it (#1158).
  *

@@ -6407,7 +6407,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					},
 				});
 				expect(seen.cwd).toBe(dir);
-				expect(err).toContain("reading the shared tree instead");
+				expect(err).toContain("reading the working tree instead");
 				expect(fs.existsSync(worktreeOf(dir, 5409))).toBe(false);
 			});
 
@@ -6656,7 +6656,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					});
 					expect(seen.cwd).toBe(dir);
 					expect(err).toContain("test:changed: ");
-					expect(err).toContain("reading the shared tree instead");
+					expect(err).toContain("reading the working tree instead");
 				});
 			});
 

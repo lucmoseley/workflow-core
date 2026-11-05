@@ -880,7 +880,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			// Judges the settings snapshot, not code.
 			"check-user-settings-drift",
 			// Documents, the roadmap, the copy and the repo's own registers.
-			"stale-write-back-gate",
 			"review-hold-gate",
 			"check-roadmap-pair",
 			"check-roadmap-valid",

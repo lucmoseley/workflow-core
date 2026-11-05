@@ -8,7 +8,6 @@
  * guard can print `npm run` at an install where npm finds no such script.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -84,27 +83,5 @@ describe("a hint at an install-shaped root (#1289)", () => {
 		expect(r.status).toBe(status);
 		expect(r.out).toContain(`node ${at(named)}`);
 		expect(r.out).not.toContain("npm run");
-	});
-
-	it("names the plugin-root checker from the stale-write-back gate", () => {
-		const r = spawnSync(
-			"bash",
-			[path.join(__dirname, "stale-write-back-gate.sh")],
-			{
-				cwd: dir,
-				encoding: "utf8",
-				env: {
-					...process.env,
-					WFC_PLUGIN_ROOT: "/plugins/wfc",
-					GIT_CEILING_DIRECTORIES: dir,
-					CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
-					CLAUDE_CODE_SESSION_ID: "s1",
-				},
-			},
-		);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain(
-			"See: node /plugins/wfc/scripts/check-guard-errors.js",
-		);
 	});
 });
