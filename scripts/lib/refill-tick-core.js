@@ -29,6 +29,7 @@ const { buildErrorText } = require("./caught.js");
 const { buildTickRecord } = require("./concurrency.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const blocks = require("./refill-blocks.js");
+const { declaresOverflowSeat } = require("./refill-seats.js");
 const {
 	bootSparedJobs,
 	isEmptyListingTrusted,
@@ -395,8 +396,7 @@ function tendCheckouts(io, served, launches, now) {
  * @param {AgentRecord[]|null} agents
  */
 function capOverflowSessions(io, declared, agents) {
-	const hasOverflow = declared.seats.some((s) => s.kind === "overflow");
-	if (agents && hasOverflow && declared.errors.length === 0)
+	if (agents && declaresOverflowSeat(declared) && declared.errors.length === 0)
 		io.recordListedOverflowSessions(agents);
 	for (const line of io.stopOverAllowance(declared, agents)) io.log(line);
 }

@@ -5,6 +5,9 @@
  * dispatch-sessions-overflow.test.ts's. Loosen it and an overflow session reads
  * as a plan one, its credits counted as plan allowance and its cap never hit.
  *
+ * Also pins readDeclaredOverflowLookup's gate (#4393): loosen it and a host
+ * with no overflow seat refuses its launches on any unreadable ledger.
+ *
  * Also pins which launches still hold their issues — readRecentEntries' window
  * and refill hand-off, entryHolds' command key — as /pick-next reads them.
  * Loosen those and a dispatched issue is launched twice, or a released one
@@ -13,17 +16,19 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	DEFAULT_WINDOW_HOURS,
 	entryHolds,
 	ledgerPath,
+	readDeclaredOverflowLookup,
 	readOverflowLookup,
 	readRecentEntries,
 	record,
 	recordListedSessionIds,
 	release,
 } from "./dispatch-ledger.js";
+import { writeUnreadableLedgerCheckout } from "./overflow-launch-fake";
 
 const JOB = "abcd1234";
 let root = "";
@@ -107,6 +112,29 @@ describe("readOverflowLookup", () => {
 	it("throws on a ledger that will not read, so an unread session never passes for a plan one", () => {
 		fs.mkdirSync(ledgerPath(root), { recursive: true });
 		expect(() => readLookup()).toThrow(/would not read/);
+	});
+});
+
+describe("readDeclaredOverflowLookup (#4393)", () => {
+	beforeEach(() => {
+		vi.stubEnv("HOME", root);
+		vi.stubEnv("WFC_DISPATCH_ROOT", root);
+		writeUnreadableLedgerCheckout(root, "broken");
+	});
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("marks nothing, reading no ledger, where no overflow seat is declared", () => {
+		const lookup = readDeclaredOverflowLookup({ seats: [], errors: [] });
+		expect(lookup({ sessionId: JOB })).toBeNull();
+	});
+
+	it("reads every ledger where the seat file will not read, as a malformed line may be an overflow seat", () => {
+		expect(() =>
+			readDeclaredOverflowLookup({
+				seats: [],
+				errors: ["refill-seats:1: bad"],
+			}),
+		).toThrow(path.join(root, "broken"));
 	});
 });
 

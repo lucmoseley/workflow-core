@@ -22,6 +22,10 @@ const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const { shortJobId } = require("./job-paths.js");
 const { homeDir, readAdopterCheckouts } = require("./refill-repos.js");
+const {
+	declaresOverflowSeat,
+	readDeclaredSeats,
+} = require("./refill-seats.js");
 
 /** A prompt's leading `/<skill>`, any `<plugin>:` namespace aside. */
 const COMMAND_RE = /^\s*\/(?:[\w.-]+:)?([\w.-]+)/;
@@ -325,6 +329,19 @@ const readEveryLedgerRoot = () => [
 const readEveryOverflowLookup = () => readOverflowLookup(readEveryLedgerRoot());
 
 /**
+ * `readEveryOverflowLookup` where the seat file declares an overflow seat, or
+ * will not read; else a lookup that marks no session overflow, reading no
+ * ledger, as a host with no overflow seat has none to tell apart (#4393).
+ * @param {import("./refill-seats.js").SeatList} [declared]
+ * @throws as `readEveryOverflowLookup`, where it reads
+ */
+function readDeclaredOverflowLookup(declared = readDeclaredSeats()) {
+	if (!declaresOverflowSeat(declared) && declared.errors.length === 0)
+		return () => null;
+	return readEveryOverflowLookup();
+}
+
+/**
  * What a later row on the same job must repeat, as the lookup answers from
  * the latest row alone.
  * @param {OverflowLaunch} l
@@ -447,6 +464,7 @@ module.exports = {
 	readRecentEntries,
 	readLastLaunchAt,
 	readLaunchTimes,
+	readDeclaredOverflowLookup,
 	readEveryOverflowLookup,
 	readOverflowLookup,
 	record,
