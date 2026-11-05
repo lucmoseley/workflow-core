@@ -1,11 +1,10 @@
 /*
  * base-red-issue.js — the one issue the queue lander keeps open for files red
- * on `main` itself (#4485, spec #4458): failures a red batch shares with
- * `main`, which it blames on no member and lands past. Filed as
- * lib/queue-issue.js files it where none is open, else its body refreshed
- * naming the newest `main` red and its files.
+ * on `main` itself: failures a red batch shares with `main`, which it blames
+ * on no member.
  */
 
+const { buildFileList } = require("./fix-ticket.js");
 const { queueIssueFiler } = require("./queue-issue.js");
 
 const TITLE = "`main` is red: failures the queue lander blames on no member";
@@ -17,16 +16,20 @@ const TITLE = "`main` is red: failures the queue lander blames on no member";
  */
 const buildBaseRedBody = (sha, files) => `## What to build
 
-The queue lander (#4458) found these files failing on \`main\` as well as on a batch it tested, so it blamed them on no member and landed past them. Every later batch that fails them lands past them too, until they pass on \`main\`.
+The queue lander (#4458) found ${files.length > 0 ? "these files" : "the whole suite, naming no file,"} failing on \`main\` as well as on a batch it tested, so it blamed them on no member. Until they pass on \`main\`, a batch red only on them is held where \`main\` takes only a sha a CI run passed, as on Actions, and lands past them elsewhere.
 
 - Main: \`${sha}\`
-
+${
+	files.length > 0
+		? `
 Failing:
-${files.map((f) => `- \`${f}\``).join("\n")}
-
+${buildFileList(files)}
+`
+		: ""
+}
 ## Acceptance criteria
 
-- [ ] Each file above passes on \`main\`.
+- [ ] ${files.length > 0 ? "Each file above passes" : "The whole suite passes"} on \`main\`.
 `;
 
 /**
