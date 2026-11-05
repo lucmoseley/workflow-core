@@ -42,10 +42,10 @@
  *   host, read off the session's tree. A push creating or fast-forwarding it
  *   passes. Denied, each refusal naming that own ref: a push to another
  *   session's queue ref, a forced push or a deletion of any queue ref, own
- *   included, and any push or deletion of `lander/*` or `dropped/*`, which the
- *   lander alone writes. A session outside such a worktree has no queue ref:
- *   its push of one is denied, naming scripts/start-session.sh, the launch
- *   that cuts a session its worktree. The lander's own pushes — `main`,
+ *   included, and any push or deletion of `lander/*` or `dropped/*`. A session
+ *   outside such a worktree, or whose tree git cannot resolve, has no queue
+ *   ref: its push of one is denied, naming scripts/start-session.sh, the
+ *   launch that cuts a session its worktree. The lander's own pushes — `main`,
  *   `lander/*`, a queue ref's compare-and-delete — run from its process, never
  *   through Claude Code's Bash tool, so none reaches this core.
  *
@@ -63,8 +63,7 @@
  *    runs it outside Claude Code.
  *  - A queue ref is judged by the session's tree, not the pushing one: `git -C`
  *    into a neighbour's worktree pushes the neighbour's commits under the
- *    session's own name, unseen. A session's tree git cannot resolve leaves a
- *    queue, `lander/*` or `dropped/*` push allowed, logged (lib/tree-or.js).
+ *    session's own name, unseen.
  *  - A push whose tree it cannot resolve (`git -C "$W"`, W unset) FAILS OPEN,
  *    recorded by the walker (mantahostels#147). A `graphql` query it cannot
  *    read back (`$(cat q)`, a `@file` field) is allowed unrecorded: nothing
@@ -87,16 +86,18 @@
  *
  * The rules it prints are docs/agents/rules/branch-publish.txt, main-rewind.txt
  * and dependabot-merge.txt, and with `landing` on branch-publish-landing.txt in
- * place of the first and landing-rewind.txt. A refusal whose fragment cannot
- * be read still refuses, naming the file (mantahostels#1648's store rule), and
- * logs nothing: an unreadable fragment is check-guard-registry.js's assertion.
+ * place of the first, landing-rewind.txt and queue-ref.txt. A refusal whose
+ * fragment cannot be read still refuses, naming the file (mantahostels#1648's
+ * store rule), and logs nothing: an unreadable fragment is
+ * check-guard-registry.js's assertion.
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const path = require("node:path");
-const { LANDER_BATCH_BRANCH, LANDING_BRANCH } = require("./landing-refs.js");
+const { LANDING_BRANCH } = require("./landing-refs.js");
 const { rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
+const { shellQuote } = require("./sh-quote.js");
 const {
 	parseCommand,
 	unmask,
@@ -104,6 +105,7 @@ const {
 	walkGit,
 } = require("./shell-parse.js");
 const { carriesVar, ghWords, literal, scanFlags } = require("./shell-words.js");
+const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -131,15 +133,9 @@ const DEPENDABOT_JQ =
 
 const LANDING_HEAD = `refs/heads/${LANDING_BRANCH}`;
 
-/* A session's queue ref, `queue/<worktree name>`; a dropped one's name; the
- * lander's own branches' prefix, `lander/`; and, under `refs/heads/`, the
- * prefixes of every ref the queue lander manages. */
 const QUEUE_PREFIX = "queue/";
 const DROPPED_PREFIX = "dropped/";
-const LANDER_PREFIX = LANDER_BATCH_BRANCH.slice(
-	0,
-	LANDER_BATCH_BRANCH.indexOf("/") + 1,
-);
+const LANDER_PREFIX = "lander/";
 
 const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 
@@ -195,14 +191,16 @@ const landingRewind = (ctx, what, segment) => ({
 
 /**
  * The session's own queue ref, or null where its tree is no worktree under
- * the host's `.claude/worktrees/`. Throws TreeUnresolved where git names no
- * tree for the session, which the dispatcher allows, logged.
+ * the host's `.claude/worktrees/` or git names no tree for it.
  * @param {BranchPublishContext} ctx
  * @returns {string | null}
  */
 function ownQueueRef(ctx) {
-	const tree = ctx.tree().root;
-	if (path.dirname(tree) !== path.join(ctx.root, ".claude", "worktrees"))
+	const tree = treeOr(ctx, null)?.root;
+	if (
+		!tree ||
+		path.dirname(tree) !== path.join(ctx.root, ".claude", "worktrees")
+	)
 		return null;
 	return `${QUEUE_PREFIX}${path.basename(tree)}`;
 }
@@ -219,9 +217,9 @@ function ownQueueRef(ctx) {
 const queueRefusal = (ctx, what, own, segment) => ({
 	reason: `${what}: @CMD@\n\n${
 		own
-			? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin HEAD:refs/heads/${own}\`. It passes as a creation or a fast-forward, never forced; undo a commit with a follow-up commit pushed on top. Only the lander deletes a queue ref, once it lands, and only the lander writes \`${LANDER_PREFIX}*\` and \`${DROPPED_PREFIX}*\`.`
+			? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin ${shellQuote(`HEAD:refs/heads/${own}`)}\`.`
 			: `This session runs outside a worktree under ${path.join(ctx.root, ".claude", "worktrees")}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`.claude/worktrees/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`
-	}`,
+	}\n\n${ruleOrFallback(ctx, "queue-ref", "Push your work to your session's own queue ref, a creation or a fast-forward, never forced")}`,
 	segment,
 });
 
@@ -288,10 +286,10 @@ const isLanding = (ref) =>
 const MANAGED = [QUEUE_PREFIX, LANDER_PREFIX, DROPPED_PREFIX];
 
 /**
- * The branch a ref as written names: `refs/heads/` or `heads/` off its front.
+ * The branch a ref as written names.
  * @param {string} ref
  */
-const branchNamed = (ref) => ref.replace(/^refs\//, "").replace(/^heads\//, "");
+const branchNamed = (ref) => ref.replace(/^(refs\/)?heads\//, "");
 
 /**
  * The queue lander's verdict on a push or deletion of `branch`, or undefined
@@ -435,14 +433,14 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 		return landingRewind(ctx, `force-pushes \`${LANDING_BRANCH}\``, segment);
 	if (ref.startsWith("refs/heads/")) {
 		const managed = judgeManaged(ctx, segment, {
-			branch: ref.slice("refs/heads/".length),
+			branch: branchNamed(ref),
 			forced,
 			deleted: false,
 		});
 		if (managed !== undefined) return managed;
 	}
 	if (isAllowedDst(ref, ctx)) return null;
-	const branch = ref.slice("refs/heads/".length);
+	const branch = branchNamed(ref);
 	if (ref === "refs/heads/main")
 		return refuse(
 			ctx,

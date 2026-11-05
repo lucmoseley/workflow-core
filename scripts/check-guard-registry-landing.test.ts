@@ -541,7 +541,11 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 		return { root, tip, sha: git("rev-parse", "HEAD") };
 	}
 
-	const push = (root: string, line: string) =>
+	const push = (
+		root: string,
+		line: string,
+		inherited: Record<string, string> = {},
+	) =>
 		/* spawn-kept: a real fd — the gate hands the checker it spawns the real
 		 * fd 2, where these cases read its report. */
 		spawnSync(
@@ -558,6 +562,7 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 					WFC_RULES_DIR: "",
 					WFC_RULES_FALLBACK_DIR: "",
 					WFC_MODULES: "landing",
+					...inherited,
 				},
 			},
 		);
@@ -573,10 +578,23 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 	});
 
 	it("judges a fast-forward of a queue ref against main's tip, not the ref's own", () => {
-		const { root, sha } = staleOnTip();
+		const { root, tip, sha } = staleOnTip();
 		/* The ref's remote sha already carries the stale row; main's does not. */
 		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${sha}`);
 		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).toContain(`on main's tree at ${tip},`);
+	});
+
+	it("refuses a queue push's fault under an inherited lander revert and revert base that carry it", () => {
+		const { root, tip, sha } = staleOnTip();
+		/* The pushed sha carries the stale row itself, so as a revert base it
+		 * would excuse the fault. */
+		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${Zero}`, {
+			WFC_LANDER_REVERT_BASE: sha,
+			WFC_LANDER_REVERT: sha,
+		});
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).toContain(`on main's tree at ${tip},`);
 	});
 
 	it("passes, printed, a queue push in a clone holding no origin/main", () => {

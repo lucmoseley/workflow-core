@@ -20,7 +20,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./gh-stub";
-import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
+import {
+	defineTemplate,
+	mkDirOutsideRepo,
+	mkScratchDir,
+	trioTemplate,
+} from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { denyFires } from "./guard-fires-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
@@ -414,6 +419,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		const why = denial(command, own);
 		expect(why).toContain(`Your session's queue ref is \`${Own}\``);
 		expect(why).toContain(`git push origin HEAD:refs/heads/${Own}`);
+		expect(why).toContain(readRuleText("queue-ref"));
 		return why;
 	};
 
@@ -488,6 +494,33 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		expect(denial("git push origin HEAD:lander/batch")).toContain(
 			"start-session.sh <session-name>`",
 		);
+	});
+
+	it("reads a session whose tree git cannot resolve as one with no queue ref, refusing all the same", () => {
+		const nowhere = mkDirOutsideRepo("branch-publish-nowhere-");
+		try {
+			for (const [command, what] of [
+				[
+					`git -C ${own} push origin HEAD:queue/q1`,
+					"This pushes to the queue ref `queue/q1` from outside a worktree",
+				],
+				[
+					`git -C ${own} push origin HEAD:lander/batch`,
+					"pushes to `lander/batch`, which only the lander writes",
+				],
+				[
+					`git -C ${own} push origin --delete queue/q1`,
+					"deletes the queue ref `queue/q1`",
+				],
+			]) {
+				const why = denial(command, nowhere);
+				expect(why).toContain(what);
+				expect(why).toContain("so it has no queue ref");
+				expect(why).toContain(readRuleText("queue-ref"));
+			}
+		} finally {
+			fs.rmSync(nowhere, { recursive: true, force: true });
+		}
 	});
 
 	it.each([
@@ -746,6 +779,11 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			"This deletes `landing` on the remote: git push origin :landing\n\nNever force-push or delete `landing`; the rule could not be read from docs/agents/rules/landing-rewind.txt. Read that file before doing anything else.",
 		],
 		[
+			"git push origin HEAD:lander/batch",
+			"landing",
+			"This pushes to `lander/batch`, which only the lander writes: git push origin HEAD:lander/batch\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Read that file before doing anything else.",
+		],
+		[
 			"gh pr merge dependabot/x",
 			"",
 			"This merges a Dependabot pull request: gh pr merge dependabot/x\n\nNever merge a Dependabot pull request; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Read that file before doing anything else.",
@@ -755,7 +793,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		(command, modules, reason) => {
 			vi.stubEnv("WFC_MODULES", modules);
 			noRules();
-			expect(denial(command)).toBe(reason);
+			expect(denial(command)).toBe(reason.replace("SHARED", shared));
 		},
 	);
 });

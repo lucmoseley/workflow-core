@@ -1835,6 +1835,17 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"docs/agents/rules/queue-ref.txt": [
+			"scripts/count-guard-fires.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/branch-publish.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/review-tier.test.ts",
+			"scripts/lib/rule-text.test.ts",
+			"scripts/lib/tracker-rules.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"docs/agents/rules/recurrence-checks.txt": [
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
