@@ -2,19 +2,27 @@
 /*
  * Pins goal-set.js: the open issues a `drain` goal names, its ref's open
  * descendants through parent links at any depth, the ref in another repo
- * included (#3866, ruling #2524).
+ * included (#3866, ruling #2524); and `resolveGoal`'s outcome for each goal
+ * form, the refusal and the gone-checkout notice included (#4382).
  *
- * A core, so its cases call it with seeded issue lists; pick-next.test.ts keeps
- * the run that crosses the goal flag and the GOAL SET line.
+ * A core, so its cases call it with seeded issue lists, `resolveGoal`'s
+ * checkout lookup the production lib/goal-ref-repo.js over a temp HOME;
+ * pick-next.test.ts keeps the runs that cross the goal flag, its exit and its
+ * stderr.
  *
  * Breaking it drains the wrong set: a goal that stops a level down, takes in
  * a stranger, or misses a child whose parent lives in another checkout, and
  * the refill loop ranks work nobody named.
  */
 
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeAdopterCheckout } from "./claim-store-testkit";
 
 const { openDescendants, resolveGoal } = require("./goal-set.js");
+const { goalRefRepo } = require("./goal-ref-repo.js");
 
 const OWN = "o/r";
 /** An open issue here, its parent the issue `parent` names, or none. */
@@ -61,15 +69,23 @@ describe("resolveGoal (#4382)", () => {
 		title: `t${i.number}`,
 	}));
 	const graph = { ownRepo: OWN };
-	/** The checkouts on this machine, by name; `null` is this one. */
-	const checkouts = new Map<string | null, string>([
-		[null, OWN],
-		["manta", "o/manta"],
-	]);
-	const ownCheckout = (ref: { repo: string | null }) => checkouts.get(ref.repo);
+	let home = "";
+	let savedHome: string | undefined;
+	beforeEach(() => {
+		home = fs.mkdtempSync(path.join(os.tmpdir(), "goal-set-"));
+		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
+		savedHome = process.env.HOME;
+		process.env.HOME = home;
+	});
+	afterEach(() => {
+		process.env.HOME = savedHome;
+		fs.rmSync(home, { recursive: true, force: true });
+	});
+	/** The production lookup, the run's own checkout `r` under the temp HOME. */
+	const ownCheckout = (ref: { repo: string | null }, own: string | null) =>
+		goalRefRepo(ref, own, path.join(home, "r"));
 
 	it("ranks nothing for a checkout gone from the machine, and says so", () => {
-		// Moved from scripts/pick-next.test.ts.
 		expect(
 			resolveGoal(
 				{ form: "drain", refs: [{ repo: "ghost", number: 5 }] },
@@ -82,15 +98,17 @@ describe("resolveGoal (#4382)", () => {
 			ranked: [],
 			notice: "--goal names ghost#5: no checkout named ghost",
 		});
-		// The positive pair: a checkout here drains with no notice.
-		expect(
-			resolveGoal(
-				{ form: "drain", refs: [{ repo: null, number: 1 }] },
-				map,
-				graph,
-				ownCheckout,
-			),
-		).toMatchObject({ ranked: [2, 3], notice: null });
+		// The positive pair: this checkout, bare or by its own directory name,
+		// drains with no notice.
+		for (const repo of [null, "r"])
+			expect(
+				resolveGoal(
+					{ form: "drain", refs: [{ repo, number: 1 }] },
+					map,
+					graph,
+					ownCheckout,
+				),
+			).toMatchObject({ ranked: [2, 3], notice: null });
 	});
 
 	it("refuses an unblock in another repo, naming it, and ranks an issue list here", () => {

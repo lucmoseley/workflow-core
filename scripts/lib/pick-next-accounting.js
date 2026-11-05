@@ -3,7 +3,8 @@
  * ranked frontier: why each frontier issue outside the set did not launch and
  * why each open issue was never takeable (#591), the dispatchable floor
  * (mantahostels#1507), the band no command opens (mantahostels#1626), and the run summary
- * the skill's §6 message is written from (mantahostels#1001).
+ * the skill's §6 message is written from (mantahostels#1001), and the NOT
+ * PROPOSED block's complete text (#4382).
  *
  * Every input is the run's own state, already read; nothing here reads
  * anything.
@@ -51,12 +52,36 @@ const REASON_ORDER = /** @type {NotLaunchedReason[]} */ (
 	Object.keys(NOT_LAUNCHED_REASONS)
 );
 
+/** NOT PROPOSED rows printed; --json carries the lot. UNMEASURED, set to match pick-next.js's other print caps. */
+const NOT_PROPOSED_PRINT_CAP = 20;
+
 /**
- * A NOT PROPOSED row's printed detail.
- * @param {NotLaunchedRow} row
- * @returns {string}
+ * The NOT PROPOSED block's lines, header first: the rows grouped under their
+ * reason in precedence order, capped, the rest counted.
+ * @param {NotLaunchedRow[]} rows `notLaunchedOf`'s rows
+ * @returns {string[]}
  */
-const notLaunchedText = (row) => NOT_LAUNCHED_REASONS[row.reason](row.detail);
+function notProposedLines(rows) {
+	const sorted = [...rows].sort(
+		(a, b) => REASON_ORDER.indexOf(a.reason) - REASON_ORDER.indexOf(b.reason),
+	);
+	const lines = [
+		`\nNOT PROPOSED (${sorted.length}) — frontier issues outside the set, by the first reason that applies\n`,
+	];
+	if (sorted.length === 0) lines.push("  none");
+	/** @type {NotLaunchedReason | null} */
+	let shownReason = null;
+	for (const e of sorted.slice(0, NOT_PROPOSED_PRINT_CAP)) {
+		if (e.reason !== shownReason) lines.push(`  ${e.reason}:`);
+		shownReason = e.reason;
+		lines.push(`    #${e.number}  ${NOT_LAUNCHED_REASONS[e.reason](e.detail)}`);
+	}
+	if (sorted.length > NOT_PROPOSED_PRINT_CAP)
+		lines.push(
+			`  ... and ${sorted.length - NOT_PROPOSED_PRINT_CAP} more — --json carries every one.`,
+		);
+	return lines;
+}
 
 /**
  * WHY EACH FRONTIER ISSUE OUTSIDE THE SET DID NOT LAUNCH (#591), the reasons
@@ -391,9 +416,8 @@ module.exports = {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
-	notLaunchedText,
+	notProposedLines,
 	openTallyOf,
-	REASON_ORDER,
 	summaryOf,
 	takesCell,
 };

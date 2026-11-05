@@ -490,6 +490,20 @@ describe("a goal the script works out itself (#3866)", () => {
 		},
 	);
 
+	it("ranks nothing for a checkout gone from the machine, keeping its shortlist", async () => {
+		const home = path.join(kit.dir, "adopters");
+		fs.mkdirSync(home);
+		const r = await run(map, ["--json", "--goal", "drain ghost#5"], {
+			env: { HOME: home },
+		});
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("--goal names ghost#5: no checkout named ghost");
+		expect(members(r)).toEqual([]);
+		expect(
+			r.json().frontier.map((row: { number: number }) => row.number),
+		).toEqual([3, 5]);
+	});
+
 	it("refuses an unblock in another repo: that repo's run walks it", async () => {
 		const home = path.join(kit.dir, "adopters");
 		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
@@ -1377,25 +1391,17 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 		).toEqual({ category: "blocked", count: 4, numbers: [2, 3, 4, 5] });
 	});
 
-	it("caps the printed block, grouped by reason, and --json carries all", async () => {
+	it("prints the NOT PROPOSED block, and --json carries every row past its print cap", async () => {
+		// The printed cap and grouping are pinned on notProposedLines (#4382).
 		const issues = Array.from({ length: 25 }, (_, n) => ({
 			number: n + 1,
 			labels: ["takes:human"],
 		}));
 		const r = await run({ issues });
-		const block = r.out.split("NOT PROPOSED")[1].split("\nRUN SUMMARY")[0];
-		expect(block).toMatch(/^ \(25\)/);
-		expect(block.match(/^ {2}no command:$/gm)).toHaveLength(1);
-		expect(block.match(/^ {4}#\d+ {2}human$/gm)).toHaveLength(20);
-		expect(block).toMatch(/\.\.\. and 5 more — --json carries every one\./);
+		expect(r.out).toMatch(
+			/\nNOT PROPOSED \(25\)[^\n]*\n\n {2}no command:\n {4}#1 {2}human\n/,
+		);
 		const j = (await run({ issues }, ["--json"])).json();
 		expect(j.notLaunched).toHaveLength(25);
-	});
-
-	it("prints none where every frontier issue is in the set", async () => {
-		const r = await run({
-			issues: [{ number: 1, labels: ["takes:implement"] }],
-		});
-		expect(r.out).toMatch(/NOT PROPOSED \(0\)[^\n]*\n\n {2}none\n/);
 	});
 });

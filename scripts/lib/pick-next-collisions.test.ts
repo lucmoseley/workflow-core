@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 const {
 	annotatePaths,
-	collisionPairLines,
+	collisionBlockLines,
 	collisionsOf,
 } = require("./pick-next-collisions.js");
 
@@ -69,7 +69,8 @@ describe("frontier and in-flight pairs", () => {
 
 /*
  * Moved from scripts/pick-next-output.test.ts (#4382): the stamp-pair count
- * and the in-flight cap are text the core builds, so they are pinned here.
+ * and the in-flight cap are text the core builds, so they are pinned here,
+ * the cap at its measured 20.
  */
 describe("the POSSIBLE FILE COLLISIONS lines", () => {
 	const pair = (a: number, b: number, paths: string[]) => ({ a, b, paths });
@@ -77,22 +78,20 @@ describe("the POSSIBLE FILE COLLISIONS lines", () => {
 		collisions: ReturnType<typeof pair>[],
 		{ docMapQueue = [] as number[], inFlight = 0 } = {},
 	) =>
-		collisionPairLines(
-			{
-				collisions,
-				inFlightCollisions: Array.from({ length: inFlight }, (_, k) => ({
-					candidate: 1,
-					inFlight: k + 2,
-					claimedBy: ["luc"],
-					claimedSession: "self",
-					paths: ["scripts/a.js"],
-				})),
-				docMapQueue,
-				claims: { kept: true },
-				listed: { names: new Map() },
-			},
-			20,
-		).join("\n");
+		collisionBlockLines({
+			tracked,
+			collisions,
+			inFlightCollisions: Array.from({ length: inFlight }, (_, k) => ({
+				candidate: 1,
+				inFlight: k + 2,
+				claimedBy: ["luc"],
+				claimedSession: "self",
+				paths: ["scripts/a.js"],
+			})),
+			docMapQueue,
+			claims: { kept: true },
+			listed: { names: new Map() },
+		}).join("\n");
 
 	it("suppresses a pair sharing only docs/doc-map.md behind a summary count", () => {
 		// The doc-map-only wall the skill tells the reader to discount (.claude/skills/pick-next/SKILL.md; mantahostels#593).
@@ -146,5 +145,21 @@ describe("the POSSIBLE FILE COLLISIONS lines", () => {
 			/\.\.\. and 136 more in-flight pairs — --json carries every one\./,
 		);
 		expect(lines([], { inFlight: 20 })).not.toMatch(/more in-flight pairs/);
+	});
+
+	it("prints nothing where no pair fired, and says the block is unavailable where git listed no files", () => {
+		expect(lines([])).toBe("");
+		expect(
+			collisionBlockLines({
+				tracked: { ok: false, error: "git ls-files failed" },
+				collisions: [],
+				inFlightCollisions: [],
+				docMapQueue: [],
+				claims: {},
+				listed: {},
+			}),
+		).toEqual([
+			"\nPOSSIBLE FILE COLLISIONS — unavailable: could not list tracked files\n  git ls-files failed",
+		]);
 	});
 });

@@ -15,7 +15,7 @@ const {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
-	notLaunchedText,
+	notProposedLines,
 	openTallyOf,
 	summaryOf,
 } = require("./pick-next-accounting.js");
@@ -44,20 +44,6 @@ const reasons = (rows: { number: number; reason: string }[]) =>
 	Object.fromEntries(rows.map((r) => [r.number, r.reason]));
 
 describe("why a frontier issue did not launch (#591)", () => {
-	it("prints a no-admission-slot row's slot count, or unknown where admission read none (#4382)", () => {
-		const row = (detail: object) => ({
-			number: 3,
-			reason: "no admission slot",
-			detail,
-		});
-		expect(notLaunchedText(row({ slots: 2, freeSlots: 2 }))).toBe(
-			"2 slot(s), as of this run",
-		);
-		expect(notLaunchedText(row({ slots: 1, freeSlots: null }))).toBe(
-			"free slots unknown, as of this run",
-		);
-	});
-
 	it("cuts the set below the slot count as no admission slot", () => {
 		const rows = notLaunchedOf(
 			launchState({
@@ -296,5 +282,48 @@ describe("the §6 summary (mantahostels#1001)", () => {
 		const s = run({ reclaimable: { ok: false, error: "oracle refused" } });
 		expect(s.reclaimable).toBeNull();
 		expect(s.reclaimableUnknown).toBe("oracle refused");
+	});
+});
+
+describe("the NOT PROPOSED lines (#4382)", () => {
+	const row = (number: number, reason: string, detail: object) => ({
+		number,
+		reason,
+		detail,
+	});
+
+	it("prints a no-admission-slot row's slot count, or unknown where admission read none", () => {
+		const out = notProposedLines([
+			row(3, "no admission slot", { slots: 2, freeSlots: 2 }),
+			row(4, "no admission slot", { slots: 1, freeSlots: null }),
+		]);
+		expect(out).toContain("    #3  2 slot(s), as of this run");
+		expect(out).toContain("    #4  free slots unknown, as of this run");
+	});
+
+	it("caps the printed block, grouped by reason in precedence order", () => {
+		// Moved from scripts/pick-next.test.ts, which keeps its --json half.
+		const rows = [
+			row(99, "no admission slot", { slots: 0, freeSlots: 0 }),
+			...Array.from({ length: 25 }, (_, n) =>
+				row(n + 1, "no command", { takes: ["human"] }),
+			),
+		];
+		const out = notProposedLines(rows);
+		expect(out[0]).toMatch(/^\nNOT PROPOSED \(26\) — /);
+		expect(out.filter((l: string) => l === "  no command:")).toHaveLength(1);
+		expect(
+			out.filter((l: string) => /^ {4}#\d+ {2}human$/.test(l)),
+		).toHaveLength(20);
+		expect(out).not.toContain("  no admission slot:");
+		expect(out.at(-1)).toBe("  ... and 6 more — --json carries every one.");
+	});
+
+	it("prints none where every frontier issue is in the set", () => {
+		// Moved from scripts/pick-next.test.ts.
+		expect(notProposedLines([]).slice(1)).toEqual(["  none"]);
+		expect(
+			notProposedLines([row(1, "no command", { takes: [] })]),
+		).not.toContain("  none");
 	});
 });

@@ -117,7 +117,7 @@ describe("whether the dispatched launch's own job is still alive (mantahostels#3
 		).toBe("unknown");
 	});
 
-	it("prints unknown with its reason in the text table's liveness cell, and no reason after live or finished", () => {
+	it("prints unknown with its reason in the text table's liveness cell on a pre-mantahostels#3488 entry with no job id, and no reason after live or finished", () => {
 		// Moved from scripts/pick-next-claims.test.ts (#4382).
 		const cell = (rec: ReturnType<typeof entry>, ids: string[], js = jobs) =>
 			dispatchLivenessCell(dispatchLiveness(rec, listed(ids), js));

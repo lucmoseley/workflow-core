@@ -90,7 +90,6 @@
 
 const { scriptPath } = require("./lib/script-path.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
-const nodePath = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { isOutcomeError } = require("./lib/check");
 const {
@@ -149,15 +148,15 @@ const {
 } = require("./lib/dispatch-ledger");
 const { WAITING_LABEL } = require("./lib/frontier-order.js");
 const { resolveGoal } = require("./lib/goal-set.js");
+const { goalRefRepo } = require("./lib/goal-ref-repo.js");
 const { buildGoalRefusal, parseGoalForm } = require("./lib/refill-goal.js");
 const { snapshotFile } = require("./lib/pick-next-snapshot.js");
 const {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
-	notLaunchedText,
+	notProposedLines,
 	openTallyOf,
-	REASON_ORDER,
 	summaryOf,
 	takesCell,
 } = require("./lib/pick-next-accounting.js");
@@ -168,7 +167,7 @@ const {
 } = require("./lib/pick-next-band-read.js");
 const {
 	annotatePaths,
-	collisionPairLines,
+	collisionBlockLines,
 	collisionsOf,
 } = require("./lib/pick-next-collisions.js");
 const {
@@ -459,15 +458,7 @@ const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT;
 const docMapQueueOf = (list) =>
 	list.filter((i) => DOC_MAP_HINT.test(i.body)).map((i) => i.number);
 
-/*
- * Printed pairs are capped; --json carries the lot. A hot file drives the count
- * quadratically — one live run gave 94 pairs, most of them `docs/doc-map.md`,
- * which nearly every open issue names — and a list that long buries the
- * shortlist above it.
- */
-const INFLIGHT_PRINT_CAP = 20;
-
-/** Graph rows printed per block; --json carries the lot. UNMEASURED, unlike INFLIGHT_PRINT_CAP. */
+/** Graph rows printed per block; --json carries the lot. UNMEASURED, unlike lib/pick-next-collisions.js's INFLIGHT_PRINT_CAP. */
 const GRAPH_PRINT_CAP = 20;
 /** Files named in the graph's by-file summary. */
 const GRAPH_FILE_CAP = 8;
@@ -479,10 +470,8 @@ const GRAPH_FILE_CAP = 8;
 const sessionName = (s) =>
 	String(s).length > 34 ? `${String(s).slice(0, 33)}…` : String(s);
 
-/** Warm entries printed; --json carries the lot. UNMEASURED, unlike INFLIGHT_PRINT_CAP. */
+/** Warm entries printed; --json carries the lot. UNMEASURED, unlike lib/pick-next-collisions.js's INFLIGHT_PRINT_CAP. */
 const WRITE_SET_PRINT_CAP = 20;
-/** NOT PROPOSED rows printed; --json carries the lot. UNMEASURED, set to match the caps beside it. */
-const NOT_PROPOSED_PRINT_CAP = 20;
 const DERIVE_PER_LINE = 12;
 
 /**
@@ -1364,14 +1353,7 @@ function renderShortlist(state) {
 
 /** @param {State} state */
 function renderCollisions(state) {
-	const { tracked, collisions, inFlightCollisions } = state;
-	if (!tracked.ok)
-		console.log(
-			`\nPOSSIBLE FILE COLLISIONS — unavailable: could not list tracked files\n  ${tracked.error}`,
-		);
-	else if (collisions.length > 0 || inFlightCollisions.length > 0)
-		for (const line of collisionPairLines(state, INFLIGHT_PRINT_CAP))
-			console.log(line);
+	for (const line of collisionBlockLines(state)) console.log(line);
 }
 
 /** @param {State} state */
@@ -2025,24 +2007,7 @@ function renderExcluded(state, dispatchedShown) {
 
 /** @param {State} state */
 function renderNotProposed(state) {
-	const notLaunched = notLaunchedOf(state).sort(
-		(a, b) => REASON_ORDER.indexOf(a.reason) - REASON_ORDER.indexOf(b.reason),
-	);
-	console.log(
-		`\nNOT PROPOSED (${notLaunched.length}) — frontier issues outside the set, by the first reason that applies\n`,
-	);
-	if (notLaunched.length === 0) console.log("  none");
-	/** @type {import("./lib/pick-next-accounting.js").NotLaunchedReason | null} */
-	let shownReason = null;
-	for (const e of notLaunched.slice(0, NOT_PROPOSED_PRINT_CAP)) {
-		if (e.reason !== shownReason) console.log(`  ${e.reason}:`);
-		shownReason = e.reason;
-		console.log(`    #${e.number}  ${notLaunchedText(e)}`);
-	}
-	if (notLaunched.length > NOT_PROPOSED_PRINT_CAP)
-		console.log(
-			`  ... and ${notLaunched.length - NOT_PROPOSED_PRINT_CAP} more — --json carries every one.`,
-		);
+	for (const line of notProposedLines(notLaunchedOf(state))) console.log(line);
 }
 
 /** @param {State["summary"]} summary */
@@ -2290,18 +2255,6 @@ async function resolveBlockers(issues, byNumber) {
 		})),
 		blockers: graph,
 	};
-}
-
-/**
- * The `owner/name` a goal ref names: its `<dir>` is a checkout's directory name.
- * @param {import("./lib/refill-goal.js").AskedRef} ref
- * @param {string|null} ownRepo
- * @returns {string|null|undefined} undefined where no checkout bears the name
- */
-function readGoalRefRepo(ref, ownRepo) {
-	if (ref.repo === null || ref.repo === nodePath.basename(REPO_ROOT))
-		return ownRepo;
-	return readHostTracker(nodePath.join(homeDir(), ref.repo)) ?? undefined;
 }
 
 /**
@@ -2586,7 +2539,9 @@ async function main() {
 	const byNumber = new Map(issues.map((i) => [i.number, i]));
 	const { withDeps, blockers } = await resolveBlockers(issues, byNumber);
 	const { openChildren } = blockers;
-	const resolvedGoal = resolveGoal(GOAL_ASK, issues, blockers, readGoalRefRepo);
+	const resolvedGoal = resolveGoal(GOAL_ASK, issues, blockers, (ref, own) =>
+		goalRefRepo(ref, own, REPO_ROOT),
+	);
 	if (resolvedGoal && "refusal" in resolvedGoal) {
 		writeFd(2, `${resolvedGoal.refusal}\n`);
 		process.exit(2);

@@ -8,6 +8,7 @@
  * *intent* from prose is where precision dies — mantahostels#185 measured a prose-content
  * detector at ~15% while its presence check was fine.
  *
+ * It also builds the POSSIBLE FILE COLLISIONS block's complete text (#4382).
  * The tracked-file list and the claims are read in pick-next.js and handed
  * in.
  */
@@ -129,8 +130,17 @@ function collisionsOf(frontier, enriched, held, tracked) {
 	return { collisions, inFlightCollisions };
 }
 
+/*
+ * Printed pairs are capped; --json carries the lot. A hot file drives the count
+ * quadratically — one live run gave 94 pairs, most of them `docs/doc-map.md`,
+ * which nearly every open issue names — and a list that long buries the
+ * shortlist above it.
+ */
+const INFLIGHT_PRINT_CAP = 20;
+
 /**
- * The POSSIBLE FILE COLLISIONS block's lines, header first.
+ * The POSSIBLE FILE COLLISIONS block's lines, header first; one line saying
+ * so where git could not list the tracked files, and none where no pair fired.
  *
  * A pair sharing only stamp paths (`STAMP_PATHS` — a ruling that grows over
  * time, mantahostels#1301) is one the skill tells the reader to discount —
@@ -140,12 +150,23 @@ function collisionsOf(frontier, enriched, held, tracked) {
  * shared, never the whole allowlist (mantahostels#1312), and is gated on a
  * suppressed pair sharing docs/doc-map.md specifically, since that block
  * explains nothing about a CLAUDE.md-only pair.
- * @param {{collisions: ReturnType<typeof collisionsOf>["collisions"], inFlightCollisions: ReturnType<typeof collisionsOf>["inFlightCollisions"], docMapQueue: number[], claims: {kept?: boolean}, listed: {names?: Map<string, string>|null}}} state
- * @param {number} inFlightCap the in-flight pairs printed before the rest are counted
+ * @param {{tracked: TrackedFiles, collisions: ReturnType<typeof collisionsOf>["collisions"], inFlightCollisions: ReturnType<typeof collisionsOf>["inFlightCollisions"], docMapQueue: number[], claims: {kept?: boolean}, listed: {names?: Map<string, string>|null}}} state
  * @returns {string[]}
  */
-function collisionPairLines(state, inFlightCap) {
-	const { collisions, inFlightCollisions, docMapQueue, claims, listed } = state;
+function collisionBlockLines(state) {
+	const {
+		tracked,
+		collisions,
+		inFlightCollisions,
+		docMapQueue,
+		claims,
+		listed,
+	} = state;
+	if (!tracked.ok)
+		return [
+			`\nPOSSIBLE FILE COLLISIONS — unavailable: could not list tracked files\n  ${tracked.error}`,
+		];
+	if (collisions.length === 0 && inFlightCollisions.length === 0) return [];
 	/** @param {{paths: string[]}} c */
 	const isStampPair = (c) => c.paths.every((p) => STAMP_PATHS.includes(p));
 	const stampCollisions = collisions.filter(isStampPair);
@@ -171,15 +192,15 @@ function collisionPairLines(state, inFlightCap) {
 			}; --json carries every pair.`,
 		);
 	}
-	for (const c of inFlightCollisions.slice(0, inFlightCap))
+	for (const c of inFlightCollisions.slice(0, INFLIGHT_PRINT_CAP))
 		lines.push(
 			`  in flight: #${c.candidate} <-> #${c.inFlight} (claimed by ${claimHolder(c.claimedBy, c.claimedSession, claims.kept, listed.names)}) on ${c.paths.join(", ")}`,
 		);
-	if (inFlightCollisions.length > inFlightCap)
+	if (inFlightCollisions.length > INFLIGHT_PRINT_CAP)
 		lines.push(
-			`  ... and ${inFlightCollisions.length - inFlightCap} more in-flight pairs — --json carries every one.`,
+			`  ... and ${inFlightCollisions.length - INFLIGHT_PRINT_CAP} more in-flight pairs — --json carries every one.`,
 		);
 	return lines;
 }
 
-module.exports = { annotatePaths, collisionPairLines, collisionsOf };
+module.exports = { annotatePaths, collisionBlockLines, collisionsOf };
