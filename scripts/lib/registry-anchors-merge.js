@@ -1,13 +1,11 @@
 /*
  * registry-anchors-merge.js — the guard registry's anchors file merged per row
- * (#4171), shared by its git merge driver and the lander's revert route.
+ * (#4171), for its git merge driver.
  *
  * A row both sides moved keeps the current side's digest. Neither side's is
  * an attestation of the merged content, so the gate names it stale and its
  * `--review` re-read writes the right one (#4167, #3935).
  */
-
-const REGISTRY_ANCHORS = ".claude/guard-registry-anchors.json";
 
 /** @param {unknown} v @returns {v is Record<string, string>} */
 const isRows = (v) =>
@@ -66,4 +64,4 @@ function buildMergedAnchors(base, ours, theirs) {
 	return buildAnchorsText(rows);
 }
 
-module.exports = { REGISTRY_ANCHORS, buildMergedAnchors };
+module.exports = { buildMergedAnchors };

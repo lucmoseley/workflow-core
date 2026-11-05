@@ -33,10 +33,13 @@
 
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
-const { killGroup, SYNC_GRACE_MS } = require("./grouped-child.js");
+const { killGroup } = require("./grouped-child.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
+/* `docker stop`'s default on Linux, the one published figure for this wait; no
+ * run here measured what a gate's cleanup needs. */
+const HOOK_GRACE_MS = 10_000;
 const TIMEOUT_EXIT = 124;
 const KILLED_EXIT = 137;
 const APPARATUS_EXIT = 125;
@@ -112,7 +115,7 @@ function parseRun(argv) {
 		return {
 			hook,
 			budgetMs: limitS ? Number(limitS) * 1000 : HOOK_LIMIT_MS,
-			killAfterMs: SYNC_GRACE_MS,
+			killAfterMs: HOOK_GRACE_MS,
 			command,
 			args,
 		};

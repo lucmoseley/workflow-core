@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * queue-lander.js — one queue lander run (#4485, spec #4458): while any
+ * queue-lander.js — one queue lander run: while any
  * `queue/<name>` ref waits on the remote, take them all as one batch, merge
  * them onto `main`, test the integration commit and move `main` to it on
  * green; on red, isolate the members and drop each culprit
@@ -30,10 +30,10 @@
  * cli-args-exempt: openLanderRun parses it, through lib/cli-args.js.
  *
  * Exit codes: 0 on any exit the lander reaches, a held lock and a failed git
- * call included; 1 on a throw before the run; 2 on a command line it refuses.
+ * call included; 1 on a throw before the run or outside a git checkout; 2 on a
+ * command line it refuses.
  */
 
-const { spawn } = require("node:child_process");
 const { queueTester } = require("./lib/actions-tester.js");
 const { baseRedFiler } = require("./lib/base-red-issue.js");
 const { parseErrorText } = require("./lib/caught.js");
@@ -44,17 +44,16 @@ const { adoptGuardCodeAt, adoptionLine } = require("./lib/guard-code.js");
 const {
 	fileLedger,
 	heartbeatWriter,
-	landerFiles,
 	landerLock,
+	queueLanderFiles,
 } = require("./lib/lander-files.js");
 const { startLevelling } = require("./lib/level-main.js");
-const { localTester } = require("./lib/local-tester.js");
+const { commandTester, localTester } = require("./lib/local-tester.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const {
 	batchRecord,
 	dropRecord,
 	queueGit,
-	queueLanderFiles,
 	queueLogger,
 	verdictLedger,
 } = require("./lib/queue-lander-adapters.js");
@@ -86,8 +85,7 @@ const configuredTester = (root) =>
 /**
  * The run the command line asks for: the canonical checkout and the
  * `--tester` command, where one is given. Else its exit code, its reason
- * printed: 2 on a command line it refuses, 1 outside a git checkout, 0 where
- * the `landing` module is off.
+ * printed.
  * @param {string[]} argv
  * @returns {{root: string, tester: string|undefined} | number}
  */
@@ -112,50 +110,6 @@ function openLanderRun(argv) {
 	}
 	return { root, tester: flagValue(parsed.flags, "--tester") };
 }
-
-/**
- * The tester `--tester <command>` names, run in `root`, the whole suite or
- * only the files where they are given.
- * @param {string} command
- * @param {string} root
- * @returns {import("./lib/queue-lander.js").QueueTester}
- */
-const commandTester = (command, root) => ({
-	verdict: (sha, files = []) =>
-		new Promise((resolve) => {
-			const child = spawn(
-				"sh",
-				["-c", `${command} "$@"`, "tester", sha, ...files],
-				{ cwd: root, stdio: ["ignore", "pipe", "inherit"] },
-			);
-			let out = "";
-			child.stdout.on("data", (chunk) => {
-				out += chunk;
-			});
-			child.on("error", (err) =>
-				resolve({
-					kind: "unknown",
-					reason: `tester did not start: ${err.message}`,
-				}),
-			);
-			child.on("close", (code, signal) => {
-				if (code === 0) resolve({ kind: "green" });
-				else if (code === 1)
-					resolve({
-						kind: "red",
-						files: out
-							.split("\n")
-							.map((l) => l.trim())
-							.filter(Boolean),
-					});
-				else
-					resolve({
-						kind: "unknown",
-						reason: `tester ended ${signal ?? `exit ${code}`}`,
-					});
-			});
-		}),
-});
 
 /**
  * After each move of `main`: the guard code's adoption and a levelling pass.
@@ -195,7 +149,7 @@ async function main(argv = process.argv.slice(2)) {
 			tester === undefined
 				? configuredTester(root)
 				: commandTester(tester, root),
-		ledger: fileLedger(landerFiles(root).ledger),
+		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
 		record: batchRecord(files.batch),
 		drops: dropRecord(files.drops),

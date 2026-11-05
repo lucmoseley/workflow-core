@@ -4,7 +4,7 @@ Usage: python3 -I runs.py <markers-dir> [start_iso] [end_iso] [--dump runs.jsonl
 Each ledger line is one run; (startedAt, session, suite) stays unique only as a guard.
 Kind, verdict and fullCause are the ledger's, except one rule applied here:
   lander-rerun  any vitest line other than a lander's with no session after the lander's first run
-          (inferred: the lander's bisect, flake and confirm re-runs run with no session id)"""
+          (inferred: the lander's isolation and confirm re-runs run with no session id)"""
 
 import collections
 import json

@@ -1,6 +1,5 @@
 /*
- * actions-tester.js — the queue lander's Actions tester (#2413, spec #2261;
- * #4458): the core's tester, its repo being public. It reads the suite
+ * actions-tester.js — the queue lander's Actions tester. It reads the suite
  * workflow's run that a push to a lander ref started at the exact sha,
  * through `gh` with the read access the token already has.
  *
@@ -19,10 +18,9 @@
  * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`; asked
  * again, the run's failed jobs are rerun. Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
- * check, are run alone by named-rerun.yml, so a base check never reads the
- * old run that landed `main`. At any other sha a `lander/batch` run covers
- * they are read off that run, a failed one rerunning its failed jobs;
- * elsewhere they go to named-rerun.yml too, under its daily cap.
+ * check, are run alone by named-rerun.yml. At any other sha a `lander/batch`
+ * run covers they are read off that run, a failed one rerunning its failed
+ * jobs; elsewhere they go to named-rerun.yml too, under its daily cap.
  */
 
 const { execFileSync } = require("node:child_process");

@@ -4,9 +4,7 @@
  * past its cap, or past its output cap, the whole group dies, a grandchild
  * included, and a group still live when its caller exits dies with it.
  * Loosen a case and one slow checkout's read, or the `gh` calls it started,
- * holds the loop's tick or outlives the loop. The synchronous form kills the
- * group for the lander's revert commit (#3916), with a SIGTERM and a grace
- * first (#3923).
+ * holds the loop's tick or outlives the loop.
  *
  * Every case crosses the real clock: what is pinned is a real kill of real
  * processes, which no injected clock reaches. The file runs past the 10 s
@@ -14,22 +12,15 @@
  * the stub before it starts the grandchild that case pins.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isDead, isGroupDead, waitFor } from "./process-fixture.js";
-import { shellQuote } from "./sh-quote.js";
 
-const { execGroupedSync, runGrouped } = require("./grouped-child.js");
+const { runGrouped } = require("./grouped-child.js");
 
 const LIB = path.resolve(__dirname, "grouped-child.js");
-const SUPERVISOR = path.resolve(__dirname, "grouped-child-supervisor.js");
-
-/* Only bounds a hung shell: the run under it exits by itself, or is killed by
- * something sooner. */
-const UNREACHED_TIMEOUT_MS = 60_000;
 
 /* Long enough for the stub to start and write its group id first: under the
  * machine's load a node start runs to seconds (vitest.config.ts's x39.6
@@ -74,15 +65,6 @@ const groupGone = async (pgid: number) => {
 	while (groupAlive(pgid) && Date.now() < until)
 		await new Promise((r) => setTimeout(r, REAP_POLL_MS));
 	return !groupAlive(pgid);
-};
-
-const catchThrown = (call: () => unknown) => {
-	try {
-		call();
-	} catch (e) {
-		return e as NodeJS.ErrnoException & { stderr: string; status: number };
-	}
-	throw new Error("expected a throw");
 };
 
 const opts = (over: Record<string, unknown> = {}) => ({
@@ -141,147 +123,6 @@ describe("a grouped child", () => {
 			opts({ maxBuffer: 100 }),
 		);
 		expect(run.killedFor).toBe("stdout past 100 bytes");
-	});
-
-	it("kills a synchronous run's whole group at its timeout, throwing the timeout with the stderr so far (#3916)", () => {
-		const pidFile = path.join(home, "pid");
-		const thrown = catchThrown(() =>
-			execGroupedSync(
-				"sh",
-				[
-					"-c",
-					`sleep 60 & echo $! > ${shellQuote(pidFile)}; echo last >&2; wait`,
-				],
-				/* A guess: room for the shell to start its child under load. */
-				{ timeout: 3000 },
-			),
-		);
-		expect(thrown.code).toBe("ETIMEDOUT");
-		expect(thrown.stderr).toBe("last\n");
-		const child = Number(fs.readFileSync(pidFile, "utf8"));
-		expect(waitFor(() => isDead(child))).toBe(true);
-	});
-
-	it("kills a synchronous run's descendant that ignores SIGTERM once the grace is out (#3923)", () => {
-		const pidFile = path.join(home, "pid");
-		catchThrown(() =>
-			execGroupedSync(
-				"sh",
-				[
-					"-c",
-					`sh -c ${shellQuote(`trap "" TERM; echo $$ > ${shellQuote(pidFile)}; while :; do sleep 0.1; done`)} & wait`,
-				],
-				/* Guesses: room for the shell to start its child under load, and a
-				 * grace short enough to keep the case quick. */
-				{ timeout: 3000, graceMs: 500 },
-			),
-		);
-		const child = Number(fs.readFileSync(pidFile, "utf8"));
-		expect(isDead(child)).toBe(true);
-	});
-
-	it("throws what a synchronous run printed before its kill, not its dying shells' report (#3923)", () => {
-		const thrown = catchThrown(() =>
-			execGroupedSync(
-				"sh",
-				["-c", `trap 'exit 143' TERM; echo last >&2; sleep 60; wait`],
-				/* A guess: room for the shell to start its child under load. */
-				{ timeout: 3000 },
-			),
-		);
-		expect(thrown.stderr).toBe("last\n");
-	});
-
-	it("gives a synchronous run's wrapper the grace to kill the group it started (#3923)", () => {
-		const pidFile = path.join(home, "pid");
-		const wrapper = path.join(home, "wrapper.sh");
-		fs.writeFileSync(
-			wrapper,
-			`setsid sh -c ${shellQuote(`echo $$ > ${shellQuote(pidFile)}; exec sleep 60`)} &
-gid=$!
-trap 'kill -TERM -"$gid"; wait "$gid"; exit 143' TERM
-wait "$gid"
-`,
-		);
-		catchThrown(() =>
-			execGroupedSync("sh", ["-c", `sh ${shellQuote(wrapper)} & wait`], {
-				/* A guess: room for the wrapper to start its group under load. */
-				timeout: 3000,
-			}),
-		);
-		const descendant = Number(fs.readFileSync(pidFile, "utf8"));
-		expect(isDead(descendant)).toBe(true);
-	});
-
-	it("kills the group of a supervisor that takes SIGTERM (#3923)", async () => {
-		const pidFile = path.join(home, "pid");
-		/* spawn-kept: the case sends this process a real signal. */
-		const supervisor = spawn(process.execPath, [SUPERVISOR], {
-			stdio: ["pipe", "ignore", "ignore"],
-		});
-		await new Promise<void>((done) =>
-			supervisor.stdin.end(
-				JSON.stringify({
-					file: "sh",
-					args: ["-c", `echo $$ > ${shellQuote(pidFile)}; sleep 60`],
-					opts: {
-						timeoutMs: UNREACHED_TIMEOUT_MS,
-						maxBuffer: 100,
-						graceMs: 500,
-					},
-				}),
-				done,
-			),
-		);
-		expect(
-			waitFor(() => fs.existsSync(pidFile) && fs.statSync(pidFile).size > 0),
-		).toBe(true);
-		const pgid = Number(fs.readFileSync(pidFile, "utf8"));
-		supervisor.kill("SIGTERM");
-		expect(waitFor(() => isGroupDead(pgid))).toBe(true);
-	});
-
-	it("kills a synchronous run's whole group past its output cap (#3916)", () => {
-		const pidFile = path.join(home, "pid");
-		const thrown = catchThrown(() =>
-			execGroupedSync(
-				"sh",
-				[
-					"-c",
-					`sleep 60 & echo $! > ${shellQuote(pidFile)}; head -c 2000 /dev/zero; wait`,
-				],
-				{ timeout: UNREACHED_TIMEOUT_MS, maxBuffer: 100 },
-			),
-		);
-		expect(thrown.code).toBe("ENOBUFS");
-		const child = Number(fs.readFileSync(pidFile, "utf8"));
-		expect(waitFor(() => isDead(child))).toBe(true);
-	});
-
-	it("leaves a synchronous run's background child alone when it exits by itself (#3916)", () => {
-		const pidFile = path.join(home, "pid");
-		const out = execGroupedSync(
-			"sh",
-			[
-				"-c",
-				`sleep 60 >/dev/null 2>&1 & echo $! > ${shellQuote(pidFile)}; echo done`,
-			],
-			{ timeout: UNREACHED_TIMEOUT_MS },
-		);
-		expect(out).toBe("done\n");
-		const pid = Number(fs.readFileSync(pidFile, "utf8"));
-		expect(isDead(pid)).toBe(false);
-		process.kill(pid, "SIGKILL");
-	});
-
-	it("throws a synchronous run's non-zero exit with its stderr (#3916)", () => {
-		const thrown = catchThrown(() =>
-			execGroupedSync("sh", ["-c", "echo refused >&2; exit 3"], {
-				timeout: UNREACHED_TIMEOUT_MS,
-			}),
-		);
-		expect(thrown.status).toBe(3);
-		expect(thrown.stderr).toBe("refused\n");
 	});
 
 	it("dies with a caller that exits while it runs", async () => {

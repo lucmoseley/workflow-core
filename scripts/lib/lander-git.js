@@ -1,9 +1,9 @@
 /*
- * lander-git.js — the queue lander's git and remote calls (#4485, spec
- * #4458), shared by its adapters (lib/queue-lander-adapters.js) and the
- * readers of its refs and ledger (lib/queue-ref-status.js,
- * lib/landing-stall.js): the remote's heads, ancestry, a throwaway worktree,
- * a push, the line naming why git refused, and a remote call's retries.
+ * lander-git.js — the queue lander's git and remote calls, shared by its
+ * adapters (lib/queue-lander-adapters.js) and the readers of its refs and
+ * ledger (lib/queue-ref-status.js, lib/landing-stall.js): the remote's heads,
+ * ancestry, a throwaway worktree, a push, the line naming why git refused,
+ * and a remote call's retries.
  */
 
 const fs = require("node:fs");
@@ -217,8 +217,7 @@ function withThrowawayTree(root, tip, { program, use: purpose }, use) {
 }
 
 /**
- * The files a merge or revert left conflicted in the worktree `inTree` runs
- * git in.
+ * The files a merge left conflicted in the worktree `inTree` runs git in.
  * @param {(args: string[]) => string} inTree
  * @returns {string[]}
  */

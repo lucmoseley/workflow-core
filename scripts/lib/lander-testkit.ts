@@ -109,7 +109,6 @@ export function landerSandbox(): void {
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 }
 
-/** A tester that prints `failing`, then exits `code`. */
 export const stubTester = (code: number, failing = "") => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
@@ -131,7 +130,6 @@ export const stubRedWhile = (name: string, alongside?: string) => {
 	return script;
 };
 
-/** A run of the queue lander in `work`, on the tester script `tester`. */
 export const runLander = (
 	tester: string,
 	modules = "landing",

@@ -31,7 +31,7 @@
  */
 
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
-const { fileLedger, landerFiles } = require("./lib/lander-files.js");
+const { fileLedger, queueLanderFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { parseRefLines } = require("./lib/push-refs.js");
@@ -85,7 +85,7 @@ function judge(stdin, { tree, root }) {
 	const pushes = parseMainPushes(stdin);
 	if (pushes.length === 0) return 0;
 	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
-	const ledger = fileLedger(landerFiles(root).ledger);
+	const ledger = fileLedger(queueLanderFiles(root).ledger);
 	const green = new Set(
 		readTreesOf(ledger.readShas()).filter((t) => t !== null),
 	);

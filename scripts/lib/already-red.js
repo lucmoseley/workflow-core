@@ -141,7 +141,8 @@ const readRedEvidence = (root) => ({
 });
 
 /**
- * The red run's ALREADY RED / NEW lines, read off the stores at `root`. Never throws: a fault costs the lines and says why.
+ * The red run's ALREADY RED / NEW lines, read off the stores at `root`.
+ * Never throws: a fault costs the lines and says why.
  * @param {Marker} run
  * @param {string} root the canonical checkout
  * @returns {string[]}

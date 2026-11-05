@@ -12,8 +12,9 @@
  * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, a
  * crash mid-drop lands the member or a crash after the push loses its land
  * rows, or a dropped ref outlives its closed ticket; or a flake or a failure
- * `main` shares starts an isolation or drops a member, a member red alone
- * once is dropped unconfirmed, the passers wait behind a newer ref, a
+ * `main` shares starts an isolation or drops a member, one on another
+ * signature than `main`'s is read as `main`'s, a member red alone once is
+ * dropped unconfirmed, the passers wait behind a newer ref, a
  * collision drops more or less than one member, or a restart repeats an
  * isolation run or merge; or a red only `main` shares lands where `main`
  * takes only a sha a CI run passed, a push `main` refused is pushed again or
@@ -1136,6 +1137,47 @@ describe("the red path", () => {
 		expect(remote.main).toBe("merge(m0;a1,b1)");
 		expect([...remote.iso]).toEqual([["lander/iso-base", "m0"]]);
 		expect(disk.drops).toEqual([]);
+	});
+
+	/** Red on x's test `t`, failing with `signature`. */
+	const failing = (signature: string): Verdict => ({
+		kind: "red",
+		files: ["scripts/x.test.ts"],
+		failures: [{ file: "scripts/x.test.ts", test: "t", signature }],
+	});
+
+	it("reads a failure main shares on another signature as the batch's own, isolating its members and filing no base-red ticket", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+
+		const { actions } = await land(remote, disk, {
+			requiresRun: false,
+			verdict: (sha) => failing(sha === "m0" ? "on main" : "in the batch"),
+		});
+
+		expect(kinds(actions)).toContain("start-isolation");
+		expect(disk.baseRed).toEqual([]);
+	});
+
+	it("reads a repeat of main's failure, on its signature, as main's, filing the base-red ticket and isolating nothing", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+
+		const { end, actions } = await land(remote, disk, {
+			requiresRun: false,
+			verdict: () => failing("the same"),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).not.toContain("start-isolation");
+		expect(disk.baseRed).toEqual(["m0 scripts/x.test.ts"]);
+		expect(remote.main).toBe("merge(m0;a1,b1)");
 	});
 
 	it("holds a batch red only where main is red too where main takes only a sha a CI run passed, ledgering it never green, and lands the fix pushed after", async () => {

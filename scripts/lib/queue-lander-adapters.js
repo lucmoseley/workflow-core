@@ -36,7 +36,6 @@ const {
 	trackingRefspec,
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
-const { markersDir } = require("./marker-root.js");
 const {
 	logQueueEvent,
 	queueLogFile,
@@ -95,19 +94,6 @@ const BROKEN_OBJECT =
  *   RecordRead a record file: absent, torn where it will not parse or is not
  *   the record, or read
  */
-
-/**
- * @param {string} root the canonical checkout's root
- */
-function queueLanderFiles(root) {
-	const dir = markersDir(root);
-	return {
-		verdicts: path.join(dir, ".queue-lander-verdicts.jsonl"),
-		batch: path.join(dir, ".queue-lander-batch.json"),
-		drops: path.join(dir, ".queue-lander-drops.json"),
-		heartbeat: path.join(dir, ".queue-lander-heartbeat.json"),
-	};
-}
 
 /**
  * The queue lander's git, run in `root`. Merges are made in a throwaway
@@ -634,7 +620,6 @@ module.exports = {
 	batchRecord,
 	dropRecord,
 	queueGit,
-	queueLanderFiles,
 	queueLogger,
 	readBatchFile,
 	readDropFile,

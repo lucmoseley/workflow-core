@@ -28,10 +28,14 @@ const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { execGit } = require("./git.js");
-const { HEARTBEAT_MS, readHeartbeat } = require("./lander-files.js");
+const {
+	HEARTBEAT_MS,
+	queueLanderFiles,
+	readHeartbeat,
+} = require("./lander-files.js");
 const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
 const { markersDir } = require("./marker-root.js");
-const { queueGit, queueLanderFiles } = require("./queue-lander-adapters.js");
+const { queueGit } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
 

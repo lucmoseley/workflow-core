@@ -4,7 +4,7 @@
  * label taken off put back on refresh (#2694, ruled at #2672), and a gate a
  * session wrote kept through the refresh (#3636).
  *
- * Loosen it and a held or stalled queue's issue ranks with ordinary work, or
+ * Loosen it and a stalled or base-red queue's issue ranks with ordinary work, or
  * loses the gate that would close it.
  */
 import { expect, it } from "vitest";
@@ -12,7 +12,7 @@ import { queueIssueCloser, queueIssueFiler } from "./queue-issue.js";
 
 const LABELS = ["urgent", "bug", "takes:implement", "kind:ticket"];
 const ISSUE = {
-	title: "Queue held",
+	title: "Queue stalled",
 	standalone: "It tracks the queue.",
 	noun: "queue issue",
 	subject: "the queue",

@@ -1,9 +1,9 @@
 /*
  * lander-files.js — the queue lander's machine-local files under the
- * canonical checkout's markers directory (#4485, spec #4458), gitignored, so
- * a worktree's lander shares them with the main tree's: its green ledger (one
- * `<sha> <iso time>` line per sha it lands, which the pre-push gate on `main`
- * reads), its pidfile lock and its heartbeat.
+ * canonical checkout's markers directory, gitignored, so a worktree's lander
+ * shares them with the main tree's: its green ledger (one `<sha> <iso time>`
+ * line per sha it lands, which the pre-push gate on `main` reads), its
+ * pidfile lock, its heartbeat, and its verdict, batch and drop records.
  */
 
 const fs = require("node:fs");
@@ -27,16 +27,21 @@ const HEARTBEAT_MS = 60 * 1000;
 /**
  * @param {string} root the canonical checkout's root
  */
-function landerFiles(root) {
+function queueLanderFiles(root) {
 	const dir = markersDir(root);
 	return {
 		ledger: path.join(dir, ".landing-green-ledger"),
 		pid: path.join(dir, ".lander.pid"),
+		heartbeat: path.join(dir, ".queue-lander-heartbeat.json"),
+		verdicts: path.join(dir, ".queue-lander-verdicts.jsonl"),
+		batch: path.join(dir, ".queue-lander-batch.json"),
+		drops: path.join(dir, ".queue-lander-drops.json"),
 	};
 }
 
 /** @param {string} root the canonical checkout's root */
-const landerLock = (root) => pidLock(landerFiles(root).pid, "queue-lander.js");
+const landerLock = (root) =>
+	pidLock(queueLanderFiles(root).pid, "queue-lander.js");
 
 /**
  * A file's text, or null where it cannot be read.
@@ -114,7 +119,7 @@ module.exports = {
 	HEARTBEAT_MS,
 	fileLedger,
 	heartbeatWriter,
-	landerFiles,
 	landerLock,
+	queueLanderFiles,
 	readHeartbeat,
 };

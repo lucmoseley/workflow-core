@@ -46,7 +46,6 @@ interface Run {
 	session?: string | null;
 	wholeSlot?: boolean | null;
 	resolvedFiles?: number | null;
-	sha?: string;
 }
 const run = (r: Run) => ({
 	kind: "named",
@@ -54,7 +53,6 @@ const run = (r: Run) => ({
 	wholeSlot: false,
 	resolvedFiles: 1,
 	verdict: "green",
-	sha: "abcdef123",
 	modulesRun: null,
 	modulesTotal: null,
 	...r,
@@ -88,7 +86,6 @@ function replayOf({
 		number,
 		{ used: number; load: number; tsc: number },
 	])[],
-	parents = [] as { t: number; sha: string }[],
 	until = 60,
 	eras = [] as { label: string; from: number }[],
 } = {}) {
@@ -97,7 +94,6 @@ function replayOf({
 			exits: waiters.map(exit),
 			runs: runs.map(run),
 			mem: new Map(mem),
-			parents,
 			unread: { absent: [], unparsed: 0 },
 		},
 		window(until, eras),
@@ -154,15 +150,6 @@ describe("the limbs, in the gate's order", () => {
 		expect(hoursOf(r.limb)).toEqual({ count: 600 });
 		expect(hoursOf(r.holder)).toEqual({ "lander push gate": 600 });
 		expect(hoursOf(r.holderSession)).toEqual({ lander: 600 });
-	});
-
-	it("names a lander whole run its parent confirm where the lander logged one for its sha", () => {
-		const r = replayOf({
-			runs: [{ from: 0, to: 20, kind: "lander" }],
-			waiters: [{ from: 0, to: 10, slotFree: false }],
-			parents: [{ t: T0 - MIN, sha: "abcdef123" }],
-		});
-		expect(hoursOf(r.holder)).toEqual({ "lander parent confirm": 600 });
 	});
 
 	it("holds a part waiter on memory where memwatch's available is under its rung, and only in minutes with a block", () => {
@@ -459,10 +446,6 @@ describe("reading the logs", () => {
 				`=== ${local(T0)} 9000MB used ===`,
 			].join("\n"),
 		);
-		fs.writeFileSync(
-			path.join(dir, ".lander.log"),
-			`${iso(T0 - MIN)} rerun abcdef1234567 (parent): the whole suite on landing\n`,
-		);
 		const logs = readLogs({
 			markers: dir,
 			memwatch: [memwatch, path.join(dir, "absent.log")],
@@ -474,14 +457,13 @@ describe("reading the logs", () => {
 		expect([...logs.mem]).toEqual([
 			[Math.floor(T0 / MIN) + 30, { used: 9500, load: 3.1, tsc: 1 }],
 		]);
-		expect(logs.parents).toEqual([{ t: T0 - MIN, sha: "abcdef123" }]);
 		expect(logs.unread.unparsed).toBe(1);
 		expect(logs.unread.absent).toContain(path.join(dir, "absent.log"));
 
 		const w = window();
 		const out = render(replay(logs, w), w);
 		expect(out).toContain("| count | 0.17 |");
-		expect(out).toContain("| lander parent confirm | 0.17 |");
+		expect(out).toContain("| lander push gate | 0.17 |");
 		expect(out).toContain(
 			"memwatch wrote a block in 1 of the window's 60 minutes",
 		);

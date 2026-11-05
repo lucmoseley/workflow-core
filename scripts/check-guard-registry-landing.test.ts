@@ -317,7 +317,7 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 	});
 });
 
-describe("scripts/landing-registry-gate.js judges a push to landing on landing's tree (#3074)", () => {
+describe("scripts/landing-registry-gate.js refuses only the faults a queue push adds to main's tree (#3074)", () => {
 	/* The #2617 template: two guards anchored and committed at X. A real
 	 * spawn, since the gate streams the checker's report to fd 2. */
 	let template = "";
@@ -355,21 +355,25 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		return { root, git, commit, read };
 	}
 
+	/* A push creating `queue/wt-a` at `sha`, `origin/main` at `tip`. */
 	const push = (
 		root: string,
-		{ sha, tip, to = "landing" }: { sha: string; tip: string; to?: string },
+		{ sha, tip }: { sha: string; tip: string },
 		modules = "landing",
 		locks: unknown[] = [],
-	) =>
+	) => {
+		execFileSync("git", ["update-ref", "refs/remotes/origin/main", tip], {
+			cwd: root,
+		});
 		/* spawn-kept: a real fd — the gate hands the checker it spawns the real
 		 * fd 2, where these cases read its report. */
-		spawnSync(
+		return spawnSync(
 			"node",
 			[path.join(root, "scripts", "landing-registry-gate.js")],
 			{
 				cwd: root,
 				encoding: "utf8",
-				input: `refs/heads/main ${sha} refs/heads/${to} ${tip}\n`,
+				input: `HEAD ${sha} refs/heads/queue/wt-a ${"0".repeat(40)}\n`,
 				env: {
 					...process.env,
 					...claims,
@@ -381,6 +385,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 				},
 			},
 		);
+	};
 	const preCommit = (root: string) =>
 		run(root, ["--against", "HEAD"], { env: claims });
 
@@ -397,7 +402,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		expect(preCommit(root).code).toBe(0);
 		const anchorsOnA = read(ANCHORS);
 		git("reset", "-q", "--hard", x);
-		// Base B, landing's tip: guard-amend changed and re-anchored there.
+		// Base B, main's tip: guard-amend changed and re-anchored there.
 		commit({ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" }, "amend");
 		reviewIn(root, ["scripts/guard-amend.sh"], claims);
 		const tip = commit({}, "re-anchor amend");
@@ -418,7 +423,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		expect(r.stderr).toContain(`pre-push: refused — ${sha}`);
 	});
 
-	it("refuses the twin of a commit that moved a row already stale on a diverged branch, onto a landing where it was fresh, naming the row and the re-anchor command", () => {
+	it("refuses the twin of a commit that moved a row already stale on a diverged branch, onto a main where it was fresh, naming the row and the re-anchor command", () => {
 		const { root, git, commit } = repo();
 		const tip = git("rev-parse", "HEAD");
 		// The diverged local branch: guard-branch stale there already.
@@ -436,7 +441,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		git("add", "-A");
 		expect(preCommit(root).code).toBe(0);
 		const local = commit({}, "move a row stale here");
-		git("checkout", "-q", "-b", "landing", tip);
+		git("checkout", "-q", "-b", "onto-main", tip);
 		git("cherry-pick", local);
 		const sha = git("rev-parse", "HEAD");
 		const r = push(root, { sha, tip });
@@ -472,11 +477,11 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		expect(r.stderr).toContain("STALE-PROSE  scripts/guard-amend.sh");
 	});
 
-	it("passes a push whose tree carries only the stale rows landing's tip already has", () => {
+	it("passes a push whose tree carries only the stale rows main's tip already has", () => {
 		const { root, commit } = repo();
 		const tip = commit(
 			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
-			"stale on landing",
+			"stale on main",
 		);
 		fs.mkdirSync(path.join(root, "docs"), { recursive: true });
 		const sha = commit({ "docs/note.md": "unrelated\n" }, "unrelated");
@@ -494,17 +499,6 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		const r = push(root, { sha, tip }, "suites");
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stderr).toBe("");
-	});
-
-	it("passes, printed, a push that creates landing", () => {
-		const { root, commit } = repo();
-		const sha = commit(
-			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
-			"stale",
-		);
-		const r = push(root, { sha, tip: "0".repeat(40) });
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stderr).toContain("creates landing");
 	});
 });
 

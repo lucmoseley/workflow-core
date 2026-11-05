@@ -23,7 +23,7 @@
  * working tree, so a file it did not write selects nothing (#2958). An empty set spawns nothing, records no marker, writes its ledger
  * line and exits 0; the lander runs the full suite. Any argument at all keeps
  * the run exactly as typed. A lone `--full` is the whole suite, handed to
- * pytest as no argument: a full-suite caller — CI, the lander, bisect — runs
+ * pytest as no argument: a full-suite caller — CI, the lander — runs
  * from a clean checkout, where a bare run selects nothing (#3508). Beside
  * other words it is pytest's, which refuses it, so it never quietly narrows.
  *

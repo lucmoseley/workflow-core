@@ -13,6 +13,8 @@
  * Any step that fails before the suite reports — the checkout, the slot, the
  * install, a command that will not start, is killed, or fails naming no
  * failing file — is no verdict, never green or red.
+ *
+ * commandTester is the tester queue-lander.js's `--tester <command>` swaps in.
  */
 
 const { execFileSync, spawn } = require("node:child_process");
@@ -786,7 +788,52 @@ function localTester({
 	};
 }
 
+/**
+ * The tester `--tester <command>` names, run in `root`, the whole suite or
+ * only the files where they are given.
+ * @param {string} command
+ * @param {string} root
+ * @returns {import("./queue-lander.js").QueueTester}
+ */
+const commandTester = (command, root) => ({
+	verdict: (sha, files = []) =>
+		new Promise((resolve) => {
+			const child = spawn(
+				"sh",
+				["-c", `${command} "$@"`, "tester", sha, ...files],
+				{ cwd: root, stdio: ["ignore", "pipe", "inherit"] },
+			);
+			let out = "";
+			child.stdout.on("data", (chunk) => {
+				out += chunk;
+			});
+			child.on("error", (err) =>
+				resolve({
+					kind: "unknown",
+					reason: `tester did not start: ${err.message}`,
+				}),
+			);
+			child.on("close", (code, signal) => {
+				if (code === 0) resolve({ kind: "green" });
+				else if (code === 1)
+					resolve({
+						kind: "red",
+						files: out
+							.split("\n")
+							.map((l) => l.trim())
+							.filter(Boolean),
+					});
+				else
+					resolve({
+						kind: "unknown",
+						reason: `tester ended ${signal ?? `exit ${code}`}`,
+					});
+			});
+		}),
+});
+
 module.exports = {
+	commandTester,
 	parseFailingFiles,
 	parseFailingTests,
 	readLiveLanders,

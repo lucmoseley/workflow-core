@@ -77,8 +77,9 @@ const reads = (
 	};
 };
 
-const clock = () => {
-	let t = 0;
+/** A clock from `start` ms, which only its `wait` moves. */
+const clock = (start = 0) => {
+	let t = start;
 	return {
 		now: () => t,
 		wait: async (ms: number) => {
@@ -383,16 +384,19 @@ const namedRoot = () => {
 	return tmp;
 };
 
-/** Named files at SHA, which `iso` names a `lander/iso-*` ref's head. */
+/**
+ * Named files at SHA, which `iso` names a `lander/iso-*` ref's head, on a
+ * clock from `start`.
+ */
 const askNamed = (
 	r: ReturnType<typeof fakeNamedReads>,
 	{
 		root = namedRoot(),
-		now = undefined as (() => number) | undefined,
+		start = 0,
 		iso = [{ branch: "lander/iso-1", sha: SHA }],
 	} = {},
 ) => {
-	const time = clock();
+	const time = clock(start);
 	return queueTester({
 		root,
 		reads: {
@@ -403,7 +407,7 @@ const askNamed = (
 			runsOn: () => [],
 		},
 		wait: time.wait,
-		now: now ?? time.now,
+		now: time.now,
 	}).verdict(SHA, ["scripts/lib/a.test.ts"]);
 };
 
@@ -491,8 +495,7 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 	const r = fakeNamedReads({ conclusion: "success" });
 	const DayOne = Date.parse("2026-11-01T23:00:00Z");
 	/* At a sha no isolation ref holds and no batch run covers. */
-	const ask = (nowMs: number) =>
-		askNamed(r, { root, now: () => nowMs, iso: [] });
+	const ask = (nowMs: number) => askNamed(r, { root, start: nowMs, iso: [] });
 	for (let i = 0; i < 12; i++) {
 		r.dispatched.length = 0;
 		expect(await ask(DayOne)).toEqual({ kind: "green" });

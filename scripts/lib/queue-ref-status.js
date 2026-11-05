@@ -20,7 +20,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseErrorText } = require("./caught.js");
 const { execGit } = require("./git.js");
-const { fileLedger, landerFiles } = require("./lander-files.js");
+const { fileLedger, queueLanderFiles } = require("./lander-files.js");
 const { isAncestor, parseRefusal, short } = require("./lander-git.js");
 const {
 	QUEUE_HEADS,
@@ -28,11 +28,7 @@ const {
 	droppedRefsOf,
 	queueRefOf,
 } = require("./landing-refs.js");
-const {
-	queueLanderFiles,
-	readBatchFile,
-	readDropFile,
-} = require("./queue-lander-adapters.js");
+const { readBatchFile, readDropFile } = require("./queue-lander-adapters.js");
 
 /**
  * @template T
@@ -276,7 +272,7 @@ function readQueueRefStates(root, tree, refs, rows) {
 	if (own === null || !tree) return [];
 	const name = own.slice(QUEUE_PREFIX.length);
 	const files = queueLanderFiles(root);
-	const green = new Set(fileLedger(landerFiles(root).ledger).readShas());
+	const green = new Set(fileLedger(files.ledger).readShas());
 	const held = refs.queue.find((q) => q.name === name);
 	const { main } = refs;
 	return queueRefStates({

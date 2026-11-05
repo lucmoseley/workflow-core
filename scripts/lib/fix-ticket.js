@@ -1,15 +1,12 @@
 /*
- * fix-ticket.js — the ticket the queue lander files for a member it drops
- * (#4485, spec #4458): `takes:implement`, unassigned, naming the queue ref,
- * its sha, the dropped ref and the evidence, a sub-issue of the ticket its
- * commits cite, or standalone where they cite none.
+ * fix-ticket.js — the ticket the queue lander files for a member it drops:
+ * `takes:implement`, unassigned, naming the queue ref, its sha, the dropped
+ * ref and the evidence, a sub-issue of the ticket its commits cite, or
+ * standalone where they cite none.
  *
- * A cited ticket that is closed is reopened first: file-issue.js refuses a
- * closed parent, whose children drop off every map, and an open parent with
- * an open child reads as a container, leaving the fix ticket the one on the
- * frontier. A filing file-issue.js refuses under the cited ticket is filed
- * standalone, naming the refusal. One it refuses standalone too, exiting 2,
- * throws a FilingRefusedError.
+ * A cited ticket that is closed is reopened first. A filing file-issue.js
+ * refuses under the cited ticket is filed standalone, naming the refusal. One
+ * it refuses standalone too, exiting 2, throws a FilingRefusedError.
  */
 
 const { citedIssues } = require("./cited-issues.js");

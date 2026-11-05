@@ -96,7 +96,7 @@ beforeEach(() => {
 	);
 	git(shared, "add", ".");
 	git(shared, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "seed");
-	git(shared, "push", "-q", "--no-verify", "origin", "main:landing");
+	git(shared, "push", "-q", "--no-verify", "origin", "main");
 
 	execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
 	expect(install(shared).status).toBe(0);
@@ -136,7 +136,7 @@ describe("a linked worktree's hooks (#3138)", () => {
 		expect(r.status).not.toBe(0);
 	});
 
-	it("refuses a worktree's push to landing on its own checker's FAIL while the shared hook calls no registry gate and its checker is BROKEN (#3125)", () => {
+	it("refuses a worktree's queue push on its own checker's FAIL while the shared hook calls no registry gate and its checker is BROKEN (#3125)", () => {
 		writeChecker(
 			shared,
 			'process.stderr.write("BROKEN: ENOENT dispatch-cores.json\\n");\nprocess.exitCode = 2;\n',
@@ -159,7 +159,7 @@ describe("a linked worktree's hooks (#3138)", () => {
 			"carry",
 		);
 
-		const r = spawnSync("git", ["push", "origin", "HEAD:landing"], {
+		const r = spawnSync("git", ["push", "origin", "HEAD:refs/heads/queue/wt"], {
 			cwd: wt,
 			encoding: "utf8",
 			env: env(),

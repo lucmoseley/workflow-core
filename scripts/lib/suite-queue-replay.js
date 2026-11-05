@@ -55,10 +55,6 @@ const MATCH_AFTER_S = 900;
 /* A vitest marker whose run is the same as a `.test-runs.jsonl` line where the
  * two start within this of each other: #2909's, chosen, not measured. */
 const MARKER_MATCH_S = 3;
-/* A lander whole run is its parent confirm where the lander logged one for
- * the same sha this long before it spawned: #3047's, a guess that covers the
- * one whole-suite rerun a confirm runs. */
-const PARENT_CONFIRM_S = 1800;
 /* A marker counting this share of the suite's modules ran the whole of it:
  * #2909's, a guess. */
 const WHOLE_SHARE = 0.9;
@@ -93,7 +89,6 @@ const PRE_FIELDS_GATE = {
 /* #3058's commit, from which a part waiter passes an older one the memory
  * rung holds. */
 const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
-const PARENT_LINE = /^(\S+) rerun ([0-9a-f]{9})\S* \(parent\): the whole suite/;
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
 /* A process line of a memwatch block: `PID RSS COMMAND`, or
@@ -106,10 +101,10 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   skipped?: boolean, passed?: number, climbMb?: number }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
- *   sha: string, modulesRun: number | null, modulesTotal: number | null }} Run
+ *   modulesRun: number | null, modulesTotal: number | null }} Run
  * @typedef {{ used: number, load: number, tsc: number }} MemBlock
  * @typedef {{ exits: Exit[], runs: Run[], mem: Map<number, MemBlock>,
- *   parents: { t: number, sha: string }[], unread: Unread }} Logs
+ *   unread: Unread }} Logs
  * @typedef {{ since: number, until: number, eras: { label: string, from: number }[],
  *   memTotalMb: number, loadCeiling: number | null }} Window
  */
@@ -179,7 +174,6 @@ function readLogs({ markers, memwatch, since, until }) {
 			wholeSlot: d.wholeSlot ?? null,
 			resolvedFiles: d.resolvedFiles ?? null,
 			verdict: d.verdict,
-			sha: String(d.sha ?? "").slice(0, 9),
 			modulesRun: null,
 			modulesTotal: null,
 		}));
@@ -187,8 +181,7 @@ function readLogs({ markers, memwatch, since, until }) {
 		? withModuleCounts(logged, readModuleCounts(markers, unread, inRange))
 		: logged;
 	const mem = readMemwatch(memwatch, unread);
-	const parents = readParents(path.join(markers, ".lander.log"), unread);
-	return { exits, runs, mem, parents, unread };
+	return { exits, runs, mem, unread };
 }
 
 /**
@@ -237,29 +230,6 @@ function parseMemwatch(text, mem) {
 			tscPids.add(Number(requiredGroup(row, 1, MEMWATCH_ROW)));
 		block.tsc = tscPids.size;
 	}
-}
-
-/**
- * The lander's whole-suite parent confirms: when, and the sha confirmed.
- *
- * @param {string} file
- * @param {Unread} unread  accumulator: the log, where absent
- */
-function readParents(file, unread) {
-	if (!fs.existsSync(file)) {
-		unread.absent.push(file);
-		return [];
-	}
-	const parents = [];
-	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-		const m = PARENT_LINE.exec(line);
-		if (m)
-			parents.push({
-				t: Date.parse(requiredGroup(m, 1, PARENT_LINE)),
-				sha: requiredGroup(m, 2, PARENT_LINE),
-			});
-	}
-	return parents;
 }
 
 /**
@@ -375,18 +345,11 @@ function sizeOf(n) {
 /**
  * Who a whole run is, for the count limb's holder table.
  * @param {Run} r
- * @param {Logs["parents"]} parents
  */
-function holderOf(r, parents) {
+function holderOf(r) {
 	if (r.kind !== "lander")
 		return `${r.session === null ? "sessionless " : ""}\`${r.kind}\`${sizeOf(filesOf(r))}`;
-	const confirm = parents.some(
-		(p) =>
-			p.sha === r.sha &&
-			r.st - p.t >= 0 &&
-			r.st - p.t < PARENT_CONFIRM_S * 1000,
-	);
-	return confirm ? "lander parent confirm" : "lander push gate";
+	return "lander push gate";
 }
 
 /** @param {Map<string, number>} m @param {string} k @param {number} v */
@@ -560,9 +523,8 @@ function buildTallies() {
  * @param {Tick} tick
  * @param {Window} w
  * @param {ReturnType<typeof buildTallies>} acc  accumulator: the tick is added
- * @param {Logs["parents"]} parents
  */
-function tallyTick(tick, w, acc, parents) {
+function tallyTick(tick, w, acc) {
 	if (tick.whole.length >= WHOLE_SUITE_MAX) acc.slotBusy += TICK_S;
 	if (tick.whole.some((r) => r.kind === "lander")) acc.landerSlot += TICK_S;
 	if (tick.mem) acc.memMinutes.add(Math.floor(tick.t / 60_000));
@@ -575,8 +537,7 @@ function tallyTick(tick, w, acc, parents) {
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
 		addNested(acc.limbSession, e.session ?? "(no session)", first);
 		addNested(acc.limbEra, tick.era, first);
-		if (first === "count")
-			shareSlot(tick.whole, parents, acc.holder, acc.holderSession);
+		if (first === "count") shareSlot(tick.whole, acc.holder, acc.holderSession);
 	}
 }
 
@@ -681,13 +642,12 @@ function limbsOf(e, tick, w) {
  * they are and by launching session.
  *
  * @param {WeighedRun[]} whole
- * @param {Logs["parents"]} parents
  * @param {Map<string, number>} holder  accumulator: the tick's share by holder
  * @param {Map<string, number>} holderSession  accumulator: by session
  */
-function shareSlot(whole, parents, holder, holderSession) {
+function shareSlot(whole, holder, holderSession) {
 	for (const r of whole) {
-		add(holder, holderOf(r, parents), TICK_S / whole.length);
+		add(holder, holderOf(r), TICK_S / whole.length);
 		const session = r.kind === "lander" ? "lander" : r.session;
 		add(holderSession, session ?? "(no session)", TICK_S / whole.length);
 	}
@@ -783,7 +743,7 @@ function replay(logs, w) {
 	const acc = buildTallies();
 	const state = { runs, waiters, admitting, mem: logs.mem, eraOf };
 	for (let t = w.since; t < w.until; t += TICK_S * 1000)
-		tallyTick(tickAt(t, state), w, acc, logs.parents);
+		tallyTick(tickAt(t, state), w, acc);
 	const eraWait = eras.map((era, i) => {
 		const to = eras[i + 1]?.from ?? w.until;
 		const from = Math.max(era.from, w.since);

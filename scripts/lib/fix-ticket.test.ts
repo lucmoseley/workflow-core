@@ -33,13 +33,18 @@ const DROP: Drop = {
 describe("dropTicketFiler", () => {
 	/**
 	 * A filer over the member's commit `subjects`, newest first, with `units`
-	 * the open tickets under each parent, and file-issue exiting `status`.
+	 * the open tickets under each parent, and file-issue exiting `status`, or
+	 * refusing only a `--parent` filing with `refuseParent`.
 	 */
 	function dropFiler(
 		subjects: string[],
 		states: Record<number, "open" | "closed"> = {},
 		listed: { number: number; title: string }[] = [],
-		{ units = {} as Record<string, number[]>, status = 0 } = {},
+		{
+			units = {} as Record<string, number[]>,
+			status = 0,
+			refuseParent = null as string | null,
+		} = {},
 	) {
 		const files: { args: string[]; input: string }[] = [];
 		const ranges: string[] = [];
@@ -53,6 +58,12 @@ describe("dropTicketFiler", () => {
 			similar: () => listed,
 			fileIssue: (args, input) => {
 				files.push({ args, input });
+				if (refuseParent !== null && args.includes("--parent"))
+					return {
+						status: 2,
+						stdout: "",
+						stderr: `file-issue: ${refuseParent}\n`,
+					};
 				return status === 0
 					? { status, stdout: "Filed #9: https://x/9\n", stderr: "" }
 					: { status, stdout: "", stderr: "file-issue: rule:x refused it\n" };
@@ -82,6 +93,22 @@ describe("dropTicketFiler", () => {
 
 		expect(f.reopened).toEqual([12]);
 		expect(flag(f.files[0].args, "--parent")).toBe("12");
+	});
+
+	it("files standalone, naming the refusal, where file-issue refuses it under the cited ticket", () => {
+		const f = dropFiler(["Add the widget (#12)"], { 12: "open" }, [], {
+			refuseParent: "#12 is a wayfinder map's child",
+		});
+
+		expect(f.said()).toBe("Filed #9: https://x/9");
+
+		expect(f.files.map((c) => c.args.includes("--parent"))).toEqual([
+			true,
+			false,
+		]);
+		expect(flag(f.files[1].args, "--standalone")).toBe(
+			"file-issue refused it under #12, which a commit on queue/wt-1 cites: file-issue: #12 is a wayfinder map's child",
+		);
 	});
 
 	it("files standalone where the cited ticket cannot be read", () => {

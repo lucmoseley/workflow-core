@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /*
- * landing-status.js — where this session's commits stand on the landing route
- * (#2407, spec #2261; #4458): each commit its commit ledger names is landed
- * (on `main`), queued (on the session's queue ref, not yet on `main`), or
- * unpushed. Fetches `main` and the queue
- * refs first. Then, where the
- * session runs in a worktree, each stay of its queue ref, queued, testing,
- * landed or dropped (lib/queue-ref-status.js). Its last line is the landing queue's
+ * landing-status.js — where this session's commits stand on the landing route:
+ * each commit its commit ledger names is landed (on `main`), queued (on the
+ * session's queue ref, not yet on `main`), or unpushed. Fetches `main` and
+ * the queue refs first. Then, where the session runs in a worktree, each stay
+ * of its queue ref, queued, testing, landed or dropped
+ * (lib/queue-ref-status.js). Its last line is the landing queue's
  * (lib/queue-gauge.js).
  *
  *   node scripts/landing-status.js [--session <id>]

@@ -1,7 +1,7 @@
 /*
  * landing-status.js — where each of a session's commits stands on the landing
- * route (#2407, spec #2261; #4458): landed on `main`, queued on the session's
- * own queue ref, or pushed to no queue ref at all.
+ * route: landed on `main`, queued on the session's own queue ref, or pushed
+ * to no queue ref at all.
  */
 
 const { caught } = require("./caught.js");

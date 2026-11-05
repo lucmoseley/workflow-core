@@ -126,14 +126,14 @@ it("passes a worktree's push to main of a sha the canonical checkout's ledger ho
 	expect(r.status, r.stderr).toBe(0);
 });
 
-it("judges a worktree's push creating landing while the shared config turns landing off (#3128)", () => {
+it("judges a worktree's queue push while the shared config turns landing off (#3128)", () => {
 	const r = runInProcess(gate("landing-registry-gate.js"), [], {
 		cwd: wt,
 		env: env(),
-		stdin: `refs/heads/main ${sha} refs/heads/landing ${ZERO}\n`,
+		stdin: `HEAD ${sha} refs/heads/queue/wt ${ZERO}\n`,
 	});
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stderr).toContain("creates landing");
+	expect(r.stderr).toContain("holds no origin/main to judge queue/wt");
 });
 
 const pushPublic = (url: string) =>
