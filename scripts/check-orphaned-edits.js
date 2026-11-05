@@ -47,8 +47,8 @@
  * belongs to the session that owns it (lib/session-worktrees.js): an orphan
  * once that session is no longer listed live, named as its writer with no
  * ledger guess. A worktree no session owns is judged as the main checkout is,
- * by claim, observation and ledger at its host-relative path — or, outside
- * the host root, where none of those can name it, passed over and counted.
+ * by claim, observation and ledger at the file's path in its own tree, which
+ * is how the stores key it (#4397).
  *
  * A CUT-OVER MAIN CHECKOUT'S DIRT IS JUDGED AT ONCE, AT ANY AGE (#4317, the
  * founder's ruling on #4309). With the `landing` module on and the main
@@ -79,7 +79,6 @@ const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const {
-	hostRelative,
 	readLinkedWorktrees,
 	worktreeLabel,
 	worktreeOwners,
@@ -332,13 +331,10 @@ function fileOne(o, root) {
 }
 
 /**
- * `hostPath` is the file's spelling relative to the host root, which claims
- * and ledgers use; null for a worktree outside it, where neither can name it.
  * @typedef {{path: string, ageHours: number, tree: string,
- *   worktree: string|null, hostPath: string|null}} OldEdit
- * @typedef {{root: string, worktree: string|null, inside: string|null}} Tree
- *   `worktree` the label, null for the main checkout; `inside` the path
- *   relative to the host root, "" for the main checkout, null outside it
+ *   worktree: string|null}} OldEdit
+ * @typedef {{root: string, worktree: string|null}} Tree
+ *   `worktree` the label, null for the main checkout
  */
 
 /**
@@ -369,7 +365,6 @@ function sortByAge(tree, dirty, { hours, now }) {
 				ageHours,
 				tree: tree.root,
 				worktree: tree.worktree,
-				hostPath: tree.inside === null ? null : path.join(tree.inside, rel),
 			});
 	}
 	return { old, young, deleted };
@@ -393,14 +388,12 @@ function describeWriter(rel, names, now) {
  * @param {any} ctx
  * @param {OldEdit[]} old
  * @param {{now: number}} opts
- * @returns {{orphans: Orphan[], unjudged: number}} `unjudged` counts the old
- *   files in worktrees outside the host root that no session owns
+ * @returns {Orphan[]}
  */
 function findOrphans(ctx, old, { now }) {
 	/** @type {Orphan[]} */
 	const orphans = [];
-	let unjudged = 0;
-	if (old.length === 0) return { orphans, unjudged };
+	if (old.length === 0) return orphans;
 	const live = readOwnedByLive();
 	// Who owns a file is the subject asked about, not the apparatus: SKIP (§N4, #1240).
 	if (!live.owned)
@@ -416,10 +409,6 @@ function findOrphans(ctx, old, { now }) {
 	for (const o of old) {
 		const verdict = judgeWriter(o, { owners, owned, names, listed, now });
 		if (verdict.kind === "owned") continue;
-		if (verdict.kind === "unjudged") {
-			unjudged++;
-			continue;
-		}
 		const { writer } = verdict;
 		const blob =
 			gitRead(["hash-object", "--", o.path], o.tree)?.trim() || "unknown";
@@ -433,24 +422,25 @@ function findOrphans(ctx, old, { now }) {
 			filed: "",
 		});
 	}
-	return { orphans, unjudged };
+	return orphans;
 }
 
 /**
  * Whether a live session owns an old edit, and where none does, who last
- * wrote it, as printed; `unjudged` where nothing can say.
+ * wrote it, as printed.
  *
- * A live claim, observation or ledger entry at the host-relative spelling
- * owns the file wherever it sits. Past that, a worktree's owner answers for
- * every file in it, and a worktree no session owns is named by the ledger. A
- * worktree outside the host root with no owner is one neither can name.
+ * A live claim, observation or ledger entry at the file's path owns it in
+ * whichever tree it sits: a key names no tree, so a neighbour's claim on the
+ * same path in another worktree keeps it too, the safe direction. Past that,
+ * a worktree's owner answers for every file in it, and a worktree no session
+ * owns is named by the ledger.
  * @param {OldEdit} o
  * @param {{owners: Map<string, import("./lib/session-worktrees.js").Owner>,
  *   owned: Set<string>, names: Map<string, string>, listed: SweepRead, now: number}} ctx
- * @returns {{kind: "owned"} | {kind: "unjudged"} | {kind: "orphan", writer: string}}
+ * @returns {{kind: "owned"} | {kind: "orphan", writer: string}}
  */
 function judgeWriter(o, { owners, owned, names, listed, now }) {
-	if (o.hostPath !== null && owned.has(o.hostPath)) return { kind: "owned" };
+	if (owned.has(o.path)) return { kind: "owned" };
 	const owner = o.worktree === null ? undefined : owners.get(o.tree);
 	if (owner) {
 		if (isListedLive(owner.sessionId, listed.ids, listed.terminal))
@@ -460,8 +450,7 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 			writer: `session ${owner.sessionId}${owner.name ? ` (${owner.name})` : ""}, whose worktree it is — no longer listed, or listed but stopped`,
 		};
 	}
-	if (o.hostPath === null) return { kind: "unjudged" };
-	return { kind: "orphan", writer: describeWriter(o.hostPath, names, now) };
+	return { kind: "orphan", writer: describeWriter(o.path, names, now) };
 }
 
 /**
@@ -589,9 +578,9 @@ function reportOrphans(ctx, orphans, threshold) {
 /**
  * What the run could not judge, as a clause for the okLine; empty where it
  * judged everything.
- * @param {{linked: string[]|null, unread: string[], unjudged: number}} opts
+ * @param {{linked: string[]|null, unread: string[]}} opts
  */
-function describeUnread({ linked, unread, unjudged }) {
+function describeUnread({ linked, unread }) {
 	const parts = [];
 	if (linked === null)
 		parts.push(
@@ -600,10 +589,6 @@ function describeUnread({ linked, unread, unjudged }) {
 	else if (unread.length > 0)
 		parts.push(
 			`${String(unread.length)} worktree(s) git would not read went unjudged: ${unread.join(", ")}`,
-		);
-	if (unjudged > 0)
-		parts.push(
-			`${String(unjudged)} old file(s) in worktrees outside the host root that no session owns went unjudged`,
 		);
 	return parts.length > 0 ? ` ${parts.join("; ")}.` : "";
 }
@@ -632,7 +617,7 @@ runCheck({
 			(m) => moduleOn(m, { root }),
 			gitReader(root, GIT_TIMEOUT_MS),
 		);
-		const main = { root, worktree: null, inside: "" };
+		const main = { root, worktree: null };
 		const sorted = [
 			sortByAge(main, dirty, { hours: cutOver ? 0 : hours, now }),
 		];
@@ -647,18 +632,14 @@ runCheck({
 			if (wtDirty === null) unread.push(wt);
 			if (!wtDirty || wtDirty.length === 0) continue;
 			total += wtDirty.length;
-			const tree = {
-				root: wt,
-				worktree: worktreeLabel(root, wt),
-				inside: hostRelative(root, wt),
-			};
+			const tree = { root: wt, worktree: worktreeLabel(root, wt) };
 			sorted.push(sortByAge(tree, wtDirty, { hours, now }));
 		}
 		const old = sorted.flatMap((t) => t.old);
 		const young = sorted.reduce((n, t) => n + t.young, 0);
 		const deleted = sorted.reduce((n, t) => n + t.deleted, 0);
 
-		const { orphans: found, unjudged } = findOrphans(ctx, old, { now });
+		const found = findOrphans(ctx, old, { now });
 
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
@@ -668,14 +649,13 @@ runCheck({
 		if (!ctx.notify) reportOrphans(ctx, orphans, threshold);
 
 		return {
-			okLine: `no orphaned edit ${threshold} among ${String(total)} uncommitted file(s) across the main checkout and its worktrees.${describeUnread({ linked, unread, unjudged })}`,
+			okLine: `no orphaned edit ${threshold} among ${String(total)} uncommitted file(s) across the main checkout and its worktrees.${describeUnread({ linked, unread })}`,
 			noun: "orphaned edit(s)",
 			data: {
 				orphans,
 				orphanCount: orphans.length,
 				young,
 				deleted,
-				unjudged,
 				unreadWorktrees: linked === null ? null : unread,
 				filings,
 				worktreeThresholdHours: hours,
