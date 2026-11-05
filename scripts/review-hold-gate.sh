@@ -3,9 +3,9 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass, in a linked worktree too, it leaves the marker's tier, areas, base, tree and paths in this session's own stamp scripts/lib/review-tier-stamp.sh names, so a neighbour's commit neither clears nor consumes it (#3906), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
-# JUSTIFIED: fail-safe — any neighbour's push publishes shared-`main` commits, and Manta deploys every push, so a review owed on sensitive code is a hold at commit or it is too late.
-# DEFEAT:    writing the marker's four lines by hand with no review behind them; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
+# IMPLICIT:  refuses a session's commit whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in this session's own stamp scripts/lib/review-tier-stamp.sh names, so a neighbour's commit neither clears nor consumes it (#3906), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
+# JUSTIFIED: fail-safe — a session's worktree commit reaches `landing` with its next land, and an adopter deploying every push of it ships it, so a review owed on sensitive code is a hold at commit or it is too late.
+# DEFEAT:    writing the marker's four lines by hand with no review behind them; a merge naming as its side a commit pushed to a remote-tracking ref with no hold behind it; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
 #   bash scripts/review-hold-gate.sh                  from .husky/pre-commit
 #
@@ -13,32 +13,34 @@
 # `node scripts/commit-paths.js --tree`'s, the one computation of it (#1695);
 # here, in the hook, `git write-tree` reads the index git built for the commit.
 #
-# SKIPPED, silently:
-#   - with no CLAUDE_CODE_SESSION_ID: the founder's own terminal;
-#   - a replay route in a linked worktree, as scripts/lib/commit-route.sh reads
-#     the route.
+# SKIPPED, silently, with no CLAUDE_CODE_SESSION_ID: the founder's own terminal.
+# The main checkout's commits are the guard-main-checkout-write core's to
+# refuse; this gate holds them as it holds a worktree's.
 # A CHERRY-PICK counts only the paths whose staged change differs from the picked
-# commit's own (#3905). Any other replay route reaching this is held whole.
+# commit's own (#3905). A MERGE counts only the paths whose staged bytes are no
+# merged-in side's, each side reachable from a remote-tracking ref (#4383): a
+# land's merge of `origin/landing` carries neighbours' commits, each held at its
+# own commit. Any other replay route reaching this is held whole.
 # A session committing into a repo it did not start in is held: the
 # declaration read is the committing repo's, the marker the session's own.
-#
-# A LINKED WORKTREE is held to nothing (#3714): the same check runs, a marker
-# that would pass leaves the stamp, and one that would not passes, naming on
-# stderr why the commit lands with no trailer (#3830). With no marker at all it
-# passes in silence.
 #
 # LIMITS
 #  - The declaration is read at HEAD and as staged, never from the working
 #    tree, and an area either names is held. A commit narrowing it is held under
-#    what it drops, but a linked worktree's lands.
+#    what it drops.
 #  - A replay reaching no pre-commit is unheld: `git am`; a `git rebase`,
-#    `--continue` included, which a guard refuses in the shared tree; and a
-#    `--no-verify` commit, which a guard refuses unwrapped, beside a hand-made
-#    `rebase-merge`.
+#    `--continue` included; and a `--no-verify` commit, which a guard refuses
+#    unwrapped, beside a hand-made `rebase-merge`.
 #  - A pick whose glob paths change as the picked commit changed them passes,
-#    conflict elsewhere or not: of a worktree's unreviewed commit too, and under
-#    a forged CHERRY_PICK_HEAD naming one that carries the same change. A
-#    `git cherry-pick -m 2` reads against the first parent, so it is held.
+#    conflict elsewhere or not, under a forged CHERRY_PICK_HEAD naming one that
+#    carries the same change too. A `git cherry-pick -m 2` reads against the
+#    first parent, so it is held.
+#  - A merge's glob path whose bytes are a pushed side's passes, whoever pushed
+#    it: the founder's terminal's unheld commit, or one a forged MERGE_HEAD or
+#    GIT_REFLOG_ACTION names, included. A path both sides changed and git
+#    combined cleanly is held. A merge is held whole where a side is not on a
+#    remote-tracking ref, a GIT_REFLOG_ACTION name is no commit, git will not
+#    locate MERGE_HEAD, or it is a pull's, whose sides this gate cannot read.
 #  - A HEAD whose declaration will not parse holds nothing: it fails open.
 #  - A staged declaration that will not parse fails closed where HEAD declares an
 #    area, not open as the gate's other faults do: dropping every area by a typo
@@ -77,10 +79,8 @@ source "$here/lib/gate-unchecked.sh" 2>/dev/null || {
 }
 gate_unchecked_as "the review hold" "a commit went unchecked for a sensitive-path review"
 
-if ! gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" ||
-  ! common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" ||
   unchecked "could not read the git directory"
-fi
 
 # shellcheck source=scripts/lib/commit-route.sh
 source "$here/lib/commit-route.sh" 2>/dev/null ||
@@ -101,7 +101,6 @@ else
   gl_log "review-hold-gate.sh: could not load scripts/lib/review-tier-stamp.sh — a held commit lands with no Review-Tier: trailer"
 fi
 route="$(wfc_commit_route pre-commit "$gitdir")"
-if wfc_commit_route_replays "$route" && [[ "$gitdir" != "$common" ]]; then exit 0; fi
 
 # git hands a plain commit's hook `.git/index`, relative to this cwd.
 if [[ -n "${GIT_INDEX_FILE:-}" && "$GIT_INDEX_FILE" != /* ]]; then
@@ -158,13 +157,64 @@ unreplayed() {
   done <"$work/paths"
 }
 
+# merged_sides — the commits this merge brings in, one per line: MERGE_HEAD's
+# lines on a conflict's resolving commit; at pre-merge-commit, beside the
+# AUTO_MERGE git writes before MERGE_HEAD, the names `git merge` took, which
+# GIT_REFLOG_ACTION carries as `merge <name>…`. A side must be on a
+# remote-tracking ref, since only a pushed commit went through its maker's hold.
+merged_sides() {
+  local file name names side
+  local -a sides=()
+  file="$(git rev-parse --path-format=absolute --git-path MERGE_HEAD)" || return 1
+  if [[ -f "$file" ]]; then
+    mapfile -t sides < <(sed '/^$/d' "$file")
+  else
+    [[ -e "$gitdir/AUTO_MERGE" && "${GIT_REFLOG_ACTION-}" == "merge "* ]] || return 1
+    read -ra names <<<"${GIT_REFLOG_ACTION#merge }"
+    for name in "${names[@]}"; do
+      side="$(git rev-parse -q --verify "$name^{commit}")" || return 1
+      sides+=("$side")
+    done
+  fi
+  [[ ${#sides[@]} -gt 0 ]] || return 1
+  for side in "${sides[@]}"; do
+    [[ -z "$(git rev-list -n 1 "$side" --not --remotes)" ]] || return 1
+    printf '%s\n' "$side"
+  done
+}
+
+# off_merged_sides — the staged paths, NUL-separated, whose staged bytes are no
+# merged-in side's.
+off_merged_sides() {
+  local found path sides staged side theirs
+  if ! found="$(merged_sides)"; then
+    cat "$work/paths"
+    return 0
+  fi
+  mapfile -t sides <<<"$found"
+  while IFS= read -r -d '' path; do
+    staged="$(git rev-parse -q --verify ":0:$path")" || staged=""
+    for side in "${sides[@]}"; do
+      theirs="$(git rev-parse -q --verify "$side:$path")" || theirs=""
+      [[ "$staged" != "$theirs" ]] || continue 2
+    done
+    printf '%s\0' "$path"
+  done <"$work/paths"
+}
+
 # The paths the hold reads: `paths=` still names all of them.
 held="$work/paths"
-if [[ "$route" == cherry-pick ]]; then
-  held="$work/unreplayed"
-  unreplayed >"$held" || unchecked "could not compare the staged change with the picked commit's"
-  [[ -s "$held" ]] || pass_unheld
-fi
+case "$route" in
+  cherry-pick)
+    held="$work/unreplayed"
+    unreplayed >"$held" || unchecked "could not compare the staged change with the picked commit's"
+    ;;
+  merge)
+    held="$work/off-sides"
+    off_merged_sides >"$held" || unchecked "could not compare the staged bytes with the merged-in sides'"
+    ;;
+esac
+[[ -s "$held" ]] || pass_unheld
 
 # areas_under <rev> — the areas the declaration at <rev> (`HEAD`, or empty for
 # the index) holds the staged paths under, one per line. An absent copy
@@ -249,16 +299,13 @@ if [[ -z "$fault" ]]; then
     "$(marker_field "$marker" base | tr -d '[:space:]')" "$tree" \
     "$(marker_list "$marker" paths | paste -sd, -)")" "no Review-Tier: trailer"
 fi
-# A linked worktree is held to nothing: only a marker that passes marks it (#3714).
-if [[ "$gitdir" != "$common" ]]; then
-  [[ ! -f "$marker" ]] ||
-    echo "pre-commit: this commit lands with no Review-Tier: trailer. The marker $marker does not clear it: $fault. To trail it, git reset --soft HEAD~, record the review of exactly this change with scripts/write-review-marker.js, and commit again (rule:review-hold)." >&2
-  exit 0
-fi
-
 {
   echo "pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622)."
   echo "  Areas touched: $(join_comma "${areas[@]}")."
+  if [[ "$route" == merge ]]; then
+    mapfile -d '' -t off_sides <"$held"
+    echo "  This merge's paths no merged-in side carries, the ones to review: $(join_comma "${off_sides[@]}")."
+  fi
   echo "  The marker $marker does not clear it: $fault."
   if [[ -z "$staged_read" ]]; then
     echo "  The staged .claude/workflow-core.json will not read, and a review would land it broken, so correct it first: $staged_fault"

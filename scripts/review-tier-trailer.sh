@@ -6,7 +6,7 @@
 #
 # IMPLICIT:  removes every `Review-Tier:` line from the message but one a cherry-pick's picked commit carries or, on an unchanged tree, HEAD's, saying so on stderr where the commit then goes on with none (#3906). Consumes this session's stamp scripts/review-hold-gate.sh leaves on a pass (scripts/lib/review-tier-stamp.sh names it). Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file.
 # JUSTIFIED: reach — scripts/report-remeasure-due.js counts a commit by it where no `**Review findings:**` comment names it.
-# DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal, `HUSKY=0`; and a linked worktree's commit whose marker would not pass the hold, which it does not refuse there, has none.
+# DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal and `HUSKY=0`.
 #
 #   bash scripts/review-tier-trailer.sh <message file>     from .husky/prepare-commit-msg
 #
@@ -19,8 +19,6 @@
 #  - A `Review-Tier:` line typed into $EDITOR survives, as this hook runs before
 #    the editor opens. A session commits with a message given.
 #  - `--no-verify` by hand mid-rebase reaches the replay path, never this script.
-#  - A picked commit's line survives a conflict resolution in a linked worktree,
-#    which the hold skips, as it does that replay's bytes.
 #  - One session's two simultaneous commits share a stamp.
 #  - A message still to be typed into $EDITOR takes the trailer on its second
 #    line, which the subject then joins, so git reads no trailer there. The
