@@ -20,8 +20,7 @@ import {
 	type RmKind,
 	writeLaunchAnswer,
 } from "./lib/bg-launch-fake";
-import { buildBgBranch } from "./lib/bg-resume-fake";
-import { writeClaudeStub } from "./lib/claude-stub";
+import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -74,7 +73,7 @@ const writeFakeClaude = ({
 		`FAKE_CALLS=${shellQuote(calls)} ${shellQuote(process.execPath)} ${shellQuote(logger)} "$@"`,
 		buildBgBranch({
 			...writeLaunchAnswer(tmp, "1a2b3c4d"),
-			onResume: bgFail ? `printf '%s' ${shellQuote(bgFail)} >&2; exit 1` : "",
+			onLaunch: bgFail ? `printf '%s' ${shellQuote(bgFail)} >&2; exit 1` : "",
 		}),
 		buildRmBranch(rm),
 	]);

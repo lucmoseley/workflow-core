@@ -18,13 +18,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type Answer,
 	buildRmBranch,
+	type LaunchKind,
 	type RmKind,
 	recorded,
 	writeLaunchAnswer,
 } from "./bg-launch-fake";
-import { buildBgBranch } from "./bg-resume-fake";
-import { writeClaudeStub } from "./claude-stub";
+import {
+	buildBgBranch,
+	claudeLiveSkipReason,
+	writeClaudeStub,
+} from "./claude-stub";
 import { buildSeatEnv, runClaude } from "./seat-claude.js";
 import { shellQuote } from "./sh-quote.js";
 
@@ -54,37 +59,46 @@ const readLaunchId = (stdout: string) =>
 		encoding: "utf8",
 	}).stdout.trim();
 
-/** A stub answering every call with `r`. */
-const buildAnswering = (r: {
-	status: number;
-	stdout: string;
-	stderr: string;
-}) =>
+const buildAnswering = (r: Answer) =>
 	`printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
 
-const LAUNCH_ARGS = ["--bg", "--agent", "claude", "--", "/implement 1"];
+const launchCases: { kind: LaunchKind; prompted: boolean }[] = [
+	{ kind: "prompted", prompted: true },
+	{ kind: "idle", prompted: false },
+];
 
-it("recorded the launch in the guard's shape: --bg first, -- before the prompt last", () => {
-	const { argv, status } = recorded.launch;
-	expect(argv[0]).toBe("--bg");
-	expect(argv.at(-2)).toBe("--");
-	expect(status).toBe(0);
-});
+describe.each(launchCases)("the $kind launch", ({ kind, prompted }) => {
+	const r = recorded.launches[kind];
 
-describe("the launch", () => {
+	it("was recorded in its program's shape", () => {
+		expect(r.argv[0]).toBe("--bg");
+		expect(r.argv.at(-2) === "--").toBe(prompted);
+		expect(r.argv.includes("--name")).toBe(!prompted);
+		expect(r.status).toBe(0);
+	});
+
 	it(`reads ${recorded.harness}'s recorded answer`, () => {
-		const r = runOn(LAUNCH_ARGS, [buildAnswering(recorded.launch)]);
-		expect(r.failed).toBeNull();
-		expect(readLaunchId(r.stdout)).toBe(recorded.launch.id);
+		const read = runOn(r.argv, [buildAnswering(r)]);
+		expect(read.failed).toBeNull();
+		expect(readLaunchId(read.stdout)).toBe(r.id);
 	});
 
 	it("reads the fake of it", () => {
-		const r = runOn(LAUNCH_ARGS, [
-			buildBgBranch(writeLaunchAnswer(dir, FAKE_ID)),
+		const read = runOn(r.argv, [
+			buildBgBranch(writeLaunchAnswer(dir, FAKE_ID, kind)),
 		]);
-		expect(r.failed).toBeNull();
-		expect(readLaunchId(r.stdout)).toBe(FAKE_ID);
+		expect(read.failed).toBeNull();
+		expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
 	});
+});
+
+/* A launch on a terminal colours its id. */
+it("reads a job id between colour escapes", () => {
+	expect(
+		readLaunchId(
+			`backgrounded · \u001b[36m${FAKE_ID}\u001b[39m · a-name (idle — send a prompt to start)`,
+		),
+	).toBe(FAKE_ID);
 });
 
 const removalCases: { kind: RmKind; ok: boolean }[] = [
@@ -111,18 +125,7 @@ describe.each(removalCases)("the $kind removal", ({ kind, ok }) => {
  * live removal have no live case: each starts or ends a session.
  */
 // Residual: off the founder's machine this skips, and the fixture goes unchecked.
-function liveSkipReason(): string | undefined {
-	if (process.env.CI)
-		return "CI: the live claude case runs on the founder's machine only";
-	const { status } = spawnSync("claude", ["--version"], {
-		stdio: "ignore",
-		// A guess: it answers in well under a second, and a hang should skip.
-		timeout: 30_000,
-	});
-	return status === 0 ? undefined : "no claude on PATH";
-}
-
-it.skipIf(liveSkipReason())(
+it.skipIf(claudeLiveSkipReason())(
 	"the installed claude answers a removal of no job as the recording does",
 	() => {
 		const { id } = recorded.removals.noJob;

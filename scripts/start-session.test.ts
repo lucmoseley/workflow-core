@@ -4,7 +4,7 @@
  * `main` and `landing` and a main checkout cloned from it, with the real
  * scripts/session-checkout.js cutting. `npm`, `claude` and `reg.exe` are
  * stubs; the `claude` stub records each call's cwd and argv, and its `--bg`
- * prints the recorded launch (lib/bg-launch-fake.ts).
+ * prints the recorded promptless launch (lib/bg-launch-fake.ts).
  *
  * spawn-kept: a shell script, which run-in-process cannot load.
  *
@@ -17,8 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { writeLaunchAnswer } from "./lib/bg-launch-fake";
-import { buildBgBranch } from "./lib/bg-resume-fake";
-import { writeClaudeStub } from "./lib/claude-stub";
+import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
 import { writeReg } from "./lib/reg-fake.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -48,8 +47,8 @@ const claudeStub = (bgFault?: string, faultStatus = 0) =>
 		[
 			`{ pwd; printf '%s\\n' "$@"; echo; } >> ${shellQuote(calls)}`,
 			buildBgBranch({
-				...writeLaunchAnswer(tmp, JOB_ID),
-				onResume:
+				...writeLaunchAnswer(tmp, JOB_ID, "idle"),
+				onLaunch:
 					bgFault === undefined
 						? ""
 						: `printf '%s\\n' ${shellQuote(bgFault)}; exit ${faultStatus}`,

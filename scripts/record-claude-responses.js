@@ -13,9 +13,10 @@
  *     lib/agent-liveness.js and lib/block-cause.js read, and
  *     `claude stop`'s answers to that job and to an id no daemon holds, which
  *     lib/claude-stop.js reads (#2988);
- *   - scripts/fixtures/bg-launch.json: a fresh `claude --bg <flags> -- <prompt>`
- *     launch's answer, which guard-main-checkout-job.js and start-session.sh
- *     read, and `claude rm`'s answers to a live job and to an id no daemon
+ *   - scripts/fixtures/bg-launch.json: the answers of a fresh `claude --bg
+ *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, and
+ *     of a promptless named one, which start-session.sh reads, and `claude
+ *     rm`'s answers to a live job and to an id no daemon
  *     holds, which guard-main-checkout-job.js reads (#4343);
  *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a
  *     terminal, and pty_type.py's, which the refill loop's typed resume
@@ -27,13 +28,12 @@
  *     probe of this session's seat run as lib/usage-probe.js runs it, to its
  *     end.
  *
- * Run it by hand after a harness upgrade, from a session worktree, then `npm
+ * Run it by hand after a harness upgrade, from a session worktree with its
+ * edits committed, then `npm
  * run test -- scripts/lib/bg-resume.contract.test.ts
  * scripts/lib/bg-launch.contract.test.ts scripts/lib/agents-stop.contract.test.ts
  * scripts/lib/claude-attach.contract.test.ts
- * scripts/lib/usage-probe.contract.test.ts`. Its sessions start in that
- * worktree: guard-main-checkout-job.js relaunches a job started in the main
- * checkout under a new id (#4340), so the main checkout is refused.
+ * scripts/lib/usage-probe.contract.test.ts`.
  * It launches one throwaway Haiku session and resumes it
  * while it works, then again once stopped, then once more with its job
  * directory deleted, launches a second told to ask one question and a third
@@ -116,8 +116,8 @@ const SYNTHETIC = {
 	startedAt: 1_700_000_000_000,
 	/* The copy's job id, as `id` is the original's. */
 	copyId: "5e55c0b1",
-	/* The removed job's id. */
 	removedId: "5e55de1e",
+	idleId: "5e551d1e",
 };
 
 /** @param {Row} row */
@@ -206,14 +206,22 @@ const untilState = async (id, done, fails) =>
 		await until(id, id, (row) => row !== undefined && done(row.state), fails)
 	);
 
+const IDLE_NAME = "a-recorded-launch";
+
 /**
- * `claude --bg --model haiku [...flags] -- <prompt>`, the shape
- * guard-main-checkout-job.js launches, and the job id it started.
+ * `claude --bg --model haiku [...flags] -- <prompt>`, and the job id it
+ * started.
  * @param {string} prompt
  * @param {string[]} [flags]
  */
-function launch(prompt, flags = []) {
-	const argv = ["--bg", "--model", "haiku", ...flags, "--", prompt];
+const launch = (prompt, flags = []) =>
+	launchArgv(["--bg", "--model", "haiku", ...flags, "--", prompt]);
+
+/**
+ * `claude <argv>`, a launch, and the job id it started.
+ * @param {string[]} argv
+ */
+function launchArgv(argv) {
 	const launched = claude(argv);
 	const id = /backgrounded · ([\w-]+)/.exec(launched.stdout)?.[1];
 	if (launched.status !== 0 || !id)
@@ -381,7 +389,7 @@ function writeFixture(file, recorded) {
 	writeFd(1, `recorded ${file}\n`);
 }
 
-/** The session worktree the recorder runs in; the main checkout throws. */
+/** The session worktree the recorder runs in. */
 function launchCwd() {
 	const tree = sessionTree({ cwd: process.cwd() });
 	if (tree === null || mainCheckout(tree) === tree)
@@ -448,6 +456,13 @@ async function main() {
 				);
 		if (!rows.some((r) => r.waitingFor))
 			throw new Error(`the listing never showed ${permissionJob} waitingFor`);
+		const idle = launchArgv(["--bg", "--agent", "claude", "--name", IDLE_NAME]);
+		started.push(idle.id);
+		const idleRemoved = claude(["rm", idle.id]);
+		if (idleRemoved.status !== 0)
+			throw new Error(
+				`could not remove ${idle.id}: ${idleRemoved.stderr.trim()}`,
+			);
 		const removed = claude(["rm", permissionJob]);
 		if (removed.status !== 0)
 			throw new Error(
@@ -491,12 +506,22 @@ async function main() {
 		writeFixture(LAUNCH_FIXTURE, {
 			recordedBy: RECORDED_BY,
 			harness,
-			launch: {
-				argv: launched.argv,
-				id: SYNTHETIC.id,
-				status: launched.status,
-				stdout: syntheticText(launched.stdout),
-				stderr: syntheticText(launched.stderr),
+			launches: {
+				prompted: {
+					argv: launched.argv,
+					id: SYNTHETIC.id,
+					status: launched.status,
+					stdout: syntheticText(launched.stdout),
+					stderr: syntheticText(launched.stderr),
+				},
+				/* The id alone: its line's name is IDLE_NAME, no session's. */
+				idle: {
+					argv: idle.argv,
+					id: SYNTHETIC.idleId,
+					status: idle.status,
+					stdout: idle.stdout.replaceAll(idle.id, SYNTHETIC.idleId),
+					stderr: idle.stderr.replaceAll(idle.id, SYNTHETIC.idleId),
+				},
 			},
 			removals: {
 				ok: {

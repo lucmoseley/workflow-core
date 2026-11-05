@@ -6063,16 +6063,13 @@
 			"scripts/start-session.test.ts"
 		],
 		"scripts/fixtures/bg-resume.json": [
-			"scripts/guard-main-checkout-job.test.ts",
-			"scripts/lib/bg-launch.contract.test.ts",
 			"scripts/lib/bg-resume.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/refill-resume-worktree.test.ts",
 			"scripts/lib/refill-resume.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run-recovery.test.ts",
-			"scripts/start-session.test.ts"
+			"scripts/refill-loop-run-recovery.test.ts"
 		],
 		"scripts/fixtures/ci-census-2026-08-14-18.json": [
 			"scripts/lib/generated-rule-copies.test.ts",

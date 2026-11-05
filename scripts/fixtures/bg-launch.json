@@ -1,18 +1,33 @@
 {
 	"recordedBy": "node scripts/record-claude-responses.js",
 	"harness": "2.1.318",
-	"launch": {
-		"argv": [
-			"--bg",
-			"--model",
-			"haiku",
-			"--",
-			"Reply with the single word ok. Use no tools."
-		],
-		"id": "5e55101d",
-		"status": 0,
-		"stdout": "backgrounded · 5e55101d\n  claude agents             list sessions\n  claude attach 5e55101d    open in this terminal\n  claude logs 5e55101d      show recent output\n  claude stop 5e55101d      stop this session\n",
-		"stderr": ""
+	"launches": {
+		"prompted": {
+			"argv": [
+				"--bg",
+				"--model",
+				"haiku",
+				"--",
+				"Reply with the single word ok. Use no tools."
+			],
+			"id": "5e55101d",
+			"status": 0,
+			"stdout": "backgrounded · 5e55101d\n  claude agents             list sessions\n  claude attach 5e55101d    open in this terminal\n  claude logs 5e55101d      show recent output\n  claude stop 5e55101d      stop this session\n",
+			"stderr": ""
+		},
+		"idle": {
+			"argv": [
+				"--bg",
+				"--agent",
+				"claude",
+				"--name",
+				"a-recorded-launch"
+			],
+			"id": "5e551d1e",
+			"status": 0,
+			"stdout": "backgrounded · 5e551d1e · a-recorded-launch (idle — send a prompt to start)\n  claude agents             list sessions\n  claude attach 5e551d1e    open in this terminal\n  claude logs 5e551d1e      show recent output\n  claude stop 5e551d1e      stop this session\n",
+			"stderr": ""
+		}
 	},
 	"removals": {
 		"ok": {
