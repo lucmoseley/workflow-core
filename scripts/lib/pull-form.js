@@ -21,7 +21,7 @@
  *
  * WITH THE `landing` MODULE ON, A SESSION RECONCILES IN ITS OWN WORKTREE
  * (#4229), merging `origin/landing` and pushing `HEAD:landing` by
- * `scripts/session-checkout.js land`, and a refusal here names that route.
+ * `scripts/session-checkout.js land`.
  * Once the main checkout is also cut over (lib/cutover.js) the walk stands
  * down on a tree it resolves: lib/main-checkout-write.js refuses every merge,
  * pull or rebase there, and lib/level-main.js alone moves its `main`. An
@@ -312,8 +312,7 @@ const pullRule = (ctx) =>
 			);
 
 /**
- * Whether the main checkout is levelled — `landing` on and cut over — so
- * lib/main-checkout-write.js refuses every write there.
+ * Whether the main checkout is levelled — `landing` on and cut over.
  * @param {PullFormContext} ctx
  */
 const isLevelled = (ctx) =>
@@ -1225,7 +1224,6 @@ const WALKS = [
 		["checkout", "switch", "restore", "clean", "stash"],
 	],
 	[
-		/* Stood down on a resolved tree once levelled, as the header says. */
 		(j, call) =>
 			call.tree && isLevelled(j.ctx) ? null : judgeReconcile(j, call),
 		"the reconciliation",
