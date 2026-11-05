@@ -127,7 +127,7 @@ const CLASSES = "docs/doc-map-classes.json";
  * @typedef {{ ok: true, stdout: string } | { ok: false, why: string,
  *   stdout: string }} ArbiterAnswer `why` is "timed out" or "exited <code>"
  * @typedef {import("./guard-dispatch.js").CoreContext & {
- *   arbiterCheck: (args: string[]) => ArbiterAnswer,
+ *   arbiterCheck: (args: string[], cwd: string) => ArbiterAnswer,
  * }} FileClaimContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
@@ -294,22 +294,20 @@ function readAuthorityClass(rel, ctx, tree) {
 
 /**
  * The arbiter's answer for this write: a note to carry with the rules, or the
- * decision that ends the call.
+ * decision that ends the call. It runs in the session's tree, which a claim's
+ * key is spelt from (#4397).
  * @param {string} file
  * @param {FileClaimContext} ctx
+ * @param {string} tree
  * @returns {{ note: string } | { decision: Decision }}
  */
-function arbiterAnswer(file, ctx) {
+function arbiterAnswer(file, ctx, tree) {
 	const { anchor, anchorLen, newIds } = editFields(file, ctx);
 	const session = ctx.session || ctx.env.CLAUDE_CODE_SESSION_ID || "";
-	const arb = ctx.arbiterCheck([
-		"check",
-		file,
-		session,
-		anchor,
-		anchorLen,
-		newIds,
-	]);
+	const arb = ctx.arbiterCheck(
+		["check", file, session, anchor, anchorLen, newIds],
+		tree,
+	);
 	if (arb.ok) return readAnswer(arb.stdout, ctx);
 	/* The arbiter catches its own exceptions and exits 0, so any other end is a
 	 * fault it never saw: a hang killed at the port's bound, an OOM kill, a node
@@ -405,9 +403,9 @@ function decide(file, ctx) {
 	 * for it. An Edit cannot create a file. */
 	const creating = ctx.tool === "Write" && !ctx.exists(file);
 	/* The rules follow the path in the session's tree, so a linked worktree's
-	 * write is read by its own spelling there (#4242); the claim itself is the
-	 * arbiter's, on the host. A root spelled with a trailing slash once made
-	 * every strip a no-op. */
+	 * write is read by its own spelling there (#4242); the claim is keyed by
+	 * the same spelling, in the host's store (#4397). A root spelled with a
+	 * trailing slash once made every strip a no-op. */
 	const tree = treeOr(ctx, ctx);
 	const root = trimEndRun(tree.root, "/");
 	const rel = (
@@ -415,7 +413,7 @@ function decide(file, ctx) {
 	).replace(/^\.\//, "");
 	/* Scratch skips the arbiter, so no arbiter-fault line is logged for it. */
 	if (isScratch(rel)) return null;
-	const answer = arbiterAnswer(file, ctx);
+	const answer = arbiterAnswer(file, ctx, tree.root);
 	if ("decision" in answer) return answer.decision;
 	const { note } = answer;
 	const agentDoc =

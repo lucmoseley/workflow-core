@@ -185,6 +185,7 @@ module.exports = {
 	recordWant: wants.recordWant,
 	registerDenial: debts.registerDenial,
 	relativeToRepo: core.relativeToRepo,
+	treeRoot: core.treeRoot,
 	release: locksMod.release,
 	releaseIssue: issues.releaseIssue,
 	registryLookup: core.registryLookup,

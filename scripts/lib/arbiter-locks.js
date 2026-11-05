@@ -660,7 +660,7 @@ function judgeExisting(rel, existing, me) {
  */
 function preBlobOf(rel, sessionId) {
 	if (core.splitSubject(rel).region !== null) return null;
-	if (!fs.existsSync(path.join(core.repoRoot(), rel))) return null;
+	if (!fs.existsSync(path.join(core.treeRoot(), rel))) return null;
 	const sha = core.git(["hash-object", "-w", "--", rel]);
 	if (!sha || !/^[0-9a-f]{40,64}$/.test(sha)) return null;
 	const touched =

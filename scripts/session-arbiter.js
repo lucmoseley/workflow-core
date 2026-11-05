@@ -498,7 +498,7 @@ function claimSubjects(rel, anchor, anchorLength) {
 
 	let text;
 	try {
-		text = fs.readFileSync(path.join(store.paths.repoRoot(), rel), "utf8");
+		text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 	} catch (e) {
 		const { code, message } = caught(e);
 		return fallback(`the file could not be read (${code || message})`);
@@ -827,10 +827,7 @@ const REGIONS_SHOWN = 12;
 function buildUnknownRegionReason(rel, region) {
 	let ids;
 	try {
-		const text = fs.readFileSync(
-			path.join(store.paths.repoRoot(), rel),
-			"utf8",
-		);
+		const text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 		ids = [...new Set(regions.parseRegions(text, rel).map((r) => r.id))];
 		if (ids.includes(region)) return null;
 		const append = region.match(/^B(\d+)$/);
@@ -938,10 +935,7 @@ function wholeFileRegionWarning(rel) {
 	// offered an append slot this call could not verify it has.
 	let allocatable = false;
 	try {
-		const text = fs.readFileSync(
-			path.join(store.paths.repoRoot(), rel),
-			"utf8",
-		);
+		const text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 		const ids = [...new Set(regions.parseRegions(text, rel).map((r) => r.id))];
 		const rows = ids.filter((id) => id.startsWith(regions.ROW_PREFIX));
 		// Sorted NUMERICALLY for the range below: document order need not be
@@ -3398,7 +3392,7 @@ function cmdDebt(argv) {
  */
 function readHighWaterMarkFor(rel) {
 	const file = path.join(
-		store.paths.repoRoot(),
+		store.treeRoot(),
 		path.dirname(rel),
 		DATA_FILES.highWater,
 	);
@@ -3445,7 +3439,7 @@ function cmdAllocEntry(filePath, sessionId) {
 
 	let text;
 	try {
-		text = fs.readFileSync(path.join(store.paths.repoRoot(), rel), "utf8");
+		text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 	} catch (e) {
 		const { code, message } = caught(e);
 		writeStderr(

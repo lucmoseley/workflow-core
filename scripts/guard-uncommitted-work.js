@@ -8,9 +8,8 @@
  *
  * TWO TREES, ONE KEY. Dirt is read from the session's tree (`sessionTree`, the
  * payload's cwd); the write ledger, claims, debts and observations are the host
- * root's shared stores, keyed host-relative (`lib/neighbour-dirt.js`'s
- * `keyPaths`). Each dirty path is matched on its key and named as git in the
- * session's tree spells it.
+ * root's shared stores, keyed by the path in the session's tree
+ * (`lib/arbiter-core.js`'s `treeRoot`), so git's spelling is the key.
  *
  * The uncommitted-work half of the turn-end rule, which this guard enforces,
  * lives in docs/agents/guard-registry.md §Conventions (#2034); the
@@ -84,25 +83,17 @@
  *            also release its own dirt by declaring it, which leaves a debt
  *            standing in the store until its issue closes. The clean-claim
  *            limb takes the house cap of three, on a counter of its own.
- * TREE:      both — dirt from the session's tree, then the main checkout's;
- *            attribution from the host root's ledger, claims, debts and
- *            observations.
+ * TREE:      both — dirt from the session's tree; attribution from the host
+ *            root's ledger, claims, debts and observations.
  */
 
-const path = require("node:path");
-
-const {
-	REFUSAL_NAMED_MAX,
-	readDirtyTracked,
-	gitRead,
-} = require("./lib/dirty-tree.js");
+const { REFUSAL_NAMED_MAX, readDirtyTracked } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { sessionTree } = require("./lib/host-root.js");
 const hookBlock = require("./lib/hook-block");
 const store = require("./lib/arbiter-store");
 const hookMessage = require("./lib/hook-message");
 const {
-	keyPaths,
 	readClaimedElsewhere,
 	readObservedElsewhere,
 } = require("./lib/neighbour-dirt.js");
@@ -218,9 +209,8 @@ function refuseUncommitted(payload, sid, tree) {
 	const written = store.readWritesBy(sid);
 	if (written === null || written.length === 0) return false;
 
-	const tracked = readDirtyTracked(tree);
-	if (tracked === null) return false;
-	const dirty = keyPaths(tree, tracked);
+	const dirty = readDirtyTracked(tree);
+	if (dirty === null) return false;
 
 	const theirs = readClaimedElsewhere(sid);
 	/* An owned debt this session recorded is the remedy the refusal below
@@ -228,8 +218,7 @@ function refuseUncommitted(payload, sid, tree) {
 	const declared = store.debtsOwnedBy(sid);
 	/* Already sorted, and unique by construction — see `readDirtyTracked`. */
 	const claimFiltered = dirty.filter(
-		({ key }) =>
-			written.includes(key) && !theirs.has(key) && !declared.has(key),
+		(rel) => written.includes(rel) && !theirs.has(rel) && !declared.has(rel),
 	);
 	/* Nothing to name, so nothing `readObservedElsewhere` reads could change the
 	 * answer — and this is what keeps its ~465 ms oracle off the ordinary clean
@@ -256,9 +245,7 @@ function refuseUncommitted(payload, sid, tree) {
 	if (handoff.down) return false;
 
 	const observed = readObservedElsewhere(sid);
-	const mine = claimFiltered
-		.filter(({ key }) => !observed.paths.has(key))
-		.map(({ rel }) => rel);
+	const mine = claimFiltered.filter((rel) => !observed.paths.has(rel));
 	if (mine.length === 0) return false;
 
 	const truncated = mine.length > REFUSAL_NAMED_MAX;
@@ -294,26 +281,6 @@ function refuseUncommitted(payload, sid, tree) {
 	});
 }
 
-/** A host-relative key inside a linked worktree: `.claude/worktrees/<name>/<rel>`. */
-const WORKTREE_KEY_RE = /^\.claude\/worktrees\/([^/]+)\/(.+)$/;
-
-/**
- * Whether a subject the store judged clean is clean in its own worktree too.
- * The store asks the main checkout's git, which ignores everything under
- * `.claude/worktrees/`, so a dirty worktree file reads clean there; a subject
- * inside a linked worktree, this session's or another's, is asked of that
- * worktree's own `git status`, untracked files included. Unanswerable reads as
- * not clean, which keeps the claim.
- * @param {string} subject
- * @returns {boolean}
- */
-function isCleanInTree(subject) {
-	const [, name, rel] = WORKTREE_KEY_RE.exec(subject) ?? [];
-	if (name === undefined || rel === undefined) return true;
-	const tree = path.join(hookBlock.repoRoot(), ".claude", "worktrees", name);
-	return gitRead(["status", "--porcelain", "--", rel], tree) === "";
-}
-
 /**
  * The second limb (#3565): a turn ending `result:` or `needs input:` while
  * this session holds a whole-file claim on a file with no uncommitted change.
@@ -330,10 +297,8 @@ function refuseHeldClean(payload, sid) {
 	if (!message) return;
 	const { name } = governingMarker(message);
 	if (name !== "result:" && name !== "needs input:") return;
-	const held = store.readHeldClean(sid);
-	if (held === null) return;
-	const clean = held.filter(isCleanInTree);
-	if (clean.length === 0) return;
+	const clean = store.readHeldClean(sid);
+	if (clean === null || clean.length === 0) return;
 
 	const named = clean.map(shellQuote).join(" ");
 	hookBlock.blockStop({
@@ -355,11 +320,7 @@ function refuseHeldClean(payload, sid) {
 function judge({ sessionId: sid, payload }) {
 	const tree = sessionTree(payload);
 	if (tree === null) return;
-	/* The session's own tree first; then the main checkout, where a worktree
-	 * session's ledgered write there is stranded work all the same. */
-	const host = hookBlock.repoRoot();
-	for (const t of tree === host ? [tree] : [tree, host])
-		if (refuseUncommitted(payload, sid, t)) return;
+	if (refuseUncommitted(payload, sid, tree)) return;
 	refuseHeldClean(payload, sid);
 }
 
