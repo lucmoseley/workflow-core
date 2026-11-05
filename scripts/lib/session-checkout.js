@@ -5,7 +5,9 @@
  *
  * CUT fetches `main`, adds a worktree detached at `origin/main` under
  * `.claude/worktrees/<session-name>/` of the main checkout, and attaches its
- * dependencies.
+ * dependencies. A session that cuts one names itself its holder, in
+ * `HOLDER_RECORD` in the worktree's git directory, so a tree it hands to an
+ * in-process subagent, where no process's cwd lies, stands while it lives.
  *
  * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
  * worktree cut for it where the repository has the `landing` module, else the
@@ -68,6 +70,7 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readLiveSessionIds } = require("./arbiter-core.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
 const { readProcCwd } = require("./claude-sessions.js");
@@ -482,7 +485,8 @@ function attach(cwd, { noBuild = false } = {}) {
  * is removed.
  * @param {string} cwd anywhere in the repository
  * @param {string} name the session's name
- * @param {{ noBuild?: boolean }} [how]
+ * @param {{ noBuild?: boolean, holder?: string | null }} [how] `holder` the
+ *   id of the session the worktree is held for
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
 function cut(cwd, name, how = {}) {
@@ -497,7 +501,36 @@ function cut(cwd, name, how = {}) {
 			`${dir} already exists — pick another session name, or resume the session that worktree belongs to`,
 		);
 	fetchShared(root);
-	return addWorktree(root, dir, VERIFIED_REF, how);
+	const { holder, ...build } = how;
+	const made = addWorktree(root, dir, VERIFIED_REF, build);
+	if (holder)
+		fs.writeFileSync(
+			path.join(git(["rev-parse", "--absolute-git-dir"], dir), HOLDER_RECORD),
+			`${JSON.stringify({ sessionId: holder })}\n`,
+		);
+	return made;
+}
+
+/**
+ * Whether the worktree whose git directory is `admin` names a holder session
+ * `live` holds, or names one where `live` is null: an unread registry proves
+ * no session dead.
+ * @param {string} admin
+ * @param {Set<string> | null} live
+ */
+function heldByLiveSession(admin, live) {
+	let sessionId;
+	try {
+		({ sessionId } = JSON.parse(
+			fs.readFileSync(path.join(admin, HOLDER_RECORD), "utf8"),
+		));
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return false;
+		throw err;
+	}
+	return (
+		typeof sessionId === "string" && (live === null || live.has(sessionId))
+	);
 }
 
 /**
@@ -810,8 +843,8 @@ function warm(cwd) {
  *   - a session worktree whose every `HEAD` commit is on a freshly fetched
  *     `origin/main` or its own queue ref, whose tree is clean, and whose session is neither live
  *     (a process's cwd lies in it), resumable (a job record whose cwd lies in
- *     it is in any state but `done` or `failed`) nor finished under `KEEP_MS`
- *     ago is removed, its path, `HEAD` sha, and each job's id and seat whose
+ *     it is in any state but `done` or `failed`), held (its `HOLDER_RECORD`
+ *     names a live session) nor finished under `KEEP_MS` ago is removed, its path, `HEAD` sha, and each job's id and seat whose
  *     cwd lies in it appended first to `REAPED_RECORD` in git's common
  *     directory;
  *   - one dirty or unlanded, of a dead and non-resumable session, is reported
@@ -836,6 +869,7 @@ const YOUNG_MS = 5 * 60_000;
  * tree. */
 const KEEP_MS = 3 * 24 * 60 * 60_000;
 const REAPED_RECORD = "wfc-reaped-worktrees.jsonl";
+const HOLDER_RECORD = "wfc-holder.json";
 const ISOLATED = /^isolated-/;
 const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
@@ -980,6 +1014,7 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 			)
 			.map((j) => j.cwd),
 	];
+	const live = readLiveSessionIds();
 	/** @type {string[]} */
 	const standing = [];
 	for (const dir of registered) {
@@ -995,7 +1030,10 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 		}
 		try {
 			const admin = git(["rev-parse", "--absolute-git-dir"], dir);
-			if (fs.existsSync(path.join(admin, "locked"))) {
+			if (
+				fs.existsSync(path.join(admin, "locked")) ||
+				heldByLiveSession(admin, live)
+			) {
 				standing.push(dir);
 				continue;
 			}

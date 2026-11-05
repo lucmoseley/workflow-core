@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readProcStartOf } from "./lib/arbiter-proc.js";
 import {
 	FILED_DIR,
 	markerName,
@@ -68,6 +69,7 @@ const run = (args: string[], env: Record<string, string> = {}) =>
 			CLAUDE_CONFIG_DIR: seat,
 			WFC_NPM: npmStub,
 			WFC_MODULES: "landing",
+			CLAUDE_CODE_SESSION_ID: "",
 			...env,
 		},
 	});
@@ -364,6 +366,38 @@ it("leaves a locked worktree alone", () => {
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toBe("");
 	expect(registered()).toContain(locked);
+});
+
+it("leaves a worktree its cutting session holds while that session lives, then removes it (#4496)", () => {
+	const r0 = run(["cut", "dispatched"], { CLAUDE_CODE_SESSION_ID: "cutter" });
+	expect(r0.status, r0.stderr).toBe(0);
+	const dispatched = worktree("dispatched");
+	const pid = holdProcess(tmp);
+	const entry = path.join(seat, "sessions", `${pid}.json`);
+	fs.mkdirSync(path.dirname(entry), { recursive: true });
+	fs.writeFileSync(
+		entry,
+		JSON.stringify({
+			pid,
+			sessionId: "cutter",
+			procStart: readProcStartOf(pid),
+		}),
+	);
+
+	const kept = reap();
+
+	expect(kept.status, kept.stderr).toBe(0);
+	expect(kept.stderr).toBe("");
+	expect(registered()).toContain(dispatched);
+
+	fs.writeFileSync(
+		entry,
+		JSON.stringify({ pid: deadPid(), sessionId: "cutter", procStart: "1" }),
+	);
+	const ended = reap();
+
+	expect(ended.status, ended.stderr).toBe(0);
+	expect(registered()).not.toContain(dispatched);
 });
 
 it("turns away a pass while another holds the reap lock", () => {
