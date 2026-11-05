@@ -176,6 +176,13 @@ describe("flag passthrough", () => {
 		expect(r.code).toBe(0);
 		expect(dispatchArgv()).toBe("--dry-run --no-advisor sonnet /pick-next 341");
 	});
+
+	it("forwards --into with its worktree as one pair (#4385)", () => {
+		stubDispatch();
+		const r = run(["--into", "/w/dead", "implement", "4385"]);
+		expect(r.code).toBe(0);
+		expect(dispatchArgv()).toBe("--into /w/dead opus /implement 4385");
+	});
 });
 
 describe("usage", () => {

@@ -73,6 +73,11 @@ const readInstalls = () =>
 
 const worktree = (name: string) =>
 	path.join(main, ".claude", "worktrees", name);
+/** The session worktrees standing, the dot-named store folder left out. */
+const listWorktrees = () =>
+	fs
+		.readdirSync(path.join(main, ".claude", "worktrees"))
+		.filter((d) => !d.startsWith("."));
 const stores = () => path.join(main, ".claude", "worktrees", ".dep-stores");
 const storeOf = (name: string) =>
 	fs.realpathSync(path.join(worktree(name), "node_modules"));
@@ -185,6 +190,49 @@ it("gives a launch a worktree named for its prompt where the repository lands th
 	expect(dirs[1]).not.toBe(dirs[0]);
 });
 
+it("gives a launch --into an existing session worktree that worktree, uncut and its work kept (#4385)", () => {
+	const dead = run(main, "cut", "dead-one").stdout.trim();
+	fs.writeFileSync(path.join(dead, "half-done.txt"), "uncommitted");
+
+	const r = run(main, "launch-dir", "--into", dead, "/implement 4385");
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe(`${dead}\n`);
+	expect(fs.readFileSync(path.join(dead, "half-done.txt"), "utf8")).toBe(
+		"uncommitted",
+	);
+	expect(listWorktrees()).toEqual(["dead-one"]);
+});
+
+it("refuses a launch --into a worktree a live process still works in, naming its pid (#4385)", () => {
+	const dead = run(main, "cut", "still-held").stdout.trim();
+	/* 60 s outlives the case; `finally` kills it. */
+	const holder = spawn("sh", ["-c", "sleep 60"], {
+		cwd: dead,
+		stdio: "ignore",
+	});
+	try {
+		const r = run(main, "launch-dir", "--into", dead, "/implement 4385");
+
+		expect(r.status).toBe(1);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toContain(
+			`session checkout: a live process still works in ${dead} (pid ${holder.pid}`,
+		);
+	} finally {
+		holder.kill();
+	}
+});
+
+it("refuses a launch --into a directory that is no session worktree, naming the directory (#4385)", () => {
+	for (const into of [main, path.join(tmp, "elsewhere")]) {
+		const r = run(main, "launch-dir", "--into", into, "/implement 4385");
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`${into} is no session worktree of ${main}`);
+	}
+});
+
 it("gives a launch the main checkout itself where the repository has no landing module", () => {
 	const r = runInProcess(SCRIPT, ["launch-dir", "/implement 4245"], {
 		cwd: main,
@@ -222,6 +270,88 @@ it("shares one store between cuts with the same lockfile, and builds a second fo
 		"lock-2\n",
 	);
 	expect(readInstalls()).toHaveLength(2);
+});
+
+it("warms the store for origin/landing's lockfile, so a no-build launch then cuts with no install of its own (#4318)", () => {
+	landOnOrigin({ "package-lock.json": "lock-3\n" });
+
+	const warmed = run(main, "warm");
+	const again = run(main, "warm");
+	const launched = run(main, "launch-dir", "--no-build", "/implement 4318");
+
+	expect(warmed.status, warmed.stderr).toBe(0);
+	expect(again.status, again.stderr).toBe(0);
+	expect(launched.status, launched.stderr).toBe(0);
+	const dir = launched.stdout.trim();
+	const store = path.dirname(fs.realpathSync(path.join(dir, "node_modules")));
+	expect(warmed.stderr).toBe(
+		`session checkout: origin/landing's lockfile uses ${store}, built now\n`,
+	);
+	expect(
+		fs.readFileSync(path.join(store, "node_modules", "lock"), "utf8"),
+	).toBe("lock-3\n");
+	expect(readInstalls()).toHaveLength(1);
+});
+
+it("refuses a no-build launch that meets no store at once, naming the warm route, with no install and no worktree left (#4318)", () => {
+	const r = run(main, "launch-dir", "--no-build", "/implement 4318");
+
+	expect(r.status).toBe(1);
+	expect(r.stdout).toBe("");
+	expect(r.stderr).toMatch(
+		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; the refill tick's warm pass \(`node scripts\/session-checkout\.js warm`\) builds it, and the next tick launches this member\n$/,
+	);
+	expect(readInstalls()).toEqual([]);
+	expect(listWorktrees()).toEqual([]);
+});
+
+it("names a failed warm build in each no-build refusal until a build succeeds, which clears it (#4318)", () => {
+	fs.writeFileSync(
+		npmStub,
+		"#!/bin/sh\necho registry unreachable >&2\nexit 7\n",
+	);
+
+	const failed = run(main, "warm");
+	const refused = run(main, "launch-dir", "--no-build", "/implement 4318");
+
+	expect(failed.status).toBe(1);
+	expect(refused.status).toBe(1);
+	expect(refused.stderr).toMatch(
+		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 building a store in .* — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
+	);
+
+	fs.writeFileSync(
+		npmStub,
+		`#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock && pwd >> ${shellQuote(npmCalls)}\n`,
+	);
+	expect(run(main, "warm").status).toBe(0);
+	expect(run(main, "launch-dir", "--no-build", "/implement 4318").status).toBe(
+		0,
+	);
+	expect(fs.readdirSync(stores()).filter((n) => n.endsWith(".failed"))).toEqual(
+		[],
+	);
+});
+
+it("leaves a live builder of origin/landing's store to finish when warming, running no install of its own", () => {
+	expect(run(main, "warm").status).toBe(0);
+	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));
+	removeTree(path.join(stores(), key));
+	fs.writeFileSync(npmCalls, "");
+	const holder = spawn("sleep", ["60"], { stdio: "ignore" });
+	fs.writeFileSync(
+		path.join(stores(), `.build-${key}.lock`),
+		`${holder.pid}\n`,
+	);
+
+	const r = run(main, "warm");
+	holder.kill();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe(
+		`session checkout: origin/landing's lockfile uses ${path.join(stores(), key)}, which another process is building\n`,
+	);
+	expect(readInstalls()).toEqual([]);
 });
 
 it("re-attaches a worktree whose work changed the lockfile to a store built for it, from any directory in it, leaving the old store as it was", () => {
@@ -389,7 +519,7 @@ it("exits 2 on a usage error", () => {
 	expect(run(main, "attach", "a", "b").status).toBe(2);
 });
 
-it("leaves no worktree and no store behind where the install fails, and says how to retry", () => {
+it("leaves no worktree and no store behind where the install fails, only the failure's record, and says how to retry", () => {
 	fs.writeFileSync(npmStub, "#!/bin/sh\nexit 7\n");
 
 	const r = run(main, "cut", "one");
@@ -398,7 +528,13 @@ it("leaves no worktree and no store behind where the install fails, and says how
 	expect(r.stderr).toContain("npm ci exited 7");
 	expect(r.stderr).toContain("then attach again");
 	expect(fs.existsSync(worktree("one"))).toBe(false);
-	expect(fs.readdirSync(stores())).toEqual([]);
+	const left = fs.readdirSync(stores());
+	expect(left).toEqual([
+		expect.stringMatching(/^\.build-[0-9a-f]{16}\.failed$/),
+	]);
+	expect(
+		fs.readFileSync(path.join(stores(), String(left[0])), "utf8"),
+	).toContain("npm ci exited 7");
 	expect(git(main, "worktree", "list")).not.toContain("one");
 });
 

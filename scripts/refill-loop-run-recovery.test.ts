@@ -2058,9 +2058,10 @@ describe("a session held on its seat's limit (#3735)", () => {
 				`env key=unset api=unset session=unset dir=${seat}`,
 			);
 			const resume = readLines(at("calls")).find((l) => l.startsWith("--bg"));
-			const settings = resume?.match(
-				/^--bg --resume s-job7 --settings (\{.*\}) /,
-			)?.[1];
+			const [, name, settings] =
+				resume?.match(/^--bg --resume s-job7 -n (.+?) --settings (\{.*\}) /) ??
+				[];
+			expect(name).toBe("Overflow · /implement 7");
 			expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
 				/overflow-key\.js'? '?K2/,
 			);

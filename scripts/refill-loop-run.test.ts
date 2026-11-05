@@ -144,12 +144,16 @@ describe("run (#2435)", () => {
 		expect(readLines(at("levelled"))).toEqual([
 			`${fs.realpathSync(repo)} --quiet`,
 		]);
-		// And a reap pass over its worktrees folder, in it (#4247).
+		// And a warm pass and a reap pass over its worktrees folder, in it
+		// (#4318, #4247), both detached, so in either order.
 		await polled(
-			() => readLines(at("reaped")).length > 0,
-			"no reap pass started",
+			() => readLines(at("reaped")).length > 1,
+			"no warm and reap passes started",
 		);
-		expect(readLines(at("reaped"))).toEqual([`${fs.realpathSync(repo)} reap`]);
+		expect(readLines(at("reaped")).sort()).toEqual([
+			`${fs.realpathSync(repo)} reap`,
+			`${fs.realpathSync(repo)} warm`,
+		]);
 		expect(r.stdout).toContain(
 			`landing in ${repo}: exit 0\n  started the lander`,
 		);

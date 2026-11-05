@@ -72,7 +72,14 @@
 # EACH SESSION STARTS IN A DIRECTORY OF ITS OWN (#4229): a worktree cut from
 # `origin/landing` by `scripts/session-checkout.js launch-dir`, or this
 # checkout where the repo has no `landing` module. A member that gets no
-# directory is named on stderr and skipped, as a re-read refusal is.
+# directory is named on stderr and skipped, as a re-read refusal is. With
+# WFC_DISPATCH_NO_BUILD=1, which the refill loop sets (#4318), a cut finding no
+# dependency store for its lockfile is such a member: the loop's warm pass
+# builds the store, so no `npm ci` runs inside its timeout for this call.
+# `--into <worktree>` starts a one-member set in that existing session
+# worktree instead, a dead session's, so its successor finishes the
+# orphaned edits there (#4385); a worktree a live process still works in
+# is refused as a member with no directory is.
 #
 # Exit codes: 0 launched (or dry-run; a member dropped by any drop above
 #             still exits 0, as does a set the allowance cap cut short),
@@ -232,6 +239,7 @@ dry_run=0
 force=0
 force_memory=0
 advisor=1
+into=""
 
 # One EXIT trap for all three temp files: `trap ... EXIT` REPLACES the
 # handler, so a second one would silently leak whichever file the first was
@@ -351,6 +359,14 @@ while [[ $# -gt 0 ]]; do
       advisor=0
       shift
       ;;
+    --into)
+      [[ $# -ge 2 ]] || {
+        printf -- '--into names no worktree\n' >&2
+        exit 2
+      }
+      into="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -364,7 +380,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $# -eq 0 || $(($# % 2)) -ne 0 ]]; then
-  printf 'usage: %s [--dry-run] [--force] [--force-memory] [--no-advisor] <model> <prompt> [<model> <prompt> ...]\n' "$0" >&2
+  printf 'usage: %s [--dry-run] [--force] [--force-memory] [--no-advisor] [--into <worktree>] <model> <prompt> [<model> <prompt> ...]\n' "$0" >&2
+  exit 2
+fi
+if [[ -n "$into" && $# -ne 2 ]]; then
+  printf -- '--into starts one session in one worktree; this set has %d members\n' $(($# / 2)) >&2
   exit 2
 fi
 
@@ -443,6 +463,9 @@ unset WFC_SEAT_REASON
 # The overflow seat the refill loop asked for; unset as the reason is.
 seat_key="${WFC_SEAT_KEY:-}"
 unset WFC_SEAT_KEY
+# Whether a cut may build its store (#4318); unset as the reason is.
+no_build="${WFC_DISPATCH_NO_BUILD:-}"
+unset WFC_DISPATCH_NO_BUILD
 gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_key"})" || exit 2
 {
   read -r seat_kind burn_state
@@ -898,7 +921,10 @@ while [[ $# -gt 0 ]]; do
   # temp file, which the launch below overwrites, so a refusal's reason sits
   # first under its REFUSED line, where lib/refill-batch.js reads it.
   checkout_err="${launch_out_file:-/dev/null}"
-  if ! launch_dir="$(node "$here/session-checkout.js" launch-dir "$prompt" 2>"$checkout_err")"; then
+  checkout_args=(launch-dir)
+  [[ "$no_build" == 1 ]] && checkout_args+=(--no-build)
+  [[ -n "$into" ]] && checkout_args+=(--into "$into")
+  if ! launch_dir="$(node "$here/session-checkout.js" "${checkout_args[@]}" "$prompt" 2>"$checkout_err")"; then
     printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
     sed 's/^/  /' "$checkout_err" >&2
     continue

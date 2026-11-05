@@ -25,8 +25,10 @@ const { worktreePaths } = require("./worktree-paths.js");
 
 /**
  * @typedef {{sessionId: string, name: string|null}} Owner
- * @typedef {{sessionId: string, name: string|null, cwd: string, at: number,
- *   state: string|null}} JobCwd
+ * @typedef {{id: string, seat: string, sessionId: string, name: string|null,
+ *   cwd: string, at: number, state: string|null}} JobCwd
+ *   `id` the job's directory name, the id `claude attach` takes; `seat` the
+ *   config dir holding it
  * @typedef {{cwds?: Map<string, string>, names?: Map<string, string>}} ListedCwds
  *   the agents oracle's read: each listed session's cwd and name
  */
@@ -48,15 +50,19 @@ function readLinkedWorktrees(root) {
 }
 
 /**
- * A job record's cwd, session, name and state; null where it names no cwd or
- * session.
+ * A job record's id, seat, cwd, session, name and state; null where it names
+ * no cwd or session.
  * @param {ReturnType<typeof readJobRecordIn>} job
+ * @param {string} id the job's directory name
+ * @param {string} seat the config dir holding it
  * @returns {JobCwd | null}
  */
-function jobCwdOf(job) {
+function jobCwdOf(job, id, seat) {
 	if (typeof job?.cwd !== "string" || typeof job.sessionId !== "string")
 		return null;
 	return {
+		id,
+		seat,
 		sessionId: job.sessionId,
 		name: typeof job.name === "string" ? job.name : null,
 		cwd: deref(job.cwd),
@@ -66,7 +72,8 @@ function jobCwdOf(job) {
 }
 
 /**
- * The cwd, session, name and state of every job record on every seat.
+ * The id, seat, cwd, session, name and state of every job record on every
+ * seat.
  * @returns {JobCwd[]}
  */
 function readJobCwds() {
@@ -81,7 +88,7 @@ function readJobCwds() {
 			continue;
 		}
 		for (const id of ids) {
-			const job = jobCwdOf(readJobRecordIn(path.join(store, id)));
+			const job = jobCwdOf(readJobRecordIn(path.join(store, id)), id, seat);
 			if (job) out.push(job);
 		}
 	}

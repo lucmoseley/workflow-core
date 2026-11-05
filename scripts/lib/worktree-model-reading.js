@@ -93,7 +93,7 @@ const foreignMainEntries = (mainRows) =>
 /**
  * For each move of `origin/main`, when `main` first reached it or a
  * descendant, and whether that came before `origin/main` moved again — each
- * move starts its own levelling pass (lander.js `startLevelling`), so a move
+ * move starts its own levelling pass (lib/level-main.js `startLevelling`), so a move
  * overtaken before main reached it is one that pass did not level.
  * @param {ReflogRow[]} moves origin/main rows in the window
  * @param {ReflogRow[]} mainRows every main row from the window's start on

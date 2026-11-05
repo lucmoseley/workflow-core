@@ -115,7 +115,7 @@ function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	/** @type {boolean | undefined} */
 	let cutOver;
-	const isCutOver = () => {
+	const readCutOverOnce = () => {
 		if (cutOver === undefined) cutOver = landingCutOver(ctx.moduleOn, ctx.git);
 		return cutOver;
 	};
@@ -125,7 +125,7 @@ function decide(command, ctx) {
 	walkGit(
 		parsed,
 		({ segment, sub, tree, args, emptyVars }) => {
-			if (refusal !== null || (sub !== "worktree" && isCutOver())) return;
+			if (refusal !== null || (sub !== "worktree" && readCutOverOnce())) return;
 			const verdict = judge(sub, tree, args, ctx);
 			if (verdict === "rule") ruleSubject = true;
 			else if (verdict !== "allow")
@@ -145,7 +145,7 @@ function decide(command, ctx) {
 	 * until the cutover removes that upstream. */
 	return {
 		injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-		skip: isCutOver()
+		skip: readCutOverOnce()
 			? ["branch-shared-tree-landing"]
 			: [...ruleModule(ctx, "landing", ["branch-shared-tree-landing"])],
 	};
