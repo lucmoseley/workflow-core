@@ -21,6 +21,12 @@
  * directory renamed into place whole, and is never installed into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
+ * WARM builds the store for a freshly fetched `origin/landing`'s lockfile
+ * where none stands, so a cut needs no build of its own (#4318). The refill
+ * tick runs it, detached, ahead of its launches, and its dispatcher cuts with
+ * `noBuild`: a cut finding no store refuses at once rather than build inside
+ * the dispatcher's time budget (lib/refill-batch.js).
+ *
  * A STORE IS READ-ONLY: its `node_modules` loses every write bit before the
  * rename, so a tool caching under `node_modules` fails or falls back rather
  * than writing under each neighbour on the lockfile (#4255). Vite falls back
@@ -42,7 +48,7 @@
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * REAP clears landed worktrees and unlinked stores.
+ * REAP clears landed worktrees and unlinked stores, save `origin/landing`'s.
  *
  * REOPEN gives a finished background job its worktree back so `claude attach`
  * can wake it: an open from the agents view fails before any hook runs where
@@ -69,6 +75,7 @@ const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
+const { buildCutCommand } = require("./cutover.js");
 const { scriptPath } = require("./script-path.js");
 const {
 	readJobCwds,
@@ -174,36 +181,74 @@ function fetchLanding(root) {
 
 /**
  * Take the build lock for a store, or wait out a live holder. True where the
- * lock is ours; false where the holder's store now stands.
+ * lock is ours; false where the holder's store now stands, or, under `noWait`,
+ * where a live holder is still building it.
  * @param {string} lock
  * @param {string} store
+ * @param {boolean} noWait
  * @returns {boolean}
  */
-function takeBuildLock(lock, store) {
+function takeBuildLock(lock, store, noWait) {
 	const deadline = Date.now() + INSTALL_TIMEOUT_MS;
 	for (;;) {
-		try {
-			fs.writeFileSync(lock, `${process.pid}\n`, { flag: "wx" });
-			return true;
-		} catch (err) {
-			if (caught(err).code !== "EEXIST") throw err;
-		}
+		if (writeLock(lock)) return true;
 		if (fs.existsSync(path.join(store, "node_modules"))) return false;
-		let holder = 0;
-		try {
-			holder = Number(fs.readFileSync(lock, "utf8").trim());
-		} catch {
-			continue;
-		}
+		const holder = readLockHolder(lock);
+		if (holder === null) continue;
 		if (!(holder > 0) || !pidAlive(holder)) {
 			fs.rmSync(lock, { force: true });
 			continue;
 		}
+		if (noWait) return false;
 		if (Date.now() > deadline)
 			throw new Error(
 				`pid ${holder} has held ${lock} past the install timeout — end that process, or remove the lock if it is gone, then attach again`,
 			);
 		sleepSync(POLL_MS);
+	}
+}
+
+/**
+ * Create the build lock naming this process; false where it exists already.
+ * @param {string} lock
+ * @returns {boolean}
+ */
+function writeLock(lock) {
+	try {
+		fs.writeFileSync(lock, `${process.pid}\n`, { flag: "wx" });
+		return true;
+	} catch (err) {
+		if (caught(err).code !== "EEXIST") throw err;
+		return false;
+	}
+}
+
+/**
+ * The pid a build lock names: null where the lock is gone, 0 where it names
+ * none.
+ * @param {string} lock
+ * @returns {number | null}
+ */
+function readLockHolder(lock) {
+	try {
+		return Number(fs.readFileSync(lock, "utf8").trim()) || 0;
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return null;
+		throw err;
+	}
+}
+
+/**
+ * The failure the last build of a store left, or null where none did.
+ * @param {string} failed the store's failure record
+ * @returns {string | null}
+ */
+function readBuildFailure(failed) {
+	try {
+		return fs.readFileSync(failed, "utf8").trim();
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return null;
+		throw err;
 	}
 }
 
@@ -239,42 +284,111 @@ function removeTree(dir) {
 }
 
 /**
- * The store for the lockfile in `from`, built from its manifests where absent.
- * @param {string} root the main checkout
- * @param {string} from
- * @returns {{ store: string, built: boolean }}
+ * Where a store's manifests are read from: each manifest's bytes, or null
+ * where the source has none.
+ * @typedef {(name: string) => Buffer | null} ManifestSource
  */
-function ensureStore(root, from) {
-	const key = crypto
-		.createHash("sha256")
-		.update(fs.readFileSync(path.join(from, LOCKFILE)))
-		.digest("hex")
-		.slice(0, KEY_HEX);
+
+/**
+ * The manifests of the worktree `dir`.
+ * @param {string} dir
+ * @returns {ManifestSource}
+ */
+const buildWorktreeSource = (dir) => (name) => {
+	const at = path.join(dir, name);
+	return fs.existsSync(at) ? fs.readFileSync(at) : null;
+};
+
+/**
+ * The manifests `origin/landing` carries, read from the main checkout `root`.
+ * @param {string} root
+ * @returns {ManifestSource}
+ */
+const buildLandingSource = (root) => (name) => {
+	const r = spawnGitSync(["cat-file", "blob", `origin/landing:${name}`], {
+		cwd: root,
+		stdio: ["ignore", "pipe", "ignore"],
+		timeout: GIT_TIMEOUT_MS,
+	});
+	if (r.error) throw r.error;
+	return r.status === 0 ? r.stdout : null;
+};
+
+/**
+ * The store key of a lockfile's bytes.
+ * @param {Buffer} lockfile
+ */
+const storeKeyOf = (lockfile) =>
+	crypto.createHash("sha256").update(lockfile).digest("hex").slice(0, KEY_HEX);
+
+/**
+ * What ensureStore found or did: `built` now, already `standing`, or left to
+ * the live process `building` it.
+ * @typedef {{ store: string, state: "built" | "standing" | "building" }} Ensured
+ */
+
+/**
+ * The refusal of a no-build cut whose store stands nowhere: the last build's
+ * failure where one is recorded, else the live builder, else the warm route.
+ * @param {string} key
+ * @param {string} lock
+ * @param {string} failed
+ */
+function buildNoStoreRefusal(key, lock, failed) {
+	const head = `no dependency store stands for this lockfile yet (${key}), and this cut builds none`;
+	const failure = readBuildFailure(failed);
+	if (failure !== null)
+		return new CheckoutError(
+			`${head}; its last build failed — ${failure} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
+		);
+	const holder = readLockHolder(lock);
+	return new CheckoutError(
+		`${head}${holder && pidAlive(holder) ? ` — pid ${holder} is building it` : ""}; the refill tick's warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it, and the next tick launches this member`,
+	);
+}
+
+/**
+ * The store for the lockfile `source` carries, built from its manifests where
+ * absent; null where `source` has no lockfile. Under `noBuild` an absent store
+ * refuses (buildNoStoreRefusal); under `noWait` a live builder is left to
+ * finish. A failed build is recorded beside the store's lock, and cleared by
+ * the next build that succeeds.
+ * @param {string} root the main checkout
+ * @param {ManifestSource} source
+ * @param {{ noBuild?: boolean, noWait?: boolean }} [how]
+ * @returns {Ensured | null}
+ */
+function ensureStore(root, source, { noBuild = false, noWait = false } = {}) {
+	const lockfile = source(LOCKFILE);
+	if (lockfile === null) return null;
+	const key = storeKeyOf(lockfile);
 	const store = path.join(root, STORES, key);
 	if (fs.existsSync(path.join(store, "node_modules")))
-		return { store, built: false };
-	fs.mkdirSync(path.dirname(store), { recursive: true });
+		return { store, state: "standing" };
 	const lock = path.join(root, STORES, `.build-${key}.lock`);
-	if (!takeBuildLock(lock, store)) return { store, built: false };
+	const failed = path.join(root, STORES, `.build-${key}.failed`);
+	if (noBuild) throw buildNoStoreRefusal(key, lock, failed);
+	fs.mkdirSync(path.dirname(store), { recursive: true });
+	if (!takeBuildLock(lock, store, noWait))
+		return {
+			store,
+			state: fs.existsSync(path.join(store, "node_modules"))
+				? "standing"
+				: "building",
+		};
 	const staging = path.join(root, STORES, `.build-${key}-${process.pid}`);
 	try {
 		if (fs.existsSync(path.join(store, "node_modules")))
-			return { store, built: false };
+			return { store, state: "standing" };
+		buildStore(staging, lockfile, source);
 		/* A store directory without `node_modules` is a dead build's leftover. */
 		fs.rmSync(store, { recursive: true, force: true });
-		removeTree(staging);
-		fs.mkdirSync(staging);
-		for (const name of MANIFESTS)
-			if (fs.existsSync(path.join(from, name)))
-				fs.copyFileSync(path.join(from, name), path.join(staging, name));
-		npmCi(staging);
-		if (!fs.existsSync(path.join(staging, "node_modules")))
-			throw new Error(
-				`npm ci exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names, then attach again`,
-			);
-		setWriteBits(path.join(staging, "node_modules"), false);
 		fs.renameSync(staging, store);
-		return { store, built: true };
+		fs.rmSync(failed, { force: true });
+		return { store, state: "built" };
+	} catch (err) {
+		fs.writeFileSync(failed, `${caught(err).message.trim()}\n`);
+		throw err;
 	} finally {
 		removeTree(staging);
 		fs.rmSync(lock, { force: true });
@@ -282,13 +396,35 @@ function ensureStore(root, from) {
 }
 
 /**
+ * Build a frozen `node_modules` in `staging` from `source`'s manifests.
+ * @param {string} staging
+ * @param {Buffer} lockfile `source`'s, read once already
+ * @param {ManifestSource} source
+ */
+function buildStore(staging, lockfile, source) {
+	removeTree(staging);
+	fs.mkdirSync(staging);
+	for (const name of MANIFESTS) {
+		const bytes = name === LOCKFILE ? lockfile : source(name);
+		if (bytes !== null) fs.writeFileSync(path.join(staging, name), bytes);
+	}
+	npmCi(staging);
+	if (!fs.existsSync(path.join(staging, "node_modules")))
+		throw new Error(
+			`npm ci exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names, then attach again`,
+		);
+	setWriteBits(path.join(staging, "node_modules"), false);
+}
+
+/**
  * Point the `node_modules` of the worktree holding `cwd` at the store for its
  * lockfile, building the store where none exists. A worktree with no lockfile
  * gets no link.
  * @param {string} cwd anywhere in the worktree
+ * @param {{ noBuild?: boolean }} [how]
  * @returns {{ dir: string, store: string | null, built: boolean }}
  */
-function attach(cwd) {
+function attach(cwd, { noBuild = false } = {}) {
 	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
 	const root = rootOf(dir);
 	if (dir === root)
@@ -308,13 +444,14 @@ function attach(cwd) {
 		throw new CheckoutError(
 			`${link} is a directory, not a store link — move it aside, then attach again`,
 		);
-	const made = ensureStore(root, dir);
+	const made = ensureStore(root, buildWorktreeSource(dir), { noBuild });
+	if (made === null) return { dir, store: null, built: false };
 	/* One rename, so no reader of the worktree sees `node_modules` absent. */
 	const tmp = `${link}.attach-${process.pid}`;
 	fs.rmSync(tmp, { force: true });
 	fs.symlinkSync(path.join(made.store, "node_modules"), tmp, "dir");
 	fs.renameSync(tmp, link);
-	return { dir, ...made };
+	return { dir, store: made.store, built: made.state === "built" };
 }
 
 /**
@@ -323,9 +460,10 @@ function attach(cwd) {
  * is removed.
  * @param {string} cwd anywhere in the repository
  * @param {string} name the session's name
+ * @param {{ noBuild?: boolean }} [how]
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
-function cut(cwd, name) {
+function cut(cwd, name, how = {}) {
 	if (!NAME.test(name))
 		throw new CheckoutError(
 			`${JSON.stringify(name)} is no session name: letters, digits, '.', '_' and '-', starting with a letter or digit`,
@@ -337,7 +475,7 @@ function cut(cwd, name) {
 			`${dir} already exists — pick another session name, or resume the session that worktree belongs to`,
 		);
 	fetchLanding(root);
-	return addWorktree(root, dir, "origin/landing");
+	return addWorktree(root, dir, "origin/landing", how);
 }
 
 /**
@@ -346,14 +484,15 @@ function cut(cwd, name) {
  * @param {string} root the main checkout
  * @param {string} dir
  * @param {string} rev
+ * @param {{ noBuild?: boolean }} [how] passed to the attach
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
-function addWorktree(root, dir, rev) {
+function addWorktree(root, dir, rev, how = {}) {
 	fs.mkdirSync(path.dirname(dir), { recursive: true });
 	git(["worktree", "add", "--quiet", "--detach", dir, rev], root);
 	try {
 		const head = git(["rev-parse", "HEAD"], dir);
-		const { store, built } = attach(dir);
+		const { store, built } = attach(dir, how);
 		return { dir, head, store, built };
 	} catch (err) {
 		try {
@@ -432,7 +571,7 @@ function startLanderFor(root, dir) {
 function refuseUnlandable(dir, root) {
 	if (dir === root)
 		throw new CheckoutError(
-			`the main checkout is never landed from — land from your session worktree, or cut one with \`node ${scriptPath("session-checkout.js")} cut <session-name>\``,
+			`the main checkout is never landed from — land from your session worktree, or cut one with ${buildCutCommand()}`,
 		);
 	if (!moduleOn("landing", { root }))
 		throw new CheckoutError(
@@ -516,13 +655,27 @@ function buildSessionName(prompt) {
  * LAUNCH-DIR, above.
  * @param {string} cwd anywhere in the repository
  * @param {string} prompt
+ * @param {{ noBuild?: boolean }} [how] passed to the cut
  * @returns {string}
  */
-function launchDir(cwd, prompt) {
+function launchDir(cwd, prompt, how = {}) {
 	const root = rootOf(cwd);
 	return moduleOn("landing", { root })
-		? cut(root, buildSessionName(prompt)).dir
+		? cut(root, buildSessionName(prompt), how).dir
 		: root;
+}
+
+/**
+ * WARM, above. Null where the repository has no `landing` module or
+ * `origin/landing` carries no lockfile.
+ * @param {string} cwd anywhere in the repository
+ * @returns {Ensured | null}
+ */
+function warm(cwd) {
+	const root = rootOf(cwd);
+	if (!moduleOn("landing", { root })) return null;
+	fetchLanding(root);
+	return ensureStore(root, buildLandingSource(root), { noWait: true });
 }
 
 /*
@@ -561,6 +714,7 @@ const ISOLATED = /^isolated-/;
 const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
 const BUILD_STAGING = /^\.build-[0-9a-f]+-(\d+)$/;
+const BUILD_FAILED = /^\.build-([0-9a-f]+)\.failed$/;
 const ENDED = new Set(["done", "failed"]);
 /* The script a reap pass runs as; a pidfile naming any other is stale. */
 const REAP_HOLDERS = ["session-checkout.js"];
@@ -836,12 +990,8 @@ function sweepBuildLocks(storesDir, names, now) {
 		const key = BUILD_LOCK.exec(name)?.[1];
 		if (key === undefined) continue;
 		const lock = path.join(storesDir, name);
-		let holder = 0;
-		try {
-			holder = Number(fs.readFileSync(lock, "utf8").trim());
-		} catch {
-			/* Released since the listing. */
-		}
+		/* Null: released since the listing. */
+		const holder = readLockHolder(lock) ?? 0;
 		if (holder > 0 && pidAlive(holder)) building.add(key);
 		else if (ageOf(lock, now) >= YOUNG_MS) fs.rmSync(lock, { force: true });
 	}
@@ -849,17 +999,17 @@ function sweepBuildLocks(storesDir, names, now) {
 }
 
 /**
- * Every store no worktree in `standing` links, and every dead build's
- * staging directory, removed.
+ * Every store not in `kept`, and every dead build's staging directory,
+ * removed.
  * @param {string} storesDir
- * @param {string[]} standing
+ * @param {Set<string>} kept the stores a standing worktree links, and the one
+ *   WARM keeps for the next cut
  * @param {number} now
  * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
  */
-function reapStores(storesDir, standing, now, out) {
+function reapStores(storesDir, kept, now, out) {
 	if (!fs.existsSync(storesDir)) return;
 	const names = fs.readdirSync(storesDir);
-	const linked = readLinkedStores(standing);
 	const building = sweepBuildLocks(storesDir, names, now);
 	for (const name of names) {
 		const at = path.join(storesDir, name);
@@ -868,7 +1018,7 @@ function reapStores(storesDir, standing, now, out) {
 			builder === undefined
 				? STORE_KEY.test(name) &&
 					!building.has(name) &&
-					!linked.has(at) &&
+					!kept.has(at) &&
 					ageOf(at, now) >= YOUNG_MS &&
 					ageOf(path.join(at, "node_modules"), now) >= YOUNG_MS
 				: !pidAlive(Number(builder));
@@ -879,6 +1029,20 @@ function reapStores(storesDir, standing, now, out) {
 		} catch (err) {
 			out.failed.push(`${at}: ${caught(err).message.trim()}`);
 		}
+	}
+}
+
+/**
+ * Remove each build failure record of a store no longer kept.
+ * @param {string} storesDir
+ * @param {Set<string>} kept as reapStores's
+ */
+function sweepBuildFailures(storesDir, kept) {
+	if (!fs.existsSync(storesDir)) return;
+	for (const name of fs.readdirSync(storesDir)) {
+		const key = BUILD_FAILED.exec(name)?.[1];
+		if (key !== undefined && !kept.has(path.join(storesDir, key)))
+			fs.rmSync(path.join(storesDir, name), { force: true });
 	}
 }
 
@@ -945,7 +1109,16 @@ function reap(cwd) {
 			? reapWorktrees(root, base, pass, out)
 			: readWorktreesOrThrow(root);
 		reapStrays(base, standing, pass, out);
-		reapStores(path.join(root, STORES), standing, now, out);
+		const storesDir = path.join(root, STORES);
+		const kept = readLinkedStores(standing);
+		/* Residual: after a failed fetch this keeps the store of a stale
+		 * `origin/landing`'s lockfile, one store more than the next cut uses,
+		 * until a pass whose fetch succeeds. */
+		const landingLock = judged ? buildLandingSource(root)(LOCKFILE) : null;
+		if (landingLock !== null)
+			kept.add(path.join(storesDir, storeKeyOf(landingLock)));
+		reapStores(storesDir, kept, now, out);
+		sweepBuildFailures(storesDir, kept);
 		return out;
 	} finally {
 		lock.release();
@@ -996,4 +1169,5 @@ module.exports = {
 	reap,
 	reopen,
 	STORES,
+	warm,
 };

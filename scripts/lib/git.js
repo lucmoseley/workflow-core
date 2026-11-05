@@ -279,9 +279,10 @@ function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
 	if (r.status !== null && noMatch.includes(r.status))
 		return { ok: true, out: "" };
 	/* One line: every caller logs `why` inside a one-line record, and git's
-	 * stderr can run to several (#2527). */
+	 * stderr can run to several (#2527). stdout where stderr is empty: `git
+	 * merge` prints its refusal there. */
 	const why =
-		String(r.stderr || "")
+		String(r.stderr || r.stdout || "")
 			.trim()
 			.replace(/\s+/g, (run) => (run.includes("\n") ? "; " : run)) ||
 		`git exited ${r.status}`;

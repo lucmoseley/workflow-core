@@ -16,7 +16,10 @@ const { seatIdOf } = require("./refill-seats.js");
  * up to dispatch-sessions.sh's own launch ceiling. */
 const DISPATCH_FIXED_MS = 10 * 60 * 1000;
 /* Untraced: a member's 120 s launch ceiling, about 9 s of admission and the
- * 2 s stagger, rounded up (#2196). */
+ * 2 s stagger, rounded up (#2196). A member's worktree cut is a fetch and a
+ * `git worktree add` inside it: the call sets WFC_DISPATCH_NO_BUILD, so a cut
+ * finding no dependency store refuses rather than run `npm ci`, and the tick's
+ * warm pass builds the store outside this budget (#4318). */
 const DISPATCH_MEMBER_MS = 150 * 1000;
 /* dispatch-sessions.sh's STAGGER_SECONDS default, which a test holds equal,
  * and whose measurement it is (mantahostels#2588). */
@@ -69,6 +72,7 @@ function dispatchCall(batch, dispatcher, env) {
 		...buildCheckoutEnv(root, env),
 		CLAUDE_CONFIG_DIR: seat,
 		WFC_SEAT_REASON: first.reason,
+		WFC_DISPATCH_NO_BUILD: "1",
 		...(keyVar ? { WFC_SEAT_KEY: keyVar } : {}),
 	};
 	delete childEnv.CLAUDE_CODE_SESSION_ID;

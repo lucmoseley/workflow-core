@@ -227,6 +227,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   hasConfig: (root: string) => boolean,
  *   superviseLanding: (root: string) => void,
  *   levelMain: (root: string) => void,
+ *   startWarmPass: (root: string) => void,
  *   startReapPass: (root: string) => void,
  *   fileMachineTickets: (script: string, label: string) => void,
  *   tendHolds: (roots: string[], served: string[], now: number) => string[],
@@ -367,7 +368,8 @@ const MACHINE_FILERS = [
 /**
  * What a real tick does for its checkouts ahead of its decision: each landing
  * root with a workflow-core config has its landing queue supervised, its main
- * checkout levelled (#4248) and its worktrees reaped (#4247), a checkout gone
+ * checkout levelled (#4248), its dependency store warmed for the next cut
+ * (#4318) and its worktrees reaped (#4247), a checkout gone
  * since its launch being skipped (#3284); the machine incident filers run; the
  * repo holds are tended. The served checkouts whose probe failed.
  * @param {TickIo} io
@@ -380,6 +382,7 @@ function tendCheckouts(io, served, launches, now) {
 	const configured = roots.filter((root) => io.hasConfig(root));
 	for (const root of configured) io.superviseLanding(root);
 	for (const root of configured) io.levelMain(root);
+	for (const root of configured) io.startWarmPass(root);
 	for (const root of configured) io.startReapPass(root);
 	for (const [script, label] of MACHINE_FILERS)
 		io.fileMachineTickets(script, label);

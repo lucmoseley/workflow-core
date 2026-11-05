@@ -53,6 +53,7 @@ const {
 	shortJobId,
 } = require("./lib/job-paths.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
+const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
@@ -100,7 +101,7 @@ function decide(source, io) {
 		dir = io.cut(job);
 	} catch (err) {
 		return {
-			context: `${STARTED_HERE} and cutting its own worktree failed: ${caught(err).message}. Cut one yourself with \`node ${scriptPath("session-checkout.js")} cut <name>\`, which prints its path. ${workThere("<that path>")}`,
+			context: `${STARTED_HERE} and cutting its own worktree failed: ${caught(err).message}. Cut one yourself with ${buildCutCommand()}, which prints its path. ${workThere("<that path>")}`,
 		};
 	}
 	if (dir === job.root) return null;
