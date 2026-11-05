@@ -367,19 +367,15 @@ describe("dropTicketFiler", () => {
 		expect(input).toContain("its merge was refused: `rule:x`");
 	});
 
-	it("names a member red alone twice by its isolation commit, its failing files and their pass on main, or the whole suite where it named none", () => {
+	it("names a member red alone twice by its isolation commit, its failing files and their pass on main, asking that it pass them", () => {
 		const f = dropFiler(["Tidy"]);
 		const iso = "c".repeat(40);
 
 		f.said({
 			cause: { kind: "red", name: "wt-1", files: ["x.test.ts"], iso },
 		});
-		f.said({ cause: { kind: "red", name: "wt-1", files: [], iso } });
 
-		const [{ input }, unnamed] = f.files;
-		expect(unnamed?.input).toContain(
-			"failed the whole suite twice, naming no file, where `main` passes it",
-		);
+		const [{ input }] = f.files;
 		expect(input).toContain(`onto \`main\` at ${M} as ${iso}`);
 		expect(input).toContain("failed these files twice, which pass on `main`");
 		expect(input).toContain("- `x.test.ts`");
@@ -405,7 +401,7 @@ describe("dropTicketFiler", () => {
 		expect(named).toContain("each member of its batch passed alone");
 		expect(named).toContain(`after \`queue/wt-0\` landed, as ${step}`);
 		expect(named).toContain("- `x.test.ts`");
-		expect(unnamed).toContain("failed the whole suite twice, naming no file");
+		expect(unnamed).toContain("failed the whole suite, naming no file");
 		expect(unnamed).toContain(
 			"- [ ] aaaaaaaaa's change passes the whole suite merged onto `main`, and is pushed to `queue/wt-1` again.",
 		);

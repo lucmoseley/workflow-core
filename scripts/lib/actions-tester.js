@@ -33,13 +33,9 @@
  * (#3764): it dispatches named-rerun.yml for the named files alone.
  *
  * `queueTester` is the queue lander's (#4458). Its whole suite is the push
- * run at the sha, read as above, on the `lander/iso-suite-<k>` ref holding
- * it, else on `lander/batch`; asked again, the run's failed jobs are rerun.
- * Named files at a sha a `lander/iso-*` ref holds, an isolation commit or
- * `main` pushed for its base check, are run alone by named-rerun.yml, so a
- * base check never reads the old run that landed `main`. At any other sha a
- * `lander/batch` run covers they are read off that run, a failed one
- * rerunning its failed jobs; elsewhere they go to named-rerun.yml too.
+ * run on `lander/batch` at the sha, read as above. Named files at a sha that
+ * run covers are read off that run, a failed one rerunning its failed jobs;
+ * elsewhere, at an isolation sha or `main`, they go to named-rerun.yml.
  *
  * Unbuilt caller: the queue lander, scripts/lib/queue-lander.js (#4485)
  */
@@ -56,7 +52,6 @@ const { readJsonl } = require("./jsonl.js");
 const {
 	LANDER_BATCH_BRANCH,
 	LANDER_ISO_PREFIX,
-	LANDER_ISO_SUITE_PREFIX,
 	LANDING_BRANCH,
 	REMOTE,
 	VERIFIED_BRANCH,
@@ -138,10 +133,9 @@ const RUNNER_RERUNS = 2;
  *   dispatch: (inputs: {sha: string, files: string[], nonce: string}) => void,
  * }} NamedReads
  * @typedef {Reads & Pick<NamedReads, "namedRuns" | "dispatch"> & {
- *   isoRefs: () => {branch: string, sha: string}[],
- *   runsOn: (branch: string) => Run[],
- * }} QueueReads `runs` on `lander/batch`; `isoRefs` the remote's
- *   `lander/iso-*` refs and their heads; `runsOn` the push runs on `branch`
+ *   isoShas: () => string[],
+ * }} QueueReads `runs` on `lander/batch`; `isoShas` the heads of the
+ *   remote's `lander/iso-<k>` refs
  */
 
 /**
@@ -736,7 +730,7 @@ function namedRerun({
  */
 const liveQueueReads = (root) => ({
 	...liveNamedReads(root, LANDER_BATCH_BRANCH),
-	isoRefs: () =>
+	isoShas: () =>
 		execFileSync(
 			gitBinary(),
 			["ls-remote", REMOTE, `refs/heads/${LANDER_ISO_PREFIX}*`],
@@ -744,11 +738,7 @@ const liveQueueReads = (root) => ({
 		)
 			.split("\n")
 			.filter(Boolean)
-			.map((line) => {
-				const [sha = "", ref = ""] = line.split("\t");
-				return { branch: ref.replace(/^refs\/heads\//, ""), sha };
-			}),
-	runsOn: (branch) => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
+			.map((line) => line.split("\t")[0] ?? ""),
 });
 
 /**
@@ -778,71 +768,41 @@ function queueTester({
 	};
 	return {
 		requiresRun: true,
+		/* Each verdict is its own run on GitHub's runners. */
 		parallel: true,
-		async verdict(sha, files = [], again = false) {
-			/** @type {string[]} */
-			let held;
+		async verdict(sha, files) {
+			if (files === undefined || files.length === 0)
+				return suiteVerdict(sha, 0, suite);
+			/** @type {Run|undefined} */
+			let run;
 			try {
-				held = reads
-					.isoRefs()
-					.filter((r) => r.sha === sha)
-					.map((r) => r.branch);
+				run = newestRun(sha, reads);
+				if (run?.conclusion === "failure") reads.rerun(run.databaseId);
 			} catch (err) {
-				return {
-					kind: "unknown",
-					reason: `${LANDER_ISO_PREFIX}* refs unread: ${parseErrorText(err)}`,
-					transient: true,
-				};
+				return unreadable(err);
 			}
-			if (files.length > 0 && held.length > 0)
-				return namedVerdict(named, sha, files, true);
-			const on = files.length > 0 ? suite : suiteOn(suite, held);
-			if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
-			return rerunVerdict(sha, files, on, named);
+			/* A run the batch's push started judges these files too: a failed
+			 * one is rerun above, an unfinished one waited on. */
+			if (run !== undefined)
+				return suiteVerdict(
+					sha,
+					run.conclusion === "failure" ? run.attempt : 0,
+					suite,
+				);
+			let isolation = false;
+			try {
+				isolation = reads.isoShas().includes(sha);
+			} catch (err) {
+				/* Unread, the dispatch counts against the cap: the safe side
+				 * (#4458). */
+				writeFd(
+					2,
+					`lander: ${LANDER_ISO_PREFIX}* refs unread, so counted: ${parseErrorText(err)}\n`,
+				);
+			}
+			return namedVerdict(named, sha, files, isolation);
 		},
 	};
-}
-
-/**
- * The suite's reads on the `lander/iso-suite-*` ref of `held`, else on
- * `lander/batch`.
- * @param {{reads: QueueReads, branch: string} & Poll} suite
- * @param {readonly string[]} held the iso refs holding the sha
- * @returns {{reads: Reads, branch: string} & Poll}
- */
-function suiteOn(suite, held) {
-	const branch = held.find((b) => b.startsWith(LANDER_ISO_SUITE_PREFIX));
-	if (branch === undefined) return suite;
-	const { reads } = suite;
-	return {
-		...suite,
-		branch,
-		reads: { ...reads, runs: () => reads.runsOn(branch) },
-	};
-}
-
-/**
- * The verdict at `sha` asked again of the newest suite run on `on`'s branch,
- * its failed jobs rerun first: on `files`, which it judges too, else the
- * whole suite. Files at a sha no run covers are run alone.
- * @param {string} sha
- * @param {string[]} files
- * @param {{reads: Reads, branch: string} & Poll} on
- * @param {{record: string, reads: NamedReads} & Poll} named
- * @returns {Promise<Verdict>}
- */
-async function rerunVerdict(sha, files, on, named) {
-	/** @type {Run|undefined} */
-	let run;
-	try {
-		run = newestRun(sha, on.reads);
-		if (run?.conclusion === "failure") on.reads.rerun(run.databaseId);
-	} catch (err) {
-		return unreadable(err);
-	}
-	if (run === undefined && files.length > 0)
-		return namedVerdict(named, sha, files, false);
-	return suiteVerdict(sha, run?.conclusion === "failure" ? run.attempt : 0, on);
 }
 
 module.exports = { SUITE_WORKFLOW, actionsTester, namedRerun, queueTester };

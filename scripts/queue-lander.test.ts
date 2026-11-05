@@ -14,8 +14,7 @@
  * under `dropped/<name>` or unticketed; or a red batch's culprit is not
  * isolated on `lander/iso-<k>` and dropped with its evidence, a collision is
  * not settled by serial landing, or a failure `main` shares holds the batch
- * on a local tester or goes without its base-red ticket, or a push `main`
- * refuses reads as a fault or one `main` moved under reads as a refusal.
+ * or goes without its base-red ticket.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -158,7 +157,6 @@ describe("a run", () => {
 			blame: null,
 			isolated: [],
 			serial: null,
-			hold: null,
 		});
 
 		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
@@ -307,7 +305,7 @@ describe("a run", () => {
 		expect(rows.map((row) => [row.sha, row.files, row.pass])).toEqual([
 			[main, [], undefined],
 			[main, ["scripts/x.test.ts"], 2],
-			[seed, ["scripts/x.test.ts"], 0],
+			[seed, ["scripts/x.test.ts"], undefined],
 		]);
 	});
 });
@@ -324,30 +322,6 @@ describe("the adapters", () => {
 		expect(git(remote, "rev-parse", "queue/a")).toBe(a2);
 		expect(g.deleteRef("queue/a", a2)).toBe(true);
 		expect(remoteHeads()).not.toContain("queue/a");
-	});
-
-	it("returns the remote's refusal of a push to main, as a ruleset's, and throws on a main that moved under it", () => {
-		const seed = git(work, "rev-parse", "HEAD");
-		const a = commit("a");
-		const hook = path.join(remote, "hooks", "pre-receive");
-		fs.writeFileSync(
-			hook,
-			"#!/bin/sh\necho 'GH013: rule violations' >&2\nexit 1\n",
-			{
-				mode: 0o755,
-			},
-		);
-		const g = queueGit(work);
-
-		expect(g.pushMain(a)).toMatch(/^! \[remote rejected\] .*main/);
-		expect(git(remote, "rev-parse", "main")).toBe(seed);
-		fs.rmSync(hook);
-		const b = commit("b");
-		expect(g.pushMain(b)).toBeNull();
-		git(work, "checkout", "-q", "--detach", seed);
-		const c = commit("c");
-		expect(() => g.pushMain(c)).toThrow();
-		expect(git(remote, "rev-parse", "main")).toBe(b);
 	});
 
 	it("creates a dropped ref, takes it made already at the same sha, refuses it at another, and lists it", () => {
@@ -474,12 +448,6 @@ describe("the adapters", () => {
 		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		verdictLedger(verdicts).add("s1", ["a.ts"], { kind: "green" }, 2);
-		const noFile = {
-			kind: "red" as const,
-			files: [],
-			jobs: ["Lint and types"],
-		};
-		verdictLedger(verdicts).add("s1", [], noFile, 0);
 		const b = {
 			members: [{ name: "a", sha: "s0", pushedAt: 1 }],
 			deferred: ["b"],
@@ -491,12 +459,6 @@ describe("the adapters", () => {
 			blame: { files: ["a.ts"], base: [], members: ["a"] },
 			isolated: [{ name: "a", sha: "s0", iso: "i0" }],
 			serial: { landed: [], step: { name: "a", sha: "t0", onto: "m0" } },
-			hold: {
-				kind: "base" as const,
-				main: "m0",
-				files: ["a.ts"],
-				ticket: 90,
-			},
 		};
 		batchRecord(batch).write(b);
 
@@ -513,14 +475,8 @@ describe("the adapters", () => {
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)).toEqual({
 			kind: "green",
 		});
-		expect(verdictLedger(verdicts).get("s1", [], 0)).toEqual(noFile);
 		expect(batchRecord(batch).read()).toEqual(b);
-		fs.writeFileSync(batch, JSON.stringify({ ...b, phase: "parked" }));
-		expect(batchRecord(batch).read()).toBeNull();
-		fs.writeFileSync(
-			batch,
-			JSON.stringify({ ...b, hold: { kind: "refused", main: "m0" } }),
-		);
+		fs.writeFileSync(batch, JSON.stringify({ ...b, phase: "held" }));
 		expect(batchRecord(batch).read()).toBeNull();
 		fs.writeFileSync(batch, '{"members": [');
 		expect(batchRecord(batch).read()).toBeNull();

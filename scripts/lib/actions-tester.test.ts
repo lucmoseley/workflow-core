@@ -725,17 +725,15 @@ it("finds its run by the title named-rerun.yml gives it, and reads the job it na
 	expect(workflow).toContain("    name: Named files\n");
 });
 
-/* The queue lander's tester (#4458): whole runs read on `lander/batch` or
- * a `lander/iso-suite-*` ref, named files dispatched to named-rerun.yml. */
+/* The queue lander's tester (#4458): whole runs read on `lander/batch`,
+ * named files dispatched to named-rerun.yml. */
 const NAMED_OK: Job = { name: "Named files", conclusion: "success" };
 const ISO = "c".repeat(40);
-const atIso = () => [{ branch: "lander/iso-1", sha: ISO }];
 
 const queueReads = (
 	listings: (() => Run[])[],
 	{
-		iso = (): { branch: string; sha: string }[] => [],
-		runsOn = (_: string): Run[] => [],
+		iso = (): string[] => [],
 		named = "success" as string | null,
 		listed = true,
 	} = {},
@@ -749,8 +747,7 @@ const queueReads = (
 	return {
 		...r,
 		dispatched,
-		isoRefs: iso,
-		runsOn,
+		isoShas: iso,
 		dispatch: (d: { sha: string; files: string[]; nonce: string }) => {
 			dispatched.push(d);
 		},
@@ -827,7 +824,7 @@ it("reruns a failed batch run's failed jobs for named files at its sha, so a gre
 });
 
 it("dispatches named files at an isolation sha to named-rerun.yml, red naming the tree's failing files (#4458)", async () => {
-	const r = queueReads([() => []], { iso: atIso, named: "failure" });
+	const r = queueReads([() => []], { iso: () => [ISO], named: "failure" });
 	expect(await queueOf(r).verdict(ISO, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "red",
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
@@ -848,7 +845,7 @@ it("dispatches named files at an isolation sha to named-rerun.yml, red naming th
 });
 
 it("exempts isolation dispatches from the daily cap, and counts a dispatch at main against it (#4458)", async () => {
-	const r = queueReads([() => []], { iso: atIso });
+	const r = queueReads([() => []], { iso: () => [ISO] });
 	const tester = queueOf(r);
 	const files = ["scripts/lib/a.test.ts"];
 	for (let i = 0; i < 3; i++)
@@ -864,10 +861,10 @@ it("exempts isolation dispatches from the daily cap, and counts a dispatch at ma
 	expect(r.dispatched.filter((d) => d.sha === OTHER)).toHaveLength(12);
 });
 
-it("reads a named run never listed as unknown, and isolation refs it cannot read as a transient no verdict (#4458)", async () => {
+it("reads a named run never listed as unknown, and counts a dispatch whose isolation refs it cannot read (#4458)", async () => {
 	expect(
 		await queueOf(
-			queueReads([() => []], { iso: atIso, listed: false }),
+			queueReads([() => []], { iso: () => [ISO], listed: false }),
 		).verdict(ISO, ["scripts/lib/a.test.ts"]),
 	).toMatchObject({
 		kind: "unknown",
@@ -878,64 +875,13 @@ it("reads a named run never listed as unknown, and isolation refs it cannot read
 			throw new Error("ls-remote failed");
 		},
 	});
-	expect(await queueOf(r).verdict(ISO, ["scripts/lib/a.test.ts"])).toEqual({
+	const tester = queueOf(r);
+	for (let i = 0; i < 12; i++)
+		await tester.verdict(ISO, ["scripts/lib/a.test.ts"]);
+	expect(await tester.verdict(ISO, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "unknown",
-		reason: "lander/iso-* refs unread: ls-remote failed",
-		transient: true,
+		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
-	expect(r.dispatched).toEqual([]);
-});
-
-it("runs named files at main's sha on lander/iso-base anew, cap-exempt, never reading the batch run that landed it (#4485)", async () => {
-	const r = queueReads([() => [run(1, "success")]], {
-		iso: () => [{ branch: "lander/iso-base", sha: SHA }],
-		named: "failure",
-	});
-	const files = ["scripts/lib/a.test.ts"];
-	expect(await queueOf(r).verdict(SHA, files)).toMatchObject({
-		kind: "red",
-		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
-	});
-	expect(r.dispatched).toEqual([
-		{ sha: SHA, files, nonce: expect.any(String) },
-	]);
-	expect(r.calls()).toBe(0);
-});
-
-it("reads the whole suite at a sha a lander/iso-suite-* ref holds off that ref's push run, rerunning its failed jobs asked again (#4485)", async () => {
-	let listed = 0;
-	const branches: string[] = [];
-	const r = queueReads([() => [run(1, "success")]], {
-		iso: () => [{ branch: "lander/iso-suite-0", sha: SHA }],
-		runsOn: (branch) => {
-			branches.push(branch);
-			return listed++ === 0
-				? [run(7, "failure")]
-				: [run(7, "success", { attempt: 2 })];
-		},
-	});
-	expect(await queueOf(r).verdict(SHA, [], true)).toEqual({
-		kind: "green",
-		run: 7,
-	});
-	expect(r.reran).toEqual([7]);
-	expect(new Set(branches)).toEqual(new Set(["lander/iso-suite-0"]));
-	expect(r.calls()).toBe(0);
-});
-
-it("reruns the failed jobs of the whole suite's batch run asked again, and reads a first ask as it stands (#4485)", async () => {
-	const again = queueReads([
-		() => [run(4, "failure")],
-		() => [run(4, "success", { attempt: 2 })],
-	]);
-	expect(await queueOf(again).verdict(SHA, [], true)).toEqual({
-		kind: "green",
-		run: 4,
-	});
-	expect(again.reran).toEqual([4]);
-	const first = queueReads([() => [run(4, "failure")]]);
-	expect(await queueOf(first).verdict(SHA, [])).toMatchObject({ kind: "red" });
-	expect(first.reran).toEqual([]);
 });
 
 it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
@@ -955,7 +901,7 @@ it("waits on an unfinished batch run for named files at its sha, and reads one e
 
 it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", async () => {
 	const files = ["scripts/lib/a.test.ts"];
-	const r = queueReads([() => []], { iso: atIso });
+	const r = queueReads([() => []], { iso: () => [ISO] });
 	r.namedRuns = () => {
 		throw new Error("HTTP 502");
 	};
@@ -976,7 +922,7 @@ it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", asy
 	expect(failed.dispatched).toEqual([]);
 });
 
-it("fires the suite workflow on a push to lander/batch and lander/iso-suite-* as well as landing (#4458)", () => {
+it("fires the suite workflow on a push to lander/batch as well as landing (#4458)", () => {
 	const workflow = fs.readFileSync(
 		path.join(
 			import.meta.dirname,
@@ -985,11 +931,11 @@ it("fires the suite workflow on a push to lander/batch and lander/iso-suite-* as
 		"utf8",
 	);
 	expect(workflow).toContain(
-		'  push:\n    branches: [landing, lander/batch, "lander/iso-suite-*"]\n',
+		"  push:\n    branches: [landing, lander/batch]\n",
 	);
 });
 
-it("reads lander/batch and lander/iso-suite-* runs through gh and the isolation refs through git ls-remote (#4458)", async () => {
+it("reads lander/batch runs through gh and the isolation refs through git ls-remote (#4458)", async () => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-"));
 	const remote = path.join(tmp, "remote.git");
 	const work = path.join(tmp, "work");
@@ -1011,11 +957,9 @@ it("reads lander/batch and lander/iso-suite-* runs through gh and the isolation 
 	);
 	const iso = git(work, "rev-parse", "HEAD");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-1");
-	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-suite-0");
 	const nonceFile = path.join(tmp, "nonce");
 	const answers = {
 		list: [run(3, "success")],
-		suite: [{ ...run(9, "success"), headSha: iso }],
 		jobs: { jobs: [...shards("success"), SUITE_PASSED, NAMED_OK] },
 	};
 	process.env.WFC_GH = stubGhScript(
@@ -1031,10 +975,8 @@ if (argv[0] === "workflow") {
 	out([{ databaseId: 8, conclusion: "success",
 		displayTitle: "named-rerun ${iso} " + fs.readFileSync(${JSON.stringify(nonceFile)}, "utf8") }]);
 } else if (argv[1] === "list") {
-	const branch = argv[argv.indexOf("--branch") + 1];
-	if (branch === "lander/iso-suite-0") out(a.suite);
-	else if (branch !== "lander/batch") process.exit(1);
-	else out(a.list);
+	if (argv[argv.indexOf("--branch") + 1] !== "lander/batch") process.exit(1);
+	out(a.list);
 } else out(a.jobs);
 `,
 	).gh;
@@ -1045,7 +987,6 @@ if (argv[0] === "workflow") {
 	);
 	const tester = queueTester({ root: work, ...wallClock() });
 	expect(await tester.verdict(SHA)).toEqual({ kind: "green", run: 3 });
-	expect(await tester.verdict(iso)).toEqual({ kind: "green", run: 9 });
 	expect(await tester.verdict(iso, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
 	});

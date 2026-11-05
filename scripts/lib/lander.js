@@ -1348,12 +1348,11 @@ function nextAction(s) {
  *   its green would move `main`. `requiresRun` where `main` takes only a sha
  *   a CI run passed, so only a green naming its `run` lands. `readJobsOnMain`
  *   where it reads CI runs, as only then does a red name jobs
- * @typedef {{verdict: (sha: string, files?: string[], again?: boolean) =>
- *   Promise<Verdict>, requiresRun?: boolean, parallel?: boolean}} QueueTester
- *   the queue lander's tester: the whole suite at `sha` where `files` is
- *   absent or empty, else only `files`, `again` where a verdict reached there
- *   is to be had anew, as a rerun or confirm; `requiresRun` as for a Tester;
- *   `parallel` where it can be asked several verdicts at once
+ * @typedef {{verdict: (sha: string, files?: string[]) => Promise<Verdict>,
+ *   requiresRun?: boolean, parallel?: boolean}} QueueTester the queue
+ *   lander's tester (#4458): the whole suite at `sha` where `files` is absent
+ *   or empty, else only `files`; `requiresRun` as for a Tester; `parallel`
+ *   where it can be asked several verdicts at once
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
  * @typedef {{batch: string|null, reason: string, failing: Failing|null,
  *   owed: FixTicket[]}} Held a hold, with its batch and what failed there,
@@ -2068,8 +2067,7 @@ function readText(file) {
 
 /**
  * @param {string} file
- * @returns {Ledger & {readShas: () => string[], remove: (sha: string) => void}}
- *   with every sha it holds, and `remove` rewriting it without `sha`'s lines
+ * @returns {Ledger & {readShas: () => string[]}} with every sha it holds
  */
 function fileLedger(file) {
 	const readShas = () =>
@@ -2081,12 +2079,6 @@ function fileLedger(file) {
 		has: (sha) => readShas().includes(sha),
 		add: (sha) =>
 			fs.appendFileSync(file, `${sha} ${new Date().toISOString()}\n`),
-		remove: (sha) => {
-			const text = readText(file);
-			if (text === null) return;
-			const kept = text.split("\n").filter((l) => l.split(" ")[0] !== sha);
-			writeFileAtomic(file, kept.join("\n"));
-		},
 	};
 }
 

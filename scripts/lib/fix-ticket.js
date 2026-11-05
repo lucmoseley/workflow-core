@@ -206,26 +206,32 @@ const citedByAny = (subjects) =>
 	subjects.map(citedTicket).find((n) => n !== null) ?? null;
 
 /** @param {readonly string[]} files */
-const buildFileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
+const fileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
 
-/** @param {import("./queue-lander.js").Drop} d */
+/**
+ * What the drop met, from the `main` it was merged onto.
+ * @param {import("./queue-lander.js").Drop} d
+ */
 function buildDropEvidence({ onto, cause }) {
 	const alone = `merged alone onto \`main\` at ${onto}`;
 	switch (cause.kind) {
 		case "conflict":
-			return `${alone}, it conflicts with \`main\` in:\n${buildFileList(cause.files)}`;
+			return `${alone}, it conflicts with \`main\` in:\n${fileList(cause.files)}`;
 		case "refused":
 			return `${alone}, its merge was refused: ${quoteSubject(cause.reason)}`;
 		case "red":
-			return `${alone} as ${cause.iso}, it failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`;
+			return `${alone} as ${cause.iso}, it failed these files twice, which pass on \`main\` there:\n${fileList(cause.files)}`;
 		case "collision": {
 			const after = cause.after.map((n) => `\`${QUEUE_PREFIX}${n}\``);
-			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.files.length > 0 ? `failed twice:\n${buildFileList(cause.files)}` : "failed the whole suite twice, naming no file"}`;
+			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.files.length > 0 ? `failed:\n${fileList(cause.files)}` : "failed the whole suite, naming no file"}`;
 		}
 	}
 }
 
-/** @param {import("./queue-lander.js").Drop} d */
+/**
+ * The acceptance criterion the drop's cause sets.
+ * @param {import("./queue-lander.js").Drop} d
+ */
 function buildDropAcceptance({ sha, name, cause }) {
 	const queued = `\`${QUEUE_PREFIX}${name}\``;
 	switch (cause.kind) {
@@ -489,9 +495,4 @@ function liveFilerDeps(root) {
 	};
 }
 
-module.exports = {
-	buildFileList,
-	dropTicketFiler,
-	liveFilerDeps,
-	ticketFiler,
-};
+module.exports = { dropTicketFiler, liveFilerDeps, ticketFiler };

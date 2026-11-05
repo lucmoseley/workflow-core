@@ -1,9 +1,8 @@
 /*
  * queue-issue.js — the one open issue the landing queue keeps per condition
  * (#2406, #2692): the lander's held-queue issue, the refill loop's stall
- * ticket, the queue lander's base-red ticket (lib/base-red-issue.js). Each is
- * `urgent` and `bug`, so the refill loop launches them first (#2694, ruled at
- * #2672). Found among the open issues by its fixed title,
+ * ticket. Both are `urgent` and `bug`, so the refill loop launches them first
+ * (#2694, ruled at #2672). Found among the open issues by its fixed title,
  * filed through file-issue.js where none is open, else its body refreshed. The
  * body carries its own `Standalone:` line, so file-issue.js adds none and a
  * refresh of an unchanged condition finds it current. A refresh replaces the

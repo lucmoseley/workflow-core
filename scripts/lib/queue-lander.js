@@ -36,28 +36,20 @@
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
  *   a moved one is kept and joins the next batch.
  * - **Red.** The failing files are rerun once at the integration sha, and
- *   where they pass the batch is green. Those still red are run anew at
- *   `main`, pushed to `lander/iso-base`: the ones red there too are base
- *   failures, blamed on no member, and the one base-red ticket is filed or
- *   refreshed for them. Where none is left the batch lands, unless the
- *   tester's `requiresRun` is set, where it is held instead and retaken once
- *   a new ref waits or `main` moves. The rest isolate: each member is merged
- *   alone onto `main`, pushed to `lander/iso-<k>` and run on those files, all
- *   at once where the tester is `parallel` (the Actions one), else one after
- *   another (the local one, under its one admission slot). A member red alone
- *   is run again, and red twice it is dropped with a fix ticket naming the
- *   files. Where any member dropped, the rest form the next batch. Where none
- *   did, the batch is a collision: its members land one at a time in push
- *   order, each step the whole suite on `main`, and the first step red twice
- *   on a blamed file drops its member, the rest forming the next batch. A
- *   step red twice elsewhere has those files run at its `main`: red only
- *   where `main` is, it is a base red as above, else the rest are batched
- *   again. A red naming no file takes the same steps on the whole suite, its
- *   runs at `main` and alone on `lander/iso-suite-*` refs, whose pushes the
- *   suite runs on; `main` shares it where `main` fails every job it does.
- * - **Refused.** A push to `main` the remote refuses, as its ruleset does, is
- *   final: the batch is held naming it, and its sha leaves the green ledger,
- *   so the pre-push gate passes no later push of it.
+ *   where they pass the batch is green. Those still red are run at `main`:
+ *   the ones red there too are base failures, blamed on no member, and the
+ *   one base-red ticket is filed or refreshed for them; where none is left,
+ *   the batch is green. The rest isolate: each member is merged alone onto
+ *   `main`, pushed to `lander/iso-<k>` and run on those files, all at once
+ *   where the tester is `parallel` (the Actions one), else one after another
+ *   (the local one, under its one admission slot). A member red alone is run
+ *   again, and red twice it is dropped with a fix ticket naming the files.
+ *   Where any member dropped, the rest form the next batch alone, ahead of
+ *   any newer ref. Where none did, the batch is a collision: its members land
+ *   one at a time in push order, each step the whole suite on `main`, and the
+ *   first step red beyond the base failures drops its member, the rest
+ *   forming the next batch. A red naming no file has no files to rerun or
+ *   isolate on, so it goes straight to that serial landing.
  * - **Restart.** Each decision is written to the batch record, which keeps
  *   the phase, the isolation merges and the serial steps, before the act it
  *   governs, so a rerun after a crash converges on it.
@@ -71,8 +63,8 @@
  *   through the injected `logQueue`. A batch `main` holds with its land rows
  *   unrecorded, as a crash after the push leaves it, logs them on restart.
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
- *   files it ran and its pass, the rerun and the confirm being the second
- *   and a base check at `main` its own. An unknown verdict is no verdict: it lands and
+ *   files it ran and its pass, the rerun and the confirm being the second,
+ *   and survives a restart. An unknown verdict is no verdict: it lands and
  *   drops nothing and is never ledgered, so the next run asks again.
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
  *   fault, a broken git object, a merge timing out, a tester's `transient` no
@@ -93,12 +85,7 @@ const {
 	short,
 	verdictAt,
 } = require("./lander.js");
-const {
-	LANDER_ISO_PREFIX,
-	LANDER_ISO_SUITE_PREFIX,
-	QUEUE_PREFIX,
-	droppedRefsOf,
-} = require("./landing-refs.js");
+const { QUEUE_PREFIX, droppedRefsOf } = require("./landing-refs.js");
 const { QUEUE_LOG_RETAIN_MS } = require("./queue-log.js");
 const { isNetworkFault } = require("./network-fault.js");
 
@@ -118,15 +105,9 @@ class TransientFault extends Error {}
  *   after `queue/`, `pushedAt` its push time in ms
  * @typedef {QueueRef} Member a batch member, at its snapshot sha
  * @typedef {"merging" | "testing" | "isolating" | "serial" | "requeued"
- *   | "held" | "landed"} Phase `isolating` while each member is tested alone
- *   on `main`, `serial` while members land one at a time after a collision,
- *   `requeued` done without landing, `held` done on its `hold`
- * @typedef {{readonly kind: "base", readonly main: string,
- *   readonly files: readonly string[], readonly ticket: number|null}
- *   | {readonly kind: "refused", readonly main: string,
- *     readonly sha: string, readonly reason: string}} Hold why a batch
- *   stopped at `main`: red only where `main` is, on `files`, none where the
- *   red named none, with the base-red ticket; or its push of `sha` refused
+ *   | "landed"} Phase `isolating` while each member is tested alone on
+ *   `main`, `serial` while members land one at a time after a collision,
+ *   `requeued` done without landing, its `ahead` forming the next batch
  * @typedef {object} Blame what a red batch's isolation runs on
  * @property {readonly string[]} files the failing files `main` passes, none
  *   where the red named none
@@ -134,7 +115,7 @@ class TransientFault extends Error {}
  * @property {readonly string[]} members the names isolated, in push order
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly iso: string}} Isolated a member merged alone onto the batch's
- *   `onto` as `iso`
+ *   `onto` as `iso`, pushed to `lander/iso-<k>`, `k` its index
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly onto: string}} Step a serial step: the member `name` merged
  *   alone onto `onto` as `sha`
@@ -155,7 +136,6 @@ class TransientFault extends Error {}
  * @property {Blame|null} blame
  * @property {readonly Isolated[]} isolated
  * @property {Serial|null} serial
- * @property {Hold|null} hold
  * @typedef {{readonly ref: string, readonly sha: string}} DroppedRef a
  *   `dropped/*` ref on the remote, `ref` after `refs/heads/`
  * @typedef {{readonly main: string|null, readonly queue: readonly QueueRef[],
@@ -163,13 +143,13 @@ class TransientFault extends Error {}
  *   queue refs and dropped refs, each queue commit present locally
  * @typedef {{readonly kind: "red", readonly name: string,
  *   readonly files: readonly string[], readonly iso: string}} RedAlone red
- *   on `files` twice, none where the red named none, merged alone onto
- *   `main` as `iso`, where `main` passed them
+ *   on `files` twice, merged alone onto `main` as `iso`, where `main` passed
+ *   them
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
  *   readonly after: readonly string[]}} Collision the serial step `step`,
- *   merging it onto `main` after the members `after` landed, red twice on
- *   `files`, none where the red named none, each member having passed alone
+ *   merging it onto `main` after the members `after` landed, red on `files`,
+ *   none where the red named none, each member having passed alone
  * @typedef {Unmerged | RedAlone | Collision} Cause
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
@@ -189,9 +169,8 @@ class TransientFault extends Error {}
  *   refused, as by a commit gate
  * @typedef {Exclude<MergeResult, {kind: "merged"}>} Unmerged
  * @typedef {{readonly onto: string, readonly result: MergeResult}} Merge
- * @typedef {{readonly branch: string, readonly sha: string}} IsoRun a run
- *   alone at `sha`, pushed to the `lander/iso-*` ref `branch` before it is
- *   asked
+ * @typedef {{readonly k: number, readonly sha: string}} IsoRun an isolation
+ *   commit, at `lander/iso-<k>`
  * @typedef {{readonly kind: "take-batch", readonly batch: Batch}
  *   | {readonly kind: "merge-members", readonly onto: string,
  *     readonly members: readonly Member[]}
@@ -204,12 +183,8 @@ class TransientFault extends Error {}
  *     readonly sha: string}
  *   | {readonly kind: "test-sha", readonly sha: string}
  *   | ({readonly kind: "rerun-files"} & TestRun)
- *   | {readonly kind: "check-base", readonly sha: string,
- *     readonly files: readonly string[]}
  *   | {readonly kind: "file-base-red", readonly sha: string,
  *     readonly files: readonly string[]}
- *   | {readonly kind: "hold", readonly hold: Hold}
- *   | {readonly kind: "unledger", readonly sha: string}
  *   | {readonly kind: "start-isolation" | "start-serial",
  *     readonly blame: Blame}
  *   | {readonly kind: "merge-iso" | "serial-land-step",
@@ -225,14 +200,13 @@ class TransientFault extends Error {}
  *     readonly sha: string}
  *   | {readonly kind: "exit", readonly reason: string}} QueueAction
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
- * @typedef {"rerun-files" | "check-base" | "file-base-red" | "hold"
- *   | "start-isolation" | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
+ * @typedef {"rerun-files" | "file-base-red" | "start-isolation"
+ *   | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
  *   | "confirm-members" | "rebatch-passers" | "land-step" | "record-step"}
  *   RedKind the red path's steps
  * @typedef {{readonly sha: string, readonly files: readonly string[],
  *   readonly pass: number}} TestRun a run at `sha` on `files`, the whole
- *   suite where none, on its `pass`: 1 the first, 2 the rerun or confirm,
- *   BASE_PASS a base check
+ *   suite where none, on its `pass`, 1 the first and 2 the rerun or confirm
  * @typedef {TestRun & {readonly reason: string}} Unread a run this run's
  *   tester reached no verdict at
  * @typedef {object} QueueState what the next action is chosen from
@@ -243,7 +217,7 @@ class TransientFault extends Error {}
  *   `sha`
  * @property {(sha: string, files: readonly string[], pass: number) =>
  *   Verdict|null} verdictOf the verdict ledgered at `sha` on `files`, empty
- *   for the whole suite, on its `pass`
+ *   for the whole suite, on its `pass`, 1 the first run and 2 the rerun
  * @property {boolean} requiresRun where `main` takes only a sha a CI run
  *   passed, so only a green naming its `run` lands
  * @property {readonly Unread[]} unread
@@ -262,13 +236,7 @@ class TransientFault extends Error {}
  *   run could not file
  * @property {readonly string[]} baseFiled the base reds this run filed or
  *   refreshed the base-red ticket for, by baseKey
- * @property {number|null} baseTicket the base-red ticket this run last filed
- *   or refreshed, null where none or it would not file
  */
-
-/* The pass of a base check: a run at `main` of its own, never the verdict
- * `main`'s sha reached as a batch. */
-const BASE_PASS = 0;
 
 /** @param {string} reason @returns {QueueEnd} */
 const exit = (reason) => ({ kind: "exit", reason });
@@ -289,14 +257,13 @@ const included = (b) =>
 /**
  * Whether the batch is done: `main` holds it, pushed there by this lander or
  * already at its integration commit, as a crash after the push leaves it, or
- * it ended without landing, its passers to form the next batch, or held.
+ * it ended without landing, its passers to form the next batch.
  * @param {Batch} b
  * @param {string} main
  */
 const isDone = (b, main) =>
 	b.phase === "landed" ||
 	b.phase === "requeued" ||
-	b.phase === "held" ||
 	b.integration === main ||
 	included(b).length === 0;
 
@@ -336,7 +303,6 @@ function takeBatch(queue, main, ahead) {
 			blame: null,
 			isolated: [],
 			serial: null,
-			hold: null,
 		},
 	};
 }
@@ -372,17 +338,6 @@ const dropAction = (m, onto, cause, s) => ({
 });
 
 /**
- * The merge of the member `name` alone onto `onto` this run made, where it
- * was not recorded, else null.
- * @param {QueueState} s
- * @param {string} name
- * @param {string} onto
- * @returns {MergeResult|null}
- */
-const aloneAt = (s, name, onto) =>
-	s.alone?.name === name && s.alone.onto === onto ? s.alone.result : null;
-
-/**
  * Drop or defer the member the batch merge stopped at.
  * @param {readonly Member[]} members the batch's, still in it
  * @param {QueueState} s
@@ -394,10 +349,11 @@ function unmergedAction(members, s, u) {
 	const m = members.find((x) => x.name === name);
 	if (!m) return exit(`queue/${name} did not merge, but is no batch member`);
 	if (members[0] === m) return dropAction(m, u.onto, u.result, s);
-	const alone = aloneAt(s, name, u.onto);
-	if (alone === null) return { kind: "merge-alone", onto: u.onto, member: m };
-	if (alone.kind === "merged") return { kind: "defer-member", name };
-	return dropAction(m, u.onto, alone, s);
+	const alone = s.alone;
+	if (alone?.name !== name || alone.onto !== u.onto)
+		return { kind: "merge-alone", onto: u.onto, member: m };
+	if (alone.result.kind === "merged") return { kind: "defer-member", name };
+	return dropAction(m, u.onto, alone.result, s);
 }
 
 /** @param {readonly string[]} a @param {readonly string[]} b */
@@ -452,15 +408,16 @@ const isLandable = (v, s) =>
 	v.kind === "green" && (!s.requiresRun || v.run !== undefined);
 
 /**
+ * The landing of the integration commit `sha` its green `v` allows.
+ * @param {string} sha
  * @param {Verdict} v
  * @param {QueueState} s
- * @param {Extract<QueueAction, {sha: string}>} land
  * @returns {QueueAction}
  */
-const landGreen = (v, s, land) =>
+const landGreen = (sha, v, s) =>
 	isLandable(v, s)
-		? land
-		: exit(`no verdict at ${short(land.sha)}: its green read no CI run`);
+		? { kind: "fast-forward-main", sha }
+		: exit(`no verdict at ${short(sha)}: its green read no CI run`);
 
 /**
  * @param {string} main
@@ -469,76 +426,9 @@ const landGreen = (v, s, land) =>
 const baseKey = (main, files) => `${main} ${[...files].sort().join(",")}`;
 
 /**
- * @typedef {{readonly base: readonly string[],
- *   readonly left: readonly string[], readonly baseOnly: boolean}} BaseRead
- *   what of a red `main` shares: the files red there too, the rest, and
- *   whether nothing is left
- */
-
-/**
- * The base check at `main` of `v`, red on its rerun: the run it is owed,
- * else what of it `main` shares. A red naming no file is `main`'s where
- * `main` fails every job it does.
- * @param {QueueState} s
- * @param {string} main
- * @param {Extract<Verdict, {kind: "red"}>} v
- * @returns {{action: QueueAction} | {read: BaseRead}}
- */
-function baseCheck(s, main, v) {
-	const files = [...v.files];
-	const there = verdictOr(
-		s,
-		{ sha: main, files, pass: BASE_PASS },
-		{ kind: "check-base", sha: main, files },
-	);
-	if ("action" in there) return there;
-	const onMain = there.v;
-	if (files.length === 0) {
-		const jobs = onMain.kind === "red" ? (onMain.jobs ?? []) : null;
-		const baseOnly =
-			jobs !== null && (v.jobs ?? []).every((j) => jobs.includes(j));
-		return { read: { base: [], left: [], baseOnly } };
-	}
-	const base = redOnMain(onMain, files, v);
-	const left = files.filter((f) => !base.includes(f));
-	return { read: { base, left, baseOnly: left.length === 0 } };
-}
-
-/**
- * The step a base check owes: the base-red ticket filed where `main` shares
- * any of the red, then, where it shares all of it, `land` or the hold; null
- * where some of the red is left to blame.
- * @param {QueueState} s
- * @param {string} main
- * @param {BaseRead} read
- * @param {Extract<QueueAction, {sha: string}>} land
- * @returns {QueueAction|null}
- */
-function baseAction(s, main, { base, baseOnly }, land) {
-	if (
-		(base.length > 0 || baseOnly) &&
-		!s.baseFiled.includes(baseKey(main, base))
-	)
-		return { kind: "file-base-red", sha: main, files: base };
-	if (!baseOnly) return null;
-	/* Spec #4458's story 26 lands a red only `main` shares, but GitHub's
-	 * `main: suite passed` ruleset, with no bypass, takes no sha whose
-	 * `Suite passed` failed: where `main` takes only a sha a CI run passed
-	 * the batch is held instead, never ledgered green, and its fix lands as a
-	 * later batch (#4485). Residual: held, the queue waits on that fix, a new
-	 * ref or a move of `main`; the local tester lands past `main`'s reds, its
-	 * base-red ticket their one trace. */
-	return s.requiresRun
-		? {
-				kind: "hold",
-				hold: { kind: "base", main, files: base, ticket: s.baseTicket },
-			}
-		: land;
-}
-
-/**
  * The next step on the integration commit `sha`, whose whole suite was red
- * on `whole`.
+ * on `whole`: the rerun of its failing files, their run at `main`, the
+ * base-red ticket, and the isolation of what is left.
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -546,34 +436,33 @@ function baseAction(s, main, { base, baseOnly }, land) {
  * @returns {QueueAction}
  */
 function redAction(b, s, main, { sha, whole }) {
-	/** @type {QueueAction} */
-	const land = { kind: "fast-forward-main", sha };
+	const members = included(b).map((m) => m.name);
+	if (whole.files.length === 0)
+		return {
+			kind: "start-serial",
+			blame: { files: [], base: [], members },
+		};
 	const rerun = { sha, files: whole.files, pass: 2 };
 	const again = verdictOr(s, rerun, { kind: "rerun-files", ...rerun });
 	if ("action" in again) return again.action;
-	if (again.v.kind === "green") return landGreen(again.v, s, land);
-	const files = again.v.files.length > 0 ? again.v.files : whole.files;
-	const checked = baseCheck(s, main, { ...again.v, files });
-	if ("action" in checked) return checked.action;
-	const owed = baseAction(s, main, checked.read, land);
-	if (owed) return owed;
-	const { base, left } = checked.read;
-	const members = included(b).map((m) => m.name);
-	return { kind: "start-isolation", blame: { files: left, base, members } };
+	if (again.v.kind === "green") return landGreen(sha, again.v, s);
+	const rest = again.v.files.length > 0 ? again.v.files : whole.files;
+	const atMain = { sha: main, files: rest, pass: 1 };
+	const there = verdictOr(s, atMain, { kind: "rerun-files", ...atMain });
+	if ("action" in there) return there.action;
+	const base = redOnMain(there.v, [...rest], again.v);
+	const files = rest.filter((f) => !base.includes(f));
+	if (base.length > 0 && !s.baseFiled.includes(baseKey(main, base)))
+		return { kind: "file-base-red", sha: main, files: base };
+	if (files.length === 0) return { kind: "fast-forward-main", sha };
+	return { kind: "start-isolation", blame: { files, base, members } };
 }
 
 /**
- * The `lander/iso-*` ref a run alone on `files` is pushed to, `k` its
- * member's index or `base` for `main`: an iso-suite one for the whole
- * suite, whose push the suite runs on.
- * @param {readonly string[]} files
- * @param {number | "base"} k
- */
-const isoBranch = (files, k) =>
-	`${files.length > 0 ? LANDER_ISO_PREFIX : LANDER_ISO_SUITE_PREFIX}${k}`;
-
-/**
- * The next step of an isolation.
+ * The next step of an isolation: each member merged alone onto the batch's
+ * `onto`, run on the blamed files, a red one run again, and a red confirmed
+ * dropped; then the passers re-batched where any dropped, else the serial
+ * landing.
  * @param {Batch} b
  * @param {QueueState} s
  * @param {Blame} blame
@@ -584,9 +473,13 @@ function isolationAction(b, s, blame) {
 	const members = included(b).filter((m) => blame.members.includes(m.name));
 	for (const m of members) {
 		if (b.isolated.some((i) => i.name === m.name)) continue;
-		const alone = aloneAt(s, m.name, onto);
-		if (alone !== null && alone.kind !== "merged")
-			return dropAction(m, onto, alone, s);
+		const alone = s.alone;
+		if (
+			alone?.name === m.name &&
+			alone.onto === onto &&
+			alone.result.kind !== "merged"
+		)
+			return dropAction(m, onto, alone.result, s);
 		return { kind: "merge-iso", onto, member: m };
 	}
 	const isolated = b.isolated.flatMap((i, k) =>
@@ -613,10 +506,7 @@ function isolationAction(b, s, blame) {
 		return {
 			kind: pass === 1 ? "isolate-members" : "confirm-members",
 			files: blame.files,
-			runs: owed.map((i) => ({
-				branch: isoBranch(blame.files, i.k),
-				sha: i.iso,
-			})),
+			runs: owed.map((i) => ({ k: i.k, sha: i.iso })),
 		};
 	};
 	const first = ask(isolated, 1);
@@ -642,6 +532,9 @@ function isolationAction(b, s, blame) {
 }
 
 /**
+ * The next step of a serial landing: the next member in push order merged
+ * onto `main` and tested on the whole suite; once one is dropped, the rest
+ * re-batched.
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -661,60 +554,52 @@ function serialAction(b, s, main) {
 	if (at?.name === next.name && at.sha === main)
 		return { kind: "record-step", sha: main, name: next.name };
 	if (at?.name === next.name && at.onto === main)
-		return stepAction(s, { ...at, member: next }, { blame, landed, rebatch });
+		return stepAction(s, { ...at, member: next }, { blame, landed });
 	/* Each member merged into the batch in this order, so one that will not
 	 * now is no collision's culprit: the rest are batched again. */
-	if (aloneAt(s, next.name, main) !== null) return rebatch;
+	if (s.alone?.name === next.name && s.alone.onto === main) return rebatch;
 	return { kind: "serial-land-step", onto: main, member: next };
 }
 
 /**
  * The serial step `at`, its member merged onto `main`: landed where its
- * whole suite passes, its member dropped where it is red twice on a blamed
- * file, or on any where the red named none.
+ * whole suite passes or is red only where `main` was, else its member
+ * dropped.
  * @param {QueueState} s
  * @param {Step & {member: Member}} at
- * @param {{blame: Blame, landed: readonly string[], rebatch: QueueAction}}
- *   so the blame, the members landed before it, and the re-batch of the rest
+ * @param {{blame: Blame, landed: readonly string[]}} so the blame and the
+ *   members landed before it
  * @returns {QueueAction}
  */
-function stepAction(s, { sha, onto, member }, { blame, landed, rebatch }) {
+function stepAction(s, { sha, onto, member }, { blame, landed }) {
 	/** @type {QueueAction} */
 	const land = { kind: "land-step", sha, name: member.name };
 	if (s.isGreen(sha)) return land;
-	const first = verdictOr(
+	const got = verdictOr(
 		s,
 		{ sha, files: [], pass: 1 },
 		{ kind: "test-sha", sha },
 	);
-	if ("action" in first) return first.action;
-	if (first.v.kind === "green") return landGreen(first.v, s, land);
-	const confirm = { sha, files: [], pass: 2 };
-	const again = verdictOr(s, confirm, { kind: "rerun-files", ...confirm });
-	if ("action" in again) return again.action;
-	const { v } = again;
-	if (v.kind === "green") return landGreen(v, s, land);
-	if (blame.files.length === 0 || v.files.some((f) => blame.files.includes(f)))
-		return dropAction(
-			member,
-			onto,
-			{
-				kind: "collision",
-				name: member.name,
-				files: v.files,
-				step: sha,
-				after: landed,
-			},
-			s,
-		);
-	/* Red twice, but on no file the collision failed: no culprit of it. Its
-	 * files are checked at this step's `main`, as earlier steps moved it past
-	 * the batch's, and any red beyond `main`'s is batched again to be blamed
-	 * on its own red path. */
-	if (v.files.length === 0) return rebatch;
-	const checked = baseCheck(s, onto, v);
-	if ("action" in checked) return checked.action;
-	return baseAction(s, onto, checked.read, land) ?? rebatch;
+	if ("action" in got) return got.action;
+	const { v } = got;
+	if (v.kind === "green")
+		return isLandable(v, s)
+			? land
+			: exit(`no verdict at ${short(sha)}: its green read no CI run`);
+	const beyond = v.files.filter((f) => !blame.base.includes(f));
+	if (v.files.length > 0 && beyond.length === 0) return land;
+	return dropAction(
+		member,
+		onto,
+		{
+			kind: "collision",
+			name: member.name,
+			files: v.files,
+			step: sha,
+			after: landed,
+		},
+		s,
+	);
 }
 
 /**
@@ -734,9 +619,7 @@ function batchAction(b, s, main) {
 	if (b.phase === "merging" || b.onto !== main || b.integration === null)
 		return { kind: "merge-members", onto: main, members };
 	const sha = b.integration;
-	/** @type {QueueAction} */
-	const land = { kind: "fast-forward-main", sha };
-	if (s.isGreen(sha)) return land;
+	if (s.isGreen(sha)) return { kind: "fast-forward-main", sha };
 	const got = verdictOr(
 		s,
 		{ sha, files: [], pass: 1 },
@@ -744,48 +627,16 @@ function batchAction(b, s, main) {
 	);
 	if ("action" in got) return got.action;
 	if (got.v.kind === "red") return redAction(b, s, main, { sha, whole: got.v });
-	return landGreen(got.v, s, land);
+	return landGreen(sha, got.v, s);
 }
 
 /**
- * The exit naming the hold, where it stands: `main` where it stopped, and no
- * queue ref waiting that the batch did not take.
- * @param {Batch} b
- * @param {string} main
- * @param {readonly QueueRef[]} waiting
- * @returns {QueueEnd|null}
- */
-function heldExit({ hold, members }, main, waiting) {
-	if (hold === null || hold.main !== main) return null;
-	if (
-		waiting.some(
-			(r) => !members.some((m) => m.name === r.name && m.sha === r.sha),
-		)
-	)
-		return null;
-	const until = "retaken once a new ref waits or main moves";
-	if (hold.kind === "refused")
-		return exit(
-			`held: the push of ${short(hold.sha)} to main was refused: ${hold.reason}; ${until}`,
-		);
-	const on =
-		hold.files.length > 0
-			? `on ${hold.files.join(", ")}`
-			: "on the whole suite, naming no file";
-	const ticket =
-		hold.ticket === null ? "its base-red ticket unfiled" : `#${hold.ticket}`;
-	return exit(
-		`held: red only where main at ${short(main)} is too, ${on}, ${ticket}; ${until}`,
-	);
-}
-
-/**
- * What a crash or a refusal left owed before anything else: a drop cut
- * short, a fix ticket unfiled, a refused sha still green-ledgered; else null.
  * @param {QueueState} s
- * @returns {QueueAction|null}
+ * @returns {QueueAction}
  */
-function owedAction(s) {
+function nextQueueAction(s) {
+	const { main, batch } = s;
+	if (main === null) return exit("the remote has no main branch");
 	const cut = s.drops.find(
 		(d) =>
 			d.reapedAt === undefined &&
@@ -797,24 +648,6 @@ function owedAction(s) {
 		(d) => d.ticket === null && !s.unfiled.includes(d.ref),
 	);
 	if (owed) return { kind: "file-fix-ticket", drop: owed };
-	const hold = s.batch?.hold;
-	/* Off the green ledger, so the pre-push gate passes no later push of a sha
-	 * the remote refused; first the batch is held, so a crash between the two
-	 * leaves it ledgered, never pushed again. */
-	if (hold?.kind === "refused" && s.isGreen(hold.sha))
-		return { kind: "unledger", sha: hold.sha };
-	return null;
-}
-
-/**
- * @param {QueueState} s
- * @returns {QueueAction}
- */
-function nextQueueAction(s) {
-	const { main, batch } = s;
-	if (main === null) return exit("the remote has no main branch");
-	const owed = owedAction(s);
-	if (owed) return owed;
 	if (batch && batch.phase !== "landed" && batch.integration === main)
 		return { kind: "record-landed", sha: main };
 	if (batch && !isDone(batch, main)) return batchAction(batch, s, main);
@@ -837,8 +670,6 @@ function nextQueueAction(s) {
 		(r) => !merged.some((m) => m.name === r.name && m.sha === r.sha),
 	);
 	if (waiting.length === 0) return exit("no queue ref waits");
-	const held = batch && heldExit(batch, main, waiting);
-	if (held) return held;
 	const ahead = batch?.phase === "requeued" ? batch.ahead : [];
 	return takeBatch(waiting, main, ahead);
 }
@@ -852,13 +683,11 @@ function nextQueueAction(s) {
  *   integration commit
  * @property {(sha: string) => void} pushBatch `sha` to the lander's batch
  *   ref, forced, so a tester reading that ref's runs sees it
- * @property {(branch: string, sha: string) => void} pushIso `sha` to the
- *   lander's `lander/iso-*` ref `branch`, forced, before its verdict is
- *   asked, as the tester tells a run alone by the remote's iso refs
- * @property {(sha: string) => string|null} pushMain a plain, non-forced push
- *   of `sha` to the remote's `main`: the remote's refusal line where it
- *   refused it for good, as a ruleset does, else null, throwing on any other
- *   failure, a network fault or `main` moved under it among them
+ * @property {(k: number, sha: string) => void} pushIso `sha` to the lander's
+ *   `lander/iso-<k>` ref, forced, before its verdict is asked, as the
+ *   tester tells an isolation run by the remote's iso refs
+ * @property {(sha: string) => void} pushMain a plain, non-forced push of
+ *   `sha` to the remote's `main`
  * @property {(branch: string, sha: string) => boolean} deleteRef deletes the
  *   remote's `branch` only where it still holds `sha`, false where it moved
  * @property {(branch: string, sha: string) => void} createRef creates the
@@ -887,8 +716,7 @@ function nextQueueAction(s) {
  * @typedef {object} QueueLanderDeps
  * @property {QueueGit} git
  * @property {QueueTester} tester
- * @property {Ledger & {remove: (sha: string) => void}} ledger the green
- *   ledger the pre-push gate on `main` reads
+ * @property {Ledger} ledger the green ledger the pre-push gate on `main` reads
  * @property {VerdictLedger} verdicts
  * @property {BatchRecord} record
  * @property {DropRecord} drops
@@ -906,8 +734,8 @@ function nextQueueAction(s) {
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed or left unfiled, or one whose state was not read
  * @typedef {Pick<QueueState, "batch" | "unread" | "unmerged" | "alone"
- *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket">} QueueRun
- *   what a run carries between actions
+ *   | "kept" | "unfiled" | "isClosed" | "baseFiled">} QueueRun what a run
+ *   carries between actions
  */
 
 /**
@@ -957,10 +785,8 @@ function batchOf(run) {
 
 /**
  * Drops the member, each record written before the refs it names, so a rerun
- * after a crash finishes the drop and never lands the member: the drop
- * record first, whose row a rerun finishes before the batch goes on. A step
- * repeated after a crash finds its ref already made, and keeps its filed
- * ticket.
+ * after a crash finishes the drop and never lands the member. A step repeated
+ * after a crash finds its ref already made, and keeps its filed ticket.
  * @param {QueueLanderDeps} deps
  * @param {Drop} d
  * @param {QueueRun} run
@@ -975,13 +801,13 @@ function dropMember(deps, d, run) {
 		batch && member && !batch.dropped.includes(d.name)
 			? droppedFrom(batch, d.name)
 			: batch;
+	if (left && left !== batch) deps.record.write(left);
 	const drops = deps.drops.read();
 	const was = drops.find((x) => x.ref === d.ref && x.sha === d.sha);
 	deps.drops.write([
 		...drops.filter((x) => x !== was),
 		{ ...d, ticket: was?.ticket ?? null },
 	]);
-	if (left && left !== batch) deps.record.write(left);
 	deps.git.createRef(d.ref, d.sha);
 	deps.git.deleteRef(`${QUEUE_PREFIX}${d.name}`, d.sha);
 	deps.logQueue("drop", d);
@@ -1036,7 +862,7 @@ const FILED = /#(\d+)/;
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
-function writeVerdict(deps, { sha, files, pass, v }, run) {
+function ledger(deps, { sha, files, pass, v }, run) {
 	if (v.kind === "unknown" && v.transient)
 		throw new TransientFault(`no verdict at ${short(sha)}: ${v.reason}`);
 	if (v.kind === "unknown")
@@ -1059,14 +885,14 @@ function writeVerdict(deps, { sha, files, pass, v }, run) {
 async function testSha(deps, sha, run) {
 	deps.git.pushBatch(sha);
 	const v = await verdictAt(deps, sha);
-	return writeVerdict(deps, { sha, files: [], pass: 1, v }, run);
+	return ledger(deps, { sha, files: [], pass: 1, v }, run);
 }
 
 /**
- * Pushes each run's sha to its `lander/iso-*` ref, then asks its verdict
- * on `files`: all at once where the tester is `parallel`, else one after
- * another. Each verdict reached is ledgered before a transient no verdict
- * throws, so the retry asks only what is still owed.
+ * Pushes each isolation commit to its `lander/iso-<k>` ref, then asks its
+ * verdict on `files`: all at once where the tester is `parallel`, else one
+ * after another. Each verdict reached is ledgered before a transient no
+ * verdict throws, so the retry asks only what is still owed.
  * @param {QueueLanderDeps} deps
  * @param {{runs: readonly IsoRun[], files: readonly string[], pass: number}}
  *   asked
@@ -1074,9 +900,9 @@ async function testSha(deps, sha, run) {
  * @returns {Promise<QueueRun>}
  */
 async function testIsolated(deps, { runs, files, pass }, run) {
-	for (const { branch, sha } of runs) deps.git.pushIso(branch, sha);
+	for (const { k, sha } of runs) deps.git.pushIso(k, sha);
 	/** @param {IsoRun} r */
-	const ask = (r) => verdictAt(deps, r.sha, [...files], pass === 2);
+	const ask = (r) => verdictAt(deps, r.sha, [...files]);
 	/** @type {Verdict[]} */
 	const vs = [];
 	if (deps.tester.parallel) vs.push(...(await Promise.all(runs.map(ask))));
@@ -1088,7 +914,7 @@ async function testIsolated(deps, { runs, files, pass }, run) {
 		const v = vs[k];
 		if (!v) continue;
 		try {
-			next = writeVerdict(deps, { sha: r.sha, files, pass, v }, next);
+			next = ledger(deps, { sha: r.sha, files, pass, v }, next);
 		} catch (err) {
 			if (!(err instanceof TransientFault)) throw err;
 			transient ??= err;
@@ -1100,8 +926,7 @@ async function testIsolated(deps, { runs, files, pass }, run) {
 
 /**
  * Files or refreshes the base-red ticket. One that will not file is
- * reported, and stops nothing: the failures it names are `main`'s, which the
- * next batch red on them files again (#4485).
+ * reported, and lands nothing less: the failures it names are `main`'s.
  * @param {QueueLanderDeps} deps
  * @param {string} sha
  * @param {readonly string[]} files
@@ -1110,19 +935,32 @@ async function testIsolated(deps, { runs, files, pass }, run) {
  */
 function fileBaseRed(deps, sha, files, run) {
 	const { say = () => undefined } = deps;
-	const baseFiled = [...run.baseFiled, baseKey(sha, files)];
 	try {
-		const line = deps.tracker.fileBaseRed(sha, files);
-		say(line);
-		const n = Number(FILED.exec(line)?.[1]);
-		return { ...run, baseFiled, baseTicket: Number.isInteger(n) ? n : null };
+		say(deps.tracker.fileBaseRed(sha, files));
 	} catch (err) {
 		if (isTransientFault(err)) throw err;
 		say(
 			`base-red ticket for main at ${short(sha)} not filed: ${parseRefusal(parseErrorText(err))}`,
 		);
-		return { ...run, baseFiled, baseTicket: null };
 	}
+	return { ...run, baseFiled: [...run.baseFiled, baseKey(sha, files)] };
+}
+
+/**
+ * Lands the serial step `sha`, the member `name` merged onto `main`: ledgered
+ * green first, then pushed to `main`, then recorded.
+ * @param {QueueLanderDeps} deps
+ * @param {string} sha
+ * @param {string} name
+ * @param {QueueRun} run
+ * @returns {QueueRun}
+ */
+function landStep(deps, sha, name, run) {
+	if (!deps.ledger.has(sha)) deps.ledger.add(sha);
+	deps.git.pushMain(sha);
+	const landed = recordStep(deps, name, run);
+	deps.mainMoved?.();
+	return landed;
 }
 
 /**
@@ -1148,6 +986,7 @@ function recordStep(deps, name, run) {
 }
 
 /**
+ * Writes `batch` as the batch record and carries it on.
  * @param {QueueLanderDeps} deps
  * @param {Batch} batch
  * @param {QueueRun} run
@@ -1159,44 +998,19 @@ function recorded(deps, batch, run) {
 }
 
 /**
- * Moves `main` to `sha`, the integration commit or a serial step, then
- * records what landed; a push the remote refuses holds the batch instead.
  * @param {QueueLanderDeps} deps
  * @param {string} sha
  * @param {QueueRun} run
- * @param {(run: QueueRun) => QueueRun} landed records the landing
  * @returns {QueueRun}
  */
-function moveMain(deps, sha, run, landed) {
+function fastForwardMain(deps, sha, run) {
 	/* Ledgered first, so the pre-push gate can tell this push from any
 	 * other. */
 	if (!deps.ledger.has(sha)) deps.ledger.add(sha);
-	const refusal = deps.git.pushMain(sha);
-	if (refusal !== null) return refuse(deps, sha, refusal, run);
-	const next = landed(run);
+	deps.git.pushMain(sha);
+	const landed = recordLanded(deps, run);
 	deps.mainMoved?.();
-	return next;
-}
-
-/**
- * Holds the batch on the remote's refusal of `sha`: pushed again it would be
- * refused again, so no run pushes it while the hold stands, and the next
- * step takes it off the green ledger.
- * @param {QueueLanderDeps} deps
- * @param {string} sha
- * @param {string} reason
- * @param {QueueRun} run
- * @returns {QueueRun}
- */
-function refuse(deps, sha, reason, run) {
-	const b = batchOf(run);
-	const at = b.serial?.step;
-	const main = at?.sha === sha ? at.onto : b.onto;
-	return recorded(
-		deps,
-		{ ...b, phase: "held", hold: { kind: "refused", main, sha, reason } },
-		run,
-	);
+	return landed;
 }
 
 /**
@@ -1267,10 +1081,7 @@ async function act(deps, action, run) {
 		case "test-sha":
 			return testSha(deps, action.sha, run);
 		case "fast-forward-main":
-			return moveMain(deps, action.sha, run, (r) => recordLanded(deps, r));
-		case "unledger":
-			deps.ledger.remove(action.sha);
-			return run;
+			return fastForwardMain(deps, action.sha, run);
 		case "record-landed":
 			return recordLanded(deps, run);
 		case "delete-landed-ref":
@@ -1296,6 +1107,7 @@ async function act(deps, action, run) {
 }
 
 /**
+ * A step of the red path, taken.
  * @param {QueueLanderDeps} deps
  * @param {Extract<QueueAction, {kind: RedKind}>} action
  * @param {QueueRun} run
@@ -1305,26 +1117,11 @@ async function actRed(deps, action, run) {
 	switch (action.kind) {
 		case "rerun-files": {
 			const { sha, files, pass } = action;
-			const v = await verdictAt(deps, sha, [...files], pass === 2);
-			return writeVerdict(deps, { sha, files, pass, v }, run);
-		}
-		case "check-base": {
-			const { sha, files } = action;
-			const branch = isoBranch(files, "base");
-			return testIsolated(
-				deps,
-				{ runs: [{ branch, sha }], files, pass: BASE_PASS },
-				run,
-			);
+			const v = await verdictAt(deps, sha, [...files]);
+			return ledger(deps, { sha, files, pass, v }, run);
 		}
 		case "file-base-red":
 			return fileBaseRed(deps, action.sha, action.files, run);
-		case "hold":
-			return recorded(
-				deps,
-				{ ...batchOf(run), phase: "held", hold: action.hold },
-				run,
-			);
 		case "start-isolation":
 		case "start-serial": {
 			const serial = action.kind === "start-serial";
@@ -1354,9 +1151,7 @@ async function actRed(deps, action, run) {
 				run,
 			);
 		case "land-step":
-			return moveMain(deps, action.sha, run, (r) =>
-				recordStep(deps, action.name, r),
-			);
+			return landStep(deps, action.sha, action.name, run);
 		case "record-step":
 			return recordStep(deps, action.name, run);
 	}
@@ -1477,7 +1272,6 @@ async function runQueueLander(deps) {
 		unfiled: [],
 		isClosed: readClosedTickets(deps),
 		baseFiled: [],
-		baseTicket: null,
 	};
 	try {
 		for (;;) {
@@ -1527,11 +1321,8 @@ function buildQueueActionLine(a) {
 			return `delete-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "rerun-files":
 			return `rerun-files ${a.sha} pass ${a.pass}: ${a.files.join(", ")}`;
-		case "check-base":
 		case "file-base-red":
-			return `${a.kind} main@${short(a.sha)}: ${a.files.length > 0 ? a.files.join(", ") : "the whole suite"}`;
-		case "hold":
-			return `hold ${a.hold.kind} at main@${short(a.hold.main)}`;
+			return `file-base-red main@${short(a.sha)}: ${a.files.join(", ")}`;
 		case "start-isolation":
 		case "start-serial":
 			return `${a.kind} ${a.blame.members.map((n) => `queue/${n}`).join(", ")}${a.blame.files.length > 0 ? ` on ${a.blame.files.join(", ")}` : ""}`;
@@ -1540,7 +1331,7 @@ function buildQueueActionLine(a) {
 			return `${a.kind} onto ${short(a.onto)}: queue/${a.member.name}`;
 		case "isolate-members":
 		case "confirm-members":
-			return `${a.kind} ${a.runs.map((r) => `${r.branch}@${short(r.sha)}`).join(", ")}`;
+			return `${a.kind} ${a.runs.map((r) => `lander/iso-${r.k}@${short(r.sha)}`).join(", ")}`;
 		case "rebatch-passers":
 			return `rebatch-passers ${a.ahead.map((n) => `queue/${n}`).join(", ")}`;
 		case "land-step":

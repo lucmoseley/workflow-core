@@ -9,11 +9,8 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 # The repo's whole automatic verification, on a clock (mantahostels#904,
 # settled at mantahostels#906 and mantahostels#905, landed at mantahostels#910)
 # and on every push to `landing`, whose run the lander reads as its tester
-# (#2413, spec #2261), to `lander/batch`, the queue lander's integration
-# commit (#4458), and to `lander/iso-suite-*`, its whole-suite runs of `main`
-# and of a member alone (#4485), until the cutover drops `landing`. Its
-# `lander/iso-<k>` refs run named files through named-rerun.yml instead,
-# so they fire nothing here. Minutes are free
+# (#2413, spec #2261), and to `lander/batch`, the queue lander's integration
+# commit (#4458), until the cutover drops `landing` (#4485). Minutes are free
 # on the public repo (#1930), so a push's jobs cost wall time alone.
 #
 # WHY A SCHEDULE AS WELL. `main` moves only to a `landing` tip a push run
@@ -72,11 +69,11 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 #   node scripts/measure-ci-billing.js --since <d> --until <d> --branch all \
 #     --exclude-event pull_request
 # over a full day — on `main` the `event` split must read `schedule` ~100%,
-# `push` zero; `landing`'s, `lander/batch`'s and `lander/iso-suite-*`'s push
-# runs are the lander's tester (#2413, #4458).
+# `push` zero; `landing`'s and `lander/batch`'s push runs are the lander's
+# tester (#2413, #4458).
 on:
   push:
-    branches: [landing, lander/batch, "lander/iso-suite-*"]
+    branches: [landing, lander/batch]
   schedule:
     # MINUTE 0, AND MOVING IT IS NOT THE ONE-LINE CHANGE IT LOOKS LIKE (mantahostels#2204).
     # GitHub names the top of the hour as its high-load window and moving off it

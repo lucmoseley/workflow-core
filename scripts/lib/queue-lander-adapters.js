@@ -30,6 +30,7 @@ const {
 const {
 	DROPPED_PREFIX,
 	LANDER_BATCH_BRANCH,
+	LANDER_ISO_PREFIX,
 	QUEUE_PREFIX,
 	REMOTE,
 	trackingRefspec,
@@ -59,12 +60,8 @@ const PHASES = [
 	"isolating",
 	"serial",
 	"requeued",
-	"held",
 	"landed",
 ];
-/* git push's words for a ref the remote itself refused, as a ruleset or a
- * protected branch does: pushed again, it is refused again. */
-const REMOTE_REJECTED = /^ ! \[remote rejected\].*/m;
 /* Git's words for a loose object a crash left empty or torn, naming its file
  * by its fan-out directory and name. */
 const BROKEN_OBJECT =
@@ -76,7 +73,6 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").Blame} Blame
  * @typedef {import("./queue-lander.js").Isolated} Isolated
  * @typedef {import("./queue-lander.js").Serial} Serial
- * @typedef {import("./queue-lander.js").Hold} Hold
  * @typedef {import("./queue-lander.js").Member} Member
  * @typedef {import("./queue-lander.js").MergeResult} MergeResult
  * @typedef {import("./queue-lander.js").QueueGit} QueueGit
@@ -247,18 +243,14 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		pushBatch(sha) {
 			pushRemote(root, ["--force", `${sha}:refs/heads/${LANDER_BATCH_BRANCH}`]);
 		},
-		pushIso(branch, sha) {
-			pushRemote(root, ["--force", `${sha}:refs/heads/${branch}`]);
+		pushIso(k, sha) {
+			pushRemote(root, [
+				"--force",
+				`${sha}:refs/heads/${LANDER_ISO_PREFIX}${k}`,
+			]);
 		},
 		pushMain(sha) {
-			try {
-				pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);
-				return null;
-			} catch (err) {
-				const refused = REMOTE_REJECTED.exec(String(caught(err).stderr ?? ""));
-				if (refused === null) throw err;
-				return refused[0].trim();
-			}
+			pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);
 		},
 		deleteRef(branch, sha) {
 			const ref = `refs/heads/${branch}`;
@@ -336,9 +328,7 @@ function parseVerdict(v) {
 			? { kind: "green", run: o.run }
 			: { kind: "green" };
 	if (o?.kind === "red" && isStringList(o.files))
-		return isStringList(o.jobs)
-			? { kind: "red", files: o.files, jobs: o.jobs }
-			: { kind: "red", files: o.files };
+		return { kind: "red", files: o.files };
 	return null;
 }
 
@@ -419,21 +409,6 @@ const isSerial = (s) => {
 	);
 };
 
-/** @param {unknown} h @returns {h is Hold} */
-const isHold = (h) => {
-	const o = objectOf(h);
-	if (typeof o?.main !== "string") return false;
-	if (o.kind === "base")
-		return (
-			isStringList(o.files) && (o.ticket === null || Number.isInteger(o.ticket))
-		);
-	return (
-		o.kind === "refused" &&
-		typeof o.sha === "string" &&
-		typeof o.reason === "string"
-	);
-};
-
 /** @param {unknown} m @returns {m is Member} */
 const isMember = (m) => {
 	const o = /** @type {Record<string, unknown>|null} */ (
@@ -445,20 +420,6 @@ const isMember = (m) => {
 		typeof o.pushedAt === "number"
 	);
 };
-
-/**
- * Whether a batch record's red-path fields are each well formed.
- * @param {Record<string, unknown>} b
- * @returns {b is Record<string, unknown>
- *   & Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold">}
- */
-const hasRedPath = (b) =>
-	isStringList(b.ahead) &&
-	(b.blame === null || isBlame(b.blame)) &&
-	Array.isArray(b.isolated) &&
-	b.isolated.every(isIsolated) &&
-	(b.serial === null || isSerial(b.serial)) &&
-	(b.hold === null || isHold(b.hold));
 
 /**
  * A JSON record file: absent, torn where it will not parse, or its value.
@@ -499,7 +460,11 @@ function parseBatch(parsed) {
 		!(b.integration === null || typeof b.integration === "string") ||
 		typeof b.phase !== "string" ||
 		!PHASES.includes(b.phase) ||
-		!hasRedPath(b)
+		!isStringList(b.ahead) ||
+		!(b.blame === null || isBlame(b.blame)) ||
+		!Array.isArray(b.isolated) ||
+		!b.isolated.every(isIsolated) ||
+		!(b.serial === null || isSerial(b.serial))
 	)
 		return null;
 	return {
@@ -513,7 +478,6 @@ function parseBatch(parsed) {
 		blame: b.blame,
 		isolated: b.isolated,
 		serial: b.serial,
-		hold: b.hold,
 	};
 }
 
