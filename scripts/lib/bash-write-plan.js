@@ -308,7 +308,7 @@ function commandName(word, spans) {
  *
  * TRACKED TEXTUALLY, AND ONLY AS FAR AS IT READS. lib/shell-parse.js's walk
  * cwd is NOT used: it reads an unset `$VAR` as empty and stays put, so
- * `cd "$WT"` would leave the core crediting the shared tree's copy of every
+ * `cd "$WT"` would leave the core crediting the starting tree's copy of every
  * relative target after it. Here an unreadable target, a bare `cd`, a `pushd`
  * and a `popd` all make the cwd unknown, which costs a missed credit, never a
  * wrong one — and a subshell's `)` is not read either, so `(cd /x && …); tee

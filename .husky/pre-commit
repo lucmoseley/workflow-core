@@ -74,12 +74,11 @@ if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
   exit 1
 fi
 
-# Scoped to the commit's own paths, not the whole repo (mantahostels#179). The tree is
-# repo-global, so a whole-repo `biome check .` here fails on a parallel
-# session's unformatted in-flight file and blocks a commit that does not touch
-# it. scripts/biome-staged.js runs Biome on an extraction of the index, so it
-# checks the bytes this commit carries, not a neighbour's unstaged hunks in a
-# file it patches (#2429). Whole-repo Biome stays in ci.yml, on its schedule
+# Scoped to the commit's own paths, not the whole repo (mantahostels#179): a
+# whole-repo `biome check .` here fails on an unformatted file the commit does
+# not touch. scripts/biome-staged.js runs Biome on an extraction of the index,
+# so it checks the bytes this commit carries, not the unstaged hunks of a file
+# it patches (#2429). Whole-repo Biome stays in ci.yml, on its schedule
 # (mantahostels#910).
 #
 # THE COMMAND IS THE ADOPTER'S, from .claude/workflow-core.json (#2), here and in
@@ -111,10 +110,6 @@ fi
 
 hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 
-# A session's commit writing back a file a neighbour changed since its base
-# (#113). The script owns its skips and its fail-open.
-bash "${WFC_PLUGIN_ROOT:-.}"/scripts/stale-write-back-gate.sh || exit "$?"
-
 # A session's commit on a declared sensitive path with no escalated review of
 # exactly its staged tree (#1622). The script owns its skips.
 bash "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.sh || exit "$?"
@@ -125,9 +120,8 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit "$?"
 
 # The staged roadmap is structurally valid, or it does not get committed (mantahostels#698).
 # Scoped to commits that stage the roadmap, so a commit touching nothing else
-# pays nothing. The checker judges the STAGED blob against HEAD's, so under the
-# pathspec-commit convention git's temporary GIT_INDEX_FILE keeps a parallel
-# session's half-saved roadmap out of it.
+# pays nothing. The checker judges the STAGED blob against HEAD's, so an
+# unsaved roadmap edit the commit does not carry stays out of it.
 #
 # Only validator ERRORs exit non-zero. WARNINGs, and the added/removed card list,
 # report and pass: a roadmap-edit run that adds a card is ordinary work (mantahostels#698).
@@ -173,8 +167,8 @@ fi
 # check-roadmap-pair.js above catches the half-staged PAIR; this catches the pair
 # staged together with drifted versions.
 #
-# Fed from the INDEX, not the worktree: the tree is repo-global, so reading the
-# files in place would judge a parallel session's half-written digest.
+# Fed from the INDEX, not the worktree: reading the files in place would judge
+# a half-written digest the commit does not carry.
 if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$'; then
   staged_gate digest-version live status \
     'docs/reference-roadmap.html docs/roadmap-digest.md' \
@@ -273,7 +267,7 @@ fi
 #
 # --against HEAD is the whole gate (mantahostels#1801, mantahostels#1833). scripts/lib/check.js reads
 # the INDEX and HEAD, each materialised, and refuses only on a fault this commit
-# ADDS: a neighbour's in-flight rule edit is not visible to it at all.
+# ADDS: an unstaged rule edit is not visible to it at all.
 # Its exit code is the checker's own
 # alphabet: 1 a fault this commit adds, 2 a comparison that could not answer, and
 # both refuse. The checker's own report streams past on the way, so a session
@@ -369,7 +363,7 @@ fi
 #
 # Whole-repo, because a site is judged against core-path constants other
 # scanned modules export; and on --against, so it judges this commit's bytes
-# rather than a parallel session's untracked script in the shared tree (#917).
+# rather than an untracked script in the working tree (#917).
 # 0.84 s on the live repo.
 if armed '^(scripts/|\.claude/|\.husky/)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root.js --against HEAD || exit "$?"
@@ -435,24 +429,24 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-user-settings-drift.js --warn
 # path condition elsewhere in this file is cost — cheap here (mantahostels#2631).
 # --touching HEAD, not --against: reasoning in check-code-standards.js:27-43.
 # It reads the WORKTREE against HEAD, not the staged index other --against
-# gates in this file use, so a neighbour's unstaged edit can surface on your
-# commit — accepted because WARN-only means it never blocks (check-code-
+# gates in this file use, so an unstaged edit the commit does not carry can
+# surface on it — accepted because WARN-only means it never blocks (check-code-
 # standards.js:405,433).
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-code-standards.js --touching HEAD --warn
 
 # A primitives row naming a path or § id that does not resolve, or a local
 # row taking a base row's job (#3451). Every commit, since a renamed exemplar
 # can sit anywhere; --paths-only keeps it to stat calls, the count line being
-# `npm run status`'s. It reads the worktree, so a neighbour's unstaged rename
-# can surface here; a base row's fault only warns in an adopter.
+# `npm run status`'s. It reads the worktree, so an unstaged rename the commit
+# does not carry can surface here; a base row's fault only warns in an adopter.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-primitives.js --paths-only || exit "$?"
 
 # An own skill body this commit grows past the size its re-reading pays for
 # (mantahostels#3136), report-only by ruling; and a skill or command body
 # holding an unescaped $<digit>, which the harness rewrites to an argument —
-# that limb refuses (#1490). --touching HEAD reads the worktree, so a
-# neighbour's unstaged edit to a body can surface here, and on the token limb
-# refuse — accepted, the fix being one escape.
+# that limb refuses (#1490). --touching HEAD reads the worktree, so an
+# unstaged edit to a body the commit does not carry can surface here, and on
+# the token limb refuse — accepted, the fix being one escape.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-body-size.js --touching HEAD
 
 # An own skill whose frontmatter js-yaml rejects, which a strict reader drops
@@ -474,8 +468,8 @@ fi
 # A workflow job reaching past the timer-triggered autonomy ceiling, R1
 # (docs/agents/autonomy-ceiling.md). Added or modified files only: a commit
 # deleting the last workflow would otherwise refuse on NOTHING-INSPECTED. It
-# reads the working tree, so a neighbour's unstaged workflow edit can surface
-# here (#1380).
+# reads the working tree, so an unstaged workflow edit the commit does not
+# carry can surface here (#1380).
 if armed '^\.github/workflows/[^/]+\.ya?ml$' && [ -n "$(armed_live)" ]; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-workflow-permissions.js || exit "$?"
 fi
@@ -489,11 +483,9 @@ if armed '^scripts/[^/]+\.js$'; then
 fi
 
 # The five whole-tree heresy gates below, and the pre-commit exit gate after
-# them, run on --index, so each judges the tree this commit makes, never a
-# neighbour's untracked or unstaged file, and still refuses a breach HEAD
-# already carries (#3687). Residual: a pathspec
-# commit judges only its own paths, but a bare `git commit` reads the shared
-# index, so a neighbour's STAGED file is still judged.
+# them, run on --index, so each judges the tree this commit makes, never an
+# untracked or unstaged file outside it, and still refuses a breach HEAD
+# already carries (#3687).
 
 # A test spawning node on the program under test rather than running it
 # through runInProcess, with no `spawn-kept: <why>` (§X3), judging the whole
@@ -545,13 +537,12 @@ fi
 # (mantahostels#390, the ticket that moved this local). Rationale and measurement:
 # docs/doc-map.md §A.
 #
-# THE PATHSPEC-COMMIT CONVENTION IS STILL WHAT KEEPS A NEIGHBOUR OUT, and since
-# mantahostels#1922 it is the INDEX that carries it rather than a `git ls-files` inside the
-# checker: a pathspec commit (`git commit -m … -- <paths>`) makes git hand the
-# hook its own GIT_INDEX_FILE, so the extraction below holds HEAD's files plus
-# this commit's paths and NOT a neighbour's `git add -N` file. A pathspec-LESS
-# commit extracts the shared index instead, so there a neighbour's staged doc
-# does count — mantahostels#63's shape, which the guard-commit-form core already warns about.
+# THE INDEX CARRIES THE COMMIT'S SCOPE, since mantahostels#1922, rather than a
+# `git ls-files` inside the checker: a pathspec commit (`git commit -m … --
+# <paths>`) makes git hand the hook its own GIT_INDEX_FILE, so the extraction
+# below holds HEAD's files plus this commit's paths and NOT another
+# `git add -N` file. A pathspec-LESS commit extracts the worktree's index, so
+# there every staged doc counts.
 #
 # The pattern mirrors SCOPE in scripts/lib/doc-map.js; a new member added
 # there must be added here too, and precommit-doc-map-gate.test.ts asserts the
@@ -562,7 +553,7 @@ fi
 # already take. It replaces the seven staged-out blobs mantahostels#1191 fed it: those put
 # the map, its five data files and the class sidecar on this commit's bytes, but
 # left the checker resolving every OTHER path — its tracked enumeration and the
-# class sidecar's fallback candidate — against the shared worktree. Extracting
+# class sidecar's fallback candidate — against the working tree. Extracting
 # once puts the whole reading on one tree, and drops the seven-name list that had
 # to be kept in step with DATA_FILES by hand (mantahostels#1595).
 #
@@ -575,8 +566,8 @@ fi
 # one caller.
 if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)'; then
   # `-a --prefix` writes every index entry, creating the leading directories
-  # itself. It reads the INDEX, never the worktree, so a neighbour mid-save on
-  # any file in the repo is invisible to the whole reading rather than to seven
+  # itself. It reads the INDEX, never the worktree, so an unsaved edit to any
+  # file in the repo is invisible to the whole reading rather than to seven
   # named paths. What the extra extraction costs the gate: mantahostels#1922.
   #
   # Unreadable here is apparatus, not a finding, so warn and pass and leave it
@@ -735,8 +726,8 @@ if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\
     # keeps the WARN mantahostels#1193 gave it. Inherited means the path appears somewhere
     # in HEAD's map — a substring test, not a row parse, so anything ambiguous
     # reads as inherited and warns rather than blocking a commit that did not
-    # create it. HEAD's map and never the worktree's, which in this shared tree
-    # is usually mid-edit by another session; unreadable, the gate does not
+    # create it. HEAD's map and never the worktree's, which may hold an
+    # unsaved edit this commit does not carry; unreadable, the gate does not
     # fire at all.
     #
     # grep's status is read rather than left to a bare `||`, for the reason the
@@ -822,8 +813,8 @@ fi
 # commit did not increase stays the WARN it has always been.
 #
 # --against HEAD reads both totals out of git — HEAD as the baseline, the index
-# as this commit — and never off disk, so a neighbour's half-saved CLAUDE.md is
-# not charged here. Same pathspec-commit dependence as the doc-map gate above.
+# as this commit — and never off disk, so a half-saved CLAUDE.md the commit
+# does not carry is not charged here. Same pathspec-commit dependence as the doc-map gate above.
 #
 # The first pattern is deliberately wider than the caps: which docs the injection cap
 # covers is whatever scripts/inject-tracker-docs.sh's DOCS array names, and a
@@ -891,11 +882,12 @@ fi
 
 # Type-checking, WARN-ONLY and always exit 0 (mantahostels#1062). Unlike the Biome gate
 # above, tsc cannot be scoped to the commit's own staged paths: it needs a whole
-# program, so it reads the WORKTREE — which in this shared tree holds parallel
-# sessions' half-written files.
+# program, so it reads the WORKTREE — your unsaved edits outside the commit
+# included.
 #
 # It never waits for the machine-wide type-check slot (#3278): this commit holds
-# .git/index.lock throughout, so a wait here stops every commit in the tree.
+# its index.lock throughout, so a wait here holds the commit open for as long
+# as another run keeps the slot.
 # WFC_TSC_NO_WAIT has a `queue-run.js --tsc` command try the slot once and exit
 # 75 on a held one (lib/tsc-slot.js); any other command ignores it.
 # queue-run.js's exit log records that refusal, and guard-typecheck-owed.js
@@ -918,8 +910,8 @@ if armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
     elif [ "$tc_status" -ne 0 ]; then
       echo "pre-commit: $tc_cmd is RED — reporting only, this commit is NOT blocked." >&2
       printf '%s\n' "$tsc_out" >&2
-      echo "  In this shared tree the error may be a parallel session's half-written file, not yours (mantahostels#273)." >&2
-      echo "  Re-run '$tc_cmd' on a still tree before believing it. ci.yml's Typecheck step is the gate." >&2
+      echo "  tsc reads the whole working tree, so the error may be in an unsaved file this commit does not carry (mantahostels#273)." >&2
+      echo "  Re-run '$tc_cmd' before believing it. ci.yml's Typecheck step is the gate." >&2
       # `|| true`: a record that cannot be made must not refuse a gate that only reports.
       printf '%s\n' "$tsc_out" | node "${WFC_PLUGIN_ROOT:-.}"/scripts/record-typecheck-red.js -- "$tc_cmd" || true
     fi
@@ -928,8 +920,8 @@ fi
 
 # ESLint, HARD-FAILING and scoped to the commit's own staged app/ and lib/ TS
 # paths (mantahostels#1133). Do not soften it to match the warn-only tsc gate above: that
-# one reads a whole program and so a neighbour's half-written file with it,
-# where this one reads only the paths it is handed. eslint.config.mjs declares
+# one reads a whole program and so every half-written file with it, where this
+# one reads only the paths it is handed. eslint.config.mjs declares
 # `files` for app/ and lib/ alone, so the pattern mirrors that scope; a third
 # directory added there must be added here too, or the gate silently never
 # fires on it.
@@ -961,7 +953,7 @@ if armed '^(app|lib)/.*\.(ts|tsx)$'; then
       # shellcheck disable=SC2086 # deliberate word-splitting: one path per line.
       eslint --max-warnings 0 --no-error-on-unmatched-pattern $eslint_paths || {
         echo "pre-commit: ESLint failed on this commit's own app/ or lib/ paths." >&2
-        echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1133)." >&2
+        echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1133)." >&2
         exit 1
       }
     fi
@@ -992,7 +984,7 @@ if armed_shell; then
     hook_bound sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
       sc_rc=$?
       echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
-      echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1134)." >&2
+      echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1134)." >&2
       echo "  A broken guard fails OPEN, so nothing else would have reported this before CI." >&2
       exit "$sc_rc"
     }
@@ -1013,9 +1005,8 @@ fi
 #
 # No flags, matching package.json's check:actions, which owns their rationale.
 # Paths are passed explicitly here rather than letting actionlint discover the
-# directory itself, which is the whole point of the scoping: the shared tree is
-# repo-global, so a whole-directory run would fail this commit on a parallel
-# session's half-written workflow. As with the shellcheck gate, actionlint has
+# directory itself, which is the whole point of the scoping: a whole-directory
+# run would fail this commit on a half-written workflow it does not carry. As with the shellcheck gate, actionlint has
 # no --staged, so it reads the WORKTREE copy of the paths it is handed.
 # actionlint is a Go binary with no npm route: the npm package of that name is
 # an unrelated abandoned wrapper.
@@ -1024,7 +1015,7 @@ if armed '^\.github/workflows/.*\.ya?ml$'; then
     # shellcheck disable=SC2086 # one path per line.
     hook_bound actionlint $tool_paths || {
       echo "pre-commit: actionlint failed on this commit's own workflow paths." >&2
-      echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1137)." >&2
+      echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1137)." >&2
       exit 1
     }
   fi
@@ -1044,9 +1035,9 @@ fi
 # --config off (#122).
 #
 # The checker reads the staged paths itself and feeds ruff each blob on stdin,
-# never letting ruff walk the tree: in the shared tree a walk would lint a
-# neighbour's unstaged files and refuse this commit for them, the failure #917
-# fixed in the host-root gate.
+# never letting ruff walk the tree: a walk would lint unstaged files the
+# commit does not carry and refuse it for them, the failure #917 fixed in the
+# host-root gate.
 #
 # A missing ruff refuses the commit unless a workflow runs `ruff check`, which
 # then catches what slipped through (#1563); scripts/lib/formatters.js owns
@@ -1154,22 +1145,23 @@ fi
 # Last of the core gates, being the slowest.
 #
 # It runs in a throwaway worktree holding HEAD plus exactly the changes git
-# handed this hook, as commit-paths' pre-lock run does, so a neighbour's
-# unsaved file cannot refuse the commit (#1766). Where that worktree cannot be
-# made it runs in the shared tree, saying so. Residual: a gitignored file the
-# suite reads and `worktreeLinks` does not name turns it red, and a linked one
-# stays live, so a neighbour can change it mid-run (#1767).
+# handed this hook, as commit-paths' pre-lock run does, so an unsaved edit
+# the commit does not carry cannot turn it red or green (#1766). Where that
+# worktree cannot be made it runs in this checkout, saying so. Residual: a
+# gitignored file the suite reads and `worktreeLinks` does not name turns it
+# red, and a linked one stays live, so an edit to it mid-run reaches the suite
+# (#1767).
 #
 # It stands down where $WFC_TEST_STAMP names a file directly in this checkout's git
 # directory holding the key of exactly the changes git handed this hook
 # (scripts/lib/commit-key.js, gate `test`) — a pre-lock run's green on them (#1650). The
-# stamp is never consumed: a HEAD-moved retry must find it again.
+# stamp is never consumed: commit-paths removes it as it exits.
 if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
   tg_cmd="$declared_command"
   if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
     echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2
     tg_rc=0
-    tg_shared=0
+    tg_inplace=0
     # `command node`: the suite runs under its own ceiling (#2667), past any checker limit (#4187).
     tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run "$tg_cmd")" || tg_rc=$?
     # 3 is the suite's red; 2 no worktree; anything else the runner itself failing.
@@ -1183,9 +1175,9 @@ if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; th
         ;;
     esac
     if [ "$tg_rc" -eq 2 ]; then
-      echo "pre-commit: no worktree holds this commit's tree alone, so '$tg_cmd' runs in the shared tree." >&2
+      echo "pre-commit: no worktree holds this commit's tree alone, so '$tg_cmd' runs in this checkout." >&2
       tg_rc=0
-      tg_shared=1
+      tg_inplace=1
       tg_out="$(sh -c "$tg_cmd" </dev/null 2>&1)" || tg_rc=$?
     fi
     if [ "$tg_rc" -ne 0 ]; then
@@ -1193,11 +1185,11 @@ if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; th
       # scripts/commit-paths.js prints these lines, worded for its own run, on
       # a pre-lock red, all but the mantahostels#273 pair: change both together.
       echo "pre-commit: the declared test command is RED — '$tg_cmd' — so this commit is refused." >&2
-      if [ "$tg_shared" -eq 1 ]; then
-        echo "  In a shared tree the red may be a parallel session's half-written file, not yours (mantahostels#273)." >&2
-        echo "  Fix the failing test, or re-run '$tg_cmd' on a still tree and commit again once it is green." >&2
+      if [ "$tg_inplace" -eq 1 ]; then
+        echo "  It ran in this checkout, so the red may be an unsaved edit this commit does not carry (mantahostels#273)." >&2
+        echo "  Fix the failing test, or save or set aside that edit, and commit again once it is green." >&2
       else
-        echo "  It ran on HEAD plus this commit's own changes, so no neighbour's unsaved file reached it (#1766): the red is in HEAD, in this commit, or in a gitignored file the suite needs that its worktree lacks." >&2
+        echo "  It ran on HEAD plus this commit's own changes, so no unsaved edit outside them reached it (#1766): the red is in HEAD, in this commit, or in a gitignored file the suite needs that its worktree lacks." >&2
         echo "  Fix the failing test and commit again. Where the red is a gitignored file the worktree lacks, name it in \`worktreeLinks\` in .claude/workflow-core.json (#1767)." >&2
       fi
       exit 1

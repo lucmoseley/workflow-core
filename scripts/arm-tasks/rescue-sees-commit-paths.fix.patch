@@ -12,7 +12,7 @@ index dda5ecc9da01040a6af48d00479b27fd726a9912..7f615db1d803b6ef72c2e0f48b26289c
 +  the job ran, read as the guards read commands: a `--tree` pin is none.
  - `commitsLanded` — which of THOSE attempts actually landed, matched by
    message against `git log` in a lookback window around the job's death.
-   Matched, not merely dated: several sessions commit to `main` concurrently
+   Matched, not merely dated: several sessions land concurrently here, and a
 diff --git a/scripts/lib/commit-calls.js b/scripts/lib/commit-calls.js
 index 54955e0c61ff093b3e5edf6eccf981c1875e039a..a2119f6d25673bd52be9799a13e31352feb49136 100644
 --- a/scripts/lib/commit-calls.js

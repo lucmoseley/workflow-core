@@ -74,11 +74,9 @@
  * work.
  *
  * Index mode reads the git INDEX, not the working tree: the staged blob against
- * HEAD's. Reading the tree would let a parallel session's half-saved roadmap
- * fail an unrelated commit and leave that session no legal move (mantahostels#179, mantahostels#298).
- * Tree mode over a shared working tree can still report a neighbour's
- * half-saved roadmap — a false alarm it costs nothing to re-run, not a blocked
- * session.
+ * HEAD's. Reading the tree would let a half-saved roadmap fail an unrelated commit
+ * (mantahostels#179, mantahostels#298). Tree mode can still report one — a
+ * false alarm it costs nothing to re-run, not a blocked commit.
  */
 
 const fs = require("node:fs");

@@ -459,7 +459,7 @@ if [[ "$matched" == "code-review" ]]; then
   # because the injected docs' cap has no room for them. Deliberately NOT folded into $dispatch, which is
   # restated verbatim in scripts/concision-backstop.sh's nag: that nag fires
   # BEFORE a review, where this line has nothing to say.
-  ultra="AFTER fixing the findings, before the shared-tree commit, judge this diff against \`docs/effort-guide.md\` §The fourth axis; failing its test, the normal case, say NOTHING, and meeting it, follow that section's steps. NEVER START ONE UNASKED."
+  ultra="AFTER fixing the findings, before you commit, judge this diff against \`docs/effort-guide.md\` §The fourth axis; failing its test, the normal case, say NOTHING, and meeting it, follow that section's steps. NEVER START ONE UNASKED."
 
   # The deviations record (mantahostels#1242), the half the REVIEWER needs. RE-CLASSIFY, NOT
   # SUPPRESS: a documented deviation is never a decision the reviewer should not

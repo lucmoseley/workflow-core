@@ -6,11 +6,8 @@
  * This file exports NOTHING. lib/file-claim.js calls `check`,
  * concision-backstop.sh calls `writes`, lib/code-signal.sh calls `own-paths`,
  * settings.json calls `prune-markers --detach`, and a session calls `release`,
- * `debt` and `wait` (#540) for itself. stale-write-back-gate.sh, a pre-commit
- * gate, calls `stale-check --staged`; `accept-head` is that gate's escape,
- * which a session runs for itself;
- * .husky/post-commit calls `release-committed`, `advance-bases` and
- * `record-commit`.
+ * `debt` and `wait` (#540) for itself; .husky/post-commit calls
+ * `release-committed` and `record-commit`.
  *
  * What is left here is POLICY and PRESENTATION: which store operation a
  * subcommand runs, what it prints, and what it exits with.
@@ -37,13 +34,11 @@
  * is not given a timeout: any expiry is the timeout mantahostels#104 rejected wearing another
  * name, and it would fire on precisely the long tool calls.
  *
- * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which records the session tree's HEAD as its fallback base (#110) and launches a detached `prune-markers` and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants, requests, issue claims, bases and accept-head logs — not just this session's.
+ * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which launches a detached `prune-markers` and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants, requests and issue claims — not just this session's.
  * JUSTIFIED: fail-safe — each record pins a git blob open, so an unswept store grows without bound; a run that cannot tell live from finished deletes nothing.
  * DEFEAT:    `--detach` is the registration's only flag and changes who runs the sweep, never what it sweeps; the sweep always exits 0.
- * TREE:      both — the fallback base is the HEAD of the payload's session tree; every record it writes and sweeps is the host root's store.
+ * TREE:      host — every record it sweeps is the host root's store.
  */
-
-const { sessionTree } = require("./lib/host-root.js");
 
 const {
 	listedSessionIds,
@@ -65,7 +60,6 @@ const {
 } = require("./lib/detached-run.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { readFdAll } = require("./lib/read-fd.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { readOwnPaths } = require("./lib/own-work.js");
@@ -115,25 +109,6 @@ function detachPrune() {
 		/* no node, no setsid, no fork budget — the next session start retries */
 	}
 	return 0;
-}
-
-/**
- * The hook event JSON on stdin, as `{}` where there is none — its
- * `session_id` serves a hook whose environment carries no
- * CLAUDE_CODE_SESSION_ID, its `cwd` names the session's tree. A terminal is
- * never read: it would wait on the keyboard. RESIDUAL: a non-TTY stdin held
- * open with no EOF outlasts the hook's 10 s timeout (lib/read-fd.js's
- * RESIDUAL); the harness closes it.
- * @returns {{session_id?: unknown, cwd?: unknown}}
- */
-function readHookPayload() {
-	if (process.stdin.isTTY) return {};
-	try {
-		const payload = JSON.parse(readFdAll(0).toString("utf8"));
-		return payload && typeof payload === "object" ? payload : {};
-	} catch {
-		return {};
-	}
 }
 
 /** Whether `bin` is on PATH, answered without running it. */
@@ -2111,156 +2086,6 @@ function cmdHeldRequests(sessionId) {
 }
 
 /**
- * #100's stale-write-back rule for one staged path (#111): refuse where the
- * staged blob sits nearer this session's base than HEAD's, which writes back a
- * version a neighbour has since replaced. The rule itself is store.judgeStaged.
- *
- * Not `check`, which is the file-claim guard's. Exit 1 refuses, naming the
- * commits that changed the path since the base and the two ways forward; 0
- * passes, silently, or fails open with one stderr line (mantahostels#103 §6).
- * No session id is the founder's own terminal, never checked.
- * @param {string|undefined} filePath
- * @param {string|undefined} staged the staged blob
- * @param {string} sessionId
- */
-function cmdStaleCheck(filePath, staged, sessionId) {
-	if (!filePath || !staged) return refuseUsage(usageOf("stale-check"));
-	if (!sessionId) return 0;
-	const rel = store.relativeToRepo(filePath);
-	if (rel === null) return 0;
-	return reportStale(rel, store.judgeStaged(rel, sessionId, staged)) ? 1 : 0;
-}
-
-/**
- * `stale-check --staged`, the pre-commit gate's call (#113): every path the
- * commit modifies, judged as `stale-check` judges one, so a commit of any size
- * costs one node start. The listing is store.readStagedModifications'.
- *
- * Exit 3 refuses, not 1: node exits 1 itself on a crash main's catch never
- * sees — a half-written module failing to load — and the gate must read that
- * as a fault to fail open on, not as a verdict.
- * @param {string} sessionId
- */
-function cmdStaleCheckStaged(sessionId) {
-	if (!sessionId) return 0;
-	try {
-		const staged = store.readStagedModifications();
-		if (staged === null) {
-			failOpenStale("the commit", "git could not list its staged paths");
-			return 0;
-		}
-		let refused = false;
-		for (const { rel, verdict } of store.judgeStagedAll(staged, sessionId))
-			if (reportStale(rel, verdict)) refused = true;
-		return refused ? 3 : 0;
-	} catch (e) {
-		const { code, message } = caught(e);
-		// main's catch would exit 0 in silence, which the gate reads as a pass.
-		failOpenStale("the commit", `the check threw (${code || message})`);
-		return 0;
-	}
-}
-
-/**
- * The one stderr line and the error-log record a fault on the stale-write-back
- * rule gets, the path going through unjudged (mantahostels#103 §6).
- * @param {string} what
- * @param {string} fault
- */
-function failOpenStale(what, fault) {
-	store.logError(`stale-check ${what}`, new Error(fault));
-	writeStderr(
-		`session-arbiter: ${what} not checked for a stale write-back, let through: ${fault} (node ${scriptPath("check-guard-errors.js")})\n`,
-	);
-}
-
-/**
- * Print judgeStaged's verdict on `rel`, and say whether it refused.
- * @param {string} rel
- * @param {ReturnType<typeof store.judgeStaged>} v
- */
-function reportStale(rel, v) {
-	if (v.verdict === "unknown") {
-		failOpenStale(rel, v.fault);
-		return false;
-	}
-	if (v.verdict !== "refuse") return false;
-	/** @type {string} */
-	let changed;
-	if (v.commits === null) changed = "    (git would not list them)\n";
-	else if (v.commits.length > 0)
-		changed = v.commits.map((c) => `    ${c}\n`).join("");
-	else changed = "    (none found between the base and HEAD)\n";
-	writeStderr(
-		`session-arbiter: refusing ${rel} — the staged version is nearer this session's base (${v.base.head.slice(0, 8)}) than HEAD, so committing it would undo a neighbour's change:\n` +
-			changed +
-			"  Either re-derive the file from HEAD (regenerate it, or re-apply your edit to HEAD's version),\n" +
-			`  or, where the revert is intended, accept HEAD as your base: ${buildArbiterCommand`accept-head ${rel}`}\n`,
-	);
-	return true;
-}
-
-/**
- * `accept-head` (#112): the escape stale-check's refusal names — HEAD's blob
- * becomes this session's base for the path, and the accept is logged for the
- * founder to audit.
- *
- * Exit 1 where nothing could be accepted, since the commit it was for will
- * still be refused; 2 on usage or no session id, which has no base to move.
- * @param {string|undefined} filePath
- * @param {string} sessionId
- */
-function cmdAcceptHead(filePath, sessionId) {
-	if (!filePath) return refuseUsage(usageOf("accept-head"));
-	if (!sessionId) {
-		writeStderr(
-			"session-arbiter: accept-head needs CLAUDE_CODE_SESSION_ID — only a session has a base to move, and stale-check never judges a commit without one.\n",
-		);
-		return 2;
-	}
-	const rel = store.relativeToRepo(filePath);
-	if (rel === null) {
-		writeStderr(
-			`session-arbiter: ${filePath} is outside this repository, so it has no base.\n`,
-		);
-		return 2;
-	}
-	const r = store.acceptHead(rel, sessionId);
-	if ("fault" in r) {
-		writeStderr(
-			`session-arbiter: ${rel} not accepted: ${r.fault}. See: node ${scriptPath("check-guard-errors.js")}\n`,
-		);
-		return 1;
-	}
-	const { oldBase, newBase } = r.entry;
-	const was = oldBase ? oldBase.head.slice(0, 8) : "none";
-	writeStdout(
-		`Accepted HEAD (${newBase.head.slice(0, 8)}) as this session's base for ${rel}, was ${was}. Logged to ${store.paths.acceptedHeads(sessionId)}.\n`,
-	);
-	return 0;
-}
-
-/**
- * `advance-bases` (#114): post-commit's call, making the commit just landed this
- * session's base for every path it touched.
- *
- * 0 but on usage, and silent with no session id; a fault is one stderr line,
- * since the path it left behind can be refused on the session's next commit.
- * @param {string|undefined} commit
- * @param {string} sessionId
- */
-function cmdAdvanceBases(commit, sessionId) {
-	if (!commit) return refuseUsage(usageOf("advance-bases"));
-	if (!sessionId) return 0;
-	const { fault } = store.advanceBases(commit, sessionId);
-	if (fault)
-		writeStderr(
-			`session-arbiter: this commit did not become your base everywhere (${fault}), so the stale-write-back gate may refuse your next commit of that path; accept-head is the escape. See: node ${scriptPath("check-guard-errors.js")}\n`,
-		);
-	return 0;
-}
-
-/**
  * `record-commit` (#766): post-commit's call, adding the commit just landed to
  * this session's commit ledger, which guard-unpushed-commits.js reads at Stop.
  *
@@ -3751,13 +3576,6 @@ const COMMANDS = {
 		line: "own-paths <from-sha> <to-sha> [session-id]",
 		max: 3,
 	},
-	"stale-check": {
-		line: "stale-check <path> <staged-blob> | --staged",
-		flags: { "--staged": "boolean" },
-		max: 2,
-	},
-	"accept-head": { line: "accept-head <path>", max: 1 },
-	"advance-bases": { line: "advance-bases <commit>", max: 1 },
 	"record-commit": { line: "record-commit <commit>", max: 1 },
 	list: { line: "list [--all]", flags: { "--all": "boolean" } },
 	versions: { line: "versions <path>", max: 1 },
@@ -3832,9 +3650,8 @@ function runDebt(args) {
 /**
  * `prune-markers [--detach]`: sweep the stores, or launch a detached sweep.
  * @param {unknown} detach the `--detach` flag
- * @param {string} sessionId
  */
-function cmdPruneMarkers(detach, sessionId) {
+function cmdPruneMarkers(detach) {
 	/*
 	 * `--detach` is the SessionStart registration, and it does no sweeping:
 	 * it launches a `prune-markers` of its own and returns (mantahostels#1899).
@@ -3847,14 +3664,7 @@ function cmdPruneMarkers(detach, sessionId) {
 	 * session AFTER this one. The same reasoning, and the same setsid
 	 * mechanics, as sweep-debts-detached.sh's (mantahostels#1251).
 	 */
-	if (detach) {
-		// The one SessionStart registration this script has, so the session's
-		// fallback base (#110) rides it — synchronously, being HEAD NOW.
-		const payload = readHookPayload();
-		const id = typeof payload.session_id === "string" ? payload.session_id : "";
-		store.mintSessionBase(sessionId || id, sessionTree(payload) ?? undefined);
-		return detachPrune();
-	}
+	if (detach) return detachPrune();
 	// Which families, and the order the pin-holding ones have to run in:
 	// arbiter-store.js's SWEPT_FAMILIES and pruneAll (mantahostels#1796).
 	//
@@ -3933,18 +3743,6 @@ function main(argv) {
 			return cmdWrites(rest[0] || sessionId, flags["--committed"] === true);
 		case "own-paths":
 			return cmdOwnPaths(rest[0], rest[1], rest[2] || sessionId);
-		// No positional session id, for release's reason: the caller is the
-		// pre-commit stack, which inherits CLAUDE_CODE_SESSION_ID.
-		case "stale-check":
-			if (flags["--staged"]) return cmdStaleCheckStaged(sessionId);
-			return cmdStaleCheck(rest[0], rest[1], sessionId);
-		// No positional session id, for release's reason: a session moves its own
-		// base.
-		case "accept-head":
-			return cmdAcceptHead(rest[0], sessionId);
-		// The caller is .husky/post-commit, for release-committed's reason.
-		case "advance-bases":
-			return cmdAdvanceBases(rest[0], sessionId);
 		// The caller is .husky/post-commit, for release-committed's reason.
 		case "record-commit":
 			return cmdRecordCommit(rest[0], sessionId);
@@ -3957,7 +3755,7 @@ function main(argv) {
 			return cmdVersions(rest[0], sessionId);
 		// Always 0: a session start must not break on housekeeping.
 		case "prune-markers":
-			return cmdPruneMarkers(flags["--detach"], sessionId);
+			return cmdPruneMarkers(flags["--detach"]);
 		// No positional session id, for release's reason: the slot is claimed for
 		// the session doing the allocating and nobody else.
 		case "alloc-entry":

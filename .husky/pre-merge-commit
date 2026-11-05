@@ -31,9 +31,8 @@
 # returns, so the hook cannot `git merge --abort` on its own behalf — it fails
 # with "no merge to abort". Until someone aborts, every commit in THAT TREE must
 # be pathspec-less, `git commit -m … -- <paths>` dying with "cannot do a partial
-# commit during a merge". MERGE_HEAD is per-worktree, so a merge-back refused in
-# a throwaway worktree strands only that worktree; refuse one in the shared tree
-# and it strands every parallel session until it is cleared.
+# commit during a merge". MERGE_HEAD is per-worktree, so a refused merge strands
+# only the worktree it ran in.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.

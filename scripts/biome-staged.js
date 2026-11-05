@@ -9,7 +9,7 @@
  * `biome check --staged` takes its path list from the index but reads each
  * file from disk, so a commit carrying part of a file — a
  * `commit-paths.js --patch` commit (#801), or a file edited after staging —
- * was judged on the worktree's bytes, a neighbour's uncommitted hunks
+ * was judged on the worktree's bytes, uncommitted hunks
  * included. Here the index, the temporary one a pathspec commit builds
  * (GIT_INDEX_FILE) included, is extracted whole into a temp directory and
  * Biome runs there: whole, as its project rules (noImportCycles,

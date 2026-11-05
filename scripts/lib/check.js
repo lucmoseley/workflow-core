@@ -43,9 +43,8 @@
  *   3. report the faults the index side has and <rev> does not, through
  *      scripts/lib/fault-profiles.js's profile table.
  *
- * BOTH SIDES ARE COMMIT BYTES. The parent does no checking of its own: this
- * tree is repo-global, so reading a file in place judges a parallel session's
- * half-written copy rather than this commit's.
+ * BOTH SIDES ARE COMMIT BYTES. The parent does no checking of its own: reading
+ * a file in place judges its working copy rather than this commit's.
  *
  * `--head <rev>` beside `--against <rev>` names a commit as the judged side in
  * place of the index (#3074).
@@ -53,7 +52,7 @@
  * --index. The same materialised index and re-exec as step 1, with no <rev>:
  * every finding the index side holds is this commit's, inherited or not. For a
  * whole-tree gate, which refuses every breach the tree holds but must judge
- * this commit's bytes rather than a neighbour's untracked or unstaged file
+ * this commit's bytes rather than an untracked or unstaged file
  * (#3687). Legal wherever `against` is declared.
  *
  * TWO MATERIALISATIONS, CHOSEN BY THE SPEC AND NEVER BY THE CALLER, because
@@ -600,21 +599,20 @@ function git(args, what, env = process.env) {
 
 /**
  * The index as a tree object, so the side being judged is the bytes this commit
- * carries rather than the shared worktree's (mantahostels#1801 Q2).
+ * carries rather than the working tree's (mantahostels#1801 Q2).
  *
  * AGAINST A PRIVATE COPY OF THE INDEX, never the index itself: `git write-tree`
  * refreshes what it reads and takes `index.lock` to do it, and by the time a
  * pre-commit hook runs, `git commit` is already holding that lock — so reading
- * the real one fails outright, and off a hook it would collide with whichever
- * parallel session is mid-commit. The copy is safe to take at any moment: git
+ * the real one fails outright. The copy is safe to take at any moment: git
  * replaces an index by rename, so a reader sees the whole of one version or the
  * whole of the other.
  *
  * `--git-path index` RATHER THAN `.git/index`. `git commit -- <paths>` — this repo's committing convention (mantahostels#63) — builds a
  * temporary index holding only those paths and points its hooks at it through
  * GIT_INDEX_FILE, which is exactly what `--git-path index` resolves to when it
- * is set. Spelling `.git/index` would judge the WHOLE index there, a
- * neighbour's staged files included.
+ * is set. Spelling `.git/index` would judge the WHOLE index there, files
+ * the commit leaves staged included.
  *
  * @param {string} privateIndex
  * @returns {string}

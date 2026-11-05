@@ -20,6 +20,7 @@ const { hostRoot } = require("./host-root.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
+const { shortJobId } = require("./job-paths.js");
 const { homeDir, readAdopterCheckouts } = require("./refill-repos.js");
 
 /** A prompt's leading `/<skill>`, any `<plugin>:` namespace aside. */
@@ -146,6 +147,10 @@ function entryHolds(rec, command) {
  * @typedef {DispatchRecord & {kind: "overflow", keyVar: string,
  *            allowanceUsd: number, sessionId: string|null,
  *            copyOf?: string, offKeyUsd?: number}} OverflowLaunch
+ */
+
+/**
+ * @typedef {Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf"|"offKeyUsd">} OverflowFields
  */
 
 /**
@@ -302,7 +307,7 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 				(l) =>
 					(jobId && l.jobId === jobId) ||
 					(sessionId &&
-						(l.sessionId === sessionId || l.jobId === sessionId.slice(0, 8))),
+						(l.sessionId === sessionId || l.jobId === shortJobId(sessionId))),
 			)
 			.pop() ?? null;
 }
@@ -320,9 +325,22 @@ const readEveryLedgerRoot = () => [
 const readEveryOverflowLookup = () => readOverflowLookup(readEveryLedgerRoot());
 
 /**
+ * What a later row on the same job must repeat, as the lookup answers from
+ * the latest row alone.
+ * @param {OverflowLaunch} l
+ * @returns {Omit<OverflowFields, "sessionId">}
+ */
+const overflowFieldsOf = ({ keyVar, allowanceUsd, copyOf, offKeyUsd }) => ({
+	keyVar,
+	allowanceUsd,
+	copyOf,
+	offKeyUsd,
+});
+
+/**
  * Give each overflow launch recorded with no session id the one `agents` lists
  * for its job, as `--bg` prints only the job id (#3692 (e), #3701): a row
- * repeating the launch's key and allowance with the session id, under no
+ * repeating the launch's overflow fields with the session id, under no
  * issues, so it holds nothing. What would not read or write, one line each.
  * @param {{id?: string, sessionId: string}[]} agents
  * @param {string[]} [roots]
@@ -352,7 +370,7 @@ function recordListedSessionIds(agents, roots = readEveryLedgerRoot()) {
 				prompt: `session of ${jobId}`,
 				root,
 				jobId,
-				overflow: { keyVar: l.keyVar, allowanceUsd: l.allowanceUsd, sessionId },
+				overflow: { ...overflowFieldsOf(l), sessionId },
 			});
 			if (!written)
 				faults.push(
@@ -397,7 +415,7 @@ function release(entry) {
 /**
  * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
  * launch reads the same clock; now where absent.
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf"|"offKeyUsd">}} entry
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: OverflowFields}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {

@@ -126,7 +126,7 @@ function newestContained(commits, root, execFn) {
 /**
  * The paths the session's own commits carry from the pushed ref to HEAD, or
  * null — the whole range — where git or the ledger will not answer. `tip`
- * keeps the shared tree's uncommitted files out: a commit is what is judged.
+ * keeps the working tree's uncommitted files out: a commit is what is judged.
  * @param {string} sessionId
  * @param {{root: string, tree: string}} roots the config's root and
  *   the tree whose `HEAD` is read

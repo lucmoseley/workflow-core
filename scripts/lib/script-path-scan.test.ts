@@ -25,7 +25,7 @@ const { isShipped } = require("./plugin-tree") as {
 describe("guard and lib messages", () => {
 	/* Data a test reads, never printed; the CI and push-check commands,
 	 * which rewriteRuleCommands spells at the plugin root before printing; and
-	 * the arbiter commands stale-script and claim-warning print, and the
+	 * the arbiter command claim-warning prints, and the
 	 * bg-run.sh and watcher commands suite-background, agent-poll and
 	 * wait-text say, and the issue-body fallback lead deny passes through,
 	 * which ctx.corePaths spells there; the `byHand` commands guard-entry's
@@ -36,7 +36,6 @@ describe("guard and lib messages", () => {
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
 		/: "node scripts\/check-ci-status\.js";$/,
 		/push_check: pushCheck \?\? "node scripts\/push-check\.js",$/,
-		/^\t\t"What is held: node scripts\/session-arbiter\.js list\\n\\n" \+$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\t"Wait for it instead, backgrounded — `node scripts\/session-arbiter\.js wait <path>` " \+$/,
 		/^\t\t\t`\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,

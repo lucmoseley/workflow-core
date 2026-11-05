@@ -106,7 +106,7 @@ function heldFinding(root, sid) {
 	return (
 		`A commit's pre-commit type-check found the slot held at ${since} and did not run, and this session has run none of its own since. ` +
 		`Run \`${command}\` now: it waits for the slot and holds no lock. ` +
-		"Fix any error your work caused; in this shared tree one may be a parallel session's half-written file."
+		"Fix any error your work caused; one may be a file saved while it ran."
 	);
 }
 

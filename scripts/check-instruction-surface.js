@@ -38,7 +38,7 @@
  * what that guard prints still holds. A shared anchor file would clear one
  * question by answering the other.
  *
- * READS HEAD, NOT THE WORKING TREE, so a neighbour's half-saved guard is not
+ * READS HEAD, NOT THE WORKING TREE, so a half-saved guard is not
  * reported as a verdict expiring. Residual: a change that is committed but not
  * yet pushed reads the same as any other, and an untracked file falls back to
  * disk — never an untracked skill or settings file, which a git repo reads at
@@ -173,7 +173,7 @@ function readAt(root, rev = "HEAD") {
  * `.claude/settings.json` elsewhere), or
  * BROKEN — the one read both `hookCounts` and `readHookCommands` share, so there
  * is exactly one error policy for a missing or unparseable file rather than
- * two that can drift apart (mantahostels#1923). Read at `rev`, so a neighbour's
+ * two that can drift apart (mantahostels#1923). Read at `rev`, so an
  * uncommitted hook entry is neither reported nor anchored (#1879).
  *
  * @param {any} ctx
@@ -289,7 +289,7 @@ function buildHookKey(event, hook, line) {
  * check-context-budget.js draws, and the one the census's own addendum adopted
  * (mantahostels#1757).
  *
- * Read at `rev` (#1977), as the hook entries are, so a neighbour's uncommitted
+ * Read at `rev` (#1977), as the hook entries are, so an uncommitted
  * skill is neither reported nor anchored. Each SKILL.md is read through git's
  * own link resolution, so a linked skill directory, a linked SKILL.md and a
  * link to a link all reach their committed target's text (#2369). Disk answers

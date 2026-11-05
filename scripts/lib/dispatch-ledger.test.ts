@@ -124,6 +124,27 @@ describe("recordListedSessionIds (#3701)", () => {
 		});
 	});
 
+	it("keeps a copy's parent and a move's off-key spend on the row it writes (#3691)", () => {
+		record({
+			...launch,
+			root,
+			jobId: JOB,
+			overflow: {
+				keyVar: "K2",
+				allowanceUsd: 40,
+				sessionId: null,
+				copyOf: "parent-session",
+				offKeyUsd: 7,
+			},
+		});
+		recordListedSessionIds(listed, [root]);
+		expect(readLookup()({ jobId: JOB })).toMatchObject({
+			sessionId: Session,
+			copyOf: "parent-session",
+			offKeyUsd: 7,
+		});
+	});
+
 	it("writes once, holding no issues, and leaves plan launches and unlisted jobs alone", () => {
 		recordOverflow(JOB);
 		record({ ...launch, root, jobId: "feed0001" });

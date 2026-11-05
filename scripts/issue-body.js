@@ -433,7 +433,7 @@ function rescueTo(issue, suffix, body) {
 /**
  * Machine-global, keyed on the GitHub issue rather than the working tree: a
  * worktree is a different tree but the same issue, so a tree-keyed lock would
- * let a worktree session race the shared tree.
+ * let two worktree sessions race.
  *
  * @param {number|string} issue
  * @param {string|undefined} repo

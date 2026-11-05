@@ -245,8 +245,8 @@ function expectFixtureSupplies(anchor, supplied, hook = HOOK) {
  * An empty throwaway repo under `prefix`, registered in `temps` for cleanup,
  * plus a `git` bound to it.
  *
- * Throwaway repos throughout — the shared tree's index is repo-global (mantahostels#63) and
- * must never be staged into by a test.
+ * Throwaway repos throughout — the running checkout's index must never be
+ * staged into by a test (mantahostels#63).
  * @param {string} prefix
  * @param {string[]} temps accumulator: the repo's root is pushed here for cleanup
  * @returns {TempRepo}

@@ -5,7 +5,7 @@
  * (#2988) to one case list, run against the installed harness's recorded
  * responses (scripts/fixtures/agents-stop.json, re-recorded by
  * `node scripts/record-claude-responses.js`), against
- * lib/agents-stop-fake.ts, which refill-loop-run.test.ts's `claude` stub
+ * lib/agents-stop-fake.ts, which the refill-loop-run suites' `claude` stub
  * prints, and, on the founder's machine, against the real `claude` where a
  * call is free. Breaking it costs the refill loop's judging of its launches: a
  * row the fake shapes as the harness never would passes a test the loop
@@ -102,7 +102,7 @@ describe.each(recorded.rows.filter((r) => r.state === "blocked"))(
 	"a recorded blocked row",
 	(row) => {
 		it("reads as its fake does to block-cause.js", () => {
-			/* As refill-loop-run.test.ts builds it, so the fields block-cause.js
+			/* As lib/refill-loop-run-testkit.ts builds it, so the fields block-cause.js
 			 * reads are the fake's own, not copied from the recording. */
 			const waiting = isPermissionRow(row);
 			const fake = waiting

@@ -104,7 +104,7 @@ function isLintStagedCommand(root, command) {
 }
 
 /* Biome's --staged lints the worktree's bytes of each staged path, so a
- * `commit-paths.js --patch` commit (#801) is judged on a neighbour's unstaged
+ * `commit-paths.js --patch` commit (#801) is judged on its unstaged
  * hunks; biome-staged.js lints the index's (#2429, #2540). A simple command
  * runs it where a `biome` word, then `check`, is followed by `--staged`. */
 const BIOME_WORD = /(?:^|\/)biome(?:@.*)?$/;
@@ -570,14 +570,14 @@ function classifyCheckStaged(root, command, { inferred }) {
 	/** @param {string} shape @param {string} wayOut @param {string} [runs] */
 	const refused = (shape, wayOut, runs = "runs") => ({
 		kind: /** @type {const} */ ("refused"),
-		refusal: `${runs} biome check --staged${via}, which lints each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), and ${shape}. ${wayOut}`,
+		refusal: `${runs} biome check --staged${via}, which lints each staged path's worktree bytes, unstaged hunks included (#2583), and ${shape}. ${wayOut}`,
 	});
 	if (hit.unread)
 		return refused(hit.unread.shape, hit.unread.wayOut, "may run");
 	if (hit.segment === undefined)
 		return {
 			kind: "refused",
-			refusal: `runs biome${hit.subcommand ? ` ${hit.subcommand}` : ""} --staged${via}, which reads or rewrites each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), in a shape biome-staged.js does not map. ${OWN_FLAGS_WAY_OUT}`,
+			refusal: `runs biome${hit.subcommand ? ` ${hit.subcommand}` : ""} --staged${via}, which reads or rewrites each staged path's worktree bytes, unstaged hunks included (#2583), in a shape biome-staged.js does not map. ${OWN_FLAGS_WAY_OUT}`,
 		};
 	if (hit.elsewhere)
 		return refused(

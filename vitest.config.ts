@@ -61,9 +61,8 @@ export default defineConfig({
 		// per-case bounds and left the rest unread. No per-`describe` override
 		// remains — mantahostels#2264 took the last four. Re-derive before trusting any
 		// count here (mantahostels#2281).
-		// Reports a tracked file rewritten by a parallel session while the suite
-		// ran, so a red result caused by a neighbour's half-saved file is not read
-		// as your own breakage (mantahostels#273). Prints; never fails a run.
+		// Reports a tracked file rewritten while the suite ran, so a red result
+		// caused by a half-saved file is not read as a breakage (mantahostels#273). Prints; never fails a run.
 		globalSetup: ["./scripts/vitest-tree-watch.ts"],
 		// Records the run's verdict for the globalSetup teardown above to stamp a
 		// pre-push marker with (mantahostels#987). "default" is listed because naming any

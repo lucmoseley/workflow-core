@@ -110,12 +110,6 @@
 					"text": "A CITATION OF THIS REPO'S TRACKER IS BARE"
 				},
 				{
-					"id": "stale-script",
-					"core": "guard-stale-script",
-					"kind": "warn",
-					"text": "is uncommitted in the shared working tree and claimed by session"
-				},
-				{
 					"id": "scratch-git",
 					"core": "guard-scratch-git",
 					"kind": "deny",
@@ -1108,21 +1102,6 @@
 					"unless": ["force-pushes", "` on the remote"]
 				},
 				{
-					"id": "shared-tree-discard",
-					"core": "guard-pull-form",
-					"kind": "deny",
-					"text": "NEVER DISCARD WORK ACROSS THE WHOLE SHARED TREE."
-				},
-				{
-					"id": "shared-tree-discard-fallback",
-					"core": "guard-pull-form",
-					"kind": "deny",
-					"text": [
-						"Never discard work across the whole shared tree",
-						"the rule could not be read from"
-					]
-				},
-				{
 					"id": "push-green-suite",
 					"core": "guard-push-rules",
 					"kind": "inject",
@@ -1228,7 +1207,7 @@
 					"id": "suite-tree-dirty",
 					"core": "guard-suite-concurrency",
 					"kind": "inject",
-					"text": "A RED SUITE IN THE SHARED TREE MAY BE A NEIGHBOUR'S HALF-WRITTEN FILE"
+					"text": "A RED SUITE MAY BE A FILE SAVED MID-RUN"
 				},
 				{
 					"id": "targeted-runs",
@@ -1951,21 +1930,6 @@
 				{
 					"id": "newest-sweep",
 					"text": "commit(s) behind your HEAD"
-				}
-			]
-		},
-		"C5": {
-			"span": "…, the edit possibly being finished-but-uncommitted — where a command runs a script both dirty and claimed …",
-			"printedBy": "scripts/lib/stale-script.js via guard-dispatch.js",
-			"route": "hook",
-			"needles": [
-				{
-					"id": "nothing-blocked",
-					"text": "re-run it once the file is committed before believing the output"
-				},
-				{
-					"id": "residual",
-					"text": "a script dirty under NO claim is invisible here"
 				}
 			]
 		},

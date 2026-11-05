@@ -4,7 +4,7 @@
  * (#2354 F6), to one case list, run against the installed harness's recorded
  * exits (scripts/fixtures/claude-attach.json, re-recorded by
  * `node scripts/record-claude-responses.js`) and against
- * lib/claude-attach-fake.ts, which refill-loop-run.test.ts's `claude` stub
+ * lib/claude-attach-fake.ts, which the refill-loop-run suites' `claude` stub
  * runs. No case runs the real `claude`: each needs a live job, which a launch
  * spends a turn to make. It holds the exit off a terminal and pty_type.py's
  * exit after drawing on one, each through the verdict the loop judges its
