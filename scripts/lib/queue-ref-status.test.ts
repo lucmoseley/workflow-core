@@ -72,6 +72,11 @@ const batch = (over: Record<string, unknown> = {}) => ({
 	onto: seed,
 	integration: null,
 	phase: "merging",
+	ahead: [],
+	blame: null,
+	isolated: [],
+	serial: null,
+	hold: null,
 	...over,
 });
 
