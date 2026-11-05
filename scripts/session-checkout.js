@@ -131,8 +131,7 @@ function renderReaped(r) {
 }
 
 /**
- * Each command's run, saying what it did; a refusal throws. A run that hands
- * over to another program returns that program's exit code.
+ * Each command's run, saying what it did; a refusal throws.
  * @type {Record<string, (named: string | undefined) => number | void>}
  */
 const RUN = {

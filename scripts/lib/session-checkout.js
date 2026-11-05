@@ -42,8 +42,7 @@
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * REAP clears landed worktrees and unlinked stores, recording each removed
- * session worktree first.
+ * REAP clears landed worktrees and unlinked stores.
  *
  * REOPEN gives a finished background job its worktree back so `claude attach`
  * can wake it: an open from the agents view fails before any hook runs where
@@ -533,9 +532,9 @@ function launchDir(cwd, prompt) {
  *     `origin/landing`, whose tree is clean, and whose session is neither live
  *     (a process's cwd lies in it), resumable (a job record whose cwd lies in
  *     it is in any state but `done` or `failed`) nor finished under `KEEP_MS`
- *     ago (such a record last written that recently) is removed, its path,
- *     `HEAD` sha, and each such job's id and seat appended first to
- *     `REAPED_RECORD` in git's common directory, which REOPEN reads;
+ *     ago is removed, its path, `HEAD` sha, and each job's id and seat whose
+ *     cwd lies in it appended first to `REAPED_RECORD` in git's common
+ *     directory;
  *   - one dirty or unlanded, of a dead and non-resumable session, is reported
  *     with its idle time and last commit, never removed;
  *   - registrations whose directory is gone are pruned, and a directory there
@@ -553,9 +552,9 @@ function launchDir(cwd, prompt) {
 
 /* Untraced: five minutes is room for a loaded machine. */
 const YOUNG_MS = 5 * 60_000;
-/* House: #4366. A finished job's own `updatedAt` is its finish clock: it is
- * never earlier than `lastTerminalAt` on any of 6,192 records read under
- * #4368, and a resume that finishes again moves it. */
+/* House: #4366. A finished job's own `updatedAt` is its finish clock, which
+ * a resume that finishes again moves (#4368); a record without one holds its
+ * tree. */
 const KEEP_MS = 3 * 24 * 60 * 60_000;
 const REAPED_RECORD = "wfc-reaped-worktrees.jsonl";
 const ISOLATED = /^isolated-/;
@@ -678,7 +677,11 @@ function reapWorktrees(root, base, { cwds, now, record }, out) {
 		...cwds,
 		...jobs
 			.filter(
-				(j) => j.state === null || !ENDED.has(j.state) || now - j.at < KEEP_MS,
+				(j) =>
+					j.state === null ||
+					!ENDED.has(j.state) ||
+					j.at === 0 ||
+					now - j.at < KEEP_MS,
 			)
 			.map((j) => j.cwd),
 	];
@@ -727,8 +730,7 @@ function reapWorktrees(root, base, { cwds, now, record }, out) {
 
 /**
  * Append a line to REAPED_RECORD for each job whose cwd lies in `dir`, with
- * its `HEAD` sha. A tree no job names gets none: no `claude attach` can wake
- * it.
+ * its `HEAD` sha.
  * @param {Pick<Pass, "record" | "now">} pass
  * @param {string} dir
  * @param {import("./session-worktrees.js").JobCwd[]} owners
@@ -755,11 +757,20 @@ function recordReaped({ record, now }, dir, owners) {
  * @returns {ReapedTree | null}
  */
 function readReaped(record, id) {
-	const rows = readJsonl(record)?.rows ?? [];
-	const last = rows.filter((r) => r.job === id).pop();
-	return last
-		? /** @type {ReapedTree} */ (/** @type {unknown} */ (last))
-		: null;
+	/** @type {ReapedTree | null} */
+	let last = null;
+	for (const r of readJsonl(record)?.rows ?? []) {
+		const { job, seat, path: dir, head, at } = r;
+		if (
+			job === id &&
+			typeof seat === "string" &&
+			typeof dir === "string" &&
+			typeof head === "string" &&
+			typeof at === "string"
+		)
+			last = { job, seat, path: dir, head, at };
+	}
+	return last;
 }
 
 /**
@@ -942,7 +953,7 @@ function reap(cwd) {
 }
 
 /**
- * REOPEN, above: job `id`'s worktree, re-added at the sha REAPED_RECORD holds
+ * Job `id`'s worktree, re-added at the sha REAPED_RECORD holds
  * for it where the reaper removed it, and the seat to attach the job on.
  * @param {string} cwd anywhere in the repository
  * @param {string} id the job id, as `claude attach` takes it
@@ -954,13 +965,17 @@ function reopen(cwd, id) {
 	const reaped = readReaped(path.join(common, REAPED_RECORD), id);
 	const job = readJobCwds()
 		.filter((j) => j.id === id)
-		.sort((a, b) => b.at - a.at)[0];
-	if (!reaped && !job)
+		.sort((a, b) => b.at - a.at)
+		.at(0);
+	/** @type {{ seat: string, dir: string } | null} */
+	let found = null;
+	if (reaped) found = { seat: job?.seat ?? reaped.seat, dir: reaped.path };
+	else if (job) found = { seat: job.seat, dir: job.cwd };
+	if (found === null)
 		throw new CheckoutError(
 			`no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
 		);
-	const seat = /** @type {string} */ (reaped?.seat ?? job?.seat);
-	const dir = /** @type {string} */ (reaped?.path ?? job?.cwd);
+	const { seat, dir } = found;
 	if (fs.existsSync(dir)) return { dir, seat, restored: false };
 	if (!reaped)
 		throw new CheckoutError(

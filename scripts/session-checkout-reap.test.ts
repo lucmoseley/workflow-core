@@ -9,9 +9,10 @@
  * store is pulled from under a worktree or a build in flight. Tighten it and
  * the worktrees folder grows without bound and stranded work goes unnamed.
  *
- * Every case but the young one runs with the clock an hour on, past the
- * window a fresh cut or store is left alone in; only `Date` is faked, so git
- * and the processes it spawns keep real time.
+ * Every case but the young one runs with the clock at least an hour on, past
+ * the window a fresh cut or store is left alone in; only `Date` is faked, so git
+ * and the processes it spawns keep real time. The reopen cases stand a
+ * stub on `WFC_CLAUDE_BIN` for `claude attach`, logging its seat and argv.
  *
  * Every case cuts real worktrees off a real bare origin, seam 1's fixture
  * (#4229), so the file runs at about the 10 s budget (base §X8 (5)).
@@ -173,7 +174,7 @@ it("removes landed, clean worktrees of finished sessions, then the store none li
 	);
 	commitIn(landed, "done.txt", "work since landed");
 	git(landed, "push", "-q", "origin", "HEAD:landing");
-	recordJob("j1", landed, "done");
+	recordJob("j1", landed, "done", Date.now() - 4 * DAY);
 
 	const r = reap();
 
@@ -449,18 +450,21 @@ it("leaves an unregistered directory a live process works in", () => {
 	expect(fs.existsSync(busy)).toBe(true);
 });
 
-it("keeps a landed, clean worktree whose job finished under 3 days ago, and records one finished 3 days ago before removing it", () => {
+it("keeps a landed, clean worktree whose job finished under 3 days ago, and records one finished 3 days ago before removing it (#4368)", () => {
 	const recent = cut("recent-finish");
+	const undated = cut("undated-finish");
 	const old = cut("old-finish");
 	const oldHead = git(old, "rev-parse", "HEAD");
 	recordJob("j1", recent, "done", Date.now());
+	recordJob("j3", undated, "done");
 	recordJob("j2", path.join(old, "sub"), "failed", Date.now() - 2 * HOUR);
 
 	const r = reap(3 * DAY - HOUR);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toContain("removed landed worktree: old-finish");
-	expect(registered()).toEqual([main, recent]);
+	expect(registered()).toEqual(expect.arrayContaining([recent, undated]));
+	expect(registered()).toHaveLength(3);
 	const lines = fs
 		.readFileSync(path.resolve(main, reapedRecord()), "utf8")
 		.trim()
@@ -475,6 +479,23 @@ it("keeps a landed, clean worktree whose job finished under 3 days ago, and reco
 			at: expect.any(String),
 		},
 	]);
+});
+
+it("removes a landed tree no job names with no record line, and leaves a tree standing where its record cannot be written", () => {
+	const unnamed = cut("no-job");
+	const named = cut("named-job");
+	recordJob("j1", named, "done", Date.now() - 4 * DAY);
+	const record = path.resolve(main, reapedRecord());
+	fs.mkdirSync(record);
+
+	const r = reap(4 * DAY);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain("removed landed worktree: no-job");
+	expect(r.stderr).toContain(`could not reap ${named}`);
+	expect(registered()).toEqual([main, named]);
+	fs.rmdirSync(record);
+	expect(fs.existsSync(unnamed)).toBe(false);
 });
 
 describe("reopen", () => {
@@ -533,12 +554,24 @@ describe("reopen", () => {
 		expect(attached()).toBe(`${seat} attach def456`);
 	});
 
+	it("refuses a job whose directory is gone with no record to rebuild it from, attaching nothing", () => {
+		recordJob("gone77", worktree("never-recorded"), "done");
+
+		const r = reopen("gone77");
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`job gone77's directory ${worktree("never-recorded")} is gone and the reaper recorded no sha for it, so nothing can rebuild it`,
+		);
+		expect(fs.existsSync(attachLog)).toBe(false);
+	});
+
 	it("refuses a job no seat holds and no record names, attaching nothing", () => {
 		const r = reopen("nope99");
 
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(
-			"no seat holds job nope99 and the reaper recorded no worktree for it",
+			"no seat holds job nope99 and the reaper recorded no worktree for it — check the id against `claude agents`",
 		);
 		expect(fs.existsSync(attachLog)).toBe(false);
 	});

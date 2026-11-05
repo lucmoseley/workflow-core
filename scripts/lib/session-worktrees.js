@@ -50,11 +50,11 @@ function readLinkedWorktrees(root) {
 }
 
 /**
- * A job record's cwd, session, name and state; null where it names no cwd or
- * session.
+ * A job record's id, seat, cwd, session, name and state; null where it names
+ * no cwd or session.
  * @param {ReturnType<typeof readJobRecordIn>} job
- * @param {string} id
- * @param {string} seat
+ * @param {string} id the job's directory name
+ * @param {string} seat the config dir holding it
  * @returns {JobCwd | null}
  */
 function jobCwdOf(job, id, seat) {
