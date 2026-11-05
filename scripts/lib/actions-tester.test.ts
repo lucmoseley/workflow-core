@@ -852,6 +852,44 @@ it("reads a named run never listed as unknown, and counts a dispatch whose isola
 	});
 });
 
+it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
+	const files = ["scripts/lib/a.test.ts"];
+	const r = queueReads([() => [run(1, null)], () => [run(1, "success")]]);
+	expect(await queueOf(r).verdict(SHA, files)).toEqual({
+		kind: "green",
+		run: 1,
+	});
+	const cancelled = queueReads([() => [run(2, "cancelled")]]);
+	expect(await queueOf(cancelled).verdict(SHA, files)).toMatchObject({
+		kind: "unknown",
+	});
+	expect([...r.dispatched, ...cancelled.dispatched]).toEqual([]);
+	expect([...r.reran, ...cancelled.reran]).toEqual([]);
+});
+
+it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", async () => {
+	const files = ["scripts/lib/a.test.ts"];
+	const r = queueReads([() => []], { iso: () => [ISO] });
+	r.namedRuns = () => {
+		throw new Error("HTTP 502");
+	};
+	expect(await queueOf(r).verdict(ISO, files)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(
+			/^named-rerun\.yml runs unreadable: .*HTTP 502/,
+		),
+	});
+	const failed = queueReads([() => [run(1, "failure")]]);
+	failed.rerun = () => {
+		throw new Error("HTTP 403");
+	};
+	expect(await queueOf(failed).verdict(SHA, files)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/HTTP 403/),
+	});
+	expect(failed.dispatched).toEqual([]);
+});
+
 it("fires the suite workflow on a push to lander/batch as well as landing (#4458)", () => {
 	const workflow = fs.readFileSync(
 		path.join(
@@ -921,6 +959,10 @@ if (argv[0] === "workflow") {
 		kind: "green",
 	});
 	expect(await tester.verdict(SHA, ["scripts/lib/a.test.ts"])).toEqual({
+		kind: "green",
+		run: 3,
+	});
+	expect(await tester.verdict(OTHER, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});

@@ -32,12 +32,12 @@
  * `namedRerun` is the local tester's way out when memory shuts its slot
  * (#3764): it dispatches named-rerun.yml for the named files alone.
  *
- * `queueTester` is the queue lander's (#4458), beside the `landing` lander's
- * until the cutover. Its whole suite is the push run on `lander/batch` at the
- * sha, read as above. Named files at a sha whose run there failed rerun its
- * failed jobs, so a green names the run `main` takes (#3329); elsewhere, at
- * an isolation sha or `main`, they go to named-rerun.yml. A dispatch at the
- * head of a `lander/iso-<k>` ref does not count against the daily cap.
+ * `queueTester` is the queue lander's (#4458). Its whole suite is the push
+ * run on `lander/batch` at the sha, read as above. Named files at a sha that
+ * run covers are read off that run, a failed one rerunning its failed jobs;
+ * elsewhere, at an isolation sha or `main`, they go to named-rerun.yml.
+ *
+ * Unbuilt caller: the queue lander, scripts/lib/queue-lander.js (#4485)
  */
 
 const { execFileSync } = require("node:child_process");
@@ -447,13 +447,17 @@ function settle(v, sha, branch) {
  * to RUNNER_RERUNS times, before it is no verdict.
  * @param {string} sha
  * @param {number} after
- * @param {{reads: Reads, branch: string} & Poll} at
+ * @param {{reads: Reads, branch: string} & Poll} suite
  * @param {number} [reruns] attempts started for a runner that failed to ready
  * @returns {Promise<Verdict>}
  */
-async function suiteVerdict(sha, after, at, reruns = 0) {
-	const { reads, branch } = at;
-	const v = await pollRun(() => runVerdict(sha, reads, after), unreadable, at);
+async function suiteVerdict(sha, after, suite, reruns = 0) {
+	const { reads, branch } = suite;
+	const v = await pollRun(
+		() => runVerdict(sha, reads, after),
+		unreadable,
+		suite,
+	);
 	if (v.kind !== "runner") return settle(v, sha, branch);
 	if (reruns >= RUNNER_RERUNS)
 		return {
@@ -465,7 +469,7 @@ async function suiteVerdict(sha, after, at, reruns = 0) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return suiteVerdict(sha, v.attempt, at, reruns + 1);
+	return suiteVerdict(sha, v.attempt, suite, reruns + 1);
 }
 
 /**
@@ -489,9 +493,9 @@ function actionsTester({
 	wait = sleep,
 	now = Date.now,
 }) {
-	const at = { reads, branch: LANDING_BRANCH, wait, now };
+	const suite = { reads, branch: LANDING_BRANCH, wait, now };
 	/** @param {string} sha @param {number} after */
-	const polled = (sha, after) => suiteVerdict(sha, after, at);
+	const polled = (sha, after) => suiteVerdict(sha, after, suite);
 	/** @param {string} sha @param {string[]} files @param {string} why */
 	const handOff = (sha, files, why) =>
 		fallback
@@ -591,7 +595,7 @@ function readDispatchesToday(file, nowMs) {
 
 /**
  * @param {string} root
- * @param {string} [branch] whose push runs `runs` lists
+ * @param {string} [branch]
  * @returns {Reads & NamedReads}
  */
 const liveNamedReads = (root, branch) => ({
@@ -638,7 +642,7 @@ const liveNamedReads = (root, branch) => ({
  * The verdict on `files` at `sha` from a dispatched run of them alone; no
  * verdict where the day's cap is spent, unless `isolation` exempts it, or
  * the dispatch or its run reaches none.
- * @param {{record: string, reads: NamedReads} & Poll} at
+ * @param {{record: string, reads: NamedReads} & Poll} named
  * @param {string} sha
  * @param {string[]} files
  * @param {boolean} isolation
@@ -715,8 +719,6 @@ function namedRerun({
 }
 
 /**
- * The queue's live reads: `runs` on `lander/batch`, and the isolation heads
- * through `git ls-remote` in `root`.
  * @param {string} root
  * @returns {QueueReads}
  */
@@ -742,7 +744,6 @@ const liveQueueReads = (root) => ({
  */
 
 /**
- * The queue lander's Actions tester (#4458).
  * @param {QueueTesterOptions} options
  * @returns {QueueTester}
  */
@@ -752,13 +753,18 @@ function queueTester({
 	wait = sleep,
 	now = Date.now,
 }) {
-	const at = { reads, branch: LANDER_BATCH_BRANCH, wait, now };
-	const record = path.join(markersDir(root), NAMED_RECORD);
+	const suite = { reads, branch: LANDER_BATCH_BRANCH, wait, now };
+	const named = {
+		record: path.join(markersDir(root), NAMED_RECORD),
+		reads,
+		wait,
+		now,
+	};
 	return {
 		requiresRun: true,
 		async verdict(sha, files) {
 			if (files === undefined || files.length === 0)
-				return suiteVerdict(sha, 0, at);
+				return suiteVerdict(sha, 0, suite);
 			/** @type {Run|undefined} */
 			let run;
 			try {
@@ -767,15 +773,26 @@ function queueTester({
 			} catch (err) {
 				return unreadable(err);
 			}
-			if (run?.conclusion === "failure")
-				return suiteVerdict(sha, run.attempt, at);
+			/* A run the batch's push started judges these files too: a failed
+			 * one is rerun above, an unfinished one waited on. */
+			if (run !== undefined)
+				return suiteVerdict(
+					sha,
+					run.conclusion === "failure" ? run.attempt : 0,
+					suite,
+				);
 			let isolation = false;
 			try {
 				isolation = reads.isoShas().includes(sha);
-			} catch {
-				// Unread, the dispatch counts against the cap: the safe side.
+			} catch (err) {
+				/* Unread, the dispatch counts against the cap: the safe side
+				 * (#4458). */
+				writeFd(
+					2,
+					`lander: ${LANDER_ISO_PREFIX}* refs unread, so counted: ${parseErrorText(err)}\n`,
+				);
 			}
-			return namedVerdict({ record, reads, wait, now }, sha, files, isolation);
+			return namedVerdict(named, sha, files, isolation);
 		},
 	};
 }
