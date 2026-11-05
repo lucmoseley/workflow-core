@@ -1,7 +1,7 @@
 /*
  * landing-refs.js — the ref switch: the one module that names the shared
- * branches (#2408, spec #2261; #4485). A reader asks one of two answers, sorted
- * by #4458's reader classes, and never names a branch itself:
+ * branches (#2408, spec #2261). A reader asks one of two answers and never
+ * names a branch itself:
  *
  *   - start (`startRef`): what is verified, or where a session starts — the
  *     worktree cut, the changed-file selection base, the CI verdict. Release
@@ -48,7 +48,7 @@ function branchOf(ref) {
 }
 
 /**
- * Whether the `landing` module is on, for a reader asking both answers.
+ * Whether the `landing` module is on.
  * @param {{root?: string}} [opts]
  * @returns {boolean}
  */
@@ -62,7 +62,6 @@ function landingOn(opts) {
 }
 
 /**
- * The start answer, given the `landing` module's state.
  * @param {boolean} on
  * @returns {string}
  */
@@ -71,7 +70,6 @@ function startRefFor(on) {
 }
 
 /**
- * The pushed answer, given the `landing` module's state.
  * @param {boolean} on
  * @returns {string}
  */
@@ -134,7 +132,7 @@ if (require.main === module) {
 		["pushed", pushedRef],
 		["unpushed", readUnpushedRef],
 		/* Strict, for a workflow: a config that will not read fails here rather
-		 * than naming `main`, which would watch the wrong branch unseen. */
+		 * than naming `main`. */
 		[
 			"pushed-branch",
 			(/** @type {{root?: string}|undefined} */ o) =>
