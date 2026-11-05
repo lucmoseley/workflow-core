@@ -32,6 +32,9 @@ const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
  * the integration commit under test, and each isolation commit. */
 const LANDER_BATCH_BRANCH = "lander/batch";
 const LANDER_ISO_PREFIX = "lander/iso-";
+/* A session's queue ref (#4458), `queue/<worktree name>`, which it pushes
+ * and the lander takes. */
+const QUEUE_PREFIX = "queue/";
 
 /**
  * The fetch refspec that updates `branch`'s remote-tracking ref.
@@ -166,6 +169,7 @@ module.exports = {
 	LANDING_REF,
 	pushedRef,
 	pushedRefFor,
+	QUEUE_PREFIX,
 	REMOTE,
 	readUnpushedRef,
 	startRef,

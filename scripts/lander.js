@@ -30,27 +30,25 @@
  * it refuses.
  */
 
-const { spawn } = require("node:child_process");
 const { spawnGitSync } = require("./lib/git.js");
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { ticketFiler } = require("./lib/fix-ticket.js");
 const { gh } = require("./lib/gh.js");
-const { adoptGuardCodeAt, adoptionLine } = require("./lib/guard-code.js");
 const { heldQueueFiler } = require("./lib/held-queue.js");
 const {
 	buildActionLine,
 	fileLedger,
 	heartbeatWriter,
 	landerFiles,
+	landerLock,
 	readHeartbeat,
 	remoteGit,
 	runLander,
 } = require("./lib/lander.js");
 const { actionsTester, namedRerun } = require("./lib/actions-tester.js");
 const { localTester } = require("./lib/local-tester.js");
-const { startLevelling } = require("./lib/level-main.js");
-const { pidLock } = require("./lib/pid-lock.js");
+const { afterMainMove, commandTester } = require("./lib/lander-cli.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { similarTitles } = require("./lib/tracker-ops.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -76,48 +74,6 @@ const CLI = {
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
-
-/**
- * @param {string} command
- * @param {string} root
- * @returns {import("./lib/lander.js").Tester}
- */
-const commandTester = (command, root) => ({
-	verdict: (sha, files = []) =>
-		new Promise((resolve) => {
-			const child = spawn(
-				"sh",
-				["-c", `${command} "$@"`, "tester", sha, ...files],
-				{ cwd: root, stdio: ["ignore", "pipe", "inherit"] },
-			);
-			let out = "";
-			child.stdout.on("data", (chunk) => {
-				out += chunk;
-			});
-			child.on("error", (err) =>
-				resolve({
-					kind: "unknown",
-					reason: `tester did not start: ${err.message}`,
-				}),
-			);
-			child.on("close", (code, signal) => {
-				if (code === 0) resolve({ kind: "green" });
-				else if (code === 1)
-					resolve({
-						kind: "red",
-						files: out
-							.split("\n")
-							.map((l) => l.trim())
-							.filter(Boolean),
-					});
-				else
-					resolve({
-						kind: "unknown",
-						reason: `tester ended ${signal ?? `exit ${code}`}`,
-					});
-			});
-		}),
-});
 
 /**
  * The tester `landingTester` names.
@@ -212,7 +168,7 @@ async function main(argv = process.argv.slice(2)) {
 		tracker: liveFiler(root),
 		ledger: fileLedger(files.ledger),
 		noVerdict: fileLedger(files.noVerdict),
-		lock: pidLock(files.pid, "lander.js"),
+		lock: landerLock(root),
 		beat: heartbeatWriter(files.heartbeat),
 		lastHold: () => readHeartbeat(files.heartbeat)?.hold ?? null,
 		lastRed: () => readHeartbeat(files.heartbeat)?.red ?? null,
@@ -220,13 +176,7 @@ async function main(argv = process.argv.slice(2)) {
 		lastMoved: () => readHeartbeat(files.heartbeat)?.movedAt ?? null,
 		log: (a) => say(`${new Date().toISOString()} ${buildActionLine(a)}`),
 		say,
-		mainMoved: () => {
-			const adoption = adoptGuardCodeAt(root, { fetch: false });
-			if (adoption) say(adoptionLine(adoption));
-			startLevelling(root, (err) =>
-				say(`levelling not started: ${parseErrorText(err)}`),
-			);
-		},
+		mainMoved: () => afterMainMove(root, say),
 	});
 	return 0;
 }

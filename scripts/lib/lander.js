@@ -37,7 +37,8 @@
  * no-verdict ledger (the same line per parent, culprit or bisected commit
  * whose whole suite reached no verdict, never run whole again), pidfile and heartbeat sit under the canonical checkout's markers directory,
  * machine-local and gitignored, so a worktree's lander shares them with the
- * main tree's.
+ * main tree's. The queue lander (lib/queue-lander.js) holds the same pidfile
+ * and pushes `main` past the same green ledger.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -55,6 +56,7 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
+const { pidLock } = require("./pid-lock.js");
 const { CLASSES_FILE, sectionAMatcher } = require("./doc-map.js");
 const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const { execGroupedSync } = require("./grouped-child.js");
@@ -79,7 +81,7 @@ const LANDER_GIT_TIMEOUT_MS = 120 * 1000;
 const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
 /* Measured on #3913: the gate stack fits this up to load 42-56, if time scales
  * with load, which no run measured. */
-const REVERT_COMMIT_TIMEOUT_MS = 600 * 1000;
+const GATED_COMMIT_TIMEOUT_MS = 600 * 1000;
 const REGISTRY_CHECK = path.join(__dirname, "..", "check-guard-registry.js");
 
 /** A culprit `mergedSide` reads no side of: a plain commit's. */
@@ -142,6 +144,13 @@ const REMOTE_TRIES = 5;
 const REMOTE_BACKOFF_MS = 4 * 1000;
 const NETWORK =
 	/Could not resolve host|Connection timed out|Connection reset|returned error: 5\d\d|HTTP 5\d\d/;
+
+/**
+ * The wait before try `attempt + 1` of a remote call.
+ * @param {number} attempt the tries made so far
+ */
+const backoffMs = (attempt) =>
+	REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random());
 
 /**
  * @typedef {{file: string, test: string, message?: string,
@@ -1416,10 +1425,12 @@ function nextAction(s) {
  */
 
 /**
- * @param {LanderDeps} deps
+ * The tester's verdict, beating the heartbeat while it is awaited.
+ * @param {Pick<LanderDeps, "tester" | "beat">} deps
  * @param {string} sha
  * @param {string[]} [files]
  * @param {boolean} [lands]
+ * @returns {Promise<Verdict>}
  */
 async function verdictAt({ tester, beat }, sha, files, lands) {
 	beat(sha);
@@ -1628,9 +1639,7 @@ async function remote({ wait = pause }, call) {
 			return call();
 		} catch (err) {
 			if (attempt >= REMOTE_TRIES || !isNetworkFault(err)) throw err;
-			await wait(
-				REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random()),
-			);
+			await wait(backoffMs(attempt));
 		}
 	}
 }
@@ -2049,6 +2058,13 @@ function landerFiles(root) {
 	};
 }
 
+/* Both landers hold one lock, so neither runs while the other does, nor takes
+ * the other's pidfile as stale. */
+const LANDER_SCRIPTS = ["lander.js", "queue-lander.js"];
+
+/** @param {string} root the canonical checkout's root */
+const landerLock = (root) => pidLock(landerFiles(root).pid, LANDER_SCRIPTS);
+
 /**
  * A file's text, or null where it cannot be read.
  * @param {string} file
@@ -2117,6 +2133,56 @@ function readHeartbeat(file) {
 }
 
 /**
+ * Those of `shas` that name a commit present in `root`'s repo; none where git
+ * cannot be asked, so a caller fetches.
+ * @param {string} root
+ * @param {string[]} shas
+ * @returns {string[]}
+ */
+function readLocalCommits(root, shas) {
+	if (shas.length === 0) return [];
+	let printed;
+	try {
+		printed = execGit(["cat-file", "--batch-check=%(objectname)"], {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["pipe", "pipe", "pipe"],
+			timeout: LANDER_GIT_TIMEOUT_MS,
+			input: shas.map((sha) => `${sha}^{commit}\n`).join(""),
+		});
+	} catch {
+		return [];
+	}
+	return printed.split("\n").filter((line) => shas.includes(line));
+}
+
+/**
+ * A push from `root` to lib/landing-refs.js's remote. Its timeout is the
+ * pre-push hook's run, which a retry would only repeat, so it throws as no
+ * network fault.
+ * @param {string} root
+ * @param {string[]} args the push's flags and refspecs
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+function pushRemote(root, args, env = process.env) {
+	try {
+		execGit(["push", "--quiet", REMOTE, ...args], {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: PUSH_TIMEOUT_MS,
+			env,
+		});
+	} catch (err) {
+		if (caught(err).code !== "ETIMEDOUT") throw err;
+		throw new Error(
+			`git push ${args.join(" ")} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
+			{ cause: err },
+		);
+	}
+}
+
+/**
  * @typedef {LanderGit & {committedAt: (sha: string) => number}} RemoteGit
  *   with a local commit's committer time in ms
  */
@@ -2130,7 +2196,7 @@ function readHeartbeat(file) {
  * @param {number} [revertCommitTimeoutMs]
  * @returns {RemoteGit}
  */
-function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
+function remoteGit(root, revertCommitTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 	/**
 	 * @param {string[]} args
 	 * @param {number} [timeout]
@@ -2152,22 +2218,10 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			input,
 		});
 	/**
-	 * A push to the remote. Its timeout is the pre-push hook's run, which a
-	 * retry would only repeat, so it throws as no network fault.
 	 * @param {string} refspec
 	 * @param {NodeJS.ProcessEnv} [env]
 	 */
-	const push = (refspec, env) => {
-		try {
-			git(["push", "--quiet", REMOTE, refspec], PUSH_TIMEOUT_MS, env);
-		} catch (err) {
-			if (caught(err).code !== "ETIMEDOUT") throw err;
-			throw new Error(
-				`git push ${refspec} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
-				{ cause: err },
-			);
-		}
-	};
+	const push = (refspec, env) => pushRemote(root, [refspec], env);
 	/**
 	 * Why a revert's push failed, or null where `landing` moved and the revert
 	 * is made again on its new tip. A network fault throws, for runLander to
@@ -2250,20 +2304,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 */
 	const areAllLocal = (shas) => {
 		const unseen = shas.filter((sha) => !localShas.has(sha));
-		if (unseen.length === 0) return true;
-		let printed;
-		try {
-			printed = git(
-				["cat-file", "--batch-check=%(objectname)"],
-				LANDER_GIT_TIMEOUT_MS,
-				process.env,
-				{ input: unseen.map((sha) => `${sha}^{commit}\n`).join("") },
-			);
-		} catch {
-			return false;
-		}
-		for (const line of printed.split("\n"))
-			if (unseen.includes(line)) localShas.add(line);
+		for (const sha of readLocalCommits(root, unseen)) localShas.add(sha);
 		return unseen.every((sha) => localShas.has(sha));
 	};
 	/** @param {string|null} main @param {string} landing @returns {Relation} */
@@ -2853,8 +2894,18 @@ function readRegistryRows(dir, reverted, against) {
 }
 
 module.exports = {
+	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
+	REMOTE_TRIES,
+	backoffMs,
+	isNetworkFault,
+	landerLock,
+	parseRefusal,
+	pause,
+	pushRemote,
+	readLocalCommits,
+	verdictAt,
 	buildRevertLine,
 	failingList,
 	short,

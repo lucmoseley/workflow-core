@@ -1,8 +1,8 @@
 /*
- * lander-testkit.ts — the sandbox the three real-git lander suites stand on:
- * a bare `remote.git` and its clone `work`, `main` and `landing` both on one
- * seed commit, with the tester, tracker and run helpers that drive
- * scripts/lander.js against it.
+ * lander-testkit.ts — the sandbox the real-git lander suites stand on: a bare
+ * `remote.git` and its clone `work`, `main` and `landing` both on one seed
+ * commit, with the tester, tracker and run helpers that drive
+ * scripts/lander.js and scripts/queue-lander.js against it.
  *
  * Break it and every lander suite fails at once, or runs against a repo whose
  * `origin` is another case's.
@@ -138,6 +138,14 @@ export const runLander = (
 	tester: string,
 	modules = "landing",
 	extraEnv: Record<string, string> = {},
+) => runLanderScript(LANDER, tester, modules, extraEnv);
+
+/** A run of the lander program at `script` in `work`, as runLander's. */
+export const runLanderScript = (
+	script: string,
+	tester: string,
+	modules = "landing",
+	extraEnv: Record<string, string> = {},
 ) => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
@@ -147,7 +155,7 @@ export const runLander = (
 		...extraEnv,
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;
-	return runInProcessAsync(LANDER, ["run", "--tester", shellQuote(tester)], {
+	return runInProcessAsync(script, ["run", "--tester", shellQuote(tester)], {
 		cwd: work,
 		env,
 	});
