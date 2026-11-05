@@ -499,12 +499,18 @@ describe("no hand-off in any band (#1178 Q1 (A) and Q4 (B))", () => {
 		const windUp = run().reason;
 		expect(windUp).toContain("Finish the unit of work in flight");
 		expect(windUp).toContain("even if a compaction fires");
+		expect(windUp).toContain(
+			"one build-unit ticket, however many compactions finishing it takes",
+		);
 		expect(windUp).toContain("start no new one");
 		expect(windUp).toContain("The next unit goes to a fresh session");
 		expect(windUp).toContain("the cheap move is to finish and end");
 		turns(PAST_TURN_BAND);
 		const turnBand = run().reason;
 		expect(turnBand).toContain("Finish the ticket in hand");
+		expect(turnBand).toContain(
+			"the build unit, however many compactions it takes",
+		);
 		expect(turnBand).toContain("even if a compaction fires");
 		expect(turnBand).toContain("then end");
 		expect(turnBand).toContain("rules out is STARTING a different ticket");
