@@ -12,7 +12,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyDataFile } from "./lib/doc-map-testkit";
 import {
 	newRepo,
@@ -496,11 +496,11 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 			expect(fs.existsSync(aged)).toBe(false);
 		}, 30_000);
 
-		it("costs a small fraction of the seconds the report itself takes, over a populated directory", () => {
-			const repo = docMapRepo("report-new-shared-faults-sweep-cost-");
-			// A populated root, so the per-entry statSync + process.kill loop is
-			// what is timed and not an empty readdir. Live names (this process),
-			// and names that are not ours at all.
+		it("lists only its own leftover root, never os.tmpdir(), over a populated directory", () => {
+			const repo = docMapRepo("report-new-shared-faults-sweep-reads-");
+			/* A populated root, so a sweep that lists more than it should has
+			 * entries to walk. Live names (this process), and names that are
+			 * not ours at all. */
 			const gone = deadPid();
 			for (let i = 0; i < 20; i++) {
 				fs.mkdirSync(path.join(leftoverRoot(), `tree-${process.pid}-live${i}`));
@@ -508,18 +508,18 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 				fs.mkdirSync(path.join(leftoverRoot(), `not-ours-${gone}-${i}`));
 			}
 
-			/* A ref that does not resolve, so the run is the sweep and one
-			 * failing `git rev-list`, and stops before any checker or tree. */
-			const started = process.hrtime.bigint();
-			const { code } = run("no-such-ref", { checkers: {}, cwd: repo.root });
-			const ms = Number(process.hrtime.bigint() - started) / 1e6;
+			/* os.tmpdir() here holds ~225,000 entries and costs ~400 ms to
+			 * list, so the one directory the sweep may list is its own root. */
+			const readdir = vi.spyOn(fs, "readdirSync");
+			let listed: string[];
+			try {
+				sweepOnly(repo.root);
+				listed = readdir.mock.calls.map(([dir]) => path.resolve(String(dir)));
+			} finally {
+				readdir.mockRestore();
+			}
 
-			expect(code).toBe(2);
-			/* The bound is loose against a machine running several
-			 * sessions' suites at once, and its job is to catch a readdir of
-			 * os.tmpdir() creeping back in: /tmp here holds ~225,000 entries and
-			 * costs ~400 ms to list. */
-			expect(ms).toBeLessThan(250);
+			expect(listed).toEqual([path.resolve(leftoverRoot())]);
 		});
 	});
 });
