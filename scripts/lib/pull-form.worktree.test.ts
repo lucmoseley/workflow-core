@@ -3,7 +3,7 @@
  * guard-pull-form in a session's own worktree (#4242): with
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
  * worktree, a reset is judged in the tree the command stands in — the
- * worktree's own ref — not the host's.
+ * worktree's own ref — not the host's, and the module config is the host's.
  */
 
 import path from "node:path";
@@ -41,34 +41,34 @@ describe("a reset is judged in the tree the session stands in (#4242)", () => {
 });
 
 /*
- * The ref the unresolved-tree refusal names is the one the host's config
- * routes pushes to, read at the main checkout (#4274): the `landing` module
- * on there names `landing`, wherever the session stands.
+ * Whether the reconciliation walk stands down is the `landing` module as the
+ * main checkout's config declares it (#4274, #4229), wherever the session
+ * stands.
  */
-describe("the refusal names the host's pushed ref, from the main checkout's config (#4274)", () => {
+describe("the landing module is read from the main checkout's config (#4274)", () => {
 	const landingOn = (root: string) =>
 		writeHostConfig(root, { modules: ["landing"] });
 
 	/* The suite injects its modules over every config (vitest.setup.ts);
 	 * uninjected, the config read declares them. */
-	const reason = () => {
+	const output = () => {
 		delete process.env.WFC_MODULES;
-		return String(
-			runCore(
-				"guard-pull-form",
-				toolCall("Bash", { command: 'git -C "$W" merge origin/main' }),
-				{ root: at.main, worktree: at.worktree },
-			).output?.permissionDecisionReason,
-		);
+		return runCore(
+			"guard-pull-form",
+			toolCall("Bash", { command: 'git -C "$W" merge origin/main' }),
+			{ root: at.main, worktree: at.worktree },
+		).output;
 	};
 
-	it("names origin/landing where the main checkout turns landing on", () => {
+	it("stands down where the main checkout turns landing on", () => {
 		landingOn(at.main);
-		expect(reason()).toContain("reconcile merge origin/landing`");
+		expect(output()?.permissionDecision).toBeUndefined();
 	});
 
-	it("names origin/main where only the worktree's config turns it on", () => {
+	it("refuses where only the worktree's config turns it on", () => {
 		landingOn(at.worktree);
-		expect(reason()).toContain("reconcile merge origin/main`");
+		expect(String(output()?.permissionDecisionReason)).toContain(
+			"reconcile merge origin/main`",
+		);
 	});
 });

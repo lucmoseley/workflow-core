@@ -334,22 +334,10 @@ describe("each production read, crossed once", () => {
 		);
 	});
 
-	it("reads the landing module, for the rule and the upstream (#2409, #2536)", () => {
+	it("stands the reconciliation down with the landing module on (#4229)", () => {
 		const env = { WFC_MODULES: "landing" };
-		const out = emission("git pull --ff-only", { env });
-		expect(out.additionalContext).toContain(
-			readRuleText("pull-fast-forward-landing"),
-		);
-		expect(out.additionalContext).not.toContain(readPullRule());
-		expect(readDenyReason("git merge origin/landing", { env })).toContain(
-			readRuleText("pull-fast-forward-landing"),
-		);
-		expect(
-			readDenyReason('git -C "$W" merge origin/landing', { env }),
-		).toContain("`git -C .claude/worktrees/reconcile merge origin/landing`");
-		expect(readDenyReason('git -C "$W" merge origin/main')).toContain(
-			"`git -C .claude/worktrees/reconcile merge origin/main`",
-		);
+		expect(emission("git pull --ff-only", { env })).toBeNull();
+		expect(emission("git merge origin/landing", { env })).toBeNull();
 	});
 
 	it("refuses with the rule's fallback sentence where the store cannot give it (mantahostels#1648)", () => {

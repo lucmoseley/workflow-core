@@ -29,11 +29,7 @@
  * guard's landing limb, logged there.
  */
 
-const {
-	LANDING_BRANCH,
-	REMOTE,
-	VERIFIED_BRANCH,
-} = require("./lib/landing-refs.js");
+const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { fileLedger, landerFiles } = require("./lib/lander.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -103,7 +99,7 @@ function judge(stdin, { tree, root }) {
 		[
 			`pre-push: refused — this pushes ${untested.join(", ")} to ${VERIFIED_BRANCH}, and the lander's green ledger holds neither it nor its tree.`,
 			`With the landing module on, only the lander moves ${VERIFIED_BRANCH}, to a sha the full suite passed (#2261).`,
-			`Push to ${LANDING_BRANCH} instead: git push ${REMOTE} ${VERIFIED_BRANCH}:${LANDING_BRANCH} from the shared tree, or node ${scriptPath("session-checkout.js")} land from a session worktree.`,
+			`Land through ${LANDING_BRANCH} instead, from your session's worktree: node ${scriptPath("session-checkout.js")} land`,
 			"",
 		].join("\n"),
 	);

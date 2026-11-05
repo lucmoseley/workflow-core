@@ -19,10 +19,18 @@
  * divergence that needs a real merge, the throwaway worktree the rule's own
  * recipe gives (#290) — so a deny cannot wedge ordinary work.
  *
+ * WITH THE `landing` MODULE ON THE RECONCILIATION WALK STANDS DOWN (#4229):
+ * each session reconciles in its own worktree, merging `origin/landing` and
+ * pushing `HEAD:landing` by `scripts/session-checkout.js land`, and the main
+ * checkout takes no write at all — lib/main-checkout-write.js refuses a
+ * merge, pull or rebase there, and lib/level-main.js alone moves its `main`.
+ * A merge whose tree is unresolved is therefore that guard's limit, not this
+ * one's.
+ *
  * LIMITS
  *  - The rule it prints is docs/agents/rules/pull-fast-forward.txt
- *    (mantahostels#1648), or its `-landing` twin with the `landing` module on
- *    (#2409). It prints it on two exclusive limbs (spec mantahostels#1762):
+ *    (mantahostels#1648). It prints it on two exclusive limbs (spec
+ *    mantahostels#1762):
  *    inside the refusal, and, where nothing was refused, as context before an
  *    allowed `git pull --ff-only`, a bare pull the repo's `pull.ff=only` has
  *    already made safe, `git merge --ff-only`, or a bare pull whose tree could
@@ -153,8 +161,8 @@
 
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
-const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
+const { ruleUnlessModule } = require("./rule-gates.js");
 const { normAbs, parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
@@ -176,8 +184,6 @@ const { trimEndRun } = require("./trim-run.js");
  *   errors
  * @property {(dir: string) => string} showPrefix the directory below the
  *   root, `/`-terminated; "" at the root or where git errors
- * @property {() => string} pushedRef the remote ref sessions push to, read on
- *   a refusal alone, so an allowed call reads no config (#2536)
  * @property {() => boolean} isMainUnreadable whether the shared `main` is broken
  *   rather than moved, read on a rewind's refusal alone
  * @property {(dir: string) => import("./git-alias.js").FileAliases | null}
@@ -293,17 +299,11 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
-	ctx.moduleOn("landing")
-		? ruleOrFallback(
-				ctx,
-				"pull-fast-forward-landing",
-				"Reconcile the shared `main` with `landing` by fast-forward or not at all",
-			)
-		: ruleOrFallback(
-				ctx,
-				"pull-fast-forward",
-				"Reconcile the shared `main` by fast-forward or not at all",
-			);
+	ruleOrFallback(
+		ctx,
+		"pull-fast-forward",
+		"Reconcile the shared `main` by fast-forward or not at all",
+	);
 
 /** @param {PullFormContext} ctx */
 const discardRule = (ctx) =>
@@ -1166,7 +1166,7 @@ An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C .claude/worktrees/reconcile merge ${j.ctx.pushedRef()}\` — or assign
+command — \`git -C .claude/worktrees/reconcile merge origin/main\` — or assign
 it literally in the same Bash call, as the recipe below does. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 
@@ -1207,7 +1207,13 @@ const WALKS = [
 		"shared",
 		["checkout", "switch", "restore", "clean", "stash"],
 	],
-	[judgeReconcile, "the reconciliation", "shared", ["pull", "merge", "rebase"]],
+	[
+		/* Stood down with `landing` on, as the header says (#4229). */
+		(j, call) => (j.ctx.moduleOn("landing") ? null : judgeReconcile(j, call)),
+		"the reconciliation",
+		"shared",
+		["pull", "merge", "rebase"],
+	],
 ];
 
 /**
@@ -1254,12 +1260,14 @@ function decide(command, ctx) {
 
 	/* PRE-EMPTIVE INJECTION (mantahostels#1648, spec mantahostels#1762): the
 	 * rule handed to a reconciliation nothing refused, as context, so an allow
-	 * stays an allow. With `landing` on, the recipe is its twin (#2409). */
+	 * stays an allow. The skip is never reached at run time, the walk having
+	 * stood down with `landing` on; check-context-budget.js reads it to leave
+	 * the rule off that module's reach. */
 	if (!ruleSubject) return null;
 	return {
-		injectRules: ["pull-fast-forward", "pull-fast-forward-landing"],
+		injectRules: ["pull-fast-forward"],
+		// biome-ignore format: lib/rule-emission.js reads a gate only at a line's start
 		skip: [
-			...ruleModule(ctx, "landing", ["pull-fast-forward-landing"]),
 			...ruleUnlessModule(ctx, "landing", ["pull-fast-forward"]),
 		],
 	};
