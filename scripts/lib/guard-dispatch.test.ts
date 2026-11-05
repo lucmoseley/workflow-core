@@ -37,31 +37,32 @@ interface Core {
 const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string, keep?: (row: Core) => boolean) => Core[];
 };
-const { dispatch, hostAdapters, merge, repoRel } =
-	require("./guard-dispatch.js") as {
-		dispatch: (
-			cores: Core[],
-			env: Record<string, unknown>,
-		) => {
-			output: Record<string, unknown> | null;
-			latches: { latches: { name: string }[]; log: (what: string) => void }[];
-		};
-		hostAdapters: (
-			root: string,
-			log: (what: string) => void,
-		) => Record<string, (...a: never[]) => unknown> & {
-			git: (args: string[], noMatch: number[]) => { ok: boolean; out?: string };
-		};
-		merge: (
-			parts: {
-				permissionDecision?: string;
-				reason?: string;
-				context?: string;
-				updatedInput?: Record<string, unknown>;
-			}[],
-		) => Record<string, unknown> | null;
-		repoRel: (file: string, root: string) => string | null;
+const { dispatch, merge } = require("./guard-dispatch.js") as {
+	dispatch: (
+		cores: Core[],
+		env: Record<string, unknown>,
+	) => {
+		output: Record<string, unknown> | null;
+		latches: { latches: { name: string }[]; log: (what: string) => void }[];
 	};
+	merge: (
+		parts: {
+			permissionDecision?: string;
+			reason?: string;
+			context?: string;
+			updatedInput?: Record<string, unknown>;
+		}[],
+	) => Record<string, unknown> | null;
+};
+
+const { hostAdapters } = require("./guard-host-ports.js") as {
+	hostAdapters: (
+		root: string,
+		log: (what: string) => void,
+	) => Record<string, (...a: never[]) => unknown> & {
+		git: (args: string[], noMatch: number[]) => { ok: boolean; out?: string };
+	};
+};
 
 const { writeLatches } = require("./guard-entry.js") as {
 	writeLatches: (
@@ -784,62 +785,6 @@ describe("the entry's fail-open record", () => {
 		).toHaveLength(1);
 		expect(readGuardErrorsLog(config)).toMatch(/payload did not parse/);
 	}, 40_000);
-});
-
-describe("repoRel, the reading of a written path", () => {
-	it("is null for a sibling whose name starts with the root's (#2546)", () => {
-		expect(
-			repoRel(`${dir}/repository/a.md`, path.join(dir, "repo")),
-		).toBeNull();
-	});
-
-	it("reads a name inside the root that starts with `..` as inside it (#4134)", () => {
-		expect(repoRel(`${dir}/repo/..foo/a.md`, path.join(dir, "repo"))).toBe(
-			"..foo/a.md",
-		);
-	});
-
-	it("reads every absolute path under a root of `/` (#2546)", () => {
-		expect(repoRel("/a/../b.md", "/")).toBe("b.md");
-	});
-
-	it("resolves a `..` through a symlink to the checkout, and refuses the link itself or a path out of it (#2553)", () => {
-		const repo = path.join(dir, "repo");
-		fs.mkdirSync(path.join(repo, "sub"), { recursive: true });
-		fs.symlinkSync(repo, path.join(dir, "link"));
-		expect(repoRel(`${dir}/link/nope/../a.ts`, repo)).toBe("a.ts");
-		for (const tail of ["", "/", "/../x.ts"])
-			expect(repoRel(`${dir}/link${tail}`, repo)).toBeNull();
-	});
-
-	it.each([
-		["/a.ts", "a.ts"],
-		["/sub/../tests/a.ts", "tests/a.ts"],
-		["/../tests/notes.md", null],
-		["/sub/../../tests/a.ts", null],
-		["", null],
-	])("reads %s under the root as %s (#2546)", (tail, want) => {
-		expect(repoRel(`${dir}/repo${tail}`, path.join(dir, "repo"))).toBe(want);
-	});
-
-	it("is null for a relative path", () => {
-		expect(repoRel("repo/a.ts", path.join(dir, "repo"))).toBeNull();
-		expect(repoRel("scripts/a.ts", process.cwd())).toBeNull();
-	});
-
-	// The harness sends CLAUDE_PROJECT_DIR physical and the path as the model
-	// spelled it, measured on Claude Code 2.1.308 (#2553).
-	it("reads a write spelled through a symlink to the checkout, a new file included (#2553)", () => {
-		const repo = path.join(dir, "repo");
-		fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
-		fs.symlinkSync(repo, path.join(dir, "link"));
-		expect(repoRel(`${dir}/link/scripts/new.test.ts`, repo)).toBe(
-			"scripts/new.test.ts",
-		);
-		expect(repoRel(`${dir}/link/no/such/dir/a.ts`, repo)).toBe(
-			"no/such/dir/a.ts",
-		);
-	});
 });
 
 describe("the entry's --only argument", () => {

@@ -9,7 +9,7 @@
  *   node scripts/check-vendored-skills.js --drop <path>
  *   node scripts/check-vendored-skills.js --forget <path>
  *   node scripts/check-vendored-skills.js --revendor --at <rev>
- *   node scripts/check-vendored-skills.js --upstream
+ *   node scripts/check-vendored-skills.js --upstream [--write]
  *   node scripts/check-vendored-skills.js --covered <dir>
  *
  * THE PROBLEM (mantahostels#1809, specified at mantahostels#1826).
@@ -112,12 +112,15 @@
  * Which of those two a failed fetch is comes from `lib/gh.js`'s
  * `parseGhFailureReason`, never from a rule of this checker's own (mantahostels#3066).
  *
- * THE UPSTREAM RECORD (#2394, ruled at #2377). A run that neither SKIPs nor
- * breaks, and finds every lock source's licence matching its notice, writes
+ * THE UPSTREAM RECORD (#2394, ruled at #2377). A `--write` run that neither
+ * SKIPs nor breaks, and finds every lock source's licence matching its notice,
+ * writes
  * `.agents/vendored-upstream-pass.json`: the sha256 of the lock and of NOTICES
  * as the run read them, the date, and each source's licence verdict. Any other
  * licence row writes none, so a mismatch is cleared by refreshing NOTICES and
  * re-running, never by recording it; UPSTREAM-MOVED does not stop the write.
+ * Without `--write` it only says whether it would write one (#4449); with it,
+ * a cut-over main checkout is refused before any fetch (#4229).
  * `--covered <dir>` is the offline half, run by `.husky/pre-commit` on a commit
  * staging the lock: it reads the staged lock, NOTICES and record that the hook
  * copies into <dir>, and fails where the record is missing or either hash
@@ -149,7 +152,15 @@ const {
 	noticeFaults,
 	readNoticeLicences,
 } = require("./lib/vendored-notices.js");
-const { execGit, gitCommonDir } = require("./lib/git.js");
+const {
+	execGit,
+	gitCommonDir,
+	gitReader,
+	GIT_TIMEOUT_MS,
+} = require("./lib/git.js");
+const { landingCutOver } = require("./lib/cutover.js");
+const { mainCheckout } = require("./lib/main-checkout.js");
+const { moduleOn } = require("./lib/workflow-core-config.js");
 
 const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
@@ -1103,6 +1114,12 @@ function writeRecord(ctx, root, read, licences) {
 		);
 		return;
 	}
+	if (!ctx.has("--write")) {
+		ctx.say(
+			`  ${RECORD} is due: run again with --write to write it, then stage it with ${LOCK}.`,
+		);
+		return;
+	}
 	/** @type {UpstreamRecord} */
 	const record = {
 		ranOn: new Date().toISOString().slice(0, 10),
@@ -1139,7 +1156,7 @@ function runCovered(ctx, dir) {
 	const hashes = coveredHashes(staged);
 	if (hashes[LOCK] === null)
 		return { okLine: `no ${LOCK} staged, so no upstream record is owed.` };
-	const fix = `Run, then stage the ${RECORD} it writes with this commit:\n    ${buildSelfCommand("--upstream")}\n  Only where GitHub is unreachable and that run SKIPs: ${STAND_DOWN}=1 stands this check down for one commit, named on its Weakens: line.`;
+	const fix = `Run, then stage the ${RECORD} it writes with this commit:\n    ${buildSelfCommand("--upstream --write")}\n  Only where GitHub is unreachable and that run SKIPs: ${STAND_DOWN}=1 stands this check down for one commit, named on its Weakens: line.`;
 	const stale = recordFault(staged(RECORD), hashes);
 	if (stale)
 		ctx.fail(
@@ -1196,10 +1213,36 @@ function recordFault(file, staged) {
 			};
 }
 
+/**
+ * Whether `root` is the main checkout itself, cut over to the worktree model.
+ * @param {string} root
+ */
+function isCutOverMainCheckout(root) {
+	const top = mainCheckout(root);
+	if (top === null || fs.realpathSync(top) !== fs.realpathSync(root))
+		return false;
+	return landingCutOver(
+		(m) => moduleOn(m, { root: top }),
+		gitReader(top, GIT_TIMEOUT_MS),
+	);
+}
+
+/**
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {string} root
+ */
+function upstreamMode(ctx, root) {
+	if (ctx.has("--write") && isCutOverMainCheckout(root))
+		ctx.usageError(
+			`--write refused: ${root} is the main checkout, which takes no edits once cut over (#4229). Run it in your own worktree.`,
+		);
+	return runUpstream(ctx, root);
+}
+
 const SPEC = {
 	name: "check-vendored-skills",
 	usage:
-		'node check-vendored-skills.js [--root <dir>] [--json] [--warn] | --declare <path> --issue <n> --why "<line>" | --drop <path> | --forget <path> | --revendor --at <rev> | --upstream | --covered <dir>',
+		'node check-vendored-skills.js [--root <dir>] [--json] [--warn] | --declare <path> --issue <n> --why "<line>" | --drop <path> | --forget <path> | --revendor --at <rev> | --upstream [--write] | --covered <dir>',
 	valueFlags: [
 		"--root",
 		"--covered",
@@ -1210,7 +1253,7 @@ const SPEC = {
 		"--issue",
 		"--why",
 	],
-	flags: ["--revendor", "--upstream"],
+	flags: ["--revendor", "--upstream", "--write"],
 	run(/** @type {import("./lib/check").CheckContext} */ ctx) {
 		const root = path.resolve(ctx.value("--root", process.cwd()));
 
@@ -1229,7 +1272,11 @@ const SPEC = {
 			return ctx.broken(errMessage(e));
 		}
 
-		if (ctx.has("--upstream")) return runUpstream(ctx, root);
+		if (ctx.has("--upstream")) return upstreamMode(ctx, root);
+		if (ctx.has("--write"))
+			ctx.usageError(
+				"--write names --upstream's record, so it needs --upstream.",
+			);
 		if (ctx.has("--covered"))
 			return runCovered(ctx, path.resolve(ctx.value("--covered", "")));
 

@@ -178,7 +178,7 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  * @typedef {object} Scene what every judge of one call reads
  * @property {string} raw the command as typed
  * @property {string} root the session tree's root, "" where it stands in none
- * @property {import("./guard-dispatch.js").TreePorts | null} tree the
+ * @property {import("./guard-host-ports.js").TreePorts | null} tree the
  *   session's tree, null where the shell stands in no repository
  * @property {string} rootReal the session tree's root resolved physical, ""
  *   where there is none
@@ -327,7 +327,7 @@ files. For \`rg\` it WIDENS the search to the hidden directories \`rg PAT .\` sk
  * directory named with a leading dot, which would be dropped silently; no such
  * directory exists here, and a tracked one — `.claude`, `.github` — comes
  * through the first list.
- * @param {import("./guard-dispatch.js").TreePorts} tree the session's tree
+ * @param {import("./guard-host-ports.js").TreePorts} tree the session's tree
  * @param {DotReadContext} ctx
  * @returns {string | null}
  */
