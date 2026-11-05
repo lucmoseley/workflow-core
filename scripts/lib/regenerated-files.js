@@ -11,7 +11,7 @@
 
 /**
  * @typedef {object} Regenerated
- * @property {string} generator the script that writes the file
+ * @property {string} generator
  * @property {(cwd: string, tree: string) => string} renderAt the file's bytes
  *   as the generator renders them on the commit or tree `tree`
  */

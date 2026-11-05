@@ -231,7 +231,6 @@ describe("a culprit whose revert conflicts in a regenerated file (#4452)", () =>
 		return commit(name);
 	};
 
-	/** On `base`, a red commit then a later one, both moving the manifest. */
 	const commitRedThenLater = () => {
 		const base = commitReadBy("base");
 		const red = commitReadBy("red");

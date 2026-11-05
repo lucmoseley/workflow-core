@@ -7,8 +7,7 @@
  * on its push. The name only asks: a gate grants the exemption where the tree
  * it judges is what `git revert` of that culprit makes on the judged commit's
  * parent, recomputed here with `git merge-tree`, whose ort merge is the one
- * `git revert` runs. So the variable carries nothing past a gate but a clean
- * revert of a commit the repo holds.
+ * `git revert` runs.
  *
  * A CONFLICT ONLY IN ANCHOR FILES STILL COUNTS AS CLEAN (#3935). `git merge-file
  * --ours` settles the file for the side the revert is made on. Regenerating it
@@ -27,8 +26,7 @@
  * `merge-tree` writes those bytes itself.
  *
  * RESIDUAL: anyone may set it, an agent session included, and a clean revert
- * of any commit then lands with the rows it leaves stale. They stay stale
- * findings on every full run, and only staleness is exempt.
+ * of any commit then lands with the rows it leaves stale.
  */
 
 const { commitSha } = require("./commit-sha.js");
