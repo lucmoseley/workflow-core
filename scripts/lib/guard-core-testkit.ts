@@ -84,6 +84,20 @@ export const latchesAt = (root: string) => {
 		: [];
 };
 
+/**
+ * Where a core run happens: `root` the host root, `env` the whole
+ * environment, `worktree`'s one variable aside, so nothing of the test
+ * process's leaks in. `worktree` runs it from that linked worktree of `root`:
+ * the hook's cwd and the payload's `cwd`, unless the payload names one, with
+ * `CLAUDE_PROJECT_DIR` still `root`. `cwd` stands in for the hook's own.
+ */
+export interface CoreRunOptions {
+	root: string;
+	worktree?: string;
+	cwd?: string;
+	env?: Record<string, string>;
+}
+
 export interface CoreRun {
 	/** Null where silent. */
 	output: Output | null;
@@ -91,12 +105,7 @@ export interface CoreRun {
 }
 
 /**
- * Run the `event` core `name` on `payload` with `root` as the host root.
- * `env` is the whole environment, `worktree`'s one variable aside: nothing of
- * the test process's leaks in.
- * `worktree` runs it from that linked worktree of `root`: the hook's cwd and
- * the payload's `cwd`, unless the payload names one, with `CLAUDE_PROJECT_DIR`
- * still `root`.
+ * Run the `event` core `name` on `payload`.
  * `throwing` makes the row's `decide` throw it, for a core with no real fault a
  * case can provoke to reach its row's failure policy.
  */
@@ -104,17 +113,10 @@ export function runCore(
 	name: string,
 	payload: Record<string, unknown>,
 	{
-		root,
-		worktree,
-		cwd = worktree ?? root,
-		env: given = {},
 		event = "PreToolUse",
 		throwing,
-	}: {
-		root: string;
-		worktree?: string;
-		cwd?: string;
-		env?: Record<string, string>;
+		...where
+	}: CoreRunOptions & {
 		event?: "PreToolUse" | "PostToolUse";
 		throwing?: string;
 	},
@@ -129,41 +131,27 @@ export function runCore(
 				},
 			}))
 		: cores;
-	return dispatchCores(running, payload, { root, worktree, cwd, env: given });
+	return dispatchCores(running, payload, where);
 }
 
 /**
  * Every `event` core on `payload`, as the entry runs them, its output the
- * one the hook would print: what a host is handed for one call. The options
- * are runCore's.
+ * one the hook would print.
  */
 export function runEventCores(
 	payload: Record<string, unknown>,
-	opts: {
-		root: string;
-		worktree?: string;
-		cwd?: string;
-		env?: Record<string, string>;
-		event?: "PreToolUse" | "PostToolUse";
-	},
+	{
+		event = "PreToolUse",
+		...where
+	}: CoreRunOptions & { event?: "PreToolUse" | "PostToolUse" },
 ): CoreRun {
-	return dispatchCores(loadedCores(opts.event ?? "PreToolUse"), payload, opts);
+	return dispatchCores(loadedCores(event), payload, where);
 }
 
 function dispatchCores(
 	cores: ReturnType<typeof loadedCores>,
 	payload: Record<string, unknown>,
-	{
-		root,
-		worktree,
-		cwd = worktree ?? root,
-		env: given = {},
-	}: {
-		root: string;
-		worktree?: string;
-		cwd?: string;
-		env?: Record<string, string>;
-	},
+	{ root, worktree, cwd = worktree ?? root, env: given = {} }: CoreRunOptions,
 ): CoreRun {
 	const env = worktree ? { CLAUDE_PROJECT_DIR: root, ...given } : given;
 	const input = worktree ? { cwd: worktree, ...payload } : payload;

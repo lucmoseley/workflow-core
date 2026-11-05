@@ -62,7 +62,7 @@ export const unansweredLog = () => path.join(tmp, "unanswered-gh");
 const NO_ARM = "stub tracker has no arm for this gh call";
 
 /** The script the lander starts after a move in place of level-main.js. */
-const levelStub = () => {
+export const levelStub = () => {
 	const stub = path.join(tmp, "level-stub.js");
 	if (!fs.existsSync(stub))
 		fs.writeFileSync(
@@ -139,6 +139,7 @@ export const runLander = (
 		...process.env,
 		WFC_MODULES: modules,
 		CLAUDE_PROJECT_DIR: work,
+		CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
 		WFC_LEVEL_MAIN_SCRIPT: levelStub(),
 		...extraEnv,
 	};

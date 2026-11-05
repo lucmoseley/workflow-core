@@ -21,6 +21,7 @@ import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
 import { queueJoin } from "./suite-queue.js";
+import { admitted } from "./suite-slot-fake";
 
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
@@ -74,21 +75,6 @@ const commit = (message: string) => {
 		message,
 	);
 	return git(work, "rev-parse", "HEAD");
-};
-
-const admitted = () => {
-	const log: string[] = [];
-	return {
-		log,
-		admit: async () => {
-			log.push("hold");
-			return {
-				ok: true as const,
-				spawned: () => log.push("spawned"),
-				release: () => log.push("release"),
-			};
-		},
-	};
 };
 
 /* Git runs for real; npm is recorded and stands in for an install. */

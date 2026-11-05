@@ -379,7 +379,13 @@
 					"id": "review-ultra-axis",
 					"core": "guard-review-rules",
 					"kind": "inject",
-					"text": "judge this diff against `"
+					"text": "then push to `main` as `rule:branch-publish` says. NEVER START ONE UNASKED"
+				},
+				{
+					"id": "review-ultra-axis-landing",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "and pushes your queue ref. NEVER START ONE UNASKED"
 				},
 				{
 					"id": "review-tier-escalated",

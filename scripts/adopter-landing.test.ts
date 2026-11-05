@@ -1,68 +1,65 @@
 // @vitest-environment node
 /*
  * The `landing` module on an adopter, against lib/lander-testkit.ts's real
- * bare remote and clone (#4485's adopter release, spec #4458): its
- * `.claude/workflow-core.json` turns the module on or leaves it off, and
- * every module read here is that file's, the suite's WFC_MODULES cleared.
+ * bare remote and clone: its `.claude/workflow-core.json` turns the module on
+ * or leaves it off, and every module read here is that file's, the suite's
+ * WFC_MODULES cleared. Each push runs the adopter's pre-push hook, the
+ * plugin's `.husky/pre-push`, as an adopter's `core.hooksPath` runs it.
  *
  * On, with no `landingTester` named, the queue lander's tester is the local
  * one (lib/local-tester.js), running the adopter's `commands.test` at each
- * sha. The lander run is driven in process through lib/queue-lander.js's
- * runQueueLander over the production adapters queue-lander.js wires, the
- * local tester's suite slot aside: the real one admits against this machine's
- * suite gate and memory, which the suite running this test holds.
+ * sha. The lander run is driven in process through lib/queue-lander-deps.js,
+ * the wiring scripts/queue-lander.js runs, over the stub tracker and the
+ * levelling stub, the local tester's suite slot aside: the real one admits
+ * against this machine's suite gate and memory, which the suite running this
+ * test holds.
+ *
+ * Over the 10 s budget, as each push crosses the real pre-push hook and each
+ * lander test the local tester's real install and run in its worktree: the
+ * two routes it holds an adopter to.
  *
  * Loosen it and an adopter's queue ref never lands through its local tester,
  * a red member's isolation runs beside another's or the red one lands, or,
  * with the module off, a push to `main` is refused by the pre-push hook or
- * the publish guard, or a queue or landing rule reaches the session.
+ * the publish guard, or a hook hands the session text naming the queue.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderSessionRules } from "./lib/adopter-skeleton.js";
-import { runEventCores } from "./lib/guard-core-testkit";
-import {
-	fileLedger,
-	heartbeatWriter,
-	landerLock,
-	queueLanderFiles,
-} from "./lib/lander-files.js";
+import { runEventCores, toolCall } from "./lib/guard-core-testkit";
+import { queueLanderFiles } from "./lib/lander-files.js";
 import {
 	commit,
 	git,
 	landerSandbox,
-	markers,
+	levelled,
+	levelStub,
 	remote,
+	stubTracker,
 	tmp,
 	work,
 } from "./lib/lander-testkit";
-import { localTester } from "./lib/local-tester.js";
 import { buildBashPayload } from "./lib/pretool-guard-testkit";
+import { projectSlug } from "./lib/project-slug.js";
 import { runQueueLander } from "./lib/queue-lander.js";
-import {
-	batchRecord,
-	dropRecord,
-	queueGit,
-	queueLogger,
-	verdictLedger,
-} from "./lib/queue-lander-adapters.js";
-import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
+import { buildLanderDeps } from "./lib/queue-lander-deps.js";
+import { queueLogFile } from "./lib/queue-log.js";
 import { readRuleText } from "./lib/rule-text.js";
+import { readStopGuardBlock } from "./lib/stop-guard-testkit";
+import { admitted, peakHeld } from "./lib/suite-slot-fake";
 import { readConfig } from "./lib/workflow-core-config.js";
 
 landerSandbox();
 
 const ROOT = path.resolve(__dirname, "..");
+/* The store an adopter's fragments resolve to: the plugin's own. */
 const RULES = path.resolve(__dirname, "..", "docs", "agents", "rules");
 
-/* The queue's and landing's rule fragments: what a host with the module off
- * is never handed. */
-const QUEUE_RULES = fs
-	.readdirSync(RULES)
-	.filter((f) => /^(?:queue|landing)-|-landing\.txt$/.test(f))
-	.map((f) => f.replace(/\.txt$/, ""));
+/* The text naming the queue: a queue ref, the queue lander, or a ref it
+ * alone writes. */
+const QUEUE_TEXT = /queue ref|queue\/|queue lander|lander\/|dropped\//;
 
 /* A runner that runs each `*.check.js` the tree holds and prints vitest's
  * FAIL line for each one that throws. */
@@ -82,7 +79,21 @@ const write = (rel: string, text: string) => {
 	fs.writeFileSync(path.join(work, rel), text);
 };
 
-/** `main` made an adopter's: its config, `modules` on, committed and pushed. */
+/* The environment a push runs its hooks in: the plugin's, and no session's. */
+const pushEnv = () => {
+	const env: NodeJS.ProcessEnv = { ...process.env, WFC_PLUGIN_ROOT: ROOT };
+	delete env.WFC_MODULES;
+	delete env.CLAUDE_PROJECT_DIR;
+	return env;
+};
+
+const push = (refspec: string) =>
+	spawnSync("git", ["push", "origin", refspec], {
+		cwd: work,
+		env: pushEnv(),
+		encoding: "utf8",
+	});
+
 const adopt = (modules: string[]) => {
 	vi.stubEnv("WFC_MODULES", undefined);
 	write(
@@ -90,6 +101,7 @@ const adopt = (modules: string[]) => {
 		JSON.stringify({
 			contract: 1,
 			modules,
+			tracker: "o/here",
 			commands: { test: "node run.js" },
 		}),
 	);
@@ -97,113 +109,91 @@ const adopt = (modules: string[]) => {
 	write(".gitignore", ".claude/worktrees/\n.claude/tmp/\nnode_modules/\n");
 	const sha = commit("adopter");
 	git(work, "push", "-q", "origin", "HEAD:main");
+	const hooks = path.join(tmp, "hooks");
+	fs.mkdirSync(hooks, { recursive: true });
+	fs.writeFileSync(
+		path.join(hooks, "pre-push"),
+		`#!/bin/sh\nexec sh ${JSON.stringify(path.join(ROOT, ".husky", "pre-push"))} "$@"\n`,
+	);
+	fs.chmodSync(path.join(hooks, "pre-push"), 0o755);
+	git(work, "config", "core.hooksPath", hooks);
 	return sha;
 };
 
-/** A commit on `from` adding `<name>.check.js` as `check`, pushed as `queue/<name>`. */
 const pushQueue = (name: string, from: string, check: string) => {
 	git(work, "checkout", "-q", "--detach", from);
 	write(`${name}.check.js`, check);
 	const sha = commit(name);
-	git(work, "push", "-q", "origin", `${sha}:refs/heads/queue/${name}`);
+	const pushed = push(`${sha}:refs/heads/queue/${name}`);
+	expect(pushed.status, pushed.stderr).toBe(0);
 	return sha;
 };
 
-/** One suite slot, recording how many are held at once at its peak. */
-const oneSlot = () => {
-	const slots = { held: 0, peak: 0, admitted: 0 };
-	return {
-		slots,
-		admit: async () => {
-			slots.held += 1;
-			slots.admitted += 1;
-			slots.peak = Math.max(slots.peak, slots.held);
-			return {
-				ok: true as const,
-				spawned: () => undefined,
-				release: () => {
-					slots.held -= 1;
-				},
-			};
-		},
-	};
+/** One lander run over the adopter's configured tester, as queue-lander.js wires it. */
+const runAdopterLander = async () => {
+	const { gh, readStore } = stubTracker();
+	vi.stubEnv("WFC_GH", gh.env.WFC_GH);
+	vi.stubEnv("WFC_LEVEL_MAIN_SCRIPT", levelStub());
+	vi.stubEnv("CLAUDE_PROJECT_DIR", work);
+	const slot = admitted();
+	await runQueueLander(
+		buildLanderDeps(work, { admit: slot.admit, say: () => undefined }),
+	);
+	return { files: queueLanderFiles(work), slot, readStore };
 };
 
-/** A tracker filing each drop's fix ticket as #101 on, refusing a base red. */
-const fakeTracker = () => {
-	const filed: string[] = [];
-	return {
-		filed,
-		tracker: {
-			fileDropTicket: (d: { name: string }) => {
-				filed.push(d.name);
-				return `#${100 + filed.length}`;
-			},
-			fileBaseRed: () => {
-				throw new Error("no base red on this fixture");
-			},
-			stateOf: () => "open" as const,
-		},
-	};
-};
-
-/** One lander run over the adopter's local tester, as queue-lander.js wires it. */
-const runAdopterLander = async (admit: ReturnType<typeof oneSlot>["admit"]) => {
-	const files = queueLanderFiles(work);
-	const { tracker, filed } = fakeTracker();
-	const lines: string[] = [];
-	await runQueueLander({
-		git: queueGit(work),
-		tester: localTester({ root: work, admit }),
-		ledger: fileLedger(files.ledger),
-		verdicts: verdictLedger(files.verdicts),
-		record: batchRecord(files.batch),
-		drops: dropRecord(files.drops),
-		tracker,
-		logQueue: queueLogger(work),
-		lock: landerLock(work),
-		beat: heartbeatWriter(files.heartbeat),
-		now: Date.now,
-		say: (line: string) => lines.push(line),
-	});
-	return { files, filed, lines };
+/* Every `event` core on one call in `work`, its scratch under the case's:
+ * the echo recorder reads the process's TMPDIR, the rest the run's env. */
+const cores = (
+	payload: Record<string, unknown>,
+	event: "PreToolUse" | "PostToolUse" = "PreToolUse",
+) => {
+	vi.stubEnv("TMPDIR", tmp);
+	return runEventCores(payload, { root: work, env: { TMPDIR: tmp }, event })
+		.output;
 };
 
 const remoteHeads = () =>
 	git(remote, "for-each-ref", "--format=%(refname)", "refs/heads/");
 
+const enqueued = () =>
+	fs
+		.readFileSync(queueLogFile(work), "utf8")
+		.trim()
+		.split("\n")
+		.map((l) => JSON.parse(l))
+		.filter((row) => row.event === "enqueue")
+		.map((row) => [row.ref, row.sha]);
+
 describe("with the landing module on and the local tester", () => {
 	it("lands a session's queue ref on main through the local tester", async () => {
 		const base = adopt(["landing"]);
-		expect(readConfig({ root: work, quiet: true }).modules).toContain(
-			"landing",
-		);
-		expect(readConfig({ root: work, quiet: true }).landingTester).not.toBe(
-			"actions",
-		);
+		expect(
+			JSON.parse(
+				fs.readFileSync(
+					path.join(work, ".claude", "workflow-core.json"),
+					"utf8",
+				),
+			),
+		).not.toHaveProperty("landingTester");
 		const a = pushQueue("a", base, "");
-		const { admit, slots } = oneSlot();
+		expect(enqueued()).toEqual([["refs/heads/queue/a", a]]);
 
-		const { files } = await runAdopterLander(admit);
+		const { files, slot } = await runAdopterLander();
 
 		expect(git(remote, "rev-parse", "main")).toBe(a);
 		expect(remoteHeads()).not.toContain("refs/heads/queue/");
 		expect(fs.readFileSync(files.ledger, "utf8")).toContain(a);
-		expect(slots.admitted).toBeGreaterThan(0);
+		expect(slot.log).toContain("hold");
+		expect(fs.readFileSync(levelled(), "utf8")).toContain(work);
 	});
 
 	it("isolates a red member serially under the one slot, dropping it and landing the green one", async () => {
 		const base = adopt(["landing"]);
 		const a = pushQueue("a", base, "");
 		const b = pushQueue("b", base, "throw new Error('red')");
-		fs.mkdirSync(markers(), { recursive: true });
-		const log = queueLogFile(work);
-		const at = Date.now();
-		logEnqueue(log, { ref: "refs/heads/queue/a", sha: a, at: at - 2000 });
-		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
-		const { admit, slots } = oneSlot();
 
-		const { files, filed } = await runAdopterLander(admit);
+		const { files, slot, readStore } = await runAdopterLander();
 
 		expect(git(remote, "rev-parse", "main")).toBe(a);
 		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
@@ -221,8 +211,10 @@ describe("with the landing module on and the local tester", () => {
 			);
 			expect(held).toHaveLength(1);
 		}
-		expect(slots.peak).toBe(1);
-		expect(slots.admitted).toBeGreaterThan(isolations.length);
+		expect(peakHeld(slot.log)).toBe(1);
+		expect(slot.log.filter((at) => at === "hold").length).toBeGreaterThan(
+			isolations.length,
+		);
 		const [drop, ...more] = JSON.parse(fs.readFileSync(files.drops, "utf8"));
 		expect(more).toEqual([]);
 		expect(drop).toMatchObject({
@@ -231,63 +223,124 @@ describe("with the landing module on and the local tester", () => {
 			ref: "dropped/b",
 			cause: { kind: "red" },
 		});
-		expect(filed).toEqual(["b"]);
+		expect(readStore().map((t: { body: string }) => t.body)).toEqual([
+			expect.stringContaining("`dropped/b`"),
+		]);
+	});
+
+	it("refuses a push to main through the pre-push hook and the publish guard", () => {
+		const base = adopt(["landing"]);
+		write("next.txt", "next");
+		commit("next");
+
+		const pushed = push("HEAD:main");
+
+		expect(pushed.status).not.toBe(0);
+		expect(pushed.stderr).toContain("the lander's green ledger holds neither");
+		expect(git(remote, "rev-parse", "main")).toBe(base);
+		const output = cores(buildBashPayload("git push origin HEAD:main"));
+		expect(output?.permissionDecision).toBe("deny");
+		expect(output?.permissionDecisionReason).toContain(
+			readRuleText("branch-publish-landing", work),
+		);
 	});
 });
 
 describe("with the landing module off", () => {
+	/* Each fragment naming the queue, as this host's sessions would read it. */
+	const queueRules = () =>
+		fs
+			.readdirSync(RULES)
+			.filter((f) => f.endsWith(".txt"))
+			.map((f) => f.replace(/\.txt$/, ""))
+			.filter((id) => QUEUE_TEXT.test(readRuleText(id, work)));
+
 	const told = (text: string) => {
-		for (const id of QUEUE_RULES) {
-			expect(text).not.toContain(readRuleText(id, ROOT));
+		for (const id of queueRules()) {
+			expect(text).not.toContain(readRuleText(id, work));
 			expect(text).not.toContain(`rule:${id}`);
 		}
-		expect(text).not.toContain("queue/");
+		expect(text).not.toMatch(QUEUE_TEXT);
 	};
 
-	it("passes a push to main through the pre-push hook, and hands no queue rule", () => {
+	it("reads every fragment naming the queue as one", () => {
+		adopt([]);
+		expect(queueRules()).toEqual(
+			expect.arrayContaining([
+				"queue-ref",
+				"landing-rewind",
+				"branch-publish-landing",
+				"push-cadence-landing",
+				"review-ultra-axis-landing",
+			]),
+		);
+		expect(queueRules()).not.toContain("review-ultra-axis");
+	});
+
+	it("passes a push to main through the pre-push hook, its gates run, and names no queue", () => {
 		const base = adopt([]);
-		expect(QUEUE_RULES).toEqual(
-			expect.arrayContaining(["queue-ref", "landing-rewind"]),
-		);
-		const hooks = path.join(tmp, "hooks");
-		fs.mkdirSync(hooks);
-		fs.writeFileSync(
-			path.join(hooks, "pre-push"),
-			`#!/bin/sh\nexec sh ${JSON.stringify(path.join(ROOT, ".husky", "pre-push"))} "$@"\n`,
-		);
-		fs.chmodSync(path.join(hooks, "pre-push"), 0o755);
-		git(work, "config", "core.hooksPath", hooks);
 		write("next.txt", "next");
 		const sha = commit("next");
-		const env: NodeJS.ProcessEnv = { ...process.env, WFC_PLUGIN_ROOT: ROOT };
-		delete env.WFC_MODULES;
-		delete env.CLAUDE_PROJECT_DIR;
 
-		const pushed = spawnSync("git", ["push", "origin", "HEAD:main"], {
-			cwd: work,
-			env,
-			encoding: "utf8",
-		});
+		const pushed = push("HEAD:main");
 
 		expect(pushed.status, pushed.stderr).toBe(0);
 		expect(git(remote, "rev-parse", "main")).toBe(sha);
 		expect(sha).not.toBe(base);
+		expect(pushed.stderr).toContain('SKIP: module "suites" is off');
+		expect(pushed.stderr).not.toContain("not checked");
 		told(pushed.stderr);
 	});
 
-	it("passes a push to main through the publish guard and every PreToolUse core, handing no queue rule", () => {
+	it("passes a push to main through every PreToolUse core, and no core of any event names the queue", () => {
 		adopt([]);
 		for (const command of [
 			"git push origin HEAD:main",
 			"git push origin main",
 			"git commit -qm next",
 		]) {
-			const { output } = runEventCores(buildBashPayload(command, "s1"), {
-				root: work,
-			});
+			const output = cores(buildBashPayload(command));
 			expect(output?.permissionDecision ?? "allow", command).not.toBe("deny");
 			told(JSON.stringify(output ?? {}));
 		}
+		const review = cores(
+			toolCall("Skill", { skill: "workflow-core:code-review" }),
+		);
+		expect(review?.additionalContext).toContain(
+			readRuleText("review-ultra-axis", work),
+		);
+		told(JSON.stringify(review));
+		const toWrite = { file_path: path.join(work, "x.md"), content: "x\n" };
+		const edit = {
+			file_path: path.join(work, "run.js"),
+			old_string: "red",
+			new_string: "failed",
+		};
+		const agent = { description: "d", prompt: "p", subagent_type: "Explore" };
+		for (const [tool, input] of [
+			["Write", toWrite],
+			["Edit", edit],
+			["Agent", agent],
+		] as const)
+			told(JSON.stringify(cores(toolCall(tool, input))));
+		for (const [tool, input] of [
+			["Bash", { command: "git push origin HEAD:main" }],
+			["Write", toWrite],
+		] as const)
+			told(
+				JSON.stringify(
+					cores(
+						toolCall(tool, input, { tool_response: { stdout: "" } }),
+						"PostToolUse",
+					),
+				),
+			);
+	});
+
+	it("hands no queue text at session start or at a stop with work unpushed", () => {
+		adopt([]);
+		write("next.txt", "next");
+		const sha = commit("next");
 		told(
 			renderSessionRules({
 				modules: readConfig({ root: work, quiet: true }).modules,
@@ -296,5 +349,42 @@ describe("with the landing module off", () => {
 				ciCheck: null,
 			}),
 		);
+		for (const prompt of ["/implement 1", "/code-review"]) {
+			const started = spawnSync(
+				path.join(ROOT, "scripts", "inject-tracker-docs.sh"),
+				{
+					input: JSON.stringify({
+						session_id: `s-${prompt}`,
+						hook_event_name: "SessionStart",
+						prompt,
+					}),
+					env: {
+						...process.env,
+						CLAUDE_PROJECT_DIR: work,
+						CLAUDE_PLUGIN_ROOT: ROOT,
+						CLAUDE_JOB_DIR: "",
+						CLAUDE_CODE_SESSION_ID: "",
+						CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
+						TMPDIR: tmp,
+						WFC_GH: "false",
+						WFC_MODULES: undefined,
+					},
+					encoding: "utf8",
+				},
+			);
+			expect(started.status, started.stderr).toBe(0);
+			expect(started.stdout, prompt).not.toBe("");
+			told(started.stdout);
+		}
+		const config = path.join(tmp, "config");
+		const commits = path.join(config, "projects", projectSlug(work), "commits");
+		fs.mkdirSync(commits, { recursive: true });
+		fs.writeFileSync(path.join(commits, "s-stop.txt"), `${sha}\n`);
+		const stop = readStopGuardBlock(
+			path.join(ROOT, "scripts", "guard-unpushed-commits.js"),
+			{ dir: work, sid: "s-stop", config, message: "result: done." },
+		);
+		expect(stop?.reason).toContain("push to `origin/main`");
+		told(stop?.reason ?? "");
 	});
 });

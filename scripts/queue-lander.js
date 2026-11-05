@@ -4,7 +4,7 @@
  * `queue/<name>` ref waits on the remote, take them all as one batch, merge
  * them onto `main`, test the integration commit and move `main` to it on
  * green; on red, isolate the members and drop each culprit
- * (lib/queue-lander.js).
+ * (lib/queue-lander.js), over the wiring lib/queue-lander-deps.js builds.
  *
  *   node scripts/queue-lander.js run [--tester <command>]
  *
@@ -34,53 +34,20 @@
  * command line it refuses.
  */
 
-const { queueTester } = require("./lib/actions-tester.js");
-const { baseRedFiler } = require("./lib/base-red-issue.js");
 const { parseErrorText } = require("./lib/caught.js");
-const { now } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { dropTicketFiler, liveFilerDeps } = require("./lib/fix-ticket.js");
-const { adoptGuardCodeAt, adoptionLine } = require("./lib/guard-code.js");
-const {
-	fileLedger,
-	heartbeatWriter,
-	landerLock,
-	queueLanderFiles,
-} = require("./lib/lander-files.js");
-const { startLevelling } = require("./lib/level-main.js");
-const { commandTester, localTester } = require("./lib/local-tester.js");
-const { liveQueueDeps } = require("./lib/queue-issue.js");
-const {
-	batchRecord,
-	dropRecord,
-	queueGit,
-	queueLogger,
-	verdictLedger,
-} = require("./lib/queue-lander-adapters.js");
-const {
-	buildQueueActionLine,
-	runQueueLander,
-} = require("./lib/queue-lander.js");
+const { buildLanderDeps } = require("./lib/queue-lander-deps.js");
+const { runQueueLander } = require("./lib/queue-lander.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
 	buildModuleOffLine,
 	moduleOn,
-	readConfig,
 } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
-
-/**
- * @param {string} root
- * @returns {import("./lib/queue-lander.js").QueueTester}
- */
-const configuredTester = (root) =>
-	readConfig({ root, quiet: true }).landingTester === "actions"
-		? queueTester({ root })
-		: localTester({ root });
 
 /**
  * The run the command line asks for: the canonical checkout and the
@@ -111,58 +78,12 @@ function openLanderRun(argv) {
 	return { root, tester: flagValue(parsed.flags, "--tester") };
 }
 
-/**
- * After each move of `main`: the guard code's adoption and a levelling pass.
- * @param {string} root
- * @returns {void}
- */
-function afterMainMove(root) {
-	const adoption = adoptGuardCodeAt(root, { fetch: false });
-	if (adoption) say(adoptionLine(adoption));
-	startLevelling(root, (err) =>
-		say(`levelling not started: ${parseErrorText(err)}`),
-	);
-}
-
-/**
- * @param {string} root
- * @returns {import("./lib/queue-lander.js").QueueTracker}
- */
-function trackerOf(root) {
-	const deps = liveFilerDeps(root);
-	return {
-		...dropTicketFiler(deps),
-		...baseRedFiler(liveQueueDeps(root)),
-		stateOf: deps.stateOf,
-	};
-}
-
 /** @param {string[]} [argv] @returns {Promise<number>} */
 async function main(argv = process.argv.slice(2)) {
 	const opened = openLanderRun(argv);
 	if (typeof opened === "number") return opened;
 	const { root, tester } = opened;
-	const files = queueLanderFiles(root);
-	await runQueueLander({
-		git: queueGit(root),
-		tester:
-			tester === undefined
-				? configuredTester(root)
-				: commandTester(tester, root),
-		ledger: fileLedger(files.ledger),
-		verdicts: verdictLedger(files.verdicts),
-		record: batchRecord(files.batch),
-		drops: dropRecord(files.drops),
-		tracker: trackerOf(root),
-		logQueue: queueLogger(root),
-		lock: landerLock(root),
-		beat: heartbeatWriter(files.heartbeat),
-		log: (action) =>
-			say(`${new Date(now()).toISOString()} ${buildQueueActionLine(action)}`),
-		mainMoved: () => afterMainMove(root),
-		now,
-		say,
-	});
+	await runQueueLander(buildLanderDeps(root, { tester, say }));
 	return 0;
 }
 

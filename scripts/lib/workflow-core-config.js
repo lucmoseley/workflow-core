@@ -249,7 +249,7 @@ const defaultCommand = (name) =>
  * @property {Record<string, PythonKind>} [pythonRoutes] the host's Python route rows, pathspec glob → code kind, first match winning, ahead of base §0's default map in scripts/check-swallowed-errors.js (#1830)
  * @property {number} [sessionMeanMb] the mean of one of this host's working sessions' memory draw, its tools included (#2139)
  * @property {number} [sessionSigmaMb] that draw's standard deviation (#2139)
- * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's run on `lander/batch` (lib/actions-tester.js); absent is `local` (#2413)
+ * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's run on `lander/batch` or on the `lander/iso-suite-<k>` ref holding the sha (lib/actions-tester.js); absent is `local` (#2413)
  * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
  * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none, so the plugin never pages a stranger
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
