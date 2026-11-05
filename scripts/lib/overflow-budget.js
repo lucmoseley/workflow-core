@@ -369,9 +369,10 @@ const readListedChainUsd = (lookup, root, listed) =>
  * What each listed chain member's cost repeats from the members before it. A
  * copy repeats only history from before its fork, so the figure is fixed once
  * read with every member before it listed: where one of those has gone, the
- * row's last figure stands (#4370). Residual: a row first read after an
- * earlier member's transcript went has no last figure, so its repeated
- * requests count twice.
+ * row's last figure stands (#4370). A chain's root repeats nothing and gets
+ * none. Residual: a member first read after an earlier member's transcript
+ * went, or gone before it was ever read with them, has no figure, so its
+ * repeated requests count twice.
  * @param {OverflowLookup} lookup
  * @param {Iterable<LedgerEntry>} rows
  * @param {Map<string, string>} files each listed session's main transcript
@@ -394,12 +395,13 @@ function sharedOf(lookup, rows, files) {
 			}
 			listed.push(file);
 			const after = readListedChainUsd(lookup, root, listed);
-			shared.push([
-				row,
-				everyEarlierListed || row.sharedUsd === undefined
-					? row.costUsd - (after - before)
-					: row.sharedUsd,
-			]);
+			if (row.sessionId !== root)
+				shared.push([
+					row,
+					everyEarlierListed || row.sharedUsd === undefined
+						? row.costUsd - (after - before)
+						: row.sharedUsd,
+				]);
 			before = after;
 		}
 	}

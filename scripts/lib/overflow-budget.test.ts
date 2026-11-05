@@ -533,9 +533,52 @@ describe("a resumed copy's settled spend (#4208)", () => {
 		appendTranscript(copy, buildModelTurn(1_000_000, "r3"));
 		expect(budget()).toMatchObject({ settledUsd: 36 });
 		expect(readLedgerLines()).toMatchObject([
-			{ sessionId: parent, costUsd: 20, sharedUsd: 0 },
+			{ sessionId: parent, costUsd: 20 },
 			{ sessionId: copy, costUsd: 36, sharedUsd: 20 },
 		]);
+		expect(readLedgerLines()[0]).not.toHaveProperty("sharedUsd");
+	});
+
+	it("settles a copy of a copy once after the middle copy's transcript is gone (#4370)", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		const second = recordLaunch("0000c003", { copyOf: copy });
+		appendTranscript(
+			second,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+			buildModelTurn(1_000_000, "r3"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 36 });
+		fs.rmSync(transcriptOf(copy));
+		appendTranscript(second, buildModelTurn(1_000_000, "r4"));
+		expect(budget()).toMatchObject({ settledUsd: 40 });
+	});
+
+	it("takes a moved chain's off-key spend off once after its root's transcript is gone (#4370)", () => {
+		const parent = recordLaunch("0000d001", { offKeyUsd: 40 });
+		appendTranscript(
+			parent,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+		);
+		const copy = recordLaunch("0000d002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+			buildModelTurn(1_000_000, "r3"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 24 });
+		fs.rmSync(transcriptOf(parent));
+		appendTranscript(copy, buildModelTurn(1_000_000, "r4"));
+		expect(budget()).toMatchObject({ settledUsd: 28 });
 	});
 
 	it("settles them once after the copy's transcript is gone (#4370)", () => {
