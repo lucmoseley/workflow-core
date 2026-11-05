@@ -234,7 +234,7 @@ describe("record-divergence.js", () => {
 		expect(marker).toBe("Not possible to fast-forward");
 	});
 
-	it("records a pull that exited non-zero, whose output PostToolUseFailure carries in `error`", () => {
+	it("records a pull that exited non-zero, whose output PostToolUseFailure carries in `error` (#4446)", () => {
 		const work = repoWith("failed-call", 1, 2);
 		run({
 			stdin: JSON.stringify({
@@ -247,6 +247,22 @@ describe("record-divergence.js", () => {
 		});
 		expect(readRows().map((r) => r.slice(1, 6))).toEqual([
 			["failed-call", "pull", "1", "2", "diverged"],
+		]);
+	});
+
+	it("records a rejected push that exited non-zero, from PostToolUseFailure's `error` (#4446)", () => {
+		const work = repoWith("failed-push", 2, 0);
+		run({
+			stdin: JSON.stringify({
+				hook_event_name: "PostToolUseFailure",
+				tool_name: "Bash",
+				cwd: work,
+				tool_input: { command: "git push origin main" },
+				error: `Exit code 1\n${PUSH_REJECT.stderr}`,
+			}),
+		});
+		expect(readRows().map((r) => r.slice(1, 3))).toEqual([
+			["failed-push", "push"],
 		]);
 	});
 

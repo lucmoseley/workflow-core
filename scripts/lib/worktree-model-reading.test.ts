@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { MOVED_LINE } from "./land-refusal.js";
 import {
 	foreignMainEntries,
 	isMergeIntoReconcile,
@@ -246,15 +247,9 @@ describe("landingOutcome", () => {
 		});
 	});
 
-	it("marks a land a neighbour's push beat as moved (#4446)", () => {
+	it("marks a land a neighbour's push beat as moved, off the line session-checkout.js throws (#4446)", () => {
 		expect(
-			landingOutcome(
-				bash(
-					Land,
-					"session checkout: landing moved after the fetch: a neighbour pushed first — land again",
-					true,
-				),
-			),
+			landingOutcome(bash(Land, `session checkout: ${MOVED_LINE}`, true)),
 		).toEqual({ kind: "moved" });
 	});
 
@@ -310,10 +305,7 @@ describe("zeroChecks", () => {
 			mergeToCommit: spreadOf,
 			mergeCall: spreadOf,
 			mergeUnread: 0,
-			landFailed: 0,
-			landMerged: 0,
-			landPushed: 0,
-			landMoved: 0,
+			land: { merged: 0, pushed: 0, moved: 0, failed: 0 },
 		},
 		...over,
 	});
@@ -352,12 +344,15 @@ describe("zeroChecks", () => {
 		const text = render(
 			{
 				...r,
-				costs: { ...r.costs, landMerged: 70, landPushed: 20, landMoved: 10 },
+				costs: {
+					...r.costs,
+					land: { merged: 70, pushed: 20, moved: 10, failed: 0 },
+				},
 			},
 			{ since: 0, until: day },
 		).text;
 		expect(text).toContain(
-			"landing route a week: 490 merged origin/landing first, of 630 pushed (#4229 predicts 491–587, against 436 merges on the shared checkout); 70 refused because a neighbour pushed first, 10.0% of 100 push attempt(s)",
+			"landing route a week: 490 merged origin/landing first, of 630 pushed — below #4229's predicted 491–587 (against 436 merges on the shared checkout); 70 refused because a neighbour pushed first, 10.0% of 100 push attempt(s)",
 		);
 		expect(render(reading(), { since: 0, until: day }).text).toMatch(
 			/0 refused because a neighbour pushed first, — of 0 push attempt/,

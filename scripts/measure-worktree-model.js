@@ -305,7 +305,7 @@ function readDirt(root, all, w) {
 }
 
 /**
- * @typedef {{ edits: { rel: string, ms: number }[], editErrors: number, merges: { sha: string, start: number, end: number }[], landFailed: number, landPushed: number, landMoved: number }} Spans
+ * @typedef {{ edits: { rel: string, ms: number }[], editErrors: number, merges: { sha: string, start: number, end: number }[], land: Omit<import("./lib/worktree-model-reading.js").LandCounts, "merged"> }} Spans
  */
 
 /**
@@ -323,9 +323,7 @@ function fileSpan(root, span, spans) {
 	const landed = reading.landingOutcome(span);
 	if (landed?.kind === "merged")
 		spans.merges.push({ sha: landed.sha, start: span.start, end: span.end });
-	else if (landed?.kind === "failed") spans.landFailed++;
-	else if (landed?.kind === "moved") spans.landMoved++;
-	else if (landed?.kind === "pushed") spans.landPushed++;
+	else if (landed) spans.land[landed.kind]++;
 }
 
 /**
@@ -367,9 +365,7 @@ async function readCosts(root, w) {
 		edits: [],
 		editErrors: 0,
 		merges: [],
-		landFailed: 0,
-		landPushed: 0,
-		landMoved: 0,
+		land: { pushed: 0, moved: 0, failed: 0 },
 	};
 	let unparsed = 0;
 	for (const file of files) {
@@ -391,10 +387,7 @@ async function readCosts(root, w) {
 			spans.edits.filter((e) => tracked.has(e.rel)).map((e) => e.ms),
 		),
 		editErrors: spans.editErrors,
-		landFailed: spans.landFailed,
-		landMerged: spans.merges.length,
-		landPushed: spans.landPushed,
-		landMoved: spans.landMoved,
+		land: { ...spans.land, merged: spans.merges.length },
 		...readMergeCosts(root, spans.merges),
 	};
 }

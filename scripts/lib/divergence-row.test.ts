@@ -585,7 +585,7 @@ describe("landRow", () => {
 });
 
 describe("divergenceRow on PostToolUseFailure", () => {
-	it("reads a failed call's output from `error`", () => {
+	it("reads a failed call's output from `error` (#4446)", () => {
 		const failed = {
 			tool_name: "Bash",
 			cwd: WORK,

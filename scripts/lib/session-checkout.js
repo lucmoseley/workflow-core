@@ -77,6 +77,7 @@ const {
 } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
+const { MOVED_LINE } = require("./land-refusal.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { pidLock } = require("./pid-lock.js");
@@ -635,9 +636,7 @@ function land(cwd) {
 	const push = gitShown(["push", "origin", "HEAD:landing"], dir);
 	if (!push.ok && MOVED.test(push.output)) {
 		recordMoved(root, dir, push.output);
-		throw new CheckoutError(
-			"landing moved after the fetch: a neighbour pushed first — land again, which merges the newer origin/landing into HEAD and pushes",
-		);
+		throw new CheckoutError(MOVED_LINE);
 	}
 	if (!push.ok)
 		throw new CheckoutError(
@@ -649,7 +648,8 @@ function land(cwd) {
 /**
  * File a push beaten by a neighbour as a divergence row (#4446), counted
  * against a freshly fetched origin/landing so `behind` is the neighbours' real
- * lead. Any fault drops the row: the refusal it records is the land's answer.
+ * lead; where the fetch fails, against the stale one, `behind` then a lower
+ * bound. A fault is printed and the land's own refusal still thrown.
  * @param {string} root
  * @param {string} dir
  * @param {string} output the refused push's output
@@ -657,12 +657,23 @@ function land(cwd) {
 function recordMoved(root, dir, output) {
 	try {
 		fetchLanding(root);
+	} catch (err) {
+		writeFd(
+			2,
+			`session checkout: landing not re-fetched, so the divergence row's behind is a lower bound (${caught(err).message})\n`,
+		);
+	}
+	try {
+		/* Loaded here, so a divergence lib that will not load costs the row
+		 * and never the land. */
 		const { landRow } = require("./divergence-row.js");
 		const { appendRow, buildHostPorts } = require("./divergence-row-host.js");
 		appendRow(landRow(dir, output, buildHostPorts(process.env)));
-	} catch {
-		/* An unrecorded refusal loses one observation; the land still says
-		 * why it stopped. */
+	} catch (err) {
+		writeFd(
+			2,
+			`session checkout: divergence row not recorded (${caught(err).message})\n`,
+		);
 	}
 }
 
