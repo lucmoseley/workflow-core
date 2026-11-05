@@ -1237,6 +1237,70 @@ describe("a tick's log line (#2362)", () => {
 		).toEqual([kept]);
 	});
 
+	it("counts an idle tick's clash skips as one reason, and holds each from its first deferral (#4355)", () => {
+		const decision = {
+			launches: [],
+			skipped: [
+				skip(1, "clashes on a.js held by Implement 9"),
+				skip(2, "clashes on b.js held by Implement 8"),
+				skip(3, "parked"),
+			],
+			idle: "nothing launchable",
+			held: [],
+			resumes: [],
+		};
+		const writes: Parameters<typeof settleTick>[0]["state"][] = [];
+		expect(
+			logged(decision, 1, [], {
+				read: { rows: 3, ms: 1000, goal: null },
+				writes,
+				state: {
+					...loopStateOf(null),
+					held: [
+						{
+							...skip(1, "clashes on a.js held by Implement 9"),
+							since: NOW - 3_600_000,
+						},
+					],
+				},
+			}),
+		).toBe(
+			"idle: nothing launchable (free slots: 1; frontier: 3 rows in 1.0 s; skipped 2 on a clash, 1 parked; first wfc #1 clashes on a.js held by Implement 9, wfc #2 clashes on b.js held by Implement 8, wfc #3 parked)",
+		);
+		expect(tickWrite(writes).held).toEqual([
+			{
+				...skip(1, "clashes on a.js held by Implement 9"),
+				since: NOW - 3_600_000,
+			},
+			{ ...skip(2, "clashes on b.js held by Implement 8"), since: NOW },
+		]);
+	});
+
+	it("names a launching tick's clash deferrals (#4355)", () => {
+		const decision = {
+			launches: [
+				{
+					root: "/r/wfc",
+					issues: [1],
+					prompt: "/implement 1",
+					model: "opus" as const,
+					seat: "/s2",
+					reason: "soonest reset" as const,
+				},
+			],
+			skipped: [
+				skip(4, "already running"),
+				skip(2, "clashes on a.js with #1 launched this tick"),
+			],
+			idle: null,
+			held: [],
+			resumes: [],
+		};
+		expect(logged(decision, 2, [])).toBe(
+			"launch wfc /implement 1 on /s2 (soonest reset) (deferred 1 on a clash: wfc #2 clashes on a.js with #1 launched this tick)",
+		);
+	});
+
 	it("names an empty frontier's read", () => {
 		const none = {
 			launches: [],

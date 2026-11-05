@@ -1880,7 +1880,11 @@ describe("decideTick on a predicted write-set clash (#4355)", () => {
 			frontier: [
 				row("wfc", 1, "implement", {
 					...writes("scripts/a.js"),
-					heldBy: { paths: ["scripts/a.js"], session: "Implement 9" },
+					heldBy: {
+						paths: ["scripts/a.js"],
+						session: "Implement 9",
+						sessionId: "s-9",
+					},
 				}),
 				row("wfc", 2),
 				row("wfc", 3),
@@ -1894,6 +1898,38 @@ describe("decideTick on a predicted write-set clash (#4355)", () => {
 				why: "clashes on scripts/a.js held by Implement 9",
 			},
 		]);
+	});
+
+	it("resumes a parked row onto files its own parked session holds", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 1,
+			seats: [seat("/s1", 10, 10)],
+			frontier: [
+				row("wfc", 2, "implement", {
+					labels: ["takes:implement", "parked"],
+					parkedAt: "2026-10-18T09:00:00Z",
+					...writes("scripts/a.js"),
+					heldBy: {
+						paths: ["scripts/a.js"],
+						session: "Implement 2",
+						sessionId: "s-2",
+					},
+				}),
+				row("wfc", 1),
+			],
+			parkers: [
+				{
+					root: "wfc",
+					number: 2,
+					sessionId: "s-2",
+					job: { seat: "/s1", jobId: "j-2" },
+					resumeCwd: "wfc",
+				},
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#2"]);
+		expect(d.skipped).toEqual([]);
 	});
 
 	it("never skips on a shared stamp path", () => {
@@ -1924,7 +1960,11 @@ describe("decideTick on a predicted write-set clash (#4355)", () => {
 				row("wfc", 1, "implement", writes("scripts/a.js")),
 				row("wfc", 2, "implement", {
 					...writes("scripts/b.js"),
-					heldBy: { paths: ["scripts/b.js"], session: "Implement 9" },
+					heldBy: {
+						paths: ["scripts/b.js"],
+						session: "Implement 9",
+						sessionId: "s-9",
+					},
 				}),
 				row("wfc", 3, "implement", writes("scripts/a.js")),
 				row("wfc", 4, "implement", writes("scripts/a.js")),
