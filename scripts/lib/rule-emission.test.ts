@@ -530,6 +530,25 @@ describe("ruleModule (#449) and ruleUnlessModule (#2409, #2785)", () => {
 		expect(r.ratchet.ids).not.toContain("mid");
 	});
 
+	it("reads a gate written as the skip key's whole value", () => {
+		const before = process.env.WFC_MODULES;
+		process.env.WFC_MODULES = "landing";
+		try {
+			const r = figures(
+				{ Bash: ["scripts/guard-mod.js"] },
+				{
+					"scripts/guard-mod.js":
+						'return {\n\tinjectRules: ["old"],\n\tskip: ruleUnlessModule(ctx, "landing", ["old"]),\n};\n',
+				},
+				{ old: "o".repeat(400) },
+			);
+			expect(r.ratchet.ids).not.toContain("old");
+		} finally {
+			if (before === undefined) delete process.env.WFC_MODULES;
+			else process.env.WFC_MODULES = before;
+		}
+	});
+
 	it("throws on a module the core does not know, naming the guard and the module", () => {
 		expect(() =>
 			figures(

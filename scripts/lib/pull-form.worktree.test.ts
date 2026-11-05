@@ -41,7 +41,7 @@ describe("a reset is judged in the tree the session stands in (#4242)", () => {
 });
 
 /*
- * Whether the reconciliation walk stands down is the `landing` module as the
+ * Which route the unresolved-tree refusal names is the `landing` module as the
  * main checkout's config declares it (#4274, #4229), wherever the session
  * stands.
  */
@@ -51,24 +51,24 @@ describe("the landing module is read from the main checkout's config (#4274)", (
 
 	/* The suite injects its modules over every config (vitest.setup.ts);
 	 * uninjected, the config read declares them. */
-	const output = () => {
+	const reason = () => {
 		delete process.env.WFC_MODULES;
-		return runCore(
-			"guard-pull-form",
-			toolCall("Bash", { command: 'git -C "$W" merge origin/main' }),
-			{ root: at.main, worktree: at.worktree },
-		).output;
+		return String(
+			runCore(
+				"guard-pull-form",
+				toolCall("Bash", { command: 'git -C "$W" merge origin/main' }),
+				{ root: at.main, worktree: at.worktree },
+			).output?.permissionDecisionReason,
+		);
 	};
 
-	it("stands down where the main checkout turns landing on", () => {
+	it("names the worktree land route where the main checkout turns landing on", () => {
 		landingOn(at.main);
-		expect(output()?.permissionDecision).toBeUndefined();
+		expect(reason()).toContain("session-checkout.js land");
 	});
 
-	it("refuses where only the worktree's config turns it on", () => {
+	it("names the reconcile recipe where only the worktree's config turns it on", () => {
 		landingOn(at.worktree);
-		expect(String(output()?.permissionDecisionReason)).toContain(
-			"reconcile merge origin/main`",
-		);
+		expect(reason()).toContain("reconcile merge origin/main`");
 	});
 });

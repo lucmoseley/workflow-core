@@ -60,6 +60,8 @@ interface Over {
 	/** True: every rule fetch throws, as an empty store does. */
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
+	/** False: the main checkout's `main` still tracks `landing`; left off, cut over. */
+	cutOver?: boolean;
 	isDir?: (path: string) => boolean;
 	readFileAliases?: Record<string, string | null> | null;
 	corePaths?: (text: string) => string;
@@ -80,6 +82,10 @@ function harness(over: Over = {}) {
 		vars: over.vars ?? {},
 		isDir: over.isDir ?? (() => true),
 		moduleOn: (m: string) => (over.modules ?? []).includes(m),
+		git: () => ({
+			ok: true,
+			out: over.cutOver === false ? "refs/heads/landing\n" : "",
+		}),
 		treeClass,
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
@@ -206,13 +212,40 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		"git pull --ff-only",
 		"git pull --rebase",
 		"git merge origin/landing",
-		'git -C "$W" merge origin/landing',
 	])(
-		"%s stands down with the landing module on, each session reconciling in its own worktree (#4229)",
+		"%s passes once landing is on and the main checkout cut over, the write guard owning that tree (#4229)",
 		(command) => {
 			expect(run(command, { modules: ["landing"] })).toBeNull();
 		},
 	);
+
+	it("refuses a merge before cutover with the worktree land route (#4229)", () => {
+		const reason = readDenyReason("git merge origin/landing", {
+			modules: ["landing"],
+			cutOver: false,
+		});
+		expect(reason).toContain("reconcile in your session's own worktree");
+		expect(reason).toContain("session-checkout.js land");
+		expect(reason).not.toContain(readPullRule());
+	});
+
+	it("hands no recipe to an allowed pull before cutover with landing on (#4229)", () => {
+		expect(
+			handed(
+				run("git pull --ff-only", { modules: ["landing"], cutOver: false }),
+			),
+		).toEqual([]);
+	});
+
+	it("still refuses a merge onto an unresolved tree once levelled, naming the worktree route (#301, #4229)", () => {
+		const reason = readDenyReason('git -C "$W" merge origin/landing', {
+			modules: ["landing"],
+		});
+		expect(reason).toContain(
+			"`git -C .claude/worktrees/<session-name> merge origin/landing`",
+		);
+		expect(reason).toContain("session-checkout.js land");
+	});
 
 	it.each([
 		["git pull --help", "documentation reconciles nothing"],
