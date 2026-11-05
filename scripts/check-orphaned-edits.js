@@ -76,7 +76,7 @@
  * IMPLICIT:  at every session start (its hook passes --write), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
- * TREE:      host — walks the main checkout and every linked worktree (#4244)
+ * TREE:      host — walks the main checkout, as git's common dir names it from whichever tree launched the run (#4483), and every linked worktree (#4244)
  */
 
 const { spawnSync } = require("node:child_process");
@@ -87,6 +87,8 @@ const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { mainCheckout } = require("./lib/main-checkout.js");
+const { deref } = require("./lib/deref.js");
 const {
 	readLinkedWorktrees,
 	worktreeLabel,
@@ -897,6 +899,24 @@ function describeUnread({ linked, unread }) {
 	return parts.length > 0 ? ` ${parts.join("; ")}.` : "";
 }
 
+/**
+ * The main checkout, never a linked worktree: `hostRoot()` is the launch
+ * directory, so a session started inside a worktree would judge that
+ * worktree's live dirt as the main checkout's (#4483). It is made the host for
+ * the rest of the run, so the arbiter's stores, the module config and the filer
+ * all read the main checkout too. A common dir naming no checkout keeps the
+ * host root.
+ * @returns {string}
+ */
+function readMainCheckout() {
+	const host = hostRoot();
+	const checkout = mainCheckout(host);
+	const main = checkout === null ? host : deref(checkout);
+	if (main === host) return host;
+	process.env.CLAUDE_PROJECT_DIR = main;
+	return main;
+}
+
 runCheck({
 	name: "orphaned-edits",
 	usage:
@@ -910,7 +930,7 @@ runCheck({
 			"non-negative",
 		);
 
-		const root = hostRoot();
+		const root = readMainCheckout();
 		const dirty = readDirtyTracked(root);
 		// git is the apparatus here, not the subject: BROKEN (§N4).
 		if (dirty === null)
