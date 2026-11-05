@@ -18,7 +18,6 @@ const { readImportedFiles } = require("./pool-imports.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { cutAt } = require("./cut-at.js");
 const { caught } = require("./caught.js");
-const { readCommitOrBroken } = require("./commit-sha.js");
 const { execGit } = require("./git.js");
 const { brokenError } = require("./outcome-error.js");
 
@@ -101,27 +100,34 @@ const TRIGGER_VERDICT_MIN_WORDS = 3;
 /**
  * The pool's whole-file bytes in each of `treeishes`, `""` for the INDEX, which
  * `:<path>` addresses — what .husky/pre-commit's doc-map gate hands the
- * checker, since a pathspec commit gives the hook its own GIT_INDEX_FILE. A
- * file a treeish does not hold is 0 bytes, the creating commit's case
+ * checker, since a pathspec commit gives the hook its own GIT_INDEX_FILE — or
+ * null for a rev that names no commit, an unborn HEAD's among them. A file a
+ * treeish does not hold is 0 bytes, the creating commit's case
  * (mantahostels#3526). A git that will not answer is BROKEN, never an absent
  * file (#3152).
  *
- * One `git cat-file --batch-check` for every file in every treeish rather than
- * the blobs: the pool is ~50 KB across four files and only its size is wanted.
- * It prints `<spec> missing` for an object it cannot find, whatever the reason
- * and in any locale, an unresolvable rev included, so each treeish must
- * already resolve; a corrupt index or no repository at all exits 128.
+ * One `git cat-file --batch-check` for every rev and every file in it rather
+ * than the blobs: the pool is ~50 KB across four files and only its size is
+ * wanted. It prints `<spec> missing` for an object it cannot find, whatever the
+ * reason and in any locale, so each rev's own `<rev>^{commit}` line, asked in
+ * the same spawn, tells an unresolvable rev from a file it lacks; a corrupt
+ * index or no repository at all exits 128.
  *
  * Residual: a resolvable rev whose blob is gone from the object store is also
- * `missing`, so 0 bytes, where `cat-file -s` was BROKEN; a store that corrupt
- * is fsck's to find.
+ * `missing`, so 0 bytes; a store that corrupt is fsck's to find.
  *
  * @param {string[]} treeishes
- * @returns {number[]}
+ * @returns {(number | null)[]}
  */
 function readPoolBytesIn(treeishes) {
 	const files = getPoolFiles();
-	const specs = treeishes.flatMap((t) => files.map((rel) => `${t}:${rel}`));
+	const groups = treeishes.map((t) => ({
+		commit: t ? `${t}^{commit}` : null,
+		files: files.map((rel) => `${t}:${rel}`),
+	}));
+	const specs = groups.flatMap((g) =>
+		g.commit === null ? g.files : [g.commit, ...g.files],
+	);
 	let out;
 	try {
 		out = execGit(["cat-file", "--batch-check=%(objectsize)"], {
@@ -136,18 +142,21 @@ function readPoolBytesIn(treeishes) {
 		);
 	}
 	const lines = out.split("\n");
-	const sizes = specs.map((spec, i) => {
-		const line = lines[i] ?? "";
-		if (line === `${spec} missing`) return 0;
-		if (/^\d+$/.test(line)) return Number(line);
-		throw brokenError(
-			`git cat-file --batch-check ${spec} printed ${line.slice(0, 80)}`,
-		);
-	});
-	return treeishes.map((_, t) =>
-		sizes
-			.slice(t * files.length, (t + 1) * files.length)
-			.reduce((a, b) => a + b, 0),
+	/** @type {Map<string, number | null>} */
+	const sizes = new Map(
+		specs.map((spec, i) => {
+			const line = lines[i] ?? "";
+			if (line === `${spec} missing`) return [spec, null];
+			if (/^\d+$/.test(line)) return [spec, Number(line)];
+			throw brokenError(
+				`git cat-file --batch-check ${spec} printed ${line.slice(0, 80)}`,
+			);
+		}),
+	);
+	return groups.map((g) =>
+		g.commit !== null && sizes.get(g.commit) === null
+			? null
+			: g.files.reduce((sum, spec) => sum + (sizes.get(spec) ?? 0), 0),
 	);
 }
 
@@ -166,11 +175,11 @@ function readPoolBytesIn(treeishes) {
  * @returns {number | null}
  */
 function stagedPoolDelta(revs) {
-	const committed = revs.filter((rev) => readCommitOrBroken(rev) !== null);
-	const [staged, ...bases] = readPoolBytesIn(["", ...committed]);
-	if (staged === undefined)
+	const [staged, ...bases] = readPoolBytesIn(["", ...revs]);
+	if (staged === undefined || staged === null)
 		throw new Error("readPoolBytesIn returned no size for the index");
-	return bases.length === 0 ? null : staged - Math.max(...bases);
+	const committed = bases.filter((b) => b !== null);
+	return committed.length === 0 ? null : staged - Math.max(...committed);
 }
 
 /**

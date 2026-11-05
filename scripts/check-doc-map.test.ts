@@ -4415,35 +4415,19 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 
-	it("is BROKEN where git will not resolve a committed rev, never a skipped verdict", () => {
+	it("is BROKEN where git will not locate MERGE_HEAD, never a HEAD-alone baseline (#3184)", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(8)));
 		const faulty = writeFaultyGit(
-			{ argPrefix: "HEAD^{commit}" },
+			{ argPrefix: "--git-path" },
 			{ exit: 128 },
 			{ under: repo },
 		);
 		const r = check({ WFC_GIT: faulty.git });
 		expect(faulty.hits()).toBeGreaterThan(0);
 		expect(r.status).toBe(2);
-		expect(r.out).toContain("git would not resolve HEAD");
-		expect(r.out).toContain("git rev-parse --verify HEAD");
+		expect(r.out).toContain("git would not locate MERGE_HEAD");
 		expect(r.out).not.toContain("trigger verdict was not checked");
-	});
-
-	it("is BROKEN where git will not probe MERGE_HEAD, never a HEAD-alone baseline (#3184)", () => {
-		base(ledger(bullet(8)));
-		writeMap(baselineRows, ledger(bullet(8)));
-		const faulty = writeFaultyGit(
-			{ argPrefix: "MERGE_HEAD^{commit}" },
-			{ exit: 128 },
-			{ under: repo },
-		);
-		const r = check({ WFC_GIT: faulty.git });
-		expect(faulty.hits()).toBeGreaterThan(0);
-		expect(r.status).toBe(2);
-		expect(r.out).toContain("git would not resolve MERGE_HEAD");
-		expect(r.out).toContain("git rev-parse --verify MERGE_HEAD");
 	});
 
 	it("is BROKEN where git will not locate MERGE_HEAD's file", () => {
@@ -4467,13 +4451,8 @@ describe("the pool-tranche trigger verdict", () => {
 	it("passes an absent MERGE_HEAD silently", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
-		const faulty = writeFaultyGit(
-			{ argPrefix: "MERGE_HEAD^{commit}" },
-			{ exit: 1 },
-			{ under: repo },
-		);
-		const r = check({ WFC_GIT: faulty.git });
-		expect(faulty.hits()).toBeGreaterThan(0);
+		expect(fs.existsSync(path.join(repo, ".git/MERGE_HEAD"))).toBe(false);
+		const r = check();
 		expect(r.status).toBe(0);
 		expect(r.out).not.toContain("MERGE_HEAD");
 		expect(r.out).not.toContain("trigger verdict was not checked");

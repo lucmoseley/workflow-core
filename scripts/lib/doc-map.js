@@ -1206,12 +1206,11 @@ function readHeadMapText(mapPath) {
  * the commit being applied, never a parent, so what it adds is new here
  * (#4205). Every line of `$GIT_DIR/MERGE_HEAD` is read, since an octopus merge
  * run `--no-commit` holds several and `rev-parse` answers the first only. An
- * absent ref is the ordinary case; a git that will not answer is BROKEN, never
- * a quiet HEAD alone (#3184).
+ * absent file is the ordinary case; a git that will not locate it is BROKEN,
+ * never a quiet HEAD alone (#3184).
  * @returns {string[]}
  */
 function readParentRevs() {
-	if (readCommitOrBroken("MERGE_HEAD") === null) return ["HEAD"];
 	const sides = readMergeHeadLines().map((line) => {
 		const sha = readCommitOrBroken(line);
 		if (sha === null)
@@ -1224,11 +1223,13 @@ function readParentRevs() {
 }
 
 /**
- * The non-empty lines of `$GIT_DIR/MERGE_HEAD`, one per side. BROKEN where git
- * will not locate the file or it will not read.
+ * The non-empty lines of `$GIT_DIR/MERGE_HEAD`, one per side, none where the
+ * file is absent. BROKEN where git will not locate the file or it will not
+ * read.
  * @returns {string[]}
  */
 function readMergeHeadLines() {
+	let text;
 	try {
 		const file = String(
 			execGit(["rev-parse", "--git-path", "MERGE_HEAD"], {
@@ -1236,16 +1237,16 @@ function readMergeHeadLines() {
 				stdio: ["ignore", "pipe", "pipe"],
 			}),
 		).trim();
-		return fs
-			.readFileSync(file, "utf8")
-			.split("\n")
-			.map((l) => l.trim())
-			.filter(Boolean);
+		text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 	} catch (e) {
 		throw brokenError(
 			`git would not locate MERGE_HEAD: ${caught(e).message} — run \`git rev-parse --git-path MERGE_HEAD\` to see git's own error`,
 		);
 	}
+	return text
+		.split("\n")
+		.map((l) => l.trim())
+		.filter(Boolean);
 }
 
 /**
