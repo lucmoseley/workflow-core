@@ -755,17 +755,24 @@ const EXEMPT = [SCRATCH_DIR];
  * themselves stay on the host (stateDir), where every session reads them.
  *
  * `lib/host-root.js`'s `worktreeRoot` answers it, the reader a test run uses
- * for the same question. Memoised per working directory and host: the suite
- * chdirs between trees inside one process.
+ * for the same question, under gitBound's ceiling; an overrun answers the
+ * host. Memoised per working directory and host, an overrun answer aside:
+ * the suite chdirs between trees inside one process.
  */
 let treeMemo = { cwd: "", host: "", tree: "" };
 
 function treeRoot() {
 	const cwd = process.cwd();
 	const host = repoRoot();
-	if (treeMemo.cwd !== cwd || treeMemo.host !== host)
-		treeMemo = { cwd, host, tree: worktreeRoot(cwd, { host }) };
-	return treeMemo.tree;
+	if (treeMemo.cwd === cwd && treeMemo.host === host) return treeMemo.tree;
+	if (gitBound.overran) return host;
+	const tree = worktreeRoot(cwd, {
+		host,
+		timeoutMs: gitBound.ms,
+		onTimeout: markOverrun,
+	});
+	if (!gitBound.overran) treeMemo = { cwd, host, tree };
+	return tree;
 }
 
 /**

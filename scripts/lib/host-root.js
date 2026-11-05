@@ -133,24 +133,32 @@ function sessionTree({ cwd }) {
  * store on the git common dir: only which files are under test follows the
  * worktree.
  * @param {string} [cwd]
- * @param {{ host?: string }} [opts] the host, where the caller already holds
- *   it, so the answer reads no ambient `CLAUDE_PROJECT_DIR` (#3327); else
- *   `hostRoot()`, and with neither the git top level is host and worktree alike
+ * @param {{ host?: string, timeoutMs?: number, onTimeout?: () => void }} [opts]
+ *   `host`, where the caller already holds it, so the answer reads no ambient
+ *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`, and with neither the git
+ *   top level is host and worktree alike. `timeoutMs` bounds each git read,
+ *   none by default; a read past it answers the host, and the top-level read
+ *   calls `onTimeout`
  * @returns {string}
  */
-function worktreeRoot(cwd = process.cwd(), { host: given } = {}) {
+function worktreeRoot(
+	cwd = process.cwd(),
+	{ host: given, timeoutMs, onTimeout } = {},
+) {
 	if (!given && !process.env.CLAUDE_PROJECT_DIR) return hostRoot(cwd);
 	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);
 	let top;
 	try {
-		top = gitTopLevel(cwd);
-	} catch {
+		top = gitTopLevel(cwd, timeoutMs);
+	} catch (e) {
+		if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 		/* Outside any repository there is no worktree to prefer. */
 		return host;
 	}
 	if (top === host) return host;
-	const mine = gitCommonDir(cwd);
-	return mine !== null && mine === gitCommonDir(host) ? top : host;
+	const bound = { timeout: timeoutMs };
+	const mine = gitCommonDir(cwd, bound);
+	return mine !== null && mine === gitCommonDir(host, bound) ? top : host;
 }
 
 /**
