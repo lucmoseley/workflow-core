@@ -32,6 +32,7 @@ import {
 } from "./bg-resume-fake";
 import { buildAttachBranch } from "./claude-attach-fake";
 import { writeClaudeStub } from "./claude-stub";
+import { writeCostTable } from "./cost-table-testkit";
 import {
 	DEFAULT_WINDOW_HOURS,
 	ledgerPath,
@@ -407,6 +408,18 @@ export const readLoopState = () =>
 	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
 
 export const launchState = () => readLoopState().launches[0];
+
+export const readStopped = () =>
+	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).stopped;
+
+/* The served checkout's table, as the tick reads it (#3683): a grant of 2 fits
+ * no session, a grant of 200 does. */
+export const writeKeyCostTable = () => writeCostTable(repo, { meanUsd: 4 });
+
+export const writesCopyRecord = (record: string) => {
+	const jobDir = path.join(seat, "jobs", FAKE_COPY);
+	return `mkdir -p ${shellQuote(jobDir)}; echo ${shellQuote(record)} > ${shellQuote(path.join(jobDir, "state.json"))};`;
+};
 
 export const oneTick = async (
 	what: string,
