@@ -103,7 +103,7 @@ const TRIGGER_VERDICT_MIN_WORDS = 3;
  * `:<path>` addresses — what .husky/pre-commit's doc-map gate hands the
  * checker, since a pathspec commit gives the hook its own GIT_INDEX_FILE — or
  * null for a rev that names no commit, an unborn HEAD's among them. A file a
- * treeish does not hold is 0 bytes, the creating commit's case
+ * rev does not hold is 0 bytes, the creating commit's case
  * (mantahostels#3526). A git that will not answer is BROKEN, never an absent
  * file (#3152).
  *
