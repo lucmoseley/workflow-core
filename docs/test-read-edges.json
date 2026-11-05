@@ -2879,6 +2879,9 @@
 			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/lib/plugin-tree.test.ts"
 		],
+		"migrations/hold.txt": [
+			"scripts/release-plugin.test.ts"
+		],
 		"migrations/v1.1.1.md": [
 			"scripts/lib/migration-note.test.ts"
 		],

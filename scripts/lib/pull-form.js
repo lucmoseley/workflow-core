@@ -143,7 +143,7 @@
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
-const { readCutOver } = require("./cutover.js");
+const { landingCutOver } = require("./cutover.js");
 const { LANDING_REF, VERIFIED_REF } = require("./landing-refs.js");
 const { ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
@@ -267,8 +267,7 @@ const pullRule = (ctx) =>
  * Whether the main checkout is levelled — `landing` on and cut over.
  * @param {PullFormContext} ctx
  */
-const isLevelled = (ctx) =>
-	ctx.moduleOn("landing") && readCutOver(ctx.git) === true;
+const isLevelled = (ctx) => landingCutOver(ctx.moduleOn, ctx.git);
 
 /**
  * The rewind refusal, framed by lib/main-rewind.js.

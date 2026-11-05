@@ -543,10 +543,10 @@ describe("build: the fake neighbour", () => {
 				},
 			);
 			expect(c.status, c.stderr).toBe(0);
-			return `${c.stdout}${c.stderr}`;
+			return c.stderr;
 		};
 		try {
-			expect(claim("another-session")).toContain("is also held by session");
+			expect(claim("another-session")).toContain(neighbour.sessionId);
 		} finally {
 			process.kill(neighbour.pid);
 		}
@@ -558,6 +558,6 @@ describe("build: the fake neighbour", () => {
 			i++
 		)
 			spawnSync("sleep", ["0.05"]);
-		expect(claim("another-session")).not.toContain("is also held by session");
+		expect(claim("another-session")).not.toContain(neighbour.sessionId);
 	});
 });

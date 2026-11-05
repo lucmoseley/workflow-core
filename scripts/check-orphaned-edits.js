@@ -50,13 +50,23 @@
  * by claim, observation and ledger at its host-relative path — or, outside
  * the host root, where none of those can name it, passed over and counted.
  *
+ * A CUT-OVER MAIN CHECKOUT'S DIRT IS JUDGED AT ONCE, AT ANY AGE (#4317, the
+ * founder's ruling on #4309). With the `landing` module on and the main
+ * checkout cut over (lib/cutover.js), #4248's refusal lets no session write
+ * there, so the 24-hour window, kept because a live session's Bash-route
+ * writes leave no ledger entry (#794 Q6), has no live work left to protect.
+ * Claims, observations and ledgers still exclude a file. RESIDUAL: a write
+ * the refusal does not see (its LIMITS: `dd of=`, a heredoc body, a script
+ * writing for a session) leaves no ledger entry, so a live session's such
+ * write there is filed at once.
+ *
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at every session start, files each uncommitted tracked file, in the main checkout or any linked worktree, that no live session owns and nobody has touched for 24 hours once as a takes:triage issue, printing nothing. It never reverts or writes the file.
+ * IMPLICIT:  at every session start, files each uncommitted tracked file that no live session owns once as a takes:triage issue, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
- * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run.
- * TREE:      host — reports the main checkout's unowned dirt; walking every worktree is #4244's
+ * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
+ * TREE:      host — walks the main checkout and every linked worktree (#4244)
  */
 
 const { spawnSync } = require("node:child_process");
@@ -66,7 +76,7 @@ const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
+const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const {
 	hostRelative,
@@ -79,6 +89,8 @@ const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
 const proc = require("./lib/arbiter-proc");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
+const { landingCutOver } = require("./lib/cutover.js");
+const { moduleOn } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
 const ORPHAN_LABEL = takesLabel("triage");
@@ -380,11 +392,11 @@ function describeWriter(rel, names, now) {
  * SKIP where ownership cannot be read.
  * @param {any} ctx
  * @param {OldEdit[]} old
- * @param {{hours: number, now: number}} opts
+ * @param {{now: number}} opts
  * @returns {{orphans: Orphan[], unjudged: number}} `unjudged` counts the old
  *   files in worktrees outside the host root that no session owns
  */
-function findOrphans(ctx, old, { hours, now }) {
+function findOrphans(ctx, old, { now }) {
 	/** @type {Orphan[]} */
 	const orphans = [];
 	let unjudged = 0;
@@ -393,7 +405,7 @@ function findOrphans(ctx, old, { hours, now }) {
 	// Who owns a file is the subject asked about, not the apparatus: SKIP (§N4, #1240).
 	if (!live.owned)
 		ctx.skip(
-			`${String(old.length)} uncommitted file(s) are over ${String(hours)}h old, but ${live.why}, so whether a live session owns them is unknown.`,
+			`${String(old.length)} uncommitted file(s) are old enough to judge, but ${live.why}, so whether a live session owns them is unknown.`,
 		);
 	const { owned, names, listed } =
 		/** @type {{owned: Set<string>, names: Map<string, string>, listed: SweepRead}} */ (
@@ -531,11 +543,20 @@ function fileOrphans(orphans, { root, now }) {
 }
 
 /**
+ * @param {number} hours
+ * @param {boolean} cutOver
+ */
+const describeThreshold = (hours, cutOver) =>
+	cutOver
+		? `in the cut-over main checkout at any age, or unchanged over ${String(hours)}h in a worktree`
+		: `unchanged over ${String(hours)}h`;
+
+/**
  * @param {any} ctx
  * @param {Orphan[]} orphans
- * @param {number} hours
+ * @param {string} threshold
  */
-function reportOrphans(ctx, orphans, hours) {
+function reportOrphans(ctx, orphans, threshold) {
 	for (const o of orphans)
 		ctx.warn(
 			"ORPHANED-EDIT",
@@ -545,7 +566,7 @@ function reportOrphans(ctx, orphans, hours) {
 
 	if (orphans.length === 0) return;
 	ctx.say(
-		`ORPHANED-EDIT (${String(orphans.length)}) — uncommitted, unchanged over ${String(hours)}h, owned by no live session:`,
+		`ORPHANED-EDIT (${String(orphans.length)}) — uncommitted, ${threshold}, owned by no live session:`,
 	);
 	for (const o of orphans) {
 		const c = buildCommands(o);
@@ -607,8 +628,14 @@ runCheck({
 			);
 		const now = Date.now();
 
+		const cutOver = landingCutOver(
+			(m) => moduleOn(m, { root }),
+			gitReader(root, GIT_TIMEOUT_MS),
+		);
 		const main = { root, worktree: null, inside: "" };
-		const sorted = [sortByAge(main, dirty, { hours, now })];
+		const sorted = [
+			sortByAge(main, dirty, { hours: cutOver ? 0 : hours, now }),
+		];
 		let total = dirty.length;
 		const linked = readLinkedWorktrees(root);
 		/* Counted and named in the okLine, never a finding (#4244): a
@@ -631,19 +658,17 @@ runCheck({
 		const young = sorted.reduce((n, t) => n + t.young, 0);
 		const deleted = sorted.reduce((n, t) => n + t.deleted, 0);
 
-		const { orphans: found, unjudged } = findOrphans(ctx, old, {
-			hours,
-			now,
-		});
+		const { orphans: found, unjudged } = findOrphans(ctx, old, { now });
 
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
 		const { filings, orphans } = fileOrphans(found, { root, now });
 
-		if (!ctx.notify) reportOrphans(ctx, orphans, hours);
+		const threshold = describeThreshold(hours, cutOver);
+		if (!ctx.notify) reportOrphans(ctx, orphans, threshold);
 
 		return {
-			okLine: `no orphaned edit over ${String(hours)}h among ${String(total)} uncommitted file(s) across the main checkout and its worktrees.${describeUnread({ linked, unread, unjudged })}`,
+			okLine: `no orphaned edit ${threshold} among ${String(total)} uncommitted file(s) across the main checkout and its worktrees.${describeUnread({ linked, unread, unjudged })}`,
 			noun: "orphaned edit(s)",
 			data: {
 				orphans,
@@ -653,7 +678,8 @@ runCheck({
 				unjudged,
 				unreadWorktrees: linked === null ? null : unread,
 				filings,
-				thresholdHours: hours,
+				worktreeThresholdHours: hours,
+				mainCutOver: cutOver,
 			},
 		};
 	},
