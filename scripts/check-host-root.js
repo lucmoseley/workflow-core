@@ -8,7 +8,7 @@
  * THE RULE IT BACKS. Every script here finds the HOST repository through one
  * seam: `lib/host-root.js`'s `hostRoot()` in JS, `lib/guard-root.sh`'s
  * `gr_root` in shell, `lib/host_root.py`'s `host_root()` in Python — each
- * `CLAUDE_PROJECT_DIR`, else the git top level of the working directory,
+ * `CLAUDE_PROJECT_DIR`, else the main checkout owning the working directory,
  * symlinks dereferenced. A script that instead walks up from its own location
  * roots itself in the PLUGIN CACHE when the core is installed as a plugin, and
  * every host read then lands in the wrong tree. A root with no

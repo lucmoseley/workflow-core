@@ -695,3 +695,16 @@ export function defineTemplate(
 		},
 	};
 }
+
+/**
+ * The main worktree of the repository holding `dir`, symlinks dereferenced:
+ * `git worktree list`'s first entry, a read independent of `hostRoot()`'s own
+ * rule, so a test asserting that rule does not restate it (#4482).
+ */
+export function mainWorktreeOf(dir: string): string {
+	const first = execFileSync("git", ["worktree", "list", "--porcelain"], {
+		cwd: dir,
+		encoding: "utf8",
+	}).split("\n")[0];
+	return fs.realpathSync((first ?? "").replace(/^worktree /, ""));
+}

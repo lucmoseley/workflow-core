@@ -253,29 +253,149 @@ function commandName(w) {
 /** @param {string} w a command word, read */
 const isGhCommand = (w) => commandName(w) === "gh";
 
-/** Each interpreter's flags whose next word is code, not a script (#3456). */
-const INLINE_CODE = {
-	node: new Set(["-e", "--eval", "-p", "--print"]),
-	bash: new Set(["-c"]),
-	sh: new Set(["-c"]),
+/**
+ * One interpreter's options (#4479). `program` maps each
+ * flag that settles where the program comes from: `inline` its value, as
+ * `-c`; `script` a module it names, as python's `-m`; `stdin`, as a shell's
+ * `-s`. `valued` takes a value, attached or the next word. `bundles` is
+ * whether short options combine, `-uc` and `-Wignore`: node's do not, its
+ * `-pe` being one alias. `plus` is whether `+o` spells an option too, as a
+ * shell's does. `valued` lists the common flags only, so an unlisted one's
+ * value reads as the script.
+ * @typedef {"inline" | "script" | "stdin"} ProgramSource
+ * @typedef {{ program: Record<string, ProgramSource>, valued: Set<string>,
+ *   bundles: boolean, plus: boolean }} InterpreterFlags
+ */
+
+/** @type {InterpreterFlags} */
+const SHELL_FLAGS = {
+	program: { "-c": "inline", "-s": "stdin" },
+	valued: new Set(["-o", "-O", "--rcfile", "--init-file"]),
+	bundles: true,
+	plus: true,
+};
+
+/** @type {Record<string, InterpreterFlags>} */
+const INTERPRETER_FLAGS = {
+	node: {
+		program: {
+			"-e": "inline",
+			"--eval": "inline",
+			"-p": "inline",
+			"--print": "inline",
+			"-pe": "inline",
+		},
+		valued: new Set([
+			"-r",
+			"--require",
+			"--import",
+			"--loader",
+			"--experimental-loader",
+			"-C",
+			"--conditions",
+			"--input-type",
+			"--env-file",
+			"--title",
+		]),
+		bundles: false,
+		plus: false,
+	},
+	python: {
+		program: { "-c": "inline", "-m": "script" },
+		valued: new Set(["-W", "-X", "--check-hash-based-pycs"]),
+		bundles: true,
+		plus: false,
+	},
+	perl: {
+		program: { "-e": "inline", "-E": "inline" },
+		valued: new Set(),
+		bundles: false,
+		plus: false,
+	},
+	ruby: {
+		program: { "-e": "inline" },
+		valued: new Set(["-r", "-I", "-C"]),
+		bundles: false,
+		plus: false,
+	},
+	bash: SHELL_FLAGS,
+	sh: SHELL_FLAGS,
+	dash: SHELL_FLAGS,
+	zsh: SHELL_FLAGS,
 };
 
 /**
- * Whether an interpreter's words run inline code: one of its inline-code
- * flags before the first word that is no flag. False for an interpreter not
- * in INLINE_CODE.
- * @param {string} interpreter
- * @param {string[]} words the words after the interpreter
+ * The flag table an interpreter's command name reads by.
+ * @param {string} name
  */
-function isInlineCode(interpreter, words) {
-	const flags =
-		INLINE_CODE[/** @type {keyof typeof INLINE_CODE} */ (interpreter)];
-	if (!flags) return false;
-	for (const w of words) {
-		if (!w.startsWith("-")) return false;
-		if (flags.has(w.split("=")[0] ?? w)) return true;
+function interpreterFlags(name) {
+	if (/^python([0-9].*)?$/.test(name)) return INTERPRETER_FLAGS.python;
+	return INTERPRETER_FLAGS[name === "nodejs" ? "node" : name];
+}
+
+/**
+ * What one option word says: where the program comes from, where a flag in it
+ * or a bare `-` settles that, else whether the next word is a flag's value.
+ * @param {InterpreterFlags} flags
+ * @param {string} word
+ * @returns {{ source: ProgramSource } | { takesNext: boolean }}
+ */
+function parseOption(flags, word) {
+	if (word === "-") return { source: "stdin" };
+	const names =
+		flags.bundles && !word.startsWith("--")
+			? [...word.slice(1)].map((c) => `-${c}`)
+			: [word.split("=")[0] ?? word];
+	for (const [at, name] of names.entries()) {
+		const source = flags.program[name];
+		if (source) return { source };
+		if (flags.valued.has(name))
+			return { takesNext: at === names.length - 1 && !word.includes("=") };
 	}
-	return false;
+	return { takesNext: false };
+}
+
+/**
+ * Where an interpreter's words take its program from (#3456, #4479):
+ * `inline` from an inline-code flag's value, `script` from a file or module
+ * named, `stdin` where the options end with no program word, at `-` or with
+ * a stdin flag. `script` is the word naming a script, absent for a module.
+ * The scan stops at the program, since a flag past it is the program's own.
+ * @param {string} interpreter the command name, read
+ * @param {string[]} words the words after it
+ * @returns {{ source: ProgramSource, script?: string } | null}
+ */
+function programSource(interpreter, words) {
+	const flags = interpreterFlags(interpreter);
+	if (!flags) return null;
+	for (let i = 0; i < words.length; i++) {
+		const word = words[i];
+		if (word === undefined) break;
+		if (word === "--") return scriptAt(words, i + 1);
+		if (!isOption(flags, word)) return { source: "script", script: word };
+		const option = parseOption(flags, word);
+		if ("source" in option) return { source: option.source };
+		if (option.takesNext) i++;
+	}
+	return { source: "stdin" };
+}
+
+/**
+ * @param {InterpreterFlags} flags
+ * @param {string} word
+ */
+const isOption = (flags, word) =>
+	word.startsWith("-") || (flags.plus && /^\+./.test(word));
+
+/**
+ * @param {string[]} words
+ * @param {number} at
+ */
+function scriptAt(words, at) {
+	const script = words[at];
+	return script === undefined
+		? { source: /** @type {const} */ ("stdin") }
+		: { source: /** @type {const} */ ("script"), script };
 }
 
 /**
@@ -1185,7 +1305,7 @@ module.exports = {
 	carriesVar,
 	commandName,
 	isGhCommand,
-	isInlineCode,
+	programSource,
 	isGitValueOption,
 	gitWords,
 	ghWords,

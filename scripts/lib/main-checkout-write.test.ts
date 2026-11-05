@@ -101,7 +101,7 @@ describe("a cut-over main checkout refuses writes to its tree (#4248)", () => {
 	it("sends a session whose cwd is the main checkout to its own worktree, or the cut", () => {
 		const reason = refusal(
 			"Bash",
-			{ command: `git -C ${at.main} restore a.md` },
+			{ command: `git -C ${at.main} reset --hard` },
 			{ cwd: at.main },
 		);
 		expect(reason).toContain(
@@ -112,7 +112,7 @@ describe("a cut-over main checkout refuses writes to its tree (#4248)", () => {
 
 	it("names the worktree to a session in one, whatever tree `-C` names", () => {
 		expect(
-			refusal("Bash", { command: `git -C ${at.main} restore a.md` }),
+			refusal("Bash", { command: `git -C ${at.main} reset --hard` }),
 		).toContain(`as \`git -C ${at.worktree} …\``);
 	});
 
@@ -121,6 +121,56 @@ describe("a cut-over main checkout refuses writes to its tree (#4248)", () => {
 		expect(run("guard-branch", "Bash", { command })).toBeNull();
 		expect(refusal("Bash", { command })).toContain(
 			"writes the main checkout's index, HEAD or files",
+		);
+	});
+});
+
+describe("taking a tracked main-checkout file back to HEAD is allowed (#4449)", () => {
+	beforeEach(() => {
+		fs.mkdirSync(path.join(at.main, "sub"), { recursive: true });
+	});
+
+	it.each([
+		"restore --source=HEAD --staged --worktree -- a.md",
+		"restore --source HEAD a.md",
+		"restore -s HEAD a.md",
+		"restore -WsHEAD a.md",
+		"restore -s @ -- a.md b.md",
+		"checkout HEAD -- a.md",
+	])("allows `git %s`", (args) => {
+		expect(
+			refusal("Bash", { command: `git -C ${at.main} ${args}` }),
+		).toBeNull();
+	});
+
+	it.each([
+		"restore --source=landing a.md",
+		"restore -s landing a.md",
+		"restore -Ws landing a.md",
+		"restore --staged",
+		"checkout landing -- a.md",
+		"checkout landing",
+		"checkout --",
+		"restore a.md",
+		"restore -- a.md",
+		"checkout -- a.md",
+		"restore --source=HEAD .",
+		"restore --source=HEAD -- sub",
+		"restore --source=HEAD -- '*.md'",
+		"restore --source=HEAD -- :/a.md",
+		"checkout HEAD -- .",
+	])(
+		"still refuses `git %s`, which names no file by name to take back to HEAD",
+		(args) => {
+			expect(
+				refusal("Bash", { command: `git -C ${at.main} ${args}` }),
+			).toContain("writes the main checkout's index, HEAD or files");
+		},
+	);
+
+	it("names that restore in an edit's refusal", () => {
+		expect(edit(path.join(at.main, "a.md"))).toContain(
+			`git -C ${at.main} restore --source=HEAD --staged --worktree -- a.md`,
 		);
 	});
 });
@@ -145,6 +195,9 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 			`python3 -c "open('a.md','w').write('x')"`,
 			`python3 -uc "open('a.md','w')"`,
 			`python3 -W ignore -c "open('a.md','w')"`,
+			"node -r ./scripts/x.js -e 'x'",
+			"bash +o pipefail -c 'x'",
+			"perl -e 'x'",
 			"python3 <<< 'x'",
 			`echo "open('a.md','w')" | python3 -`,
 			"cat x.py | python3",
@@ -190,6 +243,7 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 		fs.mkdirSync(path.join(at.main, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(at.main, "scripts", "x.js"), "");
 		expect(fromMain("node scripts/x.js cut s")).toBeNull();
+		expect(fromMain("node -r ./scripts/x.js scripts/x.js")).toBeNull();
 		expect(fromMain("node scripts/x.js <<'EOF'\ndata\nEOF")).toBeNull();
 	});
 });
