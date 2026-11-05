@@ -26,7 +26,7 @@ const { basename } = require("node:path").posix;
  *
  * "Need to specify how to reconcile" is git's message when the branches have
  * diverged and no pull strategy is configured — the same divergence, refused
- * one step earlier, so it belongs in the same population.
+ * one step earlier.
  */
 const MARKERS = [
 	"Not possible to fast-forward",
@@ -185,10 +185,7 @@ function readRefusal(payload) {
 	return marker ? { command, marker, cwd: p.cwd } : null;
 }
 
-/**
- * The first refusal string `out` carries, or undefined.
- * @param {string} out
- */
+/** @param {string} out */
 const markerIn = (out) => MARKERS.find((m) => out.includes(m));
 
 /**

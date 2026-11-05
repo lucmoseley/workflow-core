@@ -59,8 +59,9 @@
  * PUSH has fetched nothing, so its `behind` is a LOWER BOUND — the true figure
  * is at least that. Fetching here would be a network call on a hook, and it
  * would move a ref every parallel session can be reading. The report states the
- * bound; this file does not paper over it. A `land` row is current: the land
- * fetches `landing` before counting, being no hook.
+ * bound; this file does not paper over it. A `land` row is current: the land,
+ * being no hook, re-fetches `landing` before counting, and says so on stderr
+ * where that fetch fails and the bound applies again.
  *
  * LIMITS
  *  - Wired with `if: Bash(git *)`, so it is not run unless the command leads

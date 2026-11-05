@@ -646,10 +646,9 @@ function land(cwd) {
 }
 
 /**
- * File a push beaten by a neighbour as a divergence row (#4446), counted
- * against a freshly fetched origin/landing so `behind` is the neighbours' real
- * lead; where the fetch fails, against the stale one, `behind` then a lower
- * bound. A fault is printed and the land's own refusal still thrown.
+ * The beaten push's row is counted against a freshly fetched origin/landing,
+ * so `behind` is the neighbours' real lead; where the fetch fails, against the
+ * stale one, `behind` then a lower bound.
  * @param {string} root
  * @param {string} dir
  * @param {string} output the refused push's output

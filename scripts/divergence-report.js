@@ -27,8 +27,8 @@
  * so its origin-tracking ref is as stale as the session left it. Reported as a
  * separate column rather than pooled with the pull rows, which are current. A
  * `land` row — a `session-checkout.js land` push a neighbour beat (#4446) — is
- * counted after a fetch, so its `behind` is current too, and has its own
- * column.
+ * counted after a re-fetch, so its `behind` is current unless that fetch
+ * failed, and has its own column.
  *
  * REPORTS, NEVER GATES. It is run by hand and by nothing else; there is no
  * threshold here and no exit code but 0, short of its own apparatus failing.

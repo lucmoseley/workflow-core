@@ -34,8 +34,7 @@ const MERGED_AND_PUSHED =
 const PUSHED = /pushed [0-9a-f]{7,40} to landing/;
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 /* #4229's prediction, from #4166's replay: pushes that find `landing` moved
- * and so merge first, a week, at W = 15 to 60 min, against 436 merges under
- * the shared checkout. */
+ * and so merge first, a week, at W = 15 to 60 min. */
 const PREDICTED_MERGES = { low: 491, high: 587 };
 const SHARED_MERGES = 436;
 /* Enough paths to act on; the count carries the rest. */
@@ -371,8 +370,7 @@ function zeroChecks(r) {
 /**
  * The landing route's weekly rates: lands that merged a moved origin/landing
  * first, against #4229's prediction, and pushes a neighbour beat (#4446),
- * against #4166's race window — 37 of 591 pushes (6%) under 60 s after
- * another.
+ * against #4166's race window.
  * @param {Reading["costs"]} c
  * @param {Window} w
  */

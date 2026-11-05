@@ -82,8 +82,7 @@ const buildShape = (work: string, ahead: number, behind: number) => {
 	initRepo(work);
 	initRepo(origin, "--bare");
 	// Built and pushed rather than cloned from empty: cloning an empty origin
-	// warns on stderr on every fixture, and a test file that prints twenty
-	// warnings trains the reader past the one that matters.
+	// warns on stderr on every fixture.
 	git(work, "remote", "add", "origin", origin);
 	git(work, "commit", "--allow-empty", "--no-verify", "-m", "base");
 	git(work, "push", "--quiet", "-u", "origin", "main");
@@ -303,7 +302,6 @@ describe("record-divergence.js", () => {
 	});
 
 	it("writes nothing, and says nothing, for an empty trailing segment (#2388)", () => {
-		// The bash recorder's `set -u` once printed on stderr here.
 		fire(repoWith("quiet", 1, 1), "ls; ", FF_REFUSAL);
 		expect(readRows()).toEqual([]);
 	});
