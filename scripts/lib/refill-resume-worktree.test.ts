@@ -89,7 +89,7 @@ it("runs the --bg --resume in the job record's worktree, leaving its uncommitted
 	writeClaudeStub(bin, [
 		buildBgBranch({
 			out,
-			onResume: `pwd -P > ${shellQuote(ranIn)}; printf %s ${shellQuote(running)} > ${shellQuote(record)};`,
+			onResume: `pwd -P > ${shellQuote(ranIn)}; printf %s ${shellQuote(running)} > ${shellQuote(record)}`,
 		}),
 	]);
 	Object.assign(process.env, {

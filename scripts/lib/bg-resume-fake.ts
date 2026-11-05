@@ -2,7 +2,7 @@
  * The fake of the launcher's `claude --bg --resume` response: the installed
  * harness's recorded responses (scripts/fixtures/bg-resume.json, re-recorded
  * by `node scripts/record-claude-responses.js`), each re-keyed to a test's job ids
- * (#2968).
+ * (#2968), and the `claude` stub branch that serves one (#4413).
  */
 
 import fs from "node:fs";
@@ -50,8 +50,9 @@ export function buildRekeyedResponse(
 	};
 }
 
-/** The stub's `--bg` branch: runs `onResume`, prints file `out` and, where
- * given, file `err` to stderr, then exits 0 — the launcher answering. */
+/** The stub's `--bg` branch: runs the shell `onResume`, prints file `out`
+ * and, where given, file `err` to stderr, then exits 0 — the launcher
+ * answering. */
 export function buildBgBranch({
 	out,
 	err,
@@ -61,6 +62,11 @@ export function buildBgBranch({
 	err?: string;
 	onResume?: string;
 }) {
-	const toStderr = err ? ` cat ${shellQuote(err)} >&2;` : "";
-	return `if [ "$1" = "--bg" ]; then ${onResume} cat ${shellQuote(out)};${toStderr} exit 0; fi`;
+	const steps = [
+		onResume.trim().replace(/;+$/, ""),
+		`cat ${shellQuote(out)}`,
+		err ? `cat ${shellQuote(err)} >&2` : "",
+		"exit 0",
+	].filter(Boolean);
+	return `if [ "$1" = "--bg" ]; then ${steps.join("; ")}; fi`;
 }
