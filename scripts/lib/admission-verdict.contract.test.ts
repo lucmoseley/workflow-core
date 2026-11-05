@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Holds lib/admission-verdict-fake.ts, the verdict refill-loop-run.test.ts's
+ * Holds lib/admission-verdict-fake.ts, the verdict lib/refill-loop-run-testkit.ts's
  * admission stub prints, to what the real admission.js prints under the
  * loop's own arguments (lib/refill-tick-core.js's FREE_SLOT_ARGS), run against a
  * fake `/proc`, meminfo, `ps` and `claude` (#3331). Breaking it costs the

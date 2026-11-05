@@ -3133,7 +3133,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pick-next-claims.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
-			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-arm-test.test.ts"
 		],
@@ -3203,6 +3203,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/seat-reading.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -4032,7 +4033,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-gates.test.ts": [
@@ -5867,6 +5867,7 @@
 			"scripts/lib/seat-reading.test.ts",
 			"scripts/measure-spare-warm.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -5900,7 +5901,7 @@
 			"scripts/lib/queue-issue.test.ts",
 			"scripts/link-sub-issue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/file-issue.test.ts": [
@@ -5990,6 +5991,7 @@
 			"scripts/lib/overflow-budget.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop.test.ts",
 			"scripts/write-review-marker.test.ts"
@@ -6012,6 +6014,7 @@
 			"scripts/lib/refill-resume.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts"
 		],
 		"scripts/fixtures/ci-census-2026-08-14-18.json": [
@@ -6022,6 +6025,7 @@
 			"scripts/lib/claude-attach.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts"
 		],
 		"scripts/fixtures/harness-canary-listing.jsonl": [
@@ -6270,7 +6274,7 @@
 			"scripts/lost-deny-rates.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/proving-run.test.ts",
-			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pinned-guards.test.ts",
@@ -7167,7 +7171,6 @@
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/level-main.test.ts": [
@@ -7365,6 +7368,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/adopter-consent.js": [
@@ -7691,6 +7696,8 @@
 			"scripts/lib/session-spend.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/allowance.test.ts": [
@@ -15083,6 +15090,7 @@
 			"scripts/quiet-bench-run.test.ts",
 			"scripts/read-hand-off.test.ts",
 			"scripts/record-delegated-decision.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop.test.ts",
 			"scripts/release-plugin.test.ts",
@@ -20775,6 +20783,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/lib-install-testkit.ts": [
@@ -20865,6 +20875,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -26381,6 +26392,27 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/refill-loop-run-testkit.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/refill-loop-testkit.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -26426,6 +26458,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-loop.test.ts": [
@@ -30573,6 +30607,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/session-head.js": [
@@ -37086,6 +37122,7 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -37360,6 +37397,12 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/refill-loop-run-recovery.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/refill-loop-run.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
@@ -37395,6 +37438,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/refill-code.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop-usage-probe.test.ts",
 			"scripts/refill-loop.test.ts",
@@ -37616,6 +37660,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/repo-hold-attach.test.ts",
 			"scripts/repo-hold.test.ts",
@@ -37911,7 +37956,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/rescue-sessions-hand-off.test.ts",
 			"scripts/rescue-sessions-probe.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -38308,6 +38353,7 @@
 			"scripts/record-acts.test.ts",
 			"scripts/record-delegated-decision.test.ts",
 			"scripts/record-issue-claim.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/release-issue-claim.test.ts",
 			"scripts/repo-hold-attach.test.ts",
@@ -38344,7 +38390,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-checkout-reap.test.ts",
 			"scripts/session-checkout.test.ts"
@@ -38537,7 +38582,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/supervise-landing.test.ts"
 		],
