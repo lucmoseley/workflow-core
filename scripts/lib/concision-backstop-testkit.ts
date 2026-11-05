@@ -75,15 +75,16 @@ export const storePath = (pick: (store: any) => string) => {
 
 export const ledgerFor = (sid: string) => storePath((s) => s.paths.ledger(sid));
 
-const arbiter = (args: string[], e: NodeJS.ProcessEnv) => {
-	const r = runInProcess(ARBITER, args, { env: e });
+const arbiter = (args: string[], e: NodeJS.ProcessEnv, cwd?: string) => {
+	const r = runInProcess(ARBITER, args, { env: e, ...(cwd ? { cwd } : {}) });
 	if (r.status !== 0)
 		throw new Error(`session-arbiter.js ${args[0]}: ${r.stderr}`);
 };
 
-/** Note in the ledger that `sid` wrote `rel` — what PostToolUse does for real. */
-export const record = (rel: string, sid: string) =>
-	arbiter(["record", rel, sid], env());
+/** Note in the ledger that `sid` wrote `rel` — what PostToolUse does for
+ * real, in `cwd` where it names the session's worktree. */
+export const record = (rel: string, sid: string, cwd?: string) =>
+	arbiter(["record", rel, sid], env(), cwd);
 
 /** Note HEAD in `sid`'s commit ledger — what post-commit does for real. */
 export const ledgerHeadOf = (sid: string) =>

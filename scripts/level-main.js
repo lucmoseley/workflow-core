@@ -49,7 +49,7 @@ function main(argv = process.argv.slice(2)) {
 		const at = now();
 		const outcome = level(root, {
 			/* The main checkout's write ledger, wherever this was run from. */
-			lastWriter: (rel) => store.readLastWriterOf(rel, root),
+			lastWriter: (rel) => store.readLastWriterOf(rel, { root }),
 			now: at,
 		});
 		const report = buildReport(root, outcome, {
