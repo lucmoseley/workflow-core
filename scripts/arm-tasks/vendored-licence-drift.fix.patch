@@ -1,5 +1,5 @@
 diff --git a/scripts/check-vendored-skills.js b/scripts/check-vendored-skills.js
-index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4fc39fcae0 100644
+index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60465527e4 100644
 --- a/scripts/check-vendored-skills.js
 +++ b/scripts/check-vendored-skills.js
 @@ -91,12 +91,17 @@
@@ -22,30 +22,35 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
   *   fetch failed, GitHub unreachable       UPSTREAM-UNREADABLE  WARN — and a
   *                                                               run where EVERY
   *                                                               row failed that
-@@ -108,9 +113,11 @@
+@@ -108,11 +113,14 @@
   * `parseGhFailureReason`, never from a rule of this checker's own (mantahostels#3066).
   *
-  * THE UPSTREAM RECORD (#2394, ruled at #2377). A run that neither SKIPs nor
-- * breaks writes `.agents/vendored-upstream-pass.json`: the sha256 of the lock
-- * and of NOTICES as the run read them, and the date. UPSTREAM-MOVED does not
-- * stop the write.
-+ * breaks, and finds every lock source's licence matching its notice, writes
+  * THE UPSTREAM RECORD (#2394, ruled at #2377). A `--write` run that neither
+- * SKIPs nor breaks writes `.agents/vendored-upstream-pass.json`: the sha256 of
+- * the lock and of NOTICES as the run read them, and the date. UPSTREAM-MOVED
+- * does not stop the write. Without `--write` it only says whether it would
+- * write one (#4449); with it, a cut-over main checkout is refused before any
+- * fetch (#4229).
++ * SKIPs nor breaks, and finds every lock source's licence matching its notice,
++ * writes
 + * `.agents/vendored-upstream-pass.json`: the sha256 of the lock and of NOTICES
 + * as the run read them, the date, and each source's licence verdict. Any other
 + * licence row writes none, so a mismatch is cleared by refreshing NOTICES and
 + * re-running, never by recording it; UPSTREAM-MOVED does not stop the write.
++ * Without `--write` it only says whether it would write one (#4449); with it,
++ * a cut-over main checkout is refused before any fetch (#4229).
   * `--covered <dir>` is the offline half, run by `.husky/pre-commit` on a commit
   * staging the lock: it reads the staged lock, NOTICES and record that the hook
   * copies into <dir>, and fails where the record is missing or either hash
-@@ -140,6 +147,7 @@ const {
+@@ -142,6 +150,7 @@ const {
  	LOCK,
  	NOTICES,
  	noticeFaults,
 +	readNoticeLicences,
  } = require("./lib/vendored-notices.js");
- const { execGit, gitCommonDir } = require("./lib/git.js");
- 
-@@ -155,6 +163,7 @@ const COVERED = [LOCK, NOTICES];
+ const {
+ 	execGit,
+@@ -165,6 +174,7 @@ const COVERED = [LOCK, NOTICES];
   * @typedef {{
   *   ranOn: string,
   *   sha256: Record<string, string | null>,
@@ -53,7 +58,7 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
   * }} UpstreamRecord
   * @typedef {{
   *   vendoredAt: string,
-@@ -481,6 +490,11 @@ function remoteFor(lock, rel) {
+@@ -491,6 +501,11 @@ function remoteFor(lock, rel) {
   *   state: "moved" | "taken" | "same" | "gone" | "unreadable" | "unresolved" | "fault",
   *   detail?: string,
   * }} UpstreamRow
@@ -65,7 +70,7 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
   */
  
  /**
-@@ -544,6 +558,48 @@ function buildUpstreamReport(root) {
+@@ -554,6 +569,48 @@ function buildUpstreamReport(root) {
  	return rows;
  }
  
@@ -114,7 +119,7 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
  /**
   * @param {{ notFound: boolean, broken: boolean }} failed
   * @returns {"gone" | "fault" | "unreadable"}
-@@ -927,6 +983,27 @@ const UPSTREAM_WARNINGS = {
+@@ -937,6 +994,27 @@ const UPSTREAM_WARNINGS = {
  	},
  };
  
@@ -142,7 +147,7 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
  /**
   * @param {import("./lib/check").CheckContext} ctx
   * @param {UpstreamRow} r
-@@ -950,23 +1027,27 @@ function reportUpstreamRow(ctx, r) {
+@@ -960,23 +1038,27 @@ function reportUpstreamRow(ctx, r) {
   */
  function runUpstream(ctx, root) {
  	let rows;
@@ -172,7 +177,7 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
  	/* Upstream is the SUBJECT here, so an unreachable GitHub is a SKIP: a
  	 * green run over a fetch that never happened is the failure mode. A 404
  	 * is excluded, being an answer rather than a failure to get one.
-@@ -976,36 +1057,59 @@ function runUpstream(ctx, root) {
+@@ -986,32 +1068,52 @@ function runUpstream(ctx, root) {
  	 * UPSTREAM-UNRESOLVED is a finding about the lock, reached without a
  	 * network and actionable while GitHub is down. */
  	const [firstUnreadable] = unreadable;
@@ -228,7 +233,10 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
 +		);
 +		return;
 +	}
- 	/** @type {UpstreamRecord} */
+ 	if (!ctx.has("--write")) {
+ 		ctx.say(
+ 			`  ${RECORD} is due: run again with --write to write it, then stage it with ${LOCK}.`,
+@@ -1022,6 +1124,9 @@ function writeRecord(ctx, root, read) {
  	const record = {
  		ranOn: new Date().toISOString().slice(0, 10),
  		sha256: read,
@@ -239,10 +247,10 @@ index bf8373e596bcdfc9eee4a138b282acc4a859ccef..9d976ad182a7e4feb760602cfdebed4f
  	writeJson(path.join(root, RECORD), record);
  	ctx.say(`  Wrote ${RECORD}; stage it with ${LOCK}.`);
 diff --git a/scripts/check-vendored-skills.test.ts b/scripts/check-vendored-skills.test.ts
-index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4a3fe0f51 100644
+index ac02e3a00535c5d0e8b3a583c67cc80a41988810..447764f359dcfec145369e2b68c253ee7c07e5b2 100644
 --- a/scripts/check-vendored-skills.test.ts
 +++ b/scripts/check-vendored-skills.test.ts
-@@ -600,29 +600,46 @@ function upstreamRoot(source: string) {
+@@ -601,29 +601,46 @@ function upstreamRoot(source: string) {
  	return root;
  }
  
@@ -298,7 +306,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  
  /** upstreamRoot plus a declared added file, `a/EXTRA.md`. */
  function rootWithAddition() {
-@@ -711,7 +728,7 @@ describe("check-vendored-skills --upstream", () => {
+@@ -712,7 +729,7 @@ describe("check-vendored-skills --upstream", () => {
  	it("passes a declared added file that upstream 404s on", () => {
  		const root = rootWithAddition();
  		const log = path.join(root, "gh.log");
@@ -307,7 +315,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  		expect(r).toMatchObject({ outcome: "OK", tags: [] });
  	});
  
-@@ -723,6 +740,103 @@ describe("check-vendored-skills --upstream", () => {
+@@ -724,6 +741,103 @@ describe("check-vendored-skills --upstream", () => {
  	});
  });
  
@@ -411,7 +419,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  /*
   * The CLI's --upstream reporting of a failed fetch: the tags, the SKIP
   * condition and the 404 spelling (mantahostels#3025).
-@@ -772,7 +886,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -775,7 +889,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  		);
  		expect(r.outcome).toBe("SKIP");
  		expect(r.text).toContain("could not resolve host");
@@ -420,7 +428,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  	});
  
  	it("reports rather than skipping when a 404 sits beside an unreachable fetch", () => {
-@@ -792,9 +906,11 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -795,9 +909,11 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  			root,
  			'case "$*" in *RECIPES*) echo "gh: Not Found (HTTP 404)" >&2;; *) echo "gh: could not resolve host" >&2;; esac; exit 1',
  		);
@@ -432,7 +440,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  		]);
  		expect(r.outcome).not.toBe("SKIP");
  	});
-@@ -837,7 +953,9 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -840,7 +956,9 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  			'echo "gh: could not resolve host" >&2; exit 1',
  		);
  		expect(r.outcome).not.toBe("SKIP");
@@ -442,7 +450,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  			"UPSTREAM-UNREADABLE",
  			"UPSTREAM-UNRESOLVED",
  		]);
-@@ -845,7 +963,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -848,7 +966,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  		expect(r.text).toContain("skills-lock.json");
  	});
  
@@ -451,16 +459,16 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  		const root = build({ disk: { "a/SKILL.md": SKILL } });
  		const log = path.join(root, "gh.log");
  		const r = runUpstream(root, answering(SKILL, log));
-@@ -874,7 +992,7 @@ const readRecord = (root: string) =>
+@@ -877,7 +995,7 @@ const readRecord = (root: string) =>
  	JSON.parse(fs.readFileSync(path.join(root, RECORD), "utf8"));
  
  describe("check-vendored-skills --upstream, the record", () => {
 -	it("writes the lock's and the notices' hashes, and the date on a completed run", () => {
 +	it("writes the lock's and the notices' hashes, the date and each licence verdict on a completed run with every licence matching", () => {
  		const root = upstreamRoot("mattpocock/skills");
- 		const r = runUpstream(root, answering(SKILL, path.join(root, "gh.log")));
- 		expect(r.outcome).toBe("OK");
-@@ -884,6 +1002,7 @@ describe("check-vendored-skills --upstream, the record", () => {
+ 		const r = runUpstream(root, answering(SKILL, path.join(root, "gh.log")), [
+ 			"--write",
+@@ -889,6 +1007,7 @@ describe("check-vendored-skills --upstream, the record", () => {
  			[NOTICES]: sha256(fs.readFileSync(path.join(root, NOTICES), "utf8")),
  		});
  		expect(record.ranOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -468,7 +476,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  	});
  
  	it("still writes it beside an UPSTREAM-MOVED", () => {
-@@ -897,6 +1016,18 @@ describe("check-vendored-skills --upstream, the record", () => {
+@@ -903,6 +1022,18 @@ describe("check-vendored-skills --upstream, the record", () => {
  	});
  
  	it.each([
@@ -487,13 +495,14 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  		["SKIP", () => 'echo "gh: could not resolve host" >&2; exit 1'],
  		["BROKEN", () => 'echo "gh: Unprocessable Entity (HTTP 422)" >&2; exit 1'],
  	])("writes none on %s", (_, gh) => {
-@@ -905,6 +1036,21 @@ describe("check-vendored-skills --upstream, the record", () => {
- 		expect(fs.existsSync(path.join(root, RECORD))).toBe(false);
+@@ -943,6 +1074,22 @@ describe("check-vendored-skills --upstream, the record", () => {
+ 		expect(fs.existsSync(log)).toBe(false);
+ 		expect(fs.existsSync(path.join(at.main, RECORD))).toBe(false);
  	});
- 
++
 +	it("names the source whose licence kept the record from being written", () => {
 +		const root = upstreamRoot("mattpocock/skills");
-+		const r = runInProcess(SCRIPT, ["--root", root, "--upstream"], {
++		const r = runInProcess(SCRIPT, ["--root", root, "--upstream", "--write"], {
 +			env: {
 +				...process.env,
 +				WFC_GH: stubGh(
@@ -509,7 +518,7 @@ index c91b5bdf4c07ea7f0cd28cc9ab19c2dbb3d7da9a..008858f24068d90ec8a331288e102ff4
  });
  
  describe("the pre-commit upstream-record gate (#2394)", () => {
-@@ -912,7 +1058,7 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
+@@ -950,7 +1097,7 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
  	const lockBody = '{\n\t"version": 1,\n\t"skills": {}\n}\n';
  	const noticesBody = "# Notices\n";
  	const record = (lock: string, notices: string) =>

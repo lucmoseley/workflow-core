@@ -9,6 +9,11 @@
  * The line is built in "lib/primitives-table.js", reached through
  * "check-primitives.js"; naming both here selects this test when either changes.
  *
+ * It also pins the read-only default (#4449): a bare run passes no checker
+ * `--write`, so history-trim, one of WRITERS, appends nothing to its tracked
+ * watch file, and `--write` reaches it. The other writers' bare runs are held
+ * silent by their own tests (check-band-drift, check-orphaned-edits).
+ *
  * spawn-kept: the adopter's case proves the script npm runs, so npm is its child.
  */
 
@@ -20,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { withStatusScript } from "./lib/adopter-skeleton.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { seatEnv } from "./lib/seat-testkit";
 
 const SCRIPT = path.join(__dirname, "status-report.js");
 
@@ -131,5 +137,39 @@ describe("a primitives checker answering OK", () => {
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(COUNT_LINE);
+	});
+});
+
+describe("a bare run writes nothing; --write reaches the writers (#4449)", () => {
+	const runTrim = (args: string[]) => {
+		const home = path.join(dir, "home");
+		fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(home, ".claude", "history.jsonl"),
+			`${JSON.stringify({ display: "x", timestamp: Date.now(), sessionId: "s" })}\n`,
+		);
+		const watch = path.join(dir, "watch.jsonl");
+		return runInProcessAsync(SCRIPT, ["--only", "history-trim", ...args], {
+			env: {
+				...process.env,
+				HOME: home,
+				...seatEnv(home),
+				GITHUB_ACTIONS: "",
+				WFC_HISTORY_TRIM_WATCH: watch,
+			},
+		}).then((r) => ({ ...r, recorded: fs.existsSync(watch) }));
+	};
+
+	it("records no reading without --write", async () => {
+		const r = await runTrim([]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("history-trim");
+		expect(r.recorded).toBe(false);
+	});
+
+	it("records it with --write", async () => {
+		const r = await runTrim(["--write"]);
+		expect(r.status).toBe(0);
+		expect(r.recorded).toBe(true);
 	});
 });

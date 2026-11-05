@@ -176,7 +176,10 @@ describe("the CI re-check (#856)", () => {
 
 	it("never fires a sweep where the session-start form would", () => {
 		sweepsStale();
-		runInProcess(CHECK, ["--notify"], { env: process.env, cwd: sb.repo });
+		runInProcess(CHECK, ["--notify", "--write"], {
+			env: process.env,
+			cwd: sb.repo,
+		});
 		expect(readFires()).toHaveLength(1);
 		fs.rmSync(path.join(sb.repo, ".git", ".sweep-autofire"), { force: true });
 		resetCalls();

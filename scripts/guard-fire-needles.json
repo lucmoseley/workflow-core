@@ -1550,7 +1550,7 @@
 			"needles": [],
 			"silent": "Starts the detached housekeeping sweeps and sweeps for self-throttling; neither prints anything. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start — a zero would now measure that ruling, not retrieval."
 		},
-		"check-ci-status.js --notify": {
+		"check-ci-status.js --notify --write": {
 			"needles": [
 				{
 					"id": "red-run",
@@ -1652,7 +1652,7 @@
 				}
 			]
 		},
-		"check-harness-canary.js --notify": {
+		"check-harness-canary.js --notify --write": {
 			"needles": [
 				{
 					"id": "harness-canary",
@@ -1661,7 +1661,7 @@
 				}
 			]
 		},
-		"check-orphaned-edits.js --notify": {
+		"check-orphaned-edits.js --notify --write": {
 			"needles": [],
 			"silent": "Files each orphaned edit's triage issue and prints nothing; the report is read on npm run status (#2038)."
 		},
