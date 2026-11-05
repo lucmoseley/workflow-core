@@ -212,6 +212,19 @@ const levelMain = (root) =>
 	);
 
 /**
+ * Start a warm pass over `root` (`session-checkout.js warm`, #4318), detached:
+ * the store build for `origin/landing`'s lockfile may outlast a tick, and the
+ * dispatcher's cuts build none.
+ * @param {string} root
+ */
+const startWarmPass = (root) =>
+	startDetached(
+		`warming the dependency store in ${root}`,
+		[path.join(SCRIPTS, "session-checkout.js"), "warm"],
+		root,
+	);
+
+/**
  * Start a reap pass over `root`'s worktrees folder (`session-checkout.js
  * reap`, #4247), detached: removing a store may outlast a tick. Its report goes
  * to the loop's log; its pid lock turns away a pass started while one runs.
@@ -990,6 +1003,7 @@ const productionIo = {
 	superviseLanding,
 	levelMain,
 	startReapPass,
+	startWarmPass,
 	fileMachineTickets,
 	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
 	readListing: (trusted) =>

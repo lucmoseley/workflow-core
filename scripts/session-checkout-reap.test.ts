@@ -151,7 +151,8 @@ it("removes landed, clean worktrees of finished sessions, then the store none li
 	const store = path.dirname(
 		fs.realpathSync(path.join(landed, "node_modules")),
 	);
-	commitIn(landed, "done.txt", "work since landed");
+	/* The landed work moves origin/landing's lockfile off the store's. */
+	commitIn(landed, "package-lock.json", "lock-2\n");
 	git(landed, "push", "-q", "origin", "HEAD:landing");
 	recordJob("j1", landed, "done");
 
@@ -169,6 +170,18 @@ it("removes landed, clean worktrees of finished sessions, then the store none li
 	expect(fs.existsSync(idle)).toBe(false);
 	expect(fs.existsSync(store)).toBe(false);
 	expect(fs.existsSync(stores())).toBe(true);
+});
+
+it("keeps the store for origin/landing's lockfile though no worktree links it, for the next cut (#4318)", () => {
+	const gone = cut("gone-session");
+	const store = path.dirname(fs.realpathSync(path.join(gone, "node_modules")));
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain("removed landed worktree: gone-session");
+	expect(r.stderr).not.toContain("removed unlinked dependency store");
+	expect(fs.existsSync(path.join(store, "node_modules", "lock"))).toBe(true);
 });
 
 it("reports a dead session's dirty or unlanded worktree with its idle time and last commit, removing neither", () => {

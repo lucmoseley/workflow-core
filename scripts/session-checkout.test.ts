@@ -224,6 +224,64 @@ it("shares one store between cuts with the same lockfile, and builds a second fo
 	expect(readInstalls()).toHaveLength(2);
 });
 
+it("warms the store for origin/landing's lockfile, so a no-build launch then cuts with no install of its own (#4318)", () => {
+	landOnOrigin({ "package-lock.json": "lock-3\n" });
+
+	const warmed = run(main, "warm");
+	const again = run(main, "warm");
+	const launched = run(main, "launch-dir", "--no-build", "/implement 4318");
+
+	expect(warmed.status, warmed.stderr).toBe(0);
+	expect(again.status, again.stderr).toBe(0);
+	expect(launched.status, launched.stderr).toBe(0);
+	const dir = launched.stdout.trim();
+	const store = path.dirname(fs.realpathSync(path.join(dir, "node_modules")));
+	expect(warmed.stderr).toBe(
+		`session checkout: origin/landing's lockfile uses ${store}, built now\n`,
+	);
+	expect(
+		fs.readFileSync(path.join(store, "node_modules", "lock"), "utf8"),
+	).toBe("lock-3\n");
+	expect(readInstalls()).toHaveLength(1);
+});
+
+it("refuses a no-build launch that meets no store at once, naming the warm route, with no install and no worktree left (#4318)", () => {
+	const r = run(main, "launch-dir", "--no-build", "/implement 4318");
+
+	expect(r.status).toBe(1);
+	expect(r.stdout).toBe("");
+	expect(r.stderr).toMatch(
+		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; the refill tick's warm pass \(`node scripts\/session-checkout\.js warm`\) builds it, and the next tick launches this member\n$/,
+	);
+	expect(readInstalls()).toEqual([]);
+	expect(
+		fs
+			.readdirSync(path.join(main, ".claude", "worktrees"))
+			.filter((n) => !n.startsWith(".")),
+	).toEqual([]);
+});
+
+it("leaves a live builder of origin/landing's store to finish when warming, running no install of its own", () => {
+	expect(run(main, "warm").status).toBe(0);
+	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));
+	removeTree(path.join(stores(), key));
+	fs.writeFileSync(npmCalls, "");
+	const holder = spawn("sleep", ["60"], { stdio: "ignore" });
+	fs.writeFileSync(
+		path.join(stores(), `.build-${key}.lock`),
+		`${holder.pid}\n`,
+	);
+
+	const r = run(main, "warm");
+	holder.kill();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe(
+		`session checkout: origin/landing's lockfile uses ${path.join(stores(), key)}, which another process is building\n`,
+	);
+	expect(readInstalls()).toEqual([]);
+});
+
 it("re-attaches a worktree whose work changed the lockfile to a store built for it, from any directory in it, leaving the old store as it was", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	const dir = worktree("one");

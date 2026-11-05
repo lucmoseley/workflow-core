@@ -37,6 +37,7 @@ import {
 	SCRIPT,
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
+import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const fx = dispatchFixture();
@@ -77,6 +78,52 @@ describe("the session's directory (#4245)", () => {
 			expect(() => git(cwd, "symbolic-ref", "-q", "HEAD")).toThrow();
 		}
 		expect(git(fx.dir, "status", "--porcelain", "-uno")).toBe("");
+	});
+
+	it("refuses a refill-loop member whose lockfile has no store at once, running no install, then launches it once warmed (#4318)", () => {
+		seedLandingCheckout(fx.dir);
+		git(fx.dir, "checkout", "-q", "--detach", "origin/landing");
+		fs.writeFileSync(path.join(fx.dir, "package-lock.json"), "lock-1\n");
+		git(fx.dir, "add", "package-lock.json");
+		git(fx.dir, "commit", "-qm", "lockfile");
+		git(fx.dir, "push", "-q", "origin", "HEAD:landing");
+		const installs = path.join(fx.dir, "npm-installs");
+		const npm = path.join(fx.dir, "npm-stub");
+		fs.writeFileSync(
+			npm,
+			`#!/bin/sh\nmkdir node_modules && pwd >> ${shellQuote(installs)}\n`,
+		);
+		fs.chmodSync(npm, 0o755);
+		const env = {
+			WFC_MODULES: LANDING_MODULES,
+			WFC_NPM: npm,
+			WFC_DISPATCH_NO_BUILD: "1",
+		};
+		const readInstalls = () => readArgvLines(installs);
+		stubClaude({});
+
+		const cold = run(["sonnet", "/implement 341"], env);
+
+		expect(cold.code).toBe(0);
+		expect(cold.stderr).toContain(
+			"REFUSED: /implement 341 — not launching this member.\n  session checkout: no dependency store stands for this lockfile yet",
+		);
+		expect(readInstalls()).toEqual([]);
+		expect(launchCwds()).toEqual([]);
+
+		const warm = runInProcess(
+			path.join(path.dirname(SCRIPT), "session-checkout.js"),
+			["warm"],
+			{ cwd: fx.dir, env: baseEnv(env) },
+		);
+		expect(warm.status, warm.stderr).toBe(0);
+		expect(readInstalls()).toHaveLength(1);
+
+		const warmed = run(["sonnet", "/implement 341"], env);
+
+		expect(warmed.code).toBe(0);
+		expect(launchCwds()).toHaveLength(1);
+		expect(readInstalls()).toHaveLength(1);
 	});
 
 	it("starts the member in the checkout itself where the repository has no landing module", () => {

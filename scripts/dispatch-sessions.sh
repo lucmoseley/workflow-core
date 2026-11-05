@@ -72,7 +72,10 @@
 # EACH SESSION STARTS IN A DIRECTORY OF ITS OWN (#4229): a worktree cut from
 # `origin/landing` by `scripts/session-checkout.js launch-dir`, or this
 # checkout where the repo has no `landing` module. A member that gets no
-# directory is named on stderr and skipped, as a re-read refusal is.
+# directory is named on stderr and skipped, as a re-read refusal is. With
+# WFC_DISPATCH_NO_BUILD=1, which the refill loop sets (#4318), a cut finding no
+# dependency store for its lockfile is such a member: the loop's warm pass
+# builds the store, so no `npm ci` runs inside its timeout for this call.
 #
 # Exit codes: 0 launched (or dry-run; a member dropped by any drop above
 #             still exits 0, as does a set the allowance cap cut short),
@@ -898,7 +901,9 @@ while [[ $# -gt 0 ]]; do
   # temp file, which the launch below overwrites, so a refusal's reason sits
   # first under its REFUSED line, where lib/refill-batch.js reads it.
   checkout_err="${launch_out_file:-/dev/null}"
-  if ! launch_dir="$(node "$here/session-checkout.js" launch-dir "$prompt" 2>"$checkout_err")"; then
+  checkout_args=(launch-dir)
+  [[ "${WFC_DISPATCH_NO_BUILD:-}" == 1 ]] && checkout_args+=(--no-build)
+  if ! launch_dir="$(node "$here/session-checkout.js" "${checkout_args[@]}" "$prompt" 2>"$checkout_err")"; then
     printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
     sed 's/^/  /' "$checkout_err" >&2
     continue
