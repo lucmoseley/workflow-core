@@ -241,7 +241,7 @@ opened on — is not visible in this data at all**.
 **Why the merge rule ignores the substrate/stamp split** (mantahostels#503, 18 August 2026):
 820 of 933 possible-collision pairs were `docs/doc-map.md`, genuine substrate
 collisions were **zero**, and the apparent source-code collisions are mentions,
-not edits. Same run: 39 open file-claim collisions, 35 of them on
+not edits. Same run: 39 refused edits still open, 35 of them on
 `docs/doc-map.md` — an upper bound, since the count did not check whether each
 one's issue had closed. ⚠ **That zero is weaker than it looks:** the claim guard
 acts only on `docs/`, `.claude/`, `CLAUDE.md` and `AGENTS.md`, so a substrate
@@ -374,8 +374,8 @@ none has ever moved alone.
 writer count. Of the 34 open issues `predict()` calls writers, 30 only cite the
 path and **none** uses the file as a substrate, so `predict()` is 12% precise as
 a writer predictor here against 59% on the roadmap (mantahostels#1279). A collision costs
-the `docs/doc-map.md` regime — one edit at the stamp, and the ticket still
-finishes — which is what all 12 measured collisions did (mantahostels#1277). And the
+the `docs/doc-map.md` regime one edit, never the ticket: all 12 measured
+collisions, then refusals, abandoned that one edit and finished (mantahostels#1277). And the
 always-loaded byte cap, the one coupling unique to this file, is orthogonal: it
 discharges onto `docs/doc-map.md`, itself a stamp (mantahostels#1280).
 

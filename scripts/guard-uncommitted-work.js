@@ -77,8 +77,8 @@
  * JUSTIFIED: fail-safe — an unattended job that stops mid-edit leaves the work
  *            unrecoverable-by-anyone-else for hours, and the fix is one command.
  * DEFEAT:    this file caps the block at six per session (`BLOCK_CAP`, mantahostels#2791),
- *            so a session that genuinely cannot commit — a denied file claim, a
- *            red pre-commit gate — is taught and then released rather than
+ *            so a session that genuinely cannot commit — a red pre-commit
+ *            gate — is taught and then released rather than
  *            trapped. The clean-claim
  *            limb takes the house cap of three, on a counter of its own.
  * TREE:      both — dirt from the session's tree, then the main checkout's;

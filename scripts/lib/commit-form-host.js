@@ -85,7 +85,7 @@ function buildHostPorts(root) {
 				return null;
 			}
 		},
-		writeLedger: readWriteLedger,
+		readWriteLedger,
 		closingRefusal: (match) => closingRefusal(match, root),
 	};
 }

@@ -1223,13 +1223,9 @@ function resumedHolderTest(where, dark) {
 /**
  * Is this lock's holder still running — resumed onto a fresh host included?
  *
- * THE ONE SPELLING OF THAT QUESTION (#259). Five readers ask it; each spelling
- * it for itself is how they came to disagree, so a sixth uses this rather than
- * pairing the two tests again.
- *
- * EXCEPT `forceRelease` (#262), which asks a different question — "has the
- * session ended though its host runs on" — that this cannot answer, the
- * stranded case it must break being a running process.
+ * THE ONE SPELLING OF THAT QUESTION (#259): readers that each spelt it for
+ * themselves came to disagree, so a new reader uses this rather than pairing
+ * the two tests again.
  *
  * `wasResumed` is a resumedHolderTest() the caller built for its whole walk, so
  * the registry is read once however many locks it judges — and not at all where

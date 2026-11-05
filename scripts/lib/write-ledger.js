@@ -9,7 +9,7 @@ const { caught } = require("./caught.js");
  * The require sits inside the try so a store that will not load fails this
  * advisory check open, as mantahostels#3278 has it, rather than reaching
  * refuse-on-throw's deny.
- * @type {import("./commit-form.js").CommitFormPorts["writeLedger"]}
+ * @type {import("./commit-form.js").CommitFormPorts["readWriteLedger"]}
  */
 function readWriteLedger(sessionId) {
 	try {

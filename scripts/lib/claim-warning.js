@@ -54,8 +54,7 @@
  * THE POINTER DECAYS HOURLY (mantahostels#2364), on POINTER_DECAY_MS, and is
  * said again on a contended pair this session has not already been handed —
  * NOT on unchanging contention, which the pair filter drops before the decay
- * is reached. Not a terminal latch: the house shape for a bounded repeat is the
- * arbiter `request` marker's hourly decay, and what a latch silences is a
+ * is reached. Not a terminal latch: what a latch silences is a
  * clobber warning — the direction AGENTS.md §Supervision priors says to err
  * away from.
  *
