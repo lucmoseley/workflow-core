@@ -18,7 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
 
-const { pushedRef, readUnpushedRef, startRef } =
+const { pushedRef, queueRefOf, readUnpushedRef, startRef } =
 	createRequire(__filename)("./landing-refs.js");
 const SCRIPT = path.join(__dirname, "landing-refs.js");
 
@@ -117,6 +117,20 @@ describe("readUnpushedRef", () => {
 		host(["suites"]);
 		checkout("wip");
 		expect(readUnpushedRef({ root })).toBe("origin/main");
+	});
+});
+
+describe("queueRefOf", () => {
+	it("names a worktree under the host's .claude/worktrees by its directory", () => {
+		expect(
+			queueRefOf("/h", path.join("/h", ".claude", "worktrees", "fix-it")),
+		).toBe("queue/fix-it");
+	});
+
+	it("names no queue ref for the host itself or a tree elsewhere", () => {
+		expect(queueRefOf("/h", "/h")).toBeNull();
+		expect(queueRefOf("/h", "/elsewhere/.claude/worktrees/x")).toBeNull();
+		expect(queueRefOf("/h", null)).toBeNull();
 	});
 });
 

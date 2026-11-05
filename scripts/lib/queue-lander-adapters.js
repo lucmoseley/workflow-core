@@ -75,6 +75,13 @@ const BROKEN_OBJECT =
  */
 
 /**
+ * @template T
+ * @typedef {{kind: "absent"} | {kind: "torn"} | {kind: "read", value: T}}
+ *   RecordRead a record file: absent, torn where it will not parse or is not
+ *   the record, or read
+ */
+
+/**
  * @param {string} root the canonical checkout's root
  */
 function queueLanderFiles(root) {
@@ -360,6 +367,69 @@ const isMember = (m) => {
 };
 
 /**
+ * A JSON record file: absent, torn where it will not parse, or its value.
+ * Any other read fault throws.
+ * @param {string} file
+ * @returns {RecordRead<unknown>}
+ */
+function readRecordFile(file) {
+	let text;
+	try {
+		text = fs.readFileSync(file, "utf8");
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return { kind: "absent" };
+		throw err;
+	}
+	try {
+		return { kind: "read", value: JSON.parse(text) };
+	} catch {
+		return { kind: "torn" };
+	}
+}
+
+/**
+ * @param {unknown} parsed
+ * @returns {Batch|null}
+ */
+function parseBatch(parsed) {
+	const b = /** @type {Record<string, unknown>|null} */ (
+		parsed !== null && typeof parsed === "object" ? parsed : null
+	);
+	if (
+		!b ||
+		!Array.isArray(b.members) ||
+		!b.members.every(isMember) ||
+		typeof b.onto !== "string" ||
+		!isStringList(b.deferred) ||
+		!isStringList(b.dropped) ||
+		!(b.integration === null || typeof b.integration === "string") ||
+		typeof b.phase !== "string" ||
+		!PHASES.includes(b.phase)
+	)
+		return null;
+	return {
+		members: b.members,
+		deferred: b.deferred,
+		dropped: b.dropped,
+		onto: b.onto,
+		integration: b.integration,
+		phase: /** @type {Batch["phase"]} */ (b.phase),
+	};
+}
+
+/**
+ * The batch record's file: absent, torn where it is no batch, or the batch.
+ * @param {string} file
+ * @returns {RecordRead<Batch>}
+ */
+function readBatchFile(file) {
+	const r = readRecordFile(file);
+	if (r.kind !== "read") return r;
+	const batch = parseBatch(r.value);
+	return batch ? { kind: "read", value: batch } : { kind: "torn" };
+}
+
+/**
  * The batch record: the batch a run is landing, so the next run resumes it.
  * A record that is absent or not a batch reads as none.
  * @param {string} file
@@ -368,37 +438,8 @@ const isMember = (m) => {
 function batchRecord(file) {
 	return {
 		read() {
-			let parsed;
-			try {
-				parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-			} catch (err) {
-				if (caught(err).code === "ENOENT" || err instanceof SyntaxError)
-					return null;
-				throw err;
-			}
-			const b = /** @type {Record<string, unknown>|null} */ (
-				parsed !== null && typeof parsed === "object" ? parsed : null
-			);
-			if (
-				!b ||
-				!Array.isArray(b.members) ||
-				!b.members.every(isMember) ||
-				typeof b.onto !== "string" ||
-				!isStringList(b.deferred) ||
-				!isStringList(b.dropped) ||
-				!(b.integration === null || typeof b.integration === "string") ||
-				typeof b.phase !== "string" ||
-				!PHASES.includes(b.phase)
-			)
-				return null;
-			return {
-				members: b.members,
-				deferred: b.deferred,
-				dropped: b.dropped,
-				onto: b.onto,
-				integration: b.integration,
-				phase: /** @type {Batch["phase"]} */ (b.phase),
-			};
+			const r = readBatchFile(file);
+			return r.kind === "read" ? r.value : null;
 		},
 		write(b) {
 			writeFileAtomic(file, `${JSON.stringify(b)}\n`);
@@ -433,6 +474,20 @@ const isDrop = (d) => {
 };
 
 /**
+ * The drop record's file: absent, torn where it is no list, or its drops, a
+ * row that is not a drop skipped.
+ * @param {string} file
+ * @returns {RecordRead<Drop[]>}
+ */
+function readDropFile(file) {
+	const r = readRecordFile(file);
+	if (r.kind !== "read") return r;
+	return Array.isArray(r.value)
+		? { kind: "read", value: r.value.filter(isDrop) }
+		: { kind: "torn" };
+}
+
+/**
  * The drop record: every dropped ref the lander has not yet reaped, with its
  * fix ticket. A row that is not a drop is skipped; an absent or torn record
  * reads as none, and no run then reaps the refs it named.
@@ -442,15 +497,8 @@ const isDrop = (d) => {
 function dropRecord(file) {
 	return {
 		read() {
-			let parsed;
-			try {
-				parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-			} catch (err) {
-				if (caught(err).code === "ENOENT" || err instanceof SyntaxError)
-					return [];
-				throw err;
-			}
-			return Array.isArray(parsed) ? parsed.filter(isDrop) : [];
+			const r = readDropFile(file);
+			return r.kind === "read" ? r.value : [];
 		},
 		write(drops) {
 			writeFileAtomic(file, `${JSON.stringify(drops)}\n`);
@@ -477,5 +525,7 @@ module.exports = {
 	queueGit,
 	queueLanderFiles,
 	queueLogger,
+	readBatchFile,
+	readDropFile,
 	verdictLedger,
 };

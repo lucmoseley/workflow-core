@@ -123,15 +123,13 @@ function buildQueueLine({ now, waiting, baseline: b }) {
 }
 
 /**
- * The gauge of `root`'s remote and queue log at `now`. Throws where the
- * remote or the log cannot be read.
- * @param {string} root the canonical checkout's root
+ * The gauge of the remote's queue refs and the queue log's rows at `now`.
+ * @param {readonly import("./queue-lander.js").QueueRef[]} queue
+ * @param {import("./queue-log.js").LoggedRow[]} rows oldest first
  * @param {number} now
  * @returns {QueueGauge}
  */
-function readQueueGauge(root, now) {
-	const { queue } = queueGit(root).refs();
-	const rows = readQueueRows(queueLogFile(root));
+function queueGaugeOf(queue, rows, now) {
 	const pending = pendingSince(rows);
 	return {
 		now,
@@ -144,6 +142,20 @@ function readQueueGauge(root, now) {
 	};
 }
 
+/**
+ * The gauge of `root`'s remote and queue log at `now`. Throws where the
+ * remote or the log cannot be read.
+ * @param {string} root the canonical checkout's root
+ * @param {number} now
+ * @returns {QueueGauge}
+ */
+const readQueueGauge = (root, now) =>
+	queueGaugeOf(
+		queueGit(root).refs().queue,
+		readQueueRows(queueLogFile(root)),
+		now,
+	);
+
 module.exports = {
 	AGE_FLOOR_MS,
 	DEPTH_FLOOR,
@@ -151,5 +163,6 @@ module.exports = {
 	buildQueueLine,
 	oldestWaiting,
 	queueCrossings,
+	queueGaugeOf,
 	readQueueGauge,
 };

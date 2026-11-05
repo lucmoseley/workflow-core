@@ -3,8 +3,11 @@
  * landing-status.js — where this session's commits stand on the landing route
  * (#2407, spec #2261): each commit its commit ledger names is landed (on
  * `main`), queued (on `landing`, not yet on `main`), reverted by a revert on
- * `landing`, or unpushed. Fetches both branches first. Its last line is the
- * landing queue's (lib/queue-gauge.js).
+ * `landing`, or unpushed. Fetches both branches first. Then, where the
+ * session runs in a worktree whose queue ref the remote holds or the queue
+ * log names, each stay of that ref, queued, testing, landed or dropped
+ * (lib/queue-ref-status.js). Its last line is the landing queue's
+ * (lib/queue-gauge.js).
  *
  *   node scripts/landing-status.js [--session <id>]
  *
@@ -12,20 +15,28 @@
  *
  * Exit codes: 0 on a report, or where the `landing` module is off; 1 where the
  * remote or the commit ledger cannot be read; 2 on a command line it refuses
- * or no session id. A queue line it cannot read is named on stderr, and
- * changes no exit code.
+ * or no session id. Queue lines it cannot read are named on stderr, and
+ * change no exit code.
  */
 
 const { caught, parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const arbiterLedger = require("./lib/arbiter-ledger.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { readTopLevel } = require("./lib/git-tree.js");
+const { QUEUE_PREFIX, queueRefOf } = require("./lib/landing-refs.js");
 const {
 	commitStates,
 	fetchedGit,
 	buildStateLine,
 } = require("./lib/landing-status.js");
-const { buildQueueLine, readQueueGauge } = require("./lib/queue-gauge.js");
+const { buildQueueLine, queueGaugeOf } = require("./lib/queue-gauge.js");
+const { queueGit } = require("./lib/queue-lander-adapters.js");
+const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
+const {
+	buildQueueRefLine,
+	readQueueRefStates,
+} = require("./lib/queue-ref-status.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
@@ -78,7 +89,7 @@ function main(argv = process.argv.slice(2)) {
 	}
 	if (commits.length === 0) {
 		say(`Session ${sessionId} made no commit here.`);
-		sayQueueLine(root);
+		sayQueueLines(root);
 		return 0;
 	}
 	/** @type {string[]} */
@@ -96,17 +107,32 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	for (const line of lines) say(line);
-	sayQueueLine(root);
+	sayQueueLines(root);
 	return 0;
 }
 
-/** @param {string} root */
-function sayQueueLine(root) {
+/**
+ * The session's queue ref's stays, then the queue's line, off one read of
+ * the remote and the queue log.
+ * @param {string} root
+ */
+function sayQueueLines(root) {
+	const own = queueRefOf(root, readTopLevel(process.cwd()));
 	try {
-		say(buildQueueLine(readQueueGauge(root, now())));
+		const refs = queueGit(root).refs();
+		const rows = readQueueRows(queueLogFile(root));
+		if (own !== null)
+			for (const s of readQueueRefStates(
+				root,
+				own.slice(QUEUE_PREFIX.length),
+				refs,
+				rows,
+			))
+				say(buildQueueRefLine(s));
+		say(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
 	} catch (err) {
-		/* Fail-open (#4485): the queue's line is a reading beside the
-		 * session's commits, which stand without it; the failure is named. */
+		/* Fail-open (#4485): the queue's lines are a reading beside the
+		 * session's commits, which stand without them; the failure is named. */
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);
 	}
 }

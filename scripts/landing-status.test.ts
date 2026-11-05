@@ -3,7 +3,9 @@
  * scripts/landing-status.js end to end (#2407), on a fixture remote.
  *
  * Loosen it and a session reports a queued commit as landed, misses the revert
- * the lander pushed onto its work, or claims a state off refs it never fetched.
+ * the lander pushed onto its work, claims a state off refs it never fetched,
+ * or loses what became of its own queue ref: queued, landed at a `main` sha,
+ * or dropped with its fix ticket.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,9 +42,13 @@ const NOW = Date.parse("2026-11-06T12:00:00Z");
 const NO_QUEUE =
 	"queue: none waiting; nothing landed or dropped in 7 days; depth p90 none.";
 
-const runStatus = (modules = "landing", args = ["--session", SESSION]) =>
+const runStatus = (
+	modules = "landing",
+	args = ["--session", SESSION],
+	cwd = work,
+) =>
 	runInProcess(STATUS, args, {
-		cwd: work,
+		cwd,
 		env: {
 			...process.env,
 			WFC_MODULES: modules,
@@ -69,6 +75,17 @@ const queueLog = (...rows: [number, string, string, string][]) => {
 			.join("\n"),
 	);
 };
+
+const markers = () => path.join(work, ".claude", "tmp", "markers");
+
+/** A session worktree `queue/<name>` names, cut off HEAD. */
+const worktree = (name: string) => {
+	const tree = path.join(work, ".claude", "worktrees", name);
+	git(work, "worktree", "add", "-q", "--detach", tree);
+	return tree;
+};
+
+const short = (sha: string) => sha.slice(0, 9);
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-status-"));
@@ -207,4 +224,85 @@ it("refuses to run with no session id, naming --session as the way out", () => {
 
 	expect(r.status).toBe(2);
 	expect(r.stderr).toMatch(/no session id: pass --session <id>/);
+});
+
+it("reads the session's own queue ref as queued, before the queue's line", () => {
+	const tree = worktree("alpha");
+	const sha = commit("waiting");
+	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/alpha");
+	queueLog([42, "enqueue", "alpha", sha]);
+	ledger();
+
+	const r = runStatus("landing", ["--session", SESSION], tree);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+		`Session ${SESSION} made no commit here.`,
+		`queued: queue/alpha at ${short(sha)} — waiting for the lander's next batch`,
+		"queue: 1 waiting, the oldest queue/alpha for 0 h 42 min; nothing landed or dropped in 7 days; depth p90 none.",
+	]);
+});
+
+it("reads a landed stay with the main sha the green ledger and main's first-parent path name", () => {
+	const tree = worktree("alpha");
+	const base = git(work, "rev-parse", "HEAD");
+	const member = commit("member");
+	git(work, "checkout", "-q", "--detach", base);
+	git(work, "merge", "-q", "--no-ff", "--no-edit", member);
+	const merged = git(work, "rev-parse", "HEAD");
+	git(work, "push", "-q", "origin", "HEAD:main");
+	queueLog([60, "enqueue", "alpha", member], [10, "land", "alpha", member]);
+	fs.writeFileSync(
+		path.join(markers(), ".landing-green-ledger"),
+		`${merged} ${new Date(NOW).toISOString()}\n`,
+	);
+	ledger();
+
+	const r = runStatus("landing", ["--session", SESSION], tree);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toContain(
+		`landed: queue/alpha at ${short(member)} — on main at ${short(merged)}\n`,
+	);
+});
+
+it("reads a dropped stay with its fix ticket and dropped ref off the drop record", () => {
+	const tree = worktree("alpha");
+	const sha = commit("dropped");
+	git(work, "push", "-q", "origin", "HEAD:refs/heads/dropped/alpha");
+	queueLog([60, "enqueue", "alpha", sha], [10, "drop", "alpha", sha]);
+	fs.writeFileSync(
+		path.join(markers(), ".queue-lander-drops.json"),
+		JSON.stringify([
+			{
+				name: "alpha",
+				sha,
+				ref: "dropped/alpha",
+				onto: sha,
+				cause: { kind: "conflict", name: "alpha", files: ["a.txt"] },
+				ticket: 4999,
+			},
+		]),
+	);
+	ledger();
+
+	const r = runStatus("landing", ["--session", SESSION], tree);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toContain(
+		`dropped: queue/alpha at ${short(sha)} — kept as dropped/alpha, fix ticket #4999\n`,
+	);
+});
+
+it("adds no per-ref line for a worktree with no queue ref and no queue-log row", () => {
+	const tree = worktree("alpha");
+	ledger();
+
+	const r = runStatus("landing", ["--session", SESSION], tree);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+		`Session ${SESSION} made no commit here.`,
+		NO_QUEUE,
+	]);
 });

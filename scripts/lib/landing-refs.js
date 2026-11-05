@@ -20,6 +20,8 @@
  *     else the host root, for shell and workflows
  */
 
+const path = require("node:path");
+
 /* The config and git load where an answer first needs them, so a reader of
  * the names alone, a hook among them, pays for neither. */
 
@@ -39,6 +41,19 @@ const QUEUE_PREFIX = "queue/";
 /* A queue ref the lander dropped, `dropped/<name>`, which it alone
  * writes and deletes once the drop's fix ticket closes. */
 const DROPPED_PREFIX = "dropped/";
+
+/**
+ * The queue ref of the session in `tree`: `queue/<its directory's name>`
+ * where it is a worktree under the host's `.claude/worktrees/`, else null.
+ * @param {string} root the host root
+ * @param {string|null|undefined} tree the session's tree top level
+ * @returns {string|null}
+ */
+function queueRefOf(root, tree) {
+	if (!tree || path.dirname(tree) !== path.join(root, ".claude", "worktrees"))
+		return null;
+	return `${QUEUE_PREFIX}${path.basename(tree)}`;
+}
 
 /**
  * The fetch refspec that updates `branch`'s remote-tracking ref.
@@ -176,6 +191,7 @@ module.exports = {
 	pushedRef,
 	pushedRefFor,
 	QUEUE_PREFIX,
+	queueRefOf,
 	REMOTE,
 	readUnpushedRef,
 	startRef,

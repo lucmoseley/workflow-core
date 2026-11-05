@@ -99,6 +99,7 @@ const {
 	LANDER_PREFIX,
 	LANDING_BRANCH,
 	QUEUE_PREFIX,
+	queueRefOf,
 } = require("./landing-refs.js");
 const { rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
@@ -197,13 +198,7 @@ const landingRewind = (ctx, what, segment) => ({
  * @returns {string | null}
  */
 function ownQueueRef(ctx) {
-	const tree = treeOr(ctx, null)?.root;
-	if (
-		!tree ||
-		path.dirname(tree) !== path.join(ctx.root, ".claude", "worktrees")
-	)
-		return null;
-	return `${QUEUE_PREFIX}${path.basename(tree)}`;
+	return queueRefOf(ctx.root, treeOr(ctx, null)?.root);
 }
 
 /**
