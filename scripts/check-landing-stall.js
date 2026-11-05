@@ -14,8 +14,8 @@
  * THE QUEUE. With queue refs waiting, it also names the oldest one waiting
  * past its limit, and a queue deeper than its limit (lib/queue-gauge.js),
  * at every session start while either stands; the refill loop's queue alert
- * (lib/queue-alert.js) is the one that fires once per crossing. The check of
- * `landing` ahead of `main` runs beside it.
+ * (lib/queue-alert.js) is the one that fires once per crossing. A queue it
+ * cannot read is named as QUEUE-UNREAD, beside the findings on `landing`.
  *
  * Where the `landing` module is off it prints nothing under --notify.
  *
@@ -24,6 +24,7 @@
  * DEFEAT:    none needed — it never blocks.
  */
 
+const { parseErrorText } = require("./lib/caught.js");
 const { now, runCheck } = require("./lib/check");
 const { readQueue, stallFindings } = require("./lib/landing-stall.js");
 const {
@@ -39,6 +40,25 @@ const { repoRoot } = require("./lib/test-pass-marker.js");
  * under a second. */
 const START_GRACE_MS = 15 * 1000;
 
+/**
+ * The queue's gauge, or why it would not read: the findings on `landing`
+ * stand without it.
+ * @param {string} root
+ * @returns {{gauge: import("./lib/queue-gauge.js").QueueGauge|null,
+ *   unread: string|null}}
+ */
+function readGauge(root) {
+	try {
+		return { gauge: readQueueGauge(root, now()), unread: null };
+	} catch (err) {
+		/* Fail-open (#4485): named as its own finding, not as BROKEN. */
+		return {
+			gauge: null,
+			unread: `could not read the landing queue: ${parseErrorText(err)}`,
+		};
+	}
+}
+
 runCheck({
 	name: "landing-stall",
 	usage: "node check-landing-stall.js [--notify] [--json]",
@@ -53,11 +73,14 @@ runCheck({
 			);
 			found = stallFindings(readQueue(root));
 		}
-		const gauge = readQueueGauge(root, now());
-		const crossed = buildCrossingLines(queueCrossings(gauge), gauge.baseline);
+		const read = readGauge(root);
+		const crossed =
+			read.gauge &&
+			buildCrossingLines(queueCrossings(read.gauge), read.gauge.baseline);
 		const queued = [
-			...(crossed.age ? [{ tag: "QUEUE-STALLED", line: crossed.age }] : []),
-			...(crossed.depth ? [{ tag: "QUEUE-DEEP", line: crossed.depth }] : []),
+			...(read.unread ? [{ tag: "QUEUE-UNREAD", line: read.unread }] : []),
+			...(crossed?.age ? [{ tag: "QUEUE-STALLED", line: crossed.age }] : []),
+			...(crossed?.depth ? [{ tag: "QUEUE-DEEP", line: crossed.depth }] : []),
 		];
 		for (const f of [...found, ...queued]) {
 			ctx.warn(f.tag, f.line);
@@ -67,7 +90,7 @@ runCheck({
 			ctx.say(
 				`  Run the lander by hand to see where it stops: node ${scriptPath("lander.js")} run\n`,
 			);
-		if (queued.length > 0)
+		if (crossed?.age || crossed?.depth)
 			ctx.say(
 				`  Run the queue lander by hand to see where it stops: node ${scriptPath("queue-lander.js")} run\n`,
 			);
@@ -76,7 +99,7 @@ runCheck({
 			noun: "landing queue finding(s)",
 			count: found.length + queued.length,
 			data: {
-				queueWaiting: gauge.waiting.length,
+				queueWaiting: read.gauge?.waiting.length ?? null,
 				main: queue.main,
 				landing: queue.landing,
 				relation: queue.relation,

@@ -6,9 +6,8 @@
  * of `main` and no lander runs, it starts one through start-lander.js; where
  * `main` has not moved for lib/landing-stall.js's STALL_MS, it files or
  * refreshes the stall ticket (lib/stall-ticket.js), which it closes once
- * `main` moves. A held queue it leaves to the held-queue issue. It files
- * the queue alert (lib/queue-alert.js) once per crossing of a queue limit
- * (lib/queue-gauge.js), and closes it once the queue is back within it.
+ * `main` moves. A held queue it leaves to the held-queue issue. It files and
+ * closes the queue alert (lib/queue-alert.js).
  *
  *   node scripts/supervise-landing.js [--tester <command>]
  *
@@ -19,7 +18,8 @@
  * nothing and is no hook.
  *
  * Exit codes: 0 on a pass; 1 on a throw, an unreadable remote, a failed start
- * or a refused filing among them; 2 on a command line it refuses.
+ * or a refused filing among them; 2 on a command line it refuses. A queue
+ * it cannot read is named in a line, and changes no exit code.
  */
 
 const { parseErrorText } = require("./lib/caught.js");
@@ -75,7 +75,16 @@ function main(argv = process.argv.slice(2)) {
 		},
 	}))
 		say(line);
-	const gauge = readQueueGauge(root, now());
+	let gauge;
+	try {
+		gauge = readQueueGauge(root, now());
+	} catch (err) {
+		/* Fail-open (#4485): the stall ticket above is tended without it. */
+		say(
+			`queue alert: could not read the landing queue: ${parseErrorText(err)}`,
+		);
+		return 0;
+	}
 	const alert = queueAlertTender(deps, markersDir(root));
 	for (const line of alert(gauge, queueCrossings(gauge))) say(line);
 	return 0;

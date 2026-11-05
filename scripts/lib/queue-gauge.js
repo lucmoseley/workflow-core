@@ -1,26 +1,27 @@
 /*
- * queue-gauge.js — the landing queue's gauge (#4485, spec #4458): the queue
- * refs waiting on the remote, each with the time it has waited, the 7-day
- * baselines lib/queue-log.js reads off the queue log, the limits the stall
- * check and the queue alert hold them to, and the status line.
+ * queue-gauge.js — the landing queue's gauge: the queue refs waiting on the
+ * remote, each with the time it has waited, the 7-day baselines
+ * lib/queue-log.js reads off the queue log, the limits the stall check and
+ * the queue alert hold them to, and the status line.
  *
  * WAITING: every `refs/heads/queue/<name>` on the remote, read as the queue
  * lander reads its batch (lib/queue-lander-adapters.js): it has waited since
- * the push of the sha it holds, from the queue log, or its tip's committer
- * time where the log has no row, which a push of it never predates. Residual:
- * a ref pushed again waits from its newest push, so a stall goes unnamed
- * while every waiting ref is pushed again within its limit.
+ * its earliest pending push in the queue log (lib/queue-log.js), so a ref
+ * pushed again still ages; where none is pending, since the lander's push
+ * time for the sha it holds, else that tip's committer time.
  *
- * LIMITS (#4458's values, untraced there): the oldest waiting ref is past
- * its limit when it has waited longer than twice the 7-day p90 time in
- * queue, or AGE_FLOOR_MS where that is longer; the queue is too deep when
- * more refs wait than twice the 7-day p90 depth, or DEPTH_FLOOR where that
- * is more. With no baseline the floor alone holds.
+ * LIMITS (untraced): the oldest waiting ref is past its limit when it has
+ * waited longer than twice the 7-day p90 time in queue, or AGE_FLOOR_MS
+ * where that is longer; the queue is too deep when more refs wait than
+ * twice the 7-day p90 depth, or DEPTH_FLOOR where that is more. With no
+ * baseline the floor alone holds.
  */
 
+const { QUEUE_PREFIX } = require("./landing-refs.js");
 const { formatHoursMin } = require("./landing-stall.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const {
+	pendingSince,
 	queueBaseline,
 	queueLogFile,
 	readQueueRows,
@@ -51,10 +52,7 @@ const queueLimits = (b) => ({
 	depth: Math.max(BASELINE_FACTOR * (b.depthP90 ?? 0), DEPTH_FLOOR),
 });
 
-/**
- * The ref that has waited longest; null where none waits.
- * @param {Waiting[]} waiting
- */
+/** @param {Waiting[]} waiting */
 const oldestWaiting = (waiting) =>
 	waiting.reduce(
 		(/** @type {Waiting|null} */ old, w) =>
@@ -84,7 +82,6 @@ function queueCrossings({ now, waiting, baseline }) {
 const span = (ms) => (ms === null ? "none" : formatHoursMin(ms));
 
 /**
- * The limit a crossing is held to, with what it rests on.
  * @param {QueueCrossings["limits"]} limits
  * @param {import("./queue-log.js").QueueBaseline} b
  */
@@ -94,7 +91,6 @@ const buildLimitText = (limits, b) => ({
 });
 
 /**
- * The lines naming each crossing.
  * @param {QueueCrossings} c
  * @param {import("./queue-log.js").QueueBaseline} b
  * @returns {{age: string|null, depth: string|null}}
@@ -112,11 +108,7 @@ function buildCrossingLines(c, b) {
 	};
 }
 
-/**
- * The queue's status line: the refs waiting, the oldest and its wait, and
- * the 7-day p50 and p90 time in queue and p90 depth.
- * @param {QueueGauge} g
- */
+/** @param {QueueGauge} g */
 function buildQueueLine({ now, waiting, baseline: b }) {
 	const oldest = oldestWaiting(waiting);
 	const head =
@@ -139,14 +131,16 @@ function buildQueueLine({ now, waiting, baseline: b }) {
  */
 function readQueueGauge(root, now) {
 	const { queue } = queueGit(root).refs();
+	const rows = readQueueRows(queueLogFile(root));
+	const pending = pendingSince(rows);
 	return {
 		now,
 		waiting: queue.map(({ name, sha, pushedAt }) => ({
 			name,
 			sha,
-			since: pushedAt,
+			since: pending.get(`refs/heads/${QUEUE_PREFIX}${name}`) ?? pushedAt,
 		})),
-		baseline: queueBaseline(readQueueRows(queueLogFile(root)), now),
+		baseline: queueBaseline(rows, now),
 	};
 }
 
@@ -155,6 +149,7 @@ module.exports = {
 	DEPTH_FLOOR,
 	buildCrossingLines,
 	buildQueueLine,
+	oldestWaiting,
 	queueCrossings,
 	readQueueGauge,
 };
