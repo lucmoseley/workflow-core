@@ -34,8 +34,8 @@ const { decide } = require("./test-rules-inject.js") as {
 		ctx: { tree: () => { repoRel: (file: string) => string | null } },
 	) => unknown;
 };
-const { repoRel } = require("./guard-dispatch.js") as {
-	repoRel: (file: string, root: string) => string | null;
+const { treePorts } = require("./guard-host-ports.js") as {
+	treePorts: (root: string) => { repoRel: (file: string) => string | null };
 };
 
 let dir: string;
@@ -51,7 +51,7 @@ afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const judged = (file: string) =>
 	decide(`${repo}/${file}`, {
-		tree: () => ({ repoRel: (f) => repoRel(f, repo) }),
+		tree: () => treePorts(repo),
 	});
 
 const RULES = {
