@@ -122,6 +122,7 @@ function fakeIo(
 		hasConfig: () => true,
 		superviseLanding: recorded("superviseLanding", () => undefined),
 		levelMain: recorded("levelMain", () => undefined),
+		startWarmPass: recorded("startWarmPass", () => undefined),
 		startReapPass: recorded("startReapPass", () => undefined),
 		fileMachineTickets: recorded("fileMachineTickets", () => undefined),
 		tendHolds: recorded("tendHolds", () => []),
@@ -622,6 +623,7 @@ describe("the dry-run policy (#4212)", () => {
 			"stopNeverStarted",
 			"superviseLanding",
 			"levelMain",
+			"startWarmPass",
 			"startReapPass",
 			"fileMachineTickets",
 			"tendHolds",
@@ -946,8 +948,8 @@ describe("the sessions parked on a lifted repo hold (#3863)", () => {
 	});
 });
 
-describe("the checkouts a live tick tends (#3284, #4247, #4248)", () => {
-	it("supervises, levels and reaps each landing root with a config, skipping a gone one, and tends every root's holds", async () => {
+describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
+	it("supervises, levels, warms and reaps each landing root with a config, skipping a gone one, and tends every root's holds", async () => {
 		const gone = "/home/u/gone";
 		const acts: string[] = [];
 		const holdRoots: string[][] = [];
@@ -957,6 +959,7 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248)", () => {
 				hasConfig: (root) => root !== gone,
 				superviseLanding: (root) => acts.push(`supervise ${root}`),
 				levelMain: (root) => acts.push(`level ${root}`),
+				startWarmPass: (root) => acts.push(`warm ${root}`),
 				startReapPass: (root) => acts.push(`reap ${root}`),
 				fileMachineTickets: (script) => acts.push(`file ${script}`),
 				tendHolds: (roots) => {
@@ -969,6 +972,7 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248)", () => {
 		expect(acts).toEqual([
 			`supervise ${WFC}`,
 			`level ${WFC}`,
+			`warm ${WFC}`,
 			`reap ${WFC}`,
 			"file file-memory-kill-tickets.js",
 			"file file-process-runaway-tickets.js",

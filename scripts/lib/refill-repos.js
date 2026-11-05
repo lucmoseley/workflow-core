@@ -26,12 +26,11 @@
  * and lib/parent-claims.js read that repo's claim store, and lib/gate-check.js
  * runs a `check:` in that repo's tree.
  *
- * buildCheckoutEnv builds the environment for a child run in another checkout,
- * for refill-loop.js, lib/refill-batch.js, lib/refill-frontier.js,
- * lib/lander-start.js, lib/file-through.js, lib/gate-check.js, lib/refill-tick.js
- * and lib/repo-holds.js.
+ * buildCheckoutEnv builds the environment for a child run in another checkout;
+ * startDetachedIn starts a node script detached under it.
  */
 
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -222,6 +221,28 @@ function buildCheckoutEnv(root, env = process.env) {
 	return child;
 }
 
+/**
+ * Run a node script detached in checkout `root`, its stderr this process's.
+ * Fails open (#3765): a failed start goes to `notStarted`.
+ * @param {string} root
+ * @param {string[]} args the script and its arguments
+ * @param {(err: unknown) => void} notStarted
+ */
+function startDetachedIn(root, args, notStarted) {
+	try {
+		const child = spawn(process.execPath, args, {
+			cwd: root,
+			env: buildCheckoutEnv(root),
+			detached: true,
+			stdio: ["ignore", "ignore", "inherit"],
+		});
+		child.on("error", notStarted);
+		child.unref();
+	} catch (err) {
+		notStarted(err);
+	}
+}
+
 /** @param {unknown} e */
 const errMessageOf = (e) => caught(e).code || caught(e).message;
 
@@ -286,6 +307,7 @@ module.exports = {
 	readCheckoutTracking,
 	readHostTracker,
 	buildCheckoutEnv,
+	startDetachedIn,
 	discoverRepos,
 	readAbsence,
 	readCandidates,
