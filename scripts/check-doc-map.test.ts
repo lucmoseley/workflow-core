@@ -4415,7 +4415,7 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 
-	it("is BROKEN where git will not locate MERGE_HEAD, never a HEAD-alone baseline (#3184)", () => {
+	it("is BROKEN where git will not locate an absent MERGE_HEAD, never a HEAD-alone baseline (#3184)", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(8)));
 		const faulty = writeFaultyGit(
@@ -4427,10 +4427,11 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(faulty.hits()).toBeGreaterThan(0);
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("git would not locate MERGE_HEAD");
+		expect(r.out).toContain("git rev-parse --git-path MERGE_HEAD");
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 
-	it("is BROKEN where git will not locate MERGE_HEAD's file", () => {
+	it("is BROKEN where git will not locate a present MERGE_HEAD", () => {
 		base(ledger(bullet(8)));
 		fs.writeFileSync(
 			path.join(repo, ".git/MERGE_HEAD"),
@@ -4446,6 +4447,7 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(faulty.hits()).toBeGreaterThan(0);
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("git would not locate MERGE_HEAD");
+		expect(r.out).toContain("git rev-parse --git-path MERGE_HEAD");
 	});
 
 	it("passes an absent MERGE_HEAD silently", () => {
@@ -4628,6 +4630,24 @@ describe("the pool-tranche trigger verdict", () => {
 		const r = check();
 		expect(r.status).toBe(2);
 		expect(r.out).toContain(`MERGE_HEAD names ${"0".repeat(40)}`);
+	});
+
+	it("is BROKEN where MERGE_HEAD's first line names no commit", () => {
+		base(ledger(bullet(8)));
+		writeMap(baselineRows, ledger(bullet(8)));
+		fs.writeFileSync(path.join(repo, ".git/MERGE_HEAD"), `${"0".repeat(40)}\n`);
+		const r = check();
+		expect(r.status).toBe(2);
+		expect(r.out).toContain(`MERGE_HEAD names ${"0".repeat(40)}`);
+	});
+
+	it("is BROKEN where MERGE_HEAD will not read, never a HEAD-alone baseline (#3184)", () => {
+		base(ledger(bullet(8)));
+		writeMap(baselineRows, ledger(bullet(8)));
+		fs.mkdirSync(path.join(repo, ".git/MERGE_HEAD"));
+		const r = check();
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("could not read MERGE_HEAD");
 	});
 
 	it("says the verdict went unchecked where no committed rev resolves", () => {

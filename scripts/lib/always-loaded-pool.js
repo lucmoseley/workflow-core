@@ -18,6 +18,7 @@ const { readImportedFiles } = require("./pool-imports.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { cutAt } = require("./cut-at.js");
 const { caught } = require("./caught.js");
+const { PRINTED_CHARS_SHOWN } = require("./commit-sha.js");
 const { execGit } = require("./git.js");
 const { brokenError } = require("./outcome-error.js");
 
@@ -98,7 +99,7 @@ const TRIGGER_VERDICT_MARKER = "**Trigger:**";
 const TRIGGER_VERDICT_MIN_WORDS = 3;
 
 /**
- * The pool's whole-file bytes in each of `treeishes`, `""` for the INDEX, which
+ * The pool's whole-file bytes in each of `revs`, `""` for the INDEX, which
  * `:<path>` addresses — what .husky/pre-commit's doc-map gate hands the
  * checker, since a pathspec commit gives the hook its own GIT_INDEX_FILE — or
  * null for a rev that names no commit, an unborn HEAD's among them. A file a
@@ -116,12 +117,12 @@ const TRIGGER_VERDICT_MIN_WORDS = 3;
  * Residual: a resolvable rev whose blob is gone from the object store is also
  * `missing`, so 0 bytes; a store that corrupt is fsck's to find.
  *
- * @param {string[]} treeishes
+ * @param {string[]} revs commits, or `""` for the index
  * @returns {(number | null)[]}
  */
-function readPoolBytesIn(treeishes) {
+function readPoolBytesIn(revs) {
 	const files = getPoolFiles();
-	const groups = treeishes.map((t) => ({
+	const groups = revs.map((t) => ({
 		commit: t ? `${t}^{commit}` : null,
 		files: files.map((rel) => `${t}:${rel}`),
 	}));
@@ -138,25 +139,30 @@ function readPoolBytesIn(treeishes) {
 	} catch (e) {
 		const { stderr, message } = caught(e);
 		throw brokenError(
-			`git would not read the pool's sizes in ${treeishes.map((t) => t || "the index").join(", ")}: ${String(stderr ?? "").trim() || message}`,
+			`git would not read the pool's sizes in ${revs.map((t) => t || "the index").join(", ")}: ${String(stderr ?? "").trim() || message}`,
 		);
 	}
 	const lines = out.split("\n");
-	/** @type {Map<string, number | null>} */
-	const sizes = new Map(
-		specs.map((spec, i) => {
-			const line = lines[i] ?? "";
-			if (line === `${spec} missing`) return [spec, null];
-			if (/^\d+$/.test(line)) return [spec, Number(line)];
+	/** @type {Map<string, number | "missing">} */
+	const answers = new Map();
+	specs.forEach((spec, i) => {
+		const line = lines[i] ?? "";
+		if (line === `${spec} missing`) answers.set(spec, "missing");
+		else if (/^\d+$/.test(line)) answers.set(spec, Number(line));
+		else
 			throw brokenError(
-				`git cat-file --batch-check ${spec} printed ${line.slice(0, 80)}`,
+				`git cat-file --batch-check ${spec} printed ${line.slice(0, PRINTED_CHARS_SHOWN)}`,
 			);
-		}),
-	);
+	});
+	/** @param {string} spec */
+	const bytes = (spec) => {
+		const a = answers.get(spec);
+		return typeof a === "number" ? a : 0;
+	};
 	return groups.map((g) =>
-		g.commit !== null && sizes.get(g.commit) === null
+		g.commit !== null && answers.get(g.commit) === "missing"
 			? null
-			: g.files.reduce((sum, spec) => sum + (sizes.get(spec) ?? 0), 0),
+			: g.files.reduce((sum, spec) => sum + bytes(spec), 0),
 	);
 }
 
