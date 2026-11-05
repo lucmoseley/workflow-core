@@ -113,6 +113,10 @@
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "gating or closing an issue tied to a roadmap card's timing"
 		},
+		"size-line": {
+			"source": "docs/agents/issue-tracker.md",
+			"trigger": "filing a spec's tickets: how many build units, which chunks may run in parallel, and how the quiz step presents them"
+		},
 		"spec-only-contract": {
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "writing, amending or reading a spec, or lifting one filed under a `kind:brief` up to its map with `node scripts/promote-spec.js <brief>`"

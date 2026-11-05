@@ -2183,6 +2183,17 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"docs/agents/rules/size-line.txt": [
+			"scripts/count-guard-fires.test.ts",
+			"scripts/inject-tracker-docs.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/review-tier.test.ts",
+			"scripts/lib/rule-text.test.ts",
+			"scripts/lib/tracker-rules.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"docs/agents/rules/skill-refused.txt": [
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
@@ -38530,7 +38541,6 @@
 		],
 		"scripts/spec-commits.js": [
 			"scripts/checker-registrations.test.ts",
-			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",

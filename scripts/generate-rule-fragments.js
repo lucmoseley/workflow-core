@@ -135,6 +135,8 @@ const TRIGGERS = {
 	"wayfinder-ops-shapes":
 		"a map, child ticket, blocking edge, frontier query, claim or resolve step, or a map left with nothing to resolve",
 	"kind-label-vocabulary": "applying or reading a `kind:` label",
+	"size-line":
+		"filing a spec's tickets: how many build units, which chunks may run in parallel, and how the quiz step presents them",
 	"spec-only-contract":
 		"writing, amending or reading a spec, or lifting one filed under a `kind:brief` up to its map with `node scripts/promote-spec.js <brief>`",
 	"takes-label-nuances":
