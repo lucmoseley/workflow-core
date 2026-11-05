@@ -13,6 +13,10 @@
  *     lib/agent-liveness.js and lib/block-cause.js read, and
  *     `claude stop`'s answers to that job and to an id no daemon holds, which
  *     lib/claude-stop.js reads (#2988);
+ *   - scripts/fixtures/bg-launch.json: a fresh `claude --bg <flags> -- <prompt>`
+ *     launch's answer, which guard-main-checkout-job.js and start-session.sh
+ *     read, and `claude rm`'s answers to a live job and to an id no daemon
+ *     holds, which guard-main-checkout-job.js reads (#4343);
  *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a
  *     terminal, and pty_type.py's, which the refill loop's typed resume
  *     reads, typing at it on one (#3014), both at the job waiting on its
@@ -23,15 +27,18 @@
  *     probe of this session's seat run as lib/usage-probe.js runs it, to its
  *     end.
  *
- * Run it by hand after a harness upgrade, then `npm run test --
- * scripts/lib/bg-resume.contract.test.ts scripts/lib/agents-stop.contract.test.ts
+ * Run it by hand after a harness upgrade, from a session worktree, then `npm
+ * run test -- scripts/lib/bg-resume.contract.test.ts
+ * scripts/lib/bg-launch.contract.test.ts scripts/lib/agents-stop.contract.test.ts
  * scripts/lib/claude-attach.contract.test.ts
- * scripts/lib/usage-probe.contract.test.ts`.
- * It launches one throwaway Haiku session in the repo root and resumes it
+ * scripts/lib/usage-probe.contract.test.ts`. Its sessions start in that
+ * worktree: guard-main-checkout-job.js relaunches a job started in the main
+ * checkout under a new id (#4340), so the main checkout is refused.
+ * It launches one throwaway Haiku session and resumes it
  * while it works, then again once stopped, then once more with its job
  * directory deleted, launches a second told to ask one question and a third
- * told to run one command it must ask leave for, and stops every job it
- * started, so it spends up to seven short turns. The command never
+ * told to run one command it must ask leave for, removes that third with
+ * `claude rm`, and stops every other job it started, so it spends up to seven short turns. The command never
  * runs: the prompt is never answered. The `/usage` probe spends no turn, but
  * first waits up to two minutes for the seat's cache to age into a refresh.
  *
@@ -50,9 +57,10 @@ const {
 } = require("./lib/claude-attach.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
+const { mainCheckout } = require("./lib/main-checkout.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -66,10 +74,12 @@ const AGENTS_STOP_FIXTURE = path.join(
 	"fixtures",
 	"agents-stop.json",
 );
+const LAUNCH_FIXTURE = path.join(__dirname, "fixtures", "bg-launch.json");
 const ATTACH_FIXTURE = path.join(__dirname, "fixtures", "claude-attach.json");
 const USAGE_FIXTURE = path.join(__dirname, "fixtures", "usage-probe.json");
 const RECORDED_BY = "node scripts/record-claude-responses.js";
-/* An 8-hex job id no daemon issued, for `claude stop`'s "No job matching". */
+/* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
+ * "No job matching". */
 const NO_JOB = "00000000";
 const PROMPT = "Reply with the single word ok. Use no tools.";
 const ASK =
@@ -88,11 +98,7 @@ const POLL_MS = 1000;
  * @param {number} [timeout]
  */
 function claude(args, timeout) {
-	const r = spawnSync(claudeBin(), args, {
-		cwd: hostRoot(),
-		encoding: "utf8",
-		timeout,
-	});
+	const r = spawnSync(claudeBin(), args, { encoding: "utf8", timeout });
 	if (r.error) throw r.error;
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
@@ -110,6 +116,8 @@ const SYNTHETIC = {
 	startedAt: 1_700_000_000_000,
 	/* The copy's job id, as `id` is the original's. */
 	copyId: "5e55c0b1",
+	/* The removed job's id. */
+	removedId: "5e55de1e",
 };
 
 /** @param {Row} row */
@@ -199,18 +207,20 @@ const untilState = async (id, done, fails) =>
 	);
 
 /**
- * The job id `claude --bg --model haiku [...flags] <prompt>` started.
+ * `claude --bg --model haiku [...flags] -- <prompt>`, the shape
+ * guard-main-checkout-job.js launches, and the job id it started.
  * @param {string} prompt
  * @param {string[]} [flags]
  */
 function launch(prompt, flags = []) {
-	const launched = claude(["--bg", "--model", "haiku", ...flags, prompt]);
+	const argv = ["--bg", "--model", "haiku", ...flags, "--", prompt];
+	const launched = claude(argv);
 	const id = /backgrounded · ([\w-]+)/.exec(launched.stdout)?.[1];
-	if (!id)
+	if (launched.status !== 0 || !id)
 		throw new Error(
-			`the launch named no job: ${launched.stdout}${launched.stderr}`,
+			`the launch named no job (exit ${launched.status}): ${launched.stdout}${launched.stderr}`,
 		);
-	return id;
+	return { id, argv, ...launched };
 }
 
 /**
@@ -253,11 +263,7 @@ function attachExits(id) {
 	 * that bound's margin covers. */
 	const offTerminal = claude(["attach", id], ATTACH_TIMEOUT_MS);
 	const [file, args, opts] = buildTypedAttach(id, PROMPT);
-	const onTerminal = spawnSync(file, args, {
-		...opts,
-		cwd: hostRoot(),
-		encoding: "utf8",
-	});
+	const onTerminal = spawnSync(file, args, { ...opts, encoding: "utf8" });
 	if (onTerminal.error) throw onTerminal.error;
 	return {
 		offTerminal: { status: offTerminal.status },
@@ -375,15 +381,27 @@ function writeFixture(file, recorded) {
 	writeFd(1, `recorded ${file}\n`);
 }
 
+/** The session worktree the recorder runs in; the main checkout throws. */
+function launchCwd() {
+	const tree = sessionTree({ cwd: process.cwd() });
+	if (tree === null || mainCheckout(tree) === tree)
+		throw new Error(
+			"run it from a session worktree: guard-main-checkout-job.js relaunches a job started in the main checkout (#4340)",
+		);
+	return tree;
+}
+
 async function main() {
+	process.chdir(launchCwd());
 	const refusal = launchAuthRefusal({
 		bin: claudeBin(),
 		env: process.env,
-		cwd: hostRoot(),
+		cwd: process.cwd(),
 	});
 	if (refusal) throw new Error(refusal);
 	const harness = claude(["--version"]).stdout.split(" ")[0];
-	const original = launch(PROMPT);
+	const launched = launch(PROMPT);
+	const original = launched.id;
 	const started = [original];
 	try {
 		const working = await untilState(original, () => true, "never listed");
@@ -405,13 +423,13 @@ async function main() {
 		fs.rmSync(jobDirPath(configDir(), original), { recursive: true });
 		const continued = resume(working.sessionId, original, false);
 		await settled(continued.startedAs, original);
-		const asker = launch(ASK);
+		const asker = launch(ASK).id;
 		started.push(asker);
 		await untilState(asker, (state) => state === "blocked", "never blocked");
 		const permissionJob = launch(PERMISSION_ASK, [
 			"--permission-mode",
 			"manual",
-		]);
+		]).id;
 		started.push(permissionJob);
 		await until(
 			permissionJob,
@@ -430,6 +448,18 @@ async function main() {
 				);
 		if (!rows.some((r) => r.waitingFor))
 			throw new Error(`the listing never showed ${permissionJob} waitingFor`);
+		const removed = claude(["rm", permissionJob]);
+		if (removed.status !== 0)
+			throw new Error(
+				`could not remove ${permissionJob}: ${removed.stderr.trim()}`,
+			);
+		await until(
+			permissionJob,
+			original,
+			(row) => row === undefined,
+			"still listed after its removal",
+		);
+		const noRemoval = claude(["rm", NO_JOB]);
 		const lost = lostShapes(rows);
 		if (lost.length > 0)
 			writeFd(
@@ -441,6 +471,7 @@ async function main() {
 			text
 				.replaceAll(copy.startedAs, SYNTHETIC.copyId)
 				.replaceAll(original, SYNTHETIC.id)
+				.replaceAll(permissionJob, SYNTHETIC.removedId)
 				.replace(/^(backgrounded · \S+) · .+$/m, `$1 · ${SYNTHETIC.name}`);
 		const syntheticResponse = (/** @type {typeof copy} */ r) => ({
 			resumed: SYNTHETIC.id,
@@ -455,6 +486,26 @@ async function main() {
 				copy: syntheticResponse(copy),
 				woke: syntheticResponse(woke),
 				continued: syntheticResponse(continued),
+			},
+		});
+		writeFixture(LAUNCH_FIXTURE, {
+			recordedBy: RECORDED_BY,
+			harness,
+			launch: {
+				argv: launched.argv,
+				id: SYNTHETIC.id,
+				status: launched.status,
+				stdout: syntheticText(launched.stdout),
+				stderr: syntheticText(launched.stderr),
+			},
+			removals: {
+				ok: {
+					id: SYNTHETIC.removedId,
+					status: removed.status,
+					stdout: syntheticText(removed.stdout),
+					stderr: syntheticText(removed.stderr),
+				},
+				noJob: { id: NO_JOB, ...noRemoval },
 			},
 		});
 		writeFixture(ATTACH_FIXTURE, {

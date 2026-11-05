@@ -2,8 +2,8 @@
 /*
  * scripts/guard-main-checkout-job.js against real git (#4340): a bare origin
  * carrying `main` and `landing`, a main checkout cloned from it, a job
- * directory holding the harness's record, and a fake `claude` that records
- * each call.
+ * directory holding the harness's record, and the shared fake `claude`
+ * (lib/bg-launch-fake.ts) with each call logged.
  *
  * Loosen it and an agents-view job edits in the main checkout, the copy runs
  * on another plan or under the original's job identity, or a failed relaunch
@@ -15,6 +15,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { decide } from "./guard-main-checkout-job.js";
+import {
+	buildRmBranch,
+	type RmKind,
+	writeLaunchAnswer,
+} from "./lib/bg-launch-fake";
+import { buildBgBranch } from "./lib/bg-resume-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -39,6 +46,38 @@ const RECORD = {
 	daemonShort: "0b42764c",
 	sessionId: "0b42764c-6d71-45ce-b78a-d6773460aead",
 	providerEnv: { WFC_PROBE_PROVIDER: "carried" },
+};
+
+/* Each call's argv, cwd and the environment the guard hands the job. */
+const CALL_LOGGER = `const fs = require("node:fs");
+fs.appendFileSync(process.env.FAKE_CALLS, JSON.stringify({
+	args: process.argv.slice(2), cwd: process.cwd(),
+	configDir: process.env.CLAUDE_CONFIG_DIR ?? null,
+	jobDir: process.env.CLAUDE_JOB_DIR ?? null,
+	sessionId: process.env.CLAUDE_CODE_SESSION_ID ?? null,
+	provider: process.env.WFC_PROBE_PROVIDER ?? null,
+}) + "\\n");
+`;
+
+/** The fake `claude`: the recorded launch, or `bgFail` on stderr at exit 1,
+ * and the recording's `rm` removal. */
+const writeFakeClaude = ({
+	bgFail,
+	rm = "ok",
+}: {
+	bgFail?: string;
+	rm?: RmKind;
+} = {}) => {
+	const logger = path.join(tmp, "claude-call-logger.js");
+	fs.writeFileSync(logger, CALL_LOGGER);
+	writeClaudeStub(fakeClaude, [
+		`FAKE_CALLS=${shellQuote(calls)} ${shellQuote(process.execPath)} ${shellQuote(logger)} "$@"`,
+		buildBgBranch({
+			...writeLaunchAnswer(tmp, "1a2b3c4d"),
+			onResume: bgFail ? `printf '%s' ${shellQuote(bgFail)} >&2; exit 1` : "",
+		}),
+		buildRmBranch(rm),
+	]);
 };
 
 const writeRecord = (record: object) => {
@@ -97,24 +136,7 @@ beforeEach(() => {
 	jobDir = path.join(seat, "jobs", RECORD.daemonShort);
 	calls = path.join(tmp, "claude-calls");
 	fakeClaude = path.join(tmp, "claude");
-	fs.writeFileSync(
-		fakeClaude,
-		`#!/usr/bin/env node
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({
-	args, cwd: process.cwd(),
-	configDir: process.env.CLAUDE_CONFIG_DIR ?? null,
-	jobDir: process.env.CLAUDE_JOB_DIR ?? null,
-	sessionId: process.env.CLAUDE_CODE_SESSION_ID ?? null,
-	provider: process.env.WFC_PROBE_PROVIDER ?? null,
-}) + "\\n");
-const fail = args[0] === "--bg" ? process.env.FAKE_BG_FAIL : process.env.FAKE_RM_FAIL;
-if (fail) { process.stderr.write(fail); process.exit(1); }
-process.stdout.write(args[0] === "--bg" ? "backgrounded · 1a2b3c4d · copy\\n" : "removed\\n");
-`,
-	);
-	fs.chmodSync(fakeClaude, 0o755);
+	writeFakeClaude();
 	fs.writeFileSync(
 		path.join(tmp, "npm"),
 		`#!/bin/sh\nmkdir node_modules && pwd >> ${shellQuote(path.join(tmp, "npm-calls"))}\n`,
@@ -180,7 +202,8 @@ it("leaves alone an interactive session, a job already in a worktree, a compacti
 });
 
 it("tells the session to work in the cut worktree where the relaunch fails, and removes nothing", () => {
-	const r = run(startup(), { FAKE_BG_FAIL: "daemon unreachable" });
+	writeFakeClaude({ bgFail: "daemon unreachable" });
+	const r = run(startup());
 
 	expect(r.status, r.stderr).toBe(0);
 	const [name] = cutNames();
@@ -195,11 +218,16 @@ it("tells the session to work in the cut worktree where the relaunch fails, and 
 });
 
 it("tells the original to end at once where it cannot be removed after its copy started", () => {
-	const r = run(startup(), { FAKE_RM_FAIL: "no such job" });
+	writeFakeClaude({ rm: "noJob" });
+	const r = run(startup());
 
 	expect(r.status, r.stderr).toBe(0);
 	const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
-	expect(told).toContain("Removing this original copy failed (no such job)");
+	expect(told).toMatch(
+		new RegExp(
+			`Removing this original copy failed \\([^)]*${RECORD.daemonShort}`,
+		),
+	);
 	expect(told).toContain("end this turn at once");
 });
 
