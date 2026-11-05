@@ -154,7 +154,8 @@ const { openTrackingIssue } = require("./lib/tracking-issue");
 /* scheduled-checks.yml's aggregate that `main`'s ruleset requires (#2414). It
  * goes red only where another job did, so it owes no ticket of its own. */
 const VERDICT_JOB = "Suite passed";
-/* scheduled-checks.yml's per-file CI time gate (#4293). Its red is a median
+/* scheduled-checks.yml's per-file CI time job, which turns the sweep red once
+ * #4293 makes it a need of `Suite passed`. Its red is a median
  * over three sweeps, so it has no culprit commit to bisect, and its tickets
  * are the per-file cut tickets under #2729 (#4290), never a filer's. */
 const FILE_TIMES_JOB = "Test file CI times";
@@ -1600,7 +1601,7 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
  * @param {Run} r
  * @param {RunFailures|null|undefined} failures
  */
-function onlyFileTimesRed(r, failures) {
+function isFileTimesRedAlone(r, failures) {
 	if (r.workflowName !== redSuite.SWEEP_NAME || !failures) return false;
 	const jobs = failures.jobs.filter((name) => name !== VERDICT_JOB);
 	return jobs.length > 0 && jobs.every((name) => name === FILE_TIMES_JOB);
@@ -1638,8 +1639,11 @@ function buildNoGreenAdvice(branch, name) {
  * @param {{keyed: Run[], failuresOf: Map<Run, RunFailures|null>}} opts
  */
 function sayBisectRange(ctx, branch, broken, { keyed, failuresOf }) {
-	const culprit = broken[0];
-	if (culprit && onlyFileTimesRed(culprit, failuresOf.get(culprit))) {
+	const bisectable = broken.filter(
+		(r) => !isFileTimesRedAlone(r, failuresOf.get(r)),
+	);
+	const culprit = bisectable[0];
+	if (!culprit && broken.length > 0) {
 		ctx.say(
 			`\nNo bisect: ${FILE_TIMES_JOB} judges a median over three sweeps, which no single commit caused.`,
 		);

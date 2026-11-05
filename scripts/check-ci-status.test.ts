@@ -1432,6 +1432,37 @@ describe("a red Test file CI times job routes to cut tickets, not a bisect (#436
 		);
 		expect(out).not.toContain("No bisect:");
 	});
+
+	it("bisects another workflow's red at the same sha, though the newer sweep is red on file times alone", () => {
+		setRuns([
+			run_({
+				databaseId: 400,
+				headSha: back(0),
+				workflowName: redSuite.SWEEP_NAME,
+				conclusion: "failure",
+				createdAt: "2026-08-04T14:00:00Z",
+			}),
+			run_({
+				databaseId: 300,
+				headSha: back(0),
+				conclusion: "failure",
+				createdAt: "2026-08-04T13:00:00Z",
+			}),
+			run_({
+				databaseId: 200,
+				headSha: back(3),
+				conclusion: "success",
+				createdAt: "2026-08-04T12:00:00Z",
+			}),
+		]);
+		stubRunsAndJobs([fileTimes, verdict]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain(
+			`gh workflow run bisect.yml -f good=${back(3)} -f bad=${back(0)}`,
+		);
+		expect(out).not.toContain("No bisect:");
+	});
 });
 
 describe("the trigger is named alongside the verdict (mantahostels#945)", () => {
