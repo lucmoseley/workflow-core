@@ -64,150 +64,29 @@ afterEach(() => {
 const refused = (r: { status: number; stdout: string }) =>
 	r.status === 2 || /"permissionDecision"\s*:\s*"deny"/.test(r.stdout);
 
-describe("mantahostels#63 — one session's staged files land inside another's commit", () => {
-	it("before: B's commit carries A's unrelated file, under B's message", () => {
-		alice.edit("docs/a.md", "A's correction\n");
-		alice.stage("docs/a.md");
-
+describe("mantahostels#1539 — `git commit -a` sweeps in an edit someone else left in the tree", () => {
+	it("before: B's commit carries A's unfinished edit, under B's message", () => {
+		// A subagent sharing the worktree has the file open, nothing staged.
+		alice.edit("docs/a.md", "A's half-done correction\n");
 		bob.edit("docs/b.md", "B's work\n");
-		bob.stage("docs/b.md");
-		bob.commitBare("Re-derive the catalogue figures");
+		a.git("commit", "-qam", "Re-derive the catalogue figures");
 
 		const landed = a.git("show", "--name-only", "--format=%s", "HEAD");
 		expect(landed).toContain("Re-derive the catalogue figures");
 		expect(landed).toContain("docs/a.md");
-
-		// The documented follow-on symptom: A has nothing left to commit.
-		expect(() =>
-			alice.commitPathspec("A's correction", ["docs/a.md"]),
-		).toThrow();
 	});
 
-	whenBuilt(
-		GUARDS.commitForm,
-		"after: the bare commit form is challenged",
-		() => {
-			// Alice's staged file is the whole hazard, and mantahostels#109 made the warn
-			// conditional on it: a bare commit against an empty index sweeps
-			// nothing, so the guard stays silent there.
-			alice.edit("docs/a.md", "A's correction\n");
-			alice.stage("docs/a.md");
-
-			const r = bob.runGuard(
-				GUARDS.commitForm,
-				bob.bashPayload('git commit -m "Re-derive the catalogue figures"'),
-			);
-			expect(r.silent).toBe(false);
-			// It names the file it would sweep.
-			expect(r.stdout).toContain("docs/a.md");
-		},
-	);
-
-	/*
-	 * The two directions mantahostels#118 (name the foreign staged file) asked for. The case
-	 * that has to go quiet is the commonest one in the repo: a session committing
-	 * work it wrote itself.
-	 */
-	whenBuilt(
-		GUARDS.commitForm,
-		"after: B's own staged work draws no warn at all",
-		() => {
-			// mantahostels#1804/mantahostels#1762: the guard hands a session its first clean commit-form
-			// command the whole rule text, unlatching only after. Consume that
-			// nudge first so this checks the warn logic, not the onboarding text.
-			// TWO calls (mantahostels#1805): `git add` draws the pathspec rule alone, and
-			// a docs/ commit draws four more, scoped to what the paths name.
-			bob.runGuard(
-				GUARDS.commitForm,
-				bob.bashPayload("git add -N docs/warmup.md"),
-			);
-			bob.runGuard(
-				GUARDS.commitForm,
-				bob.bashPayload('git commit -m "warm up" -- docs/warmup.md'),
-			);
-
-			bob.edit("docs/b.md", "B's work\n");
-			bob.recordWrite("docs/b.md");
-			bob.stage("docs/b.md");
-
-			const r = bob.runGuard(
-				GUARDS.commitForm,
-				bob.bashPayload('git commit -m "Re-derive the catalogue figures"'),
-			);
-			expect(r.silent).toBe(true);
-		},
-	);
-
-	whenBuilt(
-		GUARDS.commitForm,
-		"after: with both staged, only A's file is named",
-		() => {
-			alice.edit("docs/a.md", "A's correction\n");
-			alice.recordWrite("docs/a.md");
-			alice.stage("docs/a.md");
-
-			bob.edit("docs/b.md", "B's work\n");
-			bob.recordWrite("docs/b.md");
-			bob.stage("docs/b.md");
-
-			const r = bob.runGuard(
-				GUARDS.commitForm,
-				bob.bashPayload('git commit -m "Re-derive the catalogue figures"'),
-			);
-			expect(r.silent).toBe(false);
-			expect(r.stdout).toContain("docs/a.md");
-			// Naming B's own file back at B is the noise that makes the warn
-			// wallpaper.
-			expect(r.stdout).not.toContain("docs/b.md");
-		},
-	);
-
 	whenBuilt(GUARDS.commitForm, "after: `git commit -am` is refused", () => {
-		// Strictly worse than mantahostels#63: -a takes every dirty TRACKED file, so Alice
-		// loses work she never staged — she need only have the file open.
-		alice.edit("docs/a.md", "A's correction\n");
+		alice.edit("docs/a.md", "A's half-done correction\n");
 
 		const r = bob.runGuard(
 			GUARDS.commitForm,
 			bob.bashPayload('git commit -am "Re-derive the catalogue figures"'),
 		);
 		expect(refused(r)).toBe(true);
-	});
-
-	whenBuilt(GUARDS.commitForm, "after: the sanctioned stagings pass", () => {
-		// mantahostels#1804/mantahostels#1762: consume bob's first-commit-form-command onboarding nudge
-		// before the real assertion — see "after: B's own staged work draws no
-		// warn at all" above, for the same reason, including why it takes two
-		// calls (mantahostels#1805).
-		bob.runGuard(
-			GUARDS.commitForm,
-			bob.bashPayload("git add -N docs/warmup.md"),
+		expect(r.stdout).toContain(
+			"This commit form sweeps in every dirty tracked file",
 		);
-		bob.runGuard(
-			GUARDS.commitForm,
-			bob.bashPayload('git commit -m "warm up" -- docs/warmup.md'),
-		);
-
-		const newFile = "docs/c.md";
-		bob.edit(newFile, "B's new file\n");
-		expect(
-			bob.runGuard(GUARDS.commitForm, bob.bashPayload(`git add -N ${newFile}`))
-				.silent,
-		).toBe(true);
-
-		// Mid-merge, staging is unavoidable — it is how a conflict is resolved.
-		a.git("checkout", "-q", "-b", "side");
-		a.write("docs/a.md", "side's line\n");
-		a.git("commit", "-qm", "side's edit", "--", "docs/a.md");
-		a.git("checkout", "-q", "main");
-		a.write("docs/a.md", "main's line\n");
-		a.git("commit", "-qm", "main's edit", "--", "docs/a.md");
-		expect(() => a.git("merge", "side")).toThrow(); // conflicts, as intended
-
-		expect(
-			bob.runGuard(GUARDS.commitForm, bob.bashPayload("git add docs/a.md"))
-				.silent,
-		).toBe(true);
 	});
 });
 

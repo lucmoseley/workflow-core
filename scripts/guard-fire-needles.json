@@ -782,6 +782,12 @@
 					"text": "TRACKS `origin/landing`"
 				},
 				{
+					"id": "sweeps-dirty",
+					"core": "guard-commit-form",
+					"kind": "deny",
+					"text": "This commit form sweeps in every dirty tracked file"
+				},
+				{
 					"id": "no-verify",
 					"core": "guard-commit-form",
 					"kind": "deny",

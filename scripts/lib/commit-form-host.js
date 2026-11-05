@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const { closingRefusal } = require("./closing-keyword.js");
 const { gitOrNull, HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
-const { pushedRef } = require("./landing-refs.js");
+const { readUnpushedRef } = require("./landing-refs.js");
 const { patchFiles, readTopLevel } = require("./git-tree.js");
 
 /* git's empty tree, the base of a diff before the first commit. */
@@ -21,7 +21,7 @@ const git = (args) => gitOrNull(args, { timeout: HOOK_GIT_TIMEOUT_MS });
 
 /**
  * git's stdout as lines, or null where git errors. core.quotePath=false, so
- * a non-ASCII path comes out raw, as the ledger holds it.
+ * a non-ASCII path comes out raw.
  * @param {string} dir
  * @param {string[]} args
  */
@@ -86,7 +86,7 @@ function buildHostPorts(root) {
 			}
 		},
 		pushedHead: (dir) => {
-			const ref = pushedRef({ root });
+			const ref = readUnpushedRef({ root, tree: dir });
 			/* --is-ancestor answers through its exit code alone: 0 on, 1 not. */
 			const r = spawnGitSync(
 				["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref],

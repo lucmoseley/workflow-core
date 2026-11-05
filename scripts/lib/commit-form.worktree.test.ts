@@ -3,7 +3,8 @@
  * guard-commit-form in a session's own worktree (#4242): with
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
  * worktree, a pathspec commit's untracked-path warn reads the worktree's
- * files, never the main checkout's, and an amend reads the worktree's HEAD.
+ * files, never the main checkout's, an amend reads the worktree's HEAD, and
+ * `git commit -a` is denied there as in the main checkout.
  */
 
 import { execFileSync } from "node:child_process";
@@ -102,5 +103,30 @@ describe("an amend from a worktree is judged on the worktree's HEAD (#4384)", ()
 		fs.writeFileSync(path.join(at.worktree, "a.md"), "unpushed\n");
 		git(at.worktree, "commit", "-qm", "unpushed", "--", "a.md");
 		expect(amend()?.permissionDecision).toBeUndefined();
+	});
+});
+
+describe("`git commit -a` from a worktree is denied, its subagents sharing it", () => {
+	const Sweeps = "This commit form sweeps in every dirty tracked file";
+
+	/** The core's decision on `command`, run from the worktree. */
+	const decision = (command: string) =>
+		runCore("guard-commit-form", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it.each([
+		['git commit -a -m "x"'],
+		['git commit -am "x"'],
+		['git commit --all -m "x"'],
+	])("denies %s", (command) => {
+		expect(decision(command)?.permissionDecisionReason).toContain(Sweeps);
+	});
+
+	it("allows -i, which commits only the paths it names", () => {
+		expect(
+			decision('git commit -i -m "x" -- a.md')?.permissionDecision,
+		).toBeUndefined();
 	});
 });

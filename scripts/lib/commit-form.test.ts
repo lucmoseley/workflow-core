@@ -12,7 +12,7 @@
  * repo. Real git and the real rule store. The log is collected, so a
  * fail-open is asserted on what it records.
  *
- * OVER §X8 (5)'S 10 S BUDGET (#2893): about 2,700 real git calls, most of
+ * OVER §X8 (5)'S 10 S BUDGET (#2893): about 1,400 real git calls, most of
  * them the arranging done by the cases that write. Spec #2733 keeps git real
  * rather than faked.
  *
@@ -497,10 +497,6 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 		["git commit --ame --no-edit", "--ame"],
 		["git commit --amen --no-edit", "--amen"],
 		['git commit -v --amend -m "msg"', "behind an unrelated flag"],
-		[
-			'git commit -m "one" -- a.md && git commit --amend --no-edit',
-			"later in a chain",
-		],
 	])("%s — %s", (command) => {
 		// exempt (mantahostels#2145): every route shares one refusal, pinned by "the
 		// refusal names the pushed ref and the follow-up commit" below.
@@ -512,6 +508,65 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 		expect(reason).toContain(`${AMEND}, as \`HEAD\` is on \`origin/main\``);
 		expect(reason).toContain("non-fast-forward");
 		expect(reason).toContain('git commit -m "…" -- <paths>');
+	});
+
+	it("allows an amend after an earlier commit in the same command and tree, whose new commit it amends", () => {
+		expect(
+			verdict(
+				'git commit -m "one" -- docs/x.md && git commit --amend --no-edit',
+			),
+		).toBe("allow");
+		expect(
+			verdict(
+				`git -C ${worktree} commit -m "one" -- a.md && git -C ${worktree} commit --amend --no-edit`,
+			),
+		).toBe("allow");
+	});
+
+	it("still denies an amend after an earlier commit in a different tree", () => {
+		expect(
+			readDenyReason(
+				`git -C ${worktree} commit -m "one" -- a.md && git commit --amend --no-edit`,
+			),
+		).toContain(`${AMEND}, as \`HEAD\` is on \`origin/main\``);
+	});
+
+	it("still denies an amend whose earlier commit was itself refused", () => {
+		expect(
+			readDenyReason(
+				'git commit -n -m "one" -- docs/x.md && git commit --amend --no-edit',
+			),
+		).toContain(NO_VERIFY);
+	});
+
+	it("judges a branch with an upstream against that upstream", () => {
+		writes();
+		git(shared, "checkout", "-q", "-b", "spike/x");
+		fs.writeFileSync(path.join(shared, "a.md"), "spike\n");
+		git(shared, "commit", "-qm", "spike", "--", "a.md");
+		pushHead(shared, "origin/spike/x");
+		git(shared, "config", "remote.origin.url", shared);
+		git(
+			shared,
+			"config",
+			"remote.origin.fetch",
+			"+refs/heads/*:refs/remotes/origin/*",
+		);
+		git(shared, "branch", "-q", "--set-upstream-to=origin/spike/x");
+		expect(readDenyReason("git commit --amend --no-edit")).toContain(
+			`${AMEND}, as \`HEAD\` is on \`origin/spike/x\``,
+		);
+	});
+
+	it("is denied where HEAD is strictly behind the pushed ref", () => {
+		writes();
+		fs.writeFileSync(path.join(shared, "a.md"), "pushed\n");
+		git(shared, "commit", "-qm", "pushed", "--", "a.md");
+		pushHead();
+		git(shared, "reset", "-q", "--hard", "HEAD~1");
+		expect(readDenyReason("git commit --amend --no-edit")).toContain(
+			`${AMEND}, as \`HEAD\` is on \`origin/main\``,
+		);
 	});
 
 	it("is denied in a linked worktree too, whose HEAD is pushed", () => {
@@ -577,6 +632,75 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 		['git commit -m "amend the figures" -- a.md', "the word inside a message"],
 	])("allows %s — %s", (command) => {
 		expect(verdict(command)).not.toBe("deny");
+	});
+});
+
+/*
+ * mantahostels#1539. `git commit -a`/`-am`/`--all` commits every dirty TRACKED
+ * file, and a session's subagents share its worktree, so it takes a
+ * subagent's unfinished edit under the session's message. It is a DENY in
+ * every tree of this repo, stood down mid-sequence.
+ */
+describe("`git commit -a` is denied — it sweeps in every dirty tracked file", () => {
+	const Sweeps = "This commit form sweeps in every dirty tracked file";
+
+	it.each([
+		['git commit -a -m "msg"', "-a"],
+		['git commit -am "msg"', "-am, bundled with the message"],
+		['git commit --all -m "msg"', "--all"],
+		['git commit -v -a -m "msg"', "behind an unrelated flag"],
+		[
+			'git commit -m "one" -- docs/x.md && git commit -am "two"',
+			"later in a chain",
+		],
+	])("%s — %s", (command) => {
+		expect(readDenyReason(command)).toContain(Sweeps);
+	});
+
+	it("says to commit by pathspec instead", () => {
+		const reason = readDenyReason('git commit -am "msg"');
+		expect(reason).toContain(`${Sweeps}: git commit -am "…"`);
+		expect(reason).toContain('git commit -m "…" -- <paths>');
+	});
+
+	it("is denied in a linked worktree too", () => {
+		expect(readDenyReason('git commit -am "msg"', worktree)).toContain(Sweeps);
+		expect(
+			readDenyReason(`git -C ${worktree} commit --all -m "msg"`, shared),
+		).toContain(Sweeps);
+	});
+
+	it("stands down mid-sequence", () => {
+		writes();
+		fs.mkdirSync(path.join(shared, ".git", "rebase-merge"), {
+			recursive: true,
+		});
+		expect(verdict('git commit -am "msg"')).not.toBe("deny");
+	});
+
+	it("leaves -i/--include alone, which commits only what it names", () => {
+		expect(verdict('git commit -i -m "msg" -- docs/x.md')).toBe("allow");
+		expect(verdict('git commit --include -m "msg" -- docs/x.md')).toBe("allow");
+	});
+
+	it("is outranked by the --no-verify deny", () => {
+		const reason = readDenyReason('git commit --no-verify -a -m "msg"');
+		expect(reason).toContain(NO_VERIFY);
+		expect(reason).not.toContain(Sweeps);
+	});
+
+	it("is outranked by the closing-keyword deny", () => {
+		const reason = readDenyReason('git commit -am "Fixes #12"');
+		expect(reason).toContain(CLOSES);
+		expect(reason).not.toContain(Sweeps);
+	});
+
+	it("outranks the amend deny", () => {
+		expect(readDenyReason("git commit -a --amend --no-edit")).toContain(Sweeps);
+	});
+
+	it("is still allowed in an unrelated repository", () => {
+		expect(verdict('git commit -am "msg"', elsewhere)).toBe("allow");
 	});
 });
 
@@ -1444,7 +1568,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 	it("states what to write instead, and that the amend is not the escape", () => {
 		const reason = readDenyReason('git commit -m "Closes #12" -- a.md');
 		expect(reason).toContain("Write `Refs #n` instead");
-		expect(reason).toContain("#2540");
+		expect(reason).toContain("`git commit --amend` is denied (#4384)");
 	});
 });
 
@@ -1678,7 +1802,7 @@ describe("a commit form it cannot judge is recorded, not just allowed", () => {
 
 	it("says nothing about a commit in a directory that is in no repo (mantahostels#253)", () => {
 		// The directory exists and git refuses for it — a confident "not a
-		// repository", not an unknown: nothing committed there reaches this index.
+		// repository", not an unknown: nothing committed there reaches this repo.
 		const opaque = mkDirOutsideRepo("not-a-repo-");
 		try {
 			run(`git -C ${opaque} commit -n -m "x"`, shared, "test");
@@ -1800,9 +1924,9 @@ describe("the untracked-path warn spells the commit script where it is installed
 });
 
 /*
- * mantahostels#1612. docs/agents/guard-registry.md §Conventions' headline rule — commit by pathspec, never
- * `git add` first — is unsatisfiable for a file git does not track yet: the
- * pathspec matches nothing, git exits 1 and commits nothing.
+ * mantahostels#1612. docs/agents/guard-registry.md §Conventions' headline rule — commit by
+ * pathspec — is unsatisfiable for a file git does not track yet: the pathspec
+ * matches nothing, git exits 1 and commits nothing.
  */
 describe("a pathspec commit warns when it names a path git does not track", () => {
 	/** Puts a file on disk that git has never been told about. */
@@ -1896,7 +2020,7 @@ describe("a pathspec commit warns when it names a path git does not track", () =
 		expect(verdict('git commit -m "x" -- new.md')).toBe("allow");
 	});
 
-	it("binds in a linked worktree too — it guards no index", () => {
+	it("binds in a linked worktree too", () => {
 		writes();
 		// git rejects an unmatchable pathspec byte-identically in every tree.
 		fs.writeFileSync(path.join(worktree, "new.md"), "new\n");
@@ -2053,7 +2177,7 @@ describe("a pathspec commit warns when a directory word leaves a new file behind
 		expect(verdict('git commit -m "x" -- docs')).toBe("allow");
 	});
 
-	it("binds in a linked worktree too — it guards no index", () => {
+	it("binds in a linked worktree too", () => {
 		writes();
 		fs.mkdirSync(path.join(worktree, "docs"), { recursive: true });
 		fs.writeFileSync(path.join(worktree, "docs", "old.md"), "old\n");

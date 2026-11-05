@@ -32,7 +32,6 @@ working tree.
   suite; `npm run test:changed` with it off.
 - **Commit by pathspec** —
   `node scripts/commit-paths.js -m "..." -- <paths>` (Bash `timeout: 600000`).
-  Never `git add`.
 
 ## 4. Finish properly
 

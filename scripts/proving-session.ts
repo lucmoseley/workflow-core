@@ -208,24 +208,6 @@ export class Session {
 		this.arena.write(file, body);
 	}
 
-	/**
-	 * What the post-write core records after an Edit: note in the write ledger
-	 * that this session wrote the file. Separate from `edit` on purpose — the before-halves
-	 * model an unguarded write, with no hook in the loop to record anything.
-	 */
-	recordWrite(file: string) {
-		this.arbiter("record", file);
-	}
-
-	stage(file: string) {
-		this.arena.git("add", file);
-	}
-
-	/** The mantahostels#63 shape: no pathspec, so it sweeps whatever is in the shared index. */
-	commitBare(message: string) {
-		this.arena.git("commit", "-qm", message);
-	}
-
 	commitPathspec(message: string, files: string[]) {
 		this.arena.git("commit", "-qm", message, "--", ...files);
 	}

@@ -336,6 +336,23 @@ describe("each production adapter, crossed for real", () => {
 		expect(amend("p3")).toBeUndefined();
 	});
 
+	it("reads the staged paths of a repo with no commits yet", () => {
+		const fresh = path.join(dir, "fresh");
+		fs.mkdirSync(path.join(fresh, "docs"), { recursive: true });
+		git(fresh, "init", "-q", "-b", "main", ".");
+		git(fresh, "config", "core.hooksPath", path.join(dir, "no-hooks"));
+		fs.writeFileSync(path.join(fresh, "docs", "doc-map.md"), "map\n");
+		const at = { cwd: fresh, project: fresh };
+		const doc = readRuleText("doc-map-precommit");
+		expect(
+			emission('git commit -m "init"', "p1", at).additionalContext,
+		).not.toContain(doc);
+		git(fresh, "add", "docs/doc-map.md");
+		expect(
+			emission('git commit -m "init"', "p2", at).additionalContext,
+		).toContain(doc);
+	});
+
 	it("reads a merge in progress off the git dir", () => {
 		git(shared, "checkout", "-q", "-b", "other");
 		fs.writeFileSync(path.join(shared, "a.md"), "other\n");

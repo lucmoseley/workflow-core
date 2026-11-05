@@ -836,11 +836,11 @@ describe("the relocated rule reaches the session whose commit fails", () => {
 	 * test time, so deleting a clause from the fragment changes both sides at once
 	 * and nothing fails. One clause quoted here is what makes a fragment mutation
 	 * detectable at all. */
-	it("routes the fix through a pathspec commit, never `git add` first (#1732)", () => {
+	it("routes the fix through a pathspec commit (#1732)", () => {
 		stage(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const { stderr } = check();
 		expect(stderr).toContain("This gate reads the commit's INDEX");
-		expect(stderr).toContain("never `git add` first");
+		expect(stderr).toContain("Then commit it by pathspec:");
 		expect(stderr).not.toMatch(/stage (the roadmap|first)/);
 	});
 

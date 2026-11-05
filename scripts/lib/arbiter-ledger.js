@@ -97,9 +97,8 @@ function recordWrite(filePath, sessionId) {
 function readWritesBy(sessionId) {
 	if (!sessionId) return null;
 	// ENOENT is read as the empty answer: recordWrite mints the ledger on the
-	// session's first write, so a session that has written nothing has no file
-	// — and that is most sessions, so failing here would put them all on the
-	// index-wide warn and restore mantahostels#117's undifferentiated one.
+	// session's first write, so a session that has written nothing has no file,
+	// and that is most sessions.
 	//
 	// That equivalence holds only because pruneLedgers() spares a session it
 	// can prove is still running (mantahostels#137).

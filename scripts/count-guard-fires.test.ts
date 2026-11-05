@@ -318,7 +318,7 @@ describe("the CLI, run as a command", () => {
 							type: "tool_result",
 							is_error: true,
 							content:
-								"This commit form sweeps the shared index, a neighbour's staged work included.",
+								'This commit form sweeps in every dirty tracked file: git commit -am "wip"',
 						},
 					],
 				},
@@ -351,7 +351,7 @@ describe("the CLI, run as a command", () => {
 		withCommitDeny();
 		const { out } = run(["--dir", corpus]);
 		expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
-		expect(out).toContain("sweeps-index 1");
+		expect(out).toContain("sweeps-dirty 1");
 	});
 
 	it("counts the settings canary's refusal under its own subject (#2473)", () => {
@@ -679,7 +679,8 @@ describe("the CLI, run as a command", () => {
 				type: "user",
 				uuid: "u2",
 				toolUseResult: {
-					stdout: "return 'This commit form sweeps the shared index' + why;",
+					stdout:
+						"return 'This commit form sweeps in every dirty tracked file' + why;",
 				},
 			})}\n`,
 		);
@@ -708,7 +709,7 @@ describe("the CLI, run as a command", () => {
 								type: "tool_result",
 								is_error: true,
 								content:
-									"This commit form sweeps the shared index, a neighbour's staged work included.",
+									'This commit form sweeps in every dirty tracked file: git commit -am "wip"',
 							},
 						],
 					},
@@ -751,7 +752,8 @@ describe("the CLI, run as a command", () => {
 					uuid: "old",
 					timestamp: "2026-08-17T13:00:00.000Z",
 					toolUseResult: {
-						stdout: "return 'This commit form sweeps the shared index' + why;",
+						stdout:
+							"return 'This commit form sweeps in every dirty tracked file' + why;",
 					},
 				})}\n`,
 			);
@@ -762,7 +764,8 @@ describe("the CLI, run as a command", () => {
 					uuid: "new",
 					timestamp: "2026-09-01T00:00:00.000Z",
 					toolUseResult: {
-						stdout: "return 'This commit form sweeps the shared index' + why;",
+						stdout:
+							"return 'This commit form sweeps in every dirty tracked file' + why;",
 					},
 				})}\n`,
 			);
@@ -785,7 +788,8 @@ describe("the CLI, run as a command", () => {
 					type: "user",
 					uuid: "undated",
 					toolUseResult: {
-						stdout: "return 'This commit form sweeps the shared index' + why;",
+						stdout:
+							"return 'This commit form sweeps in every dirty tracked file' + why;",
 					},
 				})}\n`,
 			);

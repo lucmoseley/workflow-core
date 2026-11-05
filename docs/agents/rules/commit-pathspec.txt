@@ -13,15 +13,16 @@ pathspec cannot reach it, and git exits 1 having committed nothing.
 
 THE WORKING TREE IS THE HAZARD. Your subagents share your worktree, and a
 pathspec takes the working-tree copy of every path it names, a subagent's
-unfinished edit included (mantahostels#1539). Splitting the work in one file
-across commits? `--patch` commits the lines you pick
-(docs/agents/partial-commit.md).
+unfinished edit included (mantahostels#1539). `git commit -a` takes every
+such edit, so it is refused. Splitting the work in one file across commits?
+`--patch` commits the lines you pick (docs/agents/partial-commit.md).
 
 NEVER AMEND A PUSHED COMMIT. `git commit --amend` is refused where HEAD is
-already on the pushed ref: the rewrite cannot be pushed, and landing again
-merges the original and its rewrite both. Make a follow-up commit.
+already on the ref your checkout pushes to: the rewrite cannot be pushed, and
+landing again merges the original and its rewrite both. Make a follow-up
+commit.
 
 WHAT THE GUARD DOES NOT CATCH. Its warns are advisory — the commit lands. The
-warns and the amend deny stand down mid-merge, rebase, cherry-pick or revert.
-And a commit run from your own terminal or from a script never reaches the
-hook at all.
+warns and the `-a` and amend denies stand down mid-merge, rebase, cherry-pick
+or revert. And a commit run from your own terminal or from a script never
+reaches the hook at all.
