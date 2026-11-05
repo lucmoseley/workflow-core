@@ -8,6 +8,7 @@
  *   node scripts/file-issue.js --title T --label L [--label L…]
  *     (--parent P | --standalone "<why>") --body-file F|- [--assign-self]
  *     [--distinct-from N[,N…]]
+ *     [--size-line-checked N[,N…]]
  *   node scripts/file-issue.js --check "<title>"
  *
  * Before every create it lists up to three open issues whose titles most
@@ -18,6 +19,10 @@
  * fetch files anyway, saying so.
  * Residual: `--distinct-from` records a claim, never a reading — pasting the
  * refusal's own hint back files unread.
+ * A `takes:implement` ticket is refused, rule:size-line printed, while this
+ * session already filed an open one, or an open `takes:implement` sibling
+ * under the same parent names a source file its body names — until
+ * `--size-line-checked` names each (#4450). The same residual holds.
  * `--check` prints the same list and files nothing — "is it ticketed?"
  * answered from the tracker.
  *
@@ -57,6 +62,11 @@ const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { buildDistinctFromHint } = require("./lib/similar-titles.js");
 const { hasStandaloneLine } = require("./lib/standalone-line.js");
 const { readRuleText } = require("./lib/rule-text.js");
+const {
+	buildSizeLineRefusal,
+	sizeLineCandidates,
+} = require("./lib/size-line-check.js");
+const { readSubIssues } = require("./lib/issue-tree.js");
 const { fromEnv } = require("./lib/session-id.js");
 const { takesLabel, takesRefusal } = require("./lib/takes-label.js");
 const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
@@ -75,6 +85,7 @@ const {
 	assignSelf,
 	claimIfFree,
 	readIssue,
+	readOwnFilings,
 	readParent: readIssueParent,
 	recordOwnAct,
 	scriptIo,
@@ -84,7 +95,7 @@ const { caught } = require("./lib/caught.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE =
-	'usage: node scripts/file-issue.js --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- [--assign-self] [--distinct-from N[,N…]]\n       node scripts/file-issue.js --check "<title>"';
+	'usage: node scripts/file-issue.js --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node scripts/file-issue.js --check "<title>"';
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const SPEC = {
@@ -96,6 +107,7 @@ const SPEC = {
 		"--standalone": "value",
 		"--body-file": "value",
 		"--distinct-from": "list",
+		"--size-line-checked": "list",
 		"--assign-self": "boolean",
 		"--check": "list",
 	},
@@ -106,14 +118,18 @@ const io = scriptIo("file-issue");
 
 /** @param {import("./lib/cli-args.js").Parsed} parsed */
 function readOpts({ flags, lists }) {
-	/** @type {{title?: string, labels: string[], parent?: number, standalone?: string, bodyFile?: string, assignSelf: boolean, distinct: Set<number>}} */
+	/** @type {{title?: string, labels: string[], parent?: number, standalone?: string, bodyFile?: string, assignSelf: boolean, distinct: Set<number>, sizeChecked: Set<number>}} */
 	const opts = {
 		title: flagValue(flags, "--title"),
 		labels: lists["--label"] ?? [],
 		standalone: flagValue(flags, "--standalone"),
 		bodyFile: flagValue(flags, "--body-file"),
 		assignSelf: flags["--assign-self"] === true,
-		distinct: distinctFrom(lists["--distinct-from"] ?? []),
+		distinct: issueList("--distinct-from", lists["--distinct-from"] ?? []),
+		sizeChecked: issueList(
+			"--size-line-checked",
+			lists["--size-line-checked"] ?? [],
+		),
 	};
 	const parent = flagValue(flags, "--parent");
 	if (parent !== undefined) {
@@ -143,11 +159,12 @@ function readOpts({ flags, lists }) {
 }
 
 /**
- * --distinct-from's issue numbers, refused where any part of a list is not one.
+ * A list flag's issue numbers, refused where any part of a list is not one.
+ * @param {string} flag
  * @param {string[]} csvs
  * @returns {Set<number>}
  */
-function distinctFrom(csvs) {
+function issueList(flag, csvs) {
 	/** @type {Set<number>} */
 	const distinct = new Set();
 	for (const csv of csvs)
@@ -155,7 +172,7 @@ function distinctFrom(csvs) {
 			const n = parseIssueNumber(part);
 			if (n === null)
 				io.fail(
-					`--distinct-from '${csv}' is not a comma-separated list of issue numbers.`,
+					`${flag} '${csv}' is not a comma-separated list of issue numbers.`,
 					2,
 				);
 			distinct.add(n);
@@ -241,6 +258,7 @@ function main() {
 	const labels = [...given, ...added];
 	checkKnownLabels(repo, labels);
 	checkSimilar(repo, opts);
+	checkSizeLine({ repo, labels, body, opts });
 
 	// A body carrying its own line keeps it, never gaining a second (#1027).
 	// Residual: the flag's reason is then dropped even where it differs.
@@ -499,6 +517,78 @@ function checkSimilar(repo, opts) {
 			2,
 		);
 	io.out(similar.text);
+}
+
+/**
+ * Refuses a `takes:implement` ticket, printing rule:size-line, while an open
+ * one this session filed, or an open sibling sharing a source file, is not
+ * named in --size-line-checked. Each read fails open, saying so.
+ * @param {{repo: string, labels: string[], body: string,
+ *   opts: ReturnType<typeof readOpts>}} at
+ */
+function checkSizeLine({ repo, labels, body, opts }) {
+	if (!labels.includes(takesLabel("implement"))) return;
+	const overlaps = sizeLineCandidates({
+		labels,
+		body,
+		filed: readOwnFiled(repo),
+		siblings: readSiblings(repo, opts.parent),
+		confirmed: opts.sizeChecked,
+	});
+	if (overlaps.length > 0)
+		io.fail(
+			buildSizeLineRefusal(
+				readRuleText("size-line"),
+				overlaps,
+				opts.sizeChecked,
+			),
+			2,
+		);
+}
+
+/**
+ * The issues this session filed in `repo`, each read; one that will not read
+ * is passed over, saying so.
+ * @param {string} repo
+ */
+function readOwnFiled(repo) {
+	const read = [];
+	for (const n of readOwnFilings(repo)) {
+		try {
+			read.push(readIssue(repo, n));
+		} catch (e) {
+			io.out(
+				`Could not read #${n}, filed by this session (${parseErrLine(e)}) — filing without weighing it under rule:size-line.\n`,
+			);
+		}
+	}
+	return read;
+}
+
+/**
+ * The open sub-issues of `parent`, labels as names.
+ * @param {string} repo
+ * @param {number|undefined} parent
+ */
+function readSiblings(repo, parent) {
+	if (parent === undefined) return [];
+	try {
+		return readSubIssues(parent, repo).map(
+			(
+				/** @type {{number: number, state: string, body?: string, labels?: {name: string}[]}} */ k,
+			) => ({
+				number: k.number,
+				state: k.state,
+				body: k.body ?? "",
+				labels: (k.labels ?? []).map((l) => l.name),
+			}),
+		);
+	} catch (e) {
+		io.out(
+			`Could not list #${parent}'s sub-issues (${parseErrLine(e)}) — filing without the shared-file check.\n`,
+		);
+		return [];
+	}
 }
 
 /**

@@ -136,6 +136,7 @@ const setUp = (parentLabels: string[] = ["kind:spec"], over: object = {}) => {
 		LABELS.map((name) => ({ name })),
 	);
 	serve("repos/acme/widgets/issues/528", issue(528, parentLabels, over));
+	serve("repos/acme/widgets/issues/528/sub_issues", [[]]);
 };
 
 const run = (
@@ -808,6 +809,118 @@ describe("the acts ledger (#2308)", () => {
 		expect(store.readActsBy(ME, [sb.repo]).acts).toEqual([
 			`file acme/widgets#${NEW}`,
 		]);
+	});
+});
+
+const SIZE_LINE = readRuleText("size-line");
+const LANDER = "Fix the red batch in `src/batch/red-batch.js` and its test.";
+
+describe("rule:size-line before a takes:implement filing (#4450)", () => {
+	const sibling = (
+		number: number,
+		body: string,
+		labels = ["takes:implement"],
+	) => issue(number, labels, { body });
+	const confirmed = (n: string) => [
+		...filing(["takes:implement"]),
+		"--size-line-checked",
+		n,
+	];
+
+	it("refuses a second takes:implement filing in one session, printing the rule, and files it once confirmed", () => {
+		setUp();
+		expect(run(filing(["takes:implement"])).status).toBe(0);
+		serve(`repos/acme/widgets/issues/${NEW}`, issue(NEW, ["takes:implement"]));
+		const r = run(filing(["takes:implement"]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(SIZE_LINE);
+		expect(r.stderr).toContain(`#${NEW} — filed by this session`);
+		expect(r.stderr).toContain(`--size-line-checked ${NEW}`);
+		expect(r.stderr).toContain("Nothing filed.");
+		expect(readCreates()).toHaveLength(1);
+		expect(run(confirmed(String(NEW))).status).toBe(0);
+		expect(readCreates()).toHaveLength(2);
+	});
+
+	it.each([
+		["closed", issue(NEW, ["takes:implement"], { state: "closed" })],
+		["no takes:implement", issue(NEW, ["takes:triage"])],
+	])("passes over an earlier filing of this session's that is %s", (_, row) => {
+		setUp();
+		expect(run(filing(["takes:implement"])).status).toBe(0);
+		serve(`repos/acme/widgets/issues/${NEW}`, row);
+		expect(run(filing(["takes:implement"])).status).toBe(0);
+	});
+
+	it("refuses a ticket naming a source file an open sibling names, printing the rule and the sibling", () => {
+		setUp();
+		serve("repos/acme/widgets/issues/528/sub_issues", [
+			[
+				sibling(540, "Stall slice in src/batch/red-batch.js."),
+				sibling(541, "Other: `scripts/x.js`."),
+			],
+		]);
+		const r = run(filing(["takes:implement"]), { stdin: LANDER });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(SIZE_LINE);
+		expect(r.stderr).toContain(
+			"#540 — an open sibling also naming src/batch/red-batch.js",
+		);
+		expect(r.stderr).not.toContain("#541");
+		expect(r.stderr).toContain("--size-line-checked 540");
+		expect(readCreates()).toEqual([]);
+		expect(run(confirmed("540"), { stdin: LANDER }).status).toBe(0);
+	});
+
+	it.each([
+		[
+			"closed",
+			issue(540, ["takes:implement"], {
+				state: "closed",
+				body: "src/batch/red-batch.js",
+			}),
+		],
+		[
+			"no takes:implement",
+			sibling(540, "src/batch/red-batch.js", ["takes:triage"]),
+		],
+		["sharing only a doc", sibling(540, "docs/agents/issue-tracker.md")],
+	])("files beside a sibling %s", (_, row) => {
+		setUp();
+		serve("repos/acme/widgets/issues/528/sub_issues", [[row]]);
+		const r = run(filing(["takes:implement"]), {
+			stdin: `${LANDER} See docs/agents/issue-tracker.md.`,
+		});
+		expect(r.status).toBe(0);
+	});
+
+	it("prints nothing extra on a first, unrelated filing", () => {
+		setUp();
+		serve("repos/acme/widgets/issues/528/sub_issues", [
+			[sibling(540, "scripts/other.js")],
+		]);
+		const r = run(filing(["takes:implement"]), { stdin: LANDER });
+		expect(r.status).toBe(0);
+		expect(`${r.stdout}${r.stderr}`).not.toContain("size-line");
+		expect(r.stdout).not.toContain("Could not");
+	});
+
+	it("weighs nothing for a ticket that is no takes:implement", () => {
+		setUp();
+		serve("repos/acme/widgets/issues/528/sub_issues", [
+			[sibling(540, "src/batch/red-batch.js")],
+		]);
+		expect(run(filing(["takes:triage"]), { stdin: LANDER }).status).toBe(0);
+	});
+
+	it("files without the shared-file check where the sub-issues will not read, saying so", () => {
+		setUp();
+		fs.rmSync(path.join(at("api"), "repos_acme_widgets_issues_528_sub_issues"));
+		const r = run(filing(["takes:implement"]), { stdin: LANDER });
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"Could not list #528's sub-issues (HTTP 404: Not Found) — filing without the shared-file check.",
+		);
 	});
 });
 

@@ -24,7 +24,9 @@ const issueClaims = require("./arbiter-issue-claims.js");
 const { readHeldClean } = require("./arbiter-locks.js");
 const ledger = require("./arbiter-ledger.js");
 const { buildAct } = require("./act-line.js");
-const { logError } = require("./arbiter-core.js");
+const core = require("./arbiter-core.js");
+
+const { logError } = core;
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -264,6 +266,28 @@ function recordOwnAct(kind, repo, n) {
 }
 
 /**
+ * The issues of `repo` this session filed, by its acts ledger, read from the
+ * root recordOwnAct writes to. Empty with no session id or no ledger.
+ * @param {string} repo `owner/name`
+ * @returns {number[]}
+ */
+function readOwnFilings(repo) {
+	const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+	if (!sessionId) return [];
+	const { acts } = ledger.readActsBy(sessionId, [
+		ledger.ledgerRoot() ?? core.repoRoot(),
+	]);
+	const prefix = buildAct("file", repo, "");
+	return [
+		...new Set(
+			acts
+				.filter((a) => a.startsWith(prefix))
+				.map((a) => Number(a.slice(prefix.length))),
+		),
+	];
+}
+
+/**
  * The arbiter's check-and-record for `sessionId` on issue `n`, liveness read
  * here. What each status means: claimIssueExclusive in arbiter-issue-claims.js.
  * @param {number} n
@@ -322,6 +346,7 @@ module.exports = {
 	findOwnComment,
 	similarTitles,
 	readIssue,
+	readOwnFilings,
 	readParent,
 	recordOwnAct,
 	releaseCleanFileClaims,
