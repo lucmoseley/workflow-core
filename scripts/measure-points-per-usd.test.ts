@@ -15,7 +15,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeOverflowCheckout } from "./lib/overflow-launch-fake";
+import {
+	declareOverflowSeat,
+	writeOverflowCheckout,
+	writeUnreadableLedgerCheckout,
+} from "./lib/overflow-launch-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
@@ -116,20 +120,27 @@ describe("measure-points-per-usd.js", () => {
 		);
 	});
 
-	it("refuses where the launch record will not read, as an overflow session would count as plan", () => {
+	it("refuses where an overflow seat is declared and the launch record will not read, as an overflow session would count as plan", () => {
 		reading();
 		tenDollars(seat, "p1/plan.jsonl", now - HOUR);
-		const r = runInProcess(SCRIPT, ["--config-dir", seat], {
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				HOME: path.join(dir, "absent"),
-			},
-		});
+		declareOverflowSeat(dir);
+		writeUnreadableLedgerCheckout(dir, "broken-checkout");
+		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.stdout).toBe("");
-		expect(r.stderr).toContain(path.join(dir, "absent"));
+		expect(r.stderr).toContain(path.join(dir, "broken-checkout"));
 		expect(r.stderr).toContain("fix that read and re-run");
+	});
+
+	it("measures as before where no overflow seat is declared, however the launch record reads (#4393)", () => {
+		reading();
+		tenDollars(seat, "p1/plan.jsonl", now - HOUR);
+		const readable = run();
+		writeUnreadableLedgerCheckout(dir, "broken-checkout");
+		const unreadable = run();
+		expect(readable.status).toBe(0);
+		expect(unreadable.status).toBe(0);
+		expect(unreadable.stdout).toBe(readable.stdout);
 	});
 
 	it("exits 1 where the seat has no reading, and says how to get one", () => {

@@ -28,7 +28,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-/* Relative to this file, as claimDigest's arbiter is. The one caller that
+/* Relative to this file, as claimTarget's arbiter is. The one caller that
  * runs a COPY of this file is scripts/check-digest-render.js, from the staged
  * copy pre-commit writes to a temp dir where no sibling scripts/ exists; it
  * names its own scripts dir in WFC_CORE_SCRIPTS_DIR for this fallback (#3). */
@@ -55,10 +55,11 @@ const { requireKey } = (() => {
 
 /**
  * Take the file-claim on `target`, passing on the arbiter's warning where a
- * live neighbour also holds it (#4249). A missing arbiter skips the claim.
+ * live neighbour holds it too (#4249). A missing or broken arbiter must not
+ * stop the digest being generated (mantahostels#103 §6).
  * @param {string} target
  */
-function claimDigest(target) {
+function claimTarget(target) {
 	// Resolved relative to this file, NOT from CLAUDE_PROJECT_DIR: that names the
 	// repo the *session* is working on, which need not be the checkout this skill
 	// lives in, and pointing at the wrong root makes the arbiter look missing and
@@ -74,7 +75,8 @@ function claimDigest(target) {
 		[arbiter, "claim", target],
 		{ encoding: "utf8" },
 	);
-	if (r.stderr) process.stderr.write(r.stderr);
+	const said = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+	if (said) console.error(said);
 }
 
 /**
@@ -254,7 +256,7 @@ if (toStdout) {
 			"gen-roadmap-digest.js: outPath is unset outside --stdout — usage() " +
 				"should have exited before reaching here; check the argv parsing above.",
 		);
-	claimDigest(outPath);
+	claimTarget(outPath);
 	fs.writeFileSync(outPath, md);
 	console.error(
 		`wrote ${outPath} — ${md.length} chars, ${ITEMS.length} cards, ${version}`,

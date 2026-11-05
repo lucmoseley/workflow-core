@@ -200,7 +200,7 @@ describe("the committed task set", () => {
 		]);
 	});
 
-	it("seats each neighbour on a path the claim guard refuses, so the claim is felt", () => {
+	it("seats each neighbour on a path the claim guard warns on, so the claim is felt", () => {
 		for (const t of tasks.filter((x) => x.neighbour))
 			expect(t.neighbour?.path).toMatch(/^(docs|\.claude)\//);
 	});
@@ -529,8 +529,8 @@ describe("build: the fake neighbour", () => {
 		expect(fs.realpathSync(sandbox.selfPlugin.dir)).toBe(
 			path.join(repo, "self-plugin"),
 		);
-		const claim = (sid: string) =>
-			runInProcess(
+		const claim = (sid: string) => {
+			const c = runInProcess(
 				path.join(repo, "scripts/session-arbiter.js"),
 				["claim", held, sid],
 				{
@@ -542,10 +542,11 @@ describe("build: the fake neighbour", () => {
 					},
 				},
 			);
+			expect(c.status, c.stderr).toBe(0);
+			return `${c.stdout}${c.stderr}`;
+		};
 		try {
-			const warned = claim("another-session");
-			expect(warned.status).toBe(0);
-			expect(warned.stderr).toContain(neighbour.sessionId);
+			expect(claim("another-session")).toContain("is also held by session");
 		} finally {
 			process.kill(neighbour.pid);
 		}
@@ -557,8 +558,6 @@ describe("build: the fake neighbour", () => {
 			i++
 		)
 			spawnSync("sleep", ["0.05"]);
-		const freed = claim("another-session");
-		expect(freed.status).toBe(0);
-		expect(freed.stderr).not.toContain(neighbour.sessionId);
+		expect(claim("another-session")).not.toContain("is also held by session");
 	});
 });
