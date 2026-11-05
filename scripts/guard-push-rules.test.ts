@@ -127,7 +127,7 @@ describe("the push rules, end to end", () => {
 
 	it("hands the -landing twins with the landing module on (#2409)", () => {
 		fullHost(["suites", "landing"]);
-		const ctx = emission(at, "git push origin main:landing", { env: offSuite })
+		const ctx = emission(at, "git push origin HEAD:landing", { env: offSuite })
 			.additionalContext as string;
 		expect(ctx).toContain("PUSH TO `landing` ONCE THE TESTS YOU TOUCHED PASS");
 		expect(ctx).toContain("IS TESTED BY THE LANDER");
