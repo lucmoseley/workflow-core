@@ -28,6 +28,7 @@ import {
 	run,
 	SELF_PLUGIN_HOOKS,
 	TWO_GUARDS,
+	templateOf,
 	temps,
 } from "./lib/guard-registry-testkit";
 import { expectFixtureSupplies } from "./lib/precommit-gate-harness";
@@ -356,7 +357,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 
 	const push = (
 		root: string,
-		{ sha, tip }: { sha: string; tip: string },
+		{ sha, tip, to = "landing" }: { sha: string; tip: string; to?: string },
 		modules = "landing",
 		locks: unknown[] = [],
 	) =>
@@ -368,7 +369,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 			{
 				cwd: root,
 				encoding: "utf8",
-				input: `refs/heads/main ${sha} refs/heads/landing ${tip}\n`,
+				input: `refs/heads/main ${sha} refs/heads/${to} ${tip}\n`,
 				env: {
 					...process.env,
 					...claims,
@@ -504,5 +505,102 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		const r = push(root, { sha, tip: "0".repeat(40) });
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stderr).toContain("creates landing");
+	});
+});
+
+describe("scripts/landing-registry-gate.js judges a push to a queue ref on main's tree (#4458)", () => {
+	const claims = {
+		CLAUDE_CODE_SESSION_ID: "self-session",
+		WFC_ANCHOR_LOCKS: "[]",
+	};
+	const repo = templateOf(() =>
+		committedRepo(TWO_GUARDS, (r) => {
+			reviewIn(r, [], claims);
+			fs.copyFileSync(
+				path.join(__dirname, "landing-registry-gate.js"),
+				path.join(r, "scripts", "landing-registry-gate.js"),
+			);
+		}),
+	);
+	const Zero = "0".repeat(40);
+
+	/** The fixture with `stale` committed on its first commit, which
+	 * `origin/main` names unless `main` is false. */
+	function staleOnTip({ main = true } = {}) {
+		const root = repo();
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+		const tip = git("rev-parse", "HEAD");
+		if (main) git("update-ref", "refs/remotes/origin/main", tip);
+		fs.writeFileSync(
+			path.join(root, "scripts/guard-amend.sh"),
+			"#!/bin/sh\nexit 1\n",
+		);
+		git("add", "-A");
+		git("commit", "-qm", "stale");
+		return { root, tip, sha: git("rev-parse", "HEAD") };
+	}
+
+	const push = (root: string, line: string) =>
+		/* spawn-kept: a real fd — the gate hands the checker it spawns the real
+		 * fd 2, where these cases read its report. */
+		spawnSync(
+			"node",
+			[path.join(root, "scripts", "landing-registry-gate.js")],
+			{
+				cwd: root,
+				encoding: "utf8",
+				input: `${line}\n`,
+				env: {
+					...process.env,
+					...claims,
+					CLAUDE_PROJECT_DIR: root,
+					WFC_RULES_DIR: "",
+					WFC_RULES_FALLBACK_DIR: "",
+					WFC_MODULES: "landing",
+				},
+			},
+		);
+
+	it("refuses a push creating a queue ref whose tree expires a row fresh on origin/main's tip, naming main", () => {
+		const { root, tip, sha } = staleOnTip();
+		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${Zero}`);
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).toContain("STALE-PROSE  scripts/guard-amend.sh");
+		expect(r.stderr).toContain(
+			`pre-push: refused — ${sha} expires guard-registry row(s) on main's tree at ${tip}`,
+		);
+	});
+
+	it("judges a fast-forward of a queue ref against main's tip, not the ref's own", () => {
+		const { root, sha } = staleOnTip();
+		/* The ref's remote sha already carries the stale row; main's does not. */
+		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${sha}`);
+		expect(r.status, r.stderr).toBe(2);
+	});
+
+	it("passes, printed, a queue push in a clone holding no origin/main", () => {
+		const { root, sha } = staleOnTip({ main: false });
+		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${Zero}`);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain("holds no origin/main to judge queue/wt-a");
+	});
+
+	it.each([
+		"refs/heads/lander/batch",
+		"refs/heads/dropped/wt-a",
+		"refs/heads/queue",
+	])("leaves a push to %s unjudged", (ref) => {
+		const { root, sha } = staleOnTip();
+		const r = push(root, `HEAD ${sha} ${ref} ${Zero}`);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toBe("");
+	});
+
+	it("leaves a queue ref's deletion unjudged", () => {
+		const { root, sha } = staleOnTip();
+		const r = push(root, `(delete) ${Zero} refs/heads/queue/wt-a ${sha}`);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toBe("");
 	});
 });

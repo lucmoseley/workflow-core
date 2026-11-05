@@ -397,6 +397,128 @@ describe("with the landing module on, `landing` takes `main`'s place (#2409)", (
 	});
 });
 
+describe("with the landing module on, a session pushes its own queue ref (#4458)", () => {
+	/* The session's worktree, cut where session-checkout.js cuts one. */
+	let own: string;
+	const Own = "queue/q1";
+	beforeEach(() => {
+		vi.stubEnv("WFC_MODULES", "landing");
+		own = path.join(shared, ".claude", "worktrees", "q1");
+		execFileSync("git", ["worktree", "add", "-q", "--detach", own], {
+			cwd: shared,
+		});
+	});
+
+	/** The refusal from the session's worktree, which names its own ref. */
+	const refusal = (command: string) => {
+		const why = denial(command, own);
+		expect(why).toContain(`Your session's queue ref is \`${Own}\``);
+		expect(why).toContain(`git push origin HEAD:refs/heads/${Own}`);
+		return why;
+	};
+
+	it.each([
+		"git push origin HEAD:queue/q1",
+		"git push origin HEAD:refs/heads/queue/q1",
+		"git push -u origin HEAD:queue/q1",
+	])("%s passes, a creation or fast-forward of its own ref", (command) => {
+		expect(denial(command, own)).toBeNull();
+	});
+
+	it.each([
+		[
+			"git push origin HEAD:queue/other",
+			"`queue/other`, another session's queue ref",
+		],
+		[
+			"git push origin HEAD:queue/q1-x",
+			"`queue/q1-x`, another session's queue ref",
+		],
+		[
+			"git push origin HEAD:queue/q1/x",
+			"`queue/q1/x`, another session's queue ref",
+		],
+		["git push -f origin HEAD:queue/q1", "force-pushes `queue/q1`"],
+		["git push origin +HEAD:queue/q1", "force-pushes `queue/q1`"],
+		[
+			"git push --force-with-lease origin HEAD:queue/q1",
+			"force-pushes `queue/q1`",
+		],
+		["git push -f origin HEAD:queue/other", "another session's queue ref"],
+		["git push origin --delete queue/q1", "deletes the queue ref `queue/q1`"],
+		["git push origin :queue/other", "deletes the queue ref `queue/other`"],
+		[
+			"git push origin :refs/heads/queue/q1",
+			"deletes the queue ref `queue/q1`",
+		],
+		[
+			"git push origin HEAD:lander/batch",
+			"pushes to `lander/batch`, which only the lander writes",
+		],
+		[
+			"git push -f origin HEAD:lander/iso-1",
+			"pushes to `lander/iso-1`, which only the lander writes",
+		],
+		[
+			"git push origin --delete lander/batch",
+			"deletes `lander/batch`, which only the lander writes",
+		],
+		[
+			"git push origin HEAD:dropped/q1",
+			"pushes to `dropped/q1`, which only the lander writes",
+		],
+		[
+			"git push origin :dropped/other",
+			"deletes `dropped/other`, which only the lander writes",
+		],
+	])("%s is denied: %s", (command, what) => {
+		expect(refusal(command)).toContain(what);
+	});
+
+	it("names the launch, and no queue ref, for a queue push from outside a worktree", () => {
+		for (const cwd of [shared, worktree]) {
+			const why = denial("git push origin HEAD:queue/q1", cwd);
+			expect(why).toContain(
+				"This pushes to the queue ref `queue/q1` from outside a worktree",
+			);
+			expect(why).toContain("so it has no queue ref");
+			expect(why).toContain("start-session.sh <session-name>`");
+			expect(why).not.toContain("Your session's queue ref");
+		}
+		expect(denial("git push origin HEAD:lander/batch")).toContain(
+			"start-session.sh <session-name>`",
+		);
+	});
+
+	it.each([
+		"git push origin HEAD:landing",
+		"git push origin spike/x",
+		"git push origin -f spike/x",
+		"git push origin v1.2.3",
+		"git push origin refs/heads/main:refs/tags/queue/q2",
+		"git push origin --delete feature-x",
+	])("%s passes from the worktree as before", (command) => {
+		expect(denial(command, own)).toBeNull();
+	});
+
+	it("refuses main and landing's rewind from the worktree as before", () => {
+		expect(denial("git push origin HEAD:main", own)).toContain(
+			readRuleText("branch-publish-landing"),
+		);
+		expect(denial("git push -f origin HEAD:landing", own)).toContain(
+			readRuleText("landing-rewind"),
+		);
+	});
+
+	it("leaves a queue ref a branch like any other with landing off", () => {
+		vi.stubEnv("WFC_MODULES", "");
+		expect(denial("git push origin HEAD:queue/q1", own)).toContain(
+			"a branch other than main, queue/q1",
+		);
+		expect(denial("git push origin --delete queue/q1", own)).toBeNull();
+	});
+});
+
 it("leaves main's pushes and landing's refusal as they were with landing off", () => {
 	expect(denial("git push origin main")).toBeNull();
 	expect(denial("git push origin HEAD:landing")).toContain(

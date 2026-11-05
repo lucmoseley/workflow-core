@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
  * landing-registry-gate.js — the pre-push limb that judges a push to `landing`
- * on `landing`'s bytes (#3074, spec #2261): with the `landing` module on,
- * refuse a push whose pushed sha's tree holds a gating guard-registry fault,
- * an expired anchor among them, that `landing`'s current tip does not.
+ * on `landing`'s bytes (#3074, spec #2261), and a push to a queue ref on
+ * `main`'s (#4458): with the `landing` module on, refuse a push whose pushed
+ * sha's tree holds a gating guard-registry fault, an expired anchor among
+ * them, that the tip it is judged against does not.
  *
  * A push to `landing` only fast-forwards it, so the pushed sha's tree is
  * `landing`'s next tree and the remote sha is its tip now:
@@ -37,7 +38,8 @@
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { buildRevertBaseEnv } = require("./lib/clean-revert.js");
-const { LANDING_BRANCH } = require("./lib/landing-refs.js");
+const { gitOrNull } = require("./lib/git.js");
+const { LANDING_BRANCH, VERIFIED_REF } = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
 	buildUnchecked,
@@ -48,23 +50,107 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const REFUSE = 2;
 const LANDING = `refs/heads/${LANDING_BRANCH}`;
+/* A session's queue ref, `queue/<worktree name>`, as lib/branch-publish.js
+ * reads one. */
+const QUEUE = "refs/heads/queue/";
 const CHECK = path.join(__dirname, "check-guard-registry.js");
 
 const unchecked = buildUnchecked(
 	"landing-registry-gate",
-	`guard-registry rows on ${LANDING_BRANCH}`,
+	`guard-registry rows on ${LANDING_BRANCH} or main`,
 );
 
 /**
- * @param {string} stdin
- * @returns {{ sha: string, tip: string }[]}
+ * @typedef {{ sha: string, ref: string, tip: string | null }} JudgedPush
+ *   `ref` the pushed branch; `tip` the remote sha it is judged against, null
+ *   for `origin/main`'s
  */
-function parseLandingPushes(stdin) {
-	return parseRefLines(stdin).flatMap(({ sha, remoteRef, remoteSha }) =>
-		remoteRef === LANDING && remoteSha && !isZeroSha(sha)
-			? [{ sha, tip: remoteSha }]
-			: [],
+
+/**
+ * Each push the gate judges: one to `landing`, against its remote tip, and
+ * one to a queue ref, against `main`'s, `tip` then null.
+ * @param {string} stdin
+ * @returns {JudgedPush[]}
+ */
+function parseJudgedPushes(stdin) {
+	return parseRefLines(stdin).flatMap(({ sha, remoteRef, remoteSha }) => {
+		/** @type {JudgedPush[]} */
+		const none = [];
+		if (isZeroSha(sha)) return none;
+		if (remoteRef === LANDING && remoteSha)
+			return [{ sha, ref: LANDING_BRANCH, tip: remoteSha }];
+		if (remoteRef?.startsWith(QUEUE) && remoteRef.length > QUEUE.length)
+			return [{ sha, ref: remoteRef.slice("refs/heads/".length), tip: null }];
+		return none;
+	});
+}
+
+/**
+ * `origin/main`'s sha in `tree`, or null where the clone holds none.
+ * @param {string} tree
+ * @returns {string | null}
+ */
+function readMainTip(tree) {
+	return (
+		gitOrNull(["rev-parse", "--verify", "-q", `${VERIFIED_REF}^{commit}`], {
+			cwd: tree,
+		})?.trim() || null
 	);
+}
+
+/**
+ * The tip `push` is judged against, or null, printed, where there is none.
+ * @param {JudgedPush} push
+ * @param {string} tree the pushing tree
+ * @returns {string | null}
+ */
+function judgedTip({ ref, tip }, tree) {
+	if (tip === null) {
+		const main = readMainTip(tree);
+		if (main === null)
+			unchecked(`this clone holds no ${VERIFIED_REF} to judge ${ref} against`);
+		return main;
+	}
+	if (!isZeroSha(tip)) return tip;
+	unchecked(
+		`this push creates ${LANDING_BRANCH}, so it has no tip to compare against`,
+	);
+	return null;
+}
+
+/**
+ * One push's verdict: REFUSE where its tree adds a fault the tip lacks.
+ * @param {JudgedPush} push
+ * @param {string} tree the pushing tree
+ * @returns {number}
+ */
+function judgeOne(push, tree) {
+	const { sha } = push;
+	const tip = judgedTip(push, tree);
+	if (tip === null) return 0;
+	const queued = push.tip === null;
+	const r = spawnSync(
+		process.execPath,
+		[CHECK, "--against", tip, "--head", sha],
+		{
+			stdio: ["ignore", 2, 2],
+			env: queued
+				? process.env
+				: buildRevertBaseEnv(tree, { onto: tip, head: sha }),
+		},
+	);
+	if (r.status === 1) {
+		writeFd(
+			2,
+			`pre-push: refused — ${sha} expires guard-registry row(s) on ${queued ? "main" : LANDING_BRANCH}'s tree at ${tip}, named above.\n`,
+		);
+		return REFUSE;
+	}
+	if (r.status !== 0)
+		unchecked(
+			`the checker could not judge ${sha} against ${tip} (${r.error?.message ?? `exit ${r.status}`})`,
+		);
+	return 0;
 }
 
 /**
@@ -73,37 +159,13 @@ function parseLandingPushes(stdin) {
  * @returns {number}
  */
 function judge(stdin, tree) {
-	const pushes = parseLandingPushes(stdin);
+	const pushes = parseJudgedPushes(stdin);
 	if (pushes.length === 0) return 0;
 	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
-	let verdict = 0;
-	for (const { sha, tip } of pushes) {
-		if (isZeroSha(tip)) {
-			unchecked(
-				`this push creates ${LANDING_BRANCH}, so it has no tip to compare against`,
-			);
-			continue;
-		}
-		const r = spawnSync(
-			process.execPath,
-			[CHECK, "--against", tip, "--head", sha],
-			{
-				stdio: ["ignore", 2, 2],
-				env: buildRevertBaseEnv(tree, { onto: tip, head: sha }),
-			},
-		);
-		if (r.status === 1) {
-			writeFd(
-				2,
-				`pre-push: refused — ${sha} expires guard-registry row(s) on ${LANDING_BRANCH}'s tree at ${tip}, named above.\n`,
-			);
-			verdict = REFUSE;
-		} else if (r.status !== 0)
-			unchecked(
-				`the checker could not judge ${sha} against ${tip} (${r.error?.message ?? `exit ${r.status}`})`,
-			);
-	}
-	return verdict;
+	return pushes.reduce(
+		(verdict, push) => Math.max(verdict, judgeOne(push, tree)),
+		0,
+	);
 }
 
 process.exitCode = runPrePushGate(unchecked, judge);
