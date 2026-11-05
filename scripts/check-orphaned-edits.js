@@ -82,6 +82,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -369,7 +370,7 @@ function buildWorktreeIssue(f) {
 				"",
 				"```",
 				`git -C ${tree} diff HEAD`,
-				`cd ${tree} && node scripts/session-checkout.js land`,
+				`cd ${tree} && node ${scriptPath("session-checkout.js")} land`,
 				`git worktree remove --force ${tree}`,
 				"```",
 				"",
