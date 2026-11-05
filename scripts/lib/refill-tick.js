@@ -116,6 +116,7 @@ const {
 	readLiftedHolds,
 	readTickHolds,
 	tendHolds,
+	withTickStores,
 } = require("./repo-holds.js");
 const { tendHoldNotices } = require("./repo-hold-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
@@ -1047,11 +1048,13 @@ function tick({ dryRun }) {
 	const now = Date.now();
 	const control = readControl();
 	const declared = readDeclaredSeats();
-	return runTick(productionIo, {
-		dryRun,
-		now,
-		opening: { control, declared, typed: readLastTyped(declared) },
-	});
+	return withTickStores(() =>
+		runTick(productionIo, {
+			dryRun,
+			now,
+			opening: { control, declared, typed: readLastTyped(declared) },
+		}),
+	);
 }
 
 module.exports = {

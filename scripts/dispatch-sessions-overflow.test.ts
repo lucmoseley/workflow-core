@@ -14,7 +14,8 @@
  *
  * Over the 10 s run-cost line (§X8 (5)): each case runs the real dispatcher,
  * whose gates each spawn a node process, since the subject is the script's
- * own sequence of gates.
+ * own sequence of gates; the #4392 cases also copy the scripts into a loop
+ * code worktree, since the subject is a launch from one.
  *
  * Loosen one and a manual or loop dispatch to an overflow seat spends past
  * its grant, is refused for having no plan bars, or bills the plan.
@@ -37,6 +38,7 @@ import {
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import { launchBatch } from "./lib/refill-batch.js";
+import { isTestKind } from "./lib/test-kind.js";
 
 const fx = dispatchFixture();
 const { stubClaude, baseEnv, readArgvLines } = fx;
@@ -109,6 +111,7 @@ function dispatch(
 	n: number,
 	env: Record<string, string>,
 	flags: string[] = [],
+	dispatcher = SCRIPT,
 ) {
 	const batch = prompts.slice(0, n).map((prompt) => ({
 		root: fx.dir,
@@ -120,7 +123,7 @@ function dispatch(
 		reason: "overflow" as const,
 	}));
 	return launchBatch(batch, {
-		dispatcher: SCRIPT,
+		dispatcher,
 		env: baseEnv(env),
 		run: (call) => {
 			const r = spawnSync(
@@ -158,6 +161,22 @@ const readLaunchEnv = () =>
 			.map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
 	);
 
+/* One of the refill loop's code worktrees under `env`'s refill dir: a copy
+ * of these scripts, as a symlink would resolve out of it. */
+function loopCodeTip(env: Record<string, string>) {
+	const codeDir = path.join(String(env.WFC_REFILL_DIR), ".refill-loop-code");
+	const tip = path.join(codeDir, "0123456789ab");
+	fs.cpSync(__dirname, path.join(tip, "scripts"), {
+		recursive: true,
+		filter: (src) => !isTestKind(path.relative(__dirname, src)),
+	});
+	return {
+		codeDir,
+		tip,
+		dispatcher: path.join(tip, "scripts", "dispatch-sessions.sh"),
+	};
+}
+
 describe("an overflow seat (#2610)", () => {
 	it("skips the probe and the cap, launching --bg under the plan dir with the key's helper, its name, and no key in its environment (#3701)", () => {
 		// Plan bars at 100% would refuse a plan seat; an overflow seat never reads them.
@@ -189,6 +208,37 @@ describe("an overflow seat (#2610)", () => {
 		expect(env.has("ANTHROPIC_API_KEY")).toBe(false);
 		expect(env.has("CLAUDE_CODE_SESSION_ID")).toBe(false);
 		expect(r.launched.map((l) => l.jobId)).toEqual([JOB]);
+	});
+
+	it("names a helper that still prints the key once the loop removes the code worktree it launched from (#4392)", () => {
+		stubBg();
+		const env = overflowEnv(200);
+		const { codeDir, tip, dispatcher } = loopCodeTip(env);
+		fs.symlinkSync(path.resolve(__dirname, ".."), `${codeDir}.current`);
+		const r = dispatch(1, env, [], dispatcher);
+		expect(r.failed).toBeNull();
+		const [launch] = readBgLaunches();
+		const helper = JSON.parse(
+			String(launch?.match(/--settings (\{.*\}) \/implement 341$/)?.[1]),
+		).apiKeyHelper;
+		expect(helper).not.toContain(".refill-loop-code/");
+		fs.rmSync(tip, { recursive: true });
+		// spawn-kept: the subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
+		const h = spawnSync("sh", ["-c", helper], { encoding: "utf8" });
+		expect(h.stderr).toBe("");
+		expect(h.stdout).toBe("sk-fake-overflow\n");
+	});
+
+	it("refuses an overflow launch from a loop code worktree whose boot link names no helper, naming the path (#4392)", () => {
+		stubBg();
+		const env = overflowEnv(200);
+		const { codeDir, dispatcher } = loopCodeTip(env);
+		const r = dispatch(1, env, [], dispatcher);
+		expect(r.failed).toBe("exit 2");
+		expect(r.out).toContain(
+			`no key helper at ${codeDir}.current/scripts/lib/overflow-key.js`,
+		);
+		expect(readBgLaunches()).toEqual([]);
 	});
 
 	it("starts the session in a fresh worktree detached at origin/landing, as a plan launch does (#4245)", () => {
