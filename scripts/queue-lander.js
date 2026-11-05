@@ -3,8 +3,7 @@
  * queue-lander.js — one queue lander run (#4485, spec #4458): while any
  * `queue/<name>` ref waits on the remote, take them all as one batch, merge
  * them onto `main`, test the integration commit and move `main` to it on
- * green; on red, isolate the members and drop each culprit
- * (lib/queue-lander.js).
+ * green (lib/queue-lander.js).
  *
  *   node scripts/queue-lander.js run [--tester <command>]
  *
@@ -15,9 +14,8 @@
  * of `main` it takes the step lib/lander-cli.js holds.
  *
  * It moves `main` only past the landing lander's green ledger, which the
- * pre-push gate on `main` reads. A dropped member's fix ticket, and the one
- * base-red ticket for files red on `main` too, are filed in the tracker
- * .claude/workflow-core.json names, through file-issue.js.
+ * pre-push gate on `main` reads. A dropped member's fix ticket is filed in
+ * the tracker .claude/workflow-core.json names, through file-issue.js.
  *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
@@ -29,10 +27,9 @@
  * call included; 1 on a throw before the run; 2 on a command line it refuses.
  */
 
-const { queueTester } = require("./lib/actions-tester.js");
-const { baseRedFiler } = require("./lib/base-red-issue.js");
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
+const { queueTester } = require("./lib/actions-tester.js");
 const { dropTicketFiler, liveFilerDeps } = require("./lib/fix-ticket.js");
 const {
 	afterMainMove,
@@ -48,7 +45,6 @@ const {
 	landerLock,
 } = require("./lib/lander.js");
 const { localTester } = require("./lib/local-tester.js");
-const { liveQueueDeps } = require("./lib/queue-issue.js");
 const {
 	batchRecord,
 	dropRecord,
@@ -79,11 +75,7 @@ const configuredTester = (root) =>
  */
 function trackerOf(root) {
 	const deps = liveFilerDeps(root);
-	return {
-		...dropTicketFiler(deps),
-		...baseRedFiler(liveQueueDeps(root)),
-		stateOf: deps.stateOf,
-	};
+	return { ...dropTicketFiler(deps), stateOf: deps.stateOf };
 }
 
 /** @param {string[]} [argv] @returns {Promise<number>} */

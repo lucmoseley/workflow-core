@@ -1349,10 +1349,9 @@ function nextAction(s) {
  *   a CI run passed, so only a green naming its `run` lands. `readJobsOnMain`
  *   where it reads CI runs, as only then does a red name jobs
  * @typedef {{verdict: (sha: string, files?: string[]) => Promise<Verdict>,
- *   requiresRun?: boolean, parallel?: boolean}} QueueTester the queue
- *   lander's tester (#4458): the whole suite at `sha` where `files` is absent
- *   or empty, else only `files`; `requiresRun` as for a Tester; `parallel`
- *   where it can be asked several verdicts at once
+ *   requiresRun?: boolean}} QueueTester the queue lander's tester (#4458):
+ *   the whole suite at `sha` where `files` is absent or empty, else only
+ *   `files`; `requiresRun` as for a Tester
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
  * @typedef {{batch: string|null, reason: string, failing: Failing|null,
  *   owed: FixTicket[]}} Held a hold, with its batch and what failed there,
@@ -2985,7 +2984,6 @@ module.exports = {
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
-	redOnMain,
 	remote,
 	verdictAt,
 	withThrowawayTree,

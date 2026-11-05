@@ -30,7 +30,6 @@ const {
 const {
 	DROPPED_PREFIX,
 	LANDER_BATCH_BRANCH,
-	LANDER_ISO_PREFIX,
 	QUEUE_PREFIX,
 	REMOTE,
 	trackingRefspec,
@@ -54,14 +53,7 @@ const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
 /* git push's words for a compare-and-delete refused because the ref moved. */
 const STALE = /\(stale info\)/;
 const GONE = /remote ref does not exist/;
-const PHASES = [
-	"merging",
-	"testing",
-	"isolating",
-	"serial",
-	"requeued",
-	"landed",
-];
+const PHASES = ["merging", "testing", "landed"];
 /* Git's words for a loose object a crash left empty or torn, naming its file
  * by its fan-out directory and name. */
 const BROKEN_OBJECT =
@@ -70,9 +62,6 @@ const BROKEN_OBJECT =
 /**
  * @typedef {import("./lander.js").Verdict} Verdict
  * @typedef {import("./queue-lander.js").Batch} Batch
- * @typedef {import("./queue-lander.js").Blame} Blame
- * @typedef {import("./queue-lander.js").Isolated} Isolated
- * @typedef {import("./queue-lander.js").Serial} Serial
  * @typedef {import("./queue-lander.js").Member} Member
  * @typedef {import("./queue-lander.js").MergeResult} MergeResult
  * @typedef {import("./queue-lander.js").QueueGit} QueueGit
@@ -243,12 +232,6 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		pushBatch(sha) {
 			pushRemote(root, ["--force", `${sha}:refs/heads/${LANDER_BATCH_BRANCH}`]);
 		},
-		pushIso(k, sha) {
-			pushRemote(root, [
-				"--force",
-				`${sha}:refs/heads/${LANDER_ISO_PREFIX}${k}`,
-			]);
-		},
 		pushMain(sha) {
 			pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);
 		},
@@ -336,34 +319,33 @@ function parseVerdict(v) {
 const fileKey = (files) => [...files].sort().join("\n");
 
 /**
- * The verdict ledger: one JSON line per green or red reached, by sha, the
- * files it ran, the whole suite being none, and its pass, a line naming none
- * the first. The newest line for a sha, file set and pass is its verdict. A
- * line lost to an unwritable file costs a rerun, never a landing.
+ * The verdict ledger: one JSON line per green or red reached, by sha and the
+ * files it ran, the whole suite being none. The newest line for a sha and
+ * file set is its verdict. A line lost to an unwritable file costs a rerun,
+ * never a landing.
  * @param {string} file
  * @returns {VerdictLedger}
  */
 function verdictLedger(file) {
 	return {
-		get(sha, files, pass = 1) {
+		get(sha, files) {
 			const key = fileKey(files);
 			const rows = readJsonl(file)?.rows ?? [];
 			for (const row of rows.toReversed()) {
 				if (row.sha !== sha || !isStringList(row.files)) continue;
-				if (fileKey(row.files) !== key || (row.pass ?? 1) !== pass) continue;
+				if (fileKey(row.files) !== key) continue;
 				const v = parseVerdict(row.verdict);
 				if (v) return v;
 			}
 			return null;
 		},
-		add(sha, files, v, pass = 1) {
+		add(sha, files, v) {
 			appendRetained(
 				file,
 				{
 					at: new Date(now()).toISOString(),
 					sha,
 					files: [...files].sort(),
-					...(pass === 1 ? {} : { pass }),
 					verdict: v,
 				},
 				VERDICT_RETAIN_MS,
@@ -371,43 +353,6 @@ function verdictLedger(file) {
 		},
 	};
 }
-
-/** @param {unknown} v @returns {Record<string, unknown>|null} */
-const objectOf = (v) =>
-	v !== null && typeof v === "object"
-		? /** @type {Record<string, unknown>} */ (v)
-		: null;
-
-/** @param {unknown} b @returns {b is Blame} */
-const isBlame = (b) => {
-	const o = objectOf(b);
-	return (
-		isStringList(o?.files) && isStringList(o?.base) && isStringList(o?.members)
-	);
-};
-
-/** @param {unknown} i @returns {i is Isolated} */
-const isIsolated = (i) => {
-	const o = objectOf(i);
-	return (
-		typeof o?.name === "string" &&
-		typeof o.sha === "string" &&
-		typeof o.iso === "string"
-	);
-};
-
-/** @param {unknown} s @returns {s is Serial} */
-const isSerial = (s) => {
-	const o = objectOf(s);
-	const step = objectOf(o?.step);
-	return (
-		isStringList(o?.landed) &&
-		(o?.step === null ||
-			(typeof step?.name === "string" &&
-				typeof step.sha === "string" &&
-				typeof step.onto === "string"))
-	);
-};
 
 /** @param {unknown} m @returns {m is Member} */
 const isMember = (m) => {
@@ -459,12 +404,7 @@ function parseBatch(parsed) {
 		!isStringList(b.dropped) ||
 		!(b.integration === null || typeof b.integration === "string") ||
 		typeof b.phase !== "string" ||
-		!PHASES.includes(b.phase) ||
-		!isStringList(b.ahead) ||
-		!(b.blame === null || isBlame(b.blame)) ||
-		!Array.isArray(b.isolated) ||
-		!b.isolated.every(isIsolated) ||
-		!(b.serial === null || isSerial(b.serial))
+		!PHASES.includes(b.phase)
 	)
 		return null;
 	return {
@@ -474,10 +414,6 @@ function parseBatch(parsed) {
 		onto: b.onto,
 		integration: b.integration,
 		phase: /** @type {Batch["phase"]} */ (b.phase),
-		ahead: b.ahead,
-		blame: b.blame,
-		isolated: b.isolated,
-		serial: b.serial,
 	};
 }
 
@@ -513,24 +449,13 @@ function batchRecord(file) {
 
 /** @param {unknown} u @returns {u is Drop["cause"]} */
 const isCause = (u) => {
-	const o = objectOf(u);
+	const o = /** @type {Record<string, unknown>|null} */ (
+		u !== null && typeof u === "object" ? u : null
+	);
 	if (typeof o?.name !== "string") return false;
-	switch (o.kind) {
-		case "conflict":
-			return isStringList(o.files);
-		case "refused":
-			return typeof o.reason === "string";
-		case "red":
-			return isStringList(o.files) && typeof o.iso === "string";
-		case "collision":
-			return (
-				isStringList(o.files) &&
-				typeof o.step === "string" &&
-				isStringList(o.after)
-			);
-		default:
-			return false;
-	}
+	return o.kind === "conflict"
+		? isStringList(o.files)
+		: o.kind === "refused" && typeof o.reason === "string";
 };
 
 /** @param {unknown} d @returns {d is Drop} */

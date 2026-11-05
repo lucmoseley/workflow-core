@@ -205,51 +205,19 @@ function ticketFiler(deps) {
 const citedByAny = (subjects) =>
 	subjects.map(citedTicket).find((n) => n !== null) ?? null;
 
-/** @param {readonly string[]} files */
-const fileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
-
 /**
- * What the drop met, from the `main` it was merged onto.
- * @param {import("./queue-lander.js").Drop} d
+ * @param {import("./queue-lander.js").Unmerged} cause
  */
-function buildDropEvidence({ onto, cause }) {
-	const alone = `merged alone onto \`main\` at ${onto}`;
-	switch (cause.kind) {
-		case "conflict":
-			return `${alone}, it conflicts with \`main\` in:\n${fileList(cause.files)}`;
-		case "refused":
-			return `${alone}, its merge was refused: ${quoteSubject(cause.reason)}`;
-		case "red":
-			return `${alone} as ${cause.iso}, it failed these files twice, which pass on \`main\` there:\n${fileList(cause.files)}`;
-		case "collision": {
-			const after = cause.after.map((n) => `\`${QUEUE_PREFIX}${n}\``);
-			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.files.length > 0 ? `failed:\n${fileList(cause.files)}` : "failed the whole suite, naming no file"}`;
-		}
-	}
-}
-
-/**
- * The acceptance criterion the drop's cause sets.
- * @param {import("./queue-lander.js").Drop} d
- */
-function buildDropAcceptance({ sha, name, cause }) {
-	const queued = `\`${QUEUE_PREFIX}${name}\``;
-	switch (cause.kind) {
-		case "conflict":
-			return `${short(sha)}'s change merges onto \`main\`, each file above settled, and is pushed to ${queued} again.`;
-		case "refused":
-			return `${short(sha)}'s change merges onto \`main\` and is pushed to ${queued} again.`;
-		default:
-			return `${short(sha)}'s change passes ${cause.files.length > 0 ? "each file above" : "the whole suite"} merged onto \`main\`, and is pushed to ${queued} again.`;
-	}
-}
+const buildDropEvidence = (cause) =>
+	cause.kind === "conflict"
+		? `it conflicts with \`main\` in:\n${cause.files.map((f) => `- \`${f}\``).join("\n")}`
+		: `its merge was refused: ${quoteSubject(cause.reason)}`;
 
 /**
  * @param {import("./queue-lander.js").Drop & {subject: string}} d
  * @returns {Omit<Ticket, "cited" | "checked">}
  */
-function dropTicketIssue(d) {
-	const { name, sha, ref, subject } = d;
+function dropTicketIssue({ name, sha, ref, onto, cause, subject }) {
 	const queued = `${QUEUE_PREFIX}${name}`;
 	const filedAs = `Fix ${queued} at ${short(sha)},`;
 	return {
@@ -261,7 +229,7 @@ function dropTicketIssue(d) {
 		noun: "fix ticket",
 		body: `## What to build
 
-The queue lander (#4458) dropped \`${queued}\` at ${sha}: ${buildDropEvidence(d)}
+The queue lander (#4458) dropped \`${queued}\` at ${sha}: merged alone onto \`main\` at ${onto}, ${buildDropEvidence(cause)}
 
 Its commits are kept at \`${ref}\`, which the lander deletes once this ticket closes.
 
@@ -269,7 +237,7 @@ Tip commit: ${quoteSubject(subject)}
 
 ## Acceptance criteria
 
-- [ ] ${buildDropAcceptance(d)}
+- [ ] ${short(sha)}'s change merges onto \`main\`${cause.kind === "conflict" ? ", each file above settled," : ""} and is pushed to \`${queued}\` again.
 `,
 	};
 }
