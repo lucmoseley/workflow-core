@@ -812,7 +812,7 @@ const postHandOff = (root, args) =>
 const blockIo = (served) => ({
 	stop: stopOn,
 	type: typeResume,
-	resumeTargetOf: resume.resumeTargetOf,
+	resumeTargetOf: resume.readResumeTarget,
 	resumeStopped: resume.resumeStopped,
 	adoptResumed: resume.adoptResumed,
 	writeLaunch,

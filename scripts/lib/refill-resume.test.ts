@@ -38,6 +38,23 @@ function fakeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 	return { ...fake, steps: resumeSteps(fake.io) };
 }
 
+describe("readResumeTarget", () => {
+	it("takes the listing's session id over its job record's", () => {
+		const { steps } = fakeIo({ readJobRecord: "otherSession" });
+		expect(
+			steps.readResumeTarget({ ...LAUNCH, jobId: JOB, sessionId: SESSION }),
+		).toEqual({ sessionId: SESSION, cwd: ROOT });
+	});
+
+	it("falls back to the checkout where the job record names no cwd", () => {
+		const { steps } = fakeIo({ readJobRecord: "working" });
+		expect(steps.readResumeTarget({ ...LAUNCH, jobId: JOB })).toEqual({
+			sessionId: SESSION,
+			cwd: ROOT,
+		});
+	});
+});
+
 describe("resumeStopped", () => {
 	it("refuses the --bg --resume where its auth would not bill the subscription, launching nothing (#2236)", () => {
 		const { steps, callsTo } = fakeIo({ authRefusal: "refused" });

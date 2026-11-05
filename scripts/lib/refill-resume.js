@@ -392,7 +392,7 @@ function resumeSteps(io) {
 	 * @param {JobLaunch} l
 	 * @returns {import("./refill-blocks.js").ResumeTarget}
 	 */
-	function resumeTargetOf(l) {
+	function readResumeTarget(l) {
 		const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
 			l.jobId ? io.readJobRecord(l.seat, l.jobId) : null
 		);
@@ -517,9 +517,9 @@ function resumeSteps(io) {
 	return {
 		adoptResumed,
 		moveSession,
+		readResumeTarget,
 		removeJobRecord,
 		resumeStopped,
-		resumeTargetOf,
 		seatEnv,
 	};
 }

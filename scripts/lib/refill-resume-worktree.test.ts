@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
  * A resume reopens its session's recorded worktree, uncommitted work intact
- * (#4229 story 7, #4319): lib/refill-resume.js's resumeTargetOf then
+ * (#4229 story 7, #4319): lib/refill-resume.js's readResumeTarget then
  * resumeStopped over the production adapter, with a real git worktree and
- * `claude` stubbed at WFC_CLAUDE_BIN to log where it ran.
+ * `claude` stubbed at WFC_CLAUDE_BIN.
  *
  * Loosen it and a session cut into its own worktree resumes in the main
  * checkout, away from its branch and its uncommitted edits.
@@ -97,7 +97,7 @@ it("runs the --bg --resume in the job record's worktree, leaving its uncommitted
 	const logged: string[] = [];
 	const steps = resumeSteps(buildResumeIo((line) => logged.push(line)));
 
-	const target = steps.resumeTargetOf(l);
+	const target = steps.readResumeTarget(l);
 	expect(target).toEqual({ sessionId: SESSION, cwd: wt });
 	const r = steps.resumeStopped(
 		l,
