@@ -16,7 +16,8 @@
  * the seat that holds them.
  *
  * A session the launch record marks overflow is left out: it bills a key, so no
- * bar moved for it (#3696). Exits 1 where that record will not read.
+ * bar moved for it (#3696). Exits 1 where that record will not read; it is
+ * read only where the seat file declares an overflow seat (#4393).
  *
  * Prints only: the rates are updated by hand. Exits 0 where at least one rate
  * printed, 1 where none could. Seats: `lib/seat-args.js`.
@@ -26,7 +27,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { readAllowance } = require("./lib/allowance");
-const { readEveryOverflowLookup } = require("./lib/dispatch-ledger.js");
+const { readDeclaredOverflowLookup } = require("./lib/dispatch-ledger.js");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
 const { fileSpend, LIST_PRICES } = require("./lib/session-spend");
@@ -38,7 +39,7 @@ const SPANS = /** @type {const} */ ({
 	weekly_all: 7 * 24 * HOUR_MS,
 });
 
-/** @typedef {ReturnType<typeof readEveryOverflowLookup>} OverflowLookup */
+/** @typedef {ReturnType<typeof readDeclaredOverflowLookup>} OverflowLookup */
 
 /**
  * @param {string} dir
@@ -195,7 +196,7 @@ function main() {
 	const seats = seatsFrom(parsed.lists["--config-dir"]);
 	let overflowLaunchOf;
 	try {
-		overflowLaunchOf = readEveryOverflowLookup();
+		overflowLaunchOf = readDeclaredOverflowLookup();
 	} catch (e) {
 		writeFd(
 			2,

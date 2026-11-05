@@ -988,9 +988,8 @@ function wholeFileRegionWarning(rel) {
 }
 
 /**
- * The script path. mantahostels#103 ruled signal 3's helper must ABORT its caller, not
- * merely record: recording alone would leave docs/roadmap-digest.md — 40 of the
- * last 150 commits, single writer — protected for everyone and from nobody.
+ * The script path: a script that writes a tracked file claims it here, and is
+ * warned where a live neighbour also holds it (#4249).
  * @param {string|undefined} filePath
  * @param {string} sessionId
  * @param {boolean} [generator] the §A generator saying so — see
@@ -1003,8 +1002,7 @@ function cmdClaim(filePath, sessionId, generator = false) {
 	// have to quote through a shell.
 	const rel = store.relativeToRepo(filePath);
 	// The watched union, so a script writing a scripts/ file takes a claim and so
-	// gets a content record (mantahostels#295). Only the ABORT is confined to the refusing
-	// tier: there is nothing to abort on a tier that refuses nothing.
+	// gets a content record (mantahostels#295).
 	if (rel === null || !store.isWatched(rel)) return 0;
 	// Before acquire(), so a misspelt region takes no lock at all (mantahostels#1313).
 	if (refuseClaimSubject(rel, generator)) return 2;

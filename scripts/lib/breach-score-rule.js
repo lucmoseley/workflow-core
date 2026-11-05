@@ -67,7 +67,6 @@ const MOVED = new Set([
 	"guard-branch-publish",
 	"guard-commit-form",
 	"guard-dispatch-rewrite",
-	"guard-file-claim",
 	"guard-issue-body",
 	"guard-issue-close",
 	"guard-issue-create-label",
