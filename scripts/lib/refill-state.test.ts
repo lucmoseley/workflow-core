@@ -307,10 +307,13 @@ describe("the state file", () => {
 		expect(fs.existsSync(path.join(dir, REFILL_STATE_FILE))).toBe(false);
 	});
 
+	/* The tick reads its state through readState, so a damaged file ticks on
+	 * these defaults (#3380). */
 	it("reads a damaged file as the defaults, logging it", () => {
-		fs.writeFileSync(path.join(dir, REFILL_STATE_FILE), "{");
+		const file = path.join(dir, REFILL_STATE_FILE);
+		fs.writeFileSync(file, "{");
 		const lines: string[] = [];
 		expect(readState((l) => lines.push(l))).toEqual(loopStateOf(null));
-		expect(lines[0]).toMatch(/is damaged/);
+		expect(lines).toEqual([expect.stringContaining(`${file} is damaged (`)]);
 	});
 });

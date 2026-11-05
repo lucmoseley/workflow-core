@@ -616,7 +616,11 @@ describe("decideTick on overflow seats (#2611)", () => {
 					overflow("y", 0, "2026-10-28"),
 				],
 			}),
-		).toMatchObject({ launches: [], planWait: { resets: null } });
+		).toMatchObject({
+			launches: [],
+			planWait: { resets: null },
+			idle: expect.stringMatching(/^a plan resets/),
+		});
 	});
 
 	it("decides as before with no overflow seat declared", () => {

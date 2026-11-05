@@ -4,15 +4,18 @@
  * its steps, what a kill between two of them leaves the next tick, its
  * dry-run policy, and how it carries a restart's killed launches and a
  * limit-held launch into the state, the idle reason and the tick's record
- * (#4315). Every port records its call, so a case reads the order off one
- * list; the state file is held in memory (stateFileFake). The fake answers in
+ * (#4315), the sessions it launched into that record, and the room a paused or
+ * stopping tick leaves unread (#4282). Every port records its call, so a case
+ * reads the order off one list; the state file is held in memory
+ * (stateFileFake). The fake answers in
  * the ports' shapes but no contract test pins it to the adapter, bar
  * ADMISSION_VERDICT, which admission-verdict.contract.test.ts holds:
  * scripts/refill-loop-run.test.ts runs the real one.
  *
  * Loosen one and a tick can judge launches a kill left out of the state, list
  * before the relief steps, dispatch a batch not yet on record, or a dry run can
- * stop on an absent or damaged control, or write, launch or drop a marker.
+ * stop on an absent or damaged control, or write, launch or drop a marker, or
+ * a paused or stopping tick probe a seat or start a Console read.
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
@@ -431,6 +434,54 @@ describe("a limit-held launch through the tick (#3735)", () => {
 	});
 });
 
+describe("the tick's concurrency row (#3770)", () => {
+	it("counts the sessions the tick launched into its working figure", async () => {
+		const records: { working: number | null; ceiling: number | null }[] = [];
+		const { io } = fakeIo(stateOf(), {
+			readFreeSlots: () => ({
+				slots: 1,
+				/* The run test's fake carries only the fields concurrency.js reads. */
+				admission: { ...ADMISSION_VERDICT, slots: 1 } as never,
+			}),
+			appendTick: (tickRecord) => {
+				records.push(tickRecord);
+			},
+		});
+		const r = await tickOf(io);
+		expect("launches" in r.decision && r.decision.launches).toHaveLength(1);
+		const { count } = ADMISSION_VERDICT.memory.working;
+		expect(records).toEqual([
+			expect.objectContaining({ working: count + 1, ceiling: count + 1 }),
+		]);
+	});
+});
+
+describe("the room a paused or stopping tick reads (#4060, #4071)", () => {
+	it("reads no slot or seat, probes none and starts no Console read on a paused tick", async () => {
+		const { io, calls } = fakeIo(stateOf());
+		await tickOf(io, control({ paused: { by: "founder", at: 7 } }));
+		/* The paused branch was reached: it still releases the holds that ended. */
+		expect(calls).toContain("releaseEndedHolds");
+		for (const port of [
+			"readFreeSlots",
+			"readSeats",
+			"probeDueSeats",
+			"startDueConsoleReads",
+		])
+			expect(calls).not.toContain(port);
+	});
+
+	it("starts no Console read on a stopping tick, which reads admission all the same", async () => {
+		const stopping = fakeIo(stateOf());
+		await tickOf(stopping.io, control({ stopRequested: true }));
+		expect(stopping.calls).toContain("readFreeSlots");
+		expect(stopping.calls).not.toContain("startDueConsoleReads");
+		const live = fakeIo(stateOf());
+		await tickOf(live.io);
+		expect(live.calls).toContain("startDueConsoleReads");
+	});
+});
+
 describe("the dry-run policy (#4212)", () => {
 	it("previews a loop with no control file without stopping, and stops a real tick on it", async () => {
 		const dry = fakeIo(stateOf());
@@ -440,6 +491,7 @@ describe("the dry-run policy (#4212)", () => {
 		const real = await tickOf(live.io, null);
 		expect(real.decision).toMatchObject({ stop: "explicit" });
 		expect(live.disk().stopped).toMatchObject({ reason: "explicit" });
+		expect(live.calls).not.toContain("launchBatch");
 	});
 
 	it("previews over a damaged control, which stops a real tick recorded control-damaged", async () => {
@@ -461,6 +513,11 @@ describe("the dry-run policy (#4212)", () => {
 			stop: "control-damaged",
 			detail: expect.stringContaining(damaged),
 		});
+		expect(live.disk().stopped).toMatchObject({
+			reason: "control-damaged",
+			detail: expect.stringContaining(damaged),
+		});
+		expect(live.calls).not.toContain("launchBatch");
 	});
 
 	it("returns at its decision, reading no manager restart and settling nothing", async () => {

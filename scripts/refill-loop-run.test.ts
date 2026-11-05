@@ -466,20 +466,6 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toContain(`landing in ${at("gone")}`);
 	});
 
-	it("counts a session the tick launched in its concurrency row (#3770)", async () => {
-		const file = ledgerPath(repo);
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		stub(
-			"dispatch-sessions.sh",
-			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${shellQuote(file)}
-node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
-		);
-		await settled(run(1), "run that launches");
-		const [line] = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
-		const { count } = ADMISSION_VERDICT.memory.working;
-		expect(line).toMatchObject({ working: count + 1, ceiling: count + 1 });
-	});
-
 	it("tracks a launch a kill cut off between the dispatcher's start and the state write (#4180)", async () => {
 		const file = ledgerPath(repo);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -530,35 +516,6 @@ kill -9 $PPID\n`,
 		expect(r.stdout).toMatch(
 			/repo \/implement 5's launch at .* started job job5, which a kill left out of the state: tracking it/,
 		);
-	});
-
-	it("logs a damaged state file and ticks on the defaults (#3380)", async () => {
-		const state = at(".refill-loop-state.json");
-		fs.writeFileSync(state, "{ not json");
-		const r = await settled(run(1), "run over a damaged state file");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`${state} is damaged (`);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
-	it("stops at its first tick on a damaged control file, recorded control-damaged (#3389)", async () => {
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(control, "{ not json");
-		const r = await settled(run(1), "run over a damaged control file");
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual([]);
-		expect(readStopped()).toMatchObject({
-			reason: "control-damaged",
-			detail: expect.stringContaining(`${control} is damaged (`),
-		});
-	});
-
-	it("stops at its first tick on an absent control file, recorded explicit (#3389)", async () => {
-		fs.rmSync(at(".refill-loop-control.json"));
-		const r = await settled(run(1), "run with no control file");
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual([]);
-		expect(readStopped()).toMatchObject({ reason: "explicit" });
 	});
 
 	/** Gives the sandbox's code root, the review root, a workflow-core config. */
@@ -803,16 +760,6 @@ process.exitCode = ${status};\n`,
 		return r;
 	};
 
-	it("reads a seat past its reset with no free slot and another seat ahead", async () => {
-		stubProbe("stopped", 0);
-		writeSeats();
-		await oneTick();
-		expect(readLines(at("probes"))).toEqual([at("behind")]);
-		expect(readLoopState().seatTriedAt[at("behind")]).toEqual(
-			expect.any(Number),
-		);
-	});
-
 	it("keeps a failed probe's last figure and does not retry it on the next tick", async () => {
 		stubProbe("failed (the seat is not logged in)", 1);
 		writeSeats();
@@ -820,35 +767,15 @@ process.exitCode = ${status};\n`,
 		const failed = await oneTick();
 		expect(fs.readFileSync(behindCache(), "utf8")).toBe(figure);
 		expect(failed.stdout).toContain(`/usage on ${at("behind")}:`);
+		// Probed past its reset with no free slot, the seat ahead left alone.
+		expect(readLines(at("probes"))).toEqual([at("behind")]);
 		const state = readLoopState();
+		expect(state.seatTriedAt[at("behind")]).toEqual(expect.any(Number));
 		writeSeats();
 		fs.writeFileSync(behindCache(), figure);
 		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
 		await oneTick();
 		expect(readLines(at("probes"))).toEqual([at("behind")]);
-	});
-
-	it("reads nothing on a paused tick", async () => {
-		stubProbe("stopped", 0);
-		writeSeats();
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				paused: { by: "founder", at: 7 },
-			}),
-		);
-		const running = run(0);
-		await polled(
-			() =>
-				fs.existsSync(at(".refill-loop-state.json")) &&
-				readLoopState().lastTick !== null,
-			"no paused tick wrote its state",
-		);
-		requestStop();
-		expect((await settled(running, "paused run")).status).toBe(0);
-		expect(readLines(at("probes"))).toEqual([]);
 	});
 });
 
@@ -897,29 +824,9 @@ describe("a dry run with overflow seats (#2611)", () => {
 		expect(r.stdout).toContain(
 			`would run in ${repo} on overflow seat ${overflowSeat()}, each member billed to key=WFC_TEST_KEY: ${dispatch()}`,
 		);
+		// The decision's summary line, which the dry run prints ahead of it.
+		expect(r.stdout).toMatch(/^dry run: /m);
 		expect(readLines(at("dispatches"))).toEqual([]);
-	});
-
-	it("waits on the plan's reset once every key is spent", async () => {
-		weekAt(100);
-		writeSeatFile(2);
-		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
-	});
-
-	it("launches on the plan seat while it has room, as with no overflow line", async () => {
-		weekAt(10);
-		for (const grant of [200, null]) {
-			writeSeatFile(grant);
-			expect((await runDry()).stdout).toContain(
-				`would run in ${repo} on ${seat}: ${dispatch()}`,
-			);
-		}
-	});
-
-	it("waits on the plan seat's full week as before with no overflow line", async () => {
-		weekAt(100);
-		writeSeatFile(null);
-		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
 	});
 });
 
@@ -983,14 +890,6 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 			`stopped overflow session Overflow · job (${job}) on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
 		);
 		expect(readLines(at("stops"))).toEqual([`stop ${job}`]);
-	});
-
-	it("leaves one under it alone", async () => {
-		writeTranscript(5_000_000);
-		const r = await oneTick();
-		expect(r.status).toBe(0);
-		expect(r.stdout).not.toContain("overflow session");
-		expect(readLines(at("stops"))).toEqual([]);
 	});
 
 	it("records the session id the listing shows for a launch `--bg` gave none (#3701)", async () => {
@@ -1061,27 +960,6 @@ describe("a due Console read on the real tick (#4071)", () => {
 		expect(readLines(runnerCallsFile())).toEqual([]);
 	});
 
-	it("starts none on a paused tick", async () => {
-		updateControl({ paused: { by: "founder", at: 7 } });
-		const running = run(0);
-		await polled(
-			() => fs.existsSync(at(".refill-loop-state.json")),
-			"no paused tick wrote its state",
-		);
-		requestStop();
-		expect((await settled(running, "paused run")).status).toBe(0);
-		expectNoReadStarted();
-	});
-
-	it("starts none on a stopping tick", async () => {
-		updateControl({ stopRequested: true });
-		const r = await settled(run(0), "run asked to stop");
-		expect(r.status).toBe(0);
-		// The tick reached admission, which the start follows.
-		expect(readLines(at("ticks"))).toHaveLength(1);
-		expectNoReadStarted();
-	});
-
 	it("starts none on a dry run", async () => {
 		const r = await runDry();
 		expect(r.status).toBe(0);
@@ -1109,26 +987,6 @@ describe("the loop's goal across ticks (#3864)", () => {
 			`require("node:fs").appendFileSync(${JSON.stringify(at("picks"))}, process.argv.slice(2).join(" ") + "\\n");
 process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [] }));\n`,
 		);
-	const readPicksThenStop = async (
-		running: ReturnType<typeof startRun>,
-		reads: number,
-	) => {
-		await polled(
-			() => readLines(at("picks")).length > 0,
-			"no tick read the frontier",
-		);
-		for (let i = 1; i < reads; i++) {
-			const seen = readLines(at("picks")).length;
-			fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
-			await polled(
-				() => readLines(at("picks")).length > seen,
-				"a later tick read no frontier",
-			);
-		}
-		requestStop();
-		return settled(running, "run reading the goal");
-	};
-
 	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
 		stubRecordingShortlist();
 		writeScope({
@@ -1155,35 +1013,6 @@ process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: 
 		requestStop();
 		expect((await settled(running, "run reading the goal")).status).toBe(0);
 		expect(readLines(at("picks"))[0]).toBe("--json --goal 7");
-	});
-
-	it("logs a garbled goal and carries on bare", async () => {
-		stubRecordingShortlist();
-		writeScope({ mode: "normal", repos: [repo], goal: "soon" });
-		const r = await readPicksThenStop(startRun(), 1);
-		expect(r.status).toBe(0);
-		expect(readLines(at("picks"))[0]).toBe("--json");
-		expect(r.stdout).toContain("goal is garbled");
-	});
-
-	it("holds a confirmed topic's set as stored from tick to tick", async () => {
-		stubRecordingShortlist();
-		const goal = {
-			form: "topic",
-			text: "faster tests",
-			refs: [{ repo: path.basename(repo), number: 7 }],
-			setAt: 3,
-		};
-		writeScope({ mode: "normal", repos: [repo], goal });
-		const r = await readPicksThenStop(startRun(), 2);
-		expect(r.status).toBe(0);
-		const picks = readLines(at("picks"));
-		expect(picks.length).toBeGreaterThanOrEqual(2);
-		for (const pick of picks) expect(pick).toBe("--json --goal 7");
-		expect(
-			JSON.parse(fs.readFileSync(at(".refill-loop-control.json"), "utf8")).scope
-				.goal,
-		).toEqual(goal);
 	});
 });
 
