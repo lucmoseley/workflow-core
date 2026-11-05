@@ -905,10 +905,11 @@ function describeUnread({ linked, unread }) {
  * worktree's live dirt as the main checkout's (#4483). It is made the host for
  * the rest of the run, so the arbiter's stores, the module config and the filer
  * all read the main checkout too. A common dir naming no checkout keeps the
- * host root.
+ * host root. RESIDUAL: a linked worktree of a `--separate-git-dir` checkout,
+ * whose common dir is not named `.git`, is still read as the main checkout.
  * @returns {string}
  */
-function readMainCheckout() {
+function adoptMainCheckout() {
 	const host = hostRoot();
 	const checkout = mainCheckout(host);
 	const main = checkout === null ? host : deref(checkout);
@@ -930,7 +931,7 @@ runCheck({
 			"non-negative",
 		);
 
-		const root = readMainCheckout();
+		const root = adoptMainCheckout();
 		const dirty = readDirtyTracked(root);
 		// git is the apparatus here, not the subject: BROKEN (§N4).
 		if (dirty === null)

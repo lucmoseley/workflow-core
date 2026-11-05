@@ -742,8 +742,8 @@ describe("a cut-over main checkout's dirt", () => {
 			fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
 			return fs.realpathSync(wt);
 		}
-		const runFrom = (tree: string) => {
-			const r = runInProcess(SCRIPT, ["--json", "--write"], {
+		const runFrom = (tree: string, args: string[] = ["--json"]) => {
+			const r = runInProcess(SCRIPT, [...args, "--write"], {
 				env: {
 					...process.env,
 					WFC_MODULES: `${process.env.WFC_MODULES},landing`,
@@ -753,11 +753,12 @@ describe("a cut-over main checkout's dirt", () => {
 				},
 				cwd: tree,
 			});
-			return JSON.parse(r.stdout);
+			expect(r.status).toBe(0);
+			return { stdout: r.stdout, out: r.stdout + r.stderr };
 		};
 
 		it("judges the worktree's fresh dirt as that worktree's, filing nothing", () => {
-			const data = runFrom(launchedIn());
+			const data = JSON.parse(runFrom(launchedIn()).stdout);
 
 			expect(data.orphanCount).toBe(0);
 			expect(data.young).toBe(1);
@@ -771,11 +772,35 @@ describe("a cut-over main checkout's dirt", () => {
 			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 			fs.writeFileSync(store.paths.ledger("live-writer"), "c.txt\n");
 
-			const data = runFrom(wt);
+			const data = JSON.parse(runFrom(wt).stdout);
 
 			expect(data.mainCutOver).toBe(true);
 			expect(data.orphanCount).toBe(0);
 			expect(readFilings()).toEqual([]);
+		});
+
+		it("still files the main checkout's unowned dirt, by its main-checkout path", () => {
+			const wt = launchedIn();
+			dirty("c.txt", 0);
+
+			const { out } = runFrom(wt, []);
+
+			expect(out).toContain("ORPHANED-EDIT (1)");
+			const filings = readFilings();
+			expect(filings).toHaveLength(1);
+			expect(filings[0].body).toContain("c.txt");
+			expect(filings[0].body).not.toContain(".claude/worktrees/probe");
+		});
+
+		it("files the worktree's aged dirt under the worktree's name", () => {
+			const wt = launchedIn();
+			const at = new Date(Date.now() - 30 * HOUR);
+			fs.utimesSync(path.join(wt, "a.txt"), at, at);
+
+			const { out } = runFrom(wt, []);
+
+			expect(out).toContain(".claude/worktrees/probe: a.txt");
+			expect(readFilings()).toHaveLength(1);
 		});
 	});
 
