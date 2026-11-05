@@ -30,9 +30,8 @@
  *    seen; so is a command run outside Claude Code; an interpreter whose cwd
  *    the walk loses (`cd "$X"`, `pushd`), recorded; one run from a gitignored
  *    directory under the main checkout, which may still write `../` into
- *    its tree; one behind a launcher unwrap does not strip (`uv run`); and
- *    a script file that writes the tree. The pre-commit limb holds a
- *    commit made by any route.
+ *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
+ *    The pre-commit limb holds a commit made by any route.
  *  - A `git` that cannot answer for the path or the upstream allows the
  *    write, recorded (mantahostels#103 §6).
  *  - No override: this binds agent sessions only (mantahostels#109).
