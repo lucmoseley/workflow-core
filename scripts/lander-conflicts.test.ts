@@ -9,7 +9,7 @@
  * the cap or the dependents' own reverts and it reverts past what it can
  * name.
  *
- * Over the 10 s file budget: seven of its ten cases are real lander runs that
+ * Over the 10 s file budget: six of its ten cases are real lander runs that
  * bisect and revert, with a registry check (#4301's profile); #4326 cuts the script's own forks. The #4453 holds call the
  * revert alone.
  */

@@ -50,6 +50,7 @@ const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 /**
  * The commit `message`'s revert line names, or null where it carries none.
  * @param {string} message
+ * @returns {string|null}
  */
 const parseRevertLine = (message) =>
 	/This reverts commit ([0-9a-f]{40})\./.exec(message)?.[1] ?? null;
@@ -229,28 +230,27 @@ function whyNotLanderRevert(cwd, { culprits, sha, tip }) {
 	}
 	const [head, base] = [sha, tip].map((rev) => commitSha(cwd, rev));
 	if (!head || !base) return `${sha} or ${tip} is not a commit here`;
-	const line = readLine(cwd, base, head, full.length);
-	if (line === null)
+	const chain = readCommitChain(cwd, base, head, full);
+	if (chain === null)
 		return `${sha} is not ${culprits.length === 1 ? "one commit" : `a line of ${culprits.length} commits`} on ${tip}`;
-	for (const [i, step] of line.entries()) {
-		const culprit = full[i];
-		if (culprit === undefined) break;
-		const why = whyNotOneRevert(cwd, { culprit, ...step });
+	for (const step of chain) {
+		const why = whyNotOneRevert(cwd, step);
 		if (why !== null) return why;
 	}
 	return null;
 }
 
 /**
- * The `length` commits `base..head`, oldest first, each with its one parent,
- * where they form a single line on `base`; else null.
+ * The commits `base..head`, oldest first, each paired with its one parent and
+ * the culprit at its place in `culprits`, where they form a single line on
+ * `base` one commit per culprit; else null.
  * @param {string} cwd
  * @param {string} base
  * @param {string} head
- * @param {number} length
- * @returns {{commit: string, onto: string}[]|null}
+ * @param {string[]} culprits
+ * @returns {{culprit: string, commit: string, onto: string}[]|null}
  */
-function readLine(cwd, base, head, length) {
+function readCommitChain(cwd, base, head, culprits) {
 	const listed = gitOut(cwd, [
 		"rev-list",
 		"--reverse",
@@ -258,18 +258,24 @@ function readLine(cwd, base, head, length) {
 		`${base}..${head}`,
 	]);
 	const rows = (listed ?? "").split("\n").filter(Boolean);
-	if (rows.length !== length) return null;
-	/** @type {{commit: string, onto: string}[]} */
-	const line = [];
+	if (rows.length !== culprits.length) return null;
+	/** @type {{culprit: string, commit: string, onto: string}[]} */
+	const chain = [];
 	let onto = base;
-	for (const row of rows) {
+	for (const [i, row] of rows.entries()) {
 		const [commit, ...parents] = row.split(" ");
-		if (commit === undefined || parents.length !== 1 || parents[0] !== onto)
+		const culprit = culprits[i];
+		if (
+			commit === undefined ||
+			culprit === undefined ||
+			parents.length !== 1 ||
+			parents[0] !== onto
+		)
 			return null;
-		line.push({ commit, onto });
+		chain.push({ culprit, commit, onto });
 		onto = commit;
 	}
-	return line;
+	return chain;
 }
 
 /**

@@ -55,6 +55,7 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
+const { CLASSES_FILE, sectionAMatcher } = require("./doc-map.js");
 const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const { execGroupedSync } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
@@ -90,8 +91,6 @@ const SIDE_MERGES_SEARCHED = 3;
 
 /* Untraced (#4453): start at 3; a hold that meets it cites #4453. */
 const MAX_DEPENDENTS_REVERTED = 3;
-/* docs/doc-map.md §A's classes, where a `generated-only` file is named. */
-const DOC_CLASSES = "docs/doc-map-classes.json";
 
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
@@ -2408,7 +2407,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * anchor files is settled by lib/clean-revert.js's rule (#3935). A conflict
 	 * in any other file reverts first each later commit that changed one,
 	 * newest first, each its own commit, then the culprit (#4453). A
-	 * generated-only file's conflict reverts none. Past MAX_DEPENDENTS_REVERTED
+	 * generated-only file's conflict reverts none: it is regenerated (#4452). Past MAX_DEPENDENTS_REVERTED
 	 * of them,
 	 * or where one's own revert fails or the culprit's still conflicts after
 	 * them, it holds, naming why.
@@ -2525,28 +2524,27 @@ function stageWithDependents(tree, { culprit, parent, tip }) {
  * @returns {string|null}
  */
 function whyGenerated(dir, files) {
-	const at = path.join(dir, DOC_CLASSES);
+	const at = path.join(dir, "docs", CLASSES_FILE);
 	if (!fs.existsSync(at)) return null;
-	/** @type {Record<string, {class?: unknown, classQualifier?: unknown}>} */
-	let classes;
+	/** @type {string[]} */
+	let generated;
 	try {
-		classes = JSON.parse(fs.readFileSync(at, "utf8"));
+		const classes = JSON.parse(fs.readFileSync(at, "utf8"));
+		if (!classes || typeof classes !== "object" || Array.isArray(classes))
+			throw new Error("it is not a JSON object");
+		generated = Object.entries(classes)
+			.filter(
+				([, row]) =>
+					row?.class === "generated-only" &&
+					(typeof row.classQualifier !== "string" ||
+						row.classQualifier.trim() === ""),
+			)
+			.map(([key]) => key);
 	} catch (err) {
-		return `${DOC_CLASSES} could not be read to tell a generated file: ${caught(err).message}`;
+		return `docs/${CLASSES_FILE} could not be read to tell a generated file: ${caught(err).message}`;
 	}
-	const generated = Object.entries(classes)
-		.filter(
-			([, row]) =>
-				row.class === "generated-only" &&
-				(typeof row.classQualifier !== "string" ||
-					row.classQualifier.trim() === ""),
-		)
-		.map(([key]) => key);
-	const named = files.filter((file) =>
-		generated.some((key) =>
-			key.endsWith("*") ? file.startsWith(key.slice(0, -1)) : key === file,
-		),
-	);
+	const isGenerated = generated.map(sectionAMatcher);
+	const named = files.filter((file) => isGenerated.some((is) => is(file)));
 	return named.length > 0
 		? `${named.join(", ")} ${named.length === 1 ? "is" : "are"} generated, which no later commit's revert settles`
 		: null;
