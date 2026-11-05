@@ -5,9 +5,14 @@
  *
  *   node scripts/session-checkout.js cut <session-name>
  *     prints the new worktree's path on stdout
- *   node scripts/session-checkout.js launch-dir <prompt>
+ *   node scripts/session-checkout.js launch-dir [--no-build] <prompt>
  *     prints the directory a session launched on <prompt> starts in: a
- *     worktree cut for it, or the main checkout where `landing` is off
+ *     worktree cut for it, or the main checkout where `landing` is off;
+ *     with --no-build, a cut finding no dependency store refuses rather than
+ *     build one
+ *   node scripts/session-checkout.js warm
+ *     builds the dependency store for origin/landing's lockfile where none
+ *     stands, leaving a live builder to finish
  *   node scripts/session-checkout.js attach [<worktree>]
  *     re-points the worktree's node_modules at the store for its lockfile;
  *     the current directory's worktree where none is named
@@ -46,22 +51,29 @@ const {
 	land,
 	launchDir,
 	reap,
+	warm,
 	reopen,
 } = require("./lib/session-checkout.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+/** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
 	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir <prompt> | attach [<worktree>] | land | reap | reopen <job-id>",
+		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] <prompt> | warm | attach [<worktree>] | land | reap | reopen <job-id>",
 	commands: {
 		cut: {
 			usage: "usage: node scripts/session-checkout.js cut <session-name>",
 			min: 1,
 		},
 		"launch-dir": {
-			usage: "usage: node scripts/session-checkout.js launch-dir <prompt>",
+			usage:
+				"usage: node scripts/session-checkout.js launch-dir [--no-build] <prompt>",
 			min: 1,
+			flags: { "--no-build": "boolean" },
+		},
+		warm: {
+			usage: "usage: node scripts/session-checkout.js warm",
 		},
 		attach: {
 			usage: "usage: node scripts/session-checkout.js attach [<worktree>]",
@@ -131,18 +143,36 @@ function renderReaped(r) {
 	];
 }
 
+/** What a warm pass did to its store, as a suffix to the store's path. */
+const WARMED = {
+	built: ", built now",
+	standing: "",
+	building: ", which another process is building",
+};
+
 /**
  * Each command's run, saying what it did; a refusal throws.
- * @type {Record<string, (named: string | undefined) => number | void>}
+ * @type {Record<string, (named: string | undefined,
+ *   flags: Record<string, string | true>) => number | void>}
  */
 const RUN = {
 	cut: (named) => {
 		if (named === undefined) throw new Error("cut names no session");
 		writeFd(1, `${cut(process.cwd(), named).dir}\n`);
 	},
-	"launch-dir": (named) => {
+	"launch-dir": (named, flags) => {
 		if (named === undefined) throw new Error("launch-dir names no prompt");
-		writeFd(1, `${launchDir(process.cwd(), named)}\n`);
+		const noBuild = flags["--no-build"] === true;
+		writeFd(1, `${launchDir(process.cwd(), named, { noBuild })}\n`);
+	},
+	warm: () => {
+		const made = warm(process.cwd());
+		writeFd(
+			2,
+			made === null
+				? "session checkout: no landing module, or no lockfile on origin/landing, so no store is warmed\n"
+				: `session checkout: origin/landing's lockfile uses ${made.store}${WARMED[made.state]}\n`,
+		);
 	},
 	attach: (named) => {
 		const made = attach(path.resolve(named ?? process.cwd()));
@@ -207,7 +237,7 @@ function main(argv = process.argv.slice(2)) {
 		const command = RUN[String(parsed.command)];
 		if (command === undefined)
 			throw new Error(`no run for command ${parsed.command}`);
-		return command(parsed.positionals[0]) ?? 0;
+		return command(parsed.positionals[0], parsed.flags) ?? 0;
 	} catch (err) {
 		const why = caught(err).message.trim();
 		writeFd(
