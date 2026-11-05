@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # post-commit — the after-commit notices and this session's own bookkeeping.
 #
-# Eight blocks, none of which can ever block: git ignores post-commit's exit
+# Seven blocks, none of which can ever block: git ignores post-commit's exit
 # status, and every block below degrades to silence rather than to an error.
 #
 #   1. how many local commits are not yet pushed  (mantahostels#316)
@@ -9,13 +9,12 @@
 #   3. which instruction-surface census rows THIS commit expired  (#1810)
 #   4. which guard-registry anchors THIS commit expired  (#2375)
 #   5. releasing this session's whole-file claims whose own hunks the commit landed  (mantahostels#2336, #2058, #2148)
-#   6. advancing this session's stale-write-back base to this commit  (#114)
-#   7. recording this commit as this session's own  (#766)
-#   8. keeping the shims live sessions need at hook scripts the shared tree deleted  (#2879)
+#   6. recording this commit as this session's own  (#766)
+#   7. keeping the shims live sessions need at hook scripts the shared tree deleted  (#2879)
 #
-# IMPLICIT:  prints the unpushed count after a commit that leaves any unpushed, what it released and what it kept after a session's commit, a fault notice after a commit that added one or whose comparison could not be read, a one-line note after a merge or a repo's first commit, a census notice after a commit that changed a guard the instruction-surface census measured, a registry notice after a commit that changed a guard whose guard-registry prose was anchored, drops this session's whole-file claim on every path the commit touched where all the session's own hunks have landed, makes this commit the session's base for every path it touched, records it in the session's commit ledger, and — where a shim exists or a script was deleted since the keeper's last run — writes an exit-0 shim at each hook script a live session's hook lines still name but the main checkout no longer has, and deletes each shim no live session needs.
-# JUSTIFIED: fail-safe — unpushed work and a self-inflicted red are otherwise invisible, and git ignores this hook's exit status; the release drops only a claim of this session's own, only where none of its own hunks is left uncommitted, and a dropped claim is retaken by this session's next write to the file; the advance and the record write only the session's own commit, into its own records; an expired census row or registry anchor is otherwise named only by the daily run, to nobody holding the change; a session started before a port runs its old hook line until it ends, and a deleted script on a fail-closed line refuses every call that line matches.
-# DEFEAT:    WFC_COMMITTED_SHA, which commit-paths.js sets, names any commit to every block and lifts the replay stand-down; no other flag or env var for the four reporters; every block but the unpushed count and the shim keeper is skipped mid-replay or when scripts/lib/commit-route.sh is missing, and the release, the advance and the record by unsetting CLAUDE_CODE_SESSION_ID; the shim keeper takes no flag and is skipped when scripts/keep-hook-shims.js is missing.
+# IMPLICIT:  prints the unpushed count after a commit that leaves any unpushed, what it released and what it kept after a session's commit, a fault notice after a commit that added one or whose comparison could not be read, a one-line note after a merge or a repo's first commit, a census notice after a commit that changed a guard the instruction-surface census measured, a registry notice after a commit that changed a guard whose guard-registry prose was anchored, drops this session's whole-file claim on every path the commit touched where all the session's own hunks have landed, records it in the session's commit ledger, and — where a shim exists or a script was deleted since the keeper's last run — writes an exit-0 shim at each hook script a live session's hook lines still name but the main checkout no longer has, and deletes each shim no live session needs.
+# JUSTIFIED: fail-safe — unpushed work and a self-inflicted red are otherwise invisible, and git ignores this hook's exit status; the release drops only a claim of this session's own, only where none of its own hunks is left uncommitted, and a dropped claim is retaken by this session's next write to the file; the record writes only the session's own commit, into its own records; an expired census row or registry anchor is otherwise named only by the daily run, to nobody holding the change; a session started before a port runs its old hook line until it ends, and a deleted script on a fail-closed line refuses every call that line matches.
+# DEFEAT:    no flag or env var for the four reporters; every block but the unpushed count and the shim keeper is skipped mid-replay or when scripts/lib/commit-route.sh is missing, and the release and the record by unsetting CLAUDE_CODE_SESSION_ID; the shim keeper takes no flag and is skipped when scripts/keep-hook-shims.js is missing.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
@@ -25,12 +24,8 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
-# THIS commit, read before any block runs: report_new_shared_faults takes
-# seconds, and a neighbour's commit landing in them would otherwise be the
-# commit every block below takes for this session's own (#114). commit-paths.js
-# --patch names its commit, because it runs this hook only after resetting the
-# shared index, which can wait minutes on a neighbour's index lock (#3746).
-committed=${WFC_COMMITTED_SHA:-$(git rev-parse --verify -q HEAD 2>/dev/null)} || committed=""
+# THIS commit, read once for every block below.
+committed=$(git rev-parse --verify -q HEAD 2>/dev/null) || committed=""
 
 here="$(dirname "$0")"
 # shellcheck source=scripts/lib/commit-route.sh
@@ -38,26 +33,20 @@ here="$(dirname "$0")"
 
 # A rebase, cherry-pick or multi-commit revert REPLAYS commits, firing this hook
 # once per replayed commit, and a bisect checks out commits nobody here wrote.
-# Six of the blocks below stand down on those routes, for reasons of their own
+# Five of the blocks below stand down on those routes, for reasons of their own
 # — the three notices would attribute a whole range one commit at a time
 # (mantahostels#1825), the release would drop a live claim over somebody else's
-# paths (mantahostels#2336), and the advance and the record would take a
-# replayed commit, which may be a neighbour's, as this session's own (#114,
-# #766). What git shows this hook per route, `git merge` never firing it:
-# scripts/lib/commit-route.sh.
+# paths (mantahostels#2336), and the record would take a replayed commit,
+# which may be a neighbour's, as this session's own (#766). What git shows
+# this hook per route, `git merge` never firing it: scripts/lib/commit-route.sh.
 #
 # The table's clean single cherry-pick costs one missed notice, accepted because
 # a multi-commit pick reads the same way between its commits, which is the case
 # worth suppressing.
 #
-# WITHOUT THE MODULE the route is unknown, and the six blocks stand down
-# silently until it is back (#1503). The base advance is the one that costs, a
-# later commit of the same path reading as a stale write-back.
-#
-# A commit named in WFC_COMMITTED_SHA is no replay, whatever a neighbour started
-# in the shared tree while commit-paths.js waited on the index lock (#3746).
+# WITHOUT THE MODULE the route is unknown, and the five blocks stand down
+# silently until it is back (#1503).
 in_replay() {
-  [ -z "${WFC_COMMITTED_SHA:-}" ] || return 1
   command -v wfc_commit_route >/dev/null 2>&1 || return 0
   git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || return 1
   route=$(wfc_commit_route post-commit "$git_dir")
@@ -242,7 +231,7 @@ release_committed_claims() {
   # break a committed path containing a space into two paths matching nothing.
   set --
   # `rel`, never `committed`: sh has no locals, and that is the sha
-  # advance_committed_bases and record_session_commit read.
+  # record_session_commit reads.
   while IFS= read -r rel; do
     # An `if`, not `[ … ] && …`: under `set -e` a failing test as the last
     # command of the loop body would exit the whole hook.
@@ -268,55 +257,12 @@ EOF
 
 release_committed_claims
 
-# The commit is also where this session's own work becomes its base (#114): the
-# stale-write-back gate would otherwise judge its next edit of a committed path
-# against a base older than that commit, and refuse a trim of its own text as a
-# write-back over a neighbour's. The arbiter does the work: cmdAdvanceBases.
-#
-# Silent on every failure but the arbiter's own one line, for
-# release_committed_claims's reason. Stood down wherever the gate is — the two
-# read one definition of those checks, scripts/lib/shared-tree-skip.sh (#123) —
-# and on a replay.
-advance_committed_bases() {
-  [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
-  if in_replay; then
-    return 0
-  fi
-
-  # Sourced inside the function, off a toplevel this block needs anyway, so the
-  # gate suite's cut of this function carries the source line with it.
-  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  [ -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/shared-tree-skip.sh" ] || return 0
-  # shellcheck source=scripts/lib/shared-tree-skip.sh
-  . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/shared-tree-skip.sh"
-  # Silent on every non-zero, where the gate tells an unreadable git from a
-  # stand-down.
-  wfc_shared_tree_skip "$toplevel" || return 0
-
-  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/session-arbiter.js"
-  [ -f "$script" ] || return 0
-  command -v node >/dev/null 2>&1 || return 0
-  [ -n "$committed" ] || return 0
-
-  # `if`, as in release_committed_claims.
-  if (
-    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
-    node "$script" advance-bases "$committed"
-  ); then
-    :
-  fi
-  return 0
-}
-
-advance_committed_bases
-
 # The commit ledger is how scripts/guard-unpushed-commits.js tells this
 # session's unpushed commits from a neighbour's at Stop (#766): git records no
 # session, and every session commits as the same author.
 #
-# NOT stood down by wfc_shared_tree_skip, unlike the advance: a commit made in
-# a throwaway worktree and fast-forwarded onto main is this session's too. So
-# the record is rooted at the MAIN worktree — the directory holding the common
+# A commit made in a throwaway worktree and fast-forwarded onto main is this
+# session's too, so the record is rooted at the MAIN worktree — the directory holding the common
 # git dir — where the Stop hook reads it too.
 record_session_commit() {
   [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
@@ -349,7 +295,7 @@ record_session_commit() {
 
 record_session_commit
 
-# Block 8 (#2879). .husky/post-merge runs it too, a merge never firing this hook.
+# Block 7 (#2879). .husky/post-merge runs it too, a merge never firing this hook.
 keep_hook_shims() {
   toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
   script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/keep-hook-shims.js"

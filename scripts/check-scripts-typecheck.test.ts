@@ -284,6 +284,6 @@ describe("apparatus failures", () => {
 		const { status, out } = run();
 		expect(status).toBe(2);
 		expect(out).toMatch(/^BROKEN: cannot read tracked file scripts\/gone\.js/m);
-		expect(out).toContain("neighbour's unstaged delete");
+		expect(out).toContain("often an unstaged delete");
 	});
 });

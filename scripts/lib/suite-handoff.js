@@ -47,7 +47,7 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   it sets this having checked the read graph against the tree, on an argv
  *   of nothing but `--changed`.
  * - `isolated`: the run read a frozen `--isolated` worktree rather than the
- *   shared tree (mantahostels#2169, mantahostels#2187).
+ *   working tree (mantahostels#2169, mantahostels#2187).
  * - `viaChanged`: the run came from `npm run test:changed` at all, pass or
  *   fail on the freshness check (mantahostels#2303). A DENOMINATOR, NEVER A
  *   CERTIFICATE: no gate may read it. The launcher takes it off argv, never

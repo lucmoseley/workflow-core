@@ -125,7 +125,7 @@ it("fast-forwards main to a freshly fetched origin/main, run from a session's wo
 	const r = run(worktree);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stderr).toContain("main fast-forwarded");
+	expect(r.stderr).toMatch(/^levelling \S+\nmain fast-forwarded/m);
 	expect(git(main, "rev-parse", "HEAD")).toBe(green);
 	expect(git(main, "symbolic-ref", "--short", "HEAD")).toBe("main");
 	expect(git(worktree, "rev-parse", "HEAD")).not.toBe(green);

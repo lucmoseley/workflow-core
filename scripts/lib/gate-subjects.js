@@ -6,8 +6,8 @@
  * copied repo already holds.
  *
  * The tree is the INDEX — `git ls-files`, and the doc-map read as its staged
- * blob — so a commit is judged on its own bytes, never on a neighbour's
- * half-written working copy.
+ * blob — so a commit is judged on its own bytes, never on a half-written
+ * working copy.
  */
 
 const { sectionBEntryCount } = require("./doc-map.js");

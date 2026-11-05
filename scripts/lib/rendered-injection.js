@@ -11,7 +11,7 @@
  * EXECUTED, which the union deliberately is not: the union is read off a
  * revision under `--against`, and this runs the core copy on disk. In a plugin
  * install that is the pinned cache; in a checkout it is the working tree, a
- * neighbour's half-saved edit included, and not the adopter's pinned release —
+ * half-saved edit included, and not the adopter's pinned release —
  * so the caller names the script it ran.
  *
  * Measured in UTF-16 units, the harness's and scripts/check-injector-margin.sh's

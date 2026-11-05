@@ -37,7 +37,7 @@ const { readConfig } = require("./workflow-core-config.js");
 
 /*
  * Where the throwaway worktree goes. `.claude/worktrees/` is gitignored AND
- * named in `vitest.config.ts`'s `exclude`, so a neighbour's shared-tree run does
+ * named in `vitest.config.ts`'s `exclude`, so a suite run in the checkout does
  * not collect this worktree's copy of the corpus alongside its own.
  */
 const WORKTREE_DIR = path.join(".claude", "worktrees");
@@ -69,8 +69,8 @@ const SHARED_ARTEFACTS = [
 /**
  * `SHARED_ARTEFACTS` plus the gitignored paths the host declares its suite
  * reads, as `worktreeLinks` (#1767) — read from the worktree's own config, the
- * one the commit or HEAD carries, so no neighbour's unsaved edit to the shared
- * one decides what is linked (#1766). The shared ones alone where that config
+ * one the commit or HEAD carries, so no unsaved edit to the checkout's copy
+ * decides what is linked (#1766). The shared ones alone where that config
  * cannot be read: the suite's own read of it reports the fault.
  * @param {string} dir the worktree
  * @returns {string[]}
@@ -157,7 +157,7 @@ function removeIsolated(
  * A run killed with SIGKILL — the stall watchdog's own weapon, and `earlyoom`'s
  * — never reaches its `finally`, and each leak is a whole checkout that
  * `git worktree list` then carries forever. A leftover whose pid is ALIVE is
- * left alone: that is either a running neighbour or a reused pid.
+ * left alone: that is either a run still going or a reused pid.
  *
  * @param {string} root
  * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, alive?: (pid: number) => boolean }} [options]
@@ -346,7 +346,7 @@ function linkArtefacts(root, dir, worktreeFs) {
 		 * any test that stats the tree (#822). `existsSync` follows a link, so a
 		 * source that is itself dangling is skipped too. A checkout with no
 		 * `node_modules` therefore runs with none, failing on a missing vitest as
-		 * its shared tree would. */
+		 * the checkout itself would. */
 		if (!worktreeFs.existsSync(path.join(root, artefact))) continue;
 		const target = path.join(dir, artefact);
 		/* A declared path the worktree already holds is the commit's own copy;
@@ -432,7 +432,7 @@ const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
 /**
  * Run `command` through `sh -c`, stdin closed and stderr folded into stdout,
  * in a throwaway worktree holding `tree` over HEAD and no other file but
- * `readLinkedPaths`, so no neighbour's unsaved edit reaches it (#1760). The
+ * `readLinkedPaths`, so no unsaved edit outside `tree` reaches it (#1760). The
  * worktree goes when the command ends; a leftover is swept first.
  * @param {string} root
  * @param {string} tree

@@ -360,7 +360,7 @@ runCheck({
 		const root = path.resolve(rootFlag ?? hostRoot());
 		const files = listFiles(root);
 		/* A materialised tree's vendored marks are the index's .gitattributes,
-		 * never a neighbour's unstaged edit to it (#3687). */
+		 * never an unstaged edit to it (#3687). */
 		const shell = new Set(
 			shellFiles(files, (rel) => readWorktreeHead(path.join(root, rel)), {
 				cached: rootFlag !== null,

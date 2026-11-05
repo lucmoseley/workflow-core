@@ -16,7 +16,7 @@
  * manifest declaring a dependency with no npm lockfile in the index is out of
  * step too.
  *
- * THE INDEX, NOT THE WORKTREE: a neighbour's half-saved manifest is not this
+ * THE INDEX, NOT THE WORKTREE: a half-saved manifest is not this
  * commit's.
  *
  * ARMING is READS: a commit staging none of them, a deletion included, SKIPs.

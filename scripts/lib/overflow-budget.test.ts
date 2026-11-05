@@ -4,7 +4,8 @@
  * priced again as it grows and counted once; only sessions the launch record
  * marks on the key counted, from any checkout; the exhausted mark from a credit
  * refusal in a transcript; a listed session held, not settled; a resumed copy's
- * shared requests settled once (#4208); and the CLI's JSON
+ * shared requests settled once (#4208), its transcript gone or not (#4370);
+ * and the CLI's JSON
  * and status line for a fixture seat, every figure read from a fixed cost table
  * in a fixture checkout, and read there from a working directory that is no
  * checkout (#3683, #3695).
@@ -521,6 +522,84 @@ describe("a resumed copy's settled spend (#4208)", () => {
 		);
 		expect(budget()).toMatchObject({ settledUsd: 24 });
 	});
+
+	it("settles them once after the parent's transcript is gone, the copy still growing (#4370)", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 32 });
+		fs.rmSync(transcriptOf(parent));
+		expect(budget()).toMatchObject({ settledUsd: 32 });
+		appendTranscript(copy, buildModelTurn(1_000_000, "r3"));
+		expect(budget()).toMatchObject({ settledUsd: 36 });
+		expect(readLedgerLines()).toMatchObject([
+			{ sessionId: parent, costUsd: 20 },
+			{ sessionId: copy, costUsd: 36, sharedUsd: 20 },
+		]);
+		expect(readLedgerLines()[0]).not.toHaveProperty("sharedUsd");
+	});
+
+	it("settles a copy of a copy once after the middle copy's transcript is gone (#4370)", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		const second = recordLaunch("0000c003", { copyOf: copy });
+		appendTranscript(
+			second,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+			buildModelTurn(1_000_000, "r3"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 36 });
+		fs.rmSync(transcriptOf(copy));
+		appendTranscript(second, buildModelTurn(1_000_000, "r4"));
+		expect(budget()).toMatchObject({ settledUsd: 40 });
+	});
+
+	it("takes a moved chain's off-key spend off once after its root's transcript is gone (#4370)", () => {
+		const parent = recordLaunch("0000d001", { offKeyUsd: 40 });
+		appendTranscript(
+			parent,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+		);
+		const copy = recordLaunch("0000d002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+			buildModelTurn(1_000_000, "r3"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 24 });
+		fs.rmSync(transcriptOf(parent));
+		appendTranscript(copy, buildModelTurn(1_000_000, "r4"));
+		expect(budget()).toMatchObject({ settledUsd: 28 });
+	});
+
+	it("settles them once after the copy's transcript is gone (#4370)", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 32 });
+		fs.rmSync(transcriptOf(copy));
+		appendTranscript(parent, buildModelTurn(2_000_000, "r9"));
+		expect(budget()).toMatchObject({ settledUsd: 40 });
+	});
 });
 
 describe("a running resumed copy (#4369)", () => {
@@ -894,7 +973,7 @@ describe("the per-session cap (#3698)", () => {
 			expect(readStops()).toEqual([`${seatDir} stop 0000c003`]);
 		});
 
-		it("counts a parent whose transcript is gone at its ledger row", () => {
+		it("counts a parent whose transcript is gone at its ledger row, the shared requests once (#4370)", () => {
 			const parent = recordLaunch("0000c001");
 			appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
 			writeSubagent(parent, buildModelTurn(5_000_000, "rs"));
@@ -907,7 +986,7 @@ describe("the per-session cap (#3698)", () => {
 			});
 			appendTranscript(copy, buildModelTurn(3_000_000, "r2"));
 			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([
-				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $72.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
 			]);
 		});
 

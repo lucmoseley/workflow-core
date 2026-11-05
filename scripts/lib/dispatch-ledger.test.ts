@@ -4,14 +4,22 @@
  * (#3694), on rows a dispatcher run never writes; the rows it does write are
  * dispatch-sessions-overflow.test.ts's. Loosen it and an overflow session reads
  * as a plan one, its credits counted as plan allowance and its cap never hit.
+ *
+ * Also pins which launches still hold their issues — readRecentEntries' window
+ * and refill hand-off, entryHolds' command key — as /pick-next reads them.
+ * Loosen those and a dispatched issue is launched twice, or a released one
+ * never again.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	DEFAULT_WINDOW_HOURS,
+	entryHolds,
 	ledgerPath,
 	readOverflowLookup,
+	readRecentEntries,
 	record,
 	recordListedSessionIds,
 	release,
@@ -116,6 +124,27 @@ describe("recordListedSessionIds (#3701)", () => {
 		});
 	});
 
+	it("keeps a copy's parent and a move's off-key spend on the row it writes (#3691)", () => {
+		record({
+			...launch,
+			root,
+			jobId: JOB,
+			overflow: {
+				keyVar: "K2",
+				allowanceUsd: 40,
+				sessionId: null,
+				copyOf: "parent-session",
+				offKeyUsd: 7,
+			},
+		});
+		recordListedSessionIds(listed, [root]);
+		expect(readLookup()({ jobId: JOB })).toMatchObject({
+			sessionId: Session,
+			copyOf: "parent-session",
+			offKeyUsd: 7,
+		});
+	});
+
 	it("writes once, holding no issues, and leaves plan launches and unlisted jobs alone", () => {
 		recordOverflow(JOB);
 		record({ ...launch, root, jobId: "feed0001" });
@@ -148,5 +177,52 @@ describe("recordListedSessionIds (#3701)", () => {
 		} finally {
 			fs.rmSync(other, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("readRecentEntries", () => {
+	const issuesHeld = () =>
+		readRecentEntries(root, DEFAULT_WINDOW_HOURS).entries.flatMap(
+			(e: { issues: number[] }) => e.issues,
+		);
+
+	it("drops a launch the refill loop handed off inside the window, keeping the rest (#2744)", () => {
+		record({ ...launch, root, issues: [2], jobId: "job2" });
+		record({ ...launch, root, issues: [3], jobId: "job3" });
+		release({ root, jobId: "job2" });
+		expect(issuesHeld()).toEqual([3]);
+	});
+
+	it("drops a launch aged out of the window, keeping one inside it", () => {
+		const hoursAgo = (h: number) => Date.now() - h * 3_600_000;
+		record({
+			...launch,
+			root,
+			issues: [2],
+			jobId: null,
+			launchedAt: hoursAgo(1.5),
+		});
+		record({
+			...launch,
+			root,
+			issues: [3],
+			jobId: null,
+			launchedAt: hoursAgo(0.5),
+		});
+		expect(issuesHeld()).toEqual([3]);
+	});
+});
+
+describe("entryHolds: keyed on issue and command (#752)", () => {
+	it("holds against the command it was launched under", () => {
+		expect(entryHolds({ prompt: "/triage 2" }, "triage")).toBe(true);
+		expect(entryHolds({ prompt: "/workflow-core:triage 2" }, "triage")).toBe(
+			true,
+		);
+		expect(entryHolds({ prompt: "/triage 2" }, "wayfinder")).toBe(false);
+	});
+
+	it("holds against every command where the entry's prompt carries none it can read", () => {
+		expect(entryHolds({ prompt: "2" }, "wayfinder")).toBe(true);
 	});
 });

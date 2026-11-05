@@ -8,8 +8,7 @@
  *   node scripts/check-format-staged.js [--skip-shell] [--skip-python]
  *
  * Each path's STAGED blob is formatted, never the worktree copy: the commit
- * carries the blob, and in the shared tree a worktree read would judge a
- * neighbour's half-written edit. Unlike the ruff lint gate it charges the
+ * carries the blob, and a worktree read would judge an unstaged edit. Unlike the ruff lint gate it charges the
  * whole file, not what the commit introduced — every tracked file was
  * formatted when the gate landed, so an unformatted one is this commit's.
  *

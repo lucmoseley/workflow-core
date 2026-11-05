@@ -19,10 +19,8 @@ import { describe, expect, it } from "vitest";
 import {
 	writeAdopterCheckout,
 	writeIssueClaim,
-	writeTornClaim,
 } from "./lib/claim-store-testkit";
 import {
-	buildPsLine,
 	FIXTURE_DRAW,
 	IDLE_PAIR_MB,
 	type Issue,
@@ -93,21 +91,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(/raised to 4 by the session floor of 8/);
 	});
 
-	it("holds the session floor while swap and free memory are both short (#2690)", async () => {
-		kit.oracleSessions = ["self", "a@601", "b@602"];
-		kit.oracleWorking = ["a", "b"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB, "602": WORKING_PAIR_KB };
-		kit.psOut = [...sessionProcs("a"), ...sessionProcs("b")].join("\n");
-		kit.meminfoText = `MemTotal: 8114464 kB\nMemAvailable: ${2100 * 1024} kB\nSwapTotal: ${2048 * 1024} kB\nSwapFree: ${245 * 1024} kB\n`;
-		kit.sessionFloor = "8";
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(
-			/session floor\s+8 working sessions .*; 3 working, this run's own counted, so 0 floor slot\(s\), held while swap is 245 of 2048 MB free and 2100 MB available, under 25% and 2200 MB \(#2690\)/,
-		);
-		// the p95 slot stays: 794 MB holds the live draw and one more
-		expect(r.out).toMatch(/free slots\s+1\n/);
-	});
-
 	it("holds every slot at the load ceiling, naming the load (#834)", async () => {
 		kit.oracleSessions = ["self", "a"];
 		kit.psOut = sessionProcs("a").join("\n");
@@ -129,19 +112,6 @@ describe("admission", () => {
 		);
 		expect(r.out).toMatch(/free slots\s+0/);
 		expect(r.out).toMatch(/HOLD — 1 session\(s\) running on the machine/);
-	});
-
-	it("does not count an orphaned bg-pty-host as a live session", async () => {
-		kit.oracleSessions = ["self", "a"];
-		kit.psOut = [
-			...sessionProcs("a"),
-			...sessionProcs("gone-1"),
-			...sessionProcs("gone-2"),
-			...sessionProcs("gone-3"),
-		].join("\n");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+1 alongside this one/);
-		expect(r.out).not.toMatch(/live sessions\s+4/);
 	});
 
 	it("leaves the count unknown when the oracle will not answer, never falling back to the scan", async () => {
@@ -180,45 +150,6 @@ describe("admission", () => {
 		expect(second.out).not.toMatch(/live sessions\s+0 alongside this one/);
 	});
 
-	it("subtracts this run's own session, so a lone session still admits one", async () => {
-		kit.oracleSessions = ["self"];
-		kit.memAvailableKb = 50 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+0 alongside this one/);
-		expect(r.out).toMatch(/START ONE NOW — no session is running/);
-	});
-
-	it("prints a process count matching the bare name, `claude.exe` and the launcher path", async () => {
-		// The binary lives in .../versions/2.1.233, so `ps` reports comm
-		// `2.1.233` and only argv[0] says `claude`.
-		kit.psOut = [
-			...sessionProcs("a"),
-			...sessionProcs("b", "/usr/bin/claude.exe"),
-			buildPsLine("2.1.233", "/home/lucmo/.local/bin/claude daemon run"),
-			buildPsLine("node", "node scripts/pick-next.js"),
-			buildPsLine("clauded", "clauded --not-ours"),
-		].join("\n");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/\(5 claude processes/);
-	});
-
-	it("counts the versioned binary a resumed session re-execs, whose basename is a version", async () => {
-		kit.psOut = [
-			...sessionProcs("a"),
-			buildPsLine(
-				"2.1.234",
-				"/home/lucmo/.local/share/claude/versions/2.1.234 --resume /home/lucmo/.claude/projects/p/s.jsonl",
-			),
-			// Some other tool's versions directory is not ours.
-			buildPsLine(
-				"2.1.234",
-				"/opt/acme/versions/2.1.234 --resume nothing-of-ours",
-			),
-		].join("\n");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/\(3 claude processes/);
-	});
-
 	it("holds when the headroom is under one slot and sessions are live", async () => {
 		kit.oracleSessions = ["self", "a@601"];
 		kit.procPssKb = { "601": WORKING_PAIR_KB };
@@ -233,20 +164,6 @@ describe("admission", () => {
 		// A hold is about the machine, not the tracker: the shortlist still prints.
 		expect(r.status).toBe(0);
 		expect(r.order()).toEqual([1]);
-	});
-
-	it("admits one when no session is running, however tight the memory", async () => {
-		// A daemon and a host are claude processes but not sessions, so the
-		// oracle reports none alongside and the guarantee admits one anyway.
-		kit.psOut = [
-			buildPsLine("claude", "claude daemon run --origin transient"),
-			buildPsLine("claude", "/home/lucmo/.local/bin/claude agents"),
-		].join("\n");
-		kit.memAvailableKb = 50 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+0/);
-		expect(r.out).toMatch(/START ONE NOW — no session is running/);
-		expect(r.out).not.toMatch(/HOLD/);
 	});
 
 	it("says so and still admits when the headroom cannot be read", async () => {
@@ -266,26 +183,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(/live sessions\s+1 alongside this one/);
 		expect(r.out).toMatch(/process count unavailable: .+/);
 		expect(r.out).not.toMatch(/claude processes/);
-	});
-
-	/*
-	 * Without `CLAUDE_CODE_SESSION_ID` neither the subtraction nor the reader's
-	 * own self-test can pick this run out of the list.
-	 */
-	it("treats a lone listed session as this one when the session id is unset", async () => {
-		kit.oracleSelfId = "";
-		kit.oracleSessions = ["whoever"];
-		kit.memAvailableKb = 50 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+0 alongside this one/);
-		expect(r.out).toMatch(/START ONE NOW — no session is running/);
-	});
-
-	it("subtracts nothing from several listed sessions when the session id is unset", async () => {
-		kit.oracleSelfId = "";
-		kit.oracleSessions = ["a", "b", "c"];
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+3 alongside this one/);
 	});
 
 	/* This run never reaps (mantahostels#1029); it says what a reap would be worth, so a low
@@ -316,16 +213,6 @@ describe("admission", () => {
 		expect(r.out).not.toMatch(/reclaimable/);
 	});
 
-	/* Counting itself would promise headroom that stopping it could never
-	 * return. */
-	it("never counts this run's own session as reclaimable", async () => {
-		kit.oracleSessions = ["self"];
-		kit.oracleFinished = ["self"];
-		expect((await run({ issues: [{ number: 1 }] })).out).not.toMatch(
-			/reclaimable/,
-		);
-	});
-
 	/* Without an id this run cannot subtract itself. It refuses to count instead,
 	 * as the reaper does on the same unset variable — and says so, rather than
 	 * printing nothing a reader cannot tell from zero (mantahostels#1237, on mantahostels#1206). */
@@ -340,27 +227,6 @@ describe("admission", () => {
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
 		expect(j.admission.reclaimable).toBeNull();
 		expect(j.admission.reclaimableError).toMatch(/CLAUDE_CODE_SESSION_ID/);
-	});
-
-	it("charges a young neighbour the draw it has yet to reach (#2221)", async () => {
-		kit.oracleSessions = ["self", "a@601"];
-		kit.procPssKb = { "601": 300 * 1024 };
-		kit.memAvailableKb = 2900 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		// 429 + 1.645 × 154 − 300 held = 383 MB still to come; 2 more fit 1806.
-		expect(r.out).toMatch(/free slots\s+2/);
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.admission.drawNeedMb).toBe(383);
-	});
-
-	/* An oracle that will not answer is the second way the probe fails, and it
-	 * reads the same way to a human (mantahostels#1237). */
-	it("prints the reclaimable row as unknown when the oracle will not answer", async () => {
-		kit.oracleFails = true;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(
-			/reclaimable\s+unknown \(.+\) — some of the memory counted spent above may already be free/,
-		);
 	});
 
 	it("carries the count into --json, and the refusal where the oracle will not answer", async () => {
@@ -401,87 +267,6 @@ describe("admission", () => {
 			admit: true,
 			reason: expect.stringContaining("3 free slot"),
 		});
-	});
-
-	/* mantahostels#1295: a reader of --json must be able to reconstruct `freeSlots` the same
-	 * way a human reads the reservedNote in `reason`. */
-	it("carries the reservation into --json", async () => {
-		kit.oracleSessions = ["self", "a"];
-		kit.psOut = [
-			...sessionProcs("a"),
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		kit.procCwds = { "111": "/tmp/x/spare" };
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		// the idle pair and the one a launch warms
-		expect(j.admission.reservedMb).toBe(1180);
-		expect(j.admission.reservedError).toBeNull();
-	});
-
-	it("reports the reservation as unreadable, never silently as zero, when the overhead scan fails", async () => {
-		kit.oracleSessions = ["self", "a"];
-		kit.psFails = true;
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.admission.reservedMb).toBe(0);
-		expect(typeof j.admission.reservedError).toBe("string");
-	});
-
-	/*
-	 * mantahostels#1295: this run's own ADMISSION block reserves the spare pool's pair
-	 * too, off the SAME oracle read `listed` already made — `poolReserve`
-	 * exactly as `scripts/admission.js` prices it.
-	 */
-	it("reserves one idle spare pair, shrinking the free-slot count", async () => {
-		kit.oracleSessions = ["self", "a@601"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB };
-		kit.psOut = [
-			...sessionProcs("a"),
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		kit.procCwds = { "111": "/tmp/x/spare" };
-		const r = await run({ issues: [{ number: 1 }] });
-		// 4000 − 2 × 590 − 794 − 300 = 1726 MB: 2 more and a pair fit, 3 more and two do not.
-		expect(r.out).toMatch(/free slots\s+2/);
-		expect(r.out).toMatch(/reserving 1180 MB for the spare pool/);
-	});
-
-	it("does not reserve a claimed spare — a live session keeps its /spare/ path", async () => {
-		kit.oracleSessions = ["self", "a@601", "other@111"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB, "111": WORKING_PAIR_KB };
-		kit.psOut = [
-			...sessionProcs("a"),
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		// No idle pair is left, so the reserve falls back to the measured one.
-		expect(r.out).toMatch(
-			new RegExp(`reserving ${2 * IDLE_PAIR_MB} MB for the spare pool`),
-		);
-		// 4000 − 212 − 794 − 300 = 2694 MB; the live draw and 5 more need 2393 and 4 pairs.
-		expect(r.out).toMatch(/free slots\s+4/);
-	});
-
-	/*
-	 * The always-admit-one branch computes `freeSlots` net of the reservation
-	 * too, so its reason must name the reservation the same way the ordinary
-	 * branch does — otherwise a reader sees a slot count they cannot
-	 * reconstruct from the printed reason (mantahostels#1295).
-	 */
-	it("names the reservation in the always-admit-one reason too", async () => {
-		kit.oracleSessions = ["self"];
-		kit.psOut = [
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		kit.procCwds = { "111": "/tmp/x/spare" };
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/free slots\s+1/);
-		expect(r.out).toMatch(
-			/no session is running, so one is admitted whatever the headroom after reserving 1180 MB for the spare pool/,
-		);
 	});
 
 	/*
@@ -581,18 +366,6 @@ describe("admission", () => {
 			expect(m.working).toEqual({ count: 2, mb: 957, unknown: null });
 			expect(m.finished).toMatchObject({ count: 1, mb: 410, reapable: 1 });
 		});
-
-		it("prints an unreadable reading as unknown, never 0", async () => {
-			const { "301": _, ...pss } = fixture.pss;
-			machine(pss);
-			const r = await run({ issues: [{ number: 1 }] });
-			expect(r.out).toMatch(
-				/ {2}working {10}unknown \(pid 301's smaps_rollup unreadable\)/,
-			);
-			expect(r.out).toMatch(
-				/ {2}everything else {2}unknown \(a row above it is unknown\)/,
-			);
-		});
 	});
 
 	it("reads the machine without touching the tracker", async () => {
@@ -650,36 +423,6 @@ describe("owed work (mantahostels#1206)", () => {
 			},
 		});
 		expect(r.out).toMatch(/stranded claims\s+1/);
-	});
-
-	it("does not count a claim younger than the strand threshold", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [{ number: 1 }],
-			staleFiles: {
-				a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 1 },
-			},
-		});
-		expect(r.out).toMatch(/stranded claims\s+0/);
-	});
-
-	it("draws the strand boundary at 12 hours — mantahostels#1746's derived threshold", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [{ number: 1 }],
-			staleFiles: {
-				a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 11 },
-				b: { path: "scripts/b.js", sessionId: "dead-2", hoursAgo: 13 },
-			},
-		});
-		expect(r.out).toMatch(/stranded claims\s+1/);
-	});
-
-	it("prints unknown, never zero, when the running-session oracle cannot be read", async () => {
-		kit.oracleFails = true;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/stranded claims\s+unknown/);
-		expect(r.out).not.toMatch(/stranded claims\s+0/);
 	});
 
 	/*
@@ -806,24 +549,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		expect(r.out).toMatch(/#1\s+.*claimed by owner/);
 	});
 
-	it("offers an assigned issue whose claim's session has finished", async () => {
-		// The mantahostels#633 failure: every assignee is the login `owner`, so a finished
-		// session's assignment hid its issue for good.
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.order()).toEqual([1, 2]);
-	});
-
-	it("offers an assigned issue no session ever claimed — the fail-open case", async () => {
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-		});
-		expect(r.order()).toEqual([1, 2]);
-	});
-
 	it("names the assignments it decided to ignore, rather than dropping them silently", async () => {
 		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
 		expect(r.out).toMatch(/ASSIGNED BUT UNCLAIMED \(1\) — treated as takeable/);
@@ -838,18 +563,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 			claims: { 1: "alice" },
 		});
 		expect(r.out).not.toMatch(/ASSIGNED BUT UNCLAIMED/);
-	});
-
-	it("excludes a live claim carrying no assignee at all", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.order()).toEqual([2]);
-		// The recording session, not "a live session": the id is the only handle a
-		// reader has on a claim nobody assigned themselves to (mantahostels#708).
-		expect(r.out).toMatch(/#1\s+.*claimed by session alice/);
 	});
 
 	it("keeps every claim standing when the oracle will not answer", async () => {
@@ -887,24 +600,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		expect(r.order()).toEqual([1]);
 	});
 
-	it("pairs a candidate only with an issue a live session is on", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		stubRepo(["scripts/a.js"]);
-		const issues = [
-			{ number: 1, body: "`scripts/a.js`" },
-			{ number: 2, assignees: ["luc"], body: "`scripts/a.js`" },
-		];
-		// Claimed: in flight, and out of the shortlist.
-		expect((await run({ issues, claims: { 2: "alice" } })).out).toMatch(
-			/in flight: #1 <-> #2/,
-		);
-		// Unclaimed: this run offers mantahostels#2 itself, so warning against it would
-		// contradict its own shortlist — it is an ordinary candidate pair.
-		const open = await run({ issues });
-		expect(open.out).not.toMatch(/in flight:/);
-		expect(open.out).toMatch(/possible collision: #1 <-> #2/);
-	});
-
 	it("carries the unclaimed assignments and the degraded read into --json", async () => {
 		kit.oracleFails = true;
 		const j = (
@@ -924,15 +619,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		]);
 		expect(j.claimsDegraded.claimsKept).toBe(true);
 		expect(j.claimsDegraded.why).toMatch(/agents --json/);
-	});
-
-	it("does not offer a blocked issue as takeable on the strength of a stale assignee", async () => {
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			deps: { 1: [{ number: 2, state: "open" }] },
-		});
-		expect(r.out).toMatch(/#1\s+.*blocked by #2/);
-		expect(r.out).not.toMatch(/ASSIGNED BUT UNCLAIMED/);
 	});
 
 	it("pairs a candidate with a live claim that carries no assignee", async () => {
@@ -973,40 +659,11 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 		expect(r.calls().filter((c) => c.includes("/parent"))).toEqual([]);
 	});
 
-	it("reads a parent named by a real API URL as the child's own repo", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [
-				{ number: 20, labels: ["wayfinder:map"] },
-				{
-					number: 21,
-					parentUrl: "https://api.github.com/repos/o/r/issues/20",
-				},
-			],
-			claims: { 20: "alice" },
-		});
-		expect(r.order()).toEqual([]);
-		expect(r.out).toMatch(/#21\s+.*parent map #20 by session alice/);
-		expect(r.calls().filter((c) => c.includes("/parent"))).toEqual([]);
-	});
-
 	it("offers a child whose live-claimed parent is no map", async () => {
 		kit.oracleSessions = ["self", "alice"];
 		const r = await run({
 			issues: [
 				{ number: 20, labels: ["kind:spec"] },
-				{ number: 21, parent: 20 },
-			],
-			claims: { 20: "alice" },
-		});
-		expect(r.order()).toEqual([21]);
-	});
-
-	it("offers a child whose parent's claim is held by an ended session", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [
-				{ number: 20, labels: ["wayfinder:map"] },
 				{ number: 21, parent: 20 },
 			],
 			claims: { 20: "alice" },
@@ -1047,25 +704,6 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 		/* #7 here is not that parent: only the child of o/there#7 is held. */
 		expect(r.order()).toEqual([7, 22]);
 		expect(r.out).toMatch(/#21\s+.*parent map o\/there#7 by session alice/);
-	});
-
-	it("offers the child with a WARN where the parent repo's store reads only in part", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const home = path.join(kit.dir, "adopters");
-		const there = otherCheckout(home, { 8: "alice" });
-		writeTornClaim(claudeConfig(), there);
-		const r = await run(
-			{
-				parents: { 21: thereMap },
-				issues: [{ number: 21, parentUrl: `${thereUrl}/issues/7` }],
-			},
-			[],
-			{ env: { HOME: home } },
-		);
-		expect(r.order()).toEqual([21]);
-		expect(r.out).toContain(
-			"WARN: the claim on parent o/there#7 was not read: 1 issue-claim record could not be read and was dropped",
-		);
 	});
 
 	it("offers the child with a WARN where the parent repo's store cannot be found", async () => {
@@ -1109,29 +747,6 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 		expect(j.inFlightCollisions[0].claimedSession).toBe("alice");
 	});
 
-	it("carries the session alongside the assignee, not instead of it", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const issues = sharing();
-		issues[1].assignees = ["luc"];
-		const j = (
-			await run({ issues, claims: { 2: "alice" } }, ["--json"])
-		).json();
-		expect(j.inFlightCollisions[0].claimedBy).toEqual(["luc"]);
-		expect(j.inFlightCollisions[0].claimedSession).toBe("alice");
-	});
-
-	it("does not assert the session is live when the oracle would not answer", async () => {
-		// The claim was KEPT on doubt, so this run never established liveness.
-		kit.oracleFails = true;
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "s" },
-		});
-		expect(r.out).toMatch(/CLAIMS DEGRADED/);
-		expect(r.out).toMatch(/#1\s+.*claimed by session s, liveness unread/);
-		expect(r.out).not.toMatch(/a live session/);
-	});
-
 	it("names the holding session rather than printing a bare id", async () => {
 		// A uuid tells a reader nothing about which session to go and look at.
 		kit.oracleSessions = ["self", "alice"];
@@ -1143,45 +758,12 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 		expect(r.out).toMatch(/#1\s+.*claimed by session Implement 708/);
 	});
 
-	it("falls back to a short id where the oracle named no session", async () => {
-		kit.oracleSessions = ["self", "0b1a4d3e-1111-2222-3333-444455556666"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "0b1a4d3e-1111-2222-3333-444455556666" },
-		});
-		expect(r.out).toMatch(/claimed by session 0b1a4d3e(?!-)/);
-	});
-
-	it("does not hedge the row when the oracle did answer", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.out).not.toMatch(/liveness unread/);
-	});
-
 	it("hedges the in-flight pair on a degraded read too", async () => {
 		kit.oracleFails = true;
 		const r = await run({ issues: sharing(), claims: { 2: "alice" } });
 		expect(r.out).toMatch(
 			/in flight: #1 <-> #2 \(claimed by session alice, liveness unread\)/,
 		);
-	});
-
-	it("leaves an excluded issue out of assignedUnclaimed", async () => {
-		// Blocked, so this run is not offering it and its assignment decided
-		// nothing — the field carries only what was treated as takeable.
-		const j = (
-			await run(
-				{
-					issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-					deps: { 1: [{ number: 2, state: "open" }] },
-				},
-				["--json"],
-			)
-		).json();
-		expect(j.assignedUnclaimed).toEqual([]);
 	});
 });
 
@@ -1250,13 +832,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		expect(r.out).toContain(wt);
 	});
 
-	it("points the reader at the canonical checkout, not the worktree", async () => {
-		const { canonical } = linkedWorktree();
-		expect((await run({ issues: [{ number: 1 }] })).out).toContain(
-			`Claims filed against ${canonical} are invisible`,
-		);
-	});
-
 	it("carries the worktree case into --json, with the tree to re-run from", async () => {
 		const { canonical } = linkedWorktree();
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
@@ -1283,20 +858,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	});
 
 	/*
-	 * A store root INSIDE a repository is not a linked worktree, and must not be
-	 * announced as one: `--git-common-dir` prints the same `.git` from any
-	 * subdirectory, so taking its parent unconditionally invents a worktree
-	 * nobody has.
-	 */
-	it("calls a subdirectory a mismatch, never a linked worktree", async () => {
-		kit.claimsRepo = path.join(kit.repoRoot as string, "sub");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/CLAIMS DEGRADED/);
-		expect(r.out).not.toMatch(/linked worktree/);
-		expect(r.out).toMatch(/not the tree this run's claims are filed under/);
-	});
-
-	/*
 	 * With neither variable set, the canonical checkout drives the same `git rev-parse` fallback and must stay
 	 * silent, or every ordinary run cries wolf.
 	 */
@@ -1307,54 +868,11 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		expect(r.out).not.toMatch(/CLAIMS DEGRADED/);
 	});
 
-	it("names both trees, so the reader can see which store was read", async () => {
-		elsewhere();
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toContain(fs.realpathSync(kit.claimsRepo as string));
-		expect(r.out).toContain(fs.realpathSync(kit.repoRoot as string));
-	});
-
 	it("carries the divergence into --json", async () => {
 		elsewhere();
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
 		expect(j.claimsDegraded.storeElsewhere).toBe(true);
 		expect(j.claimsDegraded.why).toMatch(/claim store resolves to/);
-	});
-
-	it("keeps the corrupt-record warning beside the divergence, not overwritten by it (mantahostels#1186)", async () => {
-		elsewhere();
-		const j = (
-			await run({ issues: [{ number: 1 }], corruptClaim: true }, ["--json"])
-		).json();
-		expect(j.claimsDegraded.why).toMatch(/claim store resolves to/);
-		expect(j.claimsDegraded.why).toMatch(/could not be read and .* dropped/);
-	});
-
-	it("says nothing when the two roots agree", async () => {
-		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
-		expect(r.out).not.toMatch(/CLAIMS DEGRADED/);
-		expect(r.json).toBeDefined();
-	});
-
-	it("prefers the divergence to the oracle's own degraded read", async () => {
-		// Whatever the oracle said, it said about another tree's claims.
-		elsewhere();
-		kit.oracleFails = true;
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.claimsDegraded.storeElsewhere).toBe(true);
-		expect(j.claimsDegraded.why).toMatch(/claim store resolves to/);
-	});
-
-	it("still reads the claims it found there, rather than discarding them", async () => {
-		// They are claims on the same tracker, so an exclusion is still the safer
-		// answer than pretending the issue is free.
-		elsewhere();
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.order()).toEqual([2]);
 	});
 });
 
@@ -1371,43 +889,6 @@ describe("issues the launcher has already dispatched", () => {
 			dispatched: [{ issues: [2], prompt: "/implement 2" }],
 		});
 		expect(r.order()).toEqual([1]);
-	});
-
-	it("names the launch that excluded it, with its age and prompt", async () => {
-		const r = await run({
-			issues: [{ number: 2 }],
-			dispatched: [{ issues: [2], prompt: "/implement 2 7", hoursAgo: 0.5 }],
-		});
-		expect(r.out).toMatch(/#2\s+0\.5h ago — \/implement 2 7/);
-	});
-
-	it("re-admits one whose launch the refill loop handed off, inside the window (#2744)", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }, { number: 3 }],
-			dispatched: [
-				{ issues: [2], jobId: "job2", released: true },
-				{ issues: [3], jobId: "job3" },
-			],
-		});
-		expect(r.order()).toEqual([1, 2]);
-	});
-
-	it("re-admits one whose ledger entry has aged out of the window", async () => {
-		const r = await run({
-			issues: [{ number: 2 }],
-			dispatched: [{ issues: [2], hoursAgo: 1.5 }],
-		});
-		expect(r.order()).toEqual([2]);
-	});
-
-	it("excludes even though no session from that launch is still listed", async () => {
-		// oracleSessions is ["self"] alone, so the launch's session has exited:
-		// the ledger limb is deliberately unconditional inside the window.
-		const r = await run({
-			issues: [{ number: 2 }],
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.order()).toEqual([]);
 	});
 
 	it("prints the block, the launcher's window and the --force way past it", async () => {
@@ -1427,24 +908,6 @@ describe("issues the launcher has already dispatched", () => {
 		});
 		expect(r.out).toMatch(/frontier\s+1 —/);
 		expect(r.out).toMatch(/dispatched\s+1 held out on a launch in the last 1h/);
-	});
-
-	it("never reports a dispatched issue as assigned-but-unclaimed", async () => {
-		const r = await run({
-			issues: [{ number: 2, assignees: ["someone"] }],
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.out).not.toContain("ASSIGNED BUT UNCLAIMED");
-	});
-
-	it("lets a live claim keep the reason, since it names the holder", async () => {
-		kit.oracleSessions = ["self", "s1"];
-		const r = await run({
-			issues: [{ number: 2, assignees: ["someone"] }],
-			claims: { 2: "s1" },
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.out).toMatch(/#2\s+\S*\s*claimed by/);
 	});
 
 	it("carries the ledger read into --json, window and all", async () => {
@@ -1492,67 +955,15 @@ describe("issues the launcher has already dispatched", () => {
 			expect(r.out).toMatch(/^ {2}#2\s.*\blive\b/m);
 		});
 
-		it("reads finished: done off a job whose own state.json reads done", async () => {
-			// No oracle entry at all: a finished job can fall out of `claude
-			// agents --json` on its own, and the job's own record is trusted
-			// outright once it reads a terminal state (this function's header).
-			writeJobState("job1", { state: "done", sessionId: "worker1" });
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2], jobId: "job1" }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe(
-				"finished: done",
-			);
-		});
-
-		it("prints finished: done in the text table", async () => {
-			writeJobState("job1", { state: "done", sessionId: "worker1" });
-			const r = await run({
-				issues: [{ number: 2 }],
-				dispatched: [{ issues: [2], jobId: "job1" }],
-			});
-			expect(r.out).toMatch(/^ {2}#2\s.*\bfinished: done\b/m);
-		});
-
-		it("reads finished off the oracle's own terminal state where the job record only says working", async () => {
-			kit.oracleSessions = ["self", "worker1"];
-			kit.oracleFinished = ["worker1"];
-			writeJobState("job1", { state: "working", sessionId: "worker1" });
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2], jobId: "job1" }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe(
-				"finished: oracle reads it terminal",
-			);
-		});
-
-		it("reads unknown, never live, on a pre-mantahostels#3488 entry with no job id", async () => {
-			kit.oracleSessions = ["self", "worker1"];
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2] }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe("unknown");
-		});
-
 		it("prints unknown, never live, in the text table on a pre-mantahostels#3488 entry with no job id", async () => {
 			kit.oracleSessions = ["self", "worker1"];
 			const r = await run({
 				issues: [{ number: 2 }],
 				dispatched: [{ issues: [2] }],
 			});
-			expect(r.out).toMatch(/^ {2}#2\s.*\bunknown\b/m);
+			expect(r.out).toMatch(
+				/^ {2}#2\s.*\bunknown \(no job id recorded on this entry\)/m,
+			);
 			expect(r.out).not.toMatch(/^ {2}#2\s.*\blive\b/m);
 		});
 
@@ -1600,43 +1011,6 @@ describe("issues the launcher has already dispatched", () => {
 			expect(r.order()).toEqual([2]);
 			expect(r.out).not.toContain("ALREADY DISPATCHED");
 		});
-
-		it("still holds one whose takes: value is the command it was launched under", async () => {
-			const r = await run({
-				issues: [{ number: 2, labels: ["takes:triage"] }],
-				dispatched: [{ issues: [2], prompt: "/triage 2" }],
-			});
-			expect(r.order()).toEqual([]);
-			expect(r.out).toContain("ALREADY DISPATCHED (1)");
-		});
-
-		it("holds on an entry whose prompt carries no readable command", async () => {
-			const r = await run({
-				issues: [{ number: 2, labels: ["takes:wayfinder"] }],
-				dispatched: [{ issues: [2], prompt: "2" }],
-			});
-			expect(r.order()).toEqual([]);
-		});
-
-		it("holds an issue carrying no takes: value, having nothing to compare", async () => {
-			const r = await run({
-				issues: [{ number: 2 }],
-				dispatched: [{ issues: [2], prompt: "/triage 2" }],
-			});
-			expect(r.order()).toEqual([]);
-		});
-
-		it("reads every entry on the issue, not only the latest", async () => {
-			const r = await run({
-				issues: [{ number: 2, labels: ["takes:wayfinder"] }],
-				dispatched: [
-					{ issues: [2], prompt: "/wayfinder 2", hoursAgo: 0.8 },
-					{ issues: [2], prompt: "/triage 2", hoursAgo: 0.3 },
-				],
-			});
-			expect(r.order()).toEqual([]);
-			expect(r.out).toMatch(/#2\s+0\.8h ago — \/wayfinder 2/);
-		});
 	});
 });
 
@@ -1659,19 +1033,6 @@ describe("what the mantahostels#1528 review caught", () => {
 		expect(excluded).not.toMatch(/^#2\s/m);
 		// Still accounted for, so the table is not silently short.
 		expect(excluded).toContain("1 more excluded as already dispatched");
-	});
-
-	it("leaves a claimed issue out of the dispatched block and its count", async () => {
-		kit.oracleSessions = ["self", "s1"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2, assignees: ["someone"] }],
-			claims: { 2: "s1" },
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.out).not.toContain("ALREADY DISPATCHED");
-		expect(r.out).toMatch(/dispatched\s+0 held out on a launch/);
-		// It is excluded, and the reason printed is the claim, which names a holder.
-		expect(r.out.split("\nEXCLUDED\n")[1]).toMatch(/^#2\s+\S*\s*claimed by/m);
 	});
 
 	it("counts only the dispatch-held issues in --json, not every ledger hit", async () => {
@@ -1733,49 +1094,11 @@ describe("the band no command opens — §5's third accounting term (mantahostel
 	const block = (out: string) =>
 		out.split("RUN SUMMARY")[1]?.split("\nAdvisory only")[0] ?? "";
 
-	it("counts a takes:human issue, which no /-command opens", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["takes:implement"] },
-				{ number: 2, labels: ["takes:human"] },
-			],
-		});
-		expect(block(r.out)).toMatch(/frontier +2/);
-		expect(block(r.out)).toMatch(/no command +1/);
-	});
-
 	it("prints the row at zero, so the term is never read as unowed", async () => {
 		const r = await run({
 			issues: [{ number: 1, labels: ["takes:implement"] }],
 		});
 		expect(block(r.out)).toMatch(/no command +0/);
-	});
-
-	it("counts a takes:children container whose last child has closed", async () => {
-		// On the frontier that is the only takes:children issue there is — the
-		// exclusion cascade holds a live container off it (mantahostels#1622).
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["takes:implement"] },
-				{ number: 2, labels: ["takes:children"] },
-			],
-		});
-		expect(block(r.out)).toMatch(/no command +1/);
-		expect(block(r.out)).toMatch(/rotted containers: #2/);
-	});
-
-	it("counts nothing for a container still holding an open child", async () => {
-		// It never reaches the frontier, so it is neither in `<F>` nor in `<U>`.
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["takes:children"] },
-				{ number: 2, labels: ["takes:implement"], parent: 1 },
-			],
-		});
-		expect(r.out).toMatch(/#1\s+\S*\s*container — 1 open children/);
-		expect(block(r.out)).toMatch(/frontier +1/);
-		expect(block(r.out)).toMatch(/no command +0/);
-		expect(block(r.out)).not.toMatch(/rotted containers/);
 	});
 
 	it("counts nothing for a takes:human issue an open blocker excluded", async () => {

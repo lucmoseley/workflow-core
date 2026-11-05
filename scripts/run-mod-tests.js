@@ -28,8 +28,8 @@
  * mod's folder, is a failing mod.
  *
  * THE BYTES TESTED ARE THE PUSHED COMMIT'S, extracted with `git archive` into a
- * temp directory, never the working tree, where a neighbour's half-written file
- * would refuse a push that does not carry it (`rule:suite-tree-dirty`).
+ * temp directory, never the working tree, where an uncommitted file would refuse a
+ * push that does not carry it (`rule:suite-tree-dirty`).
  *
  * A PUSH LANDING ON A TAG IS SKIPPED (#932): a release tag's tree is rendered
  * without the mods' TypeScript, so its folders can never load. A tag on a

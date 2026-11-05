@@ -1,6 +1,6 @@
 /*
- * script-runs.js — which script files a Bash command runs, shared by the
- * stale-script and scratch-git dispatcher cores (#3208).
+ * script-runs.js — which script files a Bash command runs, for the
+ * scratch-git dispatcher core (#3208).
  *
  * The routes it reads: a script under one of the caller's interpreters, as
  * an argument or, with no word after the options, on a `<` redirect; through

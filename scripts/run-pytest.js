@@ -20,8 +20,7 @@
  * pytest only the test files `lib/touched-tests.js` resolves from the
  * session's own changed paths, as a bare `npm run test` does vitest (#2930).
  * With a session id those are the paths its overlay would carry, read in the
- * shared tree, so a neighbour's uncommitted or untracked file selects nothing
- * (#2958). An empty set spawns nothing, records no marker, writes its ledger
+ * working tree, so a file it did not write selects nothing (#2958). An empty set spawns nothing, records no marker, writes its ledger
  * line and exits 0; the lander runs the full suite. Any argument at all keeps
  * the run exactly as typed. A lone `--full` is the whole suite, handed to
  * pytest as no argument: a full-suite caller — CI, the lander, bisect — runs
@@ -49,8 +48,6 @@ const {
 	readTreeSnapshot,
 	drift,
 	format,
-	formatNeighbourDirty,
-	fromArbiter,
 	endOfRunTreeIdentity,
 } = require("./lib/tree-drift.js");
 const {
@@ -104,7 +101,6 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 	const startedAtMs = Date.now();
 	const startedAtMono = monotonicMs();
 	const before = readTreeSnapshot(root);
-	const inherited = fromArbiter(before);
 
 	const handOff = handOffPath();
 	const inflightFile = handOff
@@ -121,8 +117,8 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 
 	const after = readTreeSnapshot(root);
 	const drifted = drift(before, after);
-	for (const message of [format(drifted), formatNeighbourDirty(inherited)])
-		if (message) writeFd(2, `${message}\n`);
+	const moved = format(drifted);
+	if (moved) writeFd(2, `${moved}\n`);
 
 	// BOTH verdicts, never the plugin's alone. `pytest_terminal_summary` runs
 	// before teardown and interpreter shutdown, so an INTERNALERROR after it —
@@ -131,13 +127,12 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 	if (!run.forcedRed && run.status === 0 && result?.passed === true && after) {
 		record(
 			markerFrom(before, after, drifted, {
-				held: inherited,
 				scope: runScope(result.scope, resolvedFiles),
 				suite: "pytest",
 				startedAtMs,
 				elapsedMs: monotonicMs() - startedAtMono,
 				// pytest has no `--isolated` path (mantahostels#2187): every run
-				// reads the shared tree, at `root` — the same directory the
+				// reads the working tree, at `root` — the same directory the
 				// identity below is taken in.
 				isolated: false,
 				treeAtEnd: endOfRunTreeIdentity(root),

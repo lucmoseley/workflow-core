@@ -161,9 +161,9 @@ jobs:
       # full tsconfig.json, so the scripts are checked here and nowhere else.
       #
       # Hard-fails, deliberately. Its local counterpart in .husky/pre-commit only
-      # warns, because that one reads the shared WORKTREE and would otherwise
-      # refuse a commit over a parallel session's half-written file. A runner
-      # checks out a clean tree, so here it can be strict.
+      # warns, because that one reads the working tree, whose unsaved edits the
+      # commit may not carry. A runner checks out a clean tree, so here it can
+      # be strict.
       #
       # Except the mods: their three passes (both mods and hooks/register.ts)
       # SKIP here with a warning, since the runner has no Claude Code

@@ -584,8 +584,8 @@ function vitestRelated({ bin, root, paths, execFn, config, fsImpl, narrowed }) {
  * `ownWork` (#1216) replaces a `--changed <ref>` diff with the resolver's
  * path set over it, selected as an adoption is. Only the bare default and the
  * queue's probes pass it. `carriesUntracked` is the probes' (#1221): the set
- * already holds the session's own new files, and the tree's others are a
- * neighbour's.
+ * already holds the session's own new files, and the tree's others are not
+ * the session's.
  *
  * @param {string[]} argv
  * @param {{ root?: string, bin?: string, execFn?: ExecFn,
@@ -875,7 +875,7 @@ function removeScratch(override, fsImpl) {
 
 /**
  * Readers come from the committed manifest AND the graph this tree renders
- * now (#998), so a neighbour's uncommitted edge selects its reader rather
+ * now (#998), so an uncommitted edge selects its reader rather
  * than voiding the run. A render that throws leaves the manifest alone to
  * select on, and the run's certificate attests nothing.
  *

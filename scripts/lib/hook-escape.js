@@ -5,7 +5,7 @@
  * escapes).
  *
  * THE HOLE IT CLOSES. Two pre-commit gates each stand down for one commit on
- * an environment variable — WFC_ALLOW_BRANCH (.husky/pre-commit's shared-tree
+ * an environment variable — WFC_ALLOW_BRANCH (.husky/pre-commit's main-checkout
  * branch check) and WFC_ALLOW_GATE_INPUT_DELETE (scripts/lib/precommit-gate.sh).
  * `WFC_ALLOW_NEW_PACKAGE` is guard-npm-install's and out of scope.
  *
