@@ -623,12 +623,21 @@ describe("a linked worktree's dirt", () => {
 	});
 
 	it("is owned by the ledger at the file's path in its tree where no session owns the worktree (#4397)", () => {
-		worktreeOf(null, 30);
+		const wt = worktreeOf(null, 30);
 		fakeClaude("bystander", "ledger-owner");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
-		fs.writeFileSync(store.paths.ledger("ledger-owner"), "a.txt\n");
+		fs.writeFileSync(store.paths.ledger("ledger-owner"), `a.txt\t${wt}\n`);
 
 		expect(run().out).not.toContain("ORPHANED-EDIT");
+	});
+
+	it("is not owned by a live session's ledger at the same path in the main checkout (#4457)", () => {
+		worktreeOf(null, 30);
+		fakeClaude("bystander", "main-writer");
+		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+		fs.writeFileSync(store.paths.ledger("main-writer"), "a.txt\n");
+
+		expect(run().out).toContain("ORPHANED-EDIT");
 	});
 
 	it("is judged by the worktree's file, not the main checkout's", () => {
@@ -646,10 +655,10 @@ describe("a linked worktree's dirt", () => {
 	});
 
 	it("is owned by a live session's ledger though the worktree's owner has ended", () => {
-		worktreeOf("dead-owner-3", 30);
+		const wt = worktreeOf("dead-owner-3", 30);
 		fakeClaude("bystander", "mover");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
-		fs.writeFileSync(store.paths.ledger("mover"), "a.txt\n");
+		fs.writeFileSync(store.paths.ledger("mover"), `a.txt\t${wt}\n`);
 
 		expect(run().out).not.toContain("ORPHANED-EDIT");
 		expect(readFilings()).toEqual([]);
@@ -728,6 +737,80 @@ describe("a cut-over main checkout's dirt", () => {
 		expect(data.mainCutOver).toBe(false);
 		expect(data.orphanCount).toBe(0);
 		expect(data.young).toBe(1);
+	});
+
+	describe("read from a session launched in a linked worktree (#4483)", () => {
+		/** A worktree of the sandbox repo, `a.txt` in it dirtied now, which a
+		 * session launched there names as its project dir and cwd. */
+		function launchedIn() {
+			const wt = path.join(sb.repo, ".claude", "worktrees", "probe");
+			fs.mkdirSync(path.dirname(wt), { recursive: true });
+			spawnSync("git", ["worktree", "add", "-q", "--detach", wt], {
+				cwd: sb.repo,
+			});
+			fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
+			return fs.realpathSync(wt);
+		}
+		const runFrom = (tree: string, args: string[] = ["--json"]) => {
+			const r = runInProcess(SCRIPT, [...args, "--write"], {
+				env: {
+					...process.env,
+					WFC_MODULES: `${process.env.WFC_MODULES},landing`,
+					GITHUB_ACTIONS: "",
+					WFC_ORACLE_CACHE: "0",
+					CLAUDE_PROJECT_DIR: tree,
+				},
+				cwd: tree,
+			});
+			expect(r.status).toBe(0);
+			return { stdout: r.stdout, out: r.stdout + r.stderr };
+		};
+
+		it("judges the worktree's fresh dirt as that worktree's, filing nothing", () => {
+			const data = JSON.parse(runFrom(launchedIn()).stdout);
+
+			expect(data.orphanCount).toBe(0);
+			expect(data.young).toBe(1);
+			expect(readFilings()).toEqual([]);
+		});
+
+		it("judges the main checkout's dirt against the main checkout's store", () => {
+			const wt = launchedIn();
+			dirty("c.txt", 0);
+			fakeClaude("bystander", "live-writer");
+			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+			fs.writeFileSync(store.paths.ledger("live-writer"), "c.txt\n");
+
+			const data = JSON.parse(runFrom(wt).stdout);
+
+			expect(data.mainCutOver).toBe(true);
+			expect(data.orphanCount).toBe(0);
+			expect(readFilings()).toEqual([]);
+		});
+
+		it("still files the main checkout's unowned dirt, by its main-checkout path", () => {
+			const wt = launchedIn();
+			dirty("c.txt", 0);
+
+			const { out } = runFrom(wt, []);
+
+			expect(out).toContain("ORPHANED-EDIT (1)");
+			const filings = readFilings();
+			expect(filings).toHaveLength(1);
+			expect(filings[0].body).toContain("c.txt");
+			expect(filings[0].body).not.toContain(".claude/worktrees/probe");
+		});
+
+		it("files the worktree's aged dirt under the worktree's name", () => {
+			const wt = launchedIn();
+			const at = new Date(Date.now() - 30 * HOUR);
+			fs.utimesSync(path.join(wt, "a.txt"), at, at);
+
+			const { out } = runFrom(wt, []);
+
+			expect(out).toContain(".claude/worktrees/probe: a.txt");
+			expect(readFilings()).toHaveLength(1);
+		});
 	});
 
 	it("leaves a linked worktree's dirt to the 24-hour test", () => {

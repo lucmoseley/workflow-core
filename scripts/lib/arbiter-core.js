@@ -115,7 +115,7 @@ function storeConfigDir() {
 
 /*
  * THE HOST REPO, through the one seam (#1). `lib/host-root.js` holds the
- * contract — CLAUDE_PROJECT_DIR, else the git top level of the working
+ * contract — CLAUDE_PROJECT_DIR, else the main checkout owning the working
  * directory, symlinks dereferenced, memoised per cwd, failing open to the cwd —
  * and `lib/guard-root.sh`'s gr_root is its bash twin. The trailing-slash strip
  * and the dereference live in the seam because stateDir() turns this into a
@@ -726,7 +726,11 @@ const EXEMPT = [SCRATCH_DIR];
  */
 let treeMemo = { cwd: "", host: "", tree: "" };
 
+/** The tree inTree names for the duration of its callback, else null. */
+let treeOverride = /** @type {string|null} */ (null);
+
 function treeRoot() {
+	if (treeOverride !== null) return treeOverride;
 	const cwd = process.cwd();
 	const host = repoRoot();
 	if (treeMemo.cwd === cwd && treeMemo.host === host) return treeMemo.tree;
@@ -738,6 +742,58 @@ function treeRoot() {
 	});
 	if (!gitBound.overran) treeMemo = { cwd, host, tree };
 	return tree;
+}
+
+/*
+ * A RECORD NAMES ITS WRITER'S TREE (#4457). A key names no tree, so a lock,
+ * an observation and a write-ledger line carry `tree` — the writer's tree,
+ * absolute — where it is a linked worktree, and none where it is the host.
+ * A reader judging another session's record reads that record's tree, never
+ * its own.
+ */
+
+/** The `tree` a record written now carries: the session's tree, undefined on the host. */
+function writerTree() {
+	const tree = treeRoot();
+	return tree === repoRoot() ? undefined : tree;
+}
+
+/**
+ * The tree a record was written in.
+ * @param {{tree?: string}} record
+ * @param {string} [host] the host whose store holds it, where not this process's
+ */
+function recordTree(record, host = repoRoot()) {
+	return record.tree ?? host;
+}
+
+/**
+ * `fn`'s answer with treeRoot() answering `tree`: every per-file read of the
+ * store — content pins, dirt, region reads — runs there. Sync only: an async
+ * `fn`'s awaited reads run after the override is restored.
+ * @template T
+ * @param {string} tree
+ * @param {() => T} fn
+ * @returns {T}
+ */
+function inTree(tree, fn) {
+	const prior = treeOverride;
+	treeOverride = tree;
+	try {
+		return fn();
+	} finally {
+		treeOverride = prior;
+	}
+}
+
+/**
+ * @template T
+ * @param {{tree?: string}} record
+ * @param {() => T} fn
+ * @returns {T}
+ */
+function inRecordTree(record, fn) {
+	return inTree(recordTree(record), fn);
 }
 
 /**
@@ -1527,6 +1583,10 @@ module.exports = {
 	claimKey,
 	repoRoot,
 	treeRoot,
+	writerTree,
+	recordTree,
+	inTree,
+	inRecordTree,
 	liveOrResumed,
 	resumedHolderTest,
 	sayOnce,

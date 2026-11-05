@@ -196,6 +196,18 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 			}),
 		).toContain("no declared overflow seat's");
 	});
+
+	it("refuses a --settings that is not inline JSON, naming it as not inline JSON", () => {
+		declarePlanOverflow();
+		expect(
+			launchAuthRefusal({
+				bin,
+				env: { PATH: process.env.PATH, HOME: home, CLAUDE_CONFIG_DIR: plan() },
+				cwd: dir,
+				settings: "/tmp/settings.json",
+			}),
+		).toContain("--settings is not inline JSON");
+	});
 });
 
 describe("a status that will not read", () => {

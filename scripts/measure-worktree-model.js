@@ -47,6 +47,7 @@ const { caught } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { landerLog } = require("./lib/lander-start.js");
+const { startRefFor } = require("./lib/landing-refs.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const {
 	listTranscripts,
@@ -377,7 +378,7 @@ async function readCosts(root, w) {
 	}
 	const tracked = new Set(
 		parseNulList(
-			git(["ls-tree", "-r", "-z", "--name-only", "origin/landing"], root),
+			git(["ls-tree", "-r", "-z", "--name-only", startRefFor(true)], root),
 		),
 	);
 	return {

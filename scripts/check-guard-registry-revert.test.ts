@@ -44,6 +44,23 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 		expect(r.status, r.stderr).toBe(0);
 	});
 
+	it("passes a line of the lander's reverts at push only where the variable names their commits in the order they were reverted (#4453)", () => {
+		const { root, git, culprit } = repo();
+		fs.writeFileSync(path.join(root, "later.txt"), "later\n");
+		git("add", "-A");
+		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "later");
+		const later = git("rev-parse", "HEAD");
+		git("revert", "--no-edit", later);
+		git("revert", "--no-edit", culprit);
+		const head = git("rev-parse", "HEAD");
+
+		const inOrder = push(root, head, later, `${later} ${culprit}`);
+		expect(inOrder.status, inOrder.stderr).toBe(0);
+		const reordered = push(root, head, later, `${culprit} ${later}`);
+		expect(reordered.status).toBe(2);
+		expect(reordered.stderr).toContain("no staleness exemption");
+	});
+
 	it("still refuses the same revert from an ordinary session, at commit and at push", () => {
 		const { root, git, culprit, tip } = repo();
 		git("revert", "--no-commit", culprit);

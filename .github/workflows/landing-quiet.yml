@@ -35,6 +35,12 @@ jobs:
     # A guess: one API read with retries.
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .claude/workflow-core.json
+            scripts/lib
+          sparse-checkout-cone-mode: false
       - name: Read the age of the newest push
         shell: bash
         env:
@@ -46,18 +52,22 @@ jobs:
         # moves landing and must turn this green. curl for --retry-all-errors,
         # which `gh api` lacks; 3 retries is a guess.
         run: |
-          activity="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/activity?ref=refs/heads/landing&per_page=1"
+          if ! branch=$(node scripts/lib/landing-refs.js pushed-branch); then
+            echo "::error title=Check broken, not a stall::Could not ask scripts/lib/landing-refs.js which branch sessions push to, its error above. The push age is unread: read git log, then this run's log."
+            exit 1
+          fi
+          activity="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/activity?ref=refs/heads/$branch&per_page=1"
           if ! pushed=$(curl -fsS --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" "$activity" | jq -er '.[0].timestamp'); then
-            echo "::error title=Check broken, not a stall::Could not read landing's newest push from $activity. Landing's state is unknown: read git log origin/landing, then this run's log."
+            echo "::error title=Check broken, not a stall::Could not read $branch's newest push from $activity. Its state is unknown: read git log origin/$branch, then this run's log."
             exit 1
           fi
           if [ "$FORCE_FAILURE" = true ]; then
-            echo "::error title=Forced failure::This run tests the email route. Newest push to landing: $pushed."
+            echo "::error title=Forced failure::This run tests the email route. Newest push to $branch: $pushed."
             exit 1
           fi
           age=$(( $(date +%s) - $(date -d "$pushed" +%s) ))
-          echo "Newest push to landing: $pushed, $(( age / 3600 )) h ago."
+          echo "Newest push to $branch: $pushed, $(( age / 3600 )) h ago."
           if [ "$age" -ge $(( QUIET_HOURS * 3600 )) ]; then
-            echo "::error title=Landing quiet::No push to landing for $QUIET_HOURS hours or more. Look first at: wsl --list --running on Windows, then memcheck in WSL. Planned absence: disable this workflow from the Actions tab."
+            echo "::error title=Landing quiet::No push to $branch for $QUIET_HOURS hours or more. Look first at: wsl --list --running on Windows, then memcheck in WSL. Planned absence: disable this workflow from the Actions tab."
             exit 1
           fi

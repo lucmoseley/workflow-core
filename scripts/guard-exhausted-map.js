@@ -37,7 +37,7 @@
  */
 
 const { parkTargets } = require("./guard-inventory");
-const { logError, listIssueClaims } = require("./lib/arbiter-store");
+const { logError, readClaimedIssues } = require("./lib/arbiter-store");
 const { ghJson } = require("./lib/gh");
 const hookBlock = require("./lib/hook-block");
 const hookMessage = require("./lib/hook-message");
@@ -54,21 +54,6 @@ const EXHAUSTED_MAP_PREFIX = ".exhausted-map-nagged-";
  * holds node's start and the block's write. A session claims the one issue it
  * works (`rule:issue-claim-scope`), so a map takes two reads. */
 const READ_BUDGET_MS = 10_000;
-
-/**
- * The issues this session claims, or [] where the store cannot be read whole.
- * @param {string} sid
- * @returns {number[]}
- */
-function readClaimedIssues(sid) {
-	const listed = listIssueClaims();
-	/* Fails open (#3639): a store read short could name a map this session
-	 * does not hold. */
-	if (!listed || listed.why) return [];
-	return listed.claims
-		.filter((c) => c?.sessionId === sid && typeof c.issue === "number")
-		.map((c) => c.issue);
-}
 
 /**
  * Whether `n` in `tracker` is an exhausted map. Throws on a read error, and

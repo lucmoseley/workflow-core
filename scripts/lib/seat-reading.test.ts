@@ -55,6 +55,7 @@ const budget = (over: Record<string, unknown> = {}) => ({
 	creditUsd: 200,
 	grantUsd: 200,
 	readAt: null,
+	expiresOn: null,
 	qUsd: 4,
 	running: 2,
 	cycleStart: new Date(2026, 9, 20).getTime(),

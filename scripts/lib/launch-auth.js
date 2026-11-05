@@ -87,16 +87,20 @@ function readAuthStatus(bin, env, cwd) {
 }
 
 /**
- * The `apiKeyHelper` the launch's `--settings` sets, or null.
+ * The `apiKeyHelper` the launch's `--settings` sets, null where it sets none,
+ * or why it cannot be read: `claude` takes a `--settings` that is not JSON as
+ * a file path, whose helper this guard would never see (#2570).
  * @param {string|undefined} settings
- * @returns {unknown}
+ * @returns {{helper: unknown}|{why: string}}
  */
 function parseSettingsHelper(settings) {
-	if (settings === undefined) return null;
+	if (settings === undefined) return { helper: null };
 	try {
-		return JSON.parse(settings)?.apiKeyHelper ?? null;
+		return { helper: JSON.parse(settings)?.apiKeyHelper ?? null };
 	} catch {
-		return null;
+		return {
+			why: "--settings is not inline JSON, so its apiKeyHelper cannot be read",
+		};
 	}
 }
 
@@ -165,7 +169,9 @@ function launchAuthRefusal({ bin, env, cwd, settings }) {
 		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
 		return refused("ANTHROPIC_BASE_URL is set");
-	const helper = parseSettingsHelper(settings);
+	const parsed = parseSettingsHelper(settings);
+	if ("why" in parsed) return refused(parsed.why);
+	const { helper } = parsed;
 	const seatHelper = helper !== null && isSeatHelper(helper, env);
 	if (helper !== null && !seatHelper)
 		return refused(

@@ -353,6 +353,22 @@ function listIssueClaims(root) {
 }
 
 /**
+ * The issues `sid` claims, newest first, or [] where the store cannot be read
+ * whole: a store read short could name an issue this session does not hold
+ * (#3639).
+ * @param {string} sid
+ * @returns {number[]}
+ */
+function readClaimedIssues(sid) {
+	const listed = listIssueClaims();
+	if (!listed || listed.why) return [];
+	return listed.claims
+		.filter((c) => c?.sessionId === sid && typeof c.issue === "number")
+		.sort((a, b) => String(b.claimedAt).localeCompare(String(a.claimedAt)))
+		.map((c) => c.issue);
+}
+
+/**
  * `heldIssues`'s map of issue number to holder: every well-formed claim whose
  * session reads live, or every one where `live` is null.
  * @param {NonNullable<ReturnType<typeof listIssueClaims>>["claims"]} claims
@@ -500,6 +516,7 @@ function pruneIssueClaims(liveness) {
 module.exports = {
 	claimIssue,
 	claimIssueExclusive,
+	readClaimedIssues,
 	heldIssues,
 	listIssueClaims,
 	pruneIssueClaims,

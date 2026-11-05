@@ -1412,8 +1412,11 @@ const TREE_KEY = "TREE";
 const TREES = ["session", "host", "both", "none"];
 const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
+/* The comment opener every header key line starts with. */
+const COMMENT_LEAD = "^\\s*(?:#+|\\*|//)\\s*";
+
 const ANNOTATION_RE = new RegExp(
-	`^\\s*(?:#+|\\*|//)\\s*(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
+	`${COMMENT_LEAD}(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
 );
 /* The reason is required, not decoration: "fail-safe" alone asserts a verdict
  * and shows no working, which is the stale label mantahostels#102 ruled out. */
@@ -1869,14 +1872,42 @@ const VAR_PATH_RE =
  * @param {string} rel
  * @param {string} text
  * @param {string} [base] the tree run targets and the dispatch manifest resolve in
+ * @param {boolean} [withRuns] false leaves out what it only runs, as a gate stack's digest does
  */
-function sourcedBy(rel, text, base = root) {
+function sourcedBy(rel, text, base = root, withRuns = true) {
+	const { deps, runs } = parsedSources(rel, text, base);
+	return withRuns ? [...deps] : deps.filter((p) => !runs.has(p));
+}
+
+/**
+ * The scripts/ files a gate stack's header names, or null where `text` opens
+ * no gate stack.
+ * @param {string} rel
+ * @param {string} text
+ */
+function gateStackNamed(rel, text) {
+	return parsedSources(rel, text, root).named;
+}
+
+/**
+ * @param {string} rel
+ * @param {string} text
+ * @param {string} base
+ */
+function parsedSources(rel, text, base) {
 	const key = `${base}\0${rel}`;
 	const known = sourcedCache.get(key);
-	if (known?.text === text) return [...known.deps];
-	const deps = parseSourcedBy(rel, text, base);
-	sourcedCache.set(key, { text, deps });
-	return [...deps];
+	if (known?.text === text) return known;
+	const header = parseHeaderLines(text);
+	const parsed = {
+		text,
+		...parseSourcedBy(rel, text, base),
+		named: isGateStack(header)
+			? headerNamed(header).filter((p) => fs.existsSync(path.join(base, p)))
+			: null,
+	};
+	sourcedCache.set(key, parsed);
+	return parsed;
 }
 
 /**
@@ -1885,7 +1916,7 @@ function sourcedBy(rel, text, base = root) {
  * reads them all again (#4170). Keyed on the text too, so a file that changes mid-run is
  * parsed afresh.
  *
- * @type {Map<string, { text: string, deps: string[] }>}
+ * @type {Map<string, { text: string, deps: string[], runs: Set<string>, named: string[] | null }>}
  */
 const sourcedCache = new Map();
 
@@ -1896,7 +1927,9 @@ const sourcedCache = new Map();
  */
 function parseSourcedBy(rel, text, base) {
 	const dir = path.dirname(rel);
-	const shell = parseSourcedLibs(text).map((lib) => path.join(dir, lib));
+	const shell = parseSourcedLibs(text).map((lib) =>
+		resolveSourced(base, dir, lib),
+	);
 	// Resolve first, then keep only lib/: `session-arbiter.js` reaches its store
 	// as `./lib/arbiter-store.js` but the store reaches the proc leaf as
 	// `./arbiter-proc.js`, already inside lib/, so the specifier alone cannot say.
@@ -1943,7 +1976,53 @@ function parseSourcedBy(rel, text, base) {
 		rel === DISPATCH_KIT
 			? [MANIFEST_REL, ...readDispatchedCores(manifestAt(base))]
 			: [];
-	return [...shell, ...js, ...run, ...cores];
+	const linked = new Set([...shell, ...js, ...cores]);
+	return {
+		deps: [...shell, ...js, ...run, ...cores],
+		runs: new Set(run.filter((p) => !linked.has(p))),
+	};
+}
+
+/*
+ * A gate stack's header line `RUNS: gates — <why>` (#4456). The programs such a
+ * file runs are independent gates, each judged by its own row where a rule
+ * describes it. So its digest follows what it and its libraries source and
+ * require, plus the bytes alone of each scripts/ file its header names, where
+ * its annotation's claims rest, and no program they only run. Undeclared files
+ * still follow their run targets, as a thin wrapper's rules need
+ * (mantahostels#358).
+ */
+const RUNS_GATES_RE = new RegExp(
+	`${COMMENT_LEAD}RUNS:[ \\t]*gates\\s*[—:-]\\s*\\S`,
+);
+const NAMED_SCRIPT_RE = /\bscripts\/[\w./-]+\.(?:js|sh)\b/g;
+
+/** @param {string[]} header a file's header lines */
+function isGateStack(header) {
+	return header.some((line) => RUNS_GATES_RE.test(line));
+}
+
+/** @param {string[]} header a file's header lines: the scripts/ paths it names */
+function headerNamed(header) {
+	return header.flatMap((line) =>
+		[...line.matchAll(NAMED_SCRIPT_RE)].map((m) => m[0]),
+	);
+}
+
+/* `. "$root/scripts/lib/x.sh"` from a .husky/ hook: the parser keeps only the
+ * `lib/x.sh` tail, so the guard's own directory gives .husky/lib/x.sh, which is
+ * nowhere (#4456). Sibling first, so a hook-local lib of the same name would
+ * shadow the shared one. */
+/**
+ * @param {string} base
+ * @param {string} dir
+ * @param {string} lib a `lib/<name>.sh` tail
+ */
+function resolveSourced(base, dir, lib) {
+	const sibling = path.join(dir, lib);
+	if (fs.existsSync(path.join(base, sibling))) return sibling;
+	const shared = path.join("scripts", lib);
+	return fs.existsSync(path.join(base, shared)) ? shared : sibling;
 }
 
 /** @param {string} p a run target, as a path from the tree's root */
@@ -1982,17 +2061,25 @@ function resolveRun(base, dir, tail) {
 /**
  * @param {string} rel
  * @param {Set<string>} [seen] accumulator: each file hashed is added, so a cycle hashes once
+ * @param {boolean} [inStack] reached from a gate stack, so what it runs is left out
  * @returns {string | null}
  */
-function digestOf(rel, seen = new Set()) {
-	if (seen.has(rel)) return null; // a source cycle: hash each file once
+function digestOf(rel, seen = new Set(), inStack = false) {
+	if (seen.has(rel)) return null;
 	seen.add(rel);
 	try {
 		const bytes = fs.readFileSync(path.join(root, rel));
+		const text = bytes.toString("utf8");
 		const hash = crypto.createHash("sha256").update(bytes);
+		const named = inStack ? null : gateStackNamed(rel, text);
+		const stack = inStack || named !== null;
 		// Sorted, so the digest does not move when the source lines are reordered.
-		for (const lib of sourcedBy(rel, bytes.toString("utf8")).sort())
-			hash.update(`\0${lib}\0${digestOf(lib, seen) ?? ""}`);
+		for (const lib of sourcedBy(rel, text, root, !stack).sort())
+			hash.update(`\0${lib}\0${digestOf(lib, seen, stack) ?? ""}`);
+		for (const p of named ?? []) {
+			seen.add(p);
+			hash.update(`\0${p}\0`).update(fs.readFileSync(path.join(root, p)));
+		}
 		return hash.digest("hex").slice(0, 16);
 	} catch {
 		return null; // absence is the existing BROKEN-CLAIM's business, not this one's
@@ -3616,8 +3703,15 @@ function sortClaims(found, snap, wanted, ours) {
 	);
 	if (!self) return "this session is unidentified";
 	const { neighbourDirty } = require("./lib/tree-drift.js");
-	const nameFor = require("./lib/arbiter-core.js").registryNames();
-	for (const e of (snap && neighbourDirty(snap, locks, self)) ?? []) {
+	const core = require("./lib/arbiter-core.js");
+	const nameFor = core.registryNames();
+	/* A claim held in another tree is on another copy of the file (#4457).
+	 * The session's tree, not `root`: under `--against` that is an index. */
+	const here = core.treeRoot();
+	const inHere = locks.filter(
+		(l) => !l || l.unreadable || core.recordTree(l) === here,
+	);
+	for (const e of (snap && neighbourDirty(snap, inHere, self)) ?? []) {
 		if (!wanted.has(e.path)) continue;
 		const entry = { holder: nameFor(e.sessionId), dead: e.dead };
 		(ours.has(e.path) ? found.taken : found.held).set(e.path, entry);
@@ -4148,8 +4242,9 @@ function buildRowForward(f) {
 /*
  * A LANDER REVERT LANDS WITH ITS STALE ROWS (#3127). The revert re-opens a
  * held queue, and a stale row is prose owed a re-read, not a broken build, so
- * where WFC_LANDER_REVERT names a culprit and lib/clean-revert.js confirms the
- * judged bytes are its clean revert, the staleness findings stand down and the
+ * where WFC_LANDER_REVERT names a culprit, or a culprit and the dependents
+ * reverted with it (#4453), and lib/clean-revert.js confirms the judged bytes
+ * are their clean reverts, the staleness findings stand down and the
  * lander's fix ticket owes the re-read. Every other fault still refuses.
  * Re-anchoring in the revert instead would assert a read nobody made. At
  * commit the message is not yet written, so only the tree is confirmed; the
@@ -4157,35 +4252,40 @@ function buildRowForward(f) {
  */
 
 /**
- * The culprit this commit or push is a confirmed clean revert of, or null.
+ * The commits this commit or push is a confirmed clean revert of, a push's
+ * one revert each, or null.
  * @param {Ctx} ctx
- * @returns {string|null}
+ * @returns {string[]|null}
  */
 function readExemptRevert(ctx) {
-	const culprit = readLanderRevert();
-	if (culprit === null) return null;
+	const culprits = readLanderRevert();
+	if (culprits === null) return null;
 	const { rev: tip, head: pushed } = againstRevs(ctx);
 	/* The committing tree's git, as --against materialises it: under a
 	 * worktree, CLAUDE_PROJECT_DIR can name another tree's index. */
 	const cwd = process.cwd();
 	const why = pushed
-		? whyNotLanderRevert(cwd, { culprit, sha: pushed, tip })
-		: whyNotCleanIndex(cwd, culprit, tip);
-	if (why === null) return culprit;
+		? whyNotLanderRevert(cwd, { culprits, sha: pushed, tip })
+		: whyNotCleanIndex(cwd, culprits, tip);
+	if (why === null) return culprits;
 	ctx.say(
-		`${LANDER_REVERT_ENV} names ${culprit}, but no staleness exemption: ${why}.`,
+		`${LANDER_REVERT_ENV} names ${culprits.join(" ")}, but no staleness exemption: ${why}.`,
 	);
 	return null;
 }
 
 /**
- * Why the index is not the clean revert of `culprit` on `onto`, or null.
+ * Why the index is not the clean revert of the one commit `culprits` names on
+ * `onto`, or null.
  * @param {string} cwd
- * @param {string} culprit
+ * @param {string[]} culprits
  * @param {string} onto
  * @returns {string|null}
  */
-function whyNotCleanIndex(cwd, culprit, onto) {
+function whyNotCleanIndex(cwd, culprits, onto) {
+	const [culprit] = culprits;
+	if (culprits.length !== 1 || culprit === undefined)
+		return "a commit is the revert of one commit";
 	const tree = spawnGitSync(["-C", cwd, "write-tree"], { encoding: "utf8" });
 	if (tree.status !== 0) return "the index cannot be written as a tree";
 	return whyNotCleanRevert(cwd, {
@@ -4205,15 +4305,15 @@ function whyNotCleanIndex(cwd, culprit, onto) {
  */
 function settleAdded(ctx, added) {
 	const stale = added.filter((f) => staleOf(f) !== null);
-	const culprit = stale.length > 0 ? readExemptRevert(ctx) : null;
+	const reverted = stale.length > 0 ? readExemptRevert(ctx) : null;
 	const { refuse, remedy } =
-		culprit === null
+		reverted === null
 			? settleStale(ctx, added)
 			: { refuse: added.filter((f) => staleOf(f) === null), remedy: [] };
-	const exempted = culprit === null ? [] : stale.map(buildRowForward);
-	if (exempted.length > 0)
+	const exempted = reverted === null ? [] : stale.map(buildRowForward);
+	if (reverted !== null && exempted.length > 0)
 		for (const line of [
-			`not refusing ${exempted.length} stale row(s): this is the lander's clean revert of ${culprit} (#3127), and its fix ticket owes each re-read:`,
+			`not refusing ${exempted.length} stale row(s): this is the lander's clean revert of ${reverted.join(", ")} (#3127), and its fix ticket owes each re-read:`,
 			...exempted.map((r) => `  ${r.row}: ${r.forward}`),
 		])
 			ctx.say(line);

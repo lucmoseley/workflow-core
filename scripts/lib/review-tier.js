@@ -50,14 +50,14 @@ const { treeOr } = require("./tree-or.js");
  *   staged: (tree: string) => string[] | null,
  *   sessionBase: (sid: string, tree: string) => string | null,
  *   changedSince: (tree: string, base: string) => string[] | null,
- *   billed: (sid: string) => string[] | null,
+ *   billed: (sid: string, tree: string) => string[] | null,
  *   declared: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
  *   declaredAtHead: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
  * }} TierPorts git's absolute common dir of a directory, null where git
  *   will not say; a tree's staged paths, null where git will not say; the
  *   session's start point, placed on that tree's HEAD, null where none is
  *   recorded or git cannot place it, throwing where git overran; a tree's paths changed since a commit, untracked ones
- *   included, null where git will not say; the paths from the root the
+ *   included, null where git will not say; the paths in a tree the
  *   session wrote or its own commits touched, null where its write ledger
  *   will not read; and the host's
  *   `sensitivePaths`, throwing where its config will not read; and those at
@@ -277,7 +277,7 @@ function ownChanges(tree, ctx) {
 		return [];
 	}
 	if (base === null) return [];
-	const ledger = ctx.billed(ctx.session);
+	const ledger = ctx.billed(ctx.session, tree);
 	if (ledger === null) {
 		ctx.log(
 			"the write ledger did not read — this session's unstaged changes left unmatched",

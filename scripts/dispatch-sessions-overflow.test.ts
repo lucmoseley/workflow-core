@@ -403,6 +403,41 @@ describe("an overflow seat (#2610)", () => {
 		expect(readBgLaunches()).toEqual([]);
 	});
 
+	it("refuses a key Anthropic refused for credit, naming a newer Console reading where the key has one, not a cycle", () => {
+		stubBg();
+		const env = overflowEnv(200);
+		const sessionId = "0badc0de-0000-4000-8000-000000000000";
+		record({
+			issues: [],
+			model: "opus",
+			prompt: "/implement 1",
+			root: fx.dir,
+			jobId: "0badc0de",
+			overflow: { keyVar: KEY_VAR, allowanceUsd: 200, sessionId },
+		});
+		const projects = path.join(seat(), "projects", "-fixture");
+		fs.mkdirSync(projects, { recursive: true });
+		fs.writeFileSync(
+			path.join(projects, `${sessionId}.jsonl`),
+			`${JSON.stringify({ type: "assistant", isApiErrorMessage: true, error: "billing_error", message: { model: "<synthetic>", content: [{ type: "text", text: "Credit balance is too low" }] } })}\n`,
+		);
+		const ledgerDir = path.join(fx.dir, "refill", ".overflow-ledger");
+		fs.mkdirSync(ledgerDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(ledgerDir, `${KEY_VAR}.console.jsonl`),
+			`${JSON.stringify({ at: Date.now() - 3_600_000, credits: [{ remainingUsd: 150, grantUsd: 200, grantedOn: "2026-10-28", expiresOn: "2099-12-01" }] })}\n`,
+		);
+		const r = dispatch(1, env);
+		expect(r.failed).toBe("exit 3");
+		expect(r.refused[0]?.reason).toMatch(
+			new RegExp(
+				`^REFUSED: overflow seat ${seat()}: its key is exhausted until a newer Console reading,`,
+			),
+		);
+		expect(r.out).toContain("the budget resets at a newer Console reading.");
+		expect(readBgLaunches()).toEqual([]);
+	});
+
 	it("refuses a non-Opus member before the duplicate and budget gates, exit 2", () => {
 		stubBg();
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {

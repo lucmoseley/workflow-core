@@ -2,7 +2,8 @@
 /*
  * check-compaction-backstop.test.ts — the report the backstop is moved on
  * (#4410). Driven through the CLI over a stub `gh` and a throwaway git repo,
- * since a follow-up cites a unit by a commit sha `git log` must find.
+ * since a follow-up cites a unit by a commit sha `git log` must find. Broken,
+ * the backstop is moved on wrong bins.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -96,13 +97,17 @@ const bin = (report: { bins: { bin: string }[] }, label: string) =>
 	report.bins.find((b) => b.bin === label);
 
 describe("check-compaction-backstop.js", () => {
-	/* #101 compacted 6 times, stopped at a hand-off, and a second session
-	 * finished it on 4 more; #102 never compacted. */
+	/* #101's first session wrote 5 then 6 (two hand-offs) and a second
+	 * session finished on 4 more, its close quoting the first's line; #102
+	 * never compacted. */
 	const closed = [unit(101, 10), unit(102, 8)];
 	const comments = {
 		101: [
-			comment("Backstop.\n\n**Compactions:** 6\n"),
-			comment("Done.\n\n**Compactions:** 4\n"),
+			comment("Backstop.\n\n**Compactions:** 5 (session s1)\n"),
+			comment("Backstop.\n\n- `**Compactions:** 6 (session s1)`\n"),
+			comment(
+				"Done; s1 left **Compactions:** 6 (session s1)\n\n**Compactions:** 4 (session s2)\n",
+			),
 		],
 		102: [comment("Done.\n\n**Compactions:** 0\n")],
 	};

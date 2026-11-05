@@ -90,14 +90,16 @@ function ledger(entries: string[] | null, forRoot = root) {
 	fs.writeFileSync(file, entries.map((e) => `${e}\n`).join(""));
 }
 
-/** A lock record the arbiter reads as live and owned by `owner`. */
-function claim(rel: string, owner: string) {
+/** A lock record the arbiter reads as live and owned by `owner`, taken in
+ * `tree` where it names one, else in the main checkout. */
+function claim(rel: string, owner: string, tree?: string) {
 	const dir = storeDir("locks");
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, `${rel.replace(/[^A-Za-z0-9_-]/g, "-")}.json`),
 		JSON.stringify({
 			path: rel,
+			...(tree ? { tree } : {}),
 			sessionId: owner,
 			pid: process.pid,
 			procStart: readProcStartOf(process.pid),
@@ -315,8 +317,11 @@ describe("the session's own worktree (#4229)", () => {
 			: { blocked: false, reason: "", warn: "" };
 	};
 
+	/* A worktree write's ledger line names its tree (#4457). */
+	const wrote = (rel: string) => ledger([`${rel}\t${wt}`]);
+
 	it("blocks on the worktree's dirt, naming it as the worktree spells it", () => {
-		ledger(["tracked.md"]);
+		wrote("tracked.md");
 		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
 		const r = runIn();
 		expect(r.blocked).toBe(true);
@@ -328,14 +333,34 @@ describe("the session's own worktree (#4229)", () => {
 	/* A key names no tree, so the main checkout's copy of a path this session
 	 * wrote in its worktree is not billed to it (#4397). */
 	it("passes on main-checkout dirt at a path the session wrote in its worktree", () => {
-		ledger(["tracked.md"]);
+		wrote("tracked.md");
 		dirty("tracked.md");
 		expect(runIn().blocked).toBe(false);
 	});
 
+	it("passes on worktree dirt at a path the session wrote only in the main checkout (#4457)", () => {
+		ledger(["tracked.md"]);
+		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
+		expect(runIn().blocked).toBe(false);
+	});
+
+	it("blocks on worktree dirt though a live neighbour claims that path in the main checkout (#4457)", () => {
+		wrote("tracked.md");
+		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
+		claim("tracked.md", "some-other-session");
+		expect(runIn().blocked).toBe(true);
+	});
+
+	it("passes on worktree dirt a live neighbour claims in that same worktree", () => {
+		wrote("tracked.md");
+		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
+		claim("tracked.md", "some-other-session", wt);
+		expect(runIn().blocked).toBe(false);
+	});
+
 	it("does not call a claimed file clean while it is dirty in the worktree", () => {
-		claim("tracked.md", sid);
-		claim("other.md", sid);
+		claim("tracked.md", sid, wt);
+		claim("other.md", sid, wt);
 		fs.appendFileSync(path.join(wt, "other.md"), "three\n");
 		const r = runIn({ last_assistant_message: "Done.\n\nresult: shipped" });
 		expect(r.blocked).toBe(true);

@@ -144,7 +144,7 @@ const {
 	readCommandOrDefault,
 	moduleOn,
 } = require("./lib/workflow-core-config.js");
-const { pushedRef } = require("./lib/landing-refs.js");
+const { startRef } = require("./lib/landing-refs.js");
 const { pushGateState } = require("./lib/test-gate.js");
 const { selectTouched } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
@@ -1062,8 +1062,8 @@ function withSession(route, options) {
 /*
  * mantahostels#3208: THE DEFAULT'S BASE. Bare `npm run test` — argv `isFullRunArgv` calls
  * full-shaped, without a session-typed `--full` — narrows to the diff
- * against `merge-base(HEAD, <pushed ref>)`, the pushed ref being
- * lib/landing-refs.js's `pushedRef`. IT IS NEVER FETCHED: a stale remote ref only widens the selection where the merge-base
+ * against `merge-base(HEAD, <start ref>)`, the start ref being
+ * lib/landing-refs.js's `startRef`. IT IS NEVER FETCHED: a stale remote ref only widens the selection where the merge-base
  * still resolves against it. WHERE IT DOES
  * NOT EXIST OR THE MERGE-BASE CANNOT BE RESOLVED, the base falls back to
  * `HEAD` instead — which NARROWS the selection to uncommitted work alone,
@@ -1608,6 +1608,7 @@ function sweepAndAttribute(
 		...(ledger ? { ledger } : {}),
 		untracked: readUntrackedFiles(root, execFn) ?? [],
 		renames: status.renames,
+		tree: root,
 		...(withQuotes ? { committedAt: lastCommitAt(root, execFn) } : {}),
 	});
 }
@@ -2042,13 +2043,13 @@ const MAY_SELECT =
  * `--changed` read.
  *
  * THE PROBE IS SLOW UNDER LOAD, so it is never re-run on a timer. Each
- * poll reads only HEAD and the pushed ref; on a move, the paths the run would
+ * poll reads only HEAD and the start ref; on a move, the paths the run would
  * select from are listed — its own set where it has one (#1221) — and only
  * where none of them could select a test — `MAY_SELECT`, or a key in the
  * committed read-edge manifest — does the full probe confirm. A selection
  * that fails throws `SelectionFailed`;
  * every other failure keeps the run waiting and says so once. A missing
- * pushed ref reads as an empty tip, not a failure.
+ * start ref reads as an empty tip, not a failure.
  *
  * Residual: a moved diff that still touches code waits out the queue even
  * where its selection is empty; only the probe could tell, at its full cost.
@@ -2081,8 +2082,8 @@ function buildQueueRecheck(route, options) {
 			return "";
 		}
 	};
-	const pushed = pushedRef({ root });
-	const readTips = () => `${readTip("HEAD")} ${readTip(pushed)}`;
+	const start = startRef({ root });
+	const readTips = () => `${readTip("HEAD")} ${readTip(start)}`;
 	let seen = readTips();
 	let warned = false;
 	return () => {

@@ -77,7 +77,7 @@ describe("the session's own worktree (#4243)", () => {
 		fs.mkdirSync(path.join(wt, "docs"));
 		fs.writeFileSync(path.join(wt, "docs", "mine.md"), PARAGRAPH);
 		/* Keyed by its path in the tree, as the recorder run there keys it (#4397). */
-		record("docs/mine.md", ME);
+		record("docs/mine.md", ME, wt);
 		const reason = stopIn(wt);
 		expect(reason).toContain("concision-pass");
 		expect(reason).toContain("docs/mine.md");

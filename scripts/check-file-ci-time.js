@@ -33,6 +33,7 @@ const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
 const { SWEEPS_JUDGED, collect, judge } = require("./lib/file-ci-time.js");
 const { gh, ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
 const { readReports } = require("./lib/suite-timings.js");
 
@@ -44,7 +45,7 @@ const RUNS_LISTED = 30;
 const NO_ARTEFACTS = /no valid artifacts found/i;
 
 /* A manual run on a feature branch tests a tree `main` never held. */
-const SWEEP_BRANCHES = new Set(["main", "landing"]);
+const SWEEP_BRANCHES = new Set([VERIFIED_BRANCH, LANDING_BRANCH]);
 
 const ROOT = hostRoot();
 

@@ -7,9 +7,10 @@
  * Usage:  node scripts/check-compaction-backstop.js [--days <n>] [--json]
  *
  * Reads the `kind:ticket` issues closed in the last n days. A unit's count is
- * the sum of the `**Compactions:** <n>` lines on all its comments, so a unit
- * built across two sessions — a backstop hand-off, then a resolution — counts
- * both. A unit with no such line closed before the log existed, or by hand,
+ * each session's highest `**Compactions:** <n> (session <id>)` line across its
+ * comments, plus every line naming no session, so a unit built across two
+ * sessions — a backstop hand-off, then a resolution — counts both, each once.
+ * A unit with no such line closed before the log existed, or by hand,
  * and is counted apart, never binned.
  *
  * A FOLLOW-UP is a sub-issue of the unit's spec filed after the unit closed.
@@ -23,8 +24,8 @@
  * Bins: 0, 1, 2–3, 4–6, 7–10, 11+, the last two split at the backstop. The
  * spec's five are untraced (#4410 §Values).
  *
- * A report: it raises no finding and gates nothing. SKIP where the tracker or
- * git will not answer.
+ * A report: it raises no finding and gates nothing. SKIP where the tracker
+ * will not answer; BROKEN where git will not.
  */
 
 const { now, runCheck } = require("./lib/check");
@@ -74,13 +75,23 @@ const issueOfUrl = (url) => {
 	return m ? Number(m[1]) : null;
 };
 
-/** @param {{ body?: string | null }[]} comments */
+/**
+ * A unit's total: each session's highest count, plus every line naming no
+ * session.
+ * @param {{ body?: string | null }[]} comments
+ */
 function sumCompactions(comments) {
-	let compactions = null;
+	let unnamed = null;
+	/** @type {Map<string, number>} */
+	const bySession = new Map();
 	for (const { body } of comments)
-		for (const m of (body ?? "").matchAll(COMPACTIONS_LINE_RE))
-			compactions = (compactions ?? 0) + Number(m[1]);
-	return compactions;
+		for (const m of (body ?? "").matchAll(COMPACTIONS_LINE_RE)) {
+			const count = Number(m[1]);
+			if (m[2]) bySession.set(m[2], Math.max(bySession.get(m[2]) ?? 0, count));
+			else unnamed = (unnamed ?? 0) + count;
+		}
+	if (unnamed === null && bySession.size === 0) return null;
+	return (unnamed ?? 0) + [...bySession.values()].reduce((a, b) => a + b, 0);
 }
 
 /**
@@ -91,7 +102,7 @@ function sumCompactions(comments) {
 function commitsByTicket(sinceMs) {
 	const raw = execGit(
 		["log", `--since=${new Date(sinceMs).toISOString()}`, LOG_FORMAT, "HEAD"],
-		{ encoding: "utf8", maxBuffer: 64e6 },
+		{ encoding: "utf8" },
 	);
 	/** @type {Map<number, string[]>} */
 	const by = new Map();
@@ -236,7 +247,7 @@ runCheck({
 		try {
 			commits = commitsByTicket(earliest);
 		} catch (e) {
-			return ctx.skip(`git log would not answer (${caught(e).message}).`);
+			return ctx.broken(`git log would not answer (${caught(e).message}).`);
 		}
 		const bins = binUnits(units, attribute(subsBySpec, commits));
 		const unlogged = units.filter((u) => u.compactions === null).length;

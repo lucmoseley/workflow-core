@@ -45,7 +45,7 @@ const { execGit } = require("./git.js");
  *   `untracked` is optional: only `neighbourDirty` reads it, and it already
  *   tolerates a snapshot taken before the field existed.
  * @typedef {{path?: string, sessionId?: string|null, pid?: number|null,
- *   alive?: boolean, unreadable?: boolean, claimedAt?: string}} Lock
+ *   alive?: boolean, unreadable?: boolean, claimedAt?: string, tree?: string}} Lock
  * @typedef {{path: string, sessionId: string, pid: number|null,
  *   dead: boolean}} HeldEntry
  */

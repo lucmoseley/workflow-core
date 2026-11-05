@@ -61,7 +61,7 @@ const {
 	readDirtyPaths,
 	readDirtyWorktrees,
 	attributeWorktreeDirt,
-	dirtByHolder,
+	dirtByTree,
 	classifyWorktrees,
 	isDirtyClaim,
 	classifyClaims,
@@ -88,8 +88,10 @@ const describeAge = (hours) =>
 /** @typedef {import("./lib/arbiter-store").ListedLock} Lock */
 /** @typedef {import("./lib/stranded-count").WorktreeDirt} WorktreeDirt */
 /**
- * @typedef {{path: string, sessionId: string, pid: number | null,
- *   claimedAt: string | null, hoursHeld: number | null}} Stranded
+ * @typedef {{path: string, tree?: string, sessionId: string,
+ *   pid: number | null, claimedAt: string | null,
+ *   hoursHeld: number | null}} Stranded
+ *   `tree` the holder's worktree, absent for the main checkout (#4457)
  * @typedef {{file?: string, path?: string, reason: string}} Unreadable
  */
 
@@ -209,7 +211,10 @@ function sayStrandedHeadline(
 function buildItemLine(ctx, s, isDirty) {
 	if (ctx.notify)
 		return `  ${s.path} — ${describeAge(s.hoursHeld)} by ${s.sessionId.slice(0, 8)}`;
-	return `  ${s.path}${isDirty(s) ? "  [uncommitted work]" : ""}\n    ${s.sessionId} (pid ${s.pid ?? "unknown"}), ${describeAge(s.hoursHeld)}, since ${s.claimedAt || "unknown"}`;
+	const where = s.tree
+		? ` (in ${worktreeLabel(paths.repoRoot(), s.tree)})`
+		: "";
+	return `  ${s.path}${where}${isDirty(s) ? "  [uncommitted work]" : ""}\n    ${s.sessionId} (pid ${s.pid ?? "unknown"}), ${describeAge(s.hoursHeld)}, since ${s.claimedAt || "unknown"}`;
 }
 
 /**
@@ -387,6 +392,7 @@ runCheck({
 
 		const stranded = buckets.stranded.map((lock) => ({
 			path: lock.path,
+			...(lock.tree ? { tree: lock.tree } : {}),
 			sessionId: lock.sessionId,
 			pid: lock.pid ?? null,
 			claimedAt: lock.claimedAt ?? null,
@@ -404,9 +410,8 @@ runCheck({
 		 */
 		const dirty = readDirtyPaths();
 		const worktrees = attributeWorktreeDirt(dirtyTrees.found, { cwds, names });
-		const held = dirtByHolder(worktrees);
-		const isDirty = (/** @type {Stranded} */ s) =>
-			isDirtyClaim(dirty, s.path, held.get(s.sessionId));
+		const dirt = dirtByTree(dirty, dirtyTrees.found);
+		const isDirty = (/** @type {Stranded} */ s) => isDirtyClaim(dirt, s);
 		const carrying = dirty ? stranded.filter(isDirty) : [];
 		const trees = classifyWorktrees(worktrees, ids, { hours, terminal });
 		const oldest = oldestHours(stranded);

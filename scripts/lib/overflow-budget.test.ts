@@ -662,6 +662,7 @@ describe("the CLI", () => {
 			creditUsd: 200,
 			grantUsd: 200,
 			readAt: null,
+			expiresOn: null,
 			qUsd: 4,
 			running: 0,
 			exhausted: false,
@@ -765,7 +766,7 @@ describe("the status line", () => {
 			},
 		});
 		expect(r.stdout.trim()).toBe(
-			`overflow ${seatDir}: fits 42; headroom $170.02 ($0.00 held by 0 running); $170.02 on the Console at 2026-11-03T04:00:00.000Z, $0.00 spent since; last Console read failed: Chrome is closed`,
+			`overflow ${seatDir}: fits 42; headroom $170.02 ($0.00 held by 0 running); $170.02 of $200.00 on the Console at 2026-11-03T04:00:00.000Z, $0.00 spent since; expires 2099-12-01; last Console read failed: Chrome is closed`,
 		);
 	});
 });

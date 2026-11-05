@@ -203,6 +203,29 @@ function gitDirs(cwd) {
 }
 
 /**
+ * `git rev-parse` of `flags` and then the git common dir, absolute paths, in
+ * one fork: each flag's line, the common dir last. Throws execGit's error
+ * where git refuses a flag.
+ * @param {string} cwd
+ * @param {readonly string[]} flags
+ * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding" | "cwd">} [opts]
+ * @returns {string[]}
+ */
+function revParseWithCommonDirOrThrow(cwd, flags, opts = {}) {
+	return execGit(
+		["rev-parse", "--path-format=absolute", ...flags, "--git-common-dir"],
+		{
+			stdio: ["ignore", "pipe", "ignore"],
+			...opts,
+			cwd,
+			encoding: "utf8",
+		},
+	)
+		.trim()
+		.split("\n");
+}
+
+/**
  * spawnSync on git: never throws; the caller reads `status` and `error`.
  * @overload
  * @param {readonly string[]} args
@@ -324,6 +347,7 @@ module.exports = {
 	gitCommonDir,
 	gitDirs,
 	gitCommonDirOrThrow,
+	revParseWithCommonDirOrThrow,
 	spawnGitSync,
 	gitOutcome,
 	gitReader,

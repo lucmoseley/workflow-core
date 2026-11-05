@@ -37,8 +37,8 @@ const { readConfig } = require("./workflow-core-config.js");
 
 /**
  * The lander's environment less every variable a root lookup answers before
- * cwd, so the install and suite run as CI does: rooted by their own
- * directory. A CLAUDE_PROJECT_DIR left in sent the suite to the main checkout;
+ * cwd, so the install and suite run as CI does: the tree under test rooted by
+ * its own directory, the host root by the main checkout owning it. A CLAUDE_PROJECT_DIR left in sent the suite to the main checkout;
  * a WFC_REPO_ROOT, the suite's test-injection point, outranked every
  * fixture's root (#2410); a CLAUDE_PLUGIN_ROOT from the hook that started the
  * lander sent init-adopter to the main checkout's self-plugin/ (#2476).

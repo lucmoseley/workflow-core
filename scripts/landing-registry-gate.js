@@ -14,9 +14,11 @@
  * A LANDER REVERT passes with the rows it leaves stale: with WFC_LANDER_REVERT
  * naming a culprit, the checker stands staleness down where the pushed sha is
  * one commit on the tip, carries git's revert line for that culprit and holds
- * its clean revert, so the lander can reopen a held queue (#3127). The same
- * revert is judged against the culprit's parent as well as the tip, a fault
- * refusing only where it is in neither (#4451).
+ * its clean revert, so the lander can reopen a held queue (#3127); naming the
+ * culprit's dependents first, where the push is one line of such reverts, one
+ * per commit named, in that order (#4453). The same revert is judged against
+ * the culprit's parent as well as the tip, a fault refusing only where it is
+ * in neither (#4451).
  *
  * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
  * branch protection on the remote is the gate that binds (#2414).

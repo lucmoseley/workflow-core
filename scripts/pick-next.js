@@ -658,10 +658,12 @@ function dispatchedIssues() {
  * @param {ListedSessions} listed
  */
 function strandedClaimCount(listed) {
+	const { found } = strandedCount.readDirtyWorktrees();
 	return strandedCount.countStranded(arbiter.readLocks(), listed.ids, {
 		dirty: strandedCount.readDirtyPaths(),
 		terminal: listed.terminal,
-		worktrees: strandedCount.readWorktreeDirt(listed),
+		found,
+		worktrees: strandedCount.attributeWorktreeDirt(found, listed),
 	});
 }
 
