@@ -10,32 +10,37 @@
  * and only on a stale verdict, so a slot nobody starts a session after stays
  * missed. The refill loop runs this every tick instead.
  *
- * WHICH SLOT: the newest one past SWEEP_GRACE_MS (lib/sweep-ledger.js), the
- * same grace the liveness report judges a miss by, so a slot GitHub delivers
- * late inside it is never doubled. Only that one: an older miss means the loop
- * was down through its whole repair window, and firing several now would test
- * the same tree several times over.
+ * WHICH SLOT: the newest one the ledger (lib/sweep-ledger.js) can judge, past
+ * the same grace the liveness report judges a miss by, so a slot GitHub
+ * delivers late inside it is never doubled. Only that one: an older miss means
+ * the loop was down through its whole repair window, and firing several now
+ * would test the same tree several times over.
  *
  * ONCE PER SLOT, two ways. The dispatch carries the slot (`-f slot=…`), which
  * the workflow's `run-name` turns into a title the ledger reads as that slot's
  * run, so a repair from any machine is seen as delivery. And the
  * `.sweep-slot-repair` marker in the git common dir records the slot settled
- * before the dispatch, which covers GitHub's few seconds of not yet listing a
- * queued run (mantahostels#1832) and keeps every later tick off `gh` until the
- * next slot passes its grace.
+ * once the fire is spent, which covers GitHub's few seconds of not yet listing
+ * a queued run (mantahostels#1832) and keeps every later tick off `gh` until
+ * the next slot passes its grace.
+ *
+ * A DISPATCH THAT FAILS IS RE-JUDGED, never settled: the next tick reads the
+ * runs again, and a timed-out dispatch that did reach GitHub is listed by then
+ * under its slot's title, so the retry fires only where none did.
  *
  * IT SPENDS THE DAY'S SWEEP BUDGET (lib/sweep-budget.js), as every route does:
- * no exemption for repairing a slot (mantahostels#2188 Q3). A day out of budget
- * leaves the slot missed, said once.
+ * no exemption for repairing a slot (mantahostels#2188 Q3), and the budget is
+ * what bounds the retries. A day out of budget leaves the slot missed, said
+ * once.
  *
- * A dispatch that fails is not retried: whether a timed-out one reached GitHub
- * is unknown, and a retry could double it.
+ * Joins no §N3 family: it fires a workflow and reports nothing a checker
+ * would, as the incident filers beside it on the tick do.
  *
  * Prints nothing where nothing was fired or failed. Exit codes: 0 on a pass;
  * 1 where the runs, the marker or the budget would not read, or the dispatch
  * failed, so the refill loop logs it.
  *
- * Caller: the refill loop, every tick (lib/refill-tick.js's repairSweepSlot).
+ * Caller: the refill loop, every tick (lib/refill-tick.js's runMachineChild).
  */
 
 const fs = require("node:fs");
@@ -48,35 +53,29 @@ const { hostRoot } = require("./lib/host-root.js");
 const { spendFire } = require("./lib/sweep-budget.js");
 const {
 	SLOT_INPUT,
-	SWEEP_GRACE_MS,
 	SWEEP_WORKFLOW,
+	readLedgerRuns,
 	slotKey,
-	slotsFrom,
 	sweepLedger,
 } = require("./lib/sweep-ledger.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const MARKER = ".sweep-slot-repair";
-const DAY_MS = 24 * 60 * 60 * 1000;
+
+/* The bound check-ci-status.js gives each of its own gh calls (mantahostels#2134),
+ * not gh.js's 300 s default: a refill tick runs this inline. */
 const GH_TIMEOUT_MS = 8000;
 
 /**
- * The newest slot past its grace at `t`.
+ * The newest slot the ledger judges at `t`. The 24h window always holds three
+ * past the grace, so none is a broken grid.
  * @param {number} t
  */
 function dueSlot(t) {
-	const due = slotsFrom(t - DAY_MS).filter((at) => t - at > SWEEP_GRACE_MS);
-	return /** @type {number} */ (due.at(-1));
+	const slot = sweepLedger([], t).judgeable.at(-1);
+	if (!slot) throw new Error("the sweep grid has no judgeable slot");
+	return slot.at;
 }
-
-/**
- * Whether `slot` produced a run among `runs`, by the ledger's own reading.
- * @param {import("./lib/sweep-ledger.js").LedgerRun[]} runs
- * @param {number} slot
- * @param {number} t
- */
-const isDelivered = (runs, slot, t) =>
-	sweepLedger(runs, t).slots.some((s) => s.at === slot && s.run !== null);
 
 /**
  * The marker's settled slot, or null where none is; throws where it will not
@@ -97,29 +96,26 @@ function readSettled(marker) {
 /**
  * @param {string} marker
  * @param {string} slot
- * @param {"delivered"|"repairing"|"budget out"} outcome
+ * @param {"delivered"|"fired"|"budget out"} outcome
  */
 const settle = (marker, slot, outcome) =>
 	fs.writeFileSync(marker, JSON.stringify({ slot, outcome }));
 
-/** @returns {import("./lib/sweep-ledger.js").LedgerRun[]} */
-const readRuns = () =>
-	JSON.parse(
-		gh(
-			[
-				"run",
-				"list",
-				"--workflow",
-				SWEEP_WORKFLOW,
-				/* check-ci-status.js's readSweepRuns() window, so the two judge one list. */
-				"--limit",
-				"50",
-				"--json",
-				"createdAt,event,displayTitle",
-			],
-			{ timeout: GH_TIMEOUT_MS },
-		),
+/**
+ * Whether the slot is settled or produced a run, settling it where it did.
+ * @param {string} marker
+ * @param {number} slot
+ * @param {number} t
+ */
+function isRepairDone(marker, slot, t) {
+	const key = slotKey(slot);
+	if (readSettled(marker) === key) return true;
+	const delivered = sweepLedger(readLedgerRuns(GH_TIMEOUT_MS), t).slots.some(
+		(s) => s.at === slot && s.run !== null,
 	);
+	if (delivered) settle(marker, key, "delivered");
+	return delivered;
+}
 
 /** @returns {number} */
 function main() {
@@ -136,14 +132,7 @@ function main() {
 	const slot = dueSlot(t);
 	const key = slotKey(slot);
 	try {
-		if (readSettled(marker) === key) return 0;
-		if (isDelivered(readRuns(), slot, t)) {
-			settle(marker, key, "delivered");
-			return 0;
-		}
-		/* Before the spend, so a marker that will not write fires nothing: a
-		 * repair it cannot record would fire again every tick. */
-		settle(marker, key, "repairing");
+		if (isRepairDone(marker, slot, t)) return 0;
 	} catch (e) {
 		writeFd(2, `slot ${key} not judged: ${buildErrorText(e)}\n`);
 		return 1;
@@ -153,8 +142,15 @@ function main() {
 		writeFd(2, `slot ${key} missed, not repaired: ${spend.fault}\n`);
 		return 1;
 	}
+	try {
+		/* Settled once spent, before the dispatch: a marker that will not write
+		 * fires nothing, where a repair it cannot record would fire every tick. */
+		settle(marker, key, spend.out ? "budget out" : "fired");
+	} catch (e) {
+		writeFd(2, `slot ${key} missed, not repaired: ${buildErrorText(e)}\n`);
+		return 1;
+	}
 	if (spend.out) {
-		settle(marker, key, "budget out");
 		writeFd(
 			1,
 			`slot ${key} missed, not repaired: ${spend.cap} sweeps already fired on ${spend.day} (UTC)\n`,
@@ -166,6 +162,7 @@ function main() {
 			timeout: GH_TIMEOUT_MS,
 		});
 	} catch (e) {
+		fs.rmSync(marker, { force: true });
 		writeFd(2, `slot ${key} missed, its repair failed: ${buildErrorText(e)}\n`);
 		return 1;
 	}

@@ -86,9 +86,10 @@
  * (the ordinary case — the Node-side clock, not gh's own, fires first) is
  * BROKEN.
  *
- * THE SUM IS ALSO BOUNDED, UNDER --notify ONLY (mantahostels#2177). Three gh() calls fire
+ * THE SUM IS ALSO BOUNDED, UNDER --notify ONLY (mantahostels#2177). Four gh() calls fire
  * on every --notify run before any conditional one — the branch query, then
- * readSweepRuns() and readInactiveWorkflows() inside buildLivenessReport(). The
+ * readSweepRuns(), readSlotRuns() and readInactiveWorkflows() for
+ * buildLivenessReport(). The
  * conditional ones are runFailures(), once per red run, and once more where a
  * missed slot reports a red newest sweep (mantahostels#2203); and one
  * tracking-issue lookup where a red is the suite's (#532). So a
@@ -214,6 +215,7 @@ const BISECT_WORKFLOW = "bisect.yml";
 
 const {
 	SWEEP_WORKFLOW,
+	readLedgerRuns,
 	slotsFrom,
 	sweepLedger,
 } = require("./lib/sweep-ledger.js");
@@ -538,6 +540,27 @@ function readSweepRuns(deadline) {
 }
 
 /**
+ * The runs the slot ledger judges (lib/sweep-ledger.js's readLedgerRuns), or
+ * null when they cannot be read. A read of their own, apart from
+ * readSweepRuns()'s: that one keeps the `landing` push runs, which are
+ * coverage, and which crowd the slots' own runs out of any one list.
+ *
+ * `deadline`: see readSweepRuns() above.
+ *
+ * @param {number|null} deadline
+ */
+function readSlotRuns(deadline) {
+	const timeout = ghTimeout(deadline);
+	if (timeout === null) return null;
+	try {
+		return readLedgerRuns(timeout);
+	} catch {
+		/* Fails open to UNKNOWN (mantahostels#1024), as readSweepRuns() does. */
+		return null;
+	}
+}
+
+/**
  * Every workflow whose state is not `active`, or null when it cannot be read.
  *
  * `--all` is not optional: without it a DISABLED workflow vanishes from the list
@@ -778,12 +801,14 @@ function buildRedSweepLines(newest, deadline, ticket) {
  * `hasSweep` false (#403) judges only the other workflows' states: no ledger,
  * no staleness, no disabled-sweep warning.
  *
- * @param {Run[]|null} runs
+ * @param {Run[]|null} runs every sweep run, for coverage
+ * @param {import("./lib/sweep-ledger.js").LedgerRun[]|null} slotRuns the ledger's
  * @param {Workflow[]|null} inactive
  * @param {{ t: number, deadline: number|null, hasSweep: boolean, ticket: SuiteTicket }} opts
  */
 function buildLivenessReport(
 	runs,
+	slotRuns,
 	inactive,
 	{ t, deadline, hasSweep, ticket },
 ) {
@@ -809,7 +834,8 @@ function buildLivenessReport(
 	 * run at all — which is also what a workflow added an hour ago looks like, so
 	 * neither is judged. A schedule that has genuinely never fired surfaces
 	 * through the state read above and through the no-finished-runs path. */
-	const ledger = runs && runs.length > 0 ? sweepLedger(runs, t) : null;
+	const ledger =
+		slotRuns && slotRuns.length > 0 ? sweepLedger(slotRuns, t) : null;
 	const newest = runs && runs.length > 0 ? newestRun(runs) : null;
 
 	/* Read once and shared. Each call is a pair of git subprocesses, and two
@@ -852,7 +878,7 @@ function buildLivenessReport(
 	const blind = inactive
 		? ""
 		: " Workflow states unreadable, so a disabled workflow would not be seen.";
-	const ledgerLine = buildLedgerStateLine(runs, ledger, newestLine) + blind;
+	const ledgerLine = buildLedgerStateLine(slotRuns, ledger, newestLine) + blind;
 	return { lines, findings, ledgerLine, staleMs, sweepRed };
 }
 
@@ -963,7 +989,7 @@ function reportMissedSlots(out, { ledger, inactive, newestLine, t }) {
 /**
  * The on-demand ledger line on the healthy-or-unreadable path.
  *
- * @param {Run[]|null} runs
+ * @param {unknown[]|null} runs
  * @param {ReturnType<typeof sweepLedger>|null} ledger
  * @param {string} newestLine
  * @returns {string}
@@ -1587,6 +1613,7 @@ runCheck({
 		const live = noteStaleSweep(
 			buildLivenessReport(
 				hasSweep ? readSweepRuns(deadline) : [],
+				hasSweep ? readSlotRuns(deadline) : [],
 				readInactiveWorkflows(deadline),
 				{ t: now(), deadline, hasSweep, ticket },
 			),

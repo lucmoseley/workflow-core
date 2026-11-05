@@ -10,8 +10,20 @@
  * @typedef {{createdAt?: string, event?: string, displayTitle?: string}} LedgerRun
  */
 
+const { gh } = require("./gh.js");
+
 /* The sweep workflow's file. */
 const SWEEP_WORKFLOW = "scheduled-checks.yml";
+
+/* The branch the ledger reads. A scheduled run and a dispatch with no `--ref`
+ * both run on the default branch; every push to `landing` runs this workflow
+ * too (#2413), and read unfiltered those push runs push the slots' own runs
+ * out of the list within hours (49 of the 50 newest on 5 Nov 2026). */
+const SWEEP_BRANCH = "main";
+
+/* Four scheduled runs a day plus the repairs and hand-fires beside them, so
+ * 50 reaches back well past the 24h window. */
+const LEDGER_RUN_LIMIT = 50;
 
 /* The `workflow_dispatch` input naming the slot a repair fires for; the
  * workflow's `run-name` turns it into slotRunTitle()'s title. */
@@ -37,7 +49,7 @@ const SWEEP_HOURS_UTC = [3, 9, 15, 21];
  *
  * IT IS ALSO WHEN A MISSED SLOT IS REPAIRED (#4447): scripts/repair-sweep-slot.js
  * fires one titled for a slot this has judged missed. So the tail above is
- * now billed as well as noisy: a slot GitHub delivers later than this gets the
+ * billed as well as noisy: a slot GitHub delivers later than this gets the
  * repair AND its own late run, a sweep the day's budget pays twice.
  *
  * At the 6h gap (mantahostels#3490) only the newest slot is ever inside it —
@@ -180,12 +192,41 @@ const slotKey = (at) => `${new Date(at).toISOString().slice(0, 16)}Z`;
  */
 const slotRunTitle = (at) => `sweep slot ${slotKey(at)}`;
 
+/**
+ * The sweep runs the ledger judges: the newest LEDGER_RUN_LIMIT on
+ * SWEEP_BRANCH. Throws where gh fails or answers with no list; each caller
+ * decides what an unreadable ledger means for it.
+ * @param {number} timeout
+ * @returns {LedgerRun[]}
+ */
+function readLedgerRuns(timeout) {
+	const rows = JSON.parse(
+		gh(
+			[
+				"run",
+				"list",
+				"--workflow",
+				SWEEP_WORKFLOW,
+				"--branch",
+				SWEEP_BRANCH,
+				"--limit",
+				String(LEDGER_RUN_LIMIT),
+				"--json",
+				"createdAt,event,displayTitle",
+			],
+			{ timeout },
+		),
+	);
+	if (!Array.isArray(rows))
+		throw new Error("gh run list answered with no list");
+	return rows;
+}
+
 module.exports = {
 	SLOT_INPUT,
-	SWEEP_GRACE_MS,
 	SWEEP_WORKFLOW,
+	readLedgerRuns,
 	slotKey,
-	slotRunTitle,
 	slotsFrom,
 	sweepLedger,
 };

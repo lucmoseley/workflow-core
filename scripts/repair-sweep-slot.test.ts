@@ -4,6 +4,9 @@
  * run past the grace is fired once, a slot GitHub delivers late inside the
  * grace is not doubled, and the dispatch carries the title the ledger reads as
  * that slot's run. Drives the real script against a stub `gh`.
+ *
+ * Loosen a case and the refill tick either leaves a dropped slot missed or
+ * fires the same slot again every tick, spending the day's three sweeps.
  */
 
 import { execFileSync } from "node:child_process";
@@ -14,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { slotKey, slotRunTitle } from "./lib/sweep-ledger.js";
+import { slotKey } from "./lib/sweep-ledger.js";
 
 const SCRIPT = path.join(__dirname, "repair-sweep-slot.js");
 
@@ -97,8 +100,34 @@ describe("a slot with no run past the grace is fired once (#4447)", () => {
 			},
 		]);
 
-		expect(repair("2026-08-21T20:30:00Z").stdout).toBe("");
+		const out = repair("2026-08-21T20:30:00Z");
+		expect(out.status).toBe(0);
+		expect(out.stdout).toBe("");
 		expect(dispatches()).toHaveLength(0);
+	});
+
+	it("reads the ledger off main alone, so landing's push runs crowd out no slot", () => {
+		repair("2026-08-21T20:30:00Z");
+
+		expect(callLines().find((l) => l.startsWith("run list"))).toContain(
+			"--branch main",
+		);
+	});
+
+	it("re-judges a slot whose dispatch failed, and fires it again on the next tick", () => {
+		const failing = stubGhScript(
+			path.join(dir, "dispatch-fails"),
+			"#!/bin/sh\n" +
+				`echo "$@" >> ${shellQuote(calls)}\n` +
+				`[ "$1 $2" = "run list" ] && exec cat ${shellQuote(sweeps)}\n` +
+				"exit 1\n",
+		).gh;
+
+		expect(repair("2026-08-21T20:30:00Z", failing).status).toBe(1);
+		const second = repair("2026-08-21T20:35:00Z");
+		expect(second.status).toBe(0);
+		expect(second.stdout).toContain("sweep fired");
+		expect(dispatches()).toHaveLength(2);
 	});
 
 	it("spends the day's sweep budget, and leaves the slot missed once it is out", () => {
@@ -143,14 +172,18 @@ describe("a slot GitHub delivers late inside the grace is not doubled (#4447)", 
 	it("leaves the 15:00 slot alone at 19:30, inside its grace, with no run yet", () => {
 		setSweeps([scheduled("2026-08-21T09:00:00Z")]);
 
-		expect(repair("2026-08-21T19:30:00Z").stdout).toBe("");
+		const out = repair("2026-08-21T19:30:00Z");
+		expect(out.status).toBe(0);
+		expect(out.stdout).toBe("");
 		expect(dispatches()).toHaveLength(0);
 	});
 
 	it("reads a run that started late in the slot as its delivery", () => {
 		setSweeps([scheduled("2026-08-21T17:40:00Z")]);
 
-		expect(repair("2026-08-21T20:30:00Z").stdout).toBe("");
+		const out = repair("2026-08-21T20:30:00Z");
+		expect(out.status).toBe(0);
+		expect(out.stdout).toBe("");
 		expect(dispatches()).toHaveLength(0);
 	});
 });
@@ -165,7 +198,7 @@ describe("an adopter with no sweep workflow (#4447)", () => {
 });
 
 describe("the workflow titles a repair as the ledger reads it (#4447)", () => {
-	it("turns the `slot` input into slotRunTitle's title", () => {
+	it("turns the `slot` input into the title the ledger matches", () => {
 		const workflow = fs.readFileSync(
 			path.join(
 				__dirname,
@@ -176,15 +209,10 @@ describe("the workflow titles a repair as the ledger reads it (#4447)", () => {
 			),
 			"utf8",
 		);
-		const runName = /^run-name: .*format\('([^']*)', inputs\.slot\)/m.exec(
-			workflow,
+		expect(workflow).toMatch(
+			/^run-name: .*format\('sweep slot \{0\}', inputs\.slot\)/m,
 		);
-		expect(runName, "no slot run-name in scheduled-checks.yml").not.toBeNull();
 		expect(workflow).toMatch(/workflow_dispatch:\n {4}inputs:\n {6}slot:/);
-
-		const at = Date.UTC(2026, 7, 21, 15);
-		expect((runName as RegExpExecArray)[1].replace("{0}", slotKey(at))).toBe(
-			slotRunTitle(at),
-		);
+		expect(slotKey(Date.UTC(2026, 7, 21, 15))).toBe("2026-08-21T15:00Z");
 	});
 });

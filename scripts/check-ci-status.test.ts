@@ -2360,6 +2360,18 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 		);
 	});
 
+	it("judges slots off main's runs alone, which landing's pushes cannot crowd out (#4447)", () => {
+		setSweeps([sweepAt("03:00"), sweepAt("09:00"), sweepAt("15:00")]);
+		fs.writeFileSync(ghArgsFile, "");
+
+		check(["--notify"], at(SWEEP_NOW));
+		const ledgerReads = fs
+			.readFileSync(ghArgsFile, "utf8")
+			.split("\n")
+			.filter((l) => l.includes("--workflow") && l.includes("--branch main"));
+		expect(ledgerReads).toHaveLength(1);
+	});
+
 	it("does not let a dispatch titled for another slot fill this one (#4447)", () => {
 		setSweeps([
 			sweepAt("03:00"),
