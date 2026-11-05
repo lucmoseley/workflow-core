@@ -50,7 +50,7 @@ unset _cs_dir
 # Did /implement run in this session? inject-tracker-docs.sh reserves one marker
 # per session per command before it emits, under a uid-suffixed scratch
 # directory. THE PATH IS SPELLED TWICE — here and at inject-tracker-docs.sh's
-# state_dir and marker — and nothing but concision-backstop.test.ts's "reads the
+# state_dir and marker — and nothing but concision-backstop-floor.test.ts's "reads the
 # marker inject-tracker-docs.sh actually writes", which runs the injector for
 # real, holds the two in step. A drift returns every /implement session to the
 # CODE_THRESHOLD floor, silently.
