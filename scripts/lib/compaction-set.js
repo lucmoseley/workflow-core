@@ -11,7 +11,7 @@
  */
 
 const path = require("node:path");
-const hookBlock = require("./hook-block");
+const { hookStoreRoot } = require("./hook-store-root");
 const { markersDir } = require("./marker-root");
 const { readSeen, writeSeen } = require("./report-once");
 
@@ -38,10 +38,7 @@ const PENDING_PREFIX = "pending:";
  * @returns {number}
  */
 function recordCompactions(sid, keys) {
-	const file = path.join(
-		markersDir(hookBlock.repoRoot()),
-		COMPACTIONS_PREFIX + sid,
-	);
+	const file = path.join(markersDir(hookStoreRoot()), COMPACTIONS_PREFIX + sid);
 	const seen = readSeen(file);
 	const before = [...seen].join("\n");
 	for (const key of seen) if (key.startsWith(PENDING_PREFIX)) seen.delete(key);
@@ -61,13 +58,22 @@ function recordCompactions(sid, keys) {
 
 /**
  * The size of `sid`'s set, read without writing: 0 where it never
- * autocompacted. `root` is the tree whose markers the hook wrote.
+ * autocompacted. RESIDUAL: an unreadable set reads as 0 too, `readSeen`
+ * failing open, so its unit is logged as never having compacted.
  * @param {string} sid
- * @param {string} root
  */
-function countCompactions(sid, root) {
-	return readSeen(path.join(markersDir(root), COMPACTIONS_PREFIX + sid)).size;
+function countCompactions(sid) {
+	return readSeen(
+		path.join(markersDir(hookStoreRoot()), COMPACTIONS_PREFIX + sid),
+	).size;
 }
+
+/* The per-unit log line a close or a backstop hand-off carries (#4410), and
+ * every reader of it. */
+const COMPACTIONS_MARKER = "Compactions";
+/** @param {number} count */
+const buildCompactionsLine = (count) => `**${COMPACTIONS_MARKER}:** ${count}`;
+const COMPACTIONS_LINE_RE = /^[ \t]*\*\*Compactions:\*\*[ \t]*(\d+)/gm;
 
 /** @param {number} count */
 function buildCompactionSentence(count) {
@@ -92,7 +98,7 @@ function compactionAdvice(count, { issue, stateFile }) {
 		const update = stateFile
 			? `, update the build state file ${stateFile}`
 			: "";
-		return `That is the backstop (${COMPACTION_BACKSTOP}): commit what exists${update}, comment the unfinished state on ${theIssue} with a \`**Compactions:** ${count}\` line, leave it open, and end.`;
+		return `That is the backstop (${COMPACTION_BACKSTOP}): commit what exists${update}, comment the unfinished state on ${theIssue} with a \`${buildCompactionsLine(count)}\` line, leave it open, and end.`;
 	}
 	const state = stateFile ? `the build state file ${stateFile}, ` : "";
 	return `Re-read ${state}${theIssue}, and \`git log\` and \`git diff\` of your own commits on it; where the compaction summary disagrees with them, the summary is only a hint. Carry on with the unit in flight, and start no new unit after it.`;
@@ -105,4 +111,7 @@ module.exports = {
 	COMPACTION_BACKSTOP,
 	compactionAdvice,
 	countCompactions,
+	COMPACTIONS_MARKER,
+	COMPACTIONS_LINE_RE,
+	buildCompactionsLine,
 };

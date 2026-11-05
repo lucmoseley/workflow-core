@@ -19,11 +19,9 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { buildStateFile, newBuildState } = require("./lib/build-state.js");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { caught } = require("./lib/caught.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE = "usage: node scripts/build-state.js <n> [--spec <parent>]";
-
-/** @param {string|undefined} s */
-const issueArg = (s) => (s !== undefined && /^\d+$/.test(s) ? Number(s) : 0);
 
 /** @param {string[]} argv */
 function main(argv) {
@@ -33,10 +31,10 @@ function main(argv) {
 		min: 1,
 		max: 1,
 	});
-	const issue = issueArg(positionals[0]);
+	const issue = parseIssueNumber(positionals[0]);
 	const specArg = flagValue(flags, "--spec");
-	const spec = specArg === undefined ? null : issueArg(specArg);
-	if (!issue || spec === 0) {
+	const spec = specArg === undefined ? null : parseIssueNumber(specArg);
+	if (!issue || (specArg !== undefined && !spec)) {
 		process.stderr.write(`${USAGE}\n`);
 		return 2;
 	}

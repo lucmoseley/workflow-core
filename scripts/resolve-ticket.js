@@ -119,8 +119,11 @@ const {
 	hasRecordMention,
 	readTicketComments,
 } = require("./lib/review-findings.js");
-const { countCompactions } = require("./lib/compaction-set.js");
-const { hookStoreRoot } = require("./lib/hook-store-root.js");
+const {
+	buildCompactionsLine,
+	COMPACTIONS_MARKER,
+	countCompactions,
+} = require("./lib/compaction-set.js");
 const { caught } = require("./lib/caught.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
@@ -432,8 +435,6 @@ function readMapOrFail(issue, n, decision) {
 	return map;
 }
 
-const COMPACTIONS = "Compactions";
-
 /**
  * A `kind:ticket`'s comment with this session's autocompaction count appended,
  * the per-unit log the backstop report reads (#4410); any other issue's, or
@@ -444,18 +445,17 @@ const COMPACTIONS = "Compactions";
 function withCompactionsLine(comment, issue) {
 	if (
 		!issue.labels.includes("kind:ticket") ||
-		hasLine(comment, COMPACTIONS, "")
+		hasLine(comment, COMPACTIONS_MARKER, "")
 	)
 		return comment;
 	const sid = process.env.CLAUDE_CODE_SESSION_ID;
 	if (!sid) {
 		io.out(
-			`No session id (CLAUDE_CODE_SESSION_ID is unset), so #${issue.number}'s comment carries no **${COMPACTIONS}:** line.\n`,
+			`No session id (CLAUDE_CODE_SESSION_ID is unset), so #${issue.number}'s comment carries no **${COMPACTIONS_MARKER}:** line.\n`,
 		);
 		return comment;
 	}
-	const count = countCompactions(sid, hookStoreRoot());
-	return `${comment.trimEnd()}\n\n**${COMPACTIONS}:** ${count}\n`;
+	return `${comment.trimEnd()}\n\n${buildCompactionsLine(countCompactions(sid))}\n`;
 }
 
 /**

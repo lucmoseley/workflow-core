@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * build-state.test.ts — `/implement`'s opening step: create or resume a build
- * unit's state file, keyed by issue number (#4410).
+ * unit's state file, keyed by issue number (#4410). Rooted on a temp
+ * WFC_REPO_ROOT, so no run writes the live checkout's state files.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -56,7 +57,7 @@ describe("build-state.js", () => {
 	});
 
 	it("records a null spec where none is passed", () => {
-		run(["12"]);
+		expect(run(["12"]).status).toBe(0);
 		expect(JSON.parse(fs.readFileSync(file(12), "utf8")).spec).toBeNull();
 	});
 
@@ -65,13 +66,16 @@ describe("build-state.js", () => {
 		fs.writeFileSync(file(5), "{torn");
 		const r = run(["5"]);
 		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`${file(5)}: `);
 		expect(fs.readFileSync(file(5), "utf8")).toBe("{torn");
 	});
 
 	it.each([[[]], [["x"]], [["5", "--spec", "y"]]])(
 		"exits 2 on bad usage %j",
 		(args) => {
-			expect(run(args).status).toBe(2);
+			const r = run(args);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain("usage: node scripts/build-state.js <n>");
 		},
 	);
 });

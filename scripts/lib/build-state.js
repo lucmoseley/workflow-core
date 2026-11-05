@@ -15,12 +15,9 @@ const { hookStoreRoot } = require("./hook-store-root.js");
 
 const BUILD_STATE_REL = path.join(".claude", "tmp", "build-state");
 
-/**
- * @param {number} issue
- * @param {string} [root]
- */
-function buildStateFile(issue, root = hookStoreRoot()) {
-	return path.join(root, BUILD_STATE_REL, `${issue}.json`);
+/** @param {number} issue */
+function buildStateFile(issue) {
+	return path.join(hookStoreRoot(), BUILD_STATE_REL, `${issue}.json`);
 }
 
 /**
@@ -47,6 +44,8 @@ function newBuildState(issue, spec) {
  * @returns {number|null}
  */
 function claimedIssue(sid) {
+	/* Loaded here, not at the top: build-state.js's own CLI never reads the
+	 * claims, and the claim store's module pulls in the liveness oracle. */
 	const listed = require("./arbiter-issue-claims.js").listIssueClaims();
 	const mine = (listed?.claims ?? []).filter(
 		(c) => c?.sessionId === sid && typeof c.issue === "number",
@@ -56,7 +55,6 @@ function claimedIssue(sid) {
 }
 
 module.exports = {
-	BUILD_STATE_REL,
 	buildStateFile,
 	claimedIssue,
 	newBuildState,

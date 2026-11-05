@@ -102,6 +102,7 @@ describe("after an autocompaction", () => {
 		const told = afterCompact();
 		expect(told).toContain("This session has autocompacted 2 times");
 		expect(told).toContain("start no new unit after it.");
+		expect(told).not.toContain("successor");
 		expect(setKeys()).toHaveLength(2);
 	});
 
