@@ -15,7 +15,7 @@
  * the directory its job recorded, so it reopens the same worktree.
  *
  * LAUNCH-INTO is the directory a successor starts in to finish a dead
- * session's uncommitted work: that session's own worktree, named by the
+ * session's orphaned edits: that session's own worktree, named by the
  * caller, refused where git does not list it under the worktrees folder or
  * any live process still has its cwd inside it (#4385).
  *

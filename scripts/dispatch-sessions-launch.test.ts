@@ -87,13 +87,18 @@ describe("the session's directory (#4245)", () => {
 		seedLandingCheckout(fx.dir);
 		stubClaude({});
 		const env = { WFC_MODULES: LANDING_MODULES };
-		expect(run(["sonnet", "/implement 341"], env).code).toBe(0);
-		const [dead] = launchCwds();
+		const cut = runInProcess(
+			path.join(path.dirname(SCRIPT), "session-checkout.js"),
+			["cut", "dead-341"],
+			{ cwd: fx.dir, env: baseEnv(env) },
+		);
+		expect(cut.status, cut.stderr).toBe(0);
+		const dead = cut.stdout.trim();
 
 		const r = run(["--into", dead, "opus", "/implement 343"], env);
 
 		expect(r.code, r.stderr).toBe(0);
-		expect(launchCwds()).toEqual([dead, dead]);
+		expect(launchCwds()).toEqual([dead]);
 		expect(
 			fs
 				.readdirSync(path.join(fx.dir, ".claude", "worktrees"))
@@ -101,7 +106,7 @@ describe("the session's directory (#4245)", () => {
 		).toEqual([path.basename(dead)]);
 	});
 
-	it("refuses --into for a set of more than one member", () => {
+	it("refuses --into for a set of more than one member, naming the member count", () => {
 		stubClaude({});
 		const r = run([
 			"--into",

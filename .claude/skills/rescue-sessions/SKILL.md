@@ -51,7 +51,7 @@ Add `--ids` to take only the sessions you are rescuing. Copies each
 ### 4a. One session: adopt it here
 
 Claim its issue (`node scripts/claim-issue.js <n>`), read
-`<short-id>.narration.txt` whole and its job's `commitsLanded` and `artefactsSurvived` in `index.json`, then continue
+`<short-id>.narration.txt` whole and its job's `commitsLanded` and `artefactsSurvived` in `index.json`, `cd` to its worktree (that job's `cwd`), then continue
 under the same command from where it died: a `/wayfinder` stays a `/wayfinder`.
 `references/RESUMPTION.md` §2–§5 bind you as they would a dispatched successor,
 its commit command run as `node scripts/commit-paths.js`.
@@ -97,7 +97,8 @@ the allowance gate, so read the allowance yourself first; never add
 `--force-memory`, which skips the per-member memory re-read.
 
 Then dispatch the rest, one call per ticket, each `--into` its own dead
-session's worktree; each call re-reads memory before its launch.
+session's worktree, with `sleep 2` between calls so each memory re-read sees
+the launch before it (mantahostels#2553).
 
 ### 5. Watch
 

@@ -73,6 +73,11 @@ const readInstalls = () =>
 
 const worktree = (name: string) =>
 	path.join(main, ".claude", "worktrees", name);
+/** The session worktrees standing, the dot-named store folder left out. */
+const listWorktrees = () =>
+	fs
+		.readdirSync(path.join(main, ".claude", "worktrees"))
+		.filter((d) => !d.startsWith("."));
 const stores = () => path.join(main, ".claude", "worktrees", ".dep-stores");
 const storeOf = (name: string) =>
 	fs.realpathSync(path.join(worktree(name), "node_modules"));
@@ -196,15 +201,12 @@ it("gives a launch --into an existing session worktree that worktree, uncut and 
 	expect(fs.readFileSync(path.join(dead, "half-done.txt"), "utf8")).toBe(
 		"uncommitted",
 	);
-	expect(
-		fs
-			.readdirSync(path.join(main, ".claude", "worktrees"))
-			.filter((d) => !d.startsWith(".")),
-	).toEqual(["dead-one"]);
+	expect(listWorktrees()).toEqual(["dead-one"]);
 });
 
 it("refuses a launch --into a worktree a live process still works in, naming its pid (#4385)", () => {
 	const dead = run(main, "cut", "still-held").stdout.trim();
+	/* 60 s outlives the case; `finally` kills it. */
 	const holder = spawn("sh", ["-c", "sleep 60"], {
 		cwd: dead,
 		stdio: "ignore",
@@ -222,7 +224,7 @@ it("refuses a launch --into a worktree a live process still works in, naming its
 	}
 });
 
-it("refuses a launch --into a directory that is no session worktree (#4385)", () => {
+it("refuses a launch --into a directory that is no session worktree, naming the directory (#4385)", () => {
 	for (const into of [main, path.join(tmp, "elsewhere")]) {
 		const r = run(main, "launch-dir", "--into", into, "/implement 4385");
 
@@ -300,11 +302,7 @@ it("refuses a no-build launch that meets no store at once, naming the warm route
 		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; the refill tick's warm pass \(`node scripts\/session-checkout\.js warm`\) builds it, and the next tick launches this member\n$/,
 	);
 	expect(readInstalls()).toEqual([]);
-	expect(
-		fs
-			.readdirSync(path.join(main, ".claude", "worktrees"))
-			.filter((n) => !n.startsWith(".")),
-	).toEqual([]);
+	expect(listWorktrees()).toEqual([]);
 });
 
 it("names a failed warm build in each no-build refusal until a build succeeds, which clears it (#4318)", () => {

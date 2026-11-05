@@ -77,8 +77,8 @@
 # dependency store for its lockfile is such a member: the loop's warm pass
 # builds the store, so no `npm ci` runs inside its timeout for this call.
 # `--into <worktree>` starts a one-member set in that existing session
-# worktree instead, a dead session's, so its successor finishes the work
-# left uncommitted there (#4385); a worktree a live process still works in
+# worktree instead, a dead session's, so its successor finishes the
+# orphaned edits there (#4385); a worktree a live process still works in
 # is refused as a member with no directory is.
 #
 # Exit codes: 0 launched (or dry-run; a member dropped by any drop above

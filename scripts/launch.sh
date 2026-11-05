@@ -44,8 +44,9 @@ usage() {
 }
 
 # Flags ahead of <command> are either consumed here (--model) or forwarded
-# verbatim to dispatch-sessions.sh, `--into` with its worktree, whose own flags must precede its
+# verbatim to dispatch-sessions.sh, whose own flags must precede its
 # <model> <prompt> pair — this script's <command> [args...] plays that role.
+# `--into` goes with its worktree.
 flags=()
 override_model=""
 while [[ $# -gt 0 && "$1" == --* ]]; do
