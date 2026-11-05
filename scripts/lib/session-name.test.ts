@@ -1,9 +1,10 @@
 // @vitest-environment node
 /*
- * lib/session-name.js (#4395) against real files in a temp directory: the
- * latest `custom-title` is the session's name, a transcript naming none or a
- * missing file reads null, one that will not read says why, and the prefix is
- * the shell scripts' (#3701).
+ * lib/session-name.js (#4395) against real files in a temp directory, since
+ * it reads the transcript itself through no injected port: the latest
+ * `custom-title` is the session's name, a transcript naming none or a missing
+ * file reads null, one that will not read says why, and the prefix is the
+ * shell scripts' (#3701).
  *
  * Loosen one and a session moved onto an overflow key takes its first name
  * rather than the one its row shows, an unreadable transcript names it after
