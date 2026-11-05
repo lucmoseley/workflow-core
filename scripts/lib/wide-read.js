@@ -111,7 +111,7 @@ const { isGlobPattern, literal, unwrap } = require("./shell-words.js");
  * @property {(lit: string, cwd: string) => string[]} glob an unquoted word's
  *   expansion under nullglob, absolute
  * @typedef {import("./kit-context.js").KitContext
- *   & Pick<import("./guard-dispatch.js").CorePorts, "env">
+ *   & Pick<import("./guard-host-ports.js").CorePorts, "env">
  *   & WideReadPorts} WideReadContext
  * @typedef {{ bytes: number, lines: number, matches: number, readBytes: number,
  *   cutBytes: number }} Thresholds

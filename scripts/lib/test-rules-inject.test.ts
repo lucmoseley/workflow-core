@@ -25,6 +25,7 @@ import {
 	splitCheckout,
 	toolCall,
 } from "./guard-core-testkit";
+import { treePorts } from "./guard-host-ports.js";
 import { readRuleText } from "./rule-text.js";
 import { COLLECTED_TEST, isTestKind } from "./test-kind.js";
 
@@ -33,9 +34,6 @@ const { decide } = require("./test-rules-inject.js") as {
 		file: string,
 		ctx: { tree: () => { repoRel: (file: string) => string | null } },
 	) => unknown;
-};
-const { treePorts } = require("./guard-host-ports.js") as {
-	treePorts: (root: string) => { repoRel: (file: string) => string | null };
 };
 
 let dir: string;

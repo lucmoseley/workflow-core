@@ -1,8 +1,10 @@
 /*
  * guard-host-ports.js — the production adapters the guard dispatcher
- * (lib/guard-dispatch.js) hands its cores: the host root's reads, its tree
- * ports, and any other tree's ports where a session works in a linked
- * worktree (#2786, ADR-0010).
+ * (lib/guard-dispatch.js) hands its cores: the host root's shared reads and
+ * tree ports, whether a path exists or is a regular file, and the
+ * environment; and any other tree's ports where a session works in a linked
+ * worktree (#2786, ADR-0010). A module of its own so these ports are tested
+ * through the exports the dispatcher calls (base §G6, #4136).
  */
 
 const fs = require("node:fs");
@@ -33,7 +35,8 @@ const { sharedReaders } = require("./kit-context.js");
  * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts
  *   & Partial<Pick<KitContext, "fallbackCwd" | "vars">>} Adapters
  *   the hook's own directory and expansion scope, which test support fills
- *   in place of the hook's; the entry leaves both to the kit's, the process's
+ *   in place of the hook's; the dispatcher's entry leaves both to the kit's, the
+ *   process's
  *   cwd and environment
  */
 

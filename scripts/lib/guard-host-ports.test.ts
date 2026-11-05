@@ -3,6 +3,9 @@
  * guard-host-ports.js builds the ports the guard dispatcher hands its cores.
  * Break a tree's repoRel and a write outside the checkout reads as inside it,
  * or one spelled through a symlink to it escapes every write guard.
+ *
+ * repoRel is file-local, so each case reads it through a tree's ports,
+ * the export the dispatcher calls (base §G6, #4136).
  */
 
 import fs from "node:fs";
@@ -10,9 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { treePorts } = require("./guard-host-ports.js") as {
-	treePorts: (root: string) => { repoRel: (file: string) => string | null };
-};
+import { treePorts } from "./guard-host-ports.js";
 
 const repoRel = (file: string, root: string) => treePorts(root).repoRel(file);
 
