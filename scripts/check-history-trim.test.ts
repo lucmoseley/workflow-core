@@ -20,6 +20,7 @@
  * raises a false alarm the founder learns to skip.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -350,19 +351,16 @@ describe("end to end", () => {
 	describe("the dirtied() notice (mantahostels#2665)", () => {
 		/*
 		 * mantahostels#2665: status-report.js's verdict() drops a clean checker's body when
-		 * its LAST line is its own OK:. Both a landed append and a failed one
-		 * leave a reader something to act on, so both must survive that — see
-		 * lib/check.js's dirtied().
+		 * its LAST line is its own OK:. A failed append leaves a reader something
+		 * to act on, so it must survive that — see lib/check.js's dirtied().
 		 */
-		it("names the watch file and says it needs committing where the reading landed", () => {
+		it("stays silent where the reading landed — the ledger asks nothing of the reader", () => {
 			const watch = path.join(home, "w.jsonl");
 			history(".claude", [NOW - 5 * HOUR]);
 			const r = run({ WFC_HISTORY_TRIM_WATCH: watch });
 			expect(r.status).toBe(0);
-			const lines = r.stderr.trim().split("\n");
-			expect(lines.at(-1)).toBe(
-				`${watch} gained a new reading — needs committing.`,
-			);
+			expect(fs.readFileSync(watch, "utf8").trim().split("\n")).toHaveLength(1);
+			expect(r.stderr.trim().split("\n").at(-1)).toMatch(/^OK:/);
 		});
 
 		it("stays silent on a throttled run — nothing was attempted", () => {
@@ -375,7 +373,7 @@ describe("end to end", () => {
 			});
 			expect(r.status).toBe(0);
 			expect(r.stderr.trim().split("\n").at(-1)).toMatch(/^OK:/);
-			expect(r.stderr).not.toMatch(/needs committing|reading is lost/);
+			expect(r.stderr).not.toMatch(/reading is lost/);
 		});
 
 		it("says the reading is lost where the append failed — the watch file's directory does not exist", () => {
@@ -388,6 +386,51 @@ describe("end to end", () => {
 				`${watch} could not be appended to just now — today's reading is lost.`,
 			);
 		});
+	});
+
+	it("records into the host's marker store from a linked worktree, leaving both trees clean (#4465)", () => {
+		const repo = path.join(home, "repo");
+		fs.mkdirSync(repo);
+		const gitIn = (dir: string, ...args: string[]) =>
+			execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+		const git = (...args: string[]) => gitIn(repo, ...args);
+		git("init", "-q");
+		fs.copyFileSync(
+			path.resolve(__dirname, "..", ".gitignore"),
+			path.join(repo, ".gitignore"),
+		);
+		git("add", ".gitignore");
+		git(
+			"-c",
+			"user.email=t@example.com",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-qm",
+			"base",
+		);
+		const tree = path.join(home, "tree");
+		git("worktree", "add", "-q", "--detach", tree);
+		history(".claude", [NOW - 5 * HOUR]);
+		const env: Record<string, string | undefined> = {
+			...process.env,
+			HOME: home,
+			...seatEnv(home),
+			WFC_NOW: new Date(NOW).toISOString(),
+			/* The harness names the main checkout as the project even for a
+			 * session in a linked worktree. */
+			CLAUDE_PROJECT_DIR: repo,
+		};
+		delete env.WFC_HISTORY_TRIM_WATCH;
+		const r = runInProcess(SCRIPT, ["--write"], { cwd: tree, env });
+		expect(r.status).toBe(0);
+		expect(
+			fs.existsSync(
+				path.join(repo, ".claude/tmp/markers/.history-trim-watch.jsonl"),
+			),
+		).toBe(true);
+		expect(git("status", "--porcelain")).toBe("");
+		expect(gitIn(tree, "status", "--porcelain")).toBe("");
 	});
 
 	describe("--notify, held ready for a hook nothing wires yet", () => {

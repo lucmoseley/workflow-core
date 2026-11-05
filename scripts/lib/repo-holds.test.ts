@@ -192,7 +192,7 @@ describe("a repo hold's clear check (#3857)", () => {
 		expect(readTickHolds([repo], broken).holds).toEqual([]);
 	});
 
-	it("leaves a record that will not settle to its own tick", () => {
+	it("keeps, logged, a hold whose clear check cannot start", () => {
 		serve();
 		const { id } = raise({ command: "true" });
 		const file = path.join(store(), `${id}.json`);
@@ -204,7 +204,26 @@ describe("a repo hold's clear check (#3857)", () => {
 
 		expect(text).toContain(`repo hold ${id}: clear check did not finish`);
 		expect(broken).toEqual([]);
+		expect(status()).toContain("repair main");
 	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"leaves a hold whose lift throws to its own tick",
+		() => {
+			serve();
+			const { id } = raise({ command: "true" });
+			fs.chmodSync(store(), 0o555);
+			try {
+				const { broken, text } = tick();
+
+				expect(text).toContain(`repo hold ${id}: not settled`);
+				expect(broken).toEqual([]);
+			} finally {
+				fs.chmodSync(store(), 0o755);
+			}
+			expect(status()).toContain("repair main");
+		},
+	);
 
 	it("reads a record whose id would leave the store as no hold", () => {
 		serve();

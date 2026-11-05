@@ -8,14 +8,18 @@
  * on its push. The name only asks: a gate grants the exemption where the tree
  * it judges is what `git revert` of that culprit makes on the judged commit's
  * parent, recomputed here with `git merge-tree`, whose ort merge is the one
- * `git revert` runs. So the variable carries nothing past a gate but a clean
- * revert of a commit the repo holds.
+ * `git revert` runs.
  *
  * A CONFLICT ONLY IN ANCHOR FILES STILL COUNTS AS CLEAN (#3935). `git merge-file
  * --ours` settles the file for the side the revert is made on. Regenerating it
  * instead would write a read nobody made (#3127). A kept digest can only read
  * stale: the fix ticket owes a guard-registry row's re-read, and a census row
  * reports on the full run.
+ *
+ * A CONFLICT IN A REGENERATED FILE COUNTS AS CLEAN TOO (#4452): one
+ * lib/regenerated-files.js lists, which the revert's tree holds as its
+ * generator renders it there. Its output on that tree is the one right value,
+ * as the file records nothing but its inputs.
  *
  * The guard registry's file is settled by its merge driver's own per-row merge
  * (#4171), so a revert and its recomputation agree whether or not the git they
@@ -33,6 +37,10 @@ const {
 	REGISTRY_ANCHORS,
 	buildMergedAnchors,
 } = require("./registry-anchors-merge.js");
+const { parseErrorText } = require("./caught.js");
+const { REGENERATED_FILES } = require("./regenerated-files.js");
+
+/** @typedef {import("./regenerated-files.js").Regenerated} Regenerated */
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
@@ -65,20 +73,33 @@ function gitOut(cwd, args) {
 }
 
 /**
- * The revert's bytes for each path in `conflicted`, its conflicted hunks keeping
- * `onto`'s side, or null where a path is no anchor file, a path's three versions
- * do not all exist, or a result is not JSON. An empty `conflicted` is null.
+ * How the revert settles each path in `conflicted`: an anchor file's bytes,
+ * its conflicted hunks keeping `onto`'s side, in `kept`; a regenerated file's
+ * entry in `regenerated`, rendered once the rest of the tree is settled. Null
+ * where a path is neither, an anchor's three versions do not all exist or its
+ * result is not JSON, a regenerated file is gone from `onto`, or `conflicted`
+ * is empty.
  * @param {string} cwd
  * @param {{culprit: string, onto: string, side: string}} revert `side` the
  *   parent of `culprit` the revert restores
  * @param {string[]} conflicted
- * @returns {Map<string, string>|null}
+ * @returns {{kept: Map<string, string>, regenerated: Map<string, Regenerated>}|null}
  */
-function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
+function readSettledConflicts(cwd, { culprit, onto, side }, conflicted) {
 	if (conflicted.length === 0) return null;
 	/** @type {Map<string, string>} */
 	const kept = new Map();
+	/** @type {Map<string, Regenerated>} */
+	const regenerated = new Map();
 	for (const file of conflicted) {
+		const generated = REGENERATED_FILES.get(file);
+		if (generated) {
+			/* Deleted on `onto`, it is a delete conflict, which a render settles wrongly. */
+			if (gitOut(cwd, ["cat-file", "-e", `${onto}:${file}`]) === null)
+				return null;
+			regenerated.set(file, generated);
+			continue;
+		}
 		if (!ANCHOR_FILES.has(file)) return null;
 		const merged =
 			file === REGISTRY_ANCHORS
@@ -95,7 +116,23 @@ function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
 		if (merged === null || !isJson(merged)) return null;
 		kept.set(file, merged);
 	}
-	return kept;
+	return { kept, regenerated };
+}
+
+/**
+ * A regenerated file's bytes as its generator renders them on `tree`, else
+ * why the render failed.
+ * @param {string} cwd
+ * @param {Regenerated} generated
+ * @param {string} tree a commit or tree
+ * @returns {{bytes: string} | {failed: string}}
+ */
+function renderRegenerated(cwd, generated, tree) {
+	try {
+		return { bytes: generated.renderAt(cwd, tree) };
+	} catch (err) {
+		return { failed: parseErrorText(err) };
+	}
 }
 
 /**
@@ -128,7 +165,7 @@ function isJson(text) {
 
 /**
  * Whether `tree` is the revert of `culprit` against `side` on `onto`: the
- * merge's own tree, or that tree with its anchor conflicts kept.
+ * merge's own tree, or that tree with its conflicts settled.
  * @param {string} cwd
  * @param {{culprit: string, onto: string, side: string, tree: string}} judged
  */
@@ -150,22 +187,27 @@ function isRevertTree(cwd, { culprit, onto, side, tree }) {
 	const [made, ...rest] = String(merged.stdout).split("\n");
 	if (merged.status === 0) return made === tree;
 	if (merged.status !== 1 || !made) return false;
-	const kept = readKeptAnchors(
+	const settled = readSettledConflicts(
 		cwd,
 		{ culprit, onto, side },
 		rest.slice(0, rest.indexOf("")),
 	);
-	if (kept === null) return false;
+	if (settled === null) return false;
+	const { kept, regenerated } = settled;
+	/** @param {string} file */
+	const readJudged = (file) =>
+		gitOut(cwd, ["cat-file", "blob", `${tree}:${file}`]);
 	const differing = gitOut(cwd, ["diff-tree", "-r", "--name-only", made, tree]);
 	return (
 		differing
 			?.split("\n")
 			.filter(Boolean)
-			.every((file) => kept.has(file)) &&
-		[...kept].every(
-			([file, bytes]) =>
-				gitOut(cwd, ["cat-file", "blob", `${tree}:${file}`]) === bytes,
-		)
+			.every((file) => kept.has(file) || regenerated.has(file)) &&
+		[...kept].every(([file, bytes]) => readJudged(file) === bytes) &&
+		[...regenerated].every(([file, generated]) => {
+			const rendered = renderRegenerated(cwd, generated, tree);
+			return "bytes" in rendered && readJudged(file) === rendered.bytes;
+		})
 	);
 }
 
@@ -294,8 +336,9 @@ module.exports = {
 	REVERT_BASE_ENV,
 	buildRevertBaseEnv,
 	buildRevertLine,
-	readKeptAnchors,
 	readLanderRevert,
+	readSettledConflicts,
+	renderRegenerated,
 	whyNotCleanRevert,
 	whyNotLanderRevert,
 };

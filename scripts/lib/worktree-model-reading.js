@@ -386,7 +386,7 @@ function landRates(c, w) {
 	let verdict = "within";
 	if (rate < low) verdict = "below";
 	else if (rate > high) verdict = "above";
-	return `landing route a week: ${rate} merged origin/landing first, of ${weekly(landed)} pushed — ${verdict} #4229's predicted ${low}–${high} (against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
+	return `landing route a week: ${rate} merged origin/landing first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
 }
 
 /**

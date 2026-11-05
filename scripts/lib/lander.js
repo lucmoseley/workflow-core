@@ -62,7 +62,8 @@ const {
 	LANDER_REVERT_ENV,
 	buildRevertBaseEnv,
 	buildRevertLine,
-	readKeptAnchors,
+	readSettledConflicts,
+	renderRegenerated,
 } = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
@@ -2376,8 +2377,8 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * gate lets the clean revert leave rows stale, which the fix ticket then
 	 * names (#3127). Any other refusal holds the queue, naming the registry
 	 * rows it refused on where it was that gate's (#3123). A conflict only in
-	 * anchor files is settled by lib/clean-revert.js's rule (#3935); any other
-	 * holds, naming the files.
+	 * anchor and regenerated files is settled by lib/clean-revert.js's rule
+	 * (#3935, #4452); any other holds, naming the files.
 	 * @param {string} culprit
 	 * @param {string|null} parent
 	 * @param {string} tip
@@ -2460,8 +2461,10 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 }
 
 /**
- * The revert's anchor-file conflicts staged as lib/clean-revert.js settles them,
- * with the commit message's line saying so; else why the revert did not apply.
+ * The revert's conflicts staged as lib/clean-revert.js settles them, with the
+ * commit message's line saying so; else why the revert did not apply. A
+ * regenerated file is rendered on the tree with every other conflict settled,
+ * its own conflicted bytes standing as `onto`'s, which its render never reads.
  * @param {(args: string[]) => string} inTree git in the revert's worktree
  * @param {string|null} stderr the revert's, null where it applied
  * @param {{dir: string, culprit: string, onto: string, side: string|undefined}} revert
@@ -2470,26 +2473,48 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 	if (stderr === null) return { note: "" };
 	const conflicted = inTree(["diff", "--name-only", "--diff-filter=U"]);
-	const kept =
+	const settled =
 		side === undefined
 			? null
-			: readKeptAnchors(
+			: readSettledConflicts(
 					dir,
 					{ culprit, onto, side },
 					conflicted.split("\n").filter(Boolean),
 				);
-	if (kept === null)
+	if (settled === null)
 		return { failed: buildConflictFailure(stderr, conflicted) };
+	const { kept, regenerated } = settled;
 	for (const [file, bytes] of kept) {
 		fs.writeFileSync(path.join(dir, file), bytes);
 		inTree(["add", "--", file]);
 	}
+	const generatedPaths = [...regenerated.keys()];
+	if (generatedPaths.length > 0) {
+		inTree(["checkout", "--ours", "--", ...generatedPaths]);
+		inTree(["add", "--", ...generatedPaths]);
+		const tree = inTree(["write-tree"]).trim();
+		for (const [file, generated] of regenerated) {
+			const rendered = renderRegenerated(dir, generated, tree);
+			if ("failed" in rendered)
+				return {
+					failed: `${buildConflictFailure(stderr, conflicted)}; ${generated.generator} could not render ${file} on the revert's tree: ${parseFirstLine(rendered.failed)}`,
+				};
+			fs.writeFileSync(path.join(dir, file), rendered.bytes);
+			inTree(["add", "--", file]);
+		}
+	}
 	/* Every hunk kept: a culprit that touched only those files reverts to nothing. */
-	return inTree(["diff", "--cached", "--name-only"]).trim() === ""
-		? { failed: buildConflictFailure(stderr, conflicted) }
-		: {
-				note: `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`,
-			};
+	if (inTree(["diff", "--cached", "--name-only"]).trim() === "")
+		return { failed: buildConflictFailure(stderr, conflicted) };
+	return {
+		note:
+			(kept.size > 0
+				? `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`
+				: "") +
+			(regenerated.size > 0
+				? `Conflicts in ${generatedPaths.join(", ")} regenerated on the revert's tree by ${[...regenerated.values()].map((g) => g.generator).join(", ")}.\n\n`
+				: ""),
+	};
 }
 
 /**
