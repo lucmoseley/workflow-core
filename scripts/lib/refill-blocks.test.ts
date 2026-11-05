@@ -195,6 +195,20 @@ function blocks(
 
 const ids = (ls: Launch[]) => ls.map((l) => l.jobId);
 
+/** Seat `seat`'s reading: open, or its 5-hour bar full. */
+const sized = (seat: string, full: boolean) => ({
+	seat,
+	week: 10,
+	session: full ? 100 : 10,
+	weekFull: false,
+	sessionFull: full,
+	sessionResets: full ? "2026-10-18T15:00:00Z" : null,
+	weekResets: null,
+	readAt: NOW,
+	weekRead: { percent: 10, atMs: NOW },
+	fits: full ? null : 1,
+});
+
 describe("which parks the loop stops (#2699)", () => {
 	const parkedFor = (cause: Cause, minutes: number, over = {}) =>
 		record({
@@ -3766,19 +3780,6 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			limitHeld,
 			...over,
 		});
-	/** Seat `seat`'s reading: open, or its 5-hour bar full. */
-	const sized = (seat: string, full: boolean) => ({
-		seat,
-		week: 10,
-		session: full ? 100 : 10,
-		weekFull: false,
-		sessionFull: full,
-		sessionResets: full ? "2026-10-18T15:00:00Z" : null,
-		weekResets: null,
-		readAt: NOW,
-		weekRead: { percent: 10, atMs: NOW },
-		fits: full ? null : 1,
-	});
 	/** actOnLimits over `l`, `seats` read, those in `full` full, its io's
 	 * calls and stamps. */
 	const limits = (l: Launch, seats: string[], full: string[] = []) => {
@@ -4075,11 +4076,16 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 	 * held or started record from a fresh read, not the cwd it stored, fails. */
 	const Own = "/home/u/.claude/worktrees/implement-42";
 	const Later = "/home/u/.claude/worktrees/elsewhere";
-	const Seat = "/home/u/.claude3";
-	const Other = "/home/u/.claude2";
-	/** A launch as the state file gives it back. */
-	const roundTrip = (l: Launch | undefined): Launch =>
-		JSON.parse(JSON.stringify(l));
+	/* The launch's own seat, the one that goes full, and the seat a move
+	 * lands on. */
+	const OwnSeat = "/home/u/.claude3";
+	const SpareSeat = "/home/u/.claude2";
+	/** A launch as the state file gives it back; one never written fails the
+	 * case. */
+	const roundTrip = (l: Launch | undefined): Launch => {
+		expect(l).toBeDefined();
+		return JSON.parse(JSON.stringify(l));
+	};
 	/** A BlockIo whose resumeTargetOf reads `cwd`, and the cwd each resume,
 	 * move and adoption was handed. */
 	function cwdIo(cwd: string, over: Partial<BlockIo> = {}) {
@@ -4140,28 +4146,20 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			`resume ${Own}`,
 		]);
 	}
-	/** Seat `seat`'s reading: open, or its 5-hour bar full. */
-	const sized = (seat: string, full: boolean) => ({
-		seat,
-		week: 10,
-		session: full ? 100 : 10,
-		weekFull: false,
-		sessionFull: full,
-		sessionResets: full ? "2026-10-18T15:00:00Z" : null,
-		weekResets: null,
-		readAt: NOW,
-		weekRead: { percent: 10, atMs: NOW },
-		fits: full ? null : 1,
-	});
 	/** actOnLimits over `l`, those of its seats in `full` full; one not held
 	 * is listed blocked, so live. */
-	function limits(l: Launch, cwd: string, full: string[]) {
-		const r = cwdIo(cwd);
+	function limits(
+		l: Launch,
+		cwd: string,
+		full: string[],
+		over: Partial<BlockIo> = {},
+	) {
+		const r = cwdIo(cwd, over);
 		const out = actOnLimits([l], "normal", {
 			...tick(r.io, l.limitHeld ? [] : [agent("job42", "blocked")]),
 			typedSeat: null,
 			readMoveSeats: () => ({
-				seats: [Seat, Other].map((s) => sized(s, full.includes(s))),
+				seats: [OwnSeat, SpareSeat].map((s) => sized(s, full.includes(s))),
 				overflow: [],
 			}),
 			seatListRead: true,
@@ -4242,7 +4240,7 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 
 	it.each([
 		["resumes a live one on its own seat", [], `resume ${Own}`],
-		["moves a live one to another seat", [Seat], `move ${Own}`],
+		["moves a live one to another seat", [OwnSeat], `move ${Own}`],
 	])("%s from it, and settles its started record from it", (_, full, act) => {
 		const { cwds, started } = limits(limitBlocked(), Own, full);
 		expect(cwds).toEqual([act]);
@@ -4252,16 +4250,36 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 
 	it.each([
 		["resumes it on its own seat", [], `resume ${Own}`],
-		["moves it to another seat", [Seat], `move ${Own}`],
+		["moves it to another seat", [OwnSeat], `move ${Own}`],
 	])(
 		"holds a limit-blocked one at the cwd it read, then %s from there",
 		(_, full, act) => {
-			const held = limits(limitBlocked(), Own, [Seat, Other]).out[0];
+			const held = limits(limitBlocked(), Own, [OwnSeat, SpareSeat]).out[0];
 			expect(held?.limitHeld?.cwd).toBe(Own);
 			const { cwds, started } = limits(roundTrip(held), Later, full);
 			expect(cwds).toEqual([act]);
 			expect(started[0]?.resumeStarted?.cwd).toBe(Own);
 			expect(settledCwds(started[0])).toEqual([`adopt ${Own}`]);
+		},
+	);
+
+	it.each([
+		["resume on its own seat", [], `resume ${Own}`],
+		["move to another seat", [OwnSeat], `move ${Own}`],
+	])(
+		"retries a %s whose job record read unread from the cwd it held",
+		(_, full, act) => {
+			const held = limits(limitBlocked(), Own, [OwnSeat, SpareSeat]).out[0];
+			const resumed = limits(roundTrip(held), Later, full).out[0];
+			const failed = limits(roundTrip(resumed), Later, full, {
+				jobStateOf: () => null,
+			}).out[0] as Launch;
+			expect(failed.limitHeld).not.toHaveProperty("resumedAt");
+			const due = {
+				...failed,
+				limitResumes: { ...failed.limitResumes, nextAt: NOW },
+			} as Launch;
+			expect(limits(roundTrip(due), Later, full).cwds).toEqual([act]);
 		},
 	);
 });
