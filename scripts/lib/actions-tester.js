@@ -31,6 +31,13 @@
  *
  * `namedRerun` is the local tester's way out when memory shuts its slot
  * (#3764): it dispatches named-rerun.yml for the named files alone.
+ *
+ * `queueTester` is the queue lander's (#4458), beside the `landing` lander's
+ * until the cutover. Its whole suite is the push run on `lander/batch` at the
+ * sha, read as above. Named files at a sha whose run there failed rerun its
+ * failed jobs, so a green names the run `main` takes (#3329); elsewhere, at
+ * an isolation sha or `main`, they go to named-rerun.yml. A dispatch at the
+ * head of a `lander/iso-<k>` ref does not count against the daily cap.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -41,16 +48,23 @@ const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
-const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./landing-refs.js");
+const {
+	LANDER_BATCH_BRANCH,
+	LANDER_ISO_PREFIX,
+	LANDING_BRANCH,
+	REMOTE,
+	VERIFIED_BRANCH,
+} = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
 
 /** @typedef {import("./lander.js").Verdict} Verdict */
 /** @typedef {import("./lander.js").Tester} Tester */
+/** @typedef {import("./lander.js").QueueTester} QueueTester */
 
-/* scheduled-checks.yml carries the `landing` push trigger, as it calls every
- * job `main`'s sweep judges by. */
+/* scheduled-checks.yml carries the `landing` and `lander/batch` push
+ * triggers, as it calls every job `main`'s sweep judges by. */
 const SUITE_WORKFLOW = "scheduled-checks.yml";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
@@ -100,7 +114,7 @@ const RUNNER_RERUNS = 2;
  * @typedef {{name: string, conclusion: string|null,
  *   steps?: {name: string, conclusion: string|null}[]}} Job
  * @typedef {object} Reads
- * @property {() => Run[]} runs the push runs on `landing`
+ * @property {() => Run[]} runs the push runs on the tested branch
  * @property {() => Run[]} mainRuns the runs on `main`
  * @property {(run: number) => Job[]} jobsOf
  * @property {(run: number) => string} failedLogOf `gh run view --log-failed`
@@ -117,6 +131,10 @@ const RUNNER_RERUNS = 2;
  *   namedRuns: () => NamedRun[],
  *   dispatch: (inputs: {sha: string, files: string[], nonce: string}) => void,
  * }} NamedReads
+ * @typedef {Reads & Pick<NamedReads, "namedRuns" | "dispatch"> & {
+ *   isoShas: () => string[],
+ * }} QueueReads `runs` on `lander/batch`; `isoShas` the heads of the
+ *   remote's `lander/iso-<k>` refs
  */
 
 /**
@@ -329,11 +347,12 @@ const listRuns = (branch, limit, filter = []) =>
 /**
  * The live reads, over `gh` routed to the code repo and git in `root`.
  * @param {string} root
+ * @param {string} [branch] whose push runs `runs` lists
  * @returns {Reads}
  */
-function liveReads(root) {
+function liveReads(root, branch = LANDING_BRANCH) {
 	return {
-		runs: () => listRuns(LANDING_BRANCH, RUN_LIST_LIMIT, ["--event", "push"]),
+		runs: () => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
 		mainRuns: () => listRuns(VERIFIED_BRANCH, MAIN_RUN_LIMIT),
 		jobsOf: (run) =>
 			JSON.parse(gh(["run", "view", String(run), "--json", "jobs"])).jobs,
@@ -408,17 +427,45 @@ const unreadableReason = (err) =>
 /**
  * @param {RunVerdict} v
  * @param {string} sha
+ * @param {string} branch
  * @returns {Verdict}
  */
-function settle(v, sha) {
+function settle(v, sha, branch) {
 	if (v.kind !== "pending") return v;
 	return {
 		kind: "unknown",
 		reason:
 			v.run === null
-				? `no ${SUITE_WORKFLOW} push run on ${LANDING_BRANCH} at ${sha.slice(0, 9)}`
+				? `no ${SUITE_WORKFLOW} push run on ${branch} at ${sha.slice(0, 9)}`
 				: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
 	};
+}
+
+/**
+ * The verdict of the push run at `sha` on `branch`, judging only an attempt
+ * after `after`; a runner that failed to ready has its failed jobs rerun, up
+ * to RUNNER_RERUNS times, before it is no verdict.
+ * @param {string} sha
+ * @param {number} after
+ * @param {{reads: Reads, branch: string} & Poll} at
+ * @param {number} [reruns] attempts started for a runner that failed to ready
+ * @returns {Promise<Verdict>}
+ */
+async function suiteVerdict(sha, after, at, reruns = 0) {
+	const { reads, branch } = at;
+	const v = await pollRun(() => runVerdict(sha, reads, after), unreadable, at);
+	if (v.kind !== "runner") return settle(v, sha, branch);
+	if (reruns >= RUNNER_RERUNS)
+		return {
+			kind: "unknown",
+			reason: `${v.reason}, on ${reruns + 1} attempts`,
+		};
+	try {
+		reads.rerun(v.run);
+	} catch (err) {
+		return unreadable(err);
+	}
+	return suiteVerdict(sha, v.attempt, at, reruns + 1);
 }
 
 /**
@@ -442,30 +489,9 @@ function actionsTester({
 	wait = sleep,
 	now = Date.now,
 }) {
-	/**
-	 * @param {string} sha
-	 * @param {number} after
-	 * @param {number} [reruns] attempts started for a runner that failed to ready
-	 * @returns {Promise<Verdict>}
-	 */
-	const polled = async (sha, after, reruns = 0) => {
-		const v = await pollRun(() => runVerdict(sha, reads, after), unreadable, {
-			wait,
-			now,
-		});
-		if (v.kind !== "runner") return settle(v, sha);
-		if (reruns >= RUNNER_RERUNS)
-			return {
-				kind: "unknown",
-				reason: `${v.reason}, on ${reruns + 1} attempts`,
-			};
-		try {
-			reads.rerun(v.run);
-		} catch (err) {
-			return unreadable(err);
-		}
-		return polled(sha, v.attempt, reruns + 1);
-	};
+	const at = { reads, branch: LANDING_BRANCH, wait, now };
+	/** @param {string} sha @param {number} after */
+	const polled = (sha, after) => suiteVerdict(sha, after, at);
 	/** @param {string} sha @param {string[]} files @param {string} why */
 	const handOff = (sha, files, why) =>
 		fallback
@@ -550,6 +576,8 @@ function namedRunVerdict(sha, title, reads) {
 }
 
 /**
+ * The day's dispatches counted against the cap: an isolation one is not
+ * (#4458).
  * @param {string} file
  * @param {number} nowMs
  * @returns {number}
@@ -557,15 +585,17 @@ function namedRunVerdict(sha, title, reads) {
 function readDispatchesToday(file, nowMs) {
 	const day = new Date(nowMs).toISOString().slice(0, 10);
 	const rows = readJsonl(file)?.rows ?? [];
-	return rows.filter((r) => String(r.at).startsWith(day)).length;
+	return rows.filter((r) => String(r.at).startsWith(day) && !r.isolation)
+		.length;
 }
 
 /**
  * @param {string} root
- * @returns {NamedReads}
+ * @param {string} [branch] whose push runs `runs` lists
+ * @returns {Reads & NamedReads}
  */
-const liveNamedReads = (root) => ({
-	...liveReads(root),
+const liveNamedReads = (root, branch) => ({
+	...liveReads(root, branch),
 	namedRuns: () =>
 		ghJson([
 			"run",
@@ -606,8 +636,61 @@ const liveNamedReads = (root) => ({
 
 /**
  * The verdict on `files` at `sha` from a dispatched run of them alone; no
- * verdict, carrying `shut`, the local slot's refusal, where the day's cap is
- * spent or the dispatch or its run reaches none.
+ * verdict where the day's cap is spent, unless `isolation` exempts it, or
+ * the dispatch or its run reaches none.
+ * @param {{record: string, reads: NamedReads} & Poll} at
+ * @param {string} sha
+ * @param {string[]} files
+ * @param {boolean} isolation
+ * @returns {Promise<Verdict>}
+ */
+async function namedVerdict(
+	{ record, reads, wait, now },
+	sha,
+	files,
+	isolation,
+) {
+	/** @type {(reason: string) => Verdict} */
+	const unknown = (reason) => ({ kind: "unknown", reason });
+	if (!isolation && readDispatchesToday(record, now()) >= NAMED_DAILY_CAP)
+		return unknown(`${NAMED_WORKFLOW}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
+	const nonce = crypto.randomUUID();
+	try {
+		reads.dispatch({ sha, files, nonce });
+	} catch (err) {
+		return unknown(
+			`${NAMED_WORKFLOW} did not dispatch: ${parseErrorText(err)}`,
+		);
+	}
+	const entry = {
+		at: new Date(now()).toISOString(),
+		sha,
+		files,
+		nonce,
+		...(isolation ? { isolation } : {}),
+	};
+	/* Said and gone on (#3764): the run is already spent, so the only loss is
+	 * this one going uncounted against the cap. */
+	if (!appendRetained(record, entry, NAMED_RECORD_RETAIN_MS))
+		writeFd(2, `lander: named-run record unwritten: ${record}\n`);
+	const title = `named-rerun ${sha} ${nonce}`;
+	const v = await pollRun(
+		() => namedRunVerdict(sha, title, reads),
+		(err) =>
+			unknown(`${NAMED_WORKFLOW} runs unreadable: ${parseErrorText(err)}`),
+		{ wait, now },
+	);
+	if (v.kind !== "pending") return v;
+	return unknown(
+		v.run === null
+			? `${NAMED_WORKFLOW} listed no run titled ${title}`
+			: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
+	);
+}
+
+/**
+ * The verdict on `files` at `sha` from a dispatched run of them alone, its no
+ * verdict carrying `shut`, the local slot's refusal.
  * @param {NamedRerunOptions} options
  * @returns {(sha: string, files: string[], shut: string) => Promise<Verdict>}
  */
@@ -618,49 +701,83 @@ function namedRerun({
 	now = Date.now,
 }) {
 	const record = path.join(markersDir(root), NAMED_RECORD);
-	/** @type {(shut: string, why: string) => Verdict} */
-	const noVerdict = (shut, why) => ({
-		kind: "unknown",
-		reason: `${shut}; off the machine, ${why}`,
-	});
 	return async (sha, files, shut) => {
-		if (readDispatchesToday(record, now()) >= NAMED_DAILY_CAP)
-			return noVerdict(
-				shut,
-				`${NAMED_WORKFLOW}'s ${NAMED_DAILY_CAP}-a-day cap is spent`,
-			);
-		const nonce = crypto.randomUUID();
-		try {
-			reads.dispatch({ sha, files, nonce });
-		} catch (err) {
-			return noVerdict(
-				shut,
-				`${NAMED_WORKFLOW} did not dispatch: ${parseErrorText(err)}`,
-			);
-		}
-		const entry = { at: new Date(now()).toISOString(), sha, files, nonce };
-		/* Said and gone on (#3764): the run is already spent, so the only loss is
-		 * this one going uncounted against the cap. */
-		if (!appendRetained(record, entry, NAMED_RECORD_RETAIN_MS))
-			writeFd(2, `lander: named-run record unwritten: ${record}\n`);
-		const title = `named-rerun ${sha} ${nonce}`;
-		const v = await pollRun(
-			() => namedRunVerdict(sha, title, reads),
-			(err) => ({
-				kind: "unknown",
-				reason: `${NAMED_WORKFLOW} runs unreadable: ${parseErrorText(err)}`,
-			}),
-			{ wait, now },
+		const v = await namedVerdict(
+			{ record, reads, wait, now },
+			sha,
+			files,
+			false,
 		);
-		if (v.kind === "unknown") return noVerdict(shut, v.reason);
-		if (v.kind !== "pending") return v;
-		return noVerdict(
-			shut,
-			v.run === null
-				? `${NAMED_WORKFLOW} listed no run titled ${title}`
-				: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
-		);
+		return v.kind === "unknown"
+			? { kind: "unknown", reason: `${shut}; off the machine, ${v.reason}` }
+			: v;
 	};
 }
 
-module.exports = { SUITE_WORKFLOW, actionsTester, namedRerun };
+/**
+ * The queue's live reads: `runs` on `lander/batch`, and the isolation heads
+ * through `git ls-remote` in `root`.
+ * @param {string} root
+ * @returns {QueueReads}
+ */
+const liveQueueReads = (root) => ({
+	...liveNamedReads(root, LANDER_BATCH_BRANCH),
+	isoShas: () =>
+		execFileSync(
+			gitBinary(),
+			["ls-remote", REMOTE, `refs/heads/${LANDER_ISO_PREFIX}*`],
+			{ ...gitSpawnOptions(), cwd: root, encoding: "utf8" },
+		)
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => line.split("\t")[0] ?? ""),
+});
+
+/**
+ * @typedef {object} QueueTesterOptions
+ * @property {string} root the canonical checkout
+ * @property {QueueReads} [reads]
+ * @property {(ms: number) => Promise<void>} [wait]
+ * @property {() => number} [now]
+ */
+
+/**
+ * The queue lander's Actions tester (#4458).
+ * @param {QueueTesterOptions} options
+ * @returns {QueueTester}
+ */
+function queueTester({
+	root,
+	reads = liveQueueReads(root),
+	wait = sleep,
+	now = Date.now,
+}) {
+	const at = { reads, branch: LANDER_BATCH_BRANCH, wait, now };
+	const record = path.join(markersDir(root), NAMED_RECORD);
+	return {
+		requiresRun: true,
+		async verdict(sha, files) {
+			if (files === undefined || files.length === 0)
+				return suiteVerdict(sha, 0, at);
+			/** @type {Run|undefined} */
+			let run;
+			try {
+				run = newestRun(sha, reads);
+				if (run?.conclusion === "failure") reads.rerun(run.databaseId);
+			} catch (err) {
+				return unreadable(err);
+			}
+			if (run?.conclusion === "failure")
+				return suiteVerdict(sha, run.attempt, at);
+			let isolation = false;
+			try {
+				isolation = reads.isoShas().includes(sha);
+			} catch {
+				// Unread, the dispatch counts against the cap: the safe side.
+			}
+			return namedVerdict({ record, reads, wait, now }, sha, files, isolation);
+		},
+	};
+}
+
+module.exports = { SUITE_WORKFLOW, actionsTester, namedRerun, queueTester };

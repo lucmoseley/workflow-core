@@ -17,6 +17,7 @@ import {
 	fileLedger,
 	heartbeatWriter,
 	landerFiles,
+	type QueueTester,
 	remoteGit,
 	runLander,
 } from "./lander.js";
@@ -149,6 +150,29 @@ it("returns green at a passing sha and red naming the failing file at a failing 
 		failures: [{ file: "b.check.js", test: "it fails" }],
 	});
 	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
+});
+
+it("answers the queue lander's tester: the whole suite or named files at a sha, unknown where it cannot test (#4458)", async () => {
+	write("b.check.js", "throw new Error('no')");
+	const failing = commit("failing");
+	const tester: QueueTester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+	});
+
+	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(failing, [])).toMatchObject({
+		kind: "red",
+		files: ["b.check.js"],
+	});
+	expect(await tester.verdict(failing, ["a.check.js"])).toEqual({
+		kind: "green",
+	});
+	expect(await tester.verdict("0".repeat(40))).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/^checkout failed: /),
+	});
 });
 
 it("tests the sha, never the shared tree's unsaved edits", async () => {

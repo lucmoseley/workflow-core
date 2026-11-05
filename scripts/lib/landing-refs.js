@@ -28,6 +28,10 @@ const VERIFIED_BRANCH = "main";
 const VERIFIED_REF = `${REMOTE}/${VERIFIED_BRANCH}`;
 const LANDING_BRANCH = "landing";
 const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
+/* The queue lander's own refs (#4458), which it alone writes and may force:
+ * the integration commit under test, and each isolation commit. */
+const LANDER_BATCH_BRANCH = "lander/batch";
+const LANDER_ISO_PREFIX = "lander/iso-";
 
 /**
  * The fetch refspec that updates `branch`'s remote-tracking ref.
@@ -155,6 +159,8 @@ if (require.main === module) {
 
 module.exports = {
 	branchOf,
+	LANDER_BATCH_BRANCH,
+	LANDER_ISO_PREFIX,
 	LANDING_BRANCH,
 	landingOn,
 	LANDING_REF,
