@@ -175,12 +175,10 @@ function loopCodeTip(env: Record<string, string>) {
 	};
 }
 
-/* The apiKeyHelper a launch's `--settings` names. */
 const helperOf = (launch: string | undefined) =>
 	JSON.parse(String(launch?.match(/--settings (\{.*\}) \/implement 341$/)?.[1]))
 		.apiKeyHelper;
 
-/* Runs the literal apiKeyHelper line through a shell, as `claude` runs it. */
 function expectHelperPrintsKey(helper: string) {
 	// spawn-kept: the subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
 	const h = spawnSync("sh", ["-c", helper], { encoding: "utf8" });
@@ -188,7 +186,6 @@ function expectHelperPrintsKey(helper: string) {
 	expect(h.stdout).toBe("sk-fake-overflow\n");
 }
 
-/* These scripts copied into `root`, as a checkout holds them. */
 const copyScripts = (root: string) =>
 	fs.cpSync(__dirname, path.join(root, "scripts"), {
 		recursive: true,

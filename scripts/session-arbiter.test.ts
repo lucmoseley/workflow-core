@@ -1124,10 +1124,9 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 });
 
 /*
- * mantahostels#135. An empty list means "this session wrote nothing", which
- * the guard-commit-form core's attribution-aware warn (mantahostels#118) reads as *every staged
- * path is someone else's*. Returning it when the ledger could not be read hands
- * the session a list of its own files under the words "you never wrote these".
+ * mantahostels#135. An empty list means "this session wrote nothing", so
+ * returning it when the ledger could not be read disowns the session's own
+ * files.
  */
 describe("writes — an unreadable ledger is not an empty one", () => {
 	const record = (rel: string, sessionId: string) =>
@@ -1135,9 +1134,8 @@ describe("writes — an unreadable ledger is not an empty one", () => {
 
 	it("a session that has written nothing answers empty, and succeeds", () => {
 		// recordWrite mints the ledger on the first write, so no file at all is the
-		// honest empty answer — not an error. Collapsing this into the failure case
-		// would fall back to the index-wide warn for every read-only session, which
-		// is most of them.
+		// honest empty answer — not an error, for the read-only sessions that are
+		// most of them.
 		const r = cli(["writes", "never-wrote"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");

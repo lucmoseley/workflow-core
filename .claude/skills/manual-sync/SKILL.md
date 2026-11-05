@@ -147,9 +147,9 @@ is non-empty.
    committing.
 
    **Commit the manual by pathspec** — `git commit -m "…" -- docs/operating-manual.md`,
-   plus every output the render step printed, never `git add` first — except
-   `git add -- <output>` for an output git does not track yet, which a
-   pathspec commit refuses. A targeted correction renders and commits the same
+   plus every output the render step printed — with `git add -N -- <output>`
+   first for an output git does not track yet, which a pathspec commit
+   cannot reach. A targeted correction renders and commits the same
    way.
 
    **Release the manual once committed.** `node scripts/session-arbiter.js
