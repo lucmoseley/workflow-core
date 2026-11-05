@@ -28,6 +28,7 @@ const git = (...args: string[]) =>
 	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
 		cwd: repo,
 		encoding: "utf8",
+		stdio: "pipe",
 	}).trim();
 
 beforeEach(() => {
@@ -253,19 +254,7 @@ describe("mid-merge (#4426)", () => {
 		git("checkout", "-q", "-");
 		fs.writeFileSync(path.join(repo, "a.js"), "mine\n");
 		git("commit", "-qam", "mine");
-		return execFileSync(
-			"git",
-			[
-				"-c",
-				"user.email=t@t",
-				"-c",
-				"user.name=t",
-				"merge",
-				"--no-commit",
-				"side",
-			],
-			{ cwd: repo, encoding: "utf8", stdio: "pipe" },
-		);
+		git("merge", "--no-commit", "side");
 	};
 	const Flags = ["--base", "HEAD", "--findings", "0"];
 
@@ -292,7 +281,7 @@ describe("mid-merge (#4426)", () => {
 		fs.writeFileSync(patch, "");
 		const r = run([...Flags, "--paths", "b.js", "--patch", patch]);
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("--patch has no place mid-merge");
+		expect(r.stderr).toContain("Drop --patch and re-run.");
 		expect(fs.existsSync(marker())).toBe(false);
 	});
 
@@ -300,11 +289,17 @@ describe("mid-merge (#4426)", () => {
 		try {
 			startMerge("a.js", "theirs\n");
 		} catch {
-			// the conflict stops the merge, leaving MERGE_HEAD
+			// the conflict stops the merge
 		}
+		expect(git("rev-parse", "-q", "--verify", "MERGE_HEAD")).toMatch(
+			/^[0-9a-f]{40}$/,
+		);
 		const r = run([...Flags, "--paths", "a.js"]);
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("git write-tree failed mid-merge");
+		expect(r.stderr).toContain("git write-tree mid-merge failed");
+		expect(r.stderr).toContain(
+			"Resolve and stage every conflicted path first.",
+		);
 		expect(fs.existsSync(marker())).toBe(false);
 	});
 });

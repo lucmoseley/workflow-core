@@ -251,6 +251,22 @@ function repoRelative(root, paths) {
 }
 
 /**
+ * The tree id a tree-building command printed, or a failure naming `what`.
+ * @param {import("node:child_process").SpawnSyncReturns<string>} r
+ * @param {string} what
+ * @param {string} [remedy] a sentence on the way out
+ */
+function treeOrFail(r, what, remedy = "") {
+	const tree = String(r.stdout ?? "").trim();
+	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
+		fail(
+			`${what} failed (exit ${r.status}): ${String(r.stderr ?? "").trim()}${remedy} Nothing written.`,
+			1,
+		);
+	return tree;
+}
+
+/**
  * @param {string} root
  * @param {string[]} paths
  * @param {string | undefined} patch
@@ -267,13 +283,7 @@ function readTreeOf(root, paths, patch) {
 		cwd: root,
 		encoding: "utf8",
 	});
-	const tree = String(r.stdout ?? "").trim();
-	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
-		fail(
-			`commit-paths.js --tree failed (exit ${r.status}): ${String(r.stderr ?? "").trim()} Nothing written.`,
-			1,
-		);
-	return tree;
+	return treeOrFail(r, "commit-paths.js --tree");
 }
 
 /**
@@ -290,16 +300,12 @@ const isMerging = (root) =>
  * The tree a merge's commit carries: the index, whole.
  * @param {string} root
  */
-function readIndexTree(root) {
-	const r = spawnGitSync(["write-tree"], { cwd: root, encoding: "utf8" });
-	const tree = String(r.stdout ?? "").trim();
-	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
-		fail(
-			`git write-tree failed mid-merge (exit ${r.status}): ${String(r.stderr ?? "").trim()} Resolve and stage every conflicted path first. Nothing written.`,
-			1,
-		);
-	return tree;
-}
+const readIndexTree = (root) =>
+	treeOrFail(
+		spawnGitSync(["write-tree"], { cwd: root, encoding: "utf8" }),
+		"git write-tree mid-merge",
+		" Resolve and stage every conflicted path first.",
+	);
 
 /**
  * @param {Record<string, string | true>} flags
@@ -403,7 +409,7 @@ function main() {
 		const merging = isMerging(treeRoot);
 		if (merging && o.patch !== undefined)
 			fail(
-				"--patch has no place mid-merge: git commits a merge whole, from the index. Nothing written.",
+				"--patch has no place mid-merge: git commits a merge whole, from the index. Drop --patch and re-run. Nothing written.",
 				2,
 			);
 		lines.push(
