@@ -332,13 +332,18 @@ function takeBatch(queue, main, ahead) {
 			onto: main,
 			integration: null,
 			phase: "merging",
-			ahead: [],
-			blame: null,
-			isolated: [],
-			serial: null,
-			hold: null,
+			...redPathAtRest(),
 		},
 	};
+}
+
+/**
+ * A batch's red-path fields before any red: a fresh object per call, so no
+ * two batches share its lists.
+ * @returns {Pick<Batch, "ahead"|"blame"|"isolated"|"serial"|"hold">}
+ */
+function redPathAtRest() {
+	return { ahead: [], blame: null, isolated: [], serial: null, hold: null };
 }
 
 /**
@@ -1551,4 +1556,9 @@ function buildQueueActionLine(a) {
 	}
 }
 
-module.exports = { TransientFault, buildQueueActionLine, runQueueLander };
+module.exports = {
+	TransientFault,
+	buildQueueActionLine,
+	redPathAtRest,
+	runQueueLander,
+};

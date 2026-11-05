@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { redPathAtRest } from "./queue-lander.js";
 import type { QueueEvent } from "./queue-log.js";
 import { buildQueueRefLine, readQueueRefStates } from "./queue-ref-status.js";
 
@@ -72,11 +73,7 @@ const batch = (over: Record<string, unknown> = {}) => ({
 	onto: seed,
 	integration: null,
 	phase: "merging",
-	ahead: [],
-	blame: null,
-	isolated: [],
-	serial: null,
-	hold: null,
+	...redPathAtRest(),
 	...over,
 });
 

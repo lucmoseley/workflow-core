@@ -32,6 +32,7 @@ import {
 	type MergeResult,
 	type QueueAction,
 	type QueueLanderDeps,
+	redPathAtRest,
 	runQueueLander,
 } from "./queue-lander.js";
 
@@ -286,15 +287,6 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 const verdictKey = (sha: string, files: readonly string[], pass: number) =>
 	`${sha} ${files.join(",")}${pass === 1 ? "" : ` #${pass}`}`;
 
-/** A batch record's red-path fields at rest. */
-const UNRED = {
-	ahead: [],
-	blame: null,
-	isolated: [],
-	serial: null,
-	hold: null,
-};
-
 const kinds = (actions: QueueAction[]) => actions.map((a) => a.kind);
 const taken = (actions: QueueAction[]) =>
 	actions.flatMap((a) =>
@@ -359,7 +351,7 @@ describe("the green path", () => {
 			{ name: "b", sha: "b1", pushedAt: 2 },
 		];
 		disk.batch = {
-			...UNRED,
+			...redPathAtRest(),
 			members,
 			deferred: [],
 			dropped: [],
@@ -792,7 +784,7 @@ describe("drop and defer", () => {
 		const disk = freshDisk();
 		const members = [{ name: "a", sha: "a1", pushedAt: 1 }];
 		disk.batch = {
-			...UNRED,
+			...redPathAtRest(),
 			members,
 			deferred: [],
 			dropped: [],
@@ -912,7 +904,7 @@ describe("drop and defer", () => {
 		const disk = freshDisk();
 		const a = { name: "a", sha: "a1", pushedAt: 1 };
 		disk.batch = {
-			...UNRED,
+			...redPathAtRest(),
 			members: [a, { name: "b", sha: "b1", pushedAt: 2 }],
 			deferred: [],
 			dropped: [],
@@ -971,7 +963,7 @@ describe("a crash after main moved", () => {
 		disk.green.add("x1");
 		disk.log = ["take x@x1"];
 		disk.batch = {
-			...UNRED,
+			...redPathAtRest(),
 			members: [{ name: "x", sha: "x1", pushedAt: 1 }],
 			deferred: [],
 			dropped: [],
@@ -1063,7 +1055,7 @@ describe("the reap", () => {
 		disk.tickets.set(1, "closed");
 		disk.drops = [dropOf("a", 1)];
 		disk.batch = {
-			...UNRED,
+			...redPathAtRest(),
 			members: [{ name: "x", sha: "x1", pushedAt: 1 }],
 			deferred: [],
 			dropped: [],
@@ -1594,7 +1586,7 @@ describe("a push main refuses", () => {
 		const disk = freshDisk();
 		disk.green.add("a1");
 		disk.batch = {
-			...UNRED,
+			...redPathAtRest(),
 			members: [{ name: "a", sha: "a1", pushedAt: 1 }],
 			deferred: [],
 			dropped: [],

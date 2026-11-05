@@ -36,6 +36,7 @@ import {
 	tmp,
 	work,
 } from "./lib/lander-testkit";
+import { redPathAtRest } from "./lib/queue-lander.js";
 import {
 	batchRecord,
 	dropRecord,
@@ -154,11 +155,7 @@ describe("a run", () => {
 			onto: seed,
 			integration: a,
 			phase: "testing",
-			ahead: [],
-			blame: null,
-			isolated: [],
-			serial: null,
-			hold: null,
+			...redPathAtRest(),
 		});
 
 		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
