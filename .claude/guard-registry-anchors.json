@@ -1,9 +1,9 @@
 {
 	".husky/commit-msg": "8d0e58b77c61af5f",
-	".husky/post-commit": "92ec280fe660b91d",
-	".husky/post-merge": "0f4c534bbca60f52",
+	".husky/post-commit": "149333910f39fee7",
+	".husky/post-merge": "56a267e8ea2abd13",
 	".husky/pre-applypatch": "2759f50ef45a2dc8",
-	".husky/pre-commit": "2dec4e75c66b4bed",
+	".husky/pre-commit": "6886e4fa2db060ec",
 	".husky/pre-merge-commit": "15d079673506caad",
 	".husky/pre-push": "71e3866d20ac6f6d",
 	".husky/prepare-commit-msg": "9d58745002e55677",
