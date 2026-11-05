@@ -2,6 +2,10 @@
  * goal-ref-repo.js — the production checkout lookup lib/goal-set.js's
  * `resolveGoal` takes as its `repoOf` port: the `owner/name` a `--goal` ref
  * names, its `<dir>` a checkout's directory name under the home directory.
+ *
+ * An adapter: it reads `HOME` and each named checkout's
+ * `.claude/workflow-core.json`. A module of its own so goal-set.test.ts runs
+ * it for real against a temp HOME, not a fake (#4382, base §X11 condition 2).
  */
 
 const nodePath = require("node:path");

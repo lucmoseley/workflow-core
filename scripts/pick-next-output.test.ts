@@ -298,7 +298,7 @@ describe("candidate-vs-in-flight collisions", () => {
 	it("carries every in-flight pair into --json, past the print cap", async () => {
 		// 13 candidates against 12 in-flight, left as a product: the count is
 		// quadratic in the issues sharing a path (.claude/skills/pick-next/SKILL.md).
-		// The printed cap itself is pinned on collisionPairLines (#4382).
+		// The printed cap itself is pinned on collisionBlockLines (#4382).
 		stubRepo(["scripts/a.js"]);
 		const issues = Array.from({ length: 25 }, (_, k) => ({
 			number: k + 1,

@@ -33,8 +33,7 @@ const CHILDREN = takesValue("children");
 const takesCell = (takes) => (takes.length > 0 ? takes.join("+") : "none");
 
 /**
- * The reasons in precedence order, each with its printed detail; pick-next.js's
- * render groups by that order.
+ * The reasons in precedence order, each with its printed detail.
  * @satisfies {Record<NotLaunchedReason, (d: any) => string>} `any`: each
  * reason's detail has its own shape, built in `notLaunchedOf` below.
  */
@@ -56,9 +55,8 @@ const REASON_ORDER = /** @type {NotLaunchedReason[]} */ (
 const NOT_PROPOSED_PRINT_CAP = 20;
 
 /**
- * The NOT PROPOSED block's lines, header first: the rows grouped under their
- * reason in precedence order, capped, the rest counted.
- * @param {NotLaunchedRow[]} rows `notLaunchedOf`'s rows
+ * The NOT PROPOSED block's lines, header first.
+ * @param {NotLaunchedRow[]} rows
  * @returns {string[]}
  */
 function notProposedLines(rows) {

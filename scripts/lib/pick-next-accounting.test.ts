@@ -302,7 +302,6 @@ describe("the NOT PROPOSED lines (#4382)", () => {
 	});
 
 	it("caps the printed block, grouped by reason in precedence order", () => {
-		// Moved from scripts/pick-next.test.ts, which keeps its --json half.
 		const rows = [
 			row(99, "no admission slot", { slots: 0, freeSlots: 0 }),
 			...Array.from({ length: 25 }, (_, n) =>
@@ -320,7 +319,6 @@ describe("the NOT PROPOSED lines (#4382)", () => {
 	});
 
 	it("prints none where every frontier issue is in the set", () => {
-		// Moved from scripts/pick-next.test.ts.
 		expect(notProposedLines([]).slice(1)).toEqual(["  none"]);
 		expect(
 			notProposedLines([row(1, "no command", { takes: [] })]),

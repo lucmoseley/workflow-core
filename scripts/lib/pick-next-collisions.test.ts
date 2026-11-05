@@ -67,11 +67,6 @@ describe("frontier and in-flight pairs", () => {
 	});
 });
 
-/*
- * Moved from scripts/pick-next-output.test.ts (#4382): the stamp-pair count
- * and the in-flight cap are text the core builds, so they are pinned here,
- * the cap at its measured 20.
- */
 describe("the POSSIBLE FILE COLLISIONS lines", () => {
 	const pair = (a: number, b: number, paths: string[]) => ({ a, b, paths });
 	const lines = (
@@ -104,7 +99,6 @@ describe("the POSSIBLE FILE COLLISIONS lines", () => {
 		expect(out).toMatch(
 			/3 pairs sharing only a stamp path \(docs\/doc-map\.md\) suppressed; --json carries every pair\./,
 		);
-		// No DOC-MAP QUEUE prints, so the summary must not point at it.
 		expect(out).not.toMatch(/DOC-MAP QUEUE/);
 	});
 
@@ -122,7 +116,6 @@ describe("the POSSIBLE FILE COLLISIONS lines", () => {
 		expect(out).toMatch(
 			/1 pair sharing only a stamp path \(CLAUDE\.md\) suppressed; --json/,
 		);
-		// The positive pair: a doc-map-only pair with the queue printing does point.
 		expect(
 			lines([pair(1, 2, ["docs/doc-map.md"])], { docMapQueue: [1] }),
 		).toMatch(
