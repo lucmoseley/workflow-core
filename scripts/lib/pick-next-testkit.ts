@@ -2,8 +2,8 @@
  * The harness every pick-next test file runs `scripts/pick-next.js` in: a stub
  * `gh` (WFC_GH) serving each case's fixture, so no network, no auth and no
  * dependence on this repo's own issue state, which is the thing the script
- * reports on and so cannot also be its fixture; and a hermetic machine, claim
- * store and tree.
+ * reports on and so cannot also be its fixture; and a hermetic machine, home,
+ * claim store and tree.
  *
  * `run()` goes through `runInProcessAsync` (mantahostels#1944), which patches process
  * globals for the duration of one call — no `it.concurrent` or
@@ -110,6 +110,9 @@ const kitDefaults = () => ({
 });
 
 export const kit = kitDefaults();
+
+/** The case's `HOME`: it holds no checkout but those a case plants (#4330). */
+export const kitHome = () => path.join(kit.dir, "home");
 
 /* WITA, UTC+8 with no DST: the clock a date gate is written and read on. */
 export const WITA_OFFSET_MS = 8 * 3_600_000;
@@ -439,7 +442,7 @@ const stubOracle = () => {
 /** Dirs a case locked to 0o000, which rmSync cannot empty until unlocked. */
 const lockedDirs: string[] = [];
 const stubClaims = (fx: Fixture) => {
-	const home = path.join(kit.dir, "home", ".claude");
+	const home = path.join(kitHome(), ".claude");
 	const repo =
 		kit.claimsRepo ?? kit.repoRoot ?? path.join(kit.dir, "claims-repo");
 	fs.mkdirSync(repo, { recursive: true });
@@ -521,7 +524,7 @@ export const writeJobState = (
 	jobId: string,
 	rec: { state: string; sessionId?: string },
 ) => {
-	const home = path.join(kit.dir, "home", ".claude");
+	const home = path.join(kitHome(), ".claude");
 	const jobDir = path.join(home, "jobs", jobId);
 	fs.mkdirSync(jobDir, { recursive: true });
 	fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify(rec));
@@ -635,8 +638,10 @@ export const run = async (
 	const stub = stubGh(fx);
 	stubDispatchLedger(fx);
 	const repoArgs = opts.ownRepo ? [] : ["--repo", "o/r"];
+	fs.mkdirSync(kitHome(), { recursive: true });
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
+		HOME: kitHome(),
 		...stub.env,
 		GH_STUB_DIR: kit.dir,
 		...stubMachine(),

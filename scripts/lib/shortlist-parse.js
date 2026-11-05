@@ -1,8 +1,6 @@
 /*
  * shortlist-parse.js — a pick-next shortlist's `--json` output as the refill
- * loop reads it: its frontier rows, each with its predicted write-set and the
- * substrate files a running session holds of it (#4355), and the lists the
- * merge across checkouts takes.
+ * loop reads it (#4355).
  *
  * Caller: lib/refill-frontier.js's readShortlist
  */

@@ -112,4 +112,10 @@ function readCommitOrBroken(rev, root) {
 	return r.sha;
 }
 
-module.exports = { FULL_SHA, commitSha, readCommit, readCommitOrBroken };
+module.exports = {
+	FULL_SHA,
+	PRINTED_CHARS_SHOWN,
+	commitSha,
+	readCommit,
+	readCommitOrBroken,
+};
