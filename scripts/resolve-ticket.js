@@ -440,20 +440,20 @@ function readMapOrFail(issue, n, decision) {
 /**
  * A `kind:ticket`'s comment with this session's autocompaction count
  * appended; any other issue's, or one already carrying this session's line,
- * as given. A line quoted from another session never stands in for this one's.
+ * as given.
  * @param {string} comment
  * @param {Issue} issue
  */
 function withCompactionsLine(comment, issue) {
 	if (!issue.labels.includes("kind:ticket")) return comment;
 	const sid = sessionFromEnv();
-	if (sid && hasSessionCompactionsLine(comment, sid)) return comment;
 	if (!sid) {
 		io.out(
 			`No session id (CLAUDE_CODE_SESSION_ID is unset), so #${issue.number}'s comment carries no **${COMPACTIONS_MARKER}:** line.\n`,
 		);
 		return comment;
 	}
+	if (hasSessionCompactionsLine(comment, sid)) return comment;
 	return `${comment.trimEnd()}\n\n${buildCompactionsLine(countCompactions(sid), sid)}\n`;
 }
 

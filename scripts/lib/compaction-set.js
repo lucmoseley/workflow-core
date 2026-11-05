@@ -1,6 +1,7 @@
 /*
  * compaction-set.js — the per-session set of autocompactions, one boundary key
- * a line, and the sentence that reports its size. One writer for the ceiling
+ * a line, the sentence that reports its size, the advice after a compaction,
+ * and the `**Compactions:**` line a unit's close or hand-off logs it on. One writer for the ceiling
  * guard (#1032) and inject-compaction-count.js (#1148), so their counts agree.
  *
  * A running set rather than a fresh count, because a large transcript is read
@@ -78,11 +79,14 @@ const COMPACTIONS_MARKER = "Compactions";
 /** @param {number} count @param {string} sid */
 const buildCompactionsLine = (count, sid) =>
 	`**${COMPACTIONS_MARKER}:** ${count} (session ${sid})`;
-/** Captures the count, then the session where the line names one. */
+/** Captures the count, then the session where the line names one. A hand-off
+ * line is typed by the model, so a list marker or the hook text's backtick
+ * before it still counts. */
 const COMPACTIONS_LINE_RE = buildLineRe(
 	COMPACTIONS_MARKER,
 	"(\\d+)(?:[ \\t]+\\(session ([^)\\s]+)\\))?",
 	"gm",
+	"(?:[-*+][ \\t]+)?`?",
 );
 /** @param {string} comment @param {string} sid */
 const hasSessionCompactionsLine = (comment, sid) =>

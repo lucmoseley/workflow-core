@@ -353,18 +353,19 @@ function listIssueClaims(root) {
 }
 
 /**
- * The issue `sid`'s claim holds — its newest where it holds several — or null
- * where it holds none or the store will not read: the unit a compacted build
- * session re-reads (#4410).
+ * The issues `sid` claims, newest first, or [] where the store cannot be read
+ * whole: a store read short could name an issue this session does not hold
+ * (#3639).
  * @param {string} sid
- * @returns {number|null}
+ * @returns {number[]}
  */
-function readClaimedIssue(sid) {
-	const mine = (listIssueClaims()?.claims ?? []).filter(
-		(c) => c?.sessionId === sid && typeof c.issue === "number",
-	);
-	mine.sort((a, b) => String(b.claimedAt).localeCompare(String(a.claimedAt)));
-	return mine[0]?.issue ?? null;
+function readClaimedIssues(sid) {
+	const listed = listIssueClaims();
+	if (!listed || listed.why) return [];
+	return listed.claims
+		.filter((c) => c?.sessionId === sid && typeof c.issue === "number")
+		.sort((a, b) => String(b.claimedAt).localeCompare(String(a.claimedAt)))
+		.map((c) => c.issue);
 }
 
 /**
@@ -515,7 +516,7 @@ function pruneIssueClaims(liveness) {
 module.exports = {
 	claimIssue,
 	claimIssueExclusive,
-	readClaimedIssue,
+	readClaimedIssues,
 	heldIssues,
 	listIssueClaims,
 	pruneIssueClaims,

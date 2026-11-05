@@ -10,9 +10,10 @@
  * @param {string} marker a pattern too, inserted unescaped
  * @param {string} value a pattern the line must open with after the marker
  * @param {string} [flags]
+ * @param {string} [lead] a pattern allowed before the marker's `**`
  */
-const buildLineRe = (marker, value, flags = "m") =>
-	new RegExp(`^[ \\t]*\\*\\*${marker}:\\*\\*[ \\t]*${value}`, flags);
+const buildLineRe = (marker, value, flags = "m", lead = "") =>
+	new RegExp(`^[ \\t]*${lead}\\*\\*${marker}:\\*\\*[ \\t]*${value}`, flags);
 
 /**
  * @param {string} comment
