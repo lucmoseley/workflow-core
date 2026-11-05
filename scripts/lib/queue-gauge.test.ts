@@ -65,8 +65,8 @@ describe("the limits", () => {
 	});
 
 	it("is twice the p90s where they pass the floors", () => {
-		/* 12 refs pushed a minute apart, each 90 min in queue: depths 12
-		 * down to 1 at the lands, the 11th of 12 sorted 11. */
+		/* 12 refs pushed a minute apart, each 90 min in queue: depths 1 to
+		 * 12 and back to 0, the 22nd of 24 sorted samples 11. */
 		const b = queueBaseline(week(12, 90), NOW);
 		expect(b.p90Ms).toBe(90 * MIN);
 		expect(b.depthP90).toBe(11);

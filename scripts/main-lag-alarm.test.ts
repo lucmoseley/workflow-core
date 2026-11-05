@@ -2,11 +2,9 @@
 
 /*
  * scripts/main-lag-alarm.js and .github/workflows/main-lag.yml (#4443,
- * #4485), with GitHub's activity, compare and ref endpoints stubbed. Break
- * this and the one stall alarm that outlives the machine stays green through
- * a stall, a queue ref pushed again stops ageing, one failed read hides the
- * other's stall, or the workflow's email names a threshold the check no
- * longer applies.
+ * #4485), with GitHub's activity, compare, ref and commit endpoints stubbed. Break this and the one
+ * stall alarm that outlives the machine stays green through a stall, or the
+ * workflow's email names a threshold the check no longer applies.
  */
 
 import fs from "node:fs";
@@ -17,9 +15,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { STALL_MS } from "./lib/landing-stall.js";
 import { ROOT } from "./lib/precommit-gate-testkit";
-import { QUEUE_ALERT_TITLES, STALL_TITLE } from "./lib/queue-tickets.js";
+import { AGE_FLOOR_MS, DEPTH_FLOOR } from "./lib/queue-gauge.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-import { QUEUE_BACKSTOP_MS, runAlarm } from "./main-lag-alarm.js";
+import { runAlarm } from "./main-lag-alarm.js";
 
 // Through `require`: js-yaml ships no types.
 const yaml = createRequire(import.meta.url)("js-yaml");
@@ -35,16 +33,9 @@ interface Queue {
 	pushes?: { at: number; after: string }[];
 	atMove?: Status;
 	branchSha?: string;
-	/* Each queue ref's activity feed, newest first, minutes ago. */
-	queue?: Activity[][];
+	/* Each queue ref's tip's committer time, minutes ago. */
+	queue?: number[];
 }
-type Activity = [number, "push" | "branch_creation" | "branch_deletion"];
-
-/* A queue ref first pushed `min` ago and pushed again since. */
-const created = (min: number): Activity[] => [
-	[1, "push"],
-	[min, "branch_creation"],
-];
 
 /* `main` at sha M; `landing`'s pushes, newest first, each its own sha. */
 const stub =
@@ -63,14 +54,9 @@ const stub =
 				ref: `refs/heads/queue/q${i}`,
 				object: { sha: `Q${i}` },
 			}));
-		const q =
-			/^\/activity\?ref=refs%2Fheads%2Fqueue%2Fq(\d+)&per_page=100$/.exec(p);
+		const q = /^\/commits\/Q(\d+)$/.exec(p);
 		if (q)
-			return (queue[Number(q[1])] ?? []).map(([min, type]) => ({
-				timestamp: ago(min),
-				activity_type: type,
-				after: type === "branch_deletion" ? "0" : `Q${q[1]}`,
-			}));
+			return { commit: { committer: { date: ago(queue[Number(q[1])] ?? 0) } } };
 		if (p.startsWith("/activity?ref=refs/heads/main&"))
 			return [{ timestamp: ago(mainPushed), after: "M" }];
 		if (p.startsWith("/activity?ref=refs/heads/landing&"))
@@ -110,7 +96,7 @@ describe("main-lag-alarm.js", () => {
 		expect(r.code).toBe(1);
 		expect(r.out).toContain("::error title=Main lagging landing::");
 		expect(r.out).toContain(`since ${ago(STALL_MIN + 10)}`);
-		expect(r.out).toContain(`the open "${STALL_TITLE}" ticket`);
+		expect(r.out).toContain("Landing queue stalled");
 	});
 
 	it("passes a push onto a main idle for hours until it has waited the threshold (#3303)", async () => {
@@ -172,18 +158,15 @@ describe("main-lag-alarm.js", () => {
 		expect(r.out).toContain("newer than the activity feed's last push");
 	});
 
-	it("passes a queue within the 2 h backstop, naming its oldest ref by its first push", async () => {
+	it("passes a queue within both floors, naming its oldest ref", async () => {
 		const r = await run(
-			stub({
-				mainPushed: 600,
-				landing: "identical",
-				queue: [created(5), created(119)],
-			}),
+			stub({ mainPushed: 600, landing: "identical", queue: [5, 59] }),
 		);
 		expect(r.code).toBe(0);
 		expect(r.out).toContain(
-			`queue/q1, the oldest of 2 queue refs, has waited since its first push at ${ago(119)}: 1 h 59 min, against 2 h 0 min.`,
+			`queue/q1, the oldest of 2 queue refs, has waited since its tip's commit at ${ago(59)}: 0 h 59 min, against 1 h 0 min.`,
 		);
+		expect(r.out).toContain("2 queue refs wait, against 10.");
 	});
 
 	it("says so where no queue ref waits", async () => {
@@ -191,95 +174,38 @@ describe("main-lag-alarm.js", () => {
 		expect(r.out).toContain("No queue ref waits.");
 	});
 
-	it("fails where a queue ref pushed again has waited past 2 h since its first push after its last deletion", async () => {
+	it("fails where the oldest queue ref has waited past 60 min, with main level", async () => {
+		const r = await run(
+			stub({ mainPushed: 600, landing: "identical", queue: [5, 61] }),
+		);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("::error title=Queue ref waiting::queue/q1");
+		expect(r.out).toContain(
+			'the open "Landing queue stalled: a queue ref has waited past its limit" ticket',
+		);
+		expect(r.out).not.toContain("Queue deep");
+	});
+
+	it("fails where more than 10 queue refs wait", async () => {
 		const r = await run(
 			stub({
 				mainPushed: 600,
 				landing: "identical",
-				queue: [
-					created(5),
-					[
-						[1, "push"],
-						[30, "push"],
-						[121, "branch_creation"],
-						[200, "branch_deletion"],
-						[900, "branch_creation"],
-					],
-				],
+				queue: new Array(11).fill(1),
 			}),
 		);
 		expect(r.code).toBe(1);
-		expect(r.out).toContain(
-			`::error title=Queue ref waiting::queue/q1, the oldest of 2 queue refs, has waited since its first push at ${ago(121)}`,
-		);
-		expect(r.out).toContain(`the open "${QUEUE_ALERT_TITLES.age}" ticket`);
-		expect(QUEUE_ALERT_TITLES.age).not.toBe(STALL_TITLE);
+		expect(r.out).toContain("::error title=Queue deep::11 queue refs wait");
+		expect(r.out).not.toContain("Queue ref waiting");
 	});
 
-	it("holds no depth: eleven fresh queue refs pass", async () => {
-		const r = await run(
-			stub({
-				mainPushed: 600,
-				landing: "identical",
-				queue: new Array(11).fill(created(1)),
-			}),
+	it("fails as a broken check where a queue ref's commit has no committer time", async () => {
+		const real = stub({ mainPushed: 600, landing: "identical", queue: [5] });
+		const r = await run(async (p) =>
+			p.startsWith("/commits/") ? { commit: {} } : real(p),
 		);
-		expect(r.code).toBe(0);
-		expect(r.out).not.toContain("::error");
-	});
-
-	it("skips and names a queue ref whose feed lists no push, failing on nothing", async () => {
-		const r = await run(
-			stub({
-				mainPushed: 600,
-				landing: "identical",
-				queue: [[], [[300, "branch_deletion"]], created(5)],
-			}),
-		);
-		expect(r.code).toBe(0);
-		expect(r.out).toContain(
-			"queue/q0 is skipped: its activity feed lists no push.",
-		);
-		expect(r.out).toContain(
-			"queue/q1 is skipped: its activity feed lists no push.",
-		);
-		expect(r.out).toContain("queue/q2, the oldest of 1 queue refs");
-	});
-
-	it("reports the lag's stall where the queue will not read, naming the queue's read as broken", async () => {
-		const real = stub({
-			mainPushed: STALL_MIN + 30,
-			landing: "ahead",
-			pushes: [{ at: STALL_MIN + 10, after: "L0" }],
-		});
-		const r = await run(async (p) => {
-			if (p.startsWith("/git/matching-refs/")) throw new Error("HTTP 502");
-			return real(p);
-		});
-		expect(r.code).toBe(1);
-		expect(r.out).toContain("::error title=Main lagging landing::");
-		expect(r.out).toContain(
-			"::error title=Check broken, not a stall::Could not read the queue refs: HTTP 502.",
-		);
-		expect(r.out).not.toContain("Could not read main's lag");
-	});
-
-	it("reports the queue where main's lag will not read, naming the lag's read as broken", async () => {
-		const real = stub({
-			mainPushed: 600,
-			landing: "identical",
-			queue: [created(5)],
-		});
-		const r = await run(async (p) => {
-			if (p.startsWith("/compare/")) throw new Error("HTTP 502");
-			return real(p);
-		});
 		expect(r.code).toBe(2);
-		expect(r.out).toContain(
-			"::error title=Check broken, not a stall::Could not read main's lag behind landing: HTTP 502.",
-		);
-		expect(r.out).toContain("queue/q0, the oldest of 1 queue refs");
-		expect(r.out).not.toContain("Could not read the queue refs");
+		expect(r.out).toContain("no committer time for Q0");
 	});
 
 	it("fails as a broken check on a feed entry with no timestamp", async () => {
@@ -301,7 +227,6 @@ describe("main-lag-alarm.js", () => {
 		expect(r.out).toContain("::error title=Check broken, not a stall::");
 		expect(r.out).toContain("HTTP 503");
 		expect(r.out).toContain("git log origin/main..origin/landing");
-		expect(r.out).toContain("git ls-remote origin 'refs/heads/queue/*'");
 		expect(r.out).not.toContain("Main lagging");
 	});
 });
@@ -367,10 +292,8 @@ describe("main-lag.yml", () => {
 	it("names the threshold the check applies where an email shows it", () => {
 		const hours = STALL_MS / 3_600_000;
 		expect(workflow.name).toContain(`${hours}h`);
-		expect(job.name).toContain(`${hours} hours of landing going ahead`);
-		expect(job.name).toContain(
-			`no queue ref waited over ${QUEUE_BACKSTOP_MS / 3_600_000} hours`,
-		);
-		expect(job.name.replace(/\b2 hours\b/g, "")).not.toMatch(/\d/);
+		expect(job.name).toContain(`${hours} hours`);
+		expect(job.name).toContain(`${AGE_FLOOR_MS / 60_000} min`);
+		expect(job.name).toContain(`at most ${DEPTH_FLOOR} wait`);
 	});
 });

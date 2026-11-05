@@ -4,7 +4,8 @@
  * (#2407, spec #2261): each commit its commit ledger names is landed (on
  * `main`), queued (on `landing`, not yet on `main`), reverted by a revert on
  * `landing`, or unpushed. Fetches both branches first. Its last line is the
- * landing queue's (lib/queue-gauge.js).
+ * landing queue's (lib/queue-gauge.js): the refs waiting, the oldest and its
+ * wait, and the 7-day p50 and p90 time in queue and p90 depth.
  *
  *   node scripts/landing-status.js [--session <id>]
  *
@@ -100,13 +101,14 @@ function main(argv = process.argv.slice(2)) {
 	return 0;
 }
 
-/** @param {string} root */
+/**
+ * The landing queue's line, read from `root`'s remote and queue log.
+ * @param {string} root
+ */
 function sayQueueLine(root) {
 	try {
 		say(buildQueueLine(readQueueGauge(root, now())));
 	} catch (err) {
-		/* Fail-open (#4485): the queue's line is a reading beside the
-		 * session's commits, which stand without it; the failure is named. */
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);
 	}
 }

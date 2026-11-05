@@ -1,19 +1,18 @@
 // @vitest-environment node
 /*
  * lib/queue-log.js's readers (#4485, spec #4458): time in queue, depth,
- * each waiting ref's start, percentiles and the 7-day baselines, off canned
- * queue logs.
+ * percentiles and the 7-day baselines, off canned queue logs.
  *
- * Loosen it and a ref's time in queue starts at a later push than its
- * oldest pending one, a ref pushed again stops ageing, a ref pushed again
- * after its take is dropped from the depth, pushes and takes skew the depth,
- * or the baselines the queue alert's limits rest on read the wrong week.
+ * Loosen it and a ref's time in queue is counted from a push the sha that
+ * left never held, a ref pushed again after its take is dropped from the
+ * depth, or the baselines the queue alert's limits rest on read the wrong
+ * week.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { pendingSince, queueBaseline, readQueueRows } from "./queue-log.js";
+import { queueBaseline, readQueueRows } from "./queue-log.js";
 
 const MIN = 60_000;
 const NOW = Date.parse("2026-11-06T12:00:00Z");
@@ -68,17 +67,7 @@ describe("time in queue and depth", () => {
 				row(20, "enqueue", "x", C),
 				row(10, "land", "x", C),
 			]),
-		).toEqual(expect.objectContaining({ spans: 2, p50Ms: 10, p90Ms: 30 }));
-	});
-
-	it("times a land from the ref's oldest pending push, not the sha that landed", () => {
-		expect(
-			minutes([
-				row(60, "enqueue", "x", A),
-				row(40, "enqueue", "x", B),
-				row(10, "land", "x", B),
-			]),
-		).toEqual(expect.objectContaining({ spans: 1, p50Ms: 50 }));
+		).toEqual(expect.objectContaining({ spans: 2, p50Ms: 10, p90Ms: 25 }));
 	});
 
 	it("falls back to the ref's earliest pending push where none names the sha", () => {
@@ -100,17 +89,16 @@ describe("time in queue and depth", () => {
 		});
 	});
 
-	it("samples the depth at each land or drop alone, the ref leaving counted", () => {
-		/* One land with one ref waiting, then nine pushes and their takes:
-		 * sampled at every event, the p90 would be 9. */
-		const names = Array.from({ length: 9 }, (_, i) => `r${i}`);
+	it("counts the refs waiting after each event, a take leaving them waiting", () => {
+		/* Ten pushes, then ten takes: depths 1 to 10, then 10 ten times, the
+		 * 18th of 20 sorted 10. Read as leaving the queue, the takes would
+		 * give 9 down to 0, and a p90 of 9. */
+		const names = Array.from({ length: 10 }, (_, i) => `r${i}`);
 		const rows = [
-			row(100, "enqueue", "x", A),
-			row(90, "land", "x", A),
-			...names.map((n, i) => row(80 - i, "enqueue", n, A)),
+			...names.map((n, i) => row(100 - i, "enqueue", n, A)),
 			...names.map((n, i) => row(50 - i, "take", n, A)),
 		];
-		expect(minutes(rows).depthP90).toBe(1);
+		expect(minutes(rows).depthP90).toBe(10);
 	});
 });
 
@@ -130,7 +118,7 @@ describe("percentiles", () => {
 describe("queueBaseline", () => {
 	it("reads p50, p90 and the depth p90 exactly off a small log", () => {
 		/* Five refs pushed a minute apart, then landed after 10, 20, 30, 40
-		 * and 50 min: depths 5 down to 1 at the lands. */
+		 * and 50 min: depths 1 to 5 and back to 0. */
 		const rows = [10, 20, 30, 40, 50].flatMap((wait, i) => [
 			row(120 - i, "enqueue", `r${i}`, A),
 			row(120 - i - wait, "land", `r${i}`, A),
@@ -143,7 +131,7 @@ describe("queueBaseline", () => {
 			spans: 5,
 			p50Ms: 30 * MIN,
 			p90Ms: 50 * MIN,
-			depthP90: 5,
+			depthP90: 4,
 		});
 	});
 
@@ -160,8 +148,8 @@ describe("queueBaseline", () => {
 		);
 		expect(b.spans).toBe(1);
 		expect(b.p90Ms).toBe((week + 5 - 30) * MIN);
-		/* The one land in the window: `long`'s, with it alone waiting. */
-		expect(b.depthP90).toBe(1);
+		/* The one event in the window: `long`'s land, after which none waits. */
+		expect(b.depthP90).toBe(0);
 	});
 
 	it("is empty, every figure null, on an empty log", () => {
@@ -171,41 +159,6 @@ describe("queueBaseline", () => {
 			p90Ms: null,
 			depthP90: null,
 		});
-	});
-});
-
-describe("pendingSince", () => {
-	const x = "refs/heads/queue/x";
-
-	it("dates a ref pushed again from its earliest pending push", () => {
-		const since = pendingSince([
-			row(60, "enqueue", "x", A),
-			row(50, "take", "x", A),
-			row(40, "enqueue", "x", B),
-		]);
-		expect(since.get(x)).toBe(NOW - 60 * MIN);
-	});
-
-	it("dates a ref from the first push after its last land", () => {
-		const since = pendingSince([
-			row(60, "enqueue", "x", A),
-			row(30, "land", "x", A),
-			row(20, "enqueue", "x", B),
-			row(10, "enqueue", "x", C),
-		]);
-		expect(since.get(x)).toBe(NOW - 20 * MIN);
-	});
-
-	it("keeps a push after the landed sha pending, and names no ref with none", () => {
-		const since = pendingSince([
-			row(60, "enqueue", "x", A),
-			row(40, "enqueue", "x", B),
-			row(30, "land", "x", A),
-			row(20, "enqueue", "y", A),
-			row(10, "drop", "y", A),
-		]);
-		expect(since.get(x)).toBe(NOW - 40 * MIN);
-		expect(since.has("refs/heads/queue/y")).toBe(false);
 	});
 });
 

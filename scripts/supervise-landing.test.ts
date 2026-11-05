@@ -354,7 +354,7 @@ it("files the queue alert once for a queue ref waiting past 60 min, says nothing
 	const [alert, ...more] = readIssues();
 	expect(more).toEqual([]);
 	expect(alert.title).toBe(
-		"Landing queue slow: a queue ref has waited past its limit",
+		"Landing queue stalled: a queue ref has waited past its limit",
 	);
 	expect(alert.body).toContain("queue/old has waited 1 h 1 min");
 
@@ -363,23 +363,4 @@ it("files the queue alert once for a queue ref waiting past 60 min, says nothing
 
 	expect(gone.stdout).toBe("queue alert: closed #100.\n");
 	expect(readIssues()[0].closeComment).toMatch(/^No queue ref waits at \S+\.$/);
-});
-
-it("names a queue it cannot read on its own line, the stall ticket still filed and the pass still 0", () => {
-	commit("seed", 121 * MIN, "main", "landing");
-	commit("work", MIN, "landing");
-	aheadFor(121 * MIN);
-	beat(process.pid);
-	fs.mkdirSync(path.join(markers(), ".queue-log.jsonl"), { recursive: true });
-
-	const r = supervise();
-
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toContain("Filed #100");
-	expect(r.stdout).toMatch(
-		/^queue alert: could not read the landing queue: .*EISDIR.*$/m,
-	);
-	expect(readIssues().map((i: { title: string }) => i.title)).toEqual([
-		"Landing queue stalled: main has not moved for 2 h",
-	]);
 });

@@ -18,7 +18,8 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { STALL_MS, formatHoursMin } = require("./landing-stall.js");
 const { failingList } = require("./lander.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
-const { STALL_TITLE: TITLE, readTicketRecord } = require("./queue-tickets.js");
+
+const TITLE = "Landing queue stalled: main has not moved for 2 h";
 
 /**
  * @typedef {object} Stall
@@ -80,14 +81,22 @@ const RECORD = ".landing-stall-ticket.json";
  * @returns {StallRecord|null|"torn"}
  */
 function readStallRecord(file) {
-	return readTicketRecord(file, (rec) => {
-		const { main, movedAt } =
-			/** @type {{main?: unknown, movedAt?: unknown}} */ (rec ?? {});
-		const since = Date.parse(String(movedAt));
-		return typeof main === "string" && Number.isFinite(since)
-			? { main, since }
-			: null;
-	});
+	let text;
+	try {
+		text = fs.readFileSync(file, "utf8");
+	} catch (e) {
+		if (/** @type {{code?: unknown}} */ (e).code === "ENOENT") return null;
+		throw e;
+	}
+	try {
+		const rec = JSON.parse(text);
+		const since = Date.parse(rec.movedAt);
+		return typeof rec.main === "string" && Number.isFinite(since)
+			? { main: rec.main, since }
+			: "torn";
+	} catch {
+		return "torn";
+	}
 }
 
 /**
@@ -146,4 +155,4 @@ function stallTicketTender(deps, markers) {
 	};
 }
 
-module.exports = { stallTicketTender };
+module.exports = { STALL_TITLE: TITLE, stallTicketTender };
