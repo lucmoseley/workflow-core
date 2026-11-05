@@ -194,16 +194,6 @@ fi
 # Removable without changing the output — an empty ledger already yields an empty
 # match below. It skips the git diffs for read-only sessions, the common case.
 [[ -s "$mine" ]] || exit 0
-# The ledger names a worktree's file from the host root; git in the tree names
-# it from the tree, so the ledger is re-spelt, and a tree outside the host root
-# holds nothing it recorded.
-if [[ "$tree" != "$host" ]]; then
-  prefix="${tree#"$host"/}/"
-  [[ "$prefix" != "$tree/" ]] || exit 0
-  own=$(awk -v p="$prefix" 'index($0, p) == 1 { print substr($0, length(p) + 1) }' "$mine")
-  printf '%s\n' "$own" >"$mine"
-  [[ -n "$own" ]] || exit 0
-fi
 
 # quotePath=false on every git command feeding it: attributed_to's header.
 attributed() { attributed_to "$mine"; }

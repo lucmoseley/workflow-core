@@ -171,6 +171,7 @@
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
 			"scripts/lib/core-hooks.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/marker-root.test.ts",
 			"scripts/lib/persist-mode.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
@@ -832,6 +833,7 @@
 			"scripts/lib/config-json.test.ts",
 			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
@@ -2640,6 +2642,7 @@
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts"
 		],
 		"docs/doc-map-high-water.json": [
@@ -2691,6 +2694,7 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/pick-next-output.test.ts",
@@ -2751,6 +2755,7 @@
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/roadmap-template-render.test.ts",
@@ -2779,6 +2784,7 @@
 			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts"
 		],
@@ -38783,6 +38789,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/templates/adopter/AGENTS.md": [
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"

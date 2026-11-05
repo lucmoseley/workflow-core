@@ -26,6 +26,7 @@ import {
 	type Row,
 } from "./agents-stop-fake";
 import {
+	buildBgBranch,
 	buildRekeyedResponse,
 	FAKE_COPY,
 	type ResumeKind,
@@ -400,7 +401,11 @@ export const fakeResumeClaude = (
 		buildAgentsBranch(listing),
 		buildStopBranch(at("calls")),
 		buildAttachBranch(at("calls")),
-		`if [ "$1" = "--bg" ]; then echo "$*" >> "$calls"; ${onResume} cat ${shellQuote(at("bg-stdout"))}; cat ${shellQuote(at("bg-stderr"))} >&2; exit 0; fi`,
+		buildBgBranch({
+			out: at("bg-stdout"),
+			err: at("bg-stderr"),
+			onResume: `echo "$*" >> "$calls"; ${onResume}`,
+		}),
 	]);
 };
 

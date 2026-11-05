@@ -2,11 +2,12 @@
  * The fake of the launcher's `claude --bg --resume` response: the installed
  * harness's recorded responses (scripts/fixtures/bg-resume.json, re-recorded
  * by `node scripts/record-claude-responses.js`), each re-keyed to a test's job ids
- * (#2968).
+ * (#2968), and the `claude` stub branch that serves one (#4413).
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 export type ResumeKind = "copy" | "woke" | "continued";
 
@@ -47,4 +48,28 @@ export function buildRekeyedResponse(
 		stderr: swap(r.stderr),
 		startedAs,
 	};
+}
+
+/** The stub's `--bg` branch: runs the shell `onResume`, prints file `out`
+ * and, where given, file `err` to stderr, then exits 0 — the launcher
+ * answering. */
+export function buildBgBranch({
+	out,
+	err,
+	onResume = "",
+}: {
+	out: string;
+	err?: string;
+	onResume?: string;
+}) {
+	return [
+		'if [ "$1" = "--bg" ]; then',
+		onResume,
+		`cat ${shellQuote(out)}`,
+		err ? `cat ${shellQuote(err)} >&2` : "",
+		"exit 0",
+		"fi",
+	]
+		.filter(Boolean)
+		.join("\n");
 }
