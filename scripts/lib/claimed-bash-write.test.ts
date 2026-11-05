@@ -32,7 +32,7 @@ import { decide } from "./claimed-bash-write.js";
 import { buildHostPorts } from "./claimed-bash-write-host.js";
 import { cutWorktree } from "./git-fixture";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
-import { hostAdapters } from "./guard-dispatch.js";
+import { hostAdapters } from "./guard-host-ports.js";
 import { registrationsOf } from "./hook-wiring";
 import { kitContext } from "./kit-context.js";
 import { buildBashPayload } from "./pretool-guard-testkit";

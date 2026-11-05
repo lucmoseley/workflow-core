@@ -24,6 +24,11 @@
  * a marker holding one without the other. Under `--patch` it names the patched
  * files too, and the tree is built with those left to the patch.
  *
+ * MID-MERGE (MERGE_HEAD set, #4426), `tree=` is the index's, which git commits
+ * whole, and `--paths` names the paths the hold's refusal named: those no
+ * merged-in side carries, the only ones it asks `paths=` for. `--patch` is
+ * refused there, as git takes no partial commit of a merge.
+ *
  * FROM A LINKED WORKTREE (#3714), `--base`, `--paths` and the tree read that
  * worktree, where the commit is made, and an artefact counts in it or in the
  * host, wherever the run's working directory put it. The marker stays in the
@@ -246,6 +251,22 @@ function repoRelative(root, paths) {
 }
 
 /**
+ * The tree id a tree-building command printed, or a failure naming `what`.
+ * @param {import("node:child_process").SpawnSyncReturns<string>} r
+ * @param {string} what
+ * @param {string} [remedy] a sentence on the way out
+ */
+function treeOrFail(r, what, remedy) {
+	const tree = String(r.stdout ?? "").trim();
+	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
+		fail(
+			`${what} failed (exit ${r.status}): ${String(r.stderr ?? "").trim()}${remedy ? ` ${remedy}` : ""} Nothing written.`,
+			1,
+		);
+	return tree;
+}
+
+/**
  * @param {string} root
  * @param {string[]} paths
  * @param {string | undefined} patch
@@ -262,14 +283,29 @@ function readTreeOf(root, paths, patch) {
 		cwd: root,
 		encoding: "utf8",
 	});
-	const tree = String(r.stdout ?? "").trim();
-	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
-		fail(
-			`commit-paths.js --tree failed (exit ${r.status}): ${String(r.stderr ?? "").trim()} Nothing written.`,
-			1,
-		);
-	return tree;
+	return treeOrFail(r, "commit-paths.js --tree");
 }
+
+/**
+ * Whether `root`'s checkout is mid-merge, its next commit the merge's.
+ * @param {string} root
+ */
+const isMerging = (root) =>
+	spawnGitSync(["rev-parse", "-q", "--verify", "MERGE_HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	}).status === 0;
+
+/**
+ * The tree a merge's commit carries: the index, whole.
+ * @param {string} root
+ */
+const readIndexTree = (root) =>
+	treeOrFail(
+		spawnGitSync(["write-tree"], { cwd: root, encoding: "utf8" }),
+		"git write-tree mid-merge",
+		"Resolve and stage every conflicted path first.",
+	);
 
 /**
  * @param {Record<string, string | true>} flags
@@ -370,8 +406,14 @@ function main() {
 		lines.push(`tier=${o.tier}`, `areas=${commaList(o.areas ?? "").join(",")}`);
 	if (o.paths.length > 0) {
 		const paths = repoRelative(treeRoot, o.paths);
+		const merging = isMerging(treeRoot);
+		if (merging && o.patch !== undefined)
+			fail(
+				"--patch has no place mid-merge: git commits a merge whole, from the index. Drop --patch and re-run. Nothing written.",
+				2,
+			);
 		lines.push(
-			`tree=${readTreeOf(treeRoot, paths, o.patch)}`,
+			`tree=${merging ? readIndexTree(treeRoot) : readTreeOf(treeRoot, paths, o.patch)}`,
 			`paths=${paths.join(",")}`,
 		);
 	}

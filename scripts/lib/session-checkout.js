@@ -48,7 +48,8 @@
  * re-anchor the merge owes. A registry-anchor conflict is settled by the
  * per-row merge driver git config names (#4171). Neither the merge nor the
  * push carries a timeout of its own: every checker their hooks run is bounded
- * already (#4187).
+ * already (#4187). A push beaten by a neighbour is filed as a `land` row in
+ * the divergence log (#4446), the push running here where no Bash hook sees it.
  *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
@@ -76,6 +77,7 @@ const {
 } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
+const { MOVED_LINE } = require("./land-refusal.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
@@ -634,13 +636,46 @@ function land(cwd) {
 	if (merged) mergeLanding(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
 	const push = gitShown(["push", "origin", "HEAD:landing"], dir);
+	if (!push.ok && MOVED.test(push.output)) {
+		recordMoved(root, dir, push.output);
+		throw new CheckoutError(MOVED_LINE);
+	}
 	if (!push.ok)
 		throw new CheckoutError(
-			MOVED.test(push.output)
-				? "landing moved after the fetch: a neighbour pushed first — land again, which merges the newer origin/landing into HEAD and pushes"
-				: "the push to landing was refused, its output above — fix the finding, then land again",
+			"the push to landing was refused, its output above — fix the finding, then land again",
 		);
 	return { dir, head, merged, pushed: true, lander: startLanderFor(root, dir) };
+}
+
+/**
+ * The beaten push's row is counted against a freshly fetched origin/landing,
+ * so `behind` is the neighbours' real lead; where the fetch fails, against the
+ * stale one, `behind` then a lower bound.
+ * @param {string} root
+ * @param {string} dir
+ * @param {string} output the refused push's output
+ */
+function recordMoved(root, dir, output) {
+	try {
+		fetchLanding(root);
+	} catch (err) {
+		writeFd(
+			2,
+			`session checkout: landing not re-fetched, so the divergence row's behind is a lower bound (${caught(err).message})\n`,
+		);
+	}
+	try {
+		/* Loaded here, so a divergence lib that will not load costs the row
+		 * and never the land. */
+		const { landRow } = require("./divergence-row.js");
+		const { appendRow, buildHostPorts } = require("./divergence-row-host.js");
+		appendRow(landRow(dir, output, buildHostPorts(process.env)));
+	} catch (err) {
+		writeFd(
+			2,
+			`session checkout: divergence row not recorded (${caught(err).message})\n`,
+		);
+	}
 }
 
 /**
@@ -676,6 +711,16 @@ function launchDir(cwd, prompt, how = {}) {
 }
 
 /**
+ * `dir` sits where a cut puts a session's worktree, directly under `root`'s
+ * worktrees folder.
+ * @param {string} root the main checkout
+ * @param {string} dir
+ */
+function isSessionWorktreeDir(root, dir) {
+	return path.dirname(path.resolve(dir)) === path.join(root, WORKTREES);
+}
+
+/**
  * LAUNCH-INTO, above: `into`, dereferenced, where it is a registered session
  * worktree of `root` no process works in, its dependencies re-attached.
  * @param {string} root the main checkout
@@ -685,10 +730,12 @@ function launchDir(cwd, prompt, how = {}) {
  */
 function launchInto(root, into, how) {
 	const dir = deref(path.resolve(into));
-	const base = path.join(root, WORKTREES);
-	if (path.dirname(dir) !== base || !readWorktreesOrThrow(root).includes(dir))
+	if (
+		!isSessionWorktreeDir(root, dir) ||
+		!readWorktreesOrThrow(root).includes(dir)
+	)
 		throw new CheckoutError(
-			`${dir} is no session worktree of ${root} — name a directory \`git worktree list\` shows under ${base}`,
+			`${dir} is no session worktree of ${root} — name a directory \`git worktree list\` shows under ${path.join(root, WORKTREES)}`,
 		);
 	if (!fs.existsSync(dir))
 		throw new CheckoutError(
@@ -1221,6 +1268,7 @@ module.exports = {
 	attach,
 	CheckoutError,
 	cut,
+	isSessionWorktreeDir,
 	land,
 	launchDir,
 	reap,

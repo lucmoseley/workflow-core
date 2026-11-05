@@ -17,18 +17,25 @@ const CHILD_TIMEOUT_MS = 120 * 1000;
 const CHROME_TIMEOUT_MS_A_PAGE = 300_000;
 
 /**
- * The child's status, output and error as text, unjudged. Each caller's bound
- * is its own, so `timeout` is required.
+ * The child's status, output and error as text, unjudged; a spawn that throws
+ * (a NUL in an argument, a vanished cwd) comes back as `error`. Each caller's
+ * bound is its own, so `timeout` is required.
  * @param {string} file
  * @param {string[]} args
  * @param {import("node:child_process").SpawnSyncOptions & {timeout: number}} opts
  */
 function spawnRaw(file, args, opts) {
-	const r = spawnSync(file, args, {
-		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
-		...opts,
-	});
+	let r;
+	try {
+		r = spawnSync(file, args, {
+			encoding: "utf8",
+			maxBuffer: CHILD_MAX_BUFFER,
+			...opts,
+		});
+	} catch (e) {
+		const error = e instanceof Error ? e : new Error(String(e));
+		return { status: null, stdout: "", stderr: "", error };
+	}
 	return {
 		status: r.status,
 		stdout: String(r.stdout ?? ""),

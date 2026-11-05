@@ -258,7 +258,7 @@ describe("the watch-file reading", () => {
 });
 
 describe("end to end", () => {
-	const run = (env: Record<string, string>, args: string[] = []) =>
+	const run = (env: Record<string, string>, args: string[] = ["--write"]) =>
 		runInProcess(SCRIPT, args, {
 			env: {
 				...process.env,
@@ -335,6 +335,16 @@ describe("end to end", () => {
 		const r = run({ WFC_HISTORY_TRIM_WATCH: watch });
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(/could not read the prior recording/);
+	});
+
+	it("records nothing without --write, and says --write records it (#4449)", () => {
+		const watch = path.join(home, "w.jsonl");
+		history(".claude", [NOW - 5 * HOUR]);
+		const r = run({ WFC_HISTORY_TRIM_WATCH: watch }, []);
+		expect(r.status).toBe(0);
+		expect(fs.existsSync(watch)).toBe(false);
+		expect(fs.existsSync(`${watch}.stamp`)).toBe(false);
+		expect(r.stderr).toContain("`--write` records it");
 	});
 
 	describe("the dirtied() notice (mantahostels#2665)", () => {

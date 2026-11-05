@@ -23,7 +23,9 @@
  *
  * WHERE IT RUNS: `npm run status` only (scripts/status-report.js), WITHOUT
  * --notify, so a session does not open on a fault list. --notify is exercised
- * by the tests and wired by nothing.
+ * by the tests and wired by nothing. The reading is recorded only under
+ * `--write` (`npm run status -- --write`): the watch file is tracked, and a
+ * check run dirties no tree (#4449).
  *
  * THE RESIDUAL of running on demand rather than at every session start: a trim
  * is detected late. The signal itself does not decay — a forward move of the
@@ -32,14 +34,14 @@
  * cost.
  *
  * IMPLICIT:  on each run, reads each seat root's history.jsonl and reports a
- *            trimming notice when one is detected; records one reading a day
- *            either way.
+ *            trimming notice when one is detected; under --write, records one
+ *            reading a day either way.
  * JUSTIFIED: fail-safe — the loss is unrecoverable and silent otherwise.
- * DEFEAT:    --notify — recordReading() runs unconditionally, so an append (or
- *            a failed one) lands there too, but finish() suppresses every
- *            ctx.dirtied() note under --notify (mantahostels#2665); that route is unwired
- *            to any reader today (see WHERE IT RUNS above). The plain
- *            `npm run status` route has none — see the dirtied() call below.
+ * DEFEAT:    --notify --write — an append (or a failed one) lands there too,
+ *            but finish() suppresses every ctx.dirtied() note under --notify
+ *            (mantahostels#2665); that route is unwired to any reader today
+ *            (see WHERE IT RUNS above). The plain route has none — see the
+ *            dirtied() call below.
  */
 
 const { configDirs } = require("./lib/arbiter-store");
@@ -92,7 +94,7 @@ function newRootsSince(roots, baseline) {
  * The human-readable body: the root table, then the baseline, new-root and
  * failed-append notes.
  * @param {Ctx} ctx
- * @param {{ roots: RootReading[], baseline: Record<string, RootReading> | null | undefined, newRoots: RootReading[], recorded: "recorded" | "throttled" | "failed" }} reading
+ * @param {{ roots: RootReading[], baseline: Record<string, RootReading> | null | undefined, newRoots: RootReading[], recorded: "recorded" | "throttled" | "failed" | "unwritten" }} reading
  */
 function sayReadingSummary(ctx, { roots, baseline, newRoots, recorded }) {
 	ctx.say(rootTable(roots));
@@ -103,6 +105,10 @@ function sayReadingSummary(ctx, { roots, baseline, newRoots, recorded }) {
 	if (newRoots.length > 0)
 		ctx.say(
 			`NEW ROOT(S) (${newRoots.length}) — first recording, nothing to compare: ${newRoots.map((r) => r.dir).join(", ")}\n`,
+		);
+	if (recorded === "unwritten")
+		ctx.say(
+			`(today's reading was not recorded in ${WATCH_FILE()}: \`--write\` records it.)\n`,
 		);
 	if (recorded === "failed")
 		ctx.say(
@@ -144,7 +150,8 @@ function reportTrimmed(ctx, trimmed) {
 
 runCheck({
 	name: "history-trim",
-	usage: "node check-history-trim.js [--warn] [--json] [--notify]",
+	usage: "node check-history-trim.js [--warn] [--json] [--notify] [--write]",
+	flags: ["--write"],
 	/** @param {Ctx} ctx */
 	run(ctx) {
 		const t = now();
@@ -178,11 +185,11 @@ runCheck({
 		 * `=== undefined`, which recordReading's own shape makes nearly
 		 * unreachable once a baseline exists at all. */
 		const newRoots = newRootsSince(roots, baseline);
-		const recorded = recordReading(roots, t);
+		const recorded = ctx.has("--write") ? recordReading(roots, t) : "unwritten";
 		/* dirtied(): status-report.js's verdict() (the DEFEAT note above) drops
 		 * a clean checker's whole body, so a landed or failed reading must say
-		 * so here to survive that drop. Silent only on "throttled" — nothing
-		 * was attempted. */
+		 * so here to survive that drop. Silent on "throttled" and "unwritten" —
+		 * nothing was attempted. */
 		if (recorded === "recorded")
 			ctx.dirtied(`${WATCH_FILE()} gained a new reading — needs committing.`);
 		else if (recorded === "failed")

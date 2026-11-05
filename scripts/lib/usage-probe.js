@@ -28,6 +28,7 @@ const { spawn } = require("node:child_process");
 const { readAllowance, isTrustworthy } = require("./allowance.js");
 const { killGroup } = require("./grouped-child.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { readUsageCache } = require("./usage-cache.js");
 
 /** The probe's ceiling: the dispatcher's `timeout 120` it replaced, itself a guess (#2306). */
@@ -70,7 +71,7 @@ async function probeUsage({
 }) {
 	const cached = readAllowance({ configDir });
 	if (isTrustworthy(cached)) return { outcome: "cached", text: "" };
-	const env = { ...process.env, CLAUDE_CONFIG_DIR: configDir };
+	const env = buildSeatEnv(process.env, configDir);
 	const refusal = launchAuthRefusal({ bin: claudeBin, env, cwd: PROBE_CWD });
 	if (refusal) return { outcome: "failed", text: "", error: refusal };
 	const startMs = Date.now();

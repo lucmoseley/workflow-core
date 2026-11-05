@@ -139,12 +139,16 @@ const { requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
 
-/** The names a root anchor is spelled with, `hostRoot()` aside. */
+/** The names a root anchor is spelled with, the root calls aside. */
 const ROOT_NAMES =
 	"ROOT|REPO|repoRoot|projectRoot|REPO_ROOT|PROJECT_ROOT|HOST_ROOT";
 
+/** The calls answering a repo root: `worktreeRoot()` is what a tracked-file
+ * writer reads through (#4438). */
+const ROOT_CALLS = "hostRoot\\(\\)|worktreeRoot\\(\\)";
+
 /** What a `path.resolve`/`path.join` call may open on: either kind of anchor. */
-const CALL_ANCHOR = `__dirname|CORE_SCRIPTS|${ROOT_NAMES}|hostRoot\\(\\)`;
+const CALL_ANCHOR = `__dirname|CORE_SCRIPTS|${ROOT_NAMES}|${ROOT_CALLS}`;
 
 /**
  * Tokens a test uses to build a path from the repo ROOT rather than a tempdir.
@@ -154,7 +158,7 @@ const CALL_ANCHOR = `__dirname|CORE_SCRIPTS|${ROOT_NAMES}|hostRoot\\(\\)`;
  * `test:changed` silently stops selecting the tests that read that document.
  */
 const ANCHOR = new RegExp(
-	`\\b(${ROOT_NAMES})\\b|\\bhostRoot\\(\\)|process\\.cwd\\(\\)|__dirname\\s*,\\s*["']\\.\\.`,
+	`\\b(${ROOT_NAMES})\\b|\\b(?:${ROOT_CALLS})|process\\.cwd\\(\\)|__dirname\\s*,\\s*["']\\.\\.`,
 );
 
 /** The anchor whose literals are relative to the test's OWN directory. */
@@ -438,8 +442,11 @@ const TRACE_HOPS = 4;
 
 /** A root-anchor spelling standing alone as an expression. */
 const ROOT_NAME = new RegExp(
-	`^(?:${ROOT_NAMES}|hostRoot\\(\\)|process\\.cwd\\(\\))$`,
+	`^(?:${ROOT_NAMES}|${ROOT_CALLS}|process\\.cwd\\(\\))$`,
 );
+
+/** A root call, or the working directory, standing alone. */
+const ROOT_CALL = new RegExp(`^(?:${ROOT_CALLS}|process\\.cwd\\(\\))$`);
 
 /** The quoted literal an argument is, or null where it is anything else. */
 const literalArg = (/** @type {string} */ arg) =>
@@ -1209,7 +1216,7 @@ function declInits(scan, name) {
 		const head = PATH_CALL.exec(rest) ?? /^\[/.exec(rest);
 		const quoted = /^(["'`])[^"'`\n]*\1/.exec(rest);
 		const bare = new RegExp(
-			`^(?:${IDENT_SRC}|hostRoot\\(\\)|process\\.cwd\\(\\))(?=\\s*[;,)\\n])`,
+			`^(?:${IDENT_SRC}|${ROOT_CALLS}|process\\.cwd\\(\\))(?=\\s*[;,)\\n])`,
 		).exec(rest);
 		if (head) {
 			const end = closeOf(scan.source, at + head[0].length - 1);
@@ -1897,9 +1904,9 @@ function spreadRunHead(e) {
 	if (e.startsWith("[") && /^\]\s*\.join\(/.test(e.slice(closeOf(e, 0) - 1)))
 		return topLevelArgs(e.slice(1, closeOf(e, 0) - 1))[0] ?? null;
 	return (
-		new RegExp(
-			`^(${IDENT_SRC}|hostRoot\\(\\)|process\\.cwd\\(\\))\\s*\\+`,
-		).exec(e)?.[1] ?? null
+		new RegExp(`^(${IDENT_SRC}|${ROOT_CALLS}|process\\.cwd\\(\\))\\s*\\+`).exec(
+			e,
+		)?.[1] ?? null
 	);
 }
 
@@ -1916,7 +1923,7 @@ function resolveExpr(scan, expr, hops = TRACE_HOPS) {
 	if (PATH_CALL.test(e)) return resolveJoin(scan, e, hops);
 	if (e.startsWith("`")) return resolveTemplate(scan, e, hops);
 	if (DIRNAME_ANCHORS.has(e)) return [{ path: scan.dir }];
-	if (/^(?:hostRoot\(\)|process\.cwd\(\))$/.test(e)) return [{ path: "" }];
+	if (ROOT_CALL.test(e)) return [{ path: "" }];
 	const run = spreadRunHead(e);
 	if (run !== null)
 		return resolveExpr(scan, run, hops).length > 0

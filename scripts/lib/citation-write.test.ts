@@ -32,7 +32,7 @@ import { kitContextFake } from "./kit-context-fake";
 const { decide } = require("./citation-write.js") as {
 	decide: (file: string, ctx: Record<string, unknown>) => unknown;
 };
-const { hostAdapters } = require("./guard-dispatch.js") as {
+const { hostAdapters } = require("./guard-host-ports.js") as {
 	hostAdapters: (root: string, log: (what: string) => void) => Ports;
 };
 

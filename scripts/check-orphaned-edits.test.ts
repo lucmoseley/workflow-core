@@ -109,8 +109,15 @@ const run = (
 	args: string[] = [],
 	notify = false,
 	env: NodeJS.ProcessEnv = {},
+	write = true,
 ) => {
-	const r = runInProcess(SCRIPT, notify ? ["--notify", ...args] : args, {
+	/* --write as the hook passes it, unless `write` is false. */
+	const argv = [
+		...(notify ? ["--notify"] : []),
+		...args,
+		...(write ? ["--write"] : []),
+	];
+	const r = runInProcess(SCRIPT, argv, {
 		env: {
 			...process.env,
 			...env,
@@ -136,6 +143,17 @@ describe("check-orphaned-edits", () => {
 		const r = run([], true);
 		expect(r.out).toBe("");
 		expect(readFilings()).toHaveLength(1);
+	});
+
+	it("files nothing without --write, and says --write files it, taking no marker (#4449)", () => {
+		dirty("a.txt", 25);
+		const r = run([], false, {}, false);
+		expect(r.out).toContain("triage:  not filed: `--write` files it");
+		expect(readFilings()).toEqual([]);
+		expect(run().out).toContain("triage:  https://github.com/o/r/issues/7");
+		expect(run([], false, {}, false).out).toContain(
+			"triage:  already filed: https://github.com/o/r/issues/7",
+		);
 	});
 
 	it("reports a file unchanged for 24 hours, and not one unchanged for less", () => {

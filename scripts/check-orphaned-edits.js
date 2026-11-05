@@ -5,15 +5,15 @@
  * in its write ledger, unchanged for at least 24 hours — and file each one
  * once as a `takes:triage` issue.
  *
- * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json]
+ * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json] [--write]
  *
  * WHY (#810, the spec; #794 Q2, Q5–Q7, the rulings). An uncommitted edit in the
  * main checkout enters every suite run that reads it rather than a
  * worktree at HEAD (#812), and voids every certificate whose read closure it
  * touches (#787).
  *
- * TWO RUNS (#813, #2038): at SessionStart it files and prints nothing, and
- * `npm run status` runs it by hand for the report.
+ * TWO RUNS (#813, #2038, #4449): at SessionStart, under `--write`, it files
+ * and prints nothing, and `npm run status` runs it by hand for the report.
  *
  * LIVE MEANS LISTED BY THE ORACLE AND NOT TERMINAL (`isListedLive`): a finished
  * background session never commits its edit, so its ledger holds nothing back.
@@ -73,7 +73,7 @@
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at every session start, files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
+ * IMPLICIT:  at every session start (its hook passes --write), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
  * TREE:      host — walks the main checkout and every linked worktree (#4244)
@@ -208,18 +208,42 @@ function takeFiling(dir, f) {
 		if (code !== "EEXIST")
 			return { taken: null, status: `not filed: ${message}` };
 	}
+	return { taken: null, status: readFiledStatus(marker) };
+}
+
+/**
+ * @param {string} marker
+ */
+function readFiledStatus(marker) {
 	let ref = "";
 	try {
 		ref = JSON.parse(fs.readFileSync(marker, "utf8")).ref ?? "";
 	} catch {
 		// Empty or torn: the filing that made it is running or was killed.
 	}
-	return {
-		taken: null,
-		status: ref
-			? `already filed: ${ref}`
-			: "filing in progress or interrupted — search the tracker before filing by hand",
-	};
+	return ref
+		? `already filed: ${ref}`
+		: "filing in progress or interrupted — search the tracker before filing by hand";
+}
+
+/**
+ * What a run without --write says of each filing's orphans: why it waits, an
+ * existing marker's filing, else that --write would file it.
+ * @param {Filing[]} filings
+ * @param {string} root
+ * @returns {Orphan[]}
+ */
+function readUnfiledOrphans(filings, root) {
+	const dir = filings.length > 0 ? filedDir(root) : null;
+	return filings.flatMap((f) => {
+		const marker = dir === null ? null : path.join(dir, markerName(f));
+		const filed =
+			f.held ??
+			(marker !== null && fs.existsSync(marker)
+				? readFiledStatus(marker)
+				: "not filed: `--write` files it");
+		return f.orphans.map((o) => ({ ...o, filed }));
+	});
 }
 
 /**
@@ -875,8 +899,10 @@ function describeUnread({ linked, unread }) {
 
 runCheck({
 	name: "orphaned-edits",
-	usage: "node check-orphaned-edits.js [--hours <n>] [--notify] [--json]",
+	usage:
+		"node check-orphaned-edits.js [--hours <n>] [--notify] [--json] [--write]",
 	valueFlags: ["--hours"],
+	flags: ["--write"],
 	run(ctx) {
 		const hours = ctx.numberValue(
 			"--hours",
@@ -928,7 +954,9 @@ runCheck({
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
 		const grouped = buildFilings(found, { youngIn, hours, root });
-		const filed = fileOrphans(grouped.filings, { root, now });
+		const filed = ctx.has("--write")
+			? fileOrphans(grouped.filings, { root, now })
+			: { filings: 0, orphans: readUnfiledOrphans(grouped.filings, root) };
 		const { filings } = filed;
 		const orphans = [...filed.orphans, ...grouped.unfiled];
 

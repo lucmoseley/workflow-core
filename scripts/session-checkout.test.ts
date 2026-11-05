@@ -56,8 +56,11 @@ const commitIn = (
 
 const DRIVER = path.resolve(__dirname, "merge-registry-anchors.js");
 
+/* A sandboxed config dir: a land a neighbour beats files a divergence row
+ * there, never in the founder's live log. */
 const ENV = () => ({
 	...process.env,
+	CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
 	CLAUDE_PROJECT_DIR: main,
 	WFC_NPM: npmStub,
 	WFC_MODULES: "landing",
@@ -622,6 +625,21 @@ it("reports a push raced by a neighbour with the land-again route, and landing a
 	);
 	const neighbour = landingTip();
 	expect(git(other, "rev-parse", "HEAD")).toBe(neighbour);
+	/* One `land` row, counted against the re-fetched origin/landing: HEAD
+	 * carries mine and its merge, the neighbour's commit is the one behind. */
+	const projects = path.join(tmp, "config", "projects");
+	const rows = fs
+		.readdirSync(projects)
+		.flatMap((d) => {
+			const log = path.join(projects, d, "divergence.log");
+			return fs.existsSync(log)
+				? fs.readFileSync(log, "utf8").split("\n").filter(Boolean)
+				: [];
+		})
+		.map((line) => line.split("\t"));
+	expect(rows.map((r) => [...r.slice(1, 6), r[7]])).toEqual([
+		["main", "land", "2", "1", "diverged", "origin/landing"],
+	]);
 
 	const second = run(dir, "land");
 
