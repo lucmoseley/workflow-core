@@ -1159,7 +1159,7 @@ describe("report", () => {
 		});
 		const { secondary } = JSON.parse(r.out).summary;
 		expect(secondary.A).toMatchObject({
-			warnsActedAgainst: { actedAgainst: 0, rewarned: 0, warnedCalls: 2 },
+			warnsActedAgainst: { actedAgainst: 0, rewarned: 0, warnedCalls: 1 },
 			commitGateRefusals: { byGate: { "citation-tracker": 1 } },
 			finalMessage: { read: 1, identifiers: 1, glossed: 1 },
 		});

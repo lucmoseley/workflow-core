@@ -38,6 +38,7 @@ const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
+const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { realKey } = require("./lib/deref.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -152,7 +153,7 @@ function main() {
 	}
 
 	const bin = claudeBin();
-	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat };
+	const env = buildSeatEnv(process.env, seat);
 	const cached =
 		command === "usage"
 			? ` Read the cached bars instead: node scripts/allowance.js --config-dir ${seat}`

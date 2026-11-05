@@ -74,6 +74,7 @@ const { isTerminalAgent } = require("./lib/agent-liveness.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { stopOn } = require("./lib/claude-stop.js");
+const { buildSeatEnv, runClaude } = require("./lib/seat-claude.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { readClaudeVersionOrWhy } = require("./lib/claude-version.js");
 const { jobDirPath } = require("./lib/job-paths.js");
@@ -586,11 +587,10 @@ function readAdmissionSlots() {
  * @returns {JobStates}
  */
 function readJobStates(configDir, bin) {
-	const r = spawnSync(bin, ["agents", "--json", "--all"], {
-		encoding: "utf8",
+	const r = runClaude(["agents", "--json", "--all"], {
+		env: buildSeatEnv(process.env, configDir),
 		timeout: CALL_TIMEOUT_MS,
-		maxBuffer: CHILD_MAX_BUFFER,
-		env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+		bin,
 	});
 	try {
 		/** @type {(Job & { id: string })[]} */

@@ -3,7 +3,7 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in this session's own stamp scripts/lib/review-tier-stamp.sh names, so a neighbour's commit neither clears nor consumes it (#3906), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
+# IMPLICIT:  refuses a session's commit whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes — on a merge, every path it holds (#4426); the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in this session's own stamp scripts/lib/review-tier-stamp.sh names, so a neighbour's commit neither clears nor consumes it (#3906), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
 # JUSTIFIED: fail-safe — a session's worktree commit reaches `landing` with its next land, and an adopter deploying every push of it ships it, so a review owed on sensitive code is a hold at commit or it is too late.
 # DEFEAT:    writing the marker's four lines by hand with no review behind them; a merge naming as its side a commit pushed to a remote-tracking ref with no hold behind it; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
@@ -202,8 +202,10 @@ off_merged_sides() {
   done <"$work/paths"
 }
 
-# The paths the hold reads: `paths=` still names all of them.
+# The paths the hold reads, and those `paths=` must name: on a merge only the
+# held ones, the rest being neighbours' landed work, no review of this session's.
 held="$work/paths"
+owed="$work/paths"
 case "$route" in
   cherry-pick)
     held="$work/unreplayed"
@@ -211,6 +213,7 @@ case "$route" in
     ;;
   merge)
     held="$work/off-sides"
+    owed="$held"
     off_merged_sides >"$held" || unchecked "could not compare the staged bytes with the merged-in sides'"
     ;;
 esac
@@ -280,7 +283,7 @@ else
   if [[ -z "$fault" ]]; then
     # The Stop nag and the push warning read paths= as all this review saw,
     # and a marker without it as a review of the session's whole change.
-    tr '\0' '\n' <"$work/paths" | marker_unlisted "$marker" paths >"$work/unnamed"
+    tr '\0' '\n' <"$owed" | marker_unlisted "$marker" paths >"$work/unnamed"
     [[ "${PIPESTATUS[1]}" -ne 2 ]] || unchecked "could not read the marker's paths= against the staged paths"
     mapfile -t unnamed <"$work/unnamed"
     if ! marker_has "$marker" paths; then
