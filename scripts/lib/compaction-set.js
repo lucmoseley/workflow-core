@@ -65,13 +65,33 @@ function buildCompactionSentence(count) {
 	return `This session has autocompacted ${times}.`;
 }
 
-/* No hand-on: compaction is the move at the ceiling (#1178 Q1 (A), #1199). */
-const COMPACTION_ADVICE =
-	"Finish the unit of work in flight, start no new one, and end.";
+/* The autocompaction count at which a build session hands off and ends: the
+ * furthest count any source measured (#4380). `docs/agents/issue-tracker.md`'s
+ * size-line rule derives its 21-slice figure from it; move the two together. */
+const COMPACTION_BACKSTOP = 10;
+
+/**
+ * What a session is told to do after an autocompaction (#4410).
+ * @param {number} count
+ * @param {{issue: number|null, stateFile: string|null}} unit the issue this
+ *   session's claim holds, and its build state file where one exists
+ */
+function compactionAdvice(count, { issue, stateFile }) {
+	const theIssue = issue ? `issue #${issue}` : "the issue you are working";
+	if (count >= COMPACTION_BACKSTOP) {
+		const update = stateFile
+			? `, update the build state file ${stateFile}`
+			: "";
+		return `That is the backstop (${COMPACTION_BACKSTOP}): commit what exists${update}, comment the unfinished state on ${theIssue} with a \`**Compactions:** ${count}\` line, leave it open, and end.`;
+	}
+	const state = stateFile ? `the build state file ${stateFile}, ` : "";
+	return `Re-read ${state}${theIssue}, and \`git log\` and \`git diff\` of your own commits on it; where the compaction summary disagrees with them, the summary is only a hint. Carry on with the unit in flight, and start no new unit after it.`;
+}
 
 module.exports = {
 	PENDING_PREFIX,
 	recordCompactions,
 	buildCompactionSentence,
-	COMPACTION_ADVICE,
+	COMPACTION_BACKSTOP,
+	compactionAdvice,
 };

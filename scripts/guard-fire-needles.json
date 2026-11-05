@@ -1406,7 +1406,12 @@
 				{
 					"id": "autocompaction-count",
 					"kind": "notice",
-					"text": "Finish the unit of work in flight, start no new one"
+					"text": "where the compaction summary disagrees with them, the summary is only a hint"
+				},
+				{
+					"id": "autocompaction-backstop",
+					"kind": "notice",
+					"text": "That is the backstop ("
 				}
 			]
 		},
