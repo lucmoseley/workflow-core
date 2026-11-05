@@ -24,6 +24,8 @@ import {
 	SESSION,
 } from "./resume-io-fake";
 
+type JobLaunch = import("./refill-blocks.js").JobLaunch;
+
 const SEAT = "/home/u/.claude3";
 const TARGET = "/home/u/.claude4";
 const ROOT = "/home/u/repo";
@@ -42,16 +44,30 @@ describe("readResumeTarget", () => {
 	it("takes the listing's session id over its job record's", () => {
 		const { steps } = fakeIo({ readJobRecord: "otherSession" });
 		expect(
-			steps.readResumeTarget({ ...LAUNCH, jobId: JOB, sessionId: SESSION }),
-		).toEqual({ sessionId: SESSION, cwd: ROOT });
+			steps.readResumeTarget({
+				...LAUNCH,
+				jobId: JOB,
+				sessionId: SESSION,
+			} as unknown as JobLaunch),
+		).toEqual(IDS);
 	});
 
 	it("falls back to the checkout where the job record names no cwd", () => {
 		const { steps } = fakeIo({ readJobRecord: "working" });
-		expect(steps.readResumeTarget({ ...LAUNCH, jobId: JOB })).toEqual({
-			sessionId: SESSION,
-			cwd: ROOT,
-		});
+		expect(
+			steps.readResumeTarget({ ...LAUNCH, jobId: JOB } as unknown as JobLaunch),
+		).toEqual(IDS);
+	});
+
+	it("reads no job record for a launch naming no job, its target the checkout", () => {
+		const { steps, callsTo } = fakeIo({ readJobRecord: "working" });
+		expect(
+			steps.readResumeTarget({
+				...LAUNCH,
+				sessionId: SESSION,
+			} as unknown as JobLaunch),
+		).toEqual(IDS);
+		expect(callsTo("readJobRecord")).toEqual([]);
 	});
 });
 

@@ -3,7 +3,7 @@
  * A resume reopens its session's recorded worktree, uncommitted work intact
  * (#4229 story 7, #4319): lib/refill-resume.js's readResumeTarget then
  * resumeStopped over the production adapter, with a real git worktree and
- * `claude` stubbed at WFC_CLAUDE_BIN.
+ * `claude` stubbed at WFC_CLAUDE_BIN to log the cwd it ran in.
  *
  * Loosen it and a session cut into its own worktree resumes in the main
  * checkout, away from its branch and its uncommitted edits.
