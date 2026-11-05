@@ -306,6 +306,63 @@ it("hands a rerun of named files that lands, at a sha whose run passed, to the f
 	expect(r.reran).toEqual([]);
 });
 
+/* A shard whose runner failed to ready: a download outage at a tool install,
+ * its Vitest step run on regardless, on a runner missing the tool. */
+const unreadied = (step: string, vitest = "success"): Job[] => [
+	{
+		name: "Full suite / Vitest (1/2)",
+		conclusion: "failure",
+		steps: [
+			{ name: step, conclusion: "failure" },
+			{ name: "Vitest", conclusion: vitest },
+		],
+	},
+	{ name: "Full suite / Vitest (2/2)", conclusion: "success" },
+	{ name: "Suite passed", conclusion: "failure" },
+];
+
+it("reruns a run whose runner failed to ready, judging the new attempt and never the tests it ran", async () => {
+	const r = {
+		...reads([
+			() => [run(5, "failure")],
+			() => [run(5, "success", { attempt: 2 })],
+		]),
+	};
+	let attempt = 0;
+	r.jobsOf = () =>
+		attempt++ === 0
+			? unreadied("Install test tools", "failure")
+			: [...shards("success", "success"), SUITE_PASSED];
+	expect(await verdictOf(r)).toEqual({ kind: "green", run: 5 });
+	expect(r.reran).toEqual([5]);
+});
+
+it("is no verdict where the runner fails to ready on every attempt, naming the step", async () => {
+	const r = reads(
+		[
+			() => [run(5, "failure")],
+			() => [run(5, "failure", { attempt: 2 })],
+			() => [run(5, "failure", { attempt: 3 })],
+		],
+		unreadied("Install test tools"),
+	);
+	expect(await verdictOf(r)).toEqual({
+		kind: "unknown",
+		reason:
+			"run 5's Full suite / Vitest (1/2) job failed at its 'Install test tools' step, which judges no code, on 3 attempts",
+	});
+	expect(r.reran).toEqual([5, 5]);
+});
+
+it("reads a failed dependency install as red, a broken lockfile being the code's", async () => {
+	const r = reads(
+		[() => [run(5, "failure")]],
+		unreadied("Install dependencies"),
+	);
+	expect(await verdictOf(r)).toMatchObject({ kind: "red" });
+	expect(r.reran).toEqual([]);
+});
+
 const LINT = "Full suite / Lint and types";
 const DOCS = "Full suite / Document guards";
 

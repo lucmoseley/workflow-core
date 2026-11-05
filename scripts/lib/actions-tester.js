@@ -10,6 +10,11 @@
  * missing, in progress at the wait bound, ended any other way, or cannot be
  * read is no verdict, never green.
  *
+ * A failed run where a job failed at a step that only readies the runner
+ * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
+ * jobs are rerun, up to `RUNNER_RERUNS` times, and the last attempt still
+ * failing so is no verdict, never a red to bisect.
+ *
  * A whole-suite rerun, or one whose green would move `main`, at a sha whose
  * run failed reruns its failed jobs, `Suite passed` with them (#3329). Any
  * other rerun of named files, and one at a sha no push ran, goes to the
@@ -74,11 +79,26 @@ const NAMED_RECORD_RETAIN_MS = 30 * DAY_MS;
 /* Untraced: as RUN_LIST_LIMIT, deep enough for dispatches a cap of 12 a day
  * can bury a run under. */
 const NAMED_RUN_LIST_LIMIT = 50;
+/* The steps that ready a runner and judge no code. Every later step runs
+ * under `!cancelled()`, so a download outage at one still runs the tests, on
+ * a runner missing its tools. "Install dependencies" is not one: a broken
+ * lockfile is the code's fault. */
+const RUNNER_STEPS = new Set([
+	"Set up job",
+	"Run actions/checkout@v4",
+	"Run actions/setup-node@v4",
+	"Install test tools",
+	"Full history",
+]);
+/* New attempts of a run whose runner failed to ready, before no verdict. A
+ * first guess, and stated as one. */
+const RUNNER_RERUNS = 2;
 
 /**
  * @typedef {{databaseId: number, headSha: string, attempt: number,
  *   conclusion: string|null}} Run a `gh run list` row
- * @typedef {{name: string, conclusion: string|null}} Job
+ * @typedef {{name: string, conclusion: string|null,
+ *   steps?: {name: string, conclusion: string|null}[]}} Job
  * @typedef {object} Reads
  * @property {() => Run[]} runs the push runs on `landing`
  * @property {() => Run[]} mainRuns the runs on `main`
@@ -89,6 +109,8 @@ const NAMED_RUN_LIST_LIMIT = 50;
  * @property {(run: number) => void} rerun starts a new attempt of the run's
  *   failed jobs
  * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
+ * @typedef {RunVerdict
+ *   | {kind: "runner", run: number, attempt: number, reason: string}} SuiteRunVerdict
  * @typedef {{databaseId: number, displayTitle: string,
  *   conclusion: string|null}} NamedRun
  * @typedef {Pick<Reads, "jobsOf" | "failedLogOf" | "presentAt"> & {
@@ -140,7 +162,7 @@ function greenGap(jobs) {
  * @param {string} sha
  * @param {Reads} reads
  * @param {number} after
- * @returns {RunVerdict}
+ * @returns {SuiteRunVerdict}
  */
 function runVerdict(sha, reads, after) {
 	const run = newestRun(sha, reads);
@@ -159,11 +181,32 @@ function runVerdict(sha, reads, after) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const jobs = reads
-		.jobsOf(id)
-		.filter((j) => j.conclusion === "failure")
-		.map((j) => j.name);
+	const failed = reads.jobsOf(id).filter((j) => j.conclusion === "failure");
+	const fault = runnerFault(failed);
+	if (fault !== null)
+		return {
+			kind: "runner",
+			run: id,
+			attempt: run.attempt,
+			reason: `run ${id}'s ${fault}, which judges no code`,
+		};
+	const jobs = failed.map((j) => j.name);
 	return { kind: "red", ...readFailed(sha, id, reads), jobs };
+}
+
+/**
+ * The first failed job whose runner failed to ready, and the step, or null:
+ * its tests, where they ran, ran without their tools, so pass or fail they
+ * say nothing of the code.
+ * @param {Job[]} failed
+ * @returns {string|null}
+ */
+function runnerFault(failed) {
+	for (const job of failed)
+		for (const step of job.steps ?? [])
+			if (step.conclusion === "failure" && RUNNER_STEPS.has(step.name))
+				return `${job.name} job failed at its '${step.name}' step`;
+	return null;
 }
 
 /**
@@ -325,15 +368,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * `read`'s verdict once it has one; still `pending` where no run was listed by
  * APPEAR_MS, or none finished by RUN_BOUND_MS.
- * @param {() => RunVerdict} read
+ * @template {SuiteRunVerdict} T
+ * @param {() => T} read
  * @param {(err: unknown) => Verdict} unread
  * @param {Poll} poll
- * @returns {Promise<RunVerdict>}
+ * @returns {Promise<T | Verdict>}
  */
 async function pollRun(read, unread, { wait, now }) {
 	const start = now();
 	for (;;) {
-		/** @type {RunVerdict} */
+		/** @type {T} */
 		let v;
 		try {
 			v = read();
@@ -401,15 +445,27 @@ function actionsTester({
 	/**
 	 * @param {string} sha
 	 * @param {number} after
+	 * @param {number} [reruns] attempts started for a runner that failed to ready
+	 * @returns {Promise<Verdict>}
 	 */
-	const polled = async (sha, after) =>
-		settle(
-			await pollRun(() => runVerdict(sha, reads, after), unreadable, {
-				wait,
-				now,
-			}),
-			sha,
-		);
+	const polled = async (sha, after, reruns = 0) => {
+		const v = await pollRun(() => runVerdict(sha, reads, after), unreadable, {
+			wait,
+			now,
+		});
+		if (v.kind !== "runner") return settle(v, sha);
+		if (reruns >= RUNNER_RERUNS)
+			return {
+				kind: "unknown",
+				reason: `${v.reason}, on ${reruns + 1} attempts`,
+			};
+		try {
+			reads.rerun(v.run);
+		} catch (err) {
+			return unreadable(err);
+		}
+		return polled(sha, v.attempt, reruns + 1);
+	};
 	/** @param {string} sha @param {string[]} files @param {string} why */
 	const handOff = (sha, files, why) =>
 		fallback
