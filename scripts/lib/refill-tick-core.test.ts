@@ -460,21 +460,7 @@ describe("the tick's concurrency row (#3770)", () => {
 	});
 });
 
-describe("the room a paused or stopping tick reads (#4060, #4071)", () => {
-	it("reads no slot or seat, probes none and starts no Console read on a paused tick", async () => {
-		const { io, calls } = fakeIo(stateOf());
-		await tickOf(io, control({ paused: { by: "founder", at: 7 } }));
-		/* The paused branch was reached: it still releases the holds that ended. */
-		expect(calls).toContain("releaseEndedHolds");
-		for (const port of [
-			"readFreeSlots",
-			"readSeats",
-			"probeDueSeats",
-			"startDueConsoleReads",
-		])
-			expect(calls).not.toContain(port);
-	});
-
+describe("the room a stopping tick reads (#4071)", () => {
 	it("starts no Console read on a stopping tick, which reads admission all the same", async () => {
 		const stopping = fakeIo(stateOf());
 		await tickOf(stopping.io, control({ stopRequested: true }));
@@ -619,6 +605,30 @@ describe("the dry-run policy (#4212)", () => {
 	});
 });
 
+/**
+ * The control file under its lock, each change made on its fresh read. No
+ * contract test holds it to refill-tick.js's changeControl; the sandbox case
+ * "leaves the return to the next tick while another writer holds the lock"
+ * crosses the real lock (#4356).
+ */
+const controlFileFake = (initial: Control) => {
+	let onDisk = initial;
+	const changeControl: TickIo["changeControl"] = (change) => {
+		const fresh = onDisk;
+		const write = change(fresh);
+		if (!write) return { control: fresh, wrote: null };
+		onDisk = write;
+		return { control: write, wrote: { write, fresh } };
+	};
+	return {
+		read: () => onDisk,
+		write: (c: Control) => {
+			onDisk = c;
+		},
+		changeControl,
+	};
+};
+
 describe("a control change under the lock (#2522)", () => {
 	it("goes on over a change the adapter answers no write for, logging none", async () => {
 		const away = awayControl();
@@ -638,12 +648,7 @@ describe("a control change under the lock (#2522)", () => {
 	it("logs the write a live tick's control change made", async () => {
 		const away = awayControl();
 		const { io, lines } = fakeIo(stateOf(), {
-			changeControl: (change) => {
-				const write = change(away);
-				return write
-					? { control: write, wrote: { write, fresh: away } }
-					: { control: away, wrote: null };
-			},
+			changeControl: controlFileFake(away).changeControl,
 		});
 		await runTick(io, {
 			dryRun: false,
@@ -674,25 +679,6 @@ describe("a control change under the lock (#2522)", () => {
 		);
 	});
 });
-
-/** The control file under its lock, each change made on its fresh read. */
-const controlFileFake = (initial: Control) => {
-	let onDisk = initial;
-	const changeControl: TickIo["changeControl"] = (change) => {
-		const fresh = onDisk;
-		const write = change(fresh);
-		if (!write) return { control: fresh, wrote: null };
-		onDisk = write;
-		return { control: write, wrote: { write, fresh } };
-	};
-	return {
-		read: () => onDisk,
-		write: (c: Control) => {
-			onDisk = c;
-		},
-		changeControl,
-	};
-};
 
 describe("away mode's return through the tick (#3870)", () => {
 	const tickAt = (
@@ -785,13 +771,16 @@ describe("a paused tick (#3856)", () => {
 		);
 		expect(said).not.toContain("free slots");
 		expect(said).not.toContain("resumed 0 of");
-		expect(calls).toEqual(expect.arrayContaining(["reap", "tendCheckouts"]));
+		expect(calls).toEqual(
+			expect.arrayContaining(["reap", "tendCheckouts", "releaseEndedHolds"]),
+		);
 		expect(disk().launches[0].finishedAt).not.toBeNull();
 		for (const port of [
 			"readFreeSlots",
 			"actOnLimits",
 			"readSeats",
 			"probeDueSeats",
+			"startDueConsoleReads",
 			"readFrontier",
 			"launchBatch",
 		])

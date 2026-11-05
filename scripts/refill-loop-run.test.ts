@@ -19,9 +19,10 @@
  * Why each case stays a full tick (§X8 (5), §X11): every branch a module can
  * own runs in-process in its module's test (#4282, #4314–#4316). A case below
  * is a production adapter crossed for real (A), an exit path or input channel
- * (E), a §X3 spawn shape — a signal, two processes, a real lock (S), a
- * boundary regression (R), or a branch still in lib/refill-tick.js's or
- * refill-loop.js's shell, with no core entry to test it from (B, #4356).
+ * (E), a spawn shape — a signal, or a second live process holding the pid
+ * or control lock (S), a §N5 fail-open (F), a boundary regression (R), or a
+ * branch still in lib/refill-tick.js's or refill-loop.js's shell, with no
+ * core entry to test it from (B, #4356).
  * - run (#2435): ends at a mid-dispatch stop E; appends the concurrency
  *   record A; supervises a foreign checkout's launches B; tracks a launch a
  *   kill cut off S R; tickets earlyoom's and memwatch's incidents A (two
@@ -32,11 +33,11 @@
  * - overflow allowance (#3698): stops one past it A (`claude stop`);
  *   records the listed id B.
  * - Console read (#4071): starts the read A; none where its row will not
- *   write S (fail-open); none on a dry run B.
+ *   write F; none on a dry run B.
  * - goal (#3864): reads the frontier bare once cleared A (pick-next argv).
  * - parked launch (#2699, #3940): unlabels where it ended unblocked A; out of
- *   scope (#3950) B, opted out B; an unreadable transcript S (fail-open);
- *   closed issues A, an unreadable closed list S; stops an away park once A;
+ *   scope (#3950) B, opted out B; an unreadable transcript F;
+ *   closed issues A, an unreadable closed list F; stops an away park once A;
  *   the #4147 key in its marker B; a hold-attached park B; the permission
  *   cause B; the UNKNOWN line across ticks B.
  * - API error (#2705): types into the live session A (attach, pty_type.py);
@@ -53,7 +54,7 @@
  * - daemon cwd (#2937): sizes the seat from the served checkout's cost
  *   table A R (the real allowance.js).
  * - normal-mode park (#3621): resumes in place A, on its cause's prompt A,
- *   noting the ledger's acts B, the marker handed on A or kept S; resumes
+ *   noting the ledger's acts B, the marker handed on A or kept F; resumes
  *   from its marker (#3773) B ×3; launches afresh with no job A; an away
  *   park's ledger row released before the shortlist B (#3872).
  * - `set --resume` (#3861): restarts E, refuses a damaged control E, exits
@@ -63,7 +64,7 @@
  *   (#4139): restarts the unit A (systemctl), a live holder B, a launch in
  *   flight S, a damaged control B, exits 1 E; no lock (#4083): exits 1 E S,
  *   keeps the crash B, names the holder S, `start` exits 1 E.
- * - paused (#3856): clears an older stop B, crossing reap and lander A;
+ * - paused (#3856): clears an older stop B, crossing the reap A;
  *   resumes with no restart S. Opted out (#4188): unticks A. Away (#3870):
  *   the lock held by another writer S; a dry run writes nothing B. Waits
  *   (#3859): pauses on no progress, resumed by `set --resume` A S.
@@ -3306,7 +3307,6 @@ describe("a paused loop on the real tick (#3856)", () => {
 		expect(readState().stopped.reason).toBe("explicit");
 		expect(readState().stopped.at).toBeGreaterThan(6);
 		expect(readLines(at("reaped")).length).toBeGreaterThan(0);
-		expect(readLines(at("supervised")).length).toBeGreaterThan(0);
 	});
 
 	it("launches again on a resume, with no restart (#3943)", async () => {

@@ -871,6 +871,8 @@ describe("the reads both callers share (#4218)", () => {
 				},
 			},
 		);
+		/* A trustworthy reading exits 0; the cap's fault rides in its payload. */
+		expect(cap.status).toBe(0);
 		expect(parseCapFits(cap.stdout)).toEqual({
 			fits: null,
 			why: expect.stringMatching(/^the session cost table is unreadable/),
@@ -884,6 +886,7 @@ describe("sizeParkerSeats (#3669, #4147)", () => {
 		...seat(name, week, 10),
 		fits,
 	});
+	/** A parker of #5 on `name`, its marker naming `keyVar` where given, else a plan seat's. */
 	const parker = (name: string, keyVar?: string) => ({
 		root: "wfc",
 		number: 5,
