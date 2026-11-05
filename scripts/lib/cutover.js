@@ -24,10 +24,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
+const { LANDING_BRANCH, LANDING_REF, REMOTE } = require("./landing-refs.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
-const SHARED_MERGE = "refs/heads/landing";
+const SHARED_MERGE = `refs/heads/${LANDING_BRANCH}`;
 const UPSTREAM_KEY = `branch.${BRANCH}.merge`;
 
 /**
@@ -187,12 +188,12 @@ function cutover(root, ports) {
 			.filter((a) => a.cwd && standsIn(a.cwd, root, worktrees))
 			.map((a) => a.name || a.sessionId);
 		if (sessions.length > 0) return { status: "occupied", sessions };
-		git(["fetch", "--quiet", "origin", "landing"]);
+		git(["fetch", "--quiet", REMOTE, LANDING_BRANCH]);
 		const local = git([
 			"rev-list",
 			"--right-only",
 			"--cherry-pick",
-			`refs/remotes/origin/landing...${BRANCH}`,
+			`refs/remotes/${LANDING_REF}...${BRANCH}`,
 		])
 			.split("\n")
 			.filter(Boolean);
@@ -250,11 +251,11 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 			const lines = [
 				r.already
 					? "the main checkout was already cut over"
-					: "the main checkout is cut over: its main no longer tracks origin/landing, and edits and commits there are refused",
+					: `the main checkout is cut over: its main no longer tracks ${LANDING_REF}, and edits and commits there are refused`,
 			];
 			if (r.landed)
 				lines.push(
-					`landed main's ${r.landed.count} local commit(s) as ${r.landed.head.slice(0, SHORT_SHA)} on landing${r.landed.lander ? `; ${r.landed.lander}` : ""}`,
+					`landed main's ${r.landed.count} local commit(s) as ${r.landed.head.slice(0, SHORT_SHA)} on ${LANDING_BRANCH}${r.landed.lander ? `; ${r.landed.lander}` : ""}`,
 				);
 			if (r.orphanedEdits.length > 0)
 				lines.push(

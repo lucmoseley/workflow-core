@@ -10,14 +10,18 @@
 const { caught } = require("./caught.js");
 const { LANDER_GIT_TIMEOUT_MS, buildRevertLine } = require("./lander.js");
 const {
-	LANDING_BRANCH,
+	branchOf,
 	LANDING_REF,
+	pushedRefFor,
 	REMOTE,
 	trackingRefspec,
 	VERIFIED_BRANCH,
 	VERIFIED_REF,
 } = require("./landing-refs.js");
 const { execGit } = require("./git.js");
+
+/* `landing-status` runs with the `landing` module on. */
+const PUSHED = pushedRefFor(true);
 
 /**
  * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "reverted", by: string}
@@ -49,7 +53,7 @@ function commitStates(commits, git) {
  * @returns {CommitState|null}
  */
 function stateOf(sha, git) {
-	if (!git.isOn(LANDING_REF, sha)) {
+	if (!git.isOn(PUSHED, sha)) {
 		if (git.isOn(VERIFIED_REF, sha)) return { kind: "landed" };
 		return git.isOn("HEAD", sha) ? { kind: "unpushed" } : null;
 	}
@@ -109,7 +113,7 @@ function fetchedGit(root) {
 		"--quiet",
 		REMOTE,
 		trackingRefspec(VERIFIED_BRANCH),
-		trackingRefspec(LANDING_BRANCH),
+		trackingRefspec(branchOf(PUSHED)),
 	]);
 	return {
 		isOn(ref, sha) {

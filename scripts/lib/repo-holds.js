@@ -89,6 +89,7 @@ const {
 	TIMEOUT_EXIT,
 } = require("./run-budgeted.js");
 const { takesLabel } = require("./takes-label.js");
+const { pushedRefFor } = require("./landing-refs.js");
 const { moduleReader, resolveKey } = require("./workflow-core-config.js");
 
 /**
@@ -132,6 +133,8 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
 
 /* Untraced: a clear check runs inside a tick, which it must not hold for long,
  * and has to span a slow `git fetch`. */
+/* The pushed ref a probe resolves with the `landing` module on. */
+const PUSHED = pushedRefFor(true);
 const CLEAR_CHECK_TIMEOUT_MS = 30_000;
 
 /* How long the runner waits after its TERM before its KILL; a guess, as
@@ -938,9 +941,7 @@ function readProbeFailure(root, log) {
 	);
 	const refs = [
 		{ name: "main", rev: "refs/heads/main" },
-		...(hasLanding
-			? [{ name: "origin/landing", rev: "refs/remotes/origin/landing" }]
-			: []),
+		...(hasLanding ? [{ name: PUSHED, rev: `refs/remotes/${PUSHED}` }] : []),
 	];
 	const unresolved = refs.flatMap(({ name, rev }) => {
 		const read = readCommit(gitReader(root), rev);

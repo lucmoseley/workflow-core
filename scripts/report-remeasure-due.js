@@ -180,7 +180,12 @@ const { gitOutcome } = require("./lib/git");
 const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
-const { LANDING_REF, pushedRef } = require("./lib/landing-refs");
+const {
+	LANDING_BRANCH,
+	LANDING_REF,
+	pushedRef,
+	trackingRefspec,
+} = require("./lib/landing-refs");
 const { requiredGroup } = require("./lib/regex-group");
 const {
 	COUNTED_TIERS,
@@ -455,7 +460,7 @@ function fetchJudgedRef(root) {
 			"origin",
 			`+refs/heads/main:${JUDGED_REF}`,
 			...(pushedRef({ root }) === LANDING_REF
-				? [`+refs/heads/landing:refs/remotes/${LANDING_REF}`]
+				? [trackingRefspec(LANDING_BRANCH)]
 				: []),
 		],
 		[],

@@ -62,7 +62,7 @@ const {
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
-const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
+const { pushedRef, startRef, VERIFIED_REF } = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
@@ -1320,7 +1320,7 @@ const ZERO_SHA = /^0+$/;
  *
  * THE RANGE runs from the published tip to `sha`: `remoteSha` where the caller
  * has one (the pre-push hook's), otherwise the merge-base of `sha` with the
- * pushed ref (lib/landing-refs.js) — the base the narrowed default resolves. Where git cannot
+ * start ref (lib/landing-refs.js) — the base the narrowed default resolves. Where git cannot
  * name it, nothing is judged. `within` narrows it to those paths: the
  * session's own work, for the re-run guard (#1218). An empty `within` leaves
  * an empty range, which any member holding at `sha` attests.
@@ -1358,27 +1358,29 @@ function attestationOf(
 	if (!ctx.root) return { judged: false, why: "no git repository to read" };
 	const { git } = gitReader(ctx);
 	const fromRemote = Boolean(remoteSha && !ZERO_SHA.test(remoteSha));
-	const pushed = pushedRef({ root: ctx.root });
+	const start = startRef({ root: ctx.root });
 	let base;
 	let range;
 	try {
 		base = fromRemote
 			? String(remoteSha)
-			: git(["merge-base", sha, pushed]).trim();
+			: git(["merge-base", sha, start]).trim();
 		range = lines(git(["diff", "--name-only", "--no-renames", base, sha]));
 	} catch {
 		return {
 			judged: false,
 			why: fromRemote
 				? `git could not diff ${shortSha(String(remoteSha))}..${shortSha(sha)}`
-				: `git could not resolve the merge-base of ${shortSha(sha)} with ${pushed}`,
+				: `git could not resolve the merge-base of ${shortSha(sha)} with ${start}`,
 		};
 	}
 	/* A pushed ref other than the verified one is the lander's queue. An empty
 	 * range keeps tree holding: with nothing to push, no landing change waits
 	 * to be tested with the pusher's. */
 	const countedPaths =
-		pushed !== VERIFIED_REF && range.length > 0 ? new Set(range) : null;
+		pushedRef({ root: ctx.root }) !== VERIFIED_REF && range.length > 0
+			? new Set(range)
+			: null;
 	if (within) {
 		const keep = new Set(within);
 		range = range.filter((p) => keep.has(p));

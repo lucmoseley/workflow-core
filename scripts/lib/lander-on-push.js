@@ -9,8 +9,12 @@
  * `landing` off pays one config read on such a push and none on any other.
  */
 
+const { branchOf, pushedRefFor } = require("./landing-refs.js");
 const { readPush } = require("./push-dests.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
+
+/* A push to the pushed ref with the `landing` module on starts the lander. */
+const PUSHED_HEAD = `refs/heads/${branchOf(pushedRefFor(true))}`;
 
 /**
  * @typedef {object} LanderPorts
@@ -34,11 +38,7 @@ function decide(command, ctx) {
 				ctx.symbolicName(tree, src),
 			);
 			if (read.inert || read.all) return;
-			if (
-				read.rows.some(
-					(r) => r.kind === "push" && r.ref === "refs/heads/landing",
-				)
-			)
+			if (read.rows.some((r) => r.kind === "push" && r.ref === PUSHED_HEAD))
 				toLanding = true;
 		},
 		ctx,

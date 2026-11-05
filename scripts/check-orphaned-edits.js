@@ -107,6 +107,7 @@ const proc = require("./lib/arbiter-proc");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { landingCutOver } = require("./lib/cutover.js");
+const { pushedRefFor } = require("./lib/landing-refs.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
@@ -380,10 +381,10 @@ const isRemovable = (f) =>
  * @returns {string[]}
  */
 function describeUnlanded(unlanded) {
-	if (unlanded === null) return ["- Its commits off `origin/landing`: unread"];
+	if (unlanded === null) return [`- Its commits off \`${LANDED_REF}\`: unread`];
 	if (unlanded === 0) return [];
 	return [
-		`- ${String(unlanded)} commit(s) on its \`HEAD\` not on \`origin/landing\``,
+		`- ${String(unlanded)} commit(s) on its \`HEAD\` not on \`${LANDED_REF}\``,
 	];
 }
 
@@ -402,7 +403,7 @@ function buildWorktreeIssue(f, supersedes) {
 	const writers = [...new Set(f.orphans.map((o) => o.writer))];
 	const decide = isRemovable(f)
 		? [
-				"Every change in it is already on `origin/landing` and its `HEAD` has no commit off it, so it holds nothing unlanded. Remove it:",
+				`Every change in it is already on \`${LANDED_REF}\` and its \`HEAD\` has no commit off it, so it holds nothing unlanded. Remove it:`,
 				"",
 				"```",
 				out.remove,
@@ -424,7 +425,7 @@ function buildWorktreeIssue(f, supersedes) {
 		"",
 		`The worktree \`${f.worktree}\` holds ${String(f.orphans.length)} uncommitted file(s) no live session owns (each an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813, #4439).`,
 		"",
-		"| File | Unchanged | Blob | On `origin/landing` |",
+		`| File | Unchanged | Blob | On \`${LANDED_REF}\` |`,
 		"| --- | --- | --- | --- |",
 		...rows,
 		"",
@@ -625,7 +626,8 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 	return { kind: "orphan", writer: describeWriter(o.path, names, now) };
 }
 
-const LANDED_REF = "origin/landing";
+/* Orphaned work counts as landed once sessions have pushed it. */
+const LANDED_REF = pushedRefFor(true);
 
 /**
  * @param {Orphan} o
@@ -868,7 +870,7 @@ function reportOrphans(ctx, orphans, threshold) {
 				`    revert:  ${c.revert}\n` +
 				`    triage:  ${o.filed}` +
 				(o.worktree
-					? `\n    on origin/landing: ${describeLanded(o.landed)}`
+					? `\n    on ${LANDED_REF}: ${describeLanded(o.landed)}`
 					: ""),
 		);
 	}

@@ -77,6 +77,7 @@
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
+const { LANDING_BRANCH } = require("./landing-refs.js");
 const { rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const {
@@ -111,6 +112,8 @@ const API_VALUE_FLAGS =
 const DEPENDABOT_JQ =
 	'(.headRefName | startswith("dependabot/")) or (.author.login | test("^(app/)?dependabot(\\\\[bot\\\\])?$"))';
 
+const LANDING_HEAD = `refs/heads/${LANDING_BRANCH}`;
+
 const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 
 /* Each id spelt whole at its own call, so the registry's emitter scan reads
@@ -122,7 +125,7 @@ const publishRule = (ctx) =>
 		? ruleOrFallback(
 				ctx,
 				"branch-publish-landing",
-				"Work lands through `landing` — never a push to `main`, no other branch on the remote, and never a pull request",
+				`Work lands through \`${LANDING_BRANCH}\` — never a push to \`main\`, no other branch on the remote, and never a pull request`,
 			)
 		: ruleOrFallback(
 				ctx,
@@ -159,7 +162,7 @@ const mainRewind = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const landingRewind = (ctx, what, segment) => ({
-	reason: `This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "landing-rewind", "Never force-push or delete `landing`")}`,
+	reason: `This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "landing-rewind", `Never force-push or delete \`${LANDING_BRANCH}\``)}`,
 	segment,
 });
 
@@ -219,7 +222,9 @@ const isMain = (ref) =>
 
 /** @param {string} ref as written */
 const isLanding = (ref) =>
-	ref === "landing" || ref === "heads/landing" || ref === "refs/heads/landing";
+	ref === LANDING_BRANCH ||
+	ref === `heads/${LANDING_BRANCH}` ||
+	ref === LANDING_HEAD;
 
 /**
  * Whether publishing `ref`, a full ref, is allowed.
@@ -229,7 +234,7 @@ const isLanding = (ref) =>
 function isAllowedDst(ref, ctx) {
 	if (ref.startsWith("refs/heads/spike/")) return true;
 	if (ref === "refs/heads/main") return !ctx.moduleOn("landing");
-	if (ref === "refs/heads/landing") return ctx.moduleOn("landing");
+	if (ref === LANDING_HEAD) return ctx.moduleOn("landing");
 	return !ref.startsWith("refs/heads/");
 }
 
@@ -288,7 +293,11 @@ function judgeDelete(ctx, segment, ref) {
 	if (isMain(ref))
 		return mainRewind(ctx, "deletes `main` on the remote", segment);
 	if (isLanding(ref) && ctx.moduleOn("landing"))
-		return landingRewind(ctx, "deletes `landing` on the remote", segment);
+		return landingRewind(
+			ctx,
+			`deletes \`${LANDING_BRANCH}\` on the remote`,
+			segment,
+		);
 	return null;
 }
 
@@ -301,8 +310,8 @@ function judgeDelete(ctx, segment, ref) {
 function judgeDestination(ctx, segment, { ref, forced, bare }) {
 	if (forced && ref === "refs/heads/main")
 		return mainRewind(ctx, "force-pushes `main`", segment);
-	if (forced && ref === "refs/heads/landing" && ctx.moduleOn("landing"))
-		return landingRewind(ctx, "force-pushes `landing`", segment);
+	if (forced && ref === LANDING_HEAD && ctx.moduleOn("landing"))
+		return landingRewind(ctx, `force-pushes \`${LANDING_BRANCH}\``, segment);
 	if (isAllowedDst(ref, ctx)) return null;
 	const branch = ref.slice("refs/heads/".length);
 	if (ref === "refs/heads/main")

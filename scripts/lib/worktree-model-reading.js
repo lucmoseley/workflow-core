@@ -8,6 +8,7 @@
  */
 
 const { MOVED_LINE } = require("./land-refusal.js");
+const { pushedRefFor, startRefFor } = require("./landing-refs.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -386,7 +387,7 @@ function landRates(c, w) {
 	let verdict = "within";
 	if (rate < low) verdict = "below";
 	else if (rate > high) verdict = "above";
-	return `landing route a week: ${rate} merged origin/landing first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
+	return `landing route a week: ${rate} merged ${pushedRefFor(true)} first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
 }
 
 /**
@@ -403,7 +404,7 @@ function render(r, w) {
 			(k) =>
 				`${k.count === 0 ? "PASS" : "FAIL"} ${k.name}: ${k.count} — ${k.detail}`,
 		),
-		`Edit on a path tracked at origin/landing, call to result: ${spreadText(c.edit)}; ${c.editErrors} errored Edit(s) left out; over ${c.transcripts} transcripts, ${c.unparsed} unparsable line(s)`,
+		`Edit on a path tracked at ${startRefFor(true)}, call to result: ${spreadText(c.edit)}; ${c.editErrors} errored Edit(s) left out; over ${c.transcripts} transcripts, ${c.unparsed} unparsable line(s)`,
 		`landing merge, call start to merge commit (fetch, merge and gates): ${spreadText(c.mergeToCommit)}; ${c.land.failed + c.land.moved} landing call(s) that errored left out${c.mergeUnread > 0 ? `; ${c.mergeUnread} sha(s) git no longer holds` : ""}`,
 		`landing route call that merged, whole (push included): ${spreadText(c.mergeCall)}`,
 		landRates(c, w),

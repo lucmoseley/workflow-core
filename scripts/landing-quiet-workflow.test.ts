@@ -27,7 +27,7 @@ interface Step {
 interface Workflow {
 	name: string;
 	on: { schedule: { cron: string }[] };
-	jobs: { quiet: { name: string; if: string; steps: Step[] } };
+	jobs: { quiet: { name: string; if: string; steps: Partial<Step>[] } };
 }
 
 const workflow = yaml.load(
@@ -37,7 +37,7 @@ const workflow = yaml.load(
 	),
 ) as Workflow;
 const job = workflow.jobs.quiet;
-const step = job.steps[0] as Step;
+const step = job.steps.find((s) => s.run) as Step;
 
 let dir: string;
 beforeEach(() => {

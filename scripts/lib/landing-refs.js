@@ -1,22 +1,27 @@
 /*
- * landing-refs.js — which remote ref a reader of "what has been pushed" reads,
- * and which a reader of "what has been verified or released" reads (#2408,
- * spec #2261). The choice lives here alone: a reader calls `pushedRef` or
- * `readUnpushedRef`, or names the refs exported here, never the `landing` module.
+ * landing-refs.js — the ref switch: the one module that names the shared
+ * branches (#2408, spec #2261; #4485). A reader asks one of two answers, sorted
+ * by #4458's reader classes, and never names a branch itself:
+ *
+ *   - start (`startRef`): what is verified, or where a session starts — the
+ *     worktree cut, the changed-file selection base, the CI verdict. Release
+ *     reads `VERIFIED_REF`, which is `origin/main` in both shapes.
+ *   - pushed (`pushedRef`, `readUnpushedRef`): what a session has pushed —
+ *     push coverage, the unpushed count, commit-ledger status.
  *
  * With the `landing` module on, sessions push to `landing` and only the lander
- * moves `main`, so the pushed base is `origin/landing`. With it off, both are
+ * moves `main`, so both answers are `origin/landing`. With it off, both are
  * `origin/main`. A config that will not read answers off, as `wfc_module_on`
- * does.
+ * does. A reader already holding the module's state asks `startRefFor` or
+ * `pushedRefFor`.
  *
- *   node scripts/lib/landing-refs.js pushed|unpushed [<root>]
- *     prints that ref for the checkout at <root>, else the host root, for
- *     shell
+ *   node scripts/lib/landing-refs.js start|pushed|unpushed|pushed-branch [<root>]
+ *     prints that ref, or the pushed ref's branch, for the checkout at <root>,
+ *     else the host root, for shell and workflows
  */
 
-const { moduleOn } = require("./workflow-core-config.js");
-const { writeFd } = require("./write-fd.js");
-const { execGit } = require("./git.js");
+/* The config and git load where an answer first needs them, so a reader of
+ * the names alone, a hook among them, pays for neither. */
 
 const REMOTE = "origin";
 const VERIFIED_BRANCH = "main";
@@ -34,17 +39,61 @@ function trackingRefspec(branch) {
 }
 
 /**
+ * The branch a remote-tracking ref of `REMOTE` names.
+ * @param {string} ref
+ * @returns {string}
+ */
+function branchOf(ref) {
+	return ref.slice(REMOTE.length + 1);
+}
+
+/**
+ * @param {{root?: string}} [opts]
+ * @returns {boolean}
+ */
+function landingOn(opts) {
+	try {
+		return require("./workflow-core-config.js").moduleOn("landing", opts);
+	} catch {
+		// Only readConfig throws here, "landing" being a known module.
+		return false;
+	}
+}
+
+/**
+ * The start answer, given the `landing` module's state.
+ * @param {boolean} on
+ * @returns {string}
+ */
+function startRefFor(on) {
+	return on ? LANDING_REF : VERIFIED_REF;
+}
+
+/**
+ * The pushed answer, given the `landing` module's state.
+ * @param {boolean} on
+ * @returns {string}
+ */
+function pushedRefFor(on) {
+	return on ? LANDING_REF : VERIFIED_REF;
+}
+
+/**
+ * The remote ref a session starts from and is judged against.
+ * @param {{root?: string}} [opts] the host root whose config is read
+ * @returns {string}
+ */
+function startRef(opts) {
+	return startRefFor(landingOn(opts));
+}
+
+/**
  * The remote ref holding every commit sessions have pushed.
  * @param {{root?: string}} [opts] the host root whose config is read
  * @returns {string}
  */
 function pushedRef(opts) {
-	try {
-		return moduleOn("landing", opts) ? LANDING_REF : VERIFIED_REF;
-	} catch {
-		// Only readConfig throws here, "landing" being a known module.
-		return VERIFIED_REF;
-	}
+	return pushedRefFor(landingOn(opts));
 }
 
 /**
@@ -56,6 +105,7 @@ function pushedRef(opts) {
  * @returns {string}
  */
 function readUnpushedRef(opts) {
+	const { execGit } = require("./git.js");
 	const git = (/** @type {string[]} */ args) =>
 		execGit(args, {
 			cwd: opts?.tree ?? opts?.root,
@@ -64,7 +114,7 @@ function readUnpushedRef(opts) {
 		}).trim();
 	try {
 		const branch = git(["symbolic-ref", "--short", "-q", "HEAD"]);
-		if (branch !== "main")
+		if (branch !== VERIFIED_BRANCH)
 			return git([
 				"rev-parse",
 				"--abbrev-ref",
@@ -80,23 +130,35 @@ function readUnpushedRef(opts) {
 if (require.main === module) {
 	const [verb, root, ...more] = process.argv.slice(2);
 	const answer = new Map([
+		["start", startRef],
 		["pushed", pushedRef],
 		["unpushed", readUnpushedRef],
+		[
+			"pushed-branch",
+			(/** @type {{root?: string}|undefined} */ o) => branchOf(pushedRef(o)),
+		],
 	]).get(verb ?? "");
 	if (!answer || more.length > 0) {
-		writeFd(2, "usage: landing-refs.js pushed|unpushed [<root>]\n");
+		require("./write-fd.js").writeFd(
+			2,
+			"usage: landing-refs.js start|pushed|unpushed|pushed-branch [<root>]\n",
+		);
 		process.exit(2);
 	}
 	process.stdout.write(`${answer(root ? { root } : undefined)}\n`);
 }
 
 module.exports = {
+	branchOf,
 	LANDING_BRANCH,
 	LANDING_REF,
 	pushedRef,
+	pushedRefFor,
 	REMOTE,
-	trackingRefspec,
 	readUnpushedRef,
+	startRef,
+	startRefFor,
+	trackingRefspec,
 	VERIFIED_BRANCH,
 	VERIFIED_REF,
 };

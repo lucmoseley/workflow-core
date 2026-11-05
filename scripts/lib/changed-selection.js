@@ -20,7 +20,7 @@ const { testsReading } = require("./test-read-edges.js");
 const { hostRoot } = require("./host-root.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
-const { pushedRef } = require("./landing-refs.js");
+const { startRef } = require("./landing-refs.js");
 const { pushGateState } = require("./test-gate.js");
 const { FULL_SHA, commitSha } = require("./commit-sha.js");
 const { vitestList } = require("./vitest-collected.js");
@@ -1095,16 +1095,16 @@ function buildAdmissibleLine({
 }
 
 /**
- * `merge-base(HEAD, <pushed ref>)`, or `HEAD` where that ref does not exist or
+ * `merge-base(HEAD, <start ref>)`, or `HEAD` where that ref does not exist or
  * the merge-base cannot be resolved (an unrelated history, a wedged git). The
- * pushed ref is lib/landing-refs.js's `pushedRef`.
+ * start ref is lib/landing-refs.js's `startRef`.
  *
  * @param {string} root
  * @param {ExecFn} execFn
  * @returns {string}
  */
 function readDefaultChangedBase(root, execFn) {
-	const ref = pushedRef({ root });
+	const ref = startRef({ root });
 	try {
 		execFn(
 			gitBinary(),

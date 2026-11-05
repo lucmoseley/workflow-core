@@ -36,6 +36,7 @@ const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
+const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -46,8 +47,8 @@ const { writeFd } = require("./write-fd.js");
 /* scheduled-checks.yml carries the `landing` push trigger, as it calls every
  * job `main`'s sweep judges by. */
 const SUITE_WORKFLOW = "scheduled-checks.yml";
-const LANDING = "landing";
-const MAIN = "main";
+const LANDING = LANDING_BRANCH;
+const MAIN = VERIFIED_BRANCH;
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
 /* The aggregate job #2414's ruleset on `main` requires. */
