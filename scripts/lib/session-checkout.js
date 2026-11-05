@@ -42,7 +42,12 @@
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * REAP clears landed worktrees and unlinked stores.
+ * REAP clears landed worktrees and unlinked stores, recording each removed
+ * session worktree first.
+ *
+ * REOPEN gives a finished background job its worktree back so `claude attach`
+ * can wake it: an open from the agents view fails before any hook runs where
+ * the tree is gone (#4368).
  */
 
 const crypto = require("node:crypto");
@@ -61,6 +66,7 @@ const {
 } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
+const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
@@ -332,8 +338,20 @@ function cut(cwd, name) {
 			`${dir} already exists — pick another session name, or resume the session that worktree belongs to`,
 		);
 	fetchLanding(root);
+	return addWorktree(root, dir, "origin/landing");
+}
+
+/**
+ * Add a worktree at `dir` detached at `rev`, its dependencies attached; one
+ * whose attach fails is removed.
+ * @param {string} root the main checkout
+ * @param {string} dir
+ * @param {string} rev
+ * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
+ */
+function addWorktree(root, dir, rev) {
 	fs.mkdirSync(path.dirname(dir), { recursive: true });
-	git(["worktree", "add", "--quiet", "--detach", dir, "origin/landing"], root);
+	git(["worktree", "add", "--quiet", "--detach", dir, rev], root);
 	try {
 		const head = git(["rev-parse", "HEAD"], dir);
 		const { store, built } = attach(dir);
@@ -513,8 +531,11 @@ function launchDir(cwd, prompt) {
  * longer needs and names what it may not clear:
  *   - a session worktree whose every `HEAD` commit is on a freshly fetched
  *     `origin/landing`, whose tree is clean, and whose session is neither live
- *     (a process's cwd lies in it) nor resumable (a job record whose cwd lies
- *     in it is in any state but `done` or `failed`) is removed;
+ *     (a process's cwd lies in it), resumable (a job record whose cwd lies in
+ *     it is in any state but `done` or `failed`) nor finished under `KEEP_MS`
+ *     ago (such a record last written that recently) is removed, its path,
+ *     `HEAD` sha, and each such job's id and seat appended first to
+ *     `REAPED_RECORD` in git's common directory, which REOPEN reads;
  *   - one dirty or unlanded, of a dead and non-resumable session, is reported
  *     with its idle time and last commit, never removed;
  *   - registrations whose directory is gone are pruned, and a directory there
@@ -532,6 +553,11 @@ function launchDir(cwd, prompt) {
 
 /* Untraced: five minutes is room for a loaded machine. */
 const YOUNG_MS = 5 * 60_000;
+/* House: #4366. A finished job's own `updatedAt` is its finish clock: it is
+ * never earlier than `lastTerminalAt` on any of 6,192 records read under
+ * #4368, and a resume that finishes again moves it. */
+const KEEP_MS = 3 * 24 * 60 * 60_000;
+const REAPED_RECORD = "wfc-reaped-worktrees.jsonl";
 const ISOLATED = /^isolated-/;
 const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
@@ -546,8 +572,10 @@ const REAP_HOLDERS = ["session-checkout.js"];
  * @typedef {{ removed: string[], stranded: Stranded[], unregistered: string[],
  *   pruned: string[], strays: string[], stores: string[], failed: string[],
  *   fetchFailed: string | null }} Reaped
- * @typedef {{ now: number, cwds: string[] }} Pass when the pass runs, and
- *   every live process's cwd
+ * @typedef {{ now: number, cwds: string[], record: string }} Pass when the
+ *   pass runs, every live process's cwd, and the REAPED_RECORD path
+ * @typedef {{ job: string, seat: string, path: string, head: string,
+ *   at: string }} ReapedTree one line of REAPED_RECORD
  */
 
 /**
@@ -643,12 +671,15 @@ function readWorktreesOrThrow(root) {
  * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
  * @returns {string[]} every registered worktree still standing
  */
-function reapWorktrees(root, base, { cwds, now }, out) {
+function reapWorktrees(root, base, { cwds, now, record }, out) {
 	const registered = readWorktreesOrThrow(root);
+	const jobs = readJobCwds();
 	const held = [
 		...cwds,
-		...readJobCwds()
-			.filter((j) => j.state === null || !ENDED.has(j.state))
+		...jobs
+			.filter(
+				(j) => j.state === null || !ENDED.has(j.state) || now - j.at < KEEP_MS,
+			)
 			.map((j) => j.cwd),
 	];
 	/** @type {string[]} */
@@ -676,6 +707,11 @@ function reapWorktrees(root, base, { cwds, now }, out) {
 				standing.push(dir);
 				continue;
 			}
+			recordReaped(
+				{ record, now },
+				dir,
+				jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
+			);
 			const link = path.join(dir, "node_modules");
 			if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
 				fs.unlinkSync(link);
@@ -687,6 +723,43 @@ function reapWorktrees(root, base, { cwds, now }, out) {
 		}
 	}
 	return standing;
+}
+
+/**
+ * Append a line to REAPED_RECORD for each job whose cwd lies in `dir`, with
+ * its `HEAD` sha. A tree no job names gets none: no `claude attach` can wake
+ * it.
+ * @param {Pick<Pass, "record" | "now">} pass
+ * @param {string} dir
+ * @param {import("./session-worktrees.js").JobCwd[]} owners
+ */
+function recordReaped({ record, now }, dir, owners) {
+	if (owners.length === 0) return;
+	const head = git(["rev-parse", "HEAD"], dir);
+	const at = new Date(now).toISOString();
+	fs.appendFileSync(
+		record,
+		owners
+			.map(
+				(j) =>
+					`${JSON.stringify(/** @type {ReapedTree} */ ({ job: j.id, seat: j.seat, path: dir, head, at }))}\n`,
+			)
+			.join(""),
+	);
+}
+
+/**
+ * The last REAPED_RECORD line for job `id`; null where none names it.
+ * @param {string} record
+ * @param {string} id
+ * @returns {ReapedTree | null}
+ */
+function readReaped(record, id) {
+	const rows = readJsonl(record)?.rows ?? [];
+	const last = rows.filter((r) => r.job === id).pop();
+	return last
+		? /** @type {ReapedTree} */ (/** @type {unknown} */ (last))
+		: null;
 }
 
 /**
@@ -842,6 +915,7 @@ function reap(cwd) {
 			failed: [],
 			fetchFailed: null,
 		};
+		const record = path.join(common, REAPED_RECORD);
 		/* With `landing` off no session worktree is cut, and none can be
 		 * judged landed. */
 		const judged = moduleOn("landing", { root });
@@ -855,7 +929,7 @@ function reap(cwd) {
 		out.pruned = prune(root);
 		const base = path.join(root, WORKTREES);
 		if (!fs.existsSync(base)) return out;
-		const pass = { now, cwds: readProcessCwds().map(deref) };
+		const pass = { now, cwds: readProcessCwds().map(deref), record };
 		const standing = judged
 			? reapWorktrees(root, base, pass, out)
 			: readWorktreesOrThrow(root);
@@ -867,6 +941,37 @@ function reap(cwd) {
 	}
 }
 
+/**
+ * REOPEN, above: job `id`'s worktree, re-added at the sha REAPED_RECORD holds
+ * for it where the reaper removed it, and the seat to attach the job on.
+ * @param {string} cwd anywhere in the repository
+ * @param {string} id the job id, as `claude attach` takes it
+ * @returns {{ dir: string, seat: string, restored: boolean }}
+ */
+function reopen(cwd, id) {
+	const root = rootOf(cwd);
+	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
+	const reaped = readReaped(path.join(common, REAPED_RECORD), id);
+	const job = readJobCwds()
+		.filter((j) => j.id === id)
+		.sort((a, b) => b.at - a.at)[0];
+	if (!reaped && !job)
+		throw new CheckoutError(
+			`no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
+		);
+	const seat = /** @type {string} */ (reaped?.seat ?? job?.seat);
+	const dir = /** @type {string} */ (reaped?.path ?? job?.cwd);
+	if (fs.existsSync(dir)) return { dir, seat, restored: false };
+	if (!reaped)
+		throw new CheckoutError(
+			`job ${id}'s directory ${dir} is gone and the reaper recorded no sha for it, so nothing can rebuild it`,
+		);
+	/* A registration whose directory went by hand would refuse the add. */
+	prune(root);
+	addWorktree(root, dir, reaped.head);
+	return { dir, seat, restored: true };
+}
+
 module.exports = {
 	attach,
 	CheckoutError,
@@ -874,5 +979,6 @@ module.exports = {
 	land,
 	launchDir,
 	reap,
+	reopen,
 	STORES,
 };

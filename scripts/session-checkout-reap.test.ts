@@ -20,11 +20,12 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "session-checkout.js");
 const HOUR = 60 * 60_000;
+const DAY = 24 * HOUR;
 
 let tmp: string;
 let origin: string;
@@ -90,15 +91,34 @@ const registered = () =>
 		.filter((l) => l.startsWith("worktree "))
 		.map((l) => l.slice("worktree ".length));
 
-/** A job record on the seat whose session's cwd is `cwd`, in `state`. */
-const recordJob = (id: string, cwd: string, state: string) => {
+/** A job record on the seat whose session's cwd is `cwd`, in `state`,
+ * last written at `updatedAt` where given. */
+const recordJob = (
+	id: string,
+	cwd: string,
+	state: string,
+	updatedAt?: number,
+) => {
 	const dir = path.join(seat, "jobs", id);
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, "state.json"),
-		JSON.stringify({ sessionId: `${id}-session`, cwd, state }),
+		JSON.stringify({
+			sessionId: `${id}-session`,
+			cwd,
+			state,
+			...(updatedAt === undefined
+				? {}
+				: { updatedAt: new Date(updatedAt).toISOString() }),
+		}),
 	);
 };
+
+const reapedRecord = () =>
+	path.join(
+		git(main, "rev-parse", "--git-common-dir"),
+		"wfc-reaped-worktrees.jsonl",
+	);
 
 /** A live process whose command line carries `marker`, with `cwd`. */
 const holdProcess = (cwd: string, marker = "held") => {
@@ -427,4 +447,99 @@ it("leaves an unregistered directory a live process works in", () => {
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(fs.existsSync(busy)).toBe(true);
+});
+
+it("keeps a landed, clean worktree whose job finished under 3 days ago, and records one finished 3 days ago before removing it", () => {
+	const recent = cut("recent-finish");
+	const old = cut("old-finish");
+	const oldHead = git(old, "rev-parse", "HEAD");
+	recordJob("j1", recent, "done", Date.now());
+	recordJob("j2", path.join(old, "sub"), "failed", Date.now() - 2 * HOUR);
+
+	const r = reap(3 * DAY - HOUR);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain("removed landed worktree: old-finish");
+	expect(registered()).toEqual([main, recent]);
+	const lines = fs
+		.readFileSync(path.resolve(main, reapedRecord()), "utf8")
+		.trim()
+		.split("\n")
+		.map((l) => JSON.parse(l));
+	expect(lines).toEqual([
+		{
+			job: "j2",
+			seat,
+			path: old,
+			head: oldHead,
+			at: expect.any(String),
+		},
+	]);
+});
+
+describe("reopen", () => {
+	let claudeStub: string;
+	let attachLog: string;
+
+	beforeEach(() => {
+		claudeStub = path.join(tmp, "claude");
+		attachLog = path.join(tmp, "attach.log");
+		fs.writeFileSync(
+			claudeStub,
+			`#!/bin/sh\necho "$CLAUDE_CONFIG_DIR $*" >> ${attachLog}\nexit 3\n`,
+		);
+		fs.chmodSync(claudeStub, 0o755);
+	});
+
+	const reopen = (id: string) =>
+		run(["reopen", id], { WFC_CLAUDE_BIN: claudeStub });
+	const attached = () => fs.readFileSync(attachLog, "utf8").trim();
+
+	it("rebuilds a removed worktree at its recorded sha with its store linked, then attaches the job on its seat", () => {
+		const tree = cut("reopen-me");
+		commitIn(tree, "done.txt", "landed work");
+		git(tree, "push", "-q", "origin", "HEAD:landing");
+		const head = git(tree, "rev-parse", "HEAD");
+		recordJob("abc123", tree, "done", Date.now() - 4 * DAY);
+		expect(reap().status).toBe(0);
+		expect(fs.existsSync(tree)).toBe(false);
+		/* The record, not origin/landing, names the sha. */
+		const later = cut("later-work");
+		commitIn(later, "later.txt", "after the reap");
+		git(later, "push", "-q", "origin", "HEAD:landing");
+
+		const r = reopen("abc123");
+
+		expect(r.status, r.stderr).toBe(3);
+		expect(r.stderr).toContain(`rebuilt ${tree} at its recorded sha`);
+		expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+		expect(fs.readFileSync(path.join(tree, "done.txt"), "utf8")).toBe(
+			"landed work",
+		);
+		expect(fs.lstatSync(path.join(tree, "node_modules")).isSymbolicLink()).toBe(
+			true,
+		);
+		expect(attached()).toBe(`${seat} attach abc123`);
+	});
+
+	it("only attaches where the worktree still stands", () => {
+		const tree = cut("still-here");
+		recordJob("def456", tree, "done", Date.now());
+
+		const r = reopen("def456");
+
+		expect(r.status, r.stderr).toBe(3);
+		expect(r.stderr).toContain(`${tree} is still there`);
+		expect(attached()).toBe(`${seat} attach def456`);
+	});
+
+	it("refuses a job no seat holds and no record names, attaching nothing", () => {
+		const r = reopen("nope99");
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"no seat holds job nope99 and the reaper recorded no worktree for it",
+		);
+		expect(fs.existsSync(attachLog)).toBe(false);
+	});
 });
