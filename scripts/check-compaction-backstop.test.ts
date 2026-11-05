@@ -104,7 +104,7 @@ describe("check-compaction-backstop.js", () => {
 	const comments = {
 		101: [
 			comment("Backstop.\n\n**Compactions:** 5 (session s1)\n"),
-			comment("Backstop.\n\n**Compactions:** 6 (session s1)\n"),
+			comment("Backstop.\n\n- `**Compactions:** 6 (session s1)`\n"),
 			comment(
 				"Done; s1 left **Compactions:** 6 (session s1)\n\n**Compactions:** 4 (session s2)\n",
 			),

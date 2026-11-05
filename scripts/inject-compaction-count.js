@@ -56,7 +56,7 @@ const {
 	compactionAdvice,
 } = require("./lib/compaction-set");
 const { buildStateFile } = require("./lib/build-state");
-const { readClaimedIssue } = require("./lib/arbiter-issue-claims");
+const { readClaimedIssues } = require("./lib/arbiter-issue-claims");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
@@ -135,7 +135,7 @@ function afterCompaction(payload, sid) {
 function unitOf(sid) {
 	let issue = null;
 	try {
-		issue = readClaimedIssue(sid);
+		issue = readClaimedIssues(sid)[0] ?? null;
 	} catch (err) {
 		logFailOpen("issue claims unreadable", err);
 	}

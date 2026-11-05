@@ -1188,9 +1188,11 @@ describe("the **Compactions:** line", () => {
 	it("writes 0 for a session that never autocompacted", () => {
 		setUp();
 		expect(run(DECISION).status).toBe(0);
-		expect(lastPosted()).toMatch(
-			/\n\*\*Compactions:\*\* 0 \(session sess-me\)\n$/,
-		);
+		expect(
+			lastPosted().endsWith(`
+**Compactions:** 0 (session ${ME})
+`),
+		).toBe(true);
 	});
 
 	it("writes no line on an issue that is not a kind:ticket", () => {

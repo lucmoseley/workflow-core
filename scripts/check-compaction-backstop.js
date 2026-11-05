@@ -77,8 +77,7 @@ const issueOfUrl = (url) => {
 
 /**
  * A unit's total: each session's highest count, plus every line naming no
- * session. A line carries its session's running total, so a session that wrote
- * it twice — a hand-off then a close, or two hand-offs — counts once.
+ * session.
  * @param {{ body?: string | null }[]} comments
  */
 function sumCompactions(comments) {
