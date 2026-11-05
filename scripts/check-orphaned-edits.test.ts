@@ -29,7 +29,9 @@ import {
 	proc,
 	store,
 } from "./lib/arbiter-testkit";
+import { readWorktreeDirt, readWorktreeFiling } from "./lib/orphan-filings.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { worktreeLabel } from "./lib/session-worktrees.js";
 import { buildDistinctFromHint } from "./lib/similar-titles.js";
 
 const SCRIPT = path.join(__dirname, "check-orphaned-edits.js");
@@ -163,7 +165,6 @@ describe("check-orphaned-edits", () => {
 		expect(r.out).toContain("ORPHANED-EDIT (1)");
 		expect(r.out).toContain("a.txt — unchanged 25h");
 		expect(r.out).not.toContain("docs/b.md");
-		// WARN, never FAIL: it reports and a human decides.
 		expect(r.status).toBe(0);
 	});
 
@@ -461,8 +462,156 @@ describe("a linked worktree's dirt", () => {
 		expect(r.out).toContain(`inspect: git -C ${wt} diff HEAD -- a.txt`);
 		const [filing] = readFilings();
 		expect(filing?.argv.join(" ")).toContain(
-			"Orphaned edit: a.txt in .claude/worktrees/w1 (blob",
+			"Orphaned edits: 1 file(s) in .claude/worktrees/w1 (state",
 		);
+	});
+
+	function dirtyIn(wt: string, rel: string, hours: number, content: string) {
+		const file = path.join(wt, rel);
+		fs.writeFileSync(file, content);
+		const at = new Date(Date.now() - hours * HOUR);
+		fs.utimesSync(file, at, at);
+	}
+
+	/** Point `origin/landing` at a line of commits on HEAD, each carrying
+	 * one entry of `commits`, then put the main checkout back at HEAD. */
+	function landOnOrigin(...commits: Record<string, string>[]) {
+		const git = (...args: string[]) =>
+			spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
+		const head = git("rev-parse", "HEAD").stdout.trim();
+		for (const files of commits) {
+			for (const [rel, content] of Object.entries(files))
+				fs.writeFileSync(path.join(sb.repo, rel), content);
+			commitAll(sb, "landed");
+		}
+		git("update-ref", "refs/remotes/origin/landing", "HEAD");
+		git("reset", "-q", "--hard", head);
+	}
+
+	/** The issue the reaper defers to for worktree `wt` as its dirt stands. */
+	const reaperSees = (wt: string) =>
+		readWorktreeFiling(
+			path.join(sb.repo, ".git"),
+			worktreeLabel(sb.repo, wt),
+			readWorktreeDirt(wt) ?? [],
+		);
+
+	const bodyOf = () => readFilings().map((f) => f.body);
+
+	it("files one issue for all of a dead worktree's files, and once more when any of them changes (#4439)", () => {
+		const wt = worktreeOf("dead-owner-5", 30);
+		dirtyIn(wt, "c.txt", 30, "worktree edit\n");
+
+		run();
+		run();
+
+		expect(readFilings()).toHaveLength(1);
+		const [filing] = readFilings();
+		expect(filing?.argv.join(" ")).toContain(
+			"Orphaned edits: 2 file(s) in .claude/worktrees/w1",
+		);
+		expect(filing?.body).toContain("| `a.txt` |");
+		expect(filing?.body).toContain("| `c.txt` |");
+
+		expect(reaperSees(wt)).toBe("https://github.com/o/r/issues/7");
+
+		dirtyIn(wt, "c.txt", 30, "edited again\n");
+		expect(reaperSees(wt)).toBeNull();
+		run();
+		run();
+
+		expect(readFilings()).toHaveLength(2);
+		expect(readFilings()[1]?.body).toContain(
+			"Supersedes https://github.com/o/r/issues/7",
+		);
+		expect(reaperSees(wt)).toBe("https://github.com/o/r/issues/7");
+	});
+
+	it("names removing the worktree where every change in it is already on origin/landing (#4439)", () => {
+		landOnOrigin({ "a.txt": "worktree edit\n" });
+		const wt = worktreeOf("dead-owner-6", 30);
+
+		const r = run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| `a.txt` | 30h |");
+		expect(body).toContain("| yes, byte for byte |");
+		expect(body).toContain("holds nothing unlanded");
+		expect(body).toContain(`git worktree remove --force ${wt}`);
+		expect(body).not.toContain("session-checkout.js land");
+		expect(r.out).toContain("on origin/landing: yes, byte for byte");
+	});
+
+	it("reads a change landed and since superseded as landed by its lines (#4439)", () => {
+		landOnOrigin({ "a.txt": "worktree edit\nlater line\n" });
+		worktreeOf("dead-owner-7", 30);
+
+		run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| yes, every changed line |");
+		expect(body).toContain("holds nothing unlanded");
+	});
+
+	it("keeps the land route where a change is not on origin/landing (#4439)", () => {
+		landOnOrigin({ "c.txt": "other\n" });
+		const wt = worktreeOf("dead-owner-8", 30);
+
+		run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| no |");
+		expect(body).toContain("session-checkout.js land");
+		expect(body).toContain(`git -C ${wt} diff HEAD`);
+	});
+
+	it("waits while another file in the worktree is under 24 hours, then files them together (#4439)", () => {
+		const wt = worktreeOf("dead-owner-9", 30);
+		dirtyIn(wt, "c.txt", 1, "fresh\n");
+
+		expect(run().out).toContain(
+			"not filed yet: 1 other file(s) in its worktree changed within 24h",
+		);
+		expect(readFilings()).toEqual([]);
+
+		dirtyIn(wt, "c.txt", 30, "fresh\n");
+		run();
+
+		expect(readFilings()).toHaveLength(1);
+		expect(readFilings()[0]?.argv.join(" ")).toContain("2 file(s)");
+	});
+
+	it("keeps the land route where an untracked file in the worktree would go with it (#4439)", () => {
+		landOnOrigin({ "a.txt": "worktree edit\n" });
+		const wt = worktreeOf("dead-owner-10", 30);
+		fs.writeFileSync(path.join(wt, "new.txt"), "never added\n");
+
+		run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| yes, byte for byte |");
+		expect(body).toContain("1 other path(s) in it, untracked");
+		expect(body).toContain("session-checkout.js land");
+	});
+
+	it("reads a change landed and since reworked as landed, by the version that made it (#4439)", () => {
+		landOnOrigin({ "a.txt": "seed\nX\nY\n" }, { "a.txt": "seed\nY\n" });
+		const wt = worktreeOf("dead-owner-11", 30);
+		dirtyIn(wt, "a.txt", 30, "seed\nX\n");
+
+		run();
+
+		expect(bodyOf()[0]).toContain("| yes, every changed line |");
+	});
+
+	it("does not read a line added twice as landed where landing added it once (#4439)", () => {
+		landOnOrigin({ "a.txt": "seed\nX\n", "c.txt": "moved\n" });
+		const wt = worktreeOf("dead-owner-12", 30);
+		dirtyIn(wt, "a.txt", 30, "seed\nX\nX\n");
+
+		run();
+
+		expect(bodyOf()[0]).toContain("| no |");
 	});
 
 	it("is owned while its session is listed live, though no claim or ledger names it", () => {
@@ -588,6 +737,80 @@ describe("a cut-over main checkout's dirt", () => {
 		expect(data.mainCutOver).toBe(false);
 		expect(data.orphanCount).toBe(0);
 		expect(data.young).toBe(1);
+	});
+
+	describe("read from a session launched in a linked worktree (#4483)", () => {
+		/** A worktree of the sandbox repo, `a.txt` in it dirtied now, which a
+		 * session launched there names as its project dir and cwd. */
+		function launchedIn() {
+			const wt = path.join(sb.repo, ".claude", "worktrees", "probe");
+			fs.mkdirSync(path.dirname(wt), { recursive: true });
+			spawnSync("git", ["worktree", "add", "-q", "--detach", wt], {
+				cwd: sb.repo,
+			});
+			fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
+			return fs.realpathSync(wt);
+		}
+		const runFrom = (tree: string, args: string[] = ["--json"]) => {
+			const r = runInProcess(SCRIPT, [...args, "--write"], {
+				env: {
+					...process.env,
+					WFC_MODULES: `${process.env.WFC_MODULES},landing`,
+					GITHUB_ACTIONS: "",
+					WFC_ORACLE_CACHE: "0",
+					CLAUDE_PROJECT_DIR: tree,
+				},
+				cwd: tree,
+			});
+			expect(r.status).toBe(0);
+			return { stdout: r.stdout, out: r.stdout + r.stderr };
+		};
+
+		it("judges the worktree's fresh dirt as that worktree's, filing nothing", () => {
+			const data = JSON.parse(runFrom(launchedIn()).stdout);
+
+			expect(data.orphanCount).toBe(0);
+			expect(data.young).toBe(1);
+			expect(readFilings()).toEqual([]);
+		});
+
+		it("judges the main checkout's dirt against the main checkout's store", () => {
+			const wt = launchedIn();
+			dirty("c.txt", 0);
+			fakeClaude("bystander", "live-writer");
+			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+			fs.writeFileSync(store.paths.ledger("live-writer"), "c.txt\n");
+
+			const data = JSON.parse(runFrom(wt).stdout);
+
+			expect(data.mainCutOver).toBe(true);
+			expect(data.orphanCount).toBe(0);
+			expect(readFilings()).toEqual([]);
+		});
+
+		it("still files the main checkout's unowned dirt, by its main-checkout path", () => {
+			const wt = launchedIn();
+			dirty("c.txt", 0);
+
+			const { out } = runFrom(wt, []);
+
+			expect(out).toContain("ORPHANED-EDIT (1)");
+			const filings = readFilings();
+			expect(filings).toHaveLength(1);
+			expect(filings[0].body).toContain("c.txt");
+			expect(filings[0].body).not.toContain(".claude/worktrees/probe");
+		});
+
+		it("files the worktree's aged dirt under the worktree's name", () => {
+			const wt = launchedIn();
+			const at = new Date(Date.now() - 30 * HOUR);
+			fs.utimesSync(path.join(wt, "a.txt"), at, at);
+
+			const { out } = runFrom(wt, []);
+
+			expect(out).toContain(".claude/worktrees/probe: a.txt");
+			expect(readFilings()).toHaveLength(1);
+		});
 	});
 
 	it("leaves a linked worktree's dirt to the 24-hour test", () => {

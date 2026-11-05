@@ -4184,6 +4184,34 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 		return cwds;
 	};
 
+	it("resumes a lifted repo hold's session from its park marker's cwd, not the hold's root (#4460)", () => {
+		const { io } = fakeIo({
+			readParkMarkers: () => [
+				{
+					issues: [7],
+					job: { seat: "/seat", jobId: "p", cwd: Own },
+					sessionId: "s-p",
+					writtenAt: NOW - MIN,
+				},
+			],
+		});
+		const hold = {
+			root: "/repo",
+			dir: "/store/lifted/abc-1",
+			id: "abc",
+			recordJobs: ["p"],
+			jobs: ["p"],
+			isClearNoticeOwed: false,
+		};
+		const { launches } = queueLifted(
+			[],
+			[hold],
+			tick(io, [agent("other", "working")]),
+		);
+		expect(launches[0]?.holdCleared?.cwd).toBe(Own);
+		expectStepFromOwn(launches[0]);
+	});
+
 	it("resumes a transient API stop from it, and settles its started record from it", () => {
 		const { io, cwds, started } = cwdIo(Own);
 		actOnBlocks(

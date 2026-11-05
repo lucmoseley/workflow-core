@@ -55,13 +55,18 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
+const { CLASSES_FILE, sectionAMatcher } = require("./doc-map.js");
 const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const { execGroupedSync } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
 const {
-	LANDER_REVERT_ENV,
+	buildRevertBaseEnv,
+	buildRevertEnv,
 	buildRevertLine,
-	readKeptAnchors,
+	isSettledFile,
+	parseRevertLine,
+	readSettledConflicts,
+	renderRegenerated,
 } = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
@@ -85,6 +90,9 @@ const NO_SIDE = { base: null, range: [], merges: [] };
  * the wait, each merge searched costing its own reruns with the queue held
  * (#3936). */
 const SIDE_MERGES_SEARCHED = 3;
+
+/* Untraced (#4453): start at 3; a hold that meets it cites #4453. */
+const MAX_DEPENDENTS_REVERTED = 3;
 
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
@@ -158,7 +166,7 @@ const NETWORK =
  *       jobs: string[], failures?: Failure[], parentIsMain: boolean}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
  *       revert: string, files: string[], jobs: string[], failures?: Failure[],
- *       stale: RegistryRow[]|null}
+ *       stale: RegistryRow[]|null, dependents?: Dependent[]}
  *   | {kind: "hold", reason: string, cause?: "already-red", ticket?: FixTicket}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
@@ -220,10 +228,15 @@ const NETWORK =
  * @property {Verdict|null} confirm the side culprit's second run
  * @typedef {{row: string, forward: string}} RegistryRow a guard-registry
  *   row, and the fix-forward that clears it
- * @typedef {{sha: string, onto: string, stale?: RegistryRow[]|null} |
- *   {failed: string}} Revert the revert's sha, the `landing` tip it was
- *   committed on and the rows it left stale, null where they could not be
- *   read, or why it did not land: a conflict or a refused commit or push
+ * @typedef {{commit: string, revert: string, files: string[]}} Dependent a
+ *   later commit reverted with a culprit, as its revert conflicted with it
+ *   (#4453): its revert's sha, and the files of the conflict it changed, none
+ *   named where the revert was found already landed
+ * @typedef {{sha: string, onto: string, stale?: RegistryRow[]|null,
+ *   dependents?: Dependent[]} | {failed: string}} Revert the revert's sha, the
+ *   `landing` tip it was committed on and the rows it left stale, null where
+ *   they could not be read, and the dependents reverted before it, newest
+ *   first; or why it did not land: a conflict or a refused commit or push
  * @typedef {object} LanderState
  * @property {string|null} main `main`'s sha on the remote
  * @property {string|null} landing `landing`'s sha on the REMOTE, null where
@@ -981,6 +994,7 @@ function culpritAction(r, confirmed, s) {
 		jobs,
 		...failuresField,
 		stale: r.revert.stale ?? null,
+		...(r.revert.dependents?.length ? { dependents: r.revert.dependents } : {}),
 	};
 	if (r.unfiled !== null)
 		return {
@@ -2012,7 +2026,7 @@ function buildActionLine(a) {
 		case "revert":
 			return `revert ${a.culprit} on landing`;
 		case "file-fix-ticket":
-			return `file-fix-ticket ${a.culprit}, reverted in ${a.revert}`;
+			return `file-fix-ticket ${a.culprit}, reverted in ${a.revert}${a.dependents?.length ? ` with ${a.dependents.map((d) => d.commit).join(", ")}` : ""}`;
 		default:
 			return `${a.kind} ${a.sha}`;
 	}
@@ -2182,13 +2196,26 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			`${culprit}..${tip}`,
 		]).trim();
 		if (!sha) return null;
-		const onto = git(["rev-parse", `${sha}^`]).trim();
+		/** @type {Dependent[]} */
+		const dependents = [];
+		let onto = git(["rev-parse", `${sha}^`]).trim();
+		for (;;) {
+			const body = git(["log", "-1", "--format=%B", onto]);
+			const commit = parseRevertLine(body);
+			if (!commit || !body.includes(buildRevertedWithLine(culprit))) break;
+			dependents.unshift({ commit, revert: onto, files: [] });
+			onto = git(["rev-parse", `${onto}^`]).trim();
+		}
 		return {
 			sha,
 			onto,
 			stale:
-				readRegistryRows(root, culprit, [onto, "--head", sha])?.exempted ??
-				null,
+				readRegistryRows(root, buildRevertOrder(culprit, dependents), [
+					onto,
+					"--head",
+					sha,
+				])?.exempted ?? null,
+			...(dependents.length > 0 ? { dependents } : {}),
 		};
 	};
 	/** @param {string[]} args @returns {string[]} */
@@ -2351,7 +2378,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				try {
 					push(
 						`${made.sha}:refs/heads/${LANDING_BRANCH}`,
-						buildRevertEnv(culprit),
+						buildRevertEnv(buildRevertOrder(culprit, made.dependents)),
 					);
 					return { ...made, onto: tip };
 				} catch (err) {
@@ -2359,7 +2386,11 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 					if (refused)
 						return buildPushRefusal(
 							root,
-							{ culprit, tip, sha: made.sha },
+							{
+								reverted: buildRevertOrder(culprit, made.dependents),
+								tip,
+								sha: made.sha,
+							},
 							refused,
 						);
 				}
@@ -2375,13 +2406,17 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * gate lets the clean revert leave rows stale, which the fix ticket then
 	 * names (#3127). Any other refusal holds the queue, naming the registry
 	 * rows it refused on where it was that gate's (#3123). A conflict only in
-	 * anchor files is settled by lib/clean-revert.js's rule (#3935); any other
-	 * holds, naming the files.
+	 * anchor and regenerated files is settled by lib/clean-revert.js's rule
+	 * (#3935, #4452). A conflict in any other file reverts first each later
+	 * commit that changed one, newest first, each its own commit, then the
+	 * culprit (#4453). Past MAX_DEPENDENTS_REVERTED of them, or where one's own
+	 * revert fails or the culprit's still conflicts after them, it holds,
+	 * naming why.
 	 * @param {string} culprit
 	 * @param {string|null} parent
 	 * @param {string} tip
 	 * @param {string} why
-	 * @returns {{sha: string, stale: RegistryRow[]|null} | {failed: string}}
+	 * @returns {{sha: string, stale: RegistryRow[]|null, dependents?: Dependent[]} | {failed: string}}
 	 */
 	function revertCommit(culprit, parent, tip, why) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lander-revert-"));
@@ -2395,53 +2430,10 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				timeout: LANDER_GIT_TIMEOUT_MS,
 			});
 		try {
-			const parents = readParents(culprit);
-			/* A merge reverts against the parent the bisect stepped from. */
-			const mainline = parents.indexOf(parent ?? "") + 1;
-			if (parents.length > 1 && mainline === 0)
-				return {
-					failed: `${short(culprit)} is a merge, and ${parent ? short(parent) : "(none)"} is not one of its parents`,
-				};
-			const unreverted = stderrIfThrown(() =>
-				inTree([
-					"revert",
-					"--no-commit",
-					...(parents.length > 1 ? ["-m", String(mainline)] : []),
-					culprit,
-				]),
+			return revertWithDependents(
+				{ dir, inTree, readParents, timeoutMs: revertCommitTimeoutMs },
+				{ culprit, parent, tip, why },
 			);
-			const settled = settleConflicts(inTree, unreverted, {
-				dir,
-				culprit,
-				onto: tip,
-				side: parents[Math.max(mainline - 1, 0)],
-			});
-			if ("failed" in settled) return settled;
-			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
-			try {
-				/* In a group of its own, so a kill at the timeout reaches the hooks, with
-				 * a grace for their traps (#3923). */
-				execGroupedSync(
-					gitBinary(),
-					["commit", "--quiet", "--no-verify", "-F", "-"],
-					gitSpawnOptions({
-						cwd: dir,
-						input: `Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${settled.note}${why}\n`,
-						timeout: revertCommitTimeoutMs,
-						env: buildRevertEnv(culprit),
-					}),
-				);
-			} catch (err) {
-				return {
-					failed: buildCommitFailure(err, dir, culprit, revertCommitTimeoutMs),
-				};
-			}
-			return {
-				sha: inTree(["rev-parse", "HEAD"]).trim(),
-				stale:
-					readRegistryRows(dir, culprit, [tip, "--head", "HEAD"])?.exempted ??
-					null,
-			};
 		} finally {
 			/* Never replaces the return: a hook's child that left the commit's group
 			 * outlives the kill and can still be writing in `dir`, and a throw here
@@ -2459,36 +2451,289 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 }
 
 /**
- * The revert's anchor-file conflicts staged as lib/clean-revert.js settles them,
- * with the commit message's line saying so; else why the revert did not apply.
+ * @typedef {object} RevertTree the throwaway worktree a revert is made in
+ * @property {string} dir
+ * @property {(args: string[]) => string} inTree git there
+ * @property {(commit: string) => string[]} readParents
+ * @property {number} timeoutMs each revert commit's
+ */
+
+/**
+ * revertCommit's revert in `tree`, made on its HEAD at `tip`: the culprit's,
+ * after its dependents' where a conflict in a file no rule settles names
+ * them (#4453).
+ * @param {RevertTree} tree
+ * @param {{culprit: string, parent: string|null, tip: string, why: string}} revert
+ * @returns {{sha: string, stale: RegistryRow[]|null, dependents?: Dependent[]} | {failed: string}}
+ */
+function revertWithDependents(tree, { culprit, parent, tip, why }) {
+	const staged = stageWithDependents(tree, { culprit, parent, tip });
+	if ("failed" in staged) return staged;
+	const { note, dependents } = staged;
+	const after =
+		dependents.length > 0
+			? `Reverted after ${dependents.map((d) => d.commit).join(", ")}, later commits its revert conflicted with.\n\n`
+			: "";
+	const made = commitRevert(tree, culprit, `${note}${after}${why}`);
+	if ("failed" in made)
+		return dependents.length > 0
+			? { failed: `${made.failed}, after reverting ${listShort(dependents)}` }
+			: made;
+	return {
+		sha: made.sha,
+		stale:
+			readRegistryRows(tree.dir, buildRevertOrder(culprit, dependents), [
+				tip,
+				"--head",
+				"HEAD",
+			])?.exempted ?? null,
+		...(dependents.length > 0 ? { dependents } : {}),
+	};
+}
+
+/**
+ * The culprit's revert staged on `tree`'s HEAD, with each dependent's revert
+ * committed under it where its first try conflicted in a hand-written file;
+ * else why not.
+ * @param {RevertTree} tree
+ * @param {{culprit: string, parent: string|null, tip: string}} revert
+ * @returns {{note: string, dependents: Dependent[]} | {failed: string}}
+ */
+function stageWithDependents(tree, { culprit, parent, tip }) {
+	const first = stageRevert(tree, culprit, parent);
+	if (!("failed" in first)) return { note: first.note, dependents: [] };
+	if (first.unsettled.length === 0) return { failed: first.failed };
+	const generated = whyGenerated(tree.dir, first.unsettled);
+	if (generated !== null) return { failed: `${first.failed}; ${generated}` };
+	const reverted = revertDependents(tree, culprit, tip, first.unsettled);
+	if ("failed" in reverted)
+		return { failed: `${first.failed}; ${reverted.failed}` };
+	const again = stageRevert(tree, culprit, parent);
+	if ("failed" in again)
+		return {
+			failed: `${first.failed}; with ${listShort(reverted.dependents)} reverted first, it still did not apply: ${again.failed}`,
+		};
+	return { note: again.note, dependents: reverted.dependents };
+}
+
+/**
+ * Why `files` holds a generated-only file, its conflict one no dependent's
+ * revert need settle, or null where none is; a register that cannot be read
+ * is a reason too, as it may name one.
+ * @param {string} dir
+ * @param {string[]} files
+ * @returns {string|null}
+ */
+function whyGenerated(dir, files) {
+	const at = path.join(dir, "docs", CLASSES_FILE);
+	if (!fs.existsSync(at)) return null;
+	/** @type {string[]} */
+	let generated;
+	try {
+		const classes = JSON.parse(fs.readFileSync(at, "utf8"));
+		if (!classes || typeof classes !== "object" || Array.isArray(classes))
+			throw new Error("it is not a JSON object");
+		generated = Object.entries(classes)
+			.filter(
+				([, row]) =>
+					row?.class === "generated-only" &&
+					(typeof row.classQualifier !== "string" ||
+						row.classQualifier.trim() === ""),
+			)
+			.map(([key]) => key);
+	} catch (err) {
+		return `docs/${CLASSES_FILE} could not be read to tell a generated file: ${caught(err).message}`;
+	}
+	const isGenerated = generated.map(sectionAMatcher);
+	const named = files.filter((file) => isGenerated.some((is) => is(file)));
+	return named.length > 0
+		? `${named.join(", ")} ${named.length === 1 ? "is" : "are"} generated, which no later commit's revert settles`
+		: null;
+}
+
+/** @param {Dependent[]} dependents */
+const listShort = (dependents) =>
+	dependents.map((d) => short(d.commit)).join(", ");
+
+/**
+ * Each later commit on `tip` that changed one of `unsettled`, the files the
+ * culprit's revert conflicted in, reverted newest first; else why not.
+ * @param {RevertTree} tree
+ * @param {string} culprit
+ * @param {string} tip
+ * @param {string[]} unsettled
+ * @returns {{dependents: Dependent[]} | {failed: string}}
+ */
+function revertDependents(tree, culprit, tip, unsettled) {
+	/** @param {string[]} args */
+	const readLines = (args) => tree.inTree(args).split("\n").filter(Boolean);
+	const later = readLines([
+		"rev-list",
+		"--no-merges",
+		"--topo-order",
+		`${culprit}..${tip}`,
+		"--",
+		...unsettled,
+	]);
+	if (later.length === 0)
+		return { failed: "no later commit but a merge changed them" };
+	if (later.length > MAX_DEPENDENTS_REVERTED)
+		return {
+			failed: `${later.length} later commits changed them, past the ${MAX_DEPENDENTS_REVERTED} the lander reverts with one culprit (#4453): ${later.map(short).join(", ")}`,
+		};
+	/** @type {Dependent[]} */
+	const dependents = [];
+	for (const commit of later) {
+		const staged = stageRevert(tree, commit, null);
+		if ("failed" in staged)
+			return {
+				failed: `the revert of ${short(commit)}, a later commit that changed them, did not apply: ${staged.failed}`,
+			};
+		const files = readLines([
+			"diff-tree",
+			"--no-commit-id",
+			"--name-only",
+			"-r",
+			commit,
+			"--",
+			...unsettled,
+		]);
+		const made = commitRevert(
+			tree,
+			commit,
+			`${staged.note}${buildRevertedWithLine(culprit)}whose revert conflicted with it in ${files.join(", ")}. The red commit is ${short(culprit)}, not this one: re-land this after it.`,
+		);
+		if ("failed" in made)
+			return {
+				failed: `the revert of ${short(commit)}, a later commit that changed them, failed: ${made.failed}`,
+			};
+		dependents.push({ commit, revert: made.sha, files });
+	}
+	return { dependents };
+}
+
+/**
+ * The revert of `commit` against `parent` staged on `tree`'s HEAD, its anchor
+ * conflicts settled; else why not, with the conflicted files no rule
+ * settles, and the revert's own state cleared.
+ * @param {RevertTree} tree
+ * @param {string} commit
+ * @param {string|null} parent
+ * @returns {{note: string} | {failed: string, unsettled: string[]}}
+ */
+function stageRevert({ dir, inTree, readParents }, commit, parent) {
+	const parents = readParents(commit);
+	/* A merge reverts against the parent the bisect stepped from. */
+	const mainline = parents.indexOf(parent ?? "") + 1;
+	if (parents.length > 1 && mainline === 0)
+		return {
+			failed: `${short(commit)} is a merge, and ${parent ? short(parent) : "(none)"} is not one of its parents`,
+			unsettled: [],
+		};
+	const onto = inTree(["rev-parse", "HEAD"]).trim();
+	const unreverted = stderrIfThrown(() =>
+		inTree([
+			"revert",
+			"--no-commit",
+			...(parents.length > 1 ? ["-m", String(mainline)] : []),
+			commit,
+		]),
+	);
+	const settled = settleConflicts(inTree, unreverted, {
+		dir,
+		culprit: commit,
+		onto,
+		side: parents[Math.max(mainline - 1, 0)],
+	});
+	if ("failed" in settled && unreverted !== null)
+		stderrIfThrown(() => inTree(["revert", "--abort"]));
+	return settled;
+}
+
+/**
+ * The staged revert of `reverted` committed with `body` after git's revert
+ * line, naming it in WFC_LANDER_REVERT; else why its commit failed.
+ * @param {RevertTree} tree
+ * @param {string} reverted
+ * @param {string} body
+ * @returns {{sha: string} | {failed: string}}
+ */
+function commitRevert({ dir, inTree, timeoutMs }, reverted, body) {
+	const subject = inTree(["log", "-1", "--format=%s", reverted]).trim();
+	try {
+		/* In a group of its own, so a kill at the timeout reaches the hooks, with
+		 * a grace for their traps (#3923). */
+		execGroupedSync(
+			gitBinary(),
+			["commit", "--quiet", "--no-verify", "-F", "-"],
+			gitSpawnOptions({
+				cwd: dir,
+				input: `Revert "${subject}"\n\n${buildRevertLine(reverted)}\n\n${body}\n`,
+				timeout: timeoutMs,
+				env: buildRevertEnv([reverted]),
+			}),
+		);
+	} catch (err) {
+		return { failed: buildCommitFailure(err, dir, reverted, timeoutMs) };
+	}
+	return { sha: inTree(["rev-parse", "HEAD"]).trim() };
+}
+
+/**
+ * The revert's conflicts staged as lib/clean-revert.js settles them, with the
+ * commit message's line saying so; else why the revert did not apply, with
+ * the conflicted files no rule settles. A regenerated file is rendered on the
+ * tree with every other conflict settled, its own conflicted bytes standing as
+ * `onto`'s, which its render never reads.
  * @param {(args: string[]) => string} inTree git in the revert's worktree
  * @param {string|null} stderr the revert's, null where it applied
  * @param {{dir: string, culprit: string, onto: string, side: string|undefined}} revert
- * @returns {{note: string} | {failed: string}}
+ * @returns {{note: string} | {failed: string, unsettled: string[]}}
  */
 function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 	if (stderr === null) return { note: "" };
 	const conflicted = inTree(["diff", "--name-only", "--diff-filter=U"]);
-	const kept =
+	const paths = conflicted.split("\n").filter(Boolean);
+	const unsettled = paths.filter((file) => !isSettledFile(file));
+	const settled =
 		side === undefined
 			? null
-			: readKeptAnchors(
-					dir,
-					{ culprit, onto, side },
-					conflicted.split("\n").filter(Boolean),
-				);
-	if (kept === null)
-		return { failed: buildConflictFailure(stderr, conflicted) };
+			: readSettledConflicts(dir, { culprit, onto, side }, paths);
+	if (settled === null)
+		return { failed: buildConflictFailure(stderr, conflicted), unsettled };
+	const { kept, regenerated } = settled;
 	for (const [file, bytes] of kept) {
 		fs.writeFileSync(path.join(dir, file), bytes);
 		inTree(["add", "--", file]);
 	}
+	const generatedPaths = [...regenerated.keys()];
+	if (generatedPaths.length > 0) {
+		inTree(["checkout", "--ours", "--", ...generatedPaths]);
+		inTree(["add", "--", ...generatedPaths]);
+		const tree = inTree(["write-tree"]).trim();
+		for (const [file, generated] of regenerated) {
+			const rendered = renderRegenerated(dir, generated, tree);
+			if ("failed" in rendered)
+				return {
+					failed: `${buildConflictFailure(stderr, conflicted)}; ${generated.generator} could not render ${file} on the revert's tree: ${parseFirstLine(rendered.failed)}`,
+					unsettled: [],
+				};
+			fs.writeFileSync(path.join(dir, file), rendered.bytes);
+			inTree(["add", "--", file]);
+		}
+	}
 	/* Every hunk kept: a culprit that touched only those files reverts to nothing. */
-	return inTree(["diff", "--cached", "--name-only"]).trim() === ""
-		? { failed: buildConflictFailure(stderr, conflicted) }
-		: {
-				note: `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`,
-			};
+	if (inTree(["diff", "--cached", "--name-only"]).trim() === "")
+		return { failed: buildConflictFailure(stderr, conflicted), unsettled: [] };
+	return {
+		note:
+			(kept.size > 0
+				? `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`
+				: "") +
+			(regenerated.size > 0
+				? `Conflicts in ${generatedPaths.join(", ")} regenerated on the revert's tree by ${[...regenerated.values()].map((g) => g.generator).join(", ")}.\n\n`
+				: ""),
+	};
 }
 
 /**
@@ -2529,7 +2774,7 @@ function buildCommitFailure(err, dir, culprit, timeoutMs) {
  * @param {string} stderr the commit's
  */
 function buildCommitRefusal(dir, culprit, stderr) {
-	const refused = readRegistryRows(dir, culprit, ["HEAD"])?.refused ?? [];
+	const refused = readRegistryRows(dir, [culprit], ["HEAD"])?.refused ?? [];
 	if (refused.length === 0)
 		return GATE_VERDICT.exec(stderr)?.[0] ?? parseRefusal(stderr);
 	return buildRowsLine(refused);
@@ -2539,13 +2784,13 @@ function buildCommitRefusal(dir, culprit, stderr) {
  * A refused revert push, naming each guard-registry row the landing gate
  * refused it on where it was that gate's.
  * @param {string} root
- * @param {{culprit: string, tip: string, sha: string}} pushed the revert
- *   `sha` of `culprit`, pushed onto `tip`
+ * @param {{reverted: string[], tip: string, sha: string}} pushed the reverts
+ *   of `reverted`, in their order, pushed onto `tip` up to `sha`
  * @param {{failed: string}} refused
  * @returns {{failed: string}}
  */
-function buildPushRefusal(root, { culprit, tip, sha }, refused) {
-	const rows = readRegistryRows(root, culprit, [tip, "--head", sha])?.refused;
+function buildPushRefusal(root, { reverted, tip, sha }, refused) {
+	const rows = readRegistryRows(root, reverted, [tip, "--head", sha])?.refused;
 	return rows?.length
 		? { failed: `its push was refused: ${buildRowsLine(rows)}` }
 		: refused;
@@ -2555,33 +2800,40 @@ function buildPushRefusal(root, { culprit, tip, sha }, refused) {
 const buildRowsLine = (rows) =>
 	rows.map((r) => `${r.row} (fix forward: ${r.forward})`).join("; ");
 
-/**
- * The environment a revert of `culprit` is committed and pushed in.
- * @param {string} culprit
- */
-const buildRevertEnv = (culprit) => ({
-	...process.env,
-	[LANDER_REVERT_ENV]: culprit,
-});
+/* The line a dependent's revert carries, naming the culprit it went with. */
+const buildRevertedWithLine = (/** @type {string} */ culprit) =>
+	`Reverted with ${culprit}, `;
 
 /**
- * The guard-registry rows the gate refuses and exempts on a revert of
- * `culprit` in `dir`, judged `--against` the `against` arguments; null where
- * the gate cannot answer, which the fix ticket then says rather than reading
- * as no row owed (#3127).
- * @param {string} dir
+ * The commits a culprit's revert line reverts, in the order it committed
+ * them: its dependents, newest first, then the culprit.
  * @param {string} culprit
- * @param {string[]} against
+ * @param {Dependent[]} [dependents]
+ */
+const buildRevertOrder = (culprit, dependents = []) => [
+	...dependents.map((d) => d.commit),
+	culprit,
+];
+
+/**
+ * The guard-registry rows the gate refuses and exempts on the reverts of
+ * `reverted`, in their order, in `dir`, judged `--against` the `against`
+ * arguments; null where the gate cannot answer, which the fix ticket then
+ * says rather than reading as no row owed (#3127).
+ * @param {string} dir
+ * @param {string[]} reverted
+ * @param {string[]} against `<rev>`, or `<rev> --head <sha>`
  * @returns {{refused: RegistryRow[], exempted: RegistryRow[]}|null}
  */
-function readRegistryRows(dir, culprit, against) {
+function readRegistryRows(dir, reverted, against) {
+	const [onto = "HEAD", , head] = against;
 	const r = spawnSync(
 		process.execPath,
 		[REGISTRY_CHECK, "--json", "--against", ...against],
 		{
 			cwd: dir,
 			encoding: "utf8",
-			env: buildRevertEnv(culprit),
+			env: buildRevertBaseEnv(dir, { onto, head }, buildRevertEnv(reverted)),
 			timeout: LANDER_GIT_TIMEOUT_MS,
 		},
 	);

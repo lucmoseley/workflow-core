@@ -18,8 +18,8 @@ import {
 	gitValueFlags,
 	gitWords,
 	isGhCommand,
-	isInlineCode,
 	literal,
+	programSource,
 	scanFlags,
 	unwrap,
 } from "./shell-words.js";
@@ -67,17 +67,53 @@ describe("commandName and isGhCommand (#2885)", () => {
 	});
 });
 
-describe("isInlineCode (#3456)", () => {
+describe("programSource (#3456, #4479)", () => {
 	it.each([
-		["node", ["-e", "x"], true],
-		["node", ["--no-warnings", "--eval=x"], true],
-		["node", ["-c", "a.js"], false],
-		["node", ["a.js", "-e"], false],
-		["bash", ["-c", "x"], true],
-		["sh", ["-e", "a.sh"], false],
-		["python3", ["-c", "x"], false],
-	])("%s %j is %s", (interpreter, words, inline) => {
-		expect(isInlineCode(interpreter, words)).toBe(inline);
+		["node", ["-e", "x"], "inline"],
+		["node", ["--no-warnings", "--eval=x"], "inline"],
+		["node", ["-pe", "x"], "inline"],
+		["node", ["-r", "dotenv/config", "-e", "x"], "inline"],
+		["node", ["-c", "a.js"], "script"],
+		["node", ["a.js", "-e"], "script"],
+		["node", ["--", "a.js"], "script"],
+		["node", ["-"], "stdin"],
+		["nodejs", ["-p", "x"], "inline"],
+		["bash", ["-c", "x"], "inline"],
+		["bash", ["-ec", "x"], "inline"],
+		["bash", ["-o", "pipefail", "-c", "x"], "inline"],
+		["bash", ["-o", "pipefail", "a.sh"], "script"],
+		["sh", ["-e", "a.sh"], "script"],
+		["sh", ["-s", "arg"], "stdin"],
+		["bash", ["+o", "pipefail", "-c", "x"], "inline"],
+		["zsh", ["-c", "x"], "inline"],
+		["perl", ["-e", "x"], "inline"],
+		["ruby", ["-r", "json", "-e", "x"], "inline"],
+		["python3", ["-c", "x"], "inline"],
+		["python3", ["-uc", "x"], "inline"],
+		["python3", ["-W", "ignore", "-c", "x"], "inline"],
+		["python3", ["-Wignore", "-c", "x"], "inline"],
+		["python3.12", ["-cprint(1)"], "inline"],
+		["python3m", ["-c", "x"], "inline"],
+		["python3", ["-m", "pip", "install", "-c", "x"], "script"],
+		["python3", ["-u"], "stdin"],
+		["python3", ["-", "arg"], "stdin"],
+		["lua", ["-e", "x"], null],
+	])("%s %j reads its program from %s", (interpreter, words, source) => {
+		expect(programSource(interpreter, words)?.source ?? null).toBe(source);
+	});
+
+	it("names the script a valued flag's value precedes", () => {
+		expect(programSource("node", ["-r", "a.js", "b.js", "-e"])).toEqual({
+			source: "script",
+			script: "b.js",
+		});
+		expect(programSource("python3", ["--", "x.py"])).toEqual({
+			source: "script",
+			script: "x.py",
+		});
+		expect(programSource("python3", ["-m", "pip"])).toEqual({
+			source: "script",
+		});
 	});
 });
 

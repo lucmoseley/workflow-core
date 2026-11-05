@@ -2,7 +2,8 @@
 /*
  * build-state.test.ts — `/implement`'s opening step: create or resume a build
  * unit's state file, keyed by issue number (#4410). Rooted on a temp
- * WFC_REPO_ROOT, so no run writes the live checkout's state files.
+ * WFC_REPO_ROOT, so no run writes the live checkout's state files. Broken,
+ * a successor session loses its predecessor's state file and restarts the unit.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -52,6 +53,9 @@ describe("build-state.js", () => {
 		const r = run(["4419"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`Resumed ${file(4419)}`);
+		expect(r.stdout).toContain(
+			"the newest comment on #4419 carrying a **Compactions:** line",
+		);
 		expect(r.stdout).toContain('"next":"slice 4"');
 		expect(fs.readFileSync(file(4419), "utf8")).toBe(theirs);
 	});

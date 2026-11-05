@@ -1,6 +1,5 @@
 /*
- * build-state.js — where a build unit's state file lives, and which issue a
- * session is building (#4410).
+ * build-state.js — where a build unit's state file lives (#4410).
  *
  * ONE FILE PER ISSUE, in the main checkout's `.claude/tmp/build-state/`, so a
  * successor session in another worktree finds it by the issue number alone,
@@ -23,8 +22,9 @@ function buildStateFile(issue) {
  * A new unit's state, in the shape #4410 fixes.
  * @param {number} issue
  * @param {number|null} spec
+ * @param {number} at epoch ms, the caller's `now()` (lib/check.js)
  */
-function newBuildState(issue, spec) {
+function newBuildState(issue, spec, at) {
 	return {
 		issue,
 		spec,
@@ -32,29 +32,11 @@ function newBuildState(issue, spec) {
 		standingRules: [],
 		filesTouched: [],
 		next: "",
-		updatedAt: new Date().toISOString(),
+		updatedAt: new Date(at).toISOString(),
 	};
-}
-
-/**
- * The issue `sid`'s arbiter claim holds — its newest where it holds several —
- * or null where it holds none or the store will not read.
- * @param {string} sid
- * @returns {number|null}
- */
-function claimedIssue(sid) {
-	/* Loaded here, not at the top: build-state.js's own CLI never reads the
-	 * claims, and the claim store's module pulls in the liveness oracle. */
-	const listed = require("./arbiter-issue-claims.js").listIssueClaims();
-	const mine = (listed?.claims ?? []).filter(
-		(c) => c?.sessionId === sid && typeof c.issue === "number",
-	);
-	mine.sort((a, b) => String(b.claimedAt).localeCompare(String(a.claimedAt)));
-	return mine[0]?.issue ?? null;
 }
 
 module.exports = {
 	buildStateFile,
-	claimedIssue,
 	newBuildState,
 };

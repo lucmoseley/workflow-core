@@ -11,6 +11,7 @@
  * stopped by a test.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,6 +24,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import dispatchLedger from "./lib/dispatch-ledger";
+import { projectSlug } from "./lib/project-slug.js";
 import {
 	EXIT,
 	holderRow,
@@ -226,6 +228,59 @@ describe("takeover: the success path", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Worktree: (not recorded");
 		expect(r.stdout).toContain("continue its intent in this session.");
+	});
+
+	describe("with no job record and no cwd on its row (#4464)", () => {
+		const recordless = () => {
+			frozenHolder();
+			fs.rmSync(path.join(plan(), "jobs", SHORT), { recursive: true });
+		};
+
+		it("names the worktree whose project slug its transcript sits under", async () => {
+			recordless();
+			gitRepo(sb);
+			commitAll(sb);
+			const wt = path.join(sb.repo, ".claude", "worktrees", "implement-621");
+			execFileSync("git", ["worktree", "add", "-q", "--detach", wt], {
+				cwd: sb.repo,
+			});
+			const slugged = path.join(plan(), "projects", projectSlug(wt));
+			fs.renameSync(path.dirname(transcript()), slugged);
+			const r = await takeover();
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(`Worktree: ${fs.realpathSync(wt)}\n`);
+			expect(r.stdout).toContain(`cd ${fs.realpathSync(wt)}, or relaunch`);
+		});
+
+		it("names the worktree its transcript's records last ran in, under the main checkout's slug", async () => {
+			recordless();
+			gitRepo(sb);
+			commitAll(sb);
+			const wt = path.join(sb.repo, ".claude", "worktrees", "implement-621");
+			execFileSync("git", ["worktree", "add", "-q", "--detach", wt], {
+				cwd: sb.repo,
+			});
+			fs.mkdirSync(path.join(wt, "sub"));
+			writeTranscript([
+				JSON.stringify({ type: "user", cwd: sb.repo }),
+				JSON.stringify({ type: "user", cwd: path.join(wt, "sub") }),
+				said("Delegated the suite.\n\nwaiting: the suite run"),
+			]);
+			const r = await takeover();
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(`Worktree: ${fs.realpathSync(wt)}\n`);
+		});
+
+		it("marks the main checkout a guess where no listed checkout's slug matches", async () => {
+			recordless();
+			const r = await takeover();
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(`Worktree: ${sb.repo} (a guess`);
+			expect(r.stdout).toContain(
+				"continue its intent in the worktree git worktree list shows it worked in.",
+			);
+			expect(r.stdout).not.toContain("where its edits sit");
+		});
 	});
 
 	it("snapshots and stops on the plan whose records hold it, where every plan lists it (#1146)", async () => {

@@ -115,7 +115,7 @@ function storeConfigDir() {
 
 /*
  * THE HOST REPO, through the one seam (#1). `lib/host-root.js` holds the
- * contract — CLAUDE_PROJECT_DIR, else the git top level of the working
+ * contract — CLAUDE_PROJECT_DIR, else the main checkout owning the working
  * directory, symlinks dereferenced, memoised per cwd, failing open to the cwd —
  * and `lib/guard-root.sh`'s gr_root is its bash twin. The trailing-slash strip
  * and the dereference live in the seam because stateDir() turns this into a

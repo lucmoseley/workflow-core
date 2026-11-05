@@ -21,7 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initGitRepo } from "./scripts/lib/git-fixture";
+import { initGitRepo, mainWorktreeOf } from "./scripts/lib/git-fixture";
 
 const readStartedEnv = (name: string) =>
 	fs
@@ -231,8 +231,8 @@ test("probe", () => {
 		}>(dir, env, "host.json", withSetup);
 	};
 
-	it("reads this checkout with the variable unset and no setup file: the control", () => {
-		expect(readHost(undefined, false).host).toBe(fs.realpathSync(REPO_ROOT));
+	it("reads the main checkout owning this one with the variable unset and no setup file: the control", () => {
+		expect(readHost(undefined, false).host).toBe(mainWorktreeOf(REPO_ROOT));
 	});
 
 	it.each([

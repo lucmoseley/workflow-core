@@ -5,8 +5,8 @@
  * every served or launched-in checkout each tick: where `landing` is ahead
  * of `main` and no lander runs, it starts one through start-lander.js; where
  * `main` has not moved for lib/landing-stall.js's STALL_MS, it files or
- * refreshes the stall ticket (lib/stall-ticket.js). A held queue it leaves to
- * the held-queue issue.
+ * refreshes the stall ticket (lib/stall-ticket.js), which it closes once
+ * `main` moves. A held queue it leaves to the held-queue issue.
  *
  *   node scripts/supervise-landing.js [--tester <command>]
  *
@@ -23,10 +23,15 @@
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { runStartLander } = require("./lib/lander-start.js");
-const { readQueue, supervision } = require("./lib/landing-stall.js");
+const {
+	mainMovedAt,
+	readQueue,
+	supervision,
+} = require("./lib/landing-stall.js");
+const { markersDir } = require("./lib/marker-root.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { stallTicketFiler } = require("./lib/stall-ticket.js");
+const { stallTicketTender } = require("./lib/stall-ticket.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -52,15 +57,18 @@ function main(argv = process.argv.slice(2)) {
 	const queue = readQueue(root);
 	const { start, ticket } = supervision(queue);
 	if (start) startLander(root, flagValue(parsed.flags, "--tester"));
-	if (ticket)
-		say(
-			stallTicketFiler(liveQueueDeps(root))({
-				landing: ticket.landing,
-				movedAt: new Date(ticket.movedAt).toISOString(),
-				batch: queue.heartbeat?.batch ?? null,
-				red: queue.heartbeat?.red ?? null,
-			}),
-		);
+	const tend = stallTicketTender(liveQueueDeps(root), markersDir(root));
+	for (const line of tend({
+		main: queue.main,
+		movedAt: mainMovedAt(queue.mainAt, queue.heartbeat),
+		stall: ticket && {
+			landing: ticket.landing,
+			movedAt: new Date(ticket.movedAt).toISOString(),
+			batch: queue.heartbeat?.batch ?? null,
+			red: queue.heartbeat?.red ?? null,
+		},
+	}))
+		say(line);
 	return 0;
 }
 
