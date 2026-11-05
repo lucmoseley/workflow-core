@@ -824,12 +824,15 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		refusedIn(inWt(["commit", "--no-edit"]), wt, before);
 	});
 
-	it("clears a held merge on the marker review-hold.txt says to write, paths= naming every staged path", () => {
+	/** A merge held on SECRET alone, PLAIN landed and PRICE this worktree's, with the review's artefacts left. */
+	const heldMerge = () => {
 		diverge([PLAIN], [PRICE]);
 		inWt(["merge", "--no-commit", "origin/landing"]);
 		stageInWt(SECRET, "reviewed\n");
 		leaveArtefacts(path.join(wt, ".claude", "tmp"));
-		const w = runInProcess(
+	};
+	const writeMarkerInWt = (paths: string) =>
+		runInProcess(
 			WRITE_MARKER,
 			[
 				"--base",
@@ -841,7 +844,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 				"--areas",
 				"secrets",
 				"--paths",
-				git("-C", wt, "diff", "--cached", "--name-only").split("\n").join(","),
+				paths,
 			],
 			{
 				cwd: wt,
@@ -852,10 +855,22 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 				},
 			},
 		);
-		expect(w.stderr).toBe("");
+
+	it("clears a held merge on the marker review-hold.txt says to write, paths= naming the held path alone (#4426)", () => {
+		heldMerge();
+		expect(writeMarkerInWt(SECRET).stderr).toBe("");
 		const r = inWt(["commit", "--no-edit"]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
+	});
+
+	it("holds a merge whose marker's paths= names only a landed path, not the held one", () => {
+		heldMerge();
+		expect(writeMarkerInWt(PLAIN).stderr).toBe("");
+		const before = wtCount();
+		const r = inWt(["commit", "--no-edit"]);
+		refusedIn(r, wt, before);
+		expect(r.stderr).toContain(`its paths= does not name ${SECRET}`);
 	});
 
 	it("holds a merge whole where its side is on no remote-tracking ref", () => {
