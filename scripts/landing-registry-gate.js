@@ -14,8 +14,9 @@
  * A LANDER REVERT passes with the rows it leaves stale: with WFC_LANDER_REVERT
  * naming a culprit, the checker stands staleness down where the pushed sha is
  * one commit on the tip, carries git's revert line for that culprit and holds
- * its clean revert, so the lander can reopen a held queue (#3127). Any other
- * fault still refuses.
+ * its clean revert, so the lander can reopen a held queue (#3127). The same
+ * revert is judged against the culprit's parent as well as the tip, a fault
+ * refusing only where it is in neither (#4451).
  *
  * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
  * branch protection on the remote is the gate that binds (#2414).
@@ -33,6 +34,11 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const {
+	REVERT_BASE_ENV,
+	readLanderRevert,
+	readRevertBase,
+} = require("./lib/clean-revert.js");
 const { LANDING_BRANCH } = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
@@ -80,10 +86,16 @@ function judge(stdin, tree) {
 			);
 			continue;
 		}
+		const culprit = readLanderRevert();
+		const base =
+			culprit && readRevertBase(tree, { culprit, onto: tip, head: sha });
 		const r = spawnSync(
 			process.execPath,
 			[CHECK, "--against", tip, "--head", sha],
-			{ stdio: ["ignore", 2, 2] },
+			{
+				stdio: ["ignore", 2, 2],
+				env: { ...process.env, [REVERT_BASE_ENV]: base || "" },
+			},
 		);
 		if (r.status === 1) {
 			writeFd(
