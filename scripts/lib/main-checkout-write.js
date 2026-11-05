@@ -10,15 +10,16 @@
  * resolving into the main checkout's own tree — not into a linked worktree
  * under it, not under `.git` — at a path git does not ignore, tracked or not;
  * and a git command that writes the main checkout's index, `HEAD` or files
- * (`WRITERS`); and an interpreter (`INTERPRETERS`) run from a directory in
+ * (`WRITERS`); and an interpreter lib/shell-words.js's programSource reads
+ * run from a directory in
  * that tree whose program is no existing file — `python3 -`, `node -e`,
  * `bash -c`, a piped or heredoc-fed program, through any wrapper lib/
  * shell-words.js's unwrap strips — since what it writes lives in another
  * language's strings and cannot be read (#4469). That refusal is a guess
  * that the program writes, taken because its way out — `cd` into the
- * session's worktree and run it there — costs nothing. A flag taking a value
- * before the script (`python3 -W ignore x.py`) and `python3 -m` read as no
- * file, so are refused too.
+ * session's worktree and run it there — costs nothing. `python3 -m` names no
+ * file, so is refused too, as is a valued flag programSource does not list
+ * whose value is no file (#4479).
  *
  * GITIGNORED STORES STAY WRITABLE: claims, markers, ledgers and scratch under
  * `.claude/` are what every session shares, and git ignores them.
@@ -41,11 +42,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
-const { absolute, literal, unwrap } = require("./shell-words.js");
+const {
+	absolute,
+	literal,
+	programSource,
+	unwrap,
+} = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
-
-/* Interpreters whose program, when no script file, can write unread. */
-const INTERPRETERS = /^(python[0-9.]*|node|nodejs|bash|sh|dash|zsh|perl|ruby)$/;
 
 /* git verbs that write a work tree's index, HEAD or files. */
 const WRITERS = [
@@ -140,13 +143,13 @@ function interpreterDir(cmd, spans, ctx) {
 		(w) => literal(w, spans).text,
 	);
 	const prog = path.basename(words[0] ?? "");
-	if (!INTERPRETERS.test(prog)) return null;
+	const program = programSource(prog, words.slice(1));
+	if (!program) return null;
 	if (!cmd.cwd) {
 		ctx.log(`the walk lost the cwd of a ${prog} — run unchecked`);
 		return null;
 	}
-	const script = words.slice(1).find((w) => !w.startsWith("-"));
-	if (script && script !== "-" && isFile(path.resolve(cmd.cwd, script)))
+	if (program.script && isFile(path.resolve(cmd.cwd, program.script)))
 		return null;
 	return refusedPath(cmd.cwd, ctx, true);
 }

@@ -28,7 +28,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { isInlineCode } = require("./lib/shell-words.js");
+const { programSource } = require("./lib/shell-words.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
@@ -92,7 +92,7 @@ function isCheckerCommand(command) {
 	}
 	const [program = "", ...rest] = words;
 	if (!INTERPRETERS.has(program)) return SCRIPT.test(program);
-	return !isInlineCode(program, rest) && rest.some((w) => !w.startsWith("-"));
+	return programSource(program, rest)?.source === "script";
 }
 
 /**
