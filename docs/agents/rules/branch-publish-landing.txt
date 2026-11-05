@@ -2,10 +2,8 @@ WORK LANDS THROUGH YOUR SESSION'S QUEUE REF — NEVER A PUSH TO `main` OR
 `landing`, NO OTHER BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST.
 
 Each session pushes its own queue ref, `queue/<worktree name>`, and the queue
-lander alone moves `main`. Never push to `main` or `landing`, never `gh pr
-create`, never open a pull request through `gh api`, and never push a branch
-other than your queue ref. `landing` takes no push: it stays on the remote only
-as the cutover's rollback.
+lander alone moves `main`. A pull request is refused through `gh pr create` and
+`gh api` alike.
 
 Land from your session's worktree:
 
@@ -17,9 +15,9 @@ or queued on your queue ref.
 WHAT PASSES: a push creating or fast-forwarding your own queue ref, a tag
 (`git push origin v1.2.3`, `--tags`), a deletion of any branch but `main`,
 `landing`, a queue ref and the lander's own, and a branch under `spike/` — a
-data branch kept off `main` on purpose and never merged (#174). A bare tag name
-passes only where the tag already exists locally when the push is judged: push
-it as `refs/tags/<name>`, or create the tag in a separate call first (#1033).
+data branch kept off `main` on purpose and never merged. A bare tag name passes
+only where the tag already exists locally when the push is judged: push it as
+`refs/tags/<name>`, or create the tag in a separate call first.
 
 A SECOND LIMB: `.husky/pre-push` refuses a push to `main` of any sha the
 lander's green ledger does not hold, from any route. `git push --no-verify`

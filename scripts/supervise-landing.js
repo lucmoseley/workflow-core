@@ -2,13 +2,12 @@
 /*
  * supervise-landing.js — one supervision pass over the landing queue of the
  * checkout it runs in (#2692, ruled at #2672), which the refill loop runs in
- * every served or launched-in checkout each tick: where a queue ref waits on
- * the remote and no lander's heartbeat names a live pid, it starts the queue lander through
- * start-lander.js, the one launcher; where
- * `main` has not moved for lib/landing-stall.js's STALL_MS, it files or
- * refreshes the stall ticket (lib/stall-ticket.js), which it closes once
- * `main` moves. A held queue it leaves to the held-queue issue. It files and
- * closes the queue alert (lib/queue-alert.js).
+ * every served or launched-in checkout each tick: lib/landing-stall.js reads
+ * the queue and decides. Where a queue ref waits and no queue lander runs, it
+ * starts one through start-lander.js, the one launcher; where `main` has not
+ * moved for STALL_MS with a queue ref waiting, it files or refreshes the
+ * stall ticket (lib/stall-ticket.js), which it closes once `main` moves. It
+ * files and closes the queue alert (lib/queue-alert.js).
  *
  *   node scripts/supervise-landing.js [--tester <command>]
  *
@@ -18,23 +17,19 @@
  * module is off or the queue needs nothing. Joins no §N3 family: it gates
  * nothing and is no hook.
  *
- * Exit codes: 0 on a pass; 1 on a throw, an unreadable remote, a failed start
- * or a refused filing among them; 2 on a command line it refuses. A queue
- * it cannot read is named in a line, and changes no exit code.
+ * Exit codes: 0 on a pass; 1 on a throw, an unreadable remote or queue log,
+ * a failed start or a refused filing among them; 2 on a command line it
+ * refuses.
  */
 
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { runStartLander } = require("./lib/lander-start.js");
-const {
-	mainMovedAt,
-	readQueue,
-	supervision,
-} = require("./lib/landing-stall.js");
+const { readQueue, supervision } = require("./lib/landing-stall.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { queueAlertTender } = require("./lib/queue-alert.js");
-const { queueCrossings, readQueueGauge } = require("./lib/queue-gauge.js");
+const { queueCrossings } = require("./lib/queue-gauge.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { stallTicketTender } = require("./lib/stall-ticket.js");
@@ -60,42 +55,23 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	if (!moduleOn("landing", { root })) return 0;
-	const queue = readQueue(root);
-	const { ticket } = supervision(queue);
-	/** @type {import("./lib/queue-gauge.js").QueueGauge | null} */
-	let gauge = null;
-	/** @type {unknown} */
-	let unread = null;
-	try {
-		gauge = readQueueGauge(root, now());
-	} catch (err) {
-		unread = err;
-	}
-	const running = queue.heartbeat !== null && queue.alive(queue.heartbeat.pid);
-	if (gauge !== null && gauge.waiting.length > 0 && !running)
-		startLander(root, flagValue(parsed.flags, "--tester"));
+	const queue = readQueue(root, now());
+	const { start, ticket } = supervision(queue);
+	if (start) startLander(root, flagValue(parsed.flags, "--tester"));
 	const deps = liveQueueDeps(root);
 	const tend = stallTicketTender(deps, markersDir(root));
 	for (const line of tend({
 		main: queue.main,
-		movedAt: mainMovedAt(queue.mainAt, queue.heartbeat),
+		movedAt: queue.movedAt,
 		stall: ticket && {
-			landing: ticket.landing,
+			waiting: ticket.waiting,
 			movedAt: new Date(ticket.movedAt).toISOString(),
 			batch: queue.heartbeat?.batch ?? null,
-			red: queue.heartbeat?.red ?? null,
 		},
 	}))
 		say(line);
-	if (gauge === null) {
-		/* Fail-open (#4485): the stall ticket above is tended without it. */
-		say(
-			`queue alert: could not read the landing queue: ${parseErrorText(unread)}`,
-		);
-		return 0;
-	}
 	const alert = queueAlertTender(deps, markersDir(root));
-	for (const line of alert(gauge, queueCrossings(gauge))) say(line);
+	for (const line of alert(queue.gauge, queueCrossings(queue.gauge))) say(line);
 	return 0;
 }
 

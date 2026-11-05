@@ -20,10 +20,9 @@
  * (#3863). Each lift has a directory of its own, as a fixed id can be lifted twice.
  *
  * THE PROBE (#3860): each tick, each served checkout's shared `.git` must fetch
- * origin and resolve `main`, and `origin/landing` with the landing module on. A
- * checkout that fails holds the one `probe` hold its store can hold, under a
- * fixed id, so a raise never makes a second and a torn one is written over. The
- * failing roots are also returned to the tick, which stops launches on them even
+ * origin and resolve `main`. A checkout that fails holds the one `probe` hold
+ * its store can hold, under a fixed id, so a raise never makes a second and a
+ * torn one is written over. The failing roots are also returned to the tick, which stops launches on them even
  * where no record could be written (#3860). A ref git says will not resolve
  * raises the hold on its tick. A failed fetch, or a git that never answered, is
  * an outage: it reads the same as a network blip or a failed fork, so it stops

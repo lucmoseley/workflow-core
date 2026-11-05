@@ -15,9 +15,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { formatHoursMin } = require("./landing-stall.js");
 const { scriptPath } = require("./script-path.js");
-const { buildCrossingLines } = require("./queue-gauge.js");
+const { buildCrossingLines, formatHoursMin } = require("./queue-gauge.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
 const {
 	QUEUE_ALERT_TITLES: TITLES,

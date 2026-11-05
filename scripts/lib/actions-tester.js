@@ -1,7 +1,7 @@
 /*
  * actions-tester.js — the landing queue's Actions tester (#2413, spec #2261):
  * the core's tester, its repo being public. It reads the suite workflow's run
- * that a push to `landing` started at the exact sha, through `gh` with the
+ * that a push to `lander/batch` started at the exact sha, through `gh` with the
  * read access the token already has.
  *
  * Green only on a finished, successful run whose every Vitest shard job and
@@ -84,7 +84,7 @@ const APPEAR_MS = 3 * 60 * 1000;
 const RUN_BOUND_MS = 30 * 60 * 1000;
 /* Untraced: a twelfth of a 3 min run, at four `gh` reads a minute. */
 const POLL_MS = 15 * 1000;
-/* Untraced: GitHub's newest push runs on `landing`, deep enough to reach a
+/* Untraced: GitHub's newest push runs on a lander ref, deep enough to reach a
  * batch tip a few later pushes have buried. */
 const RUN_LIST_LIMIT = 50;
 /* Untraced: two and a half days of `main`'s four sweeps a day. */

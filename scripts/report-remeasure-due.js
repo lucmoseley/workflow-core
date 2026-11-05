@@ -760,18 +760,17 @@ function readLandedAt(c, home) {
 	const walk = (ref) =>
 		gitOutcome(["rev-list", "--max-count=1", c.landed, "--not", ref], [], root);
 	const queued = landingOn({ root });
-	const pushed = queued ? QUEUE_TRACKING_GLOB : JUDGED_REF;
 	const onMain = walk(JUDGED_REF);
 	const onPushed =
 		queued && onMain.ok && onMain.out !== ""
-			? walk(`--glob=${pushed}`)
+			? walk(`--glob=${QUEUE_TRACKING_GLOB}`)
 			: onMain;
 	if (!onPushed.ok)
 		return {
 			at: "unheld",
 			fault: {
 				tag: "UNJUDGED",
-				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${JUDGED_REF} and ${pushed} in ${root}, so its commit is not counted until that checkout holds it or a record under a counted tier, ${SHARES_REVIEW}, names a sha it holds; where the correction changes both, ${DELETE_RECORD} — ${onPushed.why}`,
+				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${queued ? `${JUDGED_REF} and ${QUEUE_TRACKING_GLOB}` : JUDGED_REF} in ${root}, so its commit is not counted until that checkout holds it or a record under a counted tier, ${SHARES_REVIEW}, names a sha it holds; where the correction changes both, ${DELETE_RECORD} — ${onPushed.why}`,
 			},
 		};
 	if (onMain.ok && onMain.out === "") return { at: "main" };

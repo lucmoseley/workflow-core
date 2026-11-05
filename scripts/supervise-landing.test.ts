@@ -1,12 +1,12 @@
 // @vitest-environment node
 /*
- * scripts/supervise-landing.js end to end (#2692, ruled at #2672).
+ * scripts/supervise-landing.js end to end (#2692, ruled at #2672; #4458).
  *
- * Loosen it and a dead lander waits for the next push or session start, a
- * stalled queue sits unticketed while the founder is away, or every tick
- * files a second stall ticket.
+ * Loosen it and a dead queue lander waits for the next push or session
+ * start, a stalled queue sits unticketed while the founder is away, or every
+ * tick files a second stall ticket.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -45,23 +45,25 @@ const commit = (name: string, ago: number, ...branches: string[]) => {
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
 
-/** A record that `landing` was first read ahead of `main` `ago` ms back. */
-const aheadFor = (ago: number) => {
+/** The queue log holding one land row, `ago` ms back. */
+const landedAgo = (ago: number) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(
-		path.join(markers(), ".landing-ahead.json"),
-		JSON.stringify({
-			main: git(work, ["rev-parse", "origin/main"]),
-			since: new Date(Date.now() - ago).toISOString(),
-		}),
+		path.join(markers(), ".queue-log.jsonl"),
+		`${JSON.stringify({
+			at: new Date(Date.now() - ago).toISOString(),
+			event: "land",
+			ref: "refs/heads/queue/earlier",
+			sha: "c".repeat(40),
+		})}\n`,
 	);
 };
 
-/** A heartbeat from `pid`, written now. */
+/** A queue lander heartbeat from `pid`, written now. */
 const beat = (pid: number, extra: Record<string, unknown> = {}) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(
-		path.join(markers(), ".lander-heartbeat.json"),
+		path.join(markers(), ".queue-lander-heartbeat.json"),
 		JSON.stringify({
 			pid,
 			at: new Date().toISOString(),
@@ -85,6 +87,10 @@ const supervise = (args: string[] = [], modules = "landing") =>
 	});
 
 const readIssues = () => JSON.parse(fs.readFileSync(store, "utf8"));
+
+const STALL = "Landing queue stalled: main has not moved for 2 h";
+const stallTickets = () =>
+	readIssues().filter((i: { title: string }) => i.title === STALL);
 
 /* Crosses the real clock: the lander is a detached process. */
 const waitFor = async (done: () => boolean) => {
@@ -154,7 +160,7 @@ if (is("issue", "list")) {
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 it("starts the queue lander where a queue ref waits and none runs, naming the refill loop in the lander's log", async () => {
-	commit("seed", 0, "main", "landing");
+	commit("seed", 0, "main");
 	const sha = commit("work", 0, "refs/heads/queue/work");
 	const tester = path.join(tmp, "tester.sh");
 	fs.writeFileSync(tester, "#!/bin/sh\nexit 0\n");
@@ -176,7 +182,7 @@ it("starts the queue lander where a queue ref waits and none runs, naming the re
 });
 
 it("starts none, and prints nothing, while a lander runs or no queue ref waits", () => {
-	commit("seed", 0, "main", "landing");
+	commit("seed", 0, "main");
 	expect(supervise(["--tester", "true"]).stdout).toBe("");
 	commit("work", 0, "refs/heads/queue/work");
 	beat(process.pid);
@@ -188,14 +194,10 @@ it("starts none, and prints nothing, while a lander runs or no queue ref waits",
 	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });
 
-it("files one urgent bug stall ticket for a running lander whose main has stood 2 h, and finds it current on the next pass", () => {
-	commit("seed", 121 * MIN, "main", "landing");
-	const tip = commit("work", MIN, "landing");
-	aheadFor(121 * MIN);
-	beat(process.pid, {
-		batch: tip,
-		red: { sha: tip, files: ["scripts/x.test.ts"] },
-	});
+it("files one urgent bug stall ticket for a running lander whose main has stood 2 h with a queue ref waiting, and finds it current on the next pass", () => {
+	commit("seed", 8 * 60 * MIN, "main");
+	const tip = commit("work", 121 * MIN, "refs/heads/queue/work");
+	beat(process.pid, { batch: tip });
 
 	const first = supervise();
 	const second = supervise();
@@ -204,67 +206,60 @@ it("files one urgent bug stall ticket for a running lander whose main has stood 
 	expect(first.stdout).toContain("Filed #100");
 	expect(second.status, second.stderr).toBe(0);
 	expect(second.stdout).toContain("stall ticket: #100 is open and current.\n");
-	const [ticket, ...more] = readIssues();
+	const [ticket, ...more] = stallTickets();
 	expect(more).toEqual([]);
-	expect(ticket.title).toBe(
-		"Landing queue stalled: main has not moved for 2 h",
-	);
+	expect(ticket.number).toBe(100);
 	expect(ticket.labels.map((l: { name: string }) => l.name)).toEqual([
 		"urgent",
 		"bug",
 		"takes:implement",
 		"kind:ticket",
 	]);
+	expect(ticket.body).toContain(`with \`queue/work at ${tip}\` waiting`);
 	expect(ticket.body).toContain(`Batch under test: \`${tip}\``);
-	expect(ticket.body).toContain("- `scripts/x.test.ts`");
 	expect(ticket.body).toContain("Standalone:");
 });
 
 it("closes the stall ticket with the stall's length once main moves, and files a new one for a later stall (#4443)", () => {
-	commit("seed", 150 * MIN, "main", "landing");
-	commit("work", 125 * MIN, "landing");
-	aheadFor(150 * MIN);
+	commit("seed", 150 * MIN, "main");
+	commit("work", 125 * MIN, "refs/heads/queue/work");
 	beat(process.pid);
 	expect(supervise().stdout).toContain("Filed #100");
 
-	git(work, ["push", "-q", "origin", "HEAD:main"]);
-	commit("more", 0, "landing");
-	beat(process.pid, { movedAt: new Date().toISOString() });
+	git(work, ["push", "-q", "origin", "HEAD:main", ":refs/heads/queue/work"]);
+	landedAgo(0);
 	const moved = supervise();
 
 	expect(moved.status, moved.stderr).toBe(0);
-	expect(moved.stdout).toBe("stall ticket: closed #100.\n");
-	const [closed] = readIssues();
+	expect(moved.stdout).toContain("stall ticket: closed #100.\n");
+	const [closed] = stallTickets();
 	expect(closed.state).toBe("CLOSED");
 	expect(closed.closeComment).toMatch(
 		/^`main` moved to `[0-9a-f]{40}` at \S+, after standing 2 h 30 min since \S+\.$/,
 	);
-	expect(supervise().stdout).toBe("");
+	expect(supervise().stdout).not.toContain("stall ticket");
 
-	beat(process.pid, {
-		movedAt: new Date(Date.now() - 121 * MIN).toISOString(),
-	});
-	aheadFor(121 * MIN);
+	commit("more", 125 * MIN, "refs/heads/queue/more");
+	landedAgo(121 * MIN);
 	const again = supervise();
-	expect(again.stdout).toContain("Filed #101");
-	expect(readIssues().map((i: { state: string }) => i.state)).toEqual([
+	expect(again.stdout).toContain("Filed #");
+	expect(stallTickets().map((i: { state: string }) => i.state)).toEqual([
 		"CLOSED",
 		"OPEN",
 	]);
 });
 
-it("closes the stall ticket on a move no heartbeat recorded, onto a commit older than the stall", () => {
-	commit("seed", 150 * MIN, "main", "landing");
-	commit("work", 200 * MIN, "landing");
-	aheadFor(150 * MIN);
+it("closes the stall ticket on a move the queue log did not record, onto a commit older than the stall", () => {
+	commit("seed", 150 * MIN, "main");
+	commit("work", 200 * MIN, "refs/heads/queue/work");
 	beat(process.pid);
 	expect(supervise().stdout).toContain("Filed #100");
 
-	git(work, ["push", "-q", "origin", "HEAD:main"]);
+	git(work, ["push", "-q", "origin", "HEAD:main", ":refs/heads/queue/work"]);
 	const moved = supervise();
 
-	expect(moved.stdout).toBe("stall ticket: closed #100.\n");
-	expect(readIssues()[0].closeComment).toMatch(
+	expect(moved.stdout).toContain("stall ticket: closed #100.\n");
+	expect(stallTickets()[0].closeComment).toMatch(
 		/^`main` moved to `[0-9a-f]{40}`, having stood since \S+\.$/,
 	);
 });
@@ -272,7 +267,7 @@ it("closes the stall ticket on a move no heartbeat recorded, onto a commit older
 it("drops a torn stall record, saying so, and closes nothing", () => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(path.join(markers(), ".landing-stall-ticket.json"), "{");
-	commit("seed", 5 * MIN, "main", "landing");
+	commit("seed", 5 * MIN, "main");
 
 	const r = supervise();
 
@@ -284,10 +279,9 @@ it("drops a torn stall record, saying so, and closes nothing", () => {
 	expect(readIssues()).toEqual([]);
 });
 
-it("starts the queue lander and files the stall ticket too where main has stood 2 h behind landing", () => {
-	commit("seed", 121 * MIN, "main", "landing");
-	commit("work", MIN, "landing", "refs/heads/queue/work");
-	aheadFor(121 * MIN);
+it("starts the queue lander and files the stall ticket too where main has stood 2 h with no lander running", () => {
+	commit("seed", 8 * 60 * MIN, "main");
+	commit("work", 121 * MIN, "refs/heads/queue/work");
 	const tester = path.join(tmp, "tester.sh");
 	fs.writeFileSync(tester, "#!/bin/sh\nexit 2\n");
 	fs.chmodSync(tester, 0o755);
@@ -296,62 +290,47 @@ it("starts the queue lander and files the stall ticket too where main has stood 
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toContain("started the queue lander");
-	expect(r.stdout).toContain("Filed #100");
-	expect(readIssues()).toHaveLength(1);
+	expect(stallTickets()).toHaveLength(1);
 });
 
-it("files nothing on a push onto a main idle for hours, read ahead for the first time (#3303)", () => {
-	commit("seed", 8 * 60 * MIN, "main", "landing");
-	commit("work", MIN, "landing");
+it("files nothing on a push onto a main idle for hours (#3303)", () => {
+	commit("seed", 8 * 60 * MIN, "main");
+	commit("work", MIN, "refs/heads/queue/work");
 	beat(process.pid);
 
 	const r = supervise();
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(readIssues()).toEqual([]);
-});
-
-it("files nothing where a running lander moved main within 2 h", () => {
-	commit("seed", 5 * 60 * MIN, "main", "landing");
-	commit("work", MIN, "landing");
-	beat(process.pid, {
-		movedAt: new Date(Date.now() - 30 * MIN).toISOString(),
-	});
-
-	const r = supervise();
-
-	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toBe("");
 	expect(readIssues()).toEqual([]);
 });
 
-it("starts nothing and files nothing on a queue the last run held", () => {
-	commit("seed", 121 * MIN, "main", "landing");
-	const tip = commit("work", MIN, "landing");
-	const gone = spawnSync("true").pid;
-	beat(gone, { hold: { landing: tip, reason: "r", filed: "Filed #9" } });
+it("files no stall ticket where the queue log has main landed within 2 h, though its tip is older", () => {
+	commit("seed", 5 * 60 * MIN, "main");
+	commit("work", 3 * 60 * MIN, "refs/heads/queue/work");
+	beat(process.pid);
+	landedAgo(30 * MIN);
 
 	const r = supervise();
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toBe("");
-	expect(fs.existsSync(path.join(markers(), ".lander.pid"))).toBe(false);
-	expect(readIssues()).toEqual([]);
+	expect(r.stdout).not.toContain("stall ticket");
+	expect(stallTickets()).toEqual([]);
 });
 
 it("does nothing with the landing module off", () => {
-	commit("seed", 121 * MIN, "main", "landing");
-	commit("work", MIN, "landing");
+	commit("seed", 8 * 60 * MIN, "main");
+	commit("work", 121 * MIN, "refs/heads/queue/work");
 
 	const r = supervise([], "suites");
 
 	expect(r.status).toBe(0);
 	expect(r.stdout).toBe("");
-	expect(fs.existsSync(path.join(markers(), ".lander.pid"))).toBe(false);
+	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });
 
 it("files the queue alert once for a queue ref waiting past 60 min, says nothing while it stands, and closes it once the ref leaves (#4485)", () => {
-	commit("seed", 0, "main", "landing");
+	commit("seed", 0, "main");
 	commit("waiting", 61 * MIN, "refs/heads/queue/old");
 	beat(process.pid);
 
@@ -376,21 +355,15 @@ it("files the queue alert once for a queue ref waiting past 60 min, says nothing
 	expect(readIssues()[0].closeComment).toMatch(/^No queue ref waits at \S+\.$/);
 });
 
-it("names a queue it cannot read on its own line, the stall ticket still filed and the pass still 0", () => {
-	commit("seed", 121 * MIN, "main", "landing");
-	commit("work", MIN, "landing");
-	aheadFor(121 * MIN);
+it("fails the pass on a queue log it cannot read, naming it and filing nothing", () => {
+	commit("seed", 8 * 60 * MIN, "main");
+	commit("work", 121 * MIN, "refs/heads/queue/work");
 	beat(process.pid);
 	fs.mkdirSync(path.join(markers(), ".queue-log.jsonl"), { recursive: true });
 
 	const r = supervise();
 
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toContain("Filed #100");
-	expect(r.stdout).toMatch(
-		/^queue alert: could not read the landing queue: .*EISDIR.*$/m,
-	);
-	expect(readIssues().map((i: { title: string }) => i.title)).toEqual([
-		"Landing queue stalled: main has not moved for 2 h",
-	]);
+	expect(r.status).toBe(1);
+	expect(r.stderr).toMatch(/EISDIR/);
+	expect(readIssues()).toEqual([]);
 });

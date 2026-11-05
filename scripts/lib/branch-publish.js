@@ -27,18 +27,15 @@
  *    Dependabot's.
  *
  * WHAT PASSES: a destination of `main` (with `landing` off) or under
- *   `spike/` — the #174 precedent,
- *   a data branch kept off `main` on purpose — or outside `refs/heads/` (a
- *   tag, a note); `--tags` with no refspec; any deletion but `main`'s; a
- *   detached HEAD's bare push, which git itself refuses; `--help`,
- *   `--dry-run`.
+ *   `spike/` — a data branch kept off `main` on purpose — or outside
+ *   `refs/heads/` (a tag, a note); `--tags` with no refspec; any deletion but
+ *   `main`'s; a detached HEAD's bare push, which git itself refuses;
+ *   `--help`, `--dry-run`.
  *
- * WITH THE `landing` MODULE ON (#4485, spec #4458), sessions push their own
- *   queue refs and only the queue lander moves `main`: a push to `main` is
- *   denied, and so is any push to `landing`, the old lander's branch, which
- *   stays on the remote as the rollback; a forced push or a deletion of
- *   `landing` is denied as one of `main` is. Each refusal of a push names the
- *   session's own queue ref, or the launch where it has none.
+ * WITH THE `landing` MODULE ON (spec #4458), sessions push their own
+ *   queue refs and only the queue lander moves `main`: any push to `main` or
+ *   `landing` is denied, a forced one or a deletion included. Each refusal
+ *   names the session's own queue ref, or the launch where it has none.
  *
  * QUEUE REFS, WITH `landing` ON (#4458): a session's own queue ref is
  *   `queue/<name>`, `<name>` its worktree's under `.claude/worktrees/` of the
@@ -184,8 +181,20 @@ const mainRewind = (ctx, what, segment) => ({
 });
 
 /**
- * A refused push's refusal: with `landing` on, naming the session's own queue
- * ref between the opening and the rule.
+ * A refusal's reason naming the session's own queue ref, or the launch where
+ * it has none, between its opening and `rule`.
+ * @param {BranchPublishContext} ctx
+ * @param {string} what the refusal's opening, "This …"
+ * @param {string} rule
+ * @param {string | null} [own]
+ * @returns {string}
+ */
+const buildOwnRefReason = (ctx, what, rule, own = ownQueueRef(ctx)) =>
+	`${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${rule}`;
+
+/**
+ * A refused push's refusal, naming the session's own queue ref with
+ * `landing` on.
  * @param {BranchPublishContext} ctx
  * @param {string} what the refusal's opening, "This …"
  * @param {string} segment
@@ -193,10 +202,7 @@ const mainRewind = (ctx, what, segment) => ({
  */
 const refusePush = (ctx, what, segment) =>
 	ctx.moduleOn("landing")
-		? {
-				reason: `${what}: @CMD@\n\n${ownRefLine(ctx, ownQueueRef(ctx))}\n\n${publishRule(ctx)}`,
-				segment,
-			}
+		? { reason: buildOwnRefReason(ctx, what, publishRule(ctx)), segment }
 		: refuse(ctx, what, segment);
 
 /**
@@ -206,7 +212,15 @@ const refusePush = (ctx, what, segment) =>
  * @returns {Refusal}
  */
 const landingRewind = (ctx, what, segment) => ({
-	reason: `This ${what}: @CMD@\n\n${ownRefLine(ctx, ownQueueRef(ctx))}\n\n${ruleOrFallback(ctx, "landing-rewind", "Never force-push or delete `landing` or a queue ref")}`,
+	reason: buildOwnRefReason(
+		ctx,
+		`This ${what}`,
+		ruleOrFallback(
+			ctx,
+			"landing-rewind",
+			"Never force-push or delete `landing` or a queue ref",
+		),
+	),
 	segment,
 });
 
@@ -221,8 +235,7 @@ function ownQueueRef(ctx) {
 }
 
 /**
- * A refusal of a lander-managed ref's push or deletion, naming the session's
- * own queue ref, or the launch where it has none.
+ * A refusal of a lander-managed ref's push or deletion.
  * @param {BranchPublishContext} ctx
  * @param {string} what the refusal's opening, "This …"
  * @param {string | null} own
@@ -230,7 +243,16 @@ function ownQueueRef(ctx) {
  * @returns {Refusal}
  */
 const queueRefusal = (ctx, what, own, segment) => ({
-	reason: `${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${ruleOrFallback(ctx, "queue-ref", "Push your work to your session's own queue ref, a creation or a fast-forward, never forced")}`,
+	reason: buildOwnRefReason(
+		ctx,
+		what,
+		ruleOrFallback(
+			ctx,
+			"queue-ref",
+			"Push your work to your session's own queue ref, a creation or a fast-forward, never forced",
+		),
+		own,
+	),
 	segment,
 });
 

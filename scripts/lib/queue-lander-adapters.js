@@ -30,7 +30,8 @@ const {
 const {
 	DROPPED_PREFIX,
 	LANDER_BATCH_BRANCH,
-	QUEUE_PREFIX,
+	QUEUE_HEADS,
+	QUEUE_REFSPEC,
 	REMOTE,
 	trackingRefspec,
 	VERIFIED_BRANCH,
@@ -48,7 +49,6 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 /* Untraced, a first guess and stated as one: a verdict is read again only
  * for a batch a run resumes, which waits hours, never weeks. */
 const VERDICT_RETAIN_MS = 14 * DAY_MS;
-const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
 /* git push's words for a compare-and-delete refused because the ref moved. */
 const STALE = /\(stale info\)/;
@@ -123,7 +123,7 @@ function queueLanderFiles(root) {
 function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
-		`+${QUEUE_HEADS}*:refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`,
+		QUEUE_REFSPEC,
 		`+${DROPPED_HEADS}*:refs/remotes/${REMOTE}/${DROPPED_PREFIX}*`,
 	];
 	/**

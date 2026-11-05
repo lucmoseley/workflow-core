@@ -18,7 +18,7 @@
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { QUEUE_PREFIX, REMOTE } = require("./lib/landing-refs.js");
+const { QUEUE_HEADS, REMOTE } = require("./lib/landing-refs.js");
 const { isModuleOnAtHead, runPrePushGate } = require("./lib/pre-push-gate.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const { logEnqueue, queueLogFile } = require("./lib/queue-log.js");
@@ -26,7 +26,6 @@ const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 const USAGE = `usage: node ${scriptPath("log-queue-push.js")} <remote>
   reads git's pre-push ref lines on stdin`;
 

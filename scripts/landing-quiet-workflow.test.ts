@@ -124,7 +124,7 @@ describe("landing-quiet.yml", () => {
 		expect(run.stdout).toContain(
 			"https://api.github.test/repos/owner/repo/activity",
 		);
-		expect(run.stdout).toContain("git log origin/landing");
+		expect(run.stdout).toContain("git log origin/main");
 		expect(run.stdout).not.toContain("Landing quiet");
 	});
 });

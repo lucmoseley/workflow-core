@@ -1,10 +1,11 @@
 /*
  * stall-ticket.js — the one ticket the refill loop keeps open while `main`
- * has not moved for lib/landing-stall.js's STALL_MS with `landing` ahead (#2692,
- * ruled at #2672), filed as lib/queue-issue.js files it, and closed with the
- * stall's length once `main` moves, so a later stall files a new one (#4443).
+ * has not moved for lib/landing-stall.js's STALL_MS with a queue ref waiting
+ * (#2692, ruled at #2672), filed as lib/queue-issue.js files it, and closed
+ * with the stall's length once `main` moves, so a later stall files a new one
+ * (#4443).
  *
- * Its body changes only with the batch, its red files or jobs, or `main`'s
+ * Its body changes only with the oldest waiting ref, the batch, or `main`'s
  * last move.
  *
  * A record in the markers directory names the stall a ticket was filed for,
@@ -15,29 +16,25 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { STALL_MS, formatHoursMin } = require("./landing-stall.js");
-const { failingList } = require("./lander.js");
+const { STALL_MS } = require("./landing-stall.js");
+const { formatHoursMin } = require("./queue-gauge.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
 const { STALL_TITLE: TITLE, readTicketRecord } = require("./queue-tickets.js");
 
 /**
  * @typedef {object} Stall
- * @property {string} landing `landing`'s tip
+ * @property {string} waiting the oldest waiting queue ref and its sha
  * @property {string} movedAt when `main` last moved, ISO
- * @property {string|null} batch the batch the lander has under test
- * @property {import("./lander.js").Failing|null} red the
- *   red batch's failing files and CI jobs, null where no batch is red
+ * @property {string|null} batch the batch the queue lander has under test
  */
 
 /** @param {Stall} s */
-function buildStallBody({ landing, movedAt, batch, red }) {
+function buildStallBody({ waiting, movedAt, batch }) {
 	return `## What to build
 
-\`main\` has not moved since ${movedAt}, over ${STALL_MS / 60_000} min, with \`landing\` ahead of it at \`${landing}\` (#2692).
+\`main\` has not moved since ${movedAt}, over ${STALL_MS / 60_000} min, with \`${waiting}\` waiting (#2692).
 
 - Batch under test: ${batch === null ? "(none named in the heartbeat)" : `\`${batch}\``}
-
-${red === null ? "No batch is red: the lander is testing, or stuck inside a call." : `Red:\n${failingList(red)}`}
 
 The lander's log: \`.lander.log\` in the checkout's markers directory.
 

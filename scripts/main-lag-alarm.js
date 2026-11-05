@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
- * main-lag-alarm.js — the off-machine stall check (#4443), run hourly on
- * GitHub by .github/workflows/main-lag.yml: fails where `landing` is ahead of
- * `main` and `main` has not moved for lib/landing-stall.js's STALL_MS, so a
+ * main-lag-alarm.js — the off-machine stall check (#4443, #4458), run hourly
+ * on GitHub by .github/workflows/main-lag.yml: fails where the oldest
+ * `queue/<name>` ref on the remote has waited past QUEUE_BACKSTOP_MS, so a
  * stall is caught with the machine off or the refill loop dead.
  *
  *   node scripts/main-lag-alarm.js
@@ -14,43 +14,27 @@
  * is silent exactly when nobody can see the machine. Its own three codes keep
  * the alphabet's meanings for the rest.
  *
- * The clock is the on-machine stall's: from `main`'s last push, or from when
- * `landing` first went ahead of it where that is later (#3303). With no
- * reading to remember, `landing` counts as ahead from `main`'s push where its
- * tip at that push was already ahead, else from its first push after.
- * Residual: where every one of the PUSH_PAGE pushes listed came after
- * `main`'s, the oldest listed stands in for the first, which only shortens
- * the clock.
+ * A ref has waited since its first push after its last deletion, off the
+ * ref's activity feed, where GitHub lists that push as a `branch_creation`
+ * and the later ones as `push`; a ref with no push in its feed is skipped
+ * and named. The machine's stall check and queue alert (lib/landing-stall.js,
+ * lib/queue-alert.js) are the primary ones, and this only catches a machine
+ * that is down. It keeps no record, so it fails on every run while the limit
+ * stands.
  *
- * THE QUEUE, read beside `landing`: it fails where the oldest
- * `queue/<name>` ref on the remote has waited past QUEUE_BACKSTOP_MS since
- * its first push after its last deletion, off the ref's activity feed, where
- * GitHub lists that push as a `branch_creation` and the later ones as `push`;
- * a ref with no push in its feed is skipped and named. The machine's queue
- * alert (lib/queue-alert.js) is the primary one, and this only catches a
- * machine that is down. It keeps no record, so it fails on every run while
- * the limit stands.
- *
- * Exit codes: 0 where `main` is level or moved within STALL_MS and no queue
- * ref has waited past QUEUE_BACKSTOP_MS; 1 on a stall; 2 where it could not
- * read `main`'s lag or the queue and found no stall in the other.
+ * Exit codes: 0 where no queue ref has waited past QUEUE_BACKSTOP_MS; 1 on a
+ * stall; 2 where it could not read the queue.
  * Needs no npm install.
  */
 
-const {
-	LANDING_BRANCH,
-	LANDING_REF,
-	QUEUE_PREFIX,
-	VERIFIED_REF,
-} = require("./lib/landing-refs.js");
-const { STALL_MS, formatHoursMin } = require("./lib/landing-stall.js");
-const { oldestWaiting } = require("./lib/queue-gauge.js");
-const { QUEUE_ALERT_TITLES, STALL_TITLE } = require("./lib/queue-tickets.js");
+const { QUEUE_HEADS, QUEUE_PREFIX } = require("./lib/landing-refs.js");
+const { formatHoursMin, oldestWaiting } = require("./lib/queue-gauge.js");
+const { QUEUE_ALERT_TITLES } = require("./lib/queue-tickets.js");
 
 /* GitHub's ceiling for one page of the activity feed. */
 const PUSH_PAGE = 100;
-/* An unmeasured first guess, at the figure of the lag check's STALL_MS: a
- * dead-machine backstop, so later than the machine's own alert. */
+/* An unmeasured first guess, at the figure of lib/landing-stall.js's
+ * STALL_MS: a dead-machine backstop, so later than the machine's own alert. */
 const QUEUE_BACKSTOP_MS = 2 * 60 * 60 * 1000;
 /* Guesses: one API read's retries and the pause between them. */
 const TRIES = 4;
@@ -64,9 +48,6 @@ const RETRY_MS = 2000;
  *   ticket?: string}} Verdict `title` and `ticket` name a stall's error
  */
 
-/** @param {string} status a compare endpoint's status of `landing` to `main` */
-const isQueued = (status) => status === "ahead" || status === "diverged";
-
 /** @param {unknown} p @returns {p is Push} */
 const isPush = (p) =>
 	typeof p === "object" &&
@@ -76,94 +57,6 @@ const isPush = (p) =>
 	Number.isFinite(Date.parse(p.timestamp)) &&
 	"after" in p &&
 	typeof p.after === "string";
-
-/**
- * @param {Get} get
- * @param {string} ref
- * @param {number} perPage
- * @returns {Promise<[Push, ...Push[]]>} newest first
- */
-async function readPushes(get, ref, perPage) {
-	const feed = await get(`/activity?ref=refs/heads/${ref}&per_page=${perPage}`);
-	if (!Array.isArray(feed) || feed.length === 0)
-		throw new Error(`no push to ${ref} in the activity feed`);
-	if (!feed.every(isPush))
-		throw new Error(`a push to ${ref} with no timestamp or sha in the feed`);
-	return /** @type {[Push, ...Push[]]} */ (feed);
-}
-
-/**
- * @param {Get} get
- * @param {string} branch
- * @returns {Promise<string>} the branch's sha
- */
-async function readBranchSha(get, branch) {
-	const ref = /** @type {{object?: {sha?: unknown}}} */ (
-		await get(`/git/ref/heads/${branch}`)
-	);
-	const sha = ref.object?.sha;
-	if (typeof sha !== "string") throw new Error(`no sha for ${branch}`);
-	return sha;
-}
-
-/**
- * @param {Get} get
- * @param {string} base
- * @param {string} head
- * @returns {Promise<string>}
- */
-async function readCompareStatus(get, base, head) {
-	const { status } = /** @type {{status?: unknown}} */ (
-		await get(`/compare/${base}...${head}`)
-	);
-	if (typeof status !== "string")
-		throw new Error(`no status comparing ${head} to ${base}`);
-	return status;
-}
-
-/**
- * @param {Get} get
- * @param {number} now
- * @returns {Promise<Verdict>}
- */
-async function judgeLag(get, now) {
-	const [tip] = await readPushes(get, "main", 1);
-	const mainSha = await readBranchSha(get, "main");
-	/* The feed is not documented as fresh: a `main` it has not caught up
-	 * with has just moved. */
-	if (mainSha !== tip.after)
-		return {
-			stalled: false,
-			line: `main is at ${mainSha.slice(0, 9)}, newer than the activity feed's last push, ${tip.timestamp}.`,
-		};
-	const mainAt = Date.parse(tip.timestamp);
-	const status = await readCompareStatus(get, mainSha, LANDING_BRANCH);
-	if (!isQueued(status))
-		return {
-			stalled: false,
-			line: `main ${mainSha.slice(0, 9)}, last pushed ${tip.timestamp}, is level with ${LANDING_BRANCH} (${status}).`,
-		};
-	const landing = await readPushes(get, LANDING_BRANCH, PUSH_PAGE);
-	const atMove = landing.find((p) => Date.parse(p.timestamp) <= mainAt);
-	const firstAfter = landing
-		.filter((p) => Date.parse(p.timestamp) > mainAt)
-		.at(-1);
-	const aheadAtMove =
-		atMove !== undefined &&
-		isQueued(await readCompareStatus(get, mainSha, atMove.after));
-	const since =
-		aheadAtMove || firstAfter === undefined
-			? mainAt
-			: Date.parse(firstAfter.timestamp);
-	const age = now - since;
-	const line = `main has not moved since ${tip.timestamp}, with ${LANDING_BRANCH} ${status} of it since ${new Date(since).toISOString()}: ${formatHoursMin(age)}, against ${formatHoursMin(STALL_MS)}.`;
-	return {
-		stalled: age > STALL_MS,
-		line,
-		title: "Main lagging landing",
-		ticket: STALL_TITLE,
-	};
-}
 
 /**
  * When `ref` was first pushed since its last deletion, in ms; null where its
@@ -198,7 +91,6 @@ async function readFirstPush(get, ref) {
 async function judgeQueue(get, now) {
 	const refs = await get(`/git/matching-refs/heads/${QUEUE_PREFIX}`);
 	if (!Array.isArray(refs)) throw new Error("no list of queue refs");
-	const heads = `refs/heads/${QUEUE_PREFIX}`;
 	/** @type {import("./lib/queue-gauge.js").Waiting[]} */
 	const waiting = [];
 	/** @type {Verdict[]} */
@@ -209,7 +101,7 @@ async function judgeQueue(get, now) {
 		const sha = object?.sha;
 		if (typeof ref !== "string" || typeof sha !== "string")
 			throw new Error("a queue ref with no name or sha");
-		const name = ref.slice(heads.length);
+		const name = ref.slice(QUEUE_HEADS.length);
 		const since = await readFirstPush(get, ref);
 		if (since === null)
 			skipped.push({
@@ -265,43 +157,26 @@ function liveGet(env) {
  * @returns {Promise<number>}
  */
 async function runAlarm({ get, now, say }) {
-	const reads = [
-		{
-			what: `main's lag behind ${LANDING_BRANCH}`,
-			judge: async () => [await judgeLag(get, now)],
-			way: `read git log ${VERIFIED_REF}..${LANDING_REF}`,
-		},
-		{
-			what: "the queue refs",
-			judge: () => judgeQueue(get, now),
-			way: `read git ls-remote origin 'refs/heads/${QUEUE_PREFIX}*'`,
-		},
-	];
-	let broken = false;
-	let stalled = false;
-	for (const { what, judge, way } of reads) {
-		/** @type {Verdict[]} */
-		let verdicts;
-		try {
-			verdicts = await judge();
-		} catch (e) {
-			broken = true;
-			say(
-				`::error title=Check broken, not a stall::Could not read ${what}: ${e instanceof Error ? e.message : String(e)}. Whether it stalled is unknown: ${way}, then this run's log.`,
-			);
-			continue;
-		}
-		for (const v of verdicts) {
-			stalled ||= v.stalled;
-			say(
-				v.stalled
-					? `::error title=${v.title}::${v.line} Look first at: the open "${v.ticket}" ticket, then wsl --list --running on Windows and memcheck in WSL, as the refill loop files that ticket only while the machine runs.`
-					: v.line,
-			);
-		}
+	/** @type {Verdict[]} */
+	let verdicts;
+	try {
+		verdicts = await judgeQueue(get, now);
+	} catch (e) {
+		say(
+			`::error title=Check broken, not a stall::Could not read the queue refs: ${e instanceof Error ? e.message : String(e)}. Whether it stalled is unknown: read git ls-remote origin '${QUEUE_HEADS}*', then this run's log.`,
+		);
+		return 2;
 	}
-	if (stalled) return 1;
-	return broken ? 2 : 0;
+	let stalled = false;
+	for (const v of verdicts) {
+		stalled ||= v.stalled;
+		say(
+			v.stalled
+				? `::error title=${v.title}::${v.line} Look first at: the open "${v.ticket}" ticket, then wsl --list --running on Windows and memcheck in WSL, as the refill loop files that ticket only while the machine runs.`
+				: v.line,
+		);
+	}
+	return stalled ? 1 : 0;
 }
 
 /** @returns {Promise<number>} */

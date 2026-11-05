@@ -42,7 +42,7 @@ const {
 	SHORT_SHA,
 } = require("./git.js");
 const { isCutOver } = require("./cutover.js");
-const { LANDING_REF } = require("./landing-refs.js");
+const { LANDING_REF, QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
@@ -69,7 +69,7 @@ const INSTALL_TIMEOUT_MS = 15 * 60_000;
  *   | { status: "forwarded", from: string, head: string }
  *   | { status: "off-branch", branch: string | null }
  *   | { status: "shared" }
- *   | { status: "ahead", local: string[] }
+ *   | { status: "ahead", local: string[], unqueued: string[] }
  *   | { status: "blocked", from: string, to: string, blockers: Blocker[] }
  *   | { status: "refused", from: string, to: string, why: string }
  * )} Moved
@@ -310,6 +310,28 @@ function installIfStale(root, work, install) {
 }
 
 /**
+ * Which of `local` no last-fetched queue ref's tracking ref holds, as
+ * lib/cutover.js's land leaves them queued.
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readUnqueued(root) {
+	return git(
+		[
+			"rev-list",
+			"--reverse",
+			"HEAD",
+			`^${UPSTREAM}`,
+			"--not",
+			`--glob=${QUEUE_TRACKING_GLOB}`,
+		],
+		root,
+	)
+		.split("\n")
+		.filter(Boolean);
+}
+
+/**
  * The fast-forward half of a pass: what `main` did, no install.
  * @param {string} root the main checkout
  * @param {number} now
@@ -332,7 +354,8 @@ function forward(root, now, lastWriter) {
 	const local = git(["rev-list", "--reverse", `${UPSTREAM}..HEAD`], root)
 		.split("\n")
 		.filter(Boolean);
-	if (local.length > 0) return { status: "ahead", local };
+	if (local.length > 0)
+		return { status: "ahead", local, unqueued: readUnqueued(root) };
 	const changed = parseNulList(
 		git(["diff", "--name-only", "--no-renames", "-z", from, to], root),
 	);
@@ -517,8 +540,10 @@ function renderOutcome(o, now) {
 			break;
 		case "ahead":
 			lines.push(
-				`refused: main carries ${o.local.length} commit(s) not on ${UPSTREAM}, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
-				...o.local.map((sha) => `  ${short(sha)}`),
+				o.unqueued.length === 0
+					? `waiting: main carries ${o.local.length} commit(s) not yet on ${UPSTREAM}, all on a queue ref — once the lander takes them, ${next}`
+					: `refused: main carries ${o.unqueued.length} commit(s) on neither ${UPSTREAM} nor a queue ref, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
+				...o.unqueued.map((sha) => `  ${short(sha)}`),
 			);
 			break;
 		case "blocked":

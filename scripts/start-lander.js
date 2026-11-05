@@ -29,10 +29,11 @@ const { landerLock } = require("./lib/lander.js");
 const {
 	landerLog,
 	launcherName,
-	readWaitingQueueRefs,
 	spawnDetachedRun,
 	startLander,
 } = require("./lib/lander-start.js");
+const { QUEUE_PREFIX } = require("./lib/landing-refs.js");
+const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
@@ -69,7 +70,10 @@ function main(argv = process.argv.slice(2)) {
 	let by = "";
 	const result = startLander({
 		holder: landerLock(root).holder,
-		waiting: () => readWaitingQueueRefs(root),
+		waiting: () =>
+			queueGit(root)
+				.refs()
+				.queue.map((q) => `${QUEUE_PREFIX}${q.name}`),
 		spawnRun: () => {
 			/* Named before the spawn, so the started line opens the run's log.
 			 * Self-test waived: a session-start launch runs before its session

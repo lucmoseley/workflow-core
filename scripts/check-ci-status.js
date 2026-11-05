@@ -542,7 +542,7 @@ function readSweepRuns(deadline) {
 /**
  * The runs the slot ledger judges (lib/sweep-ledger.js's readLedgerRuns), or
  * null when they cannot be read. A read of their own, apart from
- * readSweepRuns()'s: that one keeps the `landing` push runs, which are
+ * readSweepRuns()'s: that one keeps the lander refs' push runs, which are
  * coverage, and which crowd the slots' own runs out of any one list.
  *
  * `deadline`: see readSweepRuns() above.

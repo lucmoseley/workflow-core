@@ -1,9 +1,7 @@
 NEVER FORCE-PUSH OR DELETE `landing` OR A QUEUE REF, FROM ANY TREE.
 
-`landing` stays on the remote as the cutover's rollback, and a queue ref holds
-work the queue lander has yet to land. A force-push (`--force`,
-`--force-with-lease`, a `+` refspec) or a deletion drops the commits the ref
-holds, and the lander's batch with them.
+A force-push (`--force`, `--force-with-lease`, a `+` refspec) or a deletion
+drops the commits the ref holds, and the lander's batch with them.
 
 UNDO A COMMIT WITH A FOLLOW-UP COMMIT — `git revert <sha>`, or the fix itself —
 pushed to your own queue ref as any other.

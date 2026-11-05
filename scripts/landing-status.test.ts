@@ -97,7 +97,7 @@ beforeEach(() => {
 	git(work, "config", "user.email", "t@t");
 	git(work, "config", "user.name", "t");
 	commit("seed");
-	git(work, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(work, "push", "-q", "origin", "HEAD:main");
 });
 
 afterEach(() => {
@@ -111,7 +111,7 @@ afterEach(() => {
 it("reads a landed, a queued and a reverted commit, naming the revert's sha, after fetching", () => {
 	const tree = worktree("s");
 	const landed = commit("landed");
-	git(work, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(work, "push", "-q", "origin", "HEAD:main");
 	const reverted = commit("broken");
 	git(work, "revert", "--no-edit", reverted);
 	const revert = git(work, "rev-parse", "HEAD");
@@ -123,7 +123,7 @@ it("reads a landed, a queued and a reverted commit, naming the revert's sha, aft
 		"-q",
 		"origin",
 		`${queued}:refs/heads/queue/s`,
-		`${queued}:landing`,
+		`${revert}:main`,
 	);
 	/* Local tracking ref stale: only a fetch shows the push above. */
 	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);

@@ -15,9 +15,9 @@ const { gh } = require("./gh.js");
 const SWEEP_WORKFLOW = "scheduled-checks.yml";
 
 /* The branch the ledger reads. A scheduled run and a dispatch with no `--ref`
- * both run on the default branch; every push to `landing` runs this workflow
- * too (#2413), and read unfiltered those push runs push the slots' own runs
- * out of the list within hours (#4447). */
+ * both run on the default branch; every push to a lander ref runs this
+ * workflow too (#2413), and read unfiltered those push runs push the slots'
+ * own runs out of the list within hours (#4447). */
 const SWEEP_BRANCH = "main";
 
 /* Four scheduled runs a day plus the repairs and hand-fires beside them, so

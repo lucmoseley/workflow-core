@@ -17,8 +17,7 @@
  * baseline the floor alone holds.
  */
 
-const { QUEUE_PREFIX } = require("./landing-refs.js");
-const { formatHoursMin } = require("./landing-stall.js");
+const { QUEUE_HEADS } = require("./landing-refs.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const {
 	pendingSince,
@@ -45,6 +44,15 @@ const BASELINE_FACTOR = 2;
  *   where it is past its limit
  * @property {number|null} depth the refs waiting, where more than the limit
  */
+
+/**
+ * A span as `<h> h <m> min`, rounded down.
+ * @param {number} ms
+ */
+function formatHoursMin(ms) {
+	const min = Math.floor(ms / 60_000);
+	return `${Math.floor(min / 60)} h ${min % 60} min`;
+}
 
 /** @param {import("./queue-log.js").QueueBaseline} b @returns {QueueLimits} */
 const queueLimits = (b) => ({
@@ -136,7 +144,7 @@ function queueGaugeOf(queue, rows, now) {
 		waiting: queue.map(({ name, sha, pushedAt }) => ({
 			name,
 			sha,
-			since: pending.get(`refs/heads/${QUEUE_PREFIX}${name}`) ?? pushedAt,
+			since: pending.get(`${QUEUE_HEADS}${name}`) ?? pushedAt,
 		})),
 		baseline: queueBaseline(rows, now),
 	};
@@ -161,6 +169,7 @@ module.exports = {
 	DEPTH_FLOOR,
 	buildCrossingLines,
 	buildQueueLine,
+	formatHoursMin,
 	oldestWaiting,
 	queueCrossings,
 	queueGaugeOf,

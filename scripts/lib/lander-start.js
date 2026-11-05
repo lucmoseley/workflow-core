@@ -6,8 +6,6 @@
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
-const { QUEUE_PREFIX, REMOTE } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { forgetSession, fromEnv } = require("./session-id.js");
@@ -36,26 +34,6 @@ function startLander({ holder, waiting, spawnRun }) {
 	const refs = waiting();
 	if (refs.length === 0) return { skipped: "no queue ref waits" };
 	return { started: spawnRun(), waiting: refs };
-}
-
-/**
- * The queue refs the remote of `root` holds, by branch, as `queue/<name>`.
- * @param {string} root
- * @returns {string[]}
- */
-function readWaitingQueueRefs(root) {
-	const heads = `refs/heads/${QUEUE_PREFIX}`;
-	return execGit(["ls-remote", REMOTE, `${heads}*`], {
-		cwd: root,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		timeout: GIT_TIMEOUT_MS,
-	})
-		.split("\n")
-		.flatMap((line) => {
-			const ref = line.split("\t")[1] ?? "";
-			return ref.startsWith(heads) ? [ref.slice("refs/heads/".length)] : [];
-		});
 }
 
 /* A guess: a session-start launch can read the oracle before its session is
@@ -176,7 +154,6 @@ function spawnDetachedRun({
 }
 
 module.exports = {
-	readWaitingQueueRefs,
 	startLander,
 	launcherName,
 	spawnDetachedRun,

@@ -15,7 +15,7 @@
  * `origin/main` where it does not: before the first push, once the lander has
  * landed and deleted the ref, and for a tree that is no session worktree.
  * With the module off, it is `origin/main`. A config that will not read
- * answers off, as `wfc_module_on` does.
+ * answers off, save for `pushed-branch`, which fails.
  *
  *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<tree>]
  *     prints that ref, or the pushed ref's branch, for the checkout at <tree>,
@@ -43,6 +43,7 @@ const LANDER_ISO_SUITE_PREFIX = `${LANDER_ISO_PREFIX}suite-`;
 /* A session's queue ref (#4458), `queue/<worktree name>`, which it pushes
  * and the lander takes. */
 const QUEUE_PREFIX = "queue/";
+const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 /* A queue ref the lander dropped, `dropped/<name>`, which it alone
  * writes and deletes once the drop's fix ticket closes. */
 const DROPPED_PREFIX = "dropped/";
@@ -59,6 +60,27 @@ function queueRefOf(root, tree) {
 	if (!tree || path.dirname(tree) !== path.join(root, WORKTREES_DIR))
 		return null;
 	return `${QUEUE_PREFIX}${path.basename(tree)}`;
+}
+
+/**
+ * The queue ref of the session in `tree`, judged on real paths, so a
+ * symlinked path names the ref a land pushes; null where `tree` is no
+ * session worktree.
+ * @param {string} tree the session's tree top level
+ * @param {string} [root] the host root, else the main checkout of `tree`
+ * @returns {string|null}
+ */
+function ownQueueRef(tree, root) {
+	const fs = require("node:fs");
+	const real = (/** @type {string} */ p) => {
+		try {
+			return fs.realpathSync(p);
+		} catch {
+			return p;
+		}
+	};
+	const host = root ?? require("./main-checkout.js").mainCheckout(tree);
+	return host ? queueRefOf(real(host), real(tree)) : null;
 }
 
 /**
@@ -120,8 +142,7 @@ function landingOn(opts) {
 function pushedRef(opts) {
 	const tree = opts?.tree;
 	if (!tree || !landingOn(opts)) return VERIFIED_REF;
-	const { mainCheckout } = require("./main-checkout.js");
-	const own = queueRefOf(mainCheckout(tree) ?? "", tree);
+	const own = ownQueueRef(tree, opts?.root);
 	if (own === null) return VERIFIED_REF;
 	const ref = `${REMOTE}/${own}`;
 	const { commitSha } = require("./commit-sha.js");
@@ -166,7 +187,12 @@ if (require.main === module) {
 		["unpushed", readUnpushedRef],
 		[
 			"pushed-branch",
-			(/** @type {{root?: string}|undefined} */ o) => branchOf(pushedRef(o)),
+			/* Strict, for a workflow: a config that will not read fails here
+			 * rather than naming `main`. */
+			(/** @type {{root?: string, tree?: string}|undefined} */ o) => {
+				require("./workflow-core-config.js").moduleOn("landing", o);
+				return branchOf(pushedRef(o));
+			},
 		],
 	]).get(verb ?? "");
 	if (!answer || more.length > 0) {
@@ -180,7 +206,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-	branchOf,
 	DROPPED_PREFIX,
 	droppedRefsOf,
 	LANDER_BATCH_BRANCH,
@@ -191,6 +216,8 @@ module.exports = {
 	landingOn,
 	LANDING_REF,
 	pushedRef,
+	ownQueueRef,
+	QUEUE_HEADS,
 	QUEUE_PREFIX,
 	QUEUE_REFSPEC,
 	QUEUE_TRACKING_GLOB,

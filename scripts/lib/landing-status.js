@@ -1,18 +1,16 @@
 /*
  * landing-status.js — where each of a session's commits stands on the landing
  * route (#2407, spec #2261; #4458): landed on `main`, queued on the session's
- * own queue ref, reverted by a revert that sits on `landing`, or pushed to no
+ * own queue ref, reverted by a revert that sits on `main`, or pushed to no
  * queue ref at all.
  *
- * A REVERT is a commit on `landing` whose message carries lib/lander.js's
+ * A REVERT is a commit on `main` whose message carries lib/lander.js's
  * buildRevertLine.
  */
 
 const { caught } = require("./caught.js");
 const { LANDER_GIT_TIMEOUT_MS, buildRevertLine } = require("./lander.js");
 const {
-	LANDING_BRANCH,
-	LANDING_REF,
 	pushedRef,
 	QUEUE_REFSPEC,
 	REMOTE,
@@ -30,7 +28,7 @@ const { execGit } = require("./git.js");
  *   isOn: (ref: string, sha: string) => boolean,
  *   revertOf: (sha: string) => string|null,
  * }} StatusGit `pushed` is lib/landing-refs.js's pushed ref for the session's
- *   tree; `revertOf` answers the oldest commit on `landing`, after `sha`, that
+ *   tree; `revertOf` answers the oldest commit on `main`, after `sha`, that
  *   reverts it
  */
 
@@ -64,7 +62,7 @@ function stateOf(sha, git) {
 }
 
 /**
- * The revert of `sha` still in force on `landing`, or null: down the chain of
+ * The revert of `sha` still in force on `main`, or null: down the chain of
  * reverts, an odd link stands and an even one restores `sha`.
  * @param {string} sha
  * @param {StatusGit} git
@@ -97,8 +95,7 @@ function buildStateLine({ sha, state }, subject, queue) {
 }
 
 /**
- * Git in `root`, after one fetch from `origin` of `main`, `landing` and every
- * queue ref, pruning the queue refs gone from it. Every read throws where git
+ * Git in `root`, after one fetch from `origin` of `main` and every queue ref, pruning the queue refs gone from it. Every read throws where git
  * fails, the fetch included.
  * @param {string} root
  * @param {string} tree the session's tree top level
@@ -119,7 +116,6 @@ function fetchedGit(root, tree) {
 		"--prune",
 		REMOTE,
 		trackingRefspec(VERIFIED_BRANCH),
-		trackingRefspec(LANDING_BRANCH),
 		QUEUE_REFSPEC,
 	]);
 	return {
@@ -140,7 +136,7 @@ function fetchedGit(root, tree) {
 				"--reverse",
 				"--fixed-strings",
 				`--grep=${buildRevertLine(sha)}`,
-				`${sha}..${LANDING_REF}`,
+				`${sha}..${VERIFIED_REF}`,
 			])
 				.split("\n")
 				.filter(Boolean);

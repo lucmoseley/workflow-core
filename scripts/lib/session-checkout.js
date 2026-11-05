@@ -96,9 +96,9 @@ const {
 } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const {
+	ownQueueRef,
 	pushedRef,
 	QUEUE_REFSPEC,
-	queueRefOf,
 	REMOTE,
 	trackingRefspec,
 	VERIFIED_BRANCH,
@@ -635,7 +635,7 @@ function mergeMain(dir) {
  * @returns {string}
  */
 function queueRefOrRefuse(dir, root) {
-	const queue = queueRefOf(root, fs.realpathSync(dir));
+	const queue = ownQueueRef(dir, root);
 	if (queue === null)
 		throw new CheckoutError(
 			`${dir} is no session worktree under ${path.join(root, WORKTREES)}/, so it has no queue ref to land through — land from a worktree ${buildCutCommand()} cuts`,
@@ -688,9 +688,8 @@ function land(cwd) {
 }
 
 /**
- * The refused push's row is counted against freshly fetched refs, so `behind`
- * is the remote's real lead; where the fetch fails, against the stale ones,
- * `behind` then a lower bound.
+ * Files the refused push's divergence row, counted against freshly fetched
+ * refs.
  * @param {string} root
  * @param {string} dir
  * @param {string} output the refused push's output

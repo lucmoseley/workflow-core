@@ -208,7 +208,7 @@ const levelMain = (root) =>
 
 /**
  * Start a warm pass over `root` (`session-checkout.js warm`, #4318), detached:
- * the store build for `origin/landing`'s lockfile may outlast a tick, and the
+ * the store build for `origin/main`'s lockfile may outlast a tick, and the
  * dispatcher's cuts build none.
  * @param {string} root
  */

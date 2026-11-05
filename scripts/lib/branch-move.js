@@ -141,7 +141,7 @@ function decide(command, ctx) {
 	);
 	if (refusal !== null) return { deny: refusal };
 	if (!ruleSubject) return null;
-	/* With `landing` on, the line naming the cutover rides with it (#2409, #4485),
+	/* With `landing` on, the line naming the cutover rides with it (#2409),
 	 * until the cutover removes that upstream. */
 	return {
 		injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],

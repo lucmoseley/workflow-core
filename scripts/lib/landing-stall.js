@@ -1,32 +1,25 @@
 /*
  * landing-stall.js — what the session-start stall check and the refill loop's
- * supervision read off the landing queue, and the one read both take (#2406, spec #2261, #2692): a
- * stalled queue, a dead lander, or a held one. The read also keeps the record
- * of when `landing` went ahead.
+ * supervision read off the landing queue, and the one read both take (#2406,
+ * #2692, #4458): a stalled queue or a dead queue lander.
  *
- * STALLED: `landing` holds commits `main` lacks, and has for STALL_MS without
- * `main` moving. `main` last moved at the later of the time the lander's
- * heartbeat records for its last move and `main`'s tip's committer time, which
- * no move to that tip can predate: the second covers a `main` no lander has
- * moved yet, or one pushed by hand. Counting from `main`, not from a queued
- * commit, tells a slow red batch, which moves `main` as it lands parents, from
- * a stuck queue. The clock starts no earlier than the first reading that found
- * `landing` ahead of the present `main`, so a push onto a `main` idle for
+ * STALLED: a queue ref waits, and has for STALL_MS without `main` moving.
+ * `main` last moved at the later of the queue log's newest land row and
+ * `main`'s tip's committer time, which no move to that tip can predate: the
+ * second covers a `main` pushed by hand. Counting from `main`, not from a
+ * queued commit, tells a slow red batch, which moves `main` as it lands
+ * passers, from a stuck queue. The clock starts no earlier than the oldest
+ * waiting ref's wait (lib/queue-gauge.js), so a push onto a `main` idle for
  * hours is not a stall the moment it lands (#3303), and no earlier than the
- * guest's last boot or resume, as nothing can land while it is down or frozen
- * (#4055). Residual: a queue stuck before one goes unreported for up to 2 h
- * more, and a machine down or frozen within every 2 h never reports one.
- * WFC_UPTIME_S replaces the guest's uptime, for tests.
+ * guest's last boot or resume, as nothing can land while it is down or
+ * frozen (#4055). Residual: a machine down or frozen within every 2 h never
+ * reports one. WFC_UPTIME_S replaces the guest's uptime, for tests.
  *
- * Both below need `landing` ahead of `main` and the pid the heartbeat names
- * not running. A live pid with a stale beat is a lander inside one push,
- * which beats only between git calls; residual: a hung lander, or a reused
- * pid, reads alive and is caught by the stall alone.
- *
- * HELD: the last run held with `landing` at its present tip, which a run
- * leaves alone until a push moves it.
- *
- * DEAD: otherwise, where the heartbeat is absent or older than STALE_MS.
+ * DEAD: a queue ref waits, the pid the queue lander's heartbeat names is not
+ * running, and the heartbeat is absent or older than STALE_MS. A live pid
+ * with a stale beat is a lander inside one call, which beats only between
+ * them; residual: a hung lander, or a reused pid, reads alive and is caught
+ * by the stall alone.
  */
 
 const fs = require("node:fs");
@@ -34,18 +27,20 @@ const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { markersDir } = require("./marker-root.js");
+const { execGit } = require("./git.js");
 const {
 	HEARTBEAT_MS,
-	landerFiles,
+	LANDER_GIT_TIMEOUT_MS,
 	readHeartbeat,
-	remoteGit,
 	short,
 } = require("./lander.js");
+const { markersDir } = require("./marker-root.js");
+const { queueGit, queueLanderFiles } = require("./queue-lander-adapters.js");
+const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
+const { queueLogFile, readQueueRows } = require("./queue-log.js");
 
 /* About 3.6 median whole-suite runs of 1987 s (#2672, from #2666's
- * measurement); not measured against red batches. scripts/main-lag-alarm.js,
- * the off-machine check, reads it too. */
+ * measurement); not measured against red batches. */
 const STALL_MS = 2 * 60 * 60 * 1000;
 /* Untraced: five missed beats, so one slow tester tick is never read as a
  * death. */
@@ -53,178 +48,133 @@ const STALE_MS = 5 * HEARTBEAT_MS;
 
 /**
  * @typedef {{tag: "LANDING-STALLED", line: string, movedAt: number}
- *   | {tag: "LANDER-DEAD" | "LANDING-HELD", line: string}} StallFinding
+ *   | {tag: "LANDER-DEAD", line: string}} StallFinding
  * @typedef {object} QueueReading
  * @property {number} now
- * @property {string|null} landing `landing`'s sha
- * @property {import("./lander.js").Relation} relation
- * @property {number|null} mainAt `main`'s tip's committer time in ms, null
- *   where the remote has no `main`
- * @property {number|null} aheadSince when a reading first found `landing`
- *   ahead of, or diverged from, the present `main`, in ms; null where unknown
+ * @property {string|null} main `main`'s sha, null where the remote has none
+ * @property {number|null} movedAt when `main` last moved, in ms; null where
+ *   the remote has no `main`
+ * @property {import("./queue-gauge.js").QueueGauge} gauge
  * @property {number} wokeAt when the guest last booted or resumed, in ms
- * @property {import("./lander.js").Heartbeat|null} heartbeat
+ * @property {import("./lander.js").Heartbeat|null} heartbeat the queue
+ *   lander's
  * @property {(pid: number) => boolean} alive
  */
+
+/** @param {QueueReading} r */
+const running = (r) => r.heartbeat !== null && r.alive(r.heartbeat.pid);
 
 /**
  * @param {QueueReading} r
  * @returns {StallFinding[]}
  */
-function stallFindings({
-	now,
-	landing,
-	relation,
-	mainAt,
-	aheadSince,
-	wokeAt,
-	heartbeat,
-	alive,
-}) {
+function stallFindings(r) {
+	const { now, movedAt, gauge, wokeAt, heartbeat } = r;
+	const oldest = oldestWaiting(gauge.waiting);
+	if (oldest === null) return [];
 	/** @type {StallFinding[]} */
 	const found = [];
-	const moved = mainMovedAt(mainAt, heartbeat);
+	const at = `queue/${oldest.name} ${short(oldest.sha)}`;
 	if (
-		landing !== null &&
-		queued(relation) &&
-		moved !== null &&
-		now - Math.max(moved, aheadSince ?? moved, wokeAt) > STALL_MS
+		movedAt !== null &&
+		now - Math.max(movedAt, oldest.since, wokeAt) > STALL_MS
 	)
 		found.push({
 			tag: "LANDING-STALLED",
-			movedAt: moved,
-			line: `main has not moved since ${new Date(moved).toISOString()}, over ${STALL_MS / 60_000} min, with landing ${short(landing)} ${relation === "ahead" ? "ahead of it" : "diverged from it"}`,
+			movedAt,
+			line: `main has not moved since ${new Date(movedAt).toISOString()}, over ${STALL_MS / 60_000} min, with ${at} waiting since ${new Date(oldest.since).toISOString()}`,
 		});
-	if (relation !== "ahead" || landing === null) return found;
-	if (heartbeat !== null && alive(heartbeat.pid)) return found;
-	const hold = heartbeat?.hold;
-	if (hold && hold.landing === landing)
-		found.push({
-			tag: "LANDING-HELD",
-			line: `the lander holds landing at ${short(landing)}: ${hold.reason}. ${hold.filed}`,
-		});
-	else if (!(heartbeat && now - Date.parse(heartbeat.at) <= STALE_MS))
+	if (running(r)) return found;
+	if (!(heartbeat && now - Date.parse(heartbeat.at) <= STALE_MS))
 		found.push({
 			tag: "LANDER-DEAD",
-			line: `landing ${short(landing)} is ahead of main and no lander is running, its heartbeat ${heartbeat ? `last written ${heartbeat.at}` : "absent"}`,
+			line: `${at} waits and no queue lander is running, its heartbeat ${heartbeat ? `last written ${heartbeat.at}` : "absent"}`,
 		});
 	return found;
 }
 
 /**
- * A span as `<h> h <m> min`, rounded down.
- * @param {number} ms
- */
-function formatHoursMin(ms) {
-	const min = Math.floor(ms / 60_000);
-	return `${Math.floor(min / 60)} h ${min % 60} min`;
-}
-
-/** @param {import("./lander.js").Relation} relation */
-const queued = (relation) => relation === "ahead" || relation === "diverged";
-
-/**
- * When `main` last moved: the later of the heartbeat's record and its tip's
- * committer time; null where neither is known.
- * @param {number|null} mainAt
- * @param {import("./lander.js").Heartbeat|null} heartbeat
- */
-function mainMovedAt(mainAt, heartbeat) {
-	const recorded = heartbeat?.movedAt
-		? Date.parse(heartbeat.movedAt)
-		: Number.NaN;
-	const known = [mainAt, recorded].filter(
-		(t) => t !== null && Number.isFinite(t),
-	);
-	return known.length > 0 ? Math.max(.../** @type {number[]} */ (known)) : null;
-}
-
-/**
- * What the refill loop does about a reading (#2692, ruled at #2672): file
- * the stall ticket where `main` has not moved with `landing` ahead of it and
- * a lander running or dead, since one that fails on every start is restarted
- * each tick and never seen running. Not for a held queue, which has its
- * held-queue issue, nor for a lander between runs on a fresh beat.
+ * What the refill loop does about a reading (#2692, ruled at #2672): start
+ * the queue lander where a queue ref waits and none runs, and file the stall
+ * ticket where `main` has not moved with a queue ref waiting and a lander
+ * running or dead, since one that fails on every start is restarted each
+ * tick and never seen running. No ticket for a lander between runs on a
+ * fresh beat.
  * @param {QueueReading} r
- * @returns {{ticket: {landing: string, movedAt: number}|null}}
+ * @returns {{start: boolean, ticket: {waiting: string, movedAt: number}|null}}
  */
 function supervision(r) {
 	const found = stallFindings(r);
+	const oldest = oldestWaiting(r.gauge.waiting);
+	const live = running(r);
 	const dead = found.some((f) => f.tag === "LANDER-DEAD");
-	const running = r.heartbeat !== null && r.alive(r.heartbeat.pid);
 	const stalled = found.find((f) => "movedAt" in f);
 	return {
+		start: oldest !== null && !live,
 		ticket:
-			stalled &&
-			"movedAt" in stalled &&
-			r.relation === "ahead" &&
-			r.landing !== null &&
-			(dead || running)
-				? { landing: r.landing, movedAt: stalled.movedAt }
+			stalled && "movedAt" in stalled && oldest !== null && (dead || live)
+				? {
+						waiting: `queue/${oldest.name} at ${oldest.sha}`,
+						movedAt: stalled.movedAt,
+					}
 				: null,
 	};
 }
 
 /**
- * @param {string} root
- * @returns {QueueReading & {main: string|null}}
+ * When `main` last moved: the later of its tip's committer time and the
+ * queue log's newest land row.
+ * @param {number} mainAt
+ * @param {import("./queue-log.js").LoggedRow[]} rows
  */
-function readQueue(root) {
-	const git = remoteGit(root);
-	const refs = git.refs();
-	const now = Date.now();
+const mainMovedAt = (mainAt, rows) =>
+	rows.reduce(
+		(t, row) => (row.event === "land" ? Math.max(t, row.at) : t),
+		mainAt,
+	);
+
+/**
+ * The queue's reading in `root`. Throws where the remote or the queue log
+ * cannot be read.
+ * @param {string} root the canonical checkout's root
+ * @param {number} now
+ * @returns {QueueReading}
+ */
+function readQueue(root, now) {
+	const { main, queue } = queueGit(root).refs();
+	const rows = readQueueRows(queueLogFile(root));
 	return {
 		now,
-		...refs,
-		mainAt: refs.main === null ? null : git.committedAt(refs.main),
-		aheadSince: recordAhead(path.join(markersDir(root), AHEAD), {
-			main: queued(refs.relation) ? refs.main : null,
-			now,
-		}),
+		main,
+		movedAt: main === null ? null : mainMovedAt(committedAt(root, main), rows),
+		gauge: queueGaugeOf(queue, rows, now),
 		wokeAt: recordWake(path.join(markersDir(root), WAKE), {
 			startedAt: now - Number(process.env.WFC_UPTIME_S ?? os.uptime()) * 1000,
 			now,
 		}),
-		heartbeat: readHeartbeat(landerFiles(root).heartbeat),
+		heartbeat: readHeartbeat(queueLanderFiles(root).heartbeat),
 		alive: pidAlive,
 	};
 }
 
-/* When `landing` was first read ahead of `main`. */
-const AHEAD = ".landing-ahead.json";
-
 /**
- * When `file` records `main` was first read behind `landing`, recording `now`
- * where it names another `main` or none, and clearing it where `main` is null
- * (`landing` not ahead). Null where the record cannot be written, so the
- * clock falls back to `main`'s last move rather than never starting (#3303).
- * @param {string} file
- * @param {{main: string|null, now: number}} at
+ * @param {string} root
+ * @param {string} sha
+ * @returns {number} its committer time, in ms
  */
-function recordAhead(file, { main, now }) {
-	try {
-		if (main === null) {
-			fs.rmSync(file, { force: true });
-			return null;
-		}
-		let rec = null;
-		try {
-			rec = JSON.parse(fs.readFileSync(file, "utf8"));
-		} catch {
-			/* Absent, or torn by a hand edit: timed afresh (#3303). */
-		}
-		const since = rec?.main === main ? Date.parse(rec.since) : Number.NaN;
-		if (Number.isFinite(since)) return since;
-		writeFileAtomic(
-			file,
-			`${JSON.stringify({ main, since: new Date(now).toISOString() })}\n`,
-			{ mkdir: true },
-		);
-		return now;
-	} catch {
-		/* An unwritable markers directory must not stop a dead lander's restart. */
-		return null;
-	}
+function committedAt(root, sha) {
+	const at =
+		Number(
+			execGit(["log", "-1", "--format=%ct", sha], {
+				cwd: root,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: LANDER_GIT_TIMEOUT_MS,
+			}).trim(),
+		) * 1000;
+	if (!Number.isFinite(at) || at === 0)
+		throw new Error(`git log printed no committer time for ${sha}`);
+	return at;
 }
 
 /* When the guest last booted or resumed. */
@@ -270,7 +220,6 @@ function recordWake(file, { startedAt, now }) {
 
 module.exports = {
 	STALL_MS,
-	formatHoursMin,
 	mainMovedAt,
 	readQueue,
 	stallFindings,

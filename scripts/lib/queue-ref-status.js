@@ -28,6 +28,7 @@ const {
 	short,
 } = require("./lander.js");
 const {
+	QUEUE_HEADS,
 	QUEUE_PREFIX,
 	droppedRefsOf,
 	queueRefOf,
@@ -167,7 +168,7 @@ function waitingState(r, sha, mine) {
  * @returns {RefState[]}
  */
 function queueRefStates(r) {
-	const ref = `refs/heads/${QUEUE_PREFIX}${r.name}`;
+	const ref = `${QUEUE_HEADS}${r.name}`;
 	const mine = r.rows.filter((x) => x.ref === ref && x.at >= r.since);
 	/** @type {Map<string, RefState>} */
 	const left = new Map();

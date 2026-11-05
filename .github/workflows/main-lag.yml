@@ -1,14 +1,12 @@
-name: Main lagging landing 2h
+name: Queue ref waiting 2h
 
-# The off-machine stall check (#4443): scripts/main-lag-alarm.js fails where
-# landing is ahead of main and main has not moved for lib/landing-stall.js's
-# STALL_MS, and, read beside it (#4485), where the oldest queue ref has
-# waited past its QUEUE_BACKSTOP_MS. Read-only: it reads refs and the
-# activity feed.
+# The off-machine stall check (#4443, #4458): scripts/main-lag-alarm.js
+# fails where the oldest queue ref has waited past its QUEUE_BACKSTOP_MS.
+# Read-only: it reads refs and the activity feed.
 # GitHub sends a scheduled run's failure to the user who last
 # changed the cron or re-enabled this file.
 #
-# PLANNED ABSENCE: Actions tab > Main lagging landing 2h > "..." > Disable
+# PLANNED ABSENCE: Actions tab > Queue ref waiting 2h > "..." > Disable
 # workflow, and "Enable workflow" on return.
 on:
   schedule:
@@ -23,11 +21,11 @@ permissions:
 jobs:
   lag:
     # This name and the workflow's are the part of the alarm an email carries.
-    name: Main moved within 2 hours of landing going ahead and no queue ref waited over 2 hours - if red, read the stall or queue ticket
+    name: No queue ref waited over 2 hours - if red, read the queue ticket
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
-    # A guess: a checkout and four API reads with retries, one more, and one per
-    # queue ref.
+    # A guess: a checkout and one API read with retries, and one per queue
+    # ref.
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +34,7 @@ jobs:
             scripts/main-lag-alarm.js
             scripts/lib
           sparse-checkout-cone-mode: false
-      - name: Read main's lag behind landing
+      - name: Read the oldest queue ref's wait
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/main-lag-alarm.js

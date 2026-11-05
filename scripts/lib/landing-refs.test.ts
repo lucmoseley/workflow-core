@@ -82,6 +82,25 @@ describe("pushedRef", () => {
 		expect(pushedRef({ root, tree })).toBe("origin/main");
 	});
 
+	it("names the queue ref a land pushes for a symlinked path to the worktree", () => {
+		host(["suites", "landing"]);
+		const tree = sessionWorktree("fix-it");
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
+		const link = `${root}-link`;
+		fs.symlinkSync(root, link);
+		try {
+			expect(
+				pushedRef({
+					root,
+					tree: path.join(link, ".claude", "worktrees", "fix-it"),
+				}),
+			).toBe("origin/queue/fix-it");
+			expect(pushedRef({ root: link, tree })).toBe("origin/queue/fix-it");
+		} finally {
+			fs.rmSync(link);
+		}
+	});
+
 	it("is origin/main for the host itself, with the module on", () => {
 		host(["suites", "landing"]);
 		expect(pushedRef({ root })).toBe("origin/main");
@@ -179,6 +198,13 @@ describe("the CLI", () => {
 		const r = cli(["pushed-branch", root]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("main\n");
+	});
+
+	it("fails the pushed branch on a config that will not read, never naming main", () => {
+		host(null, "{ not json");
+		const r = cli(["pushed-branch", root]);
+		expect(r.status).not.toBe(0);
+		expect(r.stdout).toBe("");
 	});
 
 	it("refuses anything else with its usage", () => {

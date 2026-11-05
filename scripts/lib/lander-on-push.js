@@ -10,12 +10,9 @@
  * `landing` off pays one config read on such a push and none on any other.
  */
 
-const { QUEUE_PREFIX } = require("./landing-refs.js");
+const { QUEUE_HEADS } = require("./landing-refs.js");
 const { readPush } = require("./push-dests.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
-
-/* A push to a queue ref with the `landing` module on starts the lander. */
-const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 
 /**
  * @typedef {object} LanderPorts

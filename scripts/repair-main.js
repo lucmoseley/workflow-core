@@ -54,9 +54,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const USAGE = `usage: node ${scriptPath("repair-main.js")}
   restore a shared main that cannot be read, from a session, proofs first`;
 
-/* A reflog entry either holds is one sessions pushed or the lander verified. */
-const ORIGIN_REFS = [VERIFIED_REF];
-
 const ASK_FOUNDER = `Leave it for the founder, on this checkout's probe hold: \`node ${scriptPath("repo-hold.js")} list\`.`;
 
 const RERUN = `Re-run in a minute. ${ASK_FOUNDER}`;
@@ -120,22 +117,18 @@ function readReflog(commonDir) {
 }
 
 /**
- * What the origin refs name.
+ * What `origin/main` names: a reflog entry it holds is one the lander
+ * verified.
  * @param {string} commonDir
  * @returns {string[]}
  */
 function readOriginShas(commonDir) {
-	const read = gitReader(commonDir);
-	const shas = ORIGIN_REFS.flatMap((ref) => {
-		const r = readCommit(read, `refs/remotes/${ref}`);
-		if (!r.ok) throw new Refusal(`could not read ${ref}: ${r.why}. ${RERUN}`);
-		return r.sha ? [r.sha] : [];
-	});
-	if (shas.length === 0)
-		throw new Refusal(
-			`${ORIGIN_REFS.join(", ")} resolves to no commit. ${ASK_FOUNDER}`,
-		);
-	return shas;
+	const r = readCommit(gitReader(commonDir), `refs/remotes/${VERIFIED_REF}`);
+	if (!r.ok)
+		throw new Refusal(`could not read ${VERIFIED_REF}: ${r.why}. ${RERUN}`);
+	if (!r.sha)
+		throw new Refusal(`${VERIFIED_REF} resolves to no commit. ${ASK_FOUNDER}`);
+	return [r.sha];
 }
 
 /**
@@ -175,7 +168,7 @@ function findTarget(commonDir, entries, origins) {
 			return { sha, newer: entries.slice(at + 1) };
 	}
 	throw new Refusal(
-		`no reflog entry of ${entries.length} is an ancestor of ${ORIGIN_REFS.join(" or ")}. ${ASK_FOUNDER}`,
+		`no reflog entry of ${entries.length} is an ancestor of ${VERIFIED_REF}. ${ASK_FOUNDER}`,
 	);
 }
 
