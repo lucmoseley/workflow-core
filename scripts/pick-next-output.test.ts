@@ -507,16 +507,6 @@ describe("--dump-bodies", () => {
 		);
 	});
 
-	it("names the issue in the file, so a band read needs no second lookup", async () => {
-		await run({ issues: [{ number: 7, title: "a title", body: "text" }] }, [
-			"--dump-bodies",
-			dumpDir(),
-		]);
-		const f = fs.readFileSync(path.join(dumpDir(), "7.md"), "utf8");
-		expect(f).toMatch(/#7 — a title/);
-		expect(f).toContain("text");
-	});
-
 	it("dumps no pull request, matching the shortlist's own candidate set", async () => {
 		await run(
 			{
@@ -814,20 +804,6 @@ describe("the write-set cache", () => {
 		expect(writeSetCache.readEntry(kit.repoRoot, 2)).not.toBeNull();
 	});
 
-	it("writes the key into each dumped body, so a band read needs no lookup", async () => {
-		const dumpDir = path.join(kit.dir, "bodies");
-		const r = await here({ issues: [{ number: 1, body: "one" }] }, [
-			"--dump-bodies",
-			dumpDir,
-			"--json",
-			"--no-prewarm",
-		]);
-		const dumped = fs.readFileSync(path.join(dumpDir, "1.md"), "utf8");
-		expect(dumped).toContain(
-			`<!-- body-hash: ${r.json().writeSetCache.cold[0].bodyHash} -->`,
-		);
-	});
-
 	it("covers the whole frontier, not the --limit slice", async () => {
 		// --limit is a display cap, and a warm entry hidden by it is one the band
 		// read pays for a second time. `frontier` itself is not truncated either
@@ -997,21 +973,6 @@ describe("the write-set cache", () => {
 	});
 
 	describe("pre-warming a miss in the run that finds it (mantahostels#1001)", () => {
-		it("leaves nothing to derive on a first run, so no band read is dispatched", async () => {
-			// The whole point: an issue filed since the last selection would otherwise cost
-			// this run a ~60 s band-read subagent on its critical path.
-			const r = await here({
-				issues: [
-					{ number: 1, body: "one" },
-					{ number: 2, body: "two" },
-				],
-			});
-			expect(r.out).toMatch(
-				/WRITE-SET CACHE .* 0 warm, 2 provisional, 0 to derive/,
-			);
-			expect(r.out).not.toMatch(/ derive #/);
-		});
-
 		it("prints a provisional row apart from a warm one, and says it has no size", async () => {
 			store(1, "one");
 			const r = await here({
@@ -1066,16 +1027,6 @@ describe("the write-set cache", () => {
 				"docs/doc-map.md",
 				"scripts/a.js",
 			]);
-		});
-
-		it("reads its own prediction back as provisional on the next run, never as warm", async () => {
-			const fx = { issues: [{ number: 1, title: "T", body: "one" }] };
-			await here(fx);
-			const r = await here(fx, ["--json"]);
-			expect(r.json().writeSetCache.warm).toEqual([]);
-			expect(r.json().writeSetCache.provisional[0].number).toBe(1);
-			// Carried in from the store rather than written over a miss this run.
-			expect(r.json().writeSetCache.provisional[0].replaced).toBeNull();
 		});
 
 		it("is superseded by a band read, which clears the flag", async () => {
@@ -1698,37 +1649,6 @@ describe("the substrate-conflict graph (mantahostels#1002)", () => {
 			});
 			expect(block(text.out)).toMatch(/BAND READ REQUIRED THIS RUN/);
 		});
-
-		it("is true on a cold entry alone, even with nothing nominated (mantahostels#1485's cold widening)", async () => {
-			const r = await here(
-				{
-					issues: [
-						{ number: 1, body: "`scripts/a.js`", labels: ["wayfinder:map"] },
-					],
-				},
-				["--json"],
-			);
-			expect(r.json().conflictGraph.nominated).toEqual([]);
-			expect(r.json().writeSetCache.cold.length).toBeGreaterThan(0);
-			expect(r.json().bandReadRequired).toBe(true);
-		});
-
-		it("stays false on an already-mergeable warm pair — skipping forecloses no merge already in reach", async () => {
-			warm(1, "one", { writeSet: ["scripts/a.js"], sizeBand: "small" });
-			warm(2, "two", { writeSet: ["scripts/a.js"], sizeBand: "small" });
-			const r = await here(
-				{
-					issues: [
-						{ number: 1, body: "one" },
-						{ number: 2, body: "two" },
-					],
-				},
-				["--json"],
-			);
-			expect(r.json().conflictGraph.nominated).toEqual([]);
-			expect(r.json().conflictGraph.mergeable.length).toBeGreaterThan(0);
-			expect(r.json().bandReadRequired).toBe(false);
-		});
 	});
 });
 
@@ -1852,77 +1772,6 @@ describe("the run summary (mantahostels#1001)", () => {
 		expect(s.degraded).toBe(0);
 		expect(s.labelDefects).toEqual([{ number: 1, takes: [] }]);
 		expect(s.writeSets).toEqual({ warm: 0, provisional: 0, cold: 0 });
-	});
-
-	it("gives each proposed member the takes: value and write-set §6's line needs", async () => {
-		stubRepo(["scripts/a.js"]);
-		const r = await run(
-			{
-				issues: [
-					{
-						number: 1,
-						body: "writes `scripts/a.js`",
-						labels: ["takes:implement"],
-					},
-				],
-			},
-			["--json"],
-			{ ownRepo: true },
-		);
-		expect(r.json().summary.proposed).toEqual([
-			{ number: 1, takes: ["implement"], writeSet: ["scripts/a.js"] },
-		]);
-	});
-
-	it("gives a proposed member its takes: value even below the --limit cut", async () => {
-		// `graph.proposed` covers the whole frontier, so looking `takes:` up in
-		// the printed slice reported `[]` for anything --limit cut (mantahostels#3363).
-		stubRepo(["scripts/a.js", "scripts/b.js"]);
-		const r = await run(
-			{
-				issues: [
-					{
-						number: 1,
-						body: "writes `scripts/a.js`",
-						labels: ["takes:implement"],
-					},
-					{
-						number: 2,
-						body: "writes `scripts/b.js`",
-						labels: ["takes:to-spec"],
-					},
-				],
-			},
-			["--json", "--limit", "1"],
-			{ ownRepo: true },
-		);
-		const s = r.json().summary;
-		expect(s.shown).toBe(1);
-		expect(s.proposed).toEqual([
-			{ number: 1, takes: ["implement"], writeSet: ["scripts/a.js"] },
-			{ number: 2, takes: ["to-spec"], writeSet: ["scripts/b.js"] },
-		]);
-	});
-
-	it("reports a label defect on a frontier issue --limit cut from the table", async () => {
-		// mantahostels#3363: `labelDefects` was filtered over `shown`, so a defect below the
-		// cut went unreported. The frontier order is asserted because the
-		// assertion below only bites while mantahostels#2 is the issue `--limit` cuts.
-		const r = await run(
-			{
-				issues: [
-					{ number: 1, body: "one", labels: ["takes:implement"] },
-					{ number: 2, body: "two", labels: [] },
-				],
-			},
-			["--json", "--limit", "1"],
-		);
-		const s = r.json().summary;
-		expect(s.shown).toBe(1);
-		expect(r.json().frontier.map((i: { number: number }) => i.number)).toEqual([
-			1, 2,
-		]);
-		expect(s.labelDefects).toEqual([{ number: 2, takes: [] }]);
 	});
 
 	it("prints a --limit-cut issue's label defect on the labelling row", async () => {

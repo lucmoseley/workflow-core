@@ -27,9 +27,7 @@ import {
 	kit,
 	restCalls,
 	run,
-	sessionProcs,
 	WITA_OFFSET_MS,
-	WORKING_PAIR_KB,
 } from "./lib/pick-next-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -74,14 +72,6 @@ describe("readiness", () => {
 		});
 		expect(r.order()).toEqual([93]);
 		expect(r.out).toMatch(/#79\s+.*blocked by #93/);
-	});
-
-	it("excludes an issue whose prose `**Blocked on**` names a still-open issue (mantahostels#1289)", async () => {
-		const r = await run({
-			issues: [{ number: 831 }, { number: 832, body: "**Blocked on** #831." }],
-		});
-		expect(r.order()).not.toContain(832);
-		expect(r.out).toMatch(/#832\s+.*blocked by #831 \(prose only\)/);
 	});
 
 	it("resolves a prose blocker naming a closed issue for free, no second call", async () => {
@@ -330,20 +320,6 @@ describe("readiness", () => {
 });
 
 describe("what counts as work", () => {
-	it("excludes an open issue with an open child, whatever its labels", async () => {
-		// mantahostels#40 has four open children and no `wayfinder:map` label. The label-based
-		// container test let it into the frontier; the structural test drops it.
-		const r = await run({
-			issues: [
-				{ number: 40 },
-				{ number: 78, parent: 40 },
-				{ number: 83, parent: 40 },
-			],
-		});
-		expect(r.order()).toEqual([78, 83]);
-		expect(r.out).toMatch(/#40\s+.*container — 2 open children/);
-	});
-
 	it("excludes a map whose only open child is in another repo (#3658)", async () => {
 		const r = await run({
 			issues: [
@@ -357,17 +333,6 @@ describe("what counts as work", () => {
 		expect(r.out).toMatch(/#40\s+.*container — 1 open children\s{2,}/);
 	});
 
-	it("holds a map back on its summary where its sub-issues cannot be read, saying so (#3658)", async () => {
-		const r = await run({
-			issues: [{ number: 40, openSubIssues: 1 }, { number: 41 }],
-			failSubIssues: [40],
-		});
-		expect(r.order()).toEqual([41]);
-		expect(r.out).toMatch(
-			/#40\s+.*container — 1 open children by its summary; sub-issues unreadable/,
-		);
-	});
-
 	it("reads an empty sub-issues answer as unreadable, not as no children (#3658)", async () => {
 		const r = await run({
 			issues: [{ number: 40, openSubIssues: 1 }, { number: 41 }],
@@ -379,22 +344,6 @@ describe("what counts as work", () => {
 	it("re-admits a parent once its last child closes", async () => {
 		const r = await run({ issues: [{ number: 40 }] });
 		expect(r.order()).toEqual([40]);
-	});
-
-	it("treats an assignee as the claim and drops the issue", async () => {
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			claims: { 1: "self" },
-		});
-		expect(r.order()).toEqual([2]);
-		expect(r.out).toMatch(/#1\s+.*claimed by owner/);
-	});
-
-	it("never filters on a readiness label, since no close clears one", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2, labels: ["takes:implement"] }],
-		});
-		expect(r.order()).toEqual([1, 2]);
 	});
 
 	it("drops pull requests, which share the issue number space", async () => {
@@ -432,17 +381,6 @@ describe("ordering", () => {
 		});
 		expect(r.order()[0]).toBe(3);
 		expect(r.out).toMatch(/#3\s+applied by owner 2d ago/);
-	});
-
-	it("keeps an urgent applied 9 days ago in the urgent band — it never expires (#2664)", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 3, labels: ["urgent"] }],
-			timeline: {
-				3: [{ label: "urgent", created_at: daysAgo(9), actor: "owner" }],
-			},
-		});
-		expect(r.order()).toEqual([3, 1]);
-		expect(r.out).toMatch(/#3\s+applied by owner 9d ago/);
 	});
 
 	it("ranks a descendant of an urgent map as urgent, with no label of its own (#2664)", async () => {
@@ -590,48 +528,6 @@ describe("ordering", () => {
 		expect(rows[1]).toMatchObject({ urgent: true, depth: 1, reach: 3 });
 	});
 
-	it("passes goal-set membership to every issue holding a member out (#3222)", async () => {
-		// #2 blocks #3, whose parent #5 is the goal; #1 holds nothing.
-		const r = await run(
-			{
-				issues: [
-					{ number: 1 },
-					{ number: 2 },
-					{ number: 3, parent: 5 },
-					{ number: 5 },
-				],
-				deps: { 3: [{ number: 2, state: "open" as const }] },
-			},
-			["--goal", "5", "--json"],
-		);
-		const rows = r.json().frontier;
-		expect(rows.map((f: { number: number }) => f.number)).toEqual([2, 1]);
-		expect(rows[0]).toMatchObject({
-			goal: true,
-			goalVia: { number: 5, path: ["#3", "#5"] },
-		});
-		expect(rows[1]).toMatchObject({ goal: false, goalVia: null, depth: 0 });
-	});
-
-	it("ranks an unlabelled bug above an urgent non-bug (#2664)", async () => {
-		const r = await run(
-			{
-				issues: [
-					{ number: 1 },
-					{ number: 2, labels: ["urgent"] },
-					{ number: 3, labels: ["bug"] },
-				],
-				timeline: {
-					2: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-				},
-			},
-			["--json"],
-		);
-		const rows = r.json().frontier;
-		expect(rows.map((f: { number: number }) => f.number)).toEqual([3, 2, 1]);
-		expect(rows[0]).toMatchObject({ bug: true, urgent: true, urgentVia: null });
-	});
-
 	it("flags an empty or whitespace-only body on the frontier under EMPTY BODY, naming each issue in text and JSON, excluding nothing (mantahostels#3443)", async () => {
 		const fx = {
 			issues: [
@@ -683,50 +579,6 @@ describe("ordering", () => {
 		expect(r.out).toMatch(/GOAL SET \(1\): #116/);
 	});
 
-	it("breaks a tie within each ticket-type band toward the ticket that writes no repo file", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["kind:ticket"] },
-				{ number: 2, labels: ["wayfinder:grilling", "takes:wayfinder"] },
-				{ number: 3, labels: ["wayfinder:research"] },
-				{ number: 4, labels: ["takes:wayfinder"] },
-			],
-		});
-		// All four tie at reach 0; within each type band only collision orders them.
-		expect(r.order()).toEqual([2, 4, 3, 1]);
-	});
-
-	/* #2001. */
-	it("puts a question-asking ticket above an implement ticket with higher reach", async () => {
-		// Issue 2 outranks every other on reach; delete the type level and it leads.
-		const r = await run(
-			{
-				issues: [
-					{ number: 1, labels: ["wayfinder:grilling", "takes:wayfinder"] },
-					{ number: 2, labels: ["kind:ticket", "takes:implement"] },
-					{ number: 3 },
-					{ number: 4, labels: ["wayfinder:prototype", "takes:wayfinder"] },
-					{ number: 5, labels: ["takes:wayfinder"] },
-					{ number: 6, labels: ["wayfinder:map", "takes:wayfinder"] },
-					{ number: 7, labels: ["wayfinder:grilling", "takes:implement"] },
-				],
-				deps: { 3: [{ number: 2, state: "open" }] },
-			},
-			["--json"],
-		);
-		const frontier = r.json().frontier;
-		expect(frontier.map((i: { number: number }) => i.number)).toEqual([
-			1, 4, 5, 2, 7, 6,
-		]);
-		expect(frontier[0].asksQuestions).toBe(true);
-		expect(frontier[3].reach).toBe(1);
-		expect(frontier[3].asksQuestions).toBe(false);
-		// A `takes:` value overrides the type label that disagrees with it.
-		expect(frontier[4].asksQuestions).toBe(false);
-		// A map asks nothing by itself, though it takes /wayfinder.
-		expect(frontier[5].asksQuestions).toBe(false);
-	});
-
 	it("keeps an urgent, the goal set and a stalled wait above the type level", async () => {
 		const r = await run(
 			{
@@ -750,13 +602,6 @@ describe("ordering", () => {
 			["--goal", "4"],
 		);
 		expect(r.order()).toEqual([2, 4, 3, 1]);
-	});
-
-	it("falls back to issue number when every other level ties", async () => {
-		const r = await run({
-			issues: [{ number: 9 }, { number: 4 }, { number: 7 }],
-		});
-		expect(r.order()).toEqual([4, 7, 9]);
 	});
 
 	it("hands each frontier row's creation date to the merge across repos", async () => {
@@ -1014,40 +859,6 @@ describe("the waiting:external escalation", () => {
 		expect(r.order()).toEqual([2, 1]);
 	});
 
-	it("leaves a wait under the threshold ranked exactly as an unlabelled one", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["waiting:external"] },
-				{ number: 2 },
-				{ number: 3 },
-			],
-			deps: { 3: [{ number: 2, state: "open" }] },
-			timeline: waiting(1, 3),
-		});
-		expect(r.order()).toEqual([2, 1]);
-		expect(r.out).toMatch(/^#1\s+3d\s/m);
-	});
-
-	it("escalates on either side of the 7-day threshold", async () => {
-		// `daysAgo(7)` drifts by the milliseconds between building the fixture
-		// and reading the clock, so asserting on exactly 7 is a coin toss.
-		// mantahostels#2 outranks mantahostels#1 on reach, so only a firing stall can invert the pair.
-		const pair = [
-			{ number: 1, labels: ["waiting:external"] },
-			{ number: 2 },
-			{ number: 3 },
-		];
-		const deps = { 3: [{ number: 2, state: "open" as const }] };
-
-		const under = await run({ issues: pair, deps, timeline: waiting(1, 6.9) });
-		expect(under.order()).toEqual([2, 1]);
-		expect(under.out).toMatch(/^#1\s+6d\s/m);
-
-		const over = await run({ issues: pair, deps, timeline: waiting(1, 7.1) });
-		expect(over.order()).toEqual([1, 2]);
-		expect(over.out).toMatch(/^#1\s+7d!\s/m);
-	});
-
 	it("keeps an urgent and the goal set above even a long stall", async () => {
 		// Both are what a human just said matters; the stall is inferred.
 		const r = await run(
@@ -1065,14 +876,6 @@ describe("the waiting:external escalation", () => {
 			["--goal", "3"],
 		);
 		expect(r.order()).toEqual([2, 3, 1]);
-	});
-
-	it("keeps a waiting issue in the shortlist", async () => {
-		const r = await run({
-			issues: [{ number: 1, labels: ["waiting:external"] }, { number: 2 }],
-			timeline: waiting(1, 60),
-		});
-		expect(r.order()).toContain(1);
 	});
 
 	it("still shows the wait on an issue the shortlist excludes", async () => {
@@ -1553,15 +1356,6 @@ describe("a date gate in the body (mantahostels#85)", () => {
 		expect(r.out).toMatch(/#85\s+held until .*5d left — no reason given/);
 	});
 
-	it("reports a concrete blocker instead of the gate when both apply", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 85, body: gate(9) }],
-			deps: { 85: [{ number: 1, state: "open" }] },
-		});
-		expect(r.out).toMatch(/#85\s+\w*\s*blocked by #1/);
-		expect(r.out).not.toMatch(/#85\s+spec\s+gated until/);
-	});
-
 	it("ignores a marker that is not at the head of its own line", async () => {
 		const r = await run({
 			issues: [
@@ -1616,42 +1410,6 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 				`#1215\\s+held on ${gateCondition} — check: ${gateCommand} — abandon if: ${abandonCondition}`,
 			),
 		);
-	});
-
-	it("holds a conditioned goal-set member out of the shortlist (#3102)", async () => {
-		const r = await run(
-			{ issues: [{ number: 1 }, { number: 1215, body: gateOn() }] },
-			// --json: the frontier the refill loop reads (lib/refill-frontier.js)
-			["--json", "--goal", "1215"],
-		);
-		expect(r.status).toBe(0);
-		expect(r.json().frontier.map((f: { number: number }) => f.number)).toEqual([
-			1,
-		]);
-	});
-
-	it("states the condition in the exclusion reason, never a date", async () => {
-		// The defect this whole marker exists to fix: a date-shaped reason line
-		// where the truth is a sample count the reader could have checked.
-		const r = await run({
-			issues: [
-				{ number: 1 },
-				{
-					number: 1215,
-					body: gateOn(),
-					labels: ["waiting:external"],
-				},
-			],
-			timeline: {
-				1215: [
-					{ label: "waiting:external", created_at: daysAgo(5), actor: "luc" },
-				],
-			},
-		});
-		expect(r.out).toMatch(
-			new RegExp(`not in the shortlist: gated on ${gateCondition}`),
-		);
-		expect(r.out).not.toMatch(/not in the shortlist: gated until/);
 	});
 
 	it("heads the banner with both spellings", async () => {
@@ -1842,8 +1600,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 			gist: "what it does",
 			...fields,
 		});
-	const reasons = (j: { notLaunched: { number: number; reason: string }[] }) =>
-		Object.fromEntries(j.notLaunched.map((e) => [e.number, e.reason]));
 
 	it("fills every reason the script can know, with its detail", async () => {
 		kit.oracleSessions = ["self", "worker"];
@@ -1882,65 +1638,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 			},
 			{ number: 4, reason: "no command", detail: { takes: ["human"] } },
 		]);
-	});
-
-	it("cuts the set below the slot count as no admission slot", async () => {
-		kit.oracleSessions = ["self", "a@601", "b@602"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB, "602": WORKING_PAIR_KB };
-		kit.psOut = [...sessionProcs("a"), ...sessionProcs("b")].join("\n");
-		// 2706 − 212 − 794 − 300 = 1400 MB: 3 more need 1432 and two pairs.
-		kit.memAvailableKb = 2706 * 1024;
-		const j = (
-			await run(
-				{
-					issues: [1, 2, 3, 4, 5].map((number) => ({
-						number,
-						labels: ["takes:implement"],
-					})),
-				},
-				["--json"],
-			)
-		).json();
-		expect(j.admission.freeSlots).toBe(2);
-		expect(reasons(j)).toEqual({
-			3: "no admission slot",
-			4: "no admission slot",
-			5: "no admission slot",
-		});
-		expect(j.notLaunched[0].detail).toEqual({ slots: 2, freeSlots: 2 });
-	});
-
-	it("gives an issue matching two reasons the earlier one", async () => {
-		kit.oracleSessions = ["self", "worker"];
-		warm(1, "one", { writeSet: ["scripts/held.js"] });
-		const j = (
-			await here(
-				{
-					issues: [{ number: 1, body: "one", labels: ["takes:human"] }],
-					heldFiles: { "scripts/held.js": "worker" },
-				},
-				["--json"],
-			)
-		).json();
-		expect(reasons(j)).toEqual({ 1: "no command" });
-	});
-
-	it("counts an issue merged into a set member's line as launched", async () => {
-		warm(1, "one", { writeSet: ["scripts/a.js"], sizeBand: "small" });
-		warm(2, "two", { writeSet: ["scripts/a.js"], sizeBand: "small" });
-		const j = (
-			await here(
-				{
-					issues: [
-						{ number: 1, body: "one", labels: ["takes:implement"] },
-						{ number: 2, body: "two", labels: ["takes:implement"] },
-					],
-				},
-				["--json"],
-			)
-		).json();
-		expect(j.conflictGraph.proposed).toEqual([1]);
-		expect(j.notLaunched).toEqual([]);
 	});
 
 	const retro = "Standalone: retro-sweep finding (#948)";
@@ -1991,28 +1688,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 		[10, 11, 12, 13, 14],
 		[15, 16, 17, 18],
 	];
-
-	it("launches retro findings as bundles of at most 8, one slot each (#1105)", async () => {
-		warm(10, retro, { writeSet: ["scripts/a.js"] });
-		warm(11, retro, { writeSet: ["scripts/a.js"] });
-		const j = (
-			await here(
-				{
-					issues: [
-						...nineFindings(),
-						{ number: 30, body: "not a finding", labels: ["takes:triage"] },
-					],
-				},
-				["--json"],
-			)
-		).json();
-		expect(j.retroBundles.map((b: RetroLaunch) => b.issues)).toEqual(
-			nineBundled,
-		);
-		// Two bundles plus the lone non-retro triage issue, despite 10 sharing a file with 11.
-		expect(j.dispatchableFloor).toBe(3);
-		expect(j.notLaunched).toEqual([]);
-	});
 
 	it("prints each bundle's line and prompt and carries both in --json, so every reader gets its issues back (#1195, #1206)", async () => {
 		const fixture = {
@@ -2089,77 +1764,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 		expect(r.out).toMatch(
 			/open tally +8 open, 2 frontier, 4 blocked, 1 claimed \(#6\), 1 container \(#7\)\n/,
 		);
-	});
-
-	it("tallies the gated, dispatched and degraded categories too", async () => {
-		const isoIn = (n: number) =>
-			new Date(Date.now() + WITA_OFFSET_MS + n * 86_400_000)
-				.toISOString()
-				.slice(0, 10);
-		const j = (
-			await run(
-				{
-					issues: [
-						{ number: 1, labels: ["takes:implement"] },
-						{
-							number: 2,
-							body: `**Gated until:** ${isoIn(9)} — later`,
-							labels: ["takes:implement"],
-						},
-						{ number: 3, labels: ["takes:implement"] },
-						{ number: 4, labels: ["takes:implement"] },
-					],
-					dispatched: [{ issues: [3], prompt: "/implement 3" }],
-					failDeps: [4],
-				},
-				["--json"],
-			)
-		).json();
-		const count = (name: string) =>
-			j.openTally.categories.find(
-				(c: { category: string }) => c.category === name,
-			);
-		expect(count("gated")).toEqual({
-			category: "gated",
-			count: 1,
-			numbers: [2],
-		});
-		expect(count("already dispatched")).toEqual({
-			category: "already dispatched",
-			count: 1,
-			numbers: [3],
-		});
-		expect(count("degraded")).toEqual({
-			category: "degraded",
-			count: 1,
-			numbers: [4],
-		});
-		expect(j.openTally.frontier).toBe(1);
-	});
-
-	it("lists a dropped issue whose mergeable partner is not the one it clashed with", async () => {
-		// #3 clashes with #1 on a.js; its merge pair is with #2 on b.js, so
-		// nothing carries it.
-		warm(1, "one", { writeSet: ["scripts/a.js"], sizeBand: "M" });
-		warm(2, "two", { writeSet: ["scripts/b.js"], sizeBand: "small" });
-		warm(3, "three", {
-			writeSet: ["scripts/a.js", "scripts/b.js"],
-			sizeBand: "small",
-		});
-		const j = (
-			await here(
-				{
-					issues: [
-						{ number: 1, body: "one", labels: ["takes:implement"] },
-						{ number: 2, body: "two", labels: ["takes:implement"] },
-						{ number: 3, body: "three", labels: ["takes:implement"] },
-					],
-				},
-				["--json"],
-			)
-		).json();
-		expect(j.conflictGraph.proposed).toEqual([1, 2]);
-		expect(reasons(j)).toEqual({ 3: "shares a file" });
 	});
 
 	it("carries the tally in --json with every number, however many", async () => {

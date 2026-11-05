@@ -18,9 +18,11 @@
  * same as the label being absent.
  * @param {Timeline} timeline
  * @param {string} name
+ * @param {number} [now] ms since the epoch; the wall clock where absent, so
+ *   a caller asserting an age passes its own (§X9)
  * @returns {{unknown: true, error: string | undefined}|{unknown?: false, ageDays: number, appliedAt: string, appliedBy: string}}
  */
-function labelAge(timeline, name) {
+function labelAge(timeline, name, now = Date.now()) {
 	if (!timeline.ok) return { unknown: true, error: timeline.error };
 	const applied =
 		(timeline.events ?? [])
@@ -32,7 +34,7 @@ function labelAge(timeline, name) {
 	if (!applied)
 		return { unknown: true, error: "no `labeled` event on the timeline" };
 	return {
-		ageDays: (Date.now() - new Date(applied.created_at).getTime()) / 864e5,
+		ageDays: (now - new Date(applied.created_at).getTime()) / 864e5,
 		appliedAt: applied.created_at,
 		appliedBy: applied.actor?.login || "unknown",
 	};

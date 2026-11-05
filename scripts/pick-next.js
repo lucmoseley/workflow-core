@@ -78,14 +78,18 @@
  *   2  a command line it refuses: a --goal it cannot read, or one naming another
  *      repo's issue where only a drain can reach one
  *
- * DEPARTS FROM §N7: `module.exports = { buildPayload, render, main }` (mantahostels#1794,
- * widened at mantahostels#1944) — reasons at each export's own site, above the
- * `module.exports` line.
+ * DEPARTS FROM §N7: `module.exports = { main }` (mantahostels#1944) — the reason
+ * at the export's own site, above the `module.exports` line.
+ *
+ * Its decisions live in lib modules named for what each decides, so each is
+ * tested by calling it (#4329): lib/pick-next-verdict.js (each issue's sort
+ * levels and exclusion), lib/pick-next-sessions.js, lib/pick-next-dispatched.js,
+ * lib/pick-next-collisions.js, lib/pick-next-accounting.js and
+ * lib/pick-next-band-read.js. This file reads, wires and renders.
  */
 
 const { scriptPath } = require("./lib/script-path.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
-const fs = require("node:fs");
 const nodePath = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { isOutcomeError } = require("./lib/check");
@@ -101,26 +105,18 @@ const {
 	mapLimit,
 	unreachableRemedy,
 } = require("./lib/gh");
-const {
-	listedSessionIds,
-	TERMINAL_STATES: JOB_STATE_TERMINAL,
-} = require("./lib/agent-liveness");
+const { listedSessionIds } = require("./lib/agent-liveness");
 const { readJobs } = require("./lib/hung-jobs");
 const { buildOverloadText } = require("./lib/cpu-sample");
-const {
-	NO_COMMAND_VALUES,
-	takesLabel,
-	takesOf,
-	takesValue,
-} = require("./lib/takes-label");
+const { takesLabel } = require("./lib/takes-label");
 const arbiter = require("./lib/arbiter-store");
 const writeSetCache = require("./lib/write-set-cache");
 const writeSetPredict = require("./lib/write-set-predict");
 const warmFractionLog = require("./lib/warm-fraction-log");
 const selectionMarker = require("./lib/selection-marker");
 const idSeam = require("./lib/session-id");
-const { MAP_LABEL, resolveGate } = require("./lib/issue-gate");
-const { holderName, parentVerdictOf } = require("./lib/parent-claims");
+const { MAP_LABEL } = require("./lib/issue-gate");
+const { parentVerdictOf } = require("./lib/parent-claims");
 const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
 const {
 	isInOtherRepo,
@@ -151,19 +147,51 @@ const {
 	retroLaunches,
 } = require("./lib/retro-bundles");
 const { hostRoot } = require("./lib/host-root.js");
-const { execGit, gitDirs } = require("./lib/git.js");
+const { execGit } = require("./lib/git.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	readRecentEntries: recentDispatches,
-	buildHeldText,
-	entryHolds,
 	DEFAULT_WINDOW_HOURS: DISPATCH_WINDOW_HOURS,
 } = require("./lib/dispatch-ledger");
-const { WAITING_LABEL, compareLevels } = require("./lib/frontier-order.js");
+const { WAITING_LABEL } = require("./lib/frontier-order.js");
 const { openDescendants } = require("./lib/goal-set.js");
 const { buildGoalRefusal, parseGoalForm } = require("./lib/refill-goal.js");
-const { labelAge } = require("./lib/label-age.js");
 const { snapshotFile } = require("./lib/pick-next-snapshot.js");
+const {
+	dispatchableFloorOf,
+	noCommandOf,
+	notLaunchedOf,
+	openTallyOf,
+	summaryOf,
+} = require("./lib/pick-next-accounting.js");
+const {
+	bandReadRequiredOf,
+	dumpBodies,
+	prewarm,
+} = require("./lib/pick-next-band-read.js");
+const {
+	annotatePaths,
+	collisionsOf,
+} = require("./lib/pick-next-collisions.js");
+const {
+	dispatchAge,
+	dispatchLiveness,
+	dispatchLivenessLabel,
+} = require("./lib/pick-next-dispatched.js");
+const {
+	claimHolder,
+	claimsFromStore,
+	reclaimableFrom,
+	storeElsewhere,
+} = require("./lib/pick-next-sessions.js");
+const {
+	enrichIssue,
+	inheritanceOf,
+	rankFrontier,
+	tiersOf,
+	WAITING_STALL_DAYS,
+	waitCell,
+} = require("./lib/pick-next-verdict.js");
 
 const REPO_DEFAULT = "{owner}/{repo}";
 /**
@@ -174,33 +202,6 @@ const REPO_DEFAULT = "{owner}/{repo}";
  * different trees — the disagreement `/pick-next` printed as CLAIMS DEGRADED.
  */
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
-
-/*
- * `waiting:external` — the action has been taken and now sits with someone
- * outside the project, so nobody here can move it (mantahostels#243).
- *
- * ESCALATES WITH AGE, NEVER DEMOTES. Sinking a waiting issue would make a stall
- * quieter the longer it ran, which is the failure mantahostels#85 (no working channel to
- * an outside partner) already suffered. So a wait at the threshold below climbs, and
- * one under it ranks exactly as it would with no label at all.
- *
- * 7 DAYS — the first of the three actions the evidence puts a date on, from
- * the wait-threshold research mantahostels#956 re-derived (75%, 65-85%, that 7
- * beats both 3 and 14), replacing the 14-day guess mantahostels#259 set;
- * docs/agents/triage-labels.md owns the figure. The research's later points — switch channel at
- * 21 days, non-responsive at 45 — need no threshold of their own: escalating is
- * a prompt to look rather than the action itself, and rank goes on climbing
- * with age past this one. A threshold rather than a curve because at most three
- * issues can carry this label, so a curve would tune invisible differences.
- *
- * Rejected — 14, which the same research also supports: its closest structural
- * match puts the modal first chase at 1-2 weeks, and a desk the adopter must
- * return to for the price-comparison consent makes being logged a nuisance an
- * asymmetric cost. 7 survives that because what fires here is the
- * receipt-confirmation chase the research separates out — a factual question an
- * inbox answers without deciding anything — not the decision chase.
- */
-const WAITING_STALL_DAYS = 7;
 
 /*
  * `parked` — a session posted a house question round on the issue and ended
@@ -268,96 +269,12 @@ async function ghGet(path) {
 
 // ------------------------------------------------------------------ collection
 
-/**
- * What the GitHub listing gives.
- * @typedef {object} RawIssue
- * @property {number} number
- * @property {string} state
- * @property {string} title
- * @property {string} url
- * @property {string} createdAt ISO 8601, GitHub's `created_at`
- * @property {string[]} assignees
- * @property {string[]} labels
- * @property {string} body
- * @property {string|null} parent
- * @property {number} openSubIssues its open children in every repo, by its
- *   sub_issues_summary
- * @property {string|null} repo the repo it lives in, `owner/name`
- */
+/** @typedef {import("./lib/pick-next-verdict.js").RawIssue} RawIssue */
+/** @typedef {import("./lib/pick-next-verdict.js").Enriching} Enriching */
+/** @typedef {import("./lib/pick-next-verdict.js").DepsResolved} DepsResolved */
+/** @typedef {import("./lib/pick-next-verdict.js").Issue} Issue */
 
-/**
- * That, plus everything `main` hangs on it before anything reads one.
- *
- * EVERY FIELD IS OPTIONAL HERE, AND REQUIRED IN `Issue` BELOW, so a read placed
- * before the field is assigned does not compile (mantahostels#1637).
- *
- * IT DOES NOT CATCH ALL OF THEM. A field only used for its truthiness is not
- * protected, `undefined` being falsy like `false`: that is the booleans, the
- * two `unknown`s, and `urgency`/`urgentVia`/`wait`/`gate`/`gateOn`, whose types
- * already admit a falsy value.
- * @typedef {object} Enrichment
- * @property {string[]} [paths]
- * @property {import("./lib/blocker-graph").Edge[]} [blockedBy]
- * @property {unknown} [depsUnknown]
- * @property {ReturnType<typeof proseBlockedOf>} [proseBlocked]
- * @property {{label: string, native: boolean}[]} [openBlockers]
- * @property {number} [reach]
- * @property {ReturnType<typeof labelAge>|null} [urgency] the issue's own `urgent`'s age, null where the label is off
- * @property {import("./lib/blocker-graph").Via|null} [urgentVia] the held issue whose `urgent` it inherits, null where none does
- * @property {import("./lib/blocker-graph").Via|null} [bugVia] the held `bug` it inherits, null where none does
- * @property {import("./lib/blocker-graph").Via|null} [goalVia] the held goal-set member it inherits, null where none does
- * @property {number} [depth]
- * @property {number} [closes]
- * @property {boolean} [bug]
- * @property {boolean} [urgent]
- * @property {ReturnType<typeof waitFrom>|null} [wait]
- * @property {number} [stallDays]
- * @property {ReturnType<typeof labelAge>|null} [parked] `parked`'s age, null where the label is off
- * @property {boolean} [goal]
- * @property {number} [collision]
- * @property {boolean} [asksQuestions]
- * @property {string[]} [takes]
- * @property {string} [group]
- * @property {ReturnType<import("./lib/issue-gate").gateOf>} [gate]
- * @property {ReturnType<import("./lib/issue-gate").gateOnOf>} [gateOn]
- * @property {boolean} [gateConflict]
- * @property {boolean} [gateHolds]
- * @property {boolean} [gateOnHolds]
- * @property {unknown} [excluded]
- * @property {import("./lib/dispatch-ledger").DispatchRecord} [dispatchRec] the ledger entry holding it (#752)
- * @property {boolean} [dispatchHeld]
- * @property {boolean} [assignedUnclaimed]
- */
-
-/**
- * Mid-enrichment: whatever `main` has assigned so far, nothing promised.
- * @typedef {RawIssue & Enrichment} Enriching
- */
-
-/**
- * The first three fields resolved, the rest still pending. The passes that read
- * a blocker before the rest of enrichment has run take this rather than
- * `Enriching`.
- * @typedef {Enriching &
- *   Required<Pick<Enrichment, "blockedBy" | "depsUnknown" | "proseBlocked">>
- * } DepsResolved
- */
-
-/**
- * Post-enrichment, which is what everything downstream of `main`'s enrichment
- * block reads.
- *
- * `paths` stays optional: `annotatePaths` returns it, on copies of `frontier`
- * and `inFlight` only, well below `enrichIssue`. So does `dispatchRec`, absent
- * wherever no ledger entry holds the issue.
- * @typedef {RawIssue & Required<Omit<Enrichment, "paths" | "dispatchRec">> & {paths?: string[], dispatchRec?: import("./lib/dispatch-ledger").DispatchRecord}} Issue
- */
-
-/**
- * An issue `annotatePaths` has run over, which is the only place `paths` is
- * safe to read.
- * @typedef {Issue & {paths: string[]}} Pathed
- */
+/** @typedef {import("./lib/pick-next-collisions.js").Pathed} Pathed */
 
 /*
  * Type-predicate filters, so a `.filter(...).map(...)` pair narrows the field
@@ -374,41 +291,7 @@ const hasParked = (i) => i.parked !== null;
 
 /** @typedef {{ok: true, files: string[]} | {ok: false, error: string}} TrackedFiles */
 
-/**
- * The STORED half of a cache row: what `writeEntry` builds and `readEntry` hands
- * back, in `scripts/lib/write-set-cache.js`.
- *
- * `writeSet` is the one field guaranteed — `readEntry` returns null rather than
- * a row where `isPathList(e.writeSet)` fails. The rest are optional because it
- * validates neither their presence nor their type, so an entry written before a
- * field existed reads as undefined (mantahostels#1460).
- * @typedef {object} StoredEntry
- * @property {string[]} writeSet
- * @property {string|null} [sizeBand]
- * @property {string|null} [gist]
- * @property {string} [derivedAt]
- * @property {string|null} [predictedSize]
- */
-
-/**
- * One cache row as a caller reads it: the stored entry, plus the fields
- * `lookupAll` and `prewarm` hang on it. `number`, `provisional` and
- * `unrevalidated` are set on every row by both; `replaced` is `prewarm`'s alone,
- * written on a provisional row and on nothing else.
- * @typedef {StoredEntry & {number: number, provisional: boolean, unrevalidated: boolean, replaced?: string|null}} CacheEntry
- */
-
-/**
- * A cache miss: the issue, why it missed, and the key to store the band read's
- * answer back under.
- * @typedef {object} CacheMiss
- * @property {number} number
- * @property {string} state
- * @property {string} bodyHash
- * @property {string[]|null} gonePaths
- */
-
-/** @typedef {{warm: CacheEntry[], cold: CacheMiss[]}} CacheSplit */
+/** @typedef {import("./lib/pick-next-band-read.js").CacheEntry} CacheEntry */
 
 /**
  * What `listedSessionIds()` in `scripts/lib/agent-liveness.js` hands back. It
@@ -417,9 +300,7 @@ const hasParked = (i) => i.parked !== null;
  * two shapes rather than one all-optional shape so that a `listed.why` test
  * narrows, and a reader of `listed.ids` — the admission block's session count,
  * below — reads it without making one (mantahostels#1460).
- * @typedef {{why: string, ids?: undefined, names?: undefined, finished?: undefined, terminal?: undefined, pids?: undefined}} SessionsRefused
- * @typedef {{why?: undefined, ids: Set<string>, names: Map<string, string>, finished: Set<string>, terminal: Set<string>, pids: Map<string, number>}} SessionsListed
- * @typedef {SessionsRefused|SessionsListed} ListedSessions
+ * @typedef {import("./lib/agent-liveness.js").ListedSessions} ListedSessions
  */
 
 /**
@@ -501,112 +382,13 @@ async function readTimelineOf(n) {
 	return r.ok ? { ok: true, events: r.out } : { ok: false, error: r.error };
 }
 
-/**
- * Each issue's inherited tiers and chain depth (#3222), read at selection
- * time and never written onto it. A `bug`, an `urgent` and a goal-set member
- * pass on from any issue held out, as a blocker or as a parent (#3250).
- * @param {import("./lib/blocker-graph").Graph} graph
- * @param {Map<number, RawIssue>} byNumber
- */
-function inheritanceOf(graph, byNumber) {
-	/** @param {number} n @param {string} label */
-	const has = (n, label) => byNumber.get(n)?.labels.includes(label) === true;
-	// In compareLevels' order: depth runs to the first of these an issue holds.
-	return blockerGraph.inheritance(graph, {
-		bug: (n) => has(n, "bug"),
-		urgent: (n) => has(n, URGENT_LABEL),
-		goal: (n) => goalRanked.has(n),
-	});
-}
-
-/**
- * The tier levels an issue ranks on: its own joined with what it inherits,
- * a `bug` urgent too (#2664).
- * @param {{bug: boolean, urgent: boolean, goal: boolean}} own
- * @param {ReturnType<ReturnType<typeof inheritanceOf>>} held
- */
-function tiersOf(own, held) {
-	const bug = own.bug || held.via.bug !== null;
-	return {
-		bug,
-		urgent: bug || own.urgent || held.via.urgent !== null,
-		goal: own.goal || held.via.goal !== null,
-		depth: held.depth,
-	};
-}
-
-/**
- * The wait reads the same timeline for the same reason `urgent` does: a
- * hand-written date in the body rots, and nothing updates it when the wait
- * resets.
- *
- * An unreadable start leaves the wait unranked rather than assumed stalled: the
- * worst case is a stall keeping the rank it has today and printing `?`.
- * @param {{ok: boolean, events?: any[], error?: any}} timeline
- * @returns {{unknown: true, error: any, ageDays?: undefined, appliedAt?: undefined, appliedBy?: undefined, stalled?: undefined}
- *   | {unknown?: false, error?: undefined, ageDays: number, appliedAt: string, appliedBy: string, stalled: boolean}}
- */
-function waitFrom(timeline) {
-	const age = labelAge(timeline, WAITING_LABEL);
-	return age.unknown
-		? age
-		: { ...age, stalled: age.ageDays >= WAITING_STALL_DAYS };
-}
-
 // -------------------------------------------------------------------- analysis
-
-/**
- * @param {RawIssue} issue
- * @param {Set<number>} mapNumbers
- * @param {Set<number>} specNumbers
- */
-function groupOf(issue, mapNumbers, specNumbers) {
-	if (issue.labels.includes("wayfinder:map")) return "map root";
-	if (issue.labels.includes("kind:spec")) return "spec root";
-	if (!issue.parent) return "standalone";
-	const parent = parseIssueRef(issue.parent)?.number ?? null;
-	if (parent !== null && mapNumbers.has(parent)) return `map #${parent}`;
-	if (parent !== null && specNumbers.has(parent)) return `spec #${parent}`;
-	return `child of #${parent}`;
-}
-
-/*
- * Collision estimate — the collision sort level (mantahostels#106), and its
- * weakest ruling (70%, band 55-82%). A `wayfinder:grilling` or `:research`
- * ticket resolves by writing a comment and closing an issue, touching no repo
- * file, so it cannot collide with a parallel session on `doc-map.md` or the
- * roadmap pair. Everything else is assumed to write. This reads labels applied
- * for other reasons — mantahostels#96 ruled out a label declaring what a
- * session will touch, because that is a promise agents break.
- */
-const COMMENT_ONLY = ["wayfinder:grilling", "wayfinder:research"];
-/** @param {RawIssue} issue */
-const collisionOf = (issue) =>
-	issue.labels.some((l) => COMMENT_ONLY.includes(l)) ? 0 : 1;
-
-/*
- * Ticket type — #2001. A ticket that asks the founder questions ranks first,
- * so its round lands while the founder is present rather than behind a long
- * implement run. Untyped means no `wayfinder:` label at all: a `wayfinder:map`
- * asks nothing by itself. Every case needs `takes:wayfinder`, since a `takes:`
- * value overrides a type label that disagrees with it
- * (docs/agents/triage-labels.md §`takes:`).
- * Residual: labels are all it reads, so a ticket that asks questions without
- * one of these labels ranks as one that asks none.
- */
-const QUESTION_TYPES = ["wayfinder:grilling", "wayfinder:prototype"];
-const WAYFINDER_LABEL = takesLabel("wayfinder");
-/** @param {RawIssue} issue */
-const isQuestionType = (issue) =>
-	issue.labels.includes(WAYFINDER_LABEL) &&
-	(issue.labels.some((l) => QUESTION_TYPES.includes(l)) ||
-		!issue.labels.some((l) => l.startsWith("wayfinder:")));
 
 /*
  * The `takes:` values, shown so a batch says what to type per issue without
  * opening any of it (mantahostels#227). Never a filter, per rule 4 above, and
  * mantahostels#111 rejected selection writing one. Its one sort input is
- * `takes:wayfinder`, read by `isQuestionType` above (#2001). A missing
+ * `takes:wayfinder`, read by lib/pick-next-verdict.js (#2001). A missing
  * or duplicated value prints as it is; check-issue-labels.js reports it.
  *
  * `waiting:external` reaching the sort above does NOT contradict that (mantahostels#243).
@@ -614,49 +396,10 @@ const isQuestionType = (issue) =>
  * close clears one. This one removes nothing from the shortlist, and what the
  * sort reads is elapsed time on the timeline, which a stale label cannot fake.
  */
-const HUMAN = takesValue("human");
-const CHILDREN = takesValue("children");
 const RETRO_LABEL = takesLabel("triage");
 // "none" is a fault, not a state — every open issue carries one.
 /** @param {string[]} takes */
 const takesCell = (takes) => (takes.length > 0 ? takes.join("+") : "none");
-
-/**
- * NO COMMAND OPENS IT (mantahostels#1622, built at mantahostels#1626) — the accounting line's third
- * term. `takes:human` is founder work, and `takes:children` is a container
- * whose last child has closed: both sit on the frontier takeable by nobody a
- * `/`-command can start.
- *
- * THE OPEN-CHILD COUNT IS A PARAMETER, NOT AN ASSUMPTION. A live container is
- * held off the frontier by the exclusion cascade below (`container — <n> open
- * children`), so on the frontier this arm fires only on the rotted case — but
- * any caller applying this to a different set owes the count itself. That is
- * the distinction against mantahostels#1507's `dispatchable` predicate, which subtracts
- * `children` unconditionally from `graph.proposed`: same two label values,
- * different rule, so the two deliberately do not share a body.
- *
- * SO THE `openChildCount === 0` CLAUSE IS UNVERIFIED. No frontier fixture can
- * present a non-zero count — the exclusion cascade got there first — so no test
- * distinguishes this from `takes.includes(CHILDREN)` alone. Do not delete it
- * on that reading: it is what keeps the term right if that cascade is reordered.
- *
- * @param {string[]} takes
- * @param {number} openChildCount
- */
-const noCommandOpens = (takes, openChildCount) =>
-	takes.includes(HUMAN) || (takes.includes(CHILDREN) && openChildCount === 0);
-
-/**
- * The WAIT cell: whole days since `waiting:external` went on, `!` marking the
- * wait past the threshold — the only one the sort reads. `?` is the label on
- * with its start unreadable, which leaves the rank untouched.
- * @param {Issue} issue
- */
-const waitCell = (issue) => {
-	if (!issue.wait) return "";
-	if (issue.wait.unknown) return "?";
-	return `${Math.floor(issue.wait.ageDays)}d${issue.wait.stalled ? "!" : ""}`;
-};
 
 /**
  * Elapsed days, or null where the label is off or its start unreadable.
@@ -707,41 +450,10 @@ function readTrackedFiles() {
 }
 
 /*
- * Path resolution and the backtick scan live in `lib/write-set-predict.js`, so
- * the prediction this run STORES and the collisions it PRINTS are read off one
- * scanner rather than two that can drift (mantahostels#1001).
- */
-const { pathsNamedIn } = writeSetPredict;
-
-/**
- * Each issue with the tracked paths its body names; none if git failed.
- * @param {Issue[]} list
- * @param {TrackedFiles} tracked
- * @returns {Pathed[]}
- */
-function annotatePaths(list, tracked) {
-	return list.map((i) => ({
-		...i,
-		paths: tracked.ok ? pathsNamedIn(i.body, tracked.files) : [],
-	}));
-}
-
-/**
- * The paths two annotated issues both name, in the first one's order.
- *
- * Typed on the one field it reads rather than on `Issue`: the second argument
- * is an in-flight record as often as a candidate, and those two agree on
- * `paths` and on nothing else worth asserting here (mantahostels#1460).
- * @param {{paths: string[]}} a
- * @param {{paths: string[]}} b
- */
-const sharedPaths = (a, b) => a.paths.filter((p) => b.paths.includes(p));
-
-/*
  * The doc-map queue — mantahostels#409. Most open issues would write `docs/doc-map.md`, at
  * the END of their run: it is a STAMP, so they queue there and run together,
- * and sharing it disqualifies nobody (mantahostels#422, .claude/skills/pick-next/SKILL.md). `pairwiseCollisions` above
- * cannot see them: their bodies name the entry (`§B56`), never a backticked
+ * and sharing it disqualifies nobody (mantahostels#422, .claude/skills/pick-next/SKILL.md). The pairwise collisions
+ * (lib/pick-next-collisions.js) cannot see them: their bodies name the entry (`§B56`), never a backticked
  * `docs/doc-map.md`.
  *
  * `scripts/lib/file-claim.js` stays the enforcement tier.
@@ -751,105 +463,6 @@ const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT;
 const docMapQueueOf = (list) =>
 	list.filter((i) => DOC_MAP_HINT.test(i.body)).map((i) => i.number);
 
-/**
- * Fills every cache miss with a grep prediction and returns the run's THREE-WAY
- * split — band-read warm, provisional, and the misses no prediction could cover
- * (mantahostels#1001).
- *
- * WHY THIS RUN AND NOT THE NEXT. The prediction is stored AND folded into this
- * run's own split, so the run that discovers a miss is already the run that
- * stops paying for it (mantahostels#1001).
- *
- * `provisional` IS NEVER MERGED INTO `warm`. A band read is an agent's judgement
- * of one issue; this is a regex over its backticks.
- * @param {string} root
- * @param {Issue[]} frontier
- * @param {{ tracked: TrackedFiles, split: CacheSplit, enabled: boolean }} opts
- */
-function prewarm(root, frontier, { tracked, split, enabled }) {
-	const warm = split.warm.filter((w) => !w.provisional);
-	const provisional = split.warm.filter((w) => w.provisional);
-	if (!enabled)
-		return { warm, provisional, cold: split.cold, skipped: [], enabled };
-
-	const byNumber = new Map(frontier.map((i) => [i.number, i]));
-	const cold = [];
-	const skipped = [];
-	for (const miss of split.cold) {
-		const issue = byNumber.get(miss.number);
-		const r = issue
-			? writeSetPredict.storeProvisional(root, issue, tracked)
-			: { ok: false, why: "not on the frontier this run read" };
-		if (!r.ok) {
-			// Unpredictable or unstorable: it stays cold, and the band read still
-			// owns it.
-			cold.push(miss);
-			skipped.push({ number: miss.number, why: r.why });
-			continue;
-		}
-		/* Cast on `r.entry` alone, so the four fields written here stay checked,
-		 * and to `StoredEntry`, which is the half the store returns. Needed
-		 * because `storeProvisional`'s `{ok, entry}` union does not narrow on
-		 * `r.ok`; true because `writeEntry` builds `writeSet ?? []` on every
-		 * entry and hands that same object back (mantahostels#1460).
-		 */
-		provisional.push({
-			number: miss.number,
-			.../** @type {StoredEntry} */ (r.entry),
-			provisional: true,
-			// Freshly derived against the tree this run listed, so the rename check
-			// cannot be stale.
-			unrevalidated: false,
-			// What the prediction was written over: `cold` is a first sighting,
-			// anything else a band read this body or this tree has outrun.
-			replaced: miss.state,
-		});
-	}
-	return { warm, provisional, cold, skipped, enabled };
-}
-
-/**
- * The bodies are already on the list payload, so dumping them costs no request —
- * never add one here (mantahostels#409). A failed dump is reported, never fatal.
- * @param {string} dir
- * @param {any[]} list
- */
-function dumpBodies(dir, list) {
-	try {
-		fs.mkdirSync(dir, { recursive: true });
-		for (const i of list)
-			fs.writeFileSync(
-				nodePath.join(dir, `${i.number}.md`),
-				// The cache key rides along so a band read working only from this
-				// directory can store its result back without recomputing it (mantahostels#385).
-				`# #${i.number} — ${i.title}\n\n<!-- body-hash: ${writeSetCache.bodyHash(i.body)} -->\n\n${i.body}\n`,
-			);
-		return { ok: true, dir, count: list.length };
-	} catch (e) {
-		return { ok: false, dir, count: 0, error: parseErrLine(e) };
-	}
-}
-
-/**
- * Every pair of the given issues sharing at least one named path, in list order.
- * @param {any[]} list
- */
-function pairwiseCollisions(list) {
-	const out = [];
-	for (let a = 0; a < list.length; a++)
-		for (let b = a + 1; b < list.length; b++) {
-			const shared = sharedPaths(list[a], list[b]);
-			if (shared.length > 0)
-				out.push({ a: list[a].number, b: list[b].number, paths: shared });
-		}
-	return out;
-}
-
-/*
- * Every pair of a candidate and an in-flight (claimed) issue sharing a path.
- * The in-flight set is dropped from the shortlist, so `pairwiseCollisions`
- * above can never see it — yet it is the set someone is writing right now.
- */
 /*
  * Printed pairs are capped; --json carries the lot. A hot file drives the count
  * quadratically — one live run gave 94 pairs, most of them `docs/doc-map.md`,
@@ -925,54 +538,6 @@ function chunk(items, n) {
 	return rows;
 }
 
-/**
- * Who holds a claim, for a reader. The assignee is what a person recognises; the
- * claim's own session is all there is where a session recorded without assigning
- * itself, and that claim is in flight all the same.
- *
- * NAMED, NOT NUMBERED. `names` is the oracle's id -> display name map, so the
- * row reads `session Implement 708` rather than a bare uuid. It falls back to a
- * short id where the oracle named nothing.
- *
- * A DEGRADED READ NEVER ASSERTS LIVENESS (mantahostels#708).
- * @param {string[]|null|undefined} assignees
- * @param {string|null|undefined} session
- * @param {boolean|undefined} kept
- * @param {Map<string, string>|null|undefined} names
- */
-function claimHolder(assignees, session, kept, names) {
-	const who =
-		assignees && assignees.length > 0
-			? assignees.join(", ")
-			: `session ${holderName(names, session)}`;
-	return kept ? `${who}, liveness unread` : who;
-}
-
-/**
- * @param {any[]} candidates
- * @param {any[]} inFlight
- * @param {Map<number, any>} held
- */
-function crossCollisions(candidates, inFlight, held) {
-	const out = [];
-	for (const c of candidates)
-		for (const r of inFlight) {
-			const shared = sharedPaths(c, r);
-			if (shared.length > 0)
-				out.push({
-					candidate: c.number,
-					inFlight: r.number,
-					// Joined only at the print; --json readers get the list.
-					claimedBy: r.assignees,
-					// The claim's own session (mantahostels#708): `claimedBy` is empty where a
-					// session recorded without assigning.
-					claimedSession: held.get(r.number) ?? null,
-					paths: shared,
-				});
-		}
-	return out;
-}
-
 // ------------------------------------------------------------------ admission
 
 /*
@@ -998,84 +563,6 @@ const { readLiveLanders } = require("./lib/local-tester.js");
 /** @typedef {ReturnType<typeof machineAdmission>} Machine */
 
 /**
- * The same directory named two ways, or `null` where either cannot be resolved.
- * Symlinks are followed: a worktree and its canonical checkout are genuinely
- * different trees, but `/home/x` and a symlink to it are one.
- * @param {string} dir
- */
-function readRealOrNull(dir) {
-	try {
-		return fs.realpathSync(dir);
-	} catch {
-		return null;
-	}
-}
-
-/**
- * The canonical checkout of the tree at `dir`, or null where git cannot say.
- *
- * `--git-common-dir` is the same `.git` from inside a linked worktree as from
- * inside the checkout that owns it, so its parent is the canonical tree —
- * which `--show-toplevel` is not, and cannot be made to be.
- *
- * BUT ONLY WHERE THE TWO GIT DIRS DIFFER, which is what makes a tree a linked
- * worktree. Taking the parent unconditionally misreads a submodule, whose
- * common dir is `<super>/.git/modules/<name>` — a real directory that is no
- * checkout, so the run would announce a "worktree of" a tree nobody has.
- * @param {string} dir
- */
-function readCanonicalCheckoutOf(dir) {
-	const dirs = gitDirs(dir);
-	if (!dirs) return null;
-	const { gitDir, common } = dirs;
-	return gitDir === common
-		? readRealOrNull(dir)
-		: readRealOrNull(nodePath.dirname(common));
-}
-
-/*
- * WHICH TREE THE CLAIMS CAME FROM (mantahostels#703).
- *
- * This script pins its repo with WFC_REPO_ROOT; the arbiter store derives its
- * own state directory from CLAUDE_PROJECT_DIR, falling back to `git rev-parse`
- * of the working directory.
- *
- * THE INVARIANT IS NOT THAT THE TWO ROOTS AGREE. It is that the store's tree is
- * the tree the claims were filed under. Neither variable is set in this
- * project's own environment, so a run from a throwaway worktree has both sides
- * resolving independently to that worktree; they agree, and the store is still
- * the wrong one, because every claim was filed under the slug of the canonical
- * checkout.
- *
- * The failure that matters is silence: a store resolving cleanly to the wrong
- * empty directory reads exactly like a genuinely unclaimed frontier, so the
- * fail-open mantahostels#633 chose happens without the announcement mantahostels#645 built for it.
- *
- * Returns `{why, use}` — the sentence, and the tree whose store holds the
- * claims this run should have read.
- */
-function storeElsewhere() {
-	const mine = readRealOrNull(REPO_ROOT);
-	const theirs = readRealOrNull(arbiter.paths.repoRoot());
-	if (!mine || !theirs) return null;
-	/*
-	 * ONE COMPARISON, NOT TWO. `want` is the tree this run's claims are filed
-	 * under — the canonical checkout of the repo it pins, since a session
-	 * claiming from a worktree files under that.
-	 */
-	const want = readCanonicalCheckoutOf(mine) || mine;
-	if (want === theirs) return null;
-	const canonical = readCanonicalCheckoutOf(theirs);
-	return {
-		why:
-			canonical && canonical !== theirs
-				? `the claim store is keyed on ${theirs}, a linked worktree of ${canonical} — claims are filed under the canonical checkout`
-				: `the claim store resolves to ${theirs}, not the tree this run's claims are filed under (${want})`,
-		use: want,
-	};
-}
-
-/**
  * WHICH ASSIGNMENTS ARE REAL (mantahostels#645, on mantahostels#633's ruling).
  *
  * The assignee alone cannot answer it: every one on this repo is the founder's
@@ -1094,19 +581,9 @@ function storeElsewhere() {
  */
 function claimedIssues(listed) {
 	try {
-		const elsewhere = storeElsewhere();
-		const claims = arbiter.heldIssues(listed);
-		// Never overwrite `claims.why`: a corrupt record (mantahostels#1186) can set it
-		// alongside `elsewhere`, and losing it here silently under-reports again.
-		return elsewhere
-			? {
-					...claims,
-					why: claims.why
-						? `${elsewhere.why}; also, ${claims.why}`
-						: elsewhere.why,
-					claimsTree: elsewhere.use,
-				}
-			: claims;
+		// Which tree the claims came from (mantahostels#703): lib/pick-next-sessions.js.
+		const elsewhere = storeElsewhere(REPO_ROOT, arbiter.paths.repoRoot());
+		return claimsFromStore(arbiter.heldIssues(listed), elsewhere);
 	} catch (e) {
 		// The store fails open on its own account; this catches a store that will
 		// not load at all, which must not take the whole shortlist down.
@@ -1181,182 +658,6 @@ function dispatchedIssues() {
 	return { byIssue, why: null };
 }
 
-/**
- * The ledger entry holding an issue whose `takes:` values are `takes`, or
- * `undefined` where none does. The most recent holder is the one reported,
- * rather than the oldest still inside the window.
- *
- * TWO GAPS. An issue carrying two `takes:` values is held where EITHER matches
- * — a label defect `check-issue-labels.js` reports, read here toward the hold.
- * And the picker compares with the issue's LABEL where the launcher compares
- * with the PROMPT's `/<skill>`: the two agree only because §7 builds each
- * prompt as `/<takes> <n>`, so a set line typed under another command is
- * judged here on the label alone.
- * @param {ReturnType<typeof dispatchedIssues>} dispatched
- * @param {number} n
- * @param {string[]} takes
- * @returns {DispatchRecord|undefined}
- */
-function holdingDispatch(dispatched, n, takes) {
-	return (dispatched.byIssue.get(n) || []).findLast(
-		(rec) => takes.length === 0 || takes.some((t) => entryHolds(rec, t)),
-	);
-}
-
-/**
- * One ledger entry as an exclusion reason, with the launch's age — a reader
- * judging whether an entry is stale needs the age, not the timestamp. An
- * unreadable or absent field says so rather than printing a plausible blank:
- * this line is what a `--force` gets decided on.
- * `undefined` is accepted because the caller reads it out of a Map: the two are
- * the same absence, and both print rather than throwing.
- * @param {DispatchRecord|undefined} rec
- */
-function dispatchAge(rec) {
-	const at = rec ? Date.parse(rec.ts) : Number.NaN;
-	const age = Number.isNaN(at)
-		? "at an unreadable time"
-		: `${Math.max(0, (Date.now() - at) / 3_600_000).toFixed(1)}h ago`;
-	return `${age}${buildHeldText(rec)} — ${rec?.prompt || "prompt not recorded"}`;
-}
-
-/*
- * Whether an ALREADY DISPATCHED launch's own job is still alive (mantahostels#3488). The
- * ledger holds an issue for the whole window REGARDLESS (`dispatchedIssues`'s
- * own header), which is what made a finished launch and a running one print
- * identically — this is the join that tells them apart.
- *
- * `JOB_STATE_TERMINAL` is `lib/agent-liveness.js#TERMINAL_STATES`, imported
- * under this name: the job's own `state.json` and the oracle's own session
- * record are two different files, but both are stamped by the SAME CLI code
- * path off the same three words (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md
- * §F1) — one constant, not two that could drift apart unnoticed.
- */
-
-/**
- * @param {ReturnType<typeof readJobs>} jobs
- * @param {string} jobId
- */
-function jobRecordOf(jobs, jobId) {
-	if (!Array.isArray(jobs)) return null;
-	return jobs.find((j) => j.job === jobId) || null;
-}
-
-/**
- * `{state: "live"}`, `{state: "finished", detail}` off the job's own
- * `state.json`, or `{state: "unknown", why}` — never a guess at liveness from
- * an absence.
- *
- * READS TWO SOURCES, NEITHER SUFFICIENT ALONE. The job's `state.json` can read
- * `working` for a session that has since died with no update (`lib/hung-jobs.js`'s
- * own HUNG-JOB case) — so `working` alone is not "live", it is "ask the
- * oracle". The oracle in turn is keyed by SESSION id, not the JOB id the
- * ledger records, so the job's own record is what supplies that session id to
- * look up.
- *
- * A reachable job record that already reads a terminal state is trusted
- * outright, with no oracle read at all: `done`/`failed`/`stopped` do not need
- * confirming, and a session the oracle no longer lists (finished long enough
- * ago to fall out of `claude agents --json`) would otherwise read as
- * "unknown" rather than "finished" (mantahostels#3488's own worked example, `e6736764` and
- * `4f9cd281`).
- *
- * @param {DispatchRecord|undefined} rec
- * @param {ListedSessions} listed
- * @param {ReturnType<typeof readJobs>} jobs
- */
-function dispatchLiveness(rec, listed, jobs) {
-	if (!rec?.jobId)
-		return { state: "unknown", why: "no job id recorded on this entry" };
-	const job = jobRecordOf(jobs, rec.jobId);
-	if (!job)
-		return {
-			state: "unknown",
-			why:
-				jobs === null
-					? "no job store could be read"
-					: `no job record found for ${rec.jobId}`,
-		};
-	if (job.unreadable || !job.rec)
-		return { state: "unknown", why: `job record for ${rec.jobId} unreadable` };
-	const jobState = job.rec.state;
-	if (JOB_STATE_TERMINAL.has(jobState))
-		return {
-			state: "finished",
-			detail:
-				typeof job.rec.detail === "string" && job.rec.detail
-					? job.rec.detail
-					: jobState,
-		};
-	const sessionId =
-		typeof job.rec.sessionId === "string" ? job.rec.sessionId : null;
-	if (!sessionId)
-		return { state: "unknown", why: "the job record carries no session id" };
-	// Narrowed on `.ids` rather than on `.why` (mantahostels#1460's own reasoning,
-	// matching `reclaimableFrom` below): `why` is a plain `string` in the
-	// refused shape, so a truthy check on it leaves an empty-string refusal
-	// still typed as possibly-refused, and `.terminal`/`.ids` possibly
-	// undefined below. `ids` is present only in the listed shape.
-	if (!listed.ids)
-		return {
-			state: "unknown",
-			why: `the oracle could not be read: ${listed.why}`,
-		};
-	if (listed.terminal.has(sessionId))
-		return { state: "finished", detail: "oracle reads it terminal" };
-	if (listed.ids.has(sessionId)) return { state: "live" };
-	return {
-		state: "unknown",
-		why: "the oracle does not list this session, and its job record reads neither live nor terminal",
-	};
-}
-
-/**
- * `live`, `finished: <detail>` or `unknown` — the exact text both the table
- * and `--json` print, so the two cannot drift on wording.
- * @param {ReturnType<typeof dispatchLiveness>} liveness
- */
-function dispatchLivenessLabel(liveness) {
-	return liveness.state === "finished"
-		? `finished: ${liveness.detail}`
-		: liveness.state;
-}
-
-/**
- * How much of the memory the admission arithmetic just called spent belongs to
- * sessions that have FINISHED and not exited (mantahostels#421).
- *
- * REPORT ONLY — this run reaps nothing (mantahostels#1029). The reaper keeps its single
- * `SessionStart` trigger. The standing reason is the oracle spawn this would
- * pay against the very figure it is measuring (mantahostels#653). The second reason is now
- * MOOT, not weakened: `GRACE_MS` is 0 (mantahostels#1290), so a session that finishes
- * DURING this run is credited at the very next admission read and reaped by
- * the burst's own session starts — there is no pool left for a reap here to
- * decline. mantahostels#1029 stands on the spawn cost alone.
- * @param {ListedSessions} listed
- * @returns {{ok: false, error: string}|{ok: true, count: number, ids: string[]}}
- */
-function reclaimableFrom(listed) {
-	/* Tested on `finished` rather than on `why`: the two are the same condition
-	 * — the reader answers with every set or with `why` alone — and `finished`
-	 * is the field actually read below (mantahostels#1460). */
-	if (!listed.finished) return { ok: false, error: listed.why };
-	/*
-	 * Without an id this run cannot tell itself apart from the pool, and a count
-	 * that may include this very session promises headroom stopping it could
-	 * never return. The reaper refuses on the same unset variable.
-	 */
-	const me = idSeam.fromEnv();
-	if (!me)
-		return {
-			ok: false,
-			error:
-				"CLAUDE_CODE_SESSION_ID is unset, so this run cannot be told apart from the finished sessions it would count",
-		};
-	const finished = [...listed.finished].filter((id) => id !== me);
-	return { ok: true, count: finished.length, ids: finished };
-}
-
 /*
  * Owed work at the fragment layer, ruled at mantahostels#1171: debt entries and stranded
  * file claims carry no issue number, so neither can be ranked into the
@@ -1378,7 +679,7 @@ function debtCount() {
  * The strict `listed` read's `terminal` field (mantahostels#2765, mantahostels#2774) keeps a holder
  * the oracle lists but has marked done, failed or stopped from being exempted
  * as live for ever. NOT its `finished` field, which is narrower and belongs to
- * `reclaimableFrom` above: that one must match what the reaper actually stops.
+ * `reclaimableFrom` (lib/pick-next-sessions.js): that one must match what the reaper actually stops.
  *
  * @param {ListedSessions} listed
  */
@@ -1430,8 +731,8 @@ function writeRunSnapshot(payload) {
  * @property {Issue[]} shown
  * @property {TrackedFiles} tracked
  * @property {Pathed[]} pathed
- * @property {ReturnType<typeof pairwiseCollisions>} collisions
- * @property {ReturnType<typeof crossCollisions>} inFlightCollisions
+ * @property {ReturnType<typeof collisionsOf>["collisions"]} collisions
+ * @property {ReturnType<typeof collisionsOf>["inFlightCollisions"]} inFlightCollisions
  * @property {number[]} docMapQueue
  * @property {ReturnType<typeof dumpBodies>|null} dumped
  * @property {{ok?: boolean, removed: number[]}} cachePruned
@@ -1473,109 +774,10 @@ function writeRunSnapshot(payload) {
  */
 
 /**
- * WHY EACH FRONTIER ISSUE OUTSIDE THE SET DID NOT LAUNCH (#591), the reasons
- * this script can know. Earliest-applicable wins, in `NOT_LAUNCHED_REASONS`'
- * order; the skill adds the rest of the vocabulary (a prose gate, the
- * launcher's drops) and confirms or clears the provisional `shares a file`.
- *
- * A dropped issue in a merge-test pair with a set member rides that member's
- * line, so it is launched, not listed — and takes no slot of its own.
- * @param {State} state
- */
-function notLaunchedOf(state) {
-	const { frontier, graph, admission, noCommand } = state;
-	const noCommandSet = new Set(noCommand);
-	/* A retro bundle takes one slot, at its first-ranked member, and the rest
-	 * ride it. Its members sit outside the conflict graph (#1105). */
-	const bundleOf = new Map(
-		state.retroBundles.flatMap((b, k) => b.issues.map((n) => [n, k])),
-	);
-	/** @type {Map<number, boolean>} bundle index -> whether it got a slot */
-	const bundleSlotted = new Map();
-	const dropped = new Map(graph.dropped.map((d) => [d.number, d]));
-	const proposed = new Set(graph.proposed);
-	/* Merged only onto the set member it clashed with: a pair partner elsewhere
-	 * in the set does not carry it. */
-	const partners = new Set(
-		graph.mergeable.flatMap((p) => [`${p.a}:${p.b}`, `${p.b}:${p.a}`]),
-	);
-	/* The always-admit-one rule gives a slot where `freeSlots` reads 0 or
-	 * unknown, so `admit` counts for one. */
-	const slots = Math.max(admission.freeSlots ?? 0, admission.admit ? 1 : 0);
-	let used = 0;
-	const takeSlot = () => ++used <= slots;
-	/**
-	 * @param {number} number
-	 * @returns {{number: number, reason: NotLaunchedReason, detail: object}}
-	 */
-	const noSlot = (number) => ({
-		number,
-		reason: "no admission slot",
-		detail: { slots, freeSlots: admission.freeSlots },
-	});
-	/** @param {number} number */
-	const slotRow = (number) => (takeSlot() ? null : noSlot(number));
-	/**
-	 * @param {number} bundle
-	 * @param {number} number
-	 */
-	const bundleRow = (bundle, number) => {
-		if (!bundleSlotted.has(bundle)) bundleSlotted.set(bundle, takeSlot());
-		return bundleSlotted.get(bundle) ? null : noSlot(number);
-	};
-	const ctx = { noCommandSet, dropped, proposed, partners, slotRow };
-	/** @type {{number: number, reason: NotLaunchedReason, detail: object}[]} */
-	const out = [];
-	for (const i of frontier) {
-		const bundle = bundleOf.get(i.number);
-		const row =
-			bundle === undefined ? frontierRow(i, ctx) : bundleRow(bundle, i.number);
-		if (row) out.push(row);
-	}
-	return out;
-}
-
-/**
- * `notLaunchedOf`'s verdict on one frontier issue outside a retro bundle:
- * its row, or null where it launches -- in the set on a slot of its own, or
- * riding a set member's merge-test line.
- * @param {Issue} i
- * @param {{noCommandSet: Set<number>, dropped: Map<number, State["graph"]["dropped"][number]>, proposed: Set<number>, partners: Set<string>, slotRow: (n: number) => {number: number, reason: NotLaunchedReason, detail: object} | null}} ctx
- * @returns {{number: number, reason: NotLaunchedReason, detail: object} | null}
- */
-function frontierRow(i, ctx) {
-	if (ctx.noCommandSet.has(i.number))
-		return {
-			number: i.number,
-			reason: "no command",
-			detail: { takes: i.takes },
-		};
-	const d = ctx.dropped.get(i.number);
-	if (!d) return ctx.slotRow(i.number);
-	if (d.kind === "held")
-		return {
-			number: i.number,
-			reason: "file held by a running session",
-			detail: { files: d.paths, session: d.heldBy, sessionId: d.sessionId },
-		};
-	if (
-		d.kind === "clash" &&
-		ctx.proposed.has(d.with) &&
-		ctx.partners.has(`${i.number}:${d.with}`)
-	)
-		return null;
-	return {
-		number: i.number,
-		reason: "shares a file",
-		detail: { with: d.with, file: d.paths[0], provisional: true },
-	};
-}
-
-/**
  * The reasons in precedence order, each with its printed detail; `render`
  * groups by that order.
- * @satisfies {Record<string, (d: any) => string>} `any`: each reason's detail
- * has its own shape, built one function up.
+ * @satisfies {Record<NotLaunchedReason, (d: any) => string>} `any`: each
+ * reason's detail has its own shape, built in lib/pick-next-accounting.js.
  */
 const NOT_LAUNCHED_REASONS = {
 	"no command": (d) => takesCell(d.takes),
@@ -1587,53 +789,10 @@ const NOT_LAUNCHED_REASONS = {
 		`${d.freeSlots === null ? "free slots unknown" : `${d.slots} slot(s)`}, as of this run`,
 };
 const REASON_ORDER = Object.keys(NOT_LAUNCHED_REASONS);
-/** @typedef {keyof typeof NOT_LAUNCHED_REASONS} NotLaunchedReason */
+/** @typedef {import("./lib/pick-next-accounting.js").NotLaunchedReason} NotLaunchedReason */
 
-/*
- * The EXCLUDED table's own categories, read off the reason string the
- * exclusion cascade in `main` wrote, so the tally cannot drift from the table.
- */
-/** @type {[string, string][]} */
-const EXCLUSION_CATEGORIES = [
-	["readiness unknown", "degraded"],
-	["blocked by", "blocked"],
-	["claimed by", "claimed"],
-	["claimed through parent", "claimed"],
-	["dispatched ", "already dispatched"],
-	["container", "container"],
-	["gated ", "gated"],
-];
 /** The spec's own figure (#575): names past it make the line too long to read. */
 const TALLY_NAMES_AT_MOST = 3;
-
-/**
- * Why the open issues outside the frontier were never takeable (#591).
- * @param {State} state
- */
-function openTallyOf(state) {
-	/** @type {Record<string, number[]>} */
-	const by = {};
-	for (const [, name] of EXCLUSION_CATEGORIES) by[name] = [];
-	for (const i of state.enriched) {
-		if (!i.excluded) continue;
-		const hit = EXCLUSION_CATEGORIES.find(([prefix]) =>
-			String(i.excluded).startsWith(prefix),
-		);
-		/* Fail-open: a new cascade limb with no row above is counted, not lost,
-		 * and never crashes the run. */
-		const name = hit ? hit[1] : "other";
-		by[name] = [...(by[name] ?? []), i.number];
-	}
-	return {
-		open: state.enriched.length,
-		frontier: state.frontier.length,
-		categories: Object.entries(by).map(([category, numbers]) => ({
-			category,
-			count: numbers.length,
-			numbers: [...numbers].sort((a, b) => a - b),
-		})),
-	};
-}
 
 /** @param {ReturnType<typeof openTallyOf>} t */
 const buildOpenTallyLine = (t) =>
@@ -2898,7 +2057,7 @@ function renderDispatched(state) {
 				? `${liveness} (${rawLiveness.why})`
 				: liveness;
 			console.log(
-				`  #${i.number}  ${dispatchAge(rec)}  ${pad(livenessCell, 14)} ${String(i.title).slice(0, 40)}`,
+				`  #${i.number}  ${dispatchAge(rec, Date.now())}  ${pad(livenessCell, 14)} ${String(i.title).slice(0, 40)}`,
 			);
 		}
 		console.log(
@@ -3344,57 +2503,6 @@ async function timelinesByIssue(issues) {
 }
 
 /**
- * What `enrichIssue` reads besides the issue itself.
- * @typedef {object} EnrichContext
- * @property {import("./lib/blocker-graph").Graph} blockers
- * @property {Awaited<ReturnType<typeof timelinesByIssue>>} timelineByIssue
- * @property {ReturnType<typeof inheritanceOf>} inherit
- * @property {Set<number>} mapNumbers
- * @property {Set<number>} specNumbers
- * @property {ListedSessions} listed
- * @property {ReturnType<typeof claimedIssues>} claims
- * @property {Awaited<ReturnType<typeof parentClaims>>} parentHeld
- * @property {ReturnType<typeof dispatchedIssues>} dispatched
- * @property {Map<number, number>} openChildren
- */
-
-/**
- * Why an issue is held out of the frontier, earliest-applicable first, or
- * null where nothing holds it.
- * @param {DepsResolved} i
- * @param {EnrichContext} ctx
- * @param {{openBlockers: {label: string, native: boolean}[], dispatchReason: string|null, resolved: ReturnType<typeof resolveGate>}} facts
- */
-function exclusionOf(i, ctx, facts) {
-	const { openBlockers, dispatchReason, resolved } = facts;
-	const { claims, parentHeld, listed, openChildren } = ctx;
-	// `gateHolds`/`gateOnHolds` already prove non-null and non-malformed;
-	// these locals carry that proof where the flag alone cannot.
-	const gate = resolved.gate;
-	const gateOn = resolved.gateOn;
-	if (i.depsUnknown) return `readiness unknown — ${i.depsUnknown}`;
-	if (openBlockers.length > 0)
-		return `blocked by ${openBlockers
-			.map((b) => (b.native ? b.label : `${b.label} (prose only)`))
-			.join(", ")}`;
-	if (claims.held.has(i.number))
-		return `claimed by ${claimHolder(i.assignees, claims.held.get(i.number), claims.kept, listed.names)}`;
-	const parent = parentHeld.held.get(i.number);
-	if (parent)
-		return `claimed through parent map ${parent.label} by ${claimHolder([], parent.sessionId, parent.kept, listed.names)}`;
-	if (dispatchReason) return dispatchReason;
-	if (openChildren.get(i.number)) {
-		const unread = ctx.blockers.childrenUnread.get(i.number);
-		return `container — ${openChildren.get(i.number)} open children${unread ? ` by its summary; sub-issues unreadable (${unread})` : ""}`;
-	}
-	if (resolved.gateHolds && gate && !gate.malformed)
-		return `gated until ${gate.iso} (${gate.daysLeft}d) — ${gate.reason || "no reason given"}`;
-	if (resolved.gateOnHolds && gateOn && !gateOn.malformed)
-		return `gated on ${gateOn.condition}`;
-	return null;
-}
-
-/**
  * The issues whose parent map a live session holds a claim on (#2310), as
  * `held` (issue number -> the parent and its holder), and `unread`, one
  * sentence per parent whose kind or store could not be read, each of which
@@ -3440,99 +2548,6 @@ async function parentClaims(issues, mapNumbers, claims, listed) {
 		}
 	}
 	return { held, unread: [...unread] };
-}
-
-/**
- * @param {DepsResolved} i
- * @param {EnrichContext} ctx
- * @returns {Issue}
- */
-function enrichIssue(i, ctx) {
-	const openBlockers = blockerGraph.openBlockersOf(ctx.blockers, i.number);
-	const timeline = ctx.timelineByIssue.get(i.number);
-	const urgency =
-		i.labels.includes(URGENT_LABEL) && timeline
-			? labelAge(timeline, URGENT_LABEL)
-			: null;
-	const held = ctx.inherit({ repo: ctx.blockers.ownRepo, number: i.number });
-	const { bug: bugVia, urgent: urgentVia, goal: goalVia } = held.via;
-	const tiers = tiersOf(
-		{
-			bug: i.labels.includes("bug"),
-			urgent: i.labels.includes(URGENT_LABEL),
-			goal: goalRanked.has(i.number),
-		},
-		held,
-	);
-	// Null unless the label is on: absence of a wait, distinct from a wait
-	// whose start could not be read.
-	const wait =
-		i.labels.includes(WAITING_LABEL) && timeline ? waitFrom(timeline) : null;
-	const parked =
-		i.labels.includes(PARKED_LABEL) && timeline
-			? labelAge(timeline, PARKED_LABEL)
-			: null;
-	const takes = takesOf(i.labels);
-	const resolved = resolveGate(i.body);
-	/*
-	 * Computed before the chain so the flag below can say whether THIS limb
-	 * is the one that fired. An issue that is also blocked or claimed keeps
-	 * that reason, and is reported there rather than in two blocks at once.
-	 */
-	const dispatchRec = holdingDispatch(ctx.dispatched, i.number, takes);
-	const dispatchReason = dispatchRec
-		? `dispatched ${dispatchAge(dispatchRec)}`
-		: null;
-	const excluded = exclusionOf(i, ctx, {
-		openBlockers,
-		dispatchReason,
-		resolved,
-	});
-	return {
-		...i,
-		openBlockers,
-		reach: blockerGraph.reachOf(ctx.blockers, i.number),
-		depth: tiers.depth,
-		closes: blockerGraph.closesOf(ctx.blockers, i.number),
-		urgency,
-		urgentVia,
-		bugVia,
-		goalVia,
-		bug: tiers.bug,
-		urgent: tiers.urgent,
-		wait,
-		// The one number the sort reads: 0 for everything that is not a stalled
-		// wait, an unreadable age included.
-		stallDays: wait && !wait.unknown && wait.stalled ? wait.ageDays : 0,
-		parked,
-		goal: tiers.goal,
-		collision: collisionOf(i),
-		asksQuestions: isQuestionType(i),
-		takes,
-		group: groupOf(i, ctx.mapNumbers, ctx.specNumbers),
-		gate: resolved.gate,
-		gateOn: resolved.gateOn,
-		gateConflict: resolved.conflict,
-		gateHolds: resolved.gateHolds,
-		gateOnHolds: resolved.gateOnHolds,
-		dispatchRec,
-		excluded,
-		dispatchHeld: dispatchReason !== null && excluded === dispatchReason,
-		// Assigned, but no live session recorded a claim: fail open, and say so
-		// under the shortlist rather than silently. Excluded issues are left out —
-		// this run is not offering them.
-		assignedUnclaimed:
-			i.assignees.length > 0 && !ctx.claims.held.has(i.number) && !excluded,
-	};
-}
-
-/**
- * @param {Issue[]} enriched
- */
-function rankFrontier(enriched) {
-	return enriched
-		.filter((i) => !i.excluded)
-		.sort((a, b) => compareLevels(a, b) || a.number - b.number);
 }
 
 /**
@@ -3624,32 +2639,6 @@ function conflictGraphOf(frontier, issues, listed, cacheState) {
 }
 
 /**
- * DISPATCHABLE FLOOR (mantahostels#1507, mantahostels#1621). The numerator only — `graph.proposed`
- * minus every member whose `takes:` is `human` or `children`, the two
- * values no command opens (docs/agents/triage-labels.md §`takes:`). Never
- * folded against `admission.freeSlots` here: that figure is minutes stale
- * by the time §6 is written, so §5 takes `min(floor, a fresh admission.js
- * read)` instead. It over-counts by construction — a candidate with an
- * empty predicted write-set is admitted with nothing to clash on, and
- * conflict detection sees only predicted write-sets, never real ones
- * (mantahostels#1506) — deliberately left unrepaired, per mantahostels#1507.
- *
- * Plus one per retro bundle, which is one session (#1105).
- * @param {State["graph"]} graph
- * @param {Issue[]} frontier
- * @param {ReturnType<typeof retroBundles>} bundles
- */
-function dispatchableFloorOf(graph, frontier, bundles) {
-	return (
-		graph.proposed.filter((n) => {
-			const i = frontier.find((x) => x.number === n);
-			const takes = i ? i.takes : [];
-			return !takes.some((t) => NO_COMMAND_VALUES.includes(t));
-		}).length + bundles.length
-	);
-}
-
-/**
  * One line per real re-pick, for mantahostels#628 — the warm fraction that mantahostels#611's
  * per-ticket saving multiplies. Skipped against another repo, where there is
  * no split to record rather than a cold one.
@@ -3686,7 +2675,7 @@ function logWarmFraction(cacheUsable, run) {
  * @param {ListedSessions} listed
  */
 function admissionOf(listed) {
-	const reclaimable = reclaimableFrom(listed);
+	const reclaimable = reclaimableFrom(listed, idSeam.fromEnv());
 	const {
 		mem,
 		procs,
@@ -3778,92 +2767,6 @@ function bannersOf(enriched) {
 	return { waitingAll, gatedAll, gatedOnAll, proseBlockedAll, parkedAll };
 }
 
-/**
- * Every figure the skill's §6 message needs, in one place (mantahostels#1001). Nothing
- * here is new; it is the `render*` blocks, counted.
- *
- * Over the whole frontier, never `shown`: the dispatch set is drawn from
- * the frontier, so a defect on a proposed member `--limit` cut off the
- * printed table went unreported (mantahostels#3363).
- * @param {Pick<State, "enriched" | "frontier" | "shown" | "admission" | "reclaimable" | "cacheState" | "graph" | "degraded" | "dispatched" | "debts" | "stranded"> & {noCommandCount: number, rottedContainers: number[]}} run
- */
-function summaryOf(run) {
-	const {
-		enriched,
-		frontier,
-		shown,
-		admission,
-		reclaimable,
-		cacheState,
-		graph,
-		degraded,
-		dispatched,
-		debts,
-		stranded,
-	} = run;
-	const labelDefects = frontier
-		.filter((i) => i.takes.length !== 1)
-		.map((i) => ({ number: i.number, takes: i.takes }));
-	return {
-		openIssues: enriched.length,
-		// `frontierCount` and `payload.frontier.length` agree (mantahostels#1289).
-		frontierCount: frontier.length,
-		shown: shown.length,
-		/*
-		 * §5's third term, and its rotted members by number (mantahostels#1626). A count,
-		 * not a judgement: `<U>` says no command opens these issues as they
-		 * stand, which is a band rather than a fourth disqualifier.
-		 */
-		noCommand: run.noCommandCount,
-		rottedContainers: run.rottedContainers,
-		/*
-		 * As of this run, and STALE by the time §6 is written: §5 sends the
-		 * reader to `node scripts/admission.js` immediately before the dispatch
-		 * lines (mantahostels#1144), because an over-admission freezes the machine. Carried
-		 * so the summary reports what the run decided, never so §6 is written
-		 * off it.
-		 */
-		admit: admission.admit,
-		freeSlots: admission.freeSlots,
-		reclaimable: reclaimable.ok ? reclaimable.count : null,
-		reclaimableUnknown: reclaimable.ok ? null : reclaimable.error,
-		writeSets: {
-			warm: cacheState.warm.length,
-			provisional: cacheState.provisional.length,
-			cold: cacheState.cold.length,
-		},
-		/*
-		 * Each member carries what §6's line is written from: its `takes:`
-		 * value, and its write-set.
-		 */
-		proposed: graph.proposed.map((n) => {
-			const c = graph.candidates.find((/** @type {any} */ x) => x.number === n);
-			/*
-			 * `frontier`, never `shown`: `graph.proposed` is built over the whole
-			 * frontier, so a proposed member below the `--limit` cut missed this
-			 * lookup and reported `takes: []`, indistinguishable from a genuinely
-			 * unlabelled issue (mantahostels#3363).
-			 */
-			const i = frontier.find((/** @type {any} */ x) => x.number === n);
-			return {
-				number: n,
-				takes: i ? i.takes : [],
-				writeSet: c ? c.writeSet : [],
-			};
-		}),
-		degraded: degraded.length,
-		dispatchHeld: dispatched.why
-			? null
-			: enriched.filter((i) => i.dispatchHeld).length,
-		dispatchHeldUnknown: dispatched.why,
-		labelDefects,
-		debtEntries: debts.ok ? debts.count : null,
-		strandedClaims: stranded.ok ? stranded.stranded : null,
-		strandedClaimsCarrying: stranded.ok ? stranded.carrying : null,
-		strandedWorktrees: stranded.ok ? stranded.strandedWorktrees : null,
-	};
-}
-
 async function main() {
 	const issues = await listOpenIssuesOrExit();
 
@@ -3904,11 +2807,11 @@ async function main() {
 	 */
 	const dispatchJobs = readJobs();
 
-	/** @type {EnrichContext} */
+	/** @type {import("./lib/pick-next-verdict.js").EnrichContext} */
 	const ctx = {
 		blockers,
 		timelineByIssue,
-		inherit: inheritanceOf(blockers, byNumber),
+		inherit: inheritanceOf(blockers, byNumber, goalRanked),
 		mapNumbers,
 		specNumbers,
 		listed,
@@ -3916,6 +2819,8 @@ async function main() {
 		parentHeld,
 		dispatched,
 		openChildren,
+		goalRanked,
+		now: Date.now,
 	};
 	const enriched = withDeps.map((i) => enrichIssue(i, ctx));
 
@@ -3941,24 +2846,12 @@ async function main() {
 	const tracked = readTrackedFiles();
 	const frontier = annotatePaths(rankFrontier(enriched), tracked);
 	const shown = LIMIT ? frontier.slice(0, LIMIT) : frontier;
-	const collisions = tracked.ok ? pairwiseCollisions(frontier) : [];
-
-	/*
-	 * The in-flight set is the issues a live session is on — the arbiter claim
-	 * alone (mantahostels#270, narrowed at mantahostels#645), never the assignee, so a claim recorded by a
-	 * session that never assigned counts. They are excluded from the shortlist, so
-	 * nothing else here ever pairs them; a candidate that shares a file with one is
-	 * a candidate whose session would be writing under a live one.
-	 *
-	 * An assignment with no live claim is deliberately NOT in flight: this run
-	 * offers that issue as takeable, so pairing it here would warn against work it
-	 * is simultaneously recommending — and pairwiseCollisions already covers it.
-	 */
-	const inFlight = enriched.filter((i) => claims.held.has(i.number));
-	const inFlightPathed = annotatePaths(inFlight, tracked);
-	const inFlightCollisions = tracked.ok
-		? crossCollisions(frontier, inFlightPathed, claims.held)
-		: [];
+	const { collisions, inFlightCollisions } = collisionsOf(
+		frontier,
+		enriched,
+		claims.held,
+		tracked,
+	);
 
 	// Over the whole frontier: a queue the `--limit` cut hides is a queue the
 	// band read walks into.
@@ -3981,45 +2874,7 @@ async function main() {
 	);
 	const dispatchableFloor = dispatchableFloorOf(graph, frontier, bundles);
 
-	/*
-	 * THE ACCOUNTING LINE'S THIRD TERM (mantahostels#1622, built at mantahostels#1626) — the frontier
-	 * work no `/`-command opens, which the sum would otherwise force into
-	 * `disqualified` though it matches none of the three named disqualifiers.
-	 *
-	 * Counted here rather than left to the session because both inputs are
-	 * already computed per issue — the `takes:` value the TAKES column prints,
-	 * and the open-child count the exclusion cascade derives — so the session
-	 * copies a printed figure and the marker can pin it.
-	 */
-	const noCommand = frontier.filter((i) =>
-		noCommandOpens(i.takes, openChildren.get(i.number) ?? 0),
-	);
-	/*
-	 * Named by number, not merely counted: a `takes:children` issue on the
-	 * frontier is mislabelled by construction. Retagging mid-selection was
-	 * rejected (mantahostels#1622) — that is triage, not selection — so the band is put in
-	 * front of the session every run instead, to be drained.
-	 * `scripts/check-issue-labels.js` detects the same case and retires nothing.
-	 */
-	const rottedContainers = noCommand
-		.filter((i) => i.takes.includes(CHILDREN))
-		.map((i) => i.number);
-
-	/*
-	 * §4 of `.claude/skills/pick-next/SKILL.md` band-reads two things: the
-	 * nominated candidates (sizes that could still change the merge test) and
-	 * the cold entries (no gist yet). Where neither exists, the whole band-read
-	 * stage buys nothing, and mantahostels#1485 has the session skip it outright rather than
-	 * spin up subagents to confirm an empty list. Residual: `graph.mergeable`'s
-	 * existing pairs (both sides already sized `small`) still merge — this only
-	 * forecloses a *further* candidate acquiring a size, so a pair beyond that
-	 * set can never qualify this run
-	 * (`.claude/skills/pick-next/references/measured-figures.md`: 2 of 5
-	 * recorded runs hit this empty case — not rare, though 5 runs cannot tell
-	 * 40% from 10%, mantahostels#1485).
-	 */
-	const bandReadRequired =
-		graph.nominated.length > 0 || cacheState.cold.length > 0;
+	const { noCommand, rottedContainers } = noCommandOf(frontier, openChildren);
 
 	const warmLogged = logWarmFraction(cacheUsable, {
 		frontier,
@@ -4094,7 +2949,7 @@ async function main() {
 		graph,
 		dispatchableFloor,
 		retroBundles: retroLaunches(bundles),
-		bandReadRequired,
+		bandReadRequired: bandReadRequiredOf(graph, cacheState),
 		warmLogged,
 		mem,
 		procs,
@@ -4132,9 +2987,7 @@ async function main() {
 	render(state, snapshot);
 }
 
-/* `buildPayload` is a §N7 departure mantahostels#1794 ruled: it lets a ranking or admission
- * assertion run on a plain `state` object, no fake repo and no `gh` stub.
- * `main` is a second departure, mantahostels#1944's: it is the live GitHub fan-out entry
+/* `main` is a §N7 departure, mantahostels#1944's: it is the live GitHub fan-out entry
  * point, exported only so `scripts/lib/run-in-process.js`'s `runInProcessAsync`
  * can call and await it directly in `lib/pick-next-testkit.ts` — requiring the module
  * never runs it, since it fires only under `require.main === module` or where

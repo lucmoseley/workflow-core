@@ -315,16 +315,6 @@ describe("admission", () => {
 		expect(r.out).not.toMatch(/reclaimable/);
 	});
 
-	/* Counting itself would promise headroom that stopping it could never
-	 * return. */
-	it("never counts this run's own session as reclaimable", async () => {
-		kit.oracleSessions = ["self"];
-		kit.oracleFinished = ["self"];
-		expect((await run({ issues: [{ number: 1 }] })).out).not.toMatch(
-			/reclaimable/,
-		);
-	});
-
 	/* Without an id this run cannot subtract itself. It refuses to count instead,
 	 * as the reaper does on the same unset variable — and says so, rather than
 	 * printing nothing a reader cannot tell from zero (mantahostels#1237, on mantahostels#1206). */
@@ -350,16 +340,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(/free slots\s+2/);
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
 		expect(j.admission.drawNeedMb).toBe(383);
-	});
-
-	/* An oracle that will not answer is the second way the probe fails, and it
-	 * reads the same way to a human (mantahostels#1237). */
-	it("prints the reclaimable row as unknown when the oracle will not answer", async () => {
-		kit.oracleFails = true;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(
-			/reclaimable\s+unknown \(.+\) — some of the memory counted spent above may already be free/,
-		);
 	});
 
 	it("carries the count into --json, and the refusal where the oracle will not answer", async () => {
@@ -816,13 +796,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		expect(r.order()).toEqual([1, 2]);
 	});
 
-	it("offers an assigned issue no session ever claimed — the fail-open case", async () => {
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-		});
-		expect(r.order()).toEqual([1, 2]);
-	});
-
 	it("names the assignments it decided to ignore, rather than dropping them silently", async () => {
 		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
 		expect(r.out).toMatch(/ASSIGNED BUT UNCLAIMED \(1\) — treated as takeable/);
@@ -837,18 +810,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 			claims: { 1: "alice" },
 		});
 		expect(r.out).not.toMatch(/ASSIGNED BUT UNCLAIMED/);
-	});
-
-	it("excludes a live claim carrying no assignee at all", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.order()).toEqual([2]);
-		// The recording session, not "a live session": the id is the only handle a
-		// reader has on a claim nobody assigned themselves to (mantahostels#708).
-		expect(r.out).toMatch(/#1\s+.*claimed by session alice/);
 	});
 
 	it("keeps every claim standing when the oracle will not answer", async () => {
@@ -886,24 +847,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		expect(r.order()).toEqual([1]);
 	});
 
-	it("pairs a candidate only with an issue a live session is on", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		stubRepo(["scripts/a.js"]);
-		const issues = [
-			{ number: 1, body: "`scripts/a.js`" },
-			{ number: 2, assignees: ["luc"], body: "`scripts/a.js`" },
-		];
-		// Claimed: in flight, and out of the shortlist.
-		expect((await run({ issues, claims: { 2: "alice" } })).out).toMatch(
-			/in flight: #1 <-> #2/,
-		);
-		// Unclaimed: this run offers mantahostels#2 itself, so warning against it would
-		// contradict its own shortlist — it is an ordinary candidate pair.
-		const open = await run({ issues });
-		expect(open.out).not.toMatch(/in flight:/);
-		expect(open.out).toMatch(/possible collision: #1 <-> #2/);
-	});
-
 	it("carries the unclaimed assignments and the degraded read into --json", async () => {
 		kit.oracleFails = true;
 		const j = (
@@ -923,15 +866,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		]);
 		expect(j.claimsDegraded.claimsKept).toBe(true);
 		expect(j.claimsDegraded.why).toMatch(/agents --json/);
-	});
-
-	it("does not offer a blocked issue as takeable on the strength of a stale assignee", async () => {
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			deps: { 1: [{ number: 2, state: "open" }] },
-		});
-		expect(r.out).toMatch(/#1\s+.*blocked by #2/);
-		expect(r.out).not.toMatch(/ASSIGNED BUT UNCLAIMED/);
 	});
 
 	it("pairs a candidate with a live claim that carries no assignee", async () => {
@@ -1111,29 +1045,6 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 		expect(j.inFlightCollisions[0].claimedSession).toBe("alice");
 	});
 
-	it("carries the session alongside the assignee, not instead of it", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const issues = sharing();
-		issues[1].assignees = ["luc"];
-		const j = (
-			await run({ issues, claims: { 2: "alice" } }, ["--json"])
-		).json();
-		expect(j.inFlightCollisions[0].claimedBy).toEqual(["luc"]);
-		expect(j.inFlightCollisions[0].claimedSession).toBe("alice");
-	});
-
-	it("does not assert the session is live when the oracle would not answer", async () => {
-		// The claim was KEPT on doubt, so this run never established liveness.
-		kit.oracleFails = true;
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "s" },
-		});
-		expect(r.out).toMatch(/CLAIMS DEGRADED/);
-		expect(r.out).toMatch(/#1\s+.*claimed by session s, liveness unread/);
-		expect(r.out).not.toMatch(/a live session/);
-	});
-
 	it("names the holding session rather than printing a bare id", async () => {
 		// A uuid tells a reader nothing about which session to go and look at.
 		kit.oracleSessions = ["self", "alice"];
@@ -1154,36 +1065,12 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 		expect(r.out).toMatch(/claimed by session 0b1a4d3e(?!-)/);
 	});
 
-	it("does not hedge the row when the oracle did answer", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.out).not.toMatch(/liveness unread/);
-	});
-
 	it("hedges the in-flight pair on a degraded read too", async () => {
 		kit.oracleFails = true;
 		const r = await run({ issues: sharing(), claims: { 2: "alice" } });
 		expect(r.out).toMatch(
 			/in flight: #1 <-> #2 \(claimed by session alice, liveness unread\)/,
 		);
-	});
-
-	it("leaves an excluded issue out of assignedUnclaimed", async () => {
-		// Blocked, so this run is not offering it and its assignment decided
-		// nothing — the field carries only what was treated as takeable.
-		const j = (
-			await run(
-				{
-					issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-					deps: { 1: [{ number: 2, state: "open" }] },
-				},
-				["--json"],
-			)
-		).json();
-		expect(j.assignedUnclaimed).toEqual([]);
 	});
 });
 
@@ -1252,13 +1139,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		expect(r.out).toContain(wt);
 	});
 
-	it("points the reader at the canonical checkout, not the worktree", async () => {
-		const { canonical } = linkedWorktree();
-		expect((await run({ issues: [{ number: 1 }] })).out).toContain(
-			`Claims filed against ${canonical} are invisible`,
-		);
-	});
-
 	it("carries the worktree case into --json, with the tree to re-run from", async () => {
 		const { canonical } = linkedWorktree();
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
@@ -1285,20 +1165,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	});
 
 	/*
-	 * A store root INSIDE a repository is not a linked worktree, and must not be
-	 * announced as one: `--git-common-dir` prints the same `.git` from any
-	 * subdirectory, so taking its parent unconditionally invents a worktree
-	 * nobody has.
-	 */
-	it("calls a subdirectory a mismatch, never a linked worktree", async () => {
-		kit.claimsRepo = path.join(kit.repoRoot as string, "sub");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/CLAIMS DEGRADED/);
-		expect(r.out).not.toMatch(/linked worktree/);
-		expect(r.out).toMatch(/not the tree this run's claims are filed under/);
-	});
-
-	/*
 	 * With neither variable set, the canonical checkout drives the same `git rev-parse` fallback and must stay
 	 * silent, or every ordinary run cries wolf.
 	 */
@@ -1309,54 +1175,11 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		expect(r.out).not.toMatch(/CLAIMS DEGRADED/);
 	});
 
-	it("names both trees, so the reader can see which store was read", async () => {
-		elsewhere();
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toContain(fs.realpathSync(kit.claimsRepo as string));
-		expect(r.out).toContain(fs.realpathSync(kit.repoRoot as string));
-	});
-
 	it("carries the divergence into --json", async () => {
 		elsewhere();
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
 		expect(j.claimsDegraded.storeElsewhere).toBe(true);
 		expect(j.claimsDegraded.why).toMatch(/claim store resolves to/);
-	});
-
-	it("keeps the corrupt-record warning beside the divergence, not overwritten by it (mantahostels#1186)", async () => {
-		elsewhere();
-		const j = (
-			await run({ issues: [{ number: 1 }], corruptClaim: true }, ["--json"])
-		).json();
-		expect(j.claimsDegraded.why).toMatch(/claim store resolves to/);
-		expect(j.claimsDegraded.why).toMatch(/could not be read and .* dropped/);
-	});
-
-	it("says nothing when the two roots agree", async () => {
-		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
-		expect(r.out).not.toMatch(/CLAIMS DEGRADED/);
-		expect(r.json).toBeDefined();
-	});
-
-	it("prefers the divergence to the oracle's own degraded read", async () => {
-		// Whatever the oracle said, it said about another tree's claims.
-		elsewhere();
-		kit.oracleFails = true;
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.claimsDegraded.storeElsewhere).toBe(true);
-		expect(j.claimsDegraded.why).toMatch(/claim store resolves to/);
-	});
-
-	it("still reads the claims it found there, rather than discarding them", async () => {
-		// They are claims on the same tracker, so an exclusion is still the safer
-		// answer than pretending the issue is free.
-		elsewhere();
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.order()).toEqual([2]);
 	});
 });
 
@@ -1373,14 +1196,6 @@ describe("issues the launcher has already dispatched", () => {
 			dispatched: [{ issues: [2], prompt: "/implement 2" }],
 		});
 		expect(r.order()).toEqual([1]);
-	});
-
-	it("names the launch that excluded it, with its age and prompt", async () => {
-		const r = await run({
-			issues: [{ number: 2 }],
-			dispatched: [{ issues: [2], prompt: "/implement 2 7", hoursAgo: 0.5 }],
-		});
-		expect(r.out).toMatch(/#2\s+0\.5h ago — \/implement 2 7/);
 	});
 
 	it("re-admits one whose launch the refill loop handed off, inside the window (#2744)", async () => {
@@ -1402,16 +1217,6 @@ describe("issues the launcher has already dispatched", () => {
 		expect(r.order()).toEqual([2]);
 	});
 
-	it("excludes even though no session from that launch is still listed", async () => {
-		// oracleSessions is ["self"] alone, so the launch's session has exited:
-		// the ledger limb is deliberately unconditional inside the window.
-		const r = await run({
-			issues: [{ number: 2 }],
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.order()).toEqual([]);
-	});
-
 	it("prints the block, the launcher's window and the --force way past it", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }],
@@ -1429,24 +1234,6 @@ describe("issues the launcher has already dispatched", () => {
 		});
 		expect(r.out).toMatch(/frontier\s+1 —/);
 		expect(r.out).toMatch(/dispatched\s+1 held out on a launch in the last 1h/);
-	});
-
-	it("never reports a dispatched issue as assigned-but-unclaimed", async () => {
-		const r = await run({
-			issues: [{ number: 2, assignees: ["someone"] }],
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.out).not.toContain("ASSIGNED BUT UNCLAIMED");
-	});
-
-	it("lets a live claim keep the reason, since it names the holder", async () => {
-		kit.oracleSessions = ["self", "s1"];
-		const r = await run({
-			issues: [{ number: 2, assignees: ["someone"] }],
-			claims: { 2: "s1" },
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.out).toMatch(/#2\s+\S*\s*claimed by/);
 	});
 
 	it("carries the ledger read into --json, window and all", async () => {
@@ -1493,87 +1280,6 @@ describe("issues the launcher has already dispatched", () => {
 			});
 			expect(r.out).toMatch(/^ {2}#2\s.*\blive\b/m);
 		});
-
-		it("reads finished: done off a job whose own state.json reads done", async () => {
-			// No oracle entry at all: a finished job can fall out of `claude
-			// agents --json` on its own, and the job's own record is trusted
-			// outright once it reads a terminal state (this function's header).
-			writeJobState("job1", { state: "done", sessionId: "worker1" });
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2], jobId: "job1" }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe(
-				"finished: done",
-			);
-		});
-
-		it("prints finished: done in the text table", async () => {
-			writeJobState("job1", { state: "done", sessionId: "worker1" });
-			const r = await run({
-				issues: [{ number: 2 }],
-				dispatched: [{ issues: [2], jobId: "job1" }],
-			});
-			expect(r.out).toMatch(/^ {2}#2\s.*\bfinished: done\b/m);
-		});
-
-		it("reads finished off the oracle's own terminal state where the job record only says working", async () => {
-			kit.oracleSessions = ["self", "worker1"];
-			kit.oracleFinished = ["worker1"];
-			writeJobState("job1", { state: "working", sessionId: "worker1" });
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2], jobId: "job1" }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe(
-				"finished: oracle reads it terminal",
-			);
-		});
-
-		it("reads unknown, never live, on a pre-mantahostels#3488 entry with no job id", async () => {
-			kit.oracleSessions = ["self", "worker1"];
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2] }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe("unknown");
-		});
-
-		it("prints unknown, never live, in the text table on a pre-mantahostels#3488 entry with no job id", async () => {
-			kit.oracleSessions = ["self", "worker1"];
-			const r = await run({
-				issues: [{ number: 2 }],
-				dispatched: [{ issues: [2] }],
-			});
-			expect(r.out).toMatch(/^ {2}#2\s.*\bunknown\b/m);
-			expect(r.out).not.toMatch(/^ {2}#2\s.*\blive\b/m);
-		});
-
-		it("reads unknown, never live, where the job id names no readable job record", async () => {
-			kit.oracleSessions = ["self"];
-			// A different job's state.json makes the store itself readable
-			// (jobs !== null), so the "ghost" lookup exercises "no job record
-			// found for ghost" rather than the un-opened-store branch.
-			writeJobState("job1", { state: "working", sessionId: "worker1" });
-			const r = await run(
-				{
-					issues: [{ number: 2 }],
-					dispatched: [{ issues: [2], jobId: "ghost" }],
-				},
-				["--json"],
-			);
-			expect(r.json().alreadyDispatched.issues[0].liveness).toBe("unknown");
-			expect(r.json().alreadyDispatched.issues[0].livenessWhy).toMatch(/ghost/);
-		});
 	});
 
 	it("excludes nothing on a ledger it cannot read, and says so", async () => {
@@ -1619,26 +1325,6 @@ describe("issues the launcher has already dispatched", () => {
 			});
 			expect(r.order()).toEqual([]);
 		});
-
-		it("holds an issue carrying no takes: value, having nothing to compare", async () => {
-			const r = await run({
-				issues: [{ number: 2 }],
-				dispatched: [{ issues: [2], prompt: "/triage 2" }],
-			});
-			expect(r.order()).toEqual([]);
-		});
-
-		it("reads every entry on the issue, not only the latest", async () => {
-			const r = await run({
-				issues: [{ number: 2, labels: ["takes:wayfinder"] }],
-				dispatched: [
-					{ issues: [2], prompt: "/wayfinder 2", hoursAgo: 0.8 },
-					{ issues: [2], prompt: "/triage 2", hoursAgo: 0.3 },
-				],
-			});
-			expect(r.order()).toEqual([]);
-			expect(r.out).toMatch(/#2\s+0\.8h ago — \/wayfinder 2/);
-		});
 	});
 });
 
@@ -1661,19 +1347,6 @@ describe("what the mantahostels#1528 review caught", () => {
 		expect(excluded).not.toMatch(/^#2\s/m);
 		// Still accounted for, so the table is not silently short.
 		expect(excluded).toContain("1 more excluded as already dispatched");
-	});
-
-	it("leaves a claimed issue out of the dispatched block and its count", async () => {
-		kit.oracleSessions = ["self", "s1"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2, assignees: ["someone"] }],
-			claims: { 2: "s1" },
-			dispatched: [{ issues: [2] }],
-		});
-		expect(r.out).not.toContain("ALREADY DISPATCHED");
-		expect(r.out).toMatch(/dispatched\s+0 held out on a launch/);
-		// It is excluded, and the reason printed is the claim, which names a holder.
-		expect(r.out.split("\nEXCLUDED\n")[1]).toMatch(/^#2\s+\S*\s*claimed by/m);
 	});
 
 	it("counts only the dispatch-held issues in --json, not every ledger hit", async () => {
@@ -1735,49 +1408,11 @@ describe("the band no command opens — §5's third accounting term (mantahostel
 	const block = (out: string) =>
 		out.split("RUN SUMMARY")[1]?.split("\nAdvisory only")[0] ?? "";
 
-	it("counts a takes:human issue, which no /-command opens", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["takes:implement"] },
-				{ number: 2, labels: ["takes:human"] },
-			],
-		});
-		expect(block(r.out)).toMatch(/frontier +2/);
-		expect(block(r.out)).toMatch(/no command +1/);
-	});
-
 	it("prints the row at zero, so the term is never read as unowed", async () => {
 		const r = await run({
 			issues: [{ number: 1, labels: ["takes:implement"] }],
 		});
 		expect(block(r.out)).toMatch(/no command +0/);
-	});
-
-	it("counts a takes:children container whose last child has closed", async () => {
-		// On the frontier that is the only takes:children issue there is — the
-		// exclusion cascade holds a live container off it (mantahostels#1622).
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["takes:implement"] },
-				{ number: 2, labels: ["takes:children"] },
-			],
-		});
-		expect(block(r.out)).toMatch(/no command +1/);
-		expect(block(r.out)).toMatch(/rotted containers: #2/);
-	});
-
-	it("counts nothing for a container still holding an open child", async () => {
-		// It never reaches the frontier, so it is neither in `<F>` nor in `<U>`.
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["takes:children"] },
-				{ number: 2, labels: ["takes:implement"], parent: 1 },
-			],
-		});
-		expect(r.out).toMatch(/#1\s+\S*\s*container — 1 open children/);
-		expect(block(r.out)).toMatch(/frontier +1/);
-		expect(block(r.out)).toMatch(/no command +0/);
-		expect(block(r.out)).not.toMatch(/rotted containers/);
 	});
 
 	it("counts nothing for a takes:human issue an open blocker excluded", async () => {
