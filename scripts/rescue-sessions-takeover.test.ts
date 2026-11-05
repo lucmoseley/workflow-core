@@ -214,6 +214,20 @@ describe("takeover: the success path", () => {
 		expect(r.stdout).not.toContain("--into");
 	});
 
+	it("says the worktree is unrecorded, and to continue here, where its record names none", async () => {
+		frozenHolder();
+		jobState({
+			state: "working",
+			intent: `/implement ${N}`,
+			cwd: "",
+			inFlight: { tasks: 0, queued: 0 },
+		});
+		const r = await takeover();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("Worktree: (not recorded");
+		expect(r.stdout).toContain("continue its intent in this session.");
+	});
+
 	it("snapshots and stops on the plan whose records hold it, where every plan lists it (#1146)", async () => {
 		frozenHolder();
 		const two = plan(".claude2");
