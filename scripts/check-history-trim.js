@@ -24,7 +24,7 @@
  * WHERE IT RUNS: `npm run status` only (scripts/status-report.js), WITHOUT
  * --notify, so a session does not open on a fault list. --notify is exercised
  * by the tests and wired by nothing. The reading is recorded only under
- * `--write` (`npm run status -- --write`): a check run writes nothing (#4449).
+ * `--write` (`npm run status -- --write`): a check run dirties no tree (#4449).
  *
  * THE RESIDUAL of running on demand rather than at every session start: a trim
  * is detected late. The signal itself does not decay — a forward move of the

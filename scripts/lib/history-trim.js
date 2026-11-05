@@ -46,7 +46,10 @@ const { markersDir } = require("./marker-root.js");
 
 /** A shared ledger in the host's marker store, beside the seat-utilisation
  *  history: the readings are of this machine's seat roots, so one baseline
- *  serves every session on the machine and none on another (#4465). */
+ *  serves every session on the machine and none on another (#4465).
+ *  Residual: a fresh machine starts with no baseline, and a run with
+ *  `CLAUDE_PROJECT_DIR` unset in a linked worktree keeps a private ledger
+ *  there until #4482. */
 /** @type {() => string} */
 const WATCH_FILE = () =>
 	process.env.WFC_HISTORY_TRIM_WATCH ||

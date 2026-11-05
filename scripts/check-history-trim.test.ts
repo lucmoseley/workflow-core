@@ -391,8 +391,9 @@ describe("end to end", () => {
 	it("records into the host's marker store from a linked worktree, leaving both trees clean (#4465)", () => {
 		const repo = path.join(home, "repo");
 		fs.mkdirSync(repo);
-		const git = (...args: string[]) =>
-			execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+		const gitIn = (dir: string, ...args: string[]) =>
+			execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+		const git = (...args: string[]) => gitIn(repo, ...args);
 		git("init", "-q");
 		fs.copyFileSync(
 			path.resolve(__dirname, "..", ".gitignore"),
@@ -429,11 +430,7 @@ describe("end to end", () => {
 			),
 		).toBe(true);
 		expect(git("status", "--porcelain")).toBe("");
-		expect(
-			execFileSync("git", ["-C", tree, "status", "--porcelain"], {
-				encoding: "utf8",
-			}),
-		).toBe("");
+		expect(gitIn(tree, "status", "--porcelain")).toBe("");
 	});
 
 	describe("--notify, held ready for a hook nothing wires yet", () => {
