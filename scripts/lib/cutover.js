@@ -23,8 +23,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
-const { execGit, gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
+const { gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
@@ -41,6 +40,15 @@ function readCutOver(gitRead) {
 	const r = gitRead(["config", "--get", UPSTREAM_KEY], [1]);
 	return r.ok ? r.out.trim() !== SHARED_MERGE : null;
 }
+
+/**
+ * The command that cuts a session its own worktree and prints its path, as
+ * every refusal pointing a session out of the main checkout spells it.
+ * @param {(name: string) => string} [at] where scripts live: a dispatcher
+ *   core passes its `ctx.scriptPath`
+ */
+const cutCommand = (at = scriptPath) =>
+	`\`node ${at("session-checkout.js")} cut <session-name>\``;
 
 /**
  * Whether `cwd` is the main checkout or a directory in it outside every
@@ -68,10 +76,11 @@ function realOr(p) {
 /**
  * The linked worktrees' directories, each resolved.
  * @param {string} root
+ * @param {import("./git.js").GitReader} read run in `root`
  */
-function linkedWorktrees(root) {
+function linkedWorktrees(root, read) {
 	const home = realOr(root);
-	return git(["worktree", "list", "--porcelain"], root)
+	return must(read, ["worktree", "list", "--porcelain"], root)
 		.split("\n")
 		.filter((l) => l.startsWith("worktree "))
 		.map((l) => realOr(l.slice("worktree ".length)))
@@ -96,40 +105,16 @@ const isCutOver = (root) =>
 	readCutOver(gitReader(root, GIT_TIMEOUT_MS)) === true;
 
 /**
+ * git's output, trimmed; a git that fails or cannot answer throws.
+ * @param {import("./git.js").GitReader} read
  * @param {string[]} args
- * @param {string} cwd
- * @returns {{ status: number | null, out: string, err: string }}
- */
-function execGitStatus(args, cwd) {
-	try {
-		const out = String(
-			execGit(args, {
-				cwd,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: GIT_TIMEOUT_MS,
-			}),
-		);
-		return { status: 0, out, err: "" };
-	} catch (err) {
-		const e = caught(err);
-		return {
-			status: typeof e.status === "number" ? e.status : null,
-			out: String(e.stdout ?? ""),
-			err: String(e.stderr || e.message).trim(),
-		};
-	}
-}
-
-/**
- * @param {string[]} args
- * @param {string} cwd
+ * @param {string} cwd where `read` runs, for the message
  * @returns {string}
  */
-function git(args, cwd) {
-	const r = execGitStatus(args, cwd);
-	if (r.status !== 0)
-		throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${r.err}`);
+function must(read, args, cwd) {
+	const r = read(args, []);
+	if (!r.ok)
+		throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${r.why}`);
 	return r.out.trim();
 }
 
@@ -141,9 +126,11 @@ function git(args, cwd) {
  *   listed: () => { agents: { name?: string, sessionId: string, cwd?: string }[] } | { why: string },
  *   cut: (root: string, name: string) => { dir: string },
  *   land: (dir: string) => { head: string, lander: string | null },
- *   dirt: (root: string) => Blocker[],
+ *   orphanedEdits: (root: string) => Blocker[],
  *   level: (root: string) => LevelOutcome,
- * }} CutoverPorts
+ *   gitIn: (cwd: string) => import("./git.js").GitReader,
+ * }} CutoverPorts `gitIn` runs git in a directory: the main checkout, or the
+ *   worktree `cut` made
  * @typedef {(
  *   | { status: "module-off" }
  *   | { status: "unlisted", why: string }
@@ -151,18 +138,19 @@ function git(args, cwd) {
  *   | { status: "unmerged", dir: string, local: number, files: string[], why: string }
  *   | { status: "cut-over", already: boolean,
  *       landed: { count: number, head: string, lander: string | null } | null,
- *       dirt: Blocker[], level: LevelOutcome }
+ *       orphanedEdits: Blocker[], level: LevelOutcome }
  * )} CutoverResult
  */
 
 /**
- * Merge local `main` into the worktree at `dir`. Null where it committed,
- * else the conflicted files (none where git or a gate refused) and why.
- * @param {string} dir
+ * Merge local `main` into the worktree `read` runs in. Null where it
+ * committed, else the conflicted files (none where git or a gate refused)
+ * and why.
+ * @param {import("./git.js").GitReader} read
  * @returns {{ files: string[], why: string } | null}
  */
-function mergeMain(dir) {
-	const r = execGitStatus(
+function mergeMain(read) {
+	const r = read(
 		[
 			"merge",
 			"--no-ff",
@@ -170,16 +158,13 @@ function mergeMain(dir) {
 			"Land the main checkout's local commits at cutover (#4248)",
 			BRANCH,
 		],
-		dir,
+		[],
 	);
-	if (r.status === 0) return null;
-	const conflicted = execGitStatus(
-		["diff", "--name-only", "--diff-filter=U"],
-		dir,
-	).out;
+	if (r.ok) return null;
+	const conflicted = read(["diff", "--name-only", "--diff-filter=U"], []);
 	return {
-		files: conflicted.split("\n").filter(Boolean),
-		why: (r.err || r.out).trim(),
+		files: conflicted.ok ? conflicted.out.split("\n").filter(Boolean) : [],
+		why: r.why,
 	};
 }
 
@@ -190,19 +175,21 @@ function mergeMain(dir) {
  */
 function cutover(root, ports) {
 	if (!ports.moduleOn()) return { status: "module-off" };
-	const already = isCutOver(root);
+	const read = ports.gitIn(root);
+	const already = readCutOver(read) === true;
 	/** @type {{ count: number, head: string, lander: string | null } | null} */
 	let landed = null;
 	if (!already) {
 		const listing = ports.listed();
 		if ("why" in listing) return { status: "unlisted", why: listing.why };
-		const worktrees = linkedWorktrees(root);
+		const worktrees = linkedWorktrees(root, read);
 		const sessions = listing.agents
 			.filter((a) => a.cwd && standsIn(a.cwd, root, worktrees))
 			.map((a) => a.name || a.sessionId);
 		if (sessions.length > 0) return { status: "occupied", sessions };
-		git(["fetch", "--quiet", "origin", "landing"], root);
-		const local = git(
+		must(read, ["fetch", "--quiet", "origin", "landing"], root);
+		const local = must(
+			read,
 			[
 				"rev-list",
 				"--right-only",
@@ -214,21 +201,21 @@ function cutover(root, ports) {
 			.split("\n")
 			.filter(Boolean);
 		if (local.length > 0) {
-			const tip = git(["rev-parse", BRANCH], root).slice(0, SHORT_SHA);
+			const tip = must(read, ["rev-parse", BRANCH], root).slice(0, SHORT_SHA);
 			const { dir } = ports.cut(root, `cutover-main-${tip}`);
-			const unmerged = mergeMain(dir);
+			const unmerged = mergeMain(ports.gitIn(dir));
 			if (unmerged !== null)
 				return { status: "unmerged", dir, local: local.length, ...unmerged };
 			const { head, lander } = ports.land(dir);
 			landed = { count: local.length, head, lander };
 		}
-		git(["branch", "--unset-upstream", BRANCH], root);
+		must(read, ["branch", "--unset-upstream", BRANCH], root);
 	}
 	return {
 		status: "cut-over",
 		already,
 		landed,
-		dirt: ports.dirt(root),
+		orphanedEdits: ports.orphanedEdits(root),
 		level: ports.level(root),
 	};
 }
@@ -273,10 +260,10 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 				lines.push(
 					`landed main's ${r.landed.count} local commit(s) as ${r.landed.head.slice(0, SHORT_SHA)} on landing${r.landed.lander ? `; ${r.landed.lander}` : ""}`,
 				);
-			if (r.dirt.length > 0)
+			if (r.orphanedEdits.length > 0)
 				lines.push(
-					`${r.dirt.length} edit(s) remain in the main checkout, none discarded — judge each, moving it into a session worktree or discarding it by hand:`,
-					...r.dirt.map(
+					`${r.orphanedEdits.length} edit(s) remain in the main checkout, none discarded — judge each, moving it into a session worktree or discarding it by hand:`,
+					...r.orphanedEdits.map(
 						(b) =>
 							`  ${b.path} — ${b.ageMs === null ? "deleted" : `${describeAge(b.ageMs)} old`}; last writer ${b.writer ? `session ${b.writer.sessionId}, ${describeAge(now - b.writer.at)} ago` : "unknown"}`,
 					),
@@ -288,6 +275,7 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 }
 
 module.exports = {
+	cutCommand,
 	cutover,
 	isCutOver,
 	landingCutOver,

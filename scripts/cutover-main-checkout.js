@@ -20,10 +20,11 @@ const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { cutover, renderCutover } = require("./lib/cutover.js");
+const { GIT_TIMEOUT_MS, gitReader } = require("./lib/git.js");
 const {
 	describeAge,
 	level,
-	readDirt,
+	readOrphanedEdits,
 	renderOutcome,
 } = require("./lib/level-main.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
@@ -54,8 +55,9 @@ function main(argv = process.argv.slice(2)) {
 			listed: () => listedAgents(),
 			cut,
 			land,
-			dirt: (r) => readDirt(r, at, lastWriter),
+			orphanedEdits: (r) => readOrphanedEdits(r, at, lastWriter),
 			level: (r) => level(r, { lastWriter, now: at }),
+			gitIn: (dir) => gitReader(dir, GIT_TIMEOUT_MS),
 		});
 		const lines = renderCutover(result, {
 			describeAge,

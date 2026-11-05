@@ -16,10 +16,9 @@
  */
 
 const { runCheck } = require("./lib/check.js");
-const { isCutOver } = require("./lib/cutover.js");
+const { cutCommand, isCutOver } = require("./lib/cutover.js");
 const { gitDirs } = require("./lib/git.js");
 const { checkoutOfCommonDir } = require("./lib/main-checkout.js");
-const { scriptPath } = require("./lib/script-path.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -50,7 +49,7 @@ function run(ctx) {
 		"  Its main follows origin/main by the levelling step's fast-forward alone, and a local commit is one that fast-forward cannot keep (#4229).",
 	);
 	ctx.say(
-		`  Commit in your session's worktree under .claude/worktrees/; \`node ${scriptPath("session-checkout.js")} cut <session-name>\` cuts one and prints its path.`,
+		`  Commit in your session's worktree under .claude/worktrees/; ${cutCommand()} cuts one and prints its path.`,
 	);
 	ctx.say(
 		"  Deliberate? The escape is the founder's to set, never an agent's (#916): an agent stops and asks.",
