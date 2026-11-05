@@ -1370,6 +1370,70 @@ describe("the bisect is offered only where it could tell you something (mantahos
 	});
 });
 
+describe("a red Test file CI times job routes to cut tickets, not a bisect (#4362)", () => {
+	const fileTimes = {
+		name: "Test file CI times",
+		conclusion: "failure",
+		steps: [{ name: "Judge the last three sweeps", conclusion: "failure" }],
+	};
+	const verdict = {
+		name: "Suite passed",
+		conclusion: "failure",
+		steps: [{ name: "Run", conclusion: "failure" }],
+	};
+	const redSweepOver = () =>
+		setRuns([
+			run_({
+				databaseId: 300,
+				headSha: back(0),
+				workflowName: redSuite.SWEEP_NAME,
+				conclusion: "failure",
+				createdAt: "2026-08-04T13:00:00Z",
+			}),
+			run_({
+				databaseId: 200,
+				headSha: back(3),
+				workflowName: redSuite.SWEEP_NAME,
+				conclusion: "success",
+				createdAt: "2026-08-04T12:00:00Z",
+			}),
+		]);
+
+	it("names the per-file cut route and prints no bisect range where it is the only red", () => {
+		redSweepOver();
+		stubRunsAndJobs([fileTimes, verdict]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain(
+			"Ticket for Test file CI times: each file over the limit is cut under its own profiled ticket (a sub-issue of #2729, #4290)",
+		);
+		expect(out).not.toContain("no filer covers this job");
+		expect(out).toContain("No bisect: Test file CI times judges a median");
+		expect(out).not.toContain("since the last green run");
+		expect(out).not.toContain("gh workflow run bisect.yml");
+	});
+
+	it("still prints the bisect range where the suite is red as well", () => {
+		redSweepOver();
+		stubRunsAndJobs([
+			{
+				name: `${redSuite.SUITE_JOB} / Lint and tests`,
+				conclusion: "failure",
+				steps: [{ name: "Vitest", conclusion: "failure" }],
+			},
+			fileTimes,
+			verdict,
+		]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain("3 commit(s) since the last green run");
+		expect(out).toContain(
+			`gh workflow run bisect.yml -f good=${back(3)} -f bad=${back(0)}`,
+		);
+		expect(out).not.toContain("No bisect:");
+	});
+});
+
 describe("the trigger is named alongside the verdict (mantahostels#945)", () => {
 	it("marks a scheduled sweep as one, so the range is read as covering it", () => {
 		setRuns([
