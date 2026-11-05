@@ -62,11 +62,14 @@ export function buildBgBranch({
 	err?: string;
 	onResume?: string;
 }) {
-	const steps = [
-		onResume.trim().replace(/;+$/, ""),
+	return [
+		'if [ "$1" = "--bg" ]; then',
+		onResume,
 		`cat ${shellQuote(out)}`,
 		err ? `cat ${shellQuote(err)} >&2` : "",
 		"exit 0",
-	].filter(Boolean);
-	return `if [ "$1" = "--bg" ]; then ${steps.join("; ")}; fi`;
+		"fi",
+	]
+		.filter(Boolean)
+		.join("\n");
 }
