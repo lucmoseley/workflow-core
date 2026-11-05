@@ -266,7 +266,7 @@ describe("what to do next, by count and build state file (#4410)", () => {
 			const told = toldAt(n);
 			expect(told).toContain(`autocompacted ${n} times.`);
 			expect(told).toContain(
-				`That is the backstop (10): commit what exists, update the build state file ${stateFile(77)}, comment the unfinished state on issue #77 with a \`**Compactions:** ${n}\` line, leave it open, and end.`,
+				`That is the backstop (10): commit what exists, update the build state file ${stateFile(77)}, comment the unfinished state on issue #77 with a \`**Compactions:** ${n} (session ${sid})\` line, leave it open, and end.`,
 			);
 			expect(told).not.toContain("Carry on");
 		},
