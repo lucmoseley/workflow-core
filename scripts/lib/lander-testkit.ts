@@ -170,8 +170,7 @@ export const writeTrackerConfig = () => {
  * and `issue edit` print nothing: every caller discards a write's stdout.
  * A call no arm models — an unknown verb, a flag an arm ignores, or an arm
  * throwing — exits 1 and fails the case from landerSandbox's afterEach,
- * naming its argv, since the lander's fail-open paths can swallow the exit
- * (#4357).
+ * since the lander's fail-open paths can swallow the exit (#4357).
  */
 export const stubTracker = () => {
 	const store = path.join(tmp, "issues.json");
@@ -190,7 +189,6 @@ const refuse = (why) => {
 	process.exit(1);
 };
 process.on("uncaughtException", (e) => refuse(String(e)));
-// Every flag outside \`modelled\` reaches refuse(), so a changed call is seen.
 const onlyFlags = (...modelled) => {
 	const unread = a.filter((w) => w.startsWith("--") && !["--repo", ...modelled].includes(w));
 	if (unread.length > 0) refuse("unmodelled " + unread.join(" "));
