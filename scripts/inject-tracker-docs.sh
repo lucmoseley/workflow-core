@@ -225,7 +225,7 @@ DEDUPE_WINDOW=60
 # concision-backstop.sh reads the `.implement` marker at Stop to decide whether a
 # session's code-review floor is 20 changed lines or none, so this name, its
 # sanitiser, the compact/clear/resume exclusion below and the 24-hour sweep above
-# all decide whether a review is demanded. Only concision-backstop.test.ts's
+# all decide whether a review is demanded. Only concision-backstop-floor.test.ts's
 # "reads the marker inject-tracker-docs.sh actually writes" pins the path — the
 # lifecycle is pinned by nothing, and loosening it silently restores the floor.
 #

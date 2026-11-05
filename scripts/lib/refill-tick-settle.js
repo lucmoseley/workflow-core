@@ -10,6 +10,7 @@ const blocks = require("./refill-blocks.js");
 const {
 	buildResumeWaitLine,
 	decideTick,
+	isClashSkip,
 	isParkRoutingMode,
 } = require("./refill-decide.js");
 const { buildErrorText } = require("./caught.js");
@@ -53,6 +54,9 @@ const HISTORY_KEPT = 50;
 const UNCLOSED_KEPT = 50;
 /* The skipped rows an idle tick's log line names. Untraced. */
 const LINE_SKIPS = 3;
+/* How a tick line counts its clash skips, each of whose reasons names its own
+ * file and partner. */
+const CLASH_COUNT = "on a clash";
 
 /**
  * The stored count after a tick that parked `launches`' rows stamped `now`.
@@ -85,12 +89,31 @@ function nextHandedOff(state, away, launches, now) {
  */
 const holdsOf = (held, before, now, mode) =>
 	held.flatMap((h) => {
-		const since = before.find(
-			(b) => b.root === h.root && b.number === h.number,
-		)?.since;
+		const since = sinceOf(h, before);
 		if (since !== undefined) return [{ ...h, since }];
 		return isParkRoutingMode(mode) ? [{ ...h, since: now }] : [];
 	});
+
+/**
+ * @param {import("./refill-decide.js").Skip} h
+ * @param {Hold[]} before
+ */
+const sinceOf = (h, before) =>
+	before.find((b) => b.root === h.root && b.number === h.number)?.since;
+
+/**
+ * The tick's clash skips as holds, in either mode, from the first tick of an
+ * unbroken run that deferred the row, so the idle alarm names the clash that
+ * keeps a row waiting (#4355).
+ * @param {import("./refill-decide.js").Skip[]} skipped this tick's
+ * @param {Hold[]} before
+ * @param {number} now
+ * @returns {Hold[]}
+ */
+const clashHoldsOf = (skipped, before, now) =>
+	skipped
+		.filter(isClashSkip)
+		.map((s) => ({ ...s, since: sinceOf(s, before) ?? now }));
 
 /**
  * The launches a tick's state keeps, order unchanged (#3775): every live one,
@@ -179,7 +202,10 @@ function frontierNotes(d, read) {
 	if (read === null) return [];
 	/** @type {Map<string, number>} */
 	const counts = new Map();
-	for (const s of d.skipped) counts.set(s.why, (counts.get(s.why) ?? 0) + 1);
+	for (const s of d.skipped) {
+		const why = isClashSkip(s) ? CLASH_COUNT : s.why;
+		counts.set(why, (counts.get(why) ?? 0) + 1);
+	}
 	return [
 		buildFrontierReadText(read),
 		...(counts.size > 0
@@ -189,6 +215,20 @@ function frontierNotes(d, read) {
 				]
 			: []),
 	];
+}
+
+/**
+ * A launching tick's account of the rows it deferred on a clash (#4355): an
+ * idle tick's frontierNotes count them with its other skips.
+ * @param {import("./refill-decide.js").Skip[]} skipped
+ */
+function clashNotes(skipped) {
+	const clashes = skipped.filter(isClashSkip);
+	return clashes.length > 0
+		? [
+				`deferred ${clashes.length} ${CLASH_COUNT}: ${clashes.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
+			]
+		: [];
 }
 
 /**
@@ -244,6 +284,7 @@ function buildTickLine(
 				]
 			: []),
 		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
+		...(d.launches.length > 0 ? clashNotes(d.skipped) : []),
 		...(probes.length > 0
 			? [`probed ${probes.map((p) => `${p.seat}: ${p.outcome}`).join(", ")}`]
 			: []),
@@ -500,7 +541,10 @@ function settleTick(
 				held:
 					"stop" in decision || read === null
 						? state.held
-						: holdsOf(decision.held, state.held, input.now, input.mode),
+						: [
+								...holdsOf(decision.held, state.held, input.now, input.mode),
+								...clashHoldsOf(decision.skipped, state.held, input.now),
+							],
 				launchCount: {
 					from: input.noProgressFrom,
 					count:

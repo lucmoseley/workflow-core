@@ -165,6 +165,32 @@ describe("what status prints", () => {
 		expect(lines).toContain("  … and 2 more skipped");
 	});
 
+	it("lists the last tick's clash skips ahead of its other skips (#4355)", () => {
+		const skipped = [
+			{ root: WFC, number: 1, why: "already running" },
+			{
+				root: WFC,
+				number: 2,
+				why: "clashes on a.js with #3 launched this tick",
+			},
+		];
+		const lines = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
+			control,
+			state: {
+				...state,
+				lastTick: { at: NOW, summary: "launch", skipped },
+			},
+			pid: 123,
+			served,
+		});
+		expect(lines.filter((l) => l.startsWith("  skipped "))).toEqual([
+			"  skipped workflow-core #2 clashes on a.js with #3 launched this tick",
+			"  skipped workflow-core #1 already running",
+		]);
+	});
+
 	it("reads back only well-formed skipped rows from the state file", () => {
 		const parsed = loopStateOf({
 			lastTick: {
