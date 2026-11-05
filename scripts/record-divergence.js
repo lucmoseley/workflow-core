@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 /*
- * record-divergence.js — PostToolUse recorder: every ff-only refusal and every
- * rejected push, with the divergence that caused it (#289). The core is
- * lib/divergence-row.js, its ports lib/divergence-row-host.js (#2797).
+ * record-divergence.js — PostToolUse and PostToolUseFailure recorder: every
+ * ff-only refusal and every rejected push, with the divergence that caused it
+ * (#289). The core is lib/divergence-row.js, its ports
+ * lib/divergence-row-host.js (#2797).
+ *
+ * BOTH EVENTS, because a refused pull or push exits non-zero, and a call that
+ * does reaches PostToolUseFailure and never PostToolUse (#4446). A refused
+ * `session-checkout.js land` is filed by that script itself, as a `land` row:
+ * its push runs inside node, where neither event sees it.
  *
  * IMPLICIT:  appends one row per refused `git pull` and per rejected `git push`
  *            to a per-repo log under the Claude config directory. Records only;
@@ -29,7 +35,7 @@
  *
  * THE ROW, one line, tab-separated, append-only:
  *
- *   <ISO 8601 UTC>  <repo>  pull|push  <ahead>  <behind>  <state>  <sessions>  <ref>  <marker>
+ *   <ISO 8601 UTC>  <repo>  pull|push|land  <ahead>  <behind>  <state>  <sessions>  <ref>  <marker>
  *
  *   repo      the REPOSITORY's name, from the common git dir, so a linked
  *             worktree is filed under the repository and not under itself
@@ -53,7 +59,9 @@
  * PUSH has fetched nothing, so its `behind` is a LOWER BOUND — the true figure
  * is at least that. Fetching here would be a network call on a hook, and it
  * would move a ref every parallel session can be reading. The report states the
- * bound; this file does not paper over it.
+ * bound; this file does not paper over it. A `land` row is current: the land,
+ * being no hook, re-fetches `landing` before counting, and says so on stderr
+ * where that fetch fails and the bound applies again.
  *
  * LIMITS
  *  - Wired with `if: Bash(git *)`, so it is not run unless the command leads

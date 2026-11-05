@@ -86,7 +86,7 @@ function readRegionHash(subject, hash) {
 	if (!region) return;
 	let text;
 	try {
-		text = fs.readFileSync(path.join(core.repoRoot(), rel), "utf8");
+		text = fs.readFileSync(path.join(core.treeRoot(), rel), "utf8");
 	} catch {
 		return null;
 	}
@@ -228,7 +228,7 @@ function contentState(rel, lock) {
 	// Deletion is a clobber like any other, and hash-object cannot report it: a
 	// missing file makes git exit non-zero, which reads as "could not answer".
 
-	if (!fs.existsSync(path.join(core.repoRoot(), core.subjectPath(rel))))
+	if (!fs.existsSync(path.join(core.treeRoot(), core.subjectPath(rel))))
 		return { state: "changed", was };
 	// A REGION is compared against its own bytes, never the file's (mantahostels#970). On the
 	// whole file, a neighbour editing a different region of docs/doc-map.md would

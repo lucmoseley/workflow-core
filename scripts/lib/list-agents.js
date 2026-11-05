@@ -31,6 +31,7 @@ const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { runGrouped } = require("./grouped-child.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { writeFd } = require("./write-fd.js");
 
 /* process.exit runs grouped-child's exit hook, which kills every live group. */
@@ -49,7 +50,7 @@ async function main(backstopMs, file, configDirs) {
 		configDirs.map((dir) =>
 			runGrouped(file, ["agents", "--json"], {
 				cwd: process.cwd(),
-				env: { ...process.env, CLAUDE_CONFIG_DIR: dir },
+				env: buildSeatEnv(process.env, dir),
 				timeoutMs: backstopMs,
 				maxBuffer: CHILD_MAX_BUFFER,
 			}),

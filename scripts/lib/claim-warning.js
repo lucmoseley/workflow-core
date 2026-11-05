@@ -163,7 +163,7 @@ const WARN_TAIL =
 /**
  * @typedef {{
  *   listLocks: () => Lock[] | null,
- *   relativeToRepo: (p: string) => string | null,
+ *   claimKey: (p: string) => string | null,
  *   isGuarded: (rel: string) => boolean,
  *   subjectsOverlap: (a: string, b: string) => boolean,
  *   now: () => number,
@@ -212,7 +212,7 @@ function resolveTargets(targets, ports) {
 	/** @type {string[]} */
 	const out = [];
 	for (const raw of targets) {
-		const rel = ports.relativeToRepo(raw);
+		const rel = ports.claimKey(raw);
 		if (rel !== null && ports.isGuarded(rel) && !out.includes(rel))
 			out.push(rel);
 	}

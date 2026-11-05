@@ -27,14 +27,15 @@ const ARBITER_TIMEOUT_MS = 5000;
  * @param {(what: string) => void} _log
  * @param {{ arbiter?: string }} [opts] `arbiter` stands a script in for the
  *   real one, so a case can make it hang or exit non-zero
- * @returns {{ arbiterCheck: (args: string[]) => import("./file-claim.js").ArbiterAnswer }}
+ * @returns {{ arbiterCheck: (args: string[], cwd: string) => import("./file-claim.js").ArbiterAnswer }}
  */
 function buildHostPorts(_root, _log, { arbiter = ARBITER } = {}) {
 	return {
-		arbiterCheck: (args) => {
+		arbiterCheck: (args, cwd) => {
 			let r;
 			try {
 				r = spawnSync(process.execPath, [arbiter, ...args], {
+					cwd,
 					encoding: "utf8",
 					stdio: ["ignore", "pipe", "ignore"],
 					timeout: budgetMs(ARBITER_TIMEOUT_MS),

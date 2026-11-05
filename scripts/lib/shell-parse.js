@@ -388,7 +388,7 @@ function skipExec(words, start) {
 /**
  * Collapse `.`, `..` and doubled slashes, so two spellings of one absolute
  * path compare equal as strings (mantahostels#3315). Textual, never
- * symlink-resolved: session-arbiter.js's relativeToRepo is lexical too. One
+ * symlink-resolved: session-arbiter.js's claimKey is lexical too. One
  * line only, as the bash reader's `read`.
  * @param {string} p
  */
