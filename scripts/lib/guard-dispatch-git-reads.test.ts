@@ -41,13 +41,12 @@ beforeEach(() => {
 	fs.mkdirSync(path.join(dir, "no-hooks"));
 	initGitRepo(repo, path.join(dir, "no-hooks"));
 	/* A second commit and a pushed base, so the test core's selection reads a
-	 * range, and a staged file, so the commit cores read the index. */
+	 * range, and an untracked file, so the commit core lists what git tracks. */
 	fs.writeFileSync(path.join(repo, "b.md"), "b\n");
 	git("add", "b.md");
 	git("commit", "-qm", "second");
 	git("update-ref", "refs/remotes/origin/main", "HEAD~1");
-	fs.writeFileSync(path.join(repo, "c.md"), "c\n");
-	git("add", "c.md");
+	fs.writeFileSync(path.join(repo, "d.md"), "d\n");
 	fs.writeFileSync(
 		path.join(repo, "package.json"),
 		'{"scripts":{"test":"vitest"}}\n',
@@ -101,7 +100,7 @@ describe("one PreToolUse call", () => {
 	/* Each pattern is the core's own answer, so a replay that misshaped a read
 	 * shows as a lost verdict. The test launch's answer rests on free memory. */
 	it.each([
-		["git commit -m x", /this session never wrote:\\n\\n {2}c\.md/],
+		["git commit -m x -- d.md", /git does not track yet:\\n\\n {2}d\.md/],
 		["npm run test", /"hookEventName":"PreToolUse"/],
 		["git push", /PUSH WHEN/],
 		["git pull", /"permissionDecision":"deny".*git pull --ff-only/],
