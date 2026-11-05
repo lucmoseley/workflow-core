@@ -35,6 +35,7 @@
 
 const { isListedLive } = require("./agent-liveness.js");
 const arbiter = require("./arbiter-store");
+const { STAMP_PATHS } = require("./stamp-paths.js");
 
 /**
  * A candidate row as `writeSetsFor` builds it, and the held-file rows
@@ -49,12 +50,6 @@ const arbiter = require("./arbiter-store");
  * @typedef {{a: number, b: number, paths: string[]}} Pair
  * @typedef {{paths: Set<string>, with: Set<number>}} Nomination
  */
-
-/*
- * The stamp allowlist. A file earns a place here only by a ruling that issues
- * sharing it run together — never by how many candidates name it.
- */
-const STAMP_PATHS = ["docs/doc-map.md", "CLAUDE.md"];
 
 /*
  * Whether a band read could still tell you anything about this row's `sizeBand`.

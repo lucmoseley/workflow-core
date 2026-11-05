@@ -17,6 +17,7 @@ const {
 	takesValue,
 } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
+const { STAMP_PATHS } = require("./stamp-paths.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
 /* Three finishes in a row with no progress pause the loop (#1920, #3859). */
@@ -60,12 +61,17 @@ const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
+/* A row whose predicted write-set shares a substrate file with a held file or
+ * a launch this tick, deferred behind the clean rows (#4355). */
+const CLASH_PREFIX = "clashes on ";
 
 /**
  * `parkedAt` is when `parked` went on, null where the label is off or its
- * start would not read.
+ * start would not read. `writeSet` is its shortlist's predicted write-set;
+ * `heldBy` the substrate files of it a running session holds (#4355).
  * @typedef {import("./frontier-order.js").FrontierRow & {root: string,
- *   takes: string[], labels: string[], parkedAt?: string|null}} MergedRow
+ *   takes: string[], labels: string[], parkedAt?: string|null,
+ *   writeSet?: string[], heldBy?: {paths: string[], session: string}}} MergedRow
  */
 /** @typedef {import("./retro-bundles.js").RetroLaunch & {root: string}} MergedBundle */
 
@@ -797,7 +803,9 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
  * judgement queued walks behind that judgement, which a launch of its issue
  * would drop from the queue. A judgement goes ahead of the ranking: its
  * issue is held out of every ranking until one runs. A retro-bundle member
- * launches its whole bundle, at its best-ranked member's place. Residual:
+ * launches its whole bundle, at its best-ranked member's place. A row whose
+ * substrate write-set meets a held file or a launch this tick waits behind
+ * every clean row, then fills what slots they leave (#4355). Residual:
  * enough resumable parked rows to fill every slot hold the judgements back a
  * tick.
  * @param {TickInput} input
@@ -865,20 +873,56 @@ function fill(
 			(n) => taken.has(key(row.root, n)),
 		);
 	};
+	/** @type {Map<string, number>} root and path -> the issue launched this
+	 * tick that writes it */
+	const writtenBy = new Map();
+	/** @param {MergedRow} row */
+	const substrateOf = (row) =>
+		(row.writeSet ?? []).filter((p) => !STAMP_PATHS.includes(p));
+	/** Why `row` would clash with a held file or a launch this tick, or null.
+	 * @param {MergedRow} row */
+	const buildClashWhy = (row) => {
+		const [held] = row.heldBy?.paths ?? [];
+		if (held !== undefined)
+			return `${CLASH_PREFIX}${held} held by ${row.heldBy?.session}`;
+		for (const p of substrateOf(row)) {
+			const partner = writtenBy.get(`${row.root}\0${p}`);
+			if (partner !== undefined)
+				return `${CLASH_PREFIX}${p} with #${partner} launched this tick`;
+		}
+		return null;
+	};
+	/** @type {{row: MergedRow, why: string}[]} rank order */
+	const clashing = [];
+	/** Launch `row` as `next` routes it, its substrate paths marked written.
+	 * @param {MergedRow} row
+	 * @param {Exclude<ReturnType<typeof nextOf>, {why: string}>} next */
+	const launchRow = (row, next) => {
+		if (next.parkedRoute && "resume" in next.parkedRoute)
+			seatsLeft = spendSeatFit(seatsLeft, next.parkedRoute.resume.seat);
+		for (const p of substrateOf(row)) {
+			const at = `${row.root}\0${p}`;
+			if (!writtenBy.has(at)) writtenBy.set(at, row.number);
+		}
+		launch(row.root, next.issues, next.prompt, {
+			parkedRoute: next.parkedRoute,
+		});
+	};
+	/** @param {MergedRow} row @param {string} why */
+	const skip = (row, why) =>
+		skipped.push({ root: row.root, number: row.number, why });
 	/** @param {MergedRow[]} rows */
 	const walk = (rows) => {
 		for (const row of rows) {
 			if (launches.length >= slots) break;
 			const next = nextOf(row);
 			if ("why" in next) {
-				skipped.push({ root: row.root, number: row.number, why: next.why });
+				skip(row, next.why);
 				continue;
 			}
-			if (next.parkedRoute && "resume" in next.parkedRoute)
-				seatsLeft = spendSeatFit(seatsLeft, next.parkedRoute.resume.seat);
-			launch(row.root, next.issues, next.prompt, {
-				parkedRoute: next.parkedRoute,
-			});
+			const clash = buildClashWhy(row);
+			if (clash === null) launchRow(row, next);
+			else clashing.push({ row, why: clash });
 		}
 	};
 	const queued = new Set(judgements.map((j) => key(j.root, j.number)));
@@ -893,6 +937,14 @@ function fill(
 		else skipped.push({ root: j.root, number: j.number, why });
 	}
 	walk([...parked.filter(hasQueuedJudgement), ...rest]);
+	/* A clash only defers its row behind the clean ones (#4355): where they run
+	 * out first, the clashing rows fill the free slots in rank order, since an
+	 * empty slot costs more than a predicted clash (mantahostels#588). */
+	for (const { row, why } of clashing) {
+		const next = launches.length < slots ? nextOf(row) : { why };
+		if ("why" in next) skip(row, next.why);
+		else launchRow(row, next);
+	}
 	return { launches, skipped };
 }
 

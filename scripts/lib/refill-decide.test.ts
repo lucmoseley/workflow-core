@@ -1853,3 +1853,90 @@ describe("decideTick ranking", () => {
 		expect(launched(d)).toEqual(["busy#2", "quiet#3", "busy#1"]);
 	});
 });
+
+describe("decideTick on a predicted write-set clash (#4355)", () => {
+	const writes = (...writeSet: string[]) => ({ writeSet });
+
+	it("skips a row sharing a file with a launch this tick for the next row", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", writes("scripts/a.js")),
+				row("wfc", 2, "implement", writes("scripts/a.js", "scripts/b.js")),
+				row("wfc", 3, "implement", writes("scripts/c.js")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#3"]);
+		expect(d.skipped).toEqual([
+			{
+				root: "wfc",
+				number: 2,
+				why: "clashes on scripts/a.js with #1 launched this tick",
+			},
+		]);
+	});
+
+	it("skips a row whose file a running session holds", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", {
+					...writes("scripts/a.js"),
+					heldBy: { paths: ["scripts/a.js"], session: "Implement 9" },
+				}),
+				row("wfc", 2),
+				row("wfc", 3),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#2", "wfc#3"]);
+		expect(d.skipped).toEqual([
+			{
+				root: "wfc",
+				number: 1,
+				why: "clashes on scripts/a.js held by Implement 9",
+			},
+		]);
+	});
+
+	it("never skips on a shared stamp path", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", writes("docs/doc-map.md", "CLAUDE.md")),
+				row("wfc", 2, "implement", writes("docs/doc-map.md", "CLAUDE.md")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+		expect(d.skipped).toEqual([]);
+	});
+
+	it("reads one file in two checkouts as no clash", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", writes("scripts/a.js")),
+				row("other", 2, "implement", writes("scripts/a.js")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "other#2"]);
+	});
+
+	it("still fills every slot, in rank order, where only clashing rows remain", () => {
+		const d = tick({
+			freeSlots: 3,
+			frontier: [
+				row("wfc", 1, "implement", writes("scripts/a.js")),
+				row("wfc", 2, "implement", {
+					...writes("scripts/b.js"),
+					heldBy: { paths: ["scripts/b.js"], session: "Implement 9" },
+				}),
+				row("wfc", 3, "implement", writes("scripts/a.js")),
+				row("wfc", 4, "implement", writes("scripts/a.js")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2", "wfc#3"]);
+		expect(d.skipped).toEqual([
+			{
+				root: "wfc",
+				number: 4,
+				why: "clashes on scripts/a.js with #1 launched this tick",
+			},
+		]);
+	});
+});
