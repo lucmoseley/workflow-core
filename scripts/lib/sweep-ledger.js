@@ -12,13 +12,12 @@
 
 const { gh } = require("./gh.js");
 
-/* The sweep workflow's file. */
 const SWEEP_WORKFLOW = "scheduled-checks.yml";
 
 /* The branch the ledger reads. A scheduled run and a dispatch with no `--ref`
  * both run on the default branch; every push to `landing` runs this workflow
  * too (#2413), and read unfiltered those push runs push the slots' own runs
- * out of the list within hours (49 of the 50 newest on 5 Nov 2026). */
+ * out of the list within hours (#4447). */
 const SWEEP_BRANCH = "main";
 
 /* Four scheduled runs a day plus the repairs and hand-fires beside them, so
@@ -48,8 +47,7 @@ const SWEEP_HOURS_UTC = [3, 9, 15, 21];
  * detector its one job of telling a dropped run from a stopped schedule.
  *
  * IT IS ALSO WHEN A MISSED SLOT IS REPAIRED (#4447): scripts/repair-sweep-slot.js
- * fires one titled for a slot this has judged missed. So the tail above is
- * billed as well as noisy: a slot GitHub delivers later than this gets the
+ * fires one titled for a slot this has judged missed. A slot GitHub delivers later than this gets the
  * repair AND its own late run, a sweep the day's budget pays twice.
  *
  * At the 6h gap (mantahostels#3490) only the newest slot is ever inside it —
@@ -75,8 +73,6 @@ const SWEEP_LEDGER_MS = 24 * 60 * 60 * 1000;
  * Two days, for the two reasons its callers each have one of: a time past the
  * last slot of the day rolls over to the first of the next, and a 24-hour window
  * straddles midnight for all but four hours of the day.
- *
- * Both readers of the cron table go through here.
  *
  * @param {number} from
  * @returns {number[]}
@@ -132,9 +128,6 @@ function slotOf(r, started, slots) {
  * still fills the slot it was queued for rather than reading as a miss beside a
  * run that plainly happened. The grace period governs only when a slot may be
  * judged at all: an empty slot says nothing until SWEEP_GRACE_MS has passed.
- * `repaired` counts the fired slots a slot repair filled.
- *
- * Age is not the test (mantahostels#1024).
  *
  * @template {LedgerRun} R
  * @param {R[]} runs
@@ -143,10 +136,7 @@ function slotOf(r, started, slots) {
 function sweepLedger(runs, t) {
 	/** @type {{at: number, run: R|null}[]} */
 	const slots = sweepSlots(t).map((at) => ({ at, run: null }));
-	/* A SCHEDULED run fills the latest slot at or before it started. A
-	 * `workflow_dispatch` fills a slot only where its title names that slot
-	 * (slotRunTitle, #4447) — the repair delivers the slot it was fired for. An
-	 * untitled hand-fire tests the tree, and is read as coverage in
+	/* An untitled hand-fire tests the tree, and is read as coverage in
 	 * check-ci-status.js's newest-sweep line, but fills no slot: counting it
 	 * would erase the very miss that prompted it. Left broken: an `event`
 	 * GitHub spells some third way for a cron run would read as a miss at every
@@ -164,9 +154,7 @@ function sweepLedger(runs, t) {
 	}
 	/* Judged against the slots old enough to judge, never against all four: at
 	 * 15:30 the 15:00 slot is still inside the 5h grace, and counting it would
-	 * read `3 of 4 slots fired` over a schedule with nothing wrong with it. At
-	 * the 6h cadence (mantahostels#3490) the grace holds back only the newest slot, and only
-	 * outside the last hour of its gap. */
+	 * read `3 of 4 slots fired` over a schedule with nothing wrong with it. */
 	const judgeable = slots.filter((s) => t - s.at > SWEEP_GRACE_MS);
 	return {
 		slots,
@@ -193,8 +181,7 @@ const slotKey = (at) => `${new Date(at).toISOString().slice(0, 16)}Z`;
 const slotRunTitle = (at) => `sweep slot ${slotKey(at)}`;
 
 /**
- * The sweep runs the ledger judges: the newest LEDGER_RUN_LIMIT on
- * SWEEP_BRANCH. Throws where gh fails or answers with no list; each caller
+ * Throws where gh fails or answers with no list; each caller
  * decides what an unreadable ledger means for it.
  * @param {number} timeout
  * @returns {LedgerRun[]}

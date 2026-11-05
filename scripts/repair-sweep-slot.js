@@ -8,7 +8,7 @@
  * `scheduled-checks.yml` delivers two or three of its four daily slots. The
  * session-start autofire (mantahostels#1816) fires only when a session starts
  * and only on a stale verdict, so a slot nobody starts a session after stays
- * missed. The refill loop runs this every tick instead.
+ * missed.
  *
  * WHICH SLOT: the newest one the ledger (lib/sweep-ledger.js) can judge, past
  * the same grace the liveness report judges a miss by, so a slot GitHub
@@ -34,11 +34,11 @@
  * once.
  *
  * Joins no §N3 family: it fires a workflow and reports nothing a checker
- * would, as the incident filers beside it on the tick do.
+ * would.
  *
  * Prints nothing where nothing was fired or failed. Exit codes: 0 on a pass;
  * 1 where the runs, the marker or the budget would not read, or the dispatch
- * failed, so the refill loop logs it.
+ * failed.
  *
  * Caller: the refill loop, every tick (lib/refill-tick.js's runMachineChild).
  */
@@ -68,7 +68,7 @@ const GH_TIMEOUT_MS = 8000;
 
 /**
  * The newest slot the ledger judges at `t`. The 24h window always holds three
- * past the grace, so none is a broken grid.
+ * past the grace.
  * @param {number} t
  */
 function dueSlot(t) {
