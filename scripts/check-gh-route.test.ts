@@ -160,12 +160,12 @@ describe("check-gh-route", () => {
 	});
 
 	it("FAILs a second var for the binary, in any code file", () => {
-		fixture("scripts/lib/ledger.js", "second-var.js.txt");
+		fixture("scripts/lib/archive.js", "second-var.js.txt");
 		fixture("scripts/lib/kit.ts", "second-var.ts.txt");
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
-			"2 second binary route(s): scripts/lib/ledger.js:1, scripts/lib/kit.ts:1.",
+			"2 second binary route(s): scripts/lib/archive.js:1, scripts/lib/kit.ts:1.",
 		);
 		expect(r.out).toContain(
 			"Fix: name the binary through WFC_GH, the one var scripts/lib/gh.js reads, as scripts/check-issue-orphans.js and scripts/link-sub-issue.sh do.",
@@ -297,12 +297,12 @@ describe("check-gh-route", () => {
 	});
 
 	it("leaves a second var and a Node program's own spawn failing under the marker", () => {
-		fixture("scripts/lib/ledger.js", "second-var-marked.js.txt");
+		fixture("scripts/lib/archive.js", "second-var-marked.js.txt");
 		fixture("scripts/lib/spawn.js", "literal-spawn-marked.js.txt");
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
-			"2 second binary route(s): scripts/lib/ledger.js:2, scripts/lib/spawn.js:2.",
+			"2 second binary route(s): scripts/lib/archive.js:2, scripts/lib/spawn.js:2.",
 		);
 	});
 	it("FAILs each second `claude` route, naming lib/claude-bin.js and its exemplar", () => {
