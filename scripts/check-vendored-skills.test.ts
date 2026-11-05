@@ -32,6 +32,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { splitCheckout } from "./lib/guard-core-testkit";
 import {
 	cutGateScript,
 	registerTempCleanup,
@@ -854,10 +855,12 @@ function stubGh(root: string, sh: string) {
  * `--upstream` over `root`, against the stub. Reads --json: the tag is what
  * classifies a row, and the human report prints the severity alone.
  */
-function runUpstream(root: string, sh: string) {
-	const r = runInProcess(SCRIPT, ["--root", root, "--upstream", "--json"], {
-		env: { ...process.env, WFC_GH: stubGh(root, sh) },
-	});
+function runUpstream(root: string, sh: string, extra: string[] = []) {
+	const r = runInProcess(
+		SCRIPT,
+		["--root", root, "--upstream", "--json", ...extra],
+		{ env: { ...process.env, WFC_GH: stubGh(root, sh) } },
+	);
 	const parsed = JSON.parse(r.stdout);
 	const findings: { tag: string; message: string }[] = parsed.findings ?? [];
 	return {
@@ -994,7 +997,9 @@ const readRecord = (root: string) =>
 describe("check-vendored-skills --upstream, the record", () => {
 	it("writes the lock's and the notices' hashes, the date and each licence verdict on a completed run with every licence matching", () => {
 		const root = upstreamRoot("mattpocock/skills");
-		const r = runUpstream(root, answering(SKILL, path.join(root, "gh.log")));
+		const r = runUpstream(root, answering(SKILL, path.join(root, "gh.log")), [
+			"--write",
+		]);
 		expect(r.outcome).toBe("OK");
 		const record = readRecord(root);
 		expect(record.sha256).toEqual({
@@ -1010,6 +1015,7 @@ describe("check-vendored-skills --upstream, the record", () => {
 		const r = runUpstream(
 			root,
 			answering(`${SKILL}upstream moved.\n`, path.join(root, "gh.log")),
+			["--write"],
 		);
 		expect(r.tags).toEqual(["UPSTREAM-MOVED"]);
 		expect(fs.existsSync(path.join(root, RECORD))).toBe(true);
@@ -1032,13 +1038,46 @@ describe("check-vendored-skills --upstream, the record", () => {
 		["BROKEN", () => 'echo "gh: Unprocessable Entity (HTTP 422)" >&2; exit 1'],
 	])("writes none on %s", (_, gh) => {
 		const root = upstreamRoot("mattpocock/skills");
-		runUpstream(root, gh(path.join(root, "gh.log")));
+		runUpstream(root, gh(path.join(root, "gh.log")), ["--write"]);
 		expect(fs.existsSync(path.join(root, RECORD))).toBe(false);
+	});
+
+	it("writes none without --write, and says one is due (#4449)", () => {
+		const root = upstreamRoot("mattpocock/skills");
+		const r = runInProcess(SCRIPT, ["--root", root, "--upstream"], {
+			env: {
+				...process.env,
+				WFC_GH: stubGh(root, answering(SKILL, path.join(root, "gh.log"))),
+			},
+		});
+		expect(fs.existsSync(path.join(root, RECORD))).toBe(false);
+		expect(`${r.stdout}${r.stderr}`).toContain("run again with --write");
+	});
+
+	it("refuses --write in a cut-over main checkout before any fetch (#4449)", () => {
+		const at = splitCheckout(
+			path.join(upstreamRoot("mattpocock/skills"), "split"),
+		);
+		const log = path.join(at.main, "..", "gh.log");
+		const r = runInProcess(
+			SCRIPT,
+			["--root", at.main, "--upstream", "--write"],
+			{
+				env: {
+					...process.env,
+					WFC_MODULES: "landing",
+					WFC_GH: stubGh(at.main, answering(SKILL, log)),
+				},
+			},
+		);
+		expect(`${r.stdout}${r.stderr}`).toContain("is the main checkout");
+		expect(fs.existsSync(log)).toBe(false);
+		expect(fs.existsSync(path.join(at.main, RECORD))).toBe(false);
 	});
 
 	it("names the source whose licence kept the record from being written", () => {
 		const root = upstreamRoot("mattpocock/skills");
-		const r = runInProcess(SCRIPT, ["--root", root, "--upstream"], {
+		const r = runInProcess(SCRIPT, ["--root", root, "--upstream", "--write"], {
 			env: {
 				...process.env,
 				WFC_GH: stubGh(
@@ -1182,7 +1221,7 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
 		};
 		crlf(LOCK);
 		crlf(NOTICES);
-		runUpstream(root, answering(SKILL, path.join(root, "gh.log")));
+		runUpstream(root, answering(SKILL, path.join(root, "gh.log")), ["--write"]);
 		const staged = fs.mkdtempSync(path.join(os.tmpdir(), "upstream-staged-"));
 		temps.push(staged);
 		for (const rel of [LOCK, NOTICES, RECORD, SIDECAR])
