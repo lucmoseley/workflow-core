@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **3 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **5 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -43,6 +43,10 @@ tool if a deny ever matters.
   },
   "includeCoAuthoredBy": false,
   "permissions": {
+    "allow": [
+      "Bash(node /home/lucmo/.claude*/plugins/cache/workflow-core/workflow-core/*/scripts/resolve-ticket.js *)",
+      "Bash(git config core.bare false)"
+    ],
     "deny": [
       "AskUserQuestion",
       "CronCreate",
@@ -64,15 +68,46 @@ tool if a deny ever matters.
       "SendMessage",
       "TaskOutput"
     ],
-    "allow": [
-      "Bash(node /home/lucmo/.claude*/plugins/cache/workflow-core/workflow-core/*/scripts/resolve-ticket.js *)",
-      "Bash(git config core.bare false)"
-    ],
     "defaultMode": "auto"
   },
   "model": "claude-opus-5-5[1m]",
   "disableClaudeAiConnectors": true,
+  "skillOverrides": {
+    "find-skills": "name-only"
+  },
   "disableBundledSkills": false,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.claude/hooks/browser-profile-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.claude/hooks/practice-guard.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.claude/hooks/practice-guard.sh stop"
+          }
+        ]
+      }
+    ]
+  },
   "disableRemoteControl": true,
   "disableWorkflows": true,
   "disableArtifact": false,
@@ -168,41 +203,7 @@ tool if a deny ever matters.
     ]
   },
   "autoConnectIde": false,
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$HOME\"/.claude/hooks/browser-profile-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Glob|Write|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$HOME\"/.claude/hooks/practice-guard.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$HOME\"/.claude/hooks/practice-guard.sh stop"
-          }
-        ]
-      }
-    ]
-  },
-  "skillOverrides": {
-    "find-skills": "name-only"
-  }
+  "cleanupPeriodDays": 365
 }
 ```
 
@@ -1216,6 +1217,10 @@ The founder only clicks Authorize; a session does the rest.
   back. The drift check ignores it (`VOLATILE_KEYS` in
   `scripts/check-user-settings-drift.js`, which says why), so this block's value
   may be stale. Read the model in use off the session, never off this file.
+- `cleanupPeriodDays: 365` — transcripts are kept a year, so a job whose
+  worktree the reaper removed can still be reopened with
+  `node scripts/session-checkout.js reopen <job-id>`. Every seat carries the
+  same value (#4366, #4368).
 - `defaultMode: auto` — tools run without per-call prompting, so the deny list
   and the auto-mode classifier's rules (`autoMode`), rather than the prompt,
   constrain the agent.

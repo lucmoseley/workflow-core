@@ -161,7 +161,7 @@ const isSeat = (dir) =>
 	seatCandidates().some((s) => realKey(s) === realKey(dir));
 
 /**
- * A record's filename, for locks and debts alike.
+ * A record's filename, for every keyed record.
  * @param {string} rel
  */
 function keyFor(rel) {
@@ -206,7 +206,6 @@ const paths = {
 	// itself appear in `git status --porcelain` and so manufacture the
 	// dirty-and-unclaimed readings the mechanism consumes.
 	locksDir: () => path.join(stateDir(), "locks"),
-	debtsDir: () => path.join(stateDir(), "debts"),
 
 	/**
 	 * What a broken claim left behind (mantahostels#349). Not in `locks/`: a lock is a live
@@ -223,30 +222,14 @@ const paths = {
 	observationsDir: () => path.join(stateDir(), "observations"),
 
 	/**
-	 * What each session is BLOCKED ON, written at denial time (mantahostels#1195).
+	 * Which issue each session is waiting on (mantahostels#1195, #542).
 	 *
-	 * One file per SESSION, not per path: a session sits on one refusal at a
-	 * time, and the newest is the one it is actually waiting behind. Keyed the
-	 * other way round a waiter would accumulate a record per path it ever tried,
-	 * and a cycle walk could not tell which one it is stuck on now.
+	 * One file per SESSION, not per issue: a session waits on one issue at a
+	 * time. Keyed the other way round a waiter would accumulate a record per
+	 * issue it ever waited on, and a cycle walk could not tell which one it is
+	 * stuck on now.
 	 */
 	wantsDir: () => path.join(stateDir(), "wants"),
-
-	/**
-	 * Courtesy release requests (mantahostels#1702, built at mantahostels#1782): *session X wants
-	 * `<path>`, which you hold*. Keyed by (path, requester) via pairFile, like
-	 * observations/ — one path carries a request from every session asking.
-	 */
-	requestsDir: () => path.join(stateDir(), "requests"),
-	/**
-	 * The FILE keys the record even for a region subject — the caller normalises
-	 * through subjectPath — so a whole-file release finds a region request and a
-	 * region release finds a whole-file one.
-	 * @param {string} rel
-	 * @param {string} requester
-	 */
-	request: (rel, requester) =>
-		path.join(paths.requestsDir(), pairFile(rel, requester)),
 
 	/**
 	 * The write ledger: which paths THIS session actually wrote (mantahostels#114).
@@ -310,21 +293,6 @@ const paths = {
 		path.join(
 			paths.wantsDir(),
 			`${String(sessionId).replace(/[^A-Za-z0-9_-]/g, "")}.json`,
-		),
-
-	/**
-	 * A debt is keyed by (path, issue), not by path (mantahostels#327): two sessions denied on
-	 * the same file own two different edits, and one entry per path meant the
-	 * second `debt own` silently replaced the first.
-	 *
-	 * `issue` null is the stub a denial writes, of which one per path is enough.
-	 * @param {string} rel
-	 * @param {number|string|null} [issue]
-	 */
-	debt: (rel, issue = null) =>
-		path.join(
-			paths.debtsDir(),
-			`${keyFor(rel)}-${issue === null ? "unowned" : issue}.json`,
 		),
 
 	/**
@@ -408,7 +376,6 @@ const paths = {
 			UNRESOLVED_ROOT_SLUG,
 			"guard-errors.log",
 		),
-	droppedLog: () => path.join(stateDir(), "dropped-debts.log"),
 	/**
 	 * One line per commit-paths.js run: its outcome and the seconds its pre-lock
 	 * gates and suite took (#1651).
@@ -733,7 +700,7 @@ const DETECT_ONLY = ["scripts/"];
 
 /**
  * Paths inside a tier that the arbiter does not cover at all: neither refused
- * nor watched, no claim taken, no content record, no debt reported.
+ * nor watched, no claim taken, no content record.
  *
  * `.claude/tmp/` is the repo's one sanctioned scratch directory (mantahostels#2089,
  * `docs/environment.md` §12), and it falls under `.claude/`, so every scratch
@@ -763,9 +730,9 @@ function relativeToRepo(filePath) {
  * store already spoke of a path.
  *
  * The tail rides INSIDE the string rather than as a parameter threaded through
- * thirty functions, so a lock, a debt, an observation and every message that
+ * thirty functions, so a lock, an observation and every message that
  * names one are region-aware for free: keyFor() hashes the whole subject, so
- * two regions of one file take two lock files, and `list` and `debt list` print
+ * two regions of one file take two lock files, and `list` prints
  * the region because the record's own `path` carries it.
  *
  * The price is that every function reaching the FILESYSTEM must strip it first
@@ -808,8 +775,7 @@ function subjectFor(rel, region) {
  * Whether two subjects can contend at all — the one conflict rule (mantahostels#970),
  * spelled once: same file, and regions tile, so two DIFFERENT named regions
  * never touch while a whole-file subject touches every region. arbiter-locks'
- * whoHolds applies it for acquire and every arbiter report; the request
- * register scopes its drops and declines with it (mantahostels#1782).
+ * whoHolds applies it for acquire and every arbiter report.
  * @param {string} a
  * @param {string} b
  */
@@ -852,9 +818,8 @@ function isWatched(rel) {
  * the exemption landed (mantahostels#2053).
  *
  * Release gates on this rather than on isWatched() because a path dropped out
- * of both tiers would otherwise have its standing claim frozen: `release` and
- * `release --force` would both return 0 having done nothing, and the
- * stranded-claim report would name it for ever.
+ * of both tiers would otherwise have its standing claim frozen: `release`
+ * would return 0 having done nothing, and the stranded-claim report would name it for ever.
  * @param {string} rel
  */
 function isReleasable(rel) {
@@ -951,8 +916,7 @@ function gitIn(args, input) {
  * release of it would refuse (mantahostels#1434).
  *
  * Each caller reads a whole file at a revision, so an ENOBUFS past git.js's cap
- * returns null silently, which subjectDirty reads as "not clean" and debtSubject
- * as "keep the exact key".
+ * returns null silently, which subjectDirty reads as "not clean".
  * @param {string[]} args
  */
 function gitRaw(args) {
@@ -1259,13 +1223,9 @@ function resumedHolderTest(where, dark) {
 /**
  * Is this lock's holder still running — resumed onto a fresh host included?
  *
- * THE ONE SPELLING OF THAT QUESTION (#259). Five readers ask it; each spelling
- * it for itself is how they came to disagree, so a sixth uses this rather than
- * pairing the two tests again.
- *
- * EXCEPT `forceRelease` (#262), which asks a different question — "has the
- * session ended though its host runs on" — that this cannot answer, the
- * stranded case it must break being a running process.
+ * THE ONE SPELLING OF THAT QUESTION (#259): readers that each spelt it for
+ * themselves came to disagree, so a new reader uses this rather than pairing
+ * the two tests again.
  *
  * `wasResumed` is a resumedHolderTest() the caller built for its whole walk, so
  * the registry is read once however many locks it judges — and not at all where

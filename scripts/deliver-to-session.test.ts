@@ -198,12 +198,10 @@ describe("owned reports", () => {
 });
 
 describe("the command line", () => {
-	it("prints the store paths the mod stats", () => {
+	it("prints the store path the mod stats", () => {
 		const paths = JSON.parse(run(SCRIPT, ["--paths"], null).out);
 		expect(paths).toEqual({
 			notifyReports: notify.base(),
-			requests: store.paths.requestsDir(),
-			locks: store.paths.locksDir(),
 		});
 	});
 
@@ -212,7 +210,7 @@ describe("the command line", () => {
 			const r = run(SCRIPT, args, "mine");
 			expect(r.status).toBe(2);
 			expect(r.err).toContain(
-				"usage: node scripts/deliver-to-session.js --reports | --requests | --ci | --paths",
+				"usage: node scripts/deliver-to-session.js --reports | --ci | --paths",
 			);
 		}
 	});

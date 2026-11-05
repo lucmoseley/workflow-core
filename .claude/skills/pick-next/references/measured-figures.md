@@ -241,10 +241,11 @@ opened on — is not visible in this data at all**.
 **Why the merge rule ignores the substrate/stamp split** (mantahostels#503, 18 August 2026):
 820 of 933 possible-collision pairs were `docs/doc-map.md`, genuine substrate
 collisions were **zero**, and the apparent source-code collisions are mentions,
-not edits. Same run: 39 open debt entries, 35 of them `docs/doc-map.md` — an
-upper bound, since `debt list` makes no network call. ⚠ **That zero is weaker
-than it looks:** the claim guard refuses only on `docs/`, `.claude/`, `CLAUDE.md`
-and `AGENTS.md`, so a substrate collision on product code registers no debt, and
+not edits. Same run: 39 refused edits still open, 35 of them on
+`docs/doc-map.md` — an upper bound, since the count did not check whether each
+one's issue had closed. ⚠ **That zero is weaker than it looks:** the claim guard
+acts only on `docs/`, `.claude/`, `CLAUDE.md` and `AGENTS.md`, so a substrate
+collision on product code is never counted, and
 the underlying reason is phase — pre-launch, almost every open issue is
 documentation. **Re-derive once `app/` carries real work.** ⚠ **The assumption
 that would reverse the rule:** that the band read's `small` sizing is reliable.
@@ -373,8 +374,8 @@ none has ever moved alone.
 writer count. Of the 34 open issues `predict()` calls writers, 30 only cite the
 path and **none** uses the file as a substrate, so `predict()` is 12% precise as
 a writer predictor here against 59% on the roadmap (mantahostels#1279). A collision costs
-the `docs/doc-map.md` regime — abandon that one edit, register the debt, finish
-the ticket — which is what all 12 measured denials did (mantahostels#1277). And the
+the `docs/doc-map.md` regime one edit, never the ticket: all 12 measured
+collisions, then refusals, abandoned that one edit and finished (mantahostels#1277). And the
 always-loaded byte cap, the one coupling unique to this file, is orthogonal: it
 discharges onto `docs/doc-map.md`, itself a stamp (mantahostels#1280).
 

@@ -78,8 +78,8 @@ export class Arena {
 	readonly extraEnv: Record<string, string> = {};
 
 	/**
-	 * A fake `gh` at WFC_GH, so the debt store's issue
-	 * lifecycle can be exercised without a network call or a real issue number.
+	 * A fake `gh` at WFC_GH, so a script that calls `gh` can run without a
+	 * network call or a real issue number.
 	 * `body` is the script's shell body — it decides the exit code and stdout.
 	 */
 	ghStub(body: string) {
@@ -194,42 +194,6 @@ process.exit(1);
 	writeIssueBody(body: string) {
 		if (!this.issueStore) throw new Error("no issueStub in this arena");
 		fs.writeFileSync(this.issueStore, body);
-	}
-
-	/**
-	 * The debt store as it sits on disk. The slug is recomputed here rather than
-	 * imported, for the same reason proving-session.ts's readProcStartOf is: a
-	 * harness that borrowed the path logic it checks would agree with it even
-	 * where both are wrong.
-	 *
-	 * This is why scripts/lib/project-slug-scan.test.ts's regression fence exempts
-	 * this file by name (mantahostels#2052), the same deliberate restatement it exempts
-	 * project-slug.js for.
-	 */
-	debts() {
-		const root = this.git("rev-parse", "--show-toplevel").trim();
-		const dir = path.join(
-			this.home,
-			".claude",
-			"projects",
-			root.replace(/[^a-zA-Z0-9]/g, "-"),
-			"debts",
-		);
-		let files: string[] = [];
-		try {
-			files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
-		} catch {
-			return [];
-		}
-		return files.map(
-			(f) =>
-				JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as {
-					path: string;
-					issue: number | null;
-					gist: string | null;
-					createdAt: string;
-				},
-		);
 	}
 
 	readonly sessions: Session[] = [];

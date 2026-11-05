@@ -1048,13 +1048,10 @@ describe("cases a mutant must not survive", () => {
 		claimedBy("docs/x.md", "theirs");
 		const ctx = {
 			...ctxFor("echo hi > docs/x.md"),
-			corePaths: (t: string) =>
-				t.replaceAll("node scripts/", "node /plugin/scripts/"),
+			corePaths: (t: string) => t.replaceAll("Leave the path", "REWRITTEN"),
 		};
 		const d = decide("echo hi > docs/x.md", ctx);
-		expect(d && "prelude" in d ? d.prelude : null).toContain(
-			"node /plugin/scripts/session-arbiter.js",
-		);
+		expect(d && "prelude" in d ? d.prelude : null).toContain("REWRITTEN");
 	});
 
 	describe("the whole-file restore", () => {

@@ -435,17 +435,18 @@ disqualifies anything:
   run against a session already holding one.
 - Its **stamp** is a file it writes once, at the end, to record a result — on
   this repo, canonically a `docs/doc-map.md` §B entry. **Issues sharing a stamp
-  run together.** They queue at the stamp, and a denial there is the designed
+  run together.** They meet at the stamp, and a collision there is the designed
   path rather than a failure — but **which** designed path varies by file. On
-  `docs/doc-map.md`: abandon that one edit, register the debt, finish the ticket
-  (`docs/agents/guard-registry.md` §Conventions); `references/measured-figures.md` carries how
-  routine that already is. On a file written through a loop with a pre-flight
+  `docs/doc-map.md`: the write goes ahead, warned of a likely merge conflict;
+  finish the ticket (`docs/agents/guard-registry.md` §Conventions);
+  `references/measured-figures.md` carries how routine that collision is. On a
+  file written through a loop with a pre-flight
   dirty-tree stop — `docs/reference-roadmap.html` through `roadmap-edit` or
   `/card-close` — it is
   **wait and retry, capped**: the stop fires before any work is done, so waiting
   costs nothing and abandoning loses a card edit for a collision that usually
-  clears in a minute. Those loops poll for 5 minutes and only then fall back to
-  abandon-and-debt (mantahostels#1073).
+  clears in a minute. Those loops poll for 5 minutes and only then abandon the
+  edit (mantahostels#1073).
 
 Judge which half a file falls in by **when** the ticket writes it — never by how
 many candidates name it. A file every candidate stamps is the ordinary shape of
@@ -453,7 +454,7 @@ this backlog, not a reason to dispatch one of them.
 
 **The errors are asymmetric, which sets the default.** A stamp misjudged as a
 substrate under-dispatches silently and nobody finds out; a substrate misjudged
-as a stamp costs one denied edit and a debt entry. **So dispatch on a tie.**
+as a stamp costs one merge conflict. **So dispatch on a tie.**
 The stamp-queue rules mantahostels#422 set, and its open trigger:
 `references/measured-figures.md`, "What mantahostels#422 rules".
 
@@ -491,7 +492,8 @@ never classified on its own account — it takes whatever
 **`CLAUDE.md` is a stamp as a property of the path** (mantahostels#1281) — not
 reader-tested per ticket, and it needs no test: issues naming it are dispatched
 together and queue at the file. A collision there costs the `docs/doc-map.md`
-regime — abandon that one edit, register the debt, finish the ticket.
+regime — the write goes ahead, warned of a likely merge conflict; finish the
+ticket.
 
 **Contention is not the test, and `docs/doc-map.md` is the counter-example** — a
 hot file is the ordinary shape of this backlog, not a reason to un-stamp one.

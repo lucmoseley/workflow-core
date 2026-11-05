@@ -146,12 +146,9 @@ never skip them.
    It takes the claim in the same run it sees the file clean, so a neighbour
    cannot take it in the gap between the read and your first edit. **Exit 0 →
    proceed to the `git show` above. Non-zero (all 10 attempts exhausted) →
-   abandon the edit and register the debt**, naming the card, so the collision
-   is countable rather than vanishing:
-   ```bash
-   node scripts/session-arbiter.js debt own docs/reference-roadmap.html <issue> "<card-id>: <the edit>"
-   ```
-   Then report the abandoned edit and carry on with the rest of the ticket.
+   abandon the edit**, and report it naming the card and the edit, so the
+   collision is countable rather than vanishing. Then carry on with the rest of
+   the ticket.
    `git show` failing is a hard stop, not a retry: no baseline means step 6's
    scope diff is unverifiable.
 

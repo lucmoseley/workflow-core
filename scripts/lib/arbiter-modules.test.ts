@@ -57,8 +57,8 @@ const keysAfterFacade = (file: string) =>
 	) as string[];
 
 describe("every family module loads as the entry point", () => {
-	it("finds all seventeen — the fourteen families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
-		expect(families.length).toBe(17);
+	it("finds all fifteen — the twelve families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
+		expect(families.length).toBe(15);
 	});
 
 	for (const file of families) {
@@ -154,14 +154,6 @@ describe("check.js never enters the arbiter's require graph", () => {
 			check: 1,
 			uncaught: 1,
 			unhandled: 1,
-		});
-	});
-
-	it("loads gh.js with neither, as the arbiter's debt sweep calls through it (#3558)", () => {
-		expect(crashProbe("gh.js")).toEqual({
-			check: 0,
-			uncaught: 0,
-			unhandled: 0,
 		});
 	});
 

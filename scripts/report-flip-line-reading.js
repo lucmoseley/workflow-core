@@ -10,7 +10,7 @@
  * figures so far and files nothing. Once its issue exists, open or closed, it
  * never files again (lib/log-reading.js's `buildFiler`).
  *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh,
+ * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
  * WORKFLOW-CORE ONLY, over every adopter's close-check log, at most daily on a
  * plain run (#3220, buildFiler's `readDaily`).
  *

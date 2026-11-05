@@ -53,13 +53,15 @@ describe("the record itself", () => {
 	});
 
 	it("closes with ok true and carries the counts through", () => {
-		const record = mod.openRun("debt-sweep");
+		const record = mod.openRun("retire-stale-containers");
 		mod.closeRun(record, { ok: true, counts: { retired: 3 } });
-		expect(readRows()["debt-sweep"]).toMatchObject({
+		expect(readRows()["retire-stale-containers"]).toMatchObject({
 			ok: true,
 			counts: { retired: 3 },
 		});
-		expect(readRows()["debt-sweep"].finishedAt).toEqual(expect.any(String));
+		expect(readRows()["retire-stale-containers"].finishedAt).toEqual(
+			expect.any(String),
+		);
 	});
 
 	it("records a throw as ok false with its message, and still finishes the row", () => {
@@ -74,16 +76,18 @@ describe("the record itself", () => {
 	});
 
 	it("leaves another job's row alone", () => {
-		mod.recordRun("debt-sweep", () => 1);
+		mod.recordRun("retire-stale-containers", () => 1);
 		mod.recordRun("prune-markers", () => 1);
 		expect(Object.keys(readRows()).sort()).toEqual([
-			"debt-sweep",
 			"prune-markers",
+			"retire-stale-containers",
 		]);
 	});
 
 	it("returns what the work returned, unchanged", () => {
-		expect(mod.recordRun("debt-sweep", () => ({ status: "swept" }))).toEqual({
+		expect(
+			mod.recordRun("retire-stale-containers", () => ({ status: "swept" })),
+		).toEqual({
 			status: "swept",
 		});
 	});
@@ -110,11 +114,11 @@ describe("the death count — what a later session reads", () => {
 	});
 
 	it("does NOT count a run still inside its grace — the concurrency case", () => {
-		mod.openRun("debt-sweep");
-		mod.openRun("debt-sweep");
-		mod.openRun("debt-sweep");
-		mod.openRun("debt-sweep");
-		expect(readRows()["debt-sweep"].deaths).toBe(0);
+		mod.openRun("retire-stale-containers");
+		mod.openRun("retire-stale-containers");
+		mod.openRun("retire-stale-containers");
+		mod.openRun("retire-stale-containers");
+		expect(readRows()["retire-stale-containers"].deaths).toBe(0);
 	});
 
 	it("counts a death from consecutive restarts each inside the grace of the one before it — the busy-machine case (mantahostels#1999)", () => {
@@ -161,25 +165,27 @@ describe("the death count — what a later session reads", () => {
 		fs.writeFileSync(
 			file(),
 			JSON.stringify({
-				"debt-sweep": {
-					job: "debt-sweep",
+				"retire-stale-containers": {
+					job: "retire-stale-containers",
 					startedAt: "not a date",
 					openedSince: "not a date",
 					deaths: 2,
 				},
 			}),
 		);
-		mod.openRun("debt-sweep");
-		expect(readRows()["debt-sweep"].deaths).toBe(2);
+		mod.openRun("retire-stale-containers");
+		expect(readRows()["retire-stale-containers"].deaths).toBe(2);
 	});
 
 	it("carries the last completion forward, so a healthy job is legible mid-run", () => {
-		const first = mod.openRun("debt-sweep");
+		const first = mod.openRun("retire-stale-containers");
 		mod.closeRun(first, { ok: true });
-		const finishedAt = readRows()["debt-sweep"].finishedAt;
-		mod.openRun("debt-sweep");
-		expect(readRows()["debt-sweep"].lastFinishedAt).toBe(finishedAt);
-		expect(readRows()["debt-sweep"].finishedAt).toBeUndefined();
+		const finishedAt = readRows()["retire-stale-containers"].finishedAt;
+		mod.openRun("retire-stale-containers");
+		expect(readRows()["retire-stale-containers"].lastFinishedAt).toBe(
+			finishedAt,
+		);
+		expect(readRows()["retire-stale-containers"].finishedAt).toBeUndefined();
 	});
 });
 
@@ -220,11 +226,7 @@ describe("it never throws on the session-start path", () => {
 });
 
 describe("the job list", () => {
-	it("names exactly the three children that record themselves", () => {
-		expect(mod.JOBS).toEqual([
-			"prune-markers",
-			"debt-sweep",
-			"retire-stale-containers",
-		]);
+	it("names exactly the two children that record themselves", () => {
+		expect(mod.JOBS).toEqual(["prune-markers", "retire-stale-containers"]);
 	});
 });
