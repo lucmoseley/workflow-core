@@ -364,8 +364,6 @@ function walkAdopter(dryRunAdopter, tmp, outDir, verifyEnv) {
 }
 
 /**
- * Refuses a cut while HEAD or `origin/main` carries a release hold, quoting
- * it: an older commit checked out still meets the hold on main.
  * @param {string} root
  */
 function refuseIfHeld(root) {
