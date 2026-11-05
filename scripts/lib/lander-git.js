@@ -62,6 +62,13 @@ function stderrIfThrown(call) {
 const REMOTE_TRIES = 5;
 const REMOTE_BACKOFF_MS = 4 * 1000;
 
+/**
+ * The pause before retry `attempt` + 1 of a remote call.
+ * @param {number} attempt the try that failed, from 1
+ */
+const remoteBackoffMs = (attempt) =>
+	REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random());
+
 /** Untraced: 9 hex digits, two past git's default abbreviation, unique in any history this size.
  * @param {string} sha */
 const short = (sha) => sha.slice(0, 9);
@@ -81,9 +88,7 @@ async function remote({ wait = pause }, call, isFault = isNetworkFault) {
 			return await call();
 		} catch (err) {
 			if (attempt >= REMOTE_TRIES || !isFault(err)) throw err;
-			await wait(
-				REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random()),
-			);
+			await wait(remoteBackoffMs(attempt));
 		}
 	}
 }
@@ -260,7 +265,9 @@ module.exports = {
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
+	REMOTE_TRIES,
 	remote,
+	remoteBackoffMs,
 	short,
 	withThrowawayTree,
 };

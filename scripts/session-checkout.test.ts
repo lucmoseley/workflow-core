@@ -784,6 +784,23 @@ it("leaves a merge a gate refused in progress, saying to fix the finding and com
 	expect(queueTip()).toBe("");
 });
 
+it("retries a push GitHub refused on its own internal fault, never calling it a finding, and lands", () => {
+	const tries = path.join(tmp, "push-tries");
+	installHooks({
+		"pre-push": `echo x >> ${shellQuote(tries)}; [ "$(wc -l < ${shellQuote(tries)})" -gt 1 ] && exit 0; echo ' ! [remote rejected] HEAD -> queue/one (fatal error in commit_refs_rules)' >&2; exit 1`,
+	});
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	const mine = commitIn(dir, { "mine.txt": "m" }, "mine");
+
+	const r = run(dir, "land");
+
+	expect(r.status).toBe(0);
+	expect(r.stderr).toContain("met a remote fault, retrying in");
+	expect(r.stderr).not.toContain("fix the finding");
+	expect(queueTip()).toBe(mine);
+});
+
 it("reports a push a hook refused as a finding to fix, not a race", () => {
 	installHooks({ "pre-push": "echo push gate says no >&2; exit 1" });
 	expect(run(main, "cut", "one").status).toBe(0);
