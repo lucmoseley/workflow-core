@@ -148,7 +148,7 @@ const AGAINST_FLAGS = ["--root"];
  */
 const SAY_FD_ENV = "WFC_CHECK_SAY_FD";
 
-/** @returns {boolean} whether this run is an --against re-exec over <rev> */
+/** @returns {boolean} whether this run reads a fault diff's older revision */
 const isBaselineSide = () => process.env[SIDE_ENV] === "baseline";
 
 /*
