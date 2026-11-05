@@ -168,6 +168,26 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 		).toContain("no declared overflow seat's");
 	});
 
+	it("refuses the helper once the seat file refuses", () => {
+		fs.writeFileSync(
+			path.join(home, ".claude", "refill-seats"),
+			`${plan()}\n${plan()} api key=K grant=200 cycle-day=99\n`,
+		);
+		expect(
+			withHelper({ WFC_FAKE_AUTH_NO_LOGIN: "1", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("no declared overflow seat's");
+	});
+
+	it("still refuses ANTHROPIC_BASE_URL and a third-party provider", () => {
+		declarePlanOverflow();
+		expect(
+			withHelper({ ANTHROPIC_BASE_URL: "http://x", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("ANTHROPIC_BASE_URL");
+		expect(
+			withHelper({ CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("CLAUDE_CODE_USE_VERTEX");
+	});
+
 	it("refuses any other apiKeyHelper in the settings", () => {
 		declarePlanOverflow();
 		expect(

@@ -20,6 +20,7 @@ const { hostRoot } = require("./host-root.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
+const { shortJobId } = require("./job-paths.js");
 const { homeDir, readAdopterCheckouts } = require("./refill-repos.js");
 
 /** A prompt's leading `/<skill>`, any `<plugin>:` namespace aside. */
@@ -302,7 +303,7 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 				(l) =>
 					(jobId && l.jobId === jobId) ||
 					(sessionId &&
-						(l.sessionId === sessionId || l.jobId === sessionId.slice(0, 8))),
+						(l.sessionId === sessionId || l.jobId === shortJobId(sessionId))),
 			)
 			.pop() ?? null;
 }
@@ -320,9 +321,28 @@ const readEveryLedgerRoot = () => [
 const readEveryOverflowLookup = () => readOverflowLookup(readEveryLedgerRoot());
 
 /**
+ * What a later row on the same job must repeat, as the lookup answers from
+ * the latest row alone.
+ * @param {OverflowLaunch} l
+ */
+const overflowFieldsOf = ({
+	keyVar,
+	allowanceUsd,
+	sessionId,
+	copyOf,
+	offKeyUsd,
+}) => ({
+	keyVar,
+	allowanceUsd,
+	sessionId,
+	...(copyOf === undefined ? {} : { copyOf }),
+	...(offKeyUsd === undefined ? {} : { offKeyUsd }),
+});
+
+/**
  * Give each overflow launch recorded with no session id the one `agents` lists
  * for its job, as `--bg` prints only the job id (#3692 (e), #3701): a row
- * repeating the launch's key and allowance with the session id, under no
+ * repeating the launch's overflow fields with the session id, under no
  * issues, so it holds nothing. What would not read or write, one line each.
  * @param {{id?: string, sessionId: string}[]} agents
  * @param {string[]} [roots]
@@ -352,7 +372,7 @@ function recordListedSessionIds(agents, roots = readEveryLedgerRoot()) {
 				prompt: `session of ${jobId}`,
 				root,
 				jobId,
-				overflow: { keyVar: l.keyVar, allowanceUsd: l.allowanceUsd, sessionId },
+				overflow: { ...overflowFieldsOf(l), sessionId },
 			});
 			if (!written)
 				faults.push(
