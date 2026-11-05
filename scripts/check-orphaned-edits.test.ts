@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins that check-orphaned-edits.js names an uncommitted file no live session
- * owns, untouched for 24 hours, files it once for triage, and stays silent
+ * owns, untouched for 24 hours — or at any age in a cut-over main checkout —
+ * files it once for triage, and stays silent
  * where ownership cannot be read.
  *
  * The checker (#813) runs end to end, through lib/run-in-process.js, over a
@@ -102,10 +103,15 @@ function dirty(rel: string, hours: number, content = "edited\n") {
 /* GITHUB_ACTIONS off: check.js writes ::warning:: to stdout when it is set. */
 /* A hand run by default, which exits on a fault where the hook run (`notify`)
  * stays at 0. */
-const run = (args: string[] = [], notify = false) => {
+const run = (
+	args: string[] = [],
+	notify = false,
+	env: NodeJS.ProcessEnv = {},
+) => {
 	const r = runInProcess(SCRIPT, notify ? ["--notify", ...args] : args, {
 		env: {
 			...process.env,
+			...env,
 			GITHUB_ACTIONS: "",
 			WFC_ORACLE_CACHE: "0",
 			CLAUDE_PROJECT_DIR: sb.repo,
@@ -512,5 +518,73 @@ describe("a linked worktree's dirt", () => {
 
 		expect(data.orphanCount).toBe(1);
 		expect(data.unreadWorktrees).toEqual([wt]);
+	});
+});
+
+/*
+ * Seam 2 (#4317, spec #4229): with the `landing` module on and the sandbox's `main`
+ * tracking no `landing` upstream, the main checkout is cut over, so #4248's
+ * refusal holds every session out of it and its dirt is judged at once.
+ */
+describe("a cut-over main checkout's dirt", () => {
+	const landingOn = (args: string[] = []) =>
+		run(args, false, {
+			WFC_MODULES: `${process.env.WFC_MODULES},landing`,
+		});
+
+	it("is an orphan on the first run, whatever its age, naming its ledger's last writer", () => {
+		dirty("a.txt", 0);
+		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+		fs.writeFileSync(store.paths.ledger("gone-writer"), "a.txt\n");
+
+		const r = landingOn();
+
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("ORPHANED-EDIT (1)");
+		expect(r.out).toContain("in the cut-over main checkout at any age");
+		expect(r.out).toContain("last known writer: session gone-writer");
+		expect(readFilings()).toHaveLength(1);
+	});
+
+	it("is still owned by a live session's ledger", () => {
+		dirty("a.txt", 0);
+		fakeClaude("bystander", "live-writer");
+		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+		fs.writeFileSync(store.paths.ledger("live-writer"), "a.txt\n");
+
+		const r = landingOn();
+
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			"no orphaned edit in the cut-over main checkout at any age",
+		);
+	});
+
+	it("waits 24 hours while main still tracks landing, not yet cut over", () => {
+		dirty("a.txt", 0);
+		spawnSync("git", ["config", "branch.main.merge", "refs/heads/landing"], {
+			cwd: sb.repo,
+		});
+
+		const data = JSON.parse(landingOn(["--json"]).stdout);
+
+		expect(data.mainCutOver).toBe(false);
+		expect(data.orphanCount).toBe(0);
+		expect(data.young).toBe(1);
+	});
+
+	it("leaves a linked worktree's dirt to the 24-hour test", () => {
+		const wt = path.join(sb.repo, ".claude", "worktrees", "w2");
+		fs.mkdirSync(path.dirname(wt), { recursive: true });
+		spawnSync("git", ["worktree", "add", "-q", "--detach", wt], {
+			cwd: sb.repo,
+		});
+		fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
+
+		const data = JSON.parse(landingOn(["--json"]).stdout);
+
+		expect(data.mainCutOver).toBe(true);
+		expect(data.orphanCount).toBe(0);
+		expect(data.young).toBe(1);
 	});
 });
