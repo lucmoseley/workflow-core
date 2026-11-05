@@ -11,7 +11,10 @@
  * is read again unrepaired, a live queue lander's lock is taken by the
  * landing lander, a verdict, batch or drop written to disk is lost to the
  * next run, or a ref conflicting with `main` stops the queue, goes unkept
- * under `dropped/<name>` or unticketed.
+ * under `dropped/<name>` or unticketed; or a red batch's culprit is not
+ * isolated on `lander/iso-<k>` and dropped with its evidence, a collision is
+ * not settled by serial landing, or a failure `main` shares holds the batch
+ * or goes without its base-red ticket.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,6 +29,7 @@ import {
 	remote,
 	runLander,
 	runLanderScript,
+	stubRedWhile,
 	stubTester,
 	stubTracker,
 	tmp,
@@ -149,6 +153,10 @@ describe("a run", () => {
 			onto: seed,
 			integration: a,
 			phase: "testing",
+			ahead: [],
+			blame: null,
+			isolated: [],
+			serial: null,
 		});
 
 		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
@@ -264,23 +272,41 @@ describe("a run", () => {
 		]);
 	});
 
-	it("lands nothing on a red batch, ledgering its verdict for the next run", async () => {
+	it("lands a batch red only where main is red too, filing the base-red ticket and ledgering each run by its pass", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		pushQueue("a", seed);
 		pushQueue("b", seed);
+		const { gh, readStore } = stubTracker();
 
 		const r = await runLanderScript(
 			QUEUE_LANDER,
 			stubTester(1, "scripts/x.test.ts\n"),
+			"landing",
+			gh.env,
 		);
 
-		expect(r.stdout).toMatch(
-			/exit the batch \w+ is red on scripts\/x\.test\.ts: the red path is unbuilt \(#4485\)/,
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain(`file-base-red main@${seed.slice(0, 9)}`);
+		const main = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-list", "--count", `${seed}..${main}`)).toBe("4");
+		const [ticket] = readStore();
+		expect(ticket.title).toBe(
+			"`main` is red: failures the queue lander blames on no member",
 		);
-		expect(git(remote, "rev-parse", "main")).toBe(seed);
-		const again = await runLanderScript(QUEUE_LANDER, stubTester(0));
-		expect(again.stdout).toContain("the red path is unbuilt");
-		expect(again.stdout).not.toContain("test-sha");
+		expect(ticket.body).toContain(`- Main: \`${seed}\``);
+		const rows = fs
+			.readFileSync(
+				path.join(markers(), ".queue-lander-verdicts.jsonl"),
+				"utf8",
+			)
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(rows.map((row) => [row.sha, row.files, row.pass])).toEqual([
+			[main, [], undefined],
+			[main, ["scripts/x.test.ts"], 2],
+			[seed, ["scripts/x.test.ts"], undefined],
+		]);
 	});
 });
 
@@ -421,13 +447,18 @@ describe("the adapters", () => {
 			files: ["a.ts"],
 		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
+		verdictLedger(verdicts).add("s1", ["a.ts"], { kind: "green" }, 2);
 		const b = {
 			members: [{ name: "a", sha: "s0", pushedAt: 1 }],
 			deferred: ["b"],
 			dropped: [],
 			onto: "m0",
 			integration: "s1",
-			phase: "testing" as const,
+			phase: "serial" as const,
+			ahead: ["a"],
+			blame: { files: ["a.ts"], base: [], members: ["a"] },
+			isolated: [{ name: "a", sha: "s0", iso: "i0" }],
+			serial: { landed: [], step: { name: "a", sha: "t0", onto: "m0" } },
 		};
 		batchRecord(batch).write(b);
 
@@ -440,7 +471,13 @@ describe("the adapters", () => {
 			run: 7,
 		});
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
+		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();
+		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)).toEqual({
+			kind: "green",
+		});
 		expect(batchRecord(batch).read()).toEqual(b);
+		fs.writeFileSync(batch, JSON.stringify({ ...b, phase: "held" }));
+		expect(batchRecord(batch).read()).toBeNull();
 		fs.writeFileSync(batch, '{"members": [');
 		expect(batchRecord(batch).read()).toBeNull();
 
@@ -454,10 +491,91 @@ describe("the adapters", () => {
 			ticket: null,
 			at: 1,
 		};
-		dropRecord(drops).write([d, { ...d, ref: 3 } as never]);
-		expect(dropRecord(drops).read()).toEqual([d]);
+		const red = {
+			...d,
+			cause: { kind: "red" as const, name: "a", files: ["x.ts"], iso: "i0" },
+		};
+		const collision = {
+			...d,
+			cause: {
+				kind: "collision" as const,
+				name: "a",
+				files: [],
+				step: "t0",
+				after: ["b"],
+			},
+		};
+		dropRecord(drops).write([
+			d,
+			red,
+			collision,
+			{ ...d, ref: 3 } as never,
+			{ ...red, cause: { ...red.cause, iso: 4 } } as never,
+		]);
+		expect(dropRecord(drops).read()).toEqual([d, red, collision]);
 		fs.writeFileSync(drops, "[{");
 		expect(dropRecord(drops).read()).toEqual([]);
+	});
+});
+
+describe("the red path", () => {
+	it("isolates each member on lander/iso-<k>, drops the one red alone twice with its fix ticket, and lands the other", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed);
+		const b = pushQueue("b", seed);
+		fs.mkdirSync(markers(), { recursive: true });
+		const log = queueLogFile(work);
+		const at = Date.now();
+		logEnqueue(log, { ref: "refs/heads/queue/a", sha: a, at: at - 2000 });
+		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
+		const { gh, readStore } = stubTracker();
+
+		const r = await runLanderScript(
+			QUEUE_LANDER,
+			stubRedWhile("b"),
+			"landing",
+			gh.env,
+		);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain("exit no queue ref waits");
+		expect(git(remote, "rev-parse", "main")).toBe(a);
+		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
+		const iso = git(remote, "rev-parse", "lander/iso-1");
+		expect(git(remote, "merge-base", "--is-ancestor", b, iso)).toBe("");
+		const [ticket] = readStore();
+		expect(ticket.title).toBe(
+			`Fix queue/b at ${b.slice(0, 9)}, dropped by the queue lander: b`,
+		);
+		expect(ticket.body).toContain(`as ${iso}, it failed these files twice`);
+		expect(ticket.body).toContain("- `scripts/b.test.ts`");
+	});
+
+	it("settles a collision by landing the members in push order, dropping the one whose step brings the failure back", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed);
+		const b = pushQueue("b", seed);
+		fs.mkdirSync(markers(), { recursive: true });
+		const log = queueLogFile(work);
+		const at = Date.now();
+		logEnqueue(log, { ref: "refs/heads/queue/a", sha: a, at: at - 2000 });
+		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
+		const { gh, readStore } = stubTracker();
+
+		const r = await runLanderScript(
+			QUEUE_LANDER,
+			stubRedWhile("b", "a"),
+			"landing",
+			gh.env,
+		);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(git(remote, "rev-parse", "main")).toBe(a);
+		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
+		expect(remoteHeads()).not.toContain("refs/heads/queue/");
+		const [ticket] = readStore();
+		expect(ticket.body).toContain("each member of its batch passed alone");
+		expect(ticket.body).toContain("after `queue/a` landed");
 	});
 });
 

@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
- * lib/queue-lander.js's green path, drop and defer (#4485, spec #4458),
- * driven through runQueueLander with an in-memory remote, tester, tracker,
- * ledgers and records: each case asserts the actions the machine chose and
- * where the remote ends.
+ * lib/queue-lander.js's green path, drop and defer, and red path (#4485,
+ * spec #4458), driven through runQueueLander with an in-memory remote,
+ * tester, tracker, ledgers and records: each case asserts the actions the
+ * machine chose and where the remote ends.
  *
  * Loosen it and a batch lands untested or out of push order, a push made
  * while a batch is tested lands half-tested or is deleted unlanded, a
@@ -11,7 +11,11 @@
  * that conflicts with another is dropped or one that conflicts with `main`
  * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, a
  * crash mid-drop lands the member or a crash after the push loses its land
- * rows, or a dropped ref outlives its closed ticket.
+ * rows, or a dropped ref outlives its closed ticket; or a flake or a failure
+ * `main` shares starts an isolation or drops a member, a member red alone
+ * once is dropped unconfirmed, the passers wait behind a newer ref, a
+ * collision drops more or less than one member, or a restart repeats an
+ * isolation run or merge.
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
@@ -47,6 +51,8 @@ interface Remote {
 	main: string;
 	refs: Map<string, Ref>;
 	dropped: Map<string, string>;
+	/** The `lander/iso-<k>` refs pushed, by branch. */
+	iso: Map<string, string>;
 }
 
 const remoteOf = (
@@ -57,6 +63,7 @@ const remoteOf = (
 	main,
 	refs: new Map(Object.entries(refs)),
 	dropped: new Map(Object.entries(dropped)),
+	iso: new Map(),
 });
 
 /** The disk a restart keeps: the ledgers, records, queue log and tracker. */
@@ -69,6 +76,8 @@ const freshDisk = () => ({
 	/** Each ticket's state; the filed ones open. */
 	tickets: new Map<number, "open" | "closed">(),
 	filed: [] as Drop[],
+	/** Each base-red filing, as `<main> <files>`. */
+	baseRed: [] as string[],
 });
 type Disk = ReturnType<typeof freshDisk>;
 
@@ -76,9 +85,19 @@ const mergeSha = (onto: string, members: readonly Member[]) =>
 	`merge(${onto};${members.map((m) => m.sha).join(",")})`;
 
 interface Options {
-	/** The tester's answer at a sha; green naming run 1 where absent. */
-	verdict?: (sha: string, remote: Remote) => Verdict;
+	/**
+	 * The tester's answer at a sha on `files`, the whole suite where empty,
+	 * `nth` counting its asks there from 1; green naming run 1 where absent.
+	 */
+	verdict?: (
+		sha: string,
+		remote: Remote,
+		files: readonly string[],
+		nth: number,
+	) => Verdict;
 	requiresRun?: boolean;
+	/** Whether the tester runs isolation members at once. */
+	parallel?: boolean;
 	/** The merge's outcome; every member merged where absent. */
 	merge?: (onto: string, members: readonly Member[]) => MergeResult;
 	/** Throws in place of a call, by its name, while it returns an error. */
@@ -122,7 +141,10 @@ function fakeMerge(
 /** A run against `remote` and `disk`, returning its end and every action. */
 async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	const actions: QueueAction[] = [];
+	/** Each ask: the sha for the whole suite, else `<sha>:<files>`. */
 	const asked: string[] = [];
+	let inFlight = 0;
+	let peak = 0;
 	const said: string[] = [];
 	const call = (name: string) => {
 		const err = o.fault?.(name);
@@ -147,6 +169,10 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				return o.merge?.(onto, members) ?? fakeMerge(remote, onto, members);
 			},
 			pushBatch: () => call("pushBatch"),
+			pushIso: (k, sha) => {
+				call("pushIso");
+				remote.iso.set(`lander/iso-${k}`, sha);
+			},
 			pushMain: (sha) => {
 				call("pushMain");
 				remote.main = sha;
@@ -174,9 +200,17 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		},
 		tester: {
 			requiresRun: o.requiresRun ?? true,
-			verdict: async (sha) => {
-				asked.push(sha);
-				return o.verdict?.(sha, remote) ?? { kind: "green", run: 1 };
+			...(o.parallel === undefined ? {} : { parallel: o.parallel }),
+			verdict: async (sha, files = []) => {
+				const ask = files.length > 0 ? `${sha}:${files.join(",")}` : sha;
+				asked.push(ask);
+				const nth = asked.filter((a) => a === ask).length;
+				peak = Math.max(peak, ++inFlight);
+				await Promise.resolve();
+				inFlight--;
+				return (
+					o.verdict?.(sha, remote, files, nth) ?? { kind: "green", run: 1 }
+				);
 			},
 		},
 		ledger: {
@@ -186,10 +220,10 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		verdicts: {
-			get: (sha, files) =>
-				disk.verdicts.get(`${sha} ${files.join(",")}`) ?? null,
-			add: (sha, files, v) => {
-				disk.verdicts.set(`${sha} ${files.join(",")}`, v);
+			get: (sha, files, pass = 1) =>
+				disk.verdicts.get(verdictKey(sha, files, pass)) ?? null,
+			add: (sha, files, v, pass = 1) => {
+				disk.verdicts.set(verdictKey(sha, files, pass), v);
 			},
 		},
 		record: {
@@ -213,6 +247,10 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				disk.tickets.set(n, "open");
 				return `Filed #${n}: https://x/${n}`;
 			},
+			fileBaseRed: (sha, files) => {
+				disk.baseRed.push(`${sha} ${files.join(",")}`);
+				return "base-red issue: filed #90";
+			},
 			stateOf: (n) => {
 				const state = disk.tickets.get(n);
 				if (!state) throw new Error(`no issue #${n}`);
@@ -230,8 +268,14 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		now: () => o.now ?? NOW,
 	};
 	const end = await runQueueLander(deps);
-	return { end, actions, asked, said };
+	return { end, actions, asked, said, peak };
 }
+
+const verdictKey = (sha: string, files: readonly string[], pass: number) =>
+	`${sha} ${files.join(",")}${pass > 1 ? ` #${pass}` : ""}`;
+
+/** A batch record's red-path fields at rest. */
+const UNRED = { ahead: [], blame: null, isolated: [], serial: null };
 
 const kinds = (actions: QueueAction[]) => actions.map((a) => a.kind);
 const taken = (actions: QueueAction[]) =>
@@ -297,6 +341,7 @@ describe("the green path", () => {
 			{ name: "b", sha: "b1", pushedAt: 2 },
 		];
 		disk.batch = {
+			...UNRED,
 			members,
 			deferred: [],
 			dropped: [],
@@ -431,26 +476,26 @@ describe("verdicts", () => {
 		expect(remote.main).toBe("a1");
 	});
 
-	it("stops on a red reached before a restart without testing it again", async () => {
+	it("goes on from a red reached before a restart without testing the whole suite again", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
 		});
 		const disk = freshDisk();
 		const red = await land(remote, disk, {
-			verdict: () => ({ kind: "red", files: ["scripts/x.test.ts"] }),
+			verdict: (_, __, files) =>
+				files.length === 0
+					? { kind: "red", files: ["scripts/x.test.ts"] }
+					: { kind: "unknown", reason: "no run" },
 		});
 
 		const second = await land(remote, disk);
 
-		const end = {
+		expect(red.end).toEqual({
 			kind: "exit",
-			reason:
-				"the batch a1 is red on scripts/x.test.ts: the red path is unbuilt (#4485)",
-		};
-		expect(red.end).toEqual(end);
-		expect(second.end).toEqual(end);
-		expect(second.asked).toEqual([]);
-		expect(remote.main).toBe("m0");
+			reason: "no verdict at a1: no run",
+		});
+		expect(remote.main).toBe("a1");
+		expect(second.asked).toEqual(["a1:scripts/x.test.ts"]);
 	});
 });
 
@@ -729,6 +774,7 @@ describe("drop and defer", () => {
 		const disk = freshDisk();
 		const members = [{ name: "a", sha: "a1", pushedAt: 1 }];
 		disk.batch = {
+			...UNRED,
 			members,
 			deferred: [],
 			dropped: [],
@@ -847,6 +893,7 @@ describe("drop and defer", () => {
 		});
 		const disk = freshDisk();
 		disk.batch = {
+			...UNRED,
 			members: [
 				{ name: "a", sha: "a1", pushedAt: 1 },
 				{ name: "b", sha: "b1", pushedAt: 2 },
@@ -877,6 +924,7 @@ describe("a crash after main moved", () => {
 		disk.green.add("x1");
 		disk.log = ["take x@x1"];
 		disk.batch = {
+			...UNRED,
 			members: [{ name: "x", sha: "x1", pushedAt: 1 }],
 			deferred: [],
 			dropped: [],
@@ -968,6 +1016,7 @@ describe("the reap", () => {
 		disk.tickets.set(1, "closed");
 		disk.drops = [dropOf("a", 1)];
 		disk.batch = {
+			...UNRED,
 			members: [{ name: "x", sha: "x1", pushedAt: 1 }],
 			deferred: [],
 			dropped: [],
@@ -986,6 +1035,355 @@ describe("the reap", () => {
 			"exit",
 		]);
 		expect(remote.dropped.size).toBe(0);
+	});
+});
+
+describe("the red path", () => {
+	const RedB = "scripts/b.test.ts";
+	const red = (...files: string[]): Verdict => ({ kind: "red", files });
+	const Green: Verdict = { kind: "green", run: 1 };
+	/** Red on each `<name>.test.ts` whose `<name>1` the sha holds. */
+	const redWhereHeld =
+		(...names: string[]) =>
+		(sha: string, _: Remote, files: readonly string[]): Verdict => {
+			const failing = names
+				.filter((n) => sha.includes(`${n}1`))
+				.map((n) => `scripts/${n}.test.ts`)
+				.filter((f) => files.length === 0 || files.includes(f));
+			return failing.length > 0 ? red(...failing) : Green;
+		};
+	const abc = () =>
+		remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+			c: { sha: "c1", pushedAt: 3 },
+		});
+	const Abc = "merge(m0;a1,b1,c1)";
+
+	it("lands a batch whose failing files pass on their rerun, isolating nothing", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+
+		const { end, asked } = await land(remote, freshDisk(), {
+			verdict: (_, __, files) =>
+				files.length === 0 ? red("scripts/x.test.ts") : Green,
+		});
+
+		const integration = "merge(m0;a1,b1)";
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked).toEqual([integration, `${integration}:scripts/x.test.ts`]);
+		expect(remote.main).toBe(integration);
+		expect(remote.iso.size).toBe(0);
+	});
+
+	it("lands a batch red only where main is red too, filing one base-red ticket for those files", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+
+		const { end, asked, said } = await land(remote, disk, {
+			verdict: () => red("scripts/x.test.ts"),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked).toContain("m0:scripts/x.test.ts");
+		expect(disk.baseRed).toEqual(["m0 scripts/x.test.ts"]);
+		expect(said).toContain("base-red issue: filed #90");
+		expect(remote.main).toBe("merge(m0;a1,b1)");
+		expect(remote.iso.size).toBe(0);
+		expect(disk.drops).toEqual([]);
+	});
+
+	it("drops the one culprit red alone twice, and lands the passers as the next batch ahead of a newer ref", async () => {
+		const remote = abc();
+		const disk = freshDisk();
+		const isos = ["merge(m0;a1)", "merge(m0;b1)", "merge(m0;c1)"];
+		const base = redWhereHeld("b");
+
+		const { end, actions, asked } = await land(remote, disk, {
+			verdict: (sha, r, files) => {
+				if (isos.includes(sha)) {
+					if (![...r.iso.values()].includes(sha))
+						throw new Error(
+							`${sha} asked before its lander/iso ref was pushed`,
+						);
+					r.refs.set("d", { sha: "d1", pushedAt: 9 });
+				}
+				const v = base(sha, r, files);
+				/* main shares x's failure, which is never blamed. */
+				if (sha !== Abc && sha !== "m0") return v;
+				return red("scripts/x.test.ts", ...(v.kind === "red" ? v.files : []));
+			},
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(taken(actions)).toEqual([
+			["a@a1", "b@b1", "c@c1"],
+			["a@a1", "c@c1"],
+			["d@d1"],
+		]);
+		const drop = {
+			name: "b",
+			sha: "b1",
+			ref: "dropped/b",
+			onto: "m0",
+			cause: {
+				kind: "red",
+				name: "b",
+				files: [RedB],
+				iso: "merge(m0;b1)",
+			},
+			ticket: null,
+			at: NOW,
+		};
+		expect(dropsOf(actions)).toEqual([drop]);
+		expect(disk.filed).toEqual([drop]);
+		expect(asked).toContain(`merge(m0;a1):${RedB}`);
+		expect(asked.filter((a) => a === `merge(m0;b1):${RedB}`)).toHaveLength(2);
+		expect(asked).not.toContain("merge(m0;a1):scripts/x.test.ts");
+		expect(disk.baseRed[0]).toBe("m0 scripts/x.test.ts");
+		expect(remote.main).toBe("merge(merge(m0;a1,c1);d1)");
+		expect(remote.dropped).toEqual(new Map([["dropped/b", "b1"]]));
+		expect(remote.refs.size).toBe(0);
+		expect(disk.log).toContain("drop b@b1");
+	});
+
+	it("drops two culprits in one isolation and lands the one passer", async () => {
+		const remote = abc();
+		const disk = freshDisk();
+
+		const { end, actions } = await land(remote, disk, {
+			verdict: redWhereHeld("b", "c"),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b", "c"]);
+		expect(disk.filed).toHaveLength(2);
+		expect(taken(actions)).toEqual([["a@a1", "b@b1", "c@c1"], ["a@a1"]]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("keeps a member red alone once that passes its confirm, landing it with the other passer", async () => {
+		const remote = abc();
+		const disk = freshDisk();
+		const culprit = redWhereHeld("c");
+
+		const { end, actions } = await land(remote, disk, {
+			verdict: (sha, r, files, nth) =>
+				sha === "merge(m0;b1)" && nth === 1
+					? red("scripts/c.test.ts")
+					: culprit(sha, r, files),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["c"]);
+		expect(taken(actions)).toEqual([
+			["a@a1", "b@b1", "c@c1"],
+			["a@a1", "b@b1"],
+		]);
+		expect(remote.main).toBe("merge(m0;a1,b1)");
+	});
+
+	it("settles a collision by landing members one at a time in push order, dropping only the one that brings the failure back", async () => {
+		const remote = abc();
+		const disk = freshDisk();
+		const collides = (sha: string) => sha.includes("a1") && sha.includes("b1");
+
+		const { end, actions } = await land(remote, disk, {
+			verdict: (sha) => (collides(sha) ? red("scripts/y.test.ts") : Green),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		const step = "merge(merge(m0;a1);b1)";
+		expect(dropsOf(actions)).toEqual([
+			{
+				name: "b",
+				sha: "b1",
+				ref: "dropped/b",
+				onto: "merge(m0;a1)",
+				cause: {
+					kind: "collision",
+					name: "b",
+					files: ["scripts/y.test.ts"],
+					step,
+					after: ["a"],
+				},
+				ticket: null,
+				at: NOW,
+			},
+		]);
+		expect(taken(actions)).toEqual([["a@a1", "b@b1", "c@c1"], ["c@c1"]]);
+		expect(remote.main).toBe("merge(merge(m0;a1);c1)");
+		expect(disk.green.has("merge(m0;a1)")).toBe(true);
+		expect(disk.green.has(step)).toBe(false);
+		expect(remote.refs.size).toBe(0);
+		expect(disk.log.filter((l) => !l.startsWith("take"))).toEqual([
+			"land a@a1",
+			"drop b@b1",
+			"land c@c1",
+		]);
+	});
+
+	it("records a serial step main already holds after a crash, landing it once and going on to the next", async () => {
+		const remote = remoteOf("merge(m0;a1)", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		disk.green.add("merge(m0;a1)");
+		disk.log = ["take a@a1", "take b@b1"];
+		disk.batch = {
+			members: [
+				{ name: "a", sha: "a1", pushedAt: 1 },
+				{ name: "b", sha: "b1", pushedAt: 2 },
+			],
+			deferred: [],
+			dropped: [],
+			onto: "m0",
+			integration: "merge(m0;a1,b1)",
+			phase: "serial",
+			ahead: [],
+			blame: { files: ["scripts/y.test.ts"], base: [], members: ["a", "b"] },
+			isolated: [],
+			serial: {
+				landed: [],
+				step: { name: "a", sha: "merge(m0;a1)", onto: "m0" },
+			},
+		};
+
+		const { end, actions, asked } = await land(remote, disk, {
+			verdict: (sha) =>
+				sha.includes("a1") && sha.includes("b1")
+					? red("scripts/y.test.ts")
+					: Green,
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(actions[0]).toEqual({
+			kind: "record-step",
+			sha: "merge(m0;a1)",
+			name: "a",
+		});
+		expect(asked).toEqual(["merge(merge(m0;a1);b1)"]);
+		expect(disk.log).toEqual([
+			"take a@a1",
+			"take b@b1",
+			"land a@a1",
+			"drop b@b1",
+		]);
+		expect(remote.main).toBe("merge(m0;a1)");
+		expect(remote.refs.size).toBe(0);
+	});
+
+	it("settles a red naming no file by serial landing, never rerunning named files", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+
+		const { end, actions, asked } = await land(remote, disk, {
+			verdict: (sha) =>
+				sha.includes("a1") && sha.includes("b1") ? red() : Green,
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked.filter((a) => a.includes(":"))).toEqual([]);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("resumes an isolation after a restart without merging or testing again what it ledgered", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		let pushes = 0;
+
+		const first = await land(remote, disk, {
+			verdict: redWhereHeld("b"),
+			fault: (c) =>
+				c === "pushIso" && ++pushes === 3 ? new Error("killed") : undefined,
+		});
+		const second = await land(remote, disk, { verdict: redWhereHeld("b") });
+
+		expect(first.end).toEqual({
+			kind: "exit",
+			reason: "stopped on an error: killed",
+		});
+		expect(disk.batch?.phase).not.toBe("merging");
+		expect(kinds(second.actions)).not.toContain("merge-iso");
+		expect(second.asked).toEqual([`merge(m0;b1):${RedB}`, "merge(m0;a1)"]);
+		expect(dropsOf(second.actions).map((d) => d.name)).toEqual(["b"]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("never lands nor drops on an isolation member's unknown verdict, and asks only it again next run", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const culprit = redWhereHeld("b");
+
+		const first = await land(remote, disk, {
+			verdict: (sha, r, files) =>
+				sha === "merge(m0;a1)"
+					? { kind: "unknown", reason: "no run" }
+					: culprit(sha, r, files),
+		});
+
+		expect(first.end).toEqual({
+			kind: "exit",
+			reason: "no verdict at merge(m0;: no run",
+		});
+		expect(remote.main).toBe("m0");
+		expect(disk.drops).toEqual([]);
+		expect(remote.refs.size).toBe(2);
+		const second = await land(remote, disk, { verdict: culprit });
+		expect(second.asked).toEqual([
+			`merge(m0;a1):${RedB}`,
+			`merge(m0;b1):${RedB}`,
+			"merge(m0;a1)",
+		]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("retries an isolation member's transient no verdict with the batch kept", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const culprit = redWhereHeld("b");
+
+		const { end, actions, asked } = await land(remote, disk, {
+			verdict: (sha, r, files, nth) =>
+				sha === "merge(m0;b1)" && nth === 1
+					? { kind: "unknown", reason: "slot shut", transient: true }
+					: culprit(sha, r, files),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions).filter((k) => k === "take-batch")).toHaveLength(2);
+		expect(asked.filter((a) => a === `merge(m0;a1):${RedB}`)).toHaveLength(1);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+	});
+
+	it("tests isolation members at once on a parallel tester and one at a time on any other", async () => {
+		const run = (parallel?: boolean) =>
+			land(abc(), freshDisk(), {
+				verdict: redWhereHeld("b"),
+				...(parallel === undefined ? {} : { parallel }),
+			});
+
+		expect((await run(true)).peak).toBe(3);
+		expect((await run()).peak).toBe(1);
 	});
 });
 

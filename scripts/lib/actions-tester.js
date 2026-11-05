@@ -768,6 +768,8 @@ function queueTester({
 	};
 	return {
 		requiresRun: true,
+		/* Each verdict is its own run on GitHub's runners. */
+		parallel: true,
 		async verdict(sha, files) {
 			if (files === undefined || files.length === 0)
 				return suiteVerdict(sha, 0, suite);
