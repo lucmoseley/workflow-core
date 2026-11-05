@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mainWorktreeOf } from "./git-fixture";
 
 const {
 	projectSlug,
@@ -59,7 +60,7 @@ describe("transcriptPath — a session's transcript on a seat", () => {
 describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 	const cwd = process.cwd();
 	const repo = path.join(__dirname, "..", "..");
-	// Unset, so the cases read the git top level of the cwd.
+	// Unset, so the cases read the main checkout owning the cwd.
 	beforeEach(() => vi.stubEnv("CLAUDE_PROJECT_DIR", undefined));
 	afterEach(() => {
 		process.chdir(cwd);
@@ -67,8 +68,8 @@ describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 
 	/*
 	 * A SUBDIRECTORY OF THE REPO, not `os.tmpdir()` (#1). Since the seam,
-	 * `slugForRepo()` names the HOST repo — `CLAUDE_PROJECT_DIR`, else the git
-	 * top level of the cwd — rather than the checkout this file sits in, so from
+	 * `slugForRepo()` names the HOST repo — `CLAUDE_PROJECT_DIR`, else the main
+	 * checkout owning the cwd — rather than the checkout this file sits in, so from
 	 * outside any repository it answers with the cwd and SHOULD. The defect this
 	 * case exists to catch is unchanged: a script invoked from a subdirectory
 	 * must still name the root, not the directory it was invoked from.
@@ -80,8 +81,8 @@ describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 		expect(slugForRepo()).not.toBe(projectSlug());
 	});
 
-	it("agrees with projectSlug on the repo root", () => {
-		expect(slugForRepo()).toBe(projectSlug(repo));
+	it("agrees with projectSlug on the main checkout owning the repo root", () => {
+		expect(slugForRepo()).toBe(projectSlug(mainWorktreeOf(repo)));
 	});
 });
 

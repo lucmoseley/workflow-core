@@ -16,9 +16,10 @@
  * fires on commands this script says it should fire on. Sharing an
  * implementation would make the check check itself.
  *
- * SO IT MUST BE KEPT IN STEP BY HAND. `inlineInterp` below tracks
- * lib/bash-write-plan.js's `inlineInterp`, which stops the scan at the
- * script. mantahostels#2854's published 137/206 firings and 33%/46% false
+ * SO IT MUST BE KEPT IN STEP BY HAND. `hasInlineArgs` below tracks
+ * lib/shell-words.js's `programSource`, which stops the scan at the script,
+ * reads bundled python short options and skips a valued flag's value.
+ * mantahostels#2854's published 137/206 firings and 33%/46% false
  * warns were measured BEFORE that narrowing, so they over-count: this script
  * now reports fewer firings than those figures did, and re-deriving them means
  * re-running the whole pipeline rather than reusing the numbers.
@@ -52,19 +53,43 @@ function assignmentCount(/** @type {string[]} */ words) {
 }
 
 /**
+ * The guard's flag table, as patterns: node's options do not bundle; a python
+ * bundle reads left to right, `c` inline, `m` a module, and `W` or `X` taking
+ * the rest of the word or, ending it, the next word.
+ * @param {boolean} node
+ */
+const flagPatterns = (node) =>
+	node
+		? {
+				inline: /^(-e|--eval|-p|--print|-pe)(=|$)/,
+				valued:
+					/^(-r|--require|--import|--loader|--experimental-loader|-C|--conditions|--input-type|--env-file|--title)$/,
+				module: /^$/,
+			}
+		: {
+				inline: /^-[^-WXcm]*c/,
+				valued: /^-[^-cm]*[WX]$|^--check-hash-based-pycs$/,
+				module: /^-[^-WXc]*m/,
+			};
+
+/**
  * Does an interpreter's argument list carry a heredoc or an inline-code flag
  * before its script?
  * @param {string} base
  * @param {string[]} args
  */
 function hasInlineArgs(base, args) {
-	const inlineFlag = /^node/.test(base) ? /^(-e|--eval|-p|--print)/ : /^-c/;
-	for (const w of args) {
-		if (w.startsWith("<<")) return true;
-		if (inlineFlag.test(w)) return true;
+	const flag = flagPatterns(/^node/.test(base));
+	for (let i = 0; i < args.length; i++) {
+		const w = args[i];
+		if (w === undefined) break;
+		// A bare `-` reads the program from stdin, which only a heredoc feeds.
+		if (w === "-") return args.some((a) => a.startsWith("<<"));
+		if (w.startsWith("<<") || flag.inline.test(w)) return true;
 		// THE SCAN STOPS AT THE SCRIPT, as the guard's has since `3aeedfb25`:
 		// a flag past the module or file name belongs to the PROGRAM.
-		if (!w.startsWith("-")) break;
+		if (!w.startsWith("-") || flag.module.test(w)) break;
+		if (flag.valued.test(w)) i++;
 	}
 	return false;
 }

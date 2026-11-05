@@ -28,8 +28,8 @@ const WORKTREES_DIR = path.join(".claude", "worktrees");
 
 /**
  * The checkout whose slug this repo's transcripts key on: the main checkout,
- * since a script run by hand in a worktree gets the worktree as its host root
- * (#4236). Where git names no common dir the host root stands, and only its
+ * even where a `CLAUDE_PROJECT_DIR` naming a linked worktree makes that
+ * worktree the host root (#4236). Where git names no common dir the host root stands, and only its
  * slug is read.
  *
  * @returns {string}

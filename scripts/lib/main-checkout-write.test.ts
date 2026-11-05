@@ -195,6 +195,9 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 			`python3 -c "open('a.md','w').write('x')"`,
 			`python3 -uc "open('a.md','w')"`,
 			`python3 -W ignore -c "open('a.md','w')"`,
+			"node -r ./scripts/x.js -e 'x'",
+			"bash +o pipefail -c 'x'",
+			"perl -e 'x'",
 			"python3 <<< 'x'",
 			`echo "open('a.md','w')" | python3 -`,
 			"cat x.py | python3",
@@ -240,6 +243,7 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 		fs.mkdirSync(path.join(at.main, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(at.main, "scripts", "x.js"), "");
 		expect(fromMain("node scripts/x.js cut s")).toBeNull();
+		expect(fromMain("node -r ./scripts/x.js scripts/x.js")).toBeNull();
 		expect(fromMain("node scripts/x.js <<'EOF'\ndata\nEOF")).toBeNull();
 	});
 });
