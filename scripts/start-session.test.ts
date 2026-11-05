@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * scripts/start-session.sh against real git (#4241): a bare origin carrying
- * `main` and `landing` and a main checkout cloned from it, with the real
+ * `main`, one commit ahead of a main checkout cloned from it, with the real
  * scripts/session-checkout.js cutting. `npm`, `claude` and `reg.exe` are
  * stubs; the `claude` stub records each call's cwd and argv, and its `--bg`
  * prints the recorded promptless launch (lib/bg-launch-fake.ts).
@@ -105,17 +105,17 @@ beforeEach(() => {
 		fs.writeFileSync(path.join(main, name), text);
 	git(main, "add", "-A");
 	git(main, "commit", "-qm", "seed");
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(main, "push", "-q", "origin", "HEAD:main");
 	fs.writeFileSync(path.join(main, "landed.txt"), "x");
 	git(main, "add", "-A");
 	git(main, "commit", "-qm", "landed");
-	git(main, "push", "-q", "origin", "HEAD:landing");
-	git(main, "reset", "-q", "--hard", "origin/main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	git(main, "reset", "-q", "--hard", "HEAD~1");
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-it("starts a job in a worktree cut at origin/landing, named for the session, and attaches to it", () => {
+it("starts a job in a worktree cut at origin/main, named for the session, and attaches to it", () => {
 	const r = run(["brisk-otter", "--model", "opus"]);
 
 	expect(r.status, r.stderr).toBe(7);
@@ -134,7 +134,7 @@ it("starts a job in a worktree cut at origin/landing, named for the session, and
 		[dir, "attach", JOB_ID],
 	]);
 	expect(git(dir, "rev-parse", "HEAD")).toBe(
-		git(main, "rev-parse", "origin/landing"),
+		git(main, "rev-parse", "origin/main"),
 	);
 });
 
