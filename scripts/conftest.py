@@ -156,19 +156,47 @@ def isolated_home(tmp_path, monkeypatch):
     return root
 
 
+OVERFLOW_KEY_VAR = "WFC_OVERFLOW_API_KEY_FAKE"
+
+
+def declare_overflow_seat(home):
+    """`home`'s seat file: a plan seat and an overflow seat on its dir, as a
+    launch-record reader consults the ledger only where one is declared
+    (#4393)."""
+    (home / ".claude").mkdir(exist_ok=True)
+    (home / ".claude" / "refill-seats").write_text(
+        f"~/.claude\n~/.claude api key={OVERFLOW_KEY_VAR} grant=100 cycle-day=1\n"
+    )
+
+
+def ledger_of_checkout(home, name):
+    """A fixture checkout under `home`, and the dispatch ledger path in it."""
+    root = home / name
+    (root / ".git").mkdir(parents=True)
+    (root / ".claude").mkdir()
+    (root / ".claude" / "workflow-core.json").write_text("{}\n")
+    return root / ".claude" / "tmp" / "markers" / ".pick-next" / "dispatched.jsonl"
+
+
+@pytest.fixture
+def unreadable_launch_record(isolated_home):
+    """An overflow seat declared under `isolated_home` beside a checkout whose
+    dispatch ledger will not read; returns that checkout."""
+    declare_overflow_seat(isolated_home)
+    ledger = ledger_of_checkout(isolated_home, "broken")
+    ledger.mkdir(parents=True)
+    return isolated_home / "broken"
+
+
 @pytest.fixture
 def mark_overflow(isolated_home):
     """Marks a session overflow in a fixture checkout's dispatch ledger under
-    `isolated_home`, in the row's shape `scripts/lib/dispatch-ledger.js` writes."""
-    root = isolated_home / "other-checkout"
+    `isolated_home`, in the row's shape `scripts/lib/dispatch-ledger.js` writes,
+    its overflow seat declared."""
 
     def mark(session_id):
-        (root / ".git").mkdir(parents=True)
-        (root / ".claude").mkdir()
-        (root / ".claude" / "workflow-core.json").write_text("{}\n")
-        ledger = (
-            root / ".claude" / "tmp" / "markers" / ".pick-next" / "dispatched.jsonl"
-        )
+        declare_overflow_seat(isolated_home)
+        ledger = ledger_of_checkout(isolated_home, "other-checkout")
         ledger.parent.mkdir(parents=True)
         ledger.write_text(
             json.dumps(
@@ -177,7 +205,7 @@ def mark_overflow(isolated_home):
                     "issues": [1],
                     "jobId": session_id[:8],
                     "kind": "overflow",
-                    "keyVar": "WFC_OVERFLOW_API_KEY_FAKE",
+                    "keyVar": OVERFLOW_KEY_VAR,
                     "allowanceUsd": 100,
                     "sessionId": session_id,
                 }

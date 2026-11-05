@@ -20,7 +20,6 @@
  * has.
  */
 
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
@@ -54,6 +53,7 @@ const {
 const { stopOn } = require("./claude-stop.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -82,10 +82,12 @@ const {
 const {
 	buildCheckoutEnv,
 	discoverRepos,
+	startDetachedIn,
 	homeDir,
 	isOptedOut,
 	readExclusionWhy,
 } = require("./refill-repos.js");
+const { startLevelling } = require("./level-main.js");
 const loop = require("./refill-loop.js");
 const core = require("./refill-tick-core.js");
 const { buildLaunchesLine } = require("./refill-tick-settle.js");
@@ -198,16 +200,22 @@ function superviseLanding(root) {
 	if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
 }
 
+/** @param {string} root */
+const levelMain = (root) =>
+	startLevelling(root, (err) =>
+		log(`levelling ${root}: not started (${buildErrorText(err)})`),
+	);
+
 /**
- * Start a levelling pass over `root`'s main checkout (scripts/level-main.js,
- * #4248), detached: an `npm ci` in it may outlast a tick. Its pid lock turns
- * away a pass started while one runs.
+ * Start a warm pass over `root` (`session-checkout.js warm`, #4318), detached:
+ * the store build for `origin/landing`'s lockfile may outlast a tick, and the
+ * dispatcher's cuts build none.
  * @param {string} root
  */
-const levelMain = (root) =>
+const startWarmPass = (root) =>
 	startDetached(
-		`levelling ${root}`,
-		[path.join(SCRIPTS, "level-main.js"), "--quiet"],
+		`warming the dependency store in ${root}`,
+		[path.join(SCRIPTS, "session-checkout.js"), "warm"],
 		root,
 	);
 
@@ -425,21 +433,9 @@ function runReview(lastRunOn, now) {
  * @param {string} [root]
  */
 function startDetached(label, args, root = REVIEW_ROOT) {
-	/** @param {unknown} err */
-	const notStarted = (err) =>
-		log(`${label}: not started (${buildErrorText(err)})`);
-	try {
-		const child = spawn(process.execPath, args, {
-			cwd: root,
-			env: buildCheckoutEnv(root),
-			detached: true,
-			stdio: ["ignore", "ignore", "inherit"],
-		});
-		child.on("error", notStarted);
-		child.unref();
-	} catch (err) {
-		notStarted(err);
-	}
+	startDetachedIn(root, args, (err) =>
+		log(`${label}: not started (${buildErrorText(err)})`),
+	);
 }
 
 /**
@@ -594,7 +590,8 @@ function readTimelineOf(l) {
 const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
 
-const resume = resumeSteps(buildResumeIo(log));
+const resumeIo = buildResumeIo(log);
+const resume = resumeSteps(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
@@ -605,26 +602,12 @@ const resume = resumeSteps(buildResumeIo(log));
 function typeResume(l, prompt) {
 	const [file, args, opts] = buildTypedAttach(l.jobId, prompt);
 	return childFailure(
-		runChild(file, args, { ...opts, cwd: l.root, env: resume.seatEnv(l) }),
+		runChild(file, args, {
+			...opts,
+			cwd: l.root,
+			env: buildSeatEnv(resumeIo.env(), l.seat),
+		}),
 	);
-}
-
-/**
- * `l`'s full session id, the listing's else its job record's, and its job's
- * cwd, else its checkout.
- * @param {import("./refill-blocks.js").JobLaunch} l
- * @returns {import("./refill-blocks.js").ResumeTarget}
- */
-function readResumeTargetOf(l) {
-	const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
-		readJobRecordOf(l)
-	);
-	return {
-		sessionId:
-			l.sessionId ??
-			(typeof job?.sessionId === "string" ? job.sessionId : null),
-		cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
-	};
 }
 
 /** @param {import("./refill-loop.js").LoopLaunch} l */
@@ -830,7 +813,7 @@ const postHandOff = (root, args) =>
 const blockIo = (served) => ({
 	stop: stopOn,
 	type: typeResume,
-	resumeTargetOf: readResumeTargetOf,
+	resumeTargetOf: resume.readResumeTarget,
 	resumeStopped: resume.resumeStopped,
 	adoptResumed: resume.adoptResumed,
 	writeLaunch,
@@ -990,6 +973,7 @@ const productionIo = {
 	superviseLanding,
 	levelMain,
 	startReapPass,
+	startWarmPass,
 	fileMachineTickets,
 	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
 	readListing: (trusted) =>
