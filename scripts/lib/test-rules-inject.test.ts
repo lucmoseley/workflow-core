@@ -25,6 +25,7 @@ import {
 	splitCheckout,
 	toolCall,
 } from "./guard-core-testkit";
+import { treePorts } from "./guard-host-ports.js";
 import { readRuleText } from "./rule-text.js";
 import { COLLECTED_TEST, isTestKind } from "./test-kind.js";
 
@@ -33,9 +34,6 @@ const { decide } = require("./test-rules-inject.js") as {
 		file: string,
 		ctx: { tree: () => { repoRel: (file: string) => string | null } },
 	) => unknown;
-};
-const { repoRel } = require("./guard-dispatch.js") as {
-	repoRel: (file: string, root: string) => string | null;
 };
 
 let dir: string;
@@ -51,7 +49,7 @@ afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const judged = (file: string) =>
 	decide(`${repo}/${file}`, {
-		tree: () => ({ repoRel: (f) => repoRel(f, repo) }),
+		tree: () => treePorts(repo),
 	});
 
 const RULES = {

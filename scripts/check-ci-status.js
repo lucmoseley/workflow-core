@@ -2,7 +2,7 @@
 /*
  * check-ci-status.js — report a red CI run on the branch, at session start.
  *
- * Usage:  npm run check:ci  [--branch <name>] [--notify [--recheck]]
+ * Usage:  npm run check:ci  [--branch <name>] [--notify [--recheck]] [--write]
  *
  * Why this exists (mantahostels#143): nothing in the repo ever asked GitHub whether a push
  * went red. `.husky/pre-commit` runs Biome, gitleaks and the roadmap-pair check
@@ -121,7 +121,7 @@
  * filer did not file, it launches that filer detached
  * (lib/red-suite-fallback.js), at no gh call of this run's own.
  *
- * IMPLICIT:  at every session start, asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a sweep the session never asked for when that verdict has gone stale (mantahostels#1816), and launches the red-suite filer, which files or comments on the tracker, where the daily filer did not (#2480).
+ * IMPLICIT:  at every session start (its hook passing --write, without which neither the dispatch nor the filer launch below happens, #4449), asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a sweep the session never asked for when that verdict has gone stale (mantahostels#1816), and launches the red-suite filer, which files or comments on the tracker, where the daily filer did not (#2480).
  * JUSTIFIED: fail-safe — nothing reports a red between the local gates and the next sweep, so every detector here is a poll and this is the only one that fires unasked; a verdict nothing refreshes is the fault mantahostels#1816 measured at a 15h35m blind window; and a broken daily filer left a red unticketed for three days (#2480).
  * DEFEAT:    none at the hook; --notify is silent unless the run it reads is red or the newest sweep is older than SWEEP_STALE_MS. The dispatch is capped by AUTOFIRE_COOLDOWN_MS and withheld where HEAD is already covered; the filer launch at one an hour, on the core host only.
  * TREE:      host — reports CI on `main` against the main checkout's own HEAD
@@ -785,12 +785,15 @@ const buildStepLines = (steps, indent) => {
  * not file, the filer is launched from here (#2480).
  *
  * @param {TrackingLookup} lookupIssue
+ * @param {boolean} write whether the filer may be launched (#4449)
  */
-function suiteTicket(lookupIssue) {
+function suiteTicket(lookupIssue, write) {
 	const found = lookupIssue();
 	if (found) return `covered by #${found.number}`;
 	if (found === false)
 		return "could not ask the tracker whether an open issue covers this";
+	if (!write)
+		return "no open issue covers this — `--write` launches the filer where the daily run did not file";
 	const fallback = fileWhereUnfiled(REPO, now());
 	if (fallback) return `no open issue covers this: ${fallback}`;
 	return "no open issue covers this — the daily repo-checks run files the newest red, unless an issue was closed after it (#1963)";
@@ -802,13 +805,14 @@ function suiteTicket(lookupIssue) {
  *
  * @typedef {() => string} SuiteTicket its first call may launch the filer
  * @param {TrackingLookup} lookupIssue
+ * @param {boolean} write
  * @returns {SuiteTicket}
  */
-function suiteTicketOrFileOnce(lookupIssue) {
+function suiteTicketOrFileOnce(lookupIssue, write) {
 	/** @type {string|undefined} */
 	let clause;
 	return () => {
-		clause ??= suiteTicket(lookupIssue);
+		clause ??= suiteTicket(lookupIssue, write);
 		return clause;
 	};
 }
@@ -1298,16 +1302,20 @@ function trackingLookupOnce(deadline) {
  * that is allowed — appended to the liveness lines.
  *
  * @param {Liveness} live
- * @param {{notify: boolean, isRecheck: boolean, deadline: number|null}} opts
+ * @param {{notify: boolean, isRecheck: boolean, write: boolean, deadline: number|null}} opts
  * @returns {Liveness} `live` with those lines appended, or `live` itself
  */
-function noteStaleSweep(live, { notify, isRecheck, deadline }) {
+function noteStaleSweep(live, { notify, isRecheck, write, deadline }) {
 	if (!notify || live.staleMs === null) return live;
 	/* The staleness is REPORTED whether or not a sweep is fired: the
 	 * cooldown and the daily cap ration the spending, never the reader's
 	 * view of how old the verdict they are starting on is. */
 	const stale = `⚠ Newest sweep is ${formatDuration(live.staleMs)} old — past the ${formatDuration(SWEEP_STALE_MS)} a session should start on.`;
-	const fired = isRecheck ? null : fireSweepOnStale(now(), deadline);
+	let fired = null;
+	if (!isRecheck)
+		fired = write
+			? fireSweepOnStale(now(), deadline)
+			: "  Not firing one: `--write` fires it.";
 	return { ...live, lines: [...live.lines, stale, ...(fired ? [fired] : [])] };
 }
 
@@ -1670,9 +1678,10 @@ function sayBisectRange(ctx, branch, broken, { keyed, failuresOf }) {
 
 runCheck({
 	name: CHECKER,
-	usage: "node check-ci-status.js [--branch <name>] [--notify [--recheck]]",
+	usage:
+		"node check-ci-status.js [--branch <name>] [--notify [--recheck]] [--write]",
 	valueFlags: ["--branch"],
-	flags: ["--recheck"],
+	flags: ["--recheck", "--write"],
 	run(/** @type {Ctx} */ ctx) {
 		const branch = ctx.value("--branch", "main");
 		/* mantahostels#2177: null under the on-demand form, which no hook times out. Set
@@ -1692,7 +1701,8 @@ runCheck({
 		 * three. */
 		const hasSweep = hasSweepWorkflow();
 
-		const ticket = suiteTicketOrFileOnce(trackingLookupOnce(deadline));
+		const write = ctx.has("--write");
+		const ticket = suiteTicketOrFileOnce(trackingLookupOnce(deadline), write);
 
 		/* Done here, once, before any exit path emits — emitLiveness() is called
 		 * from several (mantahostels#1816). */
@@ -1702,7 +1712,7 @@ runCheck({
 				readInactiveWorkflows(deadline),
 				{ t: now(), deadline, hasSweep, ticket },
 			),
-			{ notify: ctx.notify, isRecheck, deadline },
+			{ notify: ctx.notify, isRecheck, write, deadline },
 		);
 
 		const emitLiveness = livenessEmitter(ctx, live);

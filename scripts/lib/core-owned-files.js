@@ -391,7 +391,7 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 	}
 	const r = spawnSync(process.execPath, [script, "--write"], {
 		cwd: root,
-		/* hostRoot() places the table off the first, ledgerPath() reads the
+		/* The writer places the table off the first, ledgerPath() reads the
 		 * second before anything else: an inherited value prices another repo. */
 		env: { ...process.env, CLAUDE_PROJECT_DIR: root, WFC_DISPATCH_ROOT: root },
 		encoding: "utf8",

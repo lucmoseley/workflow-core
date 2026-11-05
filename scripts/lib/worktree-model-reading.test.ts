@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { MOVED_LINE } from "./land-refusal.js";
 import {
 	foreignMainEntries,
 	isMergeIntoReconcile,
@@ -246,11 +247,20 @@ describe("landingOutcome", () => {
 		});
 	});
 
-	it("names nothing where it pushed without merging, or was not the landing route", () => {
+	it("marks a land a neighbour's push beat as moved, off the line session-checkout.js throws (#4446)", () => {
+		expect(
+			landingOutcome(bash(Land, `session checkout: ${MOVED_LINE}`, true)),
+		).toEqual({ kind: "moved" });
+	});
+
+	it("marks a push with no merge as pushed, and names nothing where nothing landed or it was not the landing route", () => {
 		expect(
 			landingOutcome(
 				bash(Land, "session checkout: pushed 0123abcd to landing"),
 			),
+		).toEqual({ kind: "pushed" });
+		expect(
+			landingOutcome(bash(Land, "session checkout: nothing to land")),
 		).toBeNull();
 		expect(landingOutcome(bash("git merge origin/landing", Merged))).toBeNull();
 	});
@@ -295,7 +305,7 @@ describe("zeroChecks", () => {
 			mergeToCommit: spreadOf,
 			mergeCall: spreadOf,
 			mergeUnread: 0,
-			landFailed: 0,
+			land: { merged: 0, pushed: 0, moved: 0, failed: 0 },
 		},
 		...over,
 	});
@@ -326,5 +336,26 @@ describe("zeroChecks", () => {
 		);
 		expect(dirty.failed).toBe(true);
 		expect(dirty.text).toMatch(/^FAIL tracked dirt in the main checkout: 1 /m);
+	});
+
+	it("reports the landing route's weekly rates against #4229's prediction and #4166's race window", () => {
+		const day = 24 * 60 * 60_000;
+		const r = reading();
+		const text = render(
+			{
+				...r,
+				costs: {
+					...r.costs,
+					land: { merged: 70, pushed: 20, moved: 10, failed: 0 },
+				},
+			},
+			{ since: 0, until: day },
+		).text;
+		expect(text).toContain(
+			"landing route a week: 490 merged origin/landing first, of 630 pushed — below #4229's predicted 491–587 (against 436 merges on the shared checkout); 70 refused because a neighbour pushed first, 10.0% of 100 push attempt(s)",
+		);
+		expect(render(reading(), { since: 0, until: day }).text).toMatch(
+			/0 refused because a neighbour pushed first, — of 0 push attempt/,
+		);
 	});
 });

@@ -181,6 +181,15 @@ const REGISTRATIONS: Registration[] = [
 		covers: ["Bash"],
 	},
 	{
+		/* #4446: a refused pull or push exits non-zero, so only this event
+		 * sees it. */
+		event: "PostToolUseFailure",
+		id: "scripts/record-divergence.js",
+		narrowing: "Bash(git *)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
 		/* #2026: a killed call fails, so only this event sees its exit code.
 		 * Unnarrowed, as any command can be killed. */
 		event: "PostToolUseFailure",
@@ -414,7 +423,7 @@ const REGISTRATIONS: Registration[] = [
 		/* Silent unless the installed Claude Code's probe went red; a version
 		 * neither passed nor probed launches the probe detached (#2037). */
 		event: "SessionStart",
-		id: "scripts/check-harness-canary.js --notify",
+		id: "scripts/check-harness-canary.js --notify --write",
 		matcher: null,
 		covers: [],
 	},
@@ -422,7 +431,7 @@ const REGISTRATIONS: Registration[] = [
 		/* Silent; files each orphaned edit's triage issue once per path and blob
 		 * (#813), the report read on `npm run status` (#2038). */
 		event: "SessionStart",
-		id: "scripts/check-orphaned-edits.js --notify",
+		id: "scripts/check-orphaned-edits.js --notify --write",
 		matcher: null,
 		covers: [],
 	},
@@ -480,7 +489,7 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "SessionStart",
-		id: "scripts/check-ci-status.js --notify",
+		id: "scripts/check-ci-status.js --notify --write",
 		matcher: null,
 		covers: [],
 	},

@@ -180,7 +180,10 @@ const setSweeps = (runs: Partial<Run>[]) =>
 const setWorkflows = (rows: { name: string; state: string; path: string }[]) =>
 	fs.writeFileSync(workflowsFile, JSON.stringify(rows));
 
+/* --write as the hook passes it; `bare` runs without. */
 const check = (args: string[], env: Record<string, string> = {}) =>
+	bare([...args, "--write"], env);
+const bare = (args: string[], env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, args, {
 		env: { ...process.env, WFC_REPO_DIR: RANGE_REPO, ...env },
 		cwd: sb.repo,
@@ -930,6 +933,22 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 			);
 			expect(filerRan()).toBe(true);
 			expect(fs.readFileSync(launchedFile(), "utf8")).toBe(RANGE_REPO);
+		});
+
+		it("launches nothing without --write (#4449)", () => {
+			setReading("2026-10-23T06:00:00Z", "BROKEN");
+			fs.rmSync(stampPath(), { force: true });
+
+			const out = bare(["--notify"], {
+				...at(readAt),
+				WFC_SCRIPT_ROOT: core(),
+			}).stdout;
+			expect(out).toContain(
+				ticket(
+					"no open issue covers this — `--write` launches the filer where the daily run did not file",
+				),
+			);
+			expect(fs.existsSync(launchedFile())).toBe(false);
 		});
 
 		it("launches it at most once a run, however many red runs name the suite job", () => {
@@ -2454,6 +2473,15 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 		expect(check(["--notify"], at(SWEEP_NOW)).stdout).toContain(
 			"Fired one automatically",
 		);
+	});
+
+	it("fires nothing without --write, and says --write fires it (#4449)", () => {
+		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
+
+		const out = bare(["--notify"], at(SWEEP_NOW)).stdout;
+		expect(out).toContain("Not firing one: `--write` fires it.");
+		expect(out).not.toContain("Fired one automatically");
+		expect(fs.existsSync(AUTOFIRE_MARKER)).toBe(false);
 	});
 
 	it("says nothing at 7h59m, just inside the 8h threshold", () => {

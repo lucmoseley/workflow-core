@@ -25,7 +25,10 @@
  *
  * `behind` ON A PUSH ROW IS A LOWER BOUND. A rejected push has fetched nothing,
  * so its origin-tracking ref is as stale as the session left it. Reported as a
- * separate column rather than pooled with the pull rows, which are current.
+ * separate column rather than pooled with the pull rows, which are current. A
+ * `land` row — a `session-checkout.js land` push a neighbour beat (#4446) — is
+ * counted after a re-fetch, so its `behind` is current unless that fetch
+ * failed, and has its own column.
  *
  * REPORTS, NEVER GATES. It is run by hand and by nothing else; there is no
  * threshold here and no exit code but 0, short of its own apparatus failing.
@@ -181,10 +184,12 @@ function summarise(rows) {
 		subset.map((r) => Number(r[field])).filter((n) => Number.isFinite(n));
 	const pulls = rows.filter((r) => r.kind === "pull");
 	const pushes = rows.filter((r) => r.kind === "push");
+	const lands = rows.filter((r) => r.kind === "land");
 	return {
 		refusals: rows.length,
 		pull: pulls.length,
 		push: pushes.length,
+		land: lands.length,
 		state: {
 			diverged: count((r) => r.state === "diverged"),
 			behind: count((r) => r.state === "behind"),
@@ -194,6 +199,7 @@ function summarise(rows) {
 		},
 		medianBehindOnPull: median(numbers(pulls, "behind")),
 		medianBehindOnPush: median(numbers(pushes, "behind")),
+		medianBehindOnLand: median(numbers(lands, "behind")),
 		medianAhead: median(numbers(rows, "ahead")),
 		medianSessions: median(numbers(rows, "sessions")),
 		first: rows[0]?.when ?? null,
@@ -213,7 +219,7 @@ function print(byRepo, rows, showRows) {
 	const repos = Object.entries(byRepo).sort(([a], [b]) => byCodeUnit(a, b));
 	if (repos.length === 0) {
 		console.log(
-			"No divergence rows recorded yet. record-divergence.js writes one per refused pull or rejected push;",
+			"No divergence rows recorded yet. record-divergence.js writes one per refused pull or rejected push, session-checkout.js one per land a neighbour beat;",
 		);
 		console.log(
 			"an empty log after a day of work is itself the finding this log is after (#289).",
@@ -223,13 +229,13 @@ function print(byRepo, rows, showRows) {
 	for (const [repo, s] of repos) {
 		console.log(`${repo}`);
 		console.log(
-			`  ${s.refusals} refusal(s): ${s.pull} pull, ${s.push} push  (${s.first} … ${s.last})`,
+			`  ${s.refusals} refusal(s): ${s.pull} pull, ${s.push} push, ${s.land} land  (${s.first} … ${s.last})`,
 		);
 		console.log(
 			`  state      diverged ${s.state.diverged}, behind ${s.state.behind}, ahead ${s.state.ahead}, level ${s.state.level}, unknown ${s.state.unknown}`,
 		);
 		console.log(
-			`  median     ahead ${fig(s.medianAhead)}, behind ${fig(s.medianBehindOnPull)} on pull, ${fig(s.medianBehindOnPush)} on push (lower bound)`,
+			`  median     ahead ${fig(s.medianAhead)}, behind ${fig(s.medianBehindOnPull)} on pull, ${fig(s.medianBehindOnPush)} on push (lower bound), ${fig(s.medianBehindOnLand)} on land`,
 		);
 		console.log(`  sessions   median ${fig(s.medianSessions)} live at refusal`);
 		console.log("");

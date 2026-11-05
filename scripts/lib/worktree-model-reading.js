@@ -7,6 +7,8 @@
  * git's answers).
  */
 
+const { MOVED_LINE } = require("./land-refusal.js");
+
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
 /* The reflog shapes a reconcile branch leaves in a worktree's HEAD log: a
@@ -29,6 +31,12 @@ const STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s/;
 const LAND = /\bsession-checkout\.js\s+land\b/;
 const MERGED_AND_PUSHED =
 	/pushed ([0-9a-f]{7,40}) to landing, origin\/landing merged in first/;
+const PUSHED = /pushed [0-9a-f]{7,40} to landing/;
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+/* #4229's prediction, from #4166's replay: pushes that find `landing` moved
+ * and so merge first, a week, at W = 15 to 60 min. */
+const PREDICTED_MERGES = { low: 491, high: 587 };
+const SHARED_MERGES = 436;
 /* Enough paths to act on; the count carries the rest. */
 const LISTED_PATHS = 20;
 
@@ -236,18 +244,21 @@ function toolSpans(records) {
 /**
  * What a landing route call did: `merged` with the merge commit it pushed
  * (`session-checkout.js land` prints the `HEAD` it pushed, which is the merge
- * of origin/landing where it says it merged first), `failed` where it
- * returned an error — a conflict, a refused gate, a lost push race — and
- * null where it is no landing route call or merged nothing.
+ * of origin/landing where it says it merged first), `pushed` where it pushed
+ * with no merge, `moved` where a neighbour's push beat its own (#4446),
+ * `failed` where it returned any other error — a conflict, a refused gate —
+ * and null where it is no landing route call or landed nothing.
  * @param {ToolSpan} span
- * @returns {{ kind: "merged", sha: string } | { kind: "failed" } | null}
+ * @returns {{ kind: "merged", sha: string } | { kind: "pushed" | "moved" | "failed" } | null}
  */
 function landingOutcome(span) {
 	if (span.name !== "Bash" || !LAND.test(String(span.input.command ?? "")))
 		return null;
-	if (span.isError) return { kind: "failed" };
+	if (span.isError)
+		return { kind: span.result.includes(MOVED_LINE) ? "moved" : "failed" };
 	const m = MERGED_AND_PUSHED.exec(span.result);
-	return m ? { kind: "merged", sha: group(m, 1) } : null;
+	if (m) return { kind: "merged", sha: group(m, 1) };
+	return PUSHED.test(span.result) ? { kind: "pushed" } : null;
 }
 
 /**
@@ -292,10 +303,13 @@ function spread(values) {
  *   costs: {
  *     transcripts: number, unparsed: number,
  *     edit: Spread, editErrors: number,
- *     mergeToCommit: Spread, mergeCall: Spread, mergeUnread: number, landFailed: number,
+ *     mergeToCommit: Spread, mergeCall: Spread, mergeUnread: number,
+ *     land: LandCounts,
  *   },
  * }} Reading
  * @typedef {{ name: string, count: number, detail: string }} Check
+ * @typedef {{ merged: number, pushed: number, moved: number, failed: number }} LandCounts
+ *   landing route calls by landingOutcome's kind
  */
 
 /** @param {number | null} ms */
@@ -354,6 +368,28 @@ function zeroChecks(r) {
 }
 
 /**
+ * The landing route's weekly rates: lands that merged a moved origin/landing
+ * first, against #4229's prediction, and pushes a neighbour beat (#4446),
+ * against #4166's race window.
+ * @param {Reading["costs"]} c
+ * @param {Window} w
+ */
+function landRates(c, w) {
+	/** @param {number} n */
+	const weekly = (n) => Math.round((n * WEEK_MS) / (w.until - w.since));
+	const { merged, pushed, moved } = c.land;
+	const landed = merged + pushed;
+	const tried = landed + moved;
+	const share = tried === 0 ? "—" : `${((100 * moved) / tried).toFixed(1)}%`;
+	const { low, high } = PREDICTED_MERGES;
+	const rate = weekly(merged);
+	let verdict = "within";
+	if (rate < low) verdict = "below";
+	else if (rate > high) verdict = "above";
+	return `landing route a week: ${rate} merged origin/landing first, of ${weekly(landed)} pushed — ${verdict} #4229's predicted ${low}–${high} (against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
+}
+
+/**
  * @param {Reading} r
  * @param {Window} w
  * @returns {{ text: string, failed: boolean }}
@@ -368,8 +404,9 @@ function render(r, w) {
 				`${k.count === 0 ? "PASS" : "FAIL"} ${k.name}: ${k.count} — ${k.detail}`,
 		),
 		`Edit on a path tracked at origin/landing, call to result: ${spreadText(c.edit)}; ${c.editErrors} errored Edit(s) left out; over ${c.transcripts} transcripts, ${c.unparsed} unparsable line(s)`,
-		`landing merge, call start to merge commit (fetch, merge and gates): ${spreadText(c.mergeToCommit)}; ${c.landFailed} landing call(s) that errored left out${c.mergeUnread > 0 ? `; ${c.mergeUnread} sha(s) git no longer holds` : ""}`,
+		`landing merge, call start to merge commit (fetch, merge and gates): ${spreadText(c.mergeToCommit)}; ${c.land.failed + c.land.moved} landing call(s) that errored left out${c.mergeUnread > 0 ? `; ${c.mergeUnread} sha(s) git no longer holds` : ""}`,
 		`landing route call that merged, whole (push included): ${spreadText(c.mergeCall)}`,
+		landRates(c, w),
 	].join("\n");
 	return { text, failed: checks.some((k) => k.count !== 0) };
 }
