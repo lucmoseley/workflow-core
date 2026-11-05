@@ -352,7 +352,7 @@ describe("zeroChecks", () => {
 			{ since: 0, until: day },
 		).text;
 		expect(text).toContain(
-			"landing route a week: 490 merged origin/landing first, of 630 pushed — below #4229's predicted 491–587 (against 436 merges on the shared checkout); 70 refused because a neighbour pushed first, 10.0% of 100 push attempt(s)",
+			"landing route a week: 490 merged origin/landing first, of 630 pushed — below the predicted 491–587 (#4229; against 436 merges on the shared checkout); 70 refused because a neighbour pushed first, 10.0% of 100 push attempt(s)",
 		);
 		expect(render(reading(), { since: 0, until: day }).text).toMatch(
 			/0 refused because a neighbour pushed first, — of 0 push attempt/,

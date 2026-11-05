@@ -78,14 +78,9 @@ vitest.config.ts.timestamp-*.mjs
 # neither reads this file, so all three are needed.
 .claude/tmp/
 # Machine-local state lives under .claude/tmp/markers/ (#2, F8). Some of it is
-# NOT regenerable — the self-throttling and seat-utilisation histories and
-# .pick-next/warm-fraction.jsonl — so never clear that directory wholesale.
-
-# The history-trim watch file's throttle stamp (mantahostels#2617) — one reading a day,
-# like the seat-utilisation stamp. The watch file itself,
-# docs/data/history-trim-watch.jsonl, is TRACKED — unlike the machine-local
-# histories, it must survive a fresh clone.
-docs/data/history-trim-watch.jsonl.stamp
+# NOT regenerable — the self-throttling, seat-utilisation and history-trim
+# histories and .pick-next/warm-fraction.jsonl — so never clear that directory
+# wholesale.
 
 # precommit-gate-harness.test.ts's writeCheckerDelegates fixture — written into
 # the real scripts/ (the delegate re-execs an absolute ROOT path, so a
