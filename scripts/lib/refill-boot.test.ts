@@ -8,18 +8,33 @@
  * and a killed launch is stopped before it can queue. And whether a spawned loop
  * came to hold the lock (#4083): loosen that and a start that exited reads as a
  * running loop. And what a same-boot restart queues (#4139): loosen that and a kill
- * of the loop alone queues a live session for a second resume.
+ * of the loop alone queues a live session for a second resume. And what
+ * `boot-resume`, `watch` and `run` write around them (#4356): loosen that and a
+ * failed boot loses the last loop's death, `watch` restarts over a live loop or
+ * logs at every firing, or a run keeps a stop from before it.
  */
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	awaitLoopHold,
 	bootSparedJobs,
 	bootVerdictOf,
+	holdRun,
 	isEmptyListingTrusted,
+	runBootResume,
+	runWatch,
 	settleBootKilled,
 	withManagerRestart,
 } from "./refill-boot.js";
-import { isSameBoot } from "./refill-state.js";
+import { readControlChecked, writeManagerRestart } from "./refill-files.js";
+import {
+	isSameBoot,
+	readState,
+	type Transition,
+	updateState,
+} from "./refill-state.js";
 import { loopStateOf } from "./refill-state-testkit";
 
 const START = 1000;
@@ -356,5 +371,163 @@ describe("awaitLoopHold (#4083)", () => {
 	it("gives up on a process that outlasts the wait without the lock", () => {
 		const { reply } = polls([null], [true]);
 		expect(reply).toBe(`the loop did not hold ${File} within 30 s`);
+	});
+});
+
+/* The control and state through their real readers and writer, in a refill
+ * directory of the case's own; the lock, the launch and the unit's restart
+ * faked. */
+describe("boot-resume, watch and run's hold, on their ports (#4356)", () => {
+	let dir = "";
+	let before: string | undefined;
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-boot-"));
+		before = process.env.WFC_REFILL_DIR;
+		process.env.WFC_REFILL_DIR = dir;
+	});
+	afterEach(() => {
+		if (before === undefined) delete process.env.WFC_REFILL_DIR;
+		else process.env.WFC_REFILL_DIR = before;
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+	const at = (name: string) => path.join(dir, name);
+	const Self = 7;
+	const writeControl = (extra: object = {}) =>
+		fs.writeFileSync(
+			at(".refill-loop-control.json"),
+			JSON.stringify({ ...control, ...extra }),
+		);
+	const writeState = (raw: object) =>
+		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(raw));
+	const readRawState = () =>
+		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
+	const ports = ({
+		holder = null as number | null,
+		launched = { pid: 42, fetchError: null } as
+			| { error: string }
+			| { pid: number; fetchError: string | null },
+		restartError = null as string | null,
+	} = {}) => {
+		const noted: string[] = [];
+		const calls = { launch: 0, restart: 0 };
+		const note = (line: string) => noted.push(line);
+		const io = {
+			readControl: readControlChecked,
+			readState,
+			holder: () => holder,
+			launchHolder: () => null,
+			self: Self,
+			note,
+			bootId: () => "boot-b",
+			now: () => 9000,
+			updateState: (t: Transition) => updateState(t, note),
+			writeManagerRestart,
+			launch: () => {
+				calls.launch += 1;
+				return launched;
+			},
+			restartBootUnit: () => {
+				calls.restart += 1;
+				return { error: restartError };
+			},
+		};
+		return { io, noted, calls };
+	};
+
+	describe("watch (#4139)", () => {
+		it("does nothing and writes no log line for a live holder, even a paused one", () => {
+			writeControl({ paused: { by: "command", at: START } });
+			const { io, noted, calls } = ports({ holder: 99 });
+			expect(runWatch(io)).toEqual({ code: 0 });
+			expect(calls.restart).toBe(0);
+			expect(noted).toEqual([]);
+			expect(fs.readdirSync(dir)).toEqual([".refill-loop-control.json"]);
+		});
+
+		it("restarts the boot unit with no live holder, so boot-resume decides", () => {
+			writeControl({ paused: { by: "command", at: START } });
+			const { io, calls } = ports();
+			expect(runWatch(io)).toEqual({ code: 0 });
+			expect(calls.restart).toBe(1);
+		});
+
+		it("leaves a damaged control alone, writing no log line", () => {
+			fs.writeFileSync(at(".refill-loop-control.json"), "{");
+			const { io, noted, calls } = ports();
+			expect(runWatch(io)).toEqual({ code: 0 });
+			expect(calls.restart).toBe(0);
+			expect(noted).toEqual([]);
+			expect(fs.readdirSync(dir)).toEqual([".refill-loop-control.json"]);
+		});
+
+		it("exits 1 with the restart's error where it fails", () => {
+			writeControl();
+			const { io } = ports({ restartError: "systemctl … exited 1: denied" });
+			expect(runWatch(io)).toEqual({
+				code: 1,
+				message: "systemctl … exited 1: denied",
+			});
+		});
+	});
+
+	describe("boot-resume (#3878, #4083)", () => {
+		it("keeps the last loop's crash on record where the loop dies", () => {
+			writeControl();
+			writeState({ heldAt: 5 });
+			const { io, noted } = ports({
+				launched: { error: "the loop exited without holding /p" },
+			});
+			expect(runBootResume(io)).toBe(1);
+			expect(readRawState().heldAt).toBe(5);
+			expect(noted).toContain(
+				"boot resume: not resumed: the loop exited without holding /p",
+			);
+			expect(noted.join("\n")).not.toContain("resumed the loop");
+		});
+
+		it("leaves heldAt to the new loop where one launches", () => {
+			writeControl();
+			writeState({ heldAt: 5 });
+			const { io, noted } = ports();
+			expect(runBootResume(io)).toBe(0);
+			expect(readRawState().heldAt).toBeNull();
+			expect(noted).toEqual([
+				`boot resume: resumed the loop counting from ${new Date(START).toISOString()}, pid 42`,
+			]);
+		});
+	});
+
+	describe("run's hold (#3861)", () => {
+		const hold = (acquired: boolean) => {
+			const logged: string[] = [];
+			const held = holdRun({
+				acquire: () => acquired,
+				pidFile: "/x/.refill-loop.pid",
+				log: (line) => logged.push(line),
+				now: () => 9000,
+				bootId: () => "boot-b",
+				updateState: (t) => updateState(t, (line) => logged.push(line)),
+			});
+			return { held, logged };
+		};
+		const Stop = { at: 6, reason: "explicit", detail: "x" };
+
+		it("clears a stop recorded before this run once it holds the pidfile", () => {
+			writeState({ stopped: Stop });
+			const { held, logged } = hold(true);
+			expect(held).toBe(true);
+			expect(readRawState()).toMatchObject({ stopped: null, heldAt: 9000 });
+			expect(logged).toEqual([]);
+		});
+
+		it("keeps the stop, logging why, where another loop holds the pidfile", () => {
+			writeState({ stopped: Stop });
+			const { held, logged } = hold(false);
+			expect(held).toBe(false);
+			expect(readRawState().stopped).toEqual(Stop);
+			expect(logged).toEqual([
+				"another refill loop holds /x/.refill-loop.pid; exiting",
+			]);
+		});
 	});
 });

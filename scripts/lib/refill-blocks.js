@@ -7,7 +7,7 @@
 
 const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
-const { hasEndedUnblocked } = require("./block-cause.js");
+const { blockCause, hasEndedUnblocked } = require("./block-cause.js");
 const { newestMarkerListing } = require("./parked.js");
 const { swapHoldText } = require("./admission.js");
 const {
@@ -109,6 +109,10 @@ const PARKED_STATE = "blocked";
  *   at the cap (#3792)
  * @typedef {(l: LoopLaunch, row: AgentRecord) =>
  *   import("./block-cause.js").Reading} CauseOf
+ * @typedef {{root: string, job: import("./parked.js").ParkJob|null,
+ *   limitParks?: number, cause?: string}} ParkRecord  what a park marker
+ *   records: the seat, job and cwd a normal-mode loop resumes (#3709), a
+ *   limit-cap park's count in a row (#3804) and the block's cause
  * @typedef {{sessionId: string|null, cwd: string}} ResumeTarget  a job's
  *   full session id, null unread, and the directory its resume runs in
  * @typedef {(root: string, sessionId: string) =>
@@ -196,10 +200,12 @@ const PARKED_STATE = "blocked";
  *   lib/block-cause.js's hasRepliedSince on its transcript, null unread
  * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
  *   each of its issues the `parked` label would not go on, with why
- * @property {(l: LoopLaunch, sessionId: string, numbers: number[],
- *   limitParks?: number) => string|null} recordParked  add `numbers` to the
- *   session's `.parked-` marker in its checkout (lib/parked.js), with a
- *   limit-cap park's count in a row; null, else why not, which may carry a stack
+ * @property {(sessionId: string, numbers: number[], record: ParkRecord) =>
+ *   string|null} recordParked  add `numbers` to the session's `.parked-`
+ *   marker in `record.root` (lib/parked.js), with the rest of `record`; null,
+ *   else why not, which may carry a stack
+ * @property {(seat: string, jobId: string) => string|null} readJobCwd  the cwd
+ *   job `jobId`'s record on `seat` names, null where it names none
  * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null}
  *   readParkMarkers  those in `root`'s checkout, null where they will not read
  * @property {(marker: import("./parked.js").ParkMarkerRead) =>
@@ -211,15 +217,37 @@ const PARKED_STATE = "blocked";
  *   take the `parked` label and marker off its issues, as its session has gone back
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
- * @property {(l: JobLaunch) => {failed: string|null, out: string}}
- *   postHandOff  `rescue-sessions.js hand-off` of the stopped session
- * @property {(l: JobLaunch) => boolean} release  its dispatch-ledger hold;
- *   whether it went
+ * @property {(root: string, args: string[]) => {failed: string|null, out: string}}
+ *   postHandOff  `rescue-sessions.js` run with `args` in `root`'s checkout
+ * @property {(ledger: {jobId: string, root: string}) => boolean} release  the
+ *   dispatch-ledger hold of job `jobId`; whether it went
  * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
  *   progress fields, logged
  * @property {ReadActsBefore} readActsBefore
  * @property {(line: string) => void} log
  */
+
+/**
+ * The dispatch-ledger row `l` holds its issues by: a copy's is its first
+ * job's (#2963).
+ * @param {JobLaunch} l
+ */
+const ledgerOf = (l) => ({ jobId: ledgerJobOf(l), root: l.root });
+
+/**
+ * `rescue-sessions.js hand-off` of `l`'s stopped session, `l.sessionId`
+ * standing in for a job record that is gone (#3988).
+ * @param {JobLaunch} l
+ */
+const buildHandOffArgs = (l) => [
+	"hand-off",
+	"--from",
+	l.seat,
+	"--job",
+	l.jobId,
+	...(l.sessionId ? ["--session", l.sessionId] : []),
+	...l.issues.flatMap((n) => ["--issue", String(n)]),
+];
 
 /** @param {number} ms */
 const iso = (ms) => new Date(ms).toISOString();
@@ -699,7 +727,14 @@ function labelledOf(l, unlabelled) {
 function markLabelled(l, labelled, limitParks, io) {
 	if (labelled.length === 0) return null;
 	if (!l.sessionId) return "no session id read";
-	return io.recordParked(l, l.sessionId, labelled, limitParks);
+	return io.recordParked(l.sessionId, labelled, {
+		root: l.root,
+		job: l.jobId
+			? { ...seatIdOf(l), jobId: l.jobId, cwd: io.readJobCwd(l.seat, l.jobId) }
+			: null,
+		limitParks,
+		cause: l.block?.cause,
+	});
 }
 
 /**
@@ -780,7 +815,7 @@ function releaseAwayParks(launches, mode, served, io) {
 	if (mode !== "normal") return launches;
 	return launches.map((l) => {
 		if (!isAwayPark(l) || !served.includes(l.root)) return l;
-		if (!io.release(l)) {
+		if (!io.release(ledgerOf(l))) {
 			io.log(
 				`could not release ${launchName(l)}'s dispatch-ledger row: its park waits out the window unless a later tick's release takes`,
 			);
@@ -1101,7 +1136,7 @@ function handOff(b, { agents, now, io }, stopped = false) {
 		io.log(`could not stop ${launchName(l)} to hand it off: ${failed}`);
 		return l;
 	}
-	const r = io.postHandOff(b);
+	const r = io.postHandOff(b.root, buildHandOffArgs(b));
 	io.log(
 		buildChildLine(
 			`stopped ${launchName(l)}, idle after its resume, and handed it off`,
@@ -1112,7 +1147,7 @@ function handOff(b, { agents, now, io }, stopped = false) {
 	if (r.failed && tries < HAND_OFF_TRIES) return { ...l, handOffTries: tries };
 	if (r.failed)
 		io.log(`gave up handing off ${launchName(l)} after ${tries} tries`);
-	else if (!io.release(b))
+	else if (!io.release(ledgerOf(b)))
 		io.log(
 			`could not release ${launchName(l)}'s dispatch-ledger hold: its issues wait out the hour (#2744)`,
 		);
@@ -2398,7 +2433,7 @@ function releaseEndedHolds(before, after, io) {
 	for (const l of before.filter(isLedgerHolding)) {
 		const job = ledgerJobOf(l);
 		if (kept.has(job)) continue;
-		if (!io.release(l))
+		if (!io.release(ledgerOf(l)))
 			io.log(
 				`could not release ${launchName(l)}'s dispatch-ledger hold: its issues wait until ${iso(l.limitHeld.ledgerHeldUntil)}`,
 			);
@@ -2690,7 +2725,63 @@ function unknownNews(logged, key, reading) {
 	return reading.why;
 }
 
+/**
+ * The job record's fields the classifier reads, for an UNKNOWN's log line.
+ * @param {unknown} job
+ */
+function jobShape(job) {
+	if (typeof job !== "object" || job === null) return job;
+	const rec = /** @type {Record<string, unknown>} */ (job);
+	return Object.fromEntries(
+		[
+			"state",
+			"tempo",
+			"detail",
+			"needs",
+			"needsOverlay",
+			"block",
+			"inFlight",
+			"cliVersion",
+		].map((k) => [k, rec[k]]),
+	);
+}
+
+/**
+ * The loop's CauseOf: a parked launch's block cause (lib/block-cause.js) from
+ * its listing row, its job record and its transcript's user and assistant
+ * rows; an unread transcript reads UNKNOWN and acts on nothing (#2358 F9),
+ * and an UNKNOWN is logged with why, once per launch for each why (#3200).
+ * @param {{readJob: (l: LoopLaunch) => unknown,
+ *   readTail: (l: LoopLaunch, job: unknown) => Record<string, unknown>[]|null,
+ *   log: (line: string) => void}} io  the job record, null unread; its
+ *   transcript's rows, null unread
+ * @returns {CauseOf}
+ */
+function causeReader(io) {
+	/** @type {Map<string, string>} */
+	const logged = new Map();
+	return (l, row) => {
+		const job = io.readJob(l);
+		const tail =
+			io
+				.readTail(l, job)
+				?.filter((r) => r.type === "user" || r.type === "assistant") ?? null;
+		const reading = blockCause({
+			row,
+			job: /** @type {Parameters<typeof blockCause>[0]["job"]} */ (job),
+			tail,
+		});
+		const why = unknownNews(logged, l.jobId ?? launchName(l), reading);
+		if (why !== null)
+			io.log(
+				`block unread ${launchName(l)}: ${why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
+			);
+		return reading;
+	};
+}
+
 module.exports = {
+	causeReader,
 	actOnBlocks,
 	actOnIdle,
 	actOnLimits,
