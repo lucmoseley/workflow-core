@@ -1988,10 +1988,9 @@ function parseSourcedBy(rel, text, base) {
  * file runs are independent gates, each judged by its own row where a rule
  * describes it. So its digest follows what it and its libraries source and
  * require, plus the bytes alone of each scripts/ file its header names, where
- * its annotation's claims rest, and no program they only run. Folding forty gates'
- * closures into one row made it stale on nearly every merge, and its rules were
- * re-anchored unread. Undeclared files still follow their run targets, as a
- * thin wrapper's rules need (mantahostels#358).
+ * its annotation's claims rest, and no program they only run. Undeclared files
+ * still follow their run targets, as a thin wrapper's rules need
+ * (mantahostels#358).
  */
 const RUNS_GATES_RE = new RegExp(
 	`${COMMENT_LEAD}RUNS:[ \\t]*gates\\s*[—:-]\\s*\\S`,
@@ -2012,9 +2011,8 @@ function headerNamed(header) {
 
 /* `. "$root/scripts/lib/x.sh"` from a .husky/ hook: the parser keeps only the
  * `lib/x.sh` tail, so the guard's own directory gives .husky/lib/x.sh, which is
- * nowhere, and the libs the hook really sources dropped out of its digest
- * (#4456). Sibling first, so a hook-local lib of the same name would shadow the
- * shared one; there is none today. */
+ * nowhere (#4456). Sibling first, so a hook-local lib of the same name would
+ * shadow the shared one. */
 /**
  * @param {string} base
  * @param {string} dir
@@ -2067,7 +2065,7 @@ function resolveRun(base, dir, tail) {
  * @returns {string | null}
  */
 function digestOf(rel, seen = new Set(), inStack = false) {
-	if (seen.has(rel)) return null; // a source cycle: hash each file once
+	if (seen.has(rel)) return null;
 	seen.add(rel);
 	try {
 		const bytes = fs.readFileSync(path.join(root, rel));
