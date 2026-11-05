@@ -333,11 +333,11 @@ function buildNoStoreRefusal(key, lock, failed) {
 	const failure = readBuildFailure(failed);
 	if (failure !== null)
 		return new CheckoutError(
-			`${head}; its last build failed — ${failure} — so no tick launches this member until a warm pass (\`node scripts/session-checkout.js warm\`) builds it`,
+			`${head}; its last build failed — ${failure} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
 		);
 	const holder = readLockHolder(lock);
 	return new CheckoutError(
-		`${head}${holder && pidAlive(holder) ? ` — pid ${holder} is building it` : ""}; the refill tick's warm pass (\`node scripts/session-checkout.js warm\`) builds it, and the next tick launches this member`,
+		`${head}${holder && pidAlive(holder) ? ` — pid ${holder} is building it` : ""}; the refill tick's warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it, and the next tick launches this member`,
 	);
 }
 
