@@ -474,12 +474,21 @@ describe("a linked worktree's dirt", () => {
 	});
 
 	it("is owned by the ledger at the file's path in its tree where no session owns the worktree (#4397)", () => {
-		worktreeOf(null, 30);
+		const wt = worktreeOf(null, 30);
 		fakeClaude("bystander", "ledger-owner");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
-		fs.writeFileSync(store.paths.ledger("ledger-owner"), "a.txt\n");
+		fs.writeFileSync(store.paths.ledger("ledger-owner"), `a.txt\t${wt}\n`);
 
 		expect(run().out).not.toContain("ORPHANED-EDIT");
+	});
+
+	it("is not owned by a live session's ledger at the same path in the main checkout (#4457)", () => {
+		worktreeOf(null, 30);
+		fakeClaude("bystander", "main-writer");
+		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+		fs.writeFileSync(store.paths.ledger("main-writer"), "a.txt\n");
+
+		expect(run().out).toContain("ORPHANED-EDIT");
 	});
 
 	it("is judged by the worktree's file, not the main checkout's", () => {
@@ -497,10 +506,10 @@ describe("a linked worktree's dirt", () => {
 	});
 
 	it("is owned by a live session's ledger though the worktree's owner has ended", () => {
-		worktreeOf("dead-owner-3", 30);
+		const wt = worktreeOf("dead-owner-3", 30);
 		fakeClaude("bystander", "mover");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
-		fs.writeFileSync(store.paths.ledger("mover"), "a.txt\n");
+		fs.writeFileSync(store.paths.ledger("mover"), `a.txt\t${wt}\n`);
 
 		expect(run().out).not.toContain("ORPHANED-EDIT");
 		expect(readFilings()).toEqual([]);

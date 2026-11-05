@@ -41,13 +41,14 @@ const lockFile = (rel: string) =>
 	`${createHash("sha256").update(rel).digest("hex").slice(0, 16)}.json`;
 
 /** A lock on disk, in the shape locks.newLock writes. `agedHours` back-dates it. */
-function claim(rel: string, sessionId: string, agedHours = 24) {
+function claim(rel: string, sessionId: string, agedHours = 24, tree?: string) {
 	fs.mkdirSync(locksDir(), { recursive: true });
 	const rec = locks.newLock({
 		path: rel,
 		sessionId,
 		pid: 4242,
 		procStart: "111",
+		tree,
 	});
 	rec.claimedAt = new Date(Date.now() - agedHours * 3_600_000).toISOString();
 	fs.writeFileSync(path.join(locksDir(), lockFile(rel)), JSON.stringify(rec));
@@ -493,6 +494,7 @@ describe("a finished session's worktree", () => {
 		fs.writeFileSync(file, "worktree edit\n");
 		const at = new Date(Date.now() - hours * 3_600_000);
 		fs.utimesSync(file, at, at);
+		return fs.realpathSync(wt);
 	}
 
 	it("lists its uncommitted files under that session, with no claim standing", () => {
@@ -518,13 +520,21 @@ describe("a finished session's worktree", () => {
 	});
 
 	it("counts a stranded claim as carrying work where its file is dirty in its holder's worktree", () => {
-		worktreeOf("dead-owner-2", "docs/doc-map.md", 30);
-		claim("docs/doc-map.md", "dead-owner-2", 30);
+		const wt = worktreeOf("dead-owner-2", "docs/doc-map.md", 30);
+		claim("docs/doc-map.md", "dead-owner-2", 30, wt);
 		fakeClaude(agentsListing("live-session"));
 
 		const r = run(["--notify"]);
 
 		expect(r.stdout).toContain("1 of them carries UNCOMMITTED WORK");
+	});
+
+	it("does not count a main-checkout claim as carrying work for its path's dirt in a worktree (#4457)", () => {
+		worktreeOf("dead-owner-2", "docs/doc-map.md", 30);
+		claim("docs/doc-map.md", "dead-owner-2", 30);
+		fakeClaude(agentsListing("live-session"));
+
+		expect(run(["--notify"]).stdout).not.toContain("UNCOMMITTED WORK");
 	});
 
 	it("names a registration whose directory has gone rather than calling it clean", () => {
