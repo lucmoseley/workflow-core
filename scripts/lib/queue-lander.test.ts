@@ -88,6 +88,8 @@ interface Options {
 	/** Throws in place of filing a fix ticket while it returns an error. */
 	fileFault?: () => Error | undefined;
 	acquired?: boolean;
+	/** The run's clock, in ms; NOW where absent. */
+	now?: number;
 }
 
 /**
@@ -225,6 +227,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		wait: async () => undefined,
 		log: (a) => actions.push(a),
 		say: (line) => said.push(line),
+		now: () => o.now ?? NOW,
 	};
 	const end = await runQueueLander(deps);
 	return { end, actions, asked, said };
@@ -238,6 +241,8 @@ const taken = (actions: QueueAction[]) =>
 			: [],
 	);
 const NO_QUEUE = { kind: "exit", reason: "no queue ref waits" };
+const NOW = Date.parse("2026-11-06T12:00:00Z");
+const DAY = 24 * 60 * 60 * 1000;
 
 describe("the green path", () => {
 	it("lands a lone ref as the integration commit its merge names, and deletes it", async () => {
@@ -584,6 +589,7 @@ describe("drop and defer", () => {
 			ref: "dropped/a",
 			onto: "m0",
 			cause: { kind: "conflict", name: "a", files: ["a.txt"] },
+			at: NOW,
 			ticket: null,
 		};
 		expect(kinds(actions)).toEqual([
@@ -639,6 +645,7 @@ describe("drop and defer", () => {
 					name: "b",
 					reason: "rule:size-line refused it",
 				},
+				at: NOW,
 				ticket: null,
 			},
 		]);
@@ -737,6 +744,7 @@ describe("drop and defer", () => {
 				ref: "dropped/a",
 				onto: "m0",
 				cause: { kind: "conflict", name: "a", files: ["a.txt"] },
+				at: NOW,
 				ticket: 7,
 			},
 		];
@@ -897,6 +905,7 @@ describe("the reap", () => {
 		ref: `dropped/${name}`,
 		onto: "m0",
 		cause: { kind: "conflict", name, files: [`${name}.txt`] },
+		at: NOW,
 		ticket,
 	});
 
@@ -923,7 +932,30 @@ describe("the reap", () => {
 			"#3's state not read, dropped/c kept for a later run: no issue #3",
 		]);
 		expect([...remote.dropped.keys()]).toEqual(["dropped/b", "dropped/c"]);
-		expect(disk.drops.map((d) => d.ref)).toEqual(["dropped/b", "dropped/c"]);
+		expect(disk.drops.map((d) => [d.ref, d.reapedAt])).toEqual([
+			["dropped/a", NOW],
+			["dropped/b", undefined],
+			["dropped/c", undefined],
+		]);
+	});
+
+	it("keeps a reaped drop's entry, neither reading its ticket nor dropping it again, until the queue log's retention passes", async () => {
+		const remote = remoteOf("m0", {}, {});
+		const disk = freshDisk();
+		disk.drops = [
+			{ ...dropOf("a", 1), reapedAt: NOW - 13 * DAY },
+			{ ...dropOf("b", 2), reapedAt: NOW - 15 * DAY },
+		];
+
+		const { end, actions, said } = await land(remote, disk);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).toEqual(["exit"]);
+		expect(said).toEqual([]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.drops.map((d) => [d.ref, d.reapedAt])).toEqual([
+			["dropped/a", NOW - 13 * DAY],
+		]);
 	});
 
 	it("waits for a batch in flight before it reaps", async () => {

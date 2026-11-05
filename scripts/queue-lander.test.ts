@@ -452,6 +452,7 @@ describe("the adapters", () => {
 			onto: "m0",
 			cause: { kind: "conflict" as const, name: "a", files: ["x.txt"] },
 			ticket: null,
+			at: 1,
 		};
 		dropRecord(drops).write([d, { ...d, ref: 3 } as never]);
 		expect(dropRecord(drops).read()).toEqual([d]);

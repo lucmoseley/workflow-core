@@ -298,6 +298,7 @@ function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
 }
 
 module.exports = {
+	WORKTREES_DIR,
 	hasSeatRunSince,
 	corpusDirs,
 	listTranscripts,

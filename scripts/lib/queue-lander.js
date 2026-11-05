@@ -36,7 +36,10 @@
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
  *   a moved one is kept and joins the next batch.
  * - **Reap.** With no batch in flight, each `dropped/<name>` whose fix ticket
- *   the run read closed at its start is compare-and-deleted.
+ *   the run read closed at its start is compare-and-deleted, and its drop
+ *   record entry marked reaped, so landing-status still names the ticket. An
+ *   entry reaped longer ago than the queue log keeps its rows is pruned at a
+ *   run's start.
  * - **Queue log.** A take row for each member a batch takes, a land row for
  *   each member `main` moves past, and a drop row for each dropped member,
  *   through the injected `logQueue`. A batch `main` holds with its land rows
@@ -58,7 +61,8 @@
 const { caught, parseErrorText } = require("./caught.js");
 const { FilingRefusedError } = require("./filing-refused.js");
 const { parseRefusal, remote, short, verdictAt } = require("./lander.js");
-const { DROPPED_PREFIX, QUEUE_PREFIX } = require("./landing-refs.js");
+const { QUEUE_PREFIX, droppedRefsOf } = require("./landing-refs.js");
+const { QUEUE_LOG_RETAIN_MS } = require("./queue-log.js");
 const { isNetworkFault } = require("./network-fault.js");
 
 /* Untraced, a first guess and stated as one: the codes a fork returns while
@@ -98,6 +102,8 @@ class TransientFault extends Error {}
  * @property {string} onto the `main` it would not merge onto alone
  * @property {Unmerged} cause that merge's conflict or refusal
  * @property {number|null} ticket its fix ticket, null until filed
+ * @property {number} at when it was dropped, in ms
+ * @property {number} [reapedAt] when its dropped ref was deleted, in ms
  * @typedef {{readonly kind: "merged", readonly sha: string}
  *   | {readonly kind: "conflict", readonly name: string,
  *     readonly files: readonly string[]}
@@ -139,6 +145,7 @@ class TransientFault extends Error {}
  *   the sha this run's tester reached no verdict at
  * @property {readonly DroppedRef[]} dropped
  * @property {readonly Drop[]} drops
+ * @property {number} now the step's clock, in ms
  * @property {(ticket: number) => boolean} isClosed whether this run read the
  *   ticket closed at its start
  * @property {{readonly onto: string, readonly result: Unmerged}|null}
@@ -204,11 +211,9 @@ function takeBatch(s, main) {
  * @param {readonly DroppedRef[]} dropped
  */
 function droppedRefFor(m, dropped) {
-	const plain = `${DROPPED_PREFIX}${m.name}`;
+	const [plain, keyed] = droppedRefsOf(m.name, m.sha);
 	const held = dropped.find((d) => d.ref === plain)?.sha;
-	return held === undefined || held === m.sha
-		? plain
-		: `${plain}-${short(m.sha)}`;
+	return held === undefined || held === m.sha ? plain : keyed;
 }
 
 /**
@@ -232,6 +237,7 @@ function unmergedAction(members, s, u) {
 			onto: u.onto,
 			cause,
 			ticket: null,
+			at: s.now,
 		},
 	});
 	if (members[0] === m) return drop(u.result);
@@ -281,6 +287,7 @@ function nextQueueAction(s) {
 	if (main === null) return exit("the remote has no main branch");
 	const cut = s.drops.find(
 		(d) =>
+			d.reapedAt === undefined &&
 			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha) &&
 			!(d.ticket !== null && s.isClosed(d.ticket)),
 	);
@@ -300,7 +307,10 @@ function nextQueueAction(s) {
 	);
 	if (landed)
 		return { kind: "delete-landed-ref", name: landed.name, sha: landed.sha };
-	const reaped = s.drops.find((d) => d.ticket !== null && s.isClosed(d.ticket));
+	const reaped = s.drops.find(
+		(d) =>
+			d.reapedAt === undefined && d.ticket !== null && s.isClosed(d.ticket),
+	);
 	if (reaped)
 		return { kind: "delete-dropped-ref", ref: reaped.ref, sha: reaped.sha };
 	/* A landed batch's member still waiting moved after its snapshot. */
@@ -359,6 +369,7 @@ function nextQueueAction(s) {
  *   of a faulted call
  * @property {(action: QueueAction) => void} [log]
  * @property {() => void} [mainMoved] after each move of `main`
+ * @property {() => number} now the clock, in ms
  * @property {(line: string) => void} [say] reports a fix ticket filed or
  *   left unfiled, or one whose state was not read
  * @typedef {Pick<QueueState, "batch" | "unread" | "unmerged" | "alone"
@@ -584,7 +595,11 @@ async function act(deps, action, run) {
 			deps.drops.write(
 				deps.drops
 					.read()
-					.filter((d) => d.ref !== action.ref || d.sha !== action.sha),
+					.map((d) =>
+						d.ref === action.ref && d.sha === action.sha
+							? { ...d, reapedAt: deps.now() }
+							: d,
+					),
 			);
 			return run;
 	}
@@ -603,6 +618,7 @@ async function step(deps, run, log) {
 		...deps.git.refs(),
 		...run,
 		drops: deps.drops.read(),
+		now: deps.now(),
 		isGreen: (sha) => deps.ledger.has(sha),
 		verdictOf: (sha, files) => deps.verdicts.get(sha, files),
 		requiresRun: deps.tester.requiresRun === true,
@@ -622,8 +638,8 @@ function readClosedTickets(deps) {
 	const { say = () => undefined } = deps;
 	/** @type {Set<number>} */
 	const closed = new Set();
-	for (const { ticket, ref } of deps.drops.read()) {
-		if (ticket === null) continue;
+	for (const { ticket, ref, reapedAt } of deps.drops.read()) {
+		if (ticket === null || reapedAt !== undefined) continue;
 		try {
 			if (deps.tracker.stateOf(ticket) === "closed") closed.add(ticket);
 		} catch (err) {
@@ -633,6 +649,21 @@ function readClosedTickets(deps) {
 		}
 	}
 	return (ticket) => closed.has(ticket);
+}
+
+/**
+ * Drops each drop record entry reaped longer ago than the queue log keeps
+ * its rows.
+ * @param {QueueLanderDeps} deps
+ */
+function pruneReaped(deps) {
+	const drops = deps.drops.read();
+	const kept = drops.filter(
+		(d) =>
+			d.reapedAt === undefined ||
+			deps.now() - d.reapedAt <= QUEUE_LOG_RETAIN_MS,
+	);
+	if (kept.length < drops.length) deps.drops.write(kept);
 }
 
 /**
@@ -647,6 +678,7 @@ async function runQueueLander(deps) {
 		log(held);
 		return held;
 	}
+	pruneReaped(deps);
 	/** @type {QueueRun} */
 	let run = {
 		batch: deps.record.read(),

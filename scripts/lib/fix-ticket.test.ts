@@ -288,6 +288,7 @@ const DROP: Drop = {
 	onto: M,
 	cause: { kind: "conflict", name: "wt-1", files: ["x.js", "y.js"] },
 	ticket: null,
+	at: 0,
 };
 
 describe("dropTicketFiler", () => {

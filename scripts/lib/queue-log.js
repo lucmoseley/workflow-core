@@ -242,6 +242,7 @@ module.exports = {
 	logQueueEvent,
 	pendingSince,
 	queueBaseline,
+	QUEUE_LOG_RETAIN_MS,
 	queueLogFile,
 	readEnqueueTimes,
 	readNewestEvent,

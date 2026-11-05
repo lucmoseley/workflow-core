@@ -50,9 +50,22 @@ const DROPPED_PREFIX = "dropped/";
  * @returns {string|null}
  */
 function queueRefOf(root, tree) {
-	if (!tree || path.dirname(tree) !== path.join(root, ".claude", "worktrees"))
+	const { WORKTREES_DIR } = require("./project-dirs.js");
+	if (!tree || path.dirname(tree) !== path.join(root, WORKTREES_DIR))
 		return null;
 	return `${QUEUE_PREFIX}${path.basename(tree)}`;
+}
+
+/**
+ * The two dropped refs `queue/<name>` at `sha` may be kept as:
+ * `dropped/<name>`, else, where that holds another sha, `dropped/<name>-<sha9>`.
+ * @param {string} name after `queue/`
+ * @param {string} sha
+ * @returns {[string, string]}
+ */
+function droppedRefsOf(name, sha) {
+	const plain = `${DROPPED_PREFIX}${name}`;
+	return [plain, `${plain}-${sha.slice(0, 9)}`];
 }
 
 /**
@@ -182,6 +195,7 @@ if (require.main === module) {
 module.exports = {
 	branchOf,
 	DROPPED_PREFIX,
+	droppedRefsOf,
 	LANDER_BATCH_BRANCH,
 	LANDER_ISO_PREFIX,
 	LANDER_PREFIX,

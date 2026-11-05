@@ -3,9 +3,7 @@
  * scripts/landing-status.js end to end (#2407), on a fixture remote.
  *
  * Loosen it and a session reports a queued commit as landed, misses the revert
- * the lander pushed onto its work, claims a state off refs it never fetched,
- * or loses what became of its own queue ref: queued, landed at a `main` sha,
- * or dropped with its fix ticket.
+ * the lander pushed onto its work, or claims a state off refs it never fetched.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -78,10 +76,12 @@ const queueLog = (...rows: [number, string, string, string][]) => {
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
 
-/** A session worktree `queue/<name>` names, cut off HEAD. */
+/** A session worktree `queue/<name>` names, cut off HEAD a day before NOW. */
 const worktree = (name: string) => {
 	const tree = path.join(work, ".claude", "worktrees", name);
 	git(work, "worktree", "add", "-q", "--detach", tree);
+	const made = (NOW - 24 * 60 * 60_000) / 1000;
+	fs.utimesSync(path.join(tree, ".git"), made, made);
 	return tree;
 };
 
@@ -281,6 +281,7 @@ it("reads a dropped stay with its fix ticket and dropped ref off the drop record
 				onto: sha,
 				cause: { kind: "conflict", name: "alpha", files: ["a.txt"] },
 				ticket: 4999,
+				at: NOW - 10 * 60_000,
 			},
 		]),
 	);

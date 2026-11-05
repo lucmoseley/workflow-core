@@ -1,25 +1,37 @@
 /*
- * queue-ref-status.js — what became of a session's queue ref (#4485, spec
- * #4458): each stay of `queue/<name>` the queue log, the drop record or the
- * remote shows, read as one of
+ * queue-ref-status.js — what became of a session's queue ref: each stay of
+ * `queue/<name>` the remote shows, or the queue log or the drop record names
+ * since the session's worktree was made, read as one of
  *
  *   - queued: the ref waits and the live batch does not hold it at the sha
- *     it holds now, as where it moved after its snapshot;
- *   - testing: the live batch holds it at its snapshot sha;
- *   - landed: a land row names it, with the `main` sha it reached, off the
- *     landed batch record, else the oldest green-ledger sha on `main`'s
- *     first-parent path from it;
+ *     it holds now;
+ *   - testing: the live batch holds it at its snapshot sha, which `main`
+ *     does not yet hold;
+ *   - landed: a land row names it, or `main` holds its snapshot sha, with the
+ *     `main` sha it reached, off the batch record, else the oldest
+ *     green-ledger sha on `main`'s first-parent path from it;
  *   - dropped: a drop row or the drop record names it, with its fix ticket
- *     off the drop record and the `dropped/<name>[-sha9]` ref holding it.
+ *     off the drop record and the dropped ref holding it, or that ref reaped.
  *
- * Where the record that would answer is missing or torn, the line says so
- * and claims no state it cannot read. Stays read oldest first, the ref's
- * waiting sha last.
+ * Stays read oldest first, the ref's waiting sha last.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
+const { parseErrorText } = require("./caught.js");
 const { execGit } = require("./git.js");
-const { fileLedger, landerFiles, short } = require("./lander.js");
-const { DROPPED_PREFIX, QUEUE_PREFIX } = require("./landing-refs.js");
+const {
+	fileLedger,
+	isAncestor,
+	landerFiles,
+	parseRefusal,
+	short,
+} = require("./lander.js");
+const {
+	QUEUE_PREFIX,
+	droppedRefsOf,
+	queueRefOf,
+} = require("./landing-refs.js");
 const {
 	queueLanderFiles,
 	readBatchFile,
@@ -35,22 +47,30 @@ const {
  * @typedef {import("./queue-lander.js").Drop} Drop
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-log.js").LoggedRow} LoggedRow
+ * @typedef {{fault: string}} Unwalked git could not walk `main`, and why
  * @typedef {object} RefReading
  * @property {string} name after `queue/`
+ * @property {number} since when the session's worktree was made, in ms
  * @property {{sha: string}|null} waiting the remote's `queue/<name>`
  * @property {readonly LoggedRow[]} rows the queue log's, oldest first
  * @property {RecordRead<Batch>} batch
  * @property {RecordRead<readonly Drop[]>} drops
  * @property {readonly DroppedRef[]} dropped the remote's `dropped/*` refs
- * @property {(sha: string) => string|null} mainReached the green ledger's
- *   `main` sha that first held `sha`, null where it names none
+ * @property {string|null} main the remote's `main`
+ * @property {(sha: string) => boolean|Unwalked} mainHolds whether `main`
+ *   holds `sha`
+ * @property {(sha: string) => string|null|Unwalked} mainReached the green
+ *   ledger's `main` sha that first held `sha`, null where it names none
  * @typedef {{state: "queued", name: string, sha: string,
  *     snapshot: string|null}
  *   | {state: "testing", name: string, sha: string}
  *   | {state: "unread", name: string, sha: string, why: "torn"|"absent"}
- *   | {state: "landed", name: string, sha: string, main: string|null}
+ *   | {state: "unwalked", name: string, sha: string, fault: string}
+ *   | {state: "landed", name: string, sha: string,
+ *     main: string|null|Unwalked}
  *   | {state: "dropped", name: string, sha: string, ref: string|null,
- *     ticket: number|null, record: "read"|"torn"|"no-entry"}} RefState
+ *     ticket: number|null, record: "read"|"reaped"|"torn"|"no-entry"}}
+ *   RefState
  */
 
 /**
@@ -82,35 +102,37 @@ function landedState(r, sha) {
 }
 
 /**
+ * The drop record's entries for the session's own stays.
+ * @param {RefReading} r
+ * @returns {Drop[]}
+ */
+const ownDrops = (r) =>
+	r.drops.kind === "read"
+		? r.drops.value.filter((d) => d.name === r.name && d.at >= r.since)
+		: [];
+
+/**
  * @param {RefReading} r
  * @param {string} sha
  * @returns {RefState}
  */
 function droppedState(r, sha) {
-	const plain = `${DROPPED_PREFIX}${r.name}`;
+	const names = droppedRefsOf(r.name, sha);
 	const onRemote = r.dropped.find(
-		(d) => d.sha === sha && (d.ref === plain || d.ref.startsWith(`${plain}-`)),
+		(d) => d.sha === sha && names.includes(d.ref),
 	)?.ref;
-	if (r.drops.kind === "torn")
-		return {
-			state: "dropped",
-			name: r.name,
-			sha,
-			ref: onRemote ?? null,
-			ticket: null,
-			record: "torn",
-		};
-	const entry = (r.drops.kind === "read" ? r.drops.value : []).find(
-		(d) => d.name === r.name && d.sha === sha,
-	);
-	return {
-		state: "dropped",
+	const dropped = {
+		state: /** @type {const} */ ("dropped"),
 		name: r.name,
 		sha,
-		ref: entry?.ref ?? onRemote ?? null,
-		ticket: entry?.ticket ?? null,
-		record: entry ? "read" : "no-entry",
 	};
+	const unread = { ...dropped, ref: onRemote ?? null, ticket: null };
+	if (r.drops.kind === "torn") return { ...unread, record: "torn" };
+	const entry = ownDrops(r).find((d) => d.sha === sha);
+	if (!entry) return { ...unread, record: "no-entry" };
+	return entry.reapedAt === undefined
+		? { ...dropped, ref: entry.ref, ticket: entry.ticket, record: "read" }
+		: { ...dropped, ref: null, ticket: entry.ticket, record: "reaped" };
 }
 
 /**
@@ -129,8 +151,15 @@ function waitingState(r, sha, mine) {
 			: { state: "queued", name, sha, snapshot: null };
 	const b = r.batch.value;
 	const m = b.phase === "landed" ? undefined : memberOf(b, name);
-	if (m?.sha === sha) return { state: "testing", name, sha };
-	return { state: "queued", name, sha, snapshot: m?.sha ?? null };
+	if (m?.sha !== sha)
+		return { state: "queued", name, sha, snapshot: m?.sha ?? null };
+	/* Between the lander's push to `main` and its record-landed step. */
+	const held = r.mainHolds(sha);
+	if (typeof held === "object")
+		return { state: "unwalked", name, sha, fault: held.fault };
+	return held
+		? { state: "landed", name, sha, main: b.integration ?? r.main }
+		: { state: "testing", name, sha };
 }
 
 /**
@@ -139,7 +168,7 @@ function waitingState(r, sha, mine) {
  */
 function queueRefStates(r) {
 	const ref = `refs/heads/${QUEUE_PREFIX}${r.name}`;
-	const mine = r.rows.filter((x) => x.ref === ref);
+	const mine = r.rows.filter((x) => x.ref === ref && x.at >= r.since);
 	/** @type {Map<string, RefState>} */
 	const left = new Map();
 	for (const x of mine) {
@@ -147,9 +176,8 @@ function queueRefStates(r) {
 		if (x.event === "land") left.set(x.sha, landedState(r, x.sha));
 		if (x.event === "drop") left.set(x.sha, droppedState(r, x.sha));
 	}
-	for (const d of r.drops.kind === "read" ? r.drops.value : [])
-		if (d.name === r.name && !left.has(d.sha))
-			left.set(d.sha, droppedState(r, d.sha));
+	for (const d of ownDrops(r))
+		if (!left.has(d.sha)) left.set(d.sha, droppedState(r, d.sha));
 	const states = [...left.values()];
 	if (r.waiting && !left.has(r.waiting.sha))
 		states.push(waitingState(r, r.waiting.sha, mine));
@@ -158,6 +186,8 @@ function queueRefStates(r) {
 
 /** @param {Extract<RefState, {state: "dropped"}>} s */
 function dropText(s) {
+	if (s.record === "reaped")
+		return `fix ticket #${s.ticket} (closed), dropped ref reaped`;
 	const kept = s.ref ? `kept as ${s.ref}` : "no dropped ref holds it";
 	if (s.record === "torn")
 		return `${kept}; the drop record is torn, so its fix ticket is unknown`;
@@ -183,9 +213,13 @@ function buildQueueRefLine(s) {
 			return s.why === "torn"
 				? `queued or testing: ${at} — the batch record is torn, so whether the batch under test holds it is unknown`
 				: `queued or testing: ${at} — the queue log has it taken, but there is no batch record to say whether the batch under test holds it`;
+		case "unwalked":
+			return `testing or landed: ${at} — could not walk main: ${s.fault}`;
 		case "landed":
-			return s.main === null
-				? `landed: ${at} — on main, but neither the batch record nor the green ledger names the main sha it reached`
+			if (s.main === null)
+				return `landed: ${at} — on main, but neither the batch record nor the green ledger names the main sha it reached`;
+			return typeof s.main === "object"
+				? `landed: ${at} — on main, but could not walk main: ${s.main.fault}`
 				: `landed: ${at} — on main at ${short(s.main)}`;
 		case "dropped":
 			return `dropped: ${at} — ${dropText(s)}`;
@@ -193,56 +227,75 @@ function buildQueueRefLine(s) {
 }
 
 /**
+ * A git walk's answer, or why it failed. Fail-open (#4485): a status line
+ * names the fault and claims no state off it.
+ * @template T
+ * @param {() => T} walk
+ * @returns {T|Unwalked}
+ */
+function walked(walk) {
+	try {
+		return walk();
+	} catch (err) {
+		return { fault: parseRefusal(parseErrorText(err)) };
+	}
+}
+
+/**
  * The green ledger's sha that first held `sha` on `main`'s first-parent
- * path, as `main` moves only to a ledgered sha; null where the ledger names
- * none, or git cannot walk it.
+ * path; null where the ledger names none.
  * @param {string} root
  * @param {string|null} main
- * @returns {(sha: string) => string|null}
+ * @param {ReadonlySet<string>} green
+ * @returns {RefReading["mainReached"]}
  */
-const ledgerMainReached = (root, main) => (sha) => {
-	const green = new Set(fileLedger(landerFiles(root).ledger).readShas());
+const ledgerMainReached = (root, main, green) => (sha) => {
 	if (green.has(sha)) return sha;
 	if (main === null) return null;
-	let path;
-	try {
-		path = execGit(
-			["rev-list", "--first-parent", "--ancestry-path", `${sha}..${main}`],
-			{ cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-		);
-	} catch {
-		return null;
-	}
-	return (
-		path
-			.split("\n")
-			.filter(Boolean)
-			.reverse()
-			.find((s) => green.has(s)) ?? null
+	return walked(
+		() =>
+			execGit(
+				["rev-list", "--first-parent", "--ancestry-path", `${sha}..${main}`],
+				{ cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+			)
+				.split("\n")
+				.filter(Boolean)
+				.reverse()
+				.find((s) => green.has(s)) ?? null,
 	);
 };
 
 /**
- * Each stay of `queue/<name>`, off `root`'s records and the remote's refs
- * and queue log already read.
+ * Each stay of the queue ref of the session in `tree`, off `root`'s records
+ * and the remote's refs and queue log already read; none where `tree` is no
+ * session worktree. The worktree was made when git wrote its `.git` file.
  * @param {string} root the canonical checkout's root
- * @param {string} name after `queue/`
+ * @param {string|null|undefined} tree the session's tree top level
  * @param {import("./queue-lander.js").QueueRefs} refs
  * @param {readonly LoggedRow[]} rows
  * @returns {RefState[]}
  */
-function readQueueRefStates(root, name, refs, rows) {
+function readQueueRefStates(root, tree, refs, rows) {
+	const own = queueRefOf(root, tree);
+	if (own === null || !tree) return [];
+	const name = own.slice(QUEUE_PREFIX.length);
 	const files = queueLanderFiles(root);
+	const green = new Set(fileLedger(landerFiles(root).ledger).readShas());
 	const held = refs.queue.find((q) => q.name === name);
+	const { main } = refs;
 	return queueRefStates({
 		name,
+		since: fs.statSync(path.join(tree, ".git")).mtimeMs,
 		waiting: held ? { sha: held.sha } : null,
 		rows,
 		batch: readBatchFile(files.batch),
 		drops: readDropFile(files.drops),
 		dropped: refs.dropped,
-		mainReached: ledgerMainReached(root, refs.main),
+		main,
+		mainHolds: (sha) =>
+			main === null ? false : walked(() => isAncestor(root, sha, main)),
+		mainReached: ledgerMainReached(root, main, green),
 	});
 }
 
-module.exports = { buildQueueRefLine, queueRefStates, readQueueRefStates };
+module.exports = { buildQueueRefLine, readQueueRefStates };

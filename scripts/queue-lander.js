@@ -28,6 +28,7 @@
  */
 
 const { parseErrorText } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
 const { queueTester } = require("./lib/actions-tester.js");
 const { dropTicketFiler, liveFilerDeps } = require("./lib/fix-ticket.js");
 const {
@@ -99,6 +100,7 @@ async function main(argv = process.argv.slice(2)) {
 		beat: heartbeatWriter(files.heartbeat),
 		log: stampedLog(buildQueueActionLine),
 		mainMoved: () => afterMainMove(root),
+		now,
 		say,
 	});
 	return 0;

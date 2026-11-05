@@ -4,9 +4,8 @@
  * (#2407, spec #2261): each commit its commit ledger names is landed (on
  * `main`), queued (on `landing`, not yet on `main`), reverted by a revert on
  * `landing`, or unpushed. Fetches both branches first. Then, where the
- * session runs in a worktree whose queue ref the remote holds or the queue
- * log names, each stay of that ref, queued, testing, landed or dropped
- * (lib/queue-ref-status.js). Its last line is the landing queue's
+ * session runs in a worktree, each stay of its queue ref, queued, testing,
+ * landed or dropped (lib/queue-ref-status.js). Its last line is the landing queue's
  * (lib/queue-gauge.js).
  *
  *   node scripts/landing-status.js [--session <id>]
@@ -24,7 +23,6 @@ const { now } = require("./lib/check.js");
 const arbiterLedger = require("./lib/arbiter-ledger.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { readTopLevel } = require("./lib/git-tree.js");
-const { QUEUE_PREFIX, queueRefOf } = require("./lib/landing-refs.js");
 const {
 	commitStates,
 	fetchedGit,
@@ -117,22 +115,15 @@ function main(argv = process.argv.slice(2)) {
  * @param {string} root
  */
 function sayQueueLines(root) {
-	const own = queueRefOf(root, readTopLevel(process.cwd()));
 	try {
 		const refs = queueGit(root).refs();
 		const rows = readQueueRows(queueLogFile(root));
-		if (own !== null)
-			for (const s of readQueueRefStates(
-				root,
-				own.slice(QUEUE_PREFIX.length),
-				refs,
-				rows,
-			))
-				say(buildQueueRefLine(s));
+		const tree = readTopLevel(process.cwd());
+		for (const s of readQueueRefStates(root, tree, refs, rows))
+			say(buildQueueRefLine(s));
 		say(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
 	} catch (err) {
-		/* Fail-open (#4485): the queue's lines are a reading beside the
-		 * session's commits, which stand without them; the failure is named. */
+		/* Fail-open (#4485). */
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);
 	}
 }

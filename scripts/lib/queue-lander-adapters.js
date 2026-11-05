@@ -469,7 +469,9 @@ const isDrop = (d) => {
 		typeof o.ref === "string" &&
 		typeof o.onto === "string" &&
 		isCause(o.cause) &&
-		(o.ticket === null || Number.isInteger(o.ticket))
+		(o.ticket === null || Number.isInteger(o.ticket)) &&
+		Number.isFinite(o.at) &&
+		(o.reapedAt === undefined || Number.isFinite(o.reapedAt))
 	);
 };
 
@@ -488,8 +490,8 @@ function readDropFile(file) {
 }
 
 /**
- * The drop record: every dropped ref the lander has not yet reaped, with its
- * fix ticket. A row that is not a drop is skipped; an absent or torn record
+ * The drop record: every dropped ref, with its fix ticket, until the queue
+ * log's retention after its reap. A row that is not a drop is skipped; an absent or torn record
  * reads as none, and no run then reaps the refs it named.
  * @param {string} file
  * @returns {DropRecord}
