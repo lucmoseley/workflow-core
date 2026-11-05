@@ -202,7 +202,7 @@ describe("a repo hold's clear check (#3857)", () => {
 
 		const { broken, text } = tick();
 
-		expect(text).toContain(`repo hold ${id}: not settled`);
+		expect(text).toContain(`repo hold ${id}: clear check did not finish`);
 		expect(broken).toEqual([]);
 	});
 
