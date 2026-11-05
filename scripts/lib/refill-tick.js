@@ -54,6 +54,7 @@ const {
 const { stopOn } = require("./claude-stop.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -607,7 +608,8 @@ function readTimelineOf(l) {
 const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
 
-const resume = resumeSteps(buildResumeIo(log));
+const resumeIo = buildResumeIo(log);
+const resume = resumeSteps(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
@@ -618,26 +620,12 @@ const resume = resumeSteps(buildResumeIo(log));
 function typeResume(l, prompt) {
 	const [file, args, opts] = buildTypedAttach(l.jobId, prompt);
 	return childFailure(
-		runChild(file, args, { ...opts, cwd: l.root, env: resume.seatEnv(l) }),
+		runChild(file, args, {
+			...opts,
+			cwd: l.root,
+			env: buildSeatEnv(resumeIo.env(), l.seat),
+		}),
 	);
-}
-
-/**
- * `l`'s full session id, the listing's else its job record's, and its job's
- * cwd, else its checkout.
- * @param {import("./refill-blocks.js").JobLaunch} l
- * @returns {import("./refill-blocks.js").ResumeTarget}
- */
-function readResumeTargetOf(l) {
-	const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
-		readJobRecordOf(l)
-	);
-	return {
-		sessionId:
-			l.sessionId ??
-			(typeof job?.sessionId === "string" ? job.sessionId : null),
-		cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
-	};
 }
 
 /** @param {import("./refill-loop.js").LoopLaunch} l */
@@ -843,7 +831,7 @@ const postHandOff = (root, args) =>
 const blockIo = (served) => ({
 	stop: stopOn,
 	type: typeResume,
-	resumeTargetOf: readResumeTargetOf,
+	resumeTargetOf: resume.readResumeTarget,
 	resumeStopped: resume.resumeStopped,
 	adoptResumed: resume.adoptResumed,
 	writeLaunch,

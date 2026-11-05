@@ -117,6 +117,15 @@ const writeTranscript = (onSeat: string) => {
 	return file;
 };
 
+/** SESSION's name read from a transcript whose latest title is `name`. */
+const namedSession = (name: string) => {
+	const file = writeTranscript(seat);
+	const title = (customTitle: string) =>
+		`${JSON.stringify({ type: "custom-title", customTitle, sessionId: SESSION })}\n`;
+	fs.writeFileSync(file, title("first") + title(name));
+	return io().sessionName(file);
+};
+
 /** A pass marker of SESSION's, and a listing showing SESSION in `state`. */
 function holdPassMarker(state: string) {
 	fs.writeFileSync(
@@ -227,6 +236,10 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 	recordLaunch: (v) => v,
 	copySpendUsd: (v) => v,
 	sessionSpendUsd: (v) => v,
+	sessionName: (v) => {
+		const r = v as ReturnType<ResumeIo["sessionName"]>;
+		return "why" in r ? { why: typeof r.why } : r;
+	},
 	runArbiter: (v) => ({
 		...childShape(v),
 		released: (v as ChildRun).out.startsWith("Released"),
@@ -344,6 +357,15 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	},
 	sessionSpendUsd: {
 		none: () => io().sessionSpendUsd(transcriptPath(seat, root, SESSION)),
+	},
+	sessionName: {
+		unnamed: () => io().sessionName(writeTranscript(seat)),
+		named: () => namedSession("Implement 7: a title"),
+		prefixed: () => namedSession("Overflow · Implement 7"),
+		unreadable: () => {
+			fs.mkdirSync(transcriptPath(seat, root, SESSION), { recursive: true });
+			return io().sessionName(transcriptPath(seat, root, SESSION));
+		},
 	},
 	runArbiter: {
 		released: () => {

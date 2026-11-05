@@ -34,6 +34,10 @@
  * #463 adds one more: a helper-surface export the last release promised,
  * dropped without a major bump and its note (check-surface-contract.js).
  *
+ * #4252 adds one more: a `migrations/hold.txt` at HEAD or on `origin/main`
+ * holds every cut, its text the reason and what lifts it. The commit that
+ * lifts the hold deletes it.
+ *
  * #6 adds five more refusals: a dirty tree; a red core
  * (`commands.test`, skipped where undeclared — CLAUDE.md's own skip
  * convention); a major bump with no `migrations/v<tag>.md`; a malformed one
@@ -93,6 +97,7 @@ const { shellQuote } = require("./lib/sh-quote.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
+const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
 
 const CLI = {
 	usage:
@@ -234,6 +239,20 @@ function readReleaseTarget(root) {
 }
 
 /**
+ * `rel`'s text at `ref`, or null where `ref` holds no such file.
+ * @param {string} root
+ * @param {string} ref
+ * @param {string} rel
+ * @returns {string | null}
+ */
+function readAt(root, ref, rel) {
+	if (git(root, ["ls-tree", "--name-only", ref, "--", rel]) === "") {
+		return null;
+	}
+	return git(root, ["show", `${ref}:${rel}`]);
+}
+
+/**
  * The tag's migration note at HEAD, or null where it ships none.
  * @param {string} root
  * @param {string} tag
@@ -243,12 +262,7 @@ function readNoteOrThrow(root, tag) {
 	const prior = readLatestTag(root);
 	const noteRel = `${MIGRATIONS_DIR}/${tag}.md`;
 	const isMajor = isMajorBump(tag, prior);
-	let note = null;
-	try {
-		note = git(root, ["show", `HEAD:${noteRel}`]);
-	} catch {
-		/* no note at HEAD */
-	}
+	const note = readAt(root, "HEAD", noteRel);
 	if (isMajor && note === null) {
 		throw new Error(
 			`${tag} is a major bump over ${prior} and ships no ${noteRel}`,
@@ -350,6 +364,19 @@ function walkAdopter(dryRunAdopter, tmp, outDir, verifyEnv) {
 }
 
 /**
+ * @param {string} root
+ */
+function refuseIfHeld(root) {
+	const hold =
+		readAt(root, "HEAD", HOLD_REL) ?? readAt(root, VERIFIED_REF, HOLD_REL);
+	if (hold === null) return;
+	/* One line: `refusal()` prints only the first (#246). */
+	throw new Error(
+		`releases are held by ${HOLD_REL}: ${hold.replace(/\s+/g, " ")}`,
+	);
+}
+
+/**
  * Refuses a HEAD that `origin/main` does not hold.
  * @param {string} root
  */
@@ -377,6 +404,7 @@ function release(root, { dryRunAdopter } = {}) {
 	}
 
 	verifiedOrThrow(root);
+	refuseIfHeld(root);
 	const { plugin, tag } = readReleaseTarget(root);
 
 	/* Cheapest refusals first — no point running the whole suite before a

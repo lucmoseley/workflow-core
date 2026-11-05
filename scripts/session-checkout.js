@@ -21,21 +21,27 @@
  *     HEAD:landing, saying on stderr what it did; refused, it says why and
  *     what to do before landing again
  *   node scripts/session-checkout.js reap
- *     removes landed, clean worktrees no session can resume, stray
- *     directories and unlinked dependency stores, saying on stderr what it
- *     removed and naming each stranded worktree it may not remove
+ *     removes landed, clean worktrees no session can resume and none
+ *     finished in the last 3 days, stray directories and unlinked dependency
+ *     stores, saying on stderr what it removed and naming each stranded
+ *     worktree it may not remove
+ *   node scripts/session-checkout.js reopen <job-id>
+ *     re-adds the job's worktree at the sha the reaper recorded where it was
+ *     removed, then runs `claude attach <job-id>` on the job's seat
  *
  * Exit 0 done, 1 refused or failed (why on stderr), 2 a usage error. A reap
  * that could not remove something it should have exits 1; one that finds
- * stranded work exits 0.
+ * stranded work exits 0. A reopen exits as `claude attach` does.
  *
  * IT JOINS NO FAMILY (§G4, §N3): it gates nothing (no `check-*`), no hook
  * runs it (no `guard-*`), it generates no file (no `generate-*`) and files no
  * issue (no `report-*`).
  */
 
+const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { describeAge } = require("./lib/level-main.js");
 const {
@@ -46,13 +52,15 @@ const {
 	launchDir,
 	reap,
 	warm,
+	reopen,
 } = require("./lib/session-checkout.js");
+const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
 	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] <prompt> | warm | attach [<worktree>] | land | reap",
+		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] <prompt> | warm | attach [<worktree>] | land | reap | reopen <job-id>",
 	commands: {
 		cut: {
 			usage: "usage: node scripts/session-checkout.js cut <session-name>",
@@ -76,6 +84,10 @@ const CLI = {
 		},
 		reap: {
 			usage: "usage: node scripts/session-checkout.js reap",
+		},
+		reopen: {
+			usage: "usage: node scripts/session-checkout.js reopen <job-id>",
+			min: 1,
 		},
 	},
 };
@@ -141,7 +153,7 @@ const WARMED = {
 /**
  * Each command's run, saying what it did; a refusal throws.
  * @type {Record<string, (named: string | undefined,
- *   flags: Record<string, string | true>) => void>}
+ *   flags: Record<string, string | true>) => number | void>}
  */
 const RUN = {
 	cut: (named) => {
@@ -196,6 +208,22 @@ const RUN = {
 				`${r.failed.length} item${r.failed.length === 1 ? "" : "s"} could not be reaped, named above — clear what each names; the next pass tries again`,
 			);
 	},
+	reopen: (named) => {
+		if (named === undefined) throw new Error("reopen names no job");
+		const made = reopen(process.cwd(), named);
+		writeFd(
+			2,
+			made.restored
+				? `session checkout: rebuilt ${made.dir} at its recorded sha\n`
+				: `session checkout: ${made.dir} is still there\n`,
+		);
+		const r = spawnSync(claudeBin(), ["attach", named], {
+			stdio: "inherit",
+			env: buildSeatEnv(process.env, made.seat),
+		});
+		if (r.error) throw r.error;
+		return r.status ?? 1;
+	},
 };
 
 /**
@@ -209,8 +237,7 @@ function main(argv = process.argv.slice(2)) {
 		const command = RUN[String(parsed.command)];
 		if (command === undefined)
 			throw new Error(`no run for command ${parsed.command}`);
-		command(parsed.positionals[0], parsed.flags);
-		return 0;
+		return command(parsed.positionals[0], parsed.flags) ?? 0;
 	} catch (err) {
 		const why = caught(err).message.trim();
 		writeFd(

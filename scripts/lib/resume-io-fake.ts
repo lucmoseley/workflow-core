@@ -105,6 +105,14 @@ export const ANSWERS = {
 	recordLaunch: { written: true, unwritable: false },
 	copySpendUsd: { none: 0 },
 	sessionSpendUsd: { none: 0 },
+	sessionName: {
+		unnamed: { name: null },
+		named: { name: "Implement 7: a title" },
+		prefixed: { name: "Overflow · Implement 7" },
+		unreadable: {
+			why: "reading /a: EISDIR: illegal operation on a directory, read",
+		},
+	},
 	runArbiter: { released: ran("Released the claim on #7.") },
 	movePassMarkers: {
 		moved: null,
@@ -159,6 +167,7 @@ export function fakeResumeIo(
 		recordLaunch: served("recordLaunch"),
 		copySpendUsd: served("copySpendUsd"),
 		sessionSpendUsd: served("sessionSpendUsd"),
+		sessionName: served("sessionName"),
 		runArbiter: served("runArbiter"),
 		movePassMarkers: served("movePassMarkers"),
 		moveParkedBy: served("moveParkedBy"),

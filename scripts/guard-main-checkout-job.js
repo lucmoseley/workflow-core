@@ -45,10 +45,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
-const { stripVTControlCharacters } = require("node:util");
 const { caught } = require("./lib/caught.js");
-const { claudeBin } = require("./lib/claude-bin.js");
 const { run } = require("./lib/guard-entry.js");
 const {
 	parseJobDir,
@@ -57,8 +54,8 @@ const {
 } = require("./lib/job-paths.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
-const { forgetSession } = require("./lib/session-id.js");
 
 /* Untraced. */
 const CLAUDE_TIMEOUT_MS = 60_000;
@@ -129,23 +126,24 @@ function decide(source, io) {
 }
 
 /**
+ * `claude <args>` on `job`'s seat in `cwd`, in the environment the daemon
+ * gave the job.
  * @param {string[]} args
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
+ * @param {Job} job
  * @returns {Ran}
  */
-function runClaude(args, cwd, env) {
-	const r = spawnSync(claudeBin(), args, {
+function runOnJobSeat(args, cwd, env, job) {
+	const r = runClaude(args, {
 		cwd,
-		env,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
+		env: buildSeatEnv(env, job.seat, job.providerEnv),
 		timeout: CLAUDE_TIMEOUT_MS,
 	});
-	const output = stripVTControlCharacters(
-		`${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? caught(r.error).message : ""}`,
-	).trim();
-	return { ok: r.status === 0, output };
+	const output = [r.out, r.error && caught(r.error).message]
+		.filter(Boolean)
+		.join("\n");
+	return { ok: r.failed === null, output };
 }
 
 /**
@@ -185,17 +183,6 @@ function readJob(payload, env) {
 }
 
 /**
- * The environment the daemon gave the job, on the job's own seat.
- * @param {NodeJS.ProcessEnv} env
- * @param {Job} job
- */
-function jobEnv(env, job) {
-	const out = { ...env, ...job.providerEnv, CLAUDE_CONFIG_DIR: job.seat };
-	forgetSession(out);
-	return out;
-}
-
-/**
  * @param {import("./lib/kit-context.js").PortEnv} at
  * @returns {Ports}
  */
@@ -207,12 +194,8 @@ function ports(at) {
 		cut: (job) => launchDir(job.root, job.intent || job.name),
 		msLeft: () => HOOK_TIMEOUT_MS - (Date.now() - started),
 		launch: (job, dir) =>
-			runClaude(
-				["--bg", ...job.flags, "--", job.intent],
-				dir,
-				jobEnv(env, job),
-			),
-		remove: (job) => runClaude(["rm", job.short], job.root, jobEnv(env, job)),
+			runOnJobSeat(["--bg", ...job.flags, "--", job.intent], dir, env, job),
+		remove: (job) => runOnJobSeat(["rm", job.short], job.root, env, job),
 	};
 }
 
