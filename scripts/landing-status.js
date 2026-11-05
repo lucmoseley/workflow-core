@@ -3,7 +3,9 @@
  * landing-status.js — where this session's commits stand on the landing route
  * (#2407, spec #2261): each commit its commit ledger names is landed (on
  * `main`), queued (on `landing`, not yet on `main`), reverted by a revert on
- * `landing`, or unpushed. Fetches both branches first.
+ * `landing`, or unpushed. Fetches both branches first. Its last line is the
+ * landing queue's (lib/queue-gauge.js): the refs waiting, the oldest and its
+ * wait, and the 7-day p50 and p90 time in queue and p90 depth.
  *
  *   node scripts/landing-status.js [--session <id>]
  *
@@ -11,10 +13,12 @@
  *
  * Exit codes: 0 on a report, or where the `landing` module is off; 1 where the
  * remote or the commit ledger cannot be read; 2 on a command line it refuses
- * or no session id.
+ * or no session id. A queue line it cannot read is named on stderr, and
+ * changes no exit code.
  */
 
-const { caught } = require("./lib/caught.js");
+const { caught, parseErrorText } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
 const arbiterLedger = require("./lib/arbiter-ledger.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const {
@@ -22,6 +26,7 @@ const {
 	fetchedGit,
 	buildStateLine,
 } = require("./lib/landing-status.js");
+const { buildQueueLine, readQueueGauge } = require("./lib/queue-gauge.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
@@ -74,6 +79,7 @@ function main(argv = process.argv.slice(2)) {
 	}
 	if (commits.length === 0) {
 		say(`Session ${sessionId} made no commit here.`);
+		sayQueueLine(root);
 		return 0;
 	}
 	/** @type {string[]} */
@@ -91,7 +97,20 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	for (const line of lines) say(line);
+	sayQueueLine(root);
 	return 0;
+}
+
+/**
+ * The landing queue's line, read from `root`'s remote and queue log.
+ * @param {string} root
+ */
+function sayQueueLine(root) {
+	try {
+		say(buildQueueLine(readQueueGauge(root, now())));
+	} catch (err) {
+		fail(`could not read the landing queue: ${parseErrorText(err)}`);
+	}
 }
 
 if (require.main === module) process.exit(main());

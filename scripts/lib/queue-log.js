@@ -7,7 +7,29 @@
  *
  * The queue lander reads a ref's push time off it: the newest enqueue row
  * naming the ref at the sha it now holds. A row a failed push left names a
- * sha the ref never held, so it is never read.
+ * sha the ref never held, so it is never read. The lander adds a take row
+ * when it snapshots a ref into a batch, and a land or drop row when the ref
+ * leaves the queue.
+ *
+ * TIME IN QUEUE, per land or drop row: its `at` less the enqueue `at` of the
+ * same ref at the same sha. An enqueue row is pending from its push until a
+ * land or drop row of its ref takes it. A land or drop takes the ref's
+ * earliest pending row at its sha, and every pending row of the ref pushed
+ * no later, as a queue push only fast-forwards and the sha that left holds
+ * them; rows pushed after it, at a sha the lander did not snapshot, stay
+ * pending. Where no pending row names its sha, as after a push the log
+ * missed, it falls back to the ref's earliest pending row and takes them
+ * all; with none pending it gives no time.
+ *
+ * DEPTH: the refs with a pending row, counted after each event, every row
+ * read in time order. Residual: a ref whose land or drop row went unwritten
+ * stays pending, and counts, until its rows age out of the log.
+ *
+ * PERCENTILES are nearest-rank: the p-th of n sorted values is the
+ * ceil(p × n / 100)-th, so each is a value the log holds.
+ *
+ * BASELINES read the BASELINE_MS before `now`: the time in queue of each
+ * land or drop row in it, and the depth sampled at each of its events.
  */
 
 const path = require("node:path");
@@ -15,8 +37,11 @@ const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 
-/* Untraced, a first guess and stated as one: an enqueue row is read only
- * while its sha waits on its ref, which is hours, never weeks. */
+/* The spec's 7 days (#4458), untraced there. */
+const BASELINE_MS = 7 * DAY_MS;
+/* Untraced, a first guess and stated as one: the baselines read 7 days
+ * back, and a ref waiting at the window's start was pushed hours, never
+ * weeks, before it. */
 const QUEUE_LOG_RETAIN_MS = 14 * DAY_MS;
 
 /** @param {string} root the canonical checkout's root */
@@ -84,10 +109,126 @@ function readNewestEvent(file, ref, sha) {
 	return newest;
 }
 
+/**
+ * @typedef {{at: number, event: QueueEvent, ref: string, sha: string}} LoggedRow
+ * @typedef {{ref: string, sha: string, event: "land"|"drop", from: number,
+ *   at: number}} QueueSpan one ref's stay, enqueue `from` to `at`, in ms
+ * @typedef {{at: number, depth: number}} DepthSample
+ * @typedef {object} QueueBaseline over the BASELINE_MS before its reading
+ * @property {number} spans land and drop rows with a time in queue
+ * @property {number|null} p50Ms time in queue; null with no span
+ * @property {number|null} p90Ms
+ * @property {number|null} depthP90 null with no event
+ */
+
+const EVENTS = new Set(["enqueue", "take", "land", "drop"]);
+
+/**
+ * The log's well-formed rows, oldest first; a line that will not parse, or
+ * names no known event, is left out. An absent log has none; a read failing
+ * for any reason but absence throws.
+ * @param {string} file
+ * @returns {LoggedRow[]}
+ */
+function readQueueRows(file) {
+	/** @type {LoggedRow[]} */
+	const rows = [];
+	for (const row of readJsonl(file)?.rows ?? []) {
+		const at = Date.parse(String(row.at));
+		if (!Number.isFinite(at) || !EVENTS.has(String(row.event))) continue;
+		if (typeof row.ref !== "string" || typeof row.sha !== "string") continue;
+		rows.push({
+			at,
+			event: /** @type {QueueEvent} */ (row.event),
+			ref: row.ref,
+			sha: row.sha,
+		});
+	}
+	return rows.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * A land or drop row's act on its ref's pending rows: its time in queue,
+ * null where none is pending, and the rows it leaves pending.
+ * @param {LoggedRow[]} mine the ref's pending rows, oldest first
+ * @param {LoggedRow & {event: "land"|"drop"}} row
+ * @returns {{span: QueueSpan|null, left: LoggedRow[]}}
+ */
+function leaveQueue(mine, row) {
+	const same = mine.find((r) => r.sha === row.sha);
+	const start = same ?? mine[0];
+	const { ref, sha, event, at } = row;
+	return {
+		span: start === undefined ? null : { ref, sha, event, from: start.at, at },
+		left: same ? mine.filter((r) => r.at > same.at) : [],
+	};
+}
+
+/**
+ * Each land or drop's time in queue, and the depth after each event, by the
+ * rules in this file's header.
+ * @param {LoggedRow[]} rows oldest first
+ * @returns {{spans: QueueSpan[], depths: DepthSample[]}}
+ */
+function replayQueue(rows) {
+	/** @type {Map<string, LoggedRow[]>} each ref's pending rows, oldest first */
+	const pending = new Map();
+	/** @type {QueueSpan[]} */
+	const spans = [];
+	/** @type {DepthSample[]} */
+	const depths = [];
+	for (const row of rows) {
+		const mine = pending.get(row.ref) ?? [];
+		if (row.event === "enqueue") pending.set(row.ref, [...mine, row]);
+		if (row.event === "land" || row.event === "drop") {
+			const { span, left } = leaveQueue(mine, { ...row, event: row.event });
+			if (span !== null) spans.push(span);
+			if (left.length > 0) pending.set(row.ref, left);
+			else pending.delete(row.ref);
+		}
+		depths.push({ at: row.at, depth: pending.size });
+	}
+	return { spans, depths };
+}
+
+/**
+ * The nearest-rank `p`-th percentile of `values`; null where there are none.
+ * @param {number[]} values
+ * @param {number} p
+ */
+function percentile(values, p) {
+	if (values.length === 0) return null;
+	const sorted = [...values].sort((a, b) => a - b);
+	const rank = Math.max(1, Math.ceil((p * sorted.length) / 100));
+	return /** @type {number} */ (sorted[rank - 1]);
+}
+
+/**
+ * The BASELINE_MS before `now`, from the log's rows.
+ * @param {LoggedRow[]} rows oldest first
+ * @param {number} now
+ * @returns {QueueBaseline}
+ */
+function queueBaseline(rows, now) {
+	const { spans, depths } = replayQueue(rows);
+	/** @param {{at: number}} x */
+	const inWindow = (x) => x.at > now - BASELINE_MS && x.at <= now;
+	const times = spans.filter(inWindow).map((s) => s.at - s.from);
+	const sampled = depths.filter(inWindow).map((d) => d.depth);
+	return {
+		spans: times.length,
+		p50Ms: percentile(times, 50),
+		p90Ms: percentile(times, 90),
+		depthP90: percentile(sampled, 90),
+	};
+}
+
 module.exports = {
 	logEnqueue,
 	logQueueEvent,
+	queueBaseline,
 	queueLogFile,
 	readEnqueueTimes,
 	readNewestEvent,
+	readQueueRows,
 };

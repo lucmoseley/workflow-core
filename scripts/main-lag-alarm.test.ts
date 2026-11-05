@@ -1,8 +1,8 @@
 // @vitest-environment node
 
 /*
- * scripts/main-lag-alarm.js and .github/workflows/main-lag.yml (#4443), with
- * GitHub's activity and compare endpoints stubbed. Break this and the one
+ * scripts/main-lag-alarm.js and .github/workflows/main-lag.yml (#4443,
+ * #4485), with GitHub's activity, compare, ref and commit endpoints stubbed. Break this and the one
  * stall alarm that outlives the machine stays green through a stall, or the
  * workflow's email names a threshold the check no longer applies.
  */
@@ -15,6 +15,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { STALL_MS } from "./lib/landing-stall.js";
 import { ROOT } from "./lib/precommit-gate-testkit";
+import { AGE_FLOOR_MS, DEPTH_FLOOR } from "./lib/queue-gauge.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { runAlarm } from "./main-lag-alarm.js";
 
@@ -32,6 +33,8 @@ interface Queue {
 	pushes?: { at: number; after: string }[];
 	atMove?: Status;
 	branchSha?: string;
+	/* Each queue ref's tip's committer time, minutes ago. */
+	queue?: number[];
 }
 
 /* `main` at sha M; `landing`'s pushes, newest first, each its own sha. */
@@ -42,9 +45,18 @@ const stub =
 		pushes = [],
 		atMove = "identical",
 		branchSha = "M",
+		queue = [],
 	}: Queue) =>
 	async (p: string): Promise<unknown> => {
 		if (p === "/git/ref/heads/main") return { object: { sha: branchSha } };
+		if (p === "/git/matching-refs/heads/queue/")
+			return queue.map((_, i) => ({
+				ref: `refs/heads/queue/q${i}`,
+				object: { sha: `Q${i}` },
+			}));
+		const q = /^\/commits\/Q(\d+)$/.exec(p);
+		if (q)
+			return { commit: { committer: { date: ago(queue[Number(q[1])] ?? 0) } } };
 		if (p.startsWith("/activity?ref=refs/heads/main&"))
 			return [{ timestamp: ago(mainPushed), after: "M" }];
 		if (p.startsWith("/activity?ref=refs/heads/landing&"))
@@ -146,6 +158,56 @@ describe("main-lag-alarm.js", () => {
 		expect(r.out).toContain("newer than the activity feed's last push");
 	});
 
+	it("passes a queue within both floors, naming its oldest ref", async () => {
+		const r = await run(
+			stub({ mainPushed: 600, landing: "identical", queue: [5, 59] }),
+		);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain(
+			`queue/q1, the oldest of 2 queue refs, has waited since its tip's commit at ${ago(59)}: 0 h 59 min, against 1 h 0 min.`,
+		);
+		expect(r.out).toContain("2 queue refs wait, against 10.");
+	});
+
+	it("says so where no queue ref waits", async () => {
+		const r = await run(stub({ mainPushed: 600, landing: "identical" }));
+		expect(r.out).toContain("No queue ref waits.");
+	});
+
+	it("fails where the oldest queue ref has waited past 60 min, with main level", async () => {
+		const r = await run(
+			stub({ mainPushed: 600, landing: "identical", queue: [5, 61] }),
+		);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("::error title=Queue ref waiting::queue/q1");
+		expect(r.out).toContain(
+			'the open "Landing queue stalled: a queue ref has waited past its limit" ticket',
+		);
+		expect(r.out).not.toContain("Queue deep");
+	});
+
+	it("fails where more than 10 queue refs wait", async () => {
+		const r = await run(
+			stub({
+				mainPushed: 600,
+				landing: "identical",
+				queue: new Array(11).fill(1),
+			}),
+		);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("::error title=Queue deep::11 queue refs wait");
+		expect(r.out).not.toContain("Queue ref waiting");
+	});
+
+	it("fails as a broken check where a queue ref's commit has no committer time", async () => {
+		const real = stub({ mainPushed: 600, landing: "identical", queue: [5] });
+		const r = await run(async (p) =>
+			p.startsWith("/commits/") ? { commit: {} } : real(p),
+		);
+		expect(r.code).toBe(2);
+		expect(r.out).toContain("no committer time for Q0");
+	});
+
 	it("fails as a broken check on a feed entry with no timestamp", async () => {
 		const real = stub({ mainPushed: 600, landing: "ahead" });
 		const r = await run(async (p) =>
@@ -231,5 +293,7 @@ describe("main-lag.yml", () => {
 		const hours = STALL_MS / 3_600_000;
 		expect(workflow.name).toContain(`${hours}h`);
 		expect(job.name).toContain(`${hours} hours`);
+		expect(job.name).toContain(`${AGE_FLOOR_MS / 60_000} min`);
+		expect(job.name).toContain(`at most ${DEPTH_FLOOR} wait`);
 	});
 });
