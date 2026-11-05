@@ -367,6 +367,46 @@ describe("dropTicketFiler", () => {
 		expect(input).toContain("its merge was refused: `rule:x`");
 	});
 
+	it("names a member red alone twice by its isolation commit, its failing files and their pass on main, asking that it pass them", () => {
+		const f = dropFiler(["Tidy"]);
+		const iso = "c".repeat(40);
+
+		f.said({
+			cause: { kind: "red", name: "wt-1", files: ["x.test.ts"], iso },
+		});
+
+		const [{ input }] = f.files;
+		expect(input).toContain(`onto \`main\` at ${M} as ${iso}`);
+		expect(input).toContain("failed these files twice, which pass on `main`");
+		expect(input).toContain("- `x.test.ts`");
+		expect(input).toContain(
+			"- [ ] aaaaaaaaa's change passes each file above merged onto `main`, and is pushed to `queue/wt-1` again.",
+		);
+	});
+
+	it("names a collision's step, the members landed before it and its failing files, or the whole suite where it named none", () => {
+		const f = dropFiler(["Tidy"]);
+		const step = "d".repeat(40);
+		const collision = {
+			kind: "collision" as const,
+			name: "wt-1",
+			step,
+			after: ["wt-0"],
+		};
+
+		f.said({ cause: { ...collision, files: ["x.test.ts"] } });
+		f.said({ cause: { ...collision, files: [] } });
+
+		const [named, unnamed] = f.files.map((x) => x.input);
+		expect(named).toContain("each member of its batch passed alone");
+		expect(named).toContain(`after \`queue/wt-0\` landed, as ${step}`);
+		expect(named).toContain("- `x.test.ts`");
+		expect(unnamed).toContain("failed the whole suite, naming no file");
+		expect(unnamed).toContain(
+			"- [ ] aaaaaaaaa's change passes the whole suite merged onto `main`, and is pushed to `queue/wt-1` again.",
+		);
+	});
+
 	it("files nothing where a listed open ticket already names the ref at its sha", () => {
 		const f = dropFiler(["Tidy"], {}, [
 			{
