@@ -331,7 +331,7 @@ describe("live: read-only calls", () => {
 				"view",
 				"948",
 				"--json",
-				"comments,title,parent,labels,body,subIssues,url",
+				"comments,title,parent,labels,body,subIssues,url,number,state",
 			],
 		},
 		{
