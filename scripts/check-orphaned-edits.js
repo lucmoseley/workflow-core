@@ -12,9 +12,8 @@
  * worktree at HEAD (#812), and voids every certificate whose read closure it
  * touches (#787).
  *
- * TWO RUNS (#813, #2038): at SessionStart, under `--write`, it files and
- * prints nothing, and `npm run status` runs it by hand for the report, filing
- * nothing without `--write` (#4449).
+ * TWO RUNS (#813, #2038, #4449): at SessionStart, under `--write`, it files
+ * and prints nothing, and `npm run status` runs it by hand for the report.
  *
  * LIVE MEANS LISTED BY THE ORACLE AND NOT TERMINAL (`isListedLive`): a finished
  * background session never commits its edit, so its ledger holds nothing back.
@@ -173,7 +172,6 @@ function takeFiling(dir, o) {
 }
 
 /**
- * The filing marker for `o` under `dir`, one per path and blob.
  * @param {string} dir
  * @param {Orphan} o
  */
@@ -190,7 +188,6 @@ function markerPath(dir, o) {
 }
 
 /**
- * What an existing marker says of its filing.
  * @param {string} marker
  */
 function readFiledStatus(marker) {
@@ -207,7 +204,7 @@ function readFiledStatus(marker) {
 
 /**
  * What a run without --write says of each orphan: an existing marker's
- * filing, else that --write would file it. Takes no marker.
+ * filing, else that --write would file it.
  * @param {Orphan[]} orphans
  * @param {string} root
  */

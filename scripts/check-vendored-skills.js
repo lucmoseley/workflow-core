@@ -119,9 +119,8 @@
  * as the run read them, the date, and each source's licence verdict. Any other
  * licence row writes none, so a mismatch is cleared by refreshing NOTICES and
  * re-running, never by recording it; UPSTREAM-MOVED does not stop the write.
- * Without `--write` it only says whether it would write one, so a check run
- * dirties nothing (#4449); with it, a cut-over main checkout is refused before
- * any fetch, since that tree takes no edits (#4229).
+ * Without `--write` it only says whether it would write one (#4449); with it,
+ * a cut-over main checkout is refused before any fetch (#4229).
  * `--covered <dir>` is the offline half, run by `.husky/pre-commit` on a commit
  * staging the lock: it reads the staged lock, NOTICES and record that the hook
  * copies into <dir>, and fails where the record is missing or either hash
@@ -1229,8 +1228,6 @@ function isCutOverMainCheckout(root) {
 }
 
 /**
- * --upstream, its --write refused before any fetch where the tree takes no
- * edits.
  * @param {import("./lib/check").CheckContext} ctx
  * @param {string} root
  */

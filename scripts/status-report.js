@@ -23,10 +23,8 @@
  * state file, and `check-hook-liveness.js` adds its `settings` assertion.
  *
  * READ-ONLY UNLESS `--write` (#4449). No checker here writes to the tracker
- * or the tree on a bare run, so an audit can run it safely; `--write` is passed
- * on to the checkers in WRITERS, which then file, refresh or record as their
- * own headers say. Each writer's own test holds its bare run to no write;
- * status-report.test.ts holds `--write` to reaching the writers alone.
+ * or the tree on a bare run; `--write` is passed on to the checkers in
+ * WRITERS, which then file, refresh or record as their own headers say.
  *
  * EXIT CODE. Always 0 for any checker's own verdict — this reports, a human
  * decides — so a fault never breaks a caller. Only this runner crashing exits
@@ -135,11 +133,9 @@ const CHECKS = [
 ];
 
 /**
- * The checkers that write under `--write`, and only then: band-drift files or
- * refreshes its tracking issues, history-trim appends its tracked watch file,
- * orphaned-edits files each orphan's triage issue. harness-canary takes
- * `--write` too but is absent: only its `--probe` runs comment, never the
- * hand run listed here.
+ * The checkers that write under `--write`, and only then. harness-canary
+ * takes `--write` too but is absent: only its `--probe` runs comment, never
+ * the hand run listed here.
  */
 const WRITERS = new Set(["band-drift", "history-trim", "orphaned-edits"]);
 
