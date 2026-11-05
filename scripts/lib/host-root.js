@@ -42,7 +42,12 @@
  */
 
 const path = require("node:path");
-const { execGit, gitCommonDir, gitCommonDirOrThrow } = require("./git.js");
+const {
+	execGit,
+	gitCommonDir,
+	gitCommonDirOrThrow,
+	revParseWithCommonDirOrThrow,
+} = require("./git.js");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { checkoutOfCommonDir } = require("./main-checkout.js");
@@ -89,29 +94,18 @@ function gitTopLevel(cwd, timeoutMs) {
 /**
  * The main checkout owning `cwd`, symlinks dereferenced: `main-checkout.js`'s
  * rule, else the git top level — a bare repository's worktree, a submodule or
- * a `--separate-git-dir` checkout has no main checkout to name. One git fork
- * for both reads. Throws where git names no top level.
+ * a `--separate-git-dir` checkout has no main checkout to name. Throws where
+ * git names no top level.
  * @param {string} cwd
  * @param {number} [timeoutMs]
  * @returns {string}
  */
 function owningCheckout(cwd, timeoutMs) {
-	const [top = "", common = ""] = execGit(
-		[
-			"rev-parse",
-			"--path-format=absolute",
-			"--show-toplevel",
-			"--git-common-dir",
-		],
-		{
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			timeout: timeoutMs,
-		},
-	)
-		.trim()
-		.split("\n");
+	const [top = "", common = ""] = revParseWithCommonDirOrThrow(
+		cwd,
+		["--show-toplevel"],
+		{ timeout: timeoutMs },
+	);
 	return deref(checkoutOfCommonDir(common) ?? top);
 }
 
@@ -169,11 +163,16 @@ function sessionTree({ cwd }) {
  * the host stays there — the arbiter's directory on `hostRoot()`, the marker
  * store on the git common dir: only which files are under test follows the
  * worktree.
+ *
+ * With neither a `host` nor `CLAUDE_PROJECT_DIR`, the git top level alone:
+ * `hostRoot()` would name the main checkout of that same repository, so the
+ * common-dir comparison below could only agree, at three more git forks.
  * @param {string} [cwd]
  * @param {{ host?: string, timeoutMs?: number, onTimeout?: () => void }} [opts]
  *   `host`, where the caller already holds it, so the answer reads no ambient
- *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`. `timeoutMs` bounds each git read,
- *   none by default; a read past it answers the host and calls `onTimeout`
+ *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`. `timeoutMs` bounds each
+ *   git read, none by default; a read past it answers the host — the working
+ *   directory where no host was given — and calls `onTimeout`
  * @returns {string}
  */
 function worktreeRoot(
@@ -185,7 +184,7 @@ function worktreeRoot(
 			return gitTopLevel(cwd, timeoutMs);
 		} catch (e) {
 			if (caught(e).code === "ETIMEDOUT") onTimeout?.();
-			return hostRoot(cwd);
+			return hostRoot(cwd, { timeoutMs });
 		}
 	}
 	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);

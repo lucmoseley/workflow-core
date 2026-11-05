@@ -20,17 +20,21 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent
 REPO = SCRIPTS.parent
 CONFTEST = SCRIPTS / "conftest.py"
-# The main checkout owning REPO, which a linked worktree's host root names (#4482).
-_COMMON = Path(
-    subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+# The main checkout owning REPO, from `git worktree list`'s first entry rather
+# than host_root()'s own rule (#4482).
+LIVE = str(
+    Path(
+        subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        .stdout.split("\n")[0]
+        .removeprefix("worktree ")
+    ).resolve()
 )
-LIVE = str((_COMMON.parent if _COMMON.name == ".git" else REPO).resolve())
 
 PROBE = f"""
 import json, os, subprocess
@@ -86,7 +90,7 @@ def read_host(tmp_path, project_dir, with_conftest=True):
     return json.loads((out / "host.json").read_text())
 
 
-def test_without_the_conftest_and_the_variable_unset_the_probe_reads_this_checkout(
+def test_without_the_conftest_and_the_variable_unset_the_probe_reads_the_main_checkout(
     tmp_path,
 ):
     assert read_host(tmp_path, None, with_conftest=False)["host"] == LIVE

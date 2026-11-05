@@ -16,8 +16,8 @@
 # the JS half of this seam, strips the same trailing slash and dereferences the
 # same symlinks, and the two are changed together or not at all.
 #
-# SYMLINKS ARE DEREFERENCED (#1). `git rev-parse --show-toplevel` already
-# answers with a physical path; CLAUDE_PROJECT_DIR does not, so a harness
+# SYMLINKS ARE DEREFERENCED (#1). git's `--show-toplevel` already answers a
+# physical path; the common dir's parent need not, and CLAUDE_PROJECT_DIR does not, so a harness
 # pointed at a symlink to the checkout would otherwise slug to a second state
 # directory for one tree. `cd -P` in a subshell rather than `realpath`, because
 # the builtin costs a fork and realpath costs a fork AND an exec, on a path
