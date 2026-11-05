@@ -338,29 +338,3 @@ it("does nothing with the landing module off", () => {
 	expect(r.stdout).toBe("");
 	expect(fs.existsSync(path.join(markers(), ".lander.pid"))).toBe(false);
 });
-
-it("files the queue alert once for a queue ref waiting past 60 min, says nothing while it stands, and closes it once the ref leaves (#4485)", () => {
-	commit("seed", 0, "main", "landing");
-	commit("waiting", 61 * MIN, "refs/heads/queue/old");
-	beat(process.pid);
-
-	const first = supervise();
-	const second = supervise();
-
-	expect(first.status, first.stderr).toBe(0);
-	expect(first.stdout).toContain("Filed #100");
-	expect(second.status, second.stderr).toBe(0);
-	expect(second.stdout).toBe("");
-	const [alert, ...more] = readIssues();
-	expect(more).toEqual([]);
-	expect(alert.title).toBe(
-		"Landing queue stalled: a queue ref has waited past its limit",
-	);
-	expect(alert.body).toContain("queue/old has waited 1 h 1 min");
-
-	git(work, ["push", "-q", "origin", ":refs/heads/queue/old"]);
-	const gone = supervise();
-
-	expect(gone.stdout).toBe("queue alert: closed #100.\n");
-	expect(readIssues()[0].closeComment).toMatch(/^No queue ref waits at \S+\.$/);
-});

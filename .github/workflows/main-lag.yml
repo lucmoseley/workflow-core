@@ -2,10 +2,7 @@ name: Main lagging landing 2h
 
 # The off-machine stall check (#4443): scripts/main-lag-alarm.js fails where
 # landing is ahead of main and main has not moved for lib/landing-stall.js's
-# STALL_MS, and, read beside it (#4485), where the oldest queue ref has
-# waited past lib/queue-gauge.js's AGE_FLOOR_MS or more refs wait than its
-# DEPTH_FLOOR. Read-only: it reads refs and commits, and writes nothing.
-# GitHub sends a scheduled run's failure to the user who last
+# STALL_MS. GitHub sends a scheduled run's failure to the user who last
 # changed the cron or re-enabled this file.
 #
 # PLANNED ABSENCE: Actions tab > Main lagging landing 2h > "..." > Disable
@@ -23,11 +20,10 @@ permissions:
 jobs:
   lag:
     # This name and the workflow's are the part of the alarm an email carries.
-    name: Main moved within 2 hours of landing going ahead, no queue ref waited over 60 min and at most 10 wait - if red, read the stall or queue ticket
+    name: Main moved within 2 hours of landing going ahead - if red, read the stall ticket
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
-    # A guess: a checkout and four API reads with retries, one more, and one per
-    # queue ref.
+    # A guess: a checkout and four API reads with retries.
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4

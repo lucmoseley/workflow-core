@@ -36,39 +36,11 @@ const ledger = (...shas: string[]) => {
 	fs.writeFileSync(file, shas.map((s) => `${s}\n`).join(""));
 };
 
-const NOW = Date.parse("2026-11-06T12:00:00Z");
-const NO_QUEUE =
-	"queue: none waiting; nothing landed or dropped in 7 days; depth p90 none.";
-
 const runStatus = (modules = "landing", args = ["--session", SESSION]) =>
 	runInProcess(STATUS, args, {
 		cwd: work,
-		env: {
-			...process.env,
-			WFC_MODULES: modules,
-			CLAUDE_PROJECT_DIR: work,
-			WFC_NOW: new Date(NOW).toISOString(),
-		},
+		env: { ...process.env, WFC_MODULES: modules, CLAUDE_PROJECT_DIR: work },
 	});
-
-/** A canned queue log of `[minutes before NOW, event, queue name, sha]`. */
-const queueLog = (...rows: [number, string, string, string][]) => {
-	const dir = path.join(work, ".claude", "tmp", "markers");
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, ".queue-log.jsonl"),
-		rows
-			.map(([min, event, name, sha]) =>
-				JSON.stringify({
-					at: new Date(NOW - min * 60_000).toISOString(),
-					event,
-					ref: `refs/heads/queue/${name}`,
-					sha,
-				}),
-			)
-			.join("\n"),
-	);
-};
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-status-"));
@@ -111,7 +83,6 @@ it("reads a landed, a queued and a reverted commit, naming the revert's sha, aft
 		`reverted by ${revert.slice(0, 9)}: ${reverted.slice(0, 9)} broken`,
 		`queued: ${queued.slice(0, 9)} queued — on landing, not yet on main`,
 		`unpushed: ${unpushed.slice(0, 9)} unpushed — not on landing`,
-		NO_QUEUE,
 	]);
 });
 
@@ -140,26 +111,6 @@ it("leaves out a commit an amend replaced, reporting its replacement", () => {
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
 		`queued: ${amended.slice(0, 9)} work amended — on landing, not yet on main`,
-		NO_QUEUE,
-	]);
-});
-
-it("ends on the queue's line: the refs waiting, the oldest's wait and the 7-day figures off the queue log", () => {
-	const sha = commit("waiting");
-	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/alpha");
-	queueLog(
-		[100, "enqueue", "gone", "0".repeat(40)],
-		[70, "land", "gone", "0".repeat(40)],
-		[42, "enqueue", "alpha", sha],
-	);
-	ledger();
-
-	const r = runStatus();
-
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
-		`Session ${SESSION} made no commit here.`,
-		"queue: 1 waiting, the oldest queue/alpha for 0 h 42 min; time in queue over 7 days p50 0 h 30 min, p90 0 h 30 min across 1 landed or dropped; depth p90 1.",
 	]);
 });
 
