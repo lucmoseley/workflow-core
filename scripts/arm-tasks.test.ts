@@ -200,7 +200,7 @@ describe("the committed task set", () => {
 		]);
 	});
 
-	it("seats each neighbour on a path the claim guard refuses, so the claim is felt", () => {
+	it("seats each neighbour on a path the claim guard warns on, so the claim is felt", () => {
 		for (const t of tasks.filter((x) => x.neighbour))
 			expect(t.neighbour?.path).toMatch(/^(docs|\.claude)\//);
 	});
@@ -479,7 +479,7 @@ const HOLD_SECONDS = "60";
 const REAP_POLLS = 100;
 
 describe("build: the fake neighbour", () => {
-	it("holds a live claim another session is refused, until its process ends", () => {
+	it("holds a live claim another session is warned of, until its process ends", () => {
 		const tasks = path.join(tmp, "tasks.json");
 		const held = ".claude/skills/pick-next/SKILL.md";
 		fs.writeFileSync(
@@ -529,8 +529,8 @@ describe("build: the fake neighbour", () => {
 		expect(fs.realpathSync(sandbox.selfPlugin.dir)).toBe(
 			path.join(repo, "self-plugin"),
 		);
-		const claim = (sid: string) =>
-			runInProcess(
+		const claim = (sid: string) => {
+			const c = runInProcess(
 				path.join(repo, "scripts/session-arbiter.js"),
 				["claim", held, sid],
 				{
@@ -541,9 +541,12 @@ describe("build: the fake neighbour", () => {
 						CLAUDE_PROJECT_DIR: repo,
 					},
 				},
-			).status;
+			);
+			expect(c.status, c.stderr).toBe(0);
+			return `${c.stdout}${c.stderr}`;
+		};
 		try {
-			expect(claim("another-session")).toBe(1);
+			expect(claim("another-session")).toContain("is also held by session");
 		} finally {
 			process.kill(neighbour.pid);
 		}
@@ -555,6 +558,6 @@ describe("build: the fake neighbour", () => {
 			i++
 		)
 			spawnSync("sleep", ["0.05"]);
-		expect(claim("another-session")).toBe(0);
+		expect(claim("another-session")).not.toContain("is also held by session");
 	});
 });

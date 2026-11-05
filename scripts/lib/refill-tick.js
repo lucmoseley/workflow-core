@@ -30,19 +30,16 @@ const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
-const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 const { readAllowance } = require("./allowance.js");
 const seatReading = require("./seat-reading.js");
-const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
-const { CHILD_TIMEOUT_MS, spawnChild } = require("./child-spawn.js");
+const { runTickChild: runChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
 	readRecentEntries,
-	readOverflowLookup,
 	record: recordLaunch,
 	recordListedSessionIds,
 	release,
@@ -55,14 +52,11 @@ const {
 	hasTurnedSince,
 } = require("./block-cause.js");
 const { stopOn } = require("./claude-stop.js");
-const { launchAuthRefusal } = require("./launch-auth.js");
-const { buildKeySettings } = require("./overflow-key.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
-const { copyTranscript } = require("./seat-move.js");
 const { resumeSteps } = require("./refill-resume.js");
+const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
-	moveParkedBy,
 	readParkMarkers,
 	readParkMarkersOrThrow,
 	readParkedBy,
@@ -71,10 +65,8 @@ const {
 	unparkIssues,
 	writeParkedBy,
 } = require("./parked.js");
-const { movePassMarkers } = require("./move-pass-markers.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
-const { findResumed } = require("./resumed-copy.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
 const { MODEL } = require("./refill-decide.js");
@@ -159,14 +151,6 @@ const say = (line) => writeFd(1, `${line}\n`);
 const log = (line) => say(`${new Date().toISOString()} ${line}`);
 
 const readControl = () => readControlChecked(log);
-
-/**
- * @param {string} file
- * @param {string[]} args
- * @param {import("node:child_process").SpawnSyncOptions} [opts]
- */
-const runChild = (file, args, opts = {}) =>
-	spawnChild(file, args, { timeout: CHILD_TIMEOUT_MS, ...opts });
 
 /**
  * The roots a scope serves now.
@@ -610,39 +594,7 @@ function readTimelineOf(l) {
 const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
 
-/**
- * The production adapter of lib/refill-resume.js's resume steps.
- * @type {import("./refill-resume.js").ResumeIo}
- */
-const resumeIo = {
-	log,
-	env: () => process.env,
-	keySettings: buildKeySettings,
-	authRefusal: (launch) => launchAuthRefusal({ bin: claudeBin(), ...launch }),
-	runClaude: (args, opts) => runChild(claudeBin(), args, opts),
-	readJobRecord,
-	findResumed,
-	copyTranscript,
-	hasJobRecord: (seat, jobId) => fs.existsSync(jobDirPath(seat, jobId)),
-	stop: stopOn,
-	overflowLookup: (root) => readOverflowLookup([root]),
-	recordLaunch,
-	copySpendUsd: (file) => fileSpend(file).usd,
-	sessionSpendUsd,
-	runArbiter: (root, cmd, n, sessionId) =>
-		runChild(
-			process.execPath,
-			[path.join(SCRIPTS, "session-arbiter.js"), cmd, String(n)],
-			{
-				cwd: root,
-				env: { ...buildCheckoutEnv(root), CLAUDE_CODE_SESSION_ID: sessionId },
-			},
-		),
-	movePassMarkers,
-	moveParkedBy,
-};
-
-const resume = resumeSteps(resumeIo);
+const resume = resumeSteps(buildResumeIo(log));
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal

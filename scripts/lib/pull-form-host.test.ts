@@ -15,12 +15,8 @@ import { initGitRepo, mkScratchDir } from "./git-fixture";
 const { buildHostPorts } = require("./pull-form-host.js") as {
 	buildHostPorts: (root: string) => {
 		pullFf: (dir: string) => string;
-		cleanRequireForce: (dir: string) => string;
 		currentBranch: (dir: string) => string;
 		isCommit: (dir: string, word: string) => boolean;
-		isTree: (dir: string, word: string) => boolean;
-		topLevel: (dir: string) => string;
-		showPrefix: (dir: string) => string;
 	};
 };
 
@@ -53,41 +49,19 @@ describe("the git reads", () => {
 		expect(ports().pullFf(path.join(dir, "no-hooks"))).toBe("");
 	});
 
-	it("reads clean.requireForce as a boolean, as git itself does", () => {
-		git("config", "clean.requireForce", "off");
-		expect(ports().cleanRequireForce(repo)).toBe("false");
-	});
-
 	it("names the checked-out branch short, and nothing when detached", () => {
 		expect(ports().currentBranch(repo)).toBe("main");
 		git("checkout", "-q", "--detach");
 		expect(ports().currentBranch(repo)).toBe("");
 	});
 
-	it("tells a commit from a tree from a path", () => {
+	it("tells a commit from a tree and from a path", () => {
 		const tree = git("rev-parse", "HEAD^{tree}");
 		const p = ports();
-		expect([p.isCommit(repo, "HEAD"), p.isTree(repo, "HEAD")]).toEqual([
-			true,
-			true,
-		]);
-		expect([p.isCommit(repo, tree), p.isTree(repo, tree)]).toEqual([
-			false,
-			true,
-		]);
-		expect([p.isCommit(repo, "a.md"), p.isTree(repo, "a.md")]).toEqual([
-			false,
-			false,
-		]);
-		// A blob names an object, but not a tree.
-		expect(p.isTree(repo, "HEAD:a.md")).toBe(false);
-	});
-
-	it("reads the top level and the prefix, newline off", () => {
-		const sub = path.join(repo, "sub");
-		fs.mkdirSync(sub);
-		expect(ports().topLevel(sub)).toBe(fs.realpathSync(repo));
-		expect(ports().showPrefix(sub)).toBe("sub/");
-		expect(ports().showPrefix(repo)).toBe("");
+		expect([
+			p.isCommit(repo, "HEAD"),
+			p.isCommit(repo, tree),
+			p.isCommit(repo, "a.md"),
+		]).toEqual([true, false, false]);
 	});
 });

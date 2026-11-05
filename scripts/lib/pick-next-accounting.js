@@ -3,7 +3,8 @@
  * ranked frontier: why each frontier issue outside the set did not launch and
  * why each open issue was never takeable (#591), the dispatchable floor
  * (mantahostels#1507), the band no command opens (mantahostels#1626), and the run summary
- * the skill's §6 message is written from (mantahostels#1001).
+ * the skill's §6 message is written from (mantahostels#1001), and the NOT
+ * PROPOSED block's complete text (#4382).
  *
  * Every input is the run's own state, already read; nothing here reads
  * anything.
@@ -24,6 +25,62 @@ const CHILDREN = takesValue("children");
  * @typedef {"no command" | "file held by a running session" | "shares a file" | "no admission slot"} NotLaunchedReason
  */
 /** @typedef {{number: number, reason: NotLaunchedReason, detail: object}} NotLaunchedRow */
+
+/**
+ * An issue's `takes:` values as one table cell.
+ * "none" is a fault, not a state — every open issue carries one.
+ * @param {string[]} takes
+ */
+const takesCell = (takes) => (takes.length > 0 ? takes.join("+") : "none");
+
+/**
+ * The reasons in precedence order, each with its printed detail.
+ * @satisfies {Record<NotLaunchedReason, (d: any) => string>} `any`: each
+ * reason's detail has its own shape, built in `notLaunchedOf` below.
+ */
+const NOT_LAUNCHED_REASONS = {
+	"no command": (d) => takesCell(d.takes),
+	"file held by a running session": (d) =>
+		`${d.session} holds ${d.files.join(", ")}`,
+	"shares a file": (d) =>
+		`with #${d.with} on ${d.file} (provisional — the band read confirms or clears it)`,
+	"no admission slot": (d) =>
+		`${d.freeSlots === null ? "free slots unknown" : `${d.slots} slot(s)`}, as of this run`,
+};
+/** @type {NotLaunchedReason[]} */
+const REASON_ORDER = /** @type {NotLaunchedReason[]} */ (
+	Object.keys(NOT_LAUNCHED_REASONS)
+);
+
+/** NOT PROPOSED rows printed; --json carries the lot. UNMEASURED, set to match pick-next.js's other print caps. */
+const NOT_PROPOSED_PRINT_CAP = 20;
+
+/**
+ * The NOT PROPOSED block's lines, header first.
+ * @param {NotLaunchedRow[]} rows
+ * @returns {string[]}
+ */
+function notProposedLines(rows) {
+	const sorted = [...rows].sort(
+		(a, b) => REASON_ORDER.indexOf(a.reason) - REASON_ORDER.indexOf(b.reason),
+	);
+	const lines = [
+		`\nNOT PROPOSED (${sorted.length}) — frontier issues outside the set, by the first reason that applies\n`,
+	];
+	if (sorted.length === 0) lines.push("  none");
+	/** @type {NotLaunchedReason | null} */
+	let shownReason = null;
+	for (const e of sorted.slice(0, NOT_PROPOSED_PRINT_CAP)) {
+		if (e.reason !== shownReason) lines.push(`  ${e.reason}:`);
+		shownReason = e.reason;
+		lines.push(`    #${e.number}  ${NOT_LAUNCHED_REASONS[e.reason](e.detail)}`);
+	}
+	if (sorted.length > NOT_PROPOSED_PRINT_CAP)
+		lines.push(
+			`  ... and ${sorted.length - NOT_PROPOSED_PRINT_CAP} more — --json carries every one.`,
+		);
+	return lines;
+}
 
 /**
  * WHY EACH FRONTIER ISSUE OUTSIDE THE SET DID NOT LAUNCH (#591), the reasons
@@ -331,6 +388,8 @@ module.exports = {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
+	notProposedLines,
 	openTallyOf,
 	summaryOf,
+	takesCell,
 };

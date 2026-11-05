@@ -97,7 +97,7 @@ const {
  * nothing.
  *
  * A STAGED RENAME IS ONE ACT (#1791). `git mv` runs through Bash and mints no
- * write, so its source — gone from the shared tree — was nobody's. Where either
+ * write, so its source — gone from the working tree — was nobody's. Where either
  * side is `mine`, the other is too; a deletion tied to nothing stays `theirs`.
  *
  * @param {string[]} dirty tracked paths with modifications
@@ -232,7 +232,7 @@ const lastCommitAt = (root, execFn) => (rel) =>
 		1000 || 0;
 
 /**
- * A commit carrying HEAD plus `mine` as the shared tree has them — the tree the
+ * A commit carrying HEAD plus `mine` as the working tree has them — the tree the
  * run's overlay reads — or `head` itself where `mine` is empty. Written under a
  * throwaway index and referenced by nothing, as `git stash create` does, so gc
  * takes it. Null where git refuses.

@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 const {
 	dispatchAge,
 	dispatchLiveness,
+	dispatchLivenessCell,
 	dispatchLivenessLabel,
 	holdingDispatch,
 } = require("./pick-next-dispatched.js");
@@ -114,6 +115,20 @@ describe("whether the dispatched launch's own job is still alive (mantahostels#3
 				dispatchLiveness(entry(), listed(["self", "worker1"]), jobs),
 			),
 		).toBe("unknown");
+	});
+
+	it("prints unknown with its reason in the text table's liveness cell on a pre-mantahostels#3488 entry with no job id, and no reason after live or finished", () => {
+		// Moved from scripts/pick-next-claims.test.ts (#4382).
+		const cell = (rec: ReturnType<typeof entry>, ids: string[], js = jobs) =>
+			dispatchLivenessCell(dispatchLiveness(rec, listed(ids), js));
+		expect(cell(entry(), ["self", "worker1"])).toBe(
+			"unknown (no job id recorded on this entry)",
+		);
+		expect(cell(entry({ jobId: "job1" }), ["self"])).toBe("finished: done");
+		const working = [job("job1", { state: "working", sessionId: "worker1" })];
+		expect(cell(entry({ jobId: "job1" }), ["self", "worker1"], working)).toBe(
+			"live",
+		);
 	});
 
 	it("reads unknown, never live, where the job id names no readable job record", () => {

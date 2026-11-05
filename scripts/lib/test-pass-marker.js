@@ -12,8 +12,8 @@
  * run time, not the sha exactly: the suite read the working tree, and the sha
  * stamped on it is HEAD as it stood when the run finished. `dirtyAtStart` and
  * `foreign` are what carry that caveat to the reader — a certificate taken over a
- * tree holding somebody else's uncommitted file attests less than one taken
- * over a still tree, and the warning says which it was.
+ * tree holding uncommitted files, or one that moved under the suite, attests
+ * less than one taken over a still tree, and the warning says which it was.
  *
  * IT ALSO RECORDS THE SCOPE OF THE RUN (mantahostels#1230). `scope` carries what was
  * actually run — the filters, the tests, and the modules against the whole
@@ -495,9 +495,8 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
 
 /**
  * What a green run tells the pre-push gate: the sha it finished on, whether
- * anything was uncommitted when it started, and every file that can be shown
- * NOT to have been the running session's own — a neighbour's claimed dirty
- * file, or one that moved under the suite while it ran.
+ * anything was uncommitted when it started, and every file that moved under
+ * the suite while it ran.
  *
  * Takes `tree-drift.js`'s three results as plain data, so the record can be
  * asserted without a suite run to produce it.
@@ -506,9 +505,6 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {import("./tree-drift.js").Snapshot} after
  * @param {ReturnType<typeof import("./tree-drift.js").drift>} drifted
  * @param {object} [run]
- * @param {{path: string, sessionId: string, dead?: boolean}[]|null} [run.held]
- *   The three fields this reads off `tree-drift.js`'s held-file rows, rather
- *   than the whole row, so a caller can hand it a record it built itself.
  * @param {Scope|null} [run.scope]
  * @param {string} [run.suite]
  * @param {number|null} [run.startedAtMs] `Date.now()` as the run began. Omitted or
@@ -526,7 +522,7 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {number|null} [run.endedAtMs] `Date.now()` as the run ended. Falls back to
  *   now, which is only correct for a one-shot run.
  * @param {boolean} [run.isolated] Whether this run read a frozen `--isolated`
- *   worktree rather than the shared tree (mantahostels#2187). Written on every run, never
+ *   worktree rather than the working tree (mantahostels#2187). Written on every run, never
  *   omitted: unlike the fields above this is always known by the caller, so
  *   there is no unknown case for absence to mean. A marker written before
  *   this field existed carries neither it nor `treeAtEnd`, and a reader must
@@ -556,7 +552,6 @@ function markerFrom(
 	after,
 	drifted,
 	{
-		held = null,
 		scope = null,
 		suite = DEFAULT_SUITE,
 		startedAtMs = null,
@@ -632,16 +627,10 @@ function markerFrom(
 		...(argv ? { argv } : {}),
 		...attested,
 		...(slowest?.length ? { slowest } : {}),
-		foreign: [
-			...(held ?? []).map((e) => ({
-				path: e.path,
-				why: `held by ${e.sessionId}${e.dead ? " — GONE" : ""}, dirty before this run began`,
-			})),
-			...(drifted?.moved ?? []).map((e) => ({
-				path: e.path,
-				why: `${e.kind} while the suite ran`,
-			})),
-		],
+		foreign: (drifted?.moved ?? []).map((e) => ({
+			path: e.path,
+			why: `${e.kind} while the suite ran`,
+		})),
 	};
 }
 
@@ -735,12 +724,12 @@ function timedFields(startedAtMs, elapsedMs) {
 }
 
 /**
- * A run nothing can be said against: no uncommitted tracked file at start, no
- * file another session held, nothing moving while it ran.
+ * A run nothing can be said against: no uncommitted tracked file at start and
+ * nothing moving while it ran.
  *
  * `dirtyAtStart` counts the session's OWN work in progress too, and that is
  * deliberate — the suite read those bytes, and they are not the ones being
- * pushed. Attribution is only possible for `foreign`, so the warning counts
+ * pushed. `foreign` names the files that moved mid-run, so the warning counts
  * those separately from the rest.
  */
 /** @param {Marker} m */
@@ -2121,7 +2110,7 @@ function formatFilteredRun(scope) {
 function buildDirtyReason(marker) {
 	const foreign = marker.foreign || [];
 	if (foreign.length > 0)
-		return `read ${foreign.length} file(s) another session held`;
+		return `read ${foreign.length} file(s) that moved while it ran`;
 	if (marker.startStateUnknown)
 		return "began over a tree git could not read, so cleanliness is unknown";
 	if (marker.headMovedDuringRun) return "ran while HEAD moved under it";

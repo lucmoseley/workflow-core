@@ -1514,7 +1514,7 @@ function checkStagedRefusal(root, checkStaged) {
 	const named = `init-adopter: check_staged "${command}" (${from})`;
 	try {
 		if (isLintStagedCommand(root, command))
-			return `${named} runs lint-staged, which hides each partly staged file's unstaged hunks with git restore --worktree for its run, removing a neighbour's uncommitted edits in a shared tree (#2583). Declare instead --command check_staged='${BIOME_STAGED_COMMAND}', or a command of your own that reads the index's bytes, not the worktree's.\n`;
+			return `${named} runs lint-staged, which hides each partly staged file's unstaged hunks with git restore --worktree for its run, taking uncommitted edits off disk while it runs (#2583). Declare instead --command check_staged='${BIOME_STAGED_COMMAND}', or a command of your own that reads the index's bytes, not the worktree's.\n`;
 		const biome = classifyCheckStaged(root, command, {
 			inferred: kind === "inferred",
 		});

@@ -1,16 +1,16 @@
 /*
  * tree-drift.js — did the working tree change while something else was running?
  *
- * The shared worktree is repo-global, so a session running the suite is reading
- * files its neighbours are still writing. On 12 August 2026 that produced mantahostels#273:
- * three sessions editing at once, and one session's `npm run test` importing
- * another's half-written `check-superseded-values.js` and a shell lib.
- * The suite went red with a different set of failures each run and green on the
- * re-run.
+ * A suite reads the files on disk as it imports them, so a file saved mid-run —
+ * by the session itself or by a subagent sharing its worktree — reaches the
+ * run half-written. On 12 August 2026 that produced mantahostels#273: one
+ * `npm run test` importing a half-written `check-superseded-values.js` and a
+ * shell lib. The suite went red with a different set of failures each run and
+ * green on the re-run.
  *
  * `drift` returns what moved; the caller says what that means. Nothing here
- * fails a run — a tree that changes mid-run is normal here, and a gate on it
- * would block the parallel work it describes.
+ * fails a run — a tree that changes mid-run is normal, and a gate on it would
+ * block the work it describes.
  *
  * UNTRACKED PATHS RIDE BESIDE `files`, NOT IN IT, and only `neighbourDirty`
  * reads them (mantahostels#392, which also holds the figures). Not in `files` because
@@ -19,19 +19,16 @@
  * altogether: every one is gitignored, so `git status` never listed them.
  *
  * `drift` SEES A WINDOW, NOT A STATE. Comparing two snapshots catches a file
- * written *during* the run and nothing else — a neighbour who saved a
- * half-finished file before the run began and then sat still breaks the suite
- * just as thoroughly and leaves no drift to find.
+ * written *during* the run and nothing else — a half-finished file saved
+ * before the run began breaks the suite just as thoroughly and leaves no drift
+ * to find.
  *
- * `neighbourDirty` covers that from the other side (mantahostels#291): who holds a file is
- * what the arbiter's claims say, and they reach `scripts/` as well as the docs
- * tree — a detect-only tier (mantahostels#287, mantahostels#295), so they cover where the culprits
- * above lived.
- *
- * Three things still get past it: a file dirty under NO CLAIM at all — product
- * code outside those tiers, and any Bash-route write, which mints no claim
- * (mantahostels#364); a dead holder's claim older than DEAD_CLAIM_MAX_AGE_MS, dropped
- * deliberately below; and a lock too corrupt to name its path.
+ * `neighbourDirty` names the dirty files another session's claim covers, for
+ * check-guard-registry.js's anchor stand-down (mantahostels#2636). Past it: a
+ * file dirty under NO CLAIM at all, and any Bash-route write, which mints no
+ * claim (mantahostels#364); a dead holder's claim older than
+ * DEAD_CLAIM_MAX_AGE_MS, dropped deliberately below; and a lock too corrupt to
+ * name its path.
  */
 
 const crypto = require("node:crypto");
@@ -136,7 +133,7 @@ function readFileHash(fs, file) {
 
 /**
  * The tree as it stands: HEAD, plus a hash per dirty tracked file. Hashing only
- * the dirty set keeps this cheap — a clean file that a neighbour edits mid-run
+ * the dirty set keeps this cheap — a clean file edited mid-run
  * becomes dirty, so it shows up in the later snapshot and is caught as an add.
  *
  * Returns null where git cannot answer at all, which the caller reads as "no
@@ -172,10 +169,10 @@ function readTreeSnapshot(root, { fs = nodeFs } = {}) {
 /**
  * What moved between two snapshots. `changed` names a file whose content
  * differs, `appeared` one that became dirty during the window, `settled` one
- * that stopped being dirty — a neighbour committing or reverting mid-run.
+ * that stopped being dirty — a commit or a revert mid-run.
  *
- * `headMoved` is reported even with no file movement: a neighbour's
- * `git pull --ff-only` rewrites tracked files that were clean and stay clean, so
+ * `headMoved` is reported even with no file movement: a merge or a
+ * checkout mid-run rewrites tracked files that were clean and stay clean, so
  * they enter neither snapshot's dirty set.
  *
  * @param {Snapshot|null} before
@@ -208,11 +205,11 @@ function format(drifted, limit = NAMED_PATHS) {
 	const lines = [
 		"",
 		"⚠  THE WORKING TREE CHANGED WHILE THIS SUITE RAN.",
-		"   Any failure above may be a parallel session's half-written file rather",
-		"   than your own breakage — that is mantahostels#273. Re-run once the tree is still.",
+		"   Any failure above may be a file read half-written rather than a",
+		"   breakage in the code — that is mantahostels#273. Re-run once the tree is still.",
 	];
 	if (drifted.headMoved)
-		lines.push("   HEAD moved: a neighbour committed or pulled mid-run.");
+		lines.push("   HEAD moved: a commit, merge or checkout landed mid-run.");
 	for (const entry of drifted.moved.slice(0, limit))
 		lines.push(`   ${entry.kind.padEnd(8)} ${entry.path}`);
 	if (drifted.moved.length > limit)
@@ -222,7 +219,7 @@ function format(drifted, limit = NAMED_PATHS) {
 }
 
 /**
- * How long after its holder died a claim still explains a broken run (mantahostels#392).
+ * How long after its holder died a claim still counts (mantahostels#392).
  *
  * A lock has no age-prune of its own — it sits until the next claimant of that
  * path breaks it — so without a bound an abandoned dirty file would nag for ever.
@@ -248,10 +245,8 @@ const DEAD_CLAIM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
  * UNTRACKED PATHS COUNT (mantahostels#392). A half-written NEW module is exactly the case
  * mantahostels#291 describes, and it is `??` rather than dirty until its first commit.
  *
- * A DEAD HOLDER STILL COUNTS, up to DEAD_CLAIM_MAX_AGE_MS. The session being
- * gone does not make the file whole — it breaks your run just the same, and it
- * is still not your breakage. What changes is the advice, so the entry carries
- * `dead` for the formatter to act on: there is nobody left to wait for.
+ * A DEAD HOLDER STILL COUNTS, up to DEAD_CLAIM_MAX_AGE_MS: the session being
+ * gone does not make the file whole. The entry carries `dead`.
  *
  * A dead claim carrying no readable `claimedAt` is REPORTED, not skipped: an
  * absent field means not-observed, never false (`arbiter-store.js`'s header).
@@ -323,89 +318,19 @@ function staleBeyondUse(lock, now) {
 }
 
 /**
- * As `format`, for the state that was already there when the run began.
- *
- * `nameFor` resolves a session id to the name a reader can act on — a raw
- * UUID names nothing a session can message or ask ListAgents about. Defaults
- * to the identity function so a caller that reads straight from the claim
- * store without the registry still gets a value, never a throw.
- *
- * @param {HeldEntry[]|null} held
- * @param {number} [limit]
- * @param {(sessionId: string) => string} [nameFor]
- */
-function formatNeighbourDirty(held, limit = NAMED_PATHS, nameFor = (id) => id) {
-	if (!held) return null;
-	const anyDead = held.some((e) => e.dead);
-	const lines = [
-		"",
-		"⚠  UNCOMMITTED WORK THAT IS NOT YOURS WAS ALREADY IN THE TREE AT START.",
-		"   These files were dirty before this run began and are claimed by another",
-		"   session, so a failure above may be their half-written code rather than",
-		"   your own breakage — that is mantahostels#291.",
-	];
-	if (held.some((e) => !e.dead))
-		lines.push("   Re-run once a live holder releases.");
-	if (anyDead)
-		lines.push(
-			"   A holder marked GONE will never release: commit or revert the file.",
-		);
-	for (const entry of held.slice(0, limit))
-		lines.push(
-			`   ${entry.path}  held by ${nameFor(entry.sessionId)}${entry.pid ? ` (pid ${entry.pid})` : ""}${entry.dead ? " — GONE" : ""}`,
-		);
-	if (held.length > limit) lines.push(`   … and ${held.length - limit} more`);
-	lines.push("");
-	return lines.join("\n");
-}
-
-/**
- * `neighbourDirty` against the live claim store, for a runner that has just
- * snapshotted the tree.
- *
- * Read at the START of a run, not the end: a neighbour who releases mid-run
- * still handed this run the half-written file it imported, so their claim at the
- * start is the state that explains a failure.
- *
- * The catch is what keeps a broken store from costing a run anything, and it
- * guards the LOAD as much as the call: `listLocks` swallows its own read errors
- * and returns null, so an unreadable store never throws. What throws is the
- * module failing to resolve or blowing up on evaluation, which is why the load
- * sits inside the try rather than in a default argument.
- *
- * `loadStore` is injectable so the catch is reachable without mocking the module
- * registry, an unreachable branch not being countable as covered (AGENTS.md).
- *
- * @param {Snapshot|null} snap
- * @param {() => {listLocks: () => import("./arbiter-store.js").ListedLock[]|null}} [loadStore]
- */
-function fromArbiter(snap, loadStore = () => require("./arbiter-store.js")) {
-	try {
-		const store = loadStore();
-		return neighbourDirty(
-			snap,
-			store.listLocks(),
-			process.env.CLAUDE_CODE_SESSION_ID || "",
-		);
-	} catch {
-		return null;
-	}
-}
-
-/**
  * The tracked tree's identity as a run FINISHES (mantahostels#2187) — HEAD's own tree
  * where nothing tracked is dirty, or the tree a `git stash create` would
  * commit where something is. Taken in the RUN'S OWN worktree: for an
- * `--isolated` run that is the frozen checkout, for a shared-tree run the
- * canonical one.
+ * `--isolated` run that is the frozen checkout, for any other run the
+ * session's own.
  *
  * The dirty tree is built on a PRIVATE COPY of the index, never `.git/index`
- * itself (#2104): `stash create` takes `index.lock`, so in the shared checkout
- * any neighbour's git holding it at teardown left the marker with no tree.
+ * itself (#2104): `stash create` takes `index.lock`, so any git holding it at
+ * teardown — a commit under way in the same tree — left the marker with no tree.
  * `add -u` then `write-tree` on the copy gives the tree `stash create` would —
  * both stage every tracked path's working-tree content over the index.
- * `--no-optional-locks` keeps `status` from refreshing the shared index too.
- * Under a neighbour's lock the copy is the index before their write, which
+ * `--no-optional-locks` keeps `status` from refreshing the real index too.
+ * Under another git's lock the copy is the index before its write, which
  * `add -u` restages from the working tree anyway.
  *
  * It carries only TRACKED changes, which is what a tree's identity is a hash
@@ -444,18 +369,18 @@ function endOfRunTreeIdentity(root) {
  * @returns {string}
  */
 function privateIndexTree(root) {
-	const shared = path.resolve(
+	const index = path.resolve(
 		root,
 		git(root, ["rev-parse", "--git-path", "index"]).trim(),
 	);
 	const dir = nodeFs.mkdtempSync(path.join(os.tmpdir(), "tree-at-end-"));
 	try {
 		const copy = path.join(dir, "index");
-		nodeFs.copyFileSync(shared, copy);
+		nodeFs.copyFileSync(index, copy);
 		// git trusts an entry's cached stat only where the file is older than
 		// the index itself; a copy stamped now would trust a same-size edit
-		// made just before the shared index was written, and miss it.
-		const { atime, mtime } = nodeFs.statSync(shared);
+		// made just before the real index was written, and miss it.
+		const { atime, mtime } = nodeFs.statSync(index);
 		nodeFs.utimesSync(copy, atime, mtime);
 		const copyIndex = { GIT_INDEX_FILE: copy };
 		git(root, ["add", "-u"], copyIndex);
@@ -470,7 +395,5 @@ module.exports = {
 	drift,
 	format,
 	neighbourDirty,
-	formatNeighbourDirty,
-	fromArbiter,
 	endOfRunTreeIdentity,
 };

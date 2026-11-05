@@ -222,7 +222,7 @@ function tierDecision(prelude, notLive, globless) {
 /**
  * The tree whose paths are matched: the session's (#4242), where it is a
  * linked worktree of the root's repository, since the harness keeps
- * CLAUDE_PROJECT_DIR on the shared tree (#2386, spec #1612 §Detection
+ * CLAUDE_PROJECT_DIR on the main checkout (#2386, spec #1612 §Detection
  * moments); else the root.
  * @param {TierContext} ctx
  * @returns {string}

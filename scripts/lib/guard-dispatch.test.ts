@@ -864,7 +864,7 @@ describe("the entry's --only argument", () => {
 	it("runs the named core alone, and every core without it", () => {
 		fragment("killed-background-job");
 		const said = readText("killed-background-job");
-		expect(entry(["--only", "guard-stale-script"])).toBe("");
+		expect(entry(["--only", "guard-scratch-git"])).toBe("");
 		expect(JSON.parse(entry(["--only", "guard-bg-job"]))).toEqual({
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
@@ -878,7 +878,7 @@ describe("the entry's --only argument", () => {
 	});
 
 	it("refuses an argument it does not know, and runs nothing for a core name no row carries, logged", () => {
-		const r = runInProcess(Entry, ["--other", "guard-stale-script"], {
+		const r = runInProcess(Entry, ["--other", "guard-scratch-git"], {
 			cwd: dir,
 			env: { PATH: process.env.PATH },
 			stdin: "",
@@ -982,7 +982,6 @@ describe("the manifest", () => {
 			["guard-bg-job", "Bash", "open", "function"],
 			["inject-test-rules", "Write|Edit|NotebookEdit", "open", "function"],
 			["guard-citation-tracker", "Write|Edit", "open", "function"],
-			["guard-stale-script", "Bash", "open", "function"],
 			["guard-scratch-git", "Bash", "open", "function"],
 			[
 				"guard-job-dir-scratch",

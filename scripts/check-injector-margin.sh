@@ -11,8 +11,8 @@
 # INJECTION_CAP_BYTES is a union of every payload string the injector can emit,
 # larger than any real variant and comparable with none, and it PARSES the
 # injector rather than running it — deliberately, since `--against` reads the
-# script out of git and executing the working tree's copy would run whatever a
-# neighbour had half-saved. So it cannot report the limit that binds, which is
+# script out of git and executing the working tree's copy would run whatever was
+# half-saved there. So it cannot report the limit that binds, which is
 # per command. mantahostels#1915 ruled option (A) — run the STAGED blob, which is neither the
 # working tree nor a parse.
 #
@@ -81,7 +81,7 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 # The index, not the working tree: git's pathspec-commit temporary index is
 # honoured through GIT_INDEX_FILE, so this reads what the commit contains and
-# never a parallel session's half-saved copy. `--tree` is the by-hand form, for
+# never a half-saved copy. `--tree` is the by-hand form, for
 # asking the question before staging anything.
 #
 # NO `HEAD:` FALLBACK (mantahostels#1915). The gate's grep names a STAGED DELETION too, where

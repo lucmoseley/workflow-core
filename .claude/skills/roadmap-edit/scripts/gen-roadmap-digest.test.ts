@@ -4,9 +4,7 @@
  * dangerous failure was writing nothing while exiting 0, so most of what follows
  * pins down when it is allowed to produce no file.
  *
- * No ticket found for the destination rule: its first commit names none. The
- * claim cases follow mantahostels#103's ruling that the script abort on a held
- * digest.
+ * No ticket found for the destination rule: its first commit names none.
  *
  * Spawned through roadmap-fixture's `run` over a fake roadmap in a temp
  * directory, so the real roadmap is never read and the real digest never
@@ -208,14 +206,14 @@ describe("large roadmap compaction", () => {
 
 describe("the file claim a script takes for itself (mantahostels#99's signal 3)", () => {
 	// This script is invisible to the PreToolUse guard, which only sees
-	// Write/Edit/NotebookEdit, so it takes the claim itself. mantahostels#103 ruled it must
-	// ABORT on a held file rather than record and carry on.
+	// Write/Edit/NotebookEdit, so it takes the claim itself, warned like a
+	// write when a live neighbour holds the file (#4249).
 	const arbiterScript = path.resolve(
 		SCRIPTS_DIR,
 		"../../../../scripts/session-arbiter.js",
 	);
 
-	it("aborts without writing when another live session holds the digest, naming the holder", () => {
+	it("writes the digest, warning of the live session that holds it too", () => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "digest-claim-"));
 		const repo = fs.mkdtempSync(path.join(os.tmpdir(), "digest-repo-"));
 		fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
@@ -253,9 +251,9 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 			[fixture, "--out", out],
 			{ env, cwd: repo },
 		);
-		expect(r.status).toBe(1);
-		expect(`${r.stdout}${r.stderr}`).toContain("holder");
-		expect(fs.existsSync(out)).toBe(false);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain("is also held by session holder");
+		expect(fs.existsSync(out)).toBe(true);
 
 		fs.rmSync(home, { recursive: true, force: true });
 		fs.rmSync(repo, { recursive: true, force: true });

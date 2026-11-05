@@ -57,8 +57,8 @@ const keysAfterFacade = (file: string) =>
 	) as string[];
 
 describe("every family module loads as the entry point", () => {
-	it("finds all eighteen — the fifteen families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
-		expect(families.length).toBe(18);
+	it("finds all seventeen — the fourteen families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
+		expect(families.length).toBe(17);
 	});
 
 	for (const file of families) {

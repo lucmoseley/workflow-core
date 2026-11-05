@@ -42,17 +42,14 @@
  *
  * TWO LIMITS, BOTH ACCEPTED (mantahostels#2349):
  *
- *   1. IT READS THE WHOLE TREE, NOT THIS SESSION'S OWN WRITES. A neighbour's
- *      stray is named to whoever next runs this, unattributed, and there is
- *      nothing to attribute with: the breach route is a Bash redirect, which
- *      records no author.
+ *   1. IT READS THE WHOLE TREE, NOT THIS SESSION'S OWN WRITES. A stray is
+ *      named unattributed, and there is nothing to attribute with: the breach
+ *      route is a Bash redirect, which records no author.
  *   2. IT REACHES A LATER RUN, NOT THE SESSION THAT STRAYED. By the time a tree
  *      state exists that session's turn is over.
  *
- * A THIRD, FOUND AT REVIEW (mantahostels#2349): there is no `inSharedTree()` gate, so a run
- * inside a throwaway worktree is told about that worktree's own untracked paths
- * and never the shared tree's. Deliberate — scratch dropped in a
- * worktree is just as stray — but the count will not match a neighbour's.
+ * A run inside a linked worktree is told about that worktree's own untracked
+ * paths and never the main checkout's (mantahostels#2349).
  *
  * DEGRADES TO SILENCE, NEVER TO "TIDY". A `null` from `readUntrackedEntries` is
  * "git would not answer", so the run SKIPs rather than reporting all-clear over
@@ -394,7 +391,7 @@ runCheck({
 				"  moved, deleted or committed, and this sweep has no way to do any of\n" +
 				"  those. A path that belongs in a commit gets committed; the rest is\n" +
 				"  scratch written to the wrong place, and `rm` is the remedy.\n" +
-				"\n  It reads the whole tree, so a neighbour's stray is named here too.\n" +
+				"\n  It reads the whole tree, so a stray this session did not write is named too.\n" +
 				"  It re-reports on every run while a path is still there, and it runs\n" +
 				"  only when asked, so a report nobody ran named nothing: an unrun\n" +
 				"  report is not a clean tree.\n",

@@ -273,9 +273,8 @@ category is empty rather than omitting it.
 **150 net words per file** (§2) gates only the fresh reader. **50 net words,
 session-wide** is what `scripts/concision-backstop.sh` (`THRESHOLD`) uses to
 demand a pass at all — so a change can be audited by the backstop and never
-reach a subagent. The backstop's figure spans the whole shared working tree, so
-it counts a neighbour's uncommitted files; step 1's counts only the paths you
-name. ⚠ The 150-per-file floor was never measured.
+reach a subagent. The backstop's figure spans every file this session wrote;
+step 1's counts only the paths you name. ⚠ The 150-per-file floor was never measured.
 
 ## Criteria
 

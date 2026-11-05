@@ -223,7 +223,6 @@ const { gates } = JSON.parse(
 const GATE_SOURCES: Record<string, string[]> = {
 	branch: [".husky/pre-commit"],
 	"check-staged-biome": ["scripts/lib/infer-commands.js"],
-	"stale-write-back": ["scripts/stale-write-back-gate.sh"],
 	"review-hold": ["scripts/review-hold-gate.sh"],
 	"roadmap-pair": ["scripts/check-roadmap-pair.js"],
 	"roadmap-valid": ["scripts/check-roadmap-valid.js"],

@@ -875,21 +875,6 @@ describe("markerFrom", () => {
 		);
 	});
 
-	it("names a neighbour's claimed file, and says when its holder is gone", () => {
-		const m = markerFrom(null, after, null, {
-			held: [
-				{ path: "docs/x.md", sessionId: "sess-1", dead: false },
-				{ path: "scripts/y.js", sessionId: "sess-2", dead: true },
-			],
-		});
-
-		expect(m.foreign[0]).toEqual({
-			path: "docs/x.md",
-			why: "held by sess-1, dirty before this run began",
-		});
-		expect(m.foreign[1].why).toContain("GONE");
-	});
-
 	it("names a file that moved under the suite, and a HEAD that moved with it", () => {
 		const m = markerFrom(null, after, {
 			headMoved: true,
@@ -1527,7 +1512,6 @@ describe("attesting a sha by tree (#189)", () => {
 		const after = { head: other, files: {} };
 		const make = (attestation: unknown) =>
 			markerFrom(before, after, null, {
-				held: [],
 				scope: fullScope(),
 				treeAtEnd: treeSha,
 				sessionId: null,
@@ -1621,7 +1605,7 @@ describe("attesting a sha by tree (#189)", () => {
 				base: git(dir, "rev-parse", "HEAD"),
 				dirtyAtStart: true,
 				dirtyCount: 2,
-				foreign: [{ path: "other.txt", why: "held by a neighbour" }],
+				foreign: [{ path: "other.txt", why: "changed while the suite ran" }],
 			}) as unknown as ReturnType<typeof markerOver>;
 		}
 

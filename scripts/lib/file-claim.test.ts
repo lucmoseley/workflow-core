@@ -32,6 +32,7 @@ import {
 } from "./arbiter-testkit";
 import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
+import { cutWorktree } from "./git-fixture";
 import { loadedCores, runCore, splitCheckout } from "./guard-core-testkit";
 import {
 	type Adapters,
@@ -960,11 +961,6 @@ describe("it hands over the claim rules before the mistake", () => {
 	 */
 	it.each([
 		["outside both tiers", () => path.join(sb.repo, "app/page.tsx"), true],
-		[
-			"in the sanctioned scratch directory",
-			() => path.join(sb.repo, ".claude/tmp/scratch.md"),
-			true,
-		],
 		["after the arbiter died", () => plainDoc(), false],
 	])("still says the note on a write %s", (_what, file, ok) => {
 		live(sb, "a");
@@ -1672,5 +1668,29 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	it("allows it where only the worktree's claim store holds the claim (#4274)", () => {
 		aliceHoldsIn(at.worktree);
 		expect(bobWrites()?.permissionDecision).toBeUndefined();
+	});
+
+	/* Cut where the checkout module cuts one, the host's store spells the
+	 * worktree's scratch `.claude/worktrees/…`, under the guarded `.claude/`
+	 * tier, so only the session-tree test keeps it unclaimed (#4275). */
+	const writeIn = (rel: string) => {
+		const nested = cutWorktree(at.main);
+		storeAt(at.main);
+		live(split, "bob");
+		return runCore(
+			"guard-file-claim",
+			writePayload(path.join(nested, rel), { session_id: "bob" }),
+			{ root: at.main, worktree: nested },
+		);
+	};
+
+	it("takes no claim on the worktree's own .claude/tmp/", () => {
+		expect(writeIn(".claude/tmp/scratch.md").output).toBeNull();
+		expect(store.listLocks()).toEqual([]);
+	});
+
+	it("takes the claim on the same worktree's doc", () => {
+		writeIn("docs/plain.md");
+		expect(store.listLocks()).toHaveLength(1);
 	});
 });
