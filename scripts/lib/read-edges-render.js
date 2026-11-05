@@ -203,11 +203,9 @@ function readCommitTree(root, only) {
  * `only` will carry, else the index, else the disk.
  *
  * @param {string} root
- * @param {boolean} index
- * @param {string[] | undefined} only
- * @param {string | undefined} at
+ * @param {{ index: boolean, only: string[] | undefined, at: string | undefined }} source
  */
-function readTreeFor(root, index, only, at) {
+function readTreeFor(root, { index, only, at }) {
 	if (at) return blobTree(root, readTreeBlobIds(root, at));
 	if (only) return readCommitTree(root, only);
 	if (index) return readIndexTree(root);
@@ -221,7 +219,7 @@ function readTreeFor(root, index, only, at) {
  *   `at`, rather than the disk; `sites` also finds each test's unseen reads
  */
 function render(root, { index = false, only, at, sites = false } = {}) {
-	const tree = readTreeFor(root, index, only, at);
+	const tree = readTreeFor(root, { index, only, at });
 	const read = new Set();
 	const { edges, anchored, tests, warnings, unseen } = buildManifest(
 		tree.tracked,

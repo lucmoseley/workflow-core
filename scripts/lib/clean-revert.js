@@ -37,7 +37,10 @@ const {
 	REGISTRY_ANCHORS,
 	buildMergedAnchors,
 } = require("./registry-anchors-merge.js");
+const { parseErrorText } = require("./caught.js");
 const { REGENERATED_FILES } = require("./regenerated-files.js");
+
+/** @typedef {import("./regenerated-files.js").Regenerated} Regenerated */
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
@@ -67,24 +70,29 @@ function gitOut(cwd, args) {
 /**
  * How the revert settles each path in `conflicted`: an anchor file's bytes,
  * its conflicted hunks keeping `onto`'s side, in `kept`; a regenerated file's
- * path in `regenerated`, rendered once the rest of the tree is settled. Null
+ * entry in `regenerated`, rendered once the rest of the tree is settled. Null
  * where a path is neither, an anchor's three versions do not all exist or its
- * result is not JSON, or `conflicted` is empty.
+ * result is not JSON, a regenerated file is gone from `onto`, or `conflicted`
+ * is empty.
  * @param {string} cwd
  * @param {{culprit: string, onto: string, side: string}} revert `side` the
  *   parent of `culprit` the revert restores
  * @param {string[]} conflicted
- * @returns {{kept: Map<string, string>, regenerated: string[]}|null}
+ * @returns {{kept: Map<string, string>, regenerated: Map<string, Regenerated>}|null}
  */
 function readSettledConflicts(cwd, { culprit, onto, side }, conflicted) {
 	if (conflicted.length === 0) return null;
 	/** @type {Map<string, string>} */
 	const kept = new Map();
-	/** @type {string[]} */
-	const regenerated = [];
+	/** @type {Map<string, Regenerated>} */
+	const regenerated = new Map();
 	for (const file of conflicted) {
-		if (REGENERATED_FILES.has(file)) {
-			regenerated.push(file);
+		const generated = REGENERATED_FILES.get(file);
+		if (generated) {
+			/* Deleted on `onto`, it is a delete conflict, which a render settles wrongly. */
+			if (gitOut(cwd, ["cat-file", "-e", `${onto}:${file}`]) === null)
+				return null;
+			regenerated.set(file, generated);
 			continue;
 		}
 		if (!ANCHOR_FILES.has(file)) return null;
@@ -107,18 +115,18 @@ function readSettledConflicts(cwd, { culprit, onto, side }, conflicted) {
 }
 
 /**
- * `file`'s bytes as its generator renders them on `tree`, or null where the
- * render fails.
+ * A regenerated file's bytes as its generator renders them on `tree`, else
+ * why the render failed.
  * @param {string} cwd
- * @param {string} file a key of REGENERATED_FILES
+ * @param {Regenerated} generated
  * @param {string} tree a commit or tree
- * @returns {string|null}
+ * @returns {{bytes: string} | {failed: string}}
  */
-function renderRegenerated(cwd, file, tree) {
+function renderRegenerated(cwd, generated, tree) {
 	try {
-		return REGENERATED_FILES.get(file)?.renderAt(cwd, tree) ?? null;
-	} catch {
-		return null;
+		return { bytes: generated.renderAt(cwd, tree) };
+	} catch (err) {
+		return { failed: parseErrorText(err) };
 	}
 }
 
@@ -189,11 +197,11 @@ function isRevertTree(cwd, { culprit, onto, side, tree }) {
 		differing
 			?.split("\n")
 			.filter(Boolean)
-			.every((file) => kept.has(file) || regenerated.includes(file)) &&
+			.every((file) => kept.has(file) || regenerated.has(file)) &&
 		[...kept].every(([file, bytes]) => readJudged(file) === bytes) &&
-		regenerated.every((file) => {
-			const bytes = renderRegenerated(cwd, file, tree);
-			return bytes !== null && readJudged(file) === bytes;
+		[...regenerated].every(([file, generated]) => {
+			const rendered = renderRegenerated(cwd, generated, tree);
+			return "bytes" in rendered && readJudged(file) === rendered.bytes;
 		})
 	);
 }

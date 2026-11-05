@@ -64,7 +64,6 @@ const {
 	readSettledConflicts,
 	renderRegenerated,
 } = require("./clean-revert.js");
-const { REGENERATED_FILES } = require("./regenerated-files.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
  * read as dead mid-suite. */
@@ -2488,17 +2487,20 @@ function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 		fs.writeFileSync(path.join(dir, file), bytes);
 		inTree(["add", "--", file]);
 	}
-	for (const file of regenerated) inTree(["checkout", "--ours", "--", file]);
-	if (regenerated.length > 0) inTree(["add", "--", ...regenerated]);
-	const tree = regenerated.length > 0 ? inTree(["write-tree"]).trim() : "";
-	for (const file of regenerated) {
-		const bytes = renderRegenerated(dir, file, tree);
-		if (bytes === null)
-			return {
-				failed: `${buildConflictFailure(stderr, conflicted)}; ${REGENERATED_FILES.get(file)?.generator} could not render ${file} on the revert's tree`,
-			};
-		fs.writeFileSync(path.join(dir, file), bytes);
-		inTree(["add", "--", file]);
+	const generatedPaths = [...regenerated.keys()];
+	if (generatedPaths.length > 0) {
+		inTree(["checkout", "--ours", "--", ...generatedPaths]);
+		inTree(["add", "--", ...generatedPaths]);
+		const tree = inTree(["write-tree"]).trim();
+		for (const [file, generated] of regenerated) {
+			const rendered = renderRegenerated(dir, generated, tree);
+			if ("failed" in rendered)
+				return {
+					failed: `${buildConflictFailure(stderr, conflicted)}; ${generated.generator} could not render ${file} on the revert's tree: ${parseFirstLine(rendered.failed)}`,
+				};
+			fs.writeFileSync(path.join(dir, file), rendered.bytes);
+			inTree(["add", "--", file]);
+		}
 	}
 	/* Every hunk kept: a culprit that touched only those files reverts to nothing. */
 	if (inTree(["diff", "--cached", "--name-only"]).trim() === "")
@@ -2508,8 +2510,8 @@ function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 			(kept.size > 0
 				? `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`
 				: "") +
-			(regenerated.length > 0
-				? `Conflicts in ${regenerated.join(", ")} regenerated on the revert's tree by ${regenerated.map((f) => REGENERATED_FILES.get(f)?.generator).join(", ")}.\n\n`
+			(regenerated.size > 0
+				? `Conflicts in ${generatedPaths.join(", ")} regenerated on the revert's tree by ${[...regenerated.values()].map((g) => g.generator).join(", ")}.\n\n`
 				: ""),
 	};
 }
