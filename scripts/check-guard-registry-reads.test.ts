@@ -432,6 +432,85 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 	});
 });
 
+describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
+	/* .husky/pre-commit's shape: it sources its shared shell lib from the repo
+	 * root, then runs gates whose libraries no rule of its own describes. */
+	const header = (runs: string) =>
+		[
+			"#!/usr/bin/env sh",
+			"# IMPLICIT:  runs every gate below and refuses the commit on a red.",
+			"# JUSTIFIED: fail-safe — the last local moment before work is shared.",
+			runs,
+			"# DEFEAT:    WFC_ALLOW=1 skips it, the limb in scripts/lib/revert.js.",
+			"",
+		].join("\n");
+	const stack = (runs: string) =>
+		build({
+			claude: region(
+				"- Roadmap commits stay valid. **Enforced** (#9): `scripts/check-valid.js` in `.husky/pre-commit` refuses an invalid one.",
+			),
+			files: {
+				".husky/pre-commit": `${header(runs)}. "\${ROOT:-.}"/scripts/lib/gate.sh\nnode "\${ROOT:-.}"/scripts/check-valid.js || exit "$?"\nnode "\${ROOT:-.}"/scripts/check-other.js || exit "$?"\n`,
+				"scripts/lib/gate.sh": "gate() { exit 1; }\n",
+				"scripts/check-valid.js": 'require("./lib/valid-lib.js");\n',
+				"scripts/lib/valid-lib.js": "module.exports = 1;\n",
+				"scripts/check-other.js": 'require("./lib/other-lib.js");\n',
+				"scripts/lib/other-lib.js": "module.exports = 1;\n",
+				"scripts/lib/revert.js": 'require("./revert-dep.js");\n',
+				"scripts/lib/revert-dep.js": "module.exports = 1;\n",
+			},
+		});
+	const declared =
+		"# RUNS:      gates — each program below is judged by its own row.";
+	const edit = (root: string, rel: string) =>
+		fs.writeFileSync(path.join(root, rel), "module.exports = 2;\n");
+	const staleRows = (root: string) =>
+		run(root)
+			.json.warnings.filter((w) => w.kind === "STALE-PROSE")
+			.map((w) => w.guard)
+			.sort();
+
+	it("follows no gate's libraries where the stack declares RUNS: gates", () => {
+		const root = stack(declared);
+		reviewIn(root);
+		edit(root, "scripts/lib/other-lib.js");
+		edit(root, "scripts/lib/valid-lib.js");
+
+		// check-valid.js carries its own row, so its rule is still re-read.
+		expect(staleRows(root)).toEqual(["scripts/check-valid.js"]);
+	});
+
+	it("still follows the gates of a stack that declares nothing, as a thin wrapper needs", () => {
+		const root = stack("#");
+		reviewIn(root);
+		edit(root, "scripts/lib/other-lib.js");
+
+		expect(staleRows(root)).toEqual([".husky/pre-commit"]);
+	});
+
+	it("hashes the shell lib the stack sources from the repo root", () => {
+		// The `lib/gate.sh` tail joined to .husky/ is nowhere; this file is the real one.
+		const root = stack(declared);
+		reviewIn(root);
+		fs.writeFileSync(
+			path.join(root, "scripts", "lib", "gate.sh"),
+			"gate() { exit 0; }\n",
+		);
+
+		expect(staleRows(root)).toEqual([".husky/pre-commit"]);
+	});
+
+	it("hashes a file its own header names, but not that file's libraries", () => {
+		const root = stack(declared);
+		reviewIn(root);
+		edit(root, "scripts/lib/revert-dep.js");
+		expect(staleRows(root)).toEqual([]);
+
+		edit(root, "scripts/lib/revert.js");
+		expect(staleRows(root)).toEqual([".husky/pre-commit"]);
+	});
+});
+
 describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	/*
 	 * `.claude/tmp/` is where docs/agents/guard-registry.md §Subagent dispatch sends every review

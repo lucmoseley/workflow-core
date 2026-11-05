@@ -1896,7 +1896,9 @@ const sourcedCache = new Map();
  */
 function parseSourcedBy(rel, text, base) {
 	const dir = path.dirname(rel);
-	const shell = parseSourcedLibs(text).map((lib) => path.join(dir, lib));
+	const shell = parseSourcedLibs(text).map((lib) =>
+		resolveSourced(base, dir, lib),
+	);
 	// Resolve first, then keep only lib/: `session-arbiter.js` reaches its store
 	// as `./lib/arbiter-store.js` but the store reaches the proc leaf as
 	// `./arbiter-proc.js`, already inside lib/, so the specifier alone cannot say.
@@ -1931,10 +1933,14 @@ function parseSourcedBy(rel, text, base) {
 			requiredGroup(m, 2, VAR_PATH_RE),
 		]);
 	}
-	const tails = [
-		...live(parseNodeRuns(text)).map((m) => m.value),
-		...live(parseNodeVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
-	];
+	const tails = runsGates(text)
+		? []
+		: [
+				...live(parseNodeRuns(text)).map((m) => m.value),
+				...live(parseNodeVars(text)).flatMap(
+					(m) => assigned.get(m.value) ?? [],
+				),
+			];
 	const run = tails.map((tail) => resolveRun(base, dir, tail)).filter(keptRun);
 	/* The dispatcher's kit loads its cores by manifest path, which no require
 	 * names (#2786). The manifest is the judged tree's and is hashed itself,
@@ -1944,6 +1950,47 @@ function parseSourcedBy(rel, text, base) {
 			? [MANIFEST_REL, ...readDispatchedCores(manifestAt(base))]
 			: [];
 	return [...shell, ...js, ...run, ...cores];
+}
+
+/*
+ * A gate stack's header line `RUNS: gates — <why>` (#4456). The programs such a
+ * file runs are independent gates, each judged by its own row where a rule
+ * describes it, so its digest follows what it sources and requires, plus the
+ * bytes alone of each scripts/ file its own header names, where its
+ * annotation's claims rest. Folding forty gates' closures into one row made it stale on
+ * nearly every merge, and its rules were re-anchored unread. Undeclared files
+ * still follow their run targets, as a thin wrapper's rules need (mantahostels#358).
+ */
+const RUNS_GATES_RE = /^\s*(?:#+|\*|\/\/)\s*RUNS:[ \t]*gates\s*[—:-]\s*\S/;
+const NAMED_SCRIPT_RE = /\bscripts\/[\w./-]+\.(?:js|sh)\b/g;
+
+/** @param {string} text */
+function runsGates(text) {
+	return parseHeaderLines(text).some((line) => RUNS_GATES_RE.test(line));
+}
+
+/** @param {string} text a gate stack's text: the scripts/ paths its header names */
+function headerNamed(text) {
+	if (!runsGates(text)) return [];
+	const named = parseHeaderLines(text).flatMap((line) =>
+		[...line.matchAll(NAMED_SCRIPT_RE)].map((m) => m[0]),
+	);
+	return [...new Set(named)].sort();
+}
+
+/* `. "$root/scripts/lib/x.sh"` from a .husky/ hook: the parser keeps only the
+ * `lib/x.sh` tail, so the guard's own directory gives .husky/lib/x.sh, which is
+ * nowhere, and the libs the hook really sources dropped out of its digest. */
+/**
+ * @param {string} base
+ * @param {string} dir
+ * @param {string} lib a `lib/<name>.sh` tail
+ */
+function resolveSourced(base, dir, lib) {
+	const sibling = path.join(dir, lib);
+	if (fs.existsSync(path.join(base, sibling))) return sibling;
+	const shared = path.join("scripts", lib);
+	return fs.existsSync(path.join(base, shared)) ? shared : sibling;
 }
 
 /** @param {string} p a run target, as a path from the tree's root */
@@ -1989,13 +2036,29 @@ function digestOf(rel, seen = new Set()) {
 	seen.add(rel);
 	try {
 		const bytes = fs.readFileSync(path.join(root, rel));
+		const text = bytes.toString("utf8");
 		const hash = crypto.createHash("sha256").update(bytes);
 		// Sorted, so the digest does not move when the source lines are reordered.
-		for (const lib of sourcedBy(rel, bytes.toString("utf8")).sort())
+		for (const lib of sourcedBy(rel, text).sort())
 			hash.update(`\0${lib}\0${digestOf(lib, seen) ?? ""}`);
+		for (const named of headerNamed(text)) {
+			const own = bytesOf(named);
+			if (own === null) continue;
+			seen.add(named);
+			hash.update(`\0${named}\0`).update(own);
+		}
 		return hash.digest("hex").slice(0, 16);
 	} catch {
 		return null; // absence is the existing BROKEN-CLAIM's business, not this one's
+	}
+}
+
+/** @param {string} rel @returns {Buffer | null} */
+function bytesOf(rel) {
+	try {
+		return fs.readFileSync(path.join(root, rel));
+	} catch {
+		return null;
 	}
 }
 
