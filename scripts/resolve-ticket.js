@@ -436,9 +436,8 @@ function readMapOrFail(issue, n, decision) {
 }
 
 /**
- * A `kind:ticket`'s comment with this session's autocompaction count appended,
- * the per-unit log the backstop report reads (#4410); any other issue's, or
- * one already carrying the line, as given.
+ * A `kind:ticket`'s comment with this session's autocompaction count
+ * appended; any other issue's, or one already carrying the line, as given.
  * @param {string} comment
  * @param {Issue} issue
  */

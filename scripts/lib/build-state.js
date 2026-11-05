@@ -4,8 +4,7 @@
  *
  * ONE FILE PER ISSUE, in the main checkout's `.claude/tmp/build-state/`, so a
  * successor session in another worktree finds it by the issue number alone,
- * without its predecessor's session id. The session writes the file itself;
- * `scripts/build-state.js` creates or resumes it and prints its path.
+ * without its predecessor's session id.
  * Rooted on `hookStoreRoot()`, so the hook and a session's own Bash call in a
  * linked worktree name one file.
  */

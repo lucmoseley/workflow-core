@@ -21,11 +21,10 @@
  * the window or with no line is counted nowhere.
  *
  * Bins: 0, 1, 2–3, 4–6, 7–10, 11+, the last two split at the backstop. The
- * spec's five are untraced (#4410 §Values); 0 is beside them as a baseline.
+ * spec's five are untraced (#4410 §Values).
  *
- * A report, run by `npm run status`: it raises no finding and gates nothing,
- * exit 0. SKIP where the tracker or git will not answer. It reads one comment
- * page per unit closed in the window, so it is among status's slower checks.
+ * A report: it raises no finding and gates nothing. SKIP where the tracker or
+ * git will not answer.
  */
 
 const { now, runCheck } = require("./lib/check");

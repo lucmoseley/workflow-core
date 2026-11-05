@@ -58,8 +58,8 @@ function recordCompactions(sid, keys) {
 
 /**
  * The size of `sid`'s set, read without writing: 0 where it never
- * autocompacted. RESIDUAL: an unreadable set reads as 0 too, `readSeen`
- * failing open, so its unit is logged as never having compacted.
+ * autocompacted. RESIDUAL: an unreadable set reads as 0 too, so its unit is
+ * logged as never having compacted.
  * @param {string} sid
  */
 function countCompactions(sid) {
@@ -68,8 +68,7 @@ function countCompactions(sid) {
 	).size;
 }
 
-/* The per-unit log line a close or a backstop hand-off carries (#4410), and
- * every reader of it. */
+/* The per-unit log line a close or a backstop hand-off carries (#4410). */
 const COMPACTIONS_MARKER = "Compactions";
 /** @param {number} count */
 const buildCompactionsLine = (count) => `**${COMPACTIONS_MARKER}:** ${count}`;
@@ -81,13 +80,12 @@ function buildCompactionSentence(count) {
 	return `This session has autocompacted ${times}.`;
 }
 
-/* The autocompaction count at which a build session hands off and ends: the
- * furthest count any source measured (#4380). `docs/agents/issue-tracker.md`'s
+/* The autocompaction count at which a build session hands off and ends (#4380).
+ * `docs/agents/issue-tracker.md`'s
  * size-line rule derives its 21-slice figure from it; move the two together. */
 const COMPACTION_BACKSTOP = 10;
 
 /**
- * What a session is told to do after an autocompaction (#4410).
  * @param {number} count
  * @param {{issue: number|null, stateFile: string|null}} unit the issue this
  *   session's claim holds, and its build state file where one exists
