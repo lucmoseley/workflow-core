@@ -230,12 +230,13 @@ function readRunning(seat, lookup, readAgents) {
  * Running sessions, each at its ledger row's spend and its chain share (#4369).
  * @param {string[]} sessionIds
  * @param {LedgerEntry[]} ledger
- * @param {LedgerEntry[]} settled the ledger, its chain members at their shares
+ * @param {LedgerEntry[]} chainPriced the ledger, its chain members at their
+ *   shares
  * @returns {RunningRun[]}
  */
-function priceRunning(sessionIds, ledger, settled) {
+function priceRunning(sessionIds, ledger, chainPriced) {
 	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
-	const share = new Map(settled.map((e) => [e.sessionId, e.costUsd]));
+	const share = new Map(chainPriced.map((e) => [e.sessionId, e.costUsd]));
 	return sessionIds.map((sessionId) => ({
 		sessionId,
 		spentUsd: spent.get(sessionId) ?? null,

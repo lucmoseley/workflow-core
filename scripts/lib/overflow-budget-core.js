@@ -19,9 +19,8 @@
  * holds Q, the cost table's `meanUsd` — read, never a constant (#2570). A running
  * session's ledger row is held, not settled, so a session counts once (#3695); a
  * resumed copy's spend there is its chain share, the remainder still read from
- * its own spend (#4369). One
- * whose row falls outside the basis holds Q alone: that spend came off another
- * cycle or is already in the reading.
+ * its own spend (#4369). One whose row falls outside the basis holds Q alone:
+ * that spend came off another cycle or is already in the reading.
  *
  *   headroom = credit − settled spend − Σ running reservations
  *   fit      = floor(headroom / Q), or 0 on an exhausted key

@@ -497,7 +497,12 @@ describe("a resumed copy's settled spend (#4208)", () => {
 			buildModelTurn(3_000_000, "r2"),
 		);
 		writeListing([{ id: "0000c001", sessionId: parent, state: "working" }]);
-		expect(budget()).toMatchObject({ running: 1, settledUsd: 12 });
+		/* the root held as before: spent 20 + remainder 7. */
+		expect(budget()).toMatchObject({
+			running: 1,
+			settledUsd: 12,
+			reservedUsd: 27,
+		});
 	});
 
 	it("takes a moved chain's off-key spend off once", () => {

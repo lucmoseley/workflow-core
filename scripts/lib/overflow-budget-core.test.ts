@@ -113,7 +113,9 @@ describe("reservations and fit", () => {
 		const b = budgetOf({
 			...base,
 			ledger: [row],
-			running: [{ sessionId: row.sessionId, spentUsd: row.costUsd }],
+			running: [
+				{ sessionId: row.sessionId, spentUsd: row.costUsd, shareUsd: 30 },
+			],
 		});
 		expect(b.reservedUsd).toBe(4);
 		expect(b.headroomUsd).toBe(196);
