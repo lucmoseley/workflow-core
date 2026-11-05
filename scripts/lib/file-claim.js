@@ -413,7 +413,7 @@ function decide(file, ctx) {
 	const rel = (
 		file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
 	).replace(/^\.\//, "");
-	/* Scratch never reaches the arbiter, so nothing it would log is said. */
+	/* Scratch skips the arbiter, so no arbiter-fault line is logged for it. */
 	if (isScratch(rel)) return null;
 	const answer = arbiterAnswer(file, ctx);
 	if ("decision" in answer) return answer.decision;
