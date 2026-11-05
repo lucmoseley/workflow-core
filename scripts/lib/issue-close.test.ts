@@ -65,7 +65,7 @@ const { buildHostPorts } = require("./issue-close-host.js") as {
 		) => { refusal: string } | { outOfBudget: true };
 	};
 };
-const { hostAdapters } = require("./guard-dispatch.js") as {
+const { hostAdapters } = require("./guard-host-ports.js") as {
 	hostAdapters: (root: string, log: (what: string) => void) => object;
 };
 

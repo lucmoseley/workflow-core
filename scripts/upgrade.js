@@ -37,7 +37,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { ghLabels } = require("./lib/core-owned-files.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { measurerFor } = require("./lib/core-context-cost.js");
@@ -55,7 +55,7 @@ function main(argv) {
 			"--dry-run": "boolean",
 		},
 	});
-	const root = flagValue(flags, "--root") ?? hostRoot();
+	const root = flagValue(flags, "--root") ?? worktreeRoot();
 	const pluginRoot =
 		flagValue(flags, "--plugin-root") ?? process.env.CLAUDE_PLUGIN_ROOT ?? root;
 	const result = upgrade({

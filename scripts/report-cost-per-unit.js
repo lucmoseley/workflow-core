@@ -60,7 +60,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
 const { gh, parseErrLine } = require("./lib/gh");
 const { commitsSince } = require("./lib/seat-utilisation");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { parseJsonlRow, readJsonl } = require("./lib/jsonl.js");
 const { takesLabel } = require("./lib/takes-label.js");
@@ -71,13 +71,11 @@ const CHILDREN_LABEL = takesLabel("children");
 /** How the series is spelled in output, and where it actually lives. */
 const SERIES_LABEL = "docs/data/cost-per-unit.jsonl";
 
-/* Resolved off the host root rather than the cwd (#1): a cwd-relative path run
- * from a throwaway worktree would `mkdirSync` a SECOND series there, report
- * success, and leave the cadence gate reading empty in that cwd for ever. The
- * series is host content — it lives under the host repo's docs/, not beside
- * this script — so `__dirname` would in a plugin install name the plugin cache
- * instead. */
-const SERIES = path.join(hostRoot(), ...SERIES_LABEL.split("/"));
+/* Tracked content, so resolved off the session's own tree (#4438), never the
+ * cwd or `__dirname` (#1): a cwd-relative path run from a subdirectory would
+ * `mkdirSync` a SECOND series there, and in a plugin install `__dirname` names
+ * the plugin cache. */
+const SERIES = path.join(worktreeRoot(), ...SERIES_LABEL.split("/"));
 
 /**
  * The standing monthly bill, in dollars. A CEILING with no headroom, set by the
