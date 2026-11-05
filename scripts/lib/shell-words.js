@@ -271,7 +271,7 @@ const INTERPRETER = /^(python|python[0-9].*|node|nodejs)$/;
  * `node scripts/foo.js -e "docs/x.md"`, neither of which runs an inline
  * program. A bare `-` reads as a flag, which is what `python3 - <<'PY'` needs.
  *
- * TWO MISSED WARNS IT COSTS, both the safe direction: a bundled short option
+ * TWO MISSES IT COSTS, each caller saying which way it errs: a bundled short option
  * (`python3 -uc '…'` is valid and reads as no inline flag), and a
  * separate-value flag before the inline one (`python3 -W ignore -c '…'` stops
  * at `ignore`).

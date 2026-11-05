@@ -13,6 +13,8 @@
  * (`WRITERS`); and an inline interpreter — `python3 -`, `node -e`, a
  * heredoc- or stdin-fed program — run from a directory in that tree, whose
  * targets live in another language's strings and cannot be read (#4469).
+ * That refusal is a guess that the program writes, taken because its way
+ * out — `cd` into the session's worktree and run it there — costs nothing.
  *
  * GITIGNORED STORES STAY WRITABLE: claims, markers, ledgers and scratch under
  * `.claude/` are what every session shares, and git ignores them.
@@ -22,7 +24,10 @@
  *    on the session's behalf, an inline interpreter run from outside the
  *    main checkout naming a path in it — or one it cannot resolve is not
  *    seen; so is a command run outside Claude Code, and an interpreter whose
- *    cwd the walk loses, recorded. The pre-commit limb holds a
+ *    cwd the walk loses, recorded; and an inline flag inlineInterp does not
+ *    read — bundled (`python3 -uc`) or behind a valued flag (`python3 -W
+ *    ignore -c`, `-W ignore -`) — so such a program is not refused (#4469).
+ *    The pre-commit limb holds a
  *    commit made by any route.
  *  - A `git` that cannot answer for the path or the upstream allows the
  *    write, recorded (mantahostels#103 §6).
@@ -123,10 +128,10 @@ function refusedPath(p, ctx, dir = false) {
 
 /**
  * Whether an interpreter's words read its program from stdin: a bare `-`
- * before the first word that is no flag. Piped or heredoc-fed alike.
+ * before the first word that is no flag.
  * @param {string[]} args
  */
-function stdinProgram(args) {
+function isStdinProgram(args) {
 	for (const w of args) {
 		if (w === "-") return true;
 		if (!w.startsWith("-")) return false;
@@ -147,7 +152,7 @@ function interpreterDir(cmd, spans, ctx) {
 	const prog = path.basename(words[0] ?? "");
 	if (!INTERPRETER.test(prog)) return null;
 	const args = words.slice(1);
-	if (!inlineInterp(prog, args, cmd.redirects) && !stdinProgram(args))
+	if (!inlineInterp(prog, args, cmd.redirects) && !isStdinProgram(args))
 		return null;
 	if (!cmd.cwd) {
 		ctx.log(`the walk lost the cwd of an inline ${prog} — run unchecked`);
@@ -157,7 +162,7 @@ function interpreterDir(cmd, spans, ctx) {
 }
 
 /**
- * @typedef {{ rel: string } | { git: string } | { interp: string, rel: string }}
+ * @typedef {{ rel: string } | { git: string } | { interp: string, dir: string }}
  *   Write
  */
 
@@ -184,7 +189,7 @@ function findWrite(subject, ctx) {
 			}
 			if (found) return;
 			const dir = interpreterDir(cmd, parsed.spans, ctx);
-			if (dir !== null) found = { interp: cmd.segment, rel: dir };
+			if (dir !== null) found = { interp: cmd.segment, dir };
 		},
 		{ ...ctx, bareRedirects: true },
 	);
@@ -226,7 +231,7 @@ function route(w, ctx) {
  */
 function describe(w, subject) {
 	if ("interp" in w) {
-		const at = w.rel === "." ? "" : `, at ${w.rel}`;
+		const at = w.dir === "." ? "" : `, at ${w.dir}`;
 		return {
 			what: `This runs an inline program in the main checkout${at}, and what it writes cannot be read off the command`,
 			cmd: w.interp,
