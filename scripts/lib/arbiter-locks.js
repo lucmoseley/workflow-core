@@ -1,8 +1,8 @@
 /*
  * arbiter-locks.js — the claim registry — who holds a file, and the two exits from a claim.
  *
- * Taking a claim (`acquire`, `takeSubjectLock`), leaving one (`release`,
- * `forceRelease`), breaking a stale or corrupt one, and the debris a
+ * Taking a claim (`acquire`, `takeSubjectLock`), leaving one (`release`),
+ * breaking a stale or corrupt one, and the debris a
  * process killed mid-break leaves behind.
  *
  * This file is in the require cycle, so it fills `module.exports` in place and
@@ -14,7 +14,6 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const regions = require("./doc-map-regions.js");
-const { isListedLive } = require("./agent-liveness.js");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const breaks = require("./arbiter-breaks.js");
@@ -921,8 +920,7 @@ function release(rel, me, { generator = false, notMine = false } = {}) {
  * needs the two to interleave on one region within one run.
  *
  * `ownHunks` is release()'s alone, and lets a dirty whole file through where
- * the holder's own hunks have landed — release's header. forceRelease leaves it
- * off: a forcing session is not the holder, and has no hunks of its own here.
+ * the holder's own hunks have landed — release's header.
  * @param {string} subject
  * @param {LockRecord} existing
  * @param {boolean} [generator]
@@ -970,94 +968,6 @@ function dropClean(
 	return outcome === "dropped"
 		? { verdict: "dropped", lock: existing, content, own }
 		: { verdict: "contended", lock: moved || existing, content };
-}
-
-/**
- * Drop `rel`'s claim on behalf of a session that is not its holder, and only
- * where an oracle says the holder is not live (mantahostels#411, ruled at mantahostels#319).
- *
- * THE ESCAPE FOR A STRANDED CLAIM. A pooled host outlives its job, so the
- * holder's process is alive and `release` — identity-gated — refuses every
- * caller for ever (mantahostels#254).
- *
- * `liveness` is called at most once and only where it decides something, and is
- * injected rather than called here so the store keeps making no subprocess
- * calls of its own.
- *
- * AN UNREADABLE ORACLE REFUSES, never warning and never falling back to
- * releasing (mantahostels#319): a stranded claim costs time, a broken lock
- * costs work.
- *
- * NEVER THE SESSIONS REGISTRY, AND NEVER `core.liveOrResumed` — #259's one
- * spelling of holder liveness, which this deliberately does not read (#262).
- * That spelling answers "may I write this file", where a running host means
- * hands off; this asks "has the session ended though its host runs on". All the
- * registry proves is that the recorded process is running, which is TRUE of the
- * stranded case above. Unifying them was built and measured at #262: the escape
- * refused the case it exists for.
- *
- * THE RESIDUAL IS A LIVE CLAIM BROKEN. Resting on `claude agents --json` alone
- * means a session it lists late, or not at all, has no second reader to save
- * it — the registry would have known, and is not asked. A finished session
- * stays resumable (#268; docs/environment.md §5), so a holder broken
- * on `terminal` can come back to a file it no longer holds.
- *
- * Verdicts: "forced" (with `record`, the break written), plus every refusal
- * `release` makes — "unreadable", "not-held", "dirty", "uncheckable",
- * "contended" — and three of its own: "holder-live", "oracle-unreadable" (with
- * `why`) and "holder-unnamed". Our OWN claim is delegated to release()
- * unchanged, oracle uncalled.
- *
- * The pin is NOT dropped. recordBreak holds it open for a week on mantahostels#349's terms,
- * so the version the holder last wrote stays recoverable.
- * `generator` is release's own flag, passed straight through to the same waiver
- * on both branches (mantahostels#2428).
- * @param {string} rel
- * @param {Identity} me
- * @param {LivenessOracle} liveness
- * @param {{generator?: boolean}} [opts]
- * @returns {ClaimResult}
- */
-function forceRelease(rel, me, liveness, { generator = false } = {}) {
-	let existing;
-	try {
-		existing = core.readRecord(core.paths.lock(rel));
-	} catch (e) {
-		core.logError(`force-release ${rel}`, e);
-		return { verdict: "unreadable", lock: null };
-	}
-	if (!existing) return { verdict: "not-held", lock: null };
-	if (me.sessionId && existing.sessionId === me.sessionId)
-		return release(rel, me, { generator });
-
-	// A lock naming no holder cannot be asked about, and calling it dead because
-	// the oracle does not list `undefined` is exactly the false-dead mantahostels#322 forbids.
-	if (!existing.sessionId) return { verdict: "holder-unnamed", lock: existing };
-
-	const { ids, terminal, why } = liveness();
-	if (!ids) return { verdict: "oracle-unreadable", lock: existing, why };
-	// LISTED IS NOT LIVE (#268). A background session that has finished stays in
-	// `ids` until the reaper takes it. An oracle offering no `terminal` set
-	// refuses as before.
-	if (isListedLive(existing.sessionId, ids, terminal))
-		return { verdict: "holder-live", lock: existing };
-
-	// The bytes dropClean compares are the HOLDER's, and here the reader is not the
-	// holder.
-	const dropped = dropClean(rel, existing, generator);
-	if (dropped.verdict !== "dropped") return dropped;
-
-	// After the drop, as breakStale records: the path is free either way, and a
-	// record that will not write must not wedge it (mantahostels#174).
-	return {
-		verdict: "forced",
-		lock: existing,
-		content: dropped.content,
-		// The forcing session is by definition not the holder, so it may hold an
-		// observation of its own — and the claim it was keyed against has just gone.
-		observed: observations.dropObservation(rel, me.sessionId),
-		record: breaks.recordBreak(rel, existing, me),
-	};
 }
 
 /**
@@ -1362,7 +1272,6 @@ function readOwnLockOnFile(rel, sessionId) {
 exports.acquire = acquire;
 exports.breakStale = breakStale;
 exports.dropIfUnchanged = dropIfUnchanged;
-exports.forceRelease = forceRelease;
 exports.readHeldBy = readHeldBy;
 exports.readHeldClean = readHeldClean;
 exports.listLocks = listLocks;

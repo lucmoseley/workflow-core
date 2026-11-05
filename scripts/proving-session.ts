@@ -88,8 +88,8 @@ export class Session {
 	}
 
 	/**
-	 * The arbiter's own CLI, as a script or a person invokes it — the path the
-	 * `debt` subcommands live on, which no hook payload reaches.
+	 * The arbiter's own CLI, as a script or a person invokes it — a path no hook
+	 * payload reaches.
 	 */
 	arbiter(...args: string[]): GuardResult {
 		const r = spawnSync("node", [guardPath(GUARDS.arbiter), ...args], {

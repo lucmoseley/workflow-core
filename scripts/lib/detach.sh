@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # detach.sh — start a command nothing waits on, for the hooks that launch
-# background jobs (sweep-debts-detached.sh).
+# background jobs (session-start-sweeps.sh).
 #
 # SOURCED, never run.
 #

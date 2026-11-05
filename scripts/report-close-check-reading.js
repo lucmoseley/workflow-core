@@ -13,7 +13,7 @@
  * (#3326): it then prints no ladder line and exits 0 on a log or baseline
  * that will not read, which only `--dry-run` still reports.
  *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh,
+ * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
  * because the log and the transcripts are machine-local and no CI runner can
  * read them. A plain run walks them at most daily, and never beside another
  * run's walk (#3220, buildFiler's `readDaily`).

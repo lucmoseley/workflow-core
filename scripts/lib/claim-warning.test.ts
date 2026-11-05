@@ -138,7 +138,7 @@ describe("a tier-1 path a live neighbour holds", () => {
 		expect(out).toContain("docs/doc-map.md");
 		expect(out).toContain("neighbour-session");
 		expect(out).toContain("clobber");
-		expect(out).toContain("session-arbiter.js wait");
+		expect(out).toContain("Leave the path to its holder");
 		expect(out).toContain("heredoc");
 	});
 
@@ -398,7 +398,7 @@ describe("the session ledger (mantahostels#2345)", () => {
 		// the difference isolates the fixed prose from the lines either payload
 		// happens to carry.
 		const fixed = one - (two - one) + 1;
-		expect(fixed).toBe(674);
+		expect(fixed).toBe(578);
 
 		// The line width cannot be measured here — it turns on the holder's
 		// session id, its pid width and the path, none of them this sandbox's.

@@ -6,7 +6,7 @@
  *
  *   (no flag)                 the daily filing run (#1378), launched detached
  *                             at every session start by
- *                             scripts/sweep-debts-detached.sh, in every repo.
+ *                             scripts/session-start-sweeps.sh, in every repo.
  *                             At most one reading a day, off a stamp in the
  *                             git common directory, so worktrees share it, and
  *                             behind a lock, through lib/periodic-reading.js.

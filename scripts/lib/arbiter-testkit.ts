@@ -38,21 +38,11 @@ export const proc = family("proc");
 export const breaks = family("breaks");
 export const content = family("content");
 export const core = family("core");
-export const debts = family("debts");
 export const issueClaims = family("issue-claims");
 export const ledger = family("ledger");
 export const locks = family("locks");
 export const markers = family("markers");
 export const snapshots = family("snapshots");
-
-/** The debt record on `rel` owned by `issue`, or with no issue the unowned stub; null where none. */
-export const readDebtOf = (rel: string, issue: number | null = null) =>
-	debts
-		.readDebts(rel)
-		.find(
-			(e: { record: { issue?: number | null } }) =>
-				(e.record.issue ?? null) === issue,
-		)?.record ?? null;
 
 export const SCRIPT = path.join(__dirname, "..", "session-arbiter.js");
 
@@ -79,7 +69,7 @@ export interface Sandbox {
 	 * developer's real ~/.claude.
 	 */
 
-	/** Where the arbiter keeps locks/, debts/, writes/ and the fail-open log. */
+	/** Where the arbiter keeps locks/, writes/ and the fail-open log. */
 	stateDir: () => string;
 	/** The fail-open log itself. */
 	errorLog: () => string;
@@ -365,7 +355,7 @@ export function finished(sb: Sandbox, sessionId: string) {
 
 /**
  * A `gh` stand-in wired through WFC_GH, and a count of its
- * invocations — the debt lifecycle's only network call.
+ * invocations.
  */
 export function fakeGh(sb: Sandbox, body: string) {
 	const bin = path.join(sb.dir, "gh-fake");

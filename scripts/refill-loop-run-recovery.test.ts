@@ -2061,7 +2061,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			const [, name, settings] =
 				resume?.match(/^--bg --resume s-job7 -n (.+?) --settings (\{.*\}) /) ??
 				[];
-			expect(name).toMatch(/^Overflow · /);
+			expect(name).toBe("Overflow · /implement 7");
 			expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
 				/overflow-key\.js'? '?K2/,
 			);

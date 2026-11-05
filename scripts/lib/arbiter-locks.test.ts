@@ -20,7 +20,6 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
-	breaks as breaksMod,
 	commitAll,
 	core,
 	DEAD,
@@ -29,7 +28,6 @@ import {
 	live,
 	liveHolder,
 	locks as locksMod,
-	noSessions,
 	proc,
 	registerSession,
 	store,
@@ -648,7 +646,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		const t = new Date(Date.now() - 3 * 60 * 60 * 1000);
 		fs.utimesSync(lockPath, t, t);
 
-		const r = store.dropIfUnchanged("docs/doc-map.md", () => {
+		const r = locksMod.dropIfUnchanged("docs/doc-map.md", () => {
 			locksMod.sweepDebris();
 			return false;
 		});
@@ -1165,7 +1163,7 @@ describe("release — the second exit from a claim", () => {
 		// possible test: this exact claim, or nothing. Driven directly because
 		// getting there through release() needs the lock to change mid-call.
 		store.acquire("docs/doc-map.md", live(sb, "alice"));
-		const r = store.dropIfUnchanged(
+		const r = locksMod.dropIfUnchanged(
 			"docs/doc-map.md",
 			(m: { claimId: string }) => m.claimId === "not-this-one",
 		);
@@ -1349,255 +1347,6 @@ describe("whoHolds — the one holder-and-cover query (#1492)", () => {
 	});
 });
 
-describe("forceRelease — the supported escape for a stranded claim (mantahostels#411)", () => {
-	// mantahostels#319 ruled the escape for mantahostels#254: a force gated on
-	// `claude agents --json` saying the holder is not live.
-	const rel = "docs/doc-map.md";
-	const abs = () => path.join(sb.repo, rel);
-
-	const commit = () => commitAll(sb);
-
-	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
-		fs.writeFileSync(abs(), "alice's work\n");
-		commit();
-	});
-
-	/** Alice holds rel with her content pinned; bob is the session forcing it. */
-	const stranded = () => {
-		const alice = live(sb, "alice");
-		store.acquire(rel, alice);
-		const blob = store.recordContent(rel, alice);
-		return { blob, bob: live(sb, "bob") };
-	};
-
-	/** An oracle listing exactly these sessions, counting its calls. */
-	const lists = (...ids: string[]) => {
-		const fn = () => {
-			fn.calls++;
-			return { ids: new Set(ids) };
-		};
-		fn.calls = 0;
-		return fn;
-	};
-	const blind = (why: string) => () => ({ why });
-	/** An oracle listing `ids`, of which `ended` have reached a terminal state. */
-	const listsEnded = (ids: string[], ended: string[]) => () => ({
-		ids: new Set(ids),
-		terminal: new Set(ended),
-	});
-
-	const held = () =>
-		store.listLocks().some((l: { path: string }) => l.path === rel);
-	const readRefs = () =>
-		execFileSync(
-			"git",
-			["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
-			{
-				cwd: sb.repo,
-				encoding: "utf8",
-			},
-		)
-			.split("\n")
-			.filter(Boolean);
-
-	it("drops the claim when the oracle does not list its holder, though every process reader calls it live (#262)", () => {
-		const { bob } = stranded();
-		// alice's lock froze this process's own pid, so `holderAlive` and every
-		// reader built on it call her live — the stranded shape (mantahostels#254), a pooled
-		// host outliving the job it was taken for. THIS ASSERTION IS WHY THE CASE
-		// GOES RED IF forceRelease IS EVER PUT ON `liveOrResumed` OR THE SESSIONS
-		// REGISTRY (#262).
-		expect(
-			store.listLocks().find((l: { path: string }) => l.path === rel)?.alive,
-		).toBe(true);
-		expect(store.forceRelease(rel, bob, lists("bob")).verdict).toBe("forced");
-		expect(held()).toBe(false);
-		expect(store.acquire(rel, bob).verdict).toBe("claimed");
-	});
-
-	it("refuses, naming the holder, while the oracle still lists it live", () => {
-		// A listed session may be mid-edit.
-		const { bob } = stranded();
-		const r = store.forceRelease(rel, bob, lists("alice", "bob"));
-		expect(r.verdict).toBe("holder-live");
-		expect(r.lock.sessionId).toBe("alice");
-		expect(held()).toBe(true);
-	});
-
-	it("forces a holder the oracle still lists but calls ended — the case --force exists for (#268)", () => {
-		const { bob } = stranded();
-		expect(
-			store.forceRelease(rel, bob, listsEnded(["alice", "bob"], ["alice"]))
-				.verdict,
-		).toBe("forced");
-		expect(held()).toBe(false);
-	});
-
-	it("still refuses a listed holder the oracle has not called ended (#268)", () => {
-		const { bob } = stranded();
-		const r = store.forceRelease(rel, bob, listsEnded(["alice", "bob"], []));
-		expect(r.verdict).toBe("holder-live");
-		expect(held()).toBe(true);
-	});
-
-	it("refuses when the oracle cannot be read, rather than releasing on doubt, recording the error the oracle gave", () => {
-		const { bob } = stranded();
-		const r = store.forceRelease(rel, bob, blind("the daemon would not run"));
-		expect(r.verdict).toBe("oracle-unreadable");
-		expect(r.why).toContain("would not run");
-		expect(held()).toBe(true);
-	});
-
-	it("refuses a lock naming no session, which no oracle can be asked about", () => {
-		store.acquire(rel, {
-			sessionId: "",
-			pid: 1,
-			procStart: "1",
-			durable: true,
-		});
-		const r = store.forceRelease(rel, live(sb, "bob"), lists("bob"));
-		expect(r.verdict).toBe("holder-unnamed");
-		expect(held()).toBe(true);
-	});
-
-	it("writes a break record carrying both sessions and the pinned blob", () => {
-		const { blob, bob } = stranded();
-		const r = store.forceRelease(rel, bob, lists("bob"));
-		expect(r.record).toMatchObject({
-			path: rel,
-			lostBy: "alice",
-			brokenBy: "bob",
-			blob,
-		});
-		expect(breaksMod.readBrokenClaimIds()).toEqual(
-			new Set([r.record.lostClaimId]),
-		);
-		expect(breaksMod.buildBreakNotice(rel, "alice")).toContain("by bob");
-	});
-
-	it("keeps the pin, so the version it took is still recoverable", () => {
-		// mantahostels#349's terms: the break holds the pin open for a week. An ordinary release
-		// drops it, because there the holder is the one letting go.
-		const { blob, bob } = stranded();
-		const r = store.forceRelease(rel, bob, lists("bob"));
-		expect(readRefs()).toEqual([`refs/arbiter/${r.record.lostClaimId}`]);
-		store.pruneAll(noSessions);
-		expect(readRefs()).toHaveLength(1);
-		expect(
-			execFileSync("git", ["cat-file", "-p", blob], {
-				cwd: sb.repo,
-				encoding: "utf8",
-			}),
-		).toBe("alice's work\n");
-	});
-
-	it("tells the holder, once, at its next write to the path", () => {
-		const { bob } = stranded();
-		store.forceRelease(rel, bob, lists("bob"));
-		expect(store.buildBreakNotice(rel, "alice")).toContain("git cat-file -p");
-		expect(store.buildBreakNotice(rel, "alice")).toBeNull();
-	});
-
-	it("refuses a dirty file, exactly as release does", () => {
-		const { bob } = stranded();
-		fs.writeFileSync(abs(), "half an edit\n");
-		expect(store.forceRelease(rel, bob, lists("bob")).verdict).toBe("dirty");
-		expect(held()).toBe(true);
-	});
-
-	it("hands back the holder's content state on a dirty refusal, as release does (mantahostels#337)", () => {
-		// The refusal that follows says commit or discard, and both are destructive
-		// once a third route has replaced the bytes — worse here, where the reader is
-		// not the claimant whose work is at stake.
-		const { blob, bob } = stranded();
-		fs.writeFileSync(abs(), "restored from a backup\n");
-		const r = store.forceRelease(rel, bob, lists("bob"));
-		expect(r.verdict).toBe("dirty");
-		expect(r.content).toEqual({ state: "changed", was: blob, by: "alice" });
-	});
-
-	it("puts back a lock that changed while the oracle was being asked", () => {
-		// The oracle call (mantahostels#317) is the widest window in the arbiter.
-		const { bob } = stranded();
-		const swapped = () => {
-			store.dropIfUnchanged(rel, () => true);
-			store.acquire(rel, live(sb, "carol"));
-			return { ids: new Set(["bob"]) };
-		};
-		const r = store.forceRelease(rel, bob, swapped);
-		expect(r.verdict).toBe("contended");
-		expect(
-			store.listLocks().find((l: { path: string }) => l.path === rel).sessionId,
-		).toBe("carol");
-	});
-
-	it("refuses when git cannot answer, exactly as release does", () => {
-		const { bob } = stranded();
-		fs.rmSync(path.join(sb.repo, ".git"), { recursive: true, force: true });
-		expect(store.forceRelease(rel, bob, lists("bob")).verdict).toBe(
-			"uncheckable",
-		);
-		expect(held()).toBe(true);
-	});
-
-	it("hands back the content answer on an uncheckable refusal (mantahostels#420)", () => {
-		const { blob, bob } = stranded();
-		fs.writeFileSync(abs(), "restored from a backup\n");
-		fs.rmSync(path.join(sb.repo, ".git", "HEAD"));
-
-		const r = store.forceRelease(rel, bob, lists("bob"));
-		expect(r.verdict).toBe("uncheckable");
-		expect(r.content).toEqual({ state: "changed", was: blob, by: "alice" });
-		expect(held()).toBe(true);
-	});
-
-	it("hands back the content answer on a contended refusal (mantahostels#420)", () => {
-		// Committed, so the dirty refusal does not fire first and the lock swap under
-		// the oracle is what decides the verdict.
-		const { blob, bob } = stranded();
-		fs.writeFileSync(abs(), "restored from a backup\n");
-		commit();
-		const swapped = () => {
-			store.dropIfUnchanged(rel, () => true);
-			store.acquire(rel, live(sb, "carol"));
-			return { ids: new Set(["bob"]) };
-		};
-
-		const r = store.forceRelease(rel, bob, swapped);
-		expect(r.verdict).toBe("contended");
-		expect(r.content).toEqual({ state: "changed", was: blob, by: "alice" });
-	});
-
-	it("treats a path nobody claims as no fault, and asks no oracle", () => {
-		const oracle = lists("bob");
-		expect(store.forceRelease(rel, live(sb, "bob"), oracle).verdict).toBe(
-			"not-held",
-		);
-		expect(oracle.calls).toBe(0);
-	});
-
-	it("delegates the caller's OWN claim to release, asking no oracle", () => {
-		// Identity has already answered it, and the ~465 ms call would be paid on
-		// the commonest path for nothing.
-		const alice = live(sb, "alice");
-		store.acquire(rel, alice);
-		const oracle = lists("alice");
-		expect(store.forceRelease(rel, alice, oracle).verdict).toBe("released");
-		expect(oracle.calls).toBe(0);
-		expect(held()).toBe(false);
-	});
-
-	it("refuses rather than reporting no claim when the store cannot be read (mantahostels#174)", () => {
-		const { bob } = stranded();
-		fs.rmSync(store.paths.locksDir(), { recursive: true, force: true });
-		fs.writeFileSync(store.paths.locksDir(), "not a directory");
-		expect(store.forceRelease(rel, bob, lists("bob")).verdict).toBe(
-			"unreadable",
-		);
-	});
-});
-
 describe("a region claim's cleanliness is its own region's, not the file's (mantahostels#1434)", () => {
 	// The block this fixes: a file-level dirtiness test pinned every region of a
 	// document that is dirty somewhere almost always, so a session that had
@@ -1723,8 +1472,7 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	it("reads a region in NEITHER revision as clean, so its claim can be dropped", () => {
 		// A §A row whose path was renamed and committed: the old key names nothing
 		// on either side, so there are no bytes to hand the next holder and mantahostels#63's
-		// harm cannot happen. Refusing here would wedge the claim permanently —
-		// force and plain release both go through this one test.
+		// harm cannot happen. Refusing here would wedge the claim permanently.
 		const me = live(sb, "alice");
 		store.acquire(`${rel}#B999`, me);
 		expect(store.subjectDirty(`${rel}#B999`)).toBe(false);
@@ -1773,18 +1521,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 			store.acquire(`${rel}#section-a`, me);
 			dirtyA();
 			expect(store.release(`${rel}#section-a`, me).verdict).toBe("dirty");
-		});
-
-		it("rides --force too, on the holder's own claim", () => {
-			const me = live(sb, "alice");
-			store.acquire(`${rel}#section-a`, me);
-			dirtyA();
-			expect(
-				store.forceRelease(`${rel}#section-a`, me, () => ({ ids: new Set() }), {
-					generator: true,
-				}).verdict,
-			).toBe("released");
-			expect(stillHeld(`${rel}#section-a`)).toBe(false);
 		});
 
 		it("waives nothing on a hand-authored region, flag or no flag", () => {

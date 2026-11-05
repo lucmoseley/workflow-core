@@ -242,6 +242,7 @@ describe("moveSession (#3734, #3736)", () => {
 		const [[args]] = callsTo("runClaude") as [[string[]]];
 		const at = args.indexOf("-n");
 		return {
+			head: args.slice(0, 5),
 			name: at < 0 ? null : args[at + 1],
 			read: callsTo("sessionName"),
 			lines,
@@ -250,6 +251,13 @@ describe("moveSession (#3734, #3736)", () => {
 
 	it("names a plan session moved onto a key with the overflow prefix, the name its transcript gives after it (#4395)", () => {
 		expect(movedName("named")).toMatchObject({
+			head: [
+				"--bg",
+				"--resume",
+				SESSION,
+				"-n",
+				"Overflow · Implement 7: a title",
+			],
 			name: "Overflow · Implement 7: a title",
 			read: [[`${SEAT}/projects/-home-u-repo/${SESSION}.jsonl`]],
 			lines: expect.not.arrayContaining([

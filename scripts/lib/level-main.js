@@ -43,6 +43,7 @@ const {
 } = require("./git.js");
 const { isCutOver } = require("./cutover.js");
 const { pidLock } = require("./pid-lock.js");
+const { startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
@@ -167,12 +168,14 @@ function readBlocker(root, rel, now, lastWriter) {
 }
 
 /**
+ * Every edit in the main checkout, each an Orphaned edit: no session works
+ * there once it is cut over.
  * @param {string} root
  * @param {number} now
  * @param {LastWriter} lastWriter
  * @returns {Blocker[]}
  */
-const readDirt = (root, now, lastWriter) =>
+const readOrphanedEdits = (root, now, lastWriter) =>
 	[...readEditedPaths(root)]
 		.sort()
 		.map((p) => readBlocker(root, p, now, lastWriter));
@@ -423,17 +426,79 @@ function level(root, { install = npmCi, lastWriter = () => null, now }) {
 			fetchError = (caught(err).stderr || caught(err).message).trim();
 		}
 		const moved = forward(root, now, lastWriter);
-		const settled = moved.status === "level" || moved.status === "forwarded";
 		return {
 			...moved,
 			fetchError,
-			install: settled
+			install: isAtUpstream(moved)
 				? installIfStale(root, work, install)
 				: { installed: false },
 		};
 	} finally {
 		lock.release();
 	}
+}
+
+/** @param {{ status: string }} o */
+const isAtUpstream = (o) => o.status === "level" || o.status === "forwarded";
+
+/**
+ * Whether the fetch and any install went through.
+ * @param {Outcome} o
+ */
+const isFaultless = (o) => o.fetchError === null && !o.install.error;
+
+/**
+ * Whether the pass has nothing to report under `--quiet`: `main` already
+ * level, another pass holding the lock, or the checkout not yet cut over,
+ * with nothing failed or installed.
+ * @param {Outcome} o
+ */
+const isRoutine = (o) =>
+	isFaultless(o) &&
+	!o.install.installed &&
+	["level", "busy", "shared"].includes(o.status);
+
+/**
+ * What scripts/level-main.js prints and exits with for one pass: the report
+ * under a `levelling <root>` line, which tells one checkout's report from
+ * another's in the refill loop's log (scripts/measure-worktree-model.js), or
+ * nothing where `quiet` and the pass was routine; exit 0 where `main` sits at
+ * `origin/main` with the fetch and any install done, else 1.
+ * @param {string} root
+ * @param {Outcome} o
+ * @param {{ now: number, quiet: boolean }} how
+ * @returns {{ text: string, code: 0 | 1 }}
+ */
+function buildReport(root, o, { now, quiet }) {
+	const text =
+		quiet && isRoutine(o)
+			? ""
+			: `levelling ${root}\n${renderOutcome(o, now).join("\n")}\n`;
+	return { text, code: isAtUpstream(o) && isFaultless(o) ? 0 : 1 };
+}
+
+/**
+ * Start a quiet levelling pass over the main checkout at `root`
+ * (scripts/level-main.js), detached, as the lander does after it moves
+ * `origin/main` and the refill loop's tick does each tick (#4229): an `npm ci`
+ * in it may outlast either. Fails open (#3765): a failed start goes to
+ * `notStarted`, and the next move or tick starts another; the pass's pid lock
+ * turns away one started while one runs. `WFC_LEVEL_MAIN_SCRIPT` names
+ * another script to start, the lander suite's seam: a real pass would move
+ * the sandbox's `main` under it.
+ * @param {string} root
+ * @param {(err: unknown) => void} notStarted
+ */
+function startLevelling(root, notStarted) {
+	startDetachedIn(
+		root,
+		[
+			process.env.WFC_LEVEL_MAIN_SCRIPT ||
+				path.join(__dirname, "..", "level-main.js"),
+			"--quiet",
+		],
+		notStarted,
+	);
 }
 
 /**
@@ -521,4 +586,11 @@ function renderOutcome(o, now) {
 	return lines;
 }
 
-module.exports = { describeAge, level, readDirt, renderOutcome };
+module.exports = {
+	buildReport,
+	describeAge,
+	level,
+	readOrphanedEdits,
+	renderOutcome,
+	startLevelling,
+};

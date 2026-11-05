@@ -25,13 +25,10 @@ import {
 	core,
 	fakeGh,
 	freshSandbox,
-	ghAnswers,
 	ghCallCount,
-	ghClosedList,
 	gitRepo,
 	live,
 	proc,
-	readDebtOf,
 	registerSession,
 	removeSandbox,
 	SCRIPT,
@@ -49,9 +46,11 @@ const { gh } = createRequire(__filename)("./lib/gh.js");
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
 const oracleCache = createRequire(__filename)("./lib/oracle-cache.js");
-const { claudeBin: claudePrimitive, oracleCacheKey } = createRequire(
-	__filename,
-)("./lib/agent-liveness.js");
+const {
+	claudeBin: claudePrimitive,
+	listedSessionIds,
+	oracleCacheKey,
+} = createRequire(__filename)("./lib/agent-liveness.js");
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
@@ -102,28 +101,17 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	// What `stubOracles` (lib/arbiter-testkit.ts) exists to hold, driven through
 	// the CLI: every assertion here is on what the arbiter did, never on the
 	// environment the testkit set two lines earlier.
-	const rel = "docs/doc-map.md";
 
 	const sandboxOf = (name: string) => path.join(sb.dir, "stubs", name);
 
-	it("force-releases with no oracle shim, so the default stub answers rather than refusing", () => {
-		// The force is gated on `claude agents --json` and refuses whenever that
-		// cannot be read (mantahostels#319). A stub echoing `[]` reads as a refusal, not as an
-		// empty listing — this case is what catches that.
-		gitRepo(sb);
-		fs.writeFileSync(inRepo(rel), "alice's work\n");
-		commitAll(sb);
-		const alice = live(sb, "alice");
-		store.acquire(rel, alice);
-		store.recordContent(rel, alice);
-		live(sb, "bob");
-
-		const r = cli(["release", "--force", inRepo(rel)], {
-			CLAUDE_CODE_SESSION_ID: "bob",
-		});
-		expect(r.stderr).not.toContain("could not be read");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Force-released docs/doc-map.md");
+	it("answers the liveness oracle with no shim of the case's own, rather than refusing", () => {
+		// agent-liveness.js reads an empty listing as a refusal, and refuses
+		// again unless the list names the caller (mantahostels#319). A stub echoing `[]`
+		// would send every unshimmed case down that branch — this case is what
+		// catches that.
+		const listed = listedSessionIds();
+		expect(listed.why).toBeUndefined();
+		expect([...listed.ids]).toEqual(["sandbox"]);
 	});
 
 	it("routes an unstubbed gh call to a stub that refuses", () => {
@@ -1249,7 +1237,7 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toBe(
-			"unknown flag: --forse\n\nusage: session-arbiter.js release [--force] [--generator] [--not-mine] <path>\n",
+			"unknown flag: --forse\n\nusage: session-arbiter.js release [--generator] [--not-mine] <path>\n",
 		);
 		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
 			"docs/a.md",
@@ -1257,7 +1245,6 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 	});
 
 	it.each([
-		[["debt", "sweep", "--json"], "debt sweep"],
 		[["prune-markers", "--detatch"], "prune-markers [--detach]"],
 		[["claim-issue", "--force", "12"], "claim-issue <issue-number>"],
 	])("refuses %j with that subcommand's usage", (args, usage) => {
@@ -1270,10 +1257,8 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 	 * fail-open catch logged before exiting 0 with nothing said. */
 	it.each([
 		[["claim"], "claim <path> [session-id] [--generator]"],
-		[["release"], "release [--force] [--generator] [--not-mine] <path>"],
+		[["release"], "release [--generator] [--not-mine] <path>"],
 		[["versions"], "versions <path>"],
-		[["debt", "own"], 'debt own <path> <issue> "<gist>"'],
-		[["debt", "clear"], "debt clear <path> [<issue>|unowned]"],
 	])("refuses %j with no path, with that subcommand's usage", (args, usage) => {
 		const r = cli(args);
 		expect(r.status).toBe(2);
@@ -1296,13 +1281,8 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 
 	it.each([
 		[["--help"], "usage: session-arbiter.js check <path>"],
-		[["release", "--help"], "usage: session-arbiter.js release [--force]"],
-		[["wait", "-h"], "usage: session-arbiter.js wait <path|issue-number>"],
-		[
-			["debt", "--help"],
-			'usage: session-arbiter.js debt own <path> <issue> "<gist>"',
-		],
-		[["debt", "sweep", "--help"], "usage: session-arbiter.js debt sweep\n"],
+		[["release", "--help"], "usage: session-arbiter.js release [--generator]"],
+		[["wait", "-h"], "usage: session-arbiter.js wait <issue-number>"],
 	])("answers %j on stdout, exit 0", (args, usage) => {
 		const r = cli(args);
 		expect(r.status).toBe(0);
@@ -1321,7 +1301,6 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 	/* Every flag a caller in scripts/, .claude/, hooks/ or .husky/ passes (#1137); prune-markers --detach is its own describe's, as it spawns. */
 	it.each([
 		[["claim", "docs/a.md", "--generator"]],
-		[["release", "--force", "docs/a.md"]],
 		[["release", "docs/a.md", "--generator"]],
 		[["list", "--all"]],
 	])("accepts %j without a refusal or usage text", (args) => {
@@ -1601,506 +1580,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		// The log is the branch's only visibility: check-guard-errors reports it
 		// under `npm run status`, so deleting the call must fail a test, not pass one.
 		expect(fs.readFileSync(store.errorLog(), "utf8")).toContain("pruneMarkers");
-	});
-});
-
-describe("debt — the denied session's half", () => {
-	const rel = "docs/doc-map.md";
-	/** The debt on rel owned by `issue`, or with no argument the unowned stub; null where none. */
-	const readDebt = (issue: number | null = null) => readDebtOf(rel, issue);
-	/** Who owes an edit on rel, in the order the store lists them. */
-	const readOwners = (): (number | null)[] =>
-		store
-			.readDebts(rel)
-			.map((e: { record: { issue: number | null } }) => e.record.issue);
-	const debt = (...args: string[]) => cli(["debt", ...args]);
-	const own = (issue = "123", gist?: string) =>
-		debt("own", rel, issue, ...(gist === undefined ? [] : [gist]));
-
-	describe("the notice reaching a claimant", () => {
-		it("rides a fresh claim's hook output into the claimant's context", () => {
-			store.registerDenial(rel);
-			registerSession(sb, "a", process.pid);
-			const json = JSON.parse(out(["check", inRepo(rel), "a"]));
-			expect(json.hookSpecificOutput.additionalContext).toContain(
-				"carries a registered debt",
-			);
-		});
-
-		it("fires once per session per file, not on every write", () => {
-			// The second check is reentrant, so it skips the lookup.
-			store.registerDenial(rel);
-			registerSession(sb, "a", process.pid);
-			expect(out(["check", inRepo(rel), "a"])).toContain("registered debt");
-			expect(out(["check", inRepo(rel), "a"])).toBe("");
-		});
-
-		it("reaches a script's claim on stderr, without turning into an abort", () => {
-			store.registerDenial(rel);
-			registerSession(sb, "a", process.pid);
-			const r = cli(["claim", inRepo(rel), "a"]);
-			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("carries a registered debt");
-		});
-
-		// mantahostels#287 declined this notice on scripts/ as noise.
-		it("stays off the detect-only tier", () => {
-			store.registerDenial("scripts/thing.js");
-			registerSession(sb, "a", process.pid);
-			expect(out(["check", inRepo("scripts/thing.js"), "a"])).not.toContain(
-				"registered debt",
-			);
-		});
-	});
-
-	describe("debt own", () => {
-		it("completes the stub and reports the owner", () => {
-			store.registerDenial(rel);
-			// Backdated: a stub written and owned in the same millisecond carries the
-			// same ISO string whether or not the timestamp was preserved.
-			const denied = "2020-01-01T00:00:00.000Z";
-			const stub = store.paths.debt(rel);
-			core.writeRecord(stub, { ...core.readRecord(stub), createdAt: denied });
-			const r = own("123", "one line on the edit");
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("owned by #123");
-			expect(readDebt(123)).toMatchObject({
-				issue: 123,
-				gist: "one line on the edit",
-				createdAt: denied,
-			});
-		});
-
-		it("stamps the owning session, which the uncommitted-work guard reads (#1170)", () => {
-			cli(["debt", "own", rel, "123", "gist"], {
-				CLAUDE_CODE_SESSION_ID: "the-owner",
-			});
-			expect(readDebt(123).recordedBy).toBe("the-owner");
-			cli(["debt", "own", rel, "124", "gist"], { CLAUDE_CODE_SESSION_ID: "" });
-			expect(readDebt(124).recordedBy).toBeNull();
-		});
-
-		it("joins a multi-word gist rather than keeping only the first word", () => {
-			own("123", "re-derive the ADR figure");
-			expect(readDebt(123).gist).toBe("re-derive the ADR figure");
-		});
-
-		it("stores a gist opening `--` as text, never a flag (#1137)", () => {
-			const r = own("123", "--help is what the gist says");
-			expect(r.status).toBe(0);
-			expect(readDebt(123).gist).toBe("--help is what the gist says");
-		});
-
-		it("accepts the #-prefixed spelling and stores the number", () => {
-			expect(own("#77").status).toBe(0);
-			expect(readDebt(77).issue).toBe(77);
-		});
-
-		it("records a missing gist as none, not as an empty string", () => {
-			own("123");
-			expect(readDebt(123).gist).toBeNull();
-		});
-
-		it("a second issue owning the same path adds an entry, never replacing (mantahostels#327)", () => {
-			own("308", "the node-unit pass");
-			own("323", ".github/workflows/scheduled-checks.yml's CI figures");
-			expect(readOwners()).toEqual([308, 323]);
-		});
-
-		it.skipIf(AS_ROOT)(
-			"exits 1 naming the path when the store refuses, without claiming a write failed",
-			() => {
-				// `own` reads the existing stub before writing, and that read can refuse
-				// (mantahostels#174).
-				store.registerDenial(rel);
-				fs.chmodSync(store.paths.debtsDir(), 0o000);
-				try {
-					const r = own("123", "the gist");
-					expect(r.status).toBe(1);
-					expect(r.stderr).toContain(rel);
-					expect(r.stderr).not.toContain("could not write the debt");
-				} finally {
-					fs.chmodSync(store.paths.debtsDir(), 0o755);
-				}
-			},
-		);
-
-		it("exits 2 on a path outside the repo, registering no debt", () => {
-			const r = debt("own", "/etc/passwd", "123", "gist");
-			expect(r.status).toBe(2);
-			expect(r.stderr).toContain("not in this repo");
-			expect(readDebt()).toBeNull();
-		});
-
-		it("exits 2 on an issue that is not a number, and on none at all, printing the usage and recording no entry", () => {
-			for (const args of [
-				["own", rel, "abc", "gist"],
-				["own", rel],
-			]) {
-				const r = debt(...args);
-				expect(r.status).toBe(2);
-				expect(r.stderr).toContain("usage");
-			}
-			expect(readDebt()).toBeNull();
-		});
-
-		it("exits 1 with the reason when the store cannot be written", () => {
-			// 0555 — readable, not writable — so the read of the existing stub
-			// succeeds and the WRITE is what fails.
-			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-			fs.chmodSync(store.paths.debtsDir(), 0o555);
-			let r: ReturnType<typeof own>;
-			try {
-				r = own();
-			} finally {
-				fs.chmodSync(store.paths.debtsDir(), 0o755);
-			}
-			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("could not record the debt");
-			expect(r.stderr).toContain(rel);
-		});
-	});
-
-	describe("debt sweep — draining the register (mantahostels#1203)", () => {
-		it("prints what it retired and what still stands, and exits 0", () => {
-			ghClosedList(sb, [308]);
-			own("308", "already done");
-			own("323", "still owed");
-			const r = debt("sweep");
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("retired\t#308");
-			expect(r.stdout).toContain("#323\tdocs/doc-map.md\tstill owed");
-			expect(r.stderr).toContain("1 retired");
-			expect(r.stderr).toContain("1 standing");
-		});
-
-		it("names each stub it dropped, and the denial date it deleted with it", () => {
-			// The print IS the feature: the entry is unlinked by the time this runs,
-			// so these lines are the only place the path and date survive (mantahostels#1302).
-			ghClosedList(sb, []);
-			const stub = store.paths.debt("docs/other.md");
-			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-			fs.writeFileSync(
-				stub,
-				JSON.stringify({
-					path: "docs/other.md",
-					issue: null,
-					gist: null,
-					createdAt: "2026-08-01T04:48:51.243Z",
-				}),
-			);
-			const r = debt("sweep");
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("dropped\tUNOWNED\tdocs/other.md");
-			expect(r.stdout).toContain("2026-08-01T04:48:51.243Z");
-			expect(r.stderr).toContain("1 uncompletable stub dropped");
-			expect(r.stderr).toContain("1 dropped (uncompletable stub)");
-			expect(fs.existsSync(stub)).toBe(false);
-		});
-
-		it("says a stub was dropped even when gh cannot answer — the SKIP route deletes too", () => {
-			fakeGh(sb, "exit 1");
-			own("308", "already done");
-			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-			fs.writeFileSync(
-				store.paths.debt("docs/other.md"),
-				JSON.stringify({
-					path: "docs/other.md",
-					issue: null,
-					gist: null,
-					createdAt: "2026-08-01T04:48:51.243Z",
-				}),
-			);
-			const r = debt("sweep");
-			expect(r.stderr).toContain("SKIP");
-			expect(r.stdout).toContain("dropped\tUNOWNED\tdocs/other.md");
-		});
-
-		it.skipIf(AS_ROOT)(
-			"names a stub it could not delete WITHOUT inventing an issue number",
-			() => {
-				// The owned-entry message reads "#<n> has closed but...". Reusing it
-				// for a stub would print "#null" and send the reader looking for an
-				// issue that never existed.
-				ghClosedList(sb, []);
-				fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-				fs.writeFileSync(
-					store.paths.debt("docs/other.md"),
-					JSON.stringify({
-						path: "docs/other.md",
-						issue: null,
-						gist: null,
-						createdAt: "2026-08-01T04:48:51.243Z",
-					}),
-				);
-				fs.chmodSync(store.paths.debtsDir(), 0o555);
-				let r: ReturnType<typeof debt>;
-				try {
-					r = debt("sweep");
-				} finally {
-					fs.chmodSync(store.paths.debtsDir(), 0o755);
-				}
-				expect(r.stderr).toContain(
-					"the uncompletable stub on docs/other.md could not be deleted",
-				);
-				expect(r.stderr).not.toContain("#null");
-				expect(r.stderr).not.toContain("has closed but");
-			},
-		);
-
-		it.skipIf(AS_ROOT)("names a refused deletion on the OFFLINE route", () => {
-			// Deletions happen offline (mantahostels#1302), so a refused unlink there must
-			// be named, not silently re-listed among the standing entries.
-			fakeGh(sb, "exit 1");
-			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-			fs.writeFileSync(
-				store.paths.debt("docs/other.md"),
-				JSON.stringify({
-					path: "docs/other.md",
-					issue: null,
-					gist: null,
-					createdAt: "2026-08-01T04:48:51.243Z",
-				}),
-			);
-			own("308", "keeps the sweep asking");
-			fs.chmodSync(store.paths.debtsDir(), 0o555);
-			let r: ReturnType<typeof debt>;
-			try {
-				r = debt("sweep");
-			} finally {
-				fs.chmodSync(store.paths.debtsDir(), 0o755);
-			}
-			expect(r.stderr).toContain("SKIP");
-			expect(r.stderr).toContain(
-				"the uncompletable stub on docs/other.md could not be deleted",
-			);
-		});
-
-		it("warns the reader that a survivor is not proof the work is outstanding", () => {
-			// mantahostels#1203 spot-checked three standing entries whose edits the live files
-			// already carried. A sweep that printed them as a to-do list would send
-			// somebody to redo work that is already there.
-			ghClosedList(sb, []);
-			own("323", "still owed");
-			expect(debt("sweep").stderr).toContain("NOT proof");
-		});
-
-		it("says nothing was retired, and exits 0, when gh cannot answer", () => {
-			// SKIP, not a finding: GitHub being unreachable is the subject going
-			// missing, and a red weekly job teaches the reader to skim past it.
-			fakeGh(sb, "exit 1");
-			own("308", "already done");
-			const r = debt("sweep");
-			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("SKIP");
-			expect(r.stderr).toContain("UNCHECKED");
-			expect(r.stdout).toContain("#308");
-			expect(readDebt(308)).not.toBeNull();
-		});
-
-		it.skipIf(AS_ROOT)(
-			"still counts what it could not parse on the SKIP route",
-			() => {
-				// A short list plus no count reads as the whole of what is owed —
-				// mantahostels#174's failure, and the SKIP route is where it is easiest to miss.
-				fakeGh(sb, "exit 1");
-				own("308", "already done");
-				const hidden = store.paths.debt("docs/other.md", 323);
-				fs.writeFileSync(hidden, "{}");
-				fs.chmodSync(hidden, 0o000);
-				try {
-					const r = debt("sweep");
-					expect(r.stderr).toContain("SKIP");
-					expect(r.stderr).toContain("1 entry could not be parsed");
-				} finally {
-					fs.chmodSync(hidden, 0o644);
-				}
-			},
-		);
-
-		it("SKIPs on a machine with no register rather than reporting it drained", () => {
-			// What a CI runner and a fresh checkout see: the store lives under
-			// ~/.claude/projects/<repo>/, outside the tree, so a scheduled run
-			// there keeps the sweep runnable and drains nothing.
-			ghClosedList(sb, [308]);
-			const r = debt("sweep");
-			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("SKIP: no debt register on this machine");
-			expect(r.stdout).toBe("");
-		});
-
-		it.skipIf(AS_ROOT)("exits 2 BROKEN on a store it cannot read", () => {
-			own("308", "already done");
-			fs.chmodSync(store.paths.debtsDir(), 0o000);
-			try {
-				const r = debt("sweep");
-				expect(r.status).toBe(2);
-				expect(r.stderr).toContain("BROKEN");
-			} finally {
-				fs.chmodSync(store.paths.debtsDir(), 0o755);
-			}
-		});
-	});
-
-	describe("debt clear and debt list", () => {
-		it("clear retires the entry", () => {
-			store.registerDenial(rel);
-			const r = debt("clear", rel);
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("cleared");
-			expect(readDebt()).toBeNull();
-		});
-
-		it("clearing a path with no debt is no fault", () => {
-			const r = debt("clear", rel);
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("No debt registered");
-		});
-
-		it("clear exits 2 on a path outside the repo", () => {
-			expect(debt("clear", "/etc/passwd").status).toBe(2);
-		});
-
-		it("clear refuses a path with several debts, and prints the command for each (mantahostels#327)", () => {
-			own("308", "the node-unit pass");
-			own("323", ".github/workflows/scheduled-checks.yml's CI figures");
-			const r = debt("clear", rel);
-			expect(r.status).toBe(2);
-			expect(r.stderr).toContain("debt clear docs/doc-map.md 308");
-			expect(r.stderr).toContain("debt clear docs/doc-map.md 323");
-			expect(store.readDebts(rel)).toHaveLength(2); // nothing was taken
-		});
-
-		it("clear takes the owner, in either spelling, and retires only that entry", () => {
-			own("308", "the node-unit pass");
-			own("323", ".github/workflows/scheduled-checks.yml's CI figures");
-			expect(debt("clear", rel, "#308").stdout).toContain("owned by #308");
-			expect(readOwners()).toEqual([323]);
-		});
-
-		it("clear takes `unowned` for the stub a denial wrote", () => {
-			own("308", "the node-unit pass");
-			store.registerDenial(rel);
-			expect(debt("clear", rel, "unowned").status).toBe(0);
-			expect(readOwners()).toEqual([308]);
-		});
-
-		it("clear exits 2 on an owner that is neither a number nor `unowned`, with usage, leaving the debt in place", () => {
-			store.registerDenial(rel);
-			const r = debt("clear", rel, "mine");
-			expect(r.status).toBe(2);
-			expect(r.stderr).toContain("usage");
-			expect(store.readDebts(rel)).toHaveLength(1);
-		});
-
-		it("clear names the owner it found nothing for, rather than a bare miss", () => {
-			own("308", "the node-unit pass");
-			expect(debt("clear", rel, "999").stdout).toContain("999");
-		});
-
-		it("list shows owned and unowned entries, and an empty store as empty", () => {
-			expect(debt("list").stdout).toContain("No debts registered.");
-
-			own("123", "the gist");
-			store.registerDenial("docs/other.md");
-			const printed = debt("list").stdout;
-			expect(printed).toContain(`#123\t${rel}\tthe gist`);
-			expect(printed).toContain("UNOWNED\tdocs/other.md\t(no gist)");
-		});
-
-		it("list prints a record older than the recorder field beside a new one (#1170)", () => {
-			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-			fs.writeFileSync(
-				store.paths.debt("docs/old.md", 9),
-				JSON.stringify({
-					path: "docs/old.md",
-					issue: 9,
-					gist: "old",
-					createdAt: "2026-01-01T00:00:00.000Z",
-				}),
-			);
-			own("123", "new");
-			const printed = debt("list").stdout;
-			expect(printed).toContain("#9\tdocs/old.md\told");
-			expect(printed).toContain(`#123\t${rel}\tnew`);
-		});
-
-		it.skipIf(AS_ROOT)(
-			"list exits 1 rather than showing an unreadable store as empty (mantahostels#174)",
-			() => {
-				// A debt entry is the only durable record that a session abandoned an
-				// edit.
-				own("123", "the gist");
-				fs.chmodSync(store.paths.debtsDir(), 0o000);
-				try {
-					const r = debt("list");
-					expect(r.status).toBe(1);
-					expect(r.stdout).not.toContain("No debts registered.");
-					expect(r.stderr).toMatch(/could not read the debt store/);
-				} finally {
-					fs.chmodSync(store.paths.debtsDir(), 0o755);
-				}
-			},
-		);
-
-		it.skipIf(AS_ROOT)(
-			"list prints an entry it could not read rather than a short list (mantahostels#174)",
-			() => {
-				own("123", "the gist");
-				store.registerDenial("docs/other.md");
-				const hidden = store.paths.debt("docs/other.md");
-				fs.chmodSync(hidden, 0o000);
-				try {
-					const printed = debt("list").stdout;
-					expect(printed).toContain("#123");
-					expect(printed).toMatch(/\?\?\?\?\?\s+\(unreadable debt file/);
-				} finally {
-					fs.chmodSync(hidden, 0o644);
-				}
-			},
-		);
-
-		it("list makes no network call, so it cannot stall or half-empty itself", () => {
-			ghAnswers(sb, "CLOSED");
-			own();
-			const r = debt("list");
-			expect(r.stdout).toContain("#123");
-			expect(ghCallCount(sb)).toBe(0);
-			expect(readDebt(123)).not.toBeNull();
-		});
-
-		it("list prints a path's several debts together, in issue order", () => {
-			own("323", "second");
-			own("308", "first");
-			const lines = debt("list")
-				.stdout.trim()
-				.split("\n")
-				.map((l) => l.split("\t")[0]);
-			expect(lines).toEqual(["#308", "#323"]);
-		});
-
-		it.skipIf(AS_ROOT)(
-			"clear exits 1 rather than reporting an unreadable store as nothing owed (mantahostels#174)",
-			() => {
-				own("308", "the node-unit pass");
-				fs.chmodSync(store.paths.debtsDir(), 0o000);
-				try {
-					const r = debt("clear", rel);
-					expect(r.status).toBe(1);
-					expect(r.stdout).not.toContain("No debt registered");
-					expect(r.stderr).toMatch(/could not read the debt store/);
-				} finally {
-					fs.chmodSync(store.paths.debtsDir(), 0o755);
-				}
-			},
-		);
-
-		it("a bare `debt` is list, and an unknown action exits 2 with usage", () => {
-			expect(debt().stdout).toContain("No debts registered.");
-			const r = debt("frobnicate");
-			expect(r.status).toBe(2);
-			expect(r.stderr).toContain("usage");
-		});
 	});
 });
 
@@ -2694,10 +2173,7 @@ describe("prune-markers --detach, the SessionStart form", () => {
 	}, 30_000);
 });
 
-describe("release --force, the escape for a stranded claim (mantahostels#411)", () => {
-	// mantahostels#254: the holder's host outlives its job, so its process reads alive and the
-	// identity gate refuses everyone. The force is gated on `claude agents --json`
-	// instead — and refuses whenever that cannot be read (mantahostels#319).
+describe("release — the oracle read it pays for (mantahostels#317)", () => {
 	const rel = "docs/doc-map.md";
 	const run = (args: string[], sid: string) =>
 		cli(args, { CLAUDE_CODE_SESSION_ID: sid, WFC_CLAUDE_BIN: claudeBin() });
@@ -2740,143 +2216,6 @@ describe("release --force, the escape for a stranded claim (mantahostels#411)", 
 		live(sb, "bob");
 	});
 
-	it("drops a stranded claim and prints how to recover what it took", () => {
-		fakeClaude(["bob"]);
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Force-released docs/doc-map.md");
-		expect(r.stderr).toContain("alice");
-		expect(r.stderr).toMatch(/git cat-file -p [0-9a-f]{40,64}/);
-		expect(
-			store.listLocks().some((l: { path: string }) => l.path === rel),
-		).toBe(false);
-	});
-
-	it("exits 1 and names the holder while the oracle lists it live", () => {
-		fakeClaude(["alice", "bob"]);
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("alice");
-		expect(r.stderr).toContain("still lists as live");
-		// mantahostels#1195: never send the caller to ask a holder that may be blocked on the
-		// caller's own file. `wait` registers a want, so a cycle ends it as
-		// DEADLOCK (#542); and spell the debt command, this being the escape
-		// path's terminal site.
-		expect(r.stderr).not.toContain("Ask that session");
-		expect(r.stderr).toContain(
-			"node scripts/session-arbiter.js wait docs/doc-map.md",
-		);
-		expect(r.stderr).toContain("debt own docs/doc-map.md <issue>");
-	});
-
-	it("drops the claim of a listed holder the oracle calls done, through the real oracle (#268)", () => {
-		// The end-to-end proof that `listedSessionIds` delivers `terminal` to
-		// forceRelease: the store's own tests inject a synthetic oracle, so
-		// nothing else would catch the field going missing from this seam.
-		fakeClaude([
-			{ sessionId: "alice", kind: "background", state: "done" },
-			"bob",
-		]);
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Force-released docs/doc-map.md");
-	});
-
-	it("exits 1 on an unreadable oracle, naming retry, reboot and the Bash route", () => {
-		// Not a warn and not a fallback to releasing: a stranded claim costs time, a
-		// broken lock costs work (mantahostels#322).
-		fakeClaude(["bob"], 3);
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("NOT released");
-		expect(r.stderr).toMatch(/retry/i);
-		expect(r.stderr).toMatch(/reboot/i);
-		expect(r.stderr).toMatch(/Bash route/i);
-	});
-
-	it("refuses a dirty file with --force, exactly as without it", () => {
-		fakeClaude(["bob"]);
-		fs.writeFileSync(inRepo(rel), "half an edit\n");
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("uncommitted changes");
-	});
-
-	it("warns about a clobber before the dirty refusal, naming the claimant (mantahostels#337)", () => {
-		// "Commit or discard" is destructive advice once a third route has replaced
-		// the bytes, and under --force the bytes at stake are somebody else's.
-		fakeClaude(["bob"]);
-		fs.writeFileSync(inRepo(rel), "restored from a backup\n");
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("claimant alice");
-		expect(r.stderr).toMatch(/git cat-file -p [0-9a-f]{40,64}/);
-		expect(r.stderr.indexOf("cat-file")).toBeLessThan(
-			r.stderr.indexOf("uncommitted changes"),
-		);
-	});
-
-	it("says the recovered bytes are the holder's when the file was clobbered (mantahostels#420)", () => {
-		// A clean file that is nonetheless not what alice last wrote: the break
-		// record's recovery is HERS, and the disk holds a third party's version.
-		fakeClaude(["bob"]);
-		fs.writeFileSync(inRepo(rel), "restored from a backup\n");
-		commitAll(sb, "clobber");
-
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("claimant alice");
-		expect(r.stderr).toMatch(/not what is on the disk now/);
-		expect(r.stderr).toContain("was broken, not handed over");
-		expect(r.stderr).toMatch(/git cat-file -p [0-9a-f]{40,64}/);
-	});
-
-	it("names the claimant in the clobber it reports on an uncheckable refusal (mantahostels#420)", () => {
-		// The reader is not the claimant here, so "no tool call of yours did it" would
-		// be addressed to the wrong session.
-		fakeClaude(["bob"]);
-		fs.writeFileSync(inRepo(rel), "restored from a backup\n");
-		fs.rmSync(path.join(sb.repo, ".git", "HEAD"));
-
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("could not read git status");
-		expect(r.stderr).toContain("claimant alice");
-		expect(r.stderr).toContain("the claim and its pin both stand");
-	});
-
-	it("does not credit the pinned bytes to a session that retook the file (mantahostels#420)", () => {
-		// On `contended` the store hands back the REPLACEMENT lock, so naming its
-		// holder would attribute alice's recoverable version to carol.
-		fakeClaude(["bob"]);
-		fs.writeFileSync(inRepo(rel), "restored from a backup\n");
-		commitAll(sb, "clobber");
-		const { git } = writeFaultyGit(
-			{ words: ["status"] },
-			{
-				script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/; s/("sessionId"[[:space:]]*:[[:space:]]*")[^"]*/\\1carol/' ${shellQuote(store.paths.lock(rel))}`,
-			},
-			{ under: sb.dir },
-		);
-
-		const r = cli(["release", "--force", inRepo(rel)], {
-			CLAUDE_CODE_SESSION_ID: "bob",
-			WFC_CLAUDE_BIN: claudeBin(),
-			WFC_GIT: git,
-		});
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("changed while releasing it");
-		expect(r.stderr).toContain("claimant alice");
-		expect(r.stderr).not.toContain("carol");
-	});
-
-	it("says nothing extra when the force takes a file nobody clobbered", () => {
-		fakeClaude(["bob"]);
-		const r = run(["release", "--force", inRepo(rel)], "bob");
-		expect(r.status).toBe(0);
-		expect(r.stderr).not.toContain("not what is on the disk now");
-	});
-
 	it("makes no oracle call on a release that succeeds", () => {
 		// ~465 ms per call (mantahostels#317). The ordinary release is run by every skill loop.
 		fakeClaude(["alice"]);
@@ -2890,13 +2229,6 @@ describe("release --force, the escape for a stranded claim (mantahostels#411)", 
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("alice");
 		expect(oracleCalls()).toBe(1);
-	});
-
-	it("reads --force as a flag wherever it sits, never as a session id", () => {
-		fakeClaude(["bob"]);
-		const r = run(["release", inRepo(rel), "--force"], "bob");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Force-released");
 	});
 });
 
@@ -3232,35 +2564,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(reason).toContain(`${docMap}#B1`);
 	});
 
-	it("counts the file's torn records in a region claim's notice (mantahostels#1408)", () => {
-		// The notice a region claimant gets gathers the region's own debts plus
-		// the whole file's. Carrying only the region's torn count made the file's
-		// unreadable entries vanish, and a short list reads as complete — mantahostels#174's
-		// failure, the one the count exists to prevent.
-		registerSession(sb, "alice", process.pid);
-		store.registerDenial(`${docMap}#B1`); // the live debt the notice hangs off
-		// One unreadable record on each side of the gather, so the notice can only
-		// say two by summing both counts.
-		fs.writeFileSync(store.paths.debt(docMap, 900), "{ half-writ");
-		fs.writeFileSync(store.paths.debt(`${docMap}#B1`, 901), "{ half-writ");
-		const json = JSON.parse(check("alice", "Body of the first entry."));
-		const notice = json.hookSpecificOutput.additionalContext;
-		expect(notice).toContain("carries a registered debt");
-		expect(notice).toContain("2 further entries here could not be parsed");
-	});
-
-	// The positive case §X4 pairs with the regression above: with nothing torn,
-	// the notice says nothing about parsing, so a hardcoded count or an
-	// off-by-one in the sum cannot pass both.
-	it("says nothing about parsing when every record reads back", () => {
-		registerSession(sb, "alice", process.pid);
-		store.registerDenial(`${docMap}#B1`);
-		const json = JSON.parse(check("alice", "Body of the first entry."));
-		const notice = json.hookSpecificOutput.additionalContext;
-		expect(notice).toContain("carries a registered debt");
-		expect(notice).not.toContain("could not be parsed");
-	});
-
 	/** An anchor running out of B1's body into B2's heading. */
 	const straddling = "Body of the first entry.\n\n### B2 \u00b7 The second";
 
@@ -3312,17 +2615,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 		const reason = warning(check("alice", straddling));
 		expect(reason).not.toContain("Release them as soon as you are done");
 		expect(reason).not.toContain(`release ${docMap}#B2`);
-	});
-
-	it("surfaces a debt registered against the SECOND region it takes", () => {
-		// buildDebtNotice is per subject, so reading it off the first region alone
-		// hides every debt owed on the other one.
-		registerSession(sb, "alice", process.pid);
-		store.registerDenial(`${docMap}#B2`);
-		const json = JSON.parse(check("alice", straddling));
-		expect(json.hookSpecificOutput.additionalContext).toContain(
-			"carries a registered debt",
-		);
 	});
 
 	it("still claims the file entire when the anchor is stale", () => {
@@ -3490,8 +2782,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 
 	it("leaves a neighbour's region alone when a bare path is released", () => {
 		// Walking every lock on the file earned a "not by this session" refusal for
-		// a claim the caller never asked about — and under --force it would break
-		// every neighbour's region wholesale.
+		// a claim the caller never asked about.
 		commitMap();
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
@@ -3640,34 +2931,12 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 		expect(r.stdout).toBe("");
 	});
 
-	it("ends the want of a session that was waiting elsewhere (#1487)", () => {
-		registerSession(sb, "alice", process.pid);
-		registerSession(sb, "bob", neighbourPid);
-		store.acquire("docs/a.md", store.identify("alice"));
-		store.recordWant("docs/a.md", store.identify("bob"));
-		expect(alloc("bob").stdout.trim()).toBe("B8");
-		expect(store.readWants()).toEqual([]);
-	});
-
-	it("walks past a held id without recording a want or a denial (#1487)", () => {
+	it("walks past a held id without recording a want (#1487)", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		store.acquire(`${docMap}#B8`, store.identify("alice"));
 		expect(alloc("bob").stdout.trim()).toBe("B9");
 		expect(store.readWants()).toEqual([]);
-		expect(store.listDebts()).toEqual([]);
-	});
-
-	it("promises no debt stub it never wrote when the file is held whole", () => {
-		// buildDenyReason's text tells the reader to clear a stub the denial registered;
-		// allocation registers none, so that recipe answers "no debt" and dead-ends.
-		registerSession(sb, "alice", process.pid);
-		registerSession(sb, "bob", neighbourPid);
-		store.acquire(docMap, store.identify("alice"));
-		const r = alloc("bob");
-		expect(r.stderr).not.toContain("debt clear");
-		expect(r.stderr).toContain(`release --force ${docMap}`);
-		expect(r.stderr).toContain("no id can be allocated");
 	});
 
 	it("refuses on a path that takes no per-entry claim", () => {
@@ -4562,24 +3831,6 @@ describe("release-committed — the claim goes back when the commit lands (manta
 		expect(held(docMap)).toBe(false);
 	});
 
-	it("hands a dirty refusal the request notice (mantahostels#1783)", () => {
-		live(sb, "alice");
-		store.acquire(docMap, store.identify("alice"));
-		registerSession(sb, "bob", neighbourPid);
-		cli(["request", inRepo(docMap), "needs B124"], {
-			CLAUDE_CODE_SESSION_ID: "bob",
-		});
-		fs.writeFileSync(inRepo(docMap), "half an edit\n");
-
-		const r = releaseCommitted("alice", [docMap]);
-
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("Another session is waiting on a file");
-		// firstSay mints the dedupe marker as it prints, so a notice suppressed
-		// here is a notice never said.
-		expect(held(docMap)).toBe(true);
-	});
-
 	it("exits 0 on a commit that touched no claimed path, saying it released nothing", () => {
 		live(sb, "alice");
 		const r = releaseCommitted("alice", ["app/page.tsx"]);
@@ -4938,9 +4189,7 @@ describe("one claim store across seats (#383)", () => {
  * Spawned, not run in-process: runInProcess returns only once the script
  * exits, and the release, death and signal cases act WHILE the wait runs.
  */
-describe("wait: one call waits on a file or issue claim (#540)", () => {
-	const rel = "docs/held.md";
-
+describe("wait: one call waits on an issue claim (#540)", () => {
 	const waitAs = (
 		sid: string,
 		args: string[],
@@ -4987,23 +4236,13 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 		expect(wantOf(sid)).not.toBeNull();
 	};
 
-	/** alice holds rel, committed clean so her release is not refused. */
+	/** alice claims issue 540, and bob is live to wait on it. */
 	const aliceHolds = () => {
-		gitRepo(sb);
-		fs.writeFileSync(inRepo(rel), "alice's file\n");
-		commitAll(sb);
 		const alice = live(sb, "alice");
-		expect(store.acquire(rel, alice).verdict).toBe("claimed");
+		expect(store.claimIssue(540, alice).status).toBe("claimed");
 		live(sb, "bob");
 		return alice;
 	};
-
-	it("exits NOT-HELD at once when nothing holds the target", async () => {
-		live(sb, "bob");
-		const r = await waitAs("bob", [inRepo(rel), "30"]).done;
-		expect(r.stdout).toMatch(/^NOT-HELD {2}docs\/held\.md/);
-		expect(r.status).toBe(4);
-	});
 
 	/* A pipe can be non-blocking — a module this process loads that touches
 	 * process.stdout sets that on the pipe itself, which the preload stands in
@@ -5014,46 +4253,16 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 		fs.writeFileSync(preload, "process.stdout;\n");
 		const seen = throughFullPipe(
 			1,
-			["--require", preload, SCRIPT, "wait", inRepo(rel), "30"],
+			["--require", preload, SCRIPT, "wait", "540", "30"],
 			{ cwd: sb.repo, env: { ...process.env, CLAUDE_CODE_SESSION_ID: "bob" } },
 		);
-		expect(seen).toMatch(/^NOT-HELD {2}docs\/held\.md .*\nexit 4\n$/s);
-	});
-
-	it("exits RELEASED when the holder releases during the wait, and drops its want", async () => {
-		const alice = aliceHolds();
-		const w = waitAs("bob", [inRepo(rel), "30"]);
-		await started("bob");
-		expect(store.release(rel, alice).verdict).toBe("released");
-		const r = await w.done;
-		expect(r.stdout).toMatch(/^RELEASED {2}docs\/held\.md/);
-		expect(r.status).toBe(0);
-		expect(wantOf("bob")).toBeNull();
-	});
-
-	it("exits HOLDER-DEAD when the holder's process ends, and drops its want", async () => {
-		const host = spawn("sleep", ["30"]);
-		const exited = new Promise((resolve) => host.on("exit", resolve));
-		registerSession(sb, "alice", host.pid as number);
-		expect(store.acquire(rel, store.identify("alice")).verdict).toBe("claimed");
-		live(sb, "bob");
-		const w = waitAs("bob", [inRepo(rel), "30"]);
-		await started("bob");
-		host.kill("SIGKILL");
-		await exited;
-		const r = await w.done;
-		expect(r.stdout).toMatch(/^HOLDER-DEAD {2}docs\/held\.md/);
-		expect(r.status).toBe(3);
-		expect(wantOf("bob")).toBeNull();
+		expect(seen).toMatch(/^NOT-HELD {2}issue #540 .*\nexit 4\n$/s);
 	});
 
 	it("exits CEILING naming the holder, and drops its want", async () => {
 		aliceHolds();
-		const r = await waitAs("bob", [inRepo(rel), "0.3"]).done;
-		expect(r.stdout).toMatch(
-			/^CEILING {2}docs\/held\.md — still held by alice/,
-		);
-		expect(r.stdout).toContain("request docs/held.md");
+		const r = await waitAs("bob", ["540", "0.3"]).done;
+		expect(r.stdout).toMatch(/^CEILING {2}issue #540 — still held by alice/);
 		expect(r.status).toBe(5);
 		expect(wantOf("bob")).toBeNull();
 	});
@@ -5065,7 +4274,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 		fs.mkdirSync(path.dirname(bin), { recursive: true });
 		fs.writeFileSync(bin, "#!/bin/sh\nexit 3\n");
 		fs.chmodSync(bin, 0o755);
-		const r = await waitAs("bob", [inRepo(rel), "0.3"], {
+		const r = await waitAs("bob", ["540", "0.3"], {
 			WFC_CLAUDE_BIN: bin,
 		}).done;
 		expect(r.stdout).toMatch(
@@ -5075,9 +4284,9 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 
 	it("shows its want under `list` while it runs, and drops it when killed", async () => {
 		aliceHolds();
-		const w = waitAs("bob", [inRepo(rel), "30"]);
+		const w = waitAs("bob", ["540", "30"]);
 		await started("bob");
-		expect(wantOf("bob")).toMatch(/wants docs\/held\.md, held by alice/);
+		expect(wantOf("bob")).toMatch(/wants issue #540, claimed by alice/);
 		w.child.kill("SIGTERM");
 		expect((await w.done).status).toBe(143);
 		expect(wantOf("bob")).toBeNull();
@@ -5130,15 +4339,6 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 				? fs.readFileSync(calls(), "utf8").split("\n").filter(Boolean).length
 				: 0;
 
-		it("exits HOLDER-ENDED naming release --force when the oracle calls the holder ended", async () => {
-			aliceHolds();
-			const r = await waitAs("bob", [inRepo(rel), "30"], aliceEnded()).done;
-			expect(r.stdout).toMatch(/^HOLDER-ENDED {2}docs\/held\.md/);
-			expect(r.stdout).toContain("release --force docs/held.md");
-			expect(r.status).toBe(6);
-			expect(wantOf("bob")).toBeNull();
-		});
-
 		it("exits HOLDER-ENDED for an issue, saying its claim is stale", async () => {
 			store.claimIssue(540, live(sb, "alice"));
 			live(sb, "bob");
@@ -5152,10 +4352,10 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 			aliceHolds();
 			const r = await waitAs(
 				"bob",
-				[inRepo(rel), "0.5"],
+				["540", "0.5"],
 				oracleSays([{ sessionId: "alice", state: "done" }], 3),
 			).done;
-			expect(r.stdout).toMatch(/^CEILING {2}docs\/held\.md/);
+			expect(r.stdout).toMatch(/^CEILING {2}issue #540/);
 			expect(r.stdout).toContain("Whether its session has ended is UNKNOWN");
 			expect(r.status).toBe(5);
 		});
@@ -5164,7 +4364,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 			aliceHolds();
 			const r = await waitAs(
 				"bob",
-				[inRepo(rel), "0.6"],
+				["540", "0.6"],
 				oracleSays([
 					{ sessionId: "alice", kind: "background", state: "working" },
 					{ sessionId: "bob" },
@@ -5190,14 +4390,14 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 				]),
 				WFC_ORACLE_CACHE: "1",
 			};
-			const first = waitAs("bob", [inRepo(rel), "2"], env);
+			const first = waitAs("bob", ["540", "2"], env);
 			const published = () =>
 				oracleCache.readFresh(oracleCacheKey(env.WFC_CLAUDE_BIN)) !== null;
 			for (let i = 0; i < 200 && !published(); i++)
 				await new Promise((r) => setTimeout(r, 25));
 			expect(published()).toBe(true);
 			const later = ["carol", "dave"].map(
-				(sid) => waitAs(sid, [inRepo(rel), "1"], env).done,
+				(sid) => waitAs(sid, ["540", "1"], env).done,
 			);
 			const runs = await Promise.all([first.done, ...later]);
 			for (const r of runs) {
@@ -5223,26 +4423,10 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 					{ sessionId: "bob" },
 				]),
 			);
-			const r = await waitAs("bob", [inRepo(rel), "0.6"], env).done;
-			expect(r.stdout).toMatch(/^CEILING {2}docs\/held\.md/);
+			const r = await waitAs("bob", ["540", "0.6"], env).done;
+			expect(r.stdout).toMatch(/^CEILING {2}issue #540/);
 			expect(r.status).toBe(5);
 			expect(oracleReads()).toBe(1);
-		});
-
-		it("exits DEADLOCK naming both sessions when the holder waits on what this one holds", async () => {
-			const alice = aliceHolds();
-			const bob = live(sb, "bob");
-			fs.writeFileSync(inRepo("docs/bobs.md"), "bob's file\n");
-			commitAll(sb);
-			expect(store.acquire("docs/bobs.md", bob).verdict).toBe("claimed");
-			store.recordWant("docs/bobs.md", alice);
-			const r = await waitAs("bob", [inRepo(rel), "30"]).done;
-			expect(r.stdout).toMatch(
-				/^DEADLOCK {2}docs\/held\.md — bob wants docs\/held\.md -> alice wants docs\/bobs\.md -> held by you/,
-			);
-			expect(r.stdout).toContain("release <path> once committed");
-			expect(r.status).toBe(7);
-			expect(wantOf("bob")).toBeNull();
 		});
 
 		it("exits DEADLOCK through an issue want, naming both sessions", async () => {
@@ -5255,6 +4439,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 			expect(r.stdout).toMatch(
 				/^DEADLOCK {2}issue #540 — bob wants issue #540 -> alice wants issue #541/,
 			);
+			expect(r.stdout).toContain("release-issue <n>");
 			expect(r.status).toBe(7);
 			expect(wantOf("bob")).toBeNull();
 		});
@@ -5264,7 +4449,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 		"refuses a ceiling of %s, which would not bound the wait, printing the wait usage",
 		async (ceiling) => {
 			live(sb, "bob");
-			const r = await waitAs("bob", [inRepo(rel), ceiling]).done;
+			const r = await waitAs("bob", ["540", ceiling]).done;
 			expect(r.stderr).toContain("usage: session-arbiter.js wait");
 			expect(r.stdout).toBe("");
 			expect(r.status).toBe(2);

@@ -14,8 +14,9 @@
  *
  * Over the 10 s run-cost line (§X8 (5)): each case runs the real dispatcher,
  * whose gates each spawn a node process, since the subject is the script's
- * own sequence of gates; the #4392 cases also copy the scripts into a loop
- * code worktree, since the subject is a launch from one.
+ * own sequence of gates; the #4392 and #4425 cases also copy the scripts into a
+ * loop code worktree or a session worktree, since the subject is a launch
+ * from one.
  *
  * Loosen one and a manual or loop dispatch to an overflow seat spends past
  * its grant, is refused for having no plan bars, or bills the plan.
@@ -166,14 +167,48 @@ const readLaunchEnv = () =>
 function loopCodeTip(env: Record<string, string>) {
 	const codeDir = path.join(String(env.WFC_REFILL_DIR), ".refill-loop-code");
 	const tip = path.join(codeDir, "0123456789ab");
-	fs.cpSync(__dirname, path.join(tip, "scripts"), {
-		recursive: true,
-		filter: (src) => !isTestKind(path.relative(__dirname, src)),
-	});
+	copyScripts(tip);
 	return {
 		codeDir,
 		tip,
 		dispatcher: path.join(tip, "scripts", "dispatch-sessions.sh"),
+	};
+}
+
+const helperOf = (launch: string | undefined) =>
+	JSON.parse(String(launch?.match(/--settings (\{.*\}) \/implement 341$/)?.[1]))
+		.apiKeyHelper;
+
+function expectHelperPrintsKey(helper: string) {
+	// spawn-kept: the subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
+	const h = spawnSync("sh", ["-c", helper], { encoding: "utf8" });
+	expect(h.stderr).toBe("");
+	expect(h.stdout).toBe("sk-fake-overflow\n");
+}
+
+const copyScripts = (root: string) =>
+	fs.cpSync(__dirname, path.join(root, "scripts"), {
+		recursive: true,
+		filter: (src) => !isTestKind(path.relative(__dirname, src)),
+	});
+
+/* A main checkout and a session worktree linked to it, laid out as git lays
+ * them: the worktree's `.git` a file naming its registration under the main
+ * checkout's `.git/worktrees/`. The main checkout's scripts are these, linked
+ * as it only reads them; `mainCopy` false leaves it without them. */
+function sessionWorktree({ mainCopy = true }: { mainCopy?: boolean } = {}) {
+	const main = path.join(fx.dir, "main");
+	const worktree = path.join(main, ".claude", "worktrees", "implement-1");
+	const registration = path.join(main, ".git", "worktrees", "implement-1");
+	fs.mkdirSync(registration, { recursive: true });
+	fs.mkdirSync(worktree, { recursive: true });
+	fs.writeFileSync(path.join(worktree, ".git"), `gitdir: ${registration}\n`);
+	if (mainCopy) fs.symlinkSync(__dirname, path.join(main, "scripts"));
+	copyScripts(worktree);
+	return {
+		main,
+		worktree,
+		dispatcher: path.join(worktree, "scripts", "dispatch-sessions.sh"),
 	};
 }
 
@@ -192,9 +227,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(readArgvLines().some((l) => l.includes("--debug-file"))).toBe(false);
 		const [launch, ...more] = readBgLaunches();
 		expect(more).toEqual([]);
-		const helper = JSON.parse(
-			String(launch?.match(/--settings (\{.*\}) \/implement 341$/)?.[1]),
-		).apiKeyHelper;
+		const helper = helperOf(launch);
 		expect(
 			launch?.startsWith("--bg -n Overflow · /implement 341 --settings "),
 		).toBe(true);
@@ -218,15 +251,10 @@ describe("an overflow seat (#2610)", () => {
 		const r = dispatch(1, env, [], dispatcher);
 		expect(r.failed).toBeNull();
 		const [launch] = readBgLaunches();
-		const helper = JSON.parse(
-			String(launch?.match(/--settings (\{.*\}) \/implement 341$/)?.[1]),
-		).apiKeyHelper;
+		const helper = helperOf(launch);
 		expect(helper).not.toContain(".refill-loop-code/");
 		fs.rmSync(tip, { recursive: true });
-		// spawn-kept: the subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
-		const h = spawnSync("sh", ["-c", helper], { encoding: "utf8" });
-		expect(h.stderr).toBe("");
-		expect(h.stdout).toBe("sk-fake-overflow\n");
+		expectHelperPrintsKey(helper);
 	});
 
 	it("refuses an overflow launch from a loop code worktree whose boot link names no helper, naming the path (#4392)", () => {
@@ -238,6 +266,32 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.out).toContain(
 			`no key helper at ${codeDir}.current/scripts/lib/overflow-key.js`,
 		);
+		expect(r.out).toContain("the next tick launches");
+		expect(readBgLaunches()).toEqual([]);
+	});
+
+	it("names the main checkout's helper when run by hand from a session worktree, so it outlives that worktree (#4425)", () => {
+		stubBg();
+		const { main, worktree, dispatcher } = sessionWorktree();
+		const r = dispatch(1, overflowEnv(200), [], dispatcher);
+		expect(r.failed).toBeNull();
+		const [launch] = readBgLaunches();
+		const helper = helperOf(launch);
+		expect(helper).toContain(path.join(main, "scripts/lib/overflow-key.js"));
+		fs.rmSync(worktree, { recursive: true });
+		expectHelperPrintsKey(helper);
+	});
+
+	it("refuses a hand-run overflow launch from a session worktree whose main checkout holds no helper, naming the path (#4425)", () => {
+		stubBg();
+		const { main, dispatcher } = sessionWorktree({ mainCopy: false });
+		const r = dispatch(1, overflowEnv(200), [], dispatcher);
+		expect(r.failed).toBe("exit 2");
+		expect(r.out).toContain(
+			`no key helper at ${path.join(main, "scripts/lib/overflow-key.js")}`,
+		);
+		expect(r.out).toContain("whose removal would strand the helper");
+		expect(r.out).toContain("let the refill loop launch overflow sessions");
 		expect(readBgLaunches()).toEqual([]);
 	});
 

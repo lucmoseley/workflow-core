@@ -11,15 +11,12 @@
  *   --reports   the `ci-status`, `reap-finished-sessions` and repo-checks
  *               reports in the notify-reports store that this session's own
  *               start produced, each text printed to it once
- *   --requests  every release request standing against a subject this session
- *               holds, in the write path's wording and said once with it: the
- *               arbiter's own `held-requests` (#855)
  *   --ci        the CI re-check (#856): one `gh` call for the runs carrying
  *               the newest verdict (lib/ci-verdict.js), and only where they
  *               differ from the last this session saw,
  *               `check-ci-status.js --notify --recheck`, which fires no
  *               sweep; its text printed to it once
- *   --paths     the store directories the mod stats, as JSON, printed alone
+ *   --paths     the store directory the mod stats, as JSON, printed alone
  *
  * Every other producer in the store — the Jev
  * flags among them (#829 Q2) — is never printed, nor one added later until a
@@ -34,8 +31,7 @@
  * in a ledger of its own under the store's `delivered/`, which `notify.list()`
  * never matches.
  *
- * Only `--ci` touches the network. `--reports` reads files only; `--requests`
- * runs the arbiter, which may ask git whether a held file is dirty.
+ * Only `--ci` touches the network. `--reports` reads files only.
  *
  * THE RE-CHECK'S FIRST GATE IS SEEDED FROM THE SESSION'S START. Where this
  * session owns the persisted ci-status report and the newest verdict's runs
@@ -69,17 +65,12 @@ const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
 const USAGE =
-	`usage: node ${scriptPath("deliver-to-session.js")} --reports | --requests | --ci | --paths\n` +
+	`usage: node ${scriptPath("deliver-to-session.js")} --reports | --ci | --paths\n` +
 	"  the session is CLAUDE_CODE_SESSION_ID\n";
 
 /* Beside these, repo-checks.js's one report per repo (spec #1510 §Where a
  * finding goes). */
 const DELIVERED = ["ci-status", "reap-finished-sessions"];
-
-const ARBITER = path.join(__dirname, "session-arbiter.js");
-// A guess, never measured: under the mod's 5 s (#849 §Guard safety), so a slow
-// arbiter is said as unknown here rather than lost to the mod's kill.
-const ARBITER_TIMEOUT_MS = 4000;
 
 /** Why a spawned script failed, in one line. @param {import("node:child_process").SpawnSyncReturns<string>} ran */
 const whyFailed = (ran) =>
@@ -98,10 +89,6 @@ const CI_GATE_TIMEOUT_MS = 8000;
  * above this plus the gate. */
 const CI_CHECK_TIMEOUT_MS =
 	Number(process.env.WFC_RECHECK_TIMEOUT_MS) || 15_000;
-
-// The ledger entry saying a failed run was told. Not core.firstSay: its marker
-// lives in the claim store, the likeliest thing to have failed.
-const REQUESTS_FAILED = "held-requests failed";
 
 /* A ledger untouched this long is taken to belong to a session long gone. A
  * first guess, never measured against session lifetimes; a ledger pruned under
@@ -238,35 +225,6 @@ function buildReportBlock(session, checker, given) {
 	return `▸ ${report.checker}\n${trimEndRun(report.text, "\n")}`;
 }
 
-/**
- * The arbiter's request notices for what this session holds, as one block.
- * A failed run is said once as unknown, never read as no request (#855).
- * @param {string} session
- * @returns {string[]}
- */
-function heldRequests(session) {
-	const ran = spawnSync(process.execPath, [ARBITER, "held-requests"], {
-		encoding: "utf8",
-		env: { ...process.env, CLAUDE_CODE_SESSION_ID: session },
-		timeout: ARBITER_TIMEOUT_MS,
-	});
-	if (ran.status !== 0) {
-		const why = whyFailed(ran);
-		core.logError("deliver-to-session requests", why);
-		const ledger = readLedger(session);
-		if (ledger.given.has(REQUESTS_FAILED)) return [];
-		ledger.given.add(REQUESTS_FAILED);
-		writeLedger(session, ledger);
-		return [
-			"whether another session has asked for a file this one holds is " +
-				`unknown — not nothing (mantahostels#174): ${why}. ` +
-				`See: node ${scriptPath("check-guard-errors.js")}`,
-		];
-	}
-	const text = ran.stdout.trim();
-	return text ? [`▸ release-request\n${text}`] : [];
-}
-
 /** The outcomes that settle a verdict. */
 const CONCLUSIVE = new Set(["OK", "WARN", "FAIL"]);
 
@@ -396,7 +354,6 @@ function main() {
 		usage: USAGE.trimEnd(),
 		flags: {
 			"--reports": "boolean",
-			"--requests": "boolean",
 			"--ci": "boolean",
 			"--paths": "boolean",
 		},
@@ -409,8 +366,6 @@ function main() {
 		process.stdout.write(
 			`${JSON.stringify({
 				notifyReports: notify.base(),
-				requests: core.paths.requestsDir(),
-				locks: core.paths.locksDir(),
 			})}\n`,
 		);
 		return 0;
@@ -419,7 +374,6 @@ function main() {
 	if (!session) return 0;
 	const blocks = [
 		...(flags["--reports"] ? ownedReports(session) : []),
-		...(flags["--requests"] ? heldRequests(session) : []),
 		...(flags["--ci"] ? ciRecheck(session) : []),
 	];
 	if (blocks.length > 0) process.stdout.write(`${blocks.join("\n\n")}\n`);

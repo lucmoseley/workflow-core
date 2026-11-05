@@ -75,7 +75,7 @@
  * LOCAL ONLY. A CI runner has no transcript corpus and reports SKIP.
  *
  * IMPLICIT:  nothing today — off SessionStart (above), so the only route asks for it. Once re-wired: injects the count of `/pick-next` sessions in the last 7 days that ran on a non-Sonnet model, and the cost-equivalent that forfeited. It reads transcripts and changes nothing.
- * JUSTIFIED: fail-safe — the launch happens outside the Bash tool, so no guard can refuse it and nothing else reports the debt; a run that cannot read the corpus reports nothing rather than calling the rate zero.
+ * JUSTIFIED: fail-safe — the launch happens outside the Bash tool, so no guard can refuse it and nothing else reports the miss; a run that cannot read the corpus reports nothing rather than calling the rate zero.
  * DEFEAT:    none at the hook; --days <n> moves the window on a hand run.
  */
 

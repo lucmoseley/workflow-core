@@ -273,7 +273,7 @@ describe("what passes the 15-minute limit", () => {
 		["timeout 3600 npm run build", "long work, which is not a wait"],
 		["scripts/bg-run.sh run full -- npm run test -- --full=x", "bg-run.sh run"],
 		["node scripts/watch-artefact.js a.md 120", "the artefact watcher"],
-		["node scripts/session-arbiter.js wait docs/x.md", "the arbiter's wait"],
+		["node scripts/session-arbiter.js wait 540", "the arbiter's wait"],
 		[
 			"n=0; until [ $n -ge 36 ]; do sleep 20; n=$((n+1)); done",
 			"a counted loop of 12 minutes",

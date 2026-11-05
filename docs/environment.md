@@ -230,9 +230,9 @@ A background Claude session that has finished does not exit; it stays resumable 
 
 **Idleness runs from when the session finished, not from when the reaper first saw it finished** (mantahostels#655) — the gate `GRACE_MS` compares against, whatever its current value. Idleness is `now − max(firstTerminalAt, transcript mtime)`: `firstTerminalAt` comes from `jobs/<job-id>/state.json` on that seat, read only after the liveness gate and never advanced by a resume. **Both terms or neither** — if either read fails, the reaper falls back to the first-sighting clock. The transcript path is derived from the job record's `cwd` plus the listing's `sessionId`, never the record's own `linkScanPath`, which on a resumed session names the transcript it resumed *from*.
 
-**A file claim does not keep a finished session from being reaped** (mantahostels#747), and `release --force` reaches any holder the oracle has called ended, a finished one included (#268).
+**A file claim does not keep a finished session from being reaped** (mantahostels#747).
 
-**No claim is released, and that is why expiry stays refused.** The reaper reads no lock and breaks none. A lock is breakable once its holder's **host process** is dead, so `claude stop` drops it into the ordinary stale class and the next claimant breaks it by the rule already there — not an expiry, and not `release --force`, which is never called. The run **names** each lock it leaves stale, marking one carrying uncommitted work `(DIRTY)`; that naming gates nothing. **An unreadable claim store costs the naming alone** — it aborted the whole run until mantahostels#747.
+**No claim is released, and that is why expiry stays refused.** The reaper reads no lock and breaks none. A lock is breakable once its holder's **host process** is dead, so `claude stop` drops it into the ordinary stale class and the next claimant breaks it by the rule already there — not an expiry. The run **names** each lock it leaves stale, marking one carrying uncommitted work `(DIRTY)`; that naming gates nothing. **An unreadable claim store costs the naming alone** — it aborted the whole run until mantahostels#747.
 
 **A stop is not a kill: it returns ~300 MB and leaves the conversation intact** (mantahostels#492).
 
@@ -688,7 +688,7 @@ Blocked by default: `curl | bash`, production deploys and migrations, force push
 
 **A session in its own worktree uses that worktree's `.claude/tmp/`** (#4275). The sweep below reaps the main checkout's alone; a worktree's goes when the reaper removes the worktree.
 
-**Nothing here is kept, and a reaper enforces that (mantahostels#2214)** — `scripts/lib/scratch-sweep.js`, spawned detached at every session start by `scripts/sweep-debts-detached.sh`.
+**Nothing here is kept, and a reaper enforces that (mantahostels#2214)** — `scripts/lib/scratch-sweep.js`, spawned detached at every session start by `scripts/session-start-sweeps.sh`.
 
 **A file goes only where both limbs hold: it is over 24 hours old, AND no session `claude agents --json` currently lists started before its write time.** Limb 2 is the safety proof — a session that started after a file was last written has never written it — and limb 1 is the retention floor covering limb 2's one hole, a detached child outliving its session and still writing. **The write time is the later of mtime and ctime** (#1003). An entry with `research` in any segment of its path, so everything inside a `research-<name>/` folder too, and anything under the top-level `agents/` directory where `scripts/lib/dispatch-rewrite.js` supplies a dispatch's artefact, answers to 7 days instead of 24 hours — the path being the only signal the sweep has that a dispatched agent's evidence may still await landing (#1009). A research artefact named without the word gets 24 hours, accepted at that ruling. A subdirectory the sweep has emptied goes too, on the same two limbs. On an unreadable liveness oracle nothing is deleted at all, and the refusal goes to the arbiter's error log.
 

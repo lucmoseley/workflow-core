@@ -5,7 +5,7 @@
  * works.
  *
  *   (no flag)  the daily filing run, launched detached at every session start
- *              by scripts/sweep-debts-detached.sh, in every repo. At most one
+ *              by scripts/session-start-sweeps.sh, in every repo. At most one
  *              reading a day. When a sweep is due it files or refreshes the
  *              one due issue, found by title alone, so a retitled one is not
  *              found and the next due reading files a second.

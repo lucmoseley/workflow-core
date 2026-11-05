@@ -23,7 +23,8 @@
  * `CLAUDE.md` IS PRESENT BY RULING (mantahostels#1281). Of the 34
  * issues predicted to write it, 30 only cite the path and NONE uses it as a
  * substrate (mantahostels#1279). A collision takes the `docs/doc-map.md` regime,
- * abandon-and-debt, in all 12 measured cases (mantahostels#1277). The always-loaded byte
+ * one edit at the stamp and the ticket still finishes, in all 12 measured cases
+ * (mantahostels#1277). The always-loaded byte
  * cap, the coupling unique to this file, is orthogonal (mantahostels#1280). Do not
  * un-stamp it on contention: `docs/doc-map.md` collides nearly three times as
  * often and is the ruled stamp (mantahostels#422).

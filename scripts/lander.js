@@ -31,7 +31,6 @@
  */
 
 const { spawn } = require("node:child_process");
-const path = require("node:path");
 const { spawnGitSync } = require("./lib/git.js");
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
@@ -50,6 +49,7 @@ const {
 } = require("./lib/lander.js");
 const { actionsTester, namedRerun } = require("./lib/actions-tester.js");
 const { localTester } = require("./lib/local-tester.js");
+const { startLevelling } = require("./lib/level-main.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { similarTitles } = require("./lib/tracker-ops.js");
@@ -188,34 +188,6 @@ function liveFiler(root) {
 	};
 }
 
-/**
- * The levelling pass, header. Fails open (#3765): a failed start is said, and
- * the next move or refill-loop tick starts another. `WFC_LEVEL_MAIN_SCRIPT`
- * names another script to start, the suite's seam: a real pass would move the
- * sandbox's `main` under a lander test.
- * @param {string} root
- */
-function startLevelling(root) {
-	/** @param {unknown} err */
-	const notStarted = (err) =>
-		say(`levelling not started: ${parseErrorText(err)}`);
-	try {
-		const child = spawn(
-			process.execPath,
-			[
-				process.env.WFC_LEVEL_MAIN_SCRIPT ||
-					path.join(__dirname, "level-main.js"),
-				"--quiet",
-			],
-			{ cwd: root, detached: true, stdio: ["ignore", "ignore", "inherit"] },
-		);
-		child.on("error", notStarted);
-		child.unref();
-	} catch (err) {
-		notStarted(err);
-	}
-}
-
 /** @param {string[]} [argv] @returns {Promise<number>} */
 async function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, CLI);
@@ -251,7 +223,9 @@ async function main(argv = process.argv.slice(2)) {
 		mainMoved: () => {
 			const adoption = adoptGuardCodeAt(root, { fetch: false });
 			if (adoption) say(adoptionLine(adoption));
-			startLevelling(root);
+			startLevelling(root, (err) =>
+				say(`levelling not started: ${parseErrorText(err)}`),
+			);
 		},
 	});
 	return 0;
