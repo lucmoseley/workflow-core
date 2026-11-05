@@ -163,9 +163,22 @@ function dispatchLivenessLabel(liveness) {
 		: liveness.state;
 }
 
+/**
+ * The text table's liveness cell: the label, with the reason an `unknown`
+ * carries, since a bare `unknown` gives a reader judging a `--force` nothing
+ * to chase.
+ * @param {ReturnType<typeof dispatchLiveness>} liveness
+ * @returns {string}
+ */
+function dispatchLivenessCell(liveness) {
+	const label = dispatchLivenessLabel(liveness);
+	return liveness.why ? `${label} (${liveness.why})` : label;
+}
+
 module.exports = {
 	dispatchAge,
 	dispatchLiveness,
+	dispatchLivenessCell,
 	dispatchLivenessLabel,
 	holdingDispatch,
 };
