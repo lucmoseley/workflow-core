@@ -1886,7 +1886,7 @@
 			"needles": [
 				{
 					"id": "dirty",
-					"text": "has uncommitted changes, so the claim stands"
+					"text": "Releasing a dirty claim hands the next session"
 				},
 				{
 					"id": "not-mine",
