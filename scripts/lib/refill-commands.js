@@ -34,6 +34,7 @@ const {
 	orderPlanSeats,
 	pickSeat,
 	seatHold,
+	isClashSkip,
 } = require("./refill-decide.js");
 const {
 	buildSeatText,
@@ -905,11 +906,16 @@ function buildControlLines(control, state, opts) {
 }
 
 /**
- * The last tick's line, then the rows it skipped (#2561).
+ * The last tick's line, then the rows it skipped (#2561), its clash skips
+ * first: a launching tick's other skips are rows ranked above them (#4355).
  * @param {NonNullable<LoopState["lastTick"]>} t
  */
 function buildLastTickLines(t) {
-	const skipped = t.skipped ?? [];
+	const all = t.skipped ?? [];
+	const skipped = [
+		...all.filter(isClashSkip),
+		...all.filter((s) => !isClashSkip(s)),
+	];
 	return [
 		`last tick: ${iso(t.at)}  ${t.summary}`,
 		...skipped

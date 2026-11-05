@@ -459,7 +459,7 @@ describe("divergenceRow", () => {
 			},
 		};
 		const row = divergenceRow(
-			payload("git push origin main:landing", PUSH_REJECT),
+			payload("git push origin HEAD:landing", PUSH_REJECT),
 			ports(repos, { pushed: "origin/landing" }),
 		);
 		expect(fields(row).slice(3, 8)).toEqual([

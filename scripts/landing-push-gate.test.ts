@@ -80,14 +80,14 @@ describe("with the landing module on", () => {
 		const r = check(buildRefLine(sha, "refs/heads/main"));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(sha);
-		expect(r.stderr).toContain("git push origin main:landing");
+		expect(r.stderr).toContain("session-checkout.js land");
 	});
 
 	it("refuses a push to main where the lander has ledgered nothing", () => {
 		const r = check(buildRefLine(sha, "refs/heads/main"));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(sha);
-		expect(r.stderr).toContain("git push origin main:landing");
+		expect(r.stderr).toContain("session-checkout.js land");
 	});
 
 	it("refuses a deletion of main, a ledgered sha git cannot resolve beside it", () => {
@@ -96,7 +96,7 @@ describe("with the landing module on", () => {
 		const r = check(buildRefLine(ZERO, "refs/heads/main"));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(ZERO);
-		expect(r.stderr).toContain("git push origin main:landing");
+		expect(r.stderr).toContain("session-checkout.js land");
 	});
 
 	it("passes a push to landing of an unledgered sha", () => {
@@ -119,7 +119,7 @@ describe("with the landing module on", () => {
 		const r = check(buildRefLine(other, "refs/heads/main"));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(other);
-		expect(r.stderr).toContain("git push origin main:landing");
+		expect(r.stderr).toContain("session-checkout.js land");
 	});
 });
 
@@ -140,7 +140,7 @@ const hook = (stdin: string, modules = "landing") =>
 it("makes .husky/pre-push refuse an unledgered push to main and pass a ledgered one", () => {
 	const refused = hook(buildRefLine(sha, "refs/heads/main"));
 	expect(refused.status).toBe(1);
-	expect(refused.stderr).toContain("git push origin main:landing");
+	expect(refused.stderr).toContain("session-checkout.js land");
 	ledgerHolds(sha);
 	const r = hook(buildRefLine(sha, "refs/heads/main"));
 	expect(r.status, r.stderr).toBe(0);

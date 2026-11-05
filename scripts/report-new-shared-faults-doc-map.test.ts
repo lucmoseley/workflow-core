@@ -12,7 +12,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyDataFile } from "./lib/doc-map-testkit";
 import {
 	newRepo,
@@ -496,11 +496,11 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 			expect(fs.existsSync(aged)).toBe(false);
 		}, 30_000);
 
-		it("costs a small fraction of the seconds the report itself takes, over a populated directory", () => {
-			const repo = docMapRepo("report-new-shared-faults-sweep-cost-");
-			// A populated root, so the per-entry statSync + process.kill loop is
-			// what is timed and not an empty readdir. Live names (this process),
-			// and names that are not ours at all.
+		it("lists only its own leftover root, never os.tmpdir(), over a populated directory (mantahostels#1883)", () => {
+			const repo = docMapRepo("report-new-shared-faults-sweep-reads-");
+			/* A populated root, so a sweep that lists each entry's contents
+			 * shows up as extra listings. Live names (this process), and names
+			 * that are not ours at all. */
 			const gone = deadPid();
 			for (let i = 0; i < 20; i++) {
 				fs.mkdirSync(path.join(leftoverRoot(), `tree-${process.pid}-live${i}`));
@@ -508,18 +508,25 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 				fs.mkdirSync(path.join(leftoverRoot(), `not-ours-${gone}-${i}`));
 			}
 
-			/* A ref that does not resolve, so the run is the sweep and one
-			 * failing `git rev-list`, and stops before any checker or tree. */
-			const started = process.hrtime.bigint();
-			const { code } = run("no-such-ref", { checkers: {}, cwd: repo.root });
-			const ms = Number(process.hrtime.bigint() - started) / 1e6;
+			/* No output shows what a listing costs, so the listings are counted:
+			 * the cost of listing os.tmpdir() is measured in the subject's
+			 * leftover header. Listings under the repo's own .git (the
+			 * worktree registrations) are git's admin, not the temp dir. */
+			const gitDir = path.resolve(repo.root, ".git");
+			const readdir = vi.spyOn(fs, "readdirSync");
+			const opendir = vi.spyOn(fs, "opendirSync");
+			let listed: string[];
+			try {
+				sweepOnly(repo.root);
+				listed = [...readdir.mock.calls, ...opendir.mock.calls]
+					.map(([dir]) => path.resolve(String(dir)))
+					.filter((dir) => !dir.startsWith(gitDir + path.sep));
+			} finally {
+				readdir.mockRestore();
+				opendir.mockRestore();
+			}
 
-			expect(code).toBe(2);
-			/* The bound is loose against a machine running several
-			 * sessions' suites at once, and its job is to catch a readdir of
-			 * os.tmpdir() creeping back in: /tmp here holds ~225,000 entries and
-			 * costs ~400 ms to list. */
-			expect(ms).toBeLessThan(250);
+			expect(listed).toEqual([path.resolve(leftoverRoot())]);
 		});
 	});
 });

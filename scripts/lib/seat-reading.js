@@ -171,6 +171,27 @@ function sizeResumeSeats(seats, resumable, slots, sizeOf) {
 }
 
 /**
+ * `seats` with each parker's seat that has room but no cap sized, sized for
+ * one resume: only the first seat with room is sized for the decision, and a
+ * resume is held to the same cap as a launch (#3669). A marker naming an
+ * overflow key on a plan seat's dir sizes none of that plan seat's cap
+ * (#4147). In away mode, where none resumes, a cap sized 0 still reads full
+ * for the idle alarm's hold (#3850).
+ * @param {SizedSeat[]} seats
+ * @param {import("./refill-decide.js").ParkerReading[]} parkers
+ * @param {(seat: string, members: number) => number|null} sizeOf
+ * @returns {SizedSeat[]}
+ */
+const sizeParkerSeats = (seats, parkers, sizeOf) =>
+	seats.map((s) =>
+		s.fits === null &&
+		hasRoom(s) &&
+		parkers.some((p) => p.job && isSameSeat(p.job, s))
+			? { ...s, fits: sizeOf(s.seat, 1) }
+			: s,
+	);
+
+/**
  * Each seat read and sized for a tick, in the decision core's launch order
  * (#3732): the stale seats ahead of the first one free to launch are
  * refreshed by `/usage` first, then those behind a seat the cap sizes 0, so
@@ -467,5 +488,6 @@ module.exports = {
 	seatReadingOf,
 	seatsDueRead,
 	seatTriedAfter,
+	sizeParkerSeats,
 	sizeResumeSeats,
 };

@@ -279,6 +279,19 @@ describe("parseState's launch rows", () => {
 	});
 });
 
+describe("parseState's last tick", () => {
+	it("keeps an allowance wait, so status reads a full week's back (#3859)", () => {
+		const lastTick = {
+			at: NOW,
+			summary: "idle: a plan resets",
+			skipped: [],
+			idle: "a plan resets",
+			planWait: { resets: NOW + 60 * MIN },
+		};
+		expect(loopStateOf({ lastTick }).lastTick).toEqual(lastTick);
+	});
+});
+
 describe("the state file", () => {
 	let dir: string;
 	beforeEach(() => {
@@ -307,10 +320,13 @@ describe("the state file", () => {
 		expect(fs.existsSync(path.join(dir, REFILL_STATE_FILE))).toBe(false);
 	});
 
+	/* The tick reads its state through readState, so a damaged file ticks on
+	 * these defaults (#3380). */
 	it("reads a damaged file as the defaults, logging it", () => {
-		fs.writeFileSync(path.join(dir, REFILL_STATE_FILE), "{");
+		const file = path.join(dir, REFILL_STATE_FILE);
+		fs.writeFileSync(file, "{");
 		const lines: string[] = [];
 		expect(readState((l) => lines.push(l))).toEqual(loopStateOf(null));
-		expect(lines[0]).toMatch(/is damaged/);
+		expect(lines).toEqual([expect.stringContaining(`${file} is damaged (`)]);
 	});
 });

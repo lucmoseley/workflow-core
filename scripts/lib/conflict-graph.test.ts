@@ -595,13 +595,6 @@ describe("the stamp-sharing summary names what was shared", () => {
 	});
 });
 
-describe("the stamp allowlist itself", () => {
-	it("holds exactly the ruled stamps, not docs/reference-roadmap.html", () => {
-		// see module header, mantahostels#1074, mantahostels#1281
-		expect(graph.STAMP_PATHS).toEqual(["docs/doc-map.md", "CLAUDE.md"]);
-	});
-});
-
 describe("which issues the band read is nominated to cover (mantahostels#1484)", () => {
 	const prov = (number: number, writeSet: string[]): Candidate => ({
 		number,

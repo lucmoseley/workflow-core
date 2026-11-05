@@ -223,11 +223,11 @@ const MARKED_RULE_RE = /\blatchAfter:\s*["'](?:rule:)?([a-z0-9-]+)["']/g;
  * A Node guard core's module gates, lib/rule-gates.js's `ruleModule(ctx,
  * "<module>", [<id>…])`, which skips the ids unless the host has <module> on
  * (#449), and `ruleUnlessModule`, which skips them where it is on (#2409,
- * #2785). Anchored at the line's head, a spread allowed, so a mention in a
- * comment reads as none.
+ * #2785). Anchored at the line's head, a `skip:` key and a spread allowed, so
+ * a mention in a comment reads as none.
  */
 const MODULE_RULE_RE = new RegExp(
-	`^[ \\t]*(?:\\.\\.\\.)?rule(Module|UnlessModule)\\(\\s*\\w+\\s*,\\s*["']([a-z]+)["']\\s*,\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
+	`^[ \\t]*(?:skip:\\s*)?(?:\\.\\.\\.)?rule(Module|UnlessModule)\\(\\s*\\w+\\s*,\\s*["']([a-z]+)["']\\s*,\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
 	"gm",
 );
 

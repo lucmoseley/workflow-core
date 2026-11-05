@@ -139,6 +139,7 @@ const { readState } = require("./lib/refill-state.js");
 const { unclosedLaunchOf } = require("./lib/unclosed-launch.js");
 const { writeFd } = require("./lib/write-fd.js");
 const conflictGraph = require("./lib/conflict-graph");
+const { STAMP_PATHS } = require("./lib/stamp-paths.js");
 const strandedCount = require("./lib/stranded-count");
 const {
 	RETRO_BUNDLE_CAP,
@@ -1388,7 +1389,7 @@ function renderShortlist(state) {
 function printCollisionPairs(state) {
 	const { collisions, inFlightCollisions, docMapQueue, claims, listed } = state;
 	/**
-	 * A pair sharing only stamp paths (conflictGraph.STAMP_PATHS — a
+	 * A pair sharing only stamp paths (STAMP_PATHS — a
 	 * ruling that grows over time, mantahostels#1301) is one the skill tells the
 	 * reader to discount — stamp-sharing, not a conflict
 	 * (.claude/skills/pick-next/SKILL.md; mantahostels#593, mantahostels#1312). Text only;
@@ -1398,12 +1399,11 @@ function printCollisionPairs(state) {
 	 * since that block explains nothing about a CLAUDE.md-only pair.
 	 * @param {{paths: string[]}} c
 	 */
-	const isStampPair = (c) =>
-		c.paths.every((p) => conflictGraph.STAMP_PATHS.includes(p));
+	const isStampPair = (c) => c.paths.every((p) => STAMP_PATHS.includes(p));
 	const printed = collisions.filter((c) => !isStampPair(c));
 	const stampCollisions = collisions.filter(isStampPair);
 	const suppressed = stampCollisions.length;
-	const stampsShared = conflictGraph.STAMP_PATHS.filter((p) =>
+	const stampsShared = STAMP_PATHS.filter((p) =>
 		stampCollisions.some((c) => c.paths.includes(p)),
 	);
 	console.log(

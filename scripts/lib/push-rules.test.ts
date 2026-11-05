@@ -270,7 +270,7 @@ describe("the landing module swaps in the landing route's texts (#2409)", () => 
 	it("hands the -landing twins, and none of today's texts, with it on", () => {
 		expect(
 			handed(
-				run("git push origin main:landing", { modules: ["suites", "landing"] }),
+				run("git push origin HEAD:landing", { modules: ["suites", "landing"] }),
 			),
 		).toEqual([
 			"push-cadence-landing",
@@ -282,7 +282,7 @@ describe("the landing module swaps in the landing route's texts (#2409)", () => 
 	it("the CI-lag twin owes no sweep", () => {
 		expect(
 			handed(
-				run("git push origin main:landing", {
+				run("git push origin HEAD:landing", {
 					modules: ["suites", "landing"],
 					hasSweep: false,
 				}),

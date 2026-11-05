@@ -287,7 +287,7 @@ describe("mantahostels#66 — a clean working tree does not mean a file is free"
 
 	whenBuilt(
 		GUARDS.fileClaim,
-		"after: Bob's write is denied and Alice is named as the holder",
+		"after: Bob's write is warned of the conflict and Alice is named as the holder (#4249)",
 		() => {
 			// Alice's own write is what claims the file — mantahostels#99's signal 1.
 			const claim = alice.runGuard(
@@ -302,8 +302,9 @@ describe("mantahostels#66 — a clean working tree does not mean a file is free"
 				GUARDS.fileClaim,
 				bob.writePayload("docs/doc-map.md"),
 			);
-			expect(refused(r)).toBe(true);
-			expect(r.stdout + r.stderr).toContain("alice");
+			expect(refused(r)).toBe(false);
+			expect(r.stdout).toContain("also held by session");
+			expect(r.stdout).toContain("alice");
 		},
 	);
 
@@ -351,40 +352,9 @@ describe("mantahostels#60/mantahostels#73 — mutual deadlock on uncommitted edi
 		expect(a.freeByConvention("docs/reference-roadmap.html")).toBe(false);
 	});
 
-	// The after-half is debt registration, built by mantahostels#120 against mantahostels#116's design.
-	// It does not stop the denial — mantahostels#104 ruled that a denied session abandons the
-	// edit rather than waiting, because waiting IS the deadlock. What it stops is
-	// the abandoned edit vanishing: the denial itself records the debt, so the
-	// next session to reach for the file is told the work is owned elsewhere.
-
-	whenBuilt(
-		GUARDS.fileClaim,
-		"after: the denial registers the debt itself — Bob declares nothing",
-		() => {
-			alice.runGuard(
-				GUARDS.fileClaim,
-				alice.writePayload("docs/reference-roadmap.html"),
-			);
-			const denial = bob.runGuard(
-				GUARDS.fileClaim,
-				bob.writePayload("docs/reference-roadmap.html"),
-			);
-			expect(refused(denial)).toBe(true);
-
-			// mantahostels#99's principle: the record is a side-effect of the denial, so a session
-			// that forgets leaves an incomplete debt, never no debt.
-			const debts = a.debts();
-			expect(debts).toHaveLength(1);
-			expect(debts[0].path).toBe("docs/reference-roadmap.html");
-			expect(Object.keys(debts[0]).sort()).toEqual([
-				"createdAt",
-				"gist",
-				"issue",
-				"path",
-				"recordedBy",
-			]);
-		},
-	);
+	// The after-half is the debt ledger, built by mantahostels#120 against mantahostels#116's design:
+	// a debt owned on a file tells the next session to reach for it that the work
+	// is owned elsewhere.
 
 	whenBuilt(
 		GUARDS.fileClaim,
@@ -421,26 +391,6 @@ describe("mantahostels#60/mantahostels#73 — mutual deadlock on uncommitted edi
 			// treated the one-liner as the spec would rebuild the wrong thing.
 			expect(r.stdout).toContain("authoritative");
 			expect(r.stdout).toContain("the v5.75 version bump");
-		},
-	);
-
-	whenBuilt(
-		GUARDS.fileClaim,
-		"after: a stub nobody owned says so, rather than naming a ticket that does not exist",
-		() => {
-			alice.runGuard(GUARDS.fileClaim, alice.writePayload("docs/doc-map.md"));
-			bob.runGuard(GUARDS.fileClaim, bob.writePayload("docs/doc-map.md"));
-			alice.killed();
-
-			const carol = a.session("carol").live();
-			const r = carol.runGuard(
-				GUARDS.fileClaim,
-				carol.writePayload("docs/doc-map.md"),
-			);
-			// No issue means no lifecycle and no automatic death: it is cleared by
-			// hand or it stays forever, and the message has to say so.
-			expect(r.stdout).toContain("never owned");
-			expect(r.stdout).toContain("debt clear");
 		},
 	);
 
@@ -709,7 +659,10 @@ describe("the claim primitive under real concurrency", () => {
 					s.runGuardAsync(GUARDS.fileClaim, s.writePayload("docs/doc-map.md")),
 				),
 			);
-			expect(results.filter((r) => !refused(r))).toHaveLength(1);
+			// The winner takes the claim; every other claimant is warned of it (#4249).
+			expect(
+				results.filter((r) => !r.stdout.includes("also held by session")),
+			).toHaveLength(1);
 		},
 	);
 });
