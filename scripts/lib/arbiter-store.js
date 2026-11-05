@@ -137,6 +137,7 @@ module.exports = {
 	isWatched: core.isWatched,
 	isReleasable: core.isReleasable,
 	listIssueClaims: issues.listIssueClaims,
+	readClaimedIssues: issues.readClaimedIssues,
 	listLocks: locksMod.listLocks,
 	listLocksJudged: locksMod.listLocksJudged,
 	liveClaimElsewhereOnFile: locksMod.liveClaimElsewhereOnFile,
