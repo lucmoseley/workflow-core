@@ -241,7 +241,9 @@ describe("a successful resolve", () => {
 		setUp();
 		const r = run(DECISION);
 		expect(r.status).toBe(0);
-		expect(JSON.parse(read("comments.json"))[0].body).toBe(COMMENT);
+		expect(JSON.parse(read("comments.json"))[0].body).toBe(
+			`${COMMENT.trimEnd()}\n\n**Compactions:** 0\n`,
+		);
 		expect(JSON.parse(read("issue.json"))).toMatchObject({
 			state: "closed",
 			reason: "completed",
@@ -1159,5 +1161,46 @@ describe("a re-run after a partial failure", () => {
 		expect(readMapLines()).toHaveLength(1);
 		// The one close is the one act: a re-run on the closed issue adds none.
 		expect(readActs()).toEqual(["close acme/widgets#534"]);
+	});
+});
+
+/* The per-unit log the backstop report reads (#4410). */
+describe("the **Compactions:** line", () => {
+	const lastPosted = () => JSON.parse(read("comments.json")).at(-1).body;
+	const compacted = (keys: string[]) => {
+		const dir = path.join(sb.repo, ".claude", "tmp", "markers");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, `.session-ceiling-compactions-${ME}`),
+			`${keys.join("\n")}\n`,
+		);
+	};
+
+	it("ends a kind:ticket's comment with this session's autocompaction count", () => {
+		setUp();
+		compacted(["c1", "c2", "pending:2026-11-05T00:00:00Z"]);
+		expect(run(DECISION).status).toBe(0);
+		expect(lastPosted()).toBe(`${COMMENT.trimEnd()}\n\n**Compactions:** 3\n`);
+	});
+
+	it("writes 0 for a session that never autocompacted", () => {
+		setUp();
+		expect(run(DECISION).status).toBe(0);
+		expect(lastPosted()).toMatch(/\n\*\*Compactions:\*\* 0\n$/);
+	});
+
+	it("writes no line on an issue that is not a kind:ticket", () => {
+		setUp({ labels: ["takes:implement", "kind:spec"], body: "Spec.\n" });
+		compacted(["c1"]);
+		expect(run(DECISION).status).toBe(0);
+		expect(lastPosted()).toBe(COMMENT);
+	});
+
+	it("keeps a line the comment already carries", () => {
+		setUp();
+		compacted(["c1"]);
+		const own = `${COMMENT}**Compactions:** 7\n`;
+		expect(run(DECISION, own).status).toBe(0);
+		expect(lastPosted()).toBe(own);
 	});
 });

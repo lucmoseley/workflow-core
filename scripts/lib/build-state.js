@@ -6,29 +6,20 @@
  * successor session in another worktree finds it by the issue number alone,
  * without its predecessor's session id. The session writes the file itself;
  * `scripts/build-state.js` creates or resumes it and prints its path.
- *
- * THE MAIN CHECKOUT, NOT THE HOST ROOT: a hook is handed `CLAUDE_PROJECT_DIR`,
- * the main checkout, while a session's Bash call in a linked worktree resolves
- * the host root to that worktree, so the two would name two files.
+ * Rooted on `hookStoreRoot()`, so the hook and a session's own Bash call in a
+ * linked worktree name one file.
  */
 
 const path = require("node:path");
-const { hostRoot } = require("./host-root.js");
-const { mainCheckout } = require("./main-checkout.js");
+const { hookStoreRoot } = require("./hook-store-root.js");
 
 const BUILD_STATE_REL = path.join(".claude", "tmp", "build-state");
-
-function buildStateRoot() {
-	if (process.env.WFC_REPO_ROOT) return process.env.WFC_REPO_ROOT;
-	const host = hostRoot();
-	return mainCheckout(host) ?? host;
-}
 
 /**
  * @param {number} issue
  * @param {string} [root]
  */
-function buildStateFile(issue, root = buildStateRoot()) {
+function buildStateFile(issue, root = hookStoreRoot()) {
 	return path.join(root, BUILD_STATE_REL, `${issue}.json`);
 }
 
@@ -67,7 +58,6 @@ function claimedIssue(sid) {
 module.exports = {
 	BUILD_STATE_REL,
 	buildStateFile,
-	buildStateRoot,
 	claimedIssue,
 	newBuildState,
 };

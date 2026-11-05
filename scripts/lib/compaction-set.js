@@ -59,6 +59,16 @@ function recordCompactions(sid, keys) {
 	return seen.size;
 }
 
+/**
+ * The size of `sid`'s set, read without writing: 0 where it never
+ * autocompacted. `root` is the tree whose markers the hook wrote.
+ * @param {string} sid
+ * @param {string} root
+ */
+function countCompactions(sid, root) {
+	return readSeen(path.join(markersDir(root), COMPACTIONS_PREFIX + sid)).size;
+}
+
 /** @param {number} count */
 function buildCompactionSentence(count) {
 	const times = `${count.toLocaleString("en-GB")} time${count === 1 ? "" : "s"}`;
@@ -94,4 +104,5 @@ module.exports = {
 	buildCompactionSentence,
 	COMPACTION_BACKSTOP,
 	compactionAdvice,
+	countCompactions,
 };
