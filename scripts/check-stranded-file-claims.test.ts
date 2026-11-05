@@ -40,7 +40,8 @@ const locksDir = () => store.paths.locksDir();
 const lockFile = (rel: string) =>
 	`${createHash("sha256").update(rel).digest("hex").slice(0, 16)}.json`;
 
-/** A lock on disk, in the shape locks.newLock writes. `agedHours` back-dates it. */
+/** A lock on disk, in the shape locks.newLock writes. `agedHours` back-dates it;
+ * `tree` is the worktree its holder wrote it in, the main checkout where absent. */
 function claim(rel: string, sessionId: string, agedHours = 24, tree?: string) {
 	fs.mkdirSync(locksDir(), { recursive: true });
 	const rec = locks.newLock({

@@ -934,7 +934,7 @@ function release(rel, me, { generator = false, notMine = false } = {}) {
 function dropClean(subject, existing, generator = false, landing = {}) {
 	// In the holder's tree, not the caller's: a claim forced from the main
 	// checkout is dirty, or clean, where its holder wrote it (#4457).
-	return core.inTree(core.recordTree(existing), () =>
+	return core.inRecordTree(existing, () =>
 		dropCleanInTree(subject, existing, generator, landing),
 	);
 }
@@ -1178,7 +1178,7 @@ function readLocksHeldBy(sessionId) {
  * @param {LockRecord} lock
  */
 function subjectDirtyWhereHeld(lock) {
-	return core.inTree(core.recordTree(lock), () => core.subjectDirty(lock.path));
+	return core.inRecordTree(lock, () => core.subjectDirty(lock.path));
 }
 
 /**
@@ -1269,7 +1269,8 @@ function liveClaimElsewhereOnFile(rel, exceptClaimId) {
 			!l.unreadable &&
 			l.alive &&
 			l.claimId !== exceptClaimId &&
-			core.subjectPath(l.path) === file,
+			core.subjectPath(l.path) === file &&
+			core.recordTree(l) === core.treeRoot(),
 	);
 }
 

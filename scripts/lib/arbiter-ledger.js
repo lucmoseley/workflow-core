@@ -93,7 +93,7 @@ function recordWrite(filePath, sessionId) {
  * @param {string} line
  * @param {string} host
  */
-function writeEntry(line, host) {
+function parseWriteEntry(line, host) {
 	const tab = line.indexOf("\t");
 	return tab === -1
 		? { rel: line, tree: host }
@@ -108,12 +108,12 @@ function writeEntry(line, host) {
  * @param {string} tree
  * @param {string} host the host whose store holds the ledger
  */
-function writesIn(file, what, tree, host) {
+function readWritesIn(file, what, tree, host) {
 	const lines = readLines(file, what);
 	if (lines === null) return null;
 	const rels = new Set();
 	for (const line of lines) {
-		const entry = writeEntry(line, host);
+		const entry = parseWriteEntry(line, host);
 		if (entry.tree === tree) rels.add(entry.rel);
 	}
 	return [...rels];
@@ -130,7 +130,7 @@ function readWriteEntriesBy(sessionId) {
 	const host = core.repoRoot();
 	const lines = readLines(core.paths.ledger(sessionId), `writes ${sessionId}`);
 	if (lines === null) return null;
-	return lines.map((line) => writeEntry(line, host));
+	return lines.map((line) => parseWriteEntry(line, host));
 }
 
 /**
@@ -151,7 +151,7 @@ function readWritesBy(sessionId, tree = core.treeRoot()) {
 	//
 	// That equivalence holds only because pruneLedgers() spares a session it
 	// can prove is still running (mantahostels#137).
-	return writesIn(
+	return readWritesIn(
 		core.paths.ledger(sessionId),
 		`writes ${sessionId}`,
 		tree,
@@ -338,7 +338,7 @@ function readLastWriterOf(rel, { root, tree } = {}) {
 	for (const name of entries) {
 		if (!name.endsWith(".txt")) continue;
 		const file = path.join(dir, name);
-		const rels = writesIn(file, `writes ${name}`, tree ?? host, host);
+		const rels = readWritesIn(file, `writes ${name}`, tree ?? host, host);
 		if (!rels?.includes(rel)) continue;
 		let at;
 		try {

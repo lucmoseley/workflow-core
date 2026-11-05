@@ -243,12 +243,11 @@ function classifyWorktrees(
  * which is NOT the same as none of them being dirty.
  * @param {Set<string> | null} dirty readDirtyPaths()'s result
  * @param {DirtyWorktrees["found"]} found readDirtyWorktrees()'s `found`
- * @param {string} [root] the main checkout
  * @returns {Map<string, Set<string>> | null}
  */
-function dirtByTree(dirty, found, root = paths.repoRoot()) {
+function dirtByTree(dirty, found) {
 	if (dirty === null) return null;
-	const out = new Map([[deref(root), dirty]]);
+	const out = new Map([[deref(paths.repoRoot()), dirty]]);
 	for (const f of found) out.set(f.worktree, f.dirty);
 	return out;
 }
@@ -265,12 +264,10 @@ function dirtByTree(dirty, found, root = paths.repoRoot()) {
  *
  * @param {Map<string, Set<string>> | null} dirt dirtByTree()'s result
  * @param {{path: string, tree?: string}} lock
- * @param {string} [root] the main checkout
  */
-function isDirtyClaim(dirt, lock, root = paths.repoRoot()) {
+function isDirtyClaim(dirt, lock) {
 	return (
-		dirt?.get(deref(recordTree(lock, root)))?.has(subjectPath(lock.path)) ===
-		true
+		dirt?.get(deref(recordTree(lock)))?.has(subjectPath(lock.path)) === true
 	);
 }
 

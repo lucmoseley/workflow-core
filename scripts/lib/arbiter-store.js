@@ -166,7 +166,6 @@ module.exports = {
 	claimKey: core.claimKey,
 	treeRoot: core.treeRoot,
 	recordTree: core.recordTree,
-	inTree: core.inTree,
 	release: locksMod.release,
 	releaseIssue: issues.releaseIssue,
 	registryLookup: core.registryLookup,

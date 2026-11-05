@@ -769,7 +769,8 @@ function recordTree(record, host = repoRoot()) {
 
 /**
  * `fn`'s answer with treeRoot() answering `tree`: every per-file read of the
- * store — content pins, dirt, region reads — runs there.
+ * store — content pins, dirt, region reads — runs there. Sync only: an async
+ * `fn`'s awaited reads run after the override is restored.
  * @template T
  * @param {string} tree
  * @param {() => T} fn
@@ -783,6 +784,17 @@ function inTree(tree, fn) {
 	} finally {
 		treeOverride = prior;
 	}
+}
+
+/**
+ * `fn`'s answer read in the tree `record` was written in.
+ * @template T
+ * @param {{tree?: string}} record
+ * @param {() => T} fn
+ * @returns {T}
+ */
+function inRecordTree(record, fn) {
+	return inTree(recordTree(record), fn);
 }
 
 /**
@@ -1575,6 +1587,7 @@ module.exports = {
 	writerTree,
 	recordTree,
 	inTree,
+	inRecordTree,
 	liveOrResumed,
 	resumedHolderTest,
 	sayOnce,

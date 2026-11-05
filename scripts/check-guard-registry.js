@@ -3616,8 +3616,15 @@ function sortClaims(found, snap, wanted, ours) {
 	);
 	if (!self) return "this session is unidentified";
 	const { neighbourDirty } = require("./lib/tree-drift.js");
-	const nameFor = require("./lib/arbiter-core.js").registryNames();
-	for (const e of (snap && neighbourDirty(snap, locks, self)) ?? []) {
+	const core = require("./lib/arbiter-core.js");
+	const nameFor = core.registryNames();
+	/* A claim held in another tree is on another copy of the file (#4457).
+	 * The session's tree, not `root`: under `--against` that is an index. */
+	const here = core.treeRoot();
+	const inHere = locks.filter(
+		(l) => !l || l.unreadable || core.recordTree(l) === here,
+	);
+	for (const e of (snap && neighbourDirty(snap, inHere, self)) ?? []) {
 		if (!wanted.has(e.path)) continue;
 		const entry = { holder: nameFor(e.sessionId), dead: e.dead };
 		(ours.has(e.path) ? found.taken : found.held).set(e.path, entry);
