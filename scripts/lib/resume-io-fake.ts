@@ -36,7 +36,6 @@ const ran = (stdout: string, stderr = ""): ChildRun => ({
 	out: `${stdout}${stderr}`.trim(),
 });
 
-/** The launcher's run, answering `kind` for job JOB. */
 const launched = (kind: ResumeKind): ChildRun => {
 	const r = buildRekeyedResponse(kind, JOB, FAKE_COPY);
 	return ran(r.stdout, r.stderr);
@@ -100,7 +99,6 @@ export const ANSWERS = {
 	},
 	overflowLookup: {
 		none: () => null,
-		/* The key's first launch of SESSION, and nothing else. */
 		launched: (q: { jobId?: string | null; sessionId?: string | null }) =>
 			q.sessionId === SESSION ? FIRST_LAUNCH : null,
 	},
@@ -117,9 +115,7 @@ export const ANSWERS = {
 	[P in keyof ResumeIo]?: Record<string, ReturnType<ResumeIo[P]>>;
 };
 
-/** What a port throws, by the fault a test picks. */
 export const FAULTS = {
-	/* A dispatch ledger that will not read. */
 	overflowLookup: { unreadable: "dispatched.jsonl would not read: EISDIR" },
 };
 
@@ -131,10 +127,6 @@ export type Picks = {
 		| (P extends keyof Faults ? keyof Faults[P] : never);
 };
 
-/**
- * A ResumeIo serving the picked answers over `env`, what each port was
- * handed, and what it logged.
- */
 export function fakeResumeIo(
 	picks: Picks = {},
 	env: NodeJS.ProcessEnv = { PATH: "/bin" },

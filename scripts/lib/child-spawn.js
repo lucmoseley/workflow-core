@@ -1,7 +1,8 @@
 /*
  * child-spawn.js — run a child to its end, and judge it (lib/child-failure.js).
  * Its own module so a program can take it without the load-time state of
- * lib/refill-tick.js, its other caller (#3814).
+ * lib/refill-tick.js (#3814); runTickChild is the bound refill-tick.js and
+ * lib/resume-io.js run their children under.
  */
 
 const { spawnSync } = require("node:child_process");

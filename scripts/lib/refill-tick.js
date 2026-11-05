@@ -35,7 +35,7 @@ const seatReading = require("./seat-reading.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
-const { runTickChild } = require("./child-spawn.js");
+const { runTickChild: runChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
@@ -150,8 +150,6 @@ const say = (line) => writeFd(1, `${line}\n`);
 const log = (line) => say(`${new Date().toISOString()} ${line}`);
 
 const readControl = () => readControlChecked(log);
-
-const runChild = runTickChild;
 
 /**
  * The roots a scope serves now.

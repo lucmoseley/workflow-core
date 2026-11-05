@@ -24,7 +24,6 @@ const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 const SCRIPTS = path.dirname(__dirname);
 
 /**
- * The ResumeIo that logs through `log`.
  * @param {(line: string) => void} log
  * @returns {import("./refill-resume.js").ResumeIo}
  */

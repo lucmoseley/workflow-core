@@ -3,13 +3,11 @@
  * The contract lib/resume-io-fake.ts keeps with lib/resume-io.js (#4386,
  * §G7): each answer the fake serves, its failures included, and each fault it
  * throws, is the shape and verdict the real adapter gives in the situation the
- * answer names. Only the situation's
- * own values — paths, ids, the text a message carries — differ. The real side
- * runs over real fs, git and the real session-arbiter.js in a temp HOME, with
- * `claude` stubbed at WFC_CLAUDE_BIN by the port fakes its own contracts hold
- * (auth-status, bg-resume, agents-stop), so no case spends or touches a live
- * seat. Let the fake drift and refill-resume.test.ts's cases pass on answers
- * production never gives.
+ * answer names. Only the situation's own values — paths, ids, the text a
+ * message carries — differ. The real side runs over real fs, git and the real
+ * session-arbiter.js in a temp HOME, with `claude` stubbed at WFC_CLAUDE_BIN by
+ * the port fakes its own contracts hold (auth-status, bg-resume, agents-stop),
+ * so no case spends or touches a live seat.
  */
 
 import fs from "node:fs";
@@ -175,8 +173,7 @@ function thrownBy(act: () => unknown) {
 	}
 }
 
-/* The arbiter runArbiter crosses for real, named so a change to it selects
- * this file (§X10). */
+/* Named for the test selector (§X10): runArbiter runs it. */
 const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
 /** An answer less its situation's values, keyed by port. */
@@ -383,7 +380,6 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	},
 };
 
-/* What the real adapter throws in each situation a fault names. */
 const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	overflowLookup: {
 		unreadable: () => {
