@@ -254,6 +254,8 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
 		running = readRunning(seat, lookup, ledger, readAgents);
+		// A running session's remainder grows from its own spend, so only the
+		// settled rows take a copy's chain share (#4208).
 		settled = settleChainsOnce(seat, lookup, ledger);
 		log = readConsoleLog(seat);
 	} catch (err) {
@@ -338,7 +340,11 @@ function readChains(seat, lookup, ledger) {
 	for (const [root, members] of byRoot)
 		chains.set(
 			root,
-			members.sort((x, y) => x.depth - y.depth).map((m) => m.sessionId),
+			members
+				.sort(
+					(x, y) => x.depth - y.depth || x.sessionId.localeCompare(y.sessionId),
+				)
+				.map((m) => m.sessionId),
 		);
 	return { files, spent, chains };
 }
@@ -350,7 +356,7 @@ function readChains(seat, lookup, ledger) {
  * @param {string} root
  * @param {string[]} listed
  */
-const listedChainUsd = (lookup, root, listed) =>
+const readListedChainUsd = (lookup, root, listed) =>
 	Math.max(0, readChainSpendUsd(listed) - offKeyOf(lookup, root));
 
 /**
@@ -373,8 +379,7 @@ function readChainSpend(seat, lookup, ledger) {
 		const gone = members
 			.filter((m) => !files.has(m))
 			.reduce((t, m) => t + (spent.get(m) ?? 0), 0);
-		const offKey = files.has(root) ? offKeyOf(lookup, root) : 0;
-		const usd = Math.max(0, readChainSpendUsd(listed) - offKey) + gone;
+		const usd = readListedChainUsd(lookup, root, listed) + gone;
 		for (const m of members) spent.set(m, Math.max(usd, spent.get(m) ?? 0));
 	}
 	return spent;
@@ -405,7 +410,7 @@ function settleChainsOnce(seat, lookup, ledger) {
 			const file = files.get(m);
 			if (file === undefined) continue;
 			listed.push(file);
-			const after = listedChainUsd(lookup, root, listed);
+			const after = readListedChainUsd(lookup, root, listed);
 			added.set(m, after - before);
 			before = after;
 		}

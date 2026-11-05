@@ -3,7 +3,8 @@
  * Pins lib/overflow-budget.js: a session on the key priced from its transcript,
  * priced again as it grows and counted once; only sessions the launch record
  * marks on the key counted, from any checkout; the exhausted mark from a credit
- * refusal in a transcript; a listed session held, not settled; and the CLI's JSON
+ * refusal in a transcript; a listed session held, not settled; a resumed copy's
+ * shared requests settled once (#4208); and the CLI's JSON
  * and status line for a fixture seat, every figure read from a fixed cost table
  * in a fixture checkout, and read there from a working directory that is no
  * checkout (#3683, #3695).
@@ -790,6 +791,19 @@ describe("the per-session cap (#3698)", () => {
 					listed("0000d002"),
 				]),
 			).toEqual([]);
+		});
+
+		it("takes the move's off-key spend off a copy whose root's transcript is gone", () => {
+			const first = moved("0000d001");
+			const copy = recordLaunch("0000d002", { copyOf: first });
+			appendTranscript(
+				copy,
+				buildModelTurn(10_000_000, "r1"),
+				buildModelTurn(3_000_000, "r2"),
+			);
+			expect(stopOverAllowance(declared(), [listed("0000d002")])).toEqual([]);
+			fs.rmSync(transcriptOf(first));
+			expect(stopOverAllowance(declared(), [listed("0000d002")])).toEqual([]);
 		});
 	});
 
