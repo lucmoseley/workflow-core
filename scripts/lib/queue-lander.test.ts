@@ -22,6 +22,7 @@ import {
 interface Ref {
 	sha: string;
 	pushedAt: number;
+	/** Descends from `main`, so the merge of it alone is itself. */
 	onMain?: boolean;
 }
 
@@ -78,16 +79,20 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 						name,
 						sha: r.sha,
 						pushedAt: r.pushedAt,
-						onMain: r.onMain ?? false,
 					})),
 				};
 			},
 			mergeMembers: (onto, members) => {
 				call("mergeMembers");
+				const [lone] = members;
+				const isLone =
+					members.length === 1 &&
+					lone !== undefined &&
+					remote.refs.get(lone.name)?.onMain === true;
 				return (
 					o.merge?.(onto, members) ?? {
 						kind: "merged",
-						sha: mergeSha(onto, members),
+						sha: isLone ? lone.sha : mergeSha(onto, members),
 					}
 				);
 			},
@@ -149,7 +154,7 @@ const taken = (actions: QueueAction[]) =>
 const NO_QUEUE = { kind: "exit", reason: "no queue ref waits" };
 
 describe("the green path", () => {
-	it("lands a lone ref that descends from main as pushed, with no merge, and deletes it", async () => {
+	it("lands a lone ref as the integration commit its merge names, and deletes it", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
 		});
@@ -160,6 +165,7 @@ describe("the green path", () => {
 		expect(end).toEqual(NO_QUEUE);
 		expect(kinds(actions)).toEqual([
 			"take-batch",
+			"merge-members",
 			"test-sha",
 			"fast-forward-main",
 			"delete-landed-ref",
@@ -315,7 +321,7 @@ describe("verdicts", () => {
 
 		const first = await land(remote, disk, {
 			fault: (c) =>
-				c === "refs" && ++listings === 3 ? new Error("killed") : undefined,
+				c === "refs" && ++listings === 4 ? new Error("killed") : undefined,
 		});
 		expect(first.end).toEqual({
 			kind: "exit",
@@ -375,6 +381,52 @@ describe("faults", () => {
 		expect(asked).toEqual(["a1"]);
 		expect(kinds(actions).filter((k) => k === "take-batch")).toHaveLength(1);
 		expect(remote.main).toBe("a1");
+	});
+
+	it("retries a no verdict its tester marks transient with the batch kept, and lands the green that follows", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		let shut = 2;
+
+		const { end, actions, asked } = await land(remote, freshDisk(), {
+			verdict: () =>
+				shut-- > 0
+					? {
+							kind: "unknown",
+							reason: "no suite slot by the ceiling",
+							transient: true,
+						}
+					: { kind: "green", run: 1 },
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked).toEqual(["a1", "a1", "a1"]);
+		expect(kinds(actions).filter((k) => k === "take-batch")).toHaveLength(1);
+		expect(remote.main).toBe("a1");
+	});
+
+	it("exits naming a transient no verdict that outlasts the tries, ledgering none", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		const disk = freshDisk();
+
+		const { end } = await land(remote, disk, {
+			verdict: () => ({
+				kind: "unknown",
+				reason: "no suite slot by the ceiling",
+				transient: true,
+			}),
+		});
+
+		expect(end).toEqual({
+			kind: "exit",
+			reason:
+				"stopped on an error: no verdict at a1: no suite slot by the ceiling",
+		});
+		expect(disk.verdicts.size).toBe(0);
+		expect(remote.main).toBe("m0");
 	});
 
 	it("retries a spawn fault in a merge, and exits naming a fault that outlasts the tries", async () => {

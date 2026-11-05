@@ -3,32 +3,29 @@
  * runs on (#4485, spec #4458): its git against lib/landing-refs.js's remote,
  * and its verdict ledger and batch record files.
  *
- * A production adapter (code-standards §T7): it runs git and reads and
- * writes files under the canonical checkout's markers directory,
- * machine-local and gitignored, beside the landing lander's pidfile and green
- * ledger, which the queue lander shares (lib/lander.js).
- *
- * Push order is a queue ref's tip committer time. The remote, GitHub, tells
- * git no push time (no reflog over the wire), and a session pushes its ref as
- * a fast-forward, so a later push carries a later tip. Residual: a tip
- * committed early and pushed late sorts ahead of refs pushed before it, which
- * moves only the merge order, never what is tested.
+ * A queue ref's push time is the one lib/queue-log.js logged for it at the
+ * sha it now holds. A sha with no row, as one pushed from another machine,
+ * falls back to its tip's committer time, as the remote, GitHub, tells git
+ * no push time.
  */
 
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
 const { execGit } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
+	isAncestor,
 	parseRefusal,
 	pushRemote,
-	readLocalCommits,
+	readConflictedFiles,
+	readRemoteHeads,
 	short,
+	withThrowawayTree,
 } = require("./lander.js");
 const {
 	LANDER_BATCH_BRANCH,
@@ -38,8 +35,9 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
+const { queueLogFile, readEnqueueTimes } = require("./queue-log.js");
+const { TransientFault } = require("./queue-lander.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
-const { writeFd } = require("./write-fd.js");
 
 /* Untraced, a first guess and stated as one: a verdict is read again only
  * for a batch a run resumes, which waits hours, never weeks. */
@@ -49,6 +47,10 @@ const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 const STALE = /\(stale info\)/;
 const GONE = /remote ref does not exist/;
 const PHASES = ["merging", "testing", "landed"];
+/* Git's words for a loose object a crash left empty or torn, naming its file
+ * by its fan-out directory and name. */
+const BROKEN_OBJECT =
+	/(?:object file|stored in) \S*?([0-9a-f]{2})\/([0-9a-f]{38,62})\)? is (?:empty|corrupt)/;
 
 /**
  * @typedef {import("./lander.js").Verdict} Verdict
@@ -77,35 +79,51 @@ function queueLanderFiles(root) {
 
 /**
  * The queue lander's git, run in `root`. Merges are made in a throwaway
- * worktree, so the checkout's own tree and branch are never touched, and
- * run its merge driver and commit hooks as any merge there does.
+ * worktree, and run its merge driver and commit hooks as any merge there
+ * does. A call that meets a broken loose object removes that object's file
+ * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
  * @param {number} [mergeTimeoutMs] each member's merge, its gates included
  * @returns {QueueGit}
  */
 function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
+	const fetchSpecs = [
+		trackingRefspec(VERIFIED_BRANCH),
+		`+${QUEUE_HEADS}*:refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`,
+	];
 	/**
-	 * @param {string[]} args
-	 * @param {{cwd?: string, timeout?: number}} [opts]
+	 * `call`'s result; where it meets a broken loose object, that object's
+	 * file is removed and the remote fetched, and it throws a TransientFault.
+	 * @template T
+	 * @param {() => T} call
+	 * @returns {T}
 	 */
-	const git = (args, { cwd = root, timeout = LANDER_GIT_TIMEOUT_MS } = {}) =>
-		execGit(args, {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout,
-		});
-	/** @param {string} a @param {string} b */
-	const isAncestor = (a, b) => {
+	const repairing = (call) => {
 		try {
-			git(["merge-base", "--is-ancestor", a, b]);
-			return true;
+			return call();
 		} catch (err) {
-			/* Exit 1 is git's no; anything else is a fault. */
-			if (caught(err).status === 1) return false;
-			throw err;
+			const broken = BROKEN_OBJECT.exec(String(caught(err).stderr ?? ""));
+			if (!broken) throw err;
+			const common = git(["rev-parse", "--git-common-dir"]).trim();
+			fs.rmSync(
+				path.resolve(root, common, "objects", broken[1] ?? "", broken[2] ?? ""),
+				{ force: true },
+			);
+			git(["fetch", "--quiet", REMOTE, ...fetchSpecs]);
+			throw new TransientFault(
+				`a broken git object, removed and fetched again: ${parseRefusal(parseErrorText(err))}`,
+				{ cause: err },
+			);
 		}
 	};
+	/** @param {string[]} args */
+	const git = (args) =>
+		execGit(args, {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: LANDER_GIT_TIMEOUT_MS,
+		});
 	/** @param {string[]} shas @returns {Map<string, number>} */
 	const committedAt = (shas) => {
 		if (shas.length === 0) return new Map();
@@ -126,122 +144,65 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		);
 	};
 	return {
-		refs() {
-			const rows = git([
-				"ls-remote",
-				REMOTE,
-				`refs/heads/${VERIFIED_BRANCH}`,
-				`${QUEUE_HEADS}*`,
-			])
-				.split("\n")
-				.filter(Boolean)
-				.map((line) => line.split("\t"));
-			const main =
-				rows.find(([, ref]) => ref === `refs/heads/${VERIFIED_BRANCH}`)?.[0] ??
-				null;
-			const listed = rows.flatMap(([sha, ref]) =>
-				sha && ref?.startsWith(QUEUE_HEADS)
-					? [{ name: ref.slice(QUEUE_HEADS.length), sha }]
-					: [],
-			);
-			const shas = [main, ...listed.map((r) => r.sha)].filter(
-				(sha) => sha !== null,
-			);
-			if (readLocalCommits(root, shas).length < new Set(shas).size)
-				git([
-					"fetch",
-					"--quiet",
-					REMOTE,
-					trackingRefspec(VERIFIED_BRANCH),
-					`+${QUEUE_HEADS}*:refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`,
-				]);
-			const times = committedAt(listed.map((r) => r.sha));
-			/** @type {QueueRef[]} */
-			const queue = listed.map(({ name, sha }) => {
-				const pushedAt = times.get(sha);
-				if (pushedAt === undefined || !Number.isFinite(pushedAt))
-					throw new Error(`git log printed no committer time for ${sha}`);
-				return {
-					name,
-					sha,
-					pushedAt,
-					onMain: main === null || isAncestor(main, sha),
-				};
-			});
-			return { main, queue };
-		},
-		mergeMembers(onto, members) {
-			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "queue-lander-merge-"));
-			git(["worktree", "add", "--quiet", "--detach", dir, onto]);
-			try {
-				for (const m of members) {
-					const failed = mergeFailure(m, () =>
-						git(
-							[
-								"merge",
-								"--no-ff",
-								"--no-edit",
-								"-m",
-								`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
-								m.sha,
-							],
-							{ cwd: dir, timeout: mergeTimeoutMs },
-						),
-					);
-					if (failed) return failed;
-				}
-				return {
-					kind: "merged",
-					sha: git(["rev-parse", "HEAD"], { cwd: dir }).trim(),
-				};
-			} finally {
-				try {
-					git(["worktree", "remove", "--force", dir]);
-				} catch (err) {
-					/* Never replaces the return: a leftover worktree costs disk,
-					 * and `git worktree prune` takes it once its directory goes. */
-					writeFd(
-						2,
-						`queue-lander: could not remove the merge's worktree ${dir}: ${parseRefusal(parseErrorText(err))}\n`,
-					);
-				}
-			}
-
-			/**
-			 * Why `m` did not merge, else null. A fault that is no git
-			 * refusal, a spawn failure among them, throws for the run to retry.
-			 * @param {Member} m
-			 * @param {() => unknown} merge
-			 * @returns {MergeResult|null}
-			 */
-			function mergeFailure(m, merge) {
-				try {
-					merge();
-					return null;
-				} catch (err) {
-					const e = caught(err);
-					if (e.code === "ETIMEDOUT")
+		refs: () =>
+			repairing(() => {
+				const mainRef = `refs/heads/${VERIFIED_BRANCH}`;
+				const heads = readRemoteHeads(
+					root,
+					[mainRef, `${QUEUE_HEADS}*`],
+					() => fetchSpecs,
+				);
+				const listed = [...heads].flatMap(([ref, sha]) =>
+					ref.startsWith(QUEUE_HEADS) ? [{ ref, sha }] : [],
+				);
+				const enqueued = readEnqueueTimes(queueLogFile(root));
+				const times = committedAt(
+					listed
+						.filter((r) => enqueued(r.ref, r.sha) === null)
+						.map((r) => r.sha),
+				);
+				/** @type {QueueRef[]} */
+				const queue = listed.map(({ ref, sha }) => {
+					const pushedAt = enqueued(ref, sha) ?? times.get(sha);
+					if (pushedAt === undefined || !Number.isFinite(pushedAt))
+						throw new Error(`git log printed no committer time for ${sha}`);
+					return { name: ref.slice(QUEUE_HEADS.length), sha, pushedAt };
+				});
+				return { main: heads.get(mainRef) ?? null, queue };
+			}),
+		mergeMembers: (onto, members) =>
+			repairing(() => {
+				const [lone] = members;
+				if (members.length === 1 && lone && isAncestor(root, onto, lone.sha))
+					return { kind: "merged", sha: lone.sha };
+				return withThrowawayTree(
+					root,
+					onto,
+					{ program: "queue-lander", use: "merge" },
+					(_dir, inTree) => {
+						for (const m of members) {
+							const failed = mergeFailure(m, inTree, () =>
+								inTree(
+									[
+										"merge",
+										"--no-ff",
+										"--no-edit",
+										"-m",
+										`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
+										m.sha,
+									],
+									mergeTimeoutMs,
+								),
+							);
+							if (failed) return failed;
+						}
 						return {
-							kind: "refused",
-							name: m.name,
-							reason: `its merge timed out after ${mergeTimeoutMs / 1000} s`,
+							kind: "merged",
+							sha: inTree(["rev-parse", "HEAD"]).trim(),
 						};
-					if (e.status === undefined) throw err;
-					const files = git(["diff", "--name-only", "--diff-filter=U"], {
-						cwd: dir,
-					})
-						.split("\n")
-						.filter(Boolean);
-					return files.length > 0
-						? { kind: "conflict", name: m.name, files }
-						: {
-								kind: "refused",
-								name: m.name,
-								reason: parseRefusal(parseErrorText(err)),
-							};
-				}
-			}
-		},
+					},
+				);
+			}),
 		pushBatch(sha) {
 			pushRemote(root, ["--force", `${sha}:refs/heads/${LANDER_BATCH_BRANCH}`]);
 		},
@@ -261,6 +222,39 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 			}
 		},
 	};
+
+	/**
+	 * Why `m` did not merge, else null. A fault that is no git refusal, a
+	 * spawn failure among them, throws for the run to retry.
+	 * @param {Member} m
+	 * @param {(args: string[]) => string} inTree
+	 * @param {() => unknown} merge
+	 * @returns {MergeResult|null}
+	 */
+	function mergeFailure(m, inTree, merge) {
+		try {
+			merge();
+			return null;
+		} catch (err) {
+			const e = caught(err);
+			if (e.code === "ETIMEDOUT")
+				return {
+					kind: "refused",
+					name: m.name,
+					reason: `its merge timed out after ${mergeTimeoutMs / 1000} s`,
+				};
+			if (e.status === undefined || BROKEN_OBJECT.test(String(e.stderr ?? "")))
+				throw err;
+			const files = readConflictedFiles(inTree);
+			return files.length > 0
+				? { kind: "conflict", name: m.name, files }
+				: {
+						kind: "refused",
+						name: m.name,
+						reason: parseRefusal(parseErrorText(err)),
+					};
+		}
+	}
 }
 
 /** @param {unknown} files @returns {files is string[]} */
@@ -268,12 +262,11 @@ const isFileList = (files) =>
 	Array.isArray(files) && files.every((f) => typeof f === "string");
 
 /**
- * The row's verdict where it is a green or a red, else null: a ledger line
- * is read back from disk, so its shape is checked before it is trusted.
+ * The row's verdict where it is a green or a red, else null.
  * @param {unknown} v
  * @returns {Verdict|null}
  */
-function readVerdict(v) {
+function parseVerdict(v) {
 	const o = /** @type {Record<string, unknown>|null} */ (
 		v !== null && typeof v === "object" ? v : null
 	);
@@ -305,7 +298,7 @@ function verdictLedger(file) {
 			for (const row of rows.toReversed()) {
 				if (row.sha !== sha || !isFileList(row.files)) continue;
 				if (fileKey(row.files) !== key) continue;
-				const v = readVerdict(row.verdict);
+				const v = parseVerdict(row.verdict);
 				if (v) return v;
 			}
 			return null;
@@ -314,7 +307,7 @@ function verdictLedger(file) {
 			appendRetained(
 				file,
 				{
-					at: new Date().toISOString(),
+					at: new Date(now()).toISOString(),
 					sha,
 					files: [...files].sort(),
 					verdict: v,
@@ -339,8 +332,7 @@ const isMember = (m) => {
 
 /**
  * The batch record: the batch a run is landing, so the next run resumes it.
- * A record that is absent or not a batch reads as none, so the next run takes
- * a fresh batch and lands nothing it did not test.
+ * A record that is absent or not a batch reads as none.
  * @param {string} file
  * @returns {BatchRecord}
  */

@@ -10,24 +10,26 @@
  * the production git and files.
  *
  * - **Batch.** Every queue ref waiting when the run frees is taken, each at the
- *   sha it then holds, in push order: the tip's committer time, then the name
- *   (see lib/queue-lander-adapters.js for why). A push to a member's ref after
- *   that joins the next batch.
+ *   sha it then holds, in push order: the earlier push first, then the name
+ *   (lib/queue-lander-adapters.js reads the push time). A push to a member's
+ *   ref after that joins the next batch.
  * - **Merge.** Members merge onto `main` in that order, each a two-parent
  *   merge with the registry merge driver. A lone member that descends from
- *   `main` is the integration commit, with no merge.
+ *   `main` is the integration commit, with no merge, the adapter's
+ *   `mergeMembers` telling.
  * - **Green.** The integration sha is written to the green ledger, then `main`
  *   moves to it by a plain push. Each member whose ref still holds its
  *   snapshot is then deleted, compare-and-delete against that sha; a moved one
  *   is kept and joins the next batch.
  * - **Verdicts.** A green or red reached at a sha is ledgered and survives a
- *   restart, so it is never asked again. An unknown verdict is no verdict: it
- *   lands nothing and is never ledgered, so the next run asks again.
- * - **Faults.** A call that throws a transient fault (a network blip, a spawn
- *   fault, an empty git object) is retried with backoff and the run's state
+ *   restart. An unknown verdict is no verdict: it lands nothing and is never
+ *   ledgered, so the next run asks again.
+ * - **Faults.** A step that throws a transient fault (a network blip, a spawn
+ *   fault, a broken git object, a tester's `transient` no verdict, as its
+ *   suite slot staying shut) is retried with backoff and the run's state
  *   kept; any other throw, or one outlasting the tries, exits naming it.
- * - **Unbuilt.** A red integration verdict exits naming the red path, and a
- *   member that does not merge exits naming its drop or deferral (#4485).
+ * - A red integration verdict exits naming the red path, and a member that
+ *   does not merge exits naming its drop or deferral (#4485).
  *
  * Unbuilt caller: the cutover's launcher, which starts scripts/queue-lander.js
  * on a queue push (#4485)
@@ -35,11 +37,9 @@
 
 const { caught, parseErrorText } = require("./caught.js");
 const {
-	REMOTE_TRIES,
-	backoffMs,
 	isNetworkFault,
 	parseRefusal,
-	pause,
+	remote,
 	short,
 	verdictAt,
 } = require("./lander.js");
@@ -47,20 +47,18 @@ const {
 /* Untraced, a first guess and stated as one: the codes a fork returns while
  * the machine is short of processes or memory for a moment. */
 const SPAWN_FAULTS = ["EAGAIN", "ENOMEM", "EMFILE", "ENFILE"];
-/* Git's words for a loose object a concurrent write or a crash left empty or
- * torn, which a fetch replaces. */
-const EMPTY_OBJECT = /object file .* is empty|loose object .* is corrupt/;
+
+/** A fault a retry can outlast that no error code names. */
+class TransientFault extends Error {}
 
 /**
  * @typedef {import("./lander.js").Verdict} Verdict
  * @typedef {import("./lander.js").QueueTester} QueueTester
  * @typedef {import("./lander.js").Ledger} Ledger
  * @typedef {{readonly name: string, readonly sha: string,
- *   readonly pushedAt: number, readonly onMain: boolean}} QueueRef a queue
- *   ref on the remote: `name` after `queue/`, `pushedAt` its push-order time
- *   in ms, `onMain` whether it descends from `main`
- * @typedef {{readonly name: string, readonly sha: string,
- *   readonly pushedAt: number}} Member a batch member, at its snapshot sha
+ *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
+ *   after `queue/`, `pushedAt` its push time in ms
+ * @typedef {QueueRef} Member a batch member, at its snapshot sha
  * @typedef {"merging" | "testing" | "landed"} Phase
  * @typedef {object} Batch the batch record
  * @property {readonly Member[]} members in push order
@@ -109,8 +107,6 @@ const EMPTY_OBJECT = /object file .* is empty|loose object .* is corrupt/;
 const exit = (reason) => ({ kind: "exit", reason });
 
 /**
- * Push order: the earlier push first, the name breaking a tie, so one queue
- * merges the same way every time.
  * @param {Member} a
  * @param {Member} b
  */
@@ -135,16 +131,9 @@ function takeBatch(s, main) {
 	const members = s.queue
 		.map(({ name, sha, pushedAt }) => ({ name, sha, pushedAt }))
 		.sort(byPushOrder);
-	const [lone] = s.queue;
-	const isLone = s.queue.length === 1 && lone !== undefined && lone.onMain;
 	return {
 		kind: "take-batch",
-		batch: {
-			members,
-			onto: main,
-			integration: isLone ? lone.sha : null,
-			phase: isLone ? "testing" : "merging",
-		},
+		batch: { members, onto: main, integration: null, phase: "merging" },
 	};
 }
 
@@ -187,7 +176,6 @@ function batchAction(b, s, main) {
 }
 
 /**
- * The one action the lander takes next.
  * @param {QueueState} s
  * @returns {QueueAction}
  */
@@ -215,7 +203,8 @@ function nextQueueAction(s) {
  * @property {() => QueueRefs} refs
  * @property {(onto: string, members: readonly Member[]) => MergeResult}
  *   mergeMembers each member merged in order onto `onto`, in the lander's
- *   own worktree
+ *   own worktree; a lone member descending from `onto` is itself the
+ *   integration commit
  * @property {(sha: string) => void} pushBatch `sha` to the lander's batch
  *   ref, forced, so a tester reading that ref's runs sees it
  * @property {(sha: string) => void} pushMain a plain, non-forced push of
@@ -246,16 +235,13 @@ function nextQueueAction(s) {
  */
 
 /**
- * Whether a thrown call is a fault a retry can outlast.
+ * Whether a thrown step is a fault a retry can outlast.
  * @param {unknown} err
  */
 function isTransientFault(err) {
-	if (isNetworkFault(err)) return true;
-	const e = caught(err);
-	return (
-		(typeof e.code === "string" && SPAWN_FAULTS.includes(e.code)) ||
-		EMPTY_OBJECT.test(String(e.stderr ?? ""))
-	);
+	if (err instanceof TransientFault || isNetworkFault(err)) return true;
+	const { code } = caught(err);
+	return typeof code === "string" && SPAWN_FAULTS.includes(code);
 }
 
 /**
@@ -286,6 +272,10 @@ async function act(deps, action, run) {
 		case "test-sha": {
 			git.pushBatch(action.sha);
 			const v = await verdictAt(deps, action.sha);
+			if (v.kind === "unknown" && v.transient)
+				throw new TransientFault(
+					`no verdict at ${short(action.sha)}: ${v.reason}`,
+				);
 			if (v.kind === "unknown")
 				return { ...run, unread: { sha: action.sha, reason: v.reason } };
 			deps.verdicts.add(action.sha, [], v);
@@ -312,14 +302,32 @@ async function act(deps, action, run) {
 }
 
 /**
- * One run: acts until the machine exits. A transient fault retries the step
- * with the run's state kept; any other throw ends the run as an exit naming
- * the error.
+ * The next action, taken; the run's end where it is an exit.
+ * @param {QueueLanderDeps} deps
+ * @param {QueueRun} run
+ * @param {(action: QueueAction) => void} log
+ * @returns {Promise<QueueRun | QueueEnd>}
+ */
+async function step(deps, run, log) {
+	deps.beat(run.batch?.integration ?? null);
+	const action = nextQueueAction({
+		...deps.git.refs(),
+		...run,
+		isGreen: (sha) => deps.ledger.has(sha),
+		verdictOf: (sha, files) => deps.verdicts.get(sha, files),
+		requiresRun: deps.tester.requiresRun === true,
+	});
+	log(action);
+	return action.kind === "exit" ? action : act(deps, action, run);
+}
+
+/**
+ * One run: acts until the machine exits.
  * @param {QueueLanderDeps} deps
  * @returns {Promise<QueueEnd>}
  */
 async function runQueueLander(deps) {
-	const { lock, log = () => undefined, wait = pause } = deps;
+	const { lock, log = () => undefined } = deps;
 	if (!lock.acquire()) {
 		const held = exit("another lander holds the lock");
 		log(held);
@@ -332,28 +340,16 @@ async function runQueueLander(deps) {
 		unmerged: null,
 		kept: [],
 	};
-	const requiresRun = deps.tester.requiresRun === true;
-	let faults = 0;
 	try {
 		for (;;) {
-			try {
-				deps.beat(run.batch?.integration ?? null);
-				const action = nextQueueAction({
-					...deps.git.refs(),
-					...run,
-					isGreen: (sha) => deps.ledger.has(sha),
-					verdictOf: (sha, files) => deps.verdicts.get(sha, files),
-					requiresRun,
-				});
-				log(action);
-				if (action.kind === "exit") return action;
-				run = await act(deps, action, run);
-				faults = 0;
-			} catch (err) {
-				faults++;
-				if (faults >= REMOTE_TRIES || !isTransientFault(err)) throw err;
-				await wait(backoffMs(faults));
-			}
+			const from = run;
+			const next = await remote(
+				deps,
+				() => step(deps, from, log),
+				isTransientFault,
+			);
+			if ("kind" in next) return next;
+			run = next;
 		}
 	} catch (err) {
 		const end = exit(
@@ -385,4 +381,4 @@ function buildQueueActionLine(a) {
 	}
 }
 
-module.exports = { buildQueueActionLine, runQueueLander };
+module.exports = { TransientFault, buildQueueActionLine, runQueueLander };

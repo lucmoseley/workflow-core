@@ -769,6 +769,7 @@
 			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/post-write.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/log-queue-push.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts",
 			"scripts/public-push-gate.test.ts",
 			"scripts/run-mod-tests.test.ts",
@@ -7168,6 +7169,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/lander-remote-git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/log-queue-push.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -26696,6 +26698,31 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/queue-log.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lander-revert-base.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/quiet-bench-runs.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -37835,6 +37862,22 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/log-queue-push.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/log-queue-push.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/log-queue-push.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lost-deny-rates.js": [
 			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -40377,6 +40420,7 @@
 			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-lander.test.ts"

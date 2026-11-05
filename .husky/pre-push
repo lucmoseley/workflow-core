@@ -71,4 +71,7 @@ rc=0
 printf '%s\n' "$refs" | command node "${WFC_PLUGIN_ROOT:-$root}/scripts/run-mod-tests.js" || rc=$?
 [ "$rc" -lt 2 ] || exit 1
 
+# Last, so a push this hook refuses logs nothing; it never refuses one (scripts/log-queue-push.js).
+printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/log-queue-push.js" "$1" || :
+
 exit 0
