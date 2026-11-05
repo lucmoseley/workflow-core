@@ -1998,8 +1998,9 @@ function buildRedispatchText(rec, kept) {
 		...(held ? ["--force"] : []),
 		...(flags.includes("--advisor") ? [] : ["--no-advisor"]),
 	];
+	const { scriptPath } = require("./lib/script-path.js");
 	const command = [
-		"scripts/dispatch-sessions.sh",
+		scriptPath("dispatch-sessions.sh"),
 		...opts,
 		model,
 		shellQuote(intent),
@@ -2202,10 +2203,26 @@ function buildResumptionText(job, t) {
 			: "Its file claims, listed and not moved — your next write takes each:",
 		...readFileClaimLines(t.sessionId),
 		"",
-		job.cwd
-			? `Read the narration yourself, then continue its intent in its worktree: cd ${job.cwd}, or relaunch there with scripts/dispatch-sessions.sh --into ${job.cwd} <model> <prompt>.`
-			: "Read the narration yourself, then continue its intent in this session.",
+		`Read the narration yourself, then continue its intent ${buildWhereLine(job.cwd)}.`,
 	].join("\n");
+}
+
+/**
+ * Where RESUMPTION.md sends the successor: into the dead session's own
+ * worktree, by `cd` or a relaunch there — `--into` takes only a session
+ * worktree, so the main checkout gets the `cd` alone.
+ * @param {string} cwd the job's recorded directory, or ""
+ */
+function buildWhereLine(cwd) {
+	if (!cwd) return "in this session";
+	const { isSessionWorktreeDir } = require("./lib/session-checkout.js");
+	const { scriptPath } = require("./lib/script-path.js");
+	const { shellQuote } = require("./lib/sh-quote.js");
+	const dir = shellQuote(cwd);
+	const core = require("./lib/arbiter-core");
+	return isSessionWorktreeDir(core.repoRoot(), cwd)
+		? `in its worktree: cd ${dir}, or relaunch there with ${scriptPath("dispatch-sessions.sh")} --into ${dir} <model> <prompt>`
+		: `where its edits sit: cd ${dir}`;
 }
 
 /**

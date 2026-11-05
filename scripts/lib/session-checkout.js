@@ -674,6 +674,16 @@ function launchDir(cwd, prompt, how = {}) {
 }
 
 /**
+ * `dir` sits where a cut puts a session's worktree, directly under `root`'s
+ * worktrees folder — a successor can launch `--into` it, not the main checkout.
+ * @param {string} root the main checkout
+ * @param {string} dir
+ */
+function isSessionWorktreeDir(root, dir) {
+	return path.dirname(path.resolve(dir)) === path.join(root, WORKTREES);
+}
+
+/**
  * LAUNCH-INTO, above: `into`, dereferenced, where it is a registered session
  * worktree of `root` no process works in, its dependencies re-attached.
  * @param {string} root the main checkout
@@ -683,10 +693,12 @@ function launchDir(cwd, prompt, how = {}) {
  */
 function launchInto(root, into, how) {
 	const dir = deref(path.resolve(into));
-	const base = path.join(root, WORKTREES);
-	if (path.dirname(dir) !== base || !readWorktreesOrThrow(root).includes(dir))
+	if (
+		!isSessionWorktreeDir(root, dir) ||
+		!readWorktreesOrThrow(root).includes(dir)
+	)
 		throw new CheckoutError(
-			`${dir} is no session worktree of ${root} — name a directory \`git worktree list\` shows under ${base}`,
+			`${dir} is no session worktree of ${root} — name a directory \`git worktree list\` shows under ${path.join(root, WORKTREES)}`,
 		);
 	if (!fs.existsSync(dir))
 		throw new CheckoutError(
@@ -1206,6 +1218,7 @@ module.exports = {
 	attach,
 	CheckoutError,
 	cut,
+	isSessionWorktreeDir,
 	land,
 	launchDir,
 	reap,

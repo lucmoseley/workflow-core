@@ -155,10 +155,10 @@ comment failed, and says how to finish it) it prints, and writes to
 narration path, worktree, death point, commits landed, artefacts survived and
 file claims. **Read `RESUMPTION.md` and the narration file yourself, then
 continue that intent in its `Worktree:`**, where its orphaned edits sit: `cd`
-there, or relaunch a successor in it with
+there, or, for a session worktree, relaunch a successor in it with
 `scripts/dispatch-sessions.sh --into <worktree> <model> <prompt>` (#4385). An
-`/implement` stays an `/implement`, from where it died. Its dirty files are now yours to finish: your next write to each
-takes its claim, unless the takeover says its claims stay held — then they
+`/implement` stays an `/implement`, from where it died. Its dirty files are now
+yours to finish: your next write to each takes its claim, unless the takeover says its claims stay held — then they
 stay listed, and your writes go ahead with a conflict warning, until its host
 process ends; after that they are ordinary stale claims your next write to
 each takes.

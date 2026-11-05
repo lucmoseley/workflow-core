@@ -175,16 +175,43 @@ describe("takeover: the success path", () => {
 		expect(r.stdout).toContain(
 			`Narration: ${path.join(snapshotDir(), `${SHORT}.narration.txt`)}`,
 		);
-		expect(r.stdout).toContain(`Worktree: ${sb.repo}`);
-		expect(r.stdout).toContain(
-			`scripts/dispatch-sessions.sh --into ${sb.repo}`,
-		);
 		expect(r.stdout).toContain("Death point:\nA: Delegated the suite.");
 		expect(r.stdout).toContain("Commits landed:");
 		expect(r.stdout).toContain("Artefacts survived:");
 		expect(r.stdout).toContain("docs/a.md — dirty");
 		expect(r.stdout).toContain("docs/b.md — clean");
 		expect(store.readHeldBy(SID)?.sort()).toEqual(["docs/a.md", "docs/b.md"]);
+	});
+
+	it("sends the successor into the dead session's worktree, by cd or a relaunch --into it", async () => {
+		frozenHolder();
+		const wt = path.join(sb.repo, ".claude", "worktrees", "implement-621");
+		fs.mkdirSync(wt, { recursive: true });
+		jobState({
+			state: "working",
+			intent: `/implement ${N}`,
+			name: "Implement 621",
+			cwd: wt,
+			inFlight: { tasks: 0, queued: 0 },
+		});
+		const r = await takeover();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`Worktree: ${wt}`);
+		expect(r.stdout).toContain(
+			`cd ${wt}, or relaunch there with scripts/dispatch-sessions.sh --into ${wt} <model> <prompt>`,
+		);
+		expect(
+			fs.readFileSync(path.join(snapshotDir(), "RESUMPTION.md"), "utf8"),
+		).toContain(`Worktree: ${wt}`);
+	});
+
+	it("sends the successor to the main checkout by cd alone, since --into refuses it", async () => {
+		frozenHolder();
+		const r = await takeover();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`Worktree: ${sb.repo}`);
+		expect(r.stdout).toContain(`where its edits sit: cd ${sb.repo}.`);
+		expect(r.stdout).not.toContain("--into");
 	});
 
 	it("snapshots and stops on the plan whose records hold it, where every plan lists it (#1146)", async () => {
