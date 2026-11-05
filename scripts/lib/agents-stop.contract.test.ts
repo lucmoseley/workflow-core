@@ -12,7 +12,6 @@
  * fails, and a "No job matching" the stop misreads stops on the wrong seat or
  * not at all.
  */
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,7 +35,7 @@ import {
 } from "./agents-stop-fake";
 import { blockCause } from "./block-cause.js";
 import { stopOn } from "./claude-stop.js";
-import { writeClaudeStub } from "./claude-stub";
+import { claudeLiveSkipReason, writeClaudeStub } from "./claude-stub";
 import { shellQuote } from "./sh-quote.js";
 
 let dir: string;
@@ -182,18 +181,7 @@ describe.each(stopCases)("the $kind stop", ({ kind, outcome }) => {
  * the one #838 keeps every test out of.
  */
 // Residual: off the founder's machine this skips, and the fixture goes unchecked.
-function liveSkipReason(): string | undefined {
-	if (process.env.CI)
-		return "CI: the live claude case runs on the founder's machine only";
-	const { status } = spawnSync("claude", ["--version"], {
-		stdio: "ignore",
-		// A guess: it answers in well under a second, and a hang should skip.
-		timeout: 30_000,
-	});
-	return status === 0 ? undefined : "no claude on PATH";
-}
-
-it.skipIf(liveSkipReason())(
+it.skipIf(claudeLiveSkipReason())(
 	"the installed claude answers a stop of no job as the recording does",
 	() => {
 		const noJob = stopCases.find((c) => c.kind === "noJob");

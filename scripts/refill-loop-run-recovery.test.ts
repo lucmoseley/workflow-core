@@ -52,12 +52,8 @@ import {
 	type Row,
 } from "./lib/agents-stop-fake";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
-import {
-	buildBgBranch,
-	buildRekeyedResponse,
-	FAKE_COPY,
-} from "./lib/bg-resume-fake";
-import { writeClaudeStub } from "./lib/claude-stub";
+import { buildRekeyedResponse, FAKE_COPY } from "./lib/bg-resume-fake";
+import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
 import { ledgerPath, readOverflowLookup } from "./lib/dispatch-ledger.js";
 import { readGhAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
@@ -1985,7 +1981,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 				buildBgBranch({
 					out: at("bg-stdout"),
 					err: at("bg-stderr"),
-					onResume: `echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume}`,
+					onLaunch: `echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume}`,
 				}),
 			]);
 		};

@@ -26,13 +26,12 @@ import {
 	type Row,
 } from "./agents-stop-fake";
 import {
-	buildBgBranch,
 	buildRekeyedResponse,
 	FAKE_COPY,
 	type ResumeKind,
 } from "./bg-resume-fake";
 import { buildAttachBranch } from "./claude-attach-fake";
-import { writeClaudeStub } from "./claude-stub";
+import { buildBgBranch, writeClaudeStub } from "./claude-stub";
 import { writeCostTable } from "./cost-table-testkit";
 import {
 	DEFAULT_WINDOW_HOURS,
@@ -404,7 +403,7 @@ export const fakeResumeClaude = (
 		buildBgBranch({
 			out: at("bg-stdout"),
 			err: at("bg-stderr"),
-			onResume: `echo "$*" >> "$calls"; ${onResume}`,
+			onLaunch: `echo "$*" >> "$calls"; ${onResume}`,
 		}),
 	]);
 };
