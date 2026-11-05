@@ -119,6 +119,7 @@
 		],
 		".claude/output-styles/core-voice.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -397,6 +398,7 @@
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
@@ -527,6 +529,7 @@
 			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry-reads.test.ts",
 			"scripts/check-history-trim.test.ts",
@@ -749,6 +752,7 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-test-marker.test.ts",
@@ -808,6 +812,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
@@ -910,6 +915,7 @@
 			"scripts/precommit-injector-margin-gate.test.ts"
 		],
 		"docs/agents/rules/README.md": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -919,6 +925,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/adopter-materialise-sequence.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -929,6 +936,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/adopter-pin-consent.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -939,6 +947,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/anthropic-report.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -952,6 +961,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/biome-staged-gate.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -963,6 +973,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/blocked-ticket-gate.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -973,6 +984,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-publish-landing.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -984,6 +996,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-publish.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -995,6 +1008,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-shared-tree-landing.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-move.test.ts",
@@ -1006,6 +1020,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-shared-tree.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-branch.test.ts",
@@ -1019,6 +1034,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/build-concurrency.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1031,6 +1047,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/card-close-by-hand.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1043,6 +1060,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/card-close-route.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1054,6 +1072,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ci-status-lag-landing.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1065,6 +1084,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ci-status-lag.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-push-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1077,6 +1097,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-inferred-number.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1087,6 +1108,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-number-first.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1097,6 +1119,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-tracker.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1108,6 +1131,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claim-bash-route.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1120,6 +1144,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claim-release.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1131,6 +1156,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claude-process-count.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1143,6 +1169,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding-line.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
@@ -1155,6 +1182,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding-where.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1166,6 +1194,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1178,6 +1207,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-when-line.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1188,6 +1218,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-closes-keyword.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1201,6 +1232,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-message.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-commit-subject.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
@@ -1215,6 +1247,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-pathspec.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
@@ -1229,6 +1262,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-show-diff.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1241,6 +1275,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/create-command-shape.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1251,6 +1286,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/decisions-search-first.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1262,6 +1298,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dependabot-merge.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -1273,6 +1310,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dependency-edge-false-success.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1283,6 +1321,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/digest-version-drift.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -1294,6 +1333,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-grandchild.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1306,6 +1346,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-search-tracker.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
@@ -1317,6 +1358,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-tier.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
@@ -1328,6 +1370,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/doc-authority-class.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1339,6 +1382,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/doc-map-precommit.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1351,6 +1395,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/file-claim.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1363,6 +1408,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-acts.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1375,6 +1421,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-deliverable.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/guard-inventory.test.ts",
@@ -1390,6 +1437,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-handover.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/empty-secret.test.ts",
@@ -1402,6 +1450,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gate-basis-line.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1413,6 +1462,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gh-cli-limits.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1424,6 +1474,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gh-job-dir-unreadable.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1434,6 +1485,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/guard-authoring.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1445,6 +1497,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/guard-registry-gate.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -1456,6 +1509,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/headroom-reap.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-headroom-read.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1468,6 +1522,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/heavy-tree-search.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-refusal-length.test.ts",
@@ -1481,6 +1536,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/hook-escape.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-hook-escape.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1493,6 +1549,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/house-decision.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-priced-options-close-rivals.test.ts",
@@ -1508,6 +1565,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/implement-closing-steps.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
@@ -1520,6 +1578,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/install-scripts-first.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1531,6 +1590,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-clobber.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-body.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1543,6 +1603,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-raw-write.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1554,6 +1615,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-success-signal.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1564,6 +1626,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-claim-scope.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1574,6 +1637,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-created-assigned.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1584,6 +1648,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-parent-unplaced.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1594,6 +1659,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-takes-label.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1606,6 +1672,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-title-card-id.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1617,6 +1684,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-dir-scratch.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1628,6 +1696,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-wait-ceiling.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1638,6 +1707,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/killed-background-job.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1650,6 +1720,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/kind-label-vocabulary.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1661,6 +1732,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/landing-rewind.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -1672,6 +1744,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/lockfile-sync.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1683,6 +1756,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/machinery-superseded.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1695,6 +1769,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/main-rewind.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1708,6 +1783,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/manifest.json": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1717,6 +1793,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/manual-sync.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1728,6 +1805,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/memory-figure.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1740,6 +1818,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/mutation-hold.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1752,6 +1831,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/no-command-opens-shape.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1763,6 +1843,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/node-heap.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-node-heap.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1775,6 +1856,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/pull-fast-forward.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1788,6 +1870,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/push-cadence-landing.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -1800,6 +1883,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/push-cadence.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/guard-commit-form.test.ts",
@@ -1815,6 +1899,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/push-green-suite.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-push-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1827,6 +1912,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/queue-ref.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -1838,6 +1924,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/recurrence-checks.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1848,6 +1935,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/repo-file-act.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1859,6 +1947,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/research-artefact-scratch.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1870,6 +1959,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/research-in-tree.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1881,6 +1971,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-attacker-run.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1892,6 +1983,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-deviations-read.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1903,6 +1995,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-deviations-write.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1914,6 +2007,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-dispatch-shape.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
@@ -1927,6 +2021,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-finding-destination.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1939,6 +2034,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-focused-run.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1950,6 +2046,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-hold.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1960,6 +2057,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-sensitive-undeclared.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1971,6 +2069,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-absent.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1982,6 +2081,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-base.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1993,6 +2093,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-local.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2004,6 +2105,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2016,6 +2118,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-escalated.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2027,6 +2130,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-globless.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2037,6 +2141,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-not-live.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2048,6 +2153,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-records.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2059,6 +2165,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-ultra-axis.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2070,6 +2177,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/rm-unchecked.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-rm-unchecked.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2082,6 +2190,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-edit.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -2093,6 +2202,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-gating.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2104,6 +2214,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-validity.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2115,6 +2226,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/scratch-dir-sanctioned.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2125,6 +2237,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/script-self-claim.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -2136,6 +2249,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/self-spelt-escape.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2146,6 +2260,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shell-lint-blind.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2157,6 +2272,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-changed-scope.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2168,6 +2284,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-not-installed.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2179,6 +2296,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-source-directive.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2190,6 +2308,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/silent-kill.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2202,6 +2321,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/size-line.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
@@ -2214,6 +2334,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/skill-refused.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2226,6 +2347,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/spec-only-contract.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2236,6 +2358,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/suite-tree-dirty.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2248,6 +2371,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/superseded-values-gate.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -2259,6 +2383,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/sweep-fire-budget.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2270,6 +2395,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-label-nuances.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2281,6 +2407,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-label-unrouted.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2291,6 +2418,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-value-vocabulary.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
@@ -2303,6 +2431,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/targeted-runs.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2315,6 +2444,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-reads-visible.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2328,6 +2458,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-run-cost.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2341,6 +2472,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-time-seam.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2354,6 +2486,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ticket-criteria-unticked.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2365,6 +2498,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/triage-role-labels.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2375,6 +2509,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/unasked-rerun-landing.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2386,6 +2521,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/unasked-rerun.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2397,6 +2533,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/urgent-label.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2407,6 +2544,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/vercel-build-on-push.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-push-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2419,6 +2557,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/vitest-wrapper.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-vitest-wrapper.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2431,6 +2570,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/wait-length.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2441,6 +2581,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/waiting-external-vocabulary.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2452,6 +2593,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/wayfinder-ops-shapes.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-exhausted-map.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
@@ -2464,6 +2606,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/weakens-line.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-weakens-line.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2475,6 +2618,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/whole-file-restore.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
@@ -2486,6 +2630,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/write-reformatted.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2497,6 +2642,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/writing-for-agents.txt": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -2528,6 +2674,7 @@
 		],
 		"docs/claude-user-settings.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/browser-profile-guard.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
@@ -2852,6 +2999,7 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"hooks/hooks.json": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/clear-rule-latch.test.ts",
 			"scripts/count-guard-fires.test.ts",
@@ -3007,6 +3155,7 @@
 		],
 		"package-lock.json": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -3031,6 +3180,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
@@ -3218,6 +3368,12 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/adopter-hook-shim.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/adopter-landing.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -3488,6 +3644,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -7343,6 +7500,7 @@
 		],
 		"scripts/lib/admission.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -7933,6 +8091,7 @@
 		],
 		"scripts/lib/arbiter-core.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -9769,6 +9928,7 @@
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-clock-copies.test.ts",
@@ -11706,6 +11866,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -12087,6 +12248,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -15377,6 +15539,7 @@
 		"scripts/lib/gh.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -15624,6 +15787,7 @@
 		],
 		"scripts/lib/git-objects.js": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -15806,6 +15970,7 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
@@ -16257,6 +16422,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/guard-dispatch.js": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -17580,6 +17746,7 @@
 		"scripts/lib/host-root.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-always-loaded-pass.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
@@ -20380,6 +20547,7 @@
 		],
 		"scripts/lib/marker-root.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -20554,6 +20722,7 @@
 		],
 		"scripts/lib/meminfo.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -21287,6 +21456,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -24056,6 +24226,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/qualify-citations.js": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -26200,6 +26371,7 @@
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
@@ -26867,6 +27039,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -27064,6 +27237,7 @@
 		],
 		"scripts/lib/retained-jsonl.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -28560,6 +28734,7 @@
 		],
 		"scripts/lib/script-path.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -29512,6 +29687,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -30666,6 +30842,7 @@
 		],
 		"scripts/lib/suite-ceiling.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -30862,6 +31039,7 @@
 		],
 		"scripts/lib/suite-ladder.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -30995,6 +31173,7 @@
 		],
 		"scripts/lib/suite-queue.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -32244,6 +32423,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/trim-run.js": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -32924,6 +33104,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -33683,6 +33864,7 @@
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -33879,6 +34061,7 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -35438,6 +35621,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/queue-lander.js": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/cutover-main-checkout.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -36402,6 +36586,7 @@
 		],
 		"scripts/run-pytest.js": [
 			"scripts/admission.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/bisect-step.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -37385,6 +37570,7 @@
 			"scripts/lib/core-hooks.test.ts"
 		],
 		"self-plugin/hooks/hooks.json": [
+			"scripts/adopter-landing.test.ts",
 			"scripts/check-ci-status.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",

@@ -119,12 +119,6 @@ export function runCore(
 		throwing?: string;
 	},
 ): CoreRun {
-	const env = worktree ? { CLAUDE_PROJECT_DIR: root, ...given } : given;
-	const input = worktree ? { cwd: worktree, ...payload } : payload;
-	const logs: string[] = [];
-	const log = (what: string) => {
-		logs.push(what);
-	};
 	const cores = loadedCores(event).filter((c) => c.name === name);
 	if (cores.length !== 1) throw new Error(`no ${event} core named ${name}`);
 	const running = throwing
@@ -135,7 +129,49 @@ export function runCore(
 				},
 			}))
 		: cores;
-	const { output, latches } = dispatch(running, {
+	return dispatchCores(running, payload, { root, worktree, cwd, env: given });
+}
+
+/**
+ * Every `event` core on `payload`, as the entry runs them, its output the
+ * one the hook would print: what a host is handed for one call. The options
+ * are runCore's.
+ */
+export function runEventCores(
+	payload: Record<string, unknown>,
+	opts: {
+		root: string;
+		worktree?: string;
+		cwd?: string;
+		env?: Record<string, string>;
+		event?: "PreToolUse" | "PostToolUse";
+	},
+): CoreRun {
+	return dispatchCores(loadedCores(opts.event ?? "PreToolUse"), payload, opts);
+}
+
+function dispatchCores(
+	cores: ReturnType<typeof loadedCores>,
+	payload: Record<string, unknown>,
+	{
+		root,
+		worktree,
+		cwd = worktree ?? root,
+		env: given = {},
+	}: {
+		root: string;
+		worktree?: string;
+		cwd?: string;
+		env?: Record<string, string>;
+	},
+): CoreRun {
+	const env = worktree ? { CLAUDE_PROJECT_DIR: root, ...given } : given;
+	const input = worktree ? { cwd: worktree, ...payload } : payload;
+	const logs: string[] = [];
+	const log = (what: string) => {
+		logs.push(what);
+	};
+	const { output, latches } = dispatch(cores, {
 		payload: input,
 		root,
 		adapters: {
