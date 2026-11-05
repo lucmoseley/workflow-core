@@ -291,6 +291,7 @@ process.stdout.write("started the lander");\n`,
 	retroBundles: [],
 	pulledIn: [],
 	pulledInUnread: [],
+	conflictGraph: { candidates: [], inFlight: [] },
 	running: [],
 }));\n`,
 	);
@@ -1057,7 +1058,7 @@ describe("the loop's goal across ticks (#3864)", () => {
 		stub(
 			"pick-next.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("picks"))}, process.argv.slice(2).join(" ") + "\\n");
-process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [] }));\n`,
+process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [], conflictGraph: { candidates: [], inFlight: [] } }));\n`,
 		);
 	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
 		stubRecordingShortlist();
@@ -2588,6 +2589,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	retroBundles: [],
 	pulledIn: [],
 	pulledInUnread: [],
+	conflictGraph: { candidates: [], inFlight: [] },
 }));\n`,
 		);
 		if (!parker) return;
