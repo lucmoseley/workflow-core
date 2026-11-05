@@ -20,13 +20,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseErrorText } = require("./caught.js");
 const { execGit } = require("./git.js");
-const {
-	fileLedger,
-	isAncestor,
-	landerFiles,
-	parseRefusal,
-	short,
-} = require("./lander.js");
+const { fileLedger, landerFiles } = require("./lander-files.js");
+const { isAncestor, parseRefusal, short } = require("./lander-git.js");
 const {
 	QUEUE_HEADS,
 	QUEUE_PREFIX,

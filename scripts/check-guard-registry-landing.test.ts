@@ -585,18 +585,6 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 		expect(r.stderr).toContain(`on main's tree at ${tip},`);
 	});
 
-	it("refuses a queue push's fault under an inherited lander revert and revert base that carry it", () => {
-		const { root, tip, sha } = staleOnTip();
-		/* The pushed sha carries the stale row itself, so as a revert base it
-		 * would excuse the fault. */
-		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${Zero}`, {
-			WFC_LANDER_REVERT_BASE: sha,
-			WFC_LANDER_REVERT: sha,
-		});
-		expect(r.status, r.stderr).toBe(2);
-		expect(r.stderr).toContain(`on main's tree at ${tip},`);
-	});
-
 	it("passes, printed, a queue push in a clone holding no origin/main", () => {
 		const { root, sha } = staleOnTip({ main: false });
 		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${Zero}`);

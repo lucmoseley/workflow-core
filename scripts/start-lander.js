@@ -25,7 +25,7 @@ const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { listedAgents } = require("./lib/agent-liveness.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { landerLock } = require("./lib/lander.js");
+const { landerLock } = require("./lib/lander-files.js");
 const {
 	landerLog,
 	launcherName,

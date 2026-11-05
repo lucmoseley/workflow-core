@@ -53,8 +53,8 @@ const rootlessEnv = () => {
 	return env;
 };
 
-/** @typedef {import("./lander.js").Verdict} Verdict */
-/** @typedef {import("./lander.js").Tester} Tester */
+/** @typedef {import("./queue-lander.js").Verdict} Verdict */
+/** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
 /* What admission holds back for a lander, by the kind of run it holds
  * (#3323): its tester's own tree peak, never a machine-wide MemAvailable dip
@@ -119,9 +119,6 @@ const SIGNATURE_HEX = 16;
  * @property {Exec} [exec]
  * @property {string} [pytest] the Python suite's runner
  * @property {(pid: number) => number} [treePss] the tree PSS under `pid`, kB
- * @property {(sha: string, files: string[], shut: string) => Promise<Verdict>}
- *   [memoryShut] the verdict on named files when memory shuts their slot,
- *   given that refusal; absent, the refusal is no verdict
  */
 
 /**
@@ -186,10 +183,10 @@ const buildSignature = (text) =>
  * Vitest's error is its first line and its diff's `+` and `-` lines, as a
  * `toEqual([])` on a list of offenders prints one first line for any offender.
  * @param {string} out
- * @returns {import("./lander.js").Failure[]}
+ * @returns {import("./queue-lander.js").Failure[]}
  */
 function parseFailingTests(out) {
-	/** @type {Map<string, import("./lander.js").Failure>} */
+	/** @type {Map<string, import("./queue-lander.js").Failure>} */
 	const tests = new Map();
 	/** @param {RegExpMatchArray} m @param {RegExp} re */
 	const named = (m, re) => {
@@ -219,7 +216,7 @@ function parseFailingTests(out) {
 }
 
 /**
- * @typedef {{unread: import("./lander.js").Failure[], lines: string[]}}
+ * @typedef {{unread: import("./queue-lander.js").Failure[], lines: string[]}}
  *   OpenError the tests awaiting an error, and that error's lines so far
  */
 
@@ -249,7 +246,7 @@ function readErrorLine(open, line) {
 }
 
 /**
- * @param {import("./lander.js").Failure} failure accumulator
+ * @param {import("./queue-lander.js").Failure} failure accumulator
  * @param {string} text
  */
 function withError(failure, text) {
@@ -573,7 +570,7 @@ function readRunsAt(dir, pytest, files) {
 async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 	/** @type {Set<string>} */
 	const failing = new Set();
-	/** @type {import("./lander.js").Failure[]} */
+	/** @type {import("./queue-lander.js").Failure[]} */
 	const failures = [];
 	for (const runs of groups) {
 		/** @type {Admission} */
@@ -634,7 +631,7 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
  * @param {string} dir
  * @param {{spawned: () => void, treePss: (pid: number) => number,
  *   tally: SlotRuns["tally"], failing: Set<string>,
- *   failures: import("./lander.js").Failure[]}} into accumulator
+ *   failures: import("./queue-lander.js").Failure[]}} into accumulator
  * @returns {Promise<string|null>} why a run reached no verdict, or null
  */
 async function runInSlot(
@@ -745,9 +742,9 @@ function watchMemoryShut(admit) {
 }
 
 /**
- * The lander's tester.
+ * The queue lander's tester.
  * @param {LocalTesterOptions} options
- * @returns {Tester}
+ * @returns {QueueTester}
  */
 function localTester({
 	root,
@@ -755,7 +752,6 @@ function localTester({
 	exec = execOrThrow,
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
 	treePss = readTreePssKb,
-	memoryShut,
 }) {
 	const dir = path.join(root, ".claude", "worktrees", "lander");
 	return {
@@ -784,11 +780,8 @@ function localTester({
 					samples: tally.samples,
 					verdict: verdict.kind,
 				});
-			if (watched.shut === null) return verdict;
-			recordHolders(root, sha, readPsRows());
-			return kind === "named" && memoryShut
-				? memoryShut(sha, files, watched.shut)
-				: verdict;
+			if (watched.shut !== null) recordHolders(root, sha, readPsRows());
+			return verdict;
 		},
 	};
 }

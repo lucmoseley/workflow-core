@@ -12,15 +12,6 @@
  * against the other. A deletion passes unjudged, and a push creating
  * `landing` passes, printed.
  *
- * A LANDER REVERT, on a push to `landing` alone, passes with the rows it
- * leaves stale: with WFC_LANDER_REVERT naming a culprit, the checker stands
- * staleness down where the pushed sha is one commit on the tip, carries git's
- * revert line for that culprit and holds its clean revert, so the lander can
- * reopen a held queue (#3127); naming the culprit's dependents first, where
- * the push is one line of such reverts, one per commit named, in that order
- * (#4453). The same revert is judged against the culprit's parent as well as
- * the tip, a fault refusing only where it is in neither (#4451).
- *
  * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
  * branch protection on the remote is the gate that binds (#2414).
  *
@@ -38,11 +29,6 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const {
-	LANDER_REVERT_ENV,
-	REVERT_BASE_ENV,
-	buildRevertBaseEnv,
-} = require("./lib/clean-revert.js");
 const { gitOrNull } = require("./lib/git.js");
 const { LANDING_BRANCH, VERIFIED_REF } = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
@@ -135,16 +121,10 @@ function judgeOne(push, tree) {
 	const { sha } = push;
 	const tip = readJudgedTip(push, tree);
 	if (tip === null) return 0;
-	/* A queue push is no lander revert and has no revert base: the lander
-	 * reverts on `landing` alone. */
-	const env =
-		push.kind === "queue"
-			? { ...process.env, [LANDER_REVERT_ENV]: "", [REVERT_BASE_ENV]: "" }
-			: buildRevertBaseEnv(tree, { onto: tip, head: sha });
 	const r = spawnSync(
 		process.execPath,
 		[CHECK, "--against", tip, "--head", sha],
-		{ stdio: ["ignore", 2, 2], env },
+		{ stdio: ["ignore", 2, 2] },
 	);
 	if (r.status === 1) {
 		writeFd(

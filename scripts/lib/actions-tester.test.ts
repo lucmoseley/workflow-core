@@ -2,8 +2,8 @@
 /*
  * lib/actions-tester.js on canned run listings (#2413).
  *
- * Loosen it and the lander can land a sha whose run it never saw finish
- * green: a missing, unfinished or unreadable run read as a pass.
+ * Loosen it and the queue lander can land a sha whose run it never saw
+ * finish green: a missing, unfinished or unreadable run read as a pass.
  *
  * Every case drives the tester through its injected reads and clock, so a
  * 30 min wait bound costs no wall time (§X9); one case crosses the live
@@ -14,15 +14,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-	actionsTester,
-	type Job,
-	namedRerun,
-	queueTester,
-	type Run,
-} from "./actions-tester.js";
+import { type Job, queueTester, type Run } from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
-import type { Tester, Verdict } from "./lander.js";
 import { markersDir } from "./marker-root.js";
 
 const SHA = "a".repeat(40);
@@ -72,7 +65,6 @@ const reads = (
 			if (!next) throw new Error("no listing");
 			return next();
 		},
-		mainRuns: (): Run[] => [],
 		jobsOf: (_run: number) => jobs,
 		failedLogOf: () => FAILED_LOG,
 		presentAt: (_: string, files: string[]) =>
@@ -95,29 +87,19 @@ const clock = () => {
 	};
 };
 
-/** A batch's own test: `files` absent. */
-const verdictOf = (
-	r: ReturnType<typeof reads>,
-	fallback?: Tester,
-	files?: string[],
-	lands?: boolean,
-) =>
-	actionsTester({ root: "/", reads: r, fallback, ...clock() }).verdict(
-		SHA,
-		files,
-		lands,
-	);
-
-const recording = (verdict: Verdict) => {
-	const asked: [string, string[] | undefined][] = [];
-	const tester: Tester = {
-		verdict: async (sha, files) => {
-			asked.push([sha, files]);
-			return verdict;
+/** The whole suite at SHA, read off its push run on `lander/batch`. */
+const verdictOf = (r: ReturnType<typeof reads>) =>
+	queueTester({
+		root: "/",
+		reads: {
+			...r,
+			isoRefs: () => [],
+			runsOn: () => [],
+			namedRuns: () => [],
+			dispatch: () => undefined,
 		},
-	};
-	return { tester, asked };
-};
+		...clock(),
+	}).verdict(SHA);
 
 it("retries a run read the network dropped, never reading it as no verdict", async () => {
 	const jobs = [{ name: "Full suite / Vitest (1/1)", conclusion: "failure" }];
@@ -263,83 +245,6 @@ it("reads an unreadable listing as unknown, never green", async () => {
 	expect(v.kind === "unknown" && v.reason).toMatch(/403/);
 });
 
-it("reads a batch whose run is never listed as unknown, never handing it to the fallback", async () => {
-	const { tester, asked } = recording({ kind: "green" });
-	const v = await verdictOf(
-		reads([() => [run(1, "success", { headSha: OTHER })]]),
-		tester,
-	);
-	expect(v).toMatchObject({ kind: "unknown" });
-	expect(v.kind === "unknown" && v.reason).toMatch(/no scheduled-checks/);
-	expect(asked).toEqual([]);
-});
-
-it("hands a whole-suite rerun at a sha no push ran to the fallback", async () => {
-	const { tester, asked } = recording({ kind: "green" });
-	expect(await verdictOf(reads([() => []]), tester, [])).toEqual({
-		kind: "green",
-	});
-	expect(asked).toEqual([[SHA, []]]);
-});
-
-it("reruns a failed run's failed jobs for a whole-suite rerun, judging only the new attempt", async () => {
-	const failed = run(5, "failure");
-	const r = reads([
-		() => [failed],
-		() => [failed],
-		() => [run(5, null, { attempt: 2 })],
-		() => [run(5, "success", { attempt: 2 })],
-	]);
-	expect(await verdictOf(r, undefined, [])).toEqual({ kind: "green", run: 5 });
-	expect(r.reran).toEqual([5]);
-});
-
-it("reads a passed run again for a whole-suite rerun, starting no attempt", async () => {
-	const r = reads([() => [run(6, "success")]]);
-	expect(await verdictOf(r, undefined, [])).toEqual({ kind: "green", run: 6 });
-	expect(r.reran).toEqual([]);
-});
-
-it("reruns a failed run's failed jobs for a rerun of named files that lands, never the fallback, so a passing flake rerun names its run (#3329)", async () => {
-	const { tester, asked } = recording({ kind: "green" });
-	const failed = run(5, "failure");
-	const r = reads([() => [failed], () => [run(5, "success", { attempt: 2 })]]);
-	expect(await verdictOf(r, tester, ["x.test.ts"], true)).toEqual({
-		kind: "green",
-		run: 5,
-	});
-	expect(r.reran).toEqual([5]);
-	expect(asked).toEqual([]);
-});
-
-it("declares that main takes only a sha a run passed (#3329)", () => {
-	expect(
-		actionsTester({ root: "/", reads: reads([() => []]) }).requiresRun,
-	).toBe(true);
-});
-
-it("hands a rerun of named files that lands nothing to the fallback without reading a run, as its failed jobs judge more than those files", async () => {
-	const { tester, asked } = recording({ kind: "green" });
-	const r = reads([() => [run(5, "failure")]]);
-	expect(await verdictOf(r, tester, ["x.test.ts"])).toEqual({ kind: "green" });
-	expect(asked).toEqual([[SHA, ["x.test.ts"]]]);
-	expect(r.calls()).toBe(0);
-});
-
-it("hands a rerun of named files that lands, at a sha whose run passed, to the fallback", async () => {
-	const { tester, asked } = recording({ kind: "red", files: ["x.test.ts"] });
-	const r = reads([() => [run(1, "success")]]);
-	const v = await actionsTester({
-		root: "/",
-		fallback: tester,
-		reads: r,
-		...clock(),
-	}).verdict(SHA, ["x.test.ts"], true);
-	expect(v).toEqual({ kind: "red", files: ["x.test.ts"] });
-	expect(asked).toEqual([[SHA, ["x.test.ts"]]]);
-	expect(r.reran).toEqual([]);
-});
-
 /* A shard whose runner failed to ready: a download outage at a tool install,
  * its Vitest step run on regardless, on a runner missing the tool. */
 const unreadied = (step: string, vitest = "success"): Job[] => [
@@ -397,129 +302,13 @@ it("reads a failed dependency install as red, a broken lockfile being the code's
 	expect(r.reran).toEqual([]);
 });
 
-const LINT = "Full suite / Lint and types";
-const DOCS = "Full suite / Document guards";
-
-/** Reads whose `main` runs are `runs`, the jobs of run n being `jobsByRun[n]`. */
-const mainReads = (runs: Run[], jobsByRun: Record<number, Job[]>) => ({
-	...reads([() => []]),
-	mainRuns: () => runs,
-	jobsOf: (id: number) => jobsByRun[id] ?? [],
-});
-
-const readJobsOnMain = (r: ReturnType<typeof reads>, jobs: string[]) =>
-	actionsTester({ root: "/", reads: r, ...clock() }).readJobsOnMain?.(jobs);
-
-it("reads a job red in main's newest finished run as red there (#3526)", async () => {
-	const swept = "7".repeat(40);
-	const r = mainReads(
-		[run(1, "success"), run(2, "failure", { headSha: swept }), run(3, null)],
-		{
-			1: [{ name: LINT, conclusion: "success" }],
-			2: [{ name: LINT, conclusion: "failure" }],
-			3: [{ name: LINT, conclusion: "success" }],
-		},
-	);
-	expect(await readJobsOnMain(r, [LINT])).toEqual({
-		kind: "read",
-		red: [LINT],
-		notRed: [],
-		shas: [swept],
-	});
-});
-
-it("reads a job green in main's newest finished run as not red there", async () => {
-	const r = mainReads([run(1, "failure"), run(2, "success")], {
-		1: [{ name: LINT, conclusion: "failure" }],
-		2: [{ name: LINT, conclusion: "success" }],
-	});
-	expect(await readJobsOnMain(r, [LINT])).toEqual({
-		kind: "read",
-		red: [],
-		notRed: [LINT],
-		shas: [],
-	});
-});
-
-it("takes each job from the newest run that passed or failed it", async () => {
-	const r = mainReads([run(1, "failure"), run(2, "cancelled")], {
-		1: [{ name: DOCS, conclusion: "failure" }],
-		2: [
-			{ name: LINT, conclusion: "success" },
-			{ name: DOCS, conclusion: "skipped" },
-		],
-	});
-	expect(await readJobsOnMain(r, [LINT, DOCS])).toEqual({
-		kind: "read",
-		red: [DOCS],
-		notRed: [LINT],
-		shas: [SHA],
-	});
-});
-
-it("reads a job no run on main settled as unread", async () => {
-	const r = mainReads([run(1, "success")], { 1: [] });
-	expect(await readJobsOnMain(r, [LINT])).toEqual({
-		kind: "unread",
-		reason: `no finished scheduled-checks.yml run on main passed or failed '${LINT}'`,
-	});
-});
-
-it("reads an unreadable main listing as unread", async () => {
-	const r = {
-		...mainReads([], {}),
-		mainRuns: (): Run[] => {
-			throw new Error("HTTP 403");
-		},
-	};
-	const v = await readJobsOnMain(r, [LINT]);
-	expect(v).toMatchObject({
-		kind: "unread",
-		reason: expect.stringContaining("runs unreadable: HTTP 403"),
-	});
-});
-
-it("never reads Suite passed on main, which fails with any job there", async () => {
-	const r = mainReads([run(1, "failure")], {
-		1: [
-			{ name: LINT, conclusion: "success" },
-			{ name: DOCS, conclusion: "failure" },
-			{ name: "Suite passed", conclusion: "failure" },
-		],
-	});
-	expect(await readJobsOnMain(r, [LINT, "Suite passed"])).toEqual({
-		kind: "read",
-		red: [],
-		notRed: [LINT],
-		shas: [],
-	});
-});
-
-it("reads a job's state on main through gh", async () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "actions-tester-"));
-	const answers = {
-		list: JSON.stringify([run(9, "failure")]),
-		jobs: JSON.stringify({ jobs: [{ name: LINT, conclusion: "failure" }] }),
-	};
-	process.env.WFC_GH = stubGhScript(
-		tmp,
-		`#!/usr/bin/env node
-const a = ${JSON.stringify(answers)};
-const argv = process.argv.slice(2);
-if (argv[1] === "list" && argv[argv.indexOf("--branch") + 1] !== "main") process.exit(1);
-process.stdout.write(argv[1] === "list" ? a.list : a.jobs);
-`,
-	).gh;
-	expect(
-		await actionsTester({ root: tmp, ...clock() }).readJobsOnMain?.([LINT]),
-	).toEqual({ kind: "read", red: [LINT], notRed: [], shas: [SHA] });
-});
-
 it("reads a failed run through gh and the tree through git", async () => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "actions-tester-"));
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
 	git("init", "-q");
+	/* Its own origin, so the isolation refs read through git ls-remote. */
+	git("remote", "add", "origin", tmp);
 	fs.mkdirSync(path.join(tmp, "scripts", "lib"), { recursive: true });
 	fs.writeFileSync(path.join(tmp, "scripts", "lib", "a.test.ts"), "");
 	git("add", ".");
@@ -540,7 +329,7 @@ const argv = process.argv.slice(2);
 process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed") ? a.log : a.jobs);
 `,
 	).gh;
-	const v = await actionsTester({ root: tmp, ...clock() }).verdict(sha);
+	const v = await queueTester({ root: tmp, ...clock() }).verdict(sha);
 	expect(v).toEqual({
 		kind: "red",
 		files: ["scripts/lib/a.test.ts"],
@@ -594,14 +383,29 @@ const namedRoot = () => {
 	return tmp;
 };
 
-const askNamed = (r: ReturnType<typeof fakeNamedReads>, root = namedRoot()) =>
-	namedRerun({ root, reads: r.reads, ...clock() })(
-		SHA,
-		["scripts/lib/a.test.ts"],
-		"no suite slot by the ceiling",
-	);
+/** Named files at SHA, which `iso` names a `lander/iso-*` ref's head. */
+const askNamed = (
+	r: ReturnType<typeof fakeNamedReads>,
+	{
+		root = namedRoot(),
+		now = clock().now,
+		iso = [{ branch: "lander/iso-1", sha: SHA }],
+	} = {},
+) =>
+	queueTester({
+		root,
+		reads: {
+			...r.reads,
+			runs: () => [],
+			rerun: () => undefined,
+			isoRefs: () => iso,
+			runsOn: () => [],
+		},
+		wait: async () => undefined,
+		now,
+	}).verdict(SHA, ["scripts/lib/a.test.ts"]);
 
-it("dispatches the named files at the sha and reads its own run's green, naming no run so it can land nothing (#3764)", async () => {
+it("dispatches the named files at the sha and reads its own run's green, naming no run (#3764)", async () => {
 	const r = fakeNamedReads({ conclusion: "success" });
 	expect(await askNamed(r)).toEqual({ kind: "green" });
 	expect(r.dispatched).toEqual([
@@ -633,8 +437,7 @@ it("reads a failed named run as red on the tree's failing files, and one naming 
 		),
 	).toEqual({
 		kind: "unknown",
-		reason:
-			"no suite slot by the ceiling; off the machine, run 7 failed naming no failing file in the tree",
+		reason: "run 7 failed naming no failing file in the tree",
 	});
 });
 
@@ -674,31 +477,20 @@ it.each([
 		),
 		/named-rerun\.yml did not dispatch: HTTP 404/,
 	],
-])(
-	"reads %s as no verdict, keeping the slot's refusal (#3764)",
-	async (_, r, why) => {
-		const v = await askNamed(r);
-		expect(v).toMatchObject({
-			kind: "unknown",
-			reason: expect.stringMatching(why),
-		});
-		expect(v).toMatchObject({
-			reason: expect.stringMatching(/^no suite slot by the ceiling; /),
-		});
-	},
-);
+])("reads %s as no verdict (#3764)", async (_, r, why) => {
+	expect(await askNamed(r)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(why),
+	});
+});
 
 it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764)", async () => {
 	const root = namedRoot();
 	const r = fakeNamedReads({ conclusion: "success" });
 	const DayOne = Date.parse("2026-11-01T23:00:00Z");
+	/* At a sha no isolation ref holds and no batch run covers. */
 	const ask = (nowMs: number) =>
-		namedRerun({
-			root,
-			reads: r.reads,
-			wait: async () => undefined,
-			now: () => nowMs,
-		})(SHA, ["scripts/lib/a.test.ts"], "shut");
+		askNamed(r, { root, now: () => nowMs, iso: [] });
 	for (let i = 0; i < 12; i++) {
 		r.dispatched.length = 0;
 		expect(await ask(DayOne)).toEqual({ kind: "green" });
@@ -706,7 +498,7 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 	r.dispatched.length = 0;
 	expect(await ask(DayOne)).toEqual({
 		kind: "unknown",
-		reason: "shut; off the machine, named-rerun.yml's 12-a-day cap is spent",
+		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
 	expect(r.dispatched).toEqual([]);
 	expect(await ask(DayOne + 2 * 60 * 60 * 1000)).toEqual({ kind: "green" });

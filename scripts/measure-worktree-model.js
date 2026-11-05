@@ -10,7 +10,7 @@
  *   1. commits on `main` not on `origin/main`, reached from every sha `main`'s
  *      reflog held in the window;
  *   2. `main` level with `origin/main` within one pass — each `origin/main`
- *      move starts a levelling pass (lander.js), so main must reach the move
+ *      move starts a levelling pass (queue-lander.js), so main must reach the move
  *      before `origin/main` moves again;
  *   3. no `reconcile-*` merge — in any registered worktree's HEAD reflog, any
  *      reconcile branch's reflog, or any merge subject in the window — and no

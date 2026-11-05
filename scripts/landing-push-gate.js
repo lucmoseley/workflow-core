@@ -31,7 +31,7 @@
  */
 
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
-const { fileLedger, landerFiles } = require("./lib/lander.js");
+const { fileLedger, landerFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { parseRefLines } = require("./lib/push-refs.js");

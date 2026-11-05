@@ -1,283 +1,22 @@
 // @vitest-environment node
 /*
- * The landers' fix tickets (#2404, spec #2261; #4485, spec #4458), filed
- * through fake file-issue.js and gh calls.
+ * The queue lander's fix tickets (#4485, spec #4458), filed through fake
+ * file-issue.js and gh calls.
  *
- * Loosen it and a reverted commit's or dropped queue ref's work can go
- * unrecorded, land under a closed ticket no map offers, or be filed twice.
+ * Loosen it and a dropped queue ref's work can go unrecorded, land under a
+ * closed ticket no map offers, or be filed twice.
  */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { dropTicketFiler, ticketFiler } from "./fix-ticket.js";
-import type { FixTicket } from "./lander.js";
+import { dropTicketFiler } from "./fix-ticket.js";
 import type { Drop } from "./queue-lander.js";
 
 // Required, not imported: an ESM import of filing-refused.js would load a
 // second copy of FilingRefusedError, which fix-ticket.js's throw is not.
 const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
 
-const C = "c".repeat(40);
-const P = "b".repeat(40);
-const R = "e".repeat(40);
-const TICKET = {
-	culprit: C,
-	parent: P,
-	revert: R,
-	files: ["x.test.ts"],
-	jobs: [] as string[],
-	stale: [] as { row: string; forward: string }[] | null,
-};
-
-/**
- * A filer over `message`, an issue tracker whose issues are in `states`,
- * `listed` as the open issues resembling the title, and file-issue refusing
- * a parent where `refuseParent` is set.
- */
-function filer(
-	message: string,
-	{
-		states = {} as Record<number, "open" | "closed">,
-		listed = [] as { number: number; title: string }[],
-		refuseParent = "",
-	} = {},
-) {
-	const files: { args: string[]; input: string }[] = [];
-	const reopened: number[] = [];
-	const tracker = ticketFiler({
-		messageOf: () => message,
-		similar: () => listed,
-		fileIssue: (args, input) => {
-			files.push({ args, input });
-			if (refuseParent && args.includes("--parent"))
-				return {
-					status: 2,
-					stdout: "",
-					stderr: `file-issue: ${refuseParent}\n`,
-				};
-			return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
-		},
-		stateOf: (n) => {
-			const state = states[n];
-			if (!state) throw new Error(`no issue #${n}`);
-			return state;
-		},
-		reopen: (n) => {
-			reopened.push(n);
-		},
-	});
-	return {
-		said: (over: Partial<FixTicket> = {}) =>
-			tracker.fileFixTicket({ ...TICKET, ...over }),
-		files,
-		reopened,
-	};
-}
-
 const flag = (args: string[], name: string) => args[args.indexOf(name) + 1];
-
-describe("ticketFiler", () => {
-	it("files a takes:implement sub-issue of the ticket the subject cites, naming the revert and the failing files", () => {
-		const f = filer("Add the widget (#12)\n\nAs #40 ruled.", {
-			states: { 12: "open", 40: "open" },
-		});
-		expect(f.said()).toBe("Filed #9: https://x/9");
-		const [{ args, input }] = f.files;
-		expect(flag(args, "--parent")).toBe("12");
-		expect(args).toEqual(
-			expect.arrayContaining(["takes:implement", "kind:ticket"]),
-		);
-		expect(input).toContain(`reverted it in ${R}`);
-		expect(input).toContain("- `x.test.ts`");
-		expect(input).toContain("Reverted commit: `Add the widget (#12)`");
-		expect(f.reopened).toEqual([]);
-	});
-
-	it("files the culprit's fix ticket past an open re-land ticket of a dependent reverted with it, whose title names its sha too, and names that ticket (#4453)", () => {
-		const D = "d".repeat(40);
-		const f = filer("Add the widget (#12)", {
-			states: { 12: "open" },
-			listed: [
-				{
-					number: 7,
-					title: `Re-land ${D.slice(0, 9)}, reverted with ${C.slice(0, 9)} by the lander: x`,
-				},
-			],
-		});
-		const said = f.said({
-			dependents: [{ commit: D, revert: R, files: ["shared.txt"] }],
-		});
-		expect(said).toBe("re-land ticket already open: #7\nFiled #9: https://x/9");
-		const [{ input }] = f.files;
-		expect(input).toContain(`- ${D.slice(0, 9)}, reverted in ${R}: #7`);
-	});
-
-	it("names the failing CI jobs where the tester named no failing file (#3253)", () => {
-		const bodies: string[] = [];
-		ticketFiler({
-			messageOf: () => "Add the widget",
-			similar: () => [],
-			fileIssue: (_args, input) => {
-				bodies.push(input);
-				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
-			},
-			stateOf: () => "open",
-			reopen: () => undefined,
-		}).fileFixTicket({
-			...TICKET,
-			files: [],
-			jobs: ["Full suite / Lint and types"],
-		});
-		expect(bodies[0]).toContain(
-			"- CI job `Full suite / Lint and types` (the tester named no failing file)",
-		);
-		expect(bodies[0]).not.toContain("the whole suite");
-	});
-
-	it("names each failing test and its message where the tester named them (#3937)", () => {
-		const f = filer("Add the widget");
-		f.said({
-			files: ["a.test.ts", "b.test.ts"],
-			failures: [{ file: "a.test.ts", test: "s > t", message: "boom `x`" }],
-		});
-		expect(f.files[0]?.input).toContain(
-			"- `a.test.ts > s > t`: `boom 'x'`\n- `b.test.ts`",
-		);
-	});
-
-	it("reopens a closed cited ticket before filing under it", () => {
-		const f = filer("Add the widget (#12)", { states: { 12: "closed" } });
-		f.said();
-		expect(f.reopened).toEqual([12]);
-		expect(flag(f.files[0].args, "--parent")).toBe("12");
-	});
-
-	it.each([
-		["cites nothing", "Add the widget"],
-		["cites a ticket only in its body", "Add the widget\n\nAs #40 ruled."],
-		["cites another repo's ticket", "Add the widget (mantahostels#3)"],
-	])(
-		"files standalone, reopening nothing, where the subject %s",
-		(_, message) => {
-			const f = filer(message, { states: { 40: "closed" } });
-			f.said();
-			expect(f.files).toHaveLength(1);
-			expect(f.reopened).toEqual([]);
-			expect(flag(f.files[0].args, "--standalone")).toBe(
-				"ccccccccc's subject cites no ticket of this repo.",
-			);
-		},
-	);
-
-	it("files standalone, naming the refusal, where file-issue refuses it under the cited ticket", () => {
-		const f = filer("Add the widget (#12)", {
-			states: { 12: "open" },
-			refuseParent: "#12 is a wayfinder map's child",
-		});
-		f.said();
-		expect(f.files.map((c) => c.args.includes("--parent"))).toEqual([
-			true,
-			false,
-		]);
-		expect(flag(f.files[1].args, "--standalone")).toBe(
-			"file-issue refused it under #12, which ccccccccc cites: file-issue: #12 is a wayfinder map's child",
-		);
-	});
-
-	it("files standalone where the cited ticket cannot be read", () => {
-		const f = filer("Add the widget (#12)");
-		f.said();
-		expect(flag(f.files[0].args, "--standalone")).toBe(
-			"#12, which ccccccccc cites, could not be read or reopened: no issue #12",
-		);
-	});
-
-	it("files nothing where a listed open ticket already names the culprit", () => {
-		const f = filer("Add the widget", {
-			listed: [
-				{
-					number: 5,
-					title: "Re-land ccccccccc, reverted by the lander: Add the widget",
-				},
-			],
-		});
-		expect(f.said()).toBe("re-land ticket already open: #5");
-		expect(f.files).toEqual([]);
-	});
-
-	it("names every other listed title distinct", () => {
-		const f = filer("Add the widget", {
-			listed: [
-				{ number: 5, title: "Add the widget" },
-				{ number: 6, title: "Widget fixes" },
-			],
-		});
-		f.said();
-		expect(flag(f.files[0].args, "--distinct-from")).toBe("5,6");
-	});
-
-	it("names each row the revert left stale with its --review line, and owes the re-read", () => {
-		const bodies: string[] = [];
-		const tracker = ticketFiler({
-			messageOf: () => "Add the widget",
-			similar: () => [],
-			fileIssue: (_args, input) => {
-				bodies.push(input);
-				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
-			},
-			stateOf: () => "open",
-			reopen: () => undefined,
-		});
-		const review = "node scripts/check-guard-registry.js --review scripts/g.js";
-		tracker.fileFixTicket({
-			...TICKET,
-			stale: [{ row: "STALE-PROSE scripts/g.js", forward: review }],
-		});
-		expect(bodies[0]).toContain(
-			`- \`STALE-PROSE scripts/g.js\`: \`${review}\``,
-		);
-		expect(bodies[0]).toContain(
-			"- [ ] Each stale row above is re-read and re-anchored.",
-		);
-	});
-
-	it("says the stale rows could not be read where the lander could not read them, and still owes the re-read", () => {
-		const bodies: string[] = [];
-		ticketFiler({
-			messageOf: () => "Add the widget",
-			similar: () => [],
-			fileIssue: (_args, input) => {
-				bodies.push(input);
-				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
-			},
-			stateOf: () => "open",
-			reopen: () => undefined,
-		}).fileFixTicket({ ...TICKET, stale: null });
-		expect(bodies[0]).toContain(
-			`could not read which guard-registry rows the revert left stale (#3127). Run \`node scripts/check-guard-registry.js --touched-by ${R}\``,
-		);
-		expect(bodies[0]).toContain(
-			"- [ ] Each stale row above is re-read and re-anchored.",
-		);
-	});
-
-	it("throws, naming the culprit, where even the standalone filing fails", () => {
-		const tracker = ticketFiler({
-			messageOf: () => "Add the widget",
-			similar: () => [],
-			fileIssue: () => ({
-				status: 1,
-				stdout: "",
-				stderr: "gh issue create failed\n",
-			}),
-			stateOf: () => "open",
-			reopen: () => undefined,
-		});
-		expect(() => tracker.fileFixTicket(TICKET)).toThrow(
-			"re-land ticket for ccccccccc not filed: gh issue create failed",
-		);
-	});
-});
 
 const A = "a".repeat(40);
 const M = "f".repeat(40);
@@ -304,6 +43,7 @@ describe("dropTicketFiler", () => {
 	) {
 		const files: { args: string[]; input: string }[] = [];
 		const ranges: string[] = [];
+		const reopened: number[] = [];
 		const tracker = dropTicketFiler({
 			subjectsOf: (base, tip) => {
 				ranges.push(`${base}..${tip}`);
@@ -322,15 +62,48 @@ describe("dropTicketFiler", () => {
 				if (!state) throw new Error(`no issue #${n}`);
 				return state;
 			},
-			reopen: () => undefined,
+			reopen: (n) => {
+				reopened.push(n);
+			},
 		});
 		return {
 			said: (d: Partial<Drop> = {}) =>
 				tracker.fileDropTicket({ ...DROP, ...d }),
 			files,
 			ranges,
+			reopened,
 		};
 	}
+
+	it("reopens a closed cited ticket before filing under it", () => {
+		const f = dropFiler(["Add the widget (#12)"], { 12: "closed" });
+
+		f.said();
+
+		expect(f.reopened).toEqual([12]);
+		expect(flag(f.files[0].args, "--parent")).toBe("12");
+	});
+
+	it("files standalone where the cited ticket cannot be read", () => {
+		const f = dropFiler(["Add the widget (#12)"]);
+
+		f.said();
+
+		expect(flag(f.files[0].args, "--standalone")).toBe(
+			"#12, which a commit on queue/wt-1 cites, could not be read or reopened: no issue #12",
+		);
+	});
+
+	it("names every other listed title distinct", () => {
+		const f = dropFiler(["Tidy"], {}, [
+			{ number: 5, title: "Tidy" },
+			{ number: 6, title: "Tidy fixes" },
+		]);
+
+		f.said();
+
+		expect(flag(f.files[0].args, "--distinct-from")).toBe("5,6");
+	});
 
 	it("files an unassigned takes:implement sub-issue of the ticket the newest citing commit cites, naming the ref, sha, dropped ref and conflicted files", () => {
 		const f = dropFiler(["Tidy", "Add the widget (#12)", "Start (#40)"], {

@@ -1,47 +1,28 @@
 /*
- * actions-tester.js — the landing queue's Actions tester (#2413, spec #2261):
- * the core's tester, its repo being public. It reads the suite workflow's run
- * that a push to `lander/batch` started at the exact sha, through `gh` with the
- * read access the token already has.
+ * actions-tester.js — the queue lander's Actions tester (#2413, spec #2261;
+ * #4458): the core's tester, its repo being public. It reads the suite
+ * workflow's run that a push to a lander ref started at the exact sha,
+ * through `gh` with the read access the token already has.
  *
  * Green only on a finished, successful run whose every Vitest shard job and
  * whose `Suite passed` job passed, naming the run; red on a failed one, with
- * its failing jobs and the test files their logs name. A batch's run that is
+ * its failing jobs and the test files their logs name. A run that is
  * missing, in progress at the wait bound, ended any other way, or cannot be
  * read is no verdict, never green.
  *
  * A failed run where a job failed at a step that only readies the runner
  * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
  * jobs are rerun, up to `RUNNER_RERUNS` times, and the last attempt still
- * failing so is no verdict, never a red to bisect.
+ * failing so is no verdict, never a red to isolate.
  *
- * A whole-suite rerun, or one whose green would move `main`, at a sha whose
- * run failed reruns its failed jobs, `Suite passed` with them (#3329). Any
- * other rerun of named files, and one at a sha no push ran, goes to the
- * fallback tester where one is given, its green naming no run: a rerun of a
- * run's failed jobs judges more than the named files, and a red elsewhere
- * would move a bisect.
- *
- * A set of CI jobs it reads on `main` takes each job's conclusion from the
- * newest finished run there that ran it to a pass or a fail: `main`'s runs
- * are the schedule's, a push to `main` starting none (#3526). One it cannot
- * read, or that no run there settled, is unread, never green there. `Suite
- * passed` is never read there: it fails with any job, so would name a red
- * `main` the culprit's own jobs are green on.
- *
- * `namedRerun` is the local tester's way out when memory shuts its slot
- * (#3764): it dispatches named-rerun.yml for the named files alone.
- *
- * `queueTester` is the queue lander's (#4458). Its whole suite is the push
- * run at the sha, read as above, on the `lander/iso-suite-<k>` ref holding
- * it, else on `lander/batch`; asked again, the run's failed jobs are rerun.
- * Named files at a sha a `lander/iso-*` ref holds, an isolation commit or
- * `main` pushed for its base check, are run alone by named-rerun.yml, so a
- * base check never reads the old run that landed `main`. At any other sha a
- * `lander/batch` run covers they are read off that run, a failed one
- * rerunning its failed jobs; elsewhere they go to named-rerun.yml too.
- *
- * Unbuilt caller: the queue lander, scripts/lib/queue-lander.js (#4485)
+ * `queueTester`'s whole suite is the push run at the sha, read as above, on
+ * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`; asked
+ * again, the run's failed jobs are rerun. Named files at a sha a
+ * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
+ * check, are run alone by named-rerun.yml, so a base check never reads the
+ * old run that landed `main`. At any other sha a `lander/batch` run covers
+ * they are read off that run, a failed one rerunning its failed jobs;
+ * elsewhere they go to named-rerun.yml too, under its daily cap.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -57,7 +38,6 @@ const {
 	LANDER_BATCH_BRANCH,
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
-	LANDING_BRANCH,
 	REMOTE,
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
@@ -65,9 +45,8 @@ const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
 
-/** @typedef {import("./lander.js").Verdict} Verdict */
-/** @typedef {import("./lander.js").Tester} Tester */
-/** @typedef {import("./lander.js").QueueTester} QueueTester */
+/** @typedef {import("./queue-lander.js").Verdict} Verdict */
+/** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
 /* scheduled-checks.yml carries the `lander/batch` push trigger, as it calls
  * every job `main`'s sweep judges by. */
@@ -87,8 +66,6 @@ const POLL_MS = 15 * 1000;
 /* Untraced: GitHub's newest push runs on a lander ref, deep enough to reach a
  * batch tip a few later pushes have buried. */
 const RUN_LIST_LIMIT = 50;
-/* Untraced: two and a half days of `main`'s four sweeps a day. */
-const MAIN_RUN_LIMIT = 10;
 const NAMED_WORKFLOW = "named-rerun.yml";
 const NAMED_JOB = "Named files";
 /* Untraced: a runaway's stop, minutes being free on the public repo (#1930). */
@@ -121,7 +98,6 @@ const RUNNER_RERUNS = 2;
  *   steps?: {name: string, conclusion: string|null}[]}} Job
  * @typedef {object} Reads
  * @property {() => Run[]} runs the push runs on the tested branch
- * @property {() => Run[]} mainRuns the runs on `main`
  * @property {(run: number) => Job[]} jobsOf
  * @property {(run: number) => string} failedLogOf `gh run view --log-failed`
  * @property {(sha: string, files: string[]) => string[]} presentAt those of
@@ -241,72 +217,13 @@ function runnerFault(failed) {
  * @param {string} sha
  * @param {number} run
  * @param {Pick<Reads, "failedLogOf" | "presentAt">} reads
- * @returns {{files: string[], failures?: import("./lander.js").Failure[]}}
+ * @returns {{files: string[], failures?: import("./queue-lander.js").Failure[]}}
  */
 function readFailed(sha, run, reads) {
 	const log = stripLogPrefix(reads.failedLogOf(run));
 	const files = reads.presentAt(sha, parseFailingFiles(log));
 	const failures = parseFailingTests(log).filter((t) => files.includes(t.file));
 	return { files, ...(failures.length > 0 ? { failures } : {}) };
-}
-
-/**
- * Which of `asked` failed in the newest finished run on `main` to pass or fail
- * each, and the shas those runs tested, or why none settled where none
- * failed.
- * @param {string[]} asked
- * @param {Reads} reads
- * @returns {import("./lander.js").JobsOnMain}
- */
-function readJobsOnMain(asked, reads) {
-	const jobs = asked.filter((j) => j !== SUITE_PASSED_JOB);
-	const settled = readSettledOnMain(jobs, reads);
-	const failed = [...settled].filter(([, s]) => s.conclusion === "failure");
-	const red = failed.map(([j]) => j);
-	const unsettled = jobs.filter((j) => !settled.has(j));
-	if (jobs.length === 0)
-		return {
-			kind: "unread",
-			reason: `it names no job but ${SUITE_PASSED_JOB}`,
-		};
-	if (red.length === 0 && unsettled.length > 0)
-		return {
-			kind: "unread",
-			reason: `no finished ${SUITE_WORKFLOW} run on ${VERIFIED_BRANCH} passed or failed ${unsettled.map((j) => `'${j}'`).join(", ")}`,
-		};
-	return {
-		kind: "read",
-		red,
-		notRed: jobs.filter((j) => !red.includes(j)),
-		shas: [...new Set(failed.map(([, s]) => s.headSha))],
-	};
-}
-
-/**
- * Each of `jobs` with its conclusion in the newest finished run on `main`
- * that passed or failed it, and that run's sha.
- * @param {string[]} jobs
- * @param {Reads} reads
- * @returns {Map<string, {conclusion: string, headSha: string}>}
- */
-function readSettledOnMain(jobs, reads) {
-	/** @type {Map<string, {conclusion: string, headSha: string}>} */
-	const settled = new Map();
-	const finished = reads
-		.mainRuns()
-		.filter((r) => r.conclusion)
-		.sort((a, b) => b.databaseId - a.databaseId);
-	for (const run of finished) {
-		if (settled.size === jobs.length) break;
-		for (const { name, conclusion } of reads.jobsOf(run.databaseId))
-			if (
-				jobs.includes(name) &&
-				!settled.has(name) &&
-				(conclusion === "success" || conclusion === "failure")
-			)
-				settled.set(name, { conclusion, headSha: run.headSha });
-	}
-	return settled;
 }
 
 /**
@@ -354,13 +271,12 @@ const listRuns = (branch, limit, filter = []) =>
 /**
  * The live reads, over `gh` routed to the code repo and git in `root`.
  * @param {string} root
- * @param {string} [branch] whose push runs `runs` lists
+ * @param {string} branch whose push runs `runs` lists
  * @returns {Reads}
  */
-function liveReads(root, branch = LANDING_BRANCH) {
+function liveReads(root, branch) {
 	return {
 		runs: () => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
-		mainRuns: () => listRuns(VERIFIED_BRANCH, MAIN_RUN_LIMIT),
 		jobsOf: (run) =>
 			JSON.parse(gh(["run", "view", String(run), "--json", "jobs"])).jobs,
 		failedLogOf: (run) => gh(["run", "view", String(run), "--log-failed"]),
@@ -429,12 +345,8 @@ async function pollRun(read, unread, { wait, now }) {
 /** @param {unknown} err @returns {Verdict} */
 const unreadable = (err) => ({
 	kind: "unknown",
-	reason: unreadableReason(err),
+	reason: `${SUITE_WORKFLOW} runs unreadable: ${parseErrorText(err)}`,
 });
-
-/** @param {unknown} err */
-const unreadableReason = (err) =>
-	`${SUITE_WORKFLOW} runs unreadable: ${parseErrorText(err)}`;
 
 /**
  * @param {RunVerdict} v
@@ -482,80 +394,6 @@ async function suiteVerdict(sha, after, suite, reruns = 0) {
 		return unreadable(err);
 	}
 	return suiteVerdict(sha, v.attempt, suite, reruns + 1);
-}
-
-/**
- * @typedef {object} ActionsTesterOptions
- * @property {string} root the canonical checkout
- * @property {Tester} [fallback] tests what no push run covers; absent, that
- *   is no verdict
- * @property {Reads} [reads]
- * @property {(ms: number) => Promise<void>} [wait]
- * @property {() => number} [now]
- */
-
-/**
- * @param {ActionsTesterOptions} options
- * @returns {Tester}
- */
-function actionsTester({
-	root,
-	fallback,
-	reads = liveReads(root),
-	wait = sleep,
-	now = Date.now,
-}) {
-	const suite = { reads, branch: LANDING_BRANCH, wait, now };
-	/** @param {string} sha @param {number} after */
-	const polled = (sha, after) => suiteVerdict(sha, after, suite);
-	/** @param {string} sha @param {string[]} files @param {string} why */
-	const handOff = (sha, files, why) =>
-		fallback
-			? fallback.verdict(sha, files)
-			: Promise.resolve(
-					/** @type {Verdict} */ ({ kind: "unknown", reason: why }),
-				);
-	/**
-	 * A rerun at `sha`: of named files that do not land, the fallback; else a
-	 * new attempt of its run's failed jobs where it failed, its run read again
-	 * where it did not, and the fallback where no push ran it.
-	 * @param {string} sha
-	 * @param {string[]} files
-	 * @param {boolean} lands
-	 * @returns {Promise<Verdict>}
-	 */
-	async function rerunAt(sha, files, lands) {
-		if (files.length > 0 && !lands)
-			return handOff(sha, files, "a push run tests no named files");
-		/** @type {Run|undefined} */
-		let run;
-		try {
-			run = newestRun(sha, reads);
-			if (run?.conclusion === "failure") reads.rerun(run.databaseId);
-		} catch (err) {
-			return unreadable(err);
-		}
-		if (run?.conclusion === "failure") return polled(sha, run.attempt);
-		if (files.length > 0)
-			return handOff(sha, files, "a push run tests no named files");
-		if (run === undefined)
-			return handOff(sha, [], `no ${SUITE_WORKFLOW} push run ran it`);
-		return polled(sha, 0);
-	}
-	return {
-		requiresRun: true,
-		async verdict(sha, files, lands = false) {
-			if (files === undefined) return polled(sha, 0);
-			return rerunAt(sha, files, lands);
-		},
-		async readJobsOnMain(jobs) {
-			try {
-				return readJobsOnMain(jobs, reads);
-			} catch (err) {
-				return { kind: "unread", reason: unreadableReason(err) };
-			}
-		},
-	};
 }
 
 /**
@@ -607,7 +445,7 @@ function readDispatchesToday(file, nowMs) {
 
 /**
  * @param {string} root
- * @param {string} [branch]
+ * @param {string} branch
  * @returns {Reads & NamedReads}
  */
 const liveNamedReads = (root, branch) => ({
@@ -641,14 +479,6 @@ const liveNamedReads = (root, branch) => ({
 		]);
 	},
 });
-
-/**
- * @typedef {object} NamedRerunOptions
- * @property {string} root the canonical checkout
- * @property {NamedReads} [reads]
- * @property {(ms: number) => Promise<void>} [wait]
- * @property {() => number} [now]
- */
 
 /**
  * The verdict on `files` at `sha` from a dispatched run of them alone; no
@@ -702,32 +532,6 @@ async function namedVerdict(
 			? `${NAMED_WORKFLOW} listed no run titled ${title}`
 			: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
 	);
-}
-
-/**
- * The verdict on `files` at `sha` from a dispatched run of them alone, its no
- * verdict carrying `shut`, the local slot's refusal.
- * @param {NamedRerunOptions} options
- * @returns {(sha: string, files: string[], shut: string) => Promise<Verdict>}
- */
-function namedRerun({
-	root,
-	reads = liveNamedReads(root),
-	wait = sleep,
-	now = Date.now,
-}) {
-	const record = path.join(markersDir(root), NAMED_RECORD);
-	return async (sha, files, shut) => {
-		const v = await namedVerdict(
-			{ record, reads, wait, now },
-			sha,
-			files,
-			false,
-		);
-		return v.kind === "unknown"
-			? { kind: "unknown", reason: `${shut}; off the machine, ${v.reason}` }
-			: v;
-	};
 }
 
 /**
@@ -845,4 +649,4 @@ async function rerunVerdict(sha, files, on, named) {
 	return suiteVerdict(sha, run?.conclusion === "failure" ? run.attempt : 0, on);
 }
 
-module.exports = { SUITE_WORKFLOW, actionsTester, namedRerun, queueTester };
+module.exports = { SUITE_WORKFLOW, queueTester };

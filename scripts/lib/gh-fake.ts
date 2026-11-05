@@ -292,7 +292,7 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		// gh issue list --json with every field a stub's rows carry; a real answer
 		// holds only the fields its call asks for.
 		issueListRows: JSON.parse(${JSON.stringify(ISSUE_LIST_ROWS.stdout)}),
-		// gh issue view --json: lib/issue-close.js's fields, and lander.js's state.
+		// gh issue view --json: lib/issue-close.js's fields, and the queue lander's state.
 		issueView: JSON.parse(${JSON.stringify(ISSUE_VIEW.stdout)}),
 		// lib/idle-efforts.js's QUERY, --paginate --slurp.
 		idleIssuesPage: JSON.parse(${JSON.stringify(IDLE_ISSUES_PAGE.stdout)}),

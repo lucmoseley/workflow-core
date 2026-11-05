@@ -10,14 +10,13 @@
  * checker walks this repo and every case reads the live registry's findings.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, vi } from "vitest";
+import { afterAll, beforeAll } from "vitest";
 import { readProgramLibs } from "../lib-closure-fixture";
 import { runInProcess } from "./run-in-process";
-import { shellQuote } from "./sh-quote.js";
 
 export const REAL_SCRIPT = path.join(
 	__dirname,
@@ -375,152 +374,4 @@ export function anchorExpiryKit() {
 			.filter((f) => (f as { tag?: string }).tag === "NEW-FAULT")
 			.map((f) => f.message);
 	return { stagingRepo, claims, gate, review, readHookLine, added };
-}
-
-/**
- * #3127's fixture, X: two guards anchored. C adds a library no guard sources
- * yet; D has guard-branch source it and re-anchors. Reverting C on D deletes
- * the library, so guard-branch's digest takes a value nobody read, with C
- * and D committed. Call it at a describe's top level: it builds through
- * templateOf().
- */
-export function landerRevertKit() {
-	let templateCulprit = "";
-	let templateTip = "";
-	const claims = {
-		CLAUDE_CODE_SESSION_ID: "self-session",
-		WFC_ANCHOR_LOCKS: "[]",
-	};
-	const copy = templateOf(() => {
-		const built = committedRepo(TWO_GUARDS, (r) => {
-			reviewIn(r, [], claims);
-			for (const script of [
-				"landing-registry-gate.js",
-				"lander-revert-base.js",
-			])
-				fs.copyFileSync(
-					path.join(__dirname, "..", script),
-					path.join(r, "scripts", script),
-				);
-		});
-		const { commit } = tools(built);
-		templateCulprit = commit(
-			{ "scripts/lib/extra.sh": "extra() { :; }\n" },
-			"Add extra (#12)",
-		);
-		fs.writeFileSync(
-			path.join(built, "scripts/guard-branch.sh"),
-			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nsource "$(dirname "$0")/lib/extra.sh"\nexit 2\n',
-		);
-		reviewIn(built, ["scripts/guard-branch.sh"], ownClaims(built));
-		templateTip = commit({}, "Source extra, re-anchored");
-		return built;
-	});
-
-	function tools(root: string) {
-		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
-		const commit = (files: Record<string, string>, msg: string) => {
-			for (const [rel, body] of Object.entries(files))
-				fs.writeFileSync(path.join(root, rel), body);
-			git("add", "-A");
-			git("commit", "-qm", msg);
-			return git("rev-parse", "HEAD");
-		};
-		return { git, commit };
-	}
-
-	function repo() {
-		const root = copy();
-		return {
-			root,
-			...tools(root),
-			culprit: templateCulprit,
-			tip: templateTip,
-		};
-	}
-
-	const env = (culprit?: string) => ({
-		...claims,
-		...(culprit ? { WFC_LANDER_REVERT: culprit } : {}),
-	});
-	/** `base` as the hook's resolved WFC_LANDER_REVERT_BASE (#4451). */
-	const preCommit = (root: string, culprit?: string, base?: string) =>
-		run(root, ["--against", "HEAD"], {
-			env: { ...env(culprit), WFC_LANDER_REVERT_BASE: base ?? "" },
-		});
-	const push = (root: string, sha: string, tip: string, culprit?: string) =>
-		/* spawn-kept: a real fd, as the #3074 describe's — the gate streams the
-		 * checker's report to the real fd 2. */
-		spawnSync(
-			"node",
-			[path.join(root, "scripts", "landing-registry-gate.js")],
-			{
-				cwd: root,
-				encoding: "utf8",
-				input: `refs/heads/main ${sha} refs/heads/landing ${tip}\n`,
-				env: {
-					...process.env,
-					...env(culprit),
-					CLAUDE_PROJECT_DIR: root,
-					WFC_RULES_DIR: "",
-					WFC_RULES_FALLBACK_DIR: "",
-					WFC_MODULES: "landing",
-				},
-			},
-		);
-	const review =
-		"node scripts/check-guard-registry.js --review scripts/guard-branch.sh";
-
-	/**
-	 * `root` as the lander's checkout: `landing` and `main` on a bare remote
-	 * at `tip`, and hooks running the two registry gates as .husky does.
-	 */
-	function landerCheckout(root: string, tip: string) {
-		const remote = `${root}.git`;
-		temps.push(remote);
-		execFileSync("git", ["init", "-q", "--bare", remote]);
-		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
-		git("remote", "add", "origin", remote);
-		git(
-			"push",
-			"-q",
-			"origin",
-			`${tip}:refs/heads/landing`,
-			`${tip}:refs/heads/main`,
-		);
-		const hooks = path.join(root, ".git", "gate-hooks");
-		fs.mkdirSync(hooks);
-		/* The commit hook resolves the revert's second baseline once, as
-		 * .husky/pre-commit does (#4451). */
-		for (const [hook, script] of [
-			[
-				"prepare-commit-msg",
-				'export WFC_LANDER_REVERT_BASE="$(node "$GATES/lander-revert-base.js")"\nexec node "$GATES/check-guard-registry.js" --against HEAD',
-			],
-			["pre-push", 'exec node "$GATES/landing-registry-gate.js"'],
-		] as const) {
-			fs.writeFileSync(
-				path.join(hooks, hook),
-				`#!/bin/sh\nGATES=${shellQuote(`${root}/scripts`)}\n${script}\n`,
-			);
-			fs.chmodSync(path.join(hooks, hook), 0o755);
-		}
-		git("config", "core.hooksPath", hooks);
-		for (const [name, value] of Object.entries({
-			...claims,
-			CLAUDE_PROJECT_DIR: root,
-			WFC_RULES_DIR: "",
-			WFC_RULES_FALLBACK_DIR: "",
-			WFC_MODULES: "landing",
-		}))
-			vi.stubEnv(name, value);
-		return (ref: string) =>
-			execFileSync("git", ["rev-parse", ref], {
-				cwd: remote,
-				encoding: "utf8",
-			}).trim();
-	}
-	return { repo, tools, preCommit, push, review, landerCheckout };
 }

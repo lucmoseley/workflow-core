@@ -54,7 +54,7 @@ const LOCKFILE = "package-lock.json";
 const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
 /* Inside `node_modules`, so it is swapped in with the tree it describes. */
 const MARKER = ".wfc-lockfile-blob";
-const HOLDERS = ["level-main.js", "refill-loop.js", "lander.js"];
+const HOLDERS = ["level-main.js", "refill-loop.js"];
 /* Untraced: room for a cold `npm ci` over a slow link. */
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 

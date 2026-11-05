@@ -55,7 +55,7 @@ const classedRed = (/** @type {string} */ sha, /** @type {string} */ at) => {
 			files: [
 				{
 					file: "a.test.ts",
-					red: { sha: NEIGHBOUR, at: "RUN-EARLIER", by: "red store" },
+					red: { sha: NEIGHBOUR, at: "RUN-EARLIER" },
 				},
 			],
 		},

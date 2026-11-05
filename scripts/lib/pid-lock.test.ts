@@ -249,11 +249,26 @@ describe("pidLock", () => {
 	});
 
 	it.each([
-		["start-lander.js", "lander.js", "is no holder", false],
-		["lander.js", "lander.js", "is the holder", true],
-		["lander.js", ["lander.js", "other-entry.js"], "is the holder", true],
-		["other-entry.js", ["lander.js", "other-entry.js"], "is the holder", true],
-		["start-lander.js", ["lander.js", "other-entry.js"], "is no holder", false],
+		["start-lander.js", "queue-lander.js", "is no holder", false],
+		["queue-lander.js", "queue-lander.js", "is the holder", true],
+		[
+			"queue-lander.js",
+			["queue-lander.js", "other-entry.js"],
+			"is the holder",
+			true,
+		],
+		[
+			"other-entry.js",
+			["queue-lander.js", "other-entry.js"],
+			"is the holder",
+			true,
+		],
+		[
+			"start-lander.js",
+			["queue-lander.js", "other-entry.js"],
+			"is no holder",
+			false,
+		],
 	])(
 		"a live `node …/%s`, for marker %j, %s (#2675, #3815)",
 		(script, marker, _, holds) => {

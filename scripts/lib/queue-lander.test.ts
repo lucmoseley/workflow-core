@@ -23,7 +23,6 @@
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import type { Verdict } from "./lander.js";
 import {
 	type Batch,
 	type Drop,
@@ -34,6 +33,7 @@ import {
 	type QueueLanderDeps,
 	redPathAtRest,
 	runQueueLander,
+	type Verdict,
 } from "./queue-lander.js";
 
 // Required, not imported: runQueueLander tests for filing-refused.js's own

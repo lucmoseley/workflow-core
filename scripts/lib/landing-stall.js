@@ -28,12 +28,8 @@ const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { execGit } = require("./git.js");
-const {
-	HEARTBEAT_MS,
-	LANDER_GIT_TIMEOUT_MS,
-	readHeartbeat,
-	short,
-} = require("./lander.js");
+const { HEARTBEAT_MS, readHeartbeat } = require("./lander-files.js");
+const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
 const { markersDir } = require("./marker-root.js");
 const { queueGit, queueLanderFiles } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
@@ -56,7 +52,7 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  *   the remote has no `main`
  * @property {import("./queue-gauge.js").QueueGauge} gauge
  * @property {number} wokeAt when the guest last booted or resumed, in ms
- * @property {import("./lander.js").Heartbeat|null} heartbeat the queue
+ * @property {import("./lander-files.js").Heartbeat|null} heartbeat the queue
  *   lander's
  * @property {(pid: number) => boolean} alive
  */

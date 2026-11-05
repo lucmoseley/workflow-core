@@ -123,9 +123,9 @@ describe("one PreToolUse call", () => {
 	});
 });
 
-/* lander.js's is a commit, which no memo owes a repeat of. git.js's own spawns
- * are the seam, and git.test.ts refuses a spawn naming the binary anywhere. */
-const SPAWNS_GIT_ITSELF = ["scripts/lib/git.js", "scripts/lib/lander.js"];
+/* git.js's own spawns are the seam, and git.test.ts refuses a spawn naming
+ * the binary anywhere. */
+const SPAWNS_GIT_ITSELF = ["scripts/lib/git.js"];
 
 describe("what the dispatcher loads", () => {
 	const loaded = requireClosure(ROOT, readDispatchedCores());

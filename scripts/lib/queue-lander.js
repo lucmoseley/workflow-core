@@ -86,13 +86,8 @@
 
 const { caught, parseErrorText } = require("./caught.js");
 const { FilingRefusedError } = require("./filing-refused.js");
-const {
-	parseRefusal,
-	redOnMain,
-	remote,
-	short,
-	verdictAt,
-} = require("./lander.js");
+const { HEARTBEAT_MS } = require("./lander-files.js");
+const { parseRefusal, remote, short } = require("./lander-git.js");
 const {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
@@ -110,9 +105,25 @@ const SPAWN_FAULTS = ["EAGAIN", "ENOMEM", "EMFILE", "ENFILE"];
 class TransientFault extends Error {}
 
 /**
- * @typedef {import("./lander.js").Verdict} Verdict
- * @typedef {import("./lander.js").QueueTester} QueueTester
- * @typedef {import("./lander.js").Ledger} Ledger
+ * @typedef {{file: string, test: string, message?: string,
+ *   signature?: string}} Failure a failing test; where the runner printed its
+ *   error, `message` to read and `signature` to compare, the same across runs
+ *   of one failure
+ * @typedef {{kind: "green", run?: number}
+ *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[]}
+ *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
+ *   CI run that passed it and `jobs` the failing CI jobs, where the tester
+ *   read a CI run; `failures` where it named the failing tests; `transient`
+ *   where asking again shortly can reach a verdict, as when its suite slot
+ *   stayed shut
+ * @typedef {{verdict: (sha: string, files?: string[], again?: boolean) =>
+ *   Promise<Verdict>, requiresRun?: boolean, parallel?: boolean}} QueueTester
+ *   the whole suite at `sha` where `files` is absent or empty, else only
+ *   `files`, `again` where a verdict reached there is to be had anew, as a
+ *   rerun or confirm; `requiresRun` where `main` takes only a sha a CI run
+ *   passed, so only a green naming its `run` lands; `parallel` where it can
+ *   be asked several verdicts at once
+ * @typedef {import("./lander-files.js").Ledger} Ledger
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
  *   after `queue/`, `pushedAt` its push time in ms
@@ -479,6 +490,55 @@ const baseKey = (main, files) => `${main} ${[...files].sort().join(",")}`;
  *   what of a red `main` shares: the files red there too, the rest, and
  *   whether nothing is left
  */
+
+/**
+ * @param {Failure} a
+ * @param {Failure} b
+ */
+const isSameFailure = (a, b) =>
+	a.file === b.file &&
+	a.test === b.test &&
+	(a.signature === undefined ||
+		b.signature === undefined ||
+		a.signature === b.signature);
+
+/**
+ * @param {Verdict|null|undefined} v
+ * @param {string} file
+ * @returns {Failure[]}
+ */
+const failuresIn = (v, file) =>
+	v?.kind === "red" ? (v.failures ?? []).filter((f) => f.file === file) : [];
+
+/**
+ * Null where either names no test in `file`.
+ * @param {Verdict|null|undefined} v
+ * @param {Verdict|null} onMain
+ * @param {string} file
+ * @returns {boolean|null}
+ */
+function isRepeatOfMain(v, onMain, file) {
+	const got = failuresIn(v, file);
+	const there = failuresIn(onMain, file);
+	if (got.length === 0 || there.length === 0) return null;
+	return got.every((f) => there.some((m) => isSameFailure(f, m)));
+}
+
+/**
+ * The files of `checked` red on `main`: those a red run there named, or all
+ * of them where it named none of them, less any where `v` fails a test `main`
+ * did not.
+ * @param {Verdict|null} onMain
+ * @param {string[]} checked
+ * @param {Verdict|null} [v]
+ */
+function redOnMain(onMain, checked, v) {
+	if (onMain?.kind !== "red") return [];
+	const named = checked.filter((f) => onMain.files.includes(f));
+	return (named.length > 0 ? named : checked).filter(
+		(f) => isRepeatOfMain(v, onMain, f) !== false,
+	);
+}
 
 /**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
@@ -1051,6 +1111,24 @@ function writeVerdict(deps, { sha, files, pass, v }, run) {
 		};
 	deps.verdicts.add(sha, files, v, pass);
 	return run;
+}
+
+/**
+ * The tester's verdict, beating the heartbeat while it is awaited.
+ * @param {Pick<QueueLanderDeps, "tester" | "beat">} deps
+ * @param {string} sha
+ * @param {string[]} [files]
+ * @param {boolean} [again]
+ * @returns {Promise<Verdict>}
+ */
+async function verdictAt({ tester, beat }, sha, files, again) {
+	beat(sha);
+	const timer = setInterval(() => beat(sha), HEARTBEAT_MS);
+	try {
+		return await tester.verdict(sha, files, again);
+	} finally {
+		clearInterval(timer);
+	}
 }
 
 /**

@@ -13,7 +13,7 @@
 # IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
 # JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and a gate skipped here runs next only in CI, after the push: with `landing` on, the lander's run on that push (#2413).
 # RUNS:      gates — each program below is judged by its own guard-registry row where a rule names it (#4456).
-# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify does not skip it, since .husky/prepare-commit-msg runs it and is the one hook that can refuse a commit and that the flag leaves running (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (scripts/lib/commit-key.js, scripts/mutation-hold-gate.js; #1650, #1910). WFC_LANDER_REVERT=<sha> stands the guard-registry gate's staleness refusal down where the staged tree is that commit's clean revert onto HEAD, recomputed by scripts/lib/clean-revert.js (#3127), and has every --against gate judge that revert against the culprit's parent as well as HEAD, named by scripts/lander-revert-base.js (#4451): the lander sets it; an agent can too, but what it passes is a clean revert carrying rows stale or faults that parent carried, never any other change or fault.
+# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify does not skip it, since .husky/prepare-commit-msg runs it and is the one hook that can refuse a commit and that the flag leaves running (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (scripts/lib/commit-key.js, scripts/mutation-hold-gate.js; #1650, #1910).
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
@@ -74,17 +74,6 @@ if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
   echo "  Deliberate? The escape is the founder's to set, never an agent's (#916): an agent stops and asks. The founder runs, from their own terminal, WFC_ALLOW_BRANCH=1 git commit -m '…' -- <paths>  — never --no-verify, which also skips gitleaks." >&2
   exit 1
 fi
-
-# A VERIFIED LANDER REVERT is judged by every --against gate below against the
-# culprit's parent it restores as well as HEAD, a fault refusing only where it
-# is in neither (#4451); the doc-map gate's gate_direction is not one.
-# Resolved once here, and assigned on every run, so a value set before the
-# hook never reaches a gate.
-WFC_LANDER_REVERT_BASE=""
-if [ -n "${WFC_LANDER_REVERT:-}" ]; then
-  WFC_LANDER_REVERT_BASE="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lander-revert-base.js)" || WFC_LANDER_REVERT_BASE=""
-fi
-export WFC_LANDER_REVERT_BASE
 
 # Scoped to the commit's own paths, not the whole repo (mantahostels#179): a
 # whole-repo `biome check .` here fails on an unformatted file the commit does
@@ -290,10 +279,6 @@ fi
 # no commit yet HEAD does not resolve and the gate is BROKEN — exit 2, refusing
 # the very first commit. Nothing in this repo hits it; installing these hooks
 # into a fresh repo would (mantahostels#1940).
-#
-# A LANDER REVERT is let through with the rows it leaves stale: where
-# WFC_LANDER_REVERT names a culprit and the staged tree is its clean revert onto
-# HEAD, the checker stands its staleness refusal down, and only that (#3127).
 if armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
 fi

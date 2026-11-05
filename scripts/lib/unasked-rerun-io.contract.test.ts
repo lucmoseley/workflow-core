@@ -83,7 +83,7 @@ const classingShape = (marker: object) => {
 				allAlreadyRed: alreadyRed.allAlreadyRed,
 				files: alreadyRed.files.map((c) => ({
 					file: typeof c.file,
-					by: c.red?.by ?? null,
+					red: c.red === null ? null : typeof c.red.sha,
 				})),
 			}
 		: null;

@@ -8,8 +8,8 @@
  * order they were pushed, a lone ref gains a merge commit, an anchors file
  * both refs touched stops the batch though its driver settles it, a ref
  * pushed while its batch was tested is deleted unlanded, a broken git object
- * is read again unrepaired, a live queue lander's lock is taken by the
- * landing lander, a verdict, batch or drop written to disk is lost to the
+ * is read again unrepaired, a live queue lander's lock is taken by a
+ * second one or its launcher, a verdict, batch or drop written to disk is lost to the
  * next run, or a ref conflicting with `main` stops the queue, goes unkept
  * under `dropped/<name>` or unticketed; or a red batch's culprit is not
  * isolated on `lander/iso-<k>` and dropped with its evidence, a collision is
@@ -29,7 +29,6 @@ import {
 	markers,
 	remote,
 	runLander,
-	runLanderScript,
 	stubRedWhile,
 	stubTester,
 	stubTracker,
@@ -54,7 +53,6 @@ landerSandbox();
 // second copy of TransientFault, which queueGit's throw is not.
 const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
 
-const QUEUE_LANDER = path.resolve(__dirname, "queue-lander.js");
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
@@ -91,7 +89,7 @@ describe("a run", () => {
 		const a = pushQueue("a", seed);
 		const b = pushQueue("b", seed);
 
-		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
+		const r = await runLander(stubTester(0));
 
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("exit no queue ref waits");
@@ -112,7 +110,7 @@ describe("a run", () => {
 	it("lands a lone queue ref that descends from main as pushed, with no merge commit", async () => {
 		const a = pushQueue("a", git(work, "rev-parse", "HEAD"));
 
-		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
+		const r = await runLander(stubTester(0));
 
 		expect(r.status).toBe(0);
 		expect(git(remote, "rev-parse", "main")).toBe(a);
@@ -128,7 +126,7 @@ describe("a run", () => {
 		logEnqueue(log, { ref: "refs/heads/queue/a", sha: a, at: at - 2000 });
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 
-		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
+		const r = await runLander(stubTester(0));
 
 		expect(r.stdout).toContain("exit no queue ref waits");
 		const merges = git(
@@ -158,7 +156,7 @@ describe("a run", () => {
 			...redPathAtRest(),
 		});
 
-		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
+		const r = await runLander(stubTester(0));
 
 		expect(r.stdout).toContain(`merge-members onto ${moved.slice(0, 9)}`);
 		expect(git(remote, "rev-parse", "main")).toBe(a);
@@ -193,7 +191,7 @@ describe("a run", () => {
 		);
 		expect(seed).not.toBe(base);
 
-		const r = await runLanderScript(QUEUE_LANDER, stubTester(0));
+		const r = await runLander(stubTester(0));
 
 		expect(r.stdout).toContain("exit no queue ref waits");
 		const main = git(remote, "rev-parse", "main");
@@ -219,12 +217,7 @@ describe("a run", () => {
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLanderScript(
-			QUEUE_LANDER,
-			stubTester(0),
-			"landing",
-			gh.env,
-		);
+		const r = await runLander(stubTester(0), "landing", gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain(
@@ -277,8 +270,7 @@ describe("a run", () => {
 		pushQueue("b", seed);
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLanderScript(
-			QUEUE_LANDER,
+		const r = await runLander(
 			stubTester(1, "scripts/x.test.ts\n"),
 			"landing",
 			gh.env,
@@ -571,12 +563,7 @@ describe("the red path", () => {
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLanderScript(
-			QUEUE_LANDER,
-			stubRedWhile("b"),
-			"landing",
-			gh.env,
-		);
+		const r = await runLander(stubRedWhile("b"), "landing", gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain("exit no queue ref waits");
@@ -603,12 +590,7 @@ describe("the red path", () => {
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLanderScript(
-			QUEUE_LANDER,
-			stubRedWhile("b", "a"),
-			"landing",
-			gh.env,
-		);
+		const r = await runLander(stubRedWhile("b", "a"), "landing", gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(git(remote, "rev-parse", "main")).toBe(a);
@@ -621,7 +603,7 @@ describe("the red path", () => {
 });
 
 describe("the lock", () => {
-	it("keeps the landing lander and its launcher off while a live queue lander holds the pidfile", async () => {
+	it("keeps a second queue lander and its launcher off while a live one holds the pidfile", async () => {
 		const holder = spawn("sh", ["-c", "sleep 60", "queue-lander.js"], {
 			stdio: "ignore",
 		});

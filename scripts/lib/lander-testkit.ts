@@ -2,7 +2,7 @@
  * lander-testkit.ts — the sandbox the real-git lander suites stand on: a bare
  * `remote.git` and its clone `work`, `main` and `landing` both on one seed
  * commit, with the tester, tracker and run helpers that drive
- * scripts/lander.js and scripts/queue-lander.js against it.
+ * scripts/queue-lander.js against it.
  *
  * Break it and every lander suite fails at once, or runs against a repo whose
  * `origin` is another case's.
@@ -20,7 +20,7 @@ import { stubGhScript } from "./gh-stub.js";
 import { runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
 
-const LANDER = path.resolve(__dirname, "../lander.js");
+const LANDER = path.resolve(__dirname, "../queue-lander.js");
 
 /** The case's sandbox root, fresh for each case once landerSandbox() is called. */
 export let tmp: string;
@@ -109,15 +109,12 @@ export function landerSandbox(): void {
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 }
 
-/**
- * A tester that copies the heartbeat as it stood mid-run, prints `failing`,
- * then exits `code`.
- */
+/** A tester that prints `failing`, then exits `code`. */
 export const stubTester = (code: number, failing = "") => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
 		script,
-		`#!/bin/sh\ncp ${shellQuote(`${markers()}/.lander-heartbeat.json`)} ${shellQuote(`${tmp}/heartbeat-seen.json`)}\nprintf '%s' ${shellQuote(failing)}\nexit ${code}\n`,
+		`#!/bin/sh\nprintf '%s' ${shellQuote(failing)}\nexit ${code}\n`,
 	);
 	fs.chmodSync(script, 0o755);
 	return script;
@@ -134,15 +131,8 @@ export const stubRedWhile = (name: string, alongside?: string) => {
 	return script;
 };
 
+/** A run of the queue lander in `work`, on the tester script `tester`. */
 export const runLander = (
-	tester: string,
-	modules = "landing",
-	extraEnv: Record<string, string> = {},
-) => runLanderScript(LANDER, tester, modules, extraEnv);
-
-/** A run of the lander program at `script` in `work`, as runLander's. */
-export const runLanderScript = (
-	script: string,
 	tester: string,
 	modules = "landing",
 	extraEnv: Record<string, string> = {},
@@ -155,7 +145,7 @@ export const runLanderScript = (
 		...extraEnv,
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;
-	return runInProcessAsync(script, ["run", "--tester", shellQuote(tester)], {
+	return runInProcessAsync(LANDER, ["run", "--tester", shellQuote(tester)], {
 		cwd: work,
 		env,
 	});

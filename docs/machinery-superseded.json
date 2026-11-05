@@ -898,7 +898,7 @@
 		],
 		"allowlist": [
 			{
-				"path": "scripts/lib/lander.js",
+				"path": "scripts/lib/lander-git.js",
 				"anchors": [
 					"const PUSH_TIMEOUT_MS = 20 * 60 * 1000;"
 				]

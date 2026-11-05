@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * Whether a red run's failures were already red on its base (#3624), judged
- * off the red store, the certificate store and the lander's heartbeat seeded
- * in a throwaway repository, against its real git. Loosen a case and a
+ * off the red store and the certificate store seeded in a throwaway
+ * repository, against its real git. Loosen a case and a
  * session reads its own breakage as a neighbour's, or reruns a suite to
  * attribute a red the record already attributes.
  */
@@ -21,7 +21,6 @@ const {
 	readRedEvidence,
 } = require("./already-red.js");
 const { EDGES_FILE, record, recordFailure } = require("./test-pass-marker.js");
-const { landerFiles } = require("./lander.js");
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -185,24 +184,6 @@ describe("a red run's failures judged against its base (#3624)", () => {
 		).toContain("NEW");
 	});
 
-	it("takes the lander's red base check at that sha where no store holds", () => {
-		const { dir, base } = repo();
-		const elsewhere = commit(dir, "b.js");
-		fs.writeFileSync(
-			landerFiles(dir).heartbeat,
-			JSON.stringify({
-				pid: 1,
-				at: "9",
-				batch: null,
-				red: { base, onMain: { kind: "red", files: [TEST] } },
-			}),
-		);
-
-		expect(
-			linesFor(dir, run({ dir, ...elsewhere, at: "2", failed: true, base })),
-		).toContain(`${TEST} — by the lander's run at ${base.slice(0, 12)}`);
-	});
-
 	it("says a run with no base could not be checked", () => {
 		const { dir } = repo();
 		const elsewhere = commit(dir, "b.js");
@@ -231,7 +212,7 @@ describe("a red run's classing, one answer for the summary and the guard (#3633)
 			files: [
 				{
 					file: TEST,
-					red: { sha: elsewhere.sha, at: "1", by: "red store" },
+					red: { sha: elsewhere.sha, at: "1" },
 				},
 			],
 		});

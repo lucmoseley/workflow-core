@@ -89,9 +89,9 @@ beforeEach(() => {
 	);
 	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
 	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
-	/* A live process whose command line names lander.js holds the lander's
+	/* A live process whose command line names queue-lander.js holds the lander's
 	 * lock, so the land's lander start finds one running. */
-	landerHolder = spawn("sh", ["-c", "sleep 60", "lander.js"], {
+	landerHolder = spawn("sh", ["-c", "sleep 60", "queue-lander.js"], {
 		stdio: "ignore",
 	});
 	const markers = path.join(main, ".claude", "tmp", "markers");

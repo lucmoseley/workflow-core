@@ -110,9 +110,9 @@ let landerHolder: ReturnType<typeof spawn> | undefined;
 
 const markers = () => path.join(main, ".claude", "tmp", "markers");
 
-/** A live process whose command line names lander.js, in the lander's lock. */
+/** A live process whose command line names queue-lander.js, in the lander's lock. */
 const holdLanderLock = () => {
-	landerHolder = spawn("sh", ["-c", "sleep 60", "lander.js"], {
+	landerHolder = spawn("sh", ["-c", "sleep 60", "queue-lander.js"], {
 		stdio: "ignore",
 	});
 	fs.mkdirSync(markers(), { recursive: true });

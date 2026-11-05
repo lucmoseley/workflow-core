@@ -124,7 +124,7 @@ function isOtherProcess({ pid, procStart, bootId }) {
 /**
  * The lock at `file` for the script or scripts named `marker`: a holder's
  * command line must carry an argument whose basename is one of them, so
- * `start-lander.js` never passes for `lander.js` (#2675).
+ * `start-lander.js` never passes for `queue-lander.js` (#2675).
  * @param {string} file
  * @param {string | string[]} marker
  */

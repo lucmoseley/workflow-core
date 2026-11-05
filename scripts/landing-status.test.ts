@@ -3,8 +3,7 @@
  * scripts/landing-status.js end to end (#2407), on a fixture remote.
  *
  * Loosen it and a session reports a queued commit as landed, a commit on its
- * own queue ref as unpushed, misses the revert the lander pushed onto its
- * work, or claims a state off refs it never fetched.
+ * own queue ref as unpushed, or claims a state off refs it never fetched.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -108,33 +107,22 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-it("reads a landed, a queued and a reverted commit, naming the revert's sha, after fetching", () => {
+it("reads a landed, a queued and an unpushed commit, after fetching", () => {
 	const tree = worktree("s");
 	const landed = commit("landed");
 	git(work, "push", "-q", "origin", "HEAD:main");
-	const reverted = commit("broken");
-	git(work, "revert", "--no-edit", reverted);
-	const revert = git(work, "rev-parse", "HEAD");
 	const queued = commit("queued");
 	const unpushed = commit("unpushed");
-	git(
-		work,
-		"push",
-		"-q",
-		"origin",
-		`${queued}:refs/heads/queue/s`,
-		`${revert}:main`,
-	);
+	git(work, "push", "-q", "origin", `${queued}:refs/heads/queue/s`);
 	/* Local tracking ref stale: only a fetch shows the push above. */
 	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);
-	ledger(landed, reverted, queued, unpushed);
+	ledger(landed, queued, unpushed);
 
 	const r = runStatus("landing", ["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout.split("\n").filter(Boolean).slice(0, 4)).toEqual([
+	expect(r.stdout.split("\n").filter(Boolean).slice(0, 3)).toEqual([
 		`landed: ${landed.slice(0, 9)} landed — on main`,
-		`reverted by ${revert.slice(0, 9)}: ${reverted.slice(0, 9)} broken`,
 		`queued: ${queued.slice(0, 9)} queued — on queue/s, not yet on main`,
 		`unpushed: ${unpushed.slice(0, 9)} unpushed — not pushed to queue/s`,
 	]);
@@ -238,7 +226,7 @@ it("says the repo lands straight on main where the landing module is off, with o
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toMatch(/lands straight on main/);
-	expect(r.stdout).not.toMatch(/landed:|queued:|reverted by|unpushed:/);
+	expect(r.stdout).not.toMatch(/landed:|queued:|unpushed:/);
 	const bare = runStatus("", []);
 	expect(bare.status, bare.stderr).toBe(0);
 	expect(bare.stdout).toMatch(/lands straight on main/);

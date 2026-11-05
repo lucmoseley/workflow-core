@@ -884,15 +884,13 @@ function runAgainst(spec, ctx) {
 			`resolving ${head}`,
 		).trim();
 
-	const { REVERT_BASE_ENV } = require("./clean-revert.js");
-	const revertBase = process.env[REVERT_BASE_ENV] || undefined;
 	const sides = compareSides(spec, ctx, {
 		against,
 		profile,
 		materialise,
-		revs: { rev, baseRev, head, headTree, revertBase },
+		revs: { rev, baseRev, head, headTree },
 	});
-	const { added, inherited, notes, commit, baselineSummary, restored } = sides;
+	const { added, inherited, notes, commit, baselineSummary } = sides;
 
 	/** The measurement both sides carry, where the profile can read one. */
 	const measured = (/** @type {FaultItem} */ f) =>
@@ -915,10 +913,6 @@ function runAgainst(spec, ctx) {
 	};
 
 	const judged = head ?? "this commit";
-	if (restored.length > 0)
-		ctx.say(
-			`${restored.length} fault(s) not in ${rev} are in ${revertBase}, the culprit's parent this lander revert restores, so it inherits them (#4451).`,
-		);
 	reportAgainst(
 		ctx,
 		{ added: refuse, inherited, notes, rev, judged },
@@ -1111,12 +1105,11 @@ function readAgainst(spec, ctx) {
  * @param {{ against: AgainstSpec,
  *   profile: import("./fault-diff.js").FaultDiffProfile,
  *   materialise: (rev: string, dir: string, pathspecs: string[]) => void,
- *   revs: { rev: string, baseRev: string, head?: string, headTree?: string,
- *     revertBase?: string } }} at
+ *   revs: { rev: string, baseRev: string, head?: string, headTree?: string } }} at
  */
 function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	const { newFaultItems } = require("./fault-diff.js");
-	const { rev, baseRev, head, headTree, revertBase } = revs;
+	const { rev, baseRev, head, headTree } = revs;
 	const gate = profile.gating ?? (() => true);
 	const work = fs.mkdtempSync(
 		path.join(os.tmpdir(), `check-against-${spec.name}-`),
@@ -1131,7 +1124,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	let added = /** @type {FaultItem[]} */ ([]);
 	let inherited = /** @type {string[]} */ ([]);
 	let notes = /** @type {FaultItem[]} */ ([]);
-	let restored = /** @type {FaultItem[]} */ ([]);
 	/* The envelopes outlive the directories they were read from: measuredDelta
 	 * reads this one after the trees are removed. */
 	let baselineEnvelope = /** @type {Record<string, unknown> | undefined} */ (
@@ -1169,13 +1161,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 					`no readable ${rev} baseline to compare against — ${baseline.summary}`,
 				);
 			added = newFaultItems(commit.envelope, baseline.envelope, profile);
-			if (revertBase && added.length > 0)
-				({ added, restored } = splitRestored(ctx, added, {
-					commit: commit.envelope,
-					parent: read(revertBase, revertBase, "baseline"),
-					revertBase,
-					profile,
-				}));
 			const addedLines = added.map((f) => f.line);
 			inherited = gating
 				.filter((f) => !profile.newOnly?.(f.key))
@@ -1194,7 +1179,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 			added,
 			inherited,
 			notes,
-			restored,
 			commit,
 			baselineEnvelope,
 			baselineSummary,
@@ -1202,35 +1186,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	} finally {
 		fs.rmSync(work, { recursive: true, force: true });
 	}
-}
-
-/**
- * A VERIFIED LANDER REVERT IS ALSO JUDGED AGAINST THE CULPRIT'S PARENT (#4451):
- * it restores that parent's lines, so a fault there is one the culprit
- * removed, and only a fault in neither tree is its own. Fails closed on an
- * unreadable parent.
- *
- * @param {CheckContext} ctx
- * @param {FaultItem[]} added the faults HEAD does not carry
- * @param {{ commit: Record<string, unknown>,
- *   parent: { outcome: Outcome, summary: string, envelope: Record<string, unknown> },
- *   revertBase: string,
- *   profile: import("./fault-diff.js").FaultDiffProfile }} sides
- * @returns {{ added: FaultItem[], restored: FaultItem[] }}
- */
-function splitRestored(ctx, added, { commit, parent, revertBase, profile }) {
-	const { newFaultItems } = require("./fault-diff.js");
-	if (parent.outcome === "BROKEN" || parent.outcome === "SKIP")
-		ctx.broken(
-			`no readable ${revertBase} baseline to compare against — ${parent.summary}`,
-		);
-	const own = new Set(
-		newFaultItems(commit, parent.envelope, profile).map((f) => f.line),
-	);
-	return {
-		added: added.filter((f) => own.has(f.line)),
-		restored: added.filter((f) => !own.has(f.line)),
-	};
 }
 
 /**

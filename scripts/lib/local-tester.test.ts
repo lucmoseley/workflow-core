@@ -10,17 +10,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { configuredTester } from "../lander.js";
-import { actionsTester } from "./actions-tester.js";
-import { stubGhScript } from "./gh-stub.js";
-import {
-	fileLedger,
-	heartbeatWriter,
-	landerFiles,
-	type QueueTester,
-	remoteGit,
-	runLander,
-} from "./lander.js";
 import {
 	localTester,
 	parseFailingTests,
@@ -28,8 +17,8 @@ import {
 	suiteSlot,
 } from "./local-tester.js";
 import { markersDir } from "./marker-root.js";
-import { pidLock } from "./pid-lock.js";
 import { writePsStub } from "./ps-stub.js";
+import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
 import { queueJoin } from "./suite-queue.js";
 
@@ -967,48 +956,7 @@ it("reruns only the named files, sending a Python one to pytest only where Pytho
 	expect(fs.readFileSync(ran, "utf8")).toBe("test_x.py\n");
 });
 
-it("lands a green fixture batch on main, plugged into the lander", async () => {
-	git(work, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
-	write("c.check.js", "");
-	const batch = commit("batch");
-	git(work, "push", "-q", "origin", "HEAD:landing");
-	const files = landerFiles(work);
-	fs.mkdirSync(path.dirname(files.pid), { recursive: true });
-
-	const origin = remoteGit(work);
-	const ledgeredAtPush: boolean[] = [];
-	/* A variable, not a literal: a green batch files no ticket, and the red
-	 * path's tracker (#2404) is only typed where that lander is. */
-	const deps = {
-		tracker: {
-			fileFixTicket: () => "",
-			holdQueue: () => "",
-			releaseQueue: () => null,
-		},
-		git: {
-			...origin,
-			pushMain: (sha: string) => {
-				ledgeredAtPush.push(fileLedger(files.ledger).has(sha));
-				origin.pushMain(sha);
-			},
-		},
-		tester: localTester({
-			root: work,
-			admit: admitted().admit,
-			exec: recordingExec().exec,
-		}),
-		ledger: fileLedger(files.ledger),
-		noVerdict: fileLedger(files.noVerdict),
-		lock: pidLock(files.pid, "local-tester.test.ts"),
-		beat: heartbeatWriter(files.heartbeat),
-	};
-	await runLander(deps);
-
-	expect(git(remote, "rev-parse", "main")).toBe(batch);
-	expect(ledgeredAtPush).toEqual([true]);
-});
-
-describe("a named rerun with memory held at 1000-1400 MB (#3764)", () => {
+describe("a run with memory held at 1000-1400 MB (#3764)", () => {
 	const heldSlot = (mb: number) => () =>
 		suiteSlot({
 			chargeMb: 600,
@@ -1040,39 +988,18 @@ describe("a named rerun with memory held at 1000-1400 MB (#3764)", () => {
 			.map((l) => JSON.parse(l));
 
 	it.each([1000, 1200, 1400])(
-		"gets a verdict off the machine at %i MB, through the Actions tester's hand-off, and logs what held the memory",
+		"reads a slot memory shuts at %i MB as a transient no verdict, and logs what held the memory",
 		async (mb) => {
-			const asked: [string, string[], string][] = [];
-			const tester = actionsTester({
+			const v = await localTester({
 				root: work,
-				reads: {
-					runs: () => [],
-					mainRuns: () => [],
-					jobsOf: () => [],
-					failedLogOf: () => "",
-					presentAt: () => [],
-					rerun: vi.fn(),
-				},
-				fallback: localTester({
-					root: work,
-					admit: heldSlot(mb),
-					exec: recordingExec().exec,
-					memoryShut: async (sha, files, shut) => {
-						asked.push([sha, files, shut]);
-						return { kind: "green" };
-					},
-				}),
+				admit: heldSlot(mb),
+				exec: recordingExec().exec,
+			}).verdict(passing, ["a.check.js"]);
+			expect(v).toEqual({
+				kind: "unknown",
+				reason: `no suite slot by the ceiling (${mb} MB available against 1700 MB)`,
+				transient: true,
 			});
-			expect(await tester.verdict(passing, ["a.check.js"])).toEqual({
-				kind: "green",
-			});
-			expect(asked).toEqual([
-				[
-					passing,
-					["a.check.js"],
-					`no suite slot by the ceiling (${mb} MB available against 1700 MB)`,
-				],
-			]);
 			expect(holderLines()[0]).toMatchObject({
 				sha: passing,
 				holders: [
@@ -1083,65 +1010,21 @@ describe("a named rerun with memory held at 1000-1400 MB (#3764)", () => {
 		},
 	);
 
-	it("reaches the workflow through the lander's own wiring, over gh", async () => {
-		config({ landingTester: "actions" });
-		const sha = commit("the Actions tester");
-		const calls = path.join(tmp, "dispatch.json");
-		const saved = process.env.WFC_GH;
-		process.env.WFC_GH = stubGhScript(
-			tmp,
-			`#!/usr/bin/env node
-const fs = require("node:fs");
-const argv = process.argv.slice(2);
-if (argv[0] === "workflow") {
-	fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(argv));
-} else if (argv[1] === "view") {
-	process.stdout.write(JSON.stringify({ jobs: [{ name: "Named files", conclusion: "success" }] }));
-} else {
-	const nonce = JSON.parse(fs.readFileSync(${JSON.stringify(calls)}, "utf8"))
-		.find((a) => a.startsWith("nonce=")).slice(6);
-	process.stdout.write(JSON.stringify([{ databaseId: 9, displayTitle: "named-rerun ${sha} " + nonce, conclusion: "success" }]));
-}
-`,
-		).gh;
-		try {
-			const v = await configuredTester(work, {
-				admit: heldSlot(1200),
-				exec: recordingExec().exec,
-			}).verdict(sha, ["a.check.js", "scripts/test_b.py"]);
-			expect(v).toEqual({ kind: "green" });
-		} finally {
-			if (saved === undefined) delete process.env.WFC_GH;
-			else process.env.WFC_GH = saved;
-		}
-		expect(JSON.parse(fs.readFileSync(calls, "utf8"))).toEqual(
-			expect.arrayContaining([
-				"named-rerun.yml",
-				`sha=${sha}`,
-				"files=a.check.js\nscripts/test_b.py",
-			]),
-		);
-	});
-
-	it("logs a whole suite's memory refusal but sends it nowhere: the whole-suite rung still decides", async () => {
-		const memoryShut = vi.fn();
+	it("logs a whole suite's memory refusal as a transient no verdict too", async () => {
 		const v = await localTester({
 			root: work,
 			admit: heldSlot(1200),
 			exec: recordingExec().exec,
-			memoryShut,
 		}).verdict(passing);
 		expect(v).toEqual({
 			kind: "unknown",
 			reason: expect.stringMatching(/^no suite slot by the ceiling/),
 			transient: true,
 		});
-		expect(memoryShut).not.toHaveBeenCalled();
 		expect(holderLines()).toHaveLength(1);
 	});
 
-	it("leaves a slot the gate's count shut as no verdict, sending it nowhere", async () => {
-		const memoryShut = vi.fn();
+	it("leaves a slot the gate's count shut as no verdict, logging no memory holder", async () => {
 		const v = await localTester({
 			root: work,
 			admit: () =>
@@ -1154,9 +1037,12 @@ if (argv[0] === "workflow") {
 					queueDir: tmp,
 				}),
 			exec: recordingExec().exec,
-			memoryShut,
 		}).verdict(passing, ["a.check.js"]);
 		expect(v.kind).toBe("unknown");
-		expect(memoryShut).not.toHaveBeenCalled();
+		expect(
+			fs.existsSync(
+				path.join(markersDir(work), ".lander-memory-holders.jsonl"),
+			),
+		).toBe(false);
 	});
 });

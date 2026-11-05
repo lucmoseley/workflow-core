@@ -1,15 +1,11 @@
 /*
  * landing-status.js — where each of a session's commits stands on the landing
  * route (#2407, spec #2261; #4458): landed on `main`, queued on the session's
- * own queue ref, reverted by a revert that sits on `main`, or pushed to no
- * queue ref at all.
- *
- * A REVERT is a commit on `main` whose message carries lib/lander.js's
- * buildRevertLine.
+ * own queue ref, or pushed to no queue ref at all.
  */
 
 const { caught } = require("./caught.js");
-const { LANDER_GIT_TIMEOUT_MS, buildRevertLine } = require("./lander.js");
+const { LANDER_GIT_TIMEOUT_MS } = require("./lander-git.js");
 const {
 	pushedRef,
 	QUEUE_REFSPEC,
@@ -21,15 +17,13 @@ const {
 const { execGit } = require("./git.js");
 
 /**
- * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "reverted", by: string}
- *   | {kind: "unpushed"}} CommitState
+ * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "unpushed"}}
+ *   CommitState
  * @typedef {{
  *   pushed: string,
  *   isOn: (ref: string, sha: string) => boolean,
- *   revertOf: (sha: string) => string|null,
  * }} StatusGit `pushed` is lib/landing-refs.js's pushed ref for the session's
- *   tree; `revertOf` answers the oldest commit on `main`, after `sha`, that
- *   reverts it
+ *   tree
  */
 
 /**
@@ -56,22 +50,7 @@ function stateOf(sha, git) {
 		if (git.isOn(VERIFIED_REF, sha)) return { kind: "landed" };
 		return git.isOn("HEAD", sha) ? { kind: "unpushed" } : null;
 	}
-	const by = standingRevert(sha, git);
-	if (by) return { kind: "reverted", by };
 	return git.isOn(VERIFIED_REF, sha) ? { kind: "landed" } : { kind: "queued" };
-}
-
-/**
- * The revert of `sha` still in force on `main`, or null: down the chain of
- * reverts, an odd link stands and an even one restores `sha`.
- * @param {string} sha
- * @param {StatusGit} git
- * @returns {string|null}
- */
-function standingRevert(sha, git) {
-	const first = git.revertOf(sha);
-	if (!first) return null;
-	return standingRevert(first, git) ? null : first;
 }
 
 /**
@@ -87,8 +66,6 @@ function buildStateLine({ sha, state }, subject, queue) {
 			return `landed: ${head} — on main`;
 		case "queued":
 			return `queued: ${head} — on ${queue ?? "a queue ref"}, not yet on main`;
-		case "reverted":
-			return `reverted by ${state.by.slice(0, 9)}: ${head}`;
 		case "unpushed":
 			return `unpushed: ${head} — not pushed to ${queue ?? "a queue ref"}`;
 	}
@@ -129,18 +106,6 @@ function fetchedGit(root, tree) {
 				if (caught(err).status === 1) return false;
 				throw err;
 			}
-		},
-		revertOf(sha) {
-			const found = git([
-				"rev-list",
-				"--reverse",
-				"--fixed-strings",
-				`--grep=${buildRevertLine(sha)}`,
-				`${sha}..${VERIFIED_REF}`,
-			])
-				.split("\n")
-				.filter(Boolean);
-			return found[0] ?? null;
 		},
 		subjectOf: (sha) => git(["log", "-1", "--format=%s", sha]).trim(),
 	};

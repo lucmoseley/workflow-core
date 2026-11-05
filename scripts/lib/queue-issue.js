@@ -1,7 +1,7 @@
 /*
  * queue-issue.js — the one open issue the landing queue keeps per condition
- * (#2406, #2692): the lander's held-queue issue, the refill loop's stall
- * ticket, the queue lander's base-red ticket (lib/base-red-issue.js). Each is
+ * (#2406, #2692): the refill loop's stall ticket, the queue lander's
+ * base-red ticket (lib/base-red-issue.js). Each is
  * `urgent` and `bug`, so the refill loop launches them first (#2694, ruled at
  * #2672). Found among the open issues by its fixed title,
  * filed through file-issue.js where none is open, else its body refreshed. The
@@ -111,8 +111,7 @@ function queueIssueCloser({ openIssue, close }) {
 /**
  * A failed edit reports rather than throws, as the body has already landed.
  *
- * Residual: the issue stays without the missing labels until the next refresh,
- * which for the held-queue issue is the next hold.
+ * Residual: the issue stays without the missing labels until the next refresh.
  *
  * @param {{number: number, labels: string[]}} found
  * @param {QueueIssueDeps["addLabels"]} addLabels

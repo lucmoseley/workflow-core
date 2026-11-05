@@ -363,7 +363,6 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/lib/serialised.sh": ["shellcheck"],
 	"scripts/generate-rule-fragments.js": [null, "rule-fragments"],
 	"scripts/record-typecheck-red.js": [null],
-	"scripts/lander-revert-base.js": [null],
 };
 /** The hook's inline `pre-commit:` heads that refuse nothing. */
 const HOOK_NOTICES = [

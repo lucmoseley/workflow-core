@@ -4,15 +4,11 @@
  * which route records which base.
  *
  * THE EVIDENCE IS WHAT IS ALREADY ON RECORD, never a run of its own:
- * - the red store's earlier runs, any session's, and the certificate store's,
- *   each judged at the base BY CONTENT (`holdsTestByTree`): the tree the run
- *   read against the base's, never the sha stamped on it, so a red its own
- *   uncommitted files caused is no evidence about the base. The newest that
- *   holds decides;
- * - where none holds, the lander's base check, the tip's red files run at the
- *   base `main` held (lib/lander.js `onMain`), at that sha alone. It decides
- *   only then because its heartbeat dates the beat, not the check, so it
- *   cannot be ranked against the stores.
+ * the red store's earlier runs, any session's, and the certificate store's,
+ * each judged at the base BY CONTENT (`holdsTestByTree`): the tree the run
+ * read against the base's, never the sha stamped on it, so a red its own
+ * uncommitted files caused is no evidence about the base. The newest that
+ * holds decides.
  *
  * EVIDENCE, NEVER A LICENCE (lib/session-verdict.js): already red says the
  * file failed at the base's content, not that the session's diff leaves it
@@ -32,7 +28,6 @@ const {
 	suiteOf,
 } = require("./test-pass-marker.js");
 const { GIT_TIMEOUT_MS } = require("./git.js");
-const { landerFiles, readHeartbeat } = require("./lander.js");
 const { caught } = require("./caught.js");
 
 /* Untraced: how many runs naming a failing file are judged, newest first. */
@@ -43,12 +38,10 @@ const WORKTREE = /^\.claude\/worktrees\/[^/]+\//;
 
 /**
  * @typedef {import("./test-pass-marker.js").Marker} Marker
- * @typedef {{sha: string, at: string|null, by: "red store"|"lander"}} RedOnBase
+ * @typedef {{sha: string, at: string|null}} RedOnBase
  * @typedef {{file: string, red: RedOnBase|null}} Classified
- * @typedef {{sha: string, files: string[]}} LanderBaseCheck the lander's
- *   base check that came back red, and the base it ran at
  * @typedef {{m: Marker, red: boolean}} Evidence a run on record
- * @typedef {{reds: Marker[], certificates: Marker[], lander: LanderBaseCheck|null}} OnRecord
+ * @typedef {{reds: Marker[], certificates: Marker[]}} OnRecord
  *   the evidence on record, as `readRedEvidence` reads it
  * @typedef {{base: string|null, files: Classified[], allAlreadyRed: boolean}} Classing
  *   `allAlreadyRed` where the run recorded a base and every failure is already red on it
@@ -78,7 +71,7 @@ function toRepoPath(file, root) {
  * @param {{root: string, execFn?: typeof execFileSync}} options
  * @returns {Classing|null}
  */
-function classifyFailures(run, { reds, certificates, lander }, options) {
+function classifyFailures(run, { reds, certificates }, options) {
 	const failing = (run.scope?.failures ?? []).map((f) =>
 		toRepoPath(f.file, options.root),
 	);
@@ -107,13 +100,10 @@ function classifyFailures(run, { reds, certificates, lander }, options) {
 			.filter(({ m, red }) => (red ? hasFailed : hasRun)(m, file, options.root))
 			.slice(0, MAX_WALKED)
 			.find(({ m }) => holdsTestByTree(m, file, base, gitOpts));
-		/** @type {RedOnBase|null} */
-		let onBase = null;
-		if (held?.red)
-			onBase = { sha: held.m.sha, at: held.m.at ?? null, by: "red store" };
-		else if (!held && lander?.sha === base && lander.files.includes(file))
-			onBase = { sha: base, at: null, by: "lander" };
-		return { file, red: onBase };
+		return {
+			file,
+			red: held?.red ? { sha: held.m.sha, at: held.m.at ?? null } : null,
+		};
 	});
 	return { base, files, allAlreadyRed: files.every((f) => f.red !== null) };
 }
@@ -141,32 +131,17 @@ const boundedExec = /** @type {typeof execFileSync} */ (
 );
 
 /**
- * The lander's last red base check, from its heartbeat, or null.
- * @param {string} root the canonical checkout
- * @returns {LanderBaseCheck|null}
- */
-function readLanderBaseCheck(root) {
-	const red = readHeartbeat(landerFiles(root).heartbeat)?.red;
-	return red?.onMain?.kind === "red" && red.base
-		? { sha: red.base, files: red.onMain.files }
-		: null;
-}
-
-/**
- * The evidence on record at `root`: the red store, the certificate store and
- * the lander's heartbeat.
+ * The evidence on record at `root`: the red store and the certificate store.
  * @param {string} root the canonical checkout
  * @returns {OnRecord}
  */
 const readRedEvidence = (root) => ({
 	reds: readFailures({ root }),
 	certificates: readMarkers({ root }),
-	lander: readLanderBaseCheck(root),
 });
 
 /**
- * The red run's ALREADY RED / NEW lines, read off the stores at `root` and
- * the lander's heartbeat. Never throws: a fault costs the lines and says why.
+ * The red run's ALREADY RED / NEW lines, read off the stores at `root`. Never throws: a fault costs the lines and says why.
  * @param {Marker} run
  * @param {string} root the canonical checkout
  * @returns {string[]}
@@ -222,7 +197,7 @@ function buildAlreadyRedFileLines(classed) {
 	const already = classed.files.flatMap(({ file, red }) =>
 		red
 			? [
-					`    ${file} — by the ${red.by}'s run at ${shortSha(red.sha)}${red.at ? `, ${red.at}` : ""}`,
+					`    ${file} — by the red store's run at ${shortSha(red.sha)}${red.at ? `, ${red.at}` : ""}`,
 				]
 			: [],
 	);

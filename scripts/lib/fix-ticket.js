@@ -1,17 +1,15 @@
 /*
- * fix-ticket.js — the ticket the lander files for a commit it reverted
- * (#2404, spec #2261): `takes:implement`, naming the revert and the failing
- * files or CI jobs, a sub-issue of the ticket the culprit's subject cites, or standalone
- * where it cites none. Each later commit reverted with it, as its revert
- * conflicted with them (#4453), gets a re-land ticket of its own, filed first
- * so the culprit's can name them.
+ * fix-ticket.js — the ticket the queue lander files for a member it drops
+ * (#4485, spec #4458): `takes:implement`, unassigned, naming the queue ref,
+ * its sha, the dropped ref and the evidence, a sub-issue of the ticket its
+ * commits cite, or standalone where they cite none.
  *
- * A cited ticket that is closed is reopened first, its work having
- * been reverted: file-issue.js refuses a closed parent, whose children drop
- * off every map, and an open parent with an open child reads as a container,
- * leaving the fix ticket the one on the frontier. A filing file-issue.js
- * refuses under the cited ticket is filed standalone, naming the refusal.
- * One it refuses standalone too, exiting 2, throws a FilingRefusedError.
+ * A cited ticket that is closed is reopened first: file-issue.js refuses a
+ * closed parent, whose children drop off every map, and an open parent with
+ * an open child reads as a container, leaving the fix ticket the one on the
+ * frontier. A filing file-issue.js refuses under the cited ticket is filed
+ * standalone, naming the refusal. One it refuses standalone too, exiting 2,
+ * throws a FilingRefusedError.
  */
 
 const { citedIssues } = require("./cited-issues.js");
@@ -20,10 +18,9 @@ const { FilingRefusedError } = require("./filing-refused.js");
 const { gh, parseErrLine } = require("./gh.js");
 const { spawnGitSync } = require("./git.js");
 const { parseFirstLine } = require("./first-line.js");
-const { failingList, short } = require("./lander.js");
+const { short } = require("./lander-git.js");
 const { QUEUE_PREFIX } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
-const { scriptPath } = require("./script-path.js");
 const { takesLabel } = require("./takes-label.js");
 const { readOwnFilings, similarTitles } = require("./tracker-ops.js");
 const { readSubIssues } = require("./issue-tree.js");
@@ -44,25 +41,6 @@ function citedTicket(subject) {
 	return first ?? null;
 }
 
-/**
- * The guard-registry rows the revert left stale, which the lander lands
- * rather than re-anchoring unread, or a line saying they could not be read
- * (#3127).
- * @param {import("./lander.js").RegistryRow[]|null} stale
- * @param {string} revert
- */
-function buildRereadSection(stale, revert) {
-	if (stale === null)
-		return `
-The lander could not read which guard-registry rows the revert left stale (#3127). Run \`node ${scriptPath("check-guard-registry.js")} --touched-by ${revert}\`, then re-read and re-anchor each row it names.
-`;
-	if (stale.length === 0) return "";
-	return `
-The revert left these guard-registry rows stale, which the lander lands rather than re-anchoring unread (#3127). Re-read each rule against the guard as reverted, correct any sentence no longer true, then re-anchor:
-${stale.map((r) => `- \`${r.row}\`: \`${r.forward}\``).join("\n")}
-`;
-}
-
 /** @param {string} subject */
 const cutSubject = (subject) =>
 	subject.length > SUBJECT_MAX
@@ -75,86 +53,8 @@ const quoteSubject = (/** @type {string} */ subject) =>
 	`\`${subject.replaceAll("`", "'")}\``;
 
 /**
- * @param {Reland[]} relands
- */
-function buildDependentsSection(relands) {
-	if (relands.length === 0) return "";
-	return `
-Reverted with it, as its revert conflicted with them (#4453), each with a re-land ticket of its own to land after this one:
-${relands.map((r) => `- ${short(r.dependent.commit)}, reverted in ${r.dependent.revert}: ${FILED_ISSUE.exec(r.filed)?.[0] ?? r.filed}`).join("\n")}
-`;
-}
-
-const FILED_ISSUE = /#\d+/;
-
-/**
- * @typedef {{dependent: import("./lander.js").Dependent, filed: string}}
- *   Reland a dependent and the line its re-land ticket's filing printed
- */
-
-/**
- * @param {import("./lander.js").Dependent} d
- * @param {{culprit: string, revert: string, subject: string}} with the culprit
- *   and its revert, and the dependent's own subject
- * @returns {{title: string, body: string}}
- */
-function buildDependentIssue(
-	{ commit, revert, files },
-	{ culprit, subject, ...t },
-) {
-	return {
-		title: `Re-land ${short(commit)}, reverted with ${short(culprit)} by the lander: ${cutSubject(subject)}`,
-		body: `## What to build
-
-The lander (#2261) found ${culprit} red on \`landing\`. Its revert conflicted with ${commit}, a later commit${files.length > 0 ? ` that changed ${files.map((f) => `\`${f}\``).join(", ")}` : ""}, so the lander reverted ${short(commit)} in ${revert} and then ${short(culprit)} in ${t.revert} (#4453). ${short(commit)} was not found red itself.
-
-Reverted commit: ${quoteSubject(subject)}
-
-## Acceptance criteria
-
-- [ ] ${short(commit)}'s change is pushed to \`landing\` again, after ${short(culprit)}'s own re-land ticket lands.
-`,
-	};
-}
-
-/**
- * @param {import("./lander.js").FixTicket & {subject: string, relands: Reland[]}} t
- * @returns {{title: string, body: string}}
- */
-function fixTicketIssue({
-	culprit,
-	parent,
-	revert,
-	files,
-	jobs,
-	failures,
-	stale,
-	subject,
-	relands,
-}) {
-	return {
-		title: `Re-land ${short(culprit)}, reverted by the lander: ${cutSubject(subject)}`,
-		body: `## What to build
-
-The lander (#2261) found ${culprit} red on \`landing\` and reverted it in ${revert}. Its work is off \`landing\` until it is re-landed with these passing.
-
-Failing at ${short(culprit)}, red twice, with ${parent ? `its parent ${short(parent)}` : "no parent"} green:
-${failingList({ files, jobs, failures })}
-
-Reverted commit: ${quoteSubject(subject)}
-${buildDependentsSection(relands)}${buildRereadSection(stale, revert)}
-## Acceptance criteria
-
-- [ ] ${short(culprit)}'s change is pushed to \`landing\` again, with each failing test above passing.
-${stale === null || stale.length > 0 ? "- [ ] Each stale row above is re-read and re-anchored.\n" : ""}`,
-	};
-}
-
-/**
  * @typedef {{status: number|null, stdout: string, stderr: string}} Ran
  * @typedef {object} FilerDeps
- * @property {(sha: string) => string} messageOf the commit's full message,
- *   throwing where git cannot read it
  * @property {(title: string) => {number: number, title: string}[]} similar
  *   the open issues whose titles resemble `title`
  * @property {(args: string[], input: string) => Ran} fileIssue runs
@@ -163,40 +63,6 @@ ${stale === null || stale.length > 0 ? "- [ ] Each stale row above is re-read an
  *   throwing where it cannot be read
  * @property {(n: number, comment: string) => void} reopen
  */
-
-/**
- * @param {FilerDeps} deps
- * @returns {Pick<import("./lander.js").LanderTracker, "fileFixTicket">}
- */
-function ticketFiler(deps) {
-	return {
-		fileFixTicket(t) {
-			/* A dependent's filing that throws leaves the culprit's unfiled too:
-			 * the lander holds on it and files again, each one already filed
-			 * then found open rather than filed twice. */
-			const relands = (t.dependents ?? []).map((dependent) => {
-				const subject = parseFirstLine(deps.messageOf(dependent.commit));
-				return {
-					dependent,
-					filed: fileReland(deps, {
-						sha: dependent.commit,
-						subject,
-						...buildDependentIssue(dependent, { ...t, subject }),
-						reopenNote: `Reopened by the lander: ${dependent.commit} is reverted in ${dependent.revert} with ${t.culprit}, which was red on \`landing\` and whose revert conflicted with it. Its re-land ticket follows as a sub-issue.`,
-					}),
-				};
-			});
-			const subject = parseFirstLine(deps.messageOf(t.culprit));
-			const filed = fileReland(deps, {
-				sha: t.culprit,
-				subject,
-				...fixTicketIssue({ ...t, subject, relands }),
-				reopenNote: `Reopened by the lander: ${t.culprit} was red on \`landing\` and is reverted in ${t.revert}. Its fix ticket follows as a sub-issue.`,
-			});
-			return [...relands.map((r) => r.filed), filed].join("\n");
-		},
-	};
-}
 
 /**
  * The ticket its member's commits cite: the newest commit's citation.
@@ -270,7 +136,7 @@ Tip commit: ${quoteSubject(subject)}
 }
 
 /**
- * @typedef {Omit<FilerDeps, "messageOf"> & {subjectsOf: (base: string,
+ * @typedef {FilerDeps & {subjectsOf: (base: string,
  *   tip: string) => string[], openUnits: (parent: number|null) => number[]}}
  *   DropFilerDeps `subjectsOf` the subjects of the commits on `tip` and not
  *   on `base`, newest first; `openUnits` the tickets rule:size-line weighs a
@@ -305,27 +171,6 @@ function dropTicketFiler(deps) {
 }
 
 /**
- * Files the re-land ticket of the reverted commit `sha` under the ticket its
- * subject cites, else standalone, returning the line naming it.
- * @param {FilerDeps} deps
- * @param {{sha: string, subject: string, title: string, body: string,
- *   reopenNote: string}} ticket
- * @returns {string}
- */
-function fileReland(deps, { sha, subject, ...ticket }) {
-	const cited = citedTicket(subject);
-	return fileTicket(deps, {
-		...ticket,
-		cited,
-		citer: short(sha),
-		uncited: `${short(sha)}'s subject cites no ticket of this repo.`,
-		checked: () => [],
-		noun: "re-land ticket",
-		filedAs: `Re-land ${short(sha)},`,
-	});
-}
-
-/**
  * @typedef {object} Ticket a ticket to file under the one its work cites
  * @property {string} title
  * @property {string} body
@@ -345,7 +190,7 @@ function fileReland(deps, { sha, subject, ...ticket }) {
 /**
  * Files `t` under the ticket its work cites, else standalone, returning the
  * line naming it; an open one whose title starts `filedAs` is named instead.
- * @param {Omit<FilerDeps, "messageOf">} deps
+ * @param {FilerDeps} deps
  * @param {Ticket} t
  * @returns {string}
  */
@@ -438,14 +283,13 @@ function readGitIn(root, args) {
 }
 
 /**
- * The tracker, file-issue.js and git both filers run on, in `root`.
+ * The tracker, file-issue.js and git the filer runs on, in `root`.
  * @param {string} root
- * @returns {FilerDeps & DropFilerDeps}
+ * @returns {DropFilerDeps}
  */
 function liveFilerDeps(root) {
 	const repo = () => requireKey("tracker", { root });
 	return {
-		messageOf: (sha) => readGitIn(root, ["log", "-1", "--format=%B", sha]),
 		subjectsOf: (base, tip) =>
 			readGitIn(root, ["log", "--format=%s", `${base}..${tip}`])
 				.split("\n")
@@ -494,5 +338,4 @@ module.exports = {
 	buildFileList,
 	dropTicketFiler,
 	liveFilerDeps,
-	ticketFiler,
 };

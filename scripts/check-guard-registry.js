@@ -195,12 +195,6 @@ const { caught } = require("./lib/caught.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
-const {
-	LANDER_REVERT_ENV,
-	readLanderRevert,
-	whyNotCleanRevert,
-	whyNotLanderRevert,
-} = require("./lib/clean-revert.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -4227,104 +4221,6 @@ const buildReviewLine = (guard) =>
 	`node scripts/check-guard-registry.js --review ${guard}`;
 
 /**
- * A refused or exempted fault as the lander names it in a hold or a fix
- * ticket: the row, and the fix-forward it waits on.
- * @param {FaultItem} f
- * @returns {{ row: string, forward: string }}
- */
-function buildRowForward(f) {
-	const w = staleOf(f);
-	return w
-		? { row: `${w.kind} ${w.guard}`, forward: buildReviewLine(w.guard) }
-		: { row: f.line, forward: "fix the rule or the guard the row names" };
-}
-
-/*
- * A LANDER REVERT LANDS WITH ITS STALE ROWS (#3127). The revert re-opens a
- * held queue, and a stale row is prose owed a re-read, not a broken build, so
- * where WFC_LANDER_REVERT names a culprit, or a culprit and the dependents
- * reverted with it (#4453), and lib/clean-revert.js confirms the judged bytes
- * are their clean reverts, the staleness findings stand down and the
- * lander's fix ticket owes the re-read. Every other fault still refuses.
- * Re-anchoring in the revert instead would assert a read nobody made. At
- * commit the message is not yet written, so only the tree is confirmed; the
- * push confirms the revert line too.
- */
-
-/**
- * The commits this commit or push is a confirmed clean revert of, a push's
- * one revert each, or null.
- * @param {Ctx} ctx
- * @returns {string[]|null}
- */
-function readExemptRevert(ctx) {
-	const culprits = readLanderRevert();
-	if (culprits === null) return null;
-	const { rev: tip, head: pushed } = againstRevs(ctx);
-	/* The committing tree's git, as --against materialises it: under a
-	 * worktree, CLAUDE_PROJECT_DIR can name another tree's index. */
-	const cwd = process.cwd();
-	const why = pushed
-		? whyNotLanderRevert(cwd, { culprits, sha: pushed, tip })
-		: whyNotCleanIndex(cwd, culprits, tip);
-	if (why === null) return culprits;
-	ctx.say(
-		`${LANDER_REVERT_ENV} names ${culprits.join(" ")}, but no staleness exemption: ${why}.`,
-	);
-	return null;
-}
-
-/**
- * Why the index is not the clean revert of the one commit `culprits` names on
- * `onto`, or null.
- * @param {string} cwd
- * @param {string[]} culprits
- * @param {string} onto
- * @returns {string|null}
- */
-function whyNotCleanIndex(cwd, culprits, onto) {
-	const [culprit] = culprits;
-	if (culprits.length !== 1 || culprit === undefined)
-		return "a commit is the revert of one commit";
-	const tree = spawnGitSync(["-C", cwd, "write-tree"], { encoding: "utf8" });
-	if (tree.status !== 0) return "the index cannot be written as a tree";
-	return whyNotCleanRevert(cwd, {
-		culprit,
-		onto,
-		tree: String(tree.stdout).trim(),
-	});
-}
-
-/**
- * The faults this commit adds that refuse it, the way out of the stale ones,
- * and each refused or exempted row with its fix-forward.
- *
- * @param {Ctx} ctx
- * @param {FaultItem[]} added
- * @returns {{ refuse: FaultItem[], remedy: string[], data: object }}
- */
-function settleAdded(ctx, added) {
-	const stale = added.filter((f) => staleOf(f) !== null);
-	const reverted = stale.length > 0 ? readExemptRevert(ctx) : null;
-	const { refuse, remedy } =
-		reverted === null
-			? settleStale(ctx, added)
-			: { refuse: added.filter((f) => staleOf(f) === null), remedy: [] };
-	const exempted = reverted === null ? [] : stale.map(buildRowForward);
-	if (reverted !== null && exempted.length > 0)
-		for (const line of [
-			`not refusing ${exempted.length} stale row(s): this is the lander's clean revert of ${reverted.join(", ")} (#3127), and its fix ticket owes each re-read:`,
-			...exempted.map((r) => `  ${r.row}: ${r.forward}`),
-		])
-			ctx.say(line);
-	return {
-		refuse,
-		remedy,
-		data: { refused: refuse.map(buildRowForward), exempted },
-	};
-}
-
-/**
  * The faults this commit adds that refuse it, and the way out of the stale
  * ones.
  *
@@ -4947,7 +4843,7 @@ runCheck({
 			const refusal = nestedCopyRefusal();
 			if (refusal) throw brokenError(refusal);
 		},
-		settle: settleAdded,
+		settle: settleStale,
 	},
 	flags: ["--review", "--roster", "--sole-writer", "--stale"],
 	run(ctx) {

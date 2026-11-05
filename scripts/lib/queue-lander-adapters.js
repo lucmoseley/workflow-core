@@ -26,7 +26,7 @@ const {
 	readRemoteHeads,
 	short,
 	withThrowawayTree,
-} = require("./lander.js");
+} = require("./lander-git.js");
 const {
 	DROPPED_PREFIX,
 	LANDER_BATCH_BRANCH,
@@ -71,7 +71,7 @@ const BROKEN_OBJECT =
 	/(?:object file|stored in) \S*?([0-9a-f]{2})\/([0-9a-f]{38,62})\)? is (?:empty|corrupt)/;
 
 /**
- * @typedef {import("./lander.js").Verdict} Verdict
+ * @typedef {import("./queue-lander.js").Verdict} Verdict
  * @typedef {import("./queue-lander.js").Batch} Batch
  * @typedef {import("./queue-lander.js").Blame} Blame
  * @typedef {import("./queue-lander.js").Isolated} Isolated
@@ -105,8 +105,6 @@ function queueLanderFiles(root) {
 		verdicts: path.join(dir, ".queue-lander-verdicts.jsonl"),
 		batch: path.join(dir, ".queue-lander-batch.json"),
 		drops: path.join(dir, ".queue-lander-drops.json"),
-		/* Its own, as the landing lander's carries that lander's hold and red
-		 * batch to its next run. */
 		heartbeat: path.join(dir, ".queue-lander-heartbeat.json"),
 	};
 }
