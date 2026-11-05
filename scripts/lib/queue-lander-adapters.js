@@ -542,6 +542,8 @@ const isCause = (u) => {
 			return typeof o.reason === "string";
 		case "red":
 			return isStringList(o.files) && typeof o.iso === "string";
+		case "unrecorded":
+			return true;
 		case "collision":
 			return (
 				isStringList(o.files) &&
@@ -587,7 +589,8 @@ function readDropFile(file) {
 /**
  * The drop record: every dropped ref, with its fix ticket, until the queue
  * log's retention after its reap. A row that is not a drop is skipped; an absent or torn record
- * reads as none, and no run then reaps the refs it named.
+ * reads as none, and the lander writes back the entry of each dropped ref it
+ * named from the tracker.
  * @param {string} file
  * @returns {DropRecord}
  */

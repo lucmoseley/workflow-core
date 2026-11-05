@@ -56,6 +56,7 @@ describe("dropTicketFiler", () => {
 			},
 			openUnits: (parent) => units[String(parent)] ?? [],
 			similar: () => listed,
+			titled: () => listed,
 			fileIssue: (args, input) => {
 				files.push({ args, input });
 				if (refuseParent !== null && args.includes("--parent"))
@@ -80,11 +81,48 @@ describe("dropTicketFiler", () => {
 		return {
 			said: (d: Partial<Drop> = {}) =>
 				tracker.fileDropTicket({ ...DROP, ...d }),
+			found: () => tracker.findDropTicket(DROP.name, DROP.sha),
 			files,
 			ranges,
 			reopened,
 		};
 	}
+
+	it("finds the lowest-numbered ticket titled for the drop, and none where only a near title is searched up", () => {
+		const titled = (number: number, title: string) => ({ number, title });
+		const near = [
+			titled(5, "Fix queue/wt-10 at aaaaaaaaa, dropped by the queue lander: x"),
+			titled(6, "Fix queue/wt-1 at bbbbbbbbb, dropped by the queue lander: x"),
+		];
+
+		expect(dropFiler([], {}, near).found()).toBeNull();
+		expect(
+			dropFiler([], {}, [
+				...near,
+				titled(
+					8,
+					"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: y",
+				),
+				titled(
+					7,
+					"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: x",
+				),
+			]).found(),
+		).toBe(7);
+	});
+
+	it("files an unrecorded drop's ticket saying why is unknown", () => {
+		const f = dropFiler(["Add the widget"]);
+
+		f.said({ cause: { kind: "unrecorded", name: "wt-1" } });
+
+		expect(f.files[0].input).toContain(
+			`why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${M}`,
+		);
+		expect(f.files[0].input).toContain(
+			"aaaaaaaaa's change merges onto `main`, passes the whole suite there, and is pushed to `queue/wt-1` again.",
+		);
+	});
 
 	it("reopens a closed cited ticket before filing under it", () => {
 		const f = dropFiler(["Add the widget (#12)"], { 12: "closed" });

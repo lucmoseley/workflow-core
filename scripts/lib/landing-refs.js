@@ -96,6 +96,19 @@ function droppedRefsOf(name, sha) {
 }
 
 /**
+ * The queue ref name a dropped ref holding `sha` was dropped from: the
+ * inverse of droppedRefsOf.
+ * @param {string} ref after `refs/heads/`
+ * @param {string} sha
+ * @returns {string}
+ */
+function droppedNameOf(ref, sha) {
+	const name = ref.slice(DROPPED_PREFIX.length);
+	const keyed = `-${sha.slice(0, 9)}`;
+	return name.endsWith(keyed) ? name.slice(0, -keyed.length) : name;
+}
+
+/**
  * The fetch refspec that updates `branch`'s remote-tracking ref.
  * @param {string} branch
  * @returns {string}
@@ -207,6 +220,7 @@ if (require.main === module) {
 
 module.exports = {
 	DROPPED_PREFIX,
+	droppedNameOf,
 	droppedRefsOf,
 	LANDER_BATCH_BRANCH,
 	LANDER_ISO_PREFIX,

@@ -12,7 +12,7 @@
 const { citedIssues } = require("./cited-issues.js");
 const { parseFiledLine } = require("./filed-line.js");
 const { FilingRefusedError } = require("./filing-refused.js");
-const { gh, parseErrLine } = require("./gh.js");
+const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { spawnGitSync } = require("./git.js");
 const { parseFirstLine } = require("./first-line.js");
 const { short } = require("./lander-git.js");
@@ -82,6 +82,8 @@ function buildDropEvidence({ onto, cause }) {
 			return `${alone}, its merge was refused: ${quoteSubject(cause.reason)}`;
 		case "red":
 			return `${alone} as ${cause.iso}, it failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`;
+		case "unrecorded":
+			return `why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${onto}`;
 		case "collision": {
 			const after = cause.after.map((n) => `\`${QUEUE_PREFIX}${n}\``);
 			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.files.length > 0 ? `failed twice:\n${buildFileList(cause.files)}` : "failed the whole suite twice, naming no file"}`;
@@ -97,10 +99,20 @@ function buildDropAcceptance({ sha, name, cause }) {
 			return `${short(sha)}'s change merges onto \`main\`, each file above settled, and is pushed to ${queued} again.`;
 		case "refused":
 			return `${short(sha)}'s change merges onto \`main\` and is pushed to ${queued} again.`;
+		case "unrecorded":
+			return `${short(sha)}'s change merges onto \`main\`, passes the whole suite there, and is pushed to ${queued} again.`;
 		default:
 			return `${short(sha)}'s change passes ${cause.files.length > 0 ? "each file above" : "the whole suite"} merged onto \`main\`, and is pushed to ${queued} again.`;
 	}
 }
+
+/**
+ * The title every fix ticket for `queue/<name>` dropped at `sha` starts with.
+ * @param {string} name
+ * @param {string} sha
+ */
+const dropTicketPrefix = (name, sha) =>
+	`Fix ${QUEUE_PREFIX}${name} at ${short(sha)},`;
 
 /**
  * @param {import("./queue-lander.js").Drop & {subject: string}} d
@@ -109,7 +121,7 @@ function buildDropAcceptance({ sha, name, cause }) {
 function dropTicketIssue(d) {
 	const { name, sha, ref, subject } = d;
 	const queued = `${QUEUE_PREFIX}${name}`;
-	const filedAs = `Fix ${queued} at ${short(sha)},`;
+	const filedAs = dropTicketPrefix(name, sha);
 	return {
 		title: `${filedAs} dropped by the queue lander: ${cutSubject(subject)}`,
 		filedAs,
@@ -134,11 +146,13 @@ Tip commit: ${quoteSubject(subject)}
 
 /**
  * @typedef {FilerDeps & {subjectsOf: (base: string,
- *   tip: string) => string[], openUnits: (parent: number|null) => number[]}}
+ *   tip: string) => string[], openUnits: (parent: number|null) => number[],
+ *   titled: (phrase: string) => {number: number, title: string}[]}}
  *   DropFilerDeps `subjectsOf` the subjects of the commits on `tip` and not
  *   on `base`, newest first; `openUnits` the tickets rule:size-line weighs a
  *   new one under `parent` against: its sub-issues and this session's
- *   filings
+ *   filings; `titled` the issues, open and closed, the tracker's search finds
+ *   `phrase` in the title of
  */
 
 /**
@@ -147,10 +161,20 @@ Tip commit: ${quoteSubject(subject)}
  * is its own fix, so every ticket rule:size-line would weigh it against is
  * named checked.
  * @param {DropFilerDeps} deps
- * @returns {Pick<import("./queue-lander.js").QueueTracker, "fileDropTicket">}
+ * @returns {Pick<import("./queue-lander.js").QueueTracker,
+ *   "fileDropTicket" | "findDropTicket">}
  */
 function dropTicketFiler(deps) {
 	return {
+		findDropTicket(name, sha) {
+			const prefix = dropTicketPrefix(name, sha);
+			const [first] = deps
+				.titled(prefix)
+				.filter((c) => c.title.startsWith(prefix))
+				.map((c) => c.number)
+				.sort((a, b) => a - b);
+			return first ?? null;
+		},
 		fileDropTicket(d) {
 			const subjects = deps.subjectsOf(d.onto, d.sha);
 			const [subject] = subjects;
@@ -294,6 +318,23 @@ function liveFilerDeps(root) {
 		/* Throws on an unread list: a retried ticket that reached the tracker
 		 * must not be filed a second time. */
 		similar: (title) => similarTitles(repo(), title).found,
+		/* Search, not the cached title corpus, which can miss a ticket closed
+		 * within its refresh hour (closed-title-cache.js). */
+		titled: (phrase) =>
+			ghJson([
+				"issue",
+				"list",
+				"--repo",
+				repo(),
+				"--state",
+				"all",
+				"--search",
+				`"${phrase}" in:title`,
+				"--json",
+				"number,title",
+				"--limit",
+				"20",
+			]),
 		fileIssue: liveQueueDeps(root).fileIssue,
 		openUnits: (parent) => [
 			...(parent === null
