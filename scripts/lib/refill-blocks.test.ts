@@ -3280,6 +3280,60 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		expect(logs(held.calls).join()).toContain("now holds its ticket");
 	});
 
+	it("resumes from its park marker's cwd, not the hold's root, after a JSON round-trip (#4460)", () => {
+		const Own = "/home/u/.claude/worktrees/implement-7";
+		const roundTrip = (l: Launch | undefined): Launch => {
+			expect(l).toBeDefined();
+			return JSON.parse(JSON.stringify(l));
+		};
+		const { io } = fakeIo({
+			readParkMarkers: () => [{ ...marker, job: { ...marker.job, cwd: Own } }],
+		});
+		const queued = queueLifted([], [hold], {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		});
+		expect(queued.launches[0]?.holdCleared?.cwd).toBe(Own);
+		const stepOn = (l: Launch) => {
+			const cwds: string[] = [];
+			const { io: stepIo } = fakeIo({
+				resumeStopped: (r, _prompt, target) => {
+					cwds.push(`resume ${target.cwd}`);
+					return {
+						failed: null,
+						jobId: r.jobId,
+						sessionId: target.sessionId,
+						copy: false,
+					};
+				},
+				adoptResumed: (_r, target) => {
+					cwds.push(`adopt ${target.cwd}`);
+					return null;
+				},
+			});
+			const seen = {
+				agents: [agent("other", "working")],
+				now: NOW,
+				io: stepIo,
+				swapHold: NO_HOLD,
+			};
+			const written: Launch[] = [];
+			resumeHeldLaunches(resumableOf([l], seen), [l], seen, {
+				isStopped: () => false,
+				record: (launches) => written.push(...launches),
+			});
+			return { cwds, written };
+		};
+		const first = stepOn(roundTrip(queued.launches[0]));
+		expect(first.cwds).toEqual([`resume ${Own}`]);
+		expect(stepOn(roundTrip(first.written[0])).cwds).toEqual([
+			`adopt ${Own}`,
+			`resume ${Own}`,
+		]);
+	});
+
 	it("carries every issue its marker lists, wider than its launch's", () => {
 		const { out } = queueOn([
 			record({ jobId: "p", issues: [5], finishedAt: NOW - MIN }),
