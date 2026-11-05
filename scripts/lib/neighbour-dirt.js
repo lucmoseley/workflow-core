@@ -7,7 +7,9 @@
  * files once they are subtracted, which a park's hand-off owes (#2391).
  *
  * The stores key a file by its path in the session's tree (#4397), as git in
- * that tree names it.
+ * that tree names it, and each record names that tree (#4457): a neighbour's
+ * claim or observation counts only in the tree being judged, since the same
+ * path in another worktree is other bytes.
  */
 
 const { listedSessionIds } = require("./agent-liveness");
@@ -16,7 +18,7 @@ const store = require("./arbiter-store");
 const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree");
 
 /**
- * @typedef {{ unreadable?: boolean, sessionId?: string, path?: string,
+ * @typedef {{ unreadable?: boolean, sessionId?: string, path?: string, tree?: string,
  *   pid?: number, procStart?: string|number, bootId?: string }} Lock
  */
 /**
@@ -43,11 +45,16 @@ const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree");
  * An unreadable lock store yields the empty set, subtracting nothing; a lock
  * naming no path is passed over.
  * @param {string|undefined} sid
- * @param {LockSource} [ledger] `lib/own-selection.js` passes its injected one
+ * @param {{tree?: string, source?: LockSource}} [opts] the tree judged, the
+ *   reader's own where not given; `lib/own-selection.js` passes its injected
+ *   lock source
  * @returns {Set<string>}
  */
-function readClaimedElsewhere(sid, { readLocks, subjectPath } = store) {
-	const locks = readLocks();
+function readClaimedElsewhere(
+	sid,
+	{ tree = store.treeRoot(), source = store } = {},
+) {
+	const locks = source.readLocks();
 	if (locks === null) return new Set();
 	/** @type {Set<string>} */
 	const out = new Set();
@@ -55,8 +62,9 @@ function readClaimedElsewhere(sid, { readLocks, subjectPath } = store) {
 		if (!lock || lock.unreadable) continue;
 		if (lock.sessionId === sid) continue;
 		if (!lock.path) continue;
+		if (store.recordTree(lock) !== tree) continue;
 		if (!proc.holderAlive(lock)) continue;
-		out.add(subjectPath(lock.path));
+		out.add(source.subjectPath(lock.path));
 	}
 	return out;
 }
@@ -112,9 +120,10 @@ function readClaimedElsewhere(sid, { readLocks, subjectPath } = store) {
  * is reported.
  *
  * @param {string} sid
+ * @param {string} tree the tree judged
  * @returns {{paths: Set<string>, why: string|null}}
  */
-function readObservedElsewhere(sid) {
+function readObservedElsewhere(sid, tree) {
 	const { ids, why } = listedSessionIds();
 	if (!ids) return { paths: new Set(), why };
 
@@ -124,7 +133,7 @@ function readObservedElsewhere(sid) {
 	let dark = false;
 	for (const id of ids) {
 		if (id === sid) continue;
-		const observed = store.readObservedBy(id);
+		const observed = store.readObservedBy(id, tree);
 		/* null is "the store would not open", never "observes nothing" (mantahostels#174), so
 		 * it sets `why` rather than being read as a clean answer. */
 		if (observed === null) {
@@ -151,11 +160,11 @@ function readObservedElsewhere(sid) {
  * @returns {string[]}
  */
 function readStrandedFiles(sessionId, tree) {
-	const written = store.readWritesBy(sessionId);
+	const written = store.readWritesBy(sessionId, tree);
 	if (!written || written.length === 0) return [];
 	const dirty = readDirtyTracked(tree);
 	if (!dirty) return [];
-	const theirs = readClaimedElsewhere(sessionId);
+	const theirs = readClaimedElsewhere(sessionId, { tree });
 	return [...dirty, ...(readUntrackedFiles(tree) ?? [])].filter(
 		(rel) => written.includes(rel) && !theirs.has(rel),
 	);

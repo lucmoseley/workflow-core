@@ -8,7 +8,7 @@
  * THE RULE IT BACKS. Every script here finds the HOST repository through one
  * seam: `lib/host-root.js`'s `hostRoot()` in JS, `lib/guard-root.sh`'s
  * `gr_root` in shell, `lib/host_root.py`'s `host_root()` in Python — each
- * `CLAUDE_PROJECT_DIR`, else the git top level of the working directory,
+ * `CLAUDE_PROJECT_DIR`, else the main checkout owning the working directory,
  * symlinks dereferenced. A script that instead walks up from its own location
  * roots itself in the PLUGIN CACHE when the core is installed as a plugin, and
  * every host read then lands in the wrong tree. A root with no
@@ -155,6 +155,11 @@ const ALLOWED = {
 		tags: ["SECOND-SEAM-JS"],
 		reason:
 			"writes the seam, never reads it: it re-points CLAUDE_PROJECT_DIR at the main checkout for itself and every check it launches, so a daily run started in a linked worktree reads and reports for the main one (#1555)",
+	},
+	"scripts/check-orphaned-edits.js": {
+		tags: ["SECOND-SEAM-JS"],
+		reason:
+			"writes the seam, never reads it: it re-points CLAUDE_PROJECT_DIR at the main checkout for the rest of its run, so a session launched in a linked worktree reads the main checkout's stores and does not file that worktree's live dirt as the main checkout's (#4483)",
 	},
 	"scripts/lib/git-tree.js": {
 		tags: ["SECOND-SEAM-JS"],

@@ -102,11 +102,11 @@ function buildHostPorts(root) {
 		/* In process, not a session-arbiter.js spawn: the store's own read, the
 		 * ledger the bash nags read through `writes --committed`. A store that
 		 * will not load is an unreadable ledger. */
-		billed: (sid) => {
+		billed: (sid, tree) => {
 			try {
 				const store = require("./arbiter-store.js");
 				return store.withGitTimeout(HOOK_GIT_TIMEOUT_MS, () =>
-					store.readBilledPathsBy(sid, "review tier"),
+					store.readBilledPathsBy(sid, "review tier", tree),
 				).value;
 			} catch {
 				return null;

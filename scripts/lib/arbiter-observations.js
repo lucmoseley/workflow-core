@@ -68,8 +68,9 @@ function newObservation({
 	obsId = crypto.randomUUID(),
 	blob = null,
 	at = new Date().toISOString(),
+	tree,
 }) {
-	return { path: rel, sessionId, obsId, blob, at };
+	return { path: rel, ...(tree ? { tree } : {}), sessionId, obsId, blob, at };
 }
 
 /**
@@ -149,6 +150,7 @@ function recordObservation(rel, me, { viaBash = false } = {}) {
 		path: rel,
 		sessionId: me.sessionId,
 		obsId: existing?.obsId,
+		tree: core.writerTree(),
 	});
 	const sha = contentMod.pinContent(rel, record.obsId);
 	if (sha === null) return null;
@@ -237,8 +239,22 @@ function readObservationEntries(
  * unavailable rather than empty (mantahostels#174) — the refresh must not read a dark store
  * as "this session observes nothing".
  * @param {string} sessionId
+ * @param {string} [tree] the tree observed in, the reader's own where not
+ *   given (#4457)
  */
-function readObservedBy(sessionId) {
+function readObservedBy(sessionId, tree = core.treeRoot()) {
+	const entries = readObservedEntriesBy(sessionId);
+	if (entries === null) return null;
+	return entries.filter((e) => e.tree === tree).map((e) => e.path);
+}
+
+/**
+ * Every path `sessionId` observes, each with the tree it observed it in, or
+ * null as readObservedBy answers it — for a reader judging every tree at once.
+ * @param {string} sessionId
+ * @returns {{path: string, tree: string}[]|null}
+ */
+function readObservedEntriesBy(sessionId) {
 	if (!sessionId) return null;
 	// By FILENAME first, so this opens its own records and nobody else's. The
 	// directory is one flat store shared by every session, and mantahostels#419 made it grow
@@ -251,7 +267,7 @@ function readObservedBy(sessionId) {
 	if (entries === null) return null;
 	return entries
 		.filter((e) => e.record?.sessionId === sessionId)
-		.map((e) => e.record.path);
+		.map((e) => ({ path: e.record.path, tree: core.recordTree(e.record) }));
 }
 
 /**
@@ -308,6 +324,7 @@ exports.OBSERVATION_AGE_MS = OBSERVATION_AGE_MS;
 exports.readObservationEntries = readObservationEntries;
 exports.observationState = observationState;
 exports.readObservedBy = readObservedBy;
+exports.readObservedEntriesBy = readObservedEntriesBy;
 exports.readObservedIds = readObservedIds;
 exports.observedVersions = observedVersions;
 exports.recordObservation = recordObservation;

@@ -1,6 +1,7 @@
 /*
  * compaction-set.js — the per-session set of autocompactions, one boundary key
- * a line, and the sentence that reports its size. One writer for the ceiling
+ * a line, the sentence that reports its size, the advice after a compaction,
+ * and the `**Compactions:**` line a unit's close or hand-off logs it on. One writer for the ceiling
  * guard (#1032) and inject-compaction-count.js (#1148), so their counts agree.
  *
  * A running set rather than a fresh count, because a large transcript is read
@@ -14,10 +15,15 @@ const path = require("node:path");
 const { hookStoreRoot } = require("./hook-store-root");
 const { markersDir } = require("./marker-root");
 const { readSeen, writeSeen } = require("./report-once");
+const { buildLineRe } = require("./marker-line");
 
 const COMPACTIONS_PREFIX = ".session-ceiling-compactions-";
 /* A compaction counted before its boundary reached the transcript. */
 const PENDING_PREFIX = "pending:";
+
+/** @param {string} sid */
+const compactionSetFile = (sid) =>
+	path.join(markersDir(hookStoreRoot()), COMPACTIONS_PREFIX + sid);
 
 /**
  * Adds `keys` to the session's set, drops every `pending:` key not among them,
@@ -38,7 +44,7 @@ const PENDING_PREFIX = "pending:";
  * @returns {number}
  */
 function recordCompactions(sid, keys) {
-	const file = path.join(markersDir(hookStoreRoot()), COMPACTIONS_PREFIX + sid);
+	const file = compactionSetFile(sid);
 	const seen = readSeen(file);
 	const before = [...seen].join("\n");
 	for (const key of seen) if (key.startsWith(PENDING_PREFIX)) seen.delete(key);
@@ -63,16 +69,28 @@ function recordCompactions(sid, keys) {
  * @param {string} sid
  */
 function countCompactions(sid) {
-	return readSeen(
-		path.join(markersDir(hookStoreRoot()), COMPACTIONS_PREFIX + sid),
-	).size;
+	return readSeen(compactionSetFile(sid)).size;
 }
 
-/* The per-unit log line a close or a backstop hand-off carries (#4410). */
+/* The per-unit log line a close or a backstop hand-off carries (#4410). The
+ * count is the session's running total, so the line names its session: a unit
+ * sums the newest count per session, never every line one session wrote. */
 const COMPACTIONS_MARKER = "Compactions";
-/** @param {number} count */
-const buildCompactionsLine = (count) => `**${COMPACTIONS_MARKER}:** ${count}`;
-const COMPACTIONS_LINE_RE = /^[ \t]*\*\*Compactions:\*\*[ \t]*(\d+)/gm;
+/** @param {number} count @param {string} sid */
+const buildCompactionsLine = (count, sid) =>
+	`**${COMPACTIONS_MARKER}:** ${count} (session ${sid})`;
+/** Captures the count, then the session where the line names one. A hand-off
+ * line is typed by the model, so a list marker or the hook text's backtick
+ * before it still counts. */
+const COMPACTIONS_LINE_RE = buildLineRe(
+	COMPACTIONS_MARKER,
+	"(\\d+)(?:[ \\t]+\\(session ([^)\\s]+)\\))?",
+	"gm",
+	"(?:[-*+][ \\t]+)?`?",
+);
+/** @param {string} comment @param {string} sid */
+const hasSessionCompactionsLine = (comment, sid) =>
+	[...comment.matchAll(COMPACTIONS_LINE_RE)].some((m) => m[2] === sid);
 
 /** @param {number} count */
 function buildCompactionSentence(count) {
@@ -89,14 +107,15 @@ const COMPACTION_BACKSTOP = 10;
  * @param {number} count
  * @param {{issue: number|null, stateFile: string|null}} unit the issue this
  *   session's claim holds, and its build state file where one exists
+ * @param {string} sid the session its hand-off line names
  */
-function compactionAdvice(count, { issue, stateFile }) {
+function compactionAdvice(count, { issue, stateFile }, sid) {
 	const theIssue = issue ? `issue #${issue}` : "the issue you are working";
 	if (count >= COMPACTION_BACKSTOP) {
 		const update = stateFile
 			? `, update the build state file ${stateFile}`
 			: "";
-		return `That is the backstop (${COMPACTION_BACKSTOP}): commit what exists${update}, comment the unfinished state on ${theIssue} with a \`${buildCompactionsLine(count)}\` line, leave it open, and end.`;
+		return `That is the backstop (${COMPACTION_BACKSTOP}): commit what exists${update}, comment the unfinished state on ${theIssue} with a \`${buildCompactionsLine(count, sid)}\` line, leave it open, and end.`;
 	}
 	const state = stateFile ? `the build state file ${stateFile}, ` : "";
 	return `Re-read ${state}${theIssue}, and \`git log\` and \`git diff\` of your own commits on it; where the compaction summary disagrees with them, the summary is only a hint. Carry on with the unit in flight, and start no new unit after it.`;
@@ -112,4 +131,5 @@ module.exports = {
 	COMPACTIONS_MARKER,
 	COMPACTIONS_LINE_RE,
 	buildCompactionsLine,
+	hasSessionCompactionsLine,
 };

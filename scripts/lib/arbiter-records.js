@@ -21,6 +21,7 @@
  * @property {string|null} blob
  * @property {{sha: string, at: string|null}[]} priorBlobs
  * @property {string|null} preBlob
+ * @property {string} [tree] the holder's tree where it is a linked worktree
  */
 
 /**
@@ -59,6 +60,7 @@
  * @property {string} obsId
  * @property {string|null} blob
  * @property {string} at
+ * @property {string} [tree] the observer's tree where it is a linked worktree
  */
 
 /**

@@ -514,15 +514,15 @@ function candidatesOf({ done, capped, kept, notFinished }) {
  * `git status` at all. A dirty claim is uncommitted work that just became
  * takeable; the marker gates nothing (mantahostels#747). Judged per CLAIM, so a region
  * claim is marked on its own bytes rather than the whole file's (mantahostels#1434).
- * @param {{claims?: string[]}} a
- * @param {(subject: string) => boolean|null} isDirty
+ * @param {{claims?: string[], sessionId: string}} a
+ * @param {(subject: string, sessionId: string) => boolean|null} isDirty
  * @returns {string}
  */
 function buildClaimLine(a, isDirty) {
 	if (!a.claims || a.claims.length === 0) return "";
 	const named = a.claims
 		.map((/** @type {string} */ f) =>
-			isDirty(f) === true ? `${f} (DIRTY)` : f,
+			isDirty(f, a.sessionId) === true ? `${f} (DIRTY)` : f,
 		)
 		.join(", ");
 	return `reap:   it held ${a.claims.length} file claim(s), now stale and breakable by the next session to claim them: ${named}`;
@@ -592,7 +592,7 @@ function logClaimsCaveat(claimsUnread, unnamed, doneCount, log) {
 /**
  * @param {DoneRow[]} done
  * @param {KeptRow[]} kept
- * @param {(subject: string) => boolean|null} isDirty
+ * @param {(subject: string, sessionId: string) => boolean|null} isDirty
  * @param {(line: string) => void} log
  * @returns {void}
  */
@@ -613,7 +613,7 @@ function logWouldStop(done, kept, isDirty, log) {
  * and what it held back from retrying.
  * @param {DoneRow[]} done
  * @param {KeptRow[]} kept
- * @param {(subject: string) => boolean|null} isDirty
+ * @param {(subject: string, sessionId: string) => boolean|null} isDirty
  * @param {(line: string) => void} log
  * @returns {void}
  */
@@ -655,7 +655,7 @@ function logStopped(done, kept, isDirty, log) {
  *   finishAt: (a: {id?: string, sessionId: string}) => number|null,
  *   lastTurn: (a: {id?: string, sessionId: string}) =>
  *     {ended: boolean, at: number|null}|null,
- *   isDirty?: (subject: string) => boolean|null,
+ *   isDirty?: (subject: string, sessionId: string) => boolean|null,
  *   runs?: Record<string, RunRecord>,
  *   startedAt?: string,
  *   recordRun?: (record: RunRecord) => void,

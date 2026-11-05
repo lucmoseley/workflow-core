@@ -266,8 +266,10 @@ const recordBase = (sid = ME, sha = git("rev-parse", "HEAD")) => {
 
 /** Records `file` (repo-relative, or absolute) as written by `sid` in the
  * arbiter's write ledger. */
-const record = (file: string, sid = ME) =>
-	store.recordWrite(path.resolve(sb.repo, file), sid);
+/* Recorded as a session in `tree` records it: keyed by its path there, the
+ * line naming that tree (#4397, #4457). */
+const record = (file: string, sid = ME, tree = sb.repo) =>
+	core.inTree(tree, () => store.recordWrite(path.resolve(tree, file), sid));
 
 describe("a session's own change since its base", () => {
 	it("escalates on an unstaged file this session wrote", () => {
@@ -320,8 +322,7 @@ describe("a session in a linked worktree (#2386)", () => {
 		declare([RLS], tree);
 		recordBase();
 		write(SQL, "x\n", tree);
-		/* Keyed by its path in the tree, as the recorder run there keys it (#4397). */
-		record(SQL);
+		record(SQL, ME, tree);
 		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
 	});
 
@@ -833,6 +834,20 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		expect(logs).toContain(
 			"the write ledger did not read — this session's unstaged changes left unmatched",
 		);
+	});
+
+	it("bills a worktree outside the root none of the root's ledger (#4457)", () => {
+		declare([RLS]);
+		write(SQL);
+		record(SQL);
+		git("add", "--", SQL);
+		git("commit", "-qm", "own");
+		recordBase(ME);
+		const tree = path.join(sb.dir, "elsewhere");
+		git("worktree", "add", "-q", "--detach", tree);
+		declare([RLS], tree);
+		fs.rmSync(path.join(tree, SQL));
+		expect(envelope({ cwd: tree })).toBeNull();
 	});
 
 	it("logs a staged listing git fails, and states no tier (#3446)", () => {

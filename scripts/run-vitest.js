@@ -1608,6 +1608,7 @@ function sweepAndAttribute(
 		...(ledger ? { ledger } : {}),
 		untracked: readUntrackedFiles(root, execFn) ?? [],
 		renames: status.renames,
+		tree: root,
 		...(withQuotes ? { committedAt: lastCommitAt(root, execFn) } : {}),
 	});
 }

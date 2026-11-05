@@ -108,7 +108,11 @@ const { configDir } = require("./lib/config-dir.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopSession } = require("./lib/claude-stop.js");
 const { readRegistryAgents } = require("./lib/registry-agents.js");
-const { readLocks, subjectDirty } = require("./lib/arbiter-store");
+const {
+	readLocks,
+	readLocksHeldBy,
+	subjectDirtyWhereHeld,
+} = require("./lib/arbiter-store");
 const { transcriptPath } = require("./lib/project-slug.js");
 const { lastTurn } = require("./lib/transcript.js");
 const { parseOrExit } = require("./lib/cli-args.js");
@@ -324,6 +328,17 @@ function openRun(argv, runs) {
  * check-stranded-file-claims.js keeps the two apart and is the reader to go to
  * for which fault a given record has.
  */
+/**
+ * Whether `sessionId`'s claim on `subject` is dirty in the tree it holds it
+ * in (#4457); null where its lock will not read.
+ * @param {string} subject
+ * @param {string} sessionId
+ */
+function claimDirty(subject, sessionId) {
+	const lock = readLocksHeldBy(sessionId)?.find((l) => l.path === subject);
+	return lock ? subjectDirtyWhereHeld(lock) : null;
+}
+
 /** @returns {Claims} */
 function claimHolders() {
 	const locks = readLocks();
@@ -522,7 +537,7 @@ function main(argv) {
 			saveState: writeState,
 			finishAt: readFinishAt,
 			lastTurn: readLastTurn,
-			isDirty: subjectDirty,
+			isDirty: claimDirty,
 			runs,
 			startedAt,
 			recordRun: writeRuns,
