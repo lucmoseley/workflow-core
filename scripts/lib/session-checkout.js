@@ -675,7 +675,7 @@ function launchDir(cwd, prompt, how = {}) {
 
 /**
  * `dir` sits where a cut puts a session's worktree, directly under `root`'s
- * worktrees folder — a successor can launch `--into` it, not the main checkout.
+ * worktrees folder.
  * @param {string} root the main checkout
  * @param {string} dir
  */
