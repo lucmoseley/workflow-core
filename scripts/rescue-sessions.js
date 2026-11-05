@@ -103,6 +103,8 @@ const OTHER_INPUT_CHARS = 100;
  * @property {string} model
  * @property {string} updatedAt
  * @property {string} cwd
+ * @property {boolean} [cwdGuessed] `cwd` is the main checkout by default,
+ *   not a directory the session is known to have run in
  * @property {string} [deathPoint]
  * @property {string[]} [commitsAttempted]
  * @property {string[] | null} [commitsLanded]
@@ -1915,10 +1917,10 @@ function readOpenIssue(io, repo, n) {
  * @returns {Job}
  */
 function readTakeoverJob(dir, sessionId, transcript, row) {
-	const core = require("./lib/arbiter-core");
 	const short = shortJobId(sessionId);
 	/** @type {Job} */
 	const job = readJobs(dir).jobs.find((j) => j.short === short) ?? {
+		...readUnrecordedCwd(transcript, row),
 		short,
 		state: row?.state ?? "unlisted",
 		detail: "",
@@ -1928,11 +1930,46 @@ function readTakeoverJob(dir, sessionId, transcript, row) {
 		transcript,
 		model: "",
 		updatedAt: fs.statSync(transcript).mtime.toISOString(),
-		cwd: row?.cwd ?? core.repoRoot(),
 	};
 	if (!job.transcript || !fs.existsSync(job.transcript))
 		job.transcript = transcript;
 	return job;
+}
+
+/**
+ * A recordless session's directory: its agents row's, else the checkout its
+ * transcript was written from, else the main checkout, marked a guess.
+ * @param {string} transcript
+ * @param {AgentRecord | undefined} row
+ * @returns {{cwd: string, cwdGuessed?: true}}
+ */
+function readUnrecordedCwd(transcript, row) {
+	const cwd = row?.cwd ?? readTranscriptCwd(transcript);
+	if (cwd) return { cwd };
+	return { cwd: require("./lib/arbiter-core").repoRoot(), cwdGuessed: true };
+}
+
+/**
+ * The checkout a transcript was written from: the one git lists — the main
+ * checkout or a linked worktree — whose project slug names the transcript's
+ * directory. Null where none does, as for a reaped worktree.
+ * @param {string} transcript
+ * @returns {string | null}
+ */
+function readTranscriptCwd(transcript) {
+	const core = require("./lib/arbiter-core");
+	const { gitRead } = require("./lib/dirty-tree.js");
+	const { projectSlug } = require("./lib/project-slug.js");
+	const { worktreePaths } = require("./lib/worktree-paths.js");
+	const listed = gitRead(
+		["worktree", "list", "--porcelain", "-z"],
+		core.repoRoot(),
+	);
+	if (listed === null) return null;
+	const slug = path.basename(path.dirname(transcript));
+	return (
+		worktreePaths(() => listed).find((dir) => projectSlug(dir) === slug) ?? null
+	);
 }
 
 /**
@@ -2183,6 +2220,10 @@ function postComment(io, { repo, n, out }, comment) {
 	}
 }
 
+/** Where the job's directory is the main checkout by default. */
+const GUESSED_CWD =
+	" (a guess: no record names its directory and no checkout git lists matches its transcript — find its worktree with git worktree list)";
+
 /**
  * RESUMPTION.md: what the adopting session reads to continue the work.
  * @param {Job} job
@@ -2194,7 +2235,7 @@ function buildResumptionText(job, t) {
 		`Adopted #${t.n} ${t.title}`,
 		`Intent: ${job.intent || "(no job record — read the narration's first USER line)"}`,
 		`Narration: ${path.join(t.out, `${t.short}.narration.txt`)}`,
-		`Worktree: ${job.cwd || "(not recorded — find its dirty files with git worktree list)"}`,
+		`Worktree: ${job.cwd ? `${job.cwd}${job.cwdGuessed ? GUESSED_CWD : ""}` : "(not recorded — find its dirty files with git worktree list)"}`,
 		`Death point:\n${job.deathPoint || "(none)"}`,
 		`Commits landed: ${buildLandedLine(job)}`,
 		`Artefacts survived: ${job.artefactsSurvived && job.artefactsSurvived.length > 0 ? job.artefactsSurvived.join(", ") : "none"}`,
@@ -2203,7 +2244,7 @@ function buildResumptionText(job, t) {
 			: "Its file claims, listed and not moved — your next write takes each:",
 		...readFileClaimLines(t.sessionId),
 		"",
-		`Read the narration yourself, then continue its intent ${buildWhereLine(job.cwd)}.`,
+		`Read the narration yourself, then continue its intent ${job.cwdGuessed ? "in the worktree git worktree list shows it worked in" : buildWhereLine(job.cwd)}.`,
 	].join("\n");
 }
 
