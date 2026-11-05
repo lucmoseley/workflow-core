@@ -364,8 +364,7 @@ function describeUnlanded(unlanded) {
 }
 
 /**
- * A linked worktree's issue title and body: one decision, whatever its count
- * of files.
+ * A linked worktree's issue title and body.
  * @param {Filing} f
  * @param {string|null} supersedes
  */
@@ -602,11 +601,9 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 	return { kind: "orphan", writer: describeWriter(o.path, names, now) };
 }
 
-/* The ref a dead worktree's work is judged landed on. */
 const LANDED_REF = "origin/landing";
 
 /**
- * A main-checkout orphan's filing.
  * @param {Orphan} o
  * @returns {Filing}
  */
@@ -623,9 +620,7 @@ const buildFileFiling = (o) => ({
 
 /**
  * Why a worktree's filing waits, or null where it is filed now: its dirt
- * unread, or a file in it younger than the threshold. Filing once every file
- * has aged keeps one dead worktree to one issue, not one per file reaching
- * the threshold.
+ * unread, or a file in it younger than the threshold.
  * @param {string[]|null} dirt
  * @param {number} young
  * @param {number} hours

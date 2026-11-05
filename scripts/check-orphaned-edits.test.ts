@@ -147,7 +147,6 @@ describe("check-orphaned-edits", () => {
 		expect(r.out).toContain("ORPHANED-EDIT (1)");
 		expect(r.out).toContain("a.txt — unchanged 25h");
 		expect(r.out).not.toContain("docs/b.md");
-		// WARN, never FAIL: it reports and a human decides.
 		expect(r.status).toBe(0);
 	});
 
@@ -449,7 +448,6 @@ describe("a linked worktree's dirt", () => {
 		);
 	});
 
-	/** Dirty `rel` in worktree `wt` and back-date it `hours`. */
 	function dirtyIn(wt: string, rel: string, hours: number, content: string) {
 		const file = path.join(wt, rel);
 		fs.writeFileSync(file, content);

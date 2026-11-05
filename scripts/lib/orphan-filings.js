@@ -21,10 +21,8 @@ const FILED_DIR = "orphaned-edits-filed";
 
 /* Hex digits of sha256 kept per key. A main-checkout key keeps the 32 its
  * markers were first named with, so none refiles. A worktree's two halves
- * keep 16 each, 64 bits: a collision among one machine's worktrees, or one
- * worktree's states, is past reckoning. A title's tag keeps 10, as the
- * main-checkout title's blob does: it tells issues apart for a reader, and
- * the marker, not the title, prevents a refile. */
+ * keep 16 each, 64 bits. A title's tag keeps 10, as the main-checkout
+ * title's blob does: the marker, not the title, prevents a refile. */
 const FILE_KEY_HEX = 32;
 const WORKTREE_KEY_HEX = 16;
 const TITLE_TAG_HEX = 10;
@@ -37,7 +35,6 @@ const worktreePrefix = (label) =>
 	`wt-${hashOf(label).slice(0, WORKTREE_KEY_HEX)}-`;
 
 /**
- * The marker file name for one filing.
  * @param {{worktree: string|null, state: string}} unit `state` the text the
  *   filing is keyed by: the path and blob of a main-checkout file, or every
  *   orphaned file's of a worktree
@@ -48,7 +45,6 @@ function markerName({ worktree, state }) {
 }
 
 /**
- * A short tag for a filing's state, for its issue title.
  * @param {{state: string}} unit
  */
 const stateTag = ({ state }) => hashOf(state).slice(0, TITLE_TAG_HEX);
@@ -131,8 +127,6 @@ function readWorktreeFiling(commonDir, label, dirt) {
 }
 
 /**
- * The two ways out of a dead session's worktree: land its work from inside
- * it, or remove it with everything uncommitted in it.
  * @param {string} dir
  */
 function buildWaysOut(dir) {

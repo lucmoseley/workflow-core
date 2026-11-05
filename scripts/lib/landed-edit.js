@@ -1,16 +1,13 @@
 /*
  * landed-edit.js — whether a worktree's uncommitted change to a file is
- * already on a landed ref, for check-orphaned-edits.js (#4439): a dead
- * worktree whose every change has landed holds nothing to decide but its
- * removal.
+ * already on a landed ref, for check-orphaned-edits.js (#4439).
  *
  * The landed versions of a file are its copy at the ref and its copy as each
  * commit since `HEAD`'s merge base with the ref left it. LANDED BY BLOB where
  * the working copy is byte for byte one of them. LANDED BY LINES where one of
  * them made the change: each line the change adds is at least as frequent
- * there as in the working copy, each it removes at most as frequent. Checking
- * every version, not the ref's alone, reads a change landed and since
- * reworked as landed; a reordering, which moves no line's count, never is.
+ * there as in the working copy, each it removes at most as frequent. A
+ * reordering, which moves no line's count, is never landed.
  */
 
 const fs = require("node:fs");
@@ -84,7 +81,6 @@ function isChangeMade(head, now, there) {
 }
 
 /**
- * Whether one of `blobs` made the working copy's change to `rel`.
  * @param {string} tree
  * @param {string} rel
  * @param {string[]} blobs
