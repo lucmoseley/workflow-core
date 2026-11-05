@@ -42,8 +42,7 @@ function readCutOver(gitRead) {
 }
 
 /**
- * The command that cuts a session its own worktree and prints its path, as
- * every refusal pointing a session out of the main checkout spells it.
+ * The command that cuts a session its own worktree and prints its path.
  * @param {(name: string) => string} [at] where scripts live: a dispatcher
  *   core passes its `ctx.scriptPath`
  */

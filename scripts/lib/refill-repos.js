@@ -222,9 +222,8 @@ function buildCheckoutEnv(root, env = process.env) {
 }
 
 /**
- * Run a node script detached in checkout `root`, its stderr this process's,
- * left running when this process ends. Fails open (#3765): a failed start
- * goes to `notStarted`.
+ * Run a node script detached in checkout `root`, its stderr this process's.
+ * Fails open (#3765): a failed start goes to `notStarted`.
  * @param {string} root
  * @param {string[]} args the script and its arguments
  * @param {(err: unknown) => void} notStarted
