@@ -1705,16 +1705,21 @@ function stopConfirmation(listing, sessionId, requireGone, hostRuns) {
 }
 
 /**
- * The dead session's file claims, each marked dirty or clean in the tree.
+ * The dead session's file claims, each marked dirty or clean in the tree its
+ * holder wrote it in.
  * @param {string} sessionId
  */
 function readFileClaimLines(sessionId) {
 	const store = require("./lib/arbiter-store");
-	const held = store.readHeldBy(sessionId);
+	const { worktreeLabel } = require("./lib/session-worktrees.js");
+	const held = store.readLocksHeldBy(sessionId);
 	if (held === null) return ["  (the file-claim store would not read)"];
 	if (held.length === 0) return ["  (none)"];
-	return held.map((p) => {
-		const d = store.subjectDirty(p);
+	return held.map((lock) => {
+		const p = lock.tree
+			? `${lock.path} (in ${worktreeLabel(require("./lib/arbiter-core").repoRoot(), lock.tree)})`
+			: lock.path;
+		const d = store.subjectDirtyWhereHeld(lock);
 		if (d === null) return `  ${p} — unknown`;
 		return `  ${p} — ${d ? "dirty" : "clean"}`;
 	});
@@ -2448,7 +2453,7 @@ function writeHandOffBody(
 	const { gitOrNull } = require("./lib/git.js");
 	const { buildHandOffComment } = require("./lib/hand-off.js");
 	const { readStrandedFiles } = require("./lib/neighbour-dirt");
-	const root = core.repoRoot();
+	const root = handOffTree(sessionId, core.repoRoot());
 	const base = gitOrNull(["rev-parse", "HEAD"], { cwd: root })?.trim();
 	if (!base) io.fail(`git would not read HEAD in ${root}. Nothing posted.`, 1);
 	const files = readStrandedFiles(sessionId, root);
@@ -2474,7 +2479,18 @@ function writeHandOffBody(
 	if (body !== null) return body;
 	const diffFile = path.join(out, "uncommitted.diff");
 	fs.writeFileSync(diffFile, diff);
-	return `${head}\n\nIts uncommitted diff runs past GitHub's comment limit, so no hand-off block is posted: the diff is at ${path.relative(root, diffFile)}, and the files are ${files.map((f) => `\`${f}\``).join(", ")}. Left: ${buildHandOffLeft(ticket, hasNarration ? "the newest lines of the snapshot's narration" : null)}.`;
+	return `${head}\n\nIts uncommitted diff runs past GitHub's comment limit, so no hand-off block is posted: the diff is at ${path.relative(core.repoRoot(), diffFile)}, and the files are ${files.map((f) => `\`${f}\``).join(", ")}. Left: ${buildHandOffLeft(ticket, hasNarration ? "the newest lines of the snapshot's narration" : null)}.`;
+}
+
+/**
+ * The tree a hand-off reads its Base and diff in: the one the session last
+ * wrote in, where its ledger reads, else the main checkout (#4457).
+ * @param {string} sessionId
+ * @param {string} host
+ */
+function handOffTree(sessionId, host) {
+	const entries = require("./lib/arbiter-store").readWriteEntriesBy(sessionId);
+	return entries?.at(-1)?.tree ?? host;
 }
 
 /**
