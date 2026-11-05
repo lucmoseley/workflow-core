@@ -34,6 +34,9 @@
  * #463 adds one more: a helper-surface export the last release promised,
  * dropped without a major bump and its note (check-surface-contract.js).
  *
+ * #4252 adds one more: a `migrations/hold.txt` at HEAD holds every cut, its
+ * text the reason and what lifts it. The commit that lifts the hold deletes it.
+ *
  * #6 adds five more refusals: a dirty tree; a red core
  * (`commands.test`, skipped where undeclared — CLAUDE.md's own skip
  * convention); a major bump with no `migrations/v<tag>.md`; a malformed one
@@ -93,6 +96,7 @@ const { shellQuote } = require("./lib/sh-quote.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
+const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
 
 const CLI = {
 	usage:
@@ -350,6 +354,22 @@ function walkAdopter(dryRunAdopter, tmp, outDir, verifyEnv) {
 }
 
 /**
+ * Refuses a HEAD carrying a release hold, quoting it.
+ * @param {string} root
+ */
+function holdOrThrow(root) {
+	let hold;
+	try {
+		hold = git(root, ["show", `HEAD:${HOLD_REL}`]);
+	} catch {
+		return;
+	}
+	throw new Error(
+		`releases are held by ${HOLD_REL}: ${hold.replace(/\s+/g, " ")}`,
+	);
+}
+
+/**
  * Refuses a HEAD that `origin/main` does not hold.
  * @param {string} root
  */
@@ -377,6 +397,7 @@ function release(root, { dryRunAdopter } = {}) {
 	}
 
 	verifiedOrThrow(root);
+	holdOrThrow(root);
 	const { plugin, tag } = readReleaseTarget(root);
 
 	/* Cheapest refusals first — no point running the whole suite before a
