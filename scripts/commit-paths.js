@@ -1346,8 +1346,7 @@ function readBoolConfig(root, key) {
  * the object store, where gc prunes it if unused.
  * @param {string} root
  * @param {string} file
- * @param {{fileMode: boolean, symlinks: boolean}} checkout the checkout's
- *   core.fileMode and core.symlinks
+ * @param {{fileMode: boolean, symlinks: boolean}} checkout
  * @returns {import("./lib/patch-in-tree.js").TreeFile|null|false}
  */
 function readTreeFile(root, file, checkout) {

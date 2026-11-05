@@ -565,7 +565,6 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readPrivates()).toEqual([]);
 	});
 
-	/** The refusal's tail, naming the way out. */
 	const WayOut =
 		/would show the commit reversed\. Cut the patch from `git diff HEAD -U0 -- <path>` \(`--binary` for a binary file\) in the tree you commit from\. Nothing written/;
 	/** Runs `args`, expecting a refusal naming `why`, and nothing written. */
@@ -581,7 +580,6 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readHead()).toBe(tip);
 		expect(readIndex()).toBe(before);
 	};
-	/** `git diff HEAD <args>` written to `name` in the sandbox. */
 	const cut = (name: string, ...args: string[]) => {
 		const patch = path.join(sb.dir, name);
 		fs.writeFileSync(patch, git("diff", "HEAD", ...args));
