@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 export type ResumeKind = "copy" | "woke" | "continued";
 
@@ -47,4 +48,19 @@ export function buildRekeyedResponse(
 		stderr: swap(r.stderr),
 		startedAs,
 	};
+}
+
+/** The stub's `--bg` branch: runs `onResume`, prints file `out` and, where
+ * given, file `err` to stderr, then exits 0 — the launcher answering. */
+export function buildBgBranch({
+	out,
+	err,
+	onResume = "",
+}: {
+	out: string;
+	err?: string;
+	onResume?: string;
+}) {
+	const toStderr = err ? ` cat ${shellQuote(err)} >&2;` : "";
+	return `if [ "$1" = "--bg" ]; then ${onResume} cat ${shellQuote(out)};${toStderr} exit 0; fi`;
 }
