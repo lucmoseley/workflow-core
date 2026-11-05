@@ -45,7 +45,7 @@ const { OVERFLOW_PREFIX } = require("./session-name.js");
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   copySpendUsd: (file: string) => number,
  *   sessionSpendUsd: (file: string) => number,
- *   sessionName: (file: string) => string|null,
+ *   sessionName: typeof import("./session-name.js").readSessionName,
  *   runArbiter: (root: string, cmd: "claim-issue"|"release-issue", n: number,
  *     sessionId: string) => ChildRun,
  *   movePassMarkers: typeof import("./move-pass-markers.js").movePassMarkers,
@@ -363,8 +363,12 @@ function resumeSteps(io) {
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
 	function overflowNameOf(l, { sessionId, cwd }) {
-		const name =
-			io.sessionName(transcriptPath(l.seat, cwd, sessionId)) ?? l.prompt;
+		const read = io.sessionName(transcriptPath(l.seat, cwd, sessionId));
+		if ("why" in read)
+			log(
+				`${sessionId}'s name not read, so named after its prompt: ${read.why}`,
+			);
+		const name = ("name" in read && read.name) || l.prompt;
 		return name.startsWith(OVERFLOW_PREFIX)
 			? name
 			: `${OVERFLOW_PREFIX}${name}`;

@@ -1,12 +1,13 @@
 // @vitest-environment node
 /*
- * lib/session-name.js's transcript read against real files in a temp
- * directory: the latest `custom-title` is the session's name, and a
- * transcript naming none, a cut line or a missing file reads null.
+ * lib/session-name.js (#4395) against real files in a temp directory: the
+ * latest `custom-title` is the session's name, a transcript naming none or a
+ * missing file reads null, one that will not read says why, and the prefix is
+ * the shell scripts' (#3701).
  *
  * Loosen one and a session moved onto an overflow key takes its first name
- * rather than the one its row shows, or a move throws on a transcript it
- * cannot read, or the prefix drifts from the one the shell scripts name an
+ * rather than the one its row shows, a move throws on a transcript it cannot
+ * read, or the prefix drifts from the one the shell scripts name an
  * overflow job with.
  */
 import fs from "node:fs";
@@ -38,12 +39,25 @@ describe("readSessionName", () => {
 			title("Overflow · Implement 7: a title"),
 			'{"type":"custom-title","customTi',
 		);
-		expect(readSessionName(file)).toBe("Overflow · Implement 7: a title");
+		expect(readSessionName(file)).toEqual({
+			name: "Overflow · Implement 7: a title",
+		});
 	});
 
-	it("reads null from a transcript naming nothing, and from no file", () => {
-		expect(readSessionName(transcript('{"type":"user"}'))).toBeNull();
-		expect(readSessionName(path.join(dir, "none.jsonl"))).toBeNull();
+	it("reads no name from a transcript naming nothing, and from no file", () => {
+		expect(readSessionName(transcript('{"type":"user"}'))).toEqual({
+			name: null,
+		});
+		expect(readSessionName(path.join(dir, "none.jsonl"))).toEqual({
+			name: null,
+		});
+	});
+
+	it("says why a transcript will not read", () => {
+		const r = readSessionName(dir);
+		expect(r).toEqual({
+			why: expect.stringContaining(`reading ${dir}: EISDIR`),
+		});
 	});
 });
 

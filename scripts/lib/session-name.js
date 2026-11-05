@@ -8,28 +8,31 @@
  * name, so the transcript is the one place every session's name is read from.
  */
 
+const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 
 /* dispatch-sessions.sh's and name-issue-session.sh's. */
 const OVERFLOW_PREFIX = "Overflow · ";
 
 /**
- * The latest `custom-title` in transcript `file`; null where it has none or
- * will not read, since a name is never worth failing the act that wants it.
+ * The latest `custom-title` in transcript `file`, null where it has none or
+ * no file; why not where the file will not read, for the caller to log and
+ * fall back from, since a name never fails the act that wants it (#4395).
  * @param {string} file
- * @returns {string|null}
+ * @returns {{name: string|null}|{why: string}}
  */
 function readSessionName(file) {
 	let read;
 	try {
 		read = readJsonl(file, (line) => line.includes('"custom-title"'));
-	} catch {
-		return null;
+	} catch (e) {
+		return { why: `reading ${file}: ${caught(e).message}` };
 	}
 	const named = (read?.rows ?? []).filter(
 		(r) => r.type === "custom-title" && typeof r.customTitle === "string",
 	);
-	return /** @type {string|undefined} */ (named.at(-1)?.customTitle) || null;
+	const name = /** @type {string|undefined} */ (named.at(-1)?.customTitle);
+	return { name: name || null };
 }
 
 module.exports = { OVERFLOW_PREFIX, readSessionName };

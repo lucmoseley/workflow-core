@@ -74,7 +74,7 @@ function fakeIo(over: Partial<ResumeIo> = {}) {
 		recordLaunch: recorded("recordLaunch", () => true),
 		copySpendUsd: () => 0,
 		sessionSpendUsd: () => 0,
-		sessionName: () => null,
+		sessionName: () => ({ name: null }),
 		runArbiter: recorded("runArbiter", () => ran("Released #7")),
 		movePassMarkers: recorded("movePassMarkers", () => null),
 		moveParkedBy: recorded("moveParkedBy", () => undefined),
@@ -217,7 +217,7 @@ describe("resumeStopped", () => {
 
 describe("moveSession (#3734, #3736)", () => {
 	const job = { ...LAUNCH, jobId: "job7", prompt: "/implement 7" } as never;
-	const OnKey = { seat: TARGET, keyVar: "K2", allowanceUsd: 40 };
+	const keyTarget = { seat: TARGET, keyVar: "K2", allowanceUsd: 40 };
 
 	it("names a transcript it could not copy, resuming nothing", () => {
 		const { steps, callsTo } = fakeIo({
@@ -240,22 +240,25 @@ describe("moveSession (#3734, #3736)", () => {
 	});
 
 	/** The `-n` a move onto `target` passes, its transcript naming the session `name`. */
-	const movedName = (name: string | null, target: object = OnKey) => {
+	const movedName = (
+		name: string | null | { why: string },
+		target: object = keyTarget,
+	) => {
 		const read: string[] = [];
-		const { steps, callsTo } = fakeIo({
+		const { steps, callsTo, lines } = fakeIo({
 			sessionName: (file) => {
 				read.push(file);
-				return name;
+				return typeof name === "object" && name ? name : { name };
 			},
 		});
 		steps.moveSession(job, target as never, PROMPT, IDS);
 		const [[args]] = callsTo("runClaude") as [[string[]]];
 		const at = args.indexOf("-n");
-		return { name: at < 0 ? null : args[at + 1], read };
+		return { name: at < 0 ? null : args[at + 1], read, lines };
 	};
 
 	it("names a plan session moved onto a key with the overflow prefix, the name its transcript gives after it (#4395)", () => {
-		expect(movedName("Implement 7: a title")).toEqual({
+		expect(movedName("Implement 7: a title")).toMatchObject({
 			name: "Overflow · Implement 7: a title",
 			read: ["/home/u/.claude3/projects/-home-u-repo/s-job7.jsonl"],
 		});
@@ -265,6 +268,14 @@ describe("moveSession (#3734, #3736)", () => {
 		expect(movedName(null).name).toBe("Overflow · /implement 7");
 		expect(movedName("Overflow · Implement 7").name).toBe(
 			"Overflow · Implement 7",
+		);
+	});
+
+	it("names a session whose transcript will not read after its prompt, logging why (#4395)", () => {
+		const r = movedName({ why: "reading t: EACCES" });
+		expect(r.name).toBe("Overflow · /implement 7");
+		expect(r.lines).toContain(
+			"s-job7's name not read, so named after its prompt: reading t: EACCES",
 		);
 	});
 
