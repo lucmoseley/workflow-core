@@ -407,7 +407,7 @@ describe("record-divergence.js", () => {
 	it("counts against origin/landing with the landing module on (#2408)", () => {
 		const work = repoWith("queued", 1, 0);
 		git(work, "push", "--quiet", "origin", "HEAD~1:refs/heads/landing");
-		fire(work, "git push origin main:landing", PUSH_REJECT, {
+		fire(work, "git push origin HEAD:landing", PUSH_REJECT, {
 			WFC_MODULES: "landing",
 		});
 		expect(readRows()[0].slice(3, 6)).toEqual(["1", "0", "ahead"]);

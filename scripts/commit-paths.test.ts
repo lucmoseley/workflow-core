@@ -18,14 +18,13 @@
  * wrong commit as the session's own.
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
-import { installLib } from "./lib/lib-install-testkit";
 import {
 	cutPostCommitBlock,
 	plantSequencer,
@@ -1196,74 +1195,6 @@ touch .git/index.lock
 		expect(git("show", "HEAD:a.md")).toBe("a\n");
 		expect(readPrivates()).toEqual([]);
 		expect(readLastOutcome()?.[1]).toBe("lock-ceiling");
-	});
-});
-
-describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
-	/** A live session other than the committer, holding `rel` with the tree's bytes pinned. */
-	const neighbour = (rel: string) => {
-		const alice = live(sb, "alice", "Wayfinder 1584");
-		store.acquire(rel, alice);
-		store.recordContent(rel, alice);
-	};
-
-	it("prints the commit guard's warning, naming the path and holder, and commits anyway", () => {
-		write("a.md", "alice's unsaved edit\n");
-		neighbour("a.md");
-		const r = run(["-m", "swept", "--", "a.md"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("This commit names a.md");
-		expect(r.stderr).toContain("(Wayfinder 1584)");
-		expect(r.stderr).toContain("swept in under your message");
-		expect(r.stderr).toContain("mantahostels#1539");
-		expect(r.stderr).toContain("declare the sweep");
-		expect(r.stderr).toContain("  Swept: a.md (Wayfinder 1584)");
-		expect(r.stderr).toContain("not a refusal");
-		expect(readCommitted()).toBe("swept\nM\ta.md");
-	});
-
-	it("points at the session's other paths where the pathspec names some", () => {
-		write("a.md", "alice's unsaved edit\n");
-		write("mine.md");
-		neighbour("a.md");
-		const r = run(["-m", "swept", "--", "a.md", "mine.md"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("This commit names a.md");
-		expect(r.stderr).toContain("Commit your own paths instead");
-		expect(r.stderr).not.toContain("declare the sweep");
-	});
-
-	it("runs as an adopter's plugin copy with Node alone, no node_modules anywhere above it (#587)", () => {
-		const plugin = path.join(sb.dir, "plugin", "scripts");
-		installLib(path.join(plugin, "lib"), {
-			keep: (f) => /\.(js|json)$/.test(f),
-		});
-		fs.copyFileSync(
-			path.join(__dirname, "commit-paths.js"),
-			path.join(plugin, "commit-paths.js"),
-		);
-		for (let d = plugin; d !== path.dirname(d); d = path.dirname(d))
-			expect(fs.existsSync(path.join(d, "node_modules"))).toBe(false);
-
-		write("a.md", "alice's unsaved edit\n");
-		neighbour("a.md");
-		const { NODE_PATH: _, ...env } = process.env;
-		const r = spawnSync(
-			"node",
-			[path.join(plugin, "commit-paths.js"), "-m", "plugin", "--", "a.md"],
-			{ cwd: sb.repo, env, encoding: "utf8" },
-		);
-		expect(r.stderr).not.toContain("Cannot find module");
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("This commit names a.md");
-		expect(readCommitted()).toBe("plugin\nM\ta.md");
-	});
-
-	it("stays silent where no neighbour holds the path", () => {
-		write("a.md", "my edit\n");
-		const r = run(["-m", "mine", "--", "a.md"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toBe("");
 	});
 });
 

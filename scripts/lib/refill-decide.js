@@ -9,7 +9,7 @@
 
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
-const { PARKED_LABEL } = require("./parked.js");
+const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { isSameSeat, seatIdOf } = require("./refill-seats.js");
 const {
 	COMMAND_VALUES,
@@ -1232,7 +1232,44 @@ function decideUnpaused(input) {
  * @param {{launchedAt: number, relaunchedAt?: number}} l */
 const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
 
+/**
+ * Each parked row's park marker, the newest written where several list it,
+ * with the seat and job it names and the directory its session resumes in,
+ * its marker's, else the checkout holding the marker (#3773). Each checkout's
+ * markers are read once.
+ * @param {MergedRow[]} frontier
+ * @param {(root: string) => import("./parked.js").ParkMarkerRead[]} readMarkers
+ * @returns {ParkerReading[]}
+ */
+function readParkers(frontier, readMarkers) {
+	/** @type {Map<string, import("./parked.js").ParkMarkerRead[]>} */
+	const byRoot = new Map();
+	const markersIn = (/** @type {string} */ root) => {
+		const read = byRoot.get(root) ?? readMarkers(root);
+		byRoot.set(root, read);
+		return read;
+	};
+	return frontier.flatMap((row) => {
+		if (!isParked(row)) return [];
+		const marker = newestMarkerListing(markersIn(row.root), row.number);
+		if (!marker) return [];
+		const { job, sessionId, limitParks, cause } = marker;
+		return [
+			{
+				root: row.root,
+				number: row.number,
+				sessionId,
+				job,
+				resumeCwd: job?.cwd ?? row.root,
+				...(limitParks === undefined ? {} : { limitParks }),
+				...(cause === undefined ? {} : { parkCause: cause }),
+			},
+		];
+	});
+}
+
 module.exports = {
+	readParkers,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,

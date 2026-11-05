@@ -378,18 +378,17 @@ describe("the arbiter's verdict reaches the tool", () => {
 		expect(heldPaths()).toContain("docs/doc-map.md");
 	});
 
-	it("denies a file a live session holds, naming the holder", () => {
+	it("lets a write to a file a live session holds through, warning of the merge conflict and naming the holder (#4249)", () => {
 		live(sb, "alice");
 		run(writePayload(docMap(), { session_id: "alice" }));
 		live(sb, "bob");
 
 		const { output } = run(writePayload(docMap(), { session_id: "bob" }));
-		expect(output?.permissionDecision).toBe("deny");
-		expect(output?.permissionDecisionReason).toContain("alice");
-		// The wait leads, where the block happens (#543).
-		expect(output?.permissionDecisionReason?.split("\n")[0]).toContain(
-			"node scripts/session-arbiter.js wait docs/doc-map.md",
+		expect(output?.permissionDecision).toBeUndefined();
+		expect(output?.additionalContext).toContain(
+			"docs/doc-map.md is also held by session alice",
 		);
+		expect(output?.additionalContext).toContain("merge conflict");
 	});
 
 	it("lets the holder keep writing its own file", () => {
@@ -422,7 +421,7 @@ describe("the arbiter's verdict reaches the tool", () => {
 		);
 	});
 
-	it("denies a held notebook", () => {
+	it("warns on a held notebook", () => {
 		const nb = path.join(sb.repo, "docs/nb.ipynb");
 		live(sb, "alice");
 		store.acquire("docs/nb.ipynb", store.identify("alice"));
@@ -433,7 +432,10 @@ describe("the arbiter's verdict reaches the tool", () => {
 			tool_name: "NotebookEdit",
 			tool_input: { notebook_path: nb },
 		});
-		expect(output?.permissionDecision).toBe("deny");
+		expect(output?.permissionDecision).toBeUndefined();
+		expect(output?.additionalContext).toContain(
+			"docs/nb.ipynb is also held by session alice",
+		);
 	});
 
 	it("does not deny on a claim whose holder has died", () => {
@@ -525,13 +527,13 @@ describe("the host runs the arbiter as its own process, bounded", () => {
 		return run(payload, { arbiterCheck });
 	};
 
-	it("denies through the real arbiter, the whole chain unstubbed", () => {
+	it("warns through the real arbiter, the whole chain unstubbed", () => {
 		live(sb, "alice");
 		hostRun(writePayload(docMap(), { session_id: "alice" }));
 		live(sb, "bob");
 		const { output } = hostRun(writePayload(docMap(), { session_id: "bob" }));
-		expect(output?.permissionDecision).toBe("deny");
-		expect(output?.permissionDecisionReason).toContain("alice");
+		expect(output?.permissionDecision).toBeUndefined();
+		expect(output?.additionalContext).toContain("also held by session alice");
 	});
 
 	it("allows an Edit whose old_string holds a NUL, which no process can take as an argument", () => {
@@ -703,7 +705,7 @@ describe("it hands over the claim rules before the mistake", () => {
 	];
 
 	/*
-	 * The deny tier's four rules, in the core's own priority order, each with a
+	 * The claim tier's three rules, in the core's own priority order, each with a
 	 * NEEDLE from its operative clause.
 	 *
 	 * `toContain(readRuleText(id))` reads the same file the core reads, so it
@@ -711,24 +713,17 @@ describe("it hands over the claim rules before the mistake", () => {
 	 * the text: a fragment gutted of its instruction passes it. The literal is
 	 * what fails when the operative clause goes.
 	 */
-	const denyTier: [string, string[]][] = [
+	const claimTier: [string, string[]][] = [
 		[
 			"file-claim",
 			[
 				"Writing the file is what takes the claim",
 				"detect only",
-				"release --force <path>",
+				"likely meet a merge conflict",
 			],
 		],
-		[
-			"claim-release",
-			[
-				"node scripts/session-arbiter.js release <path>",
-				"release --park <path>",
-			],
-		],
+		["claim-release", ["node scripts/session-arbiter.js release <path>"]],
 		["claim-bash-route", ["file unrefused", "Read the\nclaims yourself"]],
-		["denied-edit-debt", ["debt own <path> <issue>", "debt clear <path>"]],
 	];
 
 	/**
@@ -748,9 +743,9 @@ describe("it hands over the claim rules before the mistake", () => {
 		return seen;
 	};
 
-	it.each(denyTier)("emits %s on a write to the deny tier", (id, needles) => {
+	it.each(claimTier)("emits %s on a write to the claim tier", (id, needles) => {
 		live(sb, "a");
-		const seen = injectedOver(plainDoc(), "a", denyTier.length);
+		const seen = injectedOver(plainDoc(), "a", claimTier.length);
 		expect(seen).toContain(readRuleText(id));
 		for (const needle of needles) expect(seen).toContain(needle);
 	});
@@ -866,25 +861,21 @@ describe("it hands over the claim rules before the mistake", () => {
 		expect(first?.permissionDecision).toBeUndefined();
 		const said = first?.additionalContext ?? "";
 		expect(said).toContain("claims the WHOLE of");
-		// claim-bash-route, not file-claim (mantahostels#2386). The notice spends the same
-		// budget, and this arm's first envelope is too short to hold both behind
-		// it — so only ONE fits, and it is the unreprinted one that stays.
+		// The notice spends the same budget (mantahostels#2386); both rules still
+		// fit behind it.
 		expect(said).toContain(readRuleText("claim-bash-route"));
-		expect(said).not.toContain(readRuleText("file-claim"));
+		expect(said).toContain(readRuleText("file-claim"));
 		// The notice comes FIRST — it is about the write in hand, the rules are not.
 		expect(said.indexOf("claims the WHOLE of")).toBeLessThan(
 			said.indexOf(readRuleText("claim-bash-route")),
 		);
 		// Emitted means latched, or the next write would repeat it.
-		expect(readLatchedMarkers()).toContain(
-			".rule-injected-claim-bash-route-main-a",
+		expect(readLatchedMarkers()).toEqual(
+			expect.arrayContaining([
+				".rule-injected-claim-bash-route-main-a",
+				".rule-injected-file-claim-main-a",
+			]),
 		);
-		// And the deferral is unlatched, so file-claim is not lost with it.
-		expect(readLatchedMarkers()).not.toContain(
-			".rule-injected-file-claim-main-a",
-		);
-		const next = run(writePayload(docMap(), { session_id: "a" })).output;
-		expect(next?.additionalContext).toContain(readRuleText("file-claim"));
 	});
 
 	/*
@@ -1195,16 +1186,18 @@ describe("it hands over the claim rules before the mistake", () => {
 		).toBeNull();
 	});
 
-	it("defers the cluster where an arbiter DENIAL spoke", () => {
-		// The rules go unlatched, so they arrive whole on this session's next
-		// write.
+	it("carries the held-file warning ahead of the cluster (#4249)", () => {
 		live(sb, "alice");
 		run(writePayload(docMap(), { session_id: "alice" }));
 		live(sb, "bob");
 
 		const { output } = run(writePayload(docMap(), { session_id: "bob" }));
-		expect(output?.permissionDecision).toBe("deny");
-		expect(output?.additionalContext).toBeUndefined();
+		expect(output?.permissionDecision).toBeUndefined();
+		const said = output?.additionalContext ?? "";
+		expect(said).toContain("also held by session");
+		expect(said.indexOf("also held by session")).toBeLessThan(
+			said.indexOf(readRuleText("claim-bash-route")),
+		);
 	});
 
 	/*
@@ -1378,6 +1371,7 @@ describe("it hands over the claim rules before the mistake", () => {
 			"writing-for-agents",
 			"script-self-claim",
 			"claim-bash-route",
+			"file-claim",
 		]);
 		live(sb, "a");
 		expect(
@@ -1389,11 +1383,13 @@ describe("it hands over the claim rules before the mistake", () => {
 		).toEqual(expected);
 	});
 
-	it("delivers script-self-claim and claim-bash-route on a scripts-tier session's FIRST write", () => {
-		// file-claim rode this envelope until mantahostels#3568 qualified its
-		// cites; it now opens the second write.
+	it("delivers script-self-claim, claim-bash-route and file-claim on a scripts-tier session's FIRST write", () => {
 		const expected = modelPacks(orderFor("scripts"));
-		expect(expected[0]).toEqual(["script-self-claim", "claim-bash-route"]);
+		expect(expected[0]).toEqual([
+			"script-self-claim",
+			"claim-bash-route",
+			"file-claim",
+		]);
 		live(sb, "a");
 		expect(
 			emittedPacks(
@@ -1421,8 +1417,8 @@ describe("it hands over the claim rules before the mistake", () => {
 
 	it("says each rule once per session, however many writes follow", () => {
 		live(sb, "a");
-		const first = injectedOver(plainDoc(), "a", denyTier.length);
-		for (const [id] of denyTier) expect(first).toContain(readRuleText(id));
+		const first = injectedOver(plainDoc(), "a", claimTier.length);
+		for (const [id] of claimTier) expect(first).toContain(readRuleText(id));
 		// The latch is written on emission.
 		expect(injectedOver(plainDoc(), "a", 3)).toBe("");
 	});
@@ -1666,11 +1662,11 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		).output;
 	};
 
-	it("denies the shared tree's file a session holds in the host's claim store (#4274)", () => {
+	it("warns of the shared tree's file a session holds in the host's claim store (#4274)", () => {
 		aliceHoldsIn(at.main);
-		const refused = bobWrites();
-		expect(refused?.permissionDecision).toBe("deny");
-		expect(refused?.permissionDecisionReason).toContain("alice");
+		const warned = bobWrites();
+		expect(warned?.permissionDecision).toBeUndefined();
+		expect(warned?.additionalContext).toContain("also held by session alice");
 	});
 
 	it("allows it where only the worktree's claim store holds the claim (#4274)", () => {

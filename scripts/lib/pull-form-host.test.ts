@@ -21,7 +21,6 @@ const { buildHostPorts } = require("./pull-form-host.js") as {
 		isTree: (dir: string, word: string) => boolean;
 		topLevel: (dir: string) => string;
 		showPrefix: (dir: string) => string;
-		pushedRef: () => string;
 	};
 };
 
@@ -90,17 +89,5 @@ describe("the git reads", () => {
 		expect(ports().topLevel(sub)).toBe(fs.realpathSync(repo));
 		expect(ports().showPrefix(sub)).toBe("sub/");
 		expect(ports().showPrefix(repo)).toBe("");
-	});
-});
-
-describe("the landing config", () => {
-	it("names the pushed ref from the checkout's own config, not the cwd's", () => {
-		expect(ports().pushedRef()).toBe("origin/main");
-		fs.mkdirSync(path.join(repo, ".claude"));
-		fs.writeFileSync(
-			path.join(repo, ".claude", "workflow-core.json"),
-			JSON.stringify({ contract: 1, modules: ["landing"] }),
-		);
-		expect(ports().pushedRef()).toBe("origin/landing");
 	});
 });

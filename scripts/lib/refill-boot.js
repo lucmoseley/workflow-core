@@ -6,7 +6,8 @@
  * after it trust of the listing while its killed launches come back (#3880), and
  * which jobs the never-started stop spares until they are queued (#3983). And
  * whether a loop just spawned, by a boot or a `start`, came to hold the lock
- * (#4083).
+ * (#4083). And what `boot-resume`, `watch` and `run` write and return around
+ * that verdict and that lock (#4356).
  *
  * `boot-resume` runs at each start of the user manager, so on the manager's
  * restart within a boot too (#3963), which sessions in `/init.scope` outlive; and
@@ -25,7 +26,12 @@ const {
 } = require("./refill-blocks.js");
 const { startedAt } = require("./refill-decide.js");
 const { recordedStop } = require("./refill-loop.js");
-const { isSameBoot } = require("./refill-state.js");
+const {
+	bootResumeFailed,
+	bootResumed,
+	isSameBoot,
+	runHeld,
+} = require("./refill-state.js");
 
 /* First guesses, and stated as ones: the 3 Nov boot's loop reached its lock in
  * 61 ms, so 30 s allows for a machine far busier than a boot was; a poll costs
@@ -196,11 +202,131 @@ const bootSparedJobs = ({ bootedAt, launches }) =>
 			: launches.filter(isBootKillCandidate).map((l) => l.jobId),
 	);
 
+/** @param {string} why */
+const buildFetchFailedLine = (why) =>
+	`fetch failed, starting on the last fetched tip: ${why}`;
+
+/** @typedef {(line: string) => void} Log */
+
+/**
+ * @typedef {object} BootReads what `boot-resume` and `watch` read
+ * @property {(log: Log) => {control: import("./refill-loop.js").Control|null,
+ *   damaged: string|null}} readControl
+ * @property {(log: Log) => import("./refill-state.js").LoopState} readState
+ * @property {() => number|null} holder the pidfile's live holder
+ * @property {number} self this process's pid
+ */
+
+/**
+ * `boot-resume` (#3878): resumes the loop where bootVerdictOf says to. The resume is on the state before the launch, so a
+ * loop that dies ahead of its first tick leaves it, and heldAt then says
+ * whether the new loop ever held the pidfile; where none did, the last loop's
+ * hold is put back, as its death still stands for `status`.
+ * @param {BootReads & {
+ *   note: Log,
+ *   bootId: () => string|null,
+ *   now: () => number,
+ *   updateState: (t: import("./refill-state.js").Transition) => void,
+ *   writeManagerRestart: (at: number) => void,
+ *   launch: () => {error: string} | {pid: number|undefined,
+ *     fetchError: string|null|undefined},
+ * }} io
+ * @returns {0|1} the exit code
+ */
+function runBootResume(io) {
+	const { note } = io;
+	const bootId = io.bootId();
+	if (bootId === null)
+		note(
+			"boot resume: this boot's id will not read, so a manager restart reads as a boot (#3971)",
+		);
+	const { control, damaged } = io.readControl(note);
+	const state = io.readState(note);
+	const verdict = bootVerdictOf({
+		control,
+		damaged,
+		stopped: state.stopped,
+		pid: io.holder(),
+		self: io.self,
+	});
+	if (!verdict.resume) {
+		note(verdict.line);
+		if (verdict.tellLoop) {
+			io.writeManagerRestart(io.now());
+			note(verdict.tellLoop);
+		}
+		return 0;
+	}
+	io.updateState(bootResumed(bootId, io.now()));
+	const launched = io.launch();
+	if ("error" in launched) {
+		io.updateState(bootResumeFailed(state.heldAt));
+		note(`boot resume: not resumed: ${launched.error}`);
+		return 1;
+	}
+	if (launched.fetchError)
+		note(`boot resume: ${buildFetchFailedLine(launched.fetchError)}`);
+	note(`${verdict.line}, pid ${launched.pid}`);
+	return 0;
+}
+
+/**
+ * `watch` (#4139): restarts the boot unit only where `boot-resume` would
+ * resume. Each of its refusals stands until someone acts, so it logs none,
+ * which would repeat at every firing; `boot-resume` and `status` name a damaged
+ * file. A launch in flight reads as a running loop: a restart would race a
+ * `start`, or kill a `boot-resume` mid-fetch.
+ * @param {BootReads & {
+ *   launchHolder: () => number|null,
+ *   restartBootUnit: () => {error: string|null},
+ * }} io
+ * @returns {{code: 0} | {code: 1, message: string}}
+ */
+function runWatch(io) {
+	const quiet = () => undefined;
+	const { control, damaged } = io.readControl(quiet);
+	const { resume } = bootVerdictOf({
+		control,
+		damaged,
+		stopped: io.readState(quiet).stopped,
+		pid: io.holder() ?? io.launchHolder(),
+		self: io.self,
+	});
+	if (!resume) return { code: 0 };
+	const { error } = io.restartBootUnit();
+	return error === null ? { code: 0 } : { code: 1, message: error };
+}
+
+/**
+ * `run`'s hold (#3861): once it holds the pidfile, any stop on record is
+ * before this run, so cleared, and heldAt says a loop held it.
+ * @param {{
+ *   acquire: () => boolean,
+ *   pidFile: string,
+ *   log: Log,
+ *   now: () => number,
+ *   bootId: () => string|null,
+ *   updateState: (t: import("./refill-state.js").Transition) => void,
+ * }} io
+ */
+function holdRun(io) {
+	if (!io.acquire()) {
+		io.log(`another refill loop holds ${io.pidFile}; exiting`);
+		return false;
+	}
+	io.updateState(runHeld(io.now(), io.bootId()));
+	return true;
+}
+
 module.exports = {
 	awaitLoopHold,
 	bootSparedJobs,
 	bootVerdictOf,
+	buildFetchFailedLine,
+	holdRun,
 	isEmptyListingTrusted,
+	runBootResume,
+	runWatch,
 	settleBootKilled,
 	withManagerRestart,
 };

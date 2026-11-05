@@ -151,14 +151,14 @@ const {
 } = require("./lib/commit-range");
 const { gh, parseErrLine, parseGhFailureReason } = require("./lib/gh");
 const { openTrackingIssue } = require("./lib/tracking-issue");
+const { scriptPath } = require("./lib/script-path");
 /* scheduled-checks.yml's aggregate that `main`'s ruleset requires (#2414). It
  * goes red only where another job did, so it owes no ticket of its own. */
 const VERDICT_JOB = "Suite passed";
 /* scheduled-checks.yml's per-file CI time job, which turns the sweep red once
  * #4293 makes it a need of `Suite passed`. */
 const FILE_TIMES_JOB = "Test file CI times";
-const FILE_TIMES_ROUTE =
-	"each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — `node scripts/check-file-ci-time.js` names the files";
+const FILE_TIMES_ROUTE = `each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — \`node ${scriptPath("check-file-ci-time.js")}\` names the files`;
 
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");

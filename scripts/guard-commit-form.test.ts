@@ -21,27 +21,18 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { writeFaultyGit } from "./lib/git-fault-fake";
 import {
 	defineTemplate,
 	mkDirOutsideRepo,
 	mkScratchDir,
 	trioTemplate,
 } from "./lib/git-fixture";
-import { buildBashPayload, readHookLines } from "./lib/pretool-guard-testkit";
+import { buildBashPayload } from "./lib/pretool-guard-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const CORE = "guard-commit-form";
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
-const HOOKS = "self-plugin/hooks/hooks.json";
-
-// The arbiter is CommonJS, required here only to ARRANGE a foreign claim the
-// guard then reads back.
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const store: any = createRequire(__filename)("./lib/arbiter-store.js");
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const proc: any = createRequire(__filename)("./lib/arbiter-proc.js");
 
 let dir: string;
 let shared: string;
@@ -176,43 +167,6 @@ const stageSomething = (at = shared, file = "a.md") => {
 const newFile = (rel: string, text = "new\n") => {
 	fs.mkdirSync(path.dirname(path.join(shared, rel)), { recursive: true });
 	fs.writeFileSync(path.join(shared, rel), text);
-};
-
-/**
- * A live session other than the committer, holding `subject` with the tree's
- * current bytes pinned — the arrangement mantahostels#1558's test fires on.
- * The store reads its config dir and project root at call time, so this
- * describe's arrangement and the guard see the same sandbox.
- */
-const neighbour = (subject: string, name: string) => {
-	fs.mkdirSync(path.join(config, "sessions"), { recursive: true });
-	fs.writeFileSync(
-		path.join(config, "sessions", `${process.pid}.json`),
-		JSON.stringify({
-			pid: process.pid,
-			sessionId: "alice",
-			procStart: proc.readProcStartOf(process.pid),
-			status: "idle",
-			cwd: shared,
-			name,
-		}),
-	);
-	const saved = [process.env.CLAUDE_CONFIG_DIR, process.env.CLAUDE_PROJECT_DIR];
-	process.env.CLAUDE_CONFIG_DIR = config;
-	process.env.CLAUDE_PROJECT_DIR = shared;
-	try {
-		const me = store.identify("alice");
-		store.acquire(subject, me);
-		store.recordContent(subject, me);
-	} finally {
-		for (const [k, v] of [
-			["CLAUDE_CONFIG_DIR", saved[0]],
-			["CLAUDE_PROJECT_DIR", saved[1]],
-		] as const) {
-			if (v === undefined) delete process.env[k];
-			else process.env[k] = v;
-		}
-	}
 };
 
 /** Makes the one write ledger on record unreadable. */
@@ -438,19 +392,6 @@ describe("each input channel", () => {
 });
 
 describe("each production adapter, crossed for real", () => {
-	it("reads a live neighbour's claim out of the arbiter store (mantahostels#1539)", () => {
-		fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
-		fs.writeFileSync(path.join(shared, "docs/a.md"), "committed\n");
-		git(shared, "add", "-A");
-		git(shared, "commit", "-qm", "seed");
-		fs.writeFileSync(path.join(shared, "docs/a.md"), "alice's unsaved edit\n");
-		neighbour("docs/a.md", "Wayfinder 1584");
-		const out = emission('git commit -m "x" -- docs/a.md').additionalContext;
-		expect(out).toContain("This commit names docs/a.md");
-		expect(out).toContain("(Wayfinder 1584)");
-		expect(out).toContain("Swept: docs/a.md (Wayfinder 1584)");
-	});
-
 	it("reads this session's write ledger, silencing a commit of its own work", () => {
 		stageSomething(shared, "a.md");
 		recordWrite("a.md");
@@ -543,99 +484,6 @@ describe("each production adapter, crossed for real", () => {
 				.additionalContext,
 		).not.toContain(doc);
 	});
-});
-
-describe("the sweep warn counts as a fire", () => {
-	it("the registry needle matches what it prints (mantahostels#3278)", () => {
-		fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
-		fs.writeFileSync(path.join(shared, "docs/a.md"), "committed\n");
-		git(shared, "add", "-A");
-		git(shared, "commit", "-qm", "seed");
-		fs.writeFileSync(path.join(shared, "docs/a.md"), "alice's unsaved edit\n");
-		neighbour("docs/a.md", "Wayfinder 1584");
-		const r = guard(payload('git commit -m "x" -- docs/a.md'));
-		expect(r.stdout).toContain("swept in under your message");
-		// One transcript holding one hook_success attachment: the record Claude
-		// Code writes when a PreToolUse hook speaks, carrying this run's own
-		// stdout under the command line the guard is registered with.
-		const [command] = readHookLines(HOOKS, "guard-dispatch.js");
-		const corpus = fs.mkdtempSync(path.join(dir, "fires-"));
-		fs.writeFileSync(
-			path.join(corpus, "s1.jsonl"),
-			`${JSON.stringify({
-				type: "attachment",
-				uuid: "a1",
-				timestamp: "2026-09-07T09:00:00.000Z",
-				attachment: {
-					type: "hook_success",
-					toolUseID: "toolu_01",
-					command,
-					stdout: r.stdout,
-				},
-			})}\n`,
-		);
-		/* The counter reads the HOST'S registrations for the hook roster (#1,
-		 * lib/core-hooks.js `readHostHookSources`), so it is this repo the
-		 * counter must read, not the git fixture, which has none. */
-		const counted = runInProcess(
-			path.resolve(__dirname, "count-guard-fires.js"),
-			["--dir", corpus],
-			{
-				env: {
-					...process.env,
-					CLAUDE_PROJECT_DIR: path.resolve(__dirname, ".."),
-				},
-			},
-		);
-		expect(counted.status).toBe(0);
-		expect(counted.stdout).toContain(
-			"sweep-warn 1 across 1 session(s) (2026-09-07)",
-		);
-	});
-});
-
-describe("a hung git under the arbiter store (#2891)", () => {
-	const { HOOK_GIT_TIMEOUT_MS } = createRequire(__filename)("./lib/git.js") as {
-		HOOK_GIT_TIMEOUT_MS: number;
-	};
-
-	it(
-		"fails the sweep check open on a hung blob read, overrunning once, the log naming it",
-		() => {
-			/* Three neighbour claims whose pins the tree still holds: unlatched,
-			 * each would pay its own ceiling, 9 s in all. */
-			const claimed = ["a.md", "b.md", "c.md"];
-			fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
-			for (const f of claimed)
-				fs.writeFileSync(path.join(shared, "docs", f), "committed\n");
-			git(shared, "add", "-A");
-			git(shared, "commit", "-qm", "seed");
-			for (const f of claimed) {
-				fs.writeFileSync(path.join(shared, "docs", f), "alice's edit\n");
-				neighbour(`docs/${f}`, "Wayfinder 1584");
-			}
-			/* Only the store's HEAD-blob read hangs, each hang tallied; the
-			 * guard's own git answers. It crosses the real timeout, as only a
-			 * real process can be killed past it; the sleep outlives it. */
-			const hung = writeFaultyGit(
-				{ argPrefix: "HEAD:" },
-				{ sleep: 30 },
-				{ under: dir },
-			);
-			const out = emission(
-				'git commit -m "x" -- docs/a.md docs/b.md docs/c.md',
-				"test",
-				{ env: { WFC_GIT: hung.git } },
-			);
-			expect(hung.hits()).toBe(1);
-			expect(JSON.stringify(out)).not.toContain("swept in under your message");
-			expect(failOpenLog()).toContain(
-				`a git read in the arbiter store overran ${HOOK_GIT_TIMEOUT_MS} ms — the mantahostels#1539 sweep check was skipped for this pathspec commit`,
-			);
-		},
-		// One ceiling overrun, two more for the guard's real work.
-		3 * HOOK_GIT_TIMEOUT_MS,
-	);
 });
 
 /*

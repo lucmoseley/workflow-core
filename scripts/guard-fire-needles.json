@@ -240,8 +240,8 @@
 				{
 					"id": "held",
 					"core": "guard-file-claim",
-					"kind": "deny",
-					"text": ["is held by session", "which is still running."]
+					"kind": "warn",
+					"text": ["is also held by session", "merge conflict"]
 				},
 				{
 					"id": "whole-file-claim",
@@ -283,7 +283,7 @@
 					"id": "file-claim",
 					"core": "guard-file-claim",
 					"kind": "inject",
-					"text": "A FILE A LIVE SESSION HAS WRITTEN IS TAKEN."
+					"text": "A FILE A LIVE SESSION HAS WRITTEN IS CLAIMED."
 				},
 				{
 					"id": "claim-release",
@@ -296,12 +296,6 @@
 					"core": "guard-file-claim",
 					"kind": "inject",
 					"text": "NOTHING REFUSES A BASH-ROUTE WRITE TO A CLAIMED FILE, ON EITHER TIER."
-				},
-				{
-					"id": "denied-edit-debt",
-					"core": "guard-file-claim",
-					"kind": "inject",
-					"text": "A DENIED EDIT IS REGISTERED AS A DEBT, AND THE ENTRY IS COMPLETED BY THE"
 				},
 				{
 					"id": "script-self-claim",
@@ -830,12 +824,6 @@
 					"text": "This commit names no pathspec, so it will take everything in the index"
 				},
 				{
-					"id": "sweep-warn",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "so their work would be swept in under your message — that is mantahostels#1539."
-				},
-				{
 					"id": "untracked-pathspec",
 					"core": "guard-commit-form",
 					"kind": "warn",
@@ -1101,13 +1089,6 @@
 					"kind": "inject",
 					"routes": ["hook"],
 					"text": "RECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL."
-				},
-				{
-					"id": "pull-fast-forward-landing",
-					"core": "guard-pull-form",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "WITH `landing` BY FAST-FORWARD OR NOT AT ALL."
 				},
 				{
 					"id": "main-rewind",
@@ -1931,17 +1912,6 @@
 				}
 			]
 		},
-		"C2": {
-			"span": "The denial writes the stub itself; finish it with `… debt own …`",
-			"printedBy": "session-arbiter.js buildDenyReason (claim-guard deny)",
-			"route": "hook",
-			"needles": [
-				{
-					"id": "debt-own",
-					"text": "Complete that same stub with the issue that now owns the work"
-				}
-			]
-		},
 		"C3": {
 			"span": "Release refuses a path another session holds, one that is still dirty, …",
 			"printedBy": "session-arbiter.js release refusals",
@@ -1996,17 +1966,6 @@
 				{
 					"id": "residual",
 					"text": "a script dirty under NO claim is invisible here"
-				}
-			]
-		},
-		"C6": {
-			"span": "A clean `git status` does not mean free (mantahostels#66: a file reads clean …)",
-			"printedBy": "session-arbiter.js buildDenyReason (claim-guard deny)",
-			"route": "hook",
-			"needles": [
-				{
-					"id": "clean-status",
-					"text": "A clean `git status` alone does not mean this file is free"
 				}
 			]
 		},

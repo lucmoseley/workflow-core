@@ -218,29 +218,42 @@ function priceSessions(seat, lookup) {
 }
 
 /**
- * The key's sessions the listing holds running, each at its ledger row's spend.
+ * The key's sessions the listing holds running.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
- * @param {LedgerEntry[]} ledger
  * @param {() => import("./agent-liveness.js").Listing} readAgents
- * @returns {RunningRun[]}
+ * @returns {string[]}
  * @throws where the listing cannot be read: a key's running sessions must not
  *   read as none
  */
-function readRunning(seat, lookup, ledger, readAgents) {
+function readRunning(seat, lookup, readAgents) {
 	const listing = readAgents();
 	if (listing.why !== undefined) throw new Error(listing.why);
-	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
 	return listing.agents
 		.filter(
 			(a) =>
 				!isTerminalAgent(a) &&
 				lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar === seat.keyVar,
 		)
-		.map((a) => ({
-			sessionId: a.sessionId,
-			spentUsd: spent.get(a.sessionId) ?? null,
-		}));
+		.map((a) => a.sessionId);
+}
+
+/**
+ * Running sessions, each at its ledger row's spend and its chain share (#4369).
+ * @param {string[]} sessionIds
+ * @param {LedgerEntry[]} ledger
+ * @param {LedgerEntry[]} chainPriced the ledger, its chain members at their
+ *   shares
+ * @returns {RunningRun[]}
+ */
+function priceRunning(sessionIds, ledger, chainPriced) {
+	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+	const share = new Map(chainPriced.map((e) => [e.sessionId, e.costUsd]));
+	return sessionIds.map((sessionId) => ({
+		sessionId,
+		spentUsd: spent.get(sessionId) ?? null,
+		shareUsd: share.get(sessionId),
+	}));
 }
 
 /**
@@ -265,10 +278,12 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
-		running = readRunning(seat, lookup, ledger, readAgents);
-		// A running session's remainder grows from its own spend, so only the
-		// settled rows take a copy's chain share (#4208).
 		settled = settleChainsOnce(ledger);
+		running = priceRunning(
+			readRunning(seat, lookup, readAgents),
+			ledger,
+			settled,
+		);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
@@ -379,31 +394,42 @@ const readListedChainUsd = (lookup, root, listed) =>
  * @returns {[LedgerEntry, number][]}
  */
 function sharedOf(lookup, rows, files) {
+	return [...groupByChain(lookup, rows)].flatMap(([root, members]) =>
+		members.length < 2 ? [] : sharedInChain(lookup, root, members, files),
+	);
+}
+
+/**
+ * `sharedOf` for one chain, its members in chain order.
+ * @param {OverflowLookup} lookup
+ * @param {string} root
+ * @param {LedgerEntry[]} members
+ * @param {Map<string, string>} files
+ * @returns {[LedgerEntry, number][]}
+ */
+function sharedInChain(lookup, root, members, files) {
 	/** @type {[LedgerEntry, number][]} */
 	const shared = [];
-	for (const [root, members] of groupByChain(lookup, rows)) {
-		if (members.length < 2) continue;
-		/** @type {string[]} */
-		const listed = [];
-		let before = 0;
-		let everyEarlierListed = true;
-		for (const row of members) {
-			const file = files.get(row.sessionId);
-			if (file === undefined) {
-				everyEarlierListed = false;
-				continue;
-			}
-			listed.push(file);
-			const after = readListedChainUsd(lookup, root, listed);
-			if (row.sessionId !== root)
-				shared.push([
-					row,
-					everyEarlierListed || row.sharedUsd === undefined
-						? row.costUsd - (after - before)
-						: row.sharedUsd,
-				]);
-			before = after;
+	/** @type {string[]} */
+	const listed = [];
+	let before = 0;
+	let everyEarlierListed = true;
+	for (const row of members) {
+		const file = files.get(row.sessionId);
+		if (file === undefined) {
+			everyEarlierListed = false;
+			continue;
 		}
+		listed.push(file);
+		const after = readListedChainUsd(lookup, root, listed);
+		if (row.sessionId !== root)
+			shared.push([
+				row,
+				everyEarlierListed || row.sharedUsd === undefined
+					? row.costUsd - (after - before)
+					: row.sharedUsd,
+			]);
+		before = after;
 	}
 	return shared;
 }
