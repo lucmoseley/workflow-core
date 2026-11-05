@@ -750,12 +750,10 @@ const EXEMPT = [SCRATCH_DIR];
  * that is a linked worktree of the host, else the host. A hook runs in the
  * session's directory, so this is the tree the session writes. A claim's key is
  * spelt from it and every read of a claimed file's bytes — its content pin, its
- * pre-claim blob, its dirt — runs in it, so two sessions in two worktrees key
- * one file alike and contend, and each is judged on its own copy. The stores
+ * pre-claim blob, its dirt — runs in it. The stores
  * themselves stay on the host (stateDir), where every session reads them.
  *
- * `lib/host-root.js`'s `worktreeRoot` answers it, the reader a test run uses
- * for the same question, under gitBound's ceiling; an overrun answers the
+ * `lib/host-root.js`'s `worktreeRoot` answers it, under gitBound's ceiling; an overrun answers the
  * host. Memoised per working directory and host, an overrun answer aside:
  * the suite chdirs between trees inside one process.
  */
@@ -777,9 +775,7 @@ function treeRoot() {
 
 /**
  * The key a path is claimed under: relative to the session's tree, a relative
- * path resolved against it; null for a path outside that tree — a file of the
- * main checkout or of a neighbour's worktree, written from a worktree, is no
- * file this session's copy holds.
+ * path resolved against it; null for a path outside that tree.
  * @param {string} filePath
  */
 function claimKey(filePath) {
