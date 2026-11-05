@@ -84,7 +84,10 @@
  *    the `guard-npm-install` core deny a benign command whose prose named an install.
  *  - The tier test in addTarget only saves the store a read: claim-warning.js's
  *    `isGuarded` decides, and drift here makes it UNDER-fire — a missed
- *    warning, never a wrong one.
+ *    warning, never a wrong one. Its one exception is scratch under
+ *    `.claude/tmp/`, dropped here by its session-tree spelling, since the
+ *    store spells a worktree's scratch from the host root, where it is
+ *    guarded (#4275).
  *  - The credit half inherits EVERY limit above: a spelling not read, a target
  *    behind a variable, a heredoc body. So it narrows the mantahostels#2778 gap
  *    rather than closing it (mantahostels#296).
@@ -102,6 +105,7 @@
 const { normAbs, parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
+const { isScratch } = require("./scratch-dir.js");
 
 /**
  * lib/code-signal.sh's CODE globs, spelled again here, in TWO LIMBS because
@@ -279,7 +283,7 @@ function addTarget(at, mode, out) {
 		out.deleted.push(at.rel);
 		return;
 	}
-	if (TIER1.test(at.rel)) out.targets.push(at.abs);
+	if (TIER1.test(at.rel) && !isScratch(at.rel)) out.targets.push(at.abs);
 	if (mode === "candidate") {
 		if (/^[A-Za-z0-9._@+/-]+$/.test(at.rel) && /[./]/.test(at.rel))
 			out.select.push(at.rel);

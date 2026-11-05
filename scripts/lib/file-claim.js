@@ -60,8 +60,10 @@
  * a detect-only tier (mantahostels#287) never warned on; everything further
  * out is left to git (mantahostels#103). ONE HOLE: .claude/tmp/, the sanctioned
  * scratch directory (mantahostels#2089, mantahostels#2103), which
- * arbiter-core.js's EXEMPT list drops from both tiers and this core keeps the
- * claim rules off — throwaway bytes carry no claim to release.
+ * arbiter-core.js's EXEMPT list drops from both tiers — throwaway bytes carry
+ * no claim to release. It is tested in the session's tree BEFORE the arbiter
+ * runs, as the arbiter spells a worktree's scratch from the host root, where
+ * it falls under .claude/ (#4275).
  *
  * THE RULES, in each call's PRIORITY ORDER. What priority means here is
  * SURVIVAL, not importance (mantahostels#2386): the ids arrive in one
@@ -112,6 +114,7 @@ const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { trimEndRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
+const { isScratch } = require("./scratch-dir.js");
 
 /** The anchor's argv share, below Linux's 128 KB single-argument cap. */
 const ANCHOR_MAX = 8000;
@@ -402,9 +405,6 @@ function decide(file, ctx) {
 	/* Read before the arbiter runs, so nothing it does to the path can answer
 	 * for it. An Edit cannot create a file. */
 	const creating = ctx.tool === "Write" && !ctx.exists(file);
-	const answer = arbiterAnswer(file, ctx);
-	if ("decision" in answer) return answer.decision;
-	const { note } = answer;
 	/* The rules follow the path in the session's tree, so a linked worktree's
 	 * write is read by its own spelling there (#4242); the claim itself is the
 	 * arbiter's, on the host. A root spelled with a trailing slash once made
@@ -414,10 +414,13 @@ function decide(file, ctx) {
 	const rel = (
 		file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
 	).replace(/^\.\//, "");
+	if (isScratch(rel)) return null;
+	const answer = arbiterAnswer(file, ctx);
+	if ("decision" in answer) return answer.decision;
+	const { note } = answer;
 	const agentDoc =
 		/^\.(?:claude|agents)\/skills\//.test(rel) ||
 		/(?:^|\/)(?:CLAUDE|AGENTS)\.md$/.test(rel);
-	if (rel.startsWith(".claude/tmp/")) return note ? { context: note } : null;
 	if (/^(?:docs|\.claude)\//.test(rel) || /^(?:CLAUDE|AGENTS)\.md$/.test(rel))
 		return docsRules(
 			rel,

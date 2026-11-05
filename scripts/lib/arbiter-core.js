@@ -23,6 +23,7 @@ const regions = require("./doc-map-regions.js");
 const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
+const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { hostRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
 
@@ -764,7 +765,7 @@ const DETECT_ONLY = ["scripts/"];
  * throwaway. A file destined for `docs/research/` is not throwaway and keeps
  * its own lifecycle (`docs/agents/issue-tracker.md` §Research artefacts).
  */
-const EXEMPT = [".claude/tmp/"];
+const EXEMPT = [SCRATCH_DIR];
 
 /**
  * Repo-relative, or null when the path is outside the repo entirely.
