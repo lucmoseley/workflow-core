@@ -47,7 +47,7 @@ function readCutOver(gitRead) {
  * @param {(name: string) => string} [at] where scripts live: a dispatcher
  *   core passes its `ctx.scriptPath`
  */
-const cutCommand = (at = scriptPath) =>
+const buildCutCommand = (at = scriptPath) =>
 	`\`node ${at("session-checkout.js")} cut <session-name>\``;
 
 /**
@@ -76,11 +76,11 @@ function realOr(p) {
 /**
  * The linked worktrees' directories, each resolved.
  * @param {string} root
- * @param {import("./git.js").GitReader} read run in `root`
+ * @param {(args: string[]) => string} git run in `root`
  */
-function linkedWorktrees(root, read) {
+function linkedWorktrees(root, git) {
 	const home = realOr(root);
-	return must(read, ["worktree", "list", "--porcelain"], root)
+	return git(["worktree", "list", "--porcelain"])
 		.split("\n")
 		.filter((l) => l.startsWith("worktree "))
 		.map((l) => realOr(l.slice("worktree ".length)))
@@ -105,18 +105,18 @@ const isCutOver = (root) =>
 	readCutOver(gitReader(root, GIT_TIMEOUT_MS)) === true;
 
 /**
- * git's output, trimmed; a git that fails or cannot answer throws.
- * @param {import("./git.js").GitReader} read
- * @param {string[]} args
- * @param {string} cwd where `read` runs, for the message
- * @returns {string}
+ * git run in `dir` through `read`, its output trimmed; a git that fails or
+ * cannot answer throws, naming `dir`.
+ * @param {import("./git.js").GitReader} read run in `dir`
+ * @param {string} dir
+ * @returns {(args: string[]) => string}
  */
-function must(read, args, cwd) {
+const throwingGit = (read, dir) => (args) => {
 	const r = read(args, []);
 	if (!r.ok)
-		throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${r.why}`);
+		throw new Error(`git ${args.join(" ")} failed in ${dir}: ${r.why}`);
 	return r.out.trim();
-}
+};
 
 /**
  * @typedef {import("./level-main.js").Blocker} Blocker
@@ -182,26 +182,23 @@ function cutover(root, ports) {
 	if (!already) {
 		const listing = ports.listed();
 		if ("why" in listing) return { status: "unlisted", why: listing.why };
-		const worktrees = linkedWorktrees(root, read);
+		const git = throwingGit(read, root);
+		const worktrees = linkedWorktrees(root, git);
 		const sessions = listing.agents
 			.filter((a) => a.cwd && standsIn(a.cwd, root, worktrees))
 			.map((a) => a.name || a.sessionId);
 		if (sessions.length > 0) return { status: "occupied", sessions };
-		must(read, ["fetch", "--quiet", "origin", "landing"], root);
-		const local = must(
-			read,
-			[
-				"rev-list",
-				"--right-only",
-				"--cherry-pick",
-				`refs/remotes/origin/landing...${BRANCH}`,
-			],
-			root,
-		)
+		git(["fetch", "--quiet", "origin", "landing"]);
+		const local = git([
+			"rev-list",
+			"--right-only",
+			"--cherry-pick",
+			`refs/remotes/origin/landing...${BRANCH}`,
+		])
 			.split("\n")
 			.filter(Boolean);
 		if (local.length > 0) {
-			const tip = must(read, ["rev-parse", BRANCH], root).slice(0, SHORT_SHA);
+			const tip = git(["rev-parse", BRANCH]).slice(0, SHORT_SHA);
 			const { dir } = ports.cut(root, `cutover-main-${tip}`);
 			const unmerged = mergeMain(ports.gitIn(dir));
 			if (unmerged !== null)
@@ -209,7 +206,7 @@ function cutover(root, ports) {
 			const { head, lander } = ports.land(dir);
 			landed = { count: local.length, head, lander };
 		}
-		must(read, ["branch", "--unset-upstream", BRANCH], root);
+		git(["branch", "--unset-upstream", BRANCH]);
 	}
 	return {
 		status: "cut-over",
@@ -275,7 +272,7 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 }
 
 module.exports = {
-	cutCommand,
+	buildCutCommand,
 	cutover,
 	isCutOver,
 	landingCutOver,

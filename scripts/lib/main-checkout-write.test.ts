@@ -7,7 +7,7 @@
  * stores stay writable. Driven through runCore on the testkit's split
  * checkout, so the dispatcher's root and tree come from a real worktree pair.
  *
- * Loosen it and a session's edit lands as dirt in the main checkout, which
+ * Loosen it and a session's edit lands uncommitted in the main checkout, which
  * the levelling fast-forward then refuses on.
  */
 

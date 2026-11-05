@@ -64,7 +64,7 @@ const { runStartLander } = require("./lander-start.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
-const { cutCommand } = require("./cutover.js");
+const { buildCutCommand } = require("./cutover.js");
 const {
 	readJobCwds,
 	readLinkedWorktrees,
@@ -415,7 +415,7 @@ function startLanderFor(root, dir) {
 function refuseUnlandable(dir, root) {
 	if (dir === root)
 		throw new CheckoutError(
-			`the main checkout is never landed from — land from your session worktree, or cut one with ${cutCommand()}`,
+			`the main checkout is never landed from — land from your session worktree, or cut one with ${buildCutCommand()}`,
 		);
 	if (!moduleOn("landing", { root }))
 		throw new CheckoutError(

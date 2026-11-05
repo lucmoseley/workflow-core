@@ -143,7 +143,7 @@
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
-const { cutCommand, landingCutOver } = require("./cutover.js");
+const { buildCutCommand, landingCutOver } = require("./cutover.js");
 const { LANDING_REF, VERIFIED_REF } = require("./landing-refs.js");
 const { ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
@@ -256,7 +256,7 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
 	ctx.moduleOn("landing")
-		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${cutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${LANDING_REF}\` and pushes.`
+		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${LANDING_REF}\` and pushes.`
 		: ruleOrFallback(
 				ctx,
 				"pull-fast-forward",

@@ -20,7 +20,6 @@
  * has.
  */
 
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
@@ -82,6 +81,7 @@ const {
 const {
 	buildCheckoutEnv,
 	discoverRepos,
+	startDetachedIn,
 	homeDir,
 	isOptedOut,
 	readExclusionWhy,
@@ -419,21 +419,9 @@ function runReview(lastRunOn, now) {
  * @param {string} [root]
  */
 function startDetached(label, args, root = REVIEW_ROOT) {
-	/** @param {unknown} err */
-	const notStarted = (err) =>
-		log(`${label}: not started (${buildErrorText(err)})`);
-	try {
-		const child = spawn(process.execPath, args, {
-			cwd: root,
-			env: buildCheckoutEnv(root),
-			detached: true,
-			stdio: ["ignore", "ignore", "inherit"],
-		});
-		child.on("error", notStarted);
-		child.unref();
-	} catch (err) {
-		notStarted(err);
-	}
+	startDetachedIn(root, args, (err) =>
+		log(`${label}: not started (${buildErrorText(err)})`),
+	);
 }
 
 /**

@@ -27,7 +27,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { cutCommand, readCutOver } = require("./cutover.js");
+const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
 const { absolute } = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
@@ -160,7 +160,7 @@ function route(w, ctx) {
 	/* The payload's cwd, not the session's launch directory: a session cut
 	 * into a worktree that has since `cd`'d into the main checkout lands here
 	 * too, so the text sends it to a worktree it may already have. */
-	return `This session's working directory is the main checkout. \`cd\` into your own worktree under ${path.join(ctx.root, ".claude", "worktrees")}/ where you have one; where you have none, cut one with ${cutCommand(ctx.scriptPath)}, which prints its path. Work and commit there.`;
+	return `This session's working directory is the main checkout. \`cd\` into your own worktree under ${path.join(ctx.root, ".claude", "worktrees")}/ where you have one; where you have none, cut one with ${buildCutCommand(ctx.scriptPath)}, which prints its path. Work and commit there.`;
 }
 
 /**
@@ -183,7 +183,7 @@ function decide(subject, ctx) {
 			"rel" in w
 				? `This writes ${w.rel} in the main checkout`
 				: "This git command writes the main checkout's index, HEAD or files";
-		const text = `${what}: @CMD@\n\nThe main checkout takes no edits or commits: its \`main\` follows \`origin/main\` by the levelling step's fast-forward alone, and any edit there is dirt that refuses it (#4229). ${route(w, ctx)} Gitignored stores under it stay writable.`;
+		const text = `${what}: @CMD@\n\nThe main checkout takes no edits or commits: its \`main\` follows \`origin/main\` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229). ${route(w, ctx)} Gitignored stores under it stay writable.`;
 		return {
 			deny: denyText(ctx, "rel" in w ? subject : w.git, text),
 		};

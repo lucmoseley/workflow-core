@@ -173,6 +173,11 @@ it("leaves the mark where merging main's commits conflicts, naming the files", (
 	const r = cutover(main, ports());
 
 	expect(r).toMatchObject({ status: "unmerged", local: 1, files: ["a.md"] });
+	/* git merge says why on stdout, its stderr empty. */
+	expect(r).toHaveProperty(
+		"why",
+		expect.stringContaining("CONFLICT (content)"),
+	);
 	expect(isCutOver(main)).toBe(false);
 	expect(render(r)).toContain("session-checkout.js land");
 });

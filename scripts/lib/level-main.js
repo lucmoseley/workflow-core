@@ -31,7 +31,7 @@
  * memory of two. The holder sweeps the staging directory a killed pass left.
  */
 
-const { spawn, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -43,7 +43,7 @@ const {
 } = require("./git.js");
 const { isCutOver } = require("./cutover.js");
 const { pidLock } = require("./pid-lock.js");
-const { buildCheckoutEnv } = require("./refill-repos.js");
+const { startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
@@ -490,26 +490,15 @@ function buildReport(root, o, { now, quiet }) {
  * @param {(err: unknown) => void} notStarted
  */
 function startLevelling(root, notStarted) {
-	try {
-		const child = spawn(
-			process.execPath,
-			[
-				process.env.WFC_LEVEL_MAIN_SCRIPT ||
-					path.join(__dirname, "..", "level-main.js"),
-				"--quiet",
-			],
-			{
-				cwd: root,
-				env: buildCheckoutEnv(root),
-				detached: true,
-				stdio: ["ignore", "ignore", "inherit"],
-			},
-		);
-		child.on("error", notStarted);
-		child.unref();
-	} catch (err) {
-		notStarted(err);
-	}
+	startDetachedIn(
+		root,
+		[
+			process.env.WFC_LEVEL_MAIN_SCRIPT ||
+				path.join(__dirname, "..", "level-main.js"),
+			"--quiet",
+		],
+		notStarted,
+	);
 }
 
 /**
