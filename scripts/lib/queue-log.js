@@ -23,18 +23,31 @@ const QUEUE_LOG_RETAIN_MS = 14 * DAY_MS;
 const queueLogFile = (root) => path.join(markersDir(root), ".queue-log.jsonl");
 
 /**
- * Logs `sha`'s push to `ref` at `at`. A line lost to an unwritable log costs
- * that ref its push time, never the push.
- * @param {string} file
- * @param {{ref: string, sha: string, at: number}} push `ref` in full
+ * @typedef {"enqueue"|"take"|"land"|"drop"} QueueEvent
+ * @typedef {{ref: string, sha: string, at: number}} QueueRow `ref` in full
  *   (`refs/heads/queue/<name>`), `at` in ms
  */
-const logEnqueue = (file, { ref, sha, at }) =>
+
+/**
+ * Logs `event` for `ref` at `sha`. A line lost to an unwritable log costs
+ * that ref its times, never the push or the landing.
+ * @param {string} file
+ * @param {QueueEvent} event
+ * @param {QueueRow} row
+ * @returns {boolean} whether the line was written
+ */
+const logQueueEvent = (file, event, { ref, sha, at }) =>
 	appendRetained(
 		file,
-		{ at: new Date(at).toISOString(), event: "enqueue", ref, sha },
+		{ at: new Date(at).toISOString(), event, ref, sha },
 		QUEUE_LOG_RETAIN_MS,
 	);
+
+/**
+ * @param {string} file
+ * @param {QueueRow} push
+ */
+const logEnqueue = (file, push) => logQueueEvent(file, "enqueue", push);
 
 /**
  * Each ref's push time at a sha, in ms, from the log's enqueue rows; null
@@ -56,4 +69,9 @@ function readEnqueueTimes(file) {
 	return (ref, sha) => times.get(`${ref} ${sha}`) ?? null;
 }
 
-module.exports = { logEnqueue, queueLogFile, readEnqueueTimes };
+module.exports = {
+	logEnqueue,
+	logQueueEvent,
+	queueLogFile,
+	readEnqueueTimes,
+};
