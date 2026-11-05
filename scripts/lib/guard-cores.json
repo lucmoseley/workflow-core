@@ -22,14 +22,6 @@
 			"tree": "both"
 		},
 		{
-			"name": "guard-stale-script",
-			"core": "stale-script.js",
-			"tools": "Bash",
-			"failure": "open",
-			"tree": "both",
-			"host": "stale-script-host.js"
-		},
-		{
 			"name": "guard-scratch-git",
 			"core": "scratch-git.js",
 			"tools": "Bash",

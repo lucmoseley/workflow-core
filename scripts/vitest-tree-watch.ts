@@ -2,12 +2,11 @@
  * A vitest globalSetup that says whether the tree moved while the suite ran.
  *
  * Why, and what it can and cannot see: `scripts/lib/tree-drift.js`, which owns
- * the policy. In short — mantahostels#273, where one session's suite imported another's
- * half-written source out of the repo-global worktree and went red with a
- * different set of failures each run.
+ * the policy. In short — mantahostels#273, where a suite imported half-written
+ * source and went red with a different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
- * JUSTIFIED: fail-safe — a red caused by a neighbour's half-saved file is otherwise read as your own breakage (mantahostels#273).
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
+ * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
 
@@ -18,11 +17,8 @@ const {
 	readTreeSnapshot,
 	drift,
 	format,
-	formatNeighbourDirty,
-	fromArbiter,
 	endOfRunTreeIdentity,
 } = require("./lib/tree-drift.js");
-const { registryNames } = require("./lib/arbiter-core.js");
 const {
 	markerFrom,
 	record,
@@ -44,13 +40,11 @@ const { readAlreadyRedLines } = require("./lib/already-red.js");
 let treeRoot = process.cwd();
 
 let before: unknown = null;
-let inherited: unknown = null;
 
 export function setup(project?: { config?: { root?: string } }) {
 	const root = project?.config?.root;
 	if (typeof root === "string" && root) treeRoot = root;
 	before = readTreeSnapshot(treeRoot);
-	inherited = fromArbiter(before);
 }
 
 export function teardown() {
@@ -70,12 +64,9 @@ export function runTeardown(rootOverride?: string | null) {
 	const after = readTreeSnapshot(treeRoot);
 	const drifted = drift(before, after);
 
-	// stderr, so these survive a reporter writing the summary to stdout.
-	for (const message of [
-		format(drifted),
-		formatNeighbourDirty(inherited, undefined, registryNames()),
-	])
-		if (message) process.stderr.write(`${message}\n`);
+	// stderr, so it survives a reporter writing the summary to stdout.
+	const moved = format(drifted);
+	if (moved) process.stderr.write(`${moved}\n`);
 
 	/*
 	 * The marker the pre-push hook reads (mantahostels#987). Written here rather than in the
@@ -92,7 +83,6 @@ export function runTeardown(rootOverride?: string | null) {
 	const launch = readLaunch();
 	// A function, so a run with no verdict asks git nothing.
 	const buildMarkerRun = () => ({
-		held: inherited,
 		...report,
 		isolated: launch.isolated,
 		argv: launch.argv,

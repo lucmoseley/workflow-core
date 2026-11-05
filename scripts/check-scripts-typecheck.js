@@ -169,11 +169,11 @@ const survey = (ctx, root) => {
 		try {
 			src = fs.readFileSync(path.join(root, p), "utf8");
 		} catch (e) {
-			/* Usually a neighbour's unstaged delete in the shared tree, not a repo
+			/* Usually an unstaged delete, not a repo
 			 * fault — but git is the reading apparatus, so it is BROKEN either way
 			 * (check.js:16-26), and a partial count read as a verdict is worse. */
 			return ctx.broken(
-				`cannot read tracked file ${p} — often a neighbour's unstaged delete in the shared tree; re-run: ${errMessage(e)}`,
+				`cannot read tracked file ${p} — often an unstaged delete; re-run: ${errMessage(e)}`,
 			);
 		}
 		const { silenced: off, reason } = classify(src);

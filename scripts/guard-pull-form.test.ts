@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
  * The guard-pull-form core of guard-dispatch.js refuses a non-fast-forward
- * reconciliation of the shared `main` (mantahostels#245), a rewind of `main`
- * (#765) and a discard of the shared tree's uncommitted work (#768), and hands
- * the pull rule to a sanctioned reconciliation instead. These are its boundary
+ * reconciliation of the shared `main` (mantahostels#245) and a rewind of
+ * `main` (#765), and hands the pull rule to a sanctioned reconciliation
+ * instead. These are its boundary
  * cases, the dispatcher entry run on it alone: each exit path, each input
  * channel, and each production read crossed once against a real repo. Which
  * command earns which verdict and text is lib/pull-form.test.ts's (#2797);
@@ -14,9 +14,9 @@
  * throwaway repo stands in for the shared tree and a worktree of it for the
  * exempt case.
  *
- * It runs as a core of the `PreToolUse` dispatcher on a git command: loosen it and a merge, rebase, rewind or discard in the
- * shared tree can wipe a neighbour's commits or uncommitted edits; break it
- * and every git command is refused.
+ * It runs as a core of the `PreToolUse` dispatcher on a git command: loosen it and a merge, rebase or rewind in the
+ * shared tree can wipe a neighbour's commits; break it and every git command
+ * is refused.
  */
 
 import { execFileSync } from "node:child_process";
@@ -190,14 +190,6 @@ describe("each production read, crossed once", () => {
 		expect(verdict("git pull --rebase")).toBe("deny");
 	});
 
-	it("reads clean.requireForce from the target tree's config", () => {
-		expect(verdict("git clean -d")).toBe("allow");
-		git(shared, "config", "clean.requireForce", "false");
-		expect(readDenyReason("git clean -d")).toContain(
-			readRuleText("shared-tree-discard"),
-		);
-	});
-
 	it("asks git whether a reset's word is a commit, and which branch is out", () => {
 		fs.writeFileSync(path.join(shared, "b.md"), "b\n");
 		git(shared, "add", "b.md");
@@ -366,9 +358,9 @@ describe("each production read, crossed once", () => {
 	it("the rule id resolves through the session accessor", () => {
 		expect(
 			execFileSync(path.resolve(__dirname, "lib/rule-text.sh"), [
-				"rule:shared-tree-discard",
+				"rule:main-rewind",
 			]).toString(),
-		).toContain(readRuleText("shared-tree-discard"));
+		).toContain(readRuleText("main-rewind"));
 	});
 });
 

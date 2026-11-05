@@ -22,12 +22,13 @@ from inside a script skips the memory gate, which only sees the outer command
 (docs/environment.md §6). `--seat` refuses a driver that is itself a suite,
 such as `pytest`.
 
-## Plant the mutant in a throwaway worktree
+## Plant the mutant in a worktree
 
-**Plant a mutant only in a throwaway worktree, never in the shared tree**
-(`git worktree add --detach <dir> HEAD`). Every other session's git hooks
-load the shared tree's working copy, so a mutant there runs in their gates
-(#4170, #4187). **Unenforced**: no guard detects a mutant in the shared tree.
+**Plant a mutant in your own worktree, never in the main checkout.** Every
+session's hooks load the main checkout's working copy, so a mutant there runs
+in their gates (#4170, #4187). **Enforced** once the main checkout is cut
+over: `scripts/guard-dispatch.js` (its `guard-main-checkout-write` core) refuses the
+write; with the `landing` module off, nothing does.
 
 ## Prove the mutation landed
 
@@ -123,11 +124,11 @@ fixture a deliberately dissimilar body, so git cannot read it as a rename.
   bytecode — the suite then reports a failure against correct code (mantahostels#57, the
   pytest seam where this held after a clean restore).
 
-## Reverse the mutation without clobbering a neighbour
+## Reverse the mutation by an exact edit
 
 **Never restore a mutated file whole from a copy.** When the inverse edit itself
 refuses: a reverse `Edit` failing with `String to replace not found in file`
-means a neighbour changed that same string, so **re-read the file, never fall
+means that string changed since the mutation, so **re-read the file, never fall
 back to a copy** — the copy is what took three edits to `scripts/evidence-audit.py`
 (mantahostels#250). After an exact-string reversal, confirm `git diff <file>` is **empty**.
 

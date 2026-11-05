@@ -2609,9 +2609,8 @@ describe("the injected rule still carries its operative clauses", () => {
 	it.each([
 		["#273", "the incident, without which the rule is a bare assertion"],
 		["globalSetup", "where the two messages come from"],
-		["— GONE", "the marker on a claim nobody will release"],
 		["re-run before believing the result", "the act it asks for"],
-		["a dirty file under no claim at all", "the blind spot"],
+		["saved before the run began", "the blind spot"],
 	])("suite-tree-dirty keeps %s — %s", (clause) => {
 		carries(clause);
 	});

@@ -17,7 +17,6 @@ const regions = require("./doc-map-regions.js");
 const { isListedLive } = require("./agent-liveness.js");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const { buildArbiterCommand } = require("./build-arbiter-command.js");
-const bases = require("./arbiter-bases.js");
 const breaks = require("./arbiter-breaks.js");
 // biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const contentMod = require("./arbiter-content.js");
@@ -545,11 +544,7 @@ function takeLock(rel, me, attempts) {
 	if (taken.verdict !== "claimed" && taken.verdict !== "reentrant")
 		return taken;
 	const clash = conflictingLock(rel, me);
-	if (!clash) {
-		// A fresh claim is this session's first write to the file (#110).
-		if (taken.verdict === "claimed") bases.mintBase(rel, me.sessionId);
-		return taken;
-	}
+	if (!clash) return taken;
 	// Our lock landed first and now has to go back: keeping it would block the
 	// clash's holder in turn and neither claim would ever be released. A
 	// REENTRANT one is left alone — it is a claim this session already had, and

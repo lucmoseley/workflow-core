@@ -52,7 +52,7 @@
 function redReport({ at, command, output, cut }) {
 	return `Your commit's pre-commit type-check ran RED at ${at}, which this gate reports and does not block on: \`${command}\` said
 ${output}${cut ? "\n… cut here; the command prints the rest." : ""}
-In this shared tree an error may be a parallel session's half-written file. Re-run \`${command}\` on a still tree before believing it, and fix any error your work caused: ci.yml's Typecheck step is the gate.`;
+An error may be a file saved while it ran. Re-run \`${command}\` on a still tree before believing it, and fix any error your work caused: ci.yml's Typecheck step is the gate.`;
 }
 
 /**

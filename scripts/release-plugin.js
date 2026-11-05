@@ -16,10 +16,10 @@
  * filed one (#242).
  *
  * HEAD, NEVER THE WORKING TREE. The tree is rendered from `git archive HEAD`,
- * so a neighbour's uncommitted edit in the shared tree cannot ship. And HEAD
- * must be on `origin/main` (lib/landing-refs.js's VERIFIED_REF): with the
- * `landing` module on, the shared tree's `main` tracks `landing`, whose
- * commits the full suite has not yet passed (#2408).
+ * so an uncommitted edit cannot ship. And HEAD must be on `origin/main`
+ * (lib/landing-refs.js's VERIFIED_REF): with the `landing` module on, a
+ * session's HEAD carries `landing` commits the full suite has not yet passed
+ * (#2408).
  *
  * THE RELEASE COMMIT IS A ROOT COMMIT, off every branch, made with plumbing
  * against a throwaway index: nothing on `main` moves and no hook runs. The tag

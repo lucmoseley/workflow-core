@@ -5,10 +5,10 @@
 # SOURCED, NEVER RUN, at the top of every .husky/<hook>, and POSIX sh.
 #
 # Where CLAUDE_PROJECT_DIR shares this repository's git common dir it is
-# kept: the harness sets it to the shared tree for a commit in a linked
+# kept: the harness sets it to the main checkout for a commit in a linked
 # worktree, and the arbiter's state is keyed on that tree. Anything else,
 # unset or unreadable included, becomes the tree the harness would have named:
-# in a linked worktree, the shared tree that owns a common dir called `.git`, so
+# in a linked worktree, the main checkout that owns a common dir called `.git`, so
 # a shell with the variable unset reads the review marker from the store its
 # writer used (#3830); else this working tree's top level. Where there is no top level, a
 # bare repository's push, CLAUDE_PROJECT_DIR is unset.

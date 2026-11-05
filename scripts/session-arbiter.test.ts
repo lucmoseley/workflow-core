@@ -1326,7 +1326,6 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		[["release", "--force", "docs/a.md"]],
 		[["release", "docs/a.md", "--generator"]],
 		[["list", "--all"]],
-		[["stale-check", "--staged"]],
 	])("accepts %j without a refusal or usage text", (args) => {
 		const r = cli(args.map((a) => (a.startsWith("docs/") ? inRepo(a) : a)));
 		expect(r.stderr).not.toMatch(/unknown flag|unexpected argument|usage:/);

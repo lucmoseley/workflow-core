@@ -35,7 +35,6 @@ export const proc = family("proc");
  * A family exports more than the facade did, accepted at mantahostels#1959: reaching past
  * the operation you came for is a review finding.
  */
-export const bases = family("bases");
 export const breaks = family("breaks");
 export const content = family("content");
 export const core = family("core");

@@ -2,7 +2,7 @@
  * Which of a checker's faults THIS COMMIT introduced (mantahostels#1688, mantahostels#1753).
  *
  * A `.husky/pre-commit` gate ran a whole-repo checker and got a failure. That
- * says nothing about who caused it: in this shared working tree `main` itself
+ * says nothing about who caused it: HEAD itself
  * can be red, and a fault a bystander inherited must not refuse their commit.
  *
  * Both arguments are `--json` envelopes from the same checker: the STAGED one

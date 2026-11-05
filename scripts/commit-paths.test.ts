@@ -14,23 +14,21 @@
  *
  * It is the commit route `CLAUDE.md`'s pathspec rule and
  * the guard-commit-form core send every session down: loosen a case and a
- * commit sweeps in a neighbour's work, leaves a new file behind, or names the
- * wrong commit as the session's own.
+ * commit sweeps in work it was not handed, or leaves a new file behind.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
-import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
+import { installLib } from "./lib/lib-install-testkit";
 import {
 	cutPostCommitBlock,
 	plantSequencer,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
-import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -73,12 +71,6 @@ const readHead = () => git("rev-parse", "HEAD").trim();
 const readCommitted = (ref = "HEAD") =>
 	git("show", "--name-status", "--format=%s", ref).replace("\n\n", "\n").trim();
 
-const ceiling = (ms: number) => ({
-	...process.env,
-	WFC_COMMIT_LOCK_CEILING_MS: String(ms),
-});
-/** A guess, unmeasured: reached well inside a test's second, past git's first refusal. */
-const ShortCeilingMs = 300;
 const runWith = (args: string[], env: NodeJS.ProcessEnv) =>
 	runInProcess(SCRIPT, args, { cwd: sb.repo, env });
 /** The outcome log's last line, split on its tabs. */
@@ -114,7 +106,10 @@ describe("refusals — exit 2, nothing written to the index", () => {
 	};
 
 	it("refuses a call with no paths, saying why a bare commit is unsafe", () => {
-		refused(["-m", "x", "--"], /no paths after `--`.*neighbour's staged/s);
+		refused(
+			["-m", "x", "--"],
+			/no paths after `--`.*whatever the index holds/s,
+		);
 		refused(["-m", "x"], /no paths/);
 	});
 
@@ -366,31 +361,6 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		expect(fs.existsSync(path.join(sb.dir, "ran"))).toBe(true);
 	});
 
-	/** Commits `new.md` while the post-commit hook lands a neighbour's commit on top. */
-	const neighbourOnTop = () => {
-		const hook = path.join(hooks, "post-commit");
-		fs.writeFileSync(
-			hook,
-			'#!/bin/sh\ngit update-ref HEAD "$(git commit-tree HEAD^{tree} -p HEAD -m neighbour)"\n',
-		);
-		fs.chmodSync(hook, 0o755);
-		write("new.md");
-		const r = run(["-m", "mine", "--", "new.md"]);
-		expect(r.status).toBe(0);
-		expect(git("log", "-1", "--format=%s").trim()).toBe("neighbour");
-		const mine = git("log", "-1", "--format=%h %s", "HEAD^").trim();
-		expect(r.stdout).toContain(`committed ${mine}\n`);
-	};
-
-	it("names its own commit where a neighbour commits during the post-commit hook (#1161)", () => {
-		neighbourOnTop();
-	});
-
-	it("names its own commit on a branch whose name holds `]`", () => {
-		git("checkout", "-qb", "a]b");
-		neighbourOnTop();
-	});
-
 	it("works the same from a linked worktree", () => {
 		const wt = path.join(sb.dir, "wt");
 		git("worktree", "add", "-q", "-b", "side", wt);
@@ -429,12 +399,12 @@ describe("a hook refusal — exit 3, intent-add left for a safe re-run", () => {
 	});
 });
 
-describe("--patch: your own lines of a shared file, the working tree never written (#801)", () => {
-	/** a.md at HEAD reads `a`; yours adds a line above it, theirs one below. */
-	const shared = () => {
+describe("--patch: some of a file's lines, the working tree never written (#801)", () => {
+	/** a.md at HEAD reads `a`; the patch adds a line above it, and leaves out one below. */
+	const split = () => {
 		write("a.md", "mine\na\ntheirs\n");
 		const diff = git("diff", "HEAD", "-U0", "--", "a.md");
-		// Theirs is the last hunk; cut it.
+		// The left-out line is the last hunk; cut it.
 		const mine = diff.slice(0, diff.lastIndexOf("@@ -1,0"));
 		fs.writeFileSync(path.join(sb.dir, "mine.patch"), mine);
 		return path.join(sb.dir, "mine.patch");
@@ -445,8 +415,8 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 			.readdirSync(path.join(sb.repo, ".git"))
 			.filter((f) => f.startsWith("commit-paths-"));
 
-	it("commits only the patch's hunk, leaves the neighbour's line in the working tree unwritten, and syncs the shared index", () => {
-		const patch = shared();
+	it("commits only the patch's hunk, leaves the other line in the working tree unwritten, and resets the index", () => {
+		const patch = split();
 		const file = path.join(sb.repo, "a.md");
 		const mtime = fs.statSync(file).mtimeMs;
 		const r = run(["-m", "mine", "--patch", patch]);
@@ -490,7 +460,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 	});
 
 	it("adds whole paths after `--`, a new one included, in the same commit", () => {
-		const patch = shared();
+		const patch = split();
 		write("new.md");
 		write("other.md");
 		const r = run(["-m", "both", "--patch", patch, "--", "new.md"]);
@@ -500,7 +470,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 	});
 
 	it("removes a whole path gone from disk that .gitignore now covers (#1960)", () => {
-		const patch = shared();
+		const patch = split();
 		write("types/t.d.ts");
 		git("add", "types/t.d.ts");
 		git("commit", "-qm", "seed types");
@@ -522,7 +492,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 	});
 
 	it("keeps a tracked symlink whose target is gone, which is still on disk", () => {
-		const patch = shared();
+		const patch = split();
 		fs.symlinkSync("target.md", path.join(sb.repo, "link.md"));
 		git("add", "link.md");
 		git("commit", "-qm", "seed link");
@@ -550,7 +520,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 	});
 
 	it("refuses a re-run once the patch has landed, naming the file and leaving HEAD and the index as they were, rather than adding its lines twice", () => {
-		const patch = shared();
+		const patch = split();
 		expect(run(["-m", "mine", "--patch", patch]).status).toBe(0);
 		const tip = readHead();
 		const before = readIndex();
@@ -591,7 +561,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		write("b.md", "b\n");
 		git("add", "b.md");
 		git("commit", "-qm", "seed b");
-		const patch = shared();
+		const patch = split();
 		write("b.md", "b\nmine b\n");
 		fs.appendFileSync(patch, git("diff", "HEAD", "-U0", "--", "b.md"));
 		git("checkout", "--", "a.md", "b.md");
@@ -604,7 +574,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 
 	it("commits a patch cut from a CRLF checkout, whose diff git prints in LF (#4338)", () => {
 		git("config", "core.autocrlf", "true");
-		const patch = shared();
+		const patch = split();
 		write("a.md", "mine\r\na\r\ntheirs\r\n");
 		const r = run(["-m", "mine", "--patch", patch]);
 		expect(r.status).toBe(0);
@@ -729,7 +699,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 	});
 
 	it("refuses a file both in the patch and named whole, and a patch that does not apply, writing neither index", () => {
-		const patch = shared();
+		const patch = split();
 		const tip = readHead();
 		const before = readIndex();
 		let r = run(["-m", "x", "--patch", patch, "--", "a.md"]);
@@ -769,7 +739,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readIndex()).toBe(before);
 	});
 
-	it("commits a rename, resetting both its sides in the shared index", () => {
+	it("commits a rename, resetting both its sides in the index", () => {
 		git("mv", "a.md", "moved.md");
 		const patch = path.join(sb.dir, "mv.patch");
 		fs.writeFileSync(patch, git("diff", "--cached", "-M", "HEAD"));
@@ -780,216 +750,26 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 	});
 
-	it("warns where a staged copy of a patched file conflicts with the commit, which the reset replaces, naming the file and how to restage it", () => {
-		const patch = shared();
+	it("unstages a staged copy of a patched file, which stays in the working tree", () => {
+		const patch = split();
 		write("a.md", "staged\n");
 		git("add", "a.md");
 		write("a.md", "mine\na\ntheirs\n");
 		const r = run(["-m", "mine", "--patch", patch]);
 		expect(r.status).toBe(0);
-		expect(r.stderr).toMatch(
-			/staged copy of a\.md that could not move onto this commit \(its hunks conflict.*restage it from there/s,
-		);
+		expect(r.stderr).not.toMatch(/staged/);
 		expect(git("diff", "--cached", "--name-only")).toBe("");
+		expect(readBytes("a.md").toString()).toBe("mine\na\ntheirs\n");
 	});
 
-	describe("a neighbour's staged hunk in a patched file (#3723)", () => {
-		// Far enough apart that the merge does not read the two hunks as one conflict.
-		const lines = (edit?: (l: string[]) => void) => {
-			const l = Array.from({ length: 12 }, (_, i) => `l${i + 1}`);
-			edit?.(l);
-			return `${l.join("\n")}\n`;
-		};
-		const mine = (l: string[]) => {
-			l[1] = "mine";
-		};
-		const theirs = (l: string[]) => {
-			l[10] = "theirs";
-		};
-		const both = (l: string[]) => {
-			mine(l);
-			theirs(l);
-		};
-		/** Seeds `file`, cuts a patch of `mine` alone, and stages `staged`. */
-		const seed = (file: string, staged: (l: string[]) => void) => {
-			write(file, lines());
-			git("add", file);
-			git("commit", "-qm", "seed");
-			write(file, lines(mine));
-			const patch = path.join(sb.dir, "mine.patch");
-			fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", file));
-			write(file, lines(staged));
-			git("add", file);
-			write(file, lines(both));
-			return patch;
-		};
-
-		it("commits HEAD plus the patch alone and leaves the hunk staged on the new HEAD", () => {
-			const patch = seed("a.md", theirs);
-			const r = run(["-m", "mine", "--patch", patch]);
-			expect(r.status).toBe(0);
-			expect(git("show", "HEAD:a.md")).toBe(lines(mine));
-			expect(git("show", ":a.md")).toBe(lines(both));
-			const cached = git("diff", "--cached", "-U0", "--", "a.md");
-			expect(cached).toMatch(/^-l11\n\+theirs$/m);
-			expect(cached).not.toMatch(/mine|^-l2$/m);
-			expect(r.stderr).toMatch(/a\.md still holds a neighbour's staged hunks/);
-		});
-
-		it("keeps the hunk staged when run from a subdirectory", () => {
-			const patch = seed("sub/a.md", theirs);
-			const r = run(["-m", "mine", "--patch", patch], {
-				cwd: path.join(sb.repo, "sub"),
-			});
-			expect(r.status).toBe(0);
-			expect(git("show", "HEAD:sub/a.md")).toBe(lines(mine));
-			expect(git("diff", "--cached", "-U0", "--", "sub/a.md")).toMatch(
-				/^\+theirs$/m,
-			);
-		});
-
-		it("keeps only the neighbour's hunk where the staged copy holds the patch's too", () => {
-			const patch = seed("a.md", both);
-			const r = run(["-m", "mine", "--patch", patch]);
-			expect(r.status).toBe(0);
-			expect(r.stderr).toMatch(/a\.md still holds a neighbour's staged hunks/);
-			const cached = git("diff", "--cached", "-U0", "--", "a.md");
-			expect(cached).toMatch(/^\+theirs$/m);
-			expect(cached).not.toMatch(/mine/);
-		});
-
-		it("says nothing where the staged copy is the commit's own", () => {
-			const patch = seed("a.md", mine);
-			const r = run(["-m", "mine", "--patch", patch]);
-			expect(r.status).toBe(0);
-			expect(r.stderr).not.toMatch(/staged/);
-			expect(git("diff", "--cached", "--name-only")).toBe("");
-		});
-
-		it("resets the other paths committed while the hunk stays staged", () => {
-			const patch = seed("a.md", theirs);
-			write("own.md", "own\n");
-			expect(run(["-m", "mine", "--patch", patch, "--", "own.md"]).status).toBe(
-				0,
-			);
-			expect(git("show", "HEAD:own.md")).toBe("own\n");
-			expect(git("diff", "--cached", "--name-only")).toBe("a.md\n");
-		});
-
-		it("merges onto a neighbour's commit that lands during the lock wait, staging no reverse of it", () => {
-			const patch = seed("a.md", theirs);
-			const hook = path.join(hooks, "commit-msg");
-			fs.writeFileSync(
-				hook,
-				`#!/bin/sh
-touch .git/index.lock
-(
-	unset GIT_INDEX_FILE
-	start=$(git rev-parse HEAD)
-	while [ "$(git rev-parse HEAD)" = "$start" ]; do sleep 0.05; done
-	tip=$(git rev-parse HEAD)
-	blob=$(git show "$tip:a.md" | sed s/l6/neighbour/ | git hash-object -w --stdin)
-	export GIT_INDEX_FILE=.git/neighbour.index
-	git read-tree "$tip"
-	git update-index --cacheinfo "100644,$blob,a.md"
-	git update-ref HEAD "$(git commit-tree "$(git write-tree)" -p "$tip" -m neighbour)"
-	rm -f .git/index.lock .git/neighbour.index
-) >/dev/null 2>&1 &
-`,
-			);
-			fs.chmodSync(hook, 0o755);
-			expect(run(["-m", "mine", "--patch", patch]).status).toBe(0);
-			expect(git("log", "-1", "--format=%s")).toBe("neighbour\n");
-			const cached = git("diff", "--cached", "-U0", "--", "a.md");
-			expect(cached).toMatch(/^-l11\n\+theirs$/m);
-			expect(cached).not.toMatch(/neighbour|mine/);
-		});
-
-		it("names a rename source's staged copy, which the reset replaces", () => {
-			write("old.md", lines());
-			git("add", "old.md");
-			git("commit", "-qm", "seed");
-			git("mv", "old.md", "moved.md");
-			const patch = path.join(sb.dir, "move.patch");
-			fs.writeFileSync(
-				patch,
-				git(
-					"diff",
-					"--cached",
-					"-M",
-					"-U0",
-					"HEAD",
-					"--",
-					"old.md",
-					"moved.md",
-				),
-			);
-			git("reset", "-q");
-			write("old.md", lines(theirs));
-			git("add", "old.md");
-			const r = run(["-m", "move", "--patch", patch]);
-			expect(r.status).toBe(0);
-			expect(r.stderr).toMatch(/staged copy of old\.md that could not move/);
-			expect(git("diff", "--cached", "--name-only")).toBe("");
-		});
-
-		it("names an unresolved conflict rather than staging one side of it", () => {
-			write("a.md", lines());
-			git("add", "a.md");
-			git("commit", "-qm", "seed");
-			write("a.md", lines(mine));
-			const patch = path.join(sb.dir, "mine.patch");
-			fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md"));
-			const blob = (edit: (l: string[]) => void) =>
-				execFileSync("git", ["hash-object", "-w", "--stdin"], {
-					cwd: sb.repo,
-					encoding: "utf8",
-					input: lines(edit),
-				}).trim();
-			git("rm", "-q", "--cached", "a.md");
-			execFileSync("git", ["update-index", "--index-info"], {
-				cwd: sb.repo,
-				input: `100644 ${git("rev-parse", "HEAD:a.md").trim()} 1\ta.md\n100644 ${blob(theirs)} 3\ta.md\n`,
-			});
-			const r = run(["-m", "mine", "--patch", patch]);
-			expect(r.status).toBe(0);
-			expect(r.stderr).toMatch(
-				/staged copy of a\.md that could not move onto this commit \(it is an unresolved conflict/,
-			);
-			expect(git("diff", "--cached", "--name-only")).toBe("");
-			expect(git("ls-files", "-u")).toBe("");
-		});
-
-		it("says nothing of a moved copy where the index stays locked, giving the reset to run by hand", () => {
-			const patch = seed("a.md", theirs);
-			const hook = path.join(hooks, "commit-msg");
-			fs.writeFileSync(hook, "#!/bin/sh\ntouch .git/index.lock\n");
-			fs.chmodSync(hook, 0o755);
-			const r = runInProcess(SCRIPT, ["-m", "mine", "--patch", patch], {
-				cwd: sb.repo,
-				env: { ...process.env, WFC_COMMIT_LOCK_CEILING_MS: "300" },
-			});
-			expect(r.status).toBe(4);
-			expect(r.stderr).toMatch(
-				/the commit has landed.*git reset -q -- ':\(top,literal\)a\.md'.*staged hunks.*stay in the working tree/s,
-			);
-			expect(r.stderr).not.toMatch(/still holds a neighbour's/);
-			fs.rmSync(path.join(sb.repo, ".git", "index.lock"));
-		});
-	});
-
-	it("exits 4 where the commit landed but the shared index stayed locked, giving the reset to run, saying never to re-run, and still running post-commit", () => {
+	it("exits 4 where the commit landed but the index stayed locked, giving the reset to run, saying never to re-run, and still running post-commit", () => {
 		const hook = path.join(hooks, "commit-msg");
 		fs.writeFileSync(hook, "#!/bin/sh\ntouch .git/index.lock\n");
 		fs.chmodSync(hook, 0o755);
 		const after = path.join(hooks, "post-commit");
 		fs.writeFileSync(after, "#!/bin/sh\necho post-commit ran >&2\n");
 		fs.chmodSync(after, 0o755);
-		const patch = shared();
-		const r = runInProcess(SCRIPT, ["-m", "mine", "--patch", patch], {
-			cwd: sb.repo,
-			env: { ...process.env, WFC_COMMIT_LOCK_CEILING_MS: "300" },
-		});
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(4);
 		expect(git("show", "HEAD:a.md")).toBe("mine\na\n");
 		expect(r.stderr).toMatch(
@@ -1000,7 +780,7 @@ touch .git/index.lock
 	});
 
 	it("refuses --patch given twice, leaving the index as it was", () => {
-		const patch = shared();
+		const patch = split();
 		const before = readIndex();
 		const r = run(["-m", "x", "--patch", patch, "--patch", patch]);
 		expect(r.status).toBe(2);
@@ -1008,14 +788,14 @@ touch .git/index.lock
 		expect(readIndex()).toBe(before);
 	});
 
-	it("runs the hooks against the private index, and a refusal touches neither the shared index nor the tree, leaves no private index and says a re-run is safe", () => {
+	it("runs the hooks against the private index, and a refusal touches neither the index nor the tree, leaves no private index and says a re-run is safe", () => {
 		const hook = path.join(hooks, "pre-commit");
 		fs.writeFileSync(
 			hook,
 			'#!/bin/sh\necho "index=$GIT_INDEX_FILE" >&2\nif [ -f gate-refuses ]; then echo "gate: fix the widget" >&2; exit 1; fi\n',
 		);
 		fs.chmodSync(hook, 0o755);
-		const patch = shared();
+		const patch = split();
 		write("gate-refuses");
 		const before = readIndex();
 		const tip = readHead();
@@ -1041,12 +821,12 @@ touch .git/index.lock
 		fs.chmodSync(hook, 0o755);
 	};
 
-	it("keeps its own message while a neighbour's commit writes the shared COMMIT_EDITMSG under its hooks (#2638)", () => {
+	it("keeps its own message while another commit writes COMMIT_EDITMSG under its hooks (#2638)", () => {
 		hookScript(
 			"commit-msg",
-			'echo "neighbour message" > "$(git rev-parse --git-dir)/COMMIT_EDITMSG"',
+			'echo "other message" > "$(git rev-parse --git-dir)/COMMIT_EDITMSG"',
 		);
-		const r = run(["-m", "mine", "--patch", shared()]);
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(0);
 		expect(readCommitted()).toBe("mine\nM\ta.md");
 		expect(readPrivates()).toEqual([]);
@@ -1055,7 +835,7 @@ touch .git/index.lock
 	it("hands prepare-commit-msg and commit-msg the message file as git does, committing what they leave in it", () => {
 		hookScript("prepare-commit-msg", 'printf "\\nsource=%s\\n" "$2" >> "$1"');
 		hookScript("commit-msg", 'printf "checked  \\n\\n\\n" >> "$1"');
-		const r = run(["-m", "mine", "--patch", shared()]);
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(0);
 		expect(git("log", "-1", "--format=%B")).toBe(
 			"mine\n\nsource=message\nchecked\n\n",
@@ -1066,7 +846,7 @@ touch .git/index.lock
 	it("refuses a message the hooks leave empty, nothing written", () => {
 		hookScript("commit-msg", ': > "$1"');
 		const tip = readHead();
-		const r = run(["-m", "mine", "--patch", shared()]);
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(
 			/the prepare-commit-msg or commit-msg hook left the message empty.*Read what that hook printed above\. Nothing written\./,
@@ -1077,7 +857,7 @@ touch .git/index.lock
 	it("refuses a pre-commit that leaves the index matching HEAD, nothing written", () => {
 		hookScript("pre-commit", "git read-tree HEAD");
 		const tip = readHead();
-		const r = run(["-m", "mine", "--patch", shared()]);
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(
 			/pre-commit hook left the index matching HEAD, so there is nothing to commit\. Read what the hook printed above/,
@@ -1088,7 +868,7 @@ touch .git/index.lock
 	it("strips comment lines where commit.cleanup is strip, as git commit -m does", () => {
 		git("config", "commit.cleanup", "strip");
 		hookScript("commit-msg", 'echo "# a comment" >> "$1"');
-		expect(run(["-m", "mine", "--patch", shared()]).status).toBe(0);
+		expect(run(["-m", "mine", "--patch", split()]).status).toBe(0);
 		expect(git("log", "-1", "--format=%B")).toBe("mine\n\n");
 	});
 
@@ -1096,7 +876,7 @@ touch .git/index.lock
 		git("config", "commit.gpgSign", "true");
 		git("config", "gpg.program", "false");
 		const tip = readHead();
-		const r = run(["-m", "mine", "--patch", shared()]);
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(/git or a hook refused the commit/);
 		expect(readHead()).toBe(tip);
@@ -1108,7 +888,7 @@ touch .git/index.lock
 			`${readHead()}\n`,
 		);
 		const before = readIndex();
-		const r = run(["-m", "mine", "--patch", shared()]);
+		const r = run(["-m", "mine", "--patch", split()]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
 			/MERGE_HEAD is set: a merge, cherry-pick or revert is in progress.*Finish or abort it first\. Nothing written\./,
@@ -1116,85 +896,55 @@ touch .git/index.lock
 		expect(readIndex()).toBe(before);
 	});
 
-	/**
-	 * A pre-commit that lands a neighbour's commit, `change` run against a
-	 * scratch index of HEAD — on the first run only, or on every one with
-	 * `always` — so the --patch commit's ref update meets a moved HEAD.
-	 */
-	const neighbourRaces = (change: string, always = false) => {
-		const mark = path.join(sb.dir, "raced");
-		hookScript(
-			"pre-commit",
-			[
-				`if ${always} || [ ! -f ${shellQuote(mark)} ]; then`,
-				`  : > ${shellQuote(mark)}`,
-				`  export GIT_INDEX_FILE=${shellQuote(path.join(sb.dir, "neighbour.index"))}`,
-				"  git read-tree HEAD",
-				`  ${change}`,
-				'  git update-ref HEAD "$(git commit-tree "$(git write-tree)" -p HEAD -m neighbour)"',
-				// As a neighbour's commit leaves the shared index: matching its HEAD.
-				"  env -u GIT_INDEX_FILE git reset -q",
-				"fi",
-			].join("\n"),
-		);
-	};
-	// commit-paths has no clock seam, so the give-up is reached on real time
-	// through the ceiling override. Wide: a race clears in one retry, its hooks
-	// a fraction of a second. Short: spent by the first retry's backoff alone.
-	const WideCeilingMs = 60_000;
-
-	it("rebuilds on the new HEAD and commits there, where a neighbour's commit moves HEAD while the hooks run (#3280)", () => {
+	it("refuses, exit 3, where another commit moves HEAD while the hooks run, the ref update naming the HEAD the index was built on", () => {
 		write("held.md");
 		git("add", "held.md");
 		git("commit", "-qm", "seed held");
-		neighbourRaces(
-			'git update-index --add --cacheinfo "100644,$(echo edited | git hash-object -w --stdin),held.md"',
+		hookScript(
+			"pre-commit",
+			[
+				`export GIT_INDEX_FILE=${shellQuote(path.join(sb.dir, "other.index"))}`,
+				"git read-tree HEAD",
+				'git update-index --add --cacheinfo "100644,$(echo edited | git hash-object -w --stdin),held.md"',
+				'git update-ref HEAD "$(git commit-tree "$(git write-tree)" -p HEAD -m other)"',
+			].join("\n"),
 		);
-		const r = runWith(
-			["-m", "mine", "--patch", shared()],
-			ceiling(WideCeilingMs),
-		);
+		const r = run(["-m", "mine", "--patch", split()]);
+		expect(r.status).toBe(3);
+		expect(r.stderr).toMatch(/cannot lock ref 'HEAD'/);
+		expect(r.stderr).toContain("git or a hook refused the commit (exit");
 		expect(r.stderr).toContain(
-			"HEAD moved under the commit — a neighbour's commit landed first — so git made none. Waiting up to 60.0s in all, retrying.",
+			"re-running the same command after the fix is safe",
 		);
+		expect(readCommitted()).toBe("other\nM\theld.md");
+		expect(readPrivates()).toEqual([]);
+		expect(readLastOutcome()?.[1]).toBe("git-refused");
+	});
+});
+
+describe("an adopter's plugin copy", () => {
+	it("runs as an adopter's plugin copy with Node alone, no node_modules anywhere above it (#587)", () => {
+		const plugin = path.join(sb.dir, "plugin", "scripts");
+		installLib(path.join(plugin, "lib"), {
+			keep: (f) => /\.(js|json)$/.test(f),
+		});
+		fs.copyFileSync(
+			path.join(__dirname, "commit-paths.js"),
+			path.join(plugin, "commit-paths.js"),
+		);
+		for (let d = plugin; d !== path.dirname(d); d = path.dirname(d))
+			expect(fs.existsSync(path.join(d, "node_modules"))).toBe(false);
+
+		write("a.md", "edited\n");
+		const { NODE_PATH: _, ...env } = process.env;
+		const r = spawnSync(
+			"node",
+			[path.join(plugin, "commit-paths.js"), "-m", "plugin", "--", "a.md"],
+			{ cwd: sb.repo, env, encoding: "utf8" },
+		);
+		expect(r.stderr).not.toContain("Cannot find module");
 		expect(r.status).toBe(0);
-		expect(readCommitted()).toBe("mine\nM\ta.md");
-		expect(readCommitted("HEAD~1")).toBe("neighbour\nM\theld.md");
-		expect(git("show", "HEAD:a.md")).toBe("mine\na\n");
-		expect(git("diff", "--cached", "--name-only")).toBe("");
-		expect(readPrivates()).toEqual([]);
-		expect(readLastOutcome()?.[1]).toBe("committed");
-	});
-
-	it("refuses, exit 2, where the patch no longer applies on the HEAD a neighbour moved it to", () => {
-		neighbourRaces("git rm -q --cached a.md");
-		const r = runWith(
-			["-m", "mine", "--patch", shared()],
-			ceiling(WideCeilingMs),
-		);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toMatch(
-			/the patch (does not apply to|was not cut against) HEAD.*`git diff HEAD -U0 -- <path>`.*Nothing written\.\n$/s,
-		);
-		expect(readCommitted()).toBe("neighbour\nD\ta.md");
-		expect(readPrivates()).toEqual([]);
-		expect(readLastOutcome()?.[1]).toBe("refused");
-	});
-
-	it("stops at the ceiling where HEAD keeps moving under the hooks", () => {
-		neighbourRaces("true", true);
-		const r = runWith(
-			["-m", "mine", "--patch", shared()],
-			ceiling(ShortCeilingMs),
-		);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("Waiting up to 0.3s in all, retrying.");
-		expect(r.stderr).toContain(
-			"gave up after 0.3s: HEAD kept moving under the commit, so neighbours are committing faster than it can land. Nothing was committed.",
-		);
-		expect(git("show", "HEAD:a.md")).toBe("a\n");
-		expect(readPrivates()).toEqual([]);
-		expect(readLastOutcome()?.[1]).toBe("lock-ceiling");
+		expect(readCommitted()).toBe("plugin\nM\ta.md");
 	});
 });
 
@@ -1203,15 +953,14 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 	const held = ["a.md", "scripts/lib/one.js", "notes.md"];
 
 	// The fixture's post-commit: the real hook's release block, calling the real arbiter.
-	const writeHook = (before = "") => {
+	beforeEach(() => {
 		const hook = path.join(hooks, "post-commit");
 		fs.writeFileSync(
 			hook,
-			`#!/bin/sh\nset -e\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)}\n${before}${cutPostCommitBlock("release_committed_claims")}\nrelease_committed_claims\n`,
+			`#!/bin/sh\nset -e\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)}\n${cutPostCommitBlock("release_committed_claims")}\nrelease_committed_claims\n`,
 		);
 		fs.chmodSync(hook, 0o755);
-	};
-	beforeEach(() => writeHook());
+	});
 
 	const commitHeld = () => {
 		const alice = live(sb, "alice");
@@ -1237,8 +986,8 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 		expectReleased(commitHeld());
 	});
 
-	// The hook ran while the shared index still held the old copies, which read
-	// as dirt nothing could prove a neighbour's (#3565).
+	// The hook ran while the index still held the old copies, which read as
+	// still uncommitted (#3565).
 	it.each([
 		["written from Bash before its claim", true],
 		["claimed after its first write", false],
@@ -1261,37 +1010,6 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 		);
 	});
 
-	// The shared index's reset waits on a neighbour's lock, so a neighbour's commit
-	// can land before the hook runs: as HEAD, it named none of this session's files.
-	it("drops them after a --patch commit a neighbour's commit landed behind before post-commit ran (#3746)", () => {
-		writeHook(
-			`n=$(mktemp -u)
-GIT_INDEX_FILE=$n git read-tree HEAD
-GIT_INDEX_FILE=$n git update-index --add --cacheinfo "100644,$(printf 'n\\n' | git hash-object -w --stdin),neighbour.md"
-git update-ref HEAD "$(git commit-tree "$(GIT_INDEX_FILE=$n git write-tree)" -p HEAD -m "a neighbour's")"
-rm -f "$n"
-`,
-		);
-		const alice = live(sb, "alice");
-		for (const rel of held) {
-			store.acquire(rel, alice);
-			write(rel, "alice's edit\n");
-		}
-		// The Edit tool's record of its write, then a Bash write no hook saw.
-		store.recordContent("a.md", alice);
-		write("a.md", "alice's edit\nand from Bash\n");
-		git("add", "-N", "--", ...held);
-		const patch = path.join(sb.dir, "mine.patch");
-		fs.writeFileSync(patch, git("diff", "--", "notes.md"));
-		git("reset", "-q", "--", ...held);
-		expectReleased(
-			runWith(
-				["-m", "mine", "--patch", patch, "--", "a.md", "scripts/lib/one.js"],
-				{ ...process.env, CLAUDE_CODE_SESSION_ID: "alice" },
-			),
-		);
-	});
-
 	it.each([
 		["HEAD^", "a stopped range left"],
 		["HEAD", "a single pick rewrote"],
@@ -1307,332 +1025,53 @@ rm -f "$n"
 	);
 });
 
-describe("the index lock (#585) — wait, retry, and stop at the ceiling", () => {
-	const lockFile = () => path.join(sb.repo, ".git", "index.lock");
-
-	/**
-	 * The script as a child process, so this test can act while it waits: `onHeld`
-	 * runs once its wait-start line appears.
-	 */
-	const waiter = (args: string[], env: NodeJS.ProcessEnv, onHeld: () => void) =>
-		new Promise<{ status: number | null; stderr: string }>((resolve) => {
-			// spawn-kept: two processes at once.
-			const child = spawn(process.execPath, [SCRIPT, ...args], {
-				cwd: sb.repo,
-				env: { ...env, CLAUDE_PROJECT_DIR: sb.repo },
-			});
-			let stderr = "";
-			child.stderr.on("data", (d) => {
-				const first = !stderr.includes(" is held; ");
-				stderr += d;
-				if (first && stderr.includes(" is held; ")) onHeld();
-			});
-			child.on("close", (status) => resolve({ status, stderr }));
-		});
-
-	/**
-	 * A real `git commit` in the fixture, spawned by this test's process, whose
-	 * pre-commit holds until `release()` — so it keeps the index lock as a
-	 * neighbour's does, for exactly as long as the test needs. Resolves once the
-	 * lock is on disk; `done` settles when the holder exits.
-	 */
-	const holder = async (cwd = sb.repo) => {
-		const released = path.join(sb.dir, "released");
-		const hook = path.join(hooks, "pre-commit");
-		// A 20 s bound, so a failing test cannot leave the holder running.
-		fs.writeFileSync(
-			hook,
-			`#!/bin/sh\n[ -z "$HOLD" ] && exit 0\ni=0\nwhile [ ! -f ${shellQuote(released)} ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done\n`,
-		);
-		fs.chmodSync(hook, 0o755);
-		const at = (...args: string[]) =>
-			execFileSync("git", args, { cwd, encoding: "utf8" });
-		fs.writeFileSync(path.join(cwd, "held.md"), "held.md\n");
-		at("add", "held.md");
-		at("commit", "-qm", "seed held");
-		fs.writeFileSync(path.join(cwd, "held.md"), "edited\n");
-		const lock = path.resolve(
-			cwd,
-			at("rev-parse", "--git-path", "index.lock").trim(),
-		);
-		// The pathspec form, as sessions commit: a plain `git commit` gives the
-		// lock back before its hooks run.
-		const child = spawn("git", ["commit", "-qm", "holder", "--", "held.md"], {
-			cwd,
-			env: { ...process.env, HOLD: "1" },
-			stdio: "ignore",
-		});
-		const done = new Promise((resolve) => child.on("close", resolve));
-		for (let i = 0; i < 200 && !fs.existsSync(lock); i++)
-			await new Promise((r) => setTimeout(r, 10));
-		expect(fs.existsSync(lock)).toBe(true);
-		return {
-			pid: child.pid,
-			done,
-			release: () => fs.writeFileSync(released, ""),
-		};
-	};
-
-	it("waits out a lock met at the intent-add, then commits", async () => {
-		write("new.md");
-		fs.writeFileSync(lockFile(), "");
-		const r = await waiter(
-			["-m", "after wait", "--", "new.md"],
-			ceiling(5000),
-			() => setTimeout(() => fs.rmSync(lockFile()), 200),
-		);
-		expect(r.stderr).toMatch(
-			/index\.lock is held; no live git process in this worktree could be found to name\. Waiting up to 5\.0s in all, retrying\./,
-		);
-		expect(r.status).toBe(0);
-		expect(readCommitted()).toBe("after wait\nA\tnew.md");
-		const [, code, waited] = readLastOutcome() ?? [];
-		expect(code).toBe("committed");
-		expect(Number(waited)).toBeGreaterThanOrEqual(0.2);
-	});
-
-	it("names the lock's git process from a WFC_PROC root, not the real /proc (#3538)", async () => {
-		const fake = makeProcRoot();
-		fake.proc(4242, { comm: "git", argv: "git commit -m fake" });
-		writeCwd(fake.root, "4242", sb.repo);
-		write("new.md");
-		fs.writeFileSync(lockFile(), "");
-		const r = await waiter(
-			["-m", "after wait", "--", "new.md"],
-			{ ...ceiling(5000), WFC_PROC: fake.root },
-			() => setTimeout(() => fs.rmSync(lockFile()), 200),
-		).finally(fake.remove);
-		expect(r.stderr).toContain(
-			"index.lock is held; git pid 4242 is live in this worktree (`git commit -m fake`)",
-		);
-		expect(r.status).toBe(0);
-	});
-
-	it("waits out a neighbour's commit met at the commit step, naming its git process and session", async () => {
-		live(sb, "alice", "Wayfinder 1584");
+describe("git's own refusals — exit 3, relayed", () => {
+	it("passes a held index.lock through, leaving the lock in place", () => {
 		write("a.md", "edited\n");
-		const { pid, done, release } = await holder();
-		const r = await waiter(
-			["-m", "mine", "--", "a.md"],
-			ceiling(5000),
-			release,
-		);
-		await done;
-		expect(r.stderr).toContain(
-			`git pid ${pid} is live in this worktree (\`git commit -qm holder -- held.md\`), under session "Wayfinder 1584"`,
-		);
-		expect(r.status).toBe(0);
-		expect(readCommitted()).toBe("mine\nM\ta.md");
-		expect(readCommitted("HEAD~1")).toBe("holder\nM\theld.md");
-	});
-
-	it("stops at a ceiling set under a second, leaving the lock untouched and naming its age and the removal command", () => {
-		write("new.md");
-		const before = readIndex();
 		const tip = readHead();
-		fs.writeFileSync(lockFile(), "a crashed git's");
-		const mtime = fs.statSync(lockFile()).mtimeMs;
-		const r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
-		expect(r.status).toBe(1);
-		expect(r.stderr).toMatch(
-			/gave up after 0\.3s waiting for .*index\.lock; it is \d+s old, no live git process in this worktree/,
-		);
-		expect(r.stderr).toContain("Nothing was intent-added or committed.");
-		expect(r.stderr).toContain("No git process is running in this worktree");
-		expect(r.stderr).toContain(
-			`rm -f ${shellQuote(fs.realpathSync(lockFile()))}`,
-		);
-		expect(r.stderr).toContain("this command never does");
-		expect(fs.readFileSync(lockFile(), "utf8")).toBe("a crashed git's");
-		expect(fs.statSync(lockFile()).mtimeMs).toBe(mtime);
-		expect(readIndex()).toBe(before);
+		const lock = path.join(sb.repo, ".git", "index.lock");
+		fs.writeFileSync(lock, "");
+		let r: ReturnType<typeof run>;
+		try {
+			r = run(["-m", "x", "--", "a.md"]);
+			expect(fs.existsSync(lock)).toBe(true);
+		} finally {
+			fs.rmSync(lock);
+		}
+		expect(r.status).toBe(3);
+		expect(r.stderr).toMatch(/index\.lock': File exists\./);
+		expect(r.stderr).toContain("git or a hook refused the commit (exit 128)");
 		expect(readHead()).toBe(tip);
-		const [, code, waited] = readLastOutcome() ?? [];
-		expect(code).toBe("lock-ceiling");
-		expect(Number(waited)).toBeGreaterThanOrEqual(0.3);
-		expect(Number(waited)).toBeLessThan(1);
+		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0"]);
 	});
 
-	const commitAgainstHeldLock = (name: string) => {
-		const repo = path.join(sb.dir, name);
-		fs.mkdirSync(repo);
-		initGitRepo(repo, hooks);
-		fs.writeFileSync(path.join(repo, "new.md"), "new\n");
-		const lock = path.join(fs.realpathSync(repo), ".git", "index.lock");
-		fs.writeFileSync(lock, "a crashed git's");
-		const r = runInProcess(SCRIPT, ["-m", "x", "--", "new.md"], {
-			cwd: repo,
-			env: ceiling(ShortCeilingMs),
-		});
-		return { lock, r };
-	};
-
-	it("reads a held lock in a checkout whose path holds a ', and prints a removal a shell can read (#3975)", () => {
-		const { lock, r } = commitAgainstHeldLock("it's");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
-	});
-
-	it("reads a held lock in a checkout whose path holds a newline, and prints a removal for the whole path (#4038)", () => {
-		const { lock, r } = commitAgainstHeldLock("two\nlines");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
-	});
-
-	it("keeps the newline ending a checkout's name, and prints a removal for the whole path (#4038)", () => {
-		const { lock, r } = commitAgainstHeldLock("trail\n");
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
-	});
-
-	it("names only the first lock where the refused commit's output holds two refusals (#4038)", () => {
-		const mark = path.join(sb.dir, "refused");
-		const twice = writeFaultyGit(
-			{ first: "commit" },
-			{
-				script: [
-					`if [ ! -f ${shellQuote(mark)} ]; then`,
-					`  : > ${shellQuote(mark)}`,
-					"  echo \"fatal: Unable to create '/one/index.lock': File exists.\" >&2",
-					"  echo \"fatal: Unable to create '/two/index.lock': File exists.\" >&2",
-					"  exit 128",
-					"fi",
-				].join("\n"),
-			},
-			{ under: sb.dir },
-		);
-		write("new.md");
-		const r = runWith(["-m", "x", "--", "new.md"], {
-			...ceiling(5000),
-			WFC_GIT: twice.git,
-		});
-		expect(r.stderr).toContain("/one/index.lock is held;");
-		expect(r.status).toBe(0);
-	});
-
-	it("at the ceiling with a live holder, names it and prints no removal command", async () => {
-		write("a.md", "edited\n");
-		const { pid, done, release } = await holder();
-		const r = runWith(["-m", "x", "--", "a.md"], ceiling(ShortCeilingMs));
-		release();
-		await done;
-		expect(r.status).toBe(1);
-		expect(r.stderr).toMatch(
-			new RegExp(`it is \\d+s old, git pid ${pid} is live in this worktree `),
-		);
-		expect(r.stderr).toContain("under no session the registry names");
-		expect(r.stderr).not.toContain("rm -f");
-	});
-
-	it.each([
-		["", "nested"],
-		[", its path holding a newline (#4053)", "nested\nwt"],
-	])(
-		"does not count a live git in a worktree nested inside this one, whose index is its own%s",
-		async (_, name) => {
-			const nested = path.join(sb.repo, name);
-			git("worktree", "add", "-q", "-b", "side", nested);
-			const { done, release } = await holder(nested);
-			write("new.md");
-			fs.writeFileSync(lockFile(), "a crashed git's");
-			const r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
-			release();
-			await done;
-			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("no live git process in this worktree");
-			expect(r.stderr).toContain(
-				`rm -f ${shellQuote(fs.realpathSync(lockFile()))}`,
-			);
-		},
-	);
-
-	it("passes a non-lock refusal of the intent-add through as exit 3, saying nothing was intent-added", () => {
+	it("passes a refusal of the intent-add through, saying nothing was intent-added", () => {
 		write("new.md");
 		const before = readIndex();
 		const dotGit = path.join(sb.repo, ".git");
 		fs.chmodSync(dotGit, 0o555);
 		let r: ReturnType<typeof run>;
 		try {
-			r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
+			r = run(["-m", "x", "--", "new.md"]);
 		} finally {
 			fs.chmodSync(dotGit, 0o755);
 		}
 		expect(r.status).toBe(3);
 		expect(r.stderr).toContain("Permission denied");
-		expect(r.stderr).not.toContain(" is held;");
 		expect(r.stderr).toMatch(/nothing was intent-added\. Re-run once/);
 		expect(r.stderr).not.toContain("left in the index");
 		expect(readIndex()).toBe(before);
-		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
+		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0"]);
 	});
 
-	/**
-	 * A `git` at WFC_GIT whose `commit` first commits `held.md` as a
-	 * neighbour would, then refuses as git does when that moves HEAD under it —
-	 * on the first commit only, or on every one with `always`. All else is git's.
-	 */
-	const headRacer = (always = false) => {
-		write("held.md");
-		git("add", "held.md");
-		git("commit", "-qm", "seed held");
-		write("held.md", "edited\n");
-		const mark = path.join(sb.dir, "raced");
-		const racer = writeFaultyGit(
-			{ first: "commit" },
-			{
-				script: [
-					`if ${always} || [ ! -f ${shellQuote(mark)} ]; then`,
-					`  : > ${shellQuote(mark)}`,
-					'  "$REAL_GIT" commit -qm neighbour -- held.md >/dev/null 2>&1',
-					`  echo "fatal: cannot lock ref 'HEAD': is at $("$REAL_GIT" rev-parse HEAD) but expected $("$REAL_GIT" rev-parse HEAD~1)" >&2`,
-					"  exit 128",
-					"fi",
-				].join("\n"),
-			},
-			{ under: sb.dir },
-		);
-		return (ms: number) => ({
-			...ceiling(ms),
-			WFC_GIT: racer.git,
-		});
-	};
-
-	it("waits out a neighbour's commit moving HEAD under the commit, then commits on top of it (#819)", () => {
-		const env = headRacer();
-		write("a.md", "edited\n");
-		const r = runWith(["-m", "mine", "--", "a.md"], env(60_000));
-		expect(r.stderr).toContain(
-			"HEAD moved under the commit — a neighbour's commit landed first — so git made none. Waiting up to 60.0s in all, retrying.",
-		);
-		expect(r.stderr).not.toContain(" is held;");
-		expect(r.status).toBe(0);
-		expect(readCommitted()).toBe("mine\nM\ta.md");
-		expect(readCommitted("HEAD~1")).toBe("neighbour\nM\theld.md");
-		const [, code, waited] = readLastOutcome() ?? [];
-		expect(code).toBe("committed");
-		expect(Number(waited)).toBeGreaterThanOrEqual(0.1);
-	});
-
-	it("stops at the ceiling where HEAD keeps moving, naming no lock to remove", () => {
-		const env = headRacer(true);
-		write("a.md", "edited\n");
-		const r = runWith(["-m", "mine", "--", "a.md"], env(300));
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
-			"gave up after 0.3s: HEAD kept moving under the commit, so neighbours are committing faster than it can land. Nothing was committed.",
-		);
-		expect(r.stderr).not.toContain("rm -f");
-		expect(readLastOutcome()?.[1]).toBe("lock-ceiling");
-	});
-
-	it("passes a stale HEAD.lock through as exit 3, relaying the git error — a `cannot lock ref` that is not HEAD moving", () => {
+	it("passes a stale HEAD.lock through, relaying the git error", () => {
 		write("a.md", "edited\n");
 		const tip = readHead();
 		const headLock = path.join(sb.repo, ".git", "HEAD.lock");
 		fs.writeFileSync(headLock, "");
 		let r: ReturnType<typeof run>;
 		try {
-			r = runWith(["-m", "x", "--", "a.md"], ceiling(ShortCeilingMs));
+			r = run(["-m", "x", "--", "a.md"]);
 		} finally {
 			fs.rmSync(headLock);
 		}
@@ -1640,97 +1079,15 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(r.stderr).toMatch(
 			/fatal: cannot lock ref 'HEAD': Unable to create '.*HEAD\.lock': File exists\./,
 		);
-		expect(r.stderr).not.toContain("HEAD moved");
 		expect(r.stderr).toContain("git or a hook refused the commit (exit 128)");
 		expect(readHead()).toBe(tip);
-		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
+		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0"]);
 	});
 
-	it("jitters the backoff, so a waiter's retries stretch with its draw", async () => {
-		write("a.md", "edited\n");
-		fs.writeFileSync(lockFile(), "");
-		// Halves spec #574's backoff, so each gap's floor below clears the
-		// unjittered nap by 250-500 ms, more than a loaded machine's spawn delay.
-		const ceilingMs = 90_000;
-		/** Commit attempts the waiter must make while the lock is held. */
-		const retries = 4;
-		// The jitter's draw, fixed near its top, so each nap is ~1.5x unjittered.
-		const draw = 0.999;
-		// git's own trace2 events: each attempt's start and exit, seen from
-		// outside the script.
-		const trace = path.join(sb.dir, "a.md.trace2");
-		const readCommits = () => {
-			if (!fs.existsSync(trace)) return [];
-			const events: {
-				event: string;
-				sid: string;
-				time: string;
-				argv?: string[];
-			}[] = fs
-				.readFileSync(trace, "utf8")
-				.split("\n")
-				.filter(Boolean)
-				.map((l) => JSON.parse(l))
-				// A hook's own git calls carry a nested sid.
-				.filter((e: { sid: string }) => !e.sid.includes("/"));
-			const exits = new Map(
-				events.filter((e) => e.event === "exit").map((e) => [e.sid, e.time]),
-			);
-			return events
-				.filter((e) => e.event === "start" && e.argv?.[1] === "commit")
-				.map((e) => ({
-					start: Date.parse(e.time),
-					exit: Date.parse(exits.get(e.sid) ?? ""),
-				}));
-		};
-		const done = waiter(
-			["-m", "a.md", "--", "a.md"],
-			{
-				...ceiling(ceilingMs),
-				WFC_COMMIT_LOCK_JITTER: String(draw),
-				GIT_TRACE2_EVENT: trace,
-			},
-			() => undefined,
-		);
-		// Free the lock once the waiter has made its attempts, not after a fixed
-		// wait, which a loaded machine's slow start-up outlasted (#1185).
-		// Residual: a machine too slow for four attempts in 60 s still fails,
-		// naming the count.
-		const deadline = Date.now() + 60_000;
-		while (readCommits().length < retries && Date.now() < deadline) {
-			await new Promise((r) => setTimeout(r, 25));
-		}
-		const seen = readCommits().length;
-		fs.rmSync(lockFile());
-		const result = await done;
-		// Status first: a crashed waiter's stderr says more than its count.
-		expect(result.status, result.stderr).toBe(0);
-		expect(seen, "attempts when the lock was freed").toBeGreaterThanOrEqual(
-			retries,
-		);
-
-		// Real time, as the script's sleep takes no injected clock. Each gap runs
-		// from one refused attempt's exit to the next one's start, so git's own
-		// run time drops out, and holds a whole nap — load only lengthens it.
-		// Residual: the Math.random fallback behind the override goes untested,
-		// as any assertion on a random draw is the chance failure this test
-		// replaced (#3479).
-		const attempts = readCommits();
-		const scale = ceilingMs / 180_000;
-		// commit-paths.js's FIRST_NAP_MS, doubling to MAX_NAP_MS.
-		for (const [i, nap] of [1000, 2000, 4000].entries()) {
-			const floor = Math.min(nap * scale * (0.5 + draw), 5000 * scale);
-			const gap = attempts[i + 1].start - attempts[i].exit;
-			expect(gap, `the nap before attempt ${i + 2}`).toBeGreaterThanOrEqual(
-				floor,
-			);
-		}
-	});
-
-	it("logs a run that met no lock as waiting 0.0s", () => {
+	it("logs a commit's outcome and its pre-lock seconds", () => {
 		write("new.md");
 		expect(run(["-m", "x", "--", "new.md"]).status).toBe(0);
-		expect(readLastOutcome()?.slice(1)).toEqual(["committed", "0.0", "0.0"]);
+		expect(readLastOutcome()?.slice(1)).toEqual(["committed", "0.0"]);
 	});
 });
 
@@ -1759,12 +1116,12 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 		return r.stdout.trim();
 	};
 
-	it("prints the tree a plain commit then carries — an edit, a new file and a deletion — whatever else the shared index holds", () => {
+	it("prints the tree a plain commit then carries — an edit, a new file and a deletion — whatever else the index holds", () => {
 		write("gone.md");
 		write("staged.md", "old\n");
 		git("add", "gone.md", "staged.md");
 		git("commit", "-qm", "seed");
-		write("staged.md", "a neighbour's staged copy\n");
+		write("staged.md", "a staged copy\n");
 		git("add", "staged.md");
 		write("a.md", "a\nmine\n");
 		write("new.md");

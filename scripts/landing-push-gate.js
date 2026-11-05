@@ -16,9 +16,9 @@
  * branch protection on the remote is the gate that binds (#2414).
  *
  * The module config is read as committed at the pushing tree's HEAD, and the
- * ledger from the canonical checkout: the shared checkout's working copy of
- * the config holds neighbours' half-written edits, one of which could turn the
- * module off for every push (#3128, #3132). LIMIT: a push of a sha other than
+ * ledger from the canonical checkout: a working copy of the config can hold
+ * an unfinished edit, which could turn the module off for the push (#3128,
+ * #3132). LIMIT: a push of a sha other than
  * HEAD (`git push origin other:main`) is judged on HEAD's config, not that
  * sha's.
  *

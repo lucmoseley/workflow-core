@@ -704,20 +704,6 @@ describe(".husky/post-commit's fault-notice block", () => {
 		expect(r.code).toBe(0);
 	}
 
-	it("reports on the commit WFC_COMMITTED_SHA names, whatever HEAD has moved to (#3746)", () => {
-		const repo = hookRepo(
-			"post-commit-notice-named-",
-			'process.stdout.write(process.argv[2] + "\\n");\n',
-		);
-		const mine = repo.git("rev-parse", "HEAD").toString().trim();
-		repo.git("commit", "-q", "--allow-empty", "-m", "a neighbour's");
-
-		const r = runBlock(repo.root, { WFC_COMMITTED_SHA: mine });
-
-		expect(r.out).toBe(`${mine}\n`);
-		expectSurvived(r);
-	});
-
 	it("calls scripts/report-new-shared-faults.js, and CALLS the function it defines", () => {
 		const uncommented = hookText
 			.split("\n")

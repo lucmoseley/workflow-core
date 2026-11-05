@@ -17,7 +17,7 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 
 - Closed issues are corpus, not history — search every tracker in `corpus` before calling something unsourced (`rule:decisions-search-first`).
 
-## The shared working tree
+## Committing and pushing
 
 - [!landing] **A push is your own act, never asked of {{founder}}{{#ci}}; after it, run `{{ci_check}}` once — read it, never rerun it: it judges a commit range, not your sha{{/ci}}.**
 - [landing] **A push to `landing` is your own act, never asked of {{founder}}; after it, run `node scripts/landing-status.js` once — it reads each commit as landed on `main`, queued, or reverted by a later commit. Never write `result:` on the strength of the push alone.**

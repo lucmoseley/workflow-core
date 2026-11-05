@@ -29,7 +29,7 @@
  * WHICH LINES: the new side of each zero-context hunk that adds a line, as one
  * `path:start-end` range. A commit adding no line on a mutable path runs
  * nothing. The run is HEAD plus exactly the commit's changes, in a throwaway
- * worktree (lib/isolated-worktree.js), so a neighbour's unsaved file reaches
+ * worktree (lib/isolated-worktree.js), so an uncommitted file reaches
  * neither the verdict nor the mutants.
  *
  * STRYKER'S OPTIONS: the host's own config, the first the commit's tree holds
@@ -844,7 +844,7 @@ const tail = (output) =>
 /**
  * The first of Stryker's own config names `tree` holds at its root, or null:
  * the run's worktree is that tree, so an untracked config is no more seen
- * there than a neighbour's unsaved edit to a tracked one.
+ * there than an uncommitted edit to a tracked one.
  * @param {string} tree
  */
 function readHostConfig(tree) {

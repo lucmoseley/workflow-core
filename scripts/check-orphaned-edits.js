@@ -8,7 +8,7 @@
  * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json]
  *
  * WHY (#810, the spec; #794 Q2, Q5–Q7, the rulings). An uncommitted edit in the
- * shared tree enters every suite run that reads the shared tree rather than a
+ * main checkout enters every suite run that reads it rather than a
  * worktree at HEAD (#812), and voids every certificate whose read closure it
  * touches (#787).
  *
@@ -268,7 +268,7 @@ function fileOne(o, root) {
 		"",
 		o.worktree
 			? "Its session has ended, so the work lands nowhere until someone commits it. Nothing has been reverted."
-			: "It enters every suite run that reads the shared tree, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
+			: "It enters every suite run that reads the main checkout, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
 		"",
 		"## Decide",
 		"",

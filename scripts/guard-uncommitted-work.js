@@ -17,9 +17,9 @@
  * progress-report half is CLAUDE.md's, and nothing checks it (mantahostels#1555).
  *
  * It BLOCKS where mantahostels#908's push warning only warned. That ruling declined to
- * block on a red that may be a neighbour's half-written file; here the ledger
- * intersection below removes a neighbour's dirt outright, and the remedy is one
- * always-available command.
+ * block on a red that may not be the session's own; here the ledger
+ * intersection below bills only the session's own writes, and the remedy is
+ * one always-available command.
  *
  * IT READS THE OUTGOING MESSAGE ON TWO PATHS: the `waiting:` stand-down below
  * (mantahostels#2567), reached only on a turn with dirt to name, and the
@@ -214,7 +214,7 @@ function refuseUncommitted(payload, sid, tree) {
 	/* ATTRIBUTION (mantahostels#114, mantahostels#1555). null is "the ledger could not be read", never
 	 * "wrote nothing" — and both land on silence, because a change attributable
 	 * to nobody is billed to nobody. Without this filter the guard would order a
-	 * session to commit a live neighbour's half-written file. */
+	 * session to commit a file it never wrote. */
 	const written = store.readWritesBy(sid);
 	if (written === null || written.length === 0) return false;
 

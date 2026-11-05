@@ -8,8 +8,7 @@
  * because .husky/_ is gitignored and a relative path finds no hooks in a
  * linked worktree (mantahostels#344). husky's `h` shim then resolves the hook
  * beside its own directory, the canonical checkout's working copy, so a
- * worktree's commit or push ran a neighbour's half-written hook, or one
- * hundreds of commits behind its own tree. This rewrites that one lookup line
+ * worktree's commit or push ran a hook hundreds of commits from its own tree. This rewrites that one lookup line
  * to the working tree git runs the hook in, falling back to husky's own where
  * git names no tree or that tree carries no such hook.
  *

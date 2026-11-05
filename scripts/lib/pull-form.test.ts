@@ -2,9 +2,8 @@
 /*
  * lib/pull-form.js, the guard-pull-form core (#2797), in process: which
  * commands are refused a non-fast-forward reconciliation of the shared `main`
- * (mantahostels#245, #290), a rewind of `main` (#765) or a wholesale discard
- * of the shared tree's uncommitted work (#768), with what text, and which are
- * handed the pull rule instead. A deny is only defensible while it cannot
+ * (mantahostels#245, #290) or a rewind of `main` (#765), with what text, and
+ * which are handed the pull rule instead. A deny is only defensible while it cannot
  * wedge sanctioned work, so every allow-case below is a shape that would
  * otherwise be a false positive; do not thin them out.
  *
@@ -54,7 +53,6 @@ interface Over {
 	modules?: string[];
 	vars?: Record<string, string>;
 	pullFf?: string;
-	requireForce?: string;
 	/** The checked-out branch; left off, `main`. */
 	branch?: string;
 	/** True: every rule fetch throws, as an empty store does. */
@@ -90,13 +88,8 @@ function harness(over: Over = {}) {
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
 		pullFf: () => over.pullFf ?? "",
-		cleanRequireForce: () => over.requireForce ?? "",
 		currentBranch: () => over.branch ?? "main",
 		isCommit: (_dir: string, w: string) => OBJECTS.includes(w),
-		isTree: (_dir: string, w: string) => OBJECTS.includes(w),
-		topLevel: (dir: string) => (dir.startsWith(SHARED) ? SHARED : dir),
-		showPrefix: (dir: string) =>
-			dir.startsWith(`${SHARED}/`) ? `${dir.slice(SHARED.length + 1)}/` : "",
 		ruleText: (id: string) => {
 			if (over.storeFault) throw new Error(`rule-text: no fragment for ${id}`);
 			return readRuleText(id);
@@ -140,7 +133,6 @@ const handed = (d: Decision) =>
 
 const readPullRule = () => readRuleText("pull-fast-forward");
 const readRewindRule = () => readRuleText("main-rewind");
-const readDiscardRule = () => readRuleText("shared-tree-discard");
 
 const UNRESOLVED_LOG =
 	"could not resolve the working tree for a git pull — the reconciliation allowed unchecked";
@@ -876,6 +868,10 @@ describe("rewinding main is refused (#765)", () => {
 			"resets the shared tree to a commit I cannot read — spell it literally, or use `git reset -- <path>` to unstage",
 		],
 		[
+			"git reset $M HEAD~1",
+			"carries a word I cannot read, which could be a mode that moves the shared `main` to the commit beside it — spell it literally",
+		],
+		[
 			"git update-ref --stdin",
 			"updates refs from a list I cannot read, `main` possibly among them",
 		],
@@ -990,6 +986,11 @@ describe("rewinding main is refused (#765)", () => {
 		["git reset a.md~", "a path ending in ~, its stem no commit"],
 		["git reset", "unstage everything"],
 		["git reset --soft HEAD", "the commit it is already on"],
+		["git reset --hard", "no commit named, so no branch moves"],
+		[
+			"git reset --hard HEAD",
+			"the commit it is already on, discarding only this tree's edits",
+		],
 		["git reset --soft @", "the same, spelled @"],
 		["git reset --soft main", "the branch it is already on"],
 		["git reset --soft refs/heads/main", "the same, spelled whole"],
@@ -1230,10 +1231,6 @@ describe("a ref write reached through a named git directory is judged there (#39
 				"moves the shared `main` to another commit",
 			],
 			[
-				"git --git-dir=/other/.git clean -fd",
-				"deletes every untracked file in the shared tree",
-			],
-			[
 				"GIT_COMMON_DIR=/other/.git git symbolic-ref HEAD refs/heads/side",
 				"points the shared tree's HEAD away from `main`",
 			],
@@ -1381,17 +1378,6 @@ describe("an abbreviated long option reads as git reads it (#3998)", () => {
 	});
 
 	it.each([
-		["git reset --har", "--hard"],
-		["git reset --kee HEAD", "--keep"],
-		["git switch --dis side", "--discard-changes"],
-		["git clean --fo", "--force"],
-		["git clean --i", "--interactive"],
-		["git restore --wor --sta .", "--worktree beside --staged"],
-	])("%s is refused with the discard rule — %s", (command) => {
-		expect(readDenyReason(command)).toContain(readDiscardRule());
-	});
-
-	it.each([
 		["git merge --e side", "--edit in a merge, not rebase's --edit-todo"],
 		["git merge --edit side", "a whole name that begins a longer one"],
 		["git merge --mess --abort side", "--abort is --message's value"],
@@ -1409,8 +1395,6 @@ describe("an abbreviated long option reads as git reads it (#3998)", () => {
 		["git branch --lis main", "--list writes nothing"],
 		["git branch --forc --cont main side", "main is --contains's value"],
 		["git branch --co main", "ambiguous, which git refuses"],
-		["git restore --sta .", "--staged writes only the index"],
-		["git clean --d", "--dry-run deletes nothing"],
 		["git reset --he", "no option, which git refuses"],
 	])("%s passes — %s", (command) => {
 		expect(verdict(command)).not.toBe("deny");
@@ -1444,31 +1428,6 @@ describe("a --no- form clears what it negates, as git's last-one-wins does (#400
 	});
 
 	it.each([
-		["git clean --dry-run --no-dry-run -f", "forced, no dry run left"],
-		["git clean -n --no-dry -f", "the same, abbreviated"],
-		["git clean -f --no-interactive", "-f still stands"],
-		["git clean -i --no-force", "-i still stands"],
-		["git switch -f --no-discard-changes side", "-f still stands"],
-		["git switch --discard-changes --no-force side", "still forced"],
-		["git checkout --no-force -f side", "the last one wins"],
-		["git restore --staged --no-staged --worktree .", "--worktree alone"],
-		[
-			"git restore --pathspec-from-file=f --no-pathspec-from-file .",
-			"no file left, the . overwrites",
-		],
-		["git reset --patch --no-patch --hard", "no patch left, --hard discards"],
-		["git restore --staged --no-staged .", "no --staged left: the tree's own"],
-		["git clean -f --end-of-options . --no-force", "the last is a path"],
-		["git clean -f --end-of-options -n .", "the -n is a path"],
-		[
-			"git stash push --pathspec-from-file=f --no-pathspec-from-file",
-			"no file left, a bare stash",
-		],
-	])("%s is refused with the discard rule — %s", (command) => {
-		expect(readDenyReason(command)).toContain(readDiscardRule());
-	});
-
-	it.each([
 		["git merge --ab --no-ab side", "nothing left to resume, so it merges"],
 		[
 			"git merge --abort --no-abort side",
@@ -1499,15 +1458,6 @@ describe("a --no- form clears what it negates, as git's last-one-wins does (#400
 		["git branch -c --no-copy side main", "no copy left: a create git refuses"],
 		["git branch -m --no-move side main", "no rename left: a create"],
 		["git switch -C main --no-force-create side", "main stays where it is"],
-		["git clean -f --no-force", "git refuses unforced"],
-		["git clean -i --no-interactive", "git refuses unforced"],
-		["git checkout -f --no-force side", "keeps the edits or refuses"],
-		["git switch -f --no-force side", "keeps the edits or refuses"],
-		[
-			"git switch --discard-changes --no-discard-changes side",
-			"keeps the edits or refuses",
-		],
-		["git restore --staged --worktree --no-worktree .", "the index alone"],
 		["git merge --abort --no-quit", "--abort still stands"],
 		["git pull --rebase --no-rebase --ff-only", "fast-forward only"],
 		["git pull -r --rebase=false --ff-only", "fast-forward only"],
@@ -1533,238 +1483,6 @@ describe("a --no- form clears what it negates, as git's last-one-wins does (#400
 	});
 });
 
-/* /repo/sub gives a pathspec somewhere to climb out of. */
-describe("discarding the shared tree's uncommitted work is refused (#768)", () => {
-	it.each([
-		"git reset --hard",
-		"git reset --hard HEAD",
-		"git reset --hard @",
-		"git reset --hard main",
-		"git reset --merge",
-		"git reset --keep",
-		"git reset --soft --hard",
-		"git checkout -- .",
-		"git checkout .",
-		"git checkout HEAD -- .",
-		"git checkout -f",
-		"git checkout --force main",
-		"git switch --discard-changes main",
-		"git restore .",
-		"git restore :/",
-		"git restore ':(top)'",
-		"git -C sub restore ':(top)'",
-		"git restore '*'",
-		"git restore -- ':!a.md'",
-		"git restore --staged --worktree .",
-		"git restore -SW .",
-		"git restore --source=HEAD .",
-		"git restore --pathspec-from-file=list",
-		'git restore -- "$F"',
-		"git clean -f",
-		"git clean -fd",
-		"git clean -xdf",
-		"git clean --force",
-		"git clean -f -- .",
-		"git stash",
-		"git stash push",
-		"git stash -u",
-		"git stash -k",
-		"git stash save",
-		"git stash save wip",
-		"git stash push -m wip",
-		"git stash push -- .",
-		"git -C sub restore ..",
-		"git -C sub restore :/",
-		"npm run lint && git restore .",
-		"git restore :",
-		"git restore '*.ts'",
-		"git restore '**/*'",
-		"git restore ':(glob)**/*'",
-		"git checkout -- '**/*.md'",
-		"git checkout HEAD -- ':!a.md'",
-		"git checkout -f main --",
-		"git checkout --force HEAD --",
-		"git checkout -p",
-		"git restore -p",
-		"git clean -i",
-		'git clean "$X"',
-		"git clean $X",
-		'git switch "$F" main',
-		'git reset "$M" HEAD',
-		"git restore ':/*'",
-		"git restore /repo",
-		"git restore '/repo/*'",
-		"git checkout --pathspec-from-file=list",
-		"git stash push --pathspec-from-file=list",
-		"git stash push --pathspec-from-file",
-		"git stash $V",
-	])("%s is refused with the discard rule", (command) => {
-		expect(readDenyReason(command)).toContain(readDiscardRule());
-	});
-
-	it.each([
-		["git reset --hard", "git restore --staged --worktree -- <your paths>"],
-		["git checkout .", "git checkout -- <your paths>"],
-		["git restore .", "git restore -- <your paths>"],
-		["git clean -fd", "git clean -f -- <your paths>"],
-		["git stash", "git stash push -- <your paths>"],
-	])("the refusal of %s names the per-path form %s", (command, safe) => {
-		const reason = readDenyReason(command);
-		expect(reason).toContain(`Name your own paths instead — \`${safe}\``);
-		expect(reason).toContain(command);
-	});
-
-	it.each([
-		[
-			"git reset --hard",
-			"resets every working file in the shared tree to HEAD",
-			"git restore --staged --worktree -- <your paths>",
-		],
-		[
-			"git checkout .",
-			"overwrites every working file in the shared tree",
-			"git checkout -- <your paths>",
-		],
-		[
-			"git checkout -f",
-			"forces the shared tree onto a branch, dropping every uncommitted edit",
-			"git restore -- <your paths>",
-		],
-		[
-			"git switch --discard-changes main",
-			"forces the shared tree onto a branch, dropping every uncommitted edit",
-			"git restore -- <your paths>",
-		],
-		[
-			"git restore .",
-			"overwrites every working file in the shared tree",
-			"git restore -- <your paths>",
-		],
-		[
-			"git clean -fd",
-			"deletes every untracked file in the shared tree",
-			"git clean -f -- <your paths>",
-		],
-		[
-			"git stash",
-			"stashes every uncommitted edit in the shared tree",
-			"git stash push -- <your paths>",
-		],
-		[
-			"git stash save wip",
-			"stashes every uncommitted edit in the shared tree",
-			"git stash push -- <your paths>",
-		],
-		[
-			"git stash $V",
-			"runs a stash command I cannot read, which could stash every edit in the shared tree",
-			"git stash push -- <your paths>",
-		],
-		[
-			"git clean $X",
-			"carries a word I cannot read, which could be an option or pathspec that discards every edit in the shared tree",
-			"git clean -f -- <your paths>",
-		],
-	])("%s is framed in full", (command, what, safe) => {
-		expect(readDenyReason(command)).toBe(
-			`This ${what}: ${command}\n\nName your own paths instead — \`${safe}\`.\n\n${readDiscardRule()}`,
-		);
-	});
-
-	it("carries the discard fallback where the store cannot give the rule", () => {
-		expect(readDenyReason("git stash", { storeFault: true })).toContain(
-			"Never discard work across the whole shared tree; the rule could not be read from docs/agents/rules/shared-tree-discard.txt. Read that file before doing anything else.",
-		);
-	});
-
-	it.each([
-		"git restore --staged .",
-		"git restore -S .",
-		"git restore -- a.md",
-		"git restore -- a.md ':!b.md'",
-		"git restore ':(exclude)a.md' b.md",
-		"git checkout -- a.md",
-		"git checkout HEAD -- a.md",
-		"git checkout -f -- a.md",
-		"git checkout -f a.md",
-		"git checkout -p a.md",
-		"git checkout main a.md",
-		"git clean -f -- tmp/x",
-		"git clean -n",
-		"git clean -nfd",
-		"git clean --dry-run -f",
-		"git clean -d",
-		"git stash list",
-		"git stash pop",
-		"git stash show -p",
-		"git stash drop",
-		"git stash push -- some/file.ts",
-		"git stash push -m wip -- a.md",
-		"git stash -- a.md",
-		"git stash save --help",
-		"git reset",
-		"git reset --soft",
-		"git -C sub restore .",
-		"git -C sub clean -f",
-		"git restore 'sub/a*'",
-		"git -C sub restore '..*'",
-		"git restore 'sub/*.ts'",
-		"git restore /repo/sub",
-		"git restore /elsewhere/a.md",
-		"git checkout main -- a.md",
-		"git reset HEAD -- a.md",
-		"git restore --help",
-		"git switch main",
-		"echo git clean -fdx",
-	])("%s passes", (command) => {
-		expect(verdict(command)).toBe("allow");
-	});
-
-	it("git clean -d is refused where the repo lifts clean.requireForce, with the shared-tree discard rule", () => {
-		expect(readDenyReason("git clean -d", { requireForce: "false" })).toContain(
-			readDiscardRule(),
-		);
-		expect(verdict("git clean -d", { requireForce: "true" })).toBe("allow");
-	});
-
-	it.each([
-		"git reset --hard",
-		"git checkout .",
-		"git checkout -f",
-		"git restore .",
-		"git clean -xdf",
-		"git stash",
-		"git stash save",
-	])("inside a throwaway worktree %s passes", (command) => {
-		expect(verdict(command, { cwd: LINKED })).toBe("allow");
-	});
-
-	it.each([
-		'git -C "$VAR" reset --hard',
-		'git -C "$VAR" restore .',
-		'git -C "$VAR" clean -f',
-		'git -C "$VAR" clean -d',
-		'git -C "$VAR" stash',
-		'git -C "$VAR" restore -- ../a.md',
-		'git -C "$VAR" restore /abs',
-		'git -C "$VAR" checkout -f main',
-	])(
-		"%s is refused with the shared-tree discard rule: the tree it lands in is unknown",
-		(command) => {
-			expect(readDenyReason(command)).toContain(readDiscardRule());
-		},
-	);
-
-	it('git -C "$VAR" restore -- a.md passes: a named path is safe in any tree', () => {
-		expect(verdict('git -C "$VAR" restore -- a.md')).toBe("allow");
-	});
-
-	it("an unrelated repository is left alone", () => {
-		expect(verdict("git reset --hard", { cwd: ELSEWHERE })).toBe("allow");
-		expect(verdict("git clean -fdx", { cwd: ELSEWHERE })).toBe("allow");
-	});
-});
-
 describe("the walks run in the bash guard's order, the first refusal winning", () => {
 	it("a reset refusal outranks a reconciliation earlier in the command", () => {
 		expect(
@@ -1772,12 +1490,9 @@ describe("the walks run in the bash guard's order, the first refusal winning", (
 		).toContain(readRewindRule());
 	});
 
-	it("a ref write outranks a discard, and a discard a reconciliation", () => {
-		expect(readDenyReason("git restore . && git branch -D main")).toContain(
+	it("a ref write outranks a reconciliation earlier in the command", () => {
+		expect(readDenyReason("git pull --rebase && git branch -D main")).toContain(
 			readRewindRule(),
-		);
-		expect(readDenyReason("git pull --rebase && git restore .")).toContain(
-			readDiscardRule(),
 		);
 	});
 
@@ -1876,21 +1591,27 @@ describe("a subcommand, wrapper and tree are judged as what they reach (#4009)",
 			`git "--git-dir=${SHARED}/.git" symbolic-ref HEAD refs/heads/side`,
 			"a quoted --git-dir",
 		],
-		[`git --work-tree=${SHARED} checkout -- .`, "--work-tree"],
-		[`git --work"-tree"=${SHARED} checkout -- .`, "part quoted"],
+		[`git --work-tree=${SHARED} merge origin/main`, "--work-tree"],
+		[`git --work"-tree"=${SHARED} merge origin/main`, "part quoted"],
 		[
 			`git -"C" ${SHARED} symbolic-ref HEAD refs/heads/side`,
 			"a part-quoted -C",
 		],
-		[`git --work-tree ${SHARED} checkout -- .`, "--work-tree apart"],
-		[`GIT_WORK_TREE=${SHARED} git checkout -- .`, "GIT_WORK_TREE"],
-		[`export GIT_WORK_TREE=${SHARED}; git checkout -- .`, "an exported one"],
+		[`git --work-tree ${SHARED} merge origin/main`, "--work-tree apart"],
+		[`GIT_WORK_TREE=${SHARED} git merge origin/main`, "GIT_WORK_TREE"],
 		[
-			`git --git-dir=/o/.git --work-tree=${SHARED} reset --hard`,
-			"both, a reset",
+			`export GIT_WORK_TREE=${SHARED}; git merge origin/main`,
+			"an exported one",
 		],
-		[`GIT_DIR=/o/.git GIT_WORK_TREE=${SHARED} git clean -fd`, "both, a clean"],
-		['git --work-tree="$W" checkout -- .', "one it cannot read"],
+		[
+			`git --git-dir=/o/.git --work-tree=${SHARED} rebase main`,
+			"both, a rebase",
+		],
+		[
+			`GIT_DIR=/o/.git GIT_WORK_TREE=${SHARED} git pull --rebase`,
+			"both, a pull",
+		],
+		['git --work-tree="$W" merge origin/main', "one it cannot read"],
 	])("refuses from another repo: %s (%s)", (command) => {
 		expect(verdict(command, { cwd: OTHER_REPO })).toBe("deny");
 	});

@@ -7,14 +7,14 @@
  * the certificate attests, so the commit gate does not regenerate it after the
  * run.
  *
- * THE SHARED TREE'S COPY IS WRITTEN TOO, so the commit carries it: under the
+ * THE WORKING TREE'S COPY IS WRITTEN TOO, so the commit carries it: under the
  * session's own claim, as a script writing a tracked doc must take, and only
  * where that copy still holds what the overlay was given, so a neighbour's
- * uncommitted manifest is never written over. Either refusal leaves the shared copy
+ * uncommitted manifest is never written over. Either refusal leaves that copy
  * alone and says so.
  *
- * A shared-tree run writes nothing: its render reads every neighbour's
- * uncommitted test, which the session's commit will not carry.
+ * A run in the working tree writes nothing: its render reads every
+ * uncommitted test there, which the session's commit may not carry.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -25,7 +25,7 @@ const { EDGES_FILE } = require("./test-pass-marker.js");
 const { buildManifestText } = require("./read-edges-render.js");
 
 // A guess, never measured: a claim is one arbiter call, and a slow one leaves
-// the shared copy alone, said.
+// the working tree's copy alone, said.
 const CLAIM_TIMEOUT_MS = 5000;
 
 /**
@@ -73,7 +73,7 @@ function readManifest(dir) {
 }
 
 /**
- * The shared tree's manifest written, or why it was left alone: it holds an
+ * The working tree's manifest written, or why it was left alone: it holds an
  * edit the overlay was not `given`, a live session holds it, or the write
  * failed.
  *
@@ -98,7 +98,7 @@ function writeShared(home, text, { given, session, claimFn }) {
 }
 
 /**
- * `rendered` written to the overlay at `root`, then to the shared tree at
+ * `rendered` written to the overlay at `root`, then to the working tree at
  * `home` by `writeShared`'s rules — each step said on `out` or `err`.
  *
  * @param {Record<string, string[]>} rendered
@@ -130,7 +130,7 @@ function freshenManifest(
 	const why = writeShared(home, text, { given, session, claimFn });
 	if (why) {
 		err.write(
-			`${EDGES_FILE}: the shared tree's copy is left alone — ${why}. Regenerate it before you commit: npm run gen:test-read-edges (#1860).\n`,
+			`${EDGES_FILE}: the working tree's copy is left alone — ${why}. Regenerate it before you commit: npm run gen:test-read-edges (#1860).\n`,
 		);
 		return;
 	}

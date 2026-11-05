@@ -19,8 +19,8 @@
  * git 2.43 a commit naming none holds no index lock while its hooks run.
  *
  * The same seam drives commit-paths' pre-lock run (#1651), the stamp's only
- * producer: loosen one of those cases and a neighbour's commit waits on the
- * suite again, or a red one lands — or, where a change lands mid-run (#1652),
+ * producer: loosen one of those cases and the commit holds its index lock
+ * for the suite again, or a red one lands — or, where a change lands mid-run (#1652),
  * one the suite never saw — under --patch as well (#1653). Where a run throws
  * or is killed, it is spawned rather than run in process, whose exit is no
  * real one: loosen those and its files outlive it in the git directory
@@ -115,7 +115,7 @@ const SLOW_S = 1;
 
 /**
  * One line per run: `lock=<0|1> stamp=<value|unset> staged=<a,b>`, to the
- * fixture's `root` wherever the run's own tree is, `lock` the shared index's. Its markers are read there
+ * fixture's `root` wherever the run's own tree is, `lock` the worktree index's. Its markers are read there
  * too, and `stub-mid.sh` runs there, the run's own tree in $RUN_DIR. Red, too,
  * where a.txt is staged — the suite it selects reading b.txt and stray.txt —
  * and the run's own tree holds `stray.txt` or a `b.txt` reading `broken`; and
@@ -136,17 +136,17 @@ case ",$staged," in *,a.txt,*) if [ -e stray.txt ] || grep -qs broken b.txt; the
 
 /**
  * Shell committing `body` at `rel` on top of HEAD, or as an unborn branch's
- * first commit, as a neighbour's commit would, through a throwaway index: the
- * shared one may be locked, and a `git commit` would run the hooks, and the
+ * first commit, as another commit would, through a throwaway index: the
+ * worktree's may be locked, and a `git commit` would run the hooks, and the
  * stub, again.
  */
-const buildNeighbourCommit = (rel: string, body: string) => `t="$(mktemp -u)"
+const buildOtherCommit = (rel: string, body: string) => `t="$(mktemp -u)"
 p=""
 if git rev-parse -q --verify HEAD >/dev/null; then GIT_INDEX_FILE="$t" git read-tree HEAD; p="-p HEAD"; fi
 b="$(printf ${shellQuote(body)} | git hash-object -w --stdin)"
 GIT_INDEX_FILE="$t" git update-index --add --cacheinfo "100644,$b,${rel}"
 tree="$(GIT_INDEX_FILE="$t" git write-tree)"
-git update-ref HEAD "$(git commit-tree $p -m neighbour "$tree")"
+git update-ref HEAD "$(git commit-tree $p -m other "$tree")"
 rm -f "$t"
 `;
 
@@ -422,7 +422,7 @@ it("stands the test down on a stamp matching the commit's changes, and the commi
 	expect(r.code).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual([]);
-	// Never consumed: a HEAD-moved retry must find it again.
+	// Never consumed: commit-paths removes it as it exits.
 	expect(fs.existsSync(stamp)).toBe(true);
 });
 
@@ -562,7 +562,7 @@ it("applies the same rule on the --no-verify route, through prepare-commit-msg",
 
 it("runs the declared test once through commit-paths, before the lock, on exactly the named paths, and the hook stands down", () => {
 	const f = fixture();
-	// A neighbour's staged change to a path this commit does not name.
+	// A staged change to a path this commit does not name.
 	fs.writeFileSync(path.join(f.root, "c.txt"), "theirs\n");
 	f.git("add", "-f", "c.txt");
 	f.edit("a.txt", "changed\n");
@@ -574,9 +574,9 @@ it("runs the declared test once through commit-paths, before the lock, on exactl
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-it("runs the pre-lock suite on HEAD plus the named paths alone, so a neighbour's unsaved files cannot refuse the commit, and the hook stands down (#1760)", () => {
+it("runs the pre-lock suite on HEAD plus the named paths alone, so unsaved files outside the commit cannot refuse it, and the hook stands down (#1760)", () => {
 	const f = fixture();
-	neighbourDirt(f);
+	unsavedDirt(f);
 	f.edit("a.txt", "changed\n");
 	const r = f.commitPaths();
 	expect(r.code, r.out).toBe(0);
@@ -668,15 +668,15 @@ it("keeps an inherited stamp out of the commit where the pre-lock run defers to 
 	]);
 });
 
-/** A neighbour's half-written tracked file and a new one, neither named, both turning the stub red where a.txt is staged. */
-function neighbourDirt(f: ReturnType<typeof fixture>) {
+/** A half-written tracked file and a new one, neither named, both turning the stub red where a.txt is staged. */
+function unsavedDirt(f: ReturnType<typeof fixture>) {
 	fs.writeFileSync(path.join(f.root, "b.txt"), "broken\n");
 	fs.writeFileSync(path.join(f.root, "stray.txt"), "theirs\n");
 }
 
-it("runs the in-lock suite on HEAD plus the commit's staged paths alone, so a neighbour's unsaved files cannot refuse a plain git commit (#1766)", () => {
+it("runs the in-lock suite on HEAD plus the commit's staged paths alone, so unsaved files outside the commit cannot refuse a plain git commit (#1766)", () => {
 	const f = fixture();
-	neighbourDirt(f);
+	unsavedDirt(f);
 	f.stage("a.txt", "changed\n");
 	const r = f.commit();
 	expect(r.code, r.out).toBe(0);
@@ -686,7 +686,7 @@ it("runs the in-lock suite on HEAD plus the commit's staged paths alone, so a ne
 	expect(r.otherWorktrees).toEqual([]);
 });
 
-it("refuses an in-lock red on the commit's own paths, blaming no neighbour (#1766)", () => {
+it("refuses an in-lock red on the commit's own paths, blaming no file outside them (#1766)", () => {
 	const f = fixture();
 	f.stage("a.txt", "changed\n");
 	f.stage("b.txt", "broken\n");
@@ -698,29 +698,29 @@ it("refuses an in-lock red on the commit's own paths, blaming no neighbour (#176
 		"pre-commit: the declared test command is RED — 'sh stub.sh' — so this commit is refused.",
 	);
 	expect(r.out).toContain(
-		"It ran on HEAD plus this commit's own changes, so no neighbour's unsaved file reached it (#1766)",
+		"It ran on HEAD plus this commit's own changes, so no unsaved edit outside them reached it (#1766)",
 	);
 	expect(r.out).not.toContain("mantahostels#273");
 	expect(r.otherWorktrees).toEqual([]);
 });
 
-it("runs the in-lock suite in the shared tree where no worktree can be made, saying so, and its red names mantahostels#273 (#1766)", () => {
+it("runs the in-lock suite in the checkout where no worktree can be made, saying so, and its red names mantahostels#273 (#1766)", () => {
 	const f = fixture();
 	// A file where the worktrees' directory goes, so none can be made.
 	fs.writeFileSync(path.join(f.root, ".claude/worktrees"), "");
-	neighbourDirt(f);
+	unsavedDirt(f);
 	f.stage("a.txt", "changed\n");
 	const r = f.commit();
 	expect(r.code).toBe(1);
 	expect(r.landed).toBe(false);
 	expect(r.out).toContain(
-		"no worktree holds this commit's tree alone, so 'sh stub.sh' runs in the shared tree.",
+		"no worktree holds this commit's tree alone, so 'sh stub.sh' runs in this checkout.",
 	);
 	expect(r.out).toContain("stub: b.txt is broken");
 	expect(r.out).toContain("mantahostels#273");
 });
 
-it("refuses a red pre-lock run with exit 3, the suite's output and the hook's three lines, before the lock and with the shared index untouched", () => {
+it("refuses a red pre-lock run with exit 3, the suite's output and the hook's three lines, before the lock and with the index untouched", () => {
 	const f = fixture();
 	fs.writeFileSync(path.join(f.root, "stub-red"), "");
 	f.edit("a.txt", "changed\n");
@@ -735,9 +735,9 @@ it("refuses a red pre-lock run with exit 3, the suite's output and the hook's th
 		"the declared test command is RED — 'sh stub.sh' — so this commit is refused.",
 	);
 	expect(r.out).toContain(
-		"It ran on HEAD plus this commit's own paths, so no neighbour's unsaved file reached it (#1760)",
+		"It ran on HEAD plus this commit's own paths, so no unsaved edit outside them reached it (#1760)",
 	);
-	expect(r.out).not.toContain("parallel session's half-written file");
+	expect(r.out).not.toContain("It ran in this checkout");
 	expect(r.out).toContain("Fix the failing test and commit again.");
 	expect(r.leftInGitDir).toEqual([]);
 	expect(r.otherWorktrees).toEqual([]);
@@ -838,7 +838,6 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 	const above = lines.slice(0, end).join("\n");
 	const below = lines.slice(end + 1);
 	for (const gate of [
-		"bash scripts/stale-write-back-gate.sh",
 		"node scripts/check-ruff-introduced.js",
 		"node scripts/check-format-staged.js",
 	])
@@ -973,7 +972,7 @@ it("stands down after a green pre-lock run on an unborn branch's first commit, w
 	expect(r.otherWorktrees).toEqual([]);
 });
 
-it("prints the pre-lock run's start and green lines, and logs its seconds apart from the lock wait", () => {
+it("prints the pre-lock run's start and green lines, and logs its seconds", () => {
 	const f = fixture();
 	fs.writeFileSync(path.join(f.root, "stub-slow"), "");
 	f.edit("a.txt", "changed\n");
@@ -983,10 +982,9 @@ it("prints the pre-lock run's start and green lines, and logs its seconds apart 
 		"commit-paths: running 'sh stub.sh' before the commit takes the index lock.",
 	);
 	expect(r.out).toMatch(/commit-paths: 'sh stub\.sh' is green \(\d+\.\ds\)/);
-	const [, outcome, waited, preLock] = r.outcome ?? [];
+	const [, outcome, preLock] = r.outcome ?? [];
 	expect(outcome).toBe("committed");
 	expect(Number(preLock)).toBeGreaterThanOrEqual(SLOW_S);
-	expect(Number(waited)).toBeLessThan(SLOW_S);
 });
 
 it("writes no stamp where a named file is edited while the pre-lock run goes, saying so, and the hook runs the test in the lock", () => {
@@ -1010,48 +1008,48 @@ it("writes no stamp where a named file is edited while the pre-lock run goes, sa
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-it("stands down where a neighbour's commit to a path this commit does not name lands while the pre-lock run goes", () => {
+it("stands down where another commit to a path this commit does not name lands while the pre-lock run goes", () => {
 	const f = fixture();
 	f.edit("a.txt", "changed\n");
 	fs.writeFileSync(
 		path.join(f.root, "stub-mid.sh"),
-		buildNeighbourCommit("c.txt", "theirs\\n"),
+		buildOtherCommit("c.txt", "theirs\\n"),
 	);
 	const r = f.commitPaths();
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
 	expect(String(f.git("log", "-1", "--format=%s", "HEAD~1")).trim()).toBe(
-		"neighbour",
+		"other",
 	);
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-it("stands down where a neighbour gives an unborn branch its first commit, to a path this commit does not name, while the pre-lock run goes", () => {
+it("stands down where another commit gives an unborn branch its first commit, to a path this commit does not name, while the pre-lock run goes", () => {
 	const f = fixture({ born: false });
 	f.edit("a.txt", "first\n");
 	f.edit("stub.sh", stub(f.root));
 	fs.writeFileSync(
 		path.join(f.root, "stub-mid.sh"),
-		buildNeighbourCommit("c.txt", "theirs\\n"),
+		buildOtherCommit("c.txt", "theirs\\n"),
 	);
 	const r = f.commitPaths();
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt,stub.sh"]);
 	expect(String(f.git("log", "-1", "--format=%s", "HEAD~1")).trim()).toBe(
-		"neighbour",
+		"other",
 	);
 });
 
-it("writes no stamp where a neighbour's commit to a named path changes what this commit adds, and the hook runs the test in the lock", () => {
+it("writes no stamp where another commit to a named path changes what this commit adds, and the hook runs the test in the lock", () => {
 	const f = fixture();
 	f.edit("a.txt", "changed\n");
 	f.edit("b.txt", "changed too\n");
-	// The neighbour commits a.txt as it stands, leaving this commit only b.txt.
+	// Another commit takes a.txt as it stands, leaving this commit only b.txt.
 	fs.writeFileSync(
 		path.join(f.root, "stub-mid.sh"),
-		buildNeighbourCommit("a.txt", "changed\\n"),
+		buildOtherCommit("a.txt", "changed\\n"),
 	);
 	const r = f.commitPaths();
 	expect(r.code, r.out).toBe(0);
@@ -1064,12 +1062,12 @@ it("writes no stamp where a neighbour's commit to a named path changes what this
 	]);
 });
 
-it("stands down where a neighbour's commit to a named path lands while the pre-lock run goes, leaving what this commit adds unchanged", () => {
+it("stands down where another commit to a named path lands while the pre-lock run goes, leaving what this commit adds unchanged", () => {
 	const f = fixture();
 	f.edit("a.txt", "changed\n");
 	fs.writeFileSync(
 		path.join(f.root, "stub-mid.sh"),
-		buildNeighbourCommit("a.txt", "theirs\\n"),
+		buildOtherCommit("a.txt", "theirs\\n"),
 	);
 	const r = f.commitPaths();
 	expect(r.code, r.out).toBe(0);
@@ -1079,26 +1077,8 @@ it("stands down where a neighbour's commit to a named path lands while the pre-l
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-it("stands down again on the retry after a neighbour's commit moves HEAD under the commit's hooks (#819)", () => {
-	const f = fixture();
-	f.edit("a.txt", "changed\n");
-	fs.writeFileSync(
-		path.join(f.root, "stub-in-hook.sh"),
-		buildNeighbourCommit("c.txt", "theirs\\n"),
-	);
-	const r = f.commitPaths();
-	expect(r.code, r.out).toBe(0);
-	expect(r.out).toContain("HEAD moved under the commit");
-	expect(r.landed).toBe(true);
-	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
-	expect(String(f.git("log", "-1", "--format=%s", "HEAD~1")).trim()).toBe(
-		"neighbour",
-	);
-	expect(r.leftInGitDir).toEqual([]);
-});
-
 /**
- * a.txt on disk reads a line of this commit's above HEAD's, and a neighbour's
+ * a.txt on disk reads a line of this commit's above HEAD's, and one left out
  * below it; the patch, cut as a session cuts one, carries this commit's alone.
  */
 const cutPatch = (f: ReturnType<typeof fixture>): string => {
@@ -1135,7 +1115,7 @@ it("runs the declared test once under --patch, before the commit, on the patch's
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-it("refuses a red pre-lock run under --patch with exit 3, writing neither the commit nor the shared index", () => {
+it("refuses a red pre-lock run under --patch with exit 3, writing neither the commit nor the index", () => {
 	const f = fixture();
 	const patch = cutPatch(f);
 	fs.writeFileSync(path.join(f.root, "stub-red"), "");
@@ -1156,7 +1136,7 @@ it("refuses a red pre-lock run under --patch with exit 3, writing neither the co
 	expect(r.otherWorktrees).toEqual([]);
 });
 
-it("refuses a red pre-lock gate under --patch with exit 3, starting no suite and writing neither the commit nor the shared index (#1763)", () => {
+it("refuses a red pre-lock gate under --patch with exit 3, starting no suite and writing neither the commit nor the index (#1763)", () => {
 	const f = fixture();
 	const patch = cutPatch(f);
 	fs.writeFileSync(path.join(f.root, "stub-gate-red"), "");
@@ -1170,44 +1150,6 @@ it("refuses a red pre-lock gate under --patch with exit 3, starting no suite and
 	expect(r.gateRuns).toEqual(["lock=0 staged=a.txt"]);
 	expect(r.runs).toEqual([]);
 	expect(r.out).toContain("gate: a lint finding in a.txt");
-	expect(r.leftInGitDir).toEqual([]);
-});
-
-it("rebuilds the --patch index on a neighbour's commit landing mid-run, and stands down where what this commit adds is unchanged", () => {
-	const f = fixture();
-	const patch = cutPatch(f);
-	fs.writeFileSync(
-		path.join(f.root, "stub-mid.sh"),
-		buildNeighbourCommit("c.txt", "theirs\\n"),
-	);
-	const r = f.commitPaths({ patch });
-	expect(r.code, r.out).toBe(0);
-	expect(r.landed).toBe(true);
-	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
-	expect(String(f.git("log", "-1", "--format=%s", "HEAD~1")).trim()).toBe(
-		"neighbour",
-	);
-	expect(String(f.git("show", "HEAD:c.txt"))).toBe("theirs\n");
-});
-
-it("writes no stamp under --patch where a neighbour's commit mid-run changes what the rebuilt index adds, and the hook runs the test", () => {
-	const f = fixture();
-	const patch = cutPatch(f);
-	f.edit("b.txt", "changed too\n");
-	// The neighbour commits b.txt as it stands, leaving this commit only a.txt.
-	fs.writeFileSync(
-		path.join(f.root, "stub-mid.sh"),
-		buildNeighbourCommit("b.txt", "changed too\\n"),
-	);
-	const r = f.commitPaths({ patch });
-	expect(r.code, r.out).toBe(0);
-	expect(r.landed).toBe(true);
-	expect(r.out).toContain("but the commit's own changes moved while it ran");
-	expect(r.out).toContain(reason("no stamp named"));
-	expect(r.runs).toEqual([
-		"lock=0 stamp=unset staged=a.txt,b.txt",
-		"lock=0 stamp=unset staged=a.txt",
-	]);
 	expect(r.leftInGitDir).toEqual([]);
 });
 
@@ -1301,7 +1243,7 @@ it.each([
 		const patch = underPatch ? cutPatch(f) : undefined;
 		if (!underPatch) f.edit("a.txt", "changed\n");
 		// A spy, not a seam: nothing reachable from outside makes the script itself
-		// throw once its commit has landed, planStagedCopies' throw included.
+		// throw once its commit has landed.
 		// --patch lands its commit with update-ref, and hands the stamp to the
 		// hooks before it rather than to that call (#2638).
 		const preload = path.join(f.root, "stub-throw.js");

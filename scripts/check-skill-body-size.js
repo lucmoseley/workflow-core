@@ -48,7 +48,7 @@
  *
  * IMPLICIT:  on every commit, refuses one whose touched skill or command body holds an unescaped `$` followed by a digit.
  * JUSTIFIED: fail-safe — a skills directory or git it cannot read is BROKEN rather than green.
- * DEFEAT:    --warn caps the refusal to a warn; HUSKY=0 skips the stack. --touching reads the worktree, so a neighbour's unstaged `$1` in a body your commit also touches refuses your commit until it is escaped or committed.
+ * DEFEAT:    --warn caps the refusal to a warn; HUSKY=0 skips the stack. --touching reads the worktree, so an unstaged `$1` in a body your commit also touches refuses your commit until it is escaped or committed.
  */
 
 const fs = require("node:fs");
