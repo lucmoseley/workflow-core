@@ -45,6 +45,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { caught, parseErrorText } = require("./caught.js");
+const { FULL_SHA } = require("./commit-sha.js");
 const { parseFirstLine } = require("./first-line.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const {
@@ -2125,15 +2126,6 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			timeout,
 			env,
 		});
-	/** @param {string[]} args */
-	const succeeds = (args) => {
-		try {
-			git(args);
-			return true;
-		} catch {
-			return false;
-		}
-	};
 	/**
 	 * A push to the remote. Its timeout is the pre-push hook's run, which a
 	 * retry would only repeat, so it throws as no network fault.
@@ -2194,8 +2186,49 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	};
 	/** @param {string[]} args @returns {string[]} */
 	const readLines = (args) => git(args).split("\n").filter(Boolean);
+	/* A run asks the same pairs again on every poll, and two commits' ancestry
+	 * never changes, so a clean answer is kept for the run (#4326). An error
+	 * (an object not yet fetched, a timeout) is answered false and not kept. */
+	/** @type {Map<string, boolean>} */
+	const ancestry = new Map();
 	/** @param {string} a @param {string} b */
-	const isAncestor = (a, b) => succeeds(["merge-base", "--is-ancestor", a, b]);
+	const isAncestor = (a, b) => {
+		const key = `${a} ${b}`;
+		const kept = ancestry.get(key);
+		if (kept !== undefined) return kept;
+		let answer;
+		try {
+			git(["merge-base", "--is-ancestor", a, b]);
+			answer = true;
+		} catch (err) {
+			if (caught(err).status !== 1) return false;
+			answer = false;
+		}
+		if (FULL_SHA.test(a) && FULL_SHA.test(b)) ancestry.set(key, answer);
+		return answer;
+	};
+	/* Shas this run has seen as local commits, which a run never loses. */
+	/** @type {Set<string>} */
+	const local = new Set();
+	/**
+	 * Whether every one of `shas` is a local commit, in one fork for those not
+	 * yet seen (#4326).
+	 * @param {string[]} shas
+	 */
+	const allLocal = (shas) => {
+		const unseen = shas.filter((sha) => !local.has(sha));
+		if (unseen.length === 0) return true;
+		const printed = execGit(["cat-file", "--batch-check=%(objectname)"], {
+			cwd: root,
+			encoding: "utf8",
+			input: unseen.map((sha) => `${sha}^{commit}\n`).join(""),
+			stdio: ["pipe", "pipe", "pipe"],
+			timeout: LANDER_GIT_TIMEOUT_MS,
+		});
+		for (const line of printed.split("\n"))
+			if (unseen.includes(line)) local.add(line);
+		return unseen.every((sha) => local.has(sha));
+	};
 	/** @param {string|null} main @param {string} landing @returns {Relation} */
 	const relationOf = (main, landing) => {
 		if (main === landing) return "equal";
@@ -2259,12 +2292,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			const main = shaOf(VERIFIED_BRANCH);
 			const landing = shaOf(LANDING_BRANCH);
 			if (landing === null) return { main, landing, relation: "ahead" };
-			if (
-				[main, landing].some(
-					(sha) =>
-						sha !== null && !succeeds(["cat-file", "-e", `${sha}^{commit}`]),
-				)
-			)
+			if (!allLocal([main, landing].filter((sha) => sha !== null)))
 				git([
 					"fetch",
 					"--quiet",
