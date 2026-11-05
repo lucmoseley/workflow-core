@@ -64,6 +64,7 @@
  * `lifted/` with it, the record outliving the lift until the clear notice is done.
  */
 
+const { AsyncLocalStorage } = require("node:async_hooks");
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash, randomBytes } = require("node:crypto");
@@ -214,6 +215,9 @@ const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
  */
 const readCheckout = (cwd) => mainCheckout(cwd) ?? cwd;
 
+/** @type {AsyncLocalStorage<Map<string, string>>} */
+const tickStores = new AsyncLocalStorage();
+
 /**
  * The checkout's store: named for a reader, and hashed because two paths can
  * flatten to one name. A broken `.git` that git will not name still keys on its
@@ -221,15 +225,30 @@ const readCheckout = (cwd) => mainCheckout(cwd) ?? cwd;
  * @param {string} root
  */
 function holdsDir(root) {
+	const stores = tickStores.getStore();
+	const known = stores?.get(root);
+	if (known !== undefined) return known;
 	const key = deref(gitCommonDir(root) ?? path.join(root, ".git"));
 	const hash = createHash("sha256").update(key).digest("hex");
-	return refillPath(
+	const dir = refillPath(
 		path.join(
 			"repo-holds",
 			`${path.basename(root)}-${hash.slice(0, STORE_KEY_LENGTH)}`,
 		),
 	);
+	stores?.set(root, dir);
+	return dir;
 }
+
+/**
+ * Run `fn` with each checkout's store resolved once, so a tick's many hold
+ * calls fork git for each checkout's common dir once (#4398). The answers die
+ * with `fn`, so a `.git` repaired between ticks keys anew on the next.
+ * @template T
+ * @param {() => T} fn
+ * @returns {T}
+ */
+const withTickStores = (fn) => tickStores.run(new Map(), fn);
 
 /**
  * @param {string} id
@@ -1397,5 +1416,6 @@ module.exports = {
 	readStoreRoots,
 	readTickHolds,
 	tendHolds,
+	withTickStores,
 	writeNotice,
 };

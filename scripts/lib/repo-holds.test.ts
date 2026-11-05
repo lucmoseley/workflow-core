@@ -11,11 +11,13 @@
  * a broken `.git`.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
+import { writeFaultyGit } from "./git-fault-fake";
 import {
 	ISSUE,
 	LOGGED_OUT,
@@ -734,5 +736,57 @@ describe("a lifted hold's record (#3863)", () => {
 		);
 
 		expect(fs.readdirSync(path.join(store(), "lifted"))).toEqual([]);
+	});
+});
+
+describe("a tick's store resolution (#4398)", () => {
+	/* Through require, as lib/repo-hold-notices.js reaches it, so the tick's
+	 * calls share one copy of the module and its tick scope. */
+	const holds = createRequire(__filename)("./repo-holds.js");
+	const { tendHoldNotices } = createRequire(__filename)(
+		"./repo-hold-notices.js",
+	);
+
+	/** The `--git-common-dir` forks of every hold call a tick makes over
+	 * `repo`, with a park hold open, each tick run through `run`. */
+	const countTickForks = (run: (calls: () => void) => void) => {
+		serve();
+		raiseHold(repo, {
+			kind: "park",
+			act: "repair main",
+			issue: 12,
+			clearCheck: { issueClosed: 12 },
+			session: null,
+			now: NOW,
+		});
+		const counter = writeFaultyGit(
+			{ words: ["--git-common-dir"] },
+			{ script: ":" },
+			{ under: dir },
+		);
+		vi.stubEnv("WFC_GIT", counter.git);
+		const lines: string[] = [];
+		const log = (l: string) => lines.push(l);
+		run(() => {
+			const broken = holds.tendHolds([repo], [repo], NOW, log);
+			holds.readTickHolds([repo], broken);
+			holds.attachProbeParks(broken, [], log);
+			holds.readLiftedHolds([repo], log);
+			tendHoldNotices([repo], { agents: null, isPaused: false }, NOW, log);
+		});
+		return counter.hits();
+	};
+
+	it("forks git for a served checkout's common dir once a tick", () => {
+		expect(countTickForks((calls) => holds.withTickStores(calls))).toBe(1);
+	});
+
+	it("forks it anew on the next tick, so a repair between ticks is seen", () => {
+		expect(
+			countTickForks((calls) => {
+				holds.withTickStores(calls);
+				holds.withTickStores(calls);
+			}),
+		).toBe(2);
 	});
 });
