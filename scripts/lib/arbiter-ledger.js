@@ -65,7 +65,7 @@ function recordWrite(filePath, sessionId) {
 	// The ledger names FILES, because its readers compare it against paths git
 	// reports and git reports no region: an unstripped `docs/doc-map.md#B42`
 	// matches nothing there.
-	const subject = core.relativeToRepo(filePath);
+	const subject = core.claimKey(filePath);
 	if (subject === null) return null; // outside the repo; no diff can name it
 	// Stripped AFTER the path is made repo-relative, and after the null test: `#`
 	// is only a separator on a path the region set names, and that set is written

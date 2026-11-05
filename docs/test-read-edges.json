@@ -171,6 +171,7 @@
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
 			"scripts/lib/core-hooks.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/marker-root.test.ts",
 			"scripts/lib/persist-mode.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
@@ -832,6 +833,7 @@
 			"scripts/lib/config-json.test.ts",
 			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
@@ -896,6 +898,7 @@
 		"docs/agents/issue-tracker.md": [
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/file-issue.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/script-path.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
@@ -2183,6 +2186,18 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"docs/agents/rules/size-line.txt": [
+			"scripts/count-guard-fires.test.ts",
+			"scripts/file-issue.test.ts",
+			"scripts/inject-tracker-docs.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/review-tier.test.ts",
+			"scripts/lib/rule-text.test.ts",
+			"scripts/lib/tracker-rules.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"docs/agents/rules/skill-refused.txt": [
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
@@ -2629,6 +2644,7 @@
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts"
 		],
 		"docs/doc-map-high-water.json": [
@@ -2680,6 +2696,7 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/pick-next-output.test.ts",
@@ -2740,6 +2757,7 @@
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/roadmap-template-render.test.ts",
@@ -2768,6 +2786,7 @@
 			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts"
 		],
@@ -3489,6 +3508,23 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/build-state.js": [
+			"scripts/build-state.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/inject-tracker-docs.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/build-state.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/burn-mode.sh": [
 			"scripts/burn-mode.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -3824,6 +3860,22 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/check-commit-subject.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-compaction-backstop.js": [
+			"scripts/check-compaction-backstop.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-compaction-backstop.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -8101,6 +8153,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/inject-compaction-count.test.ts",
 			"scripts/lib/arbiter-issue-claims.test.ts",
 			"scripts/lib/arbiter-modules.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -9685,6 +9738,30 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/build-state.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -14939,6 +15016,7 @@
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-cleared-trackers.test.ts",
 			"scripts/check-clobbered-bodies.test.ts",
+			"scripts/check-compaction-backstop.test.ts",
 			"scripts/check-context-budget-admission.test.ts",
 			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/check-file-ci-time.test.ts",
@@ -18200,6 +18278,30 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/hook-store-root.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -31445,6 +31547,30 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/size-line-check.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/skill-drift.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -38569,7 +38695,6 @@
 		],
 		"scripts/spec-commits.js": [
 			"scripts/checker-registrations.test.ts",
-			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -38714,6 +38839,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/templates/adopter/AGENTS.md": [
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"

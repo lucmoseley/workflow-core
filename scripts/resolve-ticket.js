@@ -57,6 +57,12 @@
  * untraced values it relies on, or `none` (#1707). Its entries' grammar is
  * unchecked.
  *
+ * A `kind:ticket`'s comment is posted with a `**Compactions:** <n>` line
+ * appended, n this session's autocompaction count from the compaction set
+ * (lib/compaction-set.js), 0 where it never autocompacted, for the backstop
+ * report (#4410). One the comment already carries is kept, and no other kind
+ * gets one.
+ *
  * A comment owes a `**Practice:**` line, the Leading practice declaration
  * (#2325, spec #2258). **Enforced** here for a non-empty line only; its
  * form is unchecked.
@@ -113,6 +119,11 @@ const {
 	hasRecordMention,
 	readTicketComments,
 } = require("./lib/review-findings.js");
+const {
+	buildCompactionsLine,
+	COMPACTIONS_MARKER,
+	countCompactions,
+} = require("./lib/compaction-set.js");
 const { caught } = require("./lib/caught.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
@@ -425,6 +436,28 @@ function readMapOrFail(issue, n, decision) {
 }
 
 /**
+ * A `kind:ticket`'s comment with this session's autocompaction count
+ * appended; any other issue's, or one already carrying the line, as given.
+ * @param {string} comment
+ * @param {Issue} issue
+ */
+function withCompactionsLine(comment, issue) {
+	if (
+		!issue.labels.includes("kind:ticket") ||
+		hasLine(comment, COMPACTIONS_MARKER, "")
+	)
+		return comment;
+	const sid = process.env.CLAUDE_CODE_SESSION_ID;
+	if (!sid) {
+		io.out(
+			`No session id (CLAUDE_CODE_SESSION_ID is unset), so #${issue.number}'s comment carries no **${COMPACTIONS_MARKER}:** line.\n`,
+		);
+		return comment;
+	}
+	return `${comment.trimEnd()}\n\n${buildCompactionsLine(countCompactions(sid))}\n`;
+}
+
+/**
  * @param {string} repo
  * @param {number} n
  * @param {string} comment
@@ -519,7 +552,7 @@ function main() {
 	if (issue.state === "closed") {
 		io.out(`#${n} is already closed — comment and close skipped.\n`);
 	} else {
-		postCommentOnce(repo, n, comment);
+		postCommentOnce(repo, n, withCompactionsLine(comment, issue));
 		closeOrFail(repo, n, a.reason);
 		recordOwnAct("close", repo, n);
 	}

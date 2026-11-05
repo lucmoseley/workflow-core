@@ -109,7 +109,7 @@ function readTierFiles() {
 		...WATCHED_PATHSPECS,
 	]);
 	if (listed === null) return null;
-	const root = core.repoRoot();
+	const root = core.treeRoot();
 	const files = new Map();
 	for (const rel of listed.split("\0")) {
 		if (!rel) continue;

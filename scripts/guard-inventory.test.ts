@@ -500,7 +500,8 @@ describe("the hand-off on a posted round (#2391)", () => {
 			commit("checkout", "-q", "src/a.txt");
 			const wt = cutWorktree(dir);
 			fs.writeFileSync(path.join(wt, "src", "a.txt"), "three\n");
-			wrote(path.join(wt, "src", "a.txt"));
+			/* Keyed by its path in the tree, as the recorder run there keys it (#4397). */
+			wrote("src/a.txt");
 			const reason = withHandOff(HAND_OFF, { worktree: wt });
 			expect(reason).toContain(
 				"`src/a.txt` is uncommitted and unnamed in the hand-off",
