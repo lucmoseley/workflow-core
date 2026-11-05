@@ -279,6 +279,19 @@ describe("parseState's launch rows", () => {
 	});
 });
 
+describe("parseState's last tick", () => {
+	it("keeps an allowance wait, so status reads a full week's back (#3859)", () => {
+		const lastTick = {
+			at: NOW,
+			summary: "idle: a plan resets",
+			skipped: [],
+			idle: "a plan resets",
+			planWait: { resets: NOW + 60 * MIN },
+		};
+		expect(loopStateOf({ lastTick }).lastTick).toEqual(lastTick);
+	});
+});
+
 describe("the state file", () => {
 	let dir: string;
 	beforeEach(() => {

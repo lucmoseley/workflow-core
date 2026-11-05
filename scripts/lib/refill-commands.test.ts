@@ -553,6 +553,14 @@ describe("status --json for the panel (#3873)", () => {
 		expect(json.stopRequested).toBe(false);
 	});
 
+	it("carries the last tick's allowance wait, so the panel shows a full week's (#3859)", () => {
+		const planWait = { resets: NOW + 60 * MIN };
+		const json = jsonOf({
+			lastTick: { at: 5, summary: "s", idle: "a plan resets", planWait },
+		});
+		expect(json.lastTick?.planWait).toEqual(planWait);
+	});
+
 	it("reads a tick with no waiting reason, and no tick, as null", () => {
 		expect(jsonOf({}).lastTick).toBeNull();
 		expect(
@@ -962,6 +970,34 @@ describe("planSet's resume with no process (#3861)", () => {
 	});
 });
 
+describe("a set's switch to away (#3870)", () => {
+	it("dates the switch now with no absent read, so a tick takes only a later prompt for his return", () => {
+		const back = {
+			noProgressFrom: 5,
+			stopRequested: false,
+			seats: ["/s"],
+			scope: normal(["/repo"]),
+		};
+		const plan = planSet(
+			{ control: back, damaged: null },
+			{ mode: "away" },
+			{
+				running: true,
+				now: NOW,
+				readExclusionWhy: () => null,
+				isOptedOut: () => false,
+			},
+		);
+		expect(plan).toMatchObject({
+			write: {
+				scope: { mode: "away", repos: ["/repo"] },
+				away: { since: NOW, absentSeen: false },
+			},
+			lines: ["mode:      away"],
+		});
+	});
+});
+
 describe("a set unticks a repo its owner opted out (#4188)", () => {
 	const control = {
 		noProgressFrom: 5,
@@ -1113,6 +1149,30 @@ describe("planStart (#3868)", () => {
 			action: "running",
 			lines: ["refill loop running: pid 9"],
 		});
+	});
+
+	it("restarts a stopped loop from its stored repos, goal, mode and pause, ending the stop", () => {
+		const paused = { by: "founder" as const, at: 4 };
+		const stopped = {
+			...stored,
+			scope: away(["/h/manta"], issuesGoal(["/h/manta", 5])),
+			stopRequested: true,
+			stopRequestedAt: 6,
+			paused,
+		};
+		const out = plan(sound(stopped), { unlessStopped: false });
+		expect(out).toMatchObject({
+			action: "start",
+			write: {
+				scope: stopped.scope,
+				paused,
+				noProgressFrom: 100,
+				stopRequested: false,
+			},
+		});
+		expect((out as { write: object }).write).not.toHaveProperty(
+			"stopRequestedAt",
+		);
 	});
 
 	it("ends a stop still pending beside a running loop, so a boot resumes it", () => {

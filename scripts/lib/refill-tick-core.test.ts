@@ -4,23 +4,27 @@
  * its steps, what a kill between two of them leaves the next tick, its
  * dry-run policy, and how it carries a restart's killed launches and a
  * limit-held launch into the state, the idle reason and the tick's record
- * (#4315), the sessions it launched into that record, the room a paused or
- * stopping tick leaves unread, and which checkout it sizes the seats and a
- * parker's seat in (#4282). Every port records its call, so a case reads the
- * order off one list; the state file is held in memory (stateFileFake). The
- * fake answers in
- * the ports' shapes but no contract test pins it to the adapter, bar
- * ADMISSION_VERDICT, which admission-verdict.contract.test.ts holds:
- * scripts/refill-loop-run.test.ts runs the real one.
+ * (#4315); the sessions it launched into that record, the room a paused or
+ * stopping tick leaves unread, which checkout it sizes the seats and a
+ * parker's seat in, away mode's return, a paused tick, a full week's wait and
+ * the hold notices' agent read (#4282). Every port records its call, so a case
+ * reads the order off one list; the state file is held in memory
+ * (stateFileFake), and the control file under its lock (controlFileFake). The
+ * fake answers in the ports' shapes but no contract test pins it to the
+ * adapter, bar ADMISSION_VERDICT, which admission-verdict.contract.test.ts
+ * holds: scripts/refill-loop-run.test.ts runs the real one.
  *
  * Loosen one and a tick can judge launches a kill left out of the state, list
  * before the relief steps, dispatch a batch not yet on record, or a dry run can
- * stop on an absent or damaged control, or write, launch or drop a marker, or
- * a paused or stopping tick probe a seat or start a Console read.
+ * stop on an absent or damaged control, or write, launch or drop a marker; or a
+ * tick can miss the founder's return, read slots, seats or a probe while paused
+ * or stopping, start a Console read then, stop on a full week, or miss the
+ * quiet an empty registry shows a hold's notice.
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
 import { buildHeldStopText } from "./refill-blocks.js";
+import { controlInMode } from "./refill-loop.js";
 import {
 	type Launch,
 	MIN,
@@ -668,5 +672,189 @@ describe("a control change under the lock (#2522)", () => {
 		expect(lines).toContain(
 			"away mode's change waits for the next tick: pid 7",
 		);
+	});
+});
+
+/** The control file under its lock, each change made on its fresh read. */
+const controlFileFake = (initial: Control) => {
+	let onDisk = initial;
+	const changeControl: TickIo["changeControl"] = (change) => {
+		const fresh = onDisk;
+		const write = change(fresh);
+		if (!write) return { control: fresh, wrote: null };
+		onDisk = write;
+		return { control: write, wrote: { write, fresh } };
+	};
+	return {
+		read: () => onDisk,
+		write: (c: Control) => {
+			onDisk = c;
+		},
+		changeControl,
+	};
+};
+
+describe("away mode's return through the tick (#3870)", () => {
+	const tickAt = (
+		io: TickIo,
+		file: ReturnType<typeof controlFileFake>,
+		now: number,
+		typedAt: number | null,
+	) =>
+		runTick(io, {
+			dryRun: false,
+			now,
+			opening: { ...opening(file.read()), typed: { at: typedAt, seat: null } },
+		});
+	const returns = (lines: string[]) =>
+		lines.filter((l) => l.startsWith("mode normal: the founder is back"));
+
+	it("returns and logs it, then a manual --away holds until the next absent read and present one", async () => {
+		const file = controlFileFake(awayControl());
+		const { io, lines } = fakeIo(stateOf(), {
+			changeControl: file.changeControl,
+		});
+		const typed = NOW - MIN;
+		await tickAt(io, file, NOW, typed);
+		expect(file.read().scope.mode).toBe("normal");
+		expect(file.read()).not.toHaveProperty("away");
+		expect(returns(lines)).toHaveLength(1);
+
+		/* What `set --away` writes (refill-commands.test.ts's "a set's switch to
+		 * away"): a switch after the prompt just read. */
+		const switchedAt = NOW + MIN;
+		file.write(controlInMode(file.read(), "away", switchedAt));
+		await tickAt(io, file, switchedAt + MIN, typed);
+		expect(file.read().scope.mode).toBe("away");
+		expect(file.read().away).toEqual({ since: switchedAt, absentSeen: false });
+
+		/* The switch reads as presence for its first window (#4184): two hours on,
+		 * neither it nor the prompt does. */
+		const absentAt = switchedAt + 120 * MIN;
+		await tickAt(io, file, absentAt, typed);
+		expect(file.read().scope.mode).toBe("away");
+		expect(file.read().away?.absentSeen).toBe(true);
+		expect(returns(lines)).toHaveLength(1);
+
+		await tickAt(io, file, absentAt + MIN, absentAt);
+		expect(file.read().scope.mode).toBe("normal");
+		expect(returns(lines)).toHaveLength(2);
+	});
+
+	it("records an absent read and stays away", async () => {
+		const since = NOW - 60 * MIN;
+		const file = controlFileFake(
+			control({
+				scope: { ...normal([WFC]), mode: "away" },
+				away: { since, absentSeen: false },
+			}),
+		);
+		const { io, lines } = fakeIo(stateOf(), {
+			changeControl: file.changeControl,
+		});
+		await tickAt(io, file, NOW, null);
+		expect(file.read().scope.mode).toBe("away");
+		expect(file.read().away).toEqual({ since, absentSeen: true });
+		expect(lines.join("\n")).not.toContain("the founder is back");
+	});
+});
+
+describe("a paused tick (#3856)", () => {
+	const paused = control({ paused: { by: "founder", at: 7 } });
+
+	it("keeps the housekeeping, launches nothing and makes no slot, usage or cap read", async () => {
+		/* Past any listing grace, and listed nowhere, so judged finished. */
+		const gone = record({
+			root: WFC,
+			seat: SEAT,
+			jobId: "gone",
+			launchedAt: NOW - 60 * MIN,
+		});
+		const capReads: string[] = [];
+		const { io, calls, lines, disk } = fakeIo(stateOf({ launches: [gone] }), {
+			capSizer: () => () => {
+				capReads.push("cap");
+				return null;
+			},
+		});
+		await tickOf(io, paused);
+
+		const said = lines.join("\n");
+		expect(said).toContain(
+			`idle: paused by founder at ${new Date(7).toISOString()}`,
+		);
+		expect(said).not.toContain("free slots");
+		expect(said).not.toContain("resumed 0 of");
+		expect(calls).toEqual(expect.arrayContaining(["reap", "tendCheckouts"]));
+		expect(disk().launches[0].finishedAt).not.toBeNull();
+		for (const port of [
+			"readFreeSlots",
+			"actOnLimits",
+			"readSeats",
+			"probeDueSeats",
+			"readFrontier",
+			"launchBatch",
+		])
+			expect(calls).not.toContain(port);
+		expect(capReads).toEqual([]);
+	});
+});
+
+describe("the loop's wait on a full week (#3859)", () => {
+	it("idles on the plan's reset with its wait on record, then launches once the bar resets", async () => {
+		const full = fakeIo(stateOf(), {
+			readSeats: () => ({
+				seats: [{ ...sized, week: 100, weekFull: true, fits: null }],
+				probes: [],
+			}),
+		});
+		const waited = await tickOf(full.io);
+		expect(waited.decision).toMatchObject({
+			idle: expect.stringMatching(/^a plan resets/),
+			planWait: expect.any(Object),
+		});
+		expect(full.disk().stopped).toBeNull();
+		expect(full.disk().lastTick?.planWait).toEqual(
+			"planWait" in waited.decision && waited.decision.planWait,
+		);
+		expect(full.calls).not.toContain("launchBatch");
+
+		const reset = fakeIo(full.disk());
+		const launched = await tickOf(reset.io);
+		expect(
+			"launches" in launched.decision && launched.decision.launches,
+		).toHaveLength(1);
+		expect(reset.calls).toContain("launchBatch");
+	});
+});
+
+describe("the hold notices' agent read (#3871)", () => {
+	const noticedAgents = async (registry: object) => {
+		const seen: unknown[] = [];
+		const { io } = fakeIo(stateOf(), {
+			/* An empty listing reads as unread, as the CLI's does. */
+			readListing: () => ({ agents: null, why: "unread" }),
+			readRegistry: () => registry as never,
+			sendHoldNotices: (_roots, s) => {
+				seen.push(s.agents);
+			},
+		});
+		await tickOf(io);
+		return seen;
+	};
+
+	it("counts a registry and listing holding nobody as no slot working", async () => {
+		expect(
+			await noticedAgents({ seats: [SEAT], faults: [], agents: [] }),
+		).toEqual([[]]);
+	});
+
+	it("counts nothing off a registry that faulted or read no seat", async () => {
+		expect(
+			await noticedAgents({ seats: [SEAT], faults: ["x"], agents: [] }),
+		).toEqual([null]);
+		expect(await noticedAgents({ seats: [], faults: [], agents: [] })).toEqual([
+			null,
+		]);
 	});
 });
