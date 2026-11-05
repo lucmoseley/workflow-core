@@ -1405,7 +1405,7 @@ describe("a red Test file CI times job routes to cut tickets, not a bisect (#436
 
 		const out = check(["--notify"]).stdout;
 		expect(out).toContain(
-			"Ticket for Test file CI times: each file over the limit is cut under its own profiled ticket (a sub-issue of #2729, #4290)",
+			"Ticket for Test file CI times: each file over the limit is cut under its own profiled ticket (a sub-issue of #2729)",
 		);
 		expect(out).not.toContain("no filer covers this job");
 		expect(out).toContain("No bisect: Test file CI times judges a median");
