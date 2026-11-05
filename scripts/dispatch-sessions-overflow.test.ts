@@ -238,6 +238,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.out).toContain(
 			`no key helper at ${codeDir}.current/scripts/lib/overflow-key.js`,
 		);
+		expect(r.out).toContain("the next tick launches");
 		expect(readBgLaunches()).toEqual([]);
 	});
 

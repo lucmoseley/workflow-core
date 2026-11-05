@@ -137,6 +137,10 @@ describe("the dispatcher call for one batch", () => {
 		expect(call.env.CLAUDE_CODE_SESSION_ID).toBeUndefined();
 		expect(call.env.PATH).toBe("/usr/bin");
 	});
+
+	it("cuts each member's worktree with no store build, which the tick's warm pass makes outside the timeout (#4318)", () => {
+		expect(call.env.WFC_DISPATCH_NO_BUILD).toBe("1");
+	});
 });
 
 describe("a refused member's reason (#2500)", () => {

@@ -53,6 +53,7 @@ const {
 const { stopOn } = require("./claude-stop.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -203,6 +204,19 @@ function superviseLanding(root) {
 const levelMain = (root) =>
 	startLevelling(root, (err) =>
 		log(`levelling ${root}: not started (${buildErrorText(err)})`),
+	);
+
+/**
+ * Start a warm pass over `root` (`session-checkout.js warm`, #4318), detached:
+ * the store build for `origin/landing`'s lockfile may outlast a tick, and the
+ * dispatcher's cuts build none.
+ * @param {string} root
+ */
+const startWarmPass = (root) =>
+	startDetached(
+		`warming the dependency store in ${root}`,
+		[path.join(SCRIPTS, "session-checkout.js"), "warm"],
+		root,
 	);
 
 /**
@@ -576,7 +590,8 @@ function readTimelineOf(l) {
 const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
 
-const resume = resumeSteps(buildResumeIo(log));
+const resumeIo = buildResumeIo(log);
+const resume = resumeSteps(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
@@ -587,7 +602,11 @@ const resume = resumeSteps(buildResumeIo(log));
 function typeResume(l, prompt) {
 	const [file, args, opts] = buildTypedAttach(l.jobId, prompt);
 	return childFailure(
-		runChild(file, args, { ...opts, cwd: l.root, env: resume.seatEnv(l) }),
+		runChild(file, args, {
+			...opts,
+			cwd: l.root,
+			env: buildSeatEnv(resumeIo.env(), l.seat),
+		}),
 	);
 }
 
@@ -954,6 +973,7 @@ const productionIo = {
 	superviseLanding,
 	levelMain,
 	startReapPass,
+	startWarmPass,
 	fileMachineTickets,
 	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
 	readListing: (trusted) =>

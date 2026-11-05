@@ -98,6 +98,8 @@ describe("check-husky-shim.js (#3172)", () => {
 
 	it("fails a shim carrying neither lookup, naming the constant to update", () => {
 		husky();
+		// husky's copy is read-only where node_modules is a dependency store.
+		fs.rmSync(shim());
 		fs.writeFileSync(shim(), '#!/usr/bin/env sh\nsh -e "$0.hook"\n');
 		const r = check();
 		expect(r.stderr).toContain("UNKNOWN-SHIM");
