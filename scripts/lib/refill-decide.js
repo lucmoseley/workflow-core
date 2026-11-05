@@ -952,9 +952,7 @@ function fill(
 		else skipped.push({ root: j.root, number: j.number, why });
 	}
 	walk([...parked.filter(hasQueuedJudgement), ...rest]);
-	/* A clash only defers its row behind the clean ones (#4355): where they run
-	 * out first, the clashing rows fill the free slots in rank order, since an
-	 * empty slot costs more than a predicted clash (mantahostels#588).
+	/* An empty slot costs more than a predicted clash (mantahostels#588).
 	 * Residual: such a row still launches onto its held file, or beside its
 	 * partner, that same tick. */
 	for (const { row, why } of clashing) {

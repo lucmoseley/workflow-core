@@ -28,6 +28,7 @@ import {
 	type Issue,
 	installPickNextHarness,
 	kit,
+	kitHome,
 	roots,
 	run,
 	sessionProcs,
@@ -952,7 +953,7 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 /* #2310 */
 describe("a live claim on an issue's parent holds the issue too", () => {
 	const thereUrl = "https://api.github.com/repos/o/there";
-	const claudeConfig = () => path.join(kit.dir, "home", ".claude");
+	const claudeConfig = () => path.join(kitHome(), ".claude");
 
 	it("excludes a child of a live-claimed map, naming parent and holder", async () => {
 		kit.oracleSessions = ["self", "alice"];
@@ -1069,8 +1070,6 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 
 	it("offers the child with a WARN where the parent repo's store cannot be found", async () => {
 		kit.oracleSessions = ["self", "alice"];
-		const home = path.join(kit.dir, "adopters");
-		fs.mkdirSync(home, { recursive: true });
 		const r = await run(
 			{
 				parents: { 21: thereMap },
@@ -1083,11 +1082,10 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 				],
 			},
 			[],
-			{ env: { HOME: home } },
 		);
 		expect(r.order()).toEqual([21]);
 		expect(r.out).toContain(
-			`WARN: no checkout under ${home} tracks o/there, so the claim on parent o/there#7 was not read.`,
+			`WARN: no checkout under ${kitHome()} tracks o/there, so the claim on parent o/there#7 was not read.`,
 		);
 	});
 });

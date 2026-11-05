@@ -324,6 +324,18 @@ describe("a session in a linked worktree (#2386)", () => {
 		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
 	});
 
+	it("judges a worktree session by the worktree's declaration, not the root's (#4304)", () => {
+		declare([RLS]);
+		const tree = worktree(inRoot());
+		stage(SQL, tree);
+		expect(envelope({ cwd: tree })).toBe(
+			readFragment("review-sensitive-undeclared"),
+		);
+		declare([], sb.repo);
+		declare([RLS], tree);
+		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
+	});
+
 	it("leaves a path staged in the shared tree unmatched, from a worktree (#4242)", () => {
 		declare([RLS]);
 		stage(SQL);

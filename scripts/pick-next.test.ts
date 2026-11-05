@@ -25,6 +25,7 @@ import {
 	type Fixture,
 	installPickNextHarness,
 	kit,
+	kitHome,
 	restCalls,
 	run,
 	sessionProcs,
@@ -265,22 +266,14 @@ describe("readiness", () => {
 		const j = r.json();
 		expect(j.frontier.map((f: { number: number }) => f.number)).toEqual([5]);
 		expect(j.frontier[0].reach).toBe(0);
-		const home = path.join(kit.dir, "no-adopters");
-		fs.mkdirSync(home);
-		const text = await run(
-			{
-				issues: [{ number: 1 }, { number: 5 }],
-				deps: { 1: [{ number: 5, state: "open", repo: "o/there" }] },
-			},
-			[],
-			{ env: { HOME: home } },
-		);
+		const text = await run({
+			issues: [{ number: 1 }, { number: 5 }],
+			deps: { 1: [{ number: 5, state: "open", repo: "o/there" }] },
+		});
 		expect(text.out).toMatch(/#1\s+.*blocked by o\/there#5/);
 	});
 
 	it("pulls in the open end of a foreign chain, held where no checkout tracks its repo (#2427)", async () => {
-		const home = path.join(kit.dir, "adopters");
-		fs.mkdirSync(home);
 		const fx = {
 			issues: [{ number: 1 }],
 			deps: { 1: [{ number: 10, state: "open" as const, repo: "o/y" }] },
@@ -288,7 +281,7 @@ describe("readiness", () => {
 				"o/y#10": [{ number: 20, state: "open" as const, repo: "o/z" }],
 			},
 		};
-		const r = await run(fx, ["--json"], { env: { HOME: home } });
+		const r = await run(fx, ["--json"]);
 		expect(r.json().pulledIn).toEqual([
 			expect.objectContaining({
 				repo: "o/z",
@@ -296,10 +289,10 @@ describe("readiness", () => {
 				reach: 1,
 				holds: ["o/r#1"],
 				root: null,
-				held: `no checkout under ${home} tracks o/z`,
+				held: `no checkout under ${kitHome()} tracks o/z`,
 			}),
 		]);
-		const text = await run(fx, [], { env: { HOME: home } });
+		const text = await run(fx);
 		expect(text.out).toMatch(
 			/PULLED IN FROM OTHER REPOS[\s\S]*o\/z#20\s+depth 1\s+reach 1\s+holds o\/r#1\s+HELD OUTSIDE THE LOOP: no checkout under \S+ tracks o\/z/,
 		);
@@ -824,8 +817,6 @@ describe("a goal the script works out itself (#3866)", () => {
 	});
 
 	it("unblocks a ref through its blockers, across repos and through its children", async () => {
-		const home = path.join(kit.dir, "adopters");
-		fs.mkdirSync(home);
 		const r = await run(
 			{
 				issues: [
@@ -846,7 +837,6 @@ describe("a goal the script works out itself (#3866)", () => {
 				},
 			},
 			["--json", "--goal", "unblock #1"],
-			{ env: { HOME: home } },
 		);
 		expect(members(r)).toEqual(["o/r#1", "o/r#2", "o/r#3", "o/y#10", "o/z#20"]);
 		expect(r.json().pulledIn).toEqual([
@@ -898,11 +888,7 @@ describe("a goal the script works out itself (#3866)", () => {
 	);
 
 	it("ranks nothing for a checkout gone from the machine, keeping its shortlist", async () => {
-		const home = path.join(kit.dir, "adopters");
-		fs.mkdirSync(home);
-		const r = await run(map, ["--json", "--goal", "drain ghost#5"], {
-			env: { HOME: home },
-		});
+		const r = await run(map, ["--json", "--goal", "drain ghost#5"]);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("--goal names ghost#5: no checkout named ghost");
 		expect(members(r)).toEqual([]);

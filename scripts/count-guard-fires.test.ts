@@ -304,8 +304,8 @@ describe("the CLI, run as a command", () => {
 		fs.rmSync(corpus, { recursive: true, force: true });
 	});
 
-	/** One transcript holding one denied tool call carrying the claim guard's deny. */
-	const withClaimDeny = () =>
+	/** One transcript holding one denied tool call carrying the commit-form guard's deny. */
+	const withCommitDeny = () =>
 		fs.writeFileSync(
 			path.join(corpus, "s1.jsonl"),
 			`${JSON.stringify({
@@ -318,7 +318,7 @@ describe("the CLI, run as a command", () => {
 							type: "tool_result",
 							is_error: true,
 							content:
-								"docs/doc-map.md is held by session 735db33b (pid 1), which is still running.",
+								"This commit form sweeps the shared index, a neighbour's staged work included.",
 						},
 					],
 				},
@@ -348,10 +348,10 @@ describe("the CLI, run as a command", () => {
 	});
 
 	it("counts a real deny out of a transcript and names its date", () => {
-		withClaimDeny();
+		withCommitDeny();
 		const { out } = run(["--dir", corpus]);
 		expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
-		expect(out).toContain("held 1");
+		expect(out).toContain("sweeps-index 1");
 	});
 
 	it("counts the settings canary's refusal under its own subject (#2473)", () => {
@@ -410,7 +410,7 @@ describe("the CLI, run as a command", () => {
 		});
 
 		it("counts a hook registered only in hooks.json", () => {
-			withClaimDeny();
+			withCommitDeny();
 			const { out, code } = run(["--dir", corpus], host);
 			expect(code).toBe(0);
 			expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
@@ -462,7 +462,7 @@ describe("the CLI, run as a command", () => {
 
 			it("counts a guard keyed only there, merged with the core's", () => {
 				writeHostNeedles({ guards: { "guard-page-read.sh": pageRead } });
-				withClaimDeny();
+				withCommitDeny();
 				const { out, err, code } = run(["--dir", corpus], host);
 				expect(code).toBe(0);
 				expect(err).not.toContain("guard-page-read.sh is registered");
@@ -524,7 +524,7 @@ describe("the CLI, run as a command", () => {
 
 			it("reads an absent host file as no host needles, silently", () => {
 				expect(fs.existsSync(hostNeedles())).toBe(false);
-				withClaimDeny();
+				withCommitDeny();
 				const { out, err, code } = run(["--dir", corpus], host);
 				expect(code).toBe(0);
 				expect(err).not.toContain("guard-fire-needles.json is absent");
@@ -534,7 +534,7 @@ describe("the CLI, run as a command", () => {
 
 		it("still counts the plugin's hooks where the host has no settings at all", () => {
 			fs.rmSync(path.join(host, ".claude", "settings.json"));
-			withClaimDeny();
+			withCommitDeny();
 			const { out, err, code } = run(["--dir", corpus], host);
 			expect(code).toBe(0);
 			expect(err).toContain(
@@ -660,15 +660,15 @@ describe("the CLI, run as a command", () => {
 	});
 
 	it("emits parseable JSON under --json, carrying the corpus it read", () => {
-		withClaimDeny();
+		withCommitDeny();
 		const { out, code } = run(["--dir", corpus, "--json"]);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(out);
 		expect(parsed.corpus).toMatchObject({ dirs: [corpus], transcripts: 1 });
-		const claim = parsed.guards.find(
+		const dispatch = parsed.guards.find(
 			(g: { key: string }) => g.key === "guard-dispatch.js",
 		);
-		expect(claim).toMatchObject({ total: 1, byRoute: { deny: 1 } });
+		expect(dispatch).toMatchObject({ total: 1, byRoute: { deny: 1 } });
 	});
 
 	it("counts mentions separately under --mentions, so the ratio is reproducible", () => {
@@ -679,8 +679,7 @@ describe("the CLI, run as a command", () => {
 				type: "user",
 				uuid: "u2",
 				toolUseResult: {
-					stdout:
-						"return rel + ' is held by session ' + x + ', which is still running.';",
+					stdout: "return 'This commit form sweeps the shared index' + why;",
 				},
 			})}\n`,
 		);
@@ -695,7 +694,7 @@ describe("the CLI, run as a command", () => {
 	 * mantahostels#1896: `--since` has to actually window the count, not just parse.
 	 */
 	describe("the --since window", () => {
-		/** One transcript with a claim deny at `ts` (or none at all, undated). */
+		/** One transcript with a commit-form deny at `ts` (or none at all, undated). */
 		const withDenyAt = (name: string, ts: string | null) =>
 			fs.writeFileSync(
 				path.join(corpus, name),
@@ -709,7 +708,7 @@ describe("the CLI, run as a command", () => {
 								type: "tool_result",
 								is_error: true,
 								content:
-									"docs/doc-map.md is held by session 735db33b (pid 1), which is still running.",
+									"This commit form sweeps the shared index, a neighbour's staged work included.",
 							},
 						],
 					},
@@ -752,8 +751,7 @@ describe("the CLI, run as a command", () => {
 					uuid: "old",
 					timestamp: "2026-08-17T13:00:00.000Z",
 					toolUseResult: {
-						stdout:
-							"return rel + ' is held by session ' + x + ', which is still running.';",
+						stdout: "return 'This commit form sweeps the shared index' + why;",
 					},
 				})}\n`,
 			);
@@ -764,8 +762,7 @@ describe("the CLI, run as a command", () => {
 					uuid: "new",
 					timestamp: "2026-09-01T00:00:00.000Z",
 					toolUseResult: {
-						stdout:
-							"return rel + ' is held by session ' + x + ', which is still running.';",
+						stdout: "return 'This commit form sweeps the shared index' + why;",
 					},
 				})}\n`,
 			);
@@ -788,8 +785,7 @@ describe("the CLI, run as a command", () => {
 					type: "user",
 					uuid: "undated",
 					toolUseResult: {
-						stdout:
-							"return rel + ' is held by session ' + x + ', which is still running.';",
+						stdout: "return 'This commit form sweeps the shared index' + why;",
 					},
 				})}\n`,
 			);
@@ -823,10 +819,10 @@ describe("the CLI, run as a command", () => {
 				undatedFires: 1,
 				undatedMentions: 0,
 			});
-			const claim = parsed.guards.find(
+			const dispatch = parsed.guards.find(
 				(g: { key: string }) => g.key === "guard-dispatch.js",
 			);
-			expect(claim).toMatchObject({ total: 1 });
+			expect(dispatch).toMatchObject({ total: 1 });
 		});
 
 		it("refuses a --since with nothing after it", () => {

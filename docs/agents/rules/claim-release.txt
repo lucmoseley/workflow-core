@@ -18,13 +18,6 @@ still warns about a clobber, every refusal that can answer at all doing so
 (mantahostels#337, mantahostels#420). On any refusal the claim and its pin both stand, so the recovery
 keeps.
 
-BLOCKED ON THE COMMIT ITSELF? Set the edit aside instead:
-
-  node scripts/session-arbiter.js release --park <path>
-
-That restores the file, releases the claim and prints how to get the work back
-(mantahostels#1405).
-
 THE RELEASE WARNING IS THE LAST ONE. It drops the pin that holds your prior
 bytes, so if it names a change you did not make — a `cp`, a `git restore`, a
 heredoc, a neighbour — recover then, not later. On a dirty refusal, diff the
