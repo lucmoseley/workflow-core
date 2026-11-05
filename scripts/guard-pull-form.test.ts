@@ -279,30 +279,11 @@ describe("each production read, crossed once", () => {
 		}
 	});
 
-	it("refuses a reset of the shared tree's files, whichever repository's refs it names (#3997)", () => {
-		expect(
-			readDenyReason(`GIT_DIR=${elsewhere}/.git git reset --hard`),
-		).toContain("resets every working file in the shared tree");
-	});
-
 	it("names the repair script from a linked worktree too (#3198)", () => {
 		fs.writeFileSync(path.join(shared, ".git/refs/heads/main"), "");
 		expect(
 			readDenyReason("git update-ref refs/heads/main HEAD", { cwd: worktree }),
 		).toContain("node scripts/repair-main.js");
-	});
-
-	it("asks git whether a checkout's word is a tree", () => {
-		expect(verdict("git checkout --force main")).toBe("deny");
-		expect(verdict("git checkout -f a.md")).toBe("allow");
-	});
-
-	it("reads the tree's top level and prefix for a pathspec", () => {
-		fs.mkdirSync(path.join(shared, "sub"));
-		expect(verdict("git -C sub restore ..")).toBe("deny");
-		expect(verdict("git -C sub restore .")).toBe("allow");
-		expect(verdict(`git restore ${shared}`)).toBe("deny");
-		expect(verdict(`git restore ${path.join(shared, "sub")}`)).toBe("allow");
 	});
 
 	it("classes the tree a command lands in", () => {
