@@ -129,7 +129,7 @@ bodies are 70–670 lines of bespoke judgement.
    A file that runs a stack of independent gates, as `.husky/pre-commit` does,
    puts `RUNS: gates — <why>` in its header, so its digest hashes what it
    sources and requires and the bytes of each `scripts/` file its header names,
-   and none of the programs it runs (#4456). A program one of its rules names
+   and no program it or those libraries run (#4456). A program one of its rules names
    gets its own row, so that rule is still re-read when the program changes.
 7. **An entry in `scripts/guard-fire-needles.json`** — the deny, warn or inject
    text this guard prints, keyed by its filename, which is how

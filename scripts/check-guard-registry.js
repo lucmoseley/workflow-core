@@ -1412,8 +1412,11 @@ const TREE_KEY = "TREE";
 const TREES = ["session", "host", "both", "none"];
 const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
+/* The comment opener every header key line starts with. */
+const COMMENT_LEAD = "^\\s*(?:#+|\\*|//)\\s*";
+
 const ANNOTATION_RE = new RegExp(
-	`^\\s*(?:#+|\\*|//)\\s*(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
+	`${COMMENT_LEAD}(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
 );
 /* The reason is required, not decoration: "fail-safe" alone asserts a verdict
  * and shows no working, which is the stale label mantahostels#102 ruled out. */
@@ -1869,14 +1872,42 @@ const VAR_PATH_RE =
  * @param {string} rel
  * @param {string} text
  * @param {string} [base] the tree run targets and the dispatch manifest resolve in
+ * @param {boolean} [withRuns] false leaves out what it only runs, as a gate stack's digest does
  */
-function sourcedBy(rel, text, base = root) {
+function sourcedBy(rel, text, base = root, withRuns = true) {
+	const { deps, runs } = parsedSources(rel, text, base);
+	return withRuns ? [...deps] : deps.filter((p) => !runs.has(p));
+}
+
+/**
+ * The scripts/ files a gate stack's header names, or null where `text` opens
+ * no gate stack.
+ * @param {string} rel
+ * @param {string} text
+ */
+function gateStackNamed(rel, text) {
+	return parsedSources(rel, text, root).named;
+}
+
+/**
+ * @param {string} rel
+ * @param {string} text
+ * @param {string} base
+ */
+function parsedSources(rel, text, base) {
 	const key = `${base}\0${rel}`;
 	const known = sourcedCache.get(key);
-	if (known?.text === text) return [...known.deps];
-	const deps = parseSourcedBy(rel, text, base);
-	sourcedCache.set(key, { text, deps });
-	return [...deps];
+	if (known?.text === text) return known;
+	const header = parseHeaderLines(text);
+	const parsed = {
+		text,
+		...parseSourcedBy(rel, text, base),
+		named: isGateStack(header)
+			? headerNamed(header).filter((p) => fs.existsSync(path.join(base, p)))
+			: null,
+	};
+	sourcedCache.set(key, parsed);
+	return parsed;
 }
 
 /**
@@ -1885,7 +1916,7 @@ function sourcedBy(rel, text, base = root) {
  * reads them all again (#4170). Keyed on the text too, so a file that changes mid-run is
  * parsed afresh.
  *
- * @type {Map<string, { text: string, deps: string[] }>}
+ * @type {Map<string, { text: string, deps: string[], runs: Set<string>, named: string[] | null }>}
  */
 const sourcedCache = new Map();
 
@@ -1933,14 +1964,10 @@ function parseSourcedBy(rel, text, base) {
 			requiredGroup(m, 2, VAR_PATH_RE),
 		]);
 	}
-	const tails = runsGates(text)
-		? []
-		: [
-				...live(parseNodeRuns(text)).map((m) => m.value),
-				...live(parseNodeVars(text)).flatMap(
-					(m) => assigned.get(m.value) ?? [],
-				),
-			];
+	const tails = [
+		...live(parseNodeRuns(text)).map((m) => m.value),
+		...live(parseNodeVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
+	];
 	const run = tails.map((tail) => resolveRun(base, dir, tail)).filter(keptRun);
 	/* The dispatcher's kit loads its cores by manifest path, which no require
 	 * names (#2786). The manifest is the judged tree's and is hashed itself,
@@ -1949,38 +1976,45 @@ function parseSourcedBy(rel, text, base) {
 		rel === DISPATCH_KIT
 			? [MANIFEST_REL, ...readDispatchedCores(manifestAt(base))]
 			: [];
-	return [...shell, ...js, ...run, ...cores];
+	const linked = new Set([...shell, ...js, ...cores]);
+	return {
+		deps: [...shell, ...js, ...run, ...cores],
+		runs: new Set(run.filter((p) => !linked.has(p))),
+	};
 }
 
 /*
  * A gate stack's header line `RUNS: gates — <why>` (#4456). The programs such a
  * file runs are independent gates, each judged by its own row where a rule
- * describes it, so its digest follows what it sources and requires, plus the
- * bytes alone of each scripts/ file its own header names, where its
- * annotation's claims rest. Folding forty gates' closures into one row made it stale on
- * nearly every merge, and its rules were re-anchored unread. Undeclared files
- * still follow their run targets, as a thin wrapper's rules need (mantahostels#358).
+ * describes it. So its digest follows what it and its libraries source and
+ * require, plus the bytes alone of each scripts/ file its header names, where
+ * its annotation's claims rest, and no program they only run. Folding forty gates'
+ * closures into one row made it stale on nearly every merge, and its rules were
+ * re-anchored unread. Undeclared files still follow their run targets, as a
+ * thin wrapper's rules need (mantahostels#358).
  */
-const RUNS_GATES_RE = /^\s*(?:#+|\*|\/\/)\s*RUNS:[ \t]*gates\s*[—:-]\s*\S/;
+const RUNS_GATES_RE = new RegExp(
+	`${COMMENT_LEAD}RUNS:[ \\t]*gates\\s*[—:-]\\s*\\S`,
+);
 const NAMED_SCRIPT_RE = /\bscripts\/[\w./-]+\.(?:js|sh)\b/g;
 
-/** @param {string} text */
-function runsGates(text) {
-	return parseHeaderLines(text).some((line) => RUNS_GATES_RE.test(line));
+/** @param {string[]} header a file's header lines */
+function isGateStack(header) {
+	return header.some((line) => RUNS_GATES_RE.test(line));
 }
 
-/** @param {string} text a gate stack's text: the scripts/ paths its header names */
-function headerNamed(text) {
-	if (!runsGates(text)) return [];
-	const named = parseHeaderLines(text).flatMap((line) =>
+/** @param {string[]} header a file's header lines: the scripts/ paths it names */
+function headerNamed(header) {
+	return header.flatMap((line) =>
 		[...line.matchAll(NAMED_SCRIPT_RE)].map((m) => m[0]),
 	);
-	return [...new Set(named)].sort();
 }
 
 /* `. "$root/scripts/lib/x.sh"` from a .husky/ hook: the parser keeps only the
  * `lib/x.sh` tail, so the guard's own directory gives .husky/lib/x.sh, which is
- * nowhere, and the libs the hook really sources dropped out of its digest. */
+ * nowhere, and the libs the hook really sources dropped out of its digest
+ * (#4456). Sibling first, so a hook-local lib of the same name would shadow the
+ * shared one; there is none today. */
 /**
  * @param {string} base
  * @param {string} dir
@@ -2029,36 +2063,28 @@ function resolveRun(base, dir, tail) {
 /**
  * @param {string} rel
  * @param {Set<string>} [seen] accumulator: each file hashed is added, so a cycle hashes once
+ * @param {boolean} [inStack] reached from a gate stack, so what it runs is left out
  * @returns {string | null}
  */
-function digestOf(rel, seen = new Set()) {
+function digestOf(rel, seen = new Set(), inStack = false) {
 	if (seen.has(rel)) return null; // a source cycle: hash each file once
 	seen.add(rel);
 	try {
 		const bytes = fs.readFileSync(path.join(root, rel));
 		const text = bytes.toString("utf8");
 		const hash = crypto.createHash("sha256").update(bytes);
+		const named = inStack ? null : gateStackNamed(rel, text);
+		const stack = inStack || named !== null;
 		// Sorted, so the digest does not move when the source lines are reordered.
-		for (const lib of sourcedBy(rel, text).sort())
-			hash.update(`\0${lib}\0${digestOf(lib, seen) ?? ""}`);
-		for (const named of headerNamed(text)) {
-			const own = bytesOf(named);
-			if (own === null) continue;
-			seen.add(named);
-			hash.update(`\0${named}\0`).update(own);
+		for (const lib of sourcedBy(rel, text, root, !stack).sort())
+			hash.update(`\0${lib}\0${digestOf(lib, seen, stack) ?? ""}`);
+		for (const p of named ?? []) {
+			seen.add(p);
+			hash.update(`\0${p}\0`).update(fs.readFileSync(path.join(root, p)));
 		}
 		return hash.digest("hex").slice(0, 16);
 	} catch {
 		return null; // absence is the existing BROKEN-CLAIM's business, not this one's
-	}
-}
-
-/** @param {string} rel @returns {Buffer | null} */
-function bytesOf(rel) {
-	try {
-		return fs.readFileSync(path.join(root, rel));
-	} catch {
-		return null;
 	}
 }
 

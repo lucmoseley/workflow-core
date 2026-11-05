@@ -451,7 +451,9 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 			),
 			files: {
 				".husky/pre-commit": `${header(runs)}. "\${ROOT:-.}"/scripts/lib/gate.sh\nnode "\${ROOT:-.}"/scripts/check-valid.js || exit "$?"\nnode "\${ROOT:-.}"/scripts/check-other.js || exit "$?"\n`,
-				"scripts/lib/gate.sh": "gate() { exit 1; }\n",
+				"scripts/lib/gate.sh":
+					'gate() { node "$ROOT/scripts/lib/helper.js"; }\n',
+				"scripts/lib/helper.js": "module.exports = 1;\n",
 				"scripts/check-valid.js": 'require("./lib/valid-lib.js");\n',
 				"scripts/lib/valid-lib.js": "module.exports = 1;\n",
 				"scripts/check-other.js": 'require("./lib/other-lib.js");\n',
@@ -478,6 +480,14 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 
 		// check-valid.js carries its own row, so its rule is still re-read.
 		expect(staleRows(root)).toEqual(["scripts/check-valid.js"]);
+	});
+
+	it("follows no program a library the stack sources runs", () => {
+		const root = stack(declared);
+		reviewIn(root);
+		edit(root, "scripts/lib/helper.js");
+
+		expect(staleRows(root)).toEqual([]);
 	});
 
 	it("still follows the gates of a stack that declares nothing, as a thin wrapper needs", () => {
