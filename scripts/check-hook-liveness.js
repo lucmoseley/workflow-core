@@ -39,9 +39,9 @@
  * rather than through `node` or as another script's argument (#83), is executable.
  *
  * ASSERTION 5 — detached children (--notify). `~/.claude/wfc-detached-run.json`,
- * which scripts/lib/detached-run.js writes for the three session-start jobs that
- * are spawned DETACHED — `prune-markers`, `debt sweep` and
- * `retire-stale-containers.js`, which assertion 1 cannot see. Only a count of
+ * which scripts/lib/detached-run.js writes for the two session-start jobs that
+ * are spawned DETACHED — `prune-markers` and `retire-stale-containers.js`,
+ * which assertion 1 cannot see. Only a count of
  * consecutive starts at which the job opened a record and never closed it can
  * (mantahostels#1910).
  *
@@ -2149,7 +2149,7 @@ function reportChronicReaps(ctx, chronic, saidChronic) {
 }
 
 /**
- * The completion records the three DETACHED session-start children leave, one
+ * The completion records the two DETACHED session-start children leave, one
  * file per config dir, keyed by job. Written by scripts/lib/detached-run.js,
  * which owns the shape and the counting rule (mantahostels#1910).
  */
@@ -2157,7 +2157,6 @@ const {
 	DEATHS_TO_REPORT,
 	RUN_FILE: DETACHED_RUN_FILE,
 	JOB_PRUNE_MARKERS,
-	JOB_DEBT_SWEEP,
 	JOB_RETIRE_STALE_CONTAINERS,
 } = detachedRun;
 
@@ -2166,8 +2165,8 @@ const {
  *
  * WHY IT IS NOT ASSERTION 3 OVER AGAIN. The reaper runs in the foreground of its
  * hook, so a cancellation shows up as one unclosed row and the transcript
- * carries a `hook_cancelled` record beside it. These three are spawned detached
- * under `stdio: "ignore"` (mantahostels#1899, mantahostels#1251, mantahostels#1632): the launching hook returns 0
+ * carries a `hook_cancelled` record beside it. These two are spawned detached
+ * under `stdio: "ignore"` (mantahostels#1899, mantahostels#1632): the launching hook returns 0
  * whatever the child does, no transcript record is written, and a single
  * unclosed row is the ordinary shape of a machine running 10-12 sessions at
  * once. So the finding is a COUNT of consecutive starts at which the previous
@@ -2302,7 +2301,6 @@ function reportDeadJobs(ctx, dead, said) {
  */
 const DETACHED_HOW = {
 	[JOB_PRUNE_MARKERS]: buildArbiterCommand`prune-markers`,
-	[JOB_DEBT_SWEEP]: buildArbiterCommand`debt sweep`,
 	[JOB_RETIRE_STALE_CONTAINERS]:
 		"node scripts/retire-stale-containers.js --dry-run",
 };

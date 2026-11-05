@@ -244,7 +244,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
 			reason: [
 				`Standing context is ${n(tokens)} tokens — past the ${n(WIND_UP)} WIND-UP NOTICE in docs/effort-guide.md, and a floor, being one turn stale.`,
 				"",
-				"This is not a stop. Finish the unit of work in flight — one ticket, one bundle member — even if a compaction fires while you do, and start no new one. Commit. If the issue you were working is still open, comment its state on it and leave it open. The next unit goes to a fresh session.",
+				"This is not a stop. Finish the unit of work in flight — one build-unit ticket, however many compactions finishing it takes, or one bundle member — even if a compaction fires while you do, and start no new one. Commit. If the issue you were working is still open, comment its state on it and leave it open. The next unit goes to a fresh session.",
 				"",
 				closing,
 				"",
@@ -261,7 +261,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
 				"",
 				`Standing context now reads ${n(tokens)} tokens. Spend is turns x standing context, so a long session costs even where that reading is low — after a compaction included.`,
 				"",
-				"This is a notice, not a limit and not a stop. Finish the ticket in hand — every step it still needs, its close included — even if a compaction fires while you do, then end. What it rules out is STARTING a different ticket or bundle member. Never leave the ticket in hand's remaining steps to a fresh session on the strength of this notice: a fresh session re-reads everything this one already holds, and saves nothing.",
+				"This is a notice, not a limit and not a stop. Finish the ticket in hand — the build unit, however many compactions it takes, every step it still needs, its close included — even if a compaction fires while you do, then end. What it rules out is STARTING a different ticket or bundle member. Never leave the ticket in hand's remaining steps to a fresh session on the strength of this notice: a fresh session re-reads everything this one already holds, and saves nothing.",
 				"",
 				closing,
 				"",

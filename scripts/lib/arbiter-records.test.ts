@@ -2,26 +2,17 @@
 /*
  * The record factories — where each family's field set is written down, and the
  * one place arbiter-records.js's typedefs are mirrored. A bare lock defaults to
- * breakable, two locks never share a claim id, and a debt has exactly its five
- * fields, unowned by default (mantahostels#116, #1170; split out at
+ * breakable, and two locks never share a claim id (split out at
  * mantahostels#1795).
  *
- * The lock factory is called directly; a debt is read as a denial writes it.
- * Both run under arbiter-testkit's sandbox, so that nothing they touch can
- * reach the live registry.
+ * The lock factory is called directly, under arbiter-testkit's sandbox, so that
+ * nothing it touches can reach the live registry.
  *
- * Loosen a case here and a pid-less lock nothing can ever clear, or a debt record
- * the denied session cannot complete, ships unnoticed through every arbiter
- * family that mints one.
+ * Loosen a case here and a pid-less lock nothing can ever clear ships unnoticed
+ * through every arbiter family that mints one.
  */
 import { describe, expect, it } from "vitest";
-import {
-	freshSandbox,
-	locks,
-	proc,
-	readDebtOf,
-	store,
-} from "./arbiter-testkit";
+import { freshSandbox, locks, proc } from "./arbiter-testkit";
 
 freshSandbox();
 
@@ -42,24 +33,5 @@ describe("the record factories — where a record's fields are written down", ()
 		const b = locks.newLock({ path: "docs/a.md" });
 		expect(a.claimId).not.toBe(b.claimId);
 		expect(a.bootId).toBe(proc.readCurrentBootId() || undefined);
-	});
-
-	it("gives a debt five fields — mantahostels#116 cut the blocking session, #1170 added the recording one", () => {
-		store.registerDenial("docs/a.md");
-		expect(Object.keys(readDebtOf("docs/a.md") ?? {}).sort()).toEqual([
-			"createdAt",
-			"gist",
-			"issue",
-			"path",
-			"recordedBy",
-		]);
-	});
-
-	it("defaults a debt to unowned, which is the stub a denial writes", () => {
-		store.registerDenial("docs/a.md");
-		const d = readDebtOf("docs/a.md");
-		expect(d?.issue).toBeNull();
-		expect(d?.gist).toBeNull();
-		expect(d?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 	});
 });

@@ -37,7 +37,7 @@
  * ONCE A DAY AND NOT PER SESSION: a per-session sweep costs too much CPU,
  * and incremental scanning saves nothing (mantahostels#1362, mantahostels#1130).
  *
- * WIRED THROUGH `scripts/sweep-debts-detached.sh`, which carries this script's
+ * WIRED THROUGH `scripts/session-start-sweeps.sh`, which carries this script's
  * IMPLICIT / JUSTIFIED / DEFEAT annotation for the guard registry — the hooks file
  * names the launcher, never this file (mantahostels#1362's piggyback ruling; mantahostels#1404).
  */

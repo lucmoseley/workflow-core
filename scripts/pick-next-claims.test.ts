@@ -376,26 +376,21 @@ describe("admission", () => {
 });
 
 /*
- * mantahostels#1206: two local, read-only counts at the fragment layer one down from the
- * issue layer `pick-next` ranks — debt entries and stranded file claims,
- * neither of which carries an issue number so neither can join the sort.
+ * mantahostels#1206: a local, read-only count at the fragment layer one down
+ * from the issue layer `pick-next` ranks — stranded file claims, which carry
+ * no issue number and so cannot join the sort.
  */
 describe("owed work (mantahostels#1206)", () => {
-	it("reports the debt-entry and stranded-claim counts, never as a filter or sort input", async () => {
+	it("reports the stranded-claim count, never as a filter or sort input", async () => {
 		kit.oracleSessions = ["self"];
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }],
-			debts: [
-				{ path: "docs/doc-map.md", issue: 900, gist: "a" },
-				{ path: "scripts/foo.js" },
-			],
 			staleFiles: {
 				a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 24 },
 			},
 		});
-		expect(r.out).toMatch(/debt entries\s+2/);
 		expect(r.out).toMatch(/stranded claims\s+1/);
-		// The shortlist order is untouched: neither count is a sort key.
+		// The shortlist order is untouched: the count is not a sort key.
 		expect(r.order()).toEqual([1, 2]);
 	});
 
@@ -443,19 +438,11 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(r.out).toMatch(/live sessions\s+unknown/);
 	});
 
-	it("prints unknown, never zero, when the debt store cannot be read", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({ issues: [{ number: 1 }], debtsUnreadable: true });
-		expect(r.out).toMatch(/debt entries\s+unknown/);
-		expect(r.out).not.toMatch(/debt entries\s+0/);
-	});
-
 	it("carries the same counts in --json under owedWork", async () => {
 		kit.oracleSessions = ["self"];
 		const r = await run(
 			{
 				issues: [{ number: 1 }],
-				debts: [{ path: "docs/doc-map.md", issue: 900 }],
 				staleFiles: {
 					a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 24 },
 				},
@@ -464,8 +451,6 @@ describe("owed work (mantahostels#1206)", () => {
 		);
 		const j = r.json();
 		expect(j.owedWork).toEqual({
-			debtEntries: 1,
-			debtEntriesUnknown: null,
 			strandedClaims: 1,
 			strandedClaimsUnknown: null,
 			strandedClaimsCarrying: 0,

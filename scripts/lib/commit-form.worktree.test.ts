@@ -3,14 +3,15 @@
  * guard-commit-form in a session's own worktree (#4242): with
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
  * worktree, a pathspec commit's untracked-path warn reads the worktree's
- * files, never the main checkout's.
+ * files, never the main checkout's, an amend reads the worktree's HEAD, and
+ * `git commit -a` is denied there as in the main checkout.
  */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { freshSandbox, store, storeAt } from "./arbiter-testkit";
+import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
 let at: { main: string; worktree: string };
@@ -43,12 +44,7 @@ describe("a pathspec commit from a worktree is judged on the worktree's files (#
 	});
 });
 
-/*
- * The ledger is the arbiter store's, keyed by the
- * process's CLAUDE_PROJECT_DIR, which runCore's env does not reach, so the
- * process's is set to the checkout whose store is seeded.
- */
-describe("a commit from a worktree reads the host's stores at the main checkout (#4274)", () => {
+describe("a commit from a worktree reads the host's rule layer at the main checkout (#4274)", () => {
 	const hostRule = "The host's own closing-keyword rule (#4274).";
 
 	const fragmentIn = (root: string) => {
@@ -81,32 +77,56 @@ describe("a commit from a worktree reads the host's stores at the main checkout 
 		expect(reason).toContain("Closes #12");
 		expect(reason).not.toContain(hostRule);
 	});
+});
 
-	/** What the core says to a bare commit to the main checkout's index. */
-	const bareToShared = () => {
-		fs.writeFileSync(path.join(at.main, "b.md"), "b\n");
-		execFileSync("git", ["add", "b.md"], { cwd: at.main });
-		storeAt(at.main);
-		const out = runCore(
+describe("an amend from a worktree is judged on the worktree's HEAD (#4384)", () => {
+	const git = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, { cwd, encoding: "utf8" });
+
+	/** The core's decision on an amend run from the worktree. */
+	const amend = () =>
+		runCore(
 			"guard-commit-form",
-			toolCall("Bash", { command: `git -C ${at.main} commit -m "x"` }),
+			toolCall("Bash", { command: "git commit --amend --no-edit" }),
 			{ root: at.main, worktree: at.worktree },
 		).output;
-		return String(out?.additionalContext ?? "");
-	};
 
-	const wroteIn = (root: string, file: string) => {
-		storeAt(root);
-		store.recordWrite(path.join(root, file), "s1");
-	};
-
-	it("credits a staged path the host's write ledger records this session writing", () => {
-		wroteIn(at.main, "b.md");
-		expect(bareToShared()).not.toContain("never wrote");
+	it("denies it where the worktree's HEAD is on origin/main", () => {
+		git(at.main, "update-ref", "refs/remotes/origin/main", "HEAD");
+		expect(amend()?.permissionDecisionReason).toContain(
+			"as `HEAD` is on `origin/main`",
+		);
 	});
 
-	it("warns of it where only the worktree's ledger records the write", () => {
-		wroteIn(at.worktree, "b.md");
-		expect(bareToShared()).toContain("never wrote");
+	it("allows it once the worktree has committed past origin/main", () => {
+		git(at.main, "update-ref", "refs/remotes/origin/main", "HEAD");
+		fs.writeFileSync(path.join(at.worktree, "a.md"), "unpushed\n");
+		git(at.worktree, "commit", "-qm", "unpushed", "--", "a.md");
+		expect(amend()?.permissionDecision).toBeUndefined();
+	});
+});
+
+describe("`git commit -a` from a worktree is denied, its subagents sharing it", () => {
+	const Sweeps = "This commit form sweeps in every dirty tracked file";
+
+	/** The core's decision on `command`, run from the worktree. */
+	const decision = (command: string) =>
+		runCore("guard-commit-form", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it.each([
+		['git commit -a -m "x"'],
+		['git commit -am "x"'],
+		['git commit --all -m "x"'],
+	])("denies %s", (command) => {
+		expect(decision(command)?.permissionDecisionReason).toContain(Sweeps);
+	});
+
+	it("allows -i, which commits only the paths it names", () => {
+		expect(
+			decision('git commit -i -m "x" -- a.md')?.permissionDecision,
+		).toBeUndefined();
 	});
 });

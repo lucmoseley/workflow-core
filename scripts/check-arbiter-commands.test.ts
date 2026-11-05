@@ -50,11 +50,11 @@ describe("check-arbiter-commands", () => {
 		],
 		[
 			"a literal command with a hand-quoted word",
-			`const m = \`node scripts/session-arbiter.js wait '${DOLLAR}{rel}'\`;\n`,
+			`const m = \`node scripts/session-arbiter.js release '${DOLLAR}{rel}'\`;\n`,
 		],
 		[
 			"a word after a placeholder",
-			`const m = \`node scripts/session-arbiter.js debt clear <path> ${DOLLAR}{n}\`;\n`,
+			`const m = \`node scripts/session-arbiter.js claim <path> ${DOLLAR}{sid}\`;\n`,
 		],
 		[
 			"a command concatenated",
@@ -66,7 +66,7 @@ describe("check-arbiter-commands", () => {
 		],
 		[
 			"a word after a quoted argument",
-			`const m = \`node scripts/session-arbiter.js request "<why>" ${DOLLAR}{rel}\`;\n`,
+			`const m = \`node scripts/session-arbiter.js claim "<path>" ${DOLLAR}{sid}\`;\n`,
 		],
 		[
 			"a word after two spaces",
@@ -83,11 +83,11 @@ describe("check-arbiter-commands", () => {
 		["a corePath of the arbiter", 'corePath("scripts/session-arbiter.js");\n'],
 		[
 			"a word the tag would quote twice",
-			`const m = buildArbiterCommand\`wait ${DOLLAR}{shellQuote(rel)}\`;\n`,
+			`const m = buildArbiterCommand\`release ${DOLLAR}{shellQuote(rel)}\`;\n`,
 		],
 		[
 			"a literal path with a placeholder",
-			'const m = "node scripts/session-arbiter.js release --force <path>";\n',
+			'const m = "node scripts/session-arbiter.js release --generator <path>";\n',
 		],
 		[
 			"a literal path concatenated on to prose",

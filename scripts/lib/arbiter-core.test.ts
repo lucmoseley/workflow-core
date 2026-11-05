@@ -22,15 +22,12 @@ import {
 	core,
 	DEAD,
 	durably,
-	fakeGh,
 	freshSandbox,
-	ghCallCount,
 	live,
 	locks,
 	markers,
 	noSessions,
 	proc,
-	readDebtOf,
 	registerSession,
 	store,
 } from "./arbiter-testkit";
@@ -131,11 +128,10 @@ describe("scope — the prefix rule, not a hand-listed hot set", () => {
 });
 
 describe("the state directory has a name (mantahostels#205)", () => {
-	it("is what locks/, debts/, writes/ and the fail-open log all sit in", () => {
+	it("is what locks/, writes/ and the fail-open log all sit in", () => {
 		const dir = store.stateDir();
 		for (const p of [
 			store.paths.locksDir(),
-			store.paths.debtsDir(),
 			store.paths.writesDir(),
 			store.errorLog(),
 		])
@@ -456,22 +452,13 @@ describe("freshSandbox's setUp callback (mantahostels#205)", () => {
 });
 
 describe("one naming scheme, one reader, one writer", () => {
-	it("files a lock and a debt for the same path under the same key", () => {
+	it("files a lock and a break for the same path under the same key", () => {
 		const a = store.paths.lock("docs/doc-map.md");
-		const b = store.paths.debt("docs/doc-map.md");
-		// A debt is keyed by (path, issue) (mantahostels#327), so it carries the owner after
-		// the shared key rather than being named for the path alone.
+		const b = store.paths.break("docs/doc-map.md", "claim-1");
+		// A break is keyed by (path, claim id), so it carries the claim after the
+		// shared key rather than being named for the path alone.
 		expect(path.basename(b).startsWith(path.basename(a, ".json"))).toBe(true);
 		expect(path.dirname(a)).not.toBe(path.dirname(b));
-	});
-
-	it("gives two owners of one path two different debt files", () => {
-		expect(store.paths.debt("docs/doc-map.md", 308)).not.toBe(
-			store.paths.debt("docs/doc-map.md", 323),
-		);
-		expect(store.paths.debt("docs/doc-map.md", 308)).not.toBe(
-			store.paths.debt("docs/doc-map.md"),
-		);
 	});
 
 	it("gives different paths different names", () => {
@@ -687,61 +674,6 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			} finally {
 				fs.chmodSync(p, 0o644);
 			}
-		});
-
-		it("returns null from listDebts", () => {
-			sealed(store.paths.debtsDir(), () => {
-				expect(store.listDebts()).toBeNull();
-			});
-		});
-
-		it("reports a single unreadable debt in place rather than dropping it", () => {
-			// Dropping it printed a short list that reads as complete.
-			store.registerDenial("docs/doc-map.md");
-			const p = store.paths.debt("docs/doc-map.md");
-			fs.chmodSync(p, 0o000);
-			try {
-				const debts = store.listDebts();
-				expect(debts).toHaveLength(1);
-				expect(debts[0].unreadable).toBe(true);
-			} finally {
-				fs.chmodSync(p, 0o644);
-			}
-		});
-	});
-
-	d("the debt read path", () => {
-		it("warns that a debt exists but could not be read, instead of staying silent", () => {
-			// Silence here hands the path to a session that would have been told the
-			// work is owned elsewhere.
-			store.registerDenial("docs/doc-map.md");
-			const p = store.paths.debt("docs/doc-map.md");
-			fs.chmodSync(p, 0o000);
-			try {
-				expect(store.buildDebtNotice("docs/doc-map.md")).toMatch(
-					/registered debt that could not be read/,
-				);
-			} finally {
-				fs.chmodSync(p, 0o644);
-			}
-		});
-
-		it("warns when the whole debt STORE is unreadable, not just one entry", () => {
-			// An existsSync pre-check returned false for a debt inside an unreadable
-			// directory, so the warning above was unreachable in exactly the case it
-			// exists for.
-			store.registerDenial("docs/doc-map.md");
-			sealed(store.paths.debtsDir(), () => {
-				expect(store.buildDebtNotice("docs/doc-map.md")).toMatch(
-					/registered debt that could not be read/,
-				);
-			});
-		});
-
-		it("still reports no debt where none was ever registered", () => {
-			// A readable store with nothing in it must stay silent, or every claim on
-			// the machine carries a debt warning.
-			expect(store.buildDebtNotice("docs/doc-map.md")).toBeNull();
 		});
 	});
 
@@ -1166,9 +1098,8 @@ describe("subject handling — review findings", () => {
 	const docMap = "docs/doc-map.md";
 
 	it("keeps the region out of the write ledger, which names files", () => {
-		// The guard-commit-form core compares the ledger against staged paths, and git
-		// stages no region — so an unstripped subject warns the session off its own
-		// commit as "a path this session never wrote".
+		// The ledger's readers compare it against paths git reports, and git
+		// reports no region, so an unstripped subject matches nothing.
 		store.recordWrite(path.join(sb.repo, `${docMap}#B42`), "alice");
 		expect(store.readWritesBy("alice")).toEqual([docMap]);
 	});
@@ -1213,24 +1144,6 @@ describe("subject handling — review findings", () => {
 		);
 	});
 
-	it("warns a region claimant about a debt registered on the whole file, naming its issue", () => {
-		// Every debt registered before this change is keyed on the plain path, and
-		// draining that queue is the change's entire purpose.
-		store.ownDebt(docMap, 123, "an edit owed on this file");
-		const notice = store.buildDebtNotice(`${docMap}#B42`);
-		expect(notice).toContain("123");
-	});
-
-	it("keeps the write side keyed exactly, so a denial writes its own stub", () => {
-		// The read widening must not reach registerDenial, or a region denial would
-		// see the file's stub and record nothing of its own.
-		store.ownDebt(docMap, 123, "a file-level debt");
-		store.registerDenial(`${docMap}#B42`);
-		/* The unowned stub sits on the region alone, none on the file. */
-		expect(readDebtOf(`${docMap}#B42`)).not.toBeNull();
-		expect(readDebtOf(docMap)).toBeNull();
-	});
-
 	it("refreshes the whole-file pin as well as the regions a session holds", () => {
 		// A session can hold both — a Write with no anchor, then an Edit with one.
 		// Refreshing only the regions freezes the file-wide claim's recovery bytes
@@ -1245,31 +1158,6 @@ describe("subject handling — review findings", () => {
 		const held = store.listLocks() as Array<{ path: string; blob: string }>;
 		expect(held).toHaveLength(2);
 		for (const l of held) expect(l.blob).toBeTruthy();
-	});
-
-	it("caps the debt list, own-subject entries first, when a file carries dozens", () => {
-		// docs/doc-map.md carried 46 file-level entries the day region claims
-		// landed, and every one rides along with any region claim on that file —
-		// uncapped, they bury the claim's own debt under a queue about other
-		// entries.
-		for (let i = 0; i < 12; i++)
-			store.ownDebt(docMap, 500 + i, `a file-level debt ${i}`);
-		store.ownDebt(`${docMap}#B42`, 999, "the debt on this very entry");
-		const notice = store.buildDebtNotice(`${docMap}#B42`);
-		expect(notice).toContain("#999");
-		expect(notice).toContain("more: node scripts/session-arbiter.js debt list");
-		expect(notice.split("\n").length).toBeLessThan(14);
-	});
-
-	it("looks nothing up on GitHub, its own debts included (mantahostels#1251)", () => {
-		// Region claims once skipped their inherited entries' lookups to stay inside
-		// the guard's 5s timeout. Nothing is looked up now, so the flag is gone.
-		fakeGh(sb, JSON.stringify({ state: "OPEN" }));
-		for (let i = 0; i < 5; i++)
-			store.ownDebt(docMap, 600 + i, `file debt ${i}`);
-		store.ownDebt(`${docMap}#B42`, 700, "this entry's own debt");
-		store.buildDebtNotice(`${docMap}#B42`);
-		expect(ghCallCount(sb)).toBe(0);
 	});
 
 	it("does not call a file unclaimed while a neighbour holds a region of it", () => {

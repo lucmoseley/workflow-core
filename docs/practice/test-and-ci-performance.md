@@ -191,12 +191,38 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - Mergify: "pause the merge queue until the incident is resolved". https://docs.mergify.com/merge-queue/pause/. GitLab: "Merge immediately" lands an urgent fix past the train, "only in critical situations". https://docs.gitlab.com/ci/pipelines/merge_trains/. Each one vendor's product. [unverified]
 - Agreement (Chromium, Mergify, GitLab): when the base is red, stop landing (close the tree or pause the queue) and land the fix by a separate path. Do not run each queue cycle against a base that is known red. Closing the tree rests on Chromium alone and landing the fix by a separate path on GitLab alone, both adopters, so this sets no default.
 
+## Test before or after the shared branch
+
+Researched 2026-11-05.
+
+### When each model is right
+
+- Land first, test after: Google TAP lets a change land after a fast presubmit that "has a very high likelihood (95%+) of passing the rest of the tests", then runs the full set after, with a Build Cop and automatic rollback; "smaller repositories or projects can avoid this problem by serializing submits". https://abseil.io/resources/swe-book/html/ch23.html. [named expert]
+- DORA: "If the build can't be fixed in a few minutes, the change that caused the build to break should be identified and reverted"; tests "before and after the merge"; a build of about 10 min at most. https://dora.dev/capabilities/continuous-integration/. [standard or field body]
+- Fowler names the gate on a plain branch, with no pull request: a "Pending Head (also called Pre-tested, Delayed, or Gated Commit)" holds commits "on another branch until the build completes and only migrated to the mainline after a green build". https://martinfowler.com/articles/continuousIntegration.html. [named expert]
+- Hammant: "Committing/pushing directly to the shared trunk may be fine for teams with only a few commits a day"; gate before trunk "when the rate of commit into the trunk would be too high to have an auto-rollback on build failure". https://trunkbaseddevelopment.com/continuous-integration/. [named expert]
+- Hoare: land-then-test is "done in the wrong order"; "your integration cycle time is bounded by your test cycle time", so a long suite needs "an integration-test subset". https://graydon2.dreamwidth.org/1597.html. [named expert]
+- Uber: before SubmitQueue the iOS mainline was green 52% of one week; after, green "at all times". Ananthanarayanan et al., EuroSys 2019, read through https://blog.acolyer.org/2019/04/18/keeping-master-green-at-scale/ (ACM PDF unread). [named expert]
+- Agreement (Google, DORA, Hammant, Hoare, Uber): land-then-test holds only where a fast pre-check already passes 95%+ of changes and a red is reverted within minutes. Where reds arrive faster than they are found and reverted, test before the shared branch.
+
+### Throughput: batch, isolate in parallel, bound speculation
+
+- bors-ng: one-at-a-time is O(N) runs; batching with bisection is O(E log N), E the failing changes. https://github.com/bors-ng/bors-ng/blob/master/README.md. [standard or field body]
+- Rigby group: batching beats single runs while under 40% of builds fail; batch-all (every waiting change when a runner frees) needs up to 91% fewer machines; at 4 or fewer, test each change alone rather than bisect (BatchStop4); on a red batch rerun only the failed tests. Fallahzadeh, Bavand, Rigby, ESEC/FSE 2023, https://arxiv.org/pdf/2308.13129. [named expert]
+- Speculation depth costs one runner per level and pays only at a high pass rate: Zuul's window halves on each failure (https://zuul-ci.org/docs/zuul/latest/gating.html [standard or field body]); Uber's unbounded speculation aborted 40–65% of builds until a pass-probability threshold cut aborts 53% and P95 wait 37% (https://arxiv.org/html/2501.03440v2 [named expert]). GitLab trains and Mergify run down to depth 1. [unverified]
+- Chromium's CQ retries a failed shard, then reruns the failed suites "without the CL"; a failure that also happens without it is tip breakage, not the change's. https://chromium.googlesource.com/chromium/src/+/main/docs/infra/cq.md. [standard or field body]
+- Agreement (bors-ng, Rigby group, Zuul, Uber): batch-all on one pipeline; on a red batch, find the culprit by testing its members and drop it; keep speculation shallow while the failure rate is high.
+
+### Queue health
+
+- Track time in queue as p50 and p90/p95, queue depth, eject rate and wasted runs; alert on live depth or stall against a week of own baseline. Trunk (https://docs.trunk.io/merge-queue/administration/metrics) and Mergify docs, GitHub's engineering blog (2,500 changes a month through its queue, average wait down 33%). Vendors each [unverified]; the percentile half rests on Google SRE above. No source publishes a numeric lag SLO.
+
 ## Mutation-test runs
 
 - PIT runs mutants in child JVMs and applies each mutant by rewriting a loaded class, which is "orders of magnitude faster than starting a new jvm or creating a new classloader"; a new JVM starts only on a timeout. https://pitest.org/faq/. [named expert]
 - Stryker keeps each test-runner worker alive across mutants: `maxTestRunnerReuse` "Restart each test runner worker process after `n` runs", default `0`, "infinite reuse", restart "Not recommended unless you are experiencing memory leaks". `concurrency` caps the workers, default `n-1` cores. https://stryker-mutator.io/docs/stryker-js/configuration/. One adopter [unverified]
 - mutmut imports the test suite once and "forks one child per mutant"; in forkserver mode there is "only one pytest import for the whole run". https://mutmut.readthedocs.io/en/latest/. One adopter [unverified]
-- Agreement (PIT, Stryker, mutmut): a mutation run loads its test runner once and swaps mutants inside it, under one bounded worker count for the whole run. It never starts and admits a fresh runner per mutant. The default rests on PIT's reasoned verdict; Stryker and mutmut are adopters.
+- Agreement (PIT, Stryker, mutmut): a mutation run loads its test runner once and swaps mutants inside it, under one bounded worker count for the whole run. The default rests on PIT's reasoned verdict; Stryker and mutmut are adopters.
 
 ## A memory bound per test worker
 

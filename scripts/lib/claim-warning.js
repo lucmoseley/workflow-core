@@ -54,8 +54,7 @@
  * THE POINTER DECAYS HOURLY (mantahostels#2364), on POINTER_DECAY_MS, and is
  * said again on a contended pair this session has not already been handed —
  * NOT on unchanging contention, which the pair filter drops before the decay
- * is reached. Not a terminal latch: the house shape for a bounded repeat is the
- * arbiter `request` marker's hourly decay, and what a latch silences is a
+ * is reached. Not a terminal latch: what a latch silences is a
  * clobber warning — the direction AGENTS.md §Supervision priors says to err
  * away from.
  *
@@ -140,9 +139,7 @@ const WARN_HEAD =
 	"The live claims on the paths this command names:\n\n";
 const WARN_TAIL =
 	"\n\nWrite anyway and you clobber an edit git cannot merge back. " +
-	// arbiter-literal-exempt: ctx.corePaths spells it; the ledger prices this text.
-	"Wait for it instead, backgrounded — `node scripts/session-arbiter.js wait <path>` " +
-	"— and carry on with your ticket; past its ceiling, ask the holder with `request`.\n\n" +
+	"Leave the path to its holder and carry on with the rest of your ticket.\n\n" +
 	"Residual: a write no parse here recognises — a heredoc, a wrapper, a script that writes for you — " +
 	"is invisible, so silence is not proof the path is free.";
 

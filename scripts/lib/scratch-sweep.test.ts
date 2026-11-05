@@ -15,7 +15,7 @@
  * mtime alone, through `readMtime`, and the real reader is driven by
  * `the write time userland cannot rewind` below.
  *
- * `sweep-debts-detached.sh` launches the sweep at every session start, and it
+ * `session-start-sweeps.sh` launches the sweep at every session start, and it
  * deletes for real: loosen a case and it can delete a live session's scratch
  * or a dispatched agent's artefact mid-run, or stop clearing `.claude/tmp/`.
  */

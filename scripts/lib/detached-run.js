@@ -2,12 +2,12 @@
  * detached-run.js — the completion record a DETACHED session-start child leaves
  * behind, so that a child which never returns is visible to a later session.
  *
- * THE GAP (mantahostels#1910, raised by /code-review on mantahostels#1899). Three session-start jobs are
+ * THE GAP (mantahostels#1910, raised by /code-review on mantahostels#1899). Two session-start jobs are
  * spawned detached and unwatched: `session-arbiter.js prune-markers` (detached
- * at mantahostels#1899), and `debt sweep` and `retire-stale-containers.js` (detached by
- * sweep-debts-detached.sh, mantahostels#1251 and mantahostels#1632). Each is spawned `stdio: "ignore"`
+ * at mantahostels#1899), and `retire-stale-containers.js` (detached by
+ * session-start-sweeps.sh, mantahostels#1632). Each is spawned `stdio: "ignore"`
  * with its spawn error swallowed, and the launching hook returns 0 whatever the
- * child then does. Detaching is right — none of the three fits a 10 s hook
+ * child then does. Detaching is right — neither fits a 10 s hook
  * budget and nothing in the starting session reads a byte of them — but it
  * removes the only signal there was.
  *
@@ -27,7 +27,7 @@
  * looking exactly like a job that is still healthy and merely hasn't run since.
  * A total-absence check would need a staleness limb keyed to how often each job
  * is expected to fire, which mantahostels#1910 proposed and this file does not implement;
- * none of the three jobs currently derives that rate. Nor does a config dir
+ * neither job currently derives that rate. Nor does a config dir
  * that is gone: `writeRuns` never makes it (#2889), so every record is lost
  * silently and the last row on disk, if any, stands.
  *
@@ -36,7 +36,7 @@
  * half written before the slow work, a finish half written at the end, and
  * check-hook-liveness.js's `reapAssertion` reading a row that carries the first
  * and not the second (mantahostels#1920). This is that instrument, generalised to a job name
- * so three children can share one file and one assertion. `bg-run.sh`'s
+ * so several children can share one file and one assertion. `bg-run.sh`'s
  * heartbeat shape was the alternative and was not taken (mantahostels#1910): its run root is
  * per-job scratch no later session finds, it keeps one run of history, and its
  * heartbeat exists to catch a harness SIGKILL of a FOREGROUND job, which is not
@@ -71,11 +71,10 @@ const { caught } = require("./caught.js");
 const RUN_FILE = "wfc-detached-run.json";
 
 /**
- * The three jobs that file a record here — `check-hook-liveness.js` imports
- * these same three for `DETACHED_HOW`'s keys.
+ * The two jobs that file a record here — `check-hook-liveness.js` imports
+ * these same two for `DETACHED_HOW`'s keys.
  */
 const JOB_PRUNE_MARKERS = "prune-markers";
-const JOB_DEBT_SWEEP = "debt-sweep";
 const JOB_RETIRE_STALE_CONTAINERS = "retire-stale-containers";
 
 /**
@@ -86,9 +85,9 @@ const JOB_RETIRE_STALE_CONTAINERS = "retire-stale-containers";
  * check-hook-liveness.js's `DETACHED_HOW` can be typed against
  * `(typeof JOBS)[number]` — a job added here without a matching key there is
  * then a `tsc` error (§N8) rather than a session-start throw (mantahostels#2001).
- * @type {readonly [typeof JOB_PRUNE_MARKERS, typeof JOB_DEBT_SWEEP, typeof JOB_RETIRE_STALE_CONTAINERS]}
+ * @type {readonly [typeof JOB_PRUNE_MARKERS, typeof JOB_RETIRE_STALE_CONTAINERS]}
  */
-const JOBS = [JOB_PRUNE_MARKERS, JOB_DEBT_SWEEP, JOB_RETIRE_STALE_CONTAINERS];
+const JOBS = [JOB_PRUNE_MARKERS, JOB_RETIRE_STALE_CONTAINERS];
 
 // File-local: `readRuns`/`writeRuns` are the only callers — RUN_FILE is what a
 // reader outside needs, and check-hook-liveness.js takes that instead.
@@ -113,8 +112,8 @@ const runPath = () => path.join(configDir(), RUN_FILE);
  * opened it as dead.
  *
  * IT IS A GRACE ON THE PREVIOUS RUN, NOT A TIMEOUT ON THIS ONE — nothing here
- * ever kills anything. Five minutes is far past what any of the three costs
- * (mantahostels#1111), and the reaper's own record uses the same figure (mantahostels#1920).
+ * ever kills anything. Five minutes is far past what either costs, and the
+ * reaper's own record uses the same figure (mantahostels#1920).
  *
  * WITHOUT IT THE COUNTER WOULD FIRE ON CONCURRENCY ALONE: concurrent starts
  * would each read the last one's still-open row as a death.
@@ -271,9 +270,8 @@ function openRun(job, now = Date.now()) {
  * Closes the record `openRun` opened.
  *
  * `ok` SAYS THE WORK RETURNED RATHER THAN THREW — never that it achieved
- * anything. A debt sweep that cannot reach GitHub returns `offline` and prints
- * its own SKIP, and that is `ok: true` here: the child ran and came back, which
- * is the whole question this file asks.
+ * anything. A child that returns having changed nothing is `ok: true` here:
+ * it ran and came back, which is the whole question this file asks.
  *
  * A THROW STILL LEAVES A `finishedAt`, so the checker keys its finding on the
  * ABSENCE of one — a child that threw got further than one that was killed.
@@ -320,7 +318,6 @@ module.exports = {
 	DEATHS_TO_REPORT,
 	JOBS,
 	JOB_PRUNE_MARKERS,
-	JOB_DEBT_SWEEP,
 	JOB_RETIRE_STALE_CONTAINERS,
 	RUN_FILE,
 	closeRun,

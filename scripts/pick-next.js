@@ -640,20 +640,12 @@ function dispatchedIssues() {
 	return { byIssue, why: null };
 }
 
-/*
- * Owed work at the fragment layer, ruled at mantahostels#1171: debt entries and stranded
- * file claims carry no issue number, so neither can be ranked into the
- * frontier above — this is a headline count, not a sort input. Both are
- * local reads; neither costs a network call.
- */
-function debtCount() {
-	const debts = arbiter.listDebts();
-	if (debts === null)
-		return { ok: false, error: "the debt store could not be read" };
-	return { ok: true, count: debts.length };
-}
-
 /**
+ * Owed work at the fragment layer, ruled at mantahostels#1171: stranded file
+ * claims carry no issue number, so they cannot be ranked into the frontier
+ * above — this is a headline count, not a sort input. It is a local read and
+ * costs no network call.
+ *
  * BOTH NUMBERS: most of the pile is inert, and the subset on a file carrying
  * uncommitted work is the part a reader can act on (mantahostels#1780). The cost and the
  * caveats are on lib/stranded-count.js, which owns the rule.
@@ -732,7 +724,6 @@ function writeRunSnapshot(payload) {
  * @property {Machine["live"]} live
  * @property {Machine["floorRead"]} floorRead
  * @property {ReturnType<typeof reclaimableFrom>} reclaimable
- * @property {ReturnType<typeof debtCount>} debts
  * @property {ReturnType<typeof strandedClaimCount>} stranded
  * `waitingAll`/`gatedAll`/`gatedOnAll` are `enriched.filter(hasWait|hasGate|hasGateOn)`
  * results — the type-predicate narrowing that gives `render` its
@@ -805,10 +796,8 @@ function admissionJson(state) {
  * @param {State} state
  */
 function owedWorkJson(state) {
-	const { debts, stranded } = state;
+	const { stranded } = state;
 	return {
-		debtEntries: debts.ok ? debts.count : null,
-		debtEntriesUnknown: debts.ok ? null : debts.error,
 		strandedClaims: stranded.ok ? stranded.stranded : null,
 		strandedClaimsUnknown: stranded.ok ? null : stranded.error,
 		strandedClaimsCarrying: stranded.ok ? stranded.carrying : null,
@@ -1291,17 +1280,13 @@ function renderAdmission(state) {
 
 /** @param {State} state */
 function renderOwedWork(state) {
-	const { debts, stranded } = state;
+	const { stranded } = state;
 	/*
 	 * mantahostels#1171's fragment layer, one down from the issue layer this frontier
 	 * ranks. A count that could not be read prints as unknown, never as
 	 * zero (mantahostels#1206).
 	 */
 	console.log("OWED WORK — report only, never a filter or a sort input\n");
-	console.log(
-		`  debt entries       ${debts.ok ? debts.count : `unknown (${debts.error})`}` +
-			`  — ${buildArbiterCommand`debt list`}`,
-	);
 	console.log(
 		`  stranded claims    ${
 			stranded.ok
@@ -1363,9 +1348,9 @@ function renderDocMapQueue(state) {
 		console.log(
 			`\nDOC-MAP QUEUE (${docMapQueue.length}) — bodies naming a §B entry, so they` +
 				" likely write\n`docs/doc-map.md` at the END of their run. That is a STAMP," +
-				" not a substrate:\nsharing it disqualifies nobody (mantahostels#422), and a denial there" +
-				" is the designed path —\nregister the debt, finish the ticket. Read down to" +
-				" the admission figure, never\njust the top:\n" +
+				" not a substrate:\nsharing it disqualifies nobody (mantahostels#422): a write there to a" +
+				" file a neighbour\nholds goes ahead with a merge-conflict warning (#4249). Read down to" +
+				" the admission\nfigure, never just the top:\n" +
 				`  ${docMapQueue.map((n) => `#${n}`).join(", ")}\n` +
 				"Advisory: nothing is refused on a prediction.",
 		);
@@ -2109,7 +2094,7 @@ function renderRunSummary(state) {
 	console.log(
 		// `carrying` is null two ways, and saying "unknown how many carrying"
 		// where the count itself was never read claims git was asked.
-		`  ${pad("owed work", 19)}${summary.debtEntries ?? "unknown"} debt entries, ${
+		`  ${pad("owed work", 19)}${
 			summary.strandedClaims === null
 				? "unknown stranded claims"
 				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees} stranded worktrees`
@@ -2668,7 +2653,6 @@ async function main() {
 		});
 	}
 
-	const debts = debtCount();
 	const stranded = strandedClaimCount(listed);
 
 	const { waitingAll, gatedAll, gatedOnAll, proseBlockedAll, parkedAll } =
@@ -2684,7 +2668,6 @@ async function main() {
 		graph,
 		degraded,
 		dispatched,
-		debts,
 		stranded,
 		noCommandCount: noCommand.length,
 		rottedContainers,
@@ -2724,7 +2707,6 @@ async function main() {
 		live,
 		floorRead,
 		reclaimable,
-		debts,
 		stranded,
 		waitingAll,
 		gatedAll,

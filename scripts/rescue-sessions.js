@@ -41,7 +41,6 @@ const {
 	listedAgents,
 	runOracle,
 } = require("./lib/agent-liveness");
-const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
@@ -2063,7 +2062,7 @@ async function stopEndedHolder(io, s, row) {
 	const stopped = stopOn(s.dir, s.jobId);
 	if (!stopped.ok) {
 		io.warn(
-			`not stopped: ${stopped.why}. Its file claims stay held while its host runs; free each with ${buildArbiterCommand`release --force <path>`}`,
+			`not stopped: ${stopped.why}. Its file claims stay held while its host runs, each warning a neighbour that writes it of a conflict; once the host ends they are stale, and the next write to each takes it`,
 		);
 		return true;
 	}
@@ -2080,7 +2079,7 @@ async function stopEndedHolder(io, s, row) {
 			? `stop sent, but ${unconfirmedWhy(s.short, s.ceiling, confirmed.why)}`
 			: `stop sent, but not confirmed gone ${s.ceiling}s after it`;
 	io.warn(
-		`${why}. Its file claims stay held while its host runs; free each with ${buildArbiterCommand`release --force <path>`}`,
+		`${why}. Its file claims stay held while its host runs, each warning a neighbour that writes it of a conflict; once the host ends they are stale, and the next write to each takes it`,
 	);
 	return true;
 }
@@ -2198,7 +2197,7 @@ function buildResumptionText(job, t) {
 		`Commits landed: ${buildLandedLine(job)}`,
 		`Artefacts survived: ${job.artefactsSurvived && job.artefactsSurvived.length > 0 ? job.artefactsSurvived.join(", ") : "none"}`,
 		t.claimsStuck
-			? `Its file claims, held while its host runs — free each with ${buildArbiterCommand`release --force <path>`}:`
+			? "Its file claims, held while its host runs — your writes to each go ahead with a conflict warning, and once it ends your next write takes each:"
 			: "Its file claims, listed and not moved — your next write takes each:",
 		...readFileClaimLines(t.sessionId),
 		"",

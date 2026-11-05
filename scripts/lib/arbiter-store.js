@@ -2,13 +2,13 @@
  * arbiter-store.js — everything the session arbiter keeps on disk, as one name.
  *
  * session-arbiter.js is a CLI that exports nothing (mantahostels#158); this module owns the
- * whole STATE DIRECTORY under CLAUDE_CONFIG_DIR — `locks/`, `debts/`,
- * `writes/` and `guard-errors.log` — plus the sessions registry it reads to tell
- * a live session from a finished one, and the path derivation all of them share.
+ * whole STATE DIRECTORY under CLAUDE_CONFIG_DIR — `locks/`, `writes/` and
+ * `guard-errors.log` — plus the sessions registry it reads to tell a live
+ * session from a finished one, and the path derivation all of them share.
  *
  * THIS FILE IS A FACADE (mantahostels#1795): one file per record family, re-exported here.
  * A caller wanting ONE family requires that family instead, and learns its
- * handful of names rather than this file's seventy-three:
+ * handful of names rather than this file's fifty-eight:
  *
  *   arbiter-core.js           paths, the one reader and writer, the error log,
  *                             the git shims, the subject vocabulary, the
@@ -25,10 +25,8 @@
  *                             released claims left only others' dirt (#2539)
  *   arbiter-markers.js        the session-suffixed marker files (the repo
  *                             root, except the breadcrumbs — mantahostels#3382)
- *   arbiter-debts.js          the edit a denial abandoned, and who owes it
  *   arbiter-issue-claims.js   which session is working which GitHub issue
- *   arbiter-wants.js          who is blocked on which claim
- *   arbiter-requests.js       asking a live holder for a file
+ *   arbiter-wants.js          who is waiting on which issue
  *   arbiter-sweep.js          the session-start sweep across every family, and
  *                             the blob-pin GC that reads four of them
  *
@@ -55,7 +53,7 @@
  * a second copy of the path; priced-options-limbs.js at #1474, for the same
  * reason about guard-priced-options.js's prefixes.
  *
- * THE OTHER ELEVEN FAMILIES WRITE `module.exports = {...}`. The three keep one
+ * THE OTHER NINE FAMILIES WRITE `module.exports = {...}`. The three keep one
  * line per name rather than one `Object.assign(module.exports, {...})`, because
  * checkJs types an `exports.<name> =` export and not a name assigned through
  * Object.assign. check-code-standards.js's §N7 scan reads the
@@ -94,32 +92,23 @@
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").ListedLock} ListedLock */
-/** @typedef {import("./arbiter-records.js").DebtRecord} DebtRecord */
 /** @typedef {import("./arbiter-records.js").BreakRecord} BreakRecord */
 /** @typedef {import("./arbiter-records.js").ContentState} ContentState */
 /** @typedef {import("./arbiter-records.js").ContentPin} ContentPin */
 /** @typedef {import("./arbiter-records.js").ObservationRecord} ObservationRecord */
 /** @typedef {import("./arbiter-records.js").IssueClaimRecord} IssueClaimRecord */
-/** @typedef {import("./arbiter-records.js").RequestRecord} RequestRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
 /** @typedef {import("./arbiter-records.js").SessionEntry} SessionEntry */
-/** @typedef {import("./arbiter-records.js").DebtEntry} DebtEntry */
-/** @typedef {import("./arbiter-records.js").DebtEntries} DebtEntries */
-/** @typedef {import("./arbiter-records.js").UnreadableDebt} UnreadableDebt */
-/** @typedef {import("./arbiter-records.js").ListedDebt} ListedDebt */
-/** @typedef {import("./arbiter-records.js").FailedDebt} FailedDebt */
 /** @typedef {import("./arbiter-records.js").LivenessOracle} LivenessOracle */
 /** @typedef {import("./arbiter-records.js").ClaimResult} ClaimResult */
 
 const breaks = require("./arbiter-breaks.js");
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
-const debts = require("./arbiter-debts.js");
 const issues = require("./arbiter-issue-claims.js");
 const ledger = require("./arbiter-ledger.js");
 const locksMod = require("./arbiter-locks.js");
 const observations = require("./arbiter-observations.js");
-const requests = require("./arbiter-requests.js");
 const snapshots = require("./arbiter-snapshots.js");
 const sweep = require("./arbiter-sweep.js");
 const wants = require("./arbiter-wants.js");
@@ -129,22 +118,15 @@ module.exports = {
 	buildBreakNotice: breaks.buildBreakNotice,
 	claimVersions: contentMod.claimVersions,
 	claimIssue: issues.claimIssue,
-	clearDebt: debts.clearDebt,
 	// Every config dir on this machine, for a reader of a SIBLING store under
 	// them — check-ghost-jobs.js reads `jobs/`, which is not the arbiter's but
 	// faces the same multi-plan problem sessionDirs() already solves, and a second
 	// copy of that rule would sandbox differently under the proving harness.
 	configDirs: core.sessionDirs,
 	contentState: contentMod.contentState,
-	buildDebtNotice: debts.buildDebtNotice,
-	debtsOwnedBy: debts.debtsOwnedBy,
-	declineRequest: requests.declineRequest,
-	dropRequests: requests.dropRequests,
 	dropWant: wants.dropWant,
-	dropIfUnchanged: locksMod.dropIfUnchanged,
 	errorLog: core.errorLog,
 	rootlessErrorLog: core.paths.rootlessErrorLog,
-	forceRelease: locksMod.forceRelease,
 	gitDirty: core.gitDirty,
 	subjectDirty: core.subjectDirty,
 	readHeldBy: locksMod.readHeldBy,
@@ -154,7 +136,6 @@ module.exports = {
 	isGuarded: core.isGuarded,
 	isWatched: core.isWatched,
 	isReleasable: core.isReleasable,
-	listDebts: debts.listDebts,
 	listIssueClaims: issues.listIssueClaims,
 	listLocks: locksMod.listLocks,
 	listLocksJudged: locksMod.listLocksJudged,
@@ -163,27 +144,22 @@ module.exports = {
 	observationState: observations.observationState,
 	readObservedBy: observations.readObservedBy,
 	observedVersions: observations.observedVersions,
-	ownDebt: debts.ownDebt,
 	readActsBy: ledger.readActsBy,
 	readBilledPathsBy: ledger.readBilledPathsBy,
 	readCommitsBy: ledger.readCommitsBy,
 	paths: core.paths,
 	pruneAll: sweep.pruneAll,
-	readDebts: debts.readDebts,
 	// Unjudged locks, for a reader that brings its own liveness oracle —
 	// check-stranded-file-claims.js asks `claude agents --json` (mantahostels#318).
 	readLocks: locksMod.readLocks,
-	readRequests: requests.readRequests,
 	readWants: wants.readWants,
 	recordAct: ledger.recordAct,
 	recordCommit: ledger.recordCommit,
 	recordContent: contentMod.recordContent,
 	recordObservation: observations.recordObservation,
-	recordRequest: requests.recordRequest,
 	recordSelect: ledger.recordSelect,
 	recordWrite: ledger.recordWrite,
 	recordWant: wants.recordWant,
-	registerDenial: debts.registerDenial,
 	claimKey: core.claimKey,
 	treeRoot: core.treeRoot,
 	release: locksMod.release,
@@ -191,14 +167,12 @@ module.exports = {
 	registryLookup: core.registryLookup,
 	registryNames: core.registryNames,
 	resumedHolderTest: core.resumedHolderTest,
-	buildRequestNotice: requests.buildRequestNotice,
 	scanChanged: snapshots.scanChanged,
 	splitSubject: core.splitSubject,
 	stateDir: core.stateDir,
 	subjectFor: core.subjectFor,
 	subjectPath: core.subjectPath,
 	subjectsOverlap: core.subjectsOverlap,
-	sweepDebts: debts.sweepDebts,
 	readSelectsBy: ledger.readSelectsBy,
 	readLandedBy: ledger.readLandedBy,
 	readWritesBy: ledger.readWritesBy,

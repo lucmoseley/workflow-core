@@ -46,16 +46,6 @@
  * <plugin>/scripts/check-registrations.js holds the whole-repo form. A host
  * file that does not exist yet is judged as empty.
  *
- * THE ONE TEMPORARY SPLIT THIS REPO PRODUCES, and what to do about it: a live
- * session holds self-plugin/hooks/hooks.json or
- * scripts/hook-registrations.test.ts, so lib/file-claim.js denies the wiring
- * edit and the commit cannot be atomic today. DO NOT take the allowlist for
- * it — the allowlist says "nothing will ever wire this", which is a lie that
- * outlives the claim. Ask for the file
- * (`node scripts/session-arbiter.js request <path> "<why>"`), leave the new
- * file UNCOMMITTED, and say so in the turn; guard-uncommitted-work.js caps at
- * six blocks and a debt is registered either way.
- *
  * DENY, NOT WARN (mantahostels#103): every input is a structured fact — what
  * the commit names, what HEAD holds, what the wiring files say — and the
  * escapes are named in the refusal. It binds in a LINKED WORKTREE too: this

@@ -256,18 +256,6 @@
 					"text": "has uncommitted changes that no live session claims"
 				},
 				{
-					"id": "debt-one",
-					"core": "guard-file-claim",
-					"kind": "warn",
-					"text": "carries a registered debt"
-				},
-				{
-					"id": "debt-many",
-					"core": "guard-file-claim",
-					"kind": "warn",
-					"text": "registered debts: edits were denied here"
-				},
-				{
 					"id": "claim-broken",
 					"core": "guard-file-claim",
 					"kind": "warn",
@@ -782,10 +770,10 @@
 					"text": "TRACKS `origin/landing`"
 				},
 				{
-					"id": "sweeps-index",
+					"id": "sweeps-dirty",
 					"core": "guard-commit-form",
 					"kind": "deny",
-					"text": "This commit form sweeps the shared index"
+					"text": "This commit form sweeps in every dirty tracked file"
 				},
 				{
 					"id": "no-verify",
@@ -794,28 +782,10 @@
 					"text": "This flag skips none of the pre-commit gates"
 				},
 				{
-					"id": "amend-shared-tip",
+					"id": "amend-pushed",
 					"core": "guard-commit-form",
 					"kind": "deny",
-					"text": "This amend rewrites whichever commit is `main`'s tip right now"
-				},
-				{
-					"id": "git-add",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "Staging before committing hands the shared index"
-				},
-				{
-					"id": "bare-commit-attributed",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "This commit names no pathspec, so it takes the whole index"
-				},
-				{
-					"id": "bare-commit-indexwide",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "This commit names no pathspec, so it will take everything in the index"
+					"text": "This amend rewrites a commit already pushed"
 				},
 				{
 					"id": "untracked-pathspec",
@@ -881,7 +851,7 @@
 					"id": "commit-pathspec",
 					"core": "guard-commit-form",
 					"kind": "inject",
-					"text": "COMMIT BY PATHSPEC, NEVER `git add` FIRST."
+					"text": "COMMIT BY PATHSPEC."
 				},
 				{
 					"id": "commit-show-diff",
@@ -1406,7 +1376,12 @@
 				{
 					"id": "autocompaction-count",
 					"kind": "notice",
-					"text": "Finish the unit of work in flight, start no new one"
+					"text": "where the compaction summary disagrees with them, the summary is only a hint"
+				},
+				{
+					"id": "autocompaction-backstop",
+					"kind": "notice",
+					"text": "That is the backstop ("
 				}
 			]
 		},
@@ -1571,9 +1546,9 @@
 			"needles": [],
 			"silent": "Writes the session's self-plugin marker for the canary to read, and prints nothing (#2438)."
 		},
-		"sweep-debts-detached.sh": {
+		"session-start-sweeps.sh": {
 			"needles": [],
-			"silent": "Drains the debt register and sweeps for self-throttling; both halves print nothing. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start — a zero would now measure that ruling, not retrieval."
+			"silent": "Starts the detached housekeeping sweeps and sweeps for self-throttling; neither prints anything. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start — a zero would now measure that ruling, not retrieval."
 		},
 		"check-ci-status.js --notify": {
 			"needles": [
@@ -1898,7 +1873,7 @@
 			"needles": [
 				{
 					"id": "dirty",
-					"text": "has uncommitted changes, so the claim stands"
+					"text": "Releasing a dirty claim hands the next session"
 				},
 				{
 					"id": "not-mine",
@@ -1970,17 +1945,6 @@
 				{
 					"id": "claim-refused",
 					"text": ["session-arbiter: ", "is held by session"]
-				}
-			]
-		},
-		"C11": {
-			"span": "— `debt clear <path> <issue>`, refused on a bare path where more than one stands",
-			"printedBy": "session-arbiter.js debt clear ambiguous refusal",
-			"route": "cli",
-			"needles": [
-				{
-					"id": "name-the-one",
-					"text": "so name the one to clear"
 				}
 			]
 		}

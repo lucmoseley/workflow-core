@@ -459,8 +459,7 @@ function buildCollapsedFailureLine(group) {
 /**
  * Refuses a `gh issue list` that came back exactly at ISSUE_LIST_LIMIT, which
  * gh reports as a full answer. It throws `brokenError`, how check.js tells a
- * fault in the check from a finding about the tracker; lib/arbiter-debts.js
- * must fail toward keeping its register, so it logs and returns null instead.
+ * fault in the check from a finding about the tracker.
  * @template T
  * @param {T[]} rows
  * @param {string} [what]

@@ -217,7 +217,6 @@ describe("the §6 summary (mantahostels#1001)", () => {
 			graph: graph(),
 			degraded: [],
 			dispatched: { why: null },
-			debts: { ok: true, count: 0 },
 			stranded: { ok: true, stranded: 0, carrying: null, strandedWorktrees: 0 },
 			noCommandCount: 0,
 			rottedContainers: [],

@@ -13,8 +13,13 @@
  * from one of the refill loop's code worktrees, which the loop removes once
  * it adopts a newer tip (lib/refill-code.js), the helper names this file
  * through the boot link, which always names the worktree the loop last ran.
+ * Run from any other linked git worktree, a session's among them (#4425), it
+ * names the main checkout's copy.
  * Moving or renaming this file strands every live overflow session, as does
- * removing a session worktree or plugin version a loop ran from.
+ * removing a plugin version a loop ran from.
+ *
+ * Residual (#4425): a session launched from a linked worktree runs the main
+ * checkout's copy, so one whose command line lags fails its helper.
  *
  *   node scripts/lib/overflow-key.js <key var> <secrets file>
  *     prints the variable's value; a missing file or variable exits 1 naming
@@ -22,6 +27,7 @@
  */
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const {
@@ -29,6 +35,7 @@ const {
 	readSecretKeepingIgnore,
 	secretsFile,
 } = require("./env-file.js");
+const { checkoutOfCommonDir } = require("./main-checkout.js");
 const { throughBootLink } = require("./refill-control-code.js");
 const { scriptPath } = require("./script-path.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -69,8 +76,56 @@ function keyCheck(keyVar) {
 	return "why" in read ? read : { file };
 }
 
-/** The program a helper names, through the boot link where there is one. */
-const helperProgram = () => throughBootLink(__filename) ?? __filename;
+/**
+ * The main checkout's copy of `file` where `file` sits in a linked git
+ * worktree, read off its `.git` file (`gitdir: <common dir>/worktrees/<name>`)
+ * as a hook-path caller (lib/launch-auth.js) spawns no git; null where it
+ * sits in a main checkout, a worktree whose common dir names no checkout, a
+ * submodule or no checkout.
+ * @param {string} file a real path
+ */
+function throughMainCheckout(file) {
+	const found = readGitFile(path.dirname(file));
+	if (!found) return null;
+	const gitDir = /^gitdir: (.+)$/m.exec(found.text)?.[1];
+	if (!gitDir) return null;
+	const registration = path.resolve(found.dir, gitDir.trim());
+	if (path.basename(path.dirname(registration)) !== "worktrees") return null;
+	const main = checkoutOfCommonDir(path.dirname(path.dirname(registration)));
+	return main && path.join(main, path.relative(found.dir, file));
+}
+
+/**
+ * The nearest `.git` file at or above `start`, and the directory holding it;
+ * null where the nearest `.git` is a directory, or there is none.
+ * @param {string} start
+ * @returns {{dir: string, text: string}|null}
+ */
+function readGitFile(start) {
+	for (let dir = start; ; dir = path.dirname(dir)) {
+		try {
+			return { dir, text: fs.readFileSync(path.join(dir, ".git"), "utf8") };
+		} catch (err) {
+			const { code } = caught(err);
+			if (code === "EISDIR") return null;
+			if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+			if (path.dirname(dir) === dir) return null;
+		}
+	}
+}
+
+/**
+ * The program a helper names, one no worktree's removal takes with it, and
+ * the route that named it.
+ * @returns {{program: string, via: "boot link"|"main checkout"|"own path"}}
+ */
+function helperRoute() {
+	const booted = throughBootLink(__filename);
+	if (booted) return { program: booted, via: "boot link" };
+	const main = throughMainCheckout(__filename);
+	if (main) return { program: main, via: "main checkout" };
+	return { program: __filename, via: "own path" };
+}
 
 /**
  * @param {string} program
@@ -86,7 +141,7 @@ const buildHelperCommand = (program, keyVar, file) =>
  * @param {string} file
  */
 function buildKeyHelper(keyVar, file) {
-	return buildHelperCommand(helperProgram(), keyVar, file);
+	return buildHelperCommand(helperRoute().program, keyVar, file);
 }
 
 /**
@@ -98,10 +153,13 @@ function buildKeyHelper(keyVar, file) {
 function buildKeySettings(keyVar) {
 	const key = keyCheck(keyVar);
 	if ("why" in key) return key;
-	const program = helperProgram();
+	const { program, via } = helperRoute();
 	if (!fs.existsSync(program))
 		return {
-			why: `no key helper at ${program} for ${keyVar}: the refill loop's boot link names no worktree holding it. Before the loop's first tick, the tick points it and the next tick launches; otherwise the tip it names has moved this file`,
+			why:
+				via === "main checkout"
+					? `no key helper at ${program} for ${keyVar}: this runs from a linked worktree, whose removal would strand the helper, so it names the main checkout's copy, which is not there. Update the main checkout, or let the refill loop launch overflow sessions`
+					: `no key helper at ${program} for ${keyVar}: the refill loop's boot link names no worktree holding it. Before the loop's first tick, the tick points it and the next tick launches; otherwise the tip it names has moved this file`,
 		};
 	return {
 		settings: JSON.stringify({

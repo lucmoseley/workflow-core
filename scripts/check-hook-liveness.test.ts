@@ -2588,7 +2588,7 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("says a row has never completed rather than printing an absent stamp", () => {
-		detachedRun(dir, { "debt-sweep": { deaths: 4 } });
+		detachedRun(dir, { "retire-stale-containers": { deaths: 4 } });
 
 		const { out } = run("--only", "detached");
 
@@ -2598,7 +2598,7 @@ describe("check-hook-liveness — the detached run record", () => {
 	it("passes over a row that is not an object, and one whose deaths will not parse", () => {
 		detachedRun(dir, {
 			"prune-markers": null as unknown as Record<string, unknown>,
-			"debt-sweep": { deaths: "many" },
+			"retire-stale-containers": { deaths: "many" },
 		});
 
 		const { out, status } = run("--only", "detached");
@@ -2609,11 +2609,11 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("reads the record of a plan other than the one running", () => {
-		detachedRun(second, { "debt-sweep": dead(5) });
+		detachedRun(second, { "retire-stale-containers": dead(5) });
 
 		const { out } = runUnder(dir, "--only", "detached");
 
-		expect(out).toContain("the detached debt-sweep recorded in");
+		expect(out).toContain("the detached retire-stale-containers recorded in");
 	});
 
 	it("names the record it could not read, and calls it a record not a hook", () => {
@@ -2693,12 +2693,12 @@ describe("check-hook-liveness — the detached run record", () => {
 		// Both plans readable at once — the union, as distinct from reading a
 		// second plan instead of the running one (mantahostels#2000).
 		detachedRun(dir, { "prune-markers": dead(3) });
-		detachedRun(second, { "debt-sweep": dead(4) });
+		detachedRun(second, { "retire-stale-containers": dead(4) });
 
 		const { out, status } = run("--only", "detached");
 
 		expect(out).toContain("the detached prune-markers recorded in");
-		expect(out).toContain("the detached debt-sweep recorded in");
+		expect(out).toContain("the detached retire-stale-containers recorded in");
 		expect(status).toBe(0);
 	});
 
@@ -2717,10 +2717,13 @@ describe("check-hook-liveness — the detached run record", () => {
 		detachedRun(dir, { "prune-markers": dead(3) });
 		run("--notify", "--only", "detached");
 
-		detachedRun(dir, { "prune-markers": dead(4), "debt-sweep": dead(3) });
+		detachedRun(dir, {
+			"prune-markers": dead(4),
+			"retire-stale-containers": dead(3),
+		});
 
 		expect(run("--notify", "--only", "detached").stdout).toContain(
-			"the detached debt-sweep",
+			"the detached retire-stale-containers",
 		);
 	});
 
@@ -2769,7 +2772,7 @@ describe("check-hook-liveness — the detached run record", () => {
 		// The other limb of the same gate: an unreadable record elsewhere must not
 		// make a finding that IS present speak at every start (mantahostels#2108).
 		detachedRun(dir, { "prune-markers": dead(3) });
-		const other = detachedRun(second, { "debt-sweep": dead(3) });
+		const other = detachedRun(second, { "retire-stale-containers": dead(3) });
 		fs.chmodSync(other, 0o000);
 		try {
 			expect(run("--notify", "--only", "detached").stdout).toContain(

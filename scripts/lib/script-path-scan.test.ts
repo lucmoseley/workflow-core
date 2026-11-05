@@ -37,7 +37,6 @@ describe("guard and lib messages", () => {
 		/: "node scripts\/check-ci-status\.js";$/,
 		/push_check: pushCheck \?\? "node scripts\/push-check\.js",$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
-		/^\t"Wait for it instead, backgrounded — `node scripts\/session-arbiter\.js wait <path>` " \+$/,
 		/^\t\t\t`\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
 		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,
 		/^const WATCH = "node scripts\/watch-artefact\.js <artefact> 120";$/,

@@ -67,15 +67,11 @@ describe("pruneAll — the session-start sweep as one call (mantahostels#1796)",
 		const claim = readSoleEntry(store.paths.issueClaimsDir());
 		age(claim, pastWeek);
 
-		store.recordWant("docs/a.md", durably("bob"), "alice");
+		store.recordWant("issue #1796", durably("bob"));
 		const want = readSoleEntry(store.paths.wantsDir());
 		age(want, pastBackstop);
 
-		store.recordRequest("docs/b.md", durably("bob"), "alice", null);
-		const request = readSoleEntry(store.paths.requestsDir());
-		age(request, pastBackstop);
-
-		return { marker, snapshot, claim, want, request };
+		return { marker, snapshot, claim, want };
 	};
 
 	it("clears each aged table family, and the markers and issue claims, in one call", () => {
@@ -96,8 +92,7 @@ describe("pruneAll — the session-start sweep as one call (mantahostels#1796)",
 			expect(fs.existsSync(file)).toBe(true);
 		// A family keyed to no session reads no registry, so it must still sweep.
 		// Without this, a bail-out of the whole loop passes.
-		for (const file of [seeded.want, seeded.request])
-			expect(fs.existsSync(file)).toBe(false);
+		expect(fs.existsSync(seeded.want)).toBe(false);
 		const log = fs.readFileSync(sb.errorLog(), "utf8");
 		for (const family of ["pruneMarkers", "pruneSnapshots", "pruneIssueClaims"])
 			expect(log).toContain(family);

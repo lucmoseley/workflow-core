@@ -7,7 +7,7 @@
  * claim on a file whose changes are all committed (#3565).
  *
  * TWO TREES, ONE KEY. Dirt is read from the session's tree (`sessionTree`, the
- * payload's cwd); the write ledger, claims, debts and observations are the host
+ * payload's cwd); the write ledger, claims and observations are the host
  * root's shared stores, keyed by the path in the session's tree
  * (`lib/arbiter-core.js`'s `treeRoot`), so git's spelling is the key. The two
  * trees agree because the harness runs the hook in the payload's cwd, which
@@ -78,15 +78,12 @@
  * JUSTIFIED: fail-safe — an unattended job that stops mid-edit leaves the work
  *            unrecoverable-by-anyone-else for hours, and the fix is one command.
  * DEFEAT:    this file caps the block at six per session (`BLOCK_CAP`, mantahostels#2791),
- *            so a session that genuinely cannot commit — a denied file claim, a
- *            red pre-commit gate — is taught and then released rather than
- *            trapped. Before the cap, a path carrying an owned debt this
- *            session recorded is released at once (#1170) — so a session can
- *            also release its own dirt by declaring it, which leaves a debt
- *            standing in the store until its issue closes. The clean-claim
+ *            so a session that genuinely cannot commit — a red pre-commit
+ *            gate — is taught and then released rather than
+ *            trapped. The clean-claim
  *            limb takes the house cap of three, on a counter of its own.
  * TREE:      both — dirt from the session's tree; attribution from the host
- *            root's ledger, claims, debts and observations.
+ *            root's ledger, claims and observations.
  */
 
 const { REFUSAL_NAMED_MAX, readDirtyTracked } = require("./lib/dirty-tree.js");
@@ -215,12 +212,9 @@ function refuseUncommitted(payload, sid, tree) {
 	if (dirty === null) return false;
 
 	const theirs = readClaimedElsewhere(sid);
-	/* An owned debt this session recorded is the remedy the refusal below
-	 * prints, so its path is released (#1170). */
-	const declared = store.debtsOwnedBy(sid);
 	/* Already sorted, and unique by construction — see `readDirtyTracked`. */
 	const claimFiltered = dirty.filter(
-		(rel) => written.includes(rel) && !theirs.has(rel) && !declared.has(rel),
+		(rel) => written.includes(rel) && !theirs.has(rel),
 	);
 	/* Nothing to name, so nothing `readObservedElsewhere` reads could change the
 	 * answer — and this is what keeps its ~465 ms oracle off the ordinary clean
@@ -276,8 +270,7 @@ function refuseUncommitted(payload, sid, tree) {
 			(handoff.why
 				? `The one exception to this rule is the \`waiting:\` hand-off, and this turn did not earn it: ${handoff.why}. Re-sending it unchanged will block again. `
 				: "") +
-			"If a pre-commit gate refuses the commit or a file claim is denied, say so plainly in your report and record the blocked edit as a visible debt — " +
-			`\`${buildArbiterCommand`debt own <path> <issue> "<one line>"`}\` — which releases that path from this check; do not silently leave the tree dirty. ` +
+			"If a pre-commit gate refuses the commit, say so plainly in your report, naming each path and the gate's refusal; do not silently leave the tree dirty. " +
 			"Then re-send the message this turn was going to end on, its status marker (`result:` / `needs input:` / `waiting:`) and any priced question included — this block discarded it.",
 		max: BLOCK_CAP,
 	});

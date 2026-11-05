@@ -60,6 +60,14 @@ const compactionSet = () =>
 const setKeys = () =>
 	fs.readFileSync(compactionSet(), "utf8").trim().split("\n");
 
+const sandboxEnv = () => ({
+	...process.env,
+	CLAUDE_CONFIG_DIR: dir,
+	CLAUDE_PROJECT_DIR: dir,
+	WFC_REPO_ROOT: dir,
+	WFC_DISPATCH_ROOT: dir,
+});
+
 const exec = (script: string, payload: object) => {
 	const r = runInProcess(script, [], {
 		stdin: JSON.stringify({
@@ -67,13 +75,7 @@ const exec = (script: string, payload: object) => {
 			transcript_path: transcriptFile(),
 			...payload,
 		}),
-		env: {
-			...process.env,
-			CLAUDE_CONFIG_DIR: dir,
-			CLAUDE_PROJECT_DIR: dir,
-			WFC_REPO_ROOT: dir,
-			WFC_DISPATCH_ROOT: dir,
-		},
+		env: sandboxEnv(),
 	});
 	expect(r.status).toBe(0);
 	return r.stdout;
@@ -99,7 +101,7 @@ describe("after an autocompaction", () => {
 		preCompact("auto");
 		const told = afterCompact();
 		expect(told).toContain("This session has autocompacted 2 times");
-		expect(told).toContain("start no new one, and end.");
+		expect(told).toContain("start no new unit after it.");
 		expect(told).not.toContain("successor");
 		expect(setKeys()).toHaveLength(2);
 	});
@@ -191,6 +193,106 @@ describe("a subagent's compaction leaves the parent's count as it was", () => {
 		exec(HOOK, pre);
 		expect(exec(HOOK, start)).toBe("");
 		expect(setKeys()).toEqual(["c1"]);
+	});
+});
+
+/* The claim the session took with claim-issue.js, recorded in the sandbox's
+ * store as the hook will read it. */
+const claim = (issue: number) => {
+	const saved = process.env;
+	process.env = sandboxEnv();
+	try {
+		require_("./lib/arbiter-issue-claims.js").claimIssue(issue, {
+			sessionId: sid,
+		});
+	} finally {
+		process.env = saved;
+	}
+};
+const stateFile = (issue: number) =>
+	path.join(dir, ".claude", "tmp", "build-state", `${issue}.json`);
+const writeStateFile = (issue: number) => {
+	fs.mkdirSync(path.dirname(stateFile(issue)), { recursive: true });
+	fs.writeFileSync(stateFile(issue), "{}");
+};
+/** What the model is told at the `n`th autocompaction. */
+const toldAt = (n: number) => {
+	writeTranscript([
+		...Array.from({ length: n - 1 }, (_, i) => boundary(`c${i}`)),
+		usage,
+	]);
+	preCompact("auto");
+	return afterCompact();
+};
+
+describe("what to do next, by count and build state file (#4410)", () => {
+	it.each([1, 9])(
+		"at %i, re-reads the state file, the issue and git, and carries on",
+		(n) => {
+			claim(77);
+			writeStateFile(77);
+			const told = toldAt(n);
+			expect(told).toContain(`autocompacted ${n} time${n === 1 ? "" : "s"}.`);
+			expect(told).toContain(
+				`Re-read the build state file ${stateFile(77)}, issue #77, and \`git log\` and \`git diff\``,
+			);
+			expect(told).toContain("the summary is only a hint");
+			expect(told).toContain(
+				"Carry on with the unit in flight, and start no new unit after it.",
+			);
+			expect(told).not.toContain("backstop");
+		},
+	);
+
+	it.each([1, 9])(
+		"at %i with no state file, re-reads the issue and git alone",
+		(n) => {
+			claim(77);
+			const told = toldAt(n);
+			expect(told).toContain("Re-read issue #77, and `git log`");
+			expect(told).not.toContain("state file");
+		},
+	);
+
+	it("names the issue generically where the session holds no claim", () => {
+		expect(toldAt(1)).toContain("Re-read the issue you are working, and");
+	});
+
+	it.each([10, 12])(
+		"at %i, hands off at the backstop with the state file",
+		(n) => {
+			claim(77);
+			writeStateFile(77);
+			const told = toldAt(n);
+			expect(told).toContain(`autocompacted ${n} times.`);
+			expect(told).toContain(
+				`That is the backstop (10): commit what exists, update the build state file ${stateFile(77)}, comment the unfinished state on issue #77 with a \`**Compactions:** ${n}\` line, leave it open, and end.`,
+			);
+			expect(told).not.toContain("Carry on");
+		},
+	);
+
+	it.each([10, 12])(
+		"at %i with no state file, hands off with no state-file step",
+		(n) => {
+			claim(77);
+			const told = toldAt(n);
+			expect(told).toContain(
+				"commit what exists, comment the unfinished state on issue #77",
+			);
+			expect(told).not.toContain("state file");
+		},
+	);
+
+	it("stays silent on a manual compaction at the backstop", () => {
+		claim(77);
+		writeStateFile(77);
+		writeTranscript([
+			...Array.from({ length: 11 }, (_, i) => boundary(`c${i}`)),
+			usage,
+		]);
+		preCompact("manual");
+		expect(afterCompact()).toBe("");
 	});
 });
 

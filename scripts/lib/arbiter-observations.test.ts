@@ -216,27 +216,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 			expect(readRefs()).toEqual([aliceRef]);
 		});
 
-		it("drops it on the --force route, where the caller is never the holder", () => {
-			// forceRelease is the one exit that reaches a claim without going through
-			// release's identity gate, so it needs its own drop or the forcing
-			// session's record outlives every claim it was keyed against.
-			holder("alice", "alice's\n");
-			const bob = observer("bob", "bob's work\n");
-			execFileSync("git", ["add", "-A"], { cwd: sb.repo });
-			execFileSync(
-				"git",
-				["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "seed"],
-				{ cwd: sb.repo },
-			);
-
-			const r = store.forceRelease(rel, live(sb, "bob"), () => ({
-				ids: new Set(["bob"]),
-			}));
-			expect(r.verdict).toBe("forced");
-			expect(r.observed.was).toBe(bob.blob);
-			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(false);
-		});
-
 		it("leaves the holder's own release untouched", () => {
 			const { me } = holder("alice", "alice's\n");
 			observer("bob", "bob's\n");

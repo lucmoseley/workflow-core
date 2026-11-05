@@ -290,7 +290,7 @@
 					},
 					{
 						"type": "command",
-						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/sweep-debts-detached.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/session-start-sweeps.sh",
 						"timeout": 10
 					},
 					{

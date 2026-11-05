@@ -78,7 +78,7 @@ git status --porcelain docs/reference-roadmap.html   # empty, or poll below
 gh issue view $ARGUMENTS --json number,title,state,body,comments
 ```
 
-- Roadmap working copy dirty → **poll and retry; this is not a stop and never an escalation to the founder** (mantahostels#1074). Run the `roadmap-edit` skill's step 1 poll-and-claim loop, which owns the recipe, and on its non-zero exit register the debt against this issue and report the card left unmarked: `node scripts/session-arbiter.js debt own docs/reference-roadmap.html $ARGUMENTS "<card-id>: close log"`.
+- Roadmap working copy dirty → **poll and retry; this is not a stop and never an escalation to the founder** (mantahostels#1074). Run the `roadmap-edit` skill's step 1 poll-and-claim loop, which owns the recipe, and on its non-zero exit report the card left unmarked, naming it and this issue.
 - Issue not found, or already `CLOSED` → **stop.** Report which.
 
 ### 2. Resolve the card id
@@ -155,7 +155,7 @@ git commit -m "<what closing <card-id> changed> (vX.YY)" \
 
 Add any source document step 3's write-back edited to that pathspec.
 
-**Commit by pathspec, never `git add` first** — the index is repo-global, and a parallel session's commit lands in the gap between staging and committing, carrying your files under its message (`.claude/skills/roadmap-edit/SKILL.md` step 8).
+**Commit by pathspec** (`.claude/skills/roadmap-edit/SKILL.md` step 8).
 
 Then push, per `CLAUDE.md` §Conventions. Every push to `landing` runs the suite and the document guards (`.github/workflows/scheduled-checks.yml`), and the lander moves `main` only to a tip that run passed (#2413); `node scripts/landing-status.js` says whether your commits have landed.
 

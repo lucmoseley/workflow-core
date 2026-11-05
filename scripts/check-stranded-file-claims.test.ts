@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * Pins which stranded file claims and unanswered release requests the sweep
- * names, past what age, and what it itemises under `--notify`.
+ * Pins which stranded file claims and worktrees the sweep names, past what
+ * age, and what it itemises under `--notify`.
  *
  * Every test drives the real script end to end through run-in-process, with a
  * fake `claude` on WFC_CLAUDE_BIN standing in for the daemon.
@@ -11,8 +11,9 @@
  * rather than to "dead".
  *
  * It runs in `npm run status` and feeds /pick-next's owed-work count: loosen a
- * case and a claim outliving its session goes unreported, so the next session
- * just finds the file taken, or a live holder is called finished.
+ * case and a claim outliving its session goes unreported, so every later
+ * writer of its path is warned of a merge conflict that is not there, or a
+ * live holder is called finished.
  */
 
 import { spawnSync } from "node:child_process";
@@ -20,7 +21,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { freshSandbox, live, locks, store } from "./lib/arbiter-testkit";
+import { freshSandbox, locks, store } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stranded-file-claims.js");
@@ -50,30 +51,6 @@ function claim(rel: string, sessionId: string, agedHours = 24) {
 	});
 	rec.claimedAt = new Date(Date.now() - agedHours * 3_600_000).toISOString();
 	fs.writeFileSync(path.join(locksDir(), lockFile(rel)), JSON.stringify(rec));
-	return rec;
-}
-
-/**
- * A release request on disk, in the shape store.recordRequest writes.
- * `agedHours` back-dates `since`; `declined`/`why` are passed through raw.
- */
-function request(
-	subject: string,
-	requesterId: string,
-	holderId: string,
-	{
-		agedHours = 24,
-		declined = null,
-		why = null,
-	}: { agedHours?: number; declined?: unknown; why?: string | null } = {},
-) {
-	const me = live(sb, requesterId);
-	store.recordRequest(subject, me, holderId, why);
-	const file = store.paths.request(store.subjectPath(subject), requesterId);
-	const rec = JSON.parse(fs.readFileSync(file, "utf8"));
-	rec.since = new Date(Date.now() - agedHours * 3_600_000).toISOString();
-	if (declined) rec.declined = declined;
-	fs.writeFileSync(file, JSON.stringify(rec));
 	return rec;
 }
 
@@ -381,155 +358,6 @@ describe("what it reports", () => {
 	});
 });
 
-/* mantahostels#1784, spec mantahostels#1702's story 18: the founder's own escape hatch for a holder
- * that stays idle forever, since the in-band notice at claim/release only
- * fires when the holder next does something. */
-describe("an unanswered release request", () => {
-	it("names the path, requester, holder and age past the threshold, with the remedy", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-			why: "need it for the B5 entry",
-		});
-
-		const r = run();
-		const out = report(r);
-		expect(out).toContain("UNANSWERED-REQUEST");
-		expect(out).toContain("docs/doc-map.md");
-		expect(out).toContain("requester-session");
-		expect(out).toContain("holder-session");
-		expect(out).toContain("20h");
-		expect(out).toContain("go to the holder's terminal");
-		expect(r.status).toBe(0);
-	});
-
-	it("is never reported once the holder has declined it", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-			declined: {
-				by: "holder-session",
-				at: new Date().toISOString(),
-				reason: "still working it",
-			},
-		});
-
-		expect(report(run())).not.toContain("UNANSWERED-REQUEST");
-	});
-
-	it("holds its tongue below the threshold, and speaks above it", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 3,
-		});
-
-		expect(report(run())).not.toContain("UNANSWERED-REQUEST");
-		expect(report(run(["--hours", "1"]))).toContain("UNANSWERED-REQUEST");
-	});
-
-	it("is never reported once its requester has claimed the path", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-		// The route a real claim takes: cmdClaim drops the requester's own
-		// request the moment it lands.
-		store.dropRequests("docs/doc-map.md", "requester-session");
-
-		expect(report(run())).not.toContain("UNANSWERED-REQUEST");
-	});
-
-	it("is reported under --notify too", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-
-		const r = run(["--notify"]);
-		expect(r.stdout).toContain("UNANSWERED-REQUEST");
-		expect(r.stdout).toContain("docs/doc-map.md");
-		expect(r.status).toBe(0);
-	});
-
-	it("is reported even when nothing is claimed, since the register is a separate directory", () => {
-		// No claim() call at all: locks.length === 0 takes the early return, which
-		// must not swallow a standing request too.
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-
-		const out = report(run());
-		expect(out).toContain("UNANSWERED-REQUEST");
-		expect(out).toContain("docs/doc-map.md");
-	});
-
-	it("is reported even when the file-claim store cannot be read at all", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-		fakeClaude(agentsListing("holder-session"));
-		// Corrupt the locks directory itself: readLocks() returns null, which
-		// takes the ctx.skip() branch — the claims half of the sweep is now
-		// unusable, and the request half must still speak.
-		fs.rmSync(locksDir(), { recursive: true, force: true });
-		fs.writeFileSync(locksDir(), "not a directory");
-
-		const out = report(run());
-		expect(out).toContain("UNANSWERED-REQUEST");
-		expect(out).toContain("SKIP:");
-	});
-
-	it("is reported even when the running-session oracle cannot be read", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-		fakeClaude("not json");
-
-		const out = report(run());
-		expect(out).toContain("UNANSWERED-REQUEST");
-		expect(out).toContain("SKIP:");
-	});
-
-	it("names UNREADABLE-REQUESTS rather than silently reading zero, when the register itself will not parse", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-		// Corrupt the requests directory: a plain file where readdirSync expects
-		// a directory.
-		fs.rmSync(store.paths.requestsDir(), { recursive: true, force: true });
-		fs.writeFileSync(store.paths.requestsDir(), "not a directory");
-
-		const out = report(run());
-		expect(out).toContain("UNREADABLE-REQUESTS");
-		expect(out).not.toContain("UNANSWERED-REQUEST");
-	});
-
-	it("reports a request whose `since` will not parse, rather than dropping it", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(agentsListing("holder-session"));
-		const rec = request(
-			"docs/doc-map.md",
-			"requester-session",
-			"holder-session",
-		);
-		const file = store.paths.request("docs/doc-map.md", "requester-session");
-		fs.writeFileSync(file, JSON.stringify({ ...rec, since: "not-a-date" }));
-
-		const out = report(run());
-		expect(out).toContain("UNANSWERED-REQUEST");
-		expect(out).toContain("an unreadable time");
-	});
-});
-
 describe("it never breaks a claim", () => {
 	it("leaves every lock on disk byte-for-byte, stranded ones included", () => {
 		claim("docs/doc-map.md", "dead-session", 500);
@@ -620,32 +448,6 @@ describe("it degrades to silence, never to dead", () => {
 
 		const r = run([], "the-sweeps-own-session");
 		expect(report(r)).not.toContain("STRANDED-CLAIM");
-		expect(r.status).toBe(0);
-	});
-
-	/* The display names ride on the same oracle read. A sweep that answered
-	 * `{ids}` alone would fall back to raw session ids here and nothing else
-	 * would notice. */
-	it("names a holder by its display name", () => {
-		claim("docs/doc-map.md", "holder-session", 30);
-		fakeClaude(
-			JSON.stringify([
-				{ pid: 2, sessionId: "the-sweeps-own-session", state: "working" },
-				{
-					pid: 1,
-					sessionId: "holder-session",
-					name: "Implement 1924",
-					status: "busy",
-					state: "working",
-				},
-			]),
-		);
-		request("docs/doc-map.md", "requester-session", "holder-session", {
-			agedHours: 20,
-		});
-
-		const r = run([], "the-sweeps-own-session");
-		expect(report(r)).toContain("Implement 1924");
 		expect(r.status).toBe(0);
 	});
 
