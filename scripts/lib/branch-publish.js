@@ -94,7 +94,12 @@
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const path = require("node:path");
-const { LANDING_BRANCH } = require("./landing-refs.js");
+const {
+	DROPPED_PREFIX,
+	LANDER_PREFIX,
+	LANDING_BRANCH,
+	QUEUE_PREFIX,
+} = require("./landing-refs.js");
 const { rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -132,10 +137,6 @@ const DEPENDABOT_JQ =
 	'(.headRefName | startswith("dependabot/")) or (.author.login | test("^(app/)?dependabot(\\\\[bot\\\\])?$"))';
 
 const LANDING_HEAD = `refs/heads/${LANDING_BRANCH}`;
-
-const QUEUE_PREFIX = "queue/";
-const DROPPED_PREFIX = "dropped/";
-const LANDER_PREFIX = "lander/";
 
 const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 

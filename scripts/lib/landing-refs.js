@@ -30,11 +30,15 @@ const LANDING_BRANCH = "landing";
 const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
 /* The queue lander's own refs (#4458), which it alone writes and may force:
  * the integration commit under test, and each isolation commit. */
-const LANDER_BATCH_BRANCH = "lander/batch";
-const LANDER_ISO_PREFIX = "lander/iso-";
+const LANDER_PREFIX = "lander/";
+const LANDER_BATCH_BRANCH = `${LANDER_PREFIX}batch`;
+const LANDER_ISO_PREFIX = `${LANDER_PREFIX}iso-`;
 /* A session's queue ref (#4458), `queue/<worktree name>`, which it pushes
  * and the lander takes. */
 const QUEUE_PREFIX = "queue/";
+/* A queue ref the lander dropped (#4458), `dropped/<name>`, which it alone
+ * writes and deletes once the drop's fix ticket closes. */
+const DROPPED_PREFIX = "dropped/";
 
 /**
  * The fetch refspec that updates `branch`'s remote-tracking ref.
@@ -162,8 +166,10 @@ if (require.main === module) {
 
 module.exports = {
 	branchOf,
+	DROPPED_PREFIX,
 	LANDER_BATCH_BRANCH,
 	LANDER_ISO_PREFIX,
+	LANDER_PREFIX,
 	LANDING_BRANCH,
 	landingOn,
 	LANDING_REF,

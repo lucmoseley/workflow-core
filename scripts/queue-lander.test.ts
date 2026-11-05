@@ -9,10 +9,11 @@
  * both refs touched stops the batch though its driver settles it, a ref
  * pushed while its batch was tested is deleted unlanded, a broken git object
  * is read again unrepaired, a live queue lander's lock is taken by the
- * landing lander, or a verdict or batch written to disk is lost to the next
- * run.
+ * landing lander, a verdict, batch or drop written to disk is lost to the
+ * next run, or a ref conflicting with `main` stops the queue, goes unkept
+ * under `dropped/<name>` or unticketed.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,11 +26,13 @@ import {
 	runLander,
 	runLanderScript,
 	stubTester,
+	stubTracker,
 	tmp,
 	work,
 } from "./lib/lander-testkit";
 import {
 	batchRecord,
+	dropRecord,
 	queueGit,
 	verdictLedger,
 } from "./lib/queue-lander-adapters.js";
@@ -135,6 +138,8 @@ describe("a run", () => {
 		fs.mkdirSync(markers(), { recursive: true });
 		batchRecord(path.join(markers(), ".queue-lander-batch.json")).write({
 			members: [{ name: "a", sha: a, pushedAt: 1 }],
+			deferred: [],
+			dropped: [],
 			onto: seed,
 			integration: a,
 			phase: "testing",
@@ -186,6 +191,73 @@ describe("a run", () => {
 		});
 	});
 
+	it("drops a ref conflicting with main to dropped/<name>, files its fix ticket and lands the other, logging each", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const shared = path.join(work, "shared.txt");
+		fs.writeFileSync(shared, "main\n");
+		const main = commit("main");
+		git(work, "push", "-q", "origin", `${main}:main`);
+		const a = pushQueue("a", seed, () => fs.writeFileSync(shared, "a\n"));
+		const b = pushQueue("b", seed);
+		fs.mkdirSync(markers(), { recursive: true });
+		const log = queueLogFile(work);
+		const at = Date.now();
+		logEnqueue(log, { ref: "refs/heads/queue/a", sha: a, at: at - 2000 });
+		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
+		const { gh, readStore } = stubTracker();
+
+		const r = await runLanderScript(
+			QUEUE_LANDER,
+			stubTester(0),
+			"landing",
+			gh.env,
+		);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain(
+			`drop-member queue/a@${a.slice(0, 9)} as dropped/a`,
+		);
+		expect(r.stdout).toContain("exit no queue ref waits");
+		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
+		expect(remoteHeads()).not.toContain("refs/heads/queue/");
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "merge-base", "--is-ancestor", b, landed)).toBe("");
+		expect(
+			spawnSync("git", ["merge-base", "--is-ancestor", a, landed], {
+				cwd: remote,
+			}).status,
+		).toBe(1);
+		const [ticket] = readStore();
+		expect(ticket.title).toBe(
+			`Fix queue/a at ${a.slice(0, 9)}, dropped by the queue lander: a`,
+		);
+		expect(ticket.labels.map((l: { name: string }) => l.name)).toEqual(
+			expect.arrayContaining(["takes:implement", "kind:ticket"]),
+		);
+		expect(ticket.body).toContain(a);
+		expect(ticket.body).toContain("- `shared.txt`");
+		expect(ticket.body).toContain("`dropped/a`");
+		const drops = dropRecord(
+			path.join(markers(), ".queue-lander-drops.json"),
+		).read();
+		expect(drops.map((d) => [d.ref, d.ticket])).toEqual([
+			["dropped/a", ticket.number],
+		]);
+		const rows = fs
+			.readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l))
+			.filter((row) => row.event !== "enqueue")
+			.map((row) => `${row.event} ${row.ref.slice("refs/heads/".length)}`);
+		expect(rows).toEqual([
+			"take queue/a",
+			"take queue/b",
+			"drop queue/a",
+			"land queue/b",
+		]);
+	});
+
 	it("lands nothing on a red batch, ledgering its verdict for the next run", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		pushQueue("a", seed);
@@ -214,10 +286,23 @@ describe("the adapters", () => {
 		git(work, "push", "-q", "origin", `${a2}:refs/heads/queue/a`);
 		const g = queueGit(work);
 
-		expect(g.deleteRef("a", a1)).toBe(false);
+		expect(g.deleteRef("queue/a", a1)).toBe(false);
 		expect(git(remote, "rev-parse", "queue/a")).toBe(a2);
-		expect(g.deleteRef("a", a2)).toBe(true);
+		expect(g.deleteRef("queue/a", a2)).toBe(true);
 		expect(remoteHeads()).not.toContain("queue/a");
+	});
+
+	it("creates a dropped ref, takes it made already at the same sha, refuses it at another, and lists it", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = commit("a");
+		git(work, "push", "-q", "origin", `${a}:refs/heads/queue/a`);
+		const g = queueGit(work);
+
+		g.createRef("dropped/a", a);
+		g.createRef("dropped/a", a);
+		expect(() => g.createRef("dropped/a", seed)).toThrow(/stale info/);
+		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
+		expect(g.refs().dropped).toEqual([{ ref: "dropped/a", sha: a }]);
 	});
 
 	it("lists each queue ref with its logged push time, its committer time where the log names none at its sha", () => {
@@ -294,6 +379,8 @@ describe("the adapters", () => {
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		const b = {
 			members: [{ name: "a", sha: "s0", pushedAt: 1 }],
+			deferred: ["b"],
+			dropped: [],
 			onto: "m0",
 			integration: "s1",
 			phase: "testing" as const,
@@ -312,6 +399,20 @@ describe("the adapters", () => {
 		expect(batchRecord(batch).read()).toEqual(b);
 		fs.writeFileSync(batch, '{"members": [');
 		expect(batchRecord(batch).read()).toBeNull();
+
+		const drops = path.join(markers(), "d.json");
+		const d = {
+			name: "a",
+			sha: "s0",
+			ref: "dropped/a",
+			onto: "m0",
+			cause: { kind: "conflict" as const, name: "a", files: ["x.txt"] },
+			ticket: null,
+		};
+		dropRecord(drops).write([d, { ...d, ref: 3 } as never]);
+		expect(dropRecord(drops).read()).toEqual([d]);
+		fs.writeFileSync(drops, "[{");
+		expect(dropRecord(drops).read()).toEqual([]);
 	});
 });
 

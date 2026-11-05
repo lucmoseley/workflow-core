@@ -11,14 +11,25 @@
  * off every map, and an open parent with an open child reads as a container,
  * leaving the fix ticket the one on the frontier. A filing file-issue.js
  * refuses under the cited ticket is filed standalone, naming the refusal.
+ *
+ * The queue lander's (#4458) is filed the same way for a queue ref it
+ * dropped: naming the ref, its sha, the dropped ref and the files it
+ * conflicted in or the refusal that stopped its merge, under the ticket its
+ * newest citing commit's subject cites. `liveFilerDeps` gives both filers
+ * their tracker, file-issue.js and git.
  */
 
 const { citedIssues } = require("./cited-issues.js");
-const { parseErrLine } = require("./gh.js");
+const { gh, parseErrLine } = require("./gh.js");
+const { spawnGitSync } = require("./git.js");
 const { parseFirstLine } = require("./first-line.js");
 const { failingList, short } = require("./lander.js");
+const { QUEUE_PREFIX } = require("./landing-refs.js");
+const { liveQueueDeps } = require("./queue-issue.js");
 const { scriptPath } = require("./script-path.js");
 const { takesLabel } = require("./takes-label.js");
+const { similarTitles } = require("./tracker-ops.js");
+const { requireKey } = require("./workflow-core-config.js");
 
 /* Untraced: room for the culprit's subject in a title a tracker list shows
  * whole. */
@@ -190,6 +201,78 @@ function ticketFiler(deps) {
 }
 
 /**
+ * The ticket its member's commits cite: the newest commit's citation, as
+ * the subject that cites it names the work it carries.
+ * @param {readonly string[]} subjects newest first
+ * @returns {number|null}
+ */
+const citedByAny = (subjects) =>
+	subjects.map(citedTicket).find((n) => n !== null) ?? null;
+
+/**
+ * The evidence a drop's merge left: the files it conflicted in, or the
+ * refusal that stopped it.
+ * @param {import("./queue-lander.js").Unmerged} cause
+ */
+const buildDropEvidence = (cause) =>
+	cause.kind === "conflict"
+		? `it conflicts with \`main\` in:\n${cause.files.map((f) => `- \`${f}\``).join("\n")}`
+		: `its merge was refused: ${quoteSubject(cause.reason)}`;
+
+/**
+ * @param {import("./queue-lander.js").Drop & {subject: string}} d
+ * @returns {{title: string, body: string}}
+ */
+function dropTicketIssue({ name, sha, ref, onto, cause, subject }) {
+	const queued = `${QUEUE_PREFIX}${name}`;
+	return {
+		title: `Fix ${queued} at ${short(sha)}, dropped by the queue lander: ${cutSubject(subject)}`,
+		body: `## What to build
+
+The queue lander (#4458) dropped \`${queued}\` at ${sha}: merged alone onto \`main\` at ${onto}, ${buildDropEvidence(cause)}
+
+Its commits are kept at \`${ref}\`, which the lander deletes once this ticket closes.
+
+Tip commit: ${quoteSubject(subject)}
+
+## Acceptance criteria
+
+- [ ] ${short(sha)}'s change merges onto \`main\`${cause.kind === "conflict" ? ", each file above settled," : ""} and is pushed to \`${queued}\` again.
+`,
+	};
+}
+
+/**
+ * @typedef {Omit<FilerDeps, "messageOf"> & {subjectsOf: (base: string,
+ *   tip: string) => string[]}} DropFilerDeps `subjectsOf` the subjects of
+ *   the commits on `tip` and not on `base`, newest first
+ */
+
+/**
+ * The queue lander's filer of a dropped member's fix ticket: `takes:implement`,
+ * unassigned, under the ticket its commits cite, else standalone.
+ * @param {DropFilerDeps} deps
+ * @returns {Pick<import("./queue-lander.js").QueueTracker, "fileDropTicket">}
+ */
+function dropTicketFiler(deps) {
+	return {
+		fileDropTicket(d) {
+			const subjects = deps.subjectsOf(d.onto, d.sha);
+			const queued = `${QUEUE_PREFIX}${d.name}`;
+			return fileTicket(deps, {
+				...dropTicketIssue({ ...d, subject: subjects[0] ?? "" }),
+				cited: citedByAny(subjects),
+				citer: `a commit on ${queued}`,
+				uncited: `No commit on ${queued} cites a ticket of this repo.`,
+				reopenNote: `Reopened by the queue lander: ${queued} at ${d.sha}, which cites it, was dropped. Its fix ticket follows as a sub-issue.`,
+				noun: "fix ticket",
+				filedAs: `Fix ${queued} at ${short(d.sha)},`,
+			});
+		},
+	};
+}
+
+/**
  * Files the re-land ticket of the reverted commit `sha` under the ticket its
  * subject cites, else standalone, returning the line naming it.
  * @param {FilerDeps} deps
@@ -197,12 +280,43 @@ function ticketFiler(deps) {
  *   reopenNote: string}} ticket
  * @returns {string}
  */
-function fileReland(deps, { sha, subject, title, body, reopenNote }) {
-	const listed = deps.similar(title);
-	const filed = listed.find((c) =>
-		c.title.startsWith(`Re-land ${short(sha)},`),
-	);
-	if (filed) return `re-land ticket already open: #${filed.number}`;
+function fileReland(deps, { sha, subject, ...ticket }) {
+	const cited = citedTicket(subject);
+	return fileTicket(deps, {
+		...ticket,
+		cited,
+		citer: short(sha),
+		uncited: `${short(sha)}'s subject cites no ticket of this repo.`,
+		noun: "re-land ticket",
+		filedAs: `Re-land ${short(sha)},`,
+	});
+}
+
+/**
+ * @typedef {object} Ticket a ticket to file under the one its work cites
+ * @property {string} title
+ * @property {string} body
+ * @property {number|null} cited the ticket its work cites, null for none
+ * @property {string} citer what cites it, as a standalone reason names it
+ * @property {string} uncited the standalone reason where it cites none
+ * @property {string} reopenNote the comment a closed cited ticket is reopened
+ *   with
+ * @property {string} noun what the line naming an open one calls it
+ * @property {string} filedAs the title prefix an open ticket already filed
+ *   for the same work starts with
+ */
+
+/**
+ * Files `t` under the ticket its work cites, else standalone, returning the
+ * line naming it; an open one whose title starts `filedAs` is named instead.
+ * @param {Omit<FilerDeps, "messageOf">} deps
+ * @param {Ticket} t
+ * @returns {string}
+ */
+function fileTicket(deps, t) {
+	const listed = deps.similar(t.title);
+	const filed = listed.find((c) => c.title.startsWith(t.filedAs));
+	if (filed) return `${t.noun} already open: #${filed.number}`;
 	const distinct =
 		listed.length > 0
 			? ["--distinct-from", listed.map((c) => c.number).join(",")]
@@ -212,7 +326,7 @@ function fileReland(deps, { sha, subject, title, body, reopenNote }) {
 		deps.fileIssue(
 			[
 				"--title",
-				title,
+				t.title,
 				"--label",
 				takesLabel("implement"),
 				"--label",
@@ -222,51 +336,41 @@ function fileReland(deps, { sha, subject, title, body, reopenNote }) {
 				"--body-file",
 				"-",
 			],
-			body,
+			t.body,
 		);
-	const placed = fileUnderCited(
-		citedTicket(subject),
-		{ sha, reopenNote },
-		file,
-		deps,
-	);
+	const placed = fileUnderCited(t, file, deps);
 	if ("filed" in placed) return placed.filed;
 	const ran = file(["--standalone", placed.why]);
 	if (ran.status === 0) return ran.stdout.trim();
 	throw new Error(
-		`re-land ticket for ${short(sha)} not filed: ${parseFirstLine(ran.stderr)}`,
+		`${t.noun} for ${t.citer} not filed: ${parseFirstLine(ran.stderr)}`,
 	);
 }
 
 /**
  * Files the ticket under the cited one: what file-issue printed, or why it
  * goes standalone.
- * @param {number|null} cited
- * @param {{sha: string, reopenNote: string}} t the reverted commit, and the
- *   comment a closed cited ticket is reopened with
+ * @param {Ticket} t
  * @param {(placement: string[]) => Ran} file
  * @param {Pick<FilerDeps, "stateOf" | "reopen">} deps
  * @returns {{filed: string} | {why: string}}
  */
-function fileUnderCited(cited, t, file, deps) {
-	if (cited === null)
-		return {
-			why: `${short(t.sha)}'s subject cites no ticket of this repo.`,
-		};
-	const unready = underCited(cited, t, deps);
+function fileUnderCited(t, file, deps) {
+	if (t.cited === null) return { why: t.uncited };
+	const unready = underCited(t.cited, t, deps);
 	if (unready !== null) return { why: unready };
-	const ran = file(["--parent", String(cited)]);
+	const ran = file(["--parent", String(t.cited)]);
 	if (ran.status === 0) return { filed: ran.stdout.trim() };
 	return {
-		why: `file-issue refused it under #${cited}, which ${short(t.sha)} cites: ${parseFirstLine(ran.stderr)}`,
+		why: `file-issue refused it under #${t.cited}, which ${t.citer} cites: ${parseFirstLine(ran.stderr)}`,
 	};
 }
 
 /**
- * Readies the cited ticket as the fix ticket's parent, reopening it where
+ * Readies the cited ticket as the ticket's parent, reopening it where
  * closed; null where it is ready, else why it cannot be.
  * @param {number} cited
- * @param {{sha: string, reopenNote: string}} t
+ * @param {Pick<Ticket, "citer" | "reopenNote">} t
  * @param {Pick<FilerDeps, "stateOf" | "reopen">} deps
  * @returns {string|null}
  */
@@ -275,8 +379,67 @@ function underCited(cited, t, { stateOf, reopen }) {
 		if (stateOf(cited) === "closed") reopen(cited, t.reopenNote);
 		return null;
 	} catch (err) {
-		return `#${cited}, which ${short(t.sha)} cites, could not be read or reopened: ${parseErrLine(err)}`;
+		return `#${cited}, which ${t.citer} cites, could not be read or reopened: ${parseErrLine(err)}`;
 	}
 }
 
-module.exports = { ticketFiler };
+/**
+ * @param {string} root
+ * @param {string[]} args
+ * @returns {string}
+ */
+function readGitIn(root, args) {
+	const r = spawnGitSync(args, { cwd: root, encoding: "utf8" });
+	if (r.status !== 0)
+		throw new Error(
+			`git ${args[0]} could not read ${args.at(-1)}: ${r.stderr.trim()}`,
+		);
+	return r.stdout;
+}
+
+/**
+ * The tracker, file-issue.js and git both filers run on, in `root`.
+ * @param {string} root
+ * @returns {FilerDeps & DropFilerDeps}
+ */
+function liveFilerDeps(root) {
+	const repo = () => requireKey("tracker", { root });
+	return {
+		messageOf: (sha) => readGitIn(root, ["log", "-1", "--format=%B", sha]),
+		subjectsOf: (base, tip) =>
+			readGitIn(root, ["log", "--format=%s", `${base}..${tip}`])
+				.split("\n")
+				.filter(Boolean),
+		/* Throws on an unread list, unlike liveQueueDeps's: a retried ticket
+		 * that reached the tracker must not be filed a second time. */
+		similar: (title) => similarTitles(repo(), title).found,
+		fileIssue: liveQueueDeps(root).fileIssue,
+		stateOf: (n) =>
+			gh([
+				"issue",
+				"view",
+				String(n),
+				"--repo",
+				repo(),
+				"--json",
+				"state",
+				"--jq",
+				".state",
+			]).trim() === "CLOSED"
+				? "closed"
+				: "open",
+		reopen: (n, comment) => {
+			gh([
+				"issue",
+				"reopen",
+				String(n),
+				"--repo",
+				repo(),
+				"--comment",
+				comment,
+			]);
+		},
+	};
+}
+
+module.exports = { dropTicketFiler, liveFilerDeps, ticketFiler };

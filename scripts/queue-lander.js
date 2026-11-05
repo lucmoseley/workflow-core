@@ -14,7 +14,8 @@
  * of `main` it takes the step lib/lander-cli.js holds.
  *
  * It moves `main` only past the landing lander's green ledger, which the
- * pre-push gate on `main` reads.
+ * pre-push gate on `main` reads. A dropped member's fix ticket is filed in
+ * the tracker .claude/workflow-core.json names, through file-issue.js.
  *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
@@ -28,10 +29,12 @@
 
 const { parseErrorText } = require("./lib/caught.js");
 const { queueTester } = require("./lib/actions-tester.js");
+const { dropTicketFiler, liveFilerDeps } = require("./lib/fix-ticket.js");
 const {
 	afterMainMove,
 	commandTester,
 	openLanderRun,
+	say,
 	stampedLog,
 } = require("./lib/lander-cli.js");
 const {
@@ -43,8 +46,10 @@ const {
 const { localTester } = require("./lib/local-tester.js");
 const {
 	batchRecord,
+	dropRecord,
 	queueGit,
 	queueLanderFiles,
+	queueLogger,
 	verdictLedger,
 } = require("./lib/queue-lander-adapters.js");
 const {
@@ -63,6 +68,15 @@ const configuredTester = (root) =>
 		? queueTester({ root })
 		: localTester({ root });
 
+/**
+ * @param {string} root
+ * @returns {import("./lib/queue-lander.js").QueueTracker}
+ */
+function trackerOf(root) {
+	const deps = liveFilerDeps(root);
+	return { ...dropTicketFiler(deps), stateOf: deps.stateOf };
+}
+
 /** @param {string[]} [argv] @returns {Promise<number>} */
 async function main(argv = process.argv.slice(2)) {
 	const opened = openLanderRun(argv, "queue-lander.js");
@@ -78,10 +92,14 @@ async function main(argv = process.argv.slice(2)) {
 		ledger: fileLedger(landerFiles(root).ledger),
 		verdicts: verdictLedger(files.verdicts),
 		record: batchRecord(files.batch),
+		drops: dropRecord(files.drops),
+		tracker: trackerOf(root),
+		logQueue: queueLogger(root),
 		lock: landerLock(root),
 		beat: heartbeatWriter(files.heartbeat),
 		log: stampedLog(buildQueueActionLine),
 		mainMoved: () => afterMainMove(root),
+		say,
 	});
 	return 0;
 }

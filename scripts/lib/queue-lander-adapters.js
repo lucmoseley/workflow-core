@@ -4,7 +4,7 @@
  * and its verdict ledger and batch record files.
  *
  * A queue ref's push time is the one lib/queue-log.js logged for it at the
- * sha it now holds. A sha with no row, as one pushed from another machine,
+ * sha it now holds, and its take, land and drop rows are logged there too. A sha with no row, as one pushed from another machine,
  * falls back to its tip's committer time, as the remote, GitHub, tells git
  * no push time.
  */
@@ -28,6 +28,7 @@ const {
 	withThrowawayTree,
 } = require("./lander.js");
 const {
+	DROPPED_PREFIX,
 	LANDER_BATCH_BRANCH,
 	QUEUE_PREFIX,
 	REMOTE,
@@ -35,7 +36,11 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
-const { queueLogFile, readEnqueueTimes } = require("./queue-log.js");
+const {
+	logQueueEvent,
+	queueLogFile,
+	readEnqueueTimes,
+} = require("./queue-log.js");
 const { TransientFault } = require("./queue-lander.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 
@@ -43,6 +48,7 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
  * for a batch a run resumes, which waits hours, never weeks. */
 const VERDICT_RETAIN_MS = 14 * DAY_MS;
 const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
+const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
 /* git push's words for a compare-and-delete refused because the ref moved. */
 const STALE = /\(stale info\)/;
 const GONE = /remote ref does not exist/;
@@ -61,6 +67,10 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").QueueRef} QueueRef
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
  * @typedef {import("./queue-lander.js").BatchRecord} BatchRecord
+ * @typedef {import("./queue-lander.js").Drop} Drop
+ * @typedef {import("./queue-lander.js").DropRecord} DropRecord
+ * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
+ * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
  */
 
 /**
@@ -71,6 +81,7 @@ function queueLanderFiles(root) {
 	return {
 		verdicts: path.join(dir, ".queue-lander-verdicts.jsonl"),
 		batch: path.join(dir, ".queue-lander-batch.json"),
+		drops: path.join(dir, ".queue-lander-drops.json"),
 		/* Its own, as the landing lander's carries that lander's hold and red
 		 * batch to its next run. */
 		heartbeat: path.join(dir, ".queue-lander-heartbeat.json"),
@@ -90,6 +101,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
 		`+${QUEUE_HEADS}*:refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`,
+		`+${DROPPED_HEADS}*:refs/remotes/${REMOTE}/${DROPPED_PREFIX}*`,
 	];
 	/**
 	 * `call`'s result; where it meets a broken loose object, that object's
@@ -149,7 +161,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				const mainRef = `refs/heads/${VERIFIED_BRANCH}`;
 				const heads = readRemoteHeads(
 					root,
-					[mainRef, `${QUEUE_HEADS}*`],
+					[mainRef, `${QUEUE_HEADS}*`, `${DROPPED_HEADS}*`],
 					() => fetchSpecs,
 				);
 				const listed = [...heads].flatMap(([ref, sha]) =>
@@ -168,7 +180,13 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 						throw new Error(`git log printed no committer time for ${sha}`);
 					return { name: ref.slice(QUEUE_HEADS.length), sha, pushedAt };
 				});
-				return { main: heads.get(mainRef) ?? null, queue };
+				/** @type {DroppedRef[]} */
+				const dropped = [...heads].flatMap(([ref, sha]) =>
+					ref.startsWith(DROPPED_HEADS)
+						? [{ ref: ref.slice("refs/heads/".length), sha }]
+						: [],
+				);
+				return { main: heads.get(mainRef) ?? null, queue, dropped };
 			}),
 		mergeMembers: (onto, members) =>
 			repairing(() => {
@@ -209,8 +227,8 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		pushMain(sha) {
 			pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);
 		},
-		deleteRef(name, sha) {
-			const ref = `${QUEUE_HEADS}${name}`;
+		deleteRef(branch, sha) {
+			const ref = `refs/heads/${branch}`;
 			try {
 				pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`]);
 				return true;
@@ -219,6 +237,17 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				if (GONE.test(refused)) return true;
 				if (STALE.test(refused)) return false;
 				throw err;
+			}
+		},
+		createRef(branch, sha) {
+			const ref = `refs/heads/${branch}`;
+			try {
+				pushRemote(root, [`--force-with-lease=${ref}:`, `${sha}:${ref}`]);
+			} catch (err) {
+				/* Made already, as by a drop a crash repeats. */
+				if (!STALE.test(parseErrorText(err))) throw err;
+				const held = git(["ls-remote", REMOTE, ref]).split("\t")[0];
+				if (held !== sha) throw err;
 			}
 		},
 	};
@@ -257,9 +286,9 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 	}
 }
 
-/** @param {unknown} files @returns {files is string[]} */
-const isFileList = (files) =>
-	Array.isArray(files) && files.every((f) => typeof f === "string");
+/** @param {unknown} list @returns {list is string[]} */
+const isStringList = (list) =>
+	Array.isArray(list) && list.every((f) => typeof f === "string");
 
 /**
  * The row's verdict where it is a green or a red, else null.
@@ -274,7 +303,7 @@ function parseVerdict(v) {
 		return typeof o.run === "number"
 			? { kind: "green", run: o.run }
 			: { kind: "green" };
-	if (o?.kind === "red" && isFileList(o.files))
+	if (o?.kind === "red" && isStringList(o.files))
 		return { kind: "red", files: o.files };
 	return null;
 }
@@ -296,7 +325,7 @@ function verdictLedger(file) {
 			const key = fileKey(files);
 			const rows = readJsonl(file)?.rows ?? [];
 			for (const row of rows.toReversed()) {
-				if (row.sha !== sha || !isFileList(row.files)) continue;
+				if (row.sha !== sha || !isStringList(row.files)) continue;
 				if (fileKey(row.files) !== key) continue;
 				const v = parseVerdict(row.verdict);
 				if (v) return v;
@@ -355,6 +384,8 @@ function batchRecord(file) {
 				!Array.isArray(b.members) ||
 				!b.members.every(isMember) ||
 				typeof b.onto !== "string" ||
+				!isStringList(b.deferred) ||
+				!isStringList(b.dropped) ||
 				!(b.integration === null || typeof b.integration === "string") ||
 				typeof b.phase !== "string" ||
 				!PHASES.includes(b.phase)
@@ -362,6 +393,8 @@ function batchRecord(file) {
 				return null;
 			return {
 				members: b.members,
+				deferred: b.deferred,
+				dropped: b.dropped,
 				onto: b.onto,
 				integration: b.integration,
 				phase: /** @type {Batch["phase"]} */ (b.phase),
@@ -373,4 +406,77 @@ function batchRecord(file) {
 	};
 }
 
-module.exports = { batchRecord, queueGit, queueLanderFiles, verdictLedger };
+/** @param {unknown} u @returns {u is Drop["cause"]} */
+const isCause = (u) => {
+	const o = /** @type {Record<string, unknown>|null} */ (
+		u !== null && typeof u === "object" ? u : null
+	);
+	if (typeof o?.name !== "string") return false;
+	return o.kind === "conflict"
+		? isStringList(o.files)
+		: o.kind === "refused" && typeof o.reason === "string";
+};
+
+/** @param {unknown} d @returns {d is Drop} */
+const isDrop = (d) => {
+	const o = /** @type {Record<string, unknown>|null} */ (
+		d !== null && typeof d === "object" ? d : null
+	);
+	return (
+		typeof o?.name === "string" &&
+		typeof o.sha === "string" &&
+		typeof o.ref === "string" &&
+		typeof o.onto === "string" &&
+		isCause(o.cause) &&
+		(o.ticket === null || Number.isInteger(o.ticket))
+	);
+};
+
+/**
+ * The drop record: every dropped ref the lander has not yet reaped, with its
+ * fix ticket. A row that is not a drop is skipped; an absent or torn record
+ * reads as none, and no run then reaps the refs it named.
+ * @param {string} file
+ * @returns {DropRecord}
+ */
+function dropRecord(file) {
+	return {
+		read() {
+			let parsed;
+			try {
+				parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+			} catch (err) {
+				if (caught(err).code === "ENOENT" || err instanceof SyntaxError)
+					return [];
+				throw err;
+			}
+			return Array.isArray(parsed) ? parsed.filter(isDrop) : [];
+		},
+		write(drops) {
+			writeFileAtomic(file, `${JSON.stringify(drops)}\n`);
+		},
+	};
+}
+
+/**
+ * The queue lander's take, land and drop rows, each at the queue ref's
+ * snapshot sha and stamped now.
+ * @param {string} root
+ * @returns {QueueLanderDeps["logQueue"]}
+ */
+const queueLogger = (root) => (event, m) => {
+	logQueueEvent(queueLogFile(root), event, {
+		ref: `${QUEUE_HEADS}${m.name}`,
+		sha: m.sha,
+		at: now(),
+	});
+};
+
+module.exports = {
+	batchRecord,
+	dropRecord,
+	queueGit,
+	queueLanderFiles,
+	queueLogger,
+	verdictLedger,
+};

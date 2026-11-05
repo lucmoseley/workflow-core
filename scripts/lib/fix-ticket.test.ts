@@ -1,14 +1,15 @@
 // @vitest-environment node
 /*
- * The lander's fix ticket (#2404, spec #2261), filed through fake
- * file-issue.js and gh calls.
+ * The landers' fix tickets (#2404, spec #2261; #4485, spec #4458), filed
+ * through fake file-issue.js and gh calls.
  *
- * Loosen it and a reverted commit's work can go unrecorded, land under a
- * closed ticket no map offers, or be filed twice.
+ * Loosen it and a reverted commit's or dropped queue ref's work can go
+ * unrecorded, land under a closed ticket no map offers, or be filed twice.
  */
 import { describe, expect, it } from "vitest";
-import { ticketFiler } from "./fix-ticket.js";
+import { dropTicketFiler, ticketFiler } from "./fix-ticket.js";
 import type { FixTicket } from "./lander.js";
+import type { Drop } from "./queue-lander.js";
 
 const C = "c".repeat(40);
 const P = "b".repeat(40);
@@ -269,5 +270,98 @@ describe("ticketFiler", () => {
 		expect(() => tracker.fileFixTicket(TICKET)).toThrow(
 			"re-land ticket for ccccccccc not filed: gh issue create failed",
 		);
+	});
+});
+
+const A = "a".repeat(40);
+const M = "f".repeat(40);
+const DROP: Drop = {
+	name: "wt-1",
+	sha: A,
+	ref: "dropped/wt-1",
+	onto: M,
+	cause: { kind: "conflict", name: "wt-1", files: ["x.js", "y.js"] },
+	ticket: null,
+};
+
+describe("dropTicketFiler", () => {
+	/** A filer over the member's commit `subjects`, newest first. */
+	function dropFiler(
+		subjects: string[],
+		states: Record<number, "open" | "closed"> = {},
+		listed: { number: number; title: string }[] = [],
+	) {
+		const files: { args: string[]; input: string }[] = [];
+		const ranges: string[] = [];
+		const tracker = dropTicketFiler({
+			subjectsOf: (base, tip) => {
+				ranges.push(`${base}..${tip}`);
+				return subjects;
+			},
+			similar: () => listed,
+			fileIssue: (args, input) => {
+				files.push({ args, input });
+				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
+			},
+			stateOf: (n) => {
+				const state = states[n];
+				if (!state) throw new Error(`no issue #${n}`);
+				return state;
+			},
+			reopen: () => undefined,
+		});
+		return {
+			said: (d: Partial<Drop> = {}) =>
+				tracker.fileDropTicket({ ...DROP, ...d }),
+			files,
+			ranges,
+		};
+	}
+
+	it("files an unassigned takes:implement sub-issue of the ticket the newest citing commit cites, naming the ref, sha, dropped ref and conflicted files", () => {
+		const f = dropFiler(["Tidy", "Add the widget (#12)", "Start (#40)"], {
+			12: "open",
+		});
+
+		expect(f.said()).toBe("Filed #9: https://x/9");
+
+		const [{ args, input }] = f.files;
+		expect(f.ranges).toEqual([`${M}..${A}`]);
+		expect(flag(args, "--parent")).toBe("12");
+		expect(flag(args, "--title")).toBe(
+			"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: Tidy",
+		);
+		expect(args).toEqual(
+			expect.arrayContaining(["takes:implement", "kind:ticket"]),
+		);
+		expect(args).not.toContain("--assign-self");
+		expect(input).toContain(`\`queue/wt-1\` at ${A}`);
+		expect(input).toContain(`onto \`main\` at ${M}`);
+		expect(input).toContain("- `x.js`\n- `y.js`");
+		expect(input).toContain("`dropped/wt-1`");
+	});
+
+	it("files standalone where no commit cites a ticket, naming a merge's refusal as its evidence", () => {
+		const f = dropFiler(["Tidy"]);
+
+		f.said({ cause: { kind: "refused", name: "wt-1", reason: "rule:x" } });
+
+		const [{ args, input }] = f.files;
+		expect(flag(args, "--standalone")).toBe(
+			"No commit on queue/wt-1 cites a ticket of this repo.",
+		);
+		expect(input).toContain("its merge was refused: `rule:x`");
+	});
+
+	it("files nothing where a listed open ticket already names the ref at its sha", () => {
+		const f = dropFiler(["Tidy"], {}, [
+			{
+				number: 5,
+				title: "Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: Tidy",
+			},
+		]);
+
+		expect(f.said()).toBe("fix ticket already open: #5");
+		expect(f.files).toEqual([]);
 	});
 });

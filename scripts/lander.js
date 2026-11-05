@@ -25,10 +25,8 @@
  * it refuses.
  */
 
-const { spawnGitSync } = require("./lib/git.js");
 const { parseErrorText } = require("./lib/caught.js");
-const { ticketFiler } = require("./lib/fix-ticket.js");
-const { gh } = require("./lib/gh.js");
+const { liveFilerDeps, ticketFiler } = require("./lib/fix-ticket.js");
 const { heldQueueFiler } = require("./lib/held-queue.js");
 const {
 	buildActionLine,
@@ -50,8 +48,7 @@ const {
 	stampedLog,
 } = require("./lib/lander-cli.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
-const { similarTitles } = require("./lib/tracker-ops.js");
-const { readConfig, requireKey } = require("./lib/workflow-core-config.js");
+const { readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /**
@@ -75,53 +72,10 @@ function configuredTester(root, slots = {}) {
 }
 
 /** @param {string} root */
-function liveFiler(root) {
-	const repo = () => requireKey("tracker", { root });
-	const deps = liveQueueDeps(root);
-	return {
-		...heldQueueFiler(deps),
-		...ticketFiler({
-			messageOf: (sha) => {
-				const r = spawnGitSync(["log", "-1", "--format=%B", sha], {
-					cwd: root,
-					encoding: "utf8",
-				});
-				if (r.status !== 0)
-					throw new Error(`git log could not read ${sha}: ${r.stderr.trim()}`);
-				return r.stdout;
-			},
-			/* Throws on an unread list, unlike deps.similar: a retried ticket that
-			 * reached the tracker must not be filed a second time. */
-			similar: (title) => similarTitles(repo(), title).found,
-			fileIssue: deps.fileIssue,
-			stateOf: (n) =>
-				gh([
-					"issue",
-					"view",
-					String(n),
-					"--repo",
-					repo(),
-					"--json",
-					"state",
-					"--jq",
-					".state",
-				]).trim() === "CLOSED"
-					? "closed"
-					: "open",
-			reopen: (n, comment) => {
-				gh([
-					"issue",
-					"reopen",
-					String(n),
-					"--repo",
-					repo(),
-					"--comment",
-					comment,
-				]);
-			},
-		}),
-	};
-}
+const liveFiler = (root) => ({
+	...heldQueueFiler(liveQueueDeps(root)),
+	...ticketFiler(liveFilerDeps(root)),
+});
 
 /** @param {string[]} [argv] @returns {Promise<number>} */
 async function main(argv = process.argv.slice(2)) {
