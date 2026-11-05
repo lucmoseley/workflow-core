@@ -23,12 +23,11 @@ import {
 	admissionFrom,
 	buildMemoryBreakdownLines,
 	buildSessionFloorLine,
-	LAUNCH_SPARES,
-	machineAdmission,
 	readRunningVitestSuites,
 	readTreePssKb,
 	SUITE_RESTING_MB,
 	SWAP_HOLD_AVAILABLE_MB,
+	selectionAdmission,
 	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
 import {
@@ -1878,12 +1877,11 @@ describe("admissionFrom's session floor (#2507)", () => {
 });
 
 /*
- * pick-next.js's ADMISSION block: machineAdmission's readings off the machine,
- * and the lenient verdict it takes over them with admissionFrom, in process
- * (#4329). The verdict's options are pick-next.js's own, a launch's warmed
- * pair priced in (#2568) and no reclaim credited.
+ * pick-next.js's ADMISSION block, `selectionAdmission`, in process (#4329):
+ * the readings off the machine and the lenient verdict over them, no reclaim
+ * credited.
  */
-describe("machineAdmission's readings, priced as pick-next.js prices them", () => {
+describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
 	/** The readings off the fake machine `m`, and the lenient verdict over them. */
@@ -1893,24 +1891,12 @@ describe("machineAdmission's readings, priced as pick-next.js prices them", () =
 			WFC_ORACLE_CACHE: "0",
 		}))
 			vi.stubEnv(k, v);
-		const r = machineAdmission({
+		const r = selectionAdmission({
 			listed: admissionSessionIds(),
 			reclaimable: { ok: true, mb: 0, count: 0 },
-			pendingSpares: LAUNCH_SPARES,
 			landers: readLiveLanders(),
 		});
-		const lenient = admissionFrom(r.mem, r.procs, {
-			overhead: r.overhead,
-			live: r.live,
-			host: r.host,
-			load: r.load,
-			cpu: r.cpu,
-			landerMb: r.landerMb,
-			sessionFloor: r.floorRead.sessions,
-			swapHold: r.swapHold,
-			launchMb: r.launchMb,
-		});
-		return { ...r, lenient };
+		return { ...r, lenient: r.admission };
 	};
 	const idleSpare =
 		"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock";

@@ -67,6 +67,12 @@ describe("which ledger entry holds an issue (#752)", () => {
 		expect(rec).toBe(older);
 		expect(dispatchAge(rec, NOW)).toBe("0.8h ago — /wayfinder 2");
 	});
+
+	it("names the most recent of two holding launches, so the age shown is the newest", () => {
+		const older = entry({ ts: hoursAgo(0.8) });
+		const newer = entry({ ts: hoursAgo(0.3) });
+		expect(holdingDispatch(ledger(older, newer), 2, ["implement"])).toBe(newer);
+	});
 });
 
 describe("whether the dispatched launch's own job is still alive (mantahostels#3488)", () => {

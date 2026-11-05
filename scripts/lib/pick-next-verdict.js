@@ -16,6 +16,7 @@ const { resolveGate } = require("./issue-gate.js");
 const { parseIssueRef } = require("./issue-ref.js");
 const { labelAge } = require("./label-age.js");
 const { PARKED_LABEL } = require("./parked.js");
+const { unparsedBlockersOf } = require("./prose-blockers.js");
 const { dispatchAge, holdingDispatch } = require("./pick-next-dispatched.js");
 const { claimHolder } = require("./pick-next-sessions.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
@@ -134,6 +135,20 @@ const { URGENT_LABEL } = require("./urgent-label.js");
  * inbox answers without deciding anything — not the decision chase.
  */
 const WAITING_STALL_DAYS = 7;
+
+/**
+ * PROSE SELF-GATES (mantahostels#1289): `i`'s `**Blocked on**` references as
+ * the graph judged them — this repo's against every open issue, already
+ * fetched, at no extra call — and the marker lines that name no number.
+ * @param {import("./blocker-graph").Graph} graph
+ * @param {{number: number, body: string}} i
+ */
+function proseBlockedOf(graph, i) {
+	return {
+		...blockerGraph.proseOf(graph, i.number),
+		unparsed: unparsedBlockersOf(i.body),
+	};
+}
 
 /**
  * Each issue's inherited tiers and chain depth (#3222), read at selection
@@ -390,6 +405,19 @@ function enrichIssue(i, ctx) {
 }
 
 /**
+ * Every issue's verdict, and the inheritance each passes on, worked out once
+ * over the whole set first.
+ * @param {DepsResolved[]} withDeps
+ * @param {Map<number, RawIssue>} byNumber
+ * @param {Omit<EnrichContext, "inherit">} ctx
+ */
+function enrichAll(withDeps, byNumber, ctx) {
+	const inherit = inheritanceOf(ctx.blockers, byNumber, ctx.goalRanked);
+	const enriched = withDeps.map((i) => enrichIssue(i, { ...ctx, inherit }));
+	return { enriched, inherit };
+}
+
+/**
  * The frontier: every issue nothing holds out, in sort-level order, then by
  * number.
  * @template {Issue} I
@@ -403,8 +431,8 @@ function rankFrontier(enriched) {
 }
 
 module.exports = {
-	enrichIssue,
-	inheritanceOf,
+	enrichAll,
+	proseBlockedOf,
 	rankFrontier,
 	tiersOf,
 	WAITING_STALL_DAYS,

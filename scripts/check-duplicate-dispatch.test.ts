@@ -561,13 +561,19 @@ describe("the ledger limb keys on issue and command; the live limb on issue alon
 	it("imports entryHolds from the seam in picker and launcher, and defines no copy", () => {
 		for (const src of [
 			fs.readFileSync(SCRIPT, "utf8"),
-			fs.readFileSync(path.join(__dirname, "pick-next.js"), "utf8"),
+			fs.readFileSync(
+				path.join(__dirname, "lib", "pick-next-dispatched.js"),
+				"utf8",
+			),
 		]) {
 			expect(src).toMatch(
-				/\bentryHolds\b[\s\S]*?\}\s*=\s*require\("\.\/lib\/dispatch-ledger"\)/,
+				/\bentryHolds\b[\s\S]*?\}\s*=\s*require\("\.\/(lib\/)?dispatch-ledger(\.js)?"\)/,
 			);
 			expect(src).not.toMatch(/function (commandOf|entryHolds)\b/);
 		}
+		expect(
+			fs.readFileSync(path.join(__dirname, "pick-next.js"), "utf8"),
+		).not.toMatch(/function (commandOf|entryHolds)\b/);
 	});
 });
 

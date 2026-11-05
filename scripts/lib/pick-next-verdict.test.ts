@@ -15,13 +15,12 @@
 import { describe, expect, it } from "vitest";
 
 const {
-	enrichIssue,
-	inheritanceOf,
+	enrichAll,
+	proseBlockedOf,
 	rankFrontier,
 	waitCell,
 } = require("./pick-next-verdict.js");
 const blockerGraph = require("./blocker-graph.js");
-const { unparsedBlockersOf } = require("./prose-blockers.js");
 
 const OWN = "me/served";
 const NOW = Date.parse("2026-11-05T12:00:00Z");
@@ -72,7 +71,7 @@ const ledgerEntry = (n: number, over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** Every issue's verdict and the frontier, as pick-next's main builds them. */
+/** Every issue's verdict and the frontier, through `enrichAll` as main calls it. */
 async function verdictOf(fx: Fx) {
 	const raw = fx.issues.map((i) => ({
 		number: i.number,
@@ -113,10 +112,7 @@ async function verdictOf(fx: Fx) {
 	);
 	const withDeps = raw.map((i) => ({
 		...i,
-		proseBlocked: {
-			...blockerGraph.proseOf(graph, i.number),
-			unparsed: unparsedBlockersOf(i.body),
-		},
+		proseBlocked: proseBlockedOf(graph, i),
 	}));
 	const byNumber = new Map(raw.map((i) => [i.number, i]));
 	const goalRanked = new Set(fx.goal ?? []);
@@ -138,7 +134,6 @@ async function verdictOf(fx: Fx) {
 	const ctx = {
 		blockers: graph,
 		timelineByIssue,
-		inherit: inheritanceOf(graph, byNumber, goalRanked),
 		mapNumbers: new Set(
 			raw.filter((i) => i.labels.some(label)).map((i) => i.number),
 		),
@@ -171,7 +166,7 @@ async function verdictOf(fx: Fx) {
 		goalRanked,
 		now: () => NOW,
 	};
-	const enriched = withDeps.map((i) => enrichIssue(i, ctx));
+	const { enriched } = enrichAll(withDeps, byNumber, ctx);
 	const frontier = rankFrontier(enriched);
 	const of = (n: number) => {
 		const hit = enriched.find((i: { number: number }) => i.number === n);

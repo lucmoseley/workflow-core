@@ -23425,6 +23425,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/pick-next-dispatched.js": [
+			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",

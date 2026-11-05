@@ -2050,6 +2050,38 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 }
 
 /**
+ * pick-next.js's ADMISSION block: `machineAdmission`'s readings, each slot
+ * priced with the pair a launch warms (#2568), and the lenient verdict over
+ * them. A second verdict over the same readings, kept deliberately: the
+ * breakdown's slot row takes `strictAdmission`'s, which fails closed and
+ * carries the arithmetic, while selection wants `admissionFrom`'s lenient one,
+ * which still admits where memory or the session count is unreadable, so a
+ * full run degrades rather than dying. Where both read, they agree on the
+ * slots selected, the session floor included: the caller credits no reclaim.
+ * @param {Omit<Parameters<typeof machineAdmission>[0], "pendingSpares">} inputs
+ */
+function selectionAdmission({ listed, reclaimable, landers }) {
+	const readings = machineAdmission({
+		listed,
+		reclaimable,
+		pendingSpares: LAUNCH_SPARES,
+		landers,
+	});
+	const admission = admissionFrom(readings.mem, readings.procs, {
+		overhead: readings.overhead,
+		live: readings.live,
+		host: readings.host,
+		load: readings.load,
+		cpu: readings.cpu,
+		landerMb: readings.landerMb,
+		sessionFloor: readings.floorRead.sessions,
+		swapHold: readings.swapHold,
+		launchMb: readings.launchMb,
+	});
+	return { ...readings, admission };
+}
+
+/**
  * A readable `admission.js --json` verdict, as its readers parse it: the
  * strict verdict with the breakdown and the fields `writeJson` sets beside it.
  * @typedef {Extract<ReturnType<typeof strictAdmission>, {ok: true}> & {
@@ -2062,6 +2094,7 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 
 module.exports = {
 	machineAdmission,
+	selectionAdmission,
 	LAUNCH_SPARES,
 	buildSessionDrawLine,
 	buildSessionFloorLine,

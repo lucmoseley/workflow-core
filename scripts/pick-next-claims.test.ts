@@ -956,6 +956,35 @@ describe("issues the launcher has already dispatched", () => {
 			});
 			expect(r.out).toMatch(/^ {2}#2\s.*\blive\b/m);
 		});
+
+		it("prints unknown, never live, in the text table on a pre-mantahostels#3488 entry with no job id", async () => {
+			kit.oracleSessions = ["self", "worker1"];
+			const r = await run({
+				issues: [{ number: 2 }],
+				dispatched: [{ issues: [2] }],
+			});
+			expect(r.out).toMatch(
+				/^ {2}#2\s.*\bunknown \(no job id recorded on this entry\)/m,
+			);
+			expect(r.out).not.toMatch(/^ {2}#2\s.*\blive\b/m);
+		});
+
+		it("reads unknown, never live, where the job id names no readable job record", async () => {
+			kit.oracleSessions = ["self"];
+			// A different job's state.json makes the store itself readable
+			// (jobs !== null), so the "ghost" lookup exercises "no job record
+			// found for ghost" rather than the un-opened-store branch.
+			writeJobState("job1", { state: "working", sessionId: "worker1" });
+			const r = await run(
+				{
+					issues: [{ number: 2 }],
+					dispatched: [{ issues: [2], jobId: "ghost" }],
+				},
+				["--json"],
+			);
+			expect(r.json().alreadyDispatched.issues[0].liveness).toBe("unknown");
+			expect(r.json().alreadyDispatched.issues[0].livenessWhy).toMatch(/ghost/);
+		});
 	});
 
 	it("excludes nothing on a ledger it cannot read, and says so", async () => {

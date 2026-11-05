@@ -124,7 +124,6 @@ const {
 	refKey,
 	refLabel,
 } = require("./lib/issue-ref");
-const { unparsedBlockersOf } = require("./lib/prose-blockers");
 const blockerGraph = require("./lib/blocker-graph");
 const {
 	blockedByMany,
@@ -185,8 +184,8 @@ const {
 	storeElsewhere,
 } = require("./lib/pick-next-sessions.js");
 const {
-	enrichIssue,
-	inheritanceOf,
+	enrichAll,
+	proseBlockedOf,
 	rankFrontier,
 	tiersOf,
 	WAITING_STALL_DAYS,
@@ -550,17 +549,15 @@ function chunk(items, n) {
  * (`scripts/admission.js`) computes them exactly as this block does.
  */
 const {
-	machineAdmission,
-	LAUNCH_SPARES,
+	selectionAdmission,
 	buildSessionDrawLine,
 	buildSessionFloorLine,
 	buildLiveDrawLine,
-	admissionFrom,
 	buildMemoryBreakdownLines,
 	buildSessionCeilingText,
 } = require("./lib/admission");
 const { readLiveLanders } = require("./lib/local-tester.js");
-/** @typedef {ReturnType<typeof machineAdmission>} Machine */
+/** @typedef {ReturnType<typeof selectionAdmission>} Machine */
 
 /**
  * WHICH ASSIGNMENTS ARE REAL (mantahostels#645, on mantahostels#633's ruling).
@@ -744,7 +741,7 @@ function writeRunSnapshot(payload) {
  * @property {ReturnType<typeof warmFractionLog.appendRun>|null} warmLogged
  * @property {Machine["mem"]} mem
  * @property {Machine["procs"]} procs
- * @property {ReturnType<typeof admissionFrom>} admission
+ * @property {Machine["admission"]} admission
  * @property {Machine["memory"]} memory
  * @property {Machine["host"]} host
  * @property {Machine["live"]} live
@@ -2441,20 +2438,6 @@ function resolveGoal(ask, issues, graph) {
 }
 
 /**
- * PROSE SELF-GATES (mantahostels#1289): `i`'s `**Blocked on**` references as
- * the graph judged them — this repo's against every open issue, already
- * fetched, at no extra call — and the marker lines that name no number.
- * @param {import("./lib/blocker-graph").Graph} graph
- * @param {{number: number, body: string}} i
- */
-function proseBlockedOf(graph, i) {
-	return {
-		...blockerGraph.proseOf(graph, i.number),
-		unparsed: unparsedBlockersOf(i.body),
-	};
-}
-
-/**
  * lib/blocker-graph.js's launch candidates in other repos, each with the
  * checkout it launches from, `root`, and `held`: why it is held outside the
  * loop, no checkout tracking its repo, else null. An opted-out checkout's
@@ -2462,7 +2445,7 @@ function proseBlockedOf(graph, i) {
  * tiers and depth it
  * inherits from what it holds here, for the refill merge to rank it by (#3222).
  * @param {import("./lib/blocker-graph").Graph} graph
- * @param {ReturnType<typeof inheritanceOf>} inherit
+ * @param {ReturnType<typeof enrichAll>["inherit"]} inherit
  */
 function pulledInRows(graph, inherit) {
 	const { rows, unread } = blockerGraph.pulledInOf(graph);
@@ -2676,49 +2659,14 @@ function logWarmFraction(cacheUsable, run) {
  */
 function admissionOf(listed) {
 	const reclaimable = reclaimableFrom(listed, idSeam.fromEnv());
-	const {
-		mem,
-		procs,
-		overhead,
-		host,
-		live,
-		load,
-		cpu,
-		landerMb,
-		floorRead,
-		swapHold,
-		launchMb,
-		memory,
-	} = machineAdmission({
-		listed,
-		reclaimable: reclaimable.ok
-			? { ok: true, mb: 0, count: reclaimable.count }
-			: reclaimable,
-		/* Each slot counted here is a launch `dispatch-sessions.sh` re-reads
-		 * with `--launch`, so it is priced with the pair that launch warms (#2568). */
-		pendingSpares: LAUNCH_SPARES,
-		landers: readLiveLanders(),
-	});
-	/*
-	 * A second verdict over the same readings, kept deliberately: the
-	 * breakdown's slot row takes `strictAdmission`'s, which fails closed and
-	 * carries the arithmetic, while selection wants `admissionFrom`'s lenient
-	 * one, which still admits where memory or the session count is unreadable,
-	 * so a full run degrades rather than dying (`lib/admission.js`'s header).
-	 * Where both read, they agree on the slots selected, the session floor
-	 * included: this run credits no reclaim.
-	 */
-	const admission = admissionFrom(mem, procs, {
-		overhead,
-		live,
-		host,
-		load,
-		cpu,
-		landerMb,
-		sessionFloor: floorRead.sessions,
-		swapHold,
-		launchMb,
-	});
+	const { mem, procs, host, live, floorRead, memory, admission } =
+		selectionAdmission({
+			listed,
+			reclaimable: reclaimable.ok
+				? { ok: true, mb: 0, count: reclaimable.count }
+				: reclaimable,
+			landers: readLiveLanders(),
+		});
 	return {
 		reclaimable,
 		mem,
@@ -2807,11 +2755,10 @@ async function main() {
 	 */
 	const dispatchJobs = readJobs();
 
-	/** @type {import("./lib/pick-next-verdict.js").EnrichContext} */
+	/** @type {Omit<import("./lib/pick-next-verdict.js").EnrichContext, "inherit">} */
 	const ctx = {
 		blockers,
 		timelineByIssue,
-		inherit: inheritanceOf(blockers, byNumber, goalRanked),
 		mapNumbers,
 		specNumbers,
 		listed,
@@ -2822,7 +2769,7 @@ async function main() {
 		goalRanked,
 		now: Date.now,
 	};
-	const enriched = withDeps.map((i) => enrichIssue(i, ctx));
+	const { enriched, inherit } = enrichAll(withDeps, byNumber, ctx);
 
 	/*
 	 * An issue whose blocked_by call failed twice is held out of the shortlist
@@ -2974,7 +2921,7 @@ async function main() {
 		dispatchJobs,
 		degraded,
 		noCommand: noCommand.map((i) => i.number),
-		pulledIn: pulledInRows(blockers, ctx.inherit),
+		pulledIn: pulledInRows(blockers, inherit),
 	};
 	const payload = buildPayload(state);
 	const snapshot = writeRunSnapshot(payload);

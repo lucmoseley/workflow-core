@@ -324,6 +324,51 @@ describe("ordering", () => {
 		expect(r.out).not.toMatch(/EMPTY BODY/);
 	});
 
+	it("ranks a map's last open child on depth plus closes, carrying both in --json (#3613)", async () => {
+		// #11 is #10's only open child, so it closes #10; #3 shares parent #2
+		// with #4. Both score depth 1, reach 1; closes lifts #11.
+		const fx = {
+			issues: [
+				{ number: 2 },
+				{ number: 3, parent: 2 },
+				{ number: 4, parent: 2 },
+				{ number: 10 },
+				{ number: 11, parent: 10 },
+			],
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([11, 3, 4]);
+		expect(rows[0]).toMatchObject({ depth: 1, closes: 1, reach: 1 });
+		expect(rows[1]).toMatchObject({ depth: 1, closes: 0, reach: 1 });
+	});
+
+	it("ranks the deeper blocker of an urgent issue above the wider one (#3222)", async () => {
+		// #30 urgent, blocked by #31 and #32; #33 blocks #31. #32 also holds
+		// #40 and #41, so it leads on reach (3 to 2); depth (2 to 1) must win.
+		const fx = {
+			issues: [30, 31, 32, 33, 40, 41].map((number) => ({
+				number,
+				...(number === 30 ? { labels: ["urgent"] } : {}),
+			})),
+			deps: {
+				30: [
+					{ number: 31, state: "open" as const },
+					{ number: 32, state: "open" as const },
+				],
+				31: [{ number: 33, state: "open" as const }],
+				40: [{ number: 32, state: "open" as const }],
+				41: [{ number: 32, state: "open" as const }],
+			},
+			timeline: {
+				30: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
+			},
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([33, 32]);
+		expect(rows[0]).toMatchObject({ urgent: true, depth: 2, reach: 2 });
+		expect(rows[1]).toMatchObject({ urgent: true, depth: 1, reach: 3 });
+	});
+
 	it("ranks an urgent whose timeline is unreachable, saying its start is unrecorded", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 3, labels: ["urgent"] }],
