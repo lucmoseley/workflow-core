@@ -2,9 +2,8 @@ name: Main lagging landing 2h
 
 # The off-machine stall check (#4443): scripts/main-lag-alarm.js fails where
 # landing is ahead of main and main has not moved for lib/landing-stall.js's
-# STALL_MS. The refill loop's stall ticket needs the machine up; this does not.
-# GitHub sends a scheduled run's failure to the user who last changed the cron
-# or re-enabled this file.
+# STALL_MS. GitHub sends a scheduled run's failure to the user who last
+# changed the cron or re-enabled this file.
 #
 # PLANNED ABSENCE: Actions tab > Main lagging landing 2h > "..." > Disable
 # workflow, and "Enable workflow" on return.

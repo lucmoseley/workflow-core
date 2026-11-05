@@ -22,7 +22,7 @@
  * `main`'s, the oldest listed stands in for the first, which only shortens
  * the clock.
  *
- * Prints GitHub annotations. Exit codes: 0 where `main` is level or moved
+ * Exit codes: 0 where `main` is level or moved
  * within STALL_MS; 1 on a stall; 2 where it could not read the queue.
  * Needs no npm install.
  */
@@ -139,7 +139,6 @@ async function judgeLag(get, now) {
 }
 
 /**
- * The repo's API, through fetch, retried on any failure.
  * @param {NodeJS.ProcessEnv} env
  * @returns {Get}
  */

@@ -2,8 +2,7 @@
  * stall-ticket.js — the one ticket the refill loop keeps open while `main`
  * has not moved for lib/landing-stall.js's STALL_MS with `landing` ahead (#2692,
  * ruled at #2672), filed as lib/queue-issue.js files it, and closed with the
- * stall's length once `main` moves, so a later stall files a new one and each
- * stall counts once (#4443).
+ * stall's length once `main` moves, so a later stall files a new one (#4443).
  *
  * Its body changes only with the batch, its red files or jobs, or `main`'s
  * last move.
@@ -68,7 +67,6 @@ function stallTicketFiler(deps) {
 		);
 }
 
-/* The stall the open stall ticket was filed for, in the markers directory. */
 const RECORD = ".landing-stall-ticket.json";
 
 /**
