@@ -14,7 +14,9 @@
  * In no family (§N3): it moves a branch and rebuilds a tree, so it is no
  * `check-*` gate, and it files nothing.
  *
- * The report goes to stderr. Exit 0 level or forwarded with the fetch and any
+ * The report goes to stderr, under a `levelling <main checkout>` line that
+ * tells one checkout's report from another's in the refill loop's log, which
+ * every served checkout's pass writes to (scripts/measure-worktree-model.js). Exit 0 level or forwarded with the fetch and any
  * install done, 1 anything else, 2 a usage error.
  */
 
@@ -60,10 +62,17 @@ function main(argv = process.argv.slice(2)) {
 			!outcome.install.error &&
 			!outcome.install.installed &&
 			["level", "busy", "shared"].includes(outcome.status);
-		if (!quiet) writeFd(2, `${renderOutcome(outcome, at).join("\n")}\n`);
+		if (!quiet)
+			writeFd(
+				2,
+				`levelling ${root}\n${renderOutcome(outcome, at).join("\n")}\n`,
+			);
 		return clean ? 0 : 1;
 	} catch (err) {
-		writeFd(2, `level main: failed: ${caught(err).message.trim()}\n`);
+		writeFd(
+			2,
+			`levelling ${root}\nlevel main: failed: ${caught(err).message.trim()}\n`,
+		);
 		return 1;
 	}
 }
