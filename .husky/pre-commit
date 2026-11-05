@@ -76,8 +76,9 @@ fi
 
 # A VERIFIED LANDER REVERT is judged by every --against gate below against the
 # culprit's parent it restores as well as HEAD, a fault refusing only where it
-# is in neither (#4451); the doc-map gate's gate_direction is not one. Resolved once here, and assigned on every run, so a
-# value set before the hook never reaches a gate.
+# is in neither (#4451); the doc-map gate's gate_direction is not one.
+# Resolved once here, and assigned on every run, so a value set before the
+# hook never reaches a gate.
 WFC_LANDER_REVERT_BASE=""
 if [ -n "${WFC_LANDER_REVERT:-}" ]; then
   WFC_LANDER_REVERT_BASE="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lander-revert-base.js)" || WFC_LANDER_REVERT_BASE=""

@@ -6,8 +6,7 @@
  * check-guard-registry.js, a direction gate the lander's revert meets.
  *
  * Near the run-cost budget (base §X8 (5)): two cases cross the lander's real
- * revert, commit hooks and push, as check-guard-registry-revert.test.ts's do;
- * the fixture is built once and copied per case.
+ * revert, commit hooks and push, as check-guard-registry-revert.test.ts's do.
  */
 
 import fs from "node:fs";
@@ -34,7 +33,6 @@ const SQUASH =
 describe("a verified lander revert is judged against its culprit's parent as well as HEAD (#4451)", () => {
 	const { repo, preCommit, landerCheckout } = landerRevertKit();
 
-	/** Parent claims the missing squash guard; the culprit drops `dropped`. */
 	function culpritRemovingFault(dropped: string[]) {
 		const r = repo();
 		const parent = r.commit(
@@ -121,7 +119,6 @@ describe("a verified lander revert is judged against its culprit's parent as wel
 	});
 });
 
-/** What scripts/lander-revert-base.js prints in `root` for `culprit`. */
 function readBase(root: string, culprit: string): string {
 	const r = runInProcess(
 		path.join(root, "scripts", "lander-revert-base.js"),

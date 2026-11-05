@@ -38,8 +38,7 @@ const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
 /* The culprit's parent a direction gate also judges against (#4451). Set on a
  * gate's run only by buildRevertBaseEnv, which .husky/pre-commit reaches
- * through scripts/lander-revert-base.js and assigns on every run, so a value
- * set before the hook never reaches a gate. */
+ * through scripts/lander-revert-base.js and assigns on every run. */
 const REVERT_BASE_ENV = "WFC_LANDER_REVERT_BASE";
 
 const ANCHOR_FILES = new Set([
@@ -53,7 +52,7 @@ const ANCHOR_FILES = new Set([
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 
 /** The culprit WFC_LANDER_REVERT names, or null where it is unset. */
-const readLanderRevert = () => process.env[LANDER_REVERT_ENV] || null;
+const readLanderRevert = (env = process.env) => env[LANDER_REVERT_ENV] || null;
 
 /**
  * @param {string} cwd
@@ -285,7 +284,7 @@ const sideOf = (verdict) => ("side" in verdict ? verdict.side : null);
  * @returns {NodeJS.ProcessEnv}
  */
 function buildRevertBaseEnv(cwd, { onto, head }, env = process.env) {
-	const culprit = env[LANDER_REVERT_ENV];
+	const culprit = readLanderRevert(env);
 	const base = culprit ? readRevertBase(cwd, { culprit, onto, head }) : null;
 	return { ...env, [REVERT_BASE_ENV]: base ?? "" };
 }

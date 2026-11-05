@@ -1208,7 +1208,7 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
  * A VERIFIED LANDER REVERT IS ALSO JUDGED AGAINST THE CULPRIT'S PARENT (#4451):
  * it restores that parent's lines, so a fault there is one the culprit
  * removed, and only a fault in neither tree is its own. Fails closed on an
- * unreadable parent, as on an unreadable baseline.
+ * unreadable parent.
  *
  * @param {CheckContext} ctx
  * @param {FaultItem[]} added the faults HEAD does not carry
