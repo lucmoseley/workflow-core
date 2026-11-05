@@ -6,7 +6,9 @@
  * of `main` and no lander runs, it starts one through start-lander.js; where
  * `main` has not moved for lib/landing-stall.js's STALL_MS, it files or
  * refreshes the stall ticket (lib/stall-ticket.js), which it closes once
- * `main` moves. A held queue it leaves to the held-queue issue.
+ * `main` moves. A held queue it leaves to the held-queue issue. It files
+ * the queue alert (lib/queue-alert.js) once per crossing of a queue limit
+ * (lib/queue-gauge.js), and closes it once the queue is back within it.
  *
  *   node scripts/supervise-landing.js [--tester <command>]
  *
@@ -21,6 +23,7 @@
  */
 
 const { parseErrorText } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { runStartLander } = require("./lib/lander-start.js");
 const {
@@ -29,6 +32,8 @@ const {
 	supervision,
 } = require("./lib/landing-stall.js");
 const { markersDir } = require("./lib/marker-root.js");
+const { queueAlertTender } = require("./lib/queue-alert.js");
+const { queueCrossings, readQueueGauge } = require("./lib/queue-gauge.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { stallTicketTender } = require("./lib/stall-ticket.js");
@@ -57,7 +62,8 @@ function main(argv = process.argv.slice(2)) {
 	const queue = readQueue(root);
 	const { start, ticket } = supervision(queue);
 	if (start) startLander(root, flagValue(parsed.flags, "--tester"));
-	const tend = stallTicketTender(liveQueueDeps(root), markersDir(root));
+	const deps = liveQueueDeps(root);
+	const tend = stallTicketTender(deps, markersDir(root));
 	for (const line of tend({
 		main: queue.main,
 		movedAt: mainMovedAt(queue.mainAt, queue.heartbeat),
@@ -69,6 +75,9 @@ function main(argv = process.argv.slice(2)) {
 		},
 	}))
 		say(line);
+	const gauge = readQueueGauge(root, now());
+	const alert = queueAlertTender(deps, markersDir(root));
+	for (const line of alert(gauge, queueCrossings(gauge))) say(line);
 	return 0;
 }
 
