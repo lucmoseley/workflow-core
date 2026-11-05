@@ -95,6 +95,7 @@ const {
 	similarTitles,
 } = require("./lib/tracker-ops.js");
 const { caught } = require("./lib/caught.js");
+const { buildFiledLine } = require("./lib/filed-line.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE =
@@ -278,7 +279,7 @@ function main() {
 	});
 	recordOwnAct("file", repo, n);
 	io.out(
-		`Filed #${n}: ${url}\nlabels: ${labels.join(", ")}${added.length > 0 ? ` (${added.join(", ")} added: #${opts.parent} is a spec)` : ""}\n`,
+		`${buildFiledLine(n, url)}\nlabels: ${labels.join(", ")}${added.length > 0 ? ` (${added.join(", ")} added: #${opts.parent} is a spec)` : ""}\n`,
 	);
 
 	const sessionId = fromEnv();

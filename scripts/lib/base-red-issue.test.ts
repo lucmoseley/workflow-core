@@ -16,7 +16,11 @@ const filer = (
 	baseRedFiler({
 		openIssue: () => null,
 		similar: () => [],
-		fileIssue: () => ({ status: 0, stdout: "Filed #9\n", stderr: "" }),
+		fileIssue: () => ({
+			status: 0,
+			stdout: "Filed #9: https://x/9\n",
+			stderr: "",
+		}),
 		refresh: () => "refreshed #9.",
 		addLabels: () => undefined,
 		close: () => undefined,
@@ -29,11 +33,11 @@ it("files the ticket where none is open for the refill loop to take, naming main
 	const line = filer({
 		fileIssue: (argv, input) => {
 			filed.push({ args: argv, body: input });
-			return { status: 0, stdout: "Filed #9\n", stderr: "" };
+			return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
 		},
 	}).fileBaseRed(M, ["scripts/x.test.ts", "scripts/y.test.ts"]);
 
-	expect(line).toBe("Filed #9");
+	expect(line).toBe("Filed #9: https://x/9");
 	const [{ args, body }] = filed;
 	expect(args).toEqual(
 		expect.arrayContaining(["urgent", "bug", "takes:implement"]),
@@ -69,7 +73,7 @@ it("names the whole suite where main's red named no file", () => {
 	filer({
 		fileIssue: (_, input) => {
 			filed.push(input);
-			return { status: 0, stdout: "Filed #9\n", stderr: "" };
+			return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
 		},
 	}).fileBaseRed(M, []);
 

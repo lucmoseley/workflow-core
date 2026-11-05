@@ -17,6 +17,7 @@
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { parseErrorText } = require("./caught.js");
+const { parseFiledLine } = require("./filed-line.js");
 const { parseFirstLine } = require("./first-line.js");
 const { gh, ghIssueListAll } = require("./gh.js");
 const { gateOnLineOf } = require("./issue-gate.js");
@@ -83,7 +84,7 @@ function queueIssueFiler({
 			],
 			body,
 		);
-		if (ran.status === 0) return ran.stdout.trim();
+		if (ran.status === 0) return parseFiledLine(ran.stdout).line;
 		throw new Error(
 			`file-issue refused it for ${subject}: ${parseFirstLine(ran.stderr)}`,
 		);

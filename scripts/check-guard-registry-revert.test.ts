@@ -116,7 +116,7 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 			similar: () => [],
 			fileIssue: (_args, body) => {
 				bodies.push(body);
-				return { status: 0, stdout: "Filed #9\n", stderr: "" };
+				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
 			},
 			stateOf: () => "open",
 			reopen: () => undefined,

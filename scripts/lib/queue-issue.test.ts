@@ -29,7 +29,7 @@ const filer = (
 		similar: () => [],
 		fileIssue: (args) => {
 			filed.push(args);
-			return { status: 0, stdout: "Filed #7.\n", stderr: "" };
+			return { status: 0, stdout: "Filed #7: https://x/7\n", stderr: "" };
 		},
 		refresh: () => "Refreshed #7.",
 		addLabels,

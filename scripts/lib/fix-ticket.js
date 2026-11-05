@@ -15,6 +15,7 @@
  */
 
 const { citedIssues } = require("./cited-issues.js");
+const { parseFiledLine } = require("./filed-line.js");
 const { FilingRefusedError } = require("./filing-refused.js");
 const { gh, parseErrLine } = require("./gh.js");
 const { spawnGitSync } = require("./git.js");
@@ -381,7 +382,7 @@ function fileTicket(deps, t) {
 	const placed = fileUnderCited(t, file, deps);
 	if ("filed" in placed) return placed.filed;
 	const ran = file(null, ["--standalone", placed.why]);
-	if (ran.status === 0) return ran.stdout.trim();
+	if (ran.status === 0) return parseFiledLine(ran.stdout).line;
 	const why = `${t.noun} for ${t.citer} not filed: ${parseFirstLine(ran.stderr)}`;
 	throw ran.status === 2 ? new FilingRefusedError(why) : new Error(why);
 }
@@ -399,7 +400,7 @@ function fileUnderCited(t, file, deps) {
 	const unready = underCited(t.cited, t, deps);
 	if (unready !== null) return { why: unready };
 	const ran = file(t.cited, ["--parent", String(t.cited)]);
-	if (ran.status === 0) return { filed: ran.stdout.trim() };
+	if (ran.status === 0) return { filed: parseFiledLine(ran.stdout).line };
 	return {
 		why: `file-issue refused it under #${t.cited}, which ${t.citer} cites: ${parseFirstLine(ran.stderr)}`,
 	};

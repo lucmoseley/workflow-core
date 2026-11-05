@@ -60,7 +60,11 @@ describe("queueAlertTender", () => {
 					const title = args[args.indexOf("--title") + 1] ?? "";
 					calls.push(`file ${title}`);
 					open.set(title, { number: next, body });
-					return { status: 0, stdout: `Filed #${next++}\n`, stderr: "" };
+					return {
+						status: 0,
+						stdout: `Filed #${next}: https://x/${next++}\n`,
+						stderr: "",
+					};
 				},
 				refresh: (n) => {
 					calls.push(`refresh #${n}`);
@@ -78,7 +82,7 @@ describe("queueAlertTender", () => {
 	const pass = (g: ReturnType<typeof gauge>) => tend()(g, queueCrossings(g));
 
 	it("alerts the wait once per crossing, and again after a return below", () => {
-		expect(pass(gauge(61))).toEqual(["Filed #1"]);
+		expect(pass(gauge(61))).toEqual(["Filed #1: https://x/1"]);
 		expect(open.get(QUEUE_ALERT_TITLES.age)?.body).toContain(
 			"queue/w0 has waited 1 h 1 min",
 		);
@@ -88,18 +92,18 @@ describe("queueAlertTender", () => {
 		expect(pass(gauge(5))).toEqual(["queue alert: closed #1."]);
 		expect(open.size).toBe(0);
 		expect(pass(gauge(5))).toEqual([]);
-		expect(pass(gauge(70))).toEqual(["Filed #2"]);
+		expect(pass(gauge(70))).toEqual(["Filed #2: https://x/2"]);
 	});
 
 	it("alerts the depth once per crossing, and again after a return below", () => {
 		const deep = new Array(11).fill(1);
-		expect(pass(gauge(...deep))).toEqual(["Filed #1"]);
+		expect(pass(gauge(...deep))).toEqual(["Filed #1: https://x/1"]);
 		expect([...open.keys()]).toEqual([QUEUE_ALERT_TITLES.depth]);
 		expect(pass(gauge(...deep, 1))).toEqual([]);
 		expect(pass(gauge(...new Array(10).fill(1)))).toEqual([
 			"queue alert: closed #1.",
 		]);
-		expect(pass(gauge(...deep))).toEqual(["Filed #2"]);
+		expect(pass(gauge(...deep))).toEqual(["Filed #2: https://x/2"]);
 	});
 
 	it("reads no tracker on a pass within both limits with nothing on record", () => {

@@ -65,7 +65,7 @@ it("names on the issue each fix ticket still owed, and none where none is", () =
 		filer({
 			fileIssue: (_, body) => {
 				bodies.push(body);
-				return { status: 0, stdout: "Filed #9", stderr: "" };
+				return { status: 0, stdout: "Filed #9: https://x/9", stderr: "" };
 			},
 		}).holdQueue({ batch: B, reason: "r", failing: null, owed });
 		return bodies[0];
