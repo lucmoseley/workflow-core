@@ -30,6 +30,8 @@ interface FxIssue {
 	body?: string;
 	parent?: number;
 	openSubIssues?: number;
+	/** why its blocker read failed */
+	depsUnknown?: string;
 }
 interface Fx {
 	issues: FxIssue[];
@@ -45,6 +47,8 @@ interface Fx {
 	kept?: boolean;
 	/** issue -> the ledger entries holding it */
 	dispatched?: Record<number, Record<string, unknown>[]>;
+	/** issue -> the parent map whose claim holds it, and that claim's session */
+	parentHeld?: Record<number, { label: string; sessionId: string }>;
 	goal?: number[];
 }
 
@@ -83,7 +87,7 @@ async function verdictOf(fx: Fx) {
 		openSubIssues: i.openSubIssues ?? 0,
 		repo: OWN,
 		blockedBy: (fx.deps?.[i.number] ?? []).map((d) => edge(d.number, d.state)),
-		depsUnknown: null,
+		depsUnknown: i.depsUnknown ?? null,
 	}));
 	const failing = async () => ({ ok: false, error: "HTTP 502" });
 	const graph = await blockerGraph.blockerGraph(
@@ -144,7 +148,14 @@ async function verdictOf(fx: Fx) {
 			),
 			kept: fx.kept ?? false,
 		},
-		parentHeld: { held: new Map() },
+		parentHeld: {
+			held: new Map(
+				Object.entries(fx.parentHeld ?? {}).map(([n, p]) => [
+					Number(n),
+					{ ...p, kept: false },
+				]),
+			),
+		},
 		dispatched: {
 			byIssue: new Map(
 				Object.entries(fx.dispatched ?? {}).map(([n, recs]) => [
@@ -171,7 +182,47 @@ async function verdictOf(fx: Fx) {
 	};
 }
 
+const GATE_CONDITION =
+	"the eleven tickets have cleared the 5-day rework horizon";
+const GATE_ON = `Some body text.\n\n**Gated on:** ${GATE_CONDITION} — check: python3 scan_rework.py — abandon if: the label stops being applied\n\nMore text.`;
+
 describe("why an issue is held out of the frontier", () => {
+	it("names each exclusion's tally category beside its reason (#4381)", async () => {
+		const v = await verdictOf({
+			issues: [
+				{ number: 1 },
+				{ number: 2, depsUnknown: "HTTP 502" },
+				{ number: 3 },
+				{ number: 4, assignees: ["owner"] },
+				{ number: 5 },
+				{ number: 6 },
+				{ number: 7 },
+				{ number: 10, parent: 7 },
+				{ number: 8, body: "**Gated until:** 2099-01-01 — later" },
+				{ number: 9, body: GATE_ON },
+			],
+			deps: { 3: [{ number: 1, state: "open" }] },
+			claims: { 4: "s1" },
+			parentHeld: { 5: { label: "#40", sessionId: "s2" } },
+			dispatched: { 6: [ledgerEntry(6)] },
+		});
+		const reasonAndCategory = (n: number) => [
+			String(v.of(n).excluded).split(" ").slice(0, 2).join(" "),
+			v.of(n).exclusionCategory,
+		];
+		expect([2, 3, 4, 5, 6, 7, 8, 9].map(reasonAndCategory)).toEqual([
+			["readiness unknown", "degraded"],
+			["blocked by", "blocked"],
+			["claimed by", "claimed"],
+			["claimed through", "claimed"],
+			["dispatched 0.2h", "already dispatched"],
+			["container —", "container"],
+			["gated until", "gated"],
+			["gated on", "gated"],
+		]);
+		expect(v.of(1).exclusionCategory).toBeNull();
+	});
+
 	it("excludes an issue whose prose `**Blocked on**` names a still-open issue (mantahostels#1289)", async () => {
 		const v = await verdictOf({
 			issues: [{ number: 831 }, { number: 832, body: "**Blocked on** #831." }],
@@ -292,24 +343,20 @@ describe("why an issue is held out of the frontier", () => {
 		expect(v.of(85).excluded).toBe("blocked by #1");
 	});
 
-	const gateCondition =
-		"the eleven tickets have cleared the 5-day rework horizon";
-	const gateOn = `Some body text.\n\n**Gated on:** ${gateCondition} — check: python3 scan_rework.py — abandon if: the label stops being applied\n\nMore text.`;
-
 	it("states the condition in the exclusion reason, never a date", async () => {
 		const v = await verdictOf({
 			issues: [
 				{ number: 1 },
-				{ number: 1215, body: gateOn, labels: ["waiting:external"] },
+				{ number: 1215, body: GATE_ON, labels: ["waiting:external"] },
 			],
 			timeline: { 1215: [{ label: "waiting:external", days: 5 }] },
 		});
-		expect(v.of(1215).excluded).toBe(`gated on ${gateCondition}`);
+		expect(v.of(1215).excluded).toBe(`gated on ${GATE_CONDITION}`);
 	});
 
 	it("holds a conditioned goal-set member out of the frontier (#3102)", async () => {
 		const v = await verdictOf({
-			issues: [{ number: 1 }, { number: 1215, body: gateOn }],
+			issues: [{ number: 1 }, { number: 1215, body: GATE_ON }],
 			goal: [1215],
 		});
 		expect(v.of(1215).goal).toBe(true);
