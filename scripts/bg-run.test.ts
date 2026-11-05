@@ -33,6 +33,7 @@ import { describe, expect, it } from "vitest";
 import {
 	BOUNDED,
 	bgRunRoot,
+	CEILING_MS,
 	check,
 	createDirLate,
 	env,
@@ -40,6 +41,7 @@ import {
 	FAST,
 	KILLED_LIFETIME_S,
 	parseFirstLine,
+	pastStale,
 	poll,
 	readKillLines,
 	readWatcherPids,
@@ -51,7 +53,6 @@ import {
 	runWithout,
 	SCRIPT,
 	shWaitFor,
-	sleep,
 	spawnDetached,
 	untilPublished,
 	untilVerdict,
@@ -489,9 +490,9 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 			existsSync(`${gate()}.${point}.waiting`),
 		);
 
-	function gatedCheck(name: string) {
+	function gatedCheck(name: string, extra: Record<string, string> = {}) {
 		const child = spawn(SCRIPT, ["check", name], {
-			env: env({ WFC_BG_CHECK_GATE: gate(), ...WIDE_MISSING }),
+			env: env({ WFC_BG_CHECK_GATE: gate(), ...WIDE_MISSING, ...extra }),
 		});
 		let stdout = "";
 		let stderr = "";
@@ -588,7 +589,7 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 			).toContain("KILLED");
 			openGate("1");
 			openGate("2");
-			const gated = gatedCheck("rerecorded");
+			const gated = gatedCheck("rerecorded", pastStale());
 			child = gated.child;
 			await atGate("record");
 
@@ -687,6 +688,21 @@ describe("what the toucher must not change about the command (mantahostels#2662)
 		await untilPublished("stdin-echo");
 		const got = run(["wait", "stdin-echo", "60"]);
 		expect(got.stdout).toContain("[hello]");
+	});
+
+	it("releases the caller's output pipe when the command returns, not a heartbeat later (#4303)", () => {
+		/* The real process boundary is the subject: a reader of `run`'s pipe
+		 * waits for every holder to close it, and the toucher's orphaned
+		 * `sleep` was one. A heartbeat far past the bound makes a held pipe a
+		 * timeout rather than a slower pass. */
+		const got = spawnSync(SCRIPT, ["run", "piped", "true"], {
+			env: env({ WFC_BG_HEARTBEAT_S: "600" }),
+			encoding: "utf8",
+			timeout: CEILING_MS,
+			killSignal: "SIGKILL",
+		});
+		expect(got.error).toBeUndefined();
+		expect(got.status).toBe(0);
 	});
 });
 
@@ -815,10 +831,8 @@ describe("the kill record (mantahostels#2662)", () => {
 		writeFileSync(join(dir, "beat"), "");
 		utimesSync(join(dir, "beat"), died, died);
 
-		/* The buggy computation would add this wait onto elapsed_s; the fix
-		 * does not. */
-		await sleep(4000);
-
+		/* The launch is backdated 600 s, so a computation against check's own
+		 * clock reads ~600, not 3. */
 		check("late-checked");
 		const rec = readKillLines().find((l) => l.name === "late-checked");
 		expect(rec).toBeDefined();
@@ -842,7 +856,10 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(Number(rec.death_epoch)).toBeGreaterThanOrEqual(
 			Number(rec.started_epoch),
 		);
-		expect(Number(rec.death_epoch)).toBeLessThan(Math.floor(Date.now() / 1000));
+		/* Not the reading clock: untilVerdict's check reads seconds ahead of now. */
+		expect(Number(rec.death_epoch)).toBeLessThanOrEqual(
+			Math.floor(Date.now() / 1000),
+		);
 		expect(Number(rec.death_epoch) - Number(rec.started_epoch)).toBe(
 			Number(rec.elapsed_s),
 		);
