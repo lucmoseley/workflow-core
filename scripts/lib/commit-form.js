@@ -1,28 +1,15 @@
 /*
- * commit-form.js — the guard-commit-form core (#2793, #3224): the commit forms that
- * sweep the shared index (mantahostels#117).
+ * commit-form.js — the guard-commit-form core (#2793, #3224): the commit forms
+ * that skip the gates, close an issue unseen, rewrite pushed history or leave
+ * a new file behind.
  *
- * Why: the index is repo-global, so between one session's `git add` and its
- * commit, a parallel session's commit takes the staged files in under its own
- * message — mantahostels#63, where a roadmap correction landed inside an
- * unrelated commit.
+ * Each session commits in its own worktree (#4229), so no verdict guards an
+ * index another session shares (#4384).
  *
- * NINE VERDICTS, split by command form (mantahostels#109). mantahostels#103's
+ * FIVE VERDICTS, split by command form (mantahostels#109). mantahostels#103's
  * rule is deny on a structured fact where the action has no legitimate use,
  * warn where the hook is inferring:
  *
- *   git add (not -N)        warn   Two legitimate uses on record: staging
- *                                  through a merge conflict, and `git add -N`
- *                                  for a new file, which a pathspec commit
- *                                  rejects. A deny would wedge ordinary work.
- *   commit -a/-am/-i/--include
- *                           deny   Zero legitimate uses. `-a` sweeps a parallel
- *                                  session's files that are merely dirty and
- *                                  unstaged — the normal state of a live session.
- *   bare commit, no pathspec
- *                           warn   Harm depends on whether another session has
- *                                  staged something at that instant: a fact
- *                                  about the world, not about the command.
  *   commit --no-verify/-n   deny   Zero legitimate uses (mantahostels#975). Since
  *   merge/rebase/cherry-pick/      mantahostels#1705-1707 the flag buys nothing
  *   revert/am --no-verify          on a plain commit or merge, where
@@ -30,40 +17,32 @@
  *                                  anyway; mid-replay it cuts the stack to the
  *                                  secrets scan, and on a `git am` it skips
  *                                  `.husky/pre-applypatch`, that route's only
- *                                  gate. Not an anti-contention rule, so it
- *                                  binds in a worktree too (mantahostels#1213).
- *   commit --amend          deny   Zero legitimate uses in the shared tree
- *                                  (mantahostels#2540). Shared-tree-only and
- *                                  stood down mid-sequence.
- *   commit -m "…Fixes #n"   deny   Zero legitimate uses (#129, #118). Binds in
- *                                  every tree and stands down for nothing.
+ *                                  gate. Stands down for nothing.
+ *   commit --amend          deny   Where HEAD is already on the pushed ref
+ *                                  (lib/landing-refs.js): the rewrite forks
+ *                                  from what was pushed, so the next push is a
+ *                                  non-fast-forward and a later land merges the
+ *                                  commit and its rewrite both (#4384). Stood
+ *                                  down mid-sequence.
+ *   commit -m "…Fixes #n"   deny   Zero legitimate uses (#129, #118). Stands
+ *                                  down for nothing.
  *   commit -- <untracked>   warn   A pathspec cannot reach a path git does not
  *                                  track (mantahostels#1612): git exits 1 and
  *                                  commits nothing, and a session reads that
- *                                  as "nothing to do". Binds in a worktree too;
- *                                  stood down mid-sequence. It is silent on a
- *                                  word an EARLIER SEGMENT
- *                                  intent-adds (mantahostels#3280), where that
- *                                  ground is false.
+ *                                  as "nothing to do". Stood down
+ *                                  mid-sequence. It is silent on a word an
+ *                                  EARLIER SEGMENT `git add -N`s
+ *                                  (mantahostels#3280), where that ground is
+ *                                  false.
  *   commit -- <directory>   warn   A directory word holding a tracked and an
  *                                  untracked file is ACCEPTED: git commits the
  *                                  tracked one, exits 0 and leaves the new one
- *                                  behind (mantahostels#1651). Binds in a
- *                                  worktree too. The LOWEST-RANKED warn
- *                                  (mantahostels#3280): every verdict decided
- *                                  later takes the slot ahead of it.
+ *                                  behind (mantahostels#1651). The
+ *                                  LOWEST-RANKED warn (mantahostels#3280):
+ *                                  every verdict decided later takes the slot
+ *                                  ahead of it.
  *
- * EVERY VERDICT BUT `--no-verify` AND THE CLOSING KEYWORD is suppressed while
- * a merge, rebase, cherry-pick, revert or am is in progress: staging is
- * unavoidable there, and finishing a merge is a bare `git commit`.
- *
- * ATTRIBUTION (mantahostels#118). The bare-commit warn names the FOREIGN
- * staged path — one this session never wrote, by the write ledger
- * (mantahostels#114) — and is silent where the index holds only the session's
- * own work. It FALLS BACK to the index-wide warn where the ledger is
- * unavailable.
- *
- * A TENTH OUTPUT, WHICH IS NOT A VERDICT (mantahostels#1647, spec
+ * A SIXTH OUTPUT, WHICH IS NOT A VERDICT (mantahostels#1647, spec
  * mantahostels#1762). On the clean branch a `git add`/`stage`/`commit` is
  * handed the commit rules, and a `node …/commit-paths.js` call the last three
  * of the act's own, plus the §Gotchas gate rules its paths earn (#2147). A
@@ -72,10 +51,8 @@
  * LIMITS
  *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
  *    clauses admits: `if: Bash(git *)`, `if: Bash(*commit-paths.js*)` (#3224).
- *  - Scope is THIS repository. The three index verdicts, the pathspec warn and
- *    the `--amend` deny bind the shared working tree alone; `--no-verify`, the
- *    closing keyword and the two untracked-path warns bind in a linked
- *    worktree too. Any other repository is exempt from all nine.
+ *  - Scope is THIS repository, in every working tree of it. Any other
+ *    repository is exempt from all five.
  *  - It matches the *parsed command form*, never a substring, so a grep, an
  *    echo or a heredoc mentioning `git add` passes.
  *  - It FAILS OPEN, RECORDED (mantahostels#147), on a `cd`/`git -C` target it
@@ -83,16 +60,15 @@
  *    unknown tree (#312).
  *  - An UNSET variable in that target is read as empty (#312): shell state
  *    does not carry between Bash calls, so `git -C "$W"` with `W` from an
- *    earlier call runs in the cwd. The four refusals name the variable.
+ *    earlier call runs in the cwd. The three refusals name the variable.
  *  - THE CLOSING-KEYWORD RULE READS `-m`/`--message` VALUES ONLY
  *    (mantahostels#2592). `-F`, `-c`/`-C`, a `--trailer` and the editor route
  *    carry the keyword unseen; the git hooks' scanner,
  *    check-commit-message-closes.js, catches them at commit time. `--message`
  *    abbreviations are not read either. It overmatches the glued `fixes#12`,
  *    which GitHub does not honour (mantahostels#2660, #2668).
- *  - Long-option abbreviation is honoured only for `--include`, from `--inc`
- *    down; `--all` has none; `--no-verify` abbreviates to `--no-veri`, and
- *    `--amend` to `--am` (mantahostels#2540).
+ *  - Long-option abbreviation is honoured only for `--no-verify`, down to
+ *    `--no-veri`, and `--amend`, down to `--am` (mantahostels#2540).
  *  - `-n` is read as `--no-verify` under `git commit` ONLY: it is `--dry-run`
  *    under add, `--no-stat` under merge and rebase, `--no-commit` under
  *    cherry-pick and revert, and `--no-scissors` under am (mantahostels#1705,
@@ -104,10 +80,8 @@
  *    hook while spelling no flag this reads.
  *  - A glob git expands itself — `-- 'docs/*'` — is mantahostels#1651's known
  *    residual.
- *  - Attribution errs toward warning: a file written by a shell redirect or a
- *    script that takes no claim reads foreign.
  *  - A commit reached through a wrapper is not seen: only a segment's own
- *    first word is read, so `timeout 5 git commit -a`, `sh -c "…"`, `env` and
+ *    first word is read, so `timeout 5 git commit --amend`, `sh -c "…"`, `env` and
  *    `command` carry any form past it, `git am --no-verify` included (#800).
  *  - It guards the Bash tool, so it binds agent sessions and not the founder's
  *    own terminal. That is why the deny carries no override
@@ -146,15 +120,13 @@ const {
  * @property {(dir: string, file: string) => string[] | null} patchFiles
  * @property {(file: string) => string | null} readList a pathspec list file's
  *   text; null where it is not a readable regular file
- * @property {(sessionId: string) => { written: string[] | null,
- *   fault: string }} commitCheck the arbiter's write ledger for that session,
- *   null where it is unavailable, `fault` saying why
+ * @property {(dir: string) => string | null} pushedHead the pushed ref
+ *   (lib/landing-refs.js) where `dir`'s HEAD is on it, "" where it is not,
+ *   null where git errors
  * @property {(match: string) => string} closingRefusal what the
  *   closing-keyword deny says after its opening line
- * @typedef {import("./kit-context.js").KitContext & CommitFormPorts & {
- *   session: string, env: Record<string, string | undefined> }}
- *   CommitFormContext `session` is the payload's session id, "" where it
- *   carries none
+ * @typedef {import("./kit-context.js").KitContext & CommitFormPorts}
+ *   CommitFormContext
  */
 
 /* How many paths a warn names before it falls back to a count. A first guess:
@@ -165,16 +137,6 @@ const PATHS_SHOWN_CAP = 10;
 /** @param {CommitFormContext} ctx */
 const untrackedEscape = (ctx) =>
 	`Commit with \`node ${ctx.scriptPath("commit-paths.js")} -m "…" -- <paths>\` (Bash \`timeout: 600000\`): it intent-adds a file git does not know yet. By hand, \`git add -N <path>\` is the exception — intent-to-add stages a name and no content.`;
-
-/** @param {CommitFormContext} ctx */
-const denySweeping = (ctx) => `This commit form sweeps the shared index: @CMD@
-
-\`git commit -a\`/\`-am\` commits every dirty TRACKED file, so it takes a parallel session's uncommitted edits — they need not have staged anything, only have a file open. \`-i\`/\`--include\` commits the shared index plus your paths. ${ctx.docPath("agents/guard-registry.md")} §Conventions bars both outright.
-
-Commit by pathspec instead, naming only the files you changed:
-  git commit -m "…" -- <paths>
-
-${untrackedEscape(ctx)} Then commit by pathspec as normal.`;
 
 /** @param {CommitFormContext} ctx */
 const denyNoVerify = (
@@ -188,39 +150,24 @@ Drop the flag: on a plain commit or merge it buys nothing, and everywhere else i
 There is no override, deliberately — ${ruleOrFallback(ctx, "self-spelt-escape", "an escape a session can spell for itself is not a deny")} The git-hook escapes, \`WFC_ALLOW_BRANCH\` among them, each stand down one gate alone, and are the founder's to set, never yours: stop and ask (#916).`;
 
 /* The opening line is a plain string so guard-fire-needles.json's
- * amend-shared-tip needle reads it byte for byte. */
-const DENY_AMEND = `${"This amend rewrites whichever commit is `main`'s tip right now"}, which may not be yours: @CMD@
+ * amend-pushed needle reads it byte for byte. */
+const AMEND_OPENING = "This amend rewrites a commit already pushed";
 
-The shared working tree holds \`main\`, and four or more sessions commit to it every few minutes. Between your own \`git commit\` and this \`git commit --amend\`, a neighbouring session's commit routinely lands — and \`--amend\` targets the tip as it stands at that instant, so the amend takes THEIR commit under YOUR message.
+/** @param {string} ref */
+const denyAmend = (
+	ref,
+) => `${AMEND_OPENING}, as \`HEAD\` is on \`${ref}\`: @CMD@
 
-It fails silently in the direction that matters: the amend reports success and prints a diffstat, and the diffstat is of the neighbour's change (observed on mantahostels#2507; account at mantahostels#2540).
+The rewrite forks from what was pushed. The next push of it is a non-fast-forward and is refused, and landing again merges both the original commit and its rewrite (#4384).
 
 Make a follow-up commit instead:
-  git commit -m "…" -- <paths>
-
-Where the history really must be rewritten, do it in a throwaway worktree, where no neighbour commits:
-  git worktree add --detach <dir>
-
-A \`git commit --amend\` there is allowed.`;
+  git commit -m "…" -- <paths>`;
 
 /** @param {string} refusal */
 const denyClosesKeyword = (refusal) =>
 	`This commit message closes an issue server-side the moment it is pushed: @CMD@
 
 ${refusal}`;
-
-/** @param {CommitFormContext} ctx */
-const addWarn = (
-	ctx,
-) => `Staging before committing hands the shared index to whichever session commits next — that is mantahostels#63, where one session's roadmap correction landed inside another session's unrelated commit under its message.
-
-Commit by pathspec instead, with no staging step:
-  git commit -m "…" -- <paths>
-
-${untrackedEscape(ctx)}`;
-
-const BARE_ADVICE = `Name your own files instead:
-  git commit -m "…" -- <paths>`;
 
 /* The flags each hook-skipping subcommand gives a value in a separate word,
  * so `git merge -m --no-verify` reads its own message as no flag. List only a
@@ -258,16 +205,6 @@ const NV_SPELLINGS = {
 
 const COMMIT_NO_VERIFY = ["-n", "--no-veri", "--no-verif", "--no-verify"];
 const COMMIT_AMEND = ["--am", "--ame", "--amen", "--amend"];
-const COMMIT_SWEEPS = [
-	"-a",
-	"-i",
-	"--all",
-	"--inc",
-	"--incl",
-	"--inclu",
-	"--includ",
-	"--include",
-];
 
 /* Doc map's SCOPE in scripts/lib/doc-map.js: check-doc-map.js runs in
  * .husky/pre-commit on exactly this set (mantahostels#390). */
@@ -287,28 +224,22 @@ const BIOME_EXT =
 const BIOME_EXCLUDED =
 	/^(public\/|docs\/|\.claude\/worktrees\/|scripts\/fixtures\/|skills-lock\.json$|\.claude\/settings[^/]*\.json$)/;
 
-/** @type {Record<string, "noVerify" | "amend" | "sweeps">} */
+/** @type {Record<string, "noVerify" | "amend">} */
 const COMMIT_FLAG = Object.fromEntries([
 	...COMMIT_NO_VERIFY.map((f) => [f, "noVerify"]),
 	...COMMIT_AMEND.map((f) => [f, "amend"]),
-	...COMMIT_SWEEPS.map((f) => [f, "sweeps"]),
 ]);
 
 /**
  * The flags `git commit` carries. `-m`/`--message` only feed the keyword test:
- * `-F` and `-t` name a FILE, `-c`/`-C`/`--fixup`/`--squash` a COMMIT. A
- * `--pathspec-from-file`, `dangling` or not, and a lone `-`, count as a
- * pathspec — the dangling one commits nothing, and reading it as a pathspec
- * keeps the warn down (mantahostels#495).
+ * `-F` and `-t` name a FILE, `-c`/`-C`/`--fixup`/`--squash` a COMMIT.
  * @param {string[]} args raw
  * @param {string[]} spans
  */
 function scanCommit(args, spans) {
 	const c = {
-		sweeps: false,
 		noVerify: false,
 		amend: false,
-		hasPathspec: false,
 		/** @type {string[]} */
 		words: [],
 		message: "",
@@ -318,25 +249,13 @@ function scanCommit(args, spans) {
 			kind === "flag" && Object.hasOwn(COMMIT_FLAG, name)
 				? COMMIT_FLAG[name]
 				: undefined;
-		if (kind === "arg") {
-			c.hasPathspec = true;
-			c.words.push(value);
-		} else if (kind === "opt" && (name === "-m" || name === "--message"))
+		if (kind === "arg") c.words.push(value);
+		else if (kind === "opt" && (name === "-m" || name === "--message"))
 			c.message += ` ${literal(value, spans).text}`;
 		else if (set) c[set] = true;
-		else if (pathspecFlag(kind, name)) c.hasPathspec = true;
 	});
 	return c;
 }
-
-/**
- * @param {string} kind scanFlags'
- * @param {string} name
- */
-const pathspecFlag = (kind, name) =>
-	name === "--pathspec-from-file"
-		? kind === "opt" || kind === "dangling"
-		: kind === "flag" && name === "-";
 
 /**
  * @typedef {{ intent: boolean, dry: boolean, force: boolean, nul: boolean }}
@@ -434,9 +353,6 @@ const relativeTo = (top, abs) =>
  * @property {CommitFormContext} ctx
  * @property {ReturnType<typeof parseCommand>} parsed
  * @property {string[]} spans
- * @property {Map<string, ReturnType<CommitFormContext["treeClass"]>>} classes
- *   the walk's tree class, read again for the shared-tree gate: one git
- *   answer a tree
  * @property {string | null} denied
  * @property {string} warning the first warn found, held across segments in
  *   case a later one denies
@@ -458,29 +374,6 @@ const relativeTo = (top, abs) =>
 function known(j, word) {
 	const l = literal(word, j.spans);
 	return l.known && l.text ? l.text : null;
-}
-
-/**
- * @param {Judging} j
- * @param {string} dir
- */
-function treeClassOf(j, dir) {
-	let cls = j.classes.get(dir);
-	if (cls === undefined) {
-		cls = j.ctx.treeClass(dir);
-		j.classes.set(dir, cls);
-	}
-	return cls;
-}
-
-/**
- * The arbiter's write ledger. No session is a defined state of the harness,
- * so it is no fault: the bare warn stays index-wide.
- * @param {Judging} j
- */
-function commitCheck({ ctx }) {
-	const session = ctx.session || ctx.env.CLAUDE_CODE_SESSION_ID || "";
-	return session ? ctx.commitCheck(session) : { written: null, fault: "" };
 }
 
 /**
@@ -558,8 +451,7 @@ function leftUnder(j, dir, abs) {
 /**
  * The left-behind warn (mantahostels#1651): a directory word with tracked
  * files under it and untracked ones too. IGNORED files are excluded, or a
- * directory word would list node_modules. The ledger is not consulted: a new
- * file arriving by `cat >` is credited to nobody.
+ * directory word would list node_modules.
  * @param {Judging} j
  * @param {string[]} words
  * @param {string} dir
@@ -730,52 +622,14 @@ function listRewritten(j, file) {
 }
 
 /**
- * The bare-commit warn (mantahostels#118): the staged paths this session
- * never wrote; the index-wide warn (mantahostels#117) where the ledger is
- * unavailable.
- * @param {Judging} j
- * @param {string[]} staged
- */
-function bareWarn(j, staged) {
-	const { written, fault } = commitCheck(j);
-	if (written === null && fault)
-		j.ctx.log(
-			`${fault} — the write ledger was unread, so this bare commit's warn stays index-wide`,
-		);
-	if (written !== null) {
-		/* Whole line, literal: docs/a.md in the ledger claims no credit for a
-		 * neighbour's docs/a.md.bak. */
-		const mine = new Set(written);
-		const foreign = staged.filter((p) => !mine.has(p));
-		if (foreign.length === 0) return;
-		j.warning = `This commit names no pathspec, so it takes the whole index — and the index holds ${foreign.length} path(s) this session never wrote:\n\n${foreign.map((p) => `  ${p}`).join("\n")}\nThe index is repo-global, so this commit would land someone else's staged work under your message (mantahostels#63). If you did write one of those from a shell redirect or a script, the ledger cannot see it and it is listed anyway.\n\n${BARE_ADVICE}`;
-		return;
-	}
-	j.warning = `This commit names no pathspec, so it will take everything in the index:\n\n${staged.map((p) => `  ${p}`).join("\n")}\nThe index is repo-global — any of those files may be a parallel session's staged work, which this commit would land under your message (mantahostels#63). This session's writes could not be read, so the guard cannot tell whose they are; check before proceeding.\n\n${BARE_ADVICE}`;
-}
-
-/**
- * Whether the shared index is at stake in `tree`: a linked worktree has its
- * own (mantahostels#1213).
- * @param {Judging} j
- * @param {string} tree
- */
-const sharedAtRest = (j, tree) =>
-	treeClassOf(j, tree) === "shared" && !j.ctx.midSequence(tree);
-
-/**
- * A `git add`/`stage`. Its intent-adds are read in every tree, as the verdict
- * they feed binds in a linked worktree too.
+ * A `git add`/`stage`: judged for what it intent-adds, which a later
+ * segment's untracked warn reads.
  * @param {Judging} j
  * @param {string[]} args
  * @param {string} tree
  */
 function judgeAdd(j, args, tree) {
-	const add = addFlags(args);
-	scanIntentAdded(j, args, add, tree);
-	/* -N stages a name and no content; -n stages nothing. */
-	if (add.intent || add.dry || j.warning || !sharedAtRest(j, tree)) return;
-	j.warning = addWarn(j.ctx);
+	scanIntentAdded(j, args, addFlags(args), tree);
 }
 
 /**
@@ -793,21 +647,18 @@ function untrackedWarns(j, words, tree) {
 }
 
 /**
- * A shared-tree commit's index warn: the bare warn on whatever the index holds
- * when the commit names no pathspec.
+ * The pushed ref `tree`'s HEAD is on, for the amend deny: "" where it is on
+ * none, and "" too, logged, where git cannot say — the deny fails open.
  * @param {Judging} j
- * @param {ReturnType<typeof scanCommit>} c
  * @param {string} tree
  */
-function indexWarn(j, c, tree) {
-	if (j.warning) return;
-	if (c.hasPathspec) return;
-	const staged = j.ctx.stagedFiles(tree);
-	if (staged === null)
-		return j.ctx.log(
-			`git could not read the index in ${tree} — pathspec-less commit allowed unchecked`,
+function pushedHead(j, tree) {
+	const ref = j.ctx.pushedHead(tree);
+	if (ref === null)
+		j.ctx.log(
+			`git could not say whether HEAD in ${tree} is pushed — the amend allowed unchecked`,
 		);
-	if (staged.length > 0) bareWarn(j, staged);
+	return ref ?? "";
 }
 
 /**
@@ -840,14 +691,12 @@ function judge(j, { segment, sub, tree, args, emptyVars }) {
 	const match = closingMatch(c.message);
 	if (match !== null)
 		return deny(denyClosesKeyword(j.ctx.closingRefusal(match)));
-	if (c.hasPathspec) untrackedWarns(j, c.words, tree);
-	/* Everything past here protects the SHARED index. */
-	if (!sharedAtRest(j, tree)) return;
-	if (c.sweeps) return deny(denySweeping(j.ctx));
-	/* Below the shared-tree gate and the mid-sequence stand-down: neither a
-	 * linked worktree's HEAD nor a rebase's is `main`'s tip (mantahostels#2540). */
-	if (c.amend) return deny(DENY_AMEND);
-	indexWarn(j, c, tree);
+	/* Mid-sequence HEAD is the replay's own commit, not a pushed one. */
+	if (c.amend && !j.ctx.midSequence(tree)) {
+		const ref = pushedHead(j, tree);
+		if (ref) return deny(denyAmend(ref));
+	}
+	untrackedWarns(j, c.words, tree);
 }
 
 /**
@@ -986,7 +835,6 @@ function decide(command, ctx) {
 		ctx,
 		parsed,
 		spans: parsed.spans,
-		classes: new Map(),
 		denied: null,
 		warning: "",
 		leftBehind: "",
@@ -995,26 +843,21 @@ function decide(command, ctx) {
 		ruleDir: "",
 		lastWords: [],
 	};
-	walkGit(
-		parsed,
-		(call) => judge(j, call),
-		{ ...ctx, treeClass: (dir) => treeClassOf(j, dir) },
-		{
-			subs: [
-				"add",
-				"stage",
-				"commit",
-				"merge",
-				"rebase",
-				"cherry-pick",
-				"revert",
-				"am",
-			],
-			noun: "commit form",
-			scope: "repo",
-			emptyUnset: true,
-		},
-	);
+	walkGit(parsed, (call) => judge(j, call), ctx, {
+		subs: [
+			"add",
+			"stage",
+			"commit",
+			"merge",
+			"rebase",
+			"cherry-pick",
+			"revert",
+			"am",
+		],
+		noun: "commit form",
+		scope: "repo",
+		emptyUnset: true,
+	});
 	if (j.denied !== null) return { deny: j.denied };
 
 	const cp = commitPathsCalls(j);

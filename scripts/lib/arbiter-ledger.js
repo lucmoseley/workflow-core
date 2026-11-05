@@ -42,12 +42,9 @@ const LEDGER_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * sessionDirs (mantahostels#1309). That session takes no claims (see identify)
  * — but it does keep a working ledger, because recordWrite takes its session id
  * from the hook environment and never calls identify().
- *
- * The cost is a MISATTRIBUTION (mantahostels#135), not mantahostels#117's honest index-wide warn.
- * readWritesBy reads the missing file as [] via its ENOENT branch, and an empty
- * ledger matches nothing, so the guard-commit-form core takes its attributed branch and
- * names the session's own files as paths it "never wrote". Accepted anyway
- * (mantahostels#321): the warn is advisory.
+ * readWritesBy reads the swept file as [] via its ENOENT branch: that session
+ * reads as having written nothing (mantahostels#135, accepted at
+ * mantahostels#321).
  */
 function pruneLedgers() {
 	core.sweepSparingLive(
@@ -65,9 +62,9 @@ function pruneLedgers() {
  */
 function recordWrite(filePath, sessionId) {
 	if (!sessionId) return null;
-	// The ledger names FILES, because the guard-commit-form core compares it against
-	// staged paths and git stages no region: an unstripped `docs/doc-map.md#B42`
-	// matches nothing there, so the session is warned off its own commit.
+	// The ledger names FILES, because its readers compare it against paths git
+	// reports and git reports no region: an unstripped `docs/doc-map.md#B42`
+	// matches nothing there.
 	const subject = core.relativeToRepo(filePath);
 	if (subject === null) return null; // outside the repo; no diff can name it
 	// Stripped AFTER the path is made repo-relative, and after the null test: `#`
@@ -93,10 +90,8 @@ function recordWrite(filePath, sessionId) {
  * Every path this session wrote, deduplicated — or `null` where the answer is
  * unavailable rather than empty (mantahostels#135).
  *
- * An empty list tells a caller "this session wrote nothing", which
- * the guard-commit-form core reads as *every staged path is someone else's* — so
- * returning it when the ledger could not be read names the session's own files
- * back at it.
+ * An empty list tells a caller "this session wrote nothing", so returning it
+ * when the ledger could not be read disowns the session's own files.
  * @param {string} sessionId
  */
 function readWritesBy(sessionId) {

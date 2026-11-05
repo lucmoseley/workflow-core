@@ -155,7 +155,7 @@ git commit -m "<what closing <card-id> changed> (vX.YY)" \
 
 Add any source document step 3's write-back edited to that pathspec.
 
-**Commit by pathspec, never `git add` first** — the index is repo-global, and a parallel session's commit lands in the gap between staging and committing, carrying your files under its message (`.claude/skills/roadmap-edit/SKILL.md` step 8).
+**Commit by pathspec** (`.claude/skills/roadmap-edit/SKILL.md` step 8).
 
 Then push, per `CLAUDE.md` §Conventions. Every push to `landing` runs the suite and the document guards (`.github/workflows/scheduled-checks.yml`), and the lander moves `main` only to a tip that run passed (#2413); `node scripts/landing-status.js` says whether your commits have landed.
 

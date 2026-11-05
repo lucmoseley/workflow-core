@@ -284,9 +284,7 @@ never skip them.
    git commit -m "<what changed> (vX.YY)" \
      -- docs/reference-roadmap.html docs/roadmap-digest.md
    ```
-   **Never `git add` first** — commit by the pathspec above (`CLAUDE.md`
-   §Conventions, on mantahostels#63, where one session's staged files landed inside
-   another's commit). **The two files ship together, always** — never commit
+   Commit by the pathspec above. **The two files ship together, always** — never commit
    the HTML without its regenerated digest. Report to the founder in two lines:
    version, cards added/edited, and the validator's pass line. No long postamble.
 
