@@ -17,24 +17,34 @@ const CHILD_TIMEOUT_MS = 120 * 1000;
 const CHROME_TIMEOUT_MS_A_PAGE = 300_000;
 
 /**
- * The child's status, output and error as text, with their verdict. Each
- * caller's bound is its own, so `timeout` is required.
+ * The child's status, output and error as text, unjudged. Each caller's bound
+ * is its own, so `timeout` is required.
  * @param {string} file
  * @param {string[]} args
  * @param {import("node:child_process").SpawnSyncOptions & {timeout: number}} opts
  */
-function spawnChild(file, args, opts) {
+function spawnRaw(file, args, opts) {
 	const r = spawnSync(file, args, {
 		encoding: "utf8",
 		maxBuffer: CHILD_MAX_BUFFER,
 		...opts,
 	});
-	const child = {
+	return {
 		status: r.status,
 		stdout: String(r.stdout ?? ""),
 		stderr: String(r.stderr ?? ""),
 		error: r.error,
 	};
+}
+
+/**
+ * spawnRaw's child with its verdict.
+ * @param {string} file
+ * @param {string[]} args
+ * @param {import("node:child_process").SpawnSyncOptions & {timeout: number}} opts
+ */
+function spawnChild(file, args, opts) {
+	const child = spawnRaw(file, args, opts);
 	return { ...child, ...childVerdict(child) };
 }
 
@@ -52,4 +62,5 @@ module.exports = {
 	CHROME_TIMEOUT_MS_A_PAGE,
 	runTickChild,
 	spawnChild,
+	spawnRaw,
 };
