@@ -55,7 +55,8 @@ if (read.state === "unknown") {
 }
 if (read.state === "stock")
 	// A rename, not an overwrite: husky copies the shim with its source's mode,
-	// read-only where node_modules is an immutable dependency store (#4372).
+	// read-only where node_modules is an immutable dependency store, and the
+	// owner write bit lets husky's next copy overwrite it (#4372).
 	writeFileAtomic(shim, read.body.replace(HUSKY_LOOKUP, OWN_LOOKUP), {
 		mode: (fs.statSync(shim).mode & 0o777) | 0o200,
 	});
