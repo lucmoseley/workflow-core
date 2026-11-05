@@ -1,5 +1,11 @@
 name: scheduled-checks
 
+# A dispatch carrying a `slot` is the refill tick's repair of a slot GitHub
+# dropped (scripts/repair-sweep-slot.js, #4447), titled so the sweep ledger
+# (scripts/lib/sweep-ledger.js's slotRunTitle) counts it as that slot's run.
+# Any other run's title is whitespace here, which GitHub replaces with its own.
+run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
+
 # The repo's whole automatic verification, on a clock (mantahostels#904,
 # settled at mantahostels#906 and mantahostels#905, landed at mantahostels#910)
 # and on every push to `landing`, whose run the lander reads as its tester
@@ -70,12 +76,17 @@ on:
     # MINUTE 0, AND MOVING IT IS NOT THE ONE-LINE CHANGE IT LOOKS LIKE (mantahostels#2204).
     # GitHub names the top of the hour as its high-load window and moving off it
     # as the only documented mitigation for scheduled-run delay — but the slot
-    # minute is modelled in scripts/check-ci-status.js and pinned as `HH:00`
+    # minute is modelled in scripts/lib/sweep-ledger.js and pinned as `HH:00`
     # across ~40 fixtures in check-ci-status.test.ts, so the move costs that
     # migration, for a mitigation two 2026 community reports measured as doing
     # nothing.
     - cron: "0 3,9,15,21 * * *"
   workflow_dispatch:
+    inputs:
+      slot:
+        description: "The cron slot this run repairs, as 2026-11-05T15:00Z."
+        required: false
+        type: string
 
 # EVERY JOB RUNS ONLY IN `lucmoseley/workflow-core` (#1963), the public code
 # repo. The private tracker carries a frozen copy of this file in its tree, and

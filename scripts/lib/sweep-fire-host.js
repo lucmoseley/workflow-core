@@ -34,7 +34,7 @@ function buildHostPorts(root, _log, load = () => require("./sweep-budget.js")) {
 		 */
 		spendSweep: (env) => {
 			try {
-				return load().spendHandFire(root, require("./check.js").now(env));
+				return load().spendFire(root, require("./check.js").now(env));
 			} catch (e) {
 				return { fault: caught(e).message };
 			}

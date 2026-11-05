@@ -122,6 +122,7 @@ interface Run {
 	event?: string;
 	url: string;
 	createdAt: string;
+	displayTitle?: string;
 }
 
 /** One run, with everything but the interesting fields defaulted. */
@@ -1693,9 +1694,12 @@ describe("how long HEAD stays untested is reported, never offered (mantahostels#
 		).not.toBeNull();
 
 		const declared = /const SWEEP_HOURS_UTC = \[([\d,\s]+)\];/.exec(
-			fs.readFileSync(SCRIPT, "utf8"),
+			fs.readFileSync(path.join(__dirname, "lib", "sweep-ledger.js"), "utf8"),
 		);
-		expect(declared, "no SWEEP_HOURS_UTC in check-ci-status.js").not.toBeNull();
+		expect(
+			declared,
+			"no SWEEP_HOURS_UTC in lib/sweep-ledger.js",
+		).not.toBeNull();
 
 		expect((declared as RegExpExecArray)[1].split(",").map(Number)).toEqual(
 			(cron as RegExpExecArray)[1].split(",").map(Number),
@@ -2338,6 +2342,37 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 
 		const out = check(["--notify"], at(SWEEP_NOW)).stdout;
 		expect(out).toContain("missed 15:00 UTC");
+	});
+
+	it("lets a dispatch titled for the slot fill it, and says so (#4447)", () => {
+		setSweeps([
+			sweepAt("03:00"),
+			sweepAt("09:00"),
+			sweepAt("20:10", {
+				event: "workflow_dispatch",
+				displayTitle: "sweep slot 2026-08-21T15:00Z",
+			}),
+		]);
+
+		expect(check(["--notify"], at(SWEEP_NOW)).stdout).not.toContain("missed");
+		expect(check([], at(SWEEP_NOW)).stderr).toContain(
+			"Sweep ledger: 3 of 3 judgeable slots fired in the last 24h (1 by slot repair)",
+		);
+	});
+
+	it("does not let a dispatch titled for another slot fill this one (#4447)", () => {
+		setSweeps([
+			sweepAt("03:00"),
+			sweepAt("09:00"),
+			sweepAt("20:10", {
+				event: "workflow_dispatch",
+				displayTitle: "sweep slot 2026-08-21T09:00Z",
+			}),
+		]);
+
+		expect(check(["--notify"], at(SWEEP_NOW)).stdout).toContain(
+			"missed 15:00 UTC",
+		);
 	});
 
 	it("does not let a push run fill a slot either (#1994)", () => {

@@ -2,7 +2,8 @@
  * sweep-budget.js — the one daily budget every sweep firing spends (mantahostels#2202).
  *
  * `scripts/check-ci-status.js` fires a sweep for itself (mantahostels#1816) when the
- * newest verdict goes stale, and a sweep is also hand-fired with
+ * newest verdict goes stale, the refill tick fires one for a dropped slot
+ * (scripts/repair-sweep-slot.js, #4447), and a sweep is also hand-fired with
  * `gh workflow run scheduled-checks.yml` (mantahostels#2188). This module is the
  * counter every route spends, `ci.yml` included (mantahostels#3514), so
  * the day's ceiling is a property of the SWEEP rather than of the route that
@@ -10,7 +11,7 @@
  *
  * ONE MODULE, BOTH ROUTES. The whole guarantee mantahostels#2202 buys is that
  * the guard's arithmetic and the autofire's are the same arithmetic, so the
- * guard spends through `spendHandFire` below and the bytes the hook enforces
+ * guard spends through `spendFire` below and the bytes the hook enforces
  * are the bytes the tests cover.
  *
  * THE STORE IS THE GIT COMMON DIR, untracked and shared across worktrees by
@@ -134,8 +135,9 @@ function recordFiring(marker, t, spent) {
 }
 
 /**
- * Spend one unit of the day's budget on a hand-fire, or report that the day
- * is out — the guard's half (lib/sweep-fire-host.js). `out` false is spent,
+ * Spend one unit of the day's budget on a fire, or report that the day is
+ * out — the guard's half (lib/sweep-fire-host.js) and the slot repair's
+ * (scripts/repair-sweep-slot.js, #4447). `out` false is spent,
  * `spent` the count after; `out` true is refused, nothing written. A `fault`
  * is a budget this could not decide, which the guard fails open on
  * (mantahostels#103 §6).
@@ -151,7 +153,7 @@ function recordFiring(marker, t, spent) {
  * @param {number} t
  * @returns {{ out: boolean, spent: number, cap: number, day: string } | { fault: string }}
  */
-function spendHandFire(repo, t) {
+function spendFire(repo, t) {
 	const marker = markerPath(repo);
 	if (!marker) return { fault: "git would not name a common dir" };
 	const { state, error } = readState(marker);
@@ -172,6 +174,6 @@ module.exports = {
 	markerPath,
 	readState,
 	recordFiring,
-	spendHandFire,
+	spendFire,
 	spentToday,
 };

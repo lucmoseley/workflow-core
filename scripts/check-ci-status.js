@@ -61,9 +61,9 @@
  * when the NEWEST SWEEP is older than SWEEP_STALE_MS, rationed three ways: only
  * where HEAD has moved past that sweep, only outside AUTOFIRE_COOLDOWN_MS, and
  * never on the on-demand form, where a human is at the keyboard. It never keys
- * on the missed-slot count (mantahostels#1816): a sweep tests HEAD now, never
- * the tree a dropped slot would have tested, so what is available is
- * refreshing a stale verdict and never recovering a lost one.
+ * on the missed-slot count (mantahostels#1816): a dropped slot is the refill
+ * tick's to repair (scripts/repair-sweep-slot.js, #4447), whose run the ledger
+ * counts as that slot's.
  *
  * A GREEN SAYS WHAT IT COVERED (mantahostels#976, on the ruling at mantahostels#949). Under a schedule
  * "green" is a claim about whatever `main` held at the last sweep, so the
@@ -137,7 +137,7 @@ const path = require("node:path");
  * @typedef {import("./lib/check").CheckContext} Ctx
  * @typedef {{databaseId: number, headSha?: string, conclusion?: string|null,
  *   createdAt?: string, event?: string, workflowName?: string,
- *   url?: string}} Run
+ *   url?: string, displayTitle?: string}} Run
  * @typedef {{name?: string, path?: string, state?: string}} Workflow
  * @typedef {{head: string, ahead: number|null, line: string|null}} Coverage
  */
@@ -212,39 +212,16 @@ const RUN_WINDOW = 50;
  * a human, never by this script. */
 const BISECT_WORKFLOW = "bisect.yml";
 
-/* The whole suite, on demand. */
-const SWEEP_WORKFLOW = "scheduled-checks.yml";
-
-/* The hours the sweep fires, UTC. Held here rather than parsed, and so able to
- * drift: `.github/workflows/scheduled-checks.yml` carries the real schedule
- * (mantahostels#3490, dropped from six slots at mantahostels#2166), and a test in check-ci-status.test.ts
- * reads its cron and fails if the two disagree. Ascending, which nextSweepAfter()
- * relies on. */
-const SWEEP_HOURS_UTC = [3, 9, 15, 21];
+const {
+	SWEEP_WORKFLOW,
+	slotsFrom,
+	sweepLedger,
+} = require("./lib/sweep-ledger.js");
 
 /* How far off the next sweep must be before the on-demand form says HEAD is
  * going untested. An UNMEASURED first guess, named as one at mantahostels#949: nothing has
  * measured how long a founder waits before firing a sweep themselves. */
 const HATCH_MIN_WAIT_MS = 2 * 60 * 60 * 1000;
-
-/* How long after a slot passes before a run's absence is read as a miss (mantahostels#1024).
- * Sweeps run late as a matter of course, and 5h cleared the latest lag measured
- * to 26 Aug 2026 by ~7 minutes (mantahostels#1816).
- *
- * IT DOES NOT CLEAR THAT TAIL — mantahostels#2204 measured GitHub delivering slots
- * 310-687 minutes late from 27 Aug 2026. The schedule is four slots at
- * 3/9/15/21 UTC (mantahostels#3490; ruled on cadence at mantahostels#2228).
- * lucmoseley/mantahostels#2241 held this at 5h, its resolution pricing the tail
- * at ~6% of delivered slots read missed first. Widening grace enough to clear that tail would sit close to the 6h gap itself, costing the
- * detector its one job of telling a dropped run from a stopped schedule — a
- * noisy line and not a billed one: SWEEP_STALE_MS, not this, is what fires a
- * sweep.
- *
- * At the 6h gap (mantahostels#3490) only the newest slot is ever inside it —
- * grace (5h) is SHORTER than the gap. The newest becomes judgeable too in the
- * last hour of each gap, once its own age passes 5h, so sweepLedger() usually
- * holds back 1 of the window's 4 slots and holds back none in that last hour. */
-const SWEEP_GRACE_MS = 5 * 60 * 60 * 1000;
 
 /* How old the newest sweep must be before --notify fires one itself (mantahostels#1816).
  *
@@ -255,7 +232,7 @@ const SWEEP_GRACE_MS = 5 * 60 * 60 * 1000;
  * a schedule with nothing wrong with it (mantahostels#1816). Eight clears an
  * ordinary gap with a ~2h margin (mantahostels#1816), and clears the 16-83 minute
  * lag census — mantahostels#1816's, measured before 27 Aug 2026; the later tail
- * is mantahostels#2204's (SWEEP_GRACE_MS above).
+ * is mantahostels#2204's (SWEEP_GRACE_MS in lib/sweep-ledger.js).
  * What it costs: .github/workflows/scheduled-checks.yml.
  *
  * Against September's delivered gaps it trips on the tail rather than daily:
@@ -291,16 +268,6 @@ const AUTOFIRE_COOLDOWN_MS = 2 * 60 * 1000;
  * and a `gh workflow run ci.yml` (mantahostels#3514) spend the SAME three as the
  * autofire below: the ceiling is the sweep's, not the route's. The derivation
  * is there. */
-
-/* How far back the slot ledger looks. Four slots is bounded work one gh call
- * covers, and it is what tells one missed slot (a transient drop that heals at
- * the next slot) from every judged slot missed (the schedule has stopped) — a
- * distinction the most-recent-slot form cannot make. The denominator is
- * `judgeable`, THREE OR FOUR and never fewer: SWEEP_GRACE_MS holds back the
- * newest slot except in the last hour of its 6h gap (mantahostels#3490 — see
- * SWEEP_GRACE_MS above). Reading back to the last green instead is unbounded: a
- * week away and this prints dozens of missed slots at session start. */
-const SWEEP_LEDGER_MS = 24 * 60 * 60 * 1000;
 
 /* The wall-clock deadline, from run() start, over a --notify run's gh()
  * calls (mantahostels#2177), held 8s under `self-plugin/hooks/hooks.json`'s
@@ -393,36 +360,6 @@ function ageOf(run) {
 }
 
 /**
- * Every time the schedule fires over the two UTC days beginning with `from`'s,
- * ascending.
- *
- * Two days, for the two reasons its callers each have one of: a time past the
- * last slot of the day rolls over to the first of the next, and a 24-hour window
- * straddles midnight for all but four hours of the day.
- *
- * Both readers of the cron table go through here.
- *
- * @param {number} from
- * @returns {number[]}
- */
-function slotsFrom(from) {
-	const d = new Date(from);
-	/** @type {number[]} */
-	const out = [];
-	for (let day = 0; day <= 1; day++)
-		for (const hour of SWEEP_HOURS_UTC)
-			out.push(
-				Date.UTC(
-					d.getUTCFullYear(),
-					d.getUTCMonth(),
-					d.getUTCDate() + day,
-					hour,
-				),
-			);
-	return out;
-}
-
-/**
  * When the next scheduled sweep fires, or null if the schedule is empty.
  *
  * @param {number} t
@@ -510,17 +447,6 @@ function buildSweepAdvice(coverage) {
 }
 
 /**
- * The cron slots that fell inside the ledger window ending at `t`, ascending.
- *
- * @param {number} t
- * @returns {number[]}
- */
-function sweepSlots(t) {
-	const from = t - SWEEP_LEDGER_MS;
-	return slotsFrom(from).filter((at) => at > from && at <= t);
-}
-
-/**
  * A slot's time of day — carrying its date when that is not `ref`'s.
  *
  * A 24-hour window straddles midnight for most of the day, so a bare list read
@@ -538,55 +464,6 @@ const slotStamp = (t, ref) => {
 	const date = day(t) === day(ref) ? "" : d.toUTCString().slice(5, 12);
 	return `${date}${d.toISOString().slice(11, 16)} UTC`;
 };
-
-/**
- * Which of the window's slots produced a run, and which did not.
- *
- * A run is attributed to the latest slot at or before it started, so a LATE run
- * still fills the slot it was queued for rather than reading as a miss beside a
- * run that plainly happened. The grace period governs only when a slot may be
- * judged at all: an empty slot says nothing until SWEEP_GRACE_MS has passed.
- *
- * Age is not the test (mantahostels#1024).
- *
- * @param {Run[]} runs
- * @param {number} t
- */
-function sweepLedger(runs, t) {
-	/** @type {{at: number, run: Run|null}[]} */
-	const slots = sweepSlots(t).map((at) => ({ at, run: null }));
-	/* SCHEDULED runs only. A hand-fired `workflow_dispatch` sweep does test the
-	 * tree, so it counts for coverage — and it is read as coverage, in the newest-
-	 * sweep line below. It must not fill a SLOT, though: firing one by hand is the
-	 * documented response to a dropped run, so counting it would erase the very
-	 * miss that prompted it. Left broken: an `event` GitHub spells some third way
-	 * for a cron run would read as a miss at every slot. */
-	for (const r of runs.filter((run) => run.event === "schedule")) {
-		const started = Date.parse(r.createdAt || "");
-		if (Number.isNaN(started)) continue;
-		let owner = null;
-		for (const s of slots) if (s.at <= started) owner = s;
-		// The earliest run in a slot is the one the slot fired; a re-run is not it.
-		if (
-			owner &&
-			(!owner.run || Date.parse(owner.run.createdAt || "") > started)
-		)
-			owner.run = r;
-	}
-	/* Judged against the slots old enough to judge, never against all four: at
-	 * 15:30 the 15:00 slot is still inside the 5h grace, and counting it would
-	 * read `3 of 4 slots fired` over a schedule with nothing wrong with it. At
-	 * the 6h cadence (mantahostels#3490) the grace holds back only the newest slot, and only
-	 * outside the last hour of its gap. */
-	const judgeable = slots.filter((s) => t - s.at > SWEEP_GRACE_MS);
-	return {
-		slots,
-		judgeable,
-		pending: slots.length - judgeable.length,
-		fired: judgeable.filter((s) => s.run),
-		missed: judgeable.filter((s) => !s.run),
-	};
-}
 
 /**
  * The most recently started run in a list, or null.
@@ -645,7 +522,7 @@ function readSweepRuns(deadline) {
 					 * schedule/dispatch split, the newest sweep's own verdict, and the
 					 * id and url the report needs to name the step that broke it. */
 					"--json",
-					"databaseId,headSha,createdAt,event,conclusion,url",
+					"databaseId,headSha,createdAt,event,conclusion,url,displayTitle",
 				],
 				{ timeout },
 			),
@@ -1097,6 +974,7 @@ function buildLedgerStateLine(runs, ledger, newestLine) {
 	if (ledger)
 		return (
 			`Sweep ledger: ${ledger.fired.length} of ${ledger.judgeable.length} judgeable slots fired in the last 24h` +
+			`${ledger.repaired ? ` (${ledger.repaired} by slot repair)` : ""}` +
 			`${ledger.pending ? ` (${ledger.pending} still inside its grace)` : ""} — ${newestLine}.`
 		);
 	return `Sweep ledger: no ${SWEEP_WORKFLOW} run on record yet, so no slot can be judged.`;

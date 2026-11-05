@@ -233,14 +233,15 @@ const startReapPass = (root) =>
 	);
 
 /**
- * Run one of the machine incident filers on the review checkout's tracker: the
- * incidents are the machine's, so one checkout files them. Logged only where it
- * filed or failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
- * memwatch's process runaways (scripts/file-process-runaway-tickets.js, #3807).
+ * Run one of the machine's children from the review checkout: what they act on
+ * is the machine's, so one checkout runs them. Logged only where it printed or
+ * failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
+ * memwatch's process runaways (scripts/file-process-runaway-tickets.js, #3807);
+ * the sweep's slot repair (scripts/repair-sweep-slot.js, #4447).
  * @param {string} script
  * @param {string} label
  */
-function fileMachineTickets(script, label) {
+function runMachineChild(script, label) {
 	if (!hasConfig(REVIEW_ROOT)) return;
 	const r = runChild(process.execPath, [path.join(SCRIPTS, script)], {
 		cwd: REVIEW_ROOT,
@@ -974,7 +975,7 @@ const productionIo = {
 	levelMain,
 	startReapPass,
 	startWarmPass,
-	fileMachineTickets,
+	runMachineChild,
 	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
 	readListing: (trusted) =>
 		trusted ? readAgentsAfterBoot() : listedAgents({ requireSelf: false }),

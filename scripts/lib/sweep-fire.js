@@ -21,10 +21,9 @@
  * A DENY, NOT A WARN (mantahostels#2188 Q4).
  *
  * NO EXEMPTION FOR SCHEDULE REPAIR (mantahostels#2188 Q3). A fire made while the
- * ledger shows a missed slot spends the cap like any other. The autofire
- * already covers the stale-verdict-plus-moved-HEAD condition a dropped slot
- * produces, inside this same budget, so an exemption would double-count it,
- * and the miss rate would make it near-universal.
+ * ledger shows a missed slot spends the cap like any other, and so does the
+ * refill tick's own repair of one (scripts/repair-sweep-slot.js, #4447): the
+ * miss rate would make an exemption near-universal.
  *
  * WHAT IT CANNOT SEE — four routes, because a Bash `PreToolUse` hook reads the
  * command string it is handed and nothing else: the GitHub web UI, `gh api …

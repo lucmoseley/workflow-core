@@ -12,7 +12,7 @@
  * take the quiet bench route's step (lib/quiet-bench-tick.js, #3852), settle
  * what a kill before the last tick's write left out of the state (#4180), stop
  * each job that never started, tend the served checkouts (their landing queue,
- * the machine incident filers, the repo holds and the `.git` probe), read the
+ * the machine's children, the repo holds and the `.git` probe), read the
  * listing, stop each overflow session past its allowance (#3698), send each repo
  * hold's notice, queue the launches a boot killed (#3880), judge the finished
  * launches for progress, act on the blocked and idle ones (lib/refill-blocks.js),
@@ -229,7 +229,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   levelMain: (root: string) => void,
  *   startWarmPass: (root: string) => void,
  *   startReapPass: (root: string) => void,
- *   fileMachineTickets: (script: string, label: string) => void,
+ *   runMachineChild: (script: string, label: string) => void,
  *   tendHolds: (roots: string[], served: string[], now: number) => string[],
  *   readListing: (trusted: boolean) => {agents?: AgentRecord[]|null, why?: string|null},
  *   recordListedOverflowSessions: (agents: AgentRecord[]) => void,
@@ -357,12 +357,14 @@ const settleOptedOut = (io, dryRun, control) =>
 		},
 	);
 
-/** The machine incident filers a tick runs, on the review checkout's tracker:
- * earlyoom kills (#3094) and memwatch's process runaways (#3807).
+/** The machine's children a tick runs from the review checkout: the incident
+ * filers, on its tracker — earlyoom kills (#3094) and memwatch's process
+ * runaways (#3807) — and the sweep's slot repair, on its code repo (#4447).
  * @type {[string, string][]} */
-const MACHINE_FILERS = [
+const MACHINE_CHILDREN = [
 	["file-memory-kill-tickets.js", "memory kills"],
 	["file-process-runaway-tickets.js", "process runaways"],
+	["repair-sweep-slot.js", "sweep slot repair"],
 ];
 
 /**
@@ -370,7 +372,7 @@ const MACHINE_FILERS = [
  * root with a workflow-core config has its landing queue supervised, its main
  * checkout levelled (#4248), its dependency store warmed for the next cut
  * (#4318) and its worktrees reaped (#4247), a checkout gone
- * since its launch being skipped (#3284); the machine incident filers run; the
+ * since its launch being skipped (#3284); the machine's children run; the
  * repo holds are tended. The served checkouts whose probe failed.
  * @param {TickIo} io
  * @param {string[]} served
@@ -384,8 +386,8 @@ function tendCheckouts(io, served, launches, now) {
 	for (const root of configured) io.levelMain(root);
 	for (const root of configured) io.startWarmPass(root);
 	for (const root of configured) io.startReapPass(root);
-	for (const [script, label] of MACHINE_FILERS)
-		io.fileMachineTickets(script, label);
+	for (const [script, label] of MACHINE_CHILDREN)
+		io.runMachineChild(script, label);
 	return io.tendHolds(roots, served, now);
 }
 

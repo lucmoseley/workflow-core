@@ -124,7 +124,7 @@ function fakeIo(
 		levelMain: recorded("levelMain", () => undefined),
 		startWarmPass: recorded("startWarmPass", () => undefined),
 		startReapPass: recorded("startReapPass", () => undefined),
-		fileMachineTickets: recorded("fileMachineTickets", () => undefined),
+		runMachineChild: recorded("runMachineChild", () => undefined),
 		tendHolds: recorded("tendHolds", () => []),
 		readListing: recorded("readListing", () => ({ agents: [], why: null })),
 		recordListedOverflowSessions: recorded(
@@ -625,7 +625,7 @@ describe("the dry-run policy (#4212)", () => {
 			"levelMain",
 			"startWarmPass",
 			"startReapPass",
-			"fileMachineTickets",
+			"runMachineChild",
 			"tendHolds",
 			"recordListedOverflowSessions",
 			"stopOverAllowance",
@@ -961,7 +961,7 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
 				levelMain: (root) => acts.push(`level ${root}`),
 				startWarmPass: (root) => acts.push(`warm ${root}`),
 				startReapPass: (root) => acts.push(`reap ${root}`),
-				fileMachineTickets: (script) => acts.push(`file ${script}`),
+				runMachineChild: (script) => acts.push(`run ${script}`),
 				tendHolds: (roots) => {
 					holdRoots.push(roots);
 					return [];
@@ -974,8 +974,9 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
 			`level ${WFC}`,
 			`warm ${WFC}`,
 			`reap ${WFC}`,
-			"file file-memory-kill-tickets.js",
-			"file file-process-runaway-tickets.js",
+			"run file-memory-kill-tickets.js",
+			"run file-process-runaway-tickets.js",
+			"run repair-sweep-slot.js",
 		]);
 		expect(holdRoots).toEqual([[WFC, gone]]);
 	});
