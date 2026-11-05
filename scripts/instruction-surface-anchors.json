@@ -133,9 +133,9 @@
 			"source": "#3143, #3201, #4129"
 		},
 		"scripts/lib/sweep-fire.js": {
-			"digest": "5cc0631570cf3380",
+			"digest": "41ea666d4aa06e18",
 			"verdict": "at need for the deny (4th fire of the UTC day, before it runs). The three allowed fires each spend a unit with 0 B printed — a session learns it spent budget only when the budget is already gone (by design: no injection limb, header cites the route-(f) Bash byte cap). Run as a core of scripts/guard-dispatch.js (#2790)",
-			"selfSufficient": "yes for the deny — budget state, reset time and rule inline; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline; re-fed at #1994: fires 1-3 exit 0 with 0 B, fire 4 a 1502 B deny, its why-three now a pointer to scripts/lib/sweep-budget.js; re-fed at 6f96cb55e under #3583 through `guard-dispatch.js --only guard-sweep-fire`: the deny 1488 B on `ci.yml`, 474 B with the store empty; byte-identical to 1f8fd1722, including payloads aimed at #3383's trim (trailing newlines, still 1488 B) and #3566's clock (a bad `WFC_NOW` 0 B, allowed uncounted and logged; unset, a 0 B wall-clock spend).",
+			"selfSufficient": "yes for the deny — budget state, reset time and rule inline; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline; re-fed at #1994: fires 1-3 exit 0 with 0 B, fire 4 a 1502 B deny, its why-three now a pointer to scripts/lib/sweep-budget.js; re-fed at 6f96cb55e under #3583 through `guard-dispatch.js --only guard-sweep-fire`: the deny 1488 B on `ci.yml`, 474 B with the store empty; byte-identical to 1f8fd1722, including payloads aimed at #3383's trim (trailing newlines, still 1488 B) and #3566's clock (a bad `WFC_NOW` 0 B, allowed uncounted and logged; unset, a 0 B wall-clock spend); re-fed at #4447 through the same entry: the deny 1513 B on `ci.yml`, its rule now naming the refill tick's slot repair as a spender; a fire under the cap 0 B, spending one unit.",
 			"source": "#2790, #3583"
 		},
 		"scripts/check-roadmap-valid.js": {

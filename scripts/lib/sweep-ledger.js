@@ -183,7 +183,6 @@ const slotRunTitle = (at) => `sweep slot ${slotKey(at)}`;
 module.exports = {
 	SLOT_INPUT,
 	SWEEP_GRACE_MS,
-	SWEEP_HOURS_UTC,
 	SWEEP_WORKFLOW,
 	slotKey,
 	slotRunTitle,
