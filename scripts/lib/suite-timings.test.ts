@@ -59,6 +59,29 @@ describe("reportRoot (#2413)", () => {
 		).toBe(runner);
 	});
 
+	it("takes an isolated worktree under this checkout as the root its names sit under (#4352)", () => {
+		const isolated = `${ROOT}/.claude/worktrees/isolated-2673`;
+		const report = named(
+			`${isolated}/eslint.config.test.ts`,
+			`${isolated}/scripts/x.test.ts`,
+		);
+		const root = reportRoot(report, ROOT, exists);
+		expect(root).toBe(isolated);
+		expect(rowsFrom(report, root).map((r) => r.file)).toEqual([
+			"eslint.config.test.ts",
+			"scripts/x.test.ts",
+		]);
+	});
+
+	it("takes the isolated worktree over this checkout while that worktree still exists (#4352)", () => {
+		const isolated = `${ROOT}/.claude/worktrees/isolated-1`;
+		const both = (f: string) =>
+			exists(f) || exists(f.replace(/^\.claude\/worktrees\/isolated-1\//, ""));
+		expect(reportRoot(named(`${isolated}/scripts/x.test.ts`), ROOT, both)).toBe(
+			isolated,
+		);
+	});
+
 	it("keeps a shared subdirectory in the names, where every file sits in one", () => {
 		expect(reportRoot(named(`${runner}/scripts/x.test.ts`), ROOT, exists)).toBe(
 			runner,

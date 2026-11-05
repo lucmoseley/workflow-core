@@ -35,12 +35,13 @@ const META_PREFIX = "# ";
 const DEFAULT_SLICES = [5, 10, 20, 50, 100];
 
 /**
- * The checkout a report's file names sit under: `root` where every name is
- * inside it, else the ancestor of its names under which the most of them
- * name a file `exists` finds in this checkout. A report from an Actions
- * runner names files under the runner's own worktree, not this one, and a
- * shard's files can all share a subdirectory, so no common prefix is safe
- * (#2413).
+ * The checkout a report's file names sit under: the deepest ancestor of its
+ * names under which the most of them name a file `exists` finds in this
+ * checkout, else `root`. A report from an Actions runner names files under
+ * the runner's own worktree, not this one, and a shard's files can all share
+ * a subdirectory, so no common prefix is safe (#2413). A run in an isolated
+ * worktree names files under `<root>/.claude/worktrees/<name>/`, so `root`
+ * containing every name does not make it the checkout tested (#4352).
  *
  * @param {{ testResults?: unknown[] }} report parsed vitest JSON
  * @param {string} root this checkout
@@ -52,7 +53,6 @@ function reportRoot(report, root, exists) {
 	const names = results.map((raw) =>
 		String(/** @type {Record<string, unknown>} */ (raw).name ?? ""),
 	);
-	if (names.every((n) => n.startsWith(`${root}${path.sep}`))) return root;
 	let best = root;
 	let found = 0;
 	for (let dir = path.dirname(names[0] ?? root); ; dir = path.dirname(dir)) {
