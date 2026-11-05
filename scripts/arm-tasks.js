@@ -188,14 +188,6 @@ const git = (cwd, args) =>
 	execGit(args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 
 /**
- * Whether a `claim` met a live neighbour's hold: it goes ahead, warned (#4249).
- * @param {{status: number|null, stdout: string, stderr: string}} r
- */
-const isContended = (r) =>
-	r.status === 0 &&
-	`${r.stdout}${r.stderr}`.includes("is also held by session");
-
-/**
  * Register the fake neighbour on a live process of its own and take its claim
  * through the sandbox's arbiter.
  * @param {Task} task
@@ -239,10 +231,11 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 		});
 	if (claim(sessionId).status !== 0)
 		throw new Error("the neighbour's claim failed");
-	if (!isContended(claim("arm-probe")))
-		throw new Error(
-			"the neighbour's claim is not warned of to another session",
-		);
+	// A revision before #4249 refuses the probe; one after warns it, naming the
+	// neighbour.
+	const probe = claim("arm-probe");
+	if (probe.status !== 1 && !probe.stderr.includes(sessionId))
+		throw new Error("the neighbour's claim does not reach another session");
 	const expiresAt = new Date(Date.now() + holdSeconds * 1000).toISOString();
 	return { sessionId, pid, path: task.neighbour.path, holdSeconds, expiresAt };
 }
