@@ -48,6 +48,7 @@ const {
 	reap,
 	reopen,
 } = require("./lib/session-checkout.js");
+const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const CLI = {
@@ -188,7 +189,7 @@ const RUN = {
 		);
 		const r = spawnSync(claudeBin(), ["attach", named], {
 			stdio: "inherit",
-			env: { ...process.env, CLAUDE_CONFIG_DIR: made.seat },
+			env: buildSeatEnv(process.env, made.seat),
 		});
 		if (r.error) throw r.error;
 		return r.status ?? 1;
