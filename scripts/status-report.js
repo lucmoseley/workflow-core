@@ -71,7 +71,9 @@ const POOL_WIDTH = 4;
  * degraded bridge: here a healthy one prints its latency. `kernel-stall` (#4092)
  * also runs at SessionStart, silent on a clock it cannot read: here that is a WARN.
  * `file-ci-time` (#4292) also runs in the scheduled sweep, and downloads the
- * last few sweeps' vitest reports, ~11 MB each.
+ * last few sweeps' vitest reports, ~11 MB each. `compaction-backstop` (#4410)
+ * reads one comment page per ticket closed in its window, so it is among the
+ * slowest.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -123,6 +125,7 @@ const CHECKS = [
 	["wsl-currency", "check-wsl-currency.js"],
 	["idle-efforts", "check-idle-efforts.js"],
 	["unclosed-launches", "check-unclosed-launches.js"],
+	["compaction-backstop", "check-compaction-backstop.js"],
 ];
 
 /**
@@ -130,7 +133,12 @@ const CHECKS = [
  * so their body is printed even under an `OK:` line. A SKIP is no clean run:
  * it stays with the clean list.
  */
-const STANDINGS = new Set(["escape-audit", "primitives", "wsl-currency"]);
+const STANDINGS = new Set([
+	"escape-audit",
+	"primitives",
+	"wsl-currency",
+	"compaction-backstop",
+]);
 
 /**
  * @typedef {object} Result
