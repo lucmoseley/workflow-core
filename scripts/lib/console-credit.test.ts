@@ -146,6 +146,7 @@ describe("isConsoleReadDue", () => {
 		creditUsd: 170,
 		grantUsd: 200,
 		readAt: Now - Day,
+		expiresOn: null,
 		qUsd: 4,
 		running: 0,
 		cycleStart: 0,

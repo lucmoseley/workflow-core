@@ -36,9 +36,9 @@ const { caught } = require("./caught.js");
 
 /*
  * EVERY PATH IS KEYED TO THE ORACLE BINARY AND THE DIRS IT READS
- * (agent-liveness.js `oracleCacheKey`). An overflow seat reads its own dir
- * beside the plan seats', so its listing is not a plan seat's, and one served
- * the other's would read its own sessions absent (#3561). The suite stands a
+ * (agent-liveness.js `oracleCacheKey`). A reader's dirs start with its own
+ * config dir, so readers under two dirs can read two sets, and one served the
+ * other's listing would read its own sessions absent (#3561). The suite stands a
  * fake `claude` on WFC_CLAUDE_BIN; unkeyed, a fake would be served the real daemon's listing from a session
  * start seconds earlier, and — worse — would queue behind that start's lock for
  * the follower wait. Keyed, a fake shares nothing with the real oracle and

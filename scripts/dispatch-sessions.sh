@@ -629,10 +629,14 @@ fi
 # An overflow seat's set is sized by its key's budget (#2609): `fit` is how
 # many more sessions its headroom holds at one mean session each. Fails CLOSED
 # like the allowance gate.
-# $1: the budget JSON. Prints the fields the refusals below name, tab-separated.
+# $1: the budget JSON. Prints the fields the refusals below name, tab-separated;
+# the last two say when the key is free again: its next cycle, or, where the
+# key has a Console reading, a newer reading (lib/overflow-budget-core.js).
 budget_fields() {
-  jq -r '[.fit, .headroomUsd, .qUsd, .running, .reservedUsd, .exhausted,
-    (.nextCycleStart / 1000 | strflocaltime("%Y-%m-%d"))] | @tsv' <<<"$1"
+  jq -r '(.nextCycleStart / 1000 | strflocaltime("%Y-%m-%d")) as $next |
+    [.fit, .headroomUsd, .qUsd, .running, .reservedUsd, .exhausted,
+    (if .readAt == null then "until \($next)" else "until a newer Console reading" end),
+    (if .readAt == null then "resets \($next)" else "resets at a newer Console reading" end)] | @tsv' <<<"$1"
 }
 # Why the seat fits no session, from the fields budget_fields last read.
 no_fit_line() {
@@ -654,16 +658,16 @@ read_budget() {
 }
 if [[ $overflow -eq 1 ]]; then
   budget_json="$(read_budget "the whole set")" || exit 3
-  IFS=$'\t' read -r fit headroom q_usd n_running reserved exhausted resets \
+  IFS=$'\t' read -r fit headroom q_usd n_running reserved exhausted free_until resets \
     <<<"$(budget_fields "$budget_json")"
   if ((fit == 0)); then
     if [[ "$exhausted" == "true" ]]; then
-      printf 'REFUSED: overflow seat %s: its key is exhausted until %s, Anthropic having refused it for credit.\n' \
-        "$seat_dir" "$resets" >&2
+      printf 'REFUSED: overflow seat %s: its key is exhausted %s, Anthropic having refused it for credit.\n' \
+        "$seat_dir" "$free_until" >&2
     else
       printf 'REFUSED: %s\n' "$(no_fit_line)" >&2
     fi
-    printf '  --force does not lift the budget gate; the budget resets %s.\n' "$resets" >&2
+    printf '  --force does not lift the budget gate; the budget %s.\n' "$resets" >&2
     exit 3
   fi
   if ((fit < $# / 2)); then

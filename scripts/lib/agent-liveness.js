@@ -162,7 +162,7 @@ function oracleDirs() {
 /**
  * The oracle cache's key: the binary and the dirs it reads, in a fixed order,
  * so every reader of one set of dirs shares a record and a reader of another
- * set — an overflow seat, which reads its own dir too — never takes it (#3561).
+ * set, which starts from its own config dir, never takes it (#3561).
  * Exported for the suite, which finds the record on disk through it.
  * @param {string} [bin]
  * @param {string[]} [dirs]

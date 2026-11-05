@@ -589,8 +589,12 @@ function buildBudgetLine(seat, budget) {
 		: "";
 	const headroom = `headroom ${dollars(budget.headroomUsd)} (${dollars(budget.reservedUsd)} held by ${budget.running} running)`;
 	if (budget.readAt !== null) {
-		const spent = `${dollars(budget.creditUsd)} on the Console at ${new Date(budget.readAt).toISOString()}, ${dollars(budget.settledUsd)} spent since`;
-		return `overflow ${seat.dir}: ${budget.exhausted ? "exhausted" : `fits ${budget.fit}`}; ${headroom}; ${spent}${failed}`;
+		const spent = `${dollars(budget.creditUsd)} of ${dollars(budget.grantUsd)} on the Console at ${new Date(budget.readAt).toISOString()}, ${dollars(budget.settledUsd)} spent since`;
+		const expires = budget.expiresOn ? `; expires ${budget.expiresOn}` : "";
+		const state = budget.exhausted
+			? "exhausted until a newer Console reading"
+			: `fits ${budget.fit}`;
+		return `overflow ${seat.dir}: ${state}; ${headroom}; ${spent}${expires}${failed}`;
 	}
 	const resets = localDate(new Date(budget.nextCycleStart));
 	const spent = `spent ${dollars(budget.settledUsd)} of ${dollars(budget.grantUsd)} since ${localDate(new Date(budget.cycleStart))}`;
@@ -598,8 +602,6 @@ function buildBudgetLine(seat, budget) {
 		return `overflow ${seat.dir}: exhausted until ${resets}; headroom ${dollars(budget.headroomUsd)}; ${spent}${failed}`;
 	return `overflow ${seat.dir}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${resets}${failed}`;
 }
-
-module.exports = { buildBudgetLine, seatBudget, stopOverAllowance };
 
 /*
  * CLI mode, for the dispatcher and status. Exit 0 sized, 2 usage, 1 otherwise:
@@ -653,3 +655,5 @@ function main(args) {
 }
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
+
+module.exports = { buildBudgetLine, seatBudget, stopOverAllowance };

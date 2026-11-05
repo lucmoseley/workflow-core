@@ -61,6 +61,8 @@ const { expectedRemainderUsd } = require("./session-spend.js");
  * @property {number} creditUsd the unexpired credit at the reading, else the grant
  * @property {number} grantUsd the unexpired grants' size, else the configured grant
  * @property {number|null} readAt ms, the reading's time; null with none
+ * @property {string|null} expiresOn the earliest unexpired credit's expiry,
+ *   YYYY-MM-DD; null with no reading or none unexpired
  * @property {number} qUsd the launch reservation
  * @property {number} running
  * @property {number} cycleStart ms
@@ -108,6 +110,7 @@ function anchoredBasis({ at, credits }, now) {
 	return {
 		creditUsd: live.reduce((t, c) => t + c.remainingUsd, 0),
 		grantUsd: live.reduce((t, c) => t + c.grantUsd, 0),
+		expiresOn: live.map((c) => c.expiresOn).sort()[0] ?? null,
 		isCounted: (/** @type {number} */ endedAt) => endedAt > at,
 	};
 }
@@ -133,6 +136,7 @@ function budgetOf({
 		: {
 				creditUsd: grantUsd,
 				grantUsd,
+				expiresOn: null,
 				isCounted: (/** @type {number} */ endedAt) =>
 					endedAt >= cycle.start && endedAt < cycle.next,
 			};
@@ -160,6 +164,7 @@ function budgetOf({
 		creditUsd,
 		grantUsd: basis.grantUsd,
 		readAt: reading?.at ?? null,
+		expiresOn: basis.expiresOn,
 		qUsd,
 		running: running.length,
 		cycleStart: cycle.start,
