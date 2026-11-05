@@ -215,7 +215,7 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 		"../../../../scripts/session-arbiter.js",
 	);
 
-	it("aborts without writing when another live session holds the digest, naming the holder", () => {
+	it("writes the digest and warns, naming the holder, when another live session holds it", () => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "digest-claim-"));
 		const repo = fs.mkdtempSync(path.join(os.tmpdir(), "digest-repo-"));
 		fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
@@ -253,9 +253,10 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 			[fixture, "--out", out],
 			{ env, cwd: repo },
 		);
-		expect(r.status).toBe(1);
-		expect(`${r.stdout}${r.stderr}`).toContain("holder");
-		expect(fs.existsSync(out)).toBe(false);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain("is also held by session");
+		expect(r.stderr).toContain("holder");
+		expect(fs.existsSync(out)).toBe(true);
 
 		fs.rmSync(home, { recursive: true, force: true });
 		fs.rmSync(repo, { recursive: true, force: true });

@@ -479,7 +479,7 @@ const HOLD_SECONDS = "60";
 const REAP_POLLS = 100;
 
 describe("build: the fake neighbour", () => {
-	it("holds a live claim another session is refused, until its process ends", () => {
+	it("holds a live claim another session is warned of, until its process ends", () => {
 		const tasks = path.join(tmp, "tasks.json");
 		const held = ".claude/skills/pick-next/SKILL.md";
 		fs.writeFileSync(
@@ -541,9 +541,11 @@ describe("build: the fake neighbour", () => {
 						CLAUDE_PROJECT_DIR: repo,
 					},
 				},
-			).status;
+			);
 		try {
-			expect(claim("another-session")).toBe(1);
+			const warned = claim("another-session");
+			expect(warned.status).toBe(0);
+			expect(warned.stderr).toContain(neighbour.sessionId);
 		} finally {
 			process.kill(neighbour.pid);
 		}
@@ -555,6 +557,8 @@ describe("build: the fake neighbour", () => {
 			i++
 		)
 			spawnSync("sleep", ["0.05"]);
-		expect(claim("another-session")).toBe(0);
+		const freed = claim("another-session");
+		expect(freed.status).toBe(0);
+		expect(freed.stderr).not.toContain(neighbour.sessionId);
 	});
 });

@@ -227,10 +227,14 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 			cwd: repo,
 			env,
 			encoding: "utf8",
-		}).status;
-	if (claim(sessionId) !== 0) throw new Error("the neighbour's claim failed");
-	if (claim("arm-probe") !== 1)
-		throw new Error("the neighbour's claim does not refuse another session");
+		});
+	if (claim(sessionId).status !== 0)
+		throw new Error("the neighbour's claim failed");
+	// A revision before #4249 refuses the probe; one after warns it, naming the
+	// neighbour, and takes no claim for it.
+	const probe = claim("arm-probe");
+	if (probe.status !== 1 && !probe.stderr.includes(sessionId))
+		throw new Error("the neighbour's claim does not reach another session");
 	const expiresAt = new Date(Date.now() + holdSeconds * 1000).toISOString();
 	return { sessionId, pid, path: task.neighbour.path, holdSeconds, expiresAt };
 }
