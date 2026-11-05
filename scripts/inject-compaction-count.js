@@ -55,7 +55,8 @@ const {
 	buildCompactionSentence,
 	compactionAdvice,
 } = require("./lib/compaction-set");
-const { buildStateFile, claimedIssue } = require("./lib/build-state");
+const { buildStateFile } = require("./lib/build-state");
+const { claimedIssue } = require("./lib/arbiter-issue-claims");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
@@ -139,7 +140,7 @@ function unitOf(sid) {
 		logFailOpen("issue claims unreadable", err);
 	}
 	const file = issue === null ? null : buildStateFile(issue);
-	return { issue, stateFile: file && fs.existsSync(file) ? file : null };
+	return { issue, stateFile: file && fs.existsSync(file) ? file : null, sid };
 }
 
 /** @param {string} raw */

@@ -74,13 +74,24 @@ const issueOfUrl = (url) => {
 	return m ? Number(m[1]) : null;
 };
 
-/** @param {{ body?: string | null }[]} comments */
+/**
+ * A unit's total: each session's highest count, plus every line naming no
+ * session. A line carries its session's running total, so a session that wrote
+ * it twice — a hand-off then a close, or two hand-offs — counts once.
+ * @param {{ body?: string | null }[]} comments
+ */
 function sumCompactions(comments) {
-	let compactions = null;
+	let unnamed = null;
+	/** @type {Map<string, number>} */
+	const bySession = new Map();
 	for (const { body } of comments)
-		for (const m of (body ?? "").matchAll(COMPACTIONS_LINE_RE))
-			compactions = (compactions ?? 0) + Number(m[1]);
-	return compactions;
+		for (const m of (body ?? "").matchAll(COMPACTIONS_LINE_RE)) {
+			const count = Number(m[1]);
+			if (m[2]) bySession.set(m[2], Math.max(bySession.get(m[2]) ?? 0, count));
+			else unnamed = (unnamed ?? 0) + count;
+		}
+	if (unnamed === null && bySession.size === 0) return null;
+	return (unnamed ?? 0) + [...bySession.values()].reduce((a, b) => a + b, 0);
 }
 
 /**
@@ -91,7 +102,7 @@ function sumCompactions(comments) {
 function commitsByTicket(sinceMs) {
 	const raw = execGit(
 		["log", `--since=${new Date(sinceMs).toISOString()}`, LOG_FORMAT, "HEAD"],
-		{ encoding: "utf8", maxBuffer: 64e6 },
+		{ encoding: "utf8" },
 	);
 	/** @type {Map<number, string[]>} */
 	const by = new Map();
@@ -236,7 +247,7 @@ runCheck({
 		try {
 			commits = commitsByTicket(earliest);
 		} catch (e) {
-			return ctx.skip(`git log would not answer (${caught(e).message}).`);
+			return ctx.broken(`git log would not answer (${caught(e).message}).`);
 		}
 		const bins = binUnits(units, attribute(subsBySpec, commits));
 		const unlogged = units.filter((u) => u.compactions === null).length;

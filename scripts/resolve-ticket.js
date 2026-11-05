@@ -123,8 +123,10 @@ const {
 	buildCompactionsLine,
 	COMPACTIONS_MARKER,
 	countCompactions,
+	hasSessionCompactionsLine,
 } = require("./lib/compaction-set.js");
 const { caught } = require("./lib/caught.js");
+const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE =
@@ -437,24 +439,22 @@ function readMapOrFail(issue, n, decision) {
 
 /**
  * A `kind:ticket`'s comment with this session's autocompaction count
- * appended; any other issue's, or one already carrying the line, as given.
+ * appended; any other issue's, or one already carrying this session's line,
+ * as given. A line quoted from another session never stands in for this one's.
  * @param {string} comment
  * @param {Issue} issue
  */
 function withCompactionsLine(comment, issue) {
-	if (
-		!issue.labels.includes("kind:ticket") ||
-		hasLine(comment, COMPACTIONS_MARKER, "")
-	)
-		return comment;
-	const sid = process.env.CLAUDE_CODE_SESSION_ID;
+	if (!issue.labels.includes("kind:ticket")) return comment;
+	const sid = sessionFromEnv();
+	if (sid && hasSessionCompactionsLine(comment, sid)) return comment;
 	if (!sid) {
 		io.out(
 			`No session id (CLAUDE_CODE_SESSION_ID is unset), so #${issue.number}'s comment carries no **${COMPACTIONS_MARKER}:** line.\n`,
 		);
 		return comment;
 	}
-	return `${comment.trimEnd()}\n\n${buildCompactionsLine(countCompactions(sid))}\n`;
+	return `${comment.trimEnd()}\n\n${buildCompactionsLine(countCompactions(sid), sid)}\n`;
 }
 
 /**

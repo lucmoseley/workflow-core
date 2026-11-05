@@ -242,7 +242,7 @@ describe("a successful resolve", () => {
 		const r = run(DECISION);
 		expect(r.status).toBe(0);
 		expect(JSON.parse(read("comments.json"))[0].body).toBe(
-			`${COMMENT.trimEnd()}\n\n**Compactions:** 0\n`,
+			`${COMMENT.trimEnd()}\n\n**Compactions:** 0 (session ${ME})\n`,
 		);
 		expect(JSON.parse(read("issue.json"))).toMatchObject({
 			state: "closed",
@@ -1180,13 +1180,17 @@ describe("the **Compactions:** line", () => {
 		setUp();
 		compacted(["c1", "c2", "pending:2026-11-05T00:00:00Z"]);
 		expect(run(DECISION).status).toBe(0);
-		expect(lastPosted()).toBe(`${COMMENT.trimEnd()}\n\n**Compactions:** 3\n`);
+		expect(lastPosted()).toBe(
+			`${COMMENT.trimEnd()}\n\n**Compactions:** 3 (session ${ME})\n`,
+		);
 	});
 
 	it("writes 0 for a session that never autocompacted", () => {
 		setUp();
 		expect(run(DECISION).status).toBe(0);
-		expect(lastPosted()).toMatch(/\n\*\*Compactions:\*\* 0\n$/);
+		expect(lastPosted()).toMatch(
+			/\n\*\*Compactions:\*\* 0 \(session sess-me\)\n$/,
+		);
 	});
 
 	it("writes no line on an issue that is not a kind:ticket", () => {
@@ -1196,11 +1200,21 @@ describe("the **Compactions:** line", () => {
 		expect(lastPosted()).toBe(COMMENT);
 	});
 
-	it("keeps a line the comment already carries", () => {
+	it("keeps this session's line where the comment already carries it", () => {
 		setUp();
 		compacted(["c1"]);
-		const own = `${COMMENT}**Compactions:** 7\n`;
+		const own = `${COMMENT}**Compactions:** 7 (session ${ME})\n`;
 		expect(run(DECISION, own).status).toBe(0);
 		expect(lastPosted()).toBe(own);
+	});
+
+	it("adds its own line beside one quoted from another session", () => {
+		setUp();
+		compacted(["c1"]);
+		const quoted = `${COMMENT}**Compactions:** 10 (session sess-before)\n`;
+		expect(run(DECISION, quoted).status).toBe(0);
+		expect(lastPosted()).toBe(
+			`${quoted.trimEnd()}\n\n**Compactions:** 1 (session ${ME})\n`,
+		);
 	});
 });
