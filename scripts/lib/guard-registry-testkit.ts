@@ -394,10 +394,14 @@ export function landerRevertKit() {
 	const copy = templateOf(() => {
 		const built = committedRepo(TWO_GUARDS, (r) => {
 			reviewIn(r, [], claims);
-			fs.copyFileSync(
-				path.join(__dirname, "..", "landing-registry-gate.js"),
-				path.join(r, "scripts", "landing-registry-gate.js"),
-			);
+			for (const script of [
+				"landing-registry-gate.js",
+				"lander-revert-base.js",
+			])
+				fs.copyFileSync(
+					path.join(__dirname, "..", script),
+					path.join(r, "scripts", script),
+				);
 		});
 		const { commit } = tools(built);
 		templateCulprit = commit(
@@ -440,8 +444,11 @@ export function landerRevertKit() {
 		...claims,
 		...(culprit ? { WFC_LANDER_REVERT: culprit } : {}),
 	});
-	const preCommit = (root: string, culprit?: string) =>
-		run(root, ["--against", "HEAD"], { env: env(culprit) });
+	/** `base` as the hook's resolved WFC_LANDER_REVERT_BASE (#4451). */
+	const preCommit = (root: string, culprit?: string, base?: string) =>
+		run(root, ["--against", "HEAD"], {
+			env: { ...env(culprit), WFC_LANDER_REVERT_BASE: base ?? "" },
+		});
 	const push = (root: string, sha: string, tip: string, culprit?: string) =>
 		/* spawn-kept: a real fd, as the #3074 describe's — the gate streams the
 		 * checker's report to the real fd 2. */
@@ -485,13 +492,18 @@ export function landerRevertKit() {
 		);
 		const hooks = path.join(root, ".git", "gate-hooks");
 		fs.mkdirSync(hooks);
+		/* The commit hook resolves the revert's second baseline once, as
+		 * .husky/pre-commit does (#4451). */
 		for (const [hook, script] of [
-			["prepare-commit-msg", '"$GATES/check-guard-registry.js" --against HEAD'],
-			["pre-push", '"$GATES/landing-registry-gate.js"'],
+			[
+				"prepare-commit-msg",
+				'export WFC_LANDER_REVERT_BASE="$(node "$GATES/lander-revert-base.js")"\nexec node "$GATES/check-guard-registry.js" --against HEAD',
+			],
+			["pre-push", 'exec node "$GATES/landing-registry-gate.js"'],
 		] as const) {
 			fs.writeFileSync(
 				path.join(hooks, hook),
-				`#!/bin/sh\nGATES=${shellQuote(`${root}/scripts`)}\nexec node ${script}\n`,
+				`#!/bin/sh\nGATES=${shellQuote(`${root}/scripts`)}\n${script}\n`,
 			);
 			fs.chmodSync(path.join(hooks, hook), 0o755);
 		}

@@ -175,6 +175,75 @@ describe("taking a tracked main-checkout file back to HEAD is allowed (#4449)", 
 	});
 });
 
+describe("an interpreter on no script file, run from the main checkout, is refused (#4469)", () => {
+	const fromMain = (command: string) =>
+		refusal("Bash", { command }, { cwd: at.main });
+	const Refused = "runs an interpreter on a program that is no file";
+
+	it("refuses a heredoc-fed python3 whose cwd is the main checkout", () => {
+		const reason = fromMain(
+			"python3 - <<'EOF'\nopen('a.md','w').write('x')\nEOF",
+		);
+		expect(reason).toContain(`${Refused}, in the main checkout`);
+		expect(reason).toContain("`cd` into your own worktree");
+	});
+
+	it("refuses every inline, stdin and flag spelling there", () => {
+		for (const command of [
+			`node -e "require('fs').writeFileSync('a.md','x')"`,
+			"node - <<'EOF'\nx\nEOF",
+			`python3 -c "open('a.md','w').write('x')"`,
+			`python3 -uc "open('a.md','w')"`,
+			`python3 -W ignore -c "open('a.md','w')"`,
+			"python3 <<< 'x'",
+			`echo "open('a.md','w')" | python3 -`,
+			"cat x.py | python3",
+			"python3 < x.py",
+			"python3 -m x",
+			`bash -c "echo x > a.md"`,
+			"sh <<'EOF'\nx\nEOF",
+		])
+			expect(fromMain(command), command).toContain(Refused);
+	});
+
+	it("refuses one behind a wrapper, in a subshell or a substitution", () => {
+		for (const command of [
+			`env FOO=1 python3 -c 'x'`,
+			`timeout 5 python3 -c 'x'`,
+			`nohup node -e 'x'`,
+			`(python3 -c 'x')`,
+			`echo $(python3 -c 'x')`,
+		])
+			expect(fromMain(command), command).toContain(Refused);
+	});
+
+	it("refuses one a session in its worktree reaches through `cd`", () => {
+		const reason = refusal("Bash", {
+			command: `cd ${at.main} && python3 - <<'EOF'\nopen('a.md','w')\nEOF`,
+		});
+		expect(reason).toContain(`${Refused}, in the main checkout`);
+		expect(reason).toContain(`Your session's worktree is ${at.worktree}`);
+	});
+
+	it("allows it in the session's worktree, and in a gitignored store", () => {
+		expect(
+			refusal("Bash", { command: "python3 - <<'EOF'\nprint(1)\nEOF" }),
+		).toBeNull();
+		const store = path.join(at.main, ".claude", "tmp");
+		fs.mkdirSync(store, { recursive: true });
+		expect(
+			refusal("Bash", { command: `python3 -c 'print(1)'` }, { cwd: store }),
+		).toBeNull();
+	});
+
+	it("allows a script file run there, fed a heredoc or not", () => {
+		fs.mkdirSync(path.join(at.main, "scripts"), { recursive: true });
+		fs.writeFileSync(path.join(at.main, "scripts", "x.js"), "");
+		expect(fromMain("node scripts/x.js cut s")).toBeNull();
+		expect(fromMain("node scripts/x.js <<'EOF'\ndata\nEOF")).toBeNull();
+	});
+});
+
 describe("before the cutover, or with `landing` off, it refuses nothing (#4248)", () => {
 	it("allows an Edit of the main checkout while its main tracks landing", () => {
 		git(at.main, "config", "branch.main.merge", "refs/heads/landing");

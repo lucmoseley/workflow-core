@@ -35,6 +35,8 @@ here="$(cd "$here" && pwd)"
 # the probe may never be the reason Claude won't start (mantahostels#3111).
 # shellcheck source=scripts/lib/interop-probe.sh
 source "$here/lib/interop-probe.sh" 2>/dev/null
+# shellcheck source=scripts/lib/bg-launch-id.sh
+source "$here/lib/bg-launch-id.sh" || exit 1
 
 if [[ $# -gt 0 && "$1" != -* ]]; then
   name="$1"
@@ -56,9 +58,7 @@ launched="$("${WFC_CLAUDE_BIN:-claude}" --bg --agent claude --name "$name" "$@")
   printf 'start session: `claude --bg` failed in %s, which stays cut for a retry:\n%s\n' "$dir" "$launched" >&2
   exit 1
 }
-# The job id: the first run of 8 hex characters in what `--bg` printed,
-# `backgrounded · <id> · <name> …` with colour escapes around the id.
-id="$(printf '%s\n' "$launched" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -oE '[0-9a-f]{8}' | head -1)"
+id="$(printf '%s\n' "$launched" | bg_launch_id)"
 if [[ -z "$id" ]]; then
   # claude-route-exempt: only text
   printf 'start session: no job id in what `claude --bg` printed; attach from `claude agents`:\n%s\n' "$launched" >&2

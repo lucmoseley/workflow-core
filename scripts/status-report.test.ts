@@ -10,8 +10,8 @@
  * "check-primitives.js"; naming both here selects this test when either changes.
  *
  * It also pins the read-only default (#4449): a bare run passes no checker
- * `--write`, so history-trim, one of WRITERS, appends nothing to its tracked
- * watch file, and `--write` reaches it. The other writers' bare runs are held
+ * `--write`, so history-trim, one of WRITERS, appends nothing to its watch
+ * file, and `--write` reaches it. The other writers' bare runs are held
  * silent by their own tests (check-band-drift, check-orphaned-edits).
  *
  * spawn-kept: the adopter's case proves the script npm runs, so npm is its child.

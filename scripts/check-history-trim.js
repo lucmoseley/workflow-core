@@ -24,8 +24,7 @@
  * WHERE IT RUNS: `npm run status` only (scripts/status-report.js), WITHOUT
  * --notify, so a session does not open on a fault list. --notify is exercised
  * by the tests and wired by nothing. The reading is recorded only under
- * `--write` (`npm run status -- --write`): the watch file is tracked, and a
- * check run dirties no tree (#4449).
+ * `--write` (`npm run status -- --write`): a check run dirties no tree (#4449).
  *
  * THE RESIDUAL of running on demand rather than at every session start: a trim
  * is detected late. The signal itself does not decay — a forward move of the
@@ -37,8 +36,8 @@
  *            trimming notice when one is detected; under --write, records one
  *            reading a day either way.
  * JUSTIFIED: fail-safe — the loss is unrecoverable and silent otherwise.
- * DEFEAT:    --notify --write — an append (or a failed one) lands there too,
- *            but finish() suppresses every ctx.dirtied() note under --notify
+ * DEFEAT:    --notify --write — a failed append goes unsaid there:
+ *            finish() suppresses every ctx.dirtied() note under --notify
  *            (mantahostels#2665); that route is unwired to any reader today
  *            (see WHERE IT RUNS above). The plain route has none — see the
  *            dirtied() call below.
@@ -167,9 +166,8 @@ runCheck({
 			);
 
 		const baseline = readBaseline();
-		/* undefined is distinct from null: the watch file exists and is TRACKED,
-		 * so a corrupt or unreadable reading of it is this checker's own
-		 * apparatus failing on repo bytes, not the subject (history.jsonl) —
+		/* undefined is distinct from null: a corrupt or unreadable watch file
+		 * is this checker's own apparatus failing, not the subject (history.jsonl) —
 		 * BROKEN, never silently treated as "no baseline yet". Reading it as
 		 * null here would re-baseline over whatever trim happened in the gap,
 		 * the one failure mode this detector exists to catch. */
@@ -187,12 +185,9 @@ runCheck({
 		const newRoots = newRootsSince(roots, baseline);
 		const recorded = ctx.has("--write") ? recordReading(roots, t) : "unwritten";
 		/* dirtied(): status-report.js's verdict() (the DEFEAT note above) drops
-		 * a clean checker's whole body, so a landed or failed reading must say
-		 * so here to survive that drop. Silent on "throttled" and "unwritten" —
-		 * nothing was attempted. */
-		if (recorded === "recorded")
-			ctx.dirtied(`${WATCH_FILE()} gained a new reading — needs committing.`);
-		else if (recorded === "failed")
+		 * a clean checker's whole body, so a failed reading must say so here to
+		 * survive that drop. A landed one needs nothing of the reader. */
+		if (recorded === "failed")
 			ctx.dirtied(
 				`${WATCH_FILE()} could not be appended to just now — today's reading is lost.`,
 			);

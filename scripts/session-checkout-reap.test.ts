@@ -22,7 +22,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	FILED_DIR,
+	markerName,
+	readWorktreeDirt,
+} from "./lib/orphan-filings.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { worktreeLabel } from "./lib/session-worktrees.js";
 
 const SCRIPT = path.resolve(__dirname, "session-checkout.js");
 const HOUR = 60 * 60_000;
@@ -233,7 +239,7 @@ it("reports a dead session's dirty or unlanded worktree with its idle time and l
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toMatch(
-		/stranded: dirty-work — 1 uncommitted path; idle \d+m; last commit [0-9a-f]+ lock-1 — its session is gone: land it with `node scripts\/session-checkout\.js land` from inside it/,
+		/stranded: dirty-work — 1 uncommitted path; idle \d+m; last commit [0-9a-f]+ lock-1 — its session is gone: land it with `cd \S+dirty-work && node scripts\/session-checkout\.js land`, or, judged worthless, `git worktree remove --force \S+dirty-work`/,
 	);
 	expect(r.stderr).toMatch(
 		/stranded: unlanded-work — 1 commit not on origin\/landing; idle \d+m; last commit [0-9a-f]+ never pushed — /,
@@ -409,6 +415,36 @@ it("exits 1 naming what it could not remove, and says where a failed fetch leave
 		"session checkout: failed: 1 item could not be reaped, named above — clear what each names; the next pass tries again",
 	);
 	expect(fs.existsSync(stuck)).toBe(true);
+});
+
+it("names a stranded worktree's orphaned-edit issue in place of its ways out (#4439)", () => {
+	const dirty = cut("filed-work");
+	fs.writeFileSync(path.join(dirty, "half.txt"), "half done");
+	const filed = path.join(
+		git(main, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+		FILED_DIR,
+	);
+	fs.mkdirSync(filed, { recursive: true });
+	const label = worktreeLabel(main, fs.realpathSync(dirty));
+	fs.writeFileSync(
+		path.join(filed, markerName({ worktree: label, state: "s" })),
+		JSON.stringify({
+			ref: "https://github.com/o/r/issues/9",
+			at: 1,
+			dirt: readWorktreeDirt(dirty),
+		}),
+	);
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toMatch(
+		/stranded: filed-work — 1 uncommitted path; .* — its orphaned-edit issue https:\/\/github\.com\/o\/r\/issues\/9 carries the decision/,
+	);
+	expect(r.stderr).not.toContain("git worktree remove --force");
+
+	fs.writeFileSync(path.join(dirty, "half.txt"), "changed since");
+	expect(reap().stderr).toContain("its session is gone: land it with");
 });
 
 it("reads a stranded worktree's idle time from its own last write, never from the reaper's status read", () => {

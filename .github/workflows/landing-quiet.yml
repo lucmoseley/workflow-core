@@ -1,9 +1,9 @@
 name: Landing quiet 14h
 
-# The one report that runs off the machine (#3964): a dead machine cannot say it
-# is dead, and GitHub does not notify an account of its own tickets. GitHub sends
-# a scheduled run's failure to the user who last changed the cron or re-enabled
-# this file.
+# A report that runs off the machine (#3964), beside main-lag.yml: a dead
+# machine cannot say it is dead, and GitHub does not notify an account of its
+# own tickets. GitHub sends a scheduled run's failure to the user who last
+# changed the cron or re-enabled this file.
 #
 # Its own file because scheduled-checks.yml's red means a failed test.
 #
