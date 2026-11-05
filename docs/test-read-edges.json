@@ -2695,6 +2695,7 @@
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
+			"scripts/lib/arbiter-locks.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/plugin-tree.test.ts",

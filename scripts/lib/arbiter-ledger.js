@@ -80,21 +80,70 @@ function recordWrite(filePath, sessionId) {
 	// sweeps gains one ledger a session.
 	if (!fs.existsSync(ledger)) pruneLedgers();
 	// Append, never read-modify-write: several tool calls can land at once and an
-	// append of one short line is atomic enough for a ledger read as a set.
-	fs.appendFileSync(ledger, `${rel}\n`);
+	// append of one short line is atomic enough for a ledger read as a set. A
+	// worktree's line carries the tree after a tab (#4457).
+	const tree = core.writerTree();
+	fs.appendFileSync(ledger, tree ? `${rel}\t${tree}\n` : `${rel}\n`);
 	noteLandedRewrite(rel, sessionId);
 	return rel;
 }
 
 /**
- * Every path this session wrote, deduplicated — or `null` where the answer is
- * unavailable rather than empty (mantahostels#135).
+ * A write-ledger line's path and tree, the host's where it names none.
+ * @param {string} line
+ * @param {string} host
+ */
+function writeEntry(line, host) {
+	const tab = line.indexOf("\t");
+	return tab === -1
+		? { rel: line, tree: host }
+		: { rel: line.slice(0, tab), tree: line.slice(tab + 1) };
+}
+
+/**
+ * The paths a write ledger names in `tree`, deduplicated, or null where it
+ * will not read.
+ * @param {string} file
+ * @param {string} what
+ * @param {string} tree
+ * @param {string} host the host whose store holds the ledger
+ */
+function writesIn(file, what, tree, host) {
+	const lines = readLines(file, what);
+	if (lines === null) return null;
+	const rels = new Set();
+	for (const line of lines) {
+		const entry = writeEntry(line, host);
+		if (entry.tree === tree) rels.add(entry.rel);
+	}
+	return [...rels];
+}
+
+/**
+ * Every path this session wrote, each with the tree it wrote it in, or null
+ * where the ledger will not read — for a reader judging every tree at once.
+ * @param {string} sessionId
+ * @returns {{rel: string, tree: string}[]|null}
+ */
+function readWriteEntriesBy(sessionId) {
+	if (!sessionId) return null;
+	const host = core.repoRoot();
+	const lines = readLines(core.paths.ledger(sessionId), `writes ${sessionId}`);
+	if (lines === null) return null;
+	return lines.map((line) => writeEntry(line, host));
+}
+
+/**
+ * Every path this session wrote in `tree`, deduplicated — or `null` where the
+ * answer is unavailable rather than empty (mantahostels#135).
  *
  * An empty list tells a caller "this session wrote nothing", so returning it
  * when the ledger could not be read disowns the session's own files.
  * @param {string} sessionId
+ * @param {string} [tree] the reader's own tree where not given; a reader
+ *   judging another tree names it (#4457)
  */
-function readWritesBy(sessionId) {
+function readWritesBy(sessionId, tree = core.treeRoot()) {
 	if (!sessionId) return null;
 	// ENOENT is read as the empty answer: recordWrite mints the ledger on the
 	// session's first write, so a session that has written nothing has no file,
@@ -102,7 +151,12 @@ function readWritesBy(sessionId) {
 	//
 	// That equivalence holds only because pruneLedgers() spares a session it
 	// can prove is still running (mantahostels#137).
-	return readLedger(core.paths.ledger(sessionId), `writes ${sessionId}`);
+	return writesIn(
+		core.paths.ledger(sessionId),
+		`writes ${sessionId}`,
+		tree,
+		core.repoRoot(),
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -258,17 +312,20 @@ function readLines(file, what) {
 }
 
 /**
- * The session whose write ledger names `rel` and was written last, live or
- * finished, as `{sessionId, at}` — or null where no surviving ledger names it.
- * `sessionId` is the ledger's filename stem, which is the id for every id the
- * harness mints today. A ledger that will not read is passed over: this answers
- * "who last touched it", for a report, never an ownership test (#813).
+ * The session whose write ledger names `rel` in `tree` and was written last,
+ * live or finished, as `{sessionId, at}` — or null where no surviving ledger
+ * names it. `sessionId` is the ledger's filename stem, which is the id for
+ * every id the harness mints today. A ledger that will not read is passed
+ * over: this answers "who last touched it", for a report, never an ownership
+ * test (#813).
  * @param {string} rel
- * @param {string} [root] the host root whose store to read, where the caller
- *   holds one other than its own
+ * @param {{root?: string, tree?: string}} [where] the host root whose store to
+ *   read, where the caller holds one other than its own; the tree `rel` is in,
+ *   that host where not given
  * @returns {{sessionId: string, at: number}|null}
  */
-function readLastWriterOf(rel, root) {
+function readLastWriterOf(rel, { root, tree } = {}) {
+	const host = root ?? core.repoRoot();
 	const dir = core.paths.writesDir(root);
 	let entries;
 	try {
@@ -281,8 +338,8 @@ function readLastWriterOf(rel, root) {
 	for (const name of entries) {
 		if (!name.endsWith(".txt")) continue;
 		const file = path.join(dir, name);
-		const lines = readLedger(file, `writes ${name}`);
-		if (!lines?.includes(rel)) continue;
+		const rels = writesIn(file, `writes ${name}`, tree ?? host, host);
+		if (!rels?.includes(rel)) continue;
 		let at;
 		try {
 			at = fs.statSync(file).mtimeMs;
@@ -394,10 +451,12 @@ function readCommittedPathsBy(sessionId) {
  * alone, under-billing being the safe direction.
  * @param {string} sessionId
  * @param {string} what the log line's label
+ * @param {string} [tree] the tree whose writes are billed; the reader's own
+ *   where not given
  * @returns {string[]|null}
  */
-function readBilledPathsBy(sessionId, what) {
-	const written = readWritesBy(sessionId);
+function readBilledPathsBy(sessionId, what, tree) {
+	const written = readWritesBy(sessionId, tree);
 	if (written === null) return null;
 	const fromCommits = readCommittedPathsBy(sessionId);
 	if (fromCommits === null)
@@ -514,4 +573,5 @@ module.exports = {
 	recordWrite,
 	readSelectsBy,
 	readWritesBy,
+	readWriteEntriesBy,
 };

@@ -147,7 +147,7 @@ function attributeDirty(
 	}
 	try {
 		if (sessionId && ((written && written.length > 0) || quoted.length > 0))
-			held = readClaimedElsewhere(sessionId, ledger);
+			held = readClaimedElsewhere(sessionId, { source: ledger });
 	} catch {
 		written = null;
 	}

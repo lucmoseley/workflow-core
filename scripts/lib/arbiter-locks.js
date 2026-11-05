@@ -63,9 +63,13 @@ function newLock({
 	// hunks are measured from (#2148). Null on a region subject and a file that
 	// did not exist yet.
 	preBlob = null,
+	// The holder's tree where it is a linked worktree; absent on the host
+	// (arbiter-core's writerTree, #4457).
+	tree,
 }) {
 	return {
 		path: rel,
+		...(tree ? { tree } : {}),
 		sessionId,
 		pid,
 		procStart,
@@ -758,6 +762,7 @@ function takeSubjectLock(rel, me, attempts) {
 			pid: me.pid,
 			procStart: me.procStart,
 			preBlob: preBlobOf(rel, me.sessionId),
+			tree: core.writerTree(),
 		});
 		return core.createOnce(lockPath, body)
 			? { verdict: "claimed", lock: body }
@@ -926,11 +931,26 @@ function release(rel, me, { generator = false, notMine = false } = {}) {
  * @param {boolean} [generator]
  * @param {{ownHunks?: boolean, notMine?: boolean}} [landing]
  */
-function dropClean(
+function dropClean(subject, existing, generator = false, landing = {}) {
+	// In the holder's tree, not the caller's: a claim forced from the main
+	// checkout is dirty, or clean, where its holder wrote it (#4457).
+	return core.inTree(core.recordTree(existing), () =>
+		dropCleanInTree(subject, existing, generator, landing),
+	);
+}
+
+/**
+ * dropClean's body, run in the holder's tree.
+ * @param {string} subject
+ * @param {LockRecord} existing
+ * @param {boolean} generator
+ * @param {{ownHunks?: boolean, notMine?: boolean}} landing
+ */
+function dropCleanInTree(
 	subject,
 	existing,
-	generator = false,
-	{ ownHunks = false, notMine = false } = {},
+	generator,
+	{ ownHunks = false, notMine = false },
 ) {
 	// Before the check, per release's header. `by` is the claim the pin was taken
 	// against, which is not always the lock handed back: `contended` returns the
@@ -1114,10 +1134,7 @@ function readLocks(pause = settle) {
  * @param {string|null} sessionId
  */
 function readHeldBy(sessionId) {
-	if (!sessionId) return null;
-	const locks = readLocks();
-	if (locks === null) return null;
-	return locks.filter((l) => l.sessionId === sessionId).map((l) => l.path);
+	return readLocksHeldBy(sessionId)?.map((l) => l.path) ?? null;
 }
 
 /**
@@ -1130,15 +1147,38 @@ function readHeldBy(sessionId) {
  * @returns {string[]|null}
  */
 function readHeldClean(sessionId) {
-	const held = readHeldBy(sessionId);
+	const held = readLocksHeldBy(sessionId);
 	if (held === null) return null;
 	return held
 		.filter(
-			(subject) =>
-				core.splitSubject(subject).region === null &&
-				core.subjectDirty(subject) === false,
+			(lock) =>
+				core.splitSubject(lock.path).region === null &&
+				subjectDirtyWhereHeld(lock) === false,
 		)
+		.map((lock) => lock.path)
 		.sort();
+}
+
+/**
+ * The locks `sessionId` holds, or null as readHeldBy answers it.
+ * @param {string|null} sessionId
+ * @returns {LockRecord[]|null}
+ */
+function readLocksHeldBy(sessionId) {
+	if (!sessionId) return null;
+	const locks = readLocks();
+	if (locks === null) return null;
+	return /** @type {LockRecord[]} */ (
+		locks.filter((l) => !l.unreadable && l.sessionId === sessionId)
+	);
+}
+
+/**
+ * subjectDirty on a lock's subject, in the tree its holder wrote it (#4457).
+ * @param {LockRecord} lock
+ */
+function subjectDirtyWhereHeld(lock) {
+	return core.inTree(core.recordTree(lock), () => core.subjectDirty(lock.path));
 }
 
 /**
@@ -1273,6 +1313,8 @@ exports.acquire = acquire;
 exports.breakStale = breakStale;
 exports.dropIfUnchanged = dropIfUnchanged;
 exports.readHeldBy = readHeldBy;
+exports.readLocksHeldBy = readLocksHeldBy;
+exports.subjectDirtyWhereHeld = subjectDirtyWhereHeld;
 exports.readHeldClean = readHeldClean;
 exports.listLocks = listLocks;
 exports.listLocksJudged = listLocksJudged;

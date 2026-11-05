@@ -391,3 +391,33 @@ describe("the acts ledger (#2308)", () => {
 		expect(fs.existsSync(store.paths.actLedger("bob", sb.repo))).toBe(false);
 	});
 });
+
+describe("a write ledger line names its tree (#4457)", () => {
+	const inTree = (tree: string, rel: string, sessionId: string) =>
+		store.inTree(tree, () =>
+			store.recordWrite(path.join(tree, rel), sessionId),
+		);
+	const wt = () => path.join(sb.dir, "wt");
+
+	it("reads a worktree's writes back in that tree alone", () => {
+		record("docs/main.md", "alice");
+		inTree(wt(), "docs/wt.md", "alice");
+		expect(store.readWritesBy("alice")).toEqual(["docs/main.md"]);
+		expect(store.readWritesBy("alice", wt())).toEqual(["docs/wt.md"]);
+		expect(store.readWriteEntriesBy("alice")).toEqual([
+			{ rel: "docs/main.md", tree: sb.repo },
+			{ rel: "docs/wt.md", tree: wt() },
+		]);
+	});
+
+	it("names the last writer of a path in the tree asked about, not another's", () => {
+		record("docs/x.md", "bob");
+		inTree(wt(), "docs/x.md", "alice");
+		const later = new Date(Date.now() + 60_000);
+		fs.utimesSync(store.paths.ledger("alice"), later, later);
+		expect(store.readLastWriterOf("docs/x.md")?.sessionId).toBe("bob");
+		expect(store.readLastWriterOf("docs/x.md", { tree: wt() })?.sessionId).toBe(
+			"alice",
+		);
+	});
+});

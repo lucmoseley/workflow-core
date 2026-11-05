@@ -1703,16 +1703,18 @@ function stopConfirmation(listing, sessionId, requireGone, hostRuns) {
 }
 
 /**
- * The dead session's file claims, each marked dirty or clean in the tree.
+ * The dead session's file claims, each marked dirty or clean in the tree its
+ * holder wrote it in.
  * @param {string} sessionId
  */
 function readFileClaimLines(sessionId) {
 	const store = require("./lib/arbiter-store");
-	const held = store.readHeldBy(sessionId);
+	const held = store.readLocksHeldBy(sessionId);
 	if (held === null) return ["  (the file-claim store would not read)"];
 	if (held.length === 0) return ["  (none)"];
-	return held.map((p) => {
-		const d = store.subjectDirty(p);
+	return held.map((lock) => {
+		const p = lock.tree ? `${lock.path} (in ${lock.tree})` : lock.path;
+		const d = store.subjectDirtyWhereHeld(lock);
 		if (d === null) return `  ${p} — unknown`;
 		return `  ${p} — ${d ? "dirty" : "clean"}`;
 	});
