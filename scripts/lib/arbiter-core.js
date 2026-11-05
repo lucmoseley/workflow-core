@@ -749,7 +749,7 @@ function treeRoot() {
  * an observation and a write-ledger line carry `tree` — the writer's tree,
  * absolute — where it is a linked worktree, and none where it is the host.
  * A reader judging another session's record reads that record's tree, never
- * its own: a claim dirty in a worktree reads clean from the main checkout.
+ * its own.
  */
 
 /** The `tree` a record written now carries: the session's tree, undefined on the host. */
@@ -787,7 +787,6 @@ function inTree(tree, fn) {
 }
 
 /**
- * `fn`'s answer read in the tree `record` was written in.
  * @template T
  * @param {{tree?: string}} record
  * @param {() => T} fn

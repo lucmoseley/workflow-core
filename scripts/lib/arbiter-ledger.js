@@ -80,8 +80,7 @@ function recordWrite(filePath, sessionId) {
 	// sweeps gains one ledger a session.
 	if (!fs.existsSync(ledger)) pruneLedgers();
 	// Append, never read-modify-write: several tool calls can land at once and an
-	// append of one short line is atomic enough for a ledger read as a set. A
-	// worktree's line carries the tree after a tab (#4457).
+	// append of one short line is atomic enough for a ledger read as a set.
 	const tree = core.writerTree();
 	fs.appendFileSync(ledger, tree ? `${rel}\t${tree}\n` : `${rel}\n`);
 	noteLandedRewrite(rel, sessionId);
@@ -140,8 +139,7 @@ function readWriteEntriesBy(sessionId) {
  * An empty list tells a caller "this session wrote nothing", so returning it
  * when the ledger could not be read disowns the session's own files.
  * @param {string} sessionId
- * @param {string} [tree] the reader's own tree where not given; a reader
- *   judging another tree names it (#4457)
+ * @param {string} [tree] the reader's own tree where not given
  */
 function readWritesBy(sessionId, tree = core.treeRoot()) {
 	if (!sessionId) return null;

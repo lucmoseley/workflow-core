@@ -940,7 +940,6 @@ function dropClean(subject, existing, generator = false, landing = {}) {
 }
 
 /**
- * dropClean's body, run in the holder's tree.
  * @param {string} subject
  * @param {LockRecord} existing
  * @param {boolean} generator
