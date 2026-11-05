@@ -66,8 +66,6 @@ const quoteSubject = (/** @type {string} */ subject) =>
 	`\`${subject.replaceAll("`", "'")}\``;
 
 /**
- * The fix ticket's section naming the dependents reverted with the culprit
- * and each one's re-land ticket, empty where there are none.
  * @param {Reland[]} relands
  */
 function buildDependentsSection(relands) {
@@ -78,7 +76,6 @@ ${relands.map((r) => `- ${short(r.dependent.commit)}, reverted in ${r.dependent.
 `;
 }
 
-/** The issue a filing line names. */
 const FILED_ISSUE = /#\d+/;
 
 /**
@@ -87,7 +84,6 @@ const FILED_ISSUE = /#\d+/;
  */
 
 /**
- * The re-land ticket of a later commit reverted with `culprit` (#4453).
  * @param {import("./lander.js").Dependent} d
  * @param {{culprit: string, revert: string, subject: string}} with the culprit
  *   and its revert, and the dependent's own subject
@@ -195,8 +191,7 @@ function ticketFiler(deps) {
 
 /**
  * Files the re-land ticket of the reverted commit `sha` under the ticket its
- * subject cites, else standalone, returning the line naming it; one already
- * open is named, never filed again.
+ * subject cites, else standalone, returning the line naming it.
  * @param {FilerDeps} deps
  * @param {{sha: string, subject: string, title: string, body: string,
  *   reopenNote: string}} ticket

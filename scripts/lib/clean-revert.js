@@ -7,11 +7,10 @@
  * on its push. The name only asks: a gate grants the exemption where the tree
  * it judges is what `git revert` of that culprit makes on the judged commit's
  * parent, recomputed here with `git merge-tree`, whose ort merge is the one
- * `git revert` runs. So the variable carries nothing past a gate but a clean
- * revert of a commit the repo holds. A culprit reverted with its conflicting
+ * `git revert` runs. A culprit reverted with its conflicting
  * dependents (#4453) is pushed as one line of reverts, so the variable may name
- * several commits, space-separated, in the order their reverts were committed,
- * and a push is judged one revert at a time; a commit names one.
+ * several commits, space-separated, in the order their reverts were committed;
+ * a commit names one.
  *
  * A CONFLICT ONLY IN ANCHOR FILES STILL COUNTS AS CLEAN (#3935). `git merge-file
  * --ours` settles the file for the side the revert is made on. Regenerating it
@@ -56,8 +55,7 @@ const parseRevertLine = (message) =>
 	/This reverts commit ([0-9a-f]{40})\./.exec(message)?.[1] ?? null;
 
 /**
- * The commits WFC_LANDER_REVERT names, in the order their reverts were
- * committed, or null where it names none.
+ * The commits WFC_LANDER_REVERT names, or null where it names none.
  * @returns {string[]|null}
  */
 const readLanderRevert = () => {
@@ -68,8 +66,7 @@ const readLanderRevert = () => {
 };
 
 /**
- * The environment a revert of `reverted` is committed or pushed in, in the
- * order their reverts were committed.
+ * The environment a revert of `reverted` is committed or pushed in.
  * @param {string[]} reverted
  */
 const buildRevertEnv = (reverted) => ({

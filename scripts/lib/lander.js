@@ -88,8 +88,7 @@ const NO_SIDE = { base: null, range: [], merges: [] };
  * (#3936). */
 const SIDE_MERGES_SEARCHED = 3;
 
-/* Untraced (#4453): start at 3; a hold that meets it cites #4453, so each is
- * found from there. */
+/* Untraced (#4453): start at 3; a hold that meets it cites #4453. */
 const MAX_DEPENDENTS_REVERTED = 3;
 /* docs/doc-map.md §A's classes, where a `generated-only` file is named. */
 const DOC_CLASSES = "docs/doc-map-classes.json";
@@ -2408,11 +2407,9 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * rows it refused on where it was that gate's (#3123). A conflict only in
 	 * anchor files is settled by lib/clean-revert.js's rule (#3935). A conflict
 	 * in any other file reverts first each later commit that changed one,
-	 * newest first, each its own commit, then the culprit (#4453): Zuul drops
-	 * a failed change with the changes that depend on it, and `landing` is never
-	 * rewritten, so here the drop is a revert. A generated-only file's conflict
-	 * reverts none, as no dependent need be red for it. Past
-	 * MAX_DEPENDENTS_REVERTED of them,
+	 * newest first, each its own commit, then the culprit (#4453). A
+	 * generated-only file's conflict reverts none. Past MAX_DEPENDENTS_REVERTED
+	 * of them,
 	 * or where one's own revert fails or the culprit's still conflicts after
 	 * them, it holds, naming why.
 	 * @param {string} culprit

@@ -10,8 +10,7 @@
  * name.
  *
  * Over the 10 s file budget: seven of its ten cases are real lander runs that
- * bisect and revert, ~100–170 forks a run and a registry check (#4301's
- * profile); #4326 cuts the script's own forks. The #4453 holds call the
+ * bisect and revert, with a registry check (#4301's profile); #4326 cuts the script's own forks. The #4453 holds call the
  * revert alone.
  */
 import { spawnSync } from "node:child_process";
@@ -51,7 +50,6 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		return { merge, tip };
 	};
 
-	/** Whether reverting `merge` against `parent` on `work`'s HEAD conflicts. */
 	const revertConflicts = (merge: string, parent: string) => {
 		const r = spawnSync(
 			"git",
@@ -232,10 +230,6 @@ describe("a culprit whose revert conflicts in a hand-written file (#4453)", () =
 	const writeShared = (text: string) =>
 		fs.writeFileSync(path.join(work, "shared.txt"), `${text}\n`);
 
-	/**
-	 * `main` on `m`, and on `landing` the red commit editing shared.txt, then
-	 * each of `later` editing it again, so the red one's revert conflicts.
-	 */
 	const pushRedThen = (...later: string[]) => {
 		writeShared("seed");
 		const m = commit("m");
