@@ -8,15 +8,14 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 
 # The repo's whole automatic verification, on a clock (mantahostels#904,
 # settled at mantahostels#906 and mantahostels#905, landed at mantahostels#910)
-# and on every push to `landing`, whose run the lander reads as its tester
-# (#2413, spec #2261), to `lander/batch`, the queue lander's integration
-# commit (#4458), and to `lander/iso-suite-*`, its whole-suite runs of `main`
-# and of a member alone (#4485), until the cutover drops `landing`. Its
+# and on every push to `lander/batch`, the queue lander's integration commit,
+# whose run it reads as its tester (#4458), and to `lander/iso-suite-*`, its
+# whole-suite runs of `main` and of a member alone (#4485). Its
 # `lander/iso-<k>` refs run named files through named-rerun.yml instead,
 # so they fire nothing here. Minutes are free
 # on the public repo (#1930), so a push's jobs cost wall time alone.
 #
-# WHY A SCHEDULE AS WELL. `main` moves only to a `landing` tip a push run
+# WHY A SCHEDULE AS WELL. `main` moves only to a `lander/batch` tip a push run
 # passed, so a push run tests every pushed head; the schedule re-tests a still
 # tree, so a flaky or date-dependent test surfaces at the next slot rather
 # than the next commit (spec #2261, #1994).
@@ -72,11 +71,11 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 #   node scripts/measure-ci-billing.js --since <d> --until <d> --branch all \
 #     --exclude-event pull_request
 # over a full day — on `main` the `event` split must read `schedule` ~100%,
-# `push` zero; `landing`'s, `lander/batch`'s and `lander/iso-suite-*`'s push
-# runs are the lander's tester (#2413, #4458).
+# `push` zero; `lander/batch`'s and `lander/iso-suite-*`'s push runs are the
+# queue lander's tester (#4458).
 on:
   push:
-    branches: [landing, lander/batch, "lander/iso-suite-*"]
+    branches: [lander/batch, "lander/iso-suite-*"]
   schedule:
     # MINUTE 0, AND MOVING IT IS NOT THE ONE-LINE CHANGE IT LOOKS LIKE (mantahostels#2204).
     # GitHub names the top of the hour as its high-load window and moving off it
@@ -128,7 +127,7 @@ jobs:
   # After the suite, a red one included, so this sweep's own shard reports are
   # among the three it judges. Report-only (#4292): `verdict` does not need it,
   # and `continue-on-error` keeps a broken run from turning the sweep red. Not
-  # on a `landing` push: the lander's tester waits on the whole run's
+  # on a `lander/batch` push: the lander's tester waits on the whole run's
   # conclusion (scripts/lib/actions-tester.js), and that run's reports are read
   # by the next sweep regardless.
   file-times:

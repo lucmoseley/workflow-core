@@ -2094,13 +2094,11 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			}
 		});
 
-		it("runs from the merge-base with origin/landing where the landing module is on, and names it when it is missing (#2408)", () => {
+		it("runs from the merge-base with origin/main where the landing module is on, never origin/landing (#4458)", () => {
 			const { dir, root, b, c1, c2 } = twoSessions();
-			git(dir, "update-ref", "refs/remotes/origin/main", c2);
+			git(dir, "update-ref", "refs/remotes/origin/landing", c2);
 			vi.stubEnv("WFC_MODULES", "landing");
-			const missing = attestationOf(c2, [b], { root: dir });
-			expect(!missing.judged && missing.why).toContain("origin/landing");
-			git(dir, "update-ref", "refs/remotes/origin/landing", root);
+			git(dir, "update-ref", "refs/remotes/origin/main", root);
 			const r = attestationOf(c2, [b], { root: dir });
 			expect(r.judged && r.base).toBe(root);
 			expect(vitest(r)).toEqual({
@@ -2131,7 +2129,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		});
 
 		/*
-		 * A's certificate, then a `landing` commit to a path A's closure reads,
+		 * A's certificate, then a `main` commit to a path A's closure reads,
 		 * merged into A's `main` — cleanly, or with a.js resolved by hand.
 		 */
 		function reconciled(resolved?: string) {
@@ -2154,9 +2152,8 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 					"a.test.ts": "a.test.ts v1\n",
 					...(resolved ? { "a.js": "a.js upstream\n" } : {}),
 				},
-				"a landing commit",
+				"a main commit",
 			);
-			git(dir, "update-ref", "refs/remotes/origin/landing", landed);
 			git(dir, "update-ref", "refs/remotes/origin/main", landed);
 			git(dir, "checkout", "-q", "main");
 			if (resolved) {
@@ -2168,7 +2165,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			return { dir, a, full, c1, merge: git(dir, "rev-parse", "HEAD") };
 		}
 
-		it("lets a narrowed or full certificate hold over a clean merge of origin/landing where the landing module is on, and not where it is off (#2517)", () => {
+		it("lets a narrowed or full certificate hold over a clean merge of origin/main where the landing module is on, and not where it is off (#2517)", () => {
 			const { dir, a, full, c1, merge } = reconciled();
 			for (const m of [a, full])
 				expect(vitest(attestationOf(merge, [m], { root: dir }))).toEqual({
@@ -2211,7 +2208,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 
 		it("refuses a stale certificate over an empty range with the landing module on, naming no path (#2517)", () => {
 			const { dir, root, c2 } = twoSessions();
-			git(dir, "update-ref", "refs/remotes/origin/landing", c2);
+			git(dir, "update-ref", "refs/remotes/origin/main", c2);
 			const stale = run(dir, root, aEdit, {
 				closure: ["a.js", "b.js", "package.json"],
 				at: "V",
@@ -2339,14 +2336,14 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		});
 	});
 
-	it("owes no test for a change already on origin/landing where the landing module is on, and still owes one for a change it has not taken (#2517)", () => {
+	it("owes no test for a change already on origin/main where the landing module is on, and still owes one for a change it has not taken (#2517)", () => {
 		const { dir, root, neighbour, own, session } = replay();
 		vi.stubEnv("WFC_MODULES", "landing");
-		git(dir, "update-ref", "refs/remotes/origin/landing", neighbour);
+		git(dir, "update-ref", "refs/remotes/origin/main", neighbour);
 		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
 			true,
 		);
-		git(dir, "update-ref", "refs/remotes/origin/landing", root);
+		git(dir, "update-ref", "refs/remotes/origin/main", root);
 		const v = vitest(attestationOf(own, [session], { root: dir }));
 		expect(v?.attested === false && v.unattested).toContainEqual({
 			path: "narrow.js",
@@ -2355,7 +2352,7 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		});
 	});
 
-	it("owes no test origin/landing added where the landing module is on, and owes it where it is off (#2517)", () => {
+	it("owes no test origin/main added where the landing module is on, and owes it where it is off (#2517)", () => {
 		const { dir, neighbour, own, session } = replay({
 			"late.test.ts": "late.test.ts v0\n",
 			[EDGES_FILE]: JSON.stringify({
@@ -2371,7 +2368,7 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 			unattested: [{ path: "narrow.js", commit: own, tests: ["late.test.ts"] }],
 		});
 		vi.stubEnv("WFC_MODULES", "landing");
-		git(dir, "update-ref", "refs/remotes/origin/landing", neighbour);
+		git(dir, "update-ref", "refs/remotes/origin/main", neighbour);
 		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
 			true,
 		);

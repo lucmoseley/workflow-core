@@ -19,7 +19,7 @@
  *  2. The shared tree has `main` checked out, as `git read-tree HEAD` would
  *     otherwise load another branch into its index.
  *  3. The target is the newest reflog entry whose new sha is an ancestor of
- *     `origin/landing` or `origin/main`.
+ *     `origin/main`.
  *  4. The ref file and `.git/index` are copied under `.claude/tmp/` first.
  *
  * THE REF IS WRITTEN BY HAND, as git itself refuses to lock a broken ref: `git
@@ -45,7 +45,7 @@ const {
 	GIT_TIMEOUT_MS,
 } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { pushedRefFor, VERIFIED_REF } = require("./lib/landing-refs.js");
+const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { MAIN_REF, readMainState } = require("./lib/main-ref.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { fromEnv } = require("./lib/session-id.js");
@@ -55,7 +55,7 @@ const USAGE = `usage: node ${scriptPath("repair-main.js")}
   restore a shared main that cannot be read, from a session, proofs first`;
 
 /* A reflog entry either holds is one sessions pushed or the lander verified. */
-const ORIGIN_REFS = [pushedRefFor(true), VERIFIED_REF];
+const ORIGIN_REFS = [VERIFIED_REF];
 
 const ASK_FOUNDER = `Leave it for the founder, on this checkout's probe hold: \`node ${scriptPath("repo-hold.js")} list\`.`;
 
@@ -133,7 +133,7 @@ function readOriginShas(commonDir) {
 	});
 	if (shas.length === 0)
 		throw new Refusal(
-			`neither ${ORIGIN_REFS.join(" nor ")} resolves. ${ASK_FOUNDER}`,
+			`${ORIGIN_REFS.join(", ")} resolves to no commit. ${ASK_FOUNDER}`,
 		);
 	return shas;
 }

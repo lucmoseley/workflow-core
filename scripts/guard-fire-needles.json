@@ -65,7 +65,7 @@
 		},
 		"start-lander-on-push.js": {
 			"needles": [],
-			"silent": "Starts the lander detached after a push to landing (#2405). It never writes to stdout, so no session reads it."
+			"silent": "Starts the queue lander detached after a push to a queue ref (#2405, #4458). It never writes to stdout, so no session reads it."
 		},
 		"record-divergence.js": {
 			"needles": [],
@@ -560,14 +560,14 @@
 					"id": "branch-publish-landing",
 					"core": "guard-branch-publish",
 					"kind": "deny",
-					"text": "WORK LANDS THROUGH `landing`"
+					"text": "WORK LANDS THROUGH YOUR SESSION'S QUEUE REF"
 				},
 				{
 					"id": "branch-publish-landing-fallback",
 					"core": "guard-branch-publish",
 					"kind": "deny",
 					"text": [
-						"Work lands through `landing` — never a push to `main`",
+						"Work lands through your session's queue ref — never a push to `main`",
 						"the rule could not be read from"
 					]
 				},
@@ -767,7 +767,7 @@
 					"core": "guard-branch",
 					"kind": "inject",
 					"routes": ["hook"],
-					"text": "TRACKS `origin/landing`"
+					"text": "THE SHARED TREE IS NOT YET CUT OVER"
 				},
 				{
 					"id": "sweeps-dirty",
@@ -1093,7 +1093,7 @@
 					"id": "ci-status-lag-landing",
 					"core": "guard-push-rules",
 					"kind": "inject",
-					"text": "IS TESTED BY THE LANDER"
+					"text": "IS TESTED BY THE QUEUE LANDER"
 				},
 				{
 					"id": "node-heap",

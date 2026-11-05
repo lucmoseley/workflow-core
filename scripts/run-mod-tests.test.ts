@@ -160,11 +160,11 @@ describe("run-mod-tests (#857)", () => {
 		expect(r.stderr).toBe("");
 	});
 
-	it("measures a new branch's range from origin/landing where the landing module is on (#2408)", () => {
+	it("measures a new branch's range from origin/main where the landing module is on, never origin/landing (#4458)", () => {
 		const { dir, root } = repo();
-		git(dir, "update-ref", "refs/remotes/origin/landing", root);
+		git(dir, "update-ref", "refs/remotes/origin/main", root);
 		const sha = commitTouching(dir, `${MOD}/hooks/register.ts`);
-		git(dir, "update-ref", "refs/remotes/origin/main", sha);
+		git(dir, "update-ref", "refs/remotes/origin/landing", sha);
 		const claude = stubClaude();
 		vi.stubEnv("WFC_MODULES", "landing");
 		const r = push(dir, sha, ZERO, { bin: claude.bin });

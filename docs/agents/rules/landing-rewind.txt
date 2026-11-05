@@ -1,9 +1,9 @@
-NEVER FORCE-PUSH OR DELETE `landing`, FROM ANY TREE.
+NEVER FORCE-PUSH OR DELETE `landing` OR A QUEUE REF, FROM ANY TREE.
 
-`landing` is the one branch every session pushes to, and the lander tests and
-reverts on it. A force-push (`--force`, `--force-with-lease`, a `+` refspec)
-or a deletion drops every commit a neighbour pushed after the one you name, and
-the lander's batch with them.
+`landing` stays on the remote as the cutover's rollback, and a queue ref holds
+work the queue lander has yet to land. A force-push (`--force`,
+`--force-with-lease`, a `+` refspec) or a deletion drops the commits the ref
+holds, and the lander's batch with them.
 
 UNDO A COMMIT WITH A FOLLOW-UP COMMIT — `git revert <sha>`, or the fix itself —
-pushed to `landing` as any other.
+pushed to your own queue ref as any other.

@@ -144,16 +144,16 @@ describe("read-hand-off.js", () => {
 });
 
 /*
- * Seam 2 (#4244, spec #4229): run from a linked worktree with the `landing`
- * module on, it reads Done off `origin/landing` and checks the diff against
- * the worktree's files, not the main checkout's.
+ * Seam 2 (#4244, spec #4229): run from a session worktree with the `landing`
+ * module on, it reads Done off that worktree's own queue ref (#4458) and
+ * checks the diff against the worktree's files, not the main checkout's.
  */
 describe("read-hand-off.js from a linked worktree", () => {
-	it("reads Done off origin/landing and applies the diff in the worktree", () => {
+	it("reads Done off the worktree's queue ref and applies the diff in the worktree", () => {
 		const diff = realDiff();
 		const head = git("rev-parse", "HEAD");
-		git("update-ref", "refs/remotes/origin/landing", head);
-		const wt = path.join(dir, "wt");
+		git("update-ref", "refs/remotes/origin/queue/q", head);
+		const wt = path.join(dir, ".claude", "worktrees", "q");
 		git("worktree", "add", "-q", "--detach", wt, head);
 		/* The main checkout moves on, so the diff no longer applies there. */
 		fs.writeFileSync(path.join(dir, "a.txt"), "three\n");
@@ -174,7 +174,7 @@ describe("read-hand-off.js from a linked worktree", () => {
 		}).stdout;
 
 		expect(out).not.toContain(`Done sha ${head}`);
-		expect(out).toContain(`Done sha ${unlanded} is not on origin/landing`);
+		expect(out).toContain(`Done sha ${unlanded} is not on origin/queue/q`);
 		expect(out).not.toContain("the diff does not apply cleanly");
 		expect(out).not.toContain("not an ancestor of HEAD");
 	});

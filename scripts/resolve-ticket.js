@@ -25,14 +25,14 @@
  * A completed close is refused where the ticket's commits — those on the
  * checkout's HEAD citing `#n`, a linked worktree's included, and any the
  * comment names by sha — are not on the pushed ref
- * (`origin/landing` with the `landing` module on) under their hash or their
+ * (lib/landing-refs.js's pushedRef) under their hash or their
  * subject, unless the comment's `**Unlanded:**` line says why not (#3101).
  * It fails open, with a note, where git cannot answer.
  *
  * Any close is refused where its comment, posted, would hold a
  * `**Review findings:**` record report-remeasure-due.js reports or counts 0 of,
  * through the same lib/review-findings.js (#3846). The record may name a sha
- * still queued on `landing`, so a close never waits for the lander. It fails
+ * still queued on a queue ref, so a close never waits for the lander. It fails
  * open, with a note, where the ticket's comments cannot be read. Residual: a
  * record posted by a separate `gh issue comment` goes unchecked here, and the
  * report catches it (#3847).

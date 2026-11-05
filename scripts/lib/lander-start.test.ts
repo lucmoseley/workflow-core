@@ -1,10 +1,10 @@
 // @vitest-environment node
 /*
- * lib/lander-start.js's startLander (#2405): a lander starts only where none
- * runs and `landing` is ahead of `main`; spawnDetachedRun starts it as no
+ * lib/lander-start.js's startLander (#2405, #4458): a queue lander starts only
+ * where none runs and a queue ref waits; spawnDetachedRun starts it as no
  * session, in a user scope where the machine makes one (#2956).
  *
- * Loosen it and a second push starts a second lander, or a level `landing`
+ * Loosen it and a second push starts a second lander, or an empty queue
  * starts one that has nothing to test; drop the scope and the lander's suite
  * competes process by process with every session beside it. The cgroup case
  * runs only where `systemd-run --user --scope` works, which CI's runner
@@ -17,15 +17,11 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { launcherName, spawnDetachedRun, startLander } from "./lander-start.js";
 
-const start = (
-	holder: number | null,
-	landing: string | null,
-	relation: "ahead" | "equal" | "behind" | "diverged",
-) => {
+const start = (holder: number | null, waiting: string[]) => {
 	let spawns = 0;
 	const result = startLander({
 		holder: () => holder,
-		refs: () => ({ landing, relation }),
+		waiting: () => waiting,
 		spawnRun: () => {
 			spawns++;
 			return 4242;
@@ -35,34 +31,23 @@ const start = (
 };
 
 describe("startLander", () => {
-	it("starts one lander where none runs and landing is ahead", () => {
-		expect(start(null, "abc", "ahead")).toEqual({
-			result: { started: 4242, landing: "abc" },
+	it("starts one queue lander where none runs and a queue ref waits", () => {
+		expect(start(null, ["queue/a", "queue/b"])).toEqual({
+			result: { started: 4242, waiting: ["queue/a", "queue/b"] },
 			spawns: 1,
 		});
 	});
 
 	it("starts none while a lander holds the lock, naming it", () => {
-		expect(start(77, "abc", "ahead")).toEqual({
+		expect(start(77, ["queue/a"])).toEqual({
 			result: { skipped: "a lander is already running (pid 77)" },
 			spawns: 0,
 		});
 	});
 
-	it.each([
-		["equal", "landing equals main"],
-		["behind", "landing is behind main"],
-		["diverged", "landing and main have diverged"],
-	] as const)("starts none where landing is %s", (relation, reason) => {
-		expect(start(null, "abc", relation)).toEqual({
-			result: { skipped: reason },
-			spawns: 0,
-		});
-	});
-
-	it("starts none where the remote has no landing branch", () => {
-		expect(start(null, null, "ahead")).toEqual({
-			result: { skipped: "the remote has no landing branch" },
+	it("starts none where no queue ref waits", () => {
+		expect(start(null, [])).toEqual({
+			result: { skipped: "no queue ref waits" },
 			spawns: 0,
 		});
 	});

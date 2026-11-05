@@ -100,7 +100,7 @@ function decide(command, ctx) {
 	);
 	if (!pushed) return null;
 	/* Each rule goes only to a host meeting its premise (#742). With `landing`
-	 * on, a push goes to `landing` and the lander tests it, so each text naming
+	 * on, a push goes to the session's queue ref and the lander tests it, so each text naming
 	 * the route is its `-landing` twin (#2409), the CI-lag twin owing no
 	 * sweep, and no push owes a certificate, so no green-suite rule goes
 	 * (#2929). The suites and landing gates restate test-gate.js's premise

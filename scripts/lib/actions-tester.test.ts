@@ -976,7 +976,7 @@ it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", asy
 	expect(failed.dispatched).toEqual([]);
 });
 
-it("fires the suite workflow on a push to lander/batch and lander/iso-suite-* as well as landing (#4458)", () => {
+it("fires the suite workflow on a push to lander/batch and lander/iso-suite-*, and none to landing (#4458, #4485)", () => {
 	const workflow = fs.readFileSync(
 		path.join(
 			import.meta.dirname,
@@ -985,7 +985,9 @@ it("fires the suite workflow on a push to lander/batch and lander/iso-suite-* as
 		"utf8",
 	);
 	expect(workflow).toContain(
-		'  push:\n    branches: [landing, lander/batch, "lander/iso-suite-*"]\n',
+		'  push:
+    branches: [lander/batch, "lander/iso-suite-*"]
+',
 	);
 });
 

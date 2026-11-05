@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
  * landing-status.js — where this session's commits stand on the landing route
- * (#2407, spec #2261): each commit its commit ledger names is landed (on
- * `main`), queued (on `landing`, not yet on `main`), reverted by a revert on
- * `landing`, or unpushed. Fetches both branches first. Then, where the
+ * (#2407, spec #2261; #4458): each commit its commit ledger names is landed
+ * (on `main`), queued (on the session's queue ref, not yet on `main`),
+ * reverted by a revert the old lander made on `landing`, or unpushed. Fetches
+ * `main`, `landing` and the queue refs first. Then, where the
  * session runs in a worktree, each stay of its queue ref, queued, testing,
  * landed or dropped (lib/queue-ref-status.js). Its last line is the landing queue's
  * (lib/queue-gauge.js).
@@ -28,6 +29,7 @@ const {
 	fetchedGit,
 	buildStateLine,
 } = require("./lib/landing-status.js");
+const { queueRefOf } = require("./lib/landing-refs.js");
 const { buildQueueLine, queueGaugeOf } = require("./lib/queue-gauge.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
@@ -93,14 +95,16 @@ function main(argv = process.argv.slice(2)) {
 	/** @type {string[]} */
 	let lines;
 	try {
-		const git = fetchedGit(root);
+		const tree = readTopLevel(process.cwd()) ?? root;
+		const queue = queueRefOf(root, tree);
+		const git = fetchedGit(root, tree);
 		lines = commitStates(commits, git).map((entry) =>
-			buildStateLine(entry, git.subjectOf(entry.sha)),
+			buildStateLine(entry, git.subjectOf(entry.sha), queue),
 		);
 	} catch (err) {
 		const e = caught(err);
 		fail(
-			`could not read origin's main and landing: ${String(e.stderr || e.message).trim()}\nNo state claimed. Check \`git fetch origin\` works.`,
+			`could not read origin's main and queue refs: ${String(e.stderr || e.message).trim()}\nNo state claimed. Check \`git fetch origin\` works.`,
 		);
 		return 1;
 	}

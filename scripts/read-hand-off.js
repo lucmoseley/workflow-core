@@ -10,8 +10,8 @@
  * it, writes its diff to `.claude/tmp/`, and runs three checks before the
  * record is used:
  *   Base   an ancestor of HEAD
- *   Done   each sha in it on the pushed ref, `origin/landing` with the
- *          `landing` module on (lib/landing-refs.js)
+ *   Done   each sha in it on the pushed ref, the session's own queue ref with
+ *          the `landing` module on, where it stands (lib/landing-refs.js)
  *   diff   `git apply --3way --check` applies it with no conflict
  * Git runs in the session's own tree, its linked worktree where it works in
  * one (#4244); the diff is written to the host root's scratch.
@@ -112,7 +112,10 @@ function verdictChecks(h, diffFile) {
 	const base = h.fields.Base;
 	if (!git(["merge-base", "--is-ancestor", base, "HEAD"]).ok)
 		failed.push(`Base ${base} is not an ancestor of HEAD`);
-	const pushed = pushedRef({ root: repoRoot() });
+	const pushed = pushedRef({
+		root: repoRoot(),
+		tree: sessionTree({}) ?? undefined,
+	});
 	for (const sha of doneShas(h))
 		if (!git(["merge-base", "--is-ancestor", sha, pushed]).ok)
 			failed.push(`Done sha ${sha} is not on ${pushed}`);

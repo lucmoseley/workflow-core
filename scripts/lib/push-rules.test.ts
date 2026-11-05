@@ -519,11 +519,11 @@ describe("the injected rules still carry their operative clauses", () => {
 			"the route's headline",
 		],
 		[
-			"the lander runs the full suite",
+			"the queue lander runs the full suite",
 			"push-cadence-landing",
 			"who runs the full suite",
 		],
-		["IS TESTED BY THE LANDER", "ci-status-lag-landing", "who tests it"],
+		["IS TESTED BY THE QUEUE LANDER", "ci-status-lag-landing", "who tests it"],
 	])("the landing twins keep %s — %s, %s", (clause, id) => {
 		carries(id, clause);
 	});

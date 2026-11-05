@@ -62,12 +62,7 @@ const {
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
-const {
-	landingOn,
-	pushedRefFor,
-	startRefFor,
-	VERIFIED_REF,
-} = require("./landing-refs.js");
+const { landingOn, VERIFIED_REF } = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
@@ -1028,7 +1023,7 @@ const lines = (out) =>
  *
  * `countedPaths`, where given, is the only paths a diff-tree change counts on:
  * the push's range with the `landing` module on (`attestationOf`), so a change
- * already on `landing`, a reconcile merge's included, voids nothing — the
+ * already on `main`, a merge of `origin/main`'s included, voids nothing — the
  * lander's full run tests it with the push (#2517). Residual: such a change
  * that a certificate's closure reads is tested with the pusher's work by no
  * run before the lander's.
@@ -1325,15 +1320,15 @@ const ZERO_SHA = /^0+$/;
  *
  * THE RANGE runs from the published tip to `sha`: `remoteSha` where the caller
  * has one (the pre-push hook's), otherwise the merge-base of `sha` with the
- * start ref (lib/landing-refs.js) — the base the narrowed default resolves. Where git cannot
+ * verified ref (lib/landing-refs.js) — the base the narrowed default resolves. Where git cannot
  * name it, nothing is judged. `within` narrows it to those paths: the
  * session's own work, for the re-run guard (#1218). An empty `within` leaves
  * an empty range, which any member holding at `sha` attests.
  *
  * WITH THE `landing` MODULE ON, only a change to a range path voids a member
  * (`holdsAt`'s `countedPaths`, the range before `within`): a clean merge of
- * `origin/landing` owes no re-run, the lander testing it (#2517), while a
- * file the merge changed beyond `landing`'s side is in the range and voids.
+ * `origin/main` owes no re-run, the lander testing it (#2517), while a
+ * file the merge changed beyond `main`'s side is in the range and voids.
  *
  * EACH SUITE ANSWERS FOR ITSELF (mantahostels#1256), over the suites
  * `suitesFor` asks the range about.
@@ -1363,8 +1358,7 @@ function attestationOf(
 	if (!ctx.root) return { judged: false, why: "no git repository to read" };
 	const { git } = gitReader(ctx);
 	const fromRemote = Boolean(remoteSha && !ZERO_SHA.test(remoteSha));
-	const on = landingOn({ root: ctx.root });
-	const start = startRefFor(on);
+	const start = VERIFIED_REF;
 	let base;
 	let range;
 	try {
@@ -1380,13 +1374,11 @@ function attestationOf(
 				: `git could not resolve the merge-base of ${shortSha(sha)} with ${start}`,
 		};
 	}
-	/* A pushed ref other than the verified one is the lander's queue. An empty
-	 * range keeps tree holding: with nothing to push, no landing change waits
+	/* With the `landing` module on, the lander tests what is pushed. An empty
+	 * range keeps tree holding: with nothing to push, no queued change waits
 	 * to be tested with the pusher's. */
 	const countedPaths =
-		pushedRefFor(on) !== VERIFIED_REF && range.length > 0
-			? new Set(range)
-			: null;
+		range.length > 0 && landingOn({ root: ctx.root }) ? new Set(range) : null;
 	if (within) {
 		const keep = new Set(within);
 		range = range.filter((p) => keep.has(p));
@@ -1584,7 +1576,7 @@ function pairAttestation(left, perTest, judge) {
  * at the sha, so its witness needs its roots alone (#1860).
  *
  * A reader whose own file changed since the witness's tree only outside
- * `countedPaths` came from `landing` — added there, say — so no run of the
+ * `countedPaths` came from `main` — added there, say — so no run of the
  * pusher's could select it, and the lander's is owed it (#2517).
  *
  * @param {string} p

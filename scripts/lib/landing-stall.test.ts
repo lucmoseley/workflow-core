@@ -198,18 +198,15 @@ describe("stallFindings", () => {
 
 describe("supervision", () => {
 	const live = { pid: 7, at: new Date(NOW - MIN).toISOString(), batch: L };
-	const none = { start: false, ticket: null };
+	const none = { ticket: null };
 
-	it("starts a dead lander, filing no ticket while main moved within 2 h", () => {
-		expect(supervision(reading({ heartbeat: null }))).toEqual({
-			start: true,
-			ticket: null,
-		});
+	it("files no ticket for a dead lander while main moved within 2 h", () => {
+		expect(supervision(reading({ heartbeat: null }))).toEqual(none);
 	});
 
-	it("starts a dead lander and files the stall ticket where main has stood 2 h, as a lander failing on every start leaves it", () => {
+	it("files the stall ticket for a dead lander where main has stood 2 h, as a lander failing on every start leaves it", () => {
 		expect(supervision(reading({ heartbeat: null, mainAt: stale(1) }))).toEqual(
-			{ start: true, ticket: { landing: L, movedAt: stale(1) } },
+			{ ticket: { landing: L, movedAt: stale(1) } },
 		);
 	});
 
@@ -218,7 +215,7 @@ describe("supervision", () => {
 			supervision(
 				reading({ heartbeat: live, alive: () => true, mainAt: stale(1) }),
 			),
-		).toEqual({ start: false, ticket: { landing: L, movedAt: stale(1) } });
+		).toEqual({ ticket: { landing: L, movedAt: stale(1) } });
 	});
 
 	it("does nothing where a running lander moved main within 2 h", () => {

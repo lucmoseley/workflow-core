@@ -110,7 +110,8 @@ const MODULES = /** @type {const} */ ([
 	"site",
 	/* The hold on a surviving mutant on a declared sensitive path (#1906). */
 	"mutation",
-	/* Sessions push to `landing` and the lander moves `main` (#2261). */
+	/* Sessions push their own queue refs and the queue lander moves `main`
+	 * (#4458). */
 	"landing",
 ]);
 const COMMANDS = /** @type {const} */ ([

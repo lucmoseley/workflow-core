@@ -419,7 +419,6 @@ describe("the probe hold (#3860)", () => {
 			() => fs.writeFileSync(dotGit("refs/heads/main"), ""),
 			"",
 		],
-		["resolve origin/landing: names no commit", () => undefined, "landing"],
 	])(
 		"logs a failing probe's %s text and raises the hold",
 		(text, breakIt, modules) => {
@@ -435,21 +434,6 @@ describe("the probe hold (#3860)", () => {
 			expect(status()).toContain("stops launches: yes");
 		},
 	);
-
-	it("passes with the landing module on once origin/landing resolves", () => {
-		serve();
-		vi.stubEnv("WFC_MODULES", "landing");
-		fs.mkdirSync(dotGit("refs/remotes/origin"), { recursive: true });
-		fs.copyFileSync(
-			dotGit("refs/heads/main"),
-			dotGit("refs/remotes/origin/landing"),
-		);
-
-		const { broken, text } = tick();
-
-		expect(text).not.toContain("probe failed");
-		expect(broken).toEqual([]);
-	});
 
 	it("holds only the failing one of two served checkouts", () => {
 		serve();

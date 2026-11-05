@@ -1,10 +1,11 @@
 // @vitest-environment node
 /*
  * Pins the one choice of which remote ref the "what has been pushed" readers
- * read (#2408): `origin/landing` with the `landing` module on, `origin/main`
- * with it off or on a config that will not read. Every pushed reader calls it,
- * so a wrong answer moves push attestation, the unpushed count and changed-file
- * selection onto a branch the repo does not push to.
+ * read (#2408, #4458): with the `landing` module on, a session worktree's own
+ * `origin/queue/<name>` where it stands, else `origin/main`; `origin/main`
+ * with the module off or on a config that will not read. Every pushed reader
+ * calls it, so a wrong answer moves push coverage, the unpushed count and
+ * commit-ledger status onto a ref the session does not push to.
  *
  * A throwaway host per test, never this one, since this checkout's own config
  * is what the answer turns on.
@@ -18,7 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
 
-const { pushedRef, queueRefOf, readUnpushedRef, startRef } =
+const { pushedRef, queueRefOf, readUnpushedRef } =
 	createRequire(__filename)("./landing-refs.js");
 const SCRIPT = path.join(__dirname, "landing-refs.js");
 
@@ -42,34 +43,61 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
+/** Run git in `cwd`, quietly. */
+const gitIn = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, stdio: "ignore" });
+
+/** A one-commit repository at `root`, and a session worktree of it. */
+function sessionWorktree(name: string) {
+	gitIn(root, "init", "-q", "-b", "main");
+	gitIn(
+		root,
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"c",
+	);
+	const tree = path.join(root, ".claude", "worktrees", name);
+	gitIn(root, "worktree", "add", "-q", "--detach", tree);
+	return tree;
+}
+
 describe("pushedRef", () => {
-	it("is origin/landing where the host turns the landing module on", () => {
+	it("is a session worktree's own queue ref once it stands, with the landing module on", () => {
 		host(["suites", "landing"]);
-		expect(pushedRef({ root })).toBe("origin/landing");
+		const tree = sessionWorktree("fix-it");
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
+		expect(pushedRef({ root, tree })).toBe("origin/queue/fix-it");
 	});
 
-	it("is origin/main where the module is off", () => {
-		host(["suites"]);
+	it("is origin/main for a session worktree whose queue ref does not stand", () => {
+		host(["suites", "landing"]);
+		const tree = sessionWorktree("fix-it");
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/other", "HEAD");
+		expect(pushedRef({ root, tree })).toBe("origin/main");
+	});
+
+	it("is origin/main for the host itself, with the module on", () => {
+		host(["suites", "landing"]);
 		expect(pushedRef({ root })).toBe("origin/main");
+		expect(pushedRef({ root, tree: root })).toBe("origin/main");
+	});
+
+	it("is origin/main where the module is off, the queue ref standing", () => {
+		host(["suites"]);
+		const tree = sessionWorktree("fix-it");
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
+		expect(pushedRef({ root, tree })).toBe("origin/main");
 	});
 
 	it("is origin/main where the config will not read", () => {
 		host(null, "{ not json");
 		expect(pushedRef({ root })).toBe("origin/main");
-	});
-});
-
-describe("startRef", () => {
-	it("is origin/landing where the landing module is on, as pushedRef is", () => {
-		host(["suites", "landing"]);
-		expect(startRef({ root })).toBe("origin/landing");
-	});
-
-	it("is origin/main where the module is off or the config will not read", () => {
-		host(["suites"]);
-		expect(startRef({ root })).toBe("origin/main");
-		host(null, "{ not json");
-		expect(startRef({ root })).toBe("origin/main");
 	});
 });
 
@@ -107,10 +135,11 @@ describe("readUnpushedRef", () => {
 		expect(readUnpushedRef({ root })).toBe("origin/spike/x");
 	});
 
-	it("is the pushed ref on main, though main tracks origin/main", () => {
+	it("is the pushed ref in a session worktree, its own queue ref", () => {
 		host(["landing"]);
-		checkout("main", "origin/main");
-		expect(readUnpushedRef({ root })).toBe("origin/landing");
+		const tree = sessionWorktree("fix-it");
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
+		expect(readUnpushedRef({ root, tree })).toBe("origin/queue/fix-it");
 	});
 
 	it("is the pushed ref on a branch with no upstream", () => {
@@ -138,32 +167,25 @@ describe("the CLI", () => {
 	const cli = (args: string[]) =>
 		runInProcess(SCRIPT, args, { cwd: root, env: { ...process.env } });
 
-	it("prints the pushed ref for the host it is named", () => {
+	it("prints the pushed ref for the host it is named, main with landing on", () => {
 		host(["landing"]);
 		const r = cli(["pushed", root]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("origin/landing\n");
+		expect(r.stdout).toBe("origin/main\n");
 	});
 
-	it("prints the pushed ref's branch for a workflow", () => {
+	it("prints the pushed ref's branch for a workflow, main with landing on", () => {
 		host(["landing"]);
 		const r = cli(["pushed-branch", root]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("landing\n");
-	});
-
-	it("fails the pushed branch on a config that will not read, never naming main", () => {
-		host(null, "{ not json");
-		const r = cli(["pushed-branch", root]);
-		expect(r.status).not.toBe(0);
-		expect(r.stdout).toBe("");
+		expect(r.stdout).toBe("main\n");
 	});
 
 	it("refuses anything else with its usage", () => {
 		const r = cli(["verified"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			"usage: landing-refs.js pushed|unpushed|pushed-branch [<root>]",
+			"usage: landing-refs.js pushed|unpushed|pushed-branch [<tree>]",
 		);
 	});
 });

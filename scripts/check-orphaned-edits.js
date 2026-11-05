@@ -34,7 +34,7 @@
  * and blob together, so a change to any of them refiles once, naming the
  * issue it supersedes. It waits while any file there is under the threshold,
  * so files aging on different days still make one issue. That issue says
- * which of them are already on `origin/landing` (lib/landed-edit.js), and,
+ * which of them are already on `origin/main` (lib/landed-edit.js), and,
  * where all are, the worktree holds nothing else uncommitted and its `HEAD`
  * no commit off it, names removing the worktree as the remedy. The blob is
  * `git hash-object` of the working copy. Each filing first creates its own
@@ -109,7 +109,7 @@ const proc = require("./lib/arbiter-proc");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { landingCutOver } = require("./lib/cutover.js");
-const { pushedRefFor } = require("./lib/landing-refs.js");
+const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
@@ -141,7 +141,7 @@ const BLOB_TAG_HEX = 10;
  * @property {string} blob    the working copy's blob id, or "unknown"
  * @property {string} filed   what became of its triage issue, as printed
  * @property {"blob"|"lines"|null} [landed]  in a linked worktree, how its
- *   change reached `origin/landing` (lib/landed-edit.js), null where it has not
+ *   change reached `origin/main` (lib/landed-edit.js), null where it has not
  */
 
 /**
@@ -157,7 +157,7 @@ const BLOB_TAG_HEX = 10;
  *   as `readWorktreeDirt` reads it; empty for a main-checkout filing
  * @property {number} others  the worktree's paths besides its orphans:
  *   untracked, deleted, owned by a live session, or of a blob unread
- * @property {number|null} unlanded  its `HEAD`'s commits off `origin/landing`,
+ * @property {number|null} unlanded  its `HEAD`'s commits off `origin/main`,
  *   null where that cannot be read
  * @property {string|null} held  why it is not filed this run, as printed;
  *   null where it is filed
@@ -378,7 +378,7 @@ const describeLanded = (landed) => (landed ? LANDED_AS[landed] : "no");
 
 /**
  * Whether removing filing `f`'s worktree loses nothing: every uncommitted
- * path in it is an orphan already on `origin/landing`, and `HEAD` has no
+ * path in it is an orphan already on `origin/main`, and `HEAD` has no
  * commit off it.
  * @param {Filing} f
  */
@@ -389,7 +389,7 @@ const isRemovable = (f) =>
 	f.orphans.every((o) => o.landed);
 
 /**
- * The issue body's line on `HEAD`'s commits off `origin/landing`, none where
+ * The issue body's line on `HEAD`'s commits off `origin/main`, none where
  * there are none.
  * @param {number|null} unlanded
  * @returns {string[]}
@@ -643,8 +643,9 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 	};
 }
 
-/* Orphaned work counts as landed once sessions have pushed it. */
-const LANDED_REF = pushedRefFor(true);
+/* Orphaned work counts as landed once it is on `main`: a queue ref the
+ * lander may yet drop is not landed. */
+const LANDED_REF = VERIFIED_REF;
 
 /**
  * @param {Orphan} o
@@ -706,7 +707,7 @@ function addToWorktree(byTree, filings, o, ref) {
 
 /**
  * The orphans grouped into filings: each main-checkout orphan alone, each
- * linked worktree's together, judged against `origin/landing` where it
+ * linked worktree's together, judged against `origin/main` where it
  * stands, in the order of each filing's oldest orphan. A worktree orphan
  * whose blob will not read is filed with none, and returned apart.
  * @param {Orphan[]} orphans oldest first

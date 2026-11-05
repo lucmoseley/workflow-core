@@ -153,9 +153,9 @@ if (is("issue", "list")) {
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-it("starts a lander where landing is ahead and none runs, naming the refill loop in the lander's log", async () => {
+it("starts the queue lander where a queue ref waits and none runs, naming the refill loop in the lander's log", async () => {
 	commit("seed", 0, "main", "landing");
-	const sha = commit("work", 0, "landing");
+	const sha = commit("work", 0, "refs/heads/queue/work");
 	const tester = path.join(tmp, "tester.sh");
 	fs.writeFileSync(tester, "#!/bin/sh\nexit 0\n");
 	fs.chmodSync(tester, 0o755);
@@ -164,9 +164,7 @@ it("starts a lander where landing is ahead and none runs, naming the refill loop
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toMatch(
-		new RegExp(
-			`^\\S+Z started the lander, testing ${sha.slice(0, 9)} \\(launched by the refill loop; pid \\d+\\); its output: `,
-		),
+		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work \(launched by the refill loop; pid \d+\); its output: /,
 	);
 	expect(await waitFor(() => git(remote, ["rev-parse", "main"]) === sha)).toBe(
 		true,
@@ -175,6 +173,19 @@ it("starts a lander where landing is ahead and none runs, naming the refill loop
 		fs.readFileSync(path.join(markers(), ".lander.log"), "utf8"),
 	).toContain("launched by the refill loop");
 	expect(readIssues()).toEqual([]);
+});
+
+it("starts none, and prints nothing, while a lander runs or no queue ref waits", () => {
+	commit("seed", 0, "main", "landing");
+	expect(supervise(["--tester", "true"]).stdout).toBe("");
+	commit("work", 0, "refs/heads/queue/work");
+	beat(process.pid);
+
+	const r = supervise(["--tester", "true"]);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });
 
 it("files one urgent bug stall ticket for a running lander whose main has stood 2 h, and finds it current on the next pass", () => {
@@ -273,9 +284,9 @@ it("drops a torn stall record, saying so, and closes nothing", () => {
 	expect(readIssues()).toEqual([]);
 });
 
-it("starts a dead lander and files the stall ticket too where main has stood 2 h", () => {
+it("starts the queue lander and files the stall ticket too where main has stood 2 h behind landing", () => {
 	commit("seed", 121 * MIN, "main", "landing");
-	commit("work", MIN, "landing");
+	commit("work", MIN, "landing", "refs/heads/queue/work");
 	aheadFor(121 * MIN);
 	const tester = path.join(tmp, "tester.sh");
 	fs.writeFileSync(tester, "#!/bin/sh\nexit 2\n");
@@ -284,7 +295,7 @@ it("starts a dead lander and files the stall ticket too where main has stood 2 h
 	const r = supervise(["--tester", tester]);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toContain("started the lander");
+	expect(r.stdout).toContain("started the queue lander");
 	expect(r.stdout).toContain("Filed #100");
 	expect(readIssues()).toHaveLength(1);
 });

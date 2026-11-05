@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
  * landing-push-gate.js — the pre-push limb of the landing queue (#2409, spec
- * #2261): with the `landing` module on, refuse a push whose destination is
- * `main` unless the pushed sha is in the lander's green ledger. The lander
- * ledgers a sha before it pushes it, so its own push passes.
+ * #2261, #4458): with the `landing` module on, refuse a push whose
+ * destination is `main` unless the pushed sha is in the lander's green
+ * ledger. The queue lander ledgers a sha before it pushes it, so its own push
+ * passes.
  *
  * git feeds `<local ref> <local sha> <remote ref> <remote sha>` per ref on
  * stdin. A deletion of `main` pushes the all-zero sha, which no ledger holds,
@@ -29,7 +30,7 @@
  * guard's landing limb, logged there.
  */
 
-const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./lib/landing-refs.js");
+const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { fileLedger, landerFiles } = require("./lib/lander.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -98,8 +99,8 @@ function judge(stdin, { tree, root }) {
 		2,
 		[
 			`pre-push: refused — this pushes ${untested.join(", ")} to ${VERIFIED_BRANCH}, and the lander's green ledger holds neither it nor its tree.`,
-			`With the landing module on, only the lander moves ${VERIFIED_BRANCH}, to a sha the full suite passed (#2261).`,
-			`Land through ${LANDING_BRANCH} instead, from your session's worktree: node ${scriptPath("session-checkout.js")} land`,
+			`With the landing module on, only the queue lander moves ${VERIFIED_BRANCH}, to a sha the full suite passed (#4458).`,
+			`Push your session's queue ref instead, from its worktree: node ${scriptPath("session-checkout.js")} land`,
 			"",
 		].join("\n"),
 	);

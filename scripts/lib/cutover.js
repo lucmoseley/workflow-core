@@ -12,9 +12,10 @@
  * removes that upstream.
  *
  * THE PASS refuses while any session `claude agents --json` lists stands in
- * the main checkout. Otherwise it lands the commits local `main` carries that `origin/landing`
- * lacks — a session worktree cut from `origin/landing`, `main` merged into
- * it, then lib/session-checkout.js's land — reports every edit left in the
+ * the main checkout. Otherwise it lands the commits local `main` carries that
+ * `origin/main` lacks — a session worktree cut from `origin/main`, `main`
+ * merged into it, then lib/session-checkout.js's land, a push of that
+ * worktree's queue ref — reports every edit left in the
  * main checkout, never discarding one, removes
  * the upstream, and runs one levelling pass. A merge that conflicts or is
  * refused leaves its worktree for a session to finish in, and the upstream
@@ -24,7 +25,13 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
-const { LANDING_BRANCH, LANDING_REF, REMOTE } = require("./landing-refs.js");
+const {
+	LANDING_BRANCH,
+	LANDING_REF,
+	REMOTE,
+	VERIFIED_BRANCH,
+	VERIFIED_REF,
+} = require("./landing-refs.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
@@ -125,7 +132,7 @@ const throwingGit = (read, dir) => (args) => {
  *   moduleOn: () => boolean,
  *   listed: () => { agents: { name?: string, sessionId: string, cwd?: string }[] } | { why: string },
  *   cut: (root: string, name: string) => { dir: string },
- *   land: (dir: string) => { head: string, lander: string | null },
+ *   land: (dir: string) => { queue: string, head: string, lander: string | null },
  *   orphanedEdits: (root: string) => Blocker[],
  *   level: (root: string) => LevelOutcome,
  *   gitIn: (cwd: string) => import("./git.js").GitReader,
@@ -137,7 +144,7 @@ const throwingGit = (read, dir) => (args) => {
  *   | { status: "occupied", sessions: string[] }
  *   | { status: "unmerged", dir: string, local: number, files: string[], why: string }
  *   | { status: "cut-over", already: boolean,
- *       landed: { count: number, head: string, lander: string | null } | null,
+ *       landed: { count: number, queue: string, head: string, lander: string | null } | null,
  *       orphanedEdits: Blocker[], level: LevelOutcome }
  * )} CutoverResult
  */
@@ -177,7 +184,7 @@ function cutover(root, ports) {
 	if (!ports.moduleOn()) return { status: "module-off" };
 	const read = ports.gitIn(root);
 	const already = readCutOver(read) === true;
-	/** @type {{ count: number, head: string, lander: string | null } | null} */
+	/** @type {{ count: number, queue: string, head: string, lander: string | null } | null} */
 	let landed = null;
 	if (!already) {
 		const listing = ports.listed();
@@ -188,12 +195,12 @@ function cutover(root, ports) {
 			.filter((a) => a.cwd && standsIn(a.cwd, root, worktrees))
 			.map((a) => a.name || a.sessionId);
 		if (sessions.length > 0) return { status: "occupied", sessions };
-		git(["fetch", "--quiet", REMOTE, LANDING_BRANCH]);
+		git(["fetch", "--quiet", REMOTE, VERIFIED_BRANCH]);
 		const local = git([
 			"rev-list",
 			"--right-only",
 			"--cherry-pick",
-			`refs/remotes/${LANDING_REF}...${BRANCH}`,
+			`refs/remotes/${VERIFIED_REF}...${BRANCH}`,
 		])
 			.split("\n")
 			.filter(Boolean);
@@ -203,8 +210,8 @@ function cutover(root, ports) {
 			const unmerged = mergeMain(ports.gitIn(dir));
 			if (unmerged !== null)
 				return { status: "unmerged", dir, local: local.length, ...unmerged };
-			const { head, lander } = ports.land(dir);
-			landed = { count: local.length, head, lander };
+			const { queue, head, lander } = ports.land(dir);
+			landed = { count: local.length, queue, head, lander };
 		}
 		git(["branch", "--unset-upstream", BRANCH]);
 	}
@@ -255,7 +262,7 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 			];
 			if (r.landed)
 				lines.push(
-					`landed main's ${r.landed.count} local commit(s) as ${r.landed.head.slice(0, SHORT_SHA)} on ${LANDING_BRANCH}${r.landed.lander ? `; ${r.landed.lander}` : ""}`,
+					`pushed main's ${r.landed.count} local commit(s) as ${r.landed.head.slice(0, SHORT_SHA)} to ${r.landed.queue}, for the queue lander to land${r.landed.lander ? `; ${r.landed.lander}` : ""}`,
 				);
 			if (r.orphanedEdits.length > 0)
 				lines.push(

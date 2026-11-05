@@ -3004,7 +3004,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			 * emptied selection spawns nothing. */
 			it.each([
 				["origin/main", "roadmap"],
-				["origin/landing", "landing"],
+				["origin/main", "landing"],
 			])(
 				"leaves on the bare default, before the gate opens, once a push moves %s to a base the diff empties against (modules: %s, #2408)",
 				async (ref, modules) => {
@@ -5418,17 +5418,17 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				).toBe("abc123");
 			});
 
-			it("takes the merge-base with origin/landing where the landing module is on (#2408)", () => {
+			it("takes the merge-base with origin/main where the landing module is on, never origin/landing (#4458)", () => {
 				vi.stubEnv("WFC_MODULES", "landing");
 				const read: string[][] = [];
 				const execFn = (_file: string, args: string[]) => {
 					read.push(args);
-					return args[0] === "merge-base" ? "landing-base\n" : "tip\n";
+					return args[0] === "merge-base" ? "main-base\n" : "tip\n";
 				};
-				expect(readDefaultChangedBase(repo(), execFn)).toBe("landing-base");
+				expect(readDefaultChangedBase(repo(), execFn)).toBe("main-base");
 				expect(read).toEqual([
-					["rev-parse", "--verify", "--quiet", "origin/landing"],
-					["merge-base", "HEAD", "origin/landing"],
+					["rev-parse", "--verify", "--quiet", "origin/main"],
+					["merge-base", "HEAD", "origin/main"],
 				]);
 			});
 

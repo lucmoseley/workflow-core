@@ -22,9 +22,10 @@
  *
  * A RECORD WHOSE LANDED SHA IS NOT ON `origin/main`, once fetched, in the
  * checkout on this machine that tracks the record's repo, is not counted
- * (#3846). One the pushed ref (lib/landing-refs.js), fetched with it, holds is
- * legal and silent, as a close posts it there without waiting for the lander.
- * One on neither, as a replay onto `landing` can leave it, is reported as OFF
+ * (#3846). One a queue ref holds, with the `landing` module on, fetched with
+ * it, is legal and silent, as a close posts it there without waiting for the
+ * lander. One on neither, as a dropped or rewritten queue ref can leave it, is
+ * reported as OFF
  * MAIN each run until a record of the same review on its ticket names a sha
  * that is on one. A sha that checkout does not hold, mistyped or pruned, is
  * reported as UNJUDGED and not counted until a record of the same review names
@@ -181,10 +182,9 @@ const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
 const {
-	LANDING_BRANCH,
-	LANDING_REF,
-	pushedRef,
-	trackingRefspec,
+	landingOn,
+	QUEUE_REFSPEC,
+	QUEUE_TRACKING_GLOB,
 } = require("./lib/landing-refs");
 const { requiredGroup } = require("./lib/regex-group");
 const {
@@ -457,11 +457,10 @@ function fetchJudgedRef(root) {
 			"--no-tags",
 			/* A daily reader starts no gc under its neighbours. */
 			"--no-auto-maintenance",
+			"--prune",
 			"origin",
 			`+refs/heads/main:${JUDGED_REF}`,
-			...(pushedRef({ root }) === LANDING_REF
-				? [trackingRefspec(LANDING_BRANCH)]
-				: []),
+			...(landingOn({ root }) ? [QUEUE_REFSPEC] : []),
 		],
 		[],
 		root,
@@ -751,18 +750,22 @@ function creditEscapes(commits, escaped, reading) {
  *
  * @param {ReviewRecord} c
  * @param {string} home
- * @returns {{ at: "main" | "landing" | "off" | "unread" } | { at: "unheld", fault: Report }}
+ * @returns {{ at: "main" | "queued" | "off" | "unread" } | { at: "unheld", fault: Report }}
  */
 function readLandedAt(c, home) {
 	const checkout = readCheckoutTracking(c.repo, home);
 	if (!("root" in checkout)) return { at: "unread" };
 	const { root } = checkout;
-	/** @param {string} ref */
+	/** @param {string} ref a ref, or a `--glob=` naming several */
 	const walk = (ref) =>
 		gitOutcome(["rev-list", "--max-count=1", c.landed, "--not", ref], [], root);
-	const pushed = pushedRef({ root });
+	const queued = landingOn({ root });
+	const pushed = queued ? QUEUE_TRACKING_GLOB : JUDGED_REF;
 	const onMain = walk(JUDGED_REF);
-	const onPushed = onMain.ok && onMain.out !== "" ? walk(pushed) : onMain;
+	const onPushed =
+		queued && onMain.ok && onMain.out !== ""
+			? walk(`--glob=${pushed}`)
+			: onMain;
 	if (!onPushed.ok)
 		return {
 			at: "unheld",
@@ -772,7 +775,7 @@ function readLandedAt(c, home) {
 			},
 		};
 	if (onMain.ok && onMain.out === "") return { at: "main" };
-	return { at: onPushed.out === "" ? "landing" : "off" };
+	return { at: onPushed.out === "" ? "queued" : "off" };
 }
 
 /**

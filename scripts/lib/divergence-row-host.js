@@ -87,7 +87,11 @@ function buildHostPorts(env) {
 			const { gitCommonDir, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 			return gitCommonDir(dir, { timeout: HOOK_GIT_TIMEOUT_MS });
 		},
-		pushedRef: (top) => require("./landing-refs.js").pushedRef({ root: top }),
+		pushedRef: (top) =>
+			require("./landing-refs.js").pushedRef({
+				root: require("./main-checkout.js").mainCheckout(top) ?? top,
+				tree: top,
+			}),
 		refExists: (top, ref) =>
 			git(["-C", top, "rev-parse", "--verify", "--quiet", ref]) !== null,
 		upstream: (top) =>

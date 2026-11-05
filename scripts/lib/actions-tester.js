@@ -69,8 +69,8 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./lander.js").Tester} Tester */
 /** @typedef {import("./lander.js").QueueTester} QueueTester */
 
-/* scheduled-checks.yml carries the `landing` and `lander/batch` push
- * triggers, as it calls every job `main`'s sweep judges by. */
+/* scheduled-checks.yml carries the `lander/batch` push trigger, as it calls
+ * every job `main`'s sweep judges by. */
 const SUITE_WORKFLOW = "scheduled-checks.yml";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;

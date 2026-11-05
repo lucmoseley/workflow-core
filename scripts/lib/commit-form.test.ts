@@ -578,13 +578,17 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 		).toContain(AMEND);
 	});
 
-	it("reads origin/landing where the `landing` module is on", () => {
+	it("reads a session worktree's own queue ref where the `landing` module is on (#4458)", () => {
 		writes();
-		pushHead(shared, "origin/landing");
+		const session = path.join(shared, ".claude", "worktrees", "q");
+		git(shared, "worktree", "add", "-q", "--detach", session);
+		fs.writeFileSync(path.join(session, "a.md"), "queued\n");
+		git(session, "commit", "-qm", "queued", "--", "a.md");
+		pushHead(session, "origin/queue/q");
 		const env = { WFC_MODULES: "landing" };
 		expect(
-			readDenyReason("git commit --amend --no-edit", shared, env),
-		).toContain("as `HEAD` is on `origin/landing`");
+			readDenyReason("git commit --amend --no-edit", session, env),
+		).toContain("as `HEAD` is on `origin/queue/q`");
 	});
 
 	it("allows an amend of a commit not yet pushed", () => {

@@ -252,26 +252,11 @@ it("refuses where main carries a commit of its own, naming it and the way out", 
 	const r = run(main);
 
 	expect(r.status).toBe(1);
-	expect(r.stderr).toContain(
-		"main carries 1 commit(s) on neither origin/main nor origin/landing",
-	);
+	expect(r.stderr).toContain("main carries 1 commit(s) not on origin/main");
 	expect(r.stderr).toContain("land them from a session worktree");
 	expect(r.stderr).toContain(own.slice(0, 9));
 	expect(git(main, "rev-parse", "HEAD")).toBe(own);
 	expect(installs()).toEqual([]);
-});
-
-it("waits where main's own commits are all on origin/landing, for the lander to take them", () => {
-	commitIn(main, { "local.txt": "mine\n" }, "local only");
-	git(main, "push", "-q", "origin", "HEAD:landing");
-	git(main, "fetch", "-q", "origin");
-
-	const r = run(main);
-
-	expect(r.status).toBe(1);
-	expect(r.stderr).toContain(
-		"waiting: main carries 1 commit(s) not yet on origin/main, all on origin/landing",
-	);
 });
 
 it("refuses a main checkout not yet cut over, its main tracking landing (#4248)", () => {

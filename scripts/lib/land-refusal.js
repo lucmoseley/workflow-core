@@ -1,14 +1,12 @@
 /*
- * land-refusal.js — the line lib/session-checkout.js throws where a
- * neighbour's push beat a land's own (#4446), and that
- * lib/worktree-model-reading.js reads transcripts for, from one place.
+ * land-refusal.js — the line lib/session-checkout.js throws where a land's
+ * push to its queue ref is no fast-forward (#4446, #4458), and that
+ * lib/worktree-model-reading.js reads transcripts for, from one place. Only
+ * the session writes its queue ref, so the ref holding a commit HEAD lacks
+ * means HEAD was rewritten after a push.
  */
 
-const { branchOf, pushedRefFor } = require("./landing-refs.js");
-
-/* A land runs with the `landing` module on. */
-const PUSHED = pushedRefFor(true);
-
-const MOVED_LINE = `${branchOf(PUSHED)} moved after the fetch: a neighbour pushed first — land again, which merges the newer ${PUSHED} into HEAD and pushes`;
+const MOVED_LINE =
+	"the push is no fast-forward: your queue ref holds a commit HEAD lacks, so HEAD was rewritten after a push";
 
 module.exports = { MOVED_LINE };

@@ -473,7 +473,7 @@ describe("a linked worktree's dirt", () => {
 		fs.utimesSync(file, at, at);
 	}
 
-	/** Point `origin/landing` at a line of commits on HEAD, each carrying
+	/** Point `origin/main` at a line of commits on HEAD, each carrying
 	 * one entry of `commits`, then put the main checkout back at HEAD. */
 	function landOnOrigin(...commits: Record<string, string>[]) {
 		const git = (...args: string[]) =>
@@ -484,7 +484,7 @@ describe("a linked worktree's dirt", () => {
 				fs.writeFileSync(path.join(sb.repo, rel), content);
 			commitAll(sb, "landed");
 		}
-		git("update-ref", "refs/remotes/origin/landing", "HEAD");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
 		git("reset", "-q", "--hard", head);
 	}
 
@@ -527,7 +527,7 @@ describe("a linked worktree's dirt", () => {
 		expect(reaperSees(wt)).toBe("https://github.com/o/r/issues/7");
 	});
 
-	it("names removing the worktree where every change in it is already on origin/landing (#4439)", () => {
+	it("names removing the worktree where every change in it is already on origin/main (#4439)", () => {
 		landOnOrigin({ "a.txt": "worktree edit\n" });
 		const wt = worktreeOf("dead-owner-6", 30);
 
@@ -539,7 +539,7 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain("holds nothing unlanded");
 		expect(body).toContain(`git worktree remove --force ${wt}`);
 		expect(body).not.toContain("session-checkout.js land");
-		expect(r.out).toContain("on origin/landing: yes, byte for byte");
+		expect(r.out).toContain("on origin/main: yes, byte for byte");
 	});
 
 	it("reads a change landed and since superseded as landed by its lines (#4439)", () => {
@@ -553,7 +553,7 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain("holds nothing unlanded");
 	});
 
-	it("keeps the land route where a change is not on origin/landing (#4439)", () => {
+	it("keeps the land route where a change is not on origin/main (#4439)", () => {
 		landOnOrigin({ "c.txt": "other\n" });
 		const wt = worktreeOf("dead-owner-8", 30);
 

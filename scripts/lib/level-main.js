@@ -42,15 +42,13 @@ const {
 	SHORT_SHA,
 } = require("./git.js");
 const { isCutOver } = require("./cutover.js");
-const { LANDING_REF, pushedRefFor } = require("./landing-refs.js");
+const { LANDING_REF } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
-/* What sessions push to with the `landing` module on, which levelling waits behind. */
-const PUSHED = pushedRefFor(true);
 const LOCKFILE = "package-lock.json";
 /* What `npm ci` reads besides the lockfile; `.npmrc` only where present. */
 const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
@@ -71,7 +69,7 @@ const INSTALL_TIMEOUT_MS = 15 * 60_000;
  *   | { status: "forwarded", from: string, head: string }
  *   | { status: "off-branch", branch: string | null }
  *   | { status: "shared" }
- *   | { status: "ahead", local: string[], unlanded: string[] }
+ *   | { status: "ahead", local: string[] }
  *   | { status: "blocked", from: string, to: string, blockers: Blocker[] }
  *   | { status: "refused", from: string, to: string, why: string }
  * )} Moved
@@ -312,34 +310,6 @@ function installIfStale(root, work, install) {
 }
 
 /**
- * Which of `local` the last-fetched `origin/landing` lacks: all of them where
- * there is none.
- * @param {string} root
- * @param {string[]} local
- * @returns {string[]}
- */
-function readUnlanded(root, local) {
-	try {
-		git(["rev-parse", "--verify", "--quiet", `refs/remotes/${PUSHED}`], root);
-	} catch (err) {
-		if (caught(err).status !== 1) throw err;
-		return local;
-	}
-	return git(
-		[
-			"rev-list",
-			"--reverse",
-			"--right-only",
-			"--cherry-pick",
-			`${PUSHED}...HEAD`,
-		],
-		root,
-	)
-		.split("\n")
-		.filter(Boolean);
-}
-
-/**
  * The fast-forward half of a pass: what `main` did, no install.
  * @param {string} root the main checkout
  * @param {number} now
@@ -362,12 +332,7 @@ function forward(root, now, lastWriter) {
 	const local = git(["rev-list", "--reverse", `${UPSTREAM}..HEAD`], root)
 		.split("\n")
 		.filter(Boolean);
-	if (local.length > 0)
-		return {
-			status: "ahead",
-			local,
-			unlanded: readUnlanded(root, local),
-		};
+	if (local.length > 0) return { status: "ahead", local };
 	const changed = parseNulList(
 		git(["diff", "--name-only", "--no-renames", "-z", from, to], root),
 	);
@@ -552,10 +517,8 @@ function renderOutcome(o, now) {
 			break;
 		case "ahead":
 			lines.push(
-				o.unlanded.length === 0
-					? `waiting: main carries ${o.local.length} commit(s) not yet on ${UPSTREAM}, all on ${PUSHED} — once the lander takes them, ${next}`
-					: `refused: main carries ${o.unlanded.length} commit(s) on neither ${UPSTREAM} nor ${PUSHED}, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
-				...o.unlanded.map((sha) => `  ${short(sha)}`),
+				`refused: main carries ${o.local.length} commit(s) not on ${UPSTREAM}, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
+				...o.local.map((sha) => `  ${short(sha)}`),
 			);
 			break;
 		case "blocked":

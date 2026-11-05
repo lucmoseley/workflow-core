@@ -142,13 +142,13 @@ describe("levellingRefusals", () => {
 			"2026-11-05T03:00:00.000Z tick",
 			"main fast-forwarded a..b to origin/main",
 			"node_modules rebuild failed, and the next pass retries it: x",
-			"waiting: main carries 1 commit(s) not yet on origin/main",
+			"refused: main carries 1 commit(s) not on origin/main",
 			"level main: failed: boom",
 		];
 		expect(levellingRefusals(lines, w, "/r")).toEqual([
 			{
 				at: Date.parse("2026-11-05T03:00:00Z"),
-				line: "waiting: main carries 1 commit(s) not yet on origin/main",
+				line: "refused: main carries 1 commit(s) not on origin/main",
 				root: null,
 			},
 			{
@@ -231,7 +231,8 @@ describe("landingOutcome", () => {
 		result,
 	});
 	const Land = "node scripts/session-checkout.js land";
-	const Merged = "pushed 0123abcd to landing, origin/landing merged in first";
+	const Merged =
+		"pushed 0123abcd to queue/implement-9-abc123, origin/main merged in first";
 
 	it("names the merge commit a landing route pushed", () => {
 		expect(
@@ -256,13 +257,16 @@ describe("landingOutcome", () => {
 	it("marks a push with no merge as pushed, and names nothing where nothing landed or it was not the landing route", () => {
 		expect(
 			landingOutcome(
-				bash(Land, "session checkout: pushed 0123abcd to landing"),
+				bash(
+					Land,
+					"session checkout: pushed 0123abcd to queue/implement-9-abc123",
+				),
 			),
 		).toEqual({ kind: "pushed" });
 		expect(
 			landingOutcome(bash(Land, "session checkout: nothing to land")),
 		).toBeNull();
-		expect(landingOutcome(bash("git merge origin/landing", Merged))).toBeNull();
+		expect(landingOutcome(bash("git merge origin/main", Merged))).toBeNull();
 	});
 });
 
@@ -352,10 +356,10 @@ describe("zeroChecks", () => {
 			{ since: 0, until: day },
 		).text;
 		expect(text).toContain(
-			"landing route a week: 490 merged origin/landing first, of 630 pushed — below the predicted 491–587 (#4229; against 436 merges on the shared checkout); 70 refused because a neighbour pushed first, 10.0% of 100 push attempt(s)",
+			"landing route a week: 490 merged origin/main first, of 630 pushed — below the predicted 491–587 (#4229; against 436 merges on the shared checkout); 70 refused as no fast-forward of the queue ref, 10.0% of 100 push attempt(s)",
 		);
 		expect(render(reading(), { since: 0, until: day }).text).toMatch(
-			/0 refused because a neighbour pushed first, — of 0 push attempt/,
+			/0 refused as no fast-forward of the queue ref, — of 0 push attempt/,
 		);
 	});
 });

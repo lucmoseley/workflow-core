@@ -6,7 +6,7 @@
  * names strands a close whose work did land — rebased under a new hash, or
  * cited only by another tracker.
  *
- * Real git in a throwaway host with the `landing` module on, `origin/landing`
+ * Real git in a throwaway host with the `landing` module on, `origin/main`
  * set by update-ref so no remote is needed.
  */
 
@@ -51,7 +51,7 @@ const commit = (message: string, file = "a.txt") => {
 };
 
 const push = (ref = "HEAD") =>
-	git("update-ref", "refs/remotes/origin/landing", ref);
+	git("update-ref", "refs/remotes/origin/main", ref);
 
 const unlanded = (n: number, comment = "") =>
 	readUnlandedCommits(root, n, comment, { host: root }).commits.map(
@@ -84,7 +84,7 @@ afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 
 describe("the ticket's commits (#3092, #2983 closed over unpushed ones)", () => {
-	it("names a commit citing the ticket that origin/landing lacks", () => {
+	it("names a commit citing the ticket that origin/main lacks", () => {
 		commit("Fix the stop (#12)");
 		expect(unlanded(12)).toEqual(["Fix the stop (#12)"]);
 	});
@@ -95,7 +95,7 @@ describe("the ticket's commits (#3092, #2983 closed over unpushed ones)", () => 
 		expect(unlanded(12)).toEqual([]);
 	});
 
-	it("names none that landed under a new hash, its twin on origin/landing", () => {
+	it("names none that landed under a new hash, its twin on origin/main", () => {
 		const base = git("rev-parse", "HEAD");
 		const fix = commit("Fix the stop (#12)");
 		git("checkout", "-q", "-b", "upstream", base);
@@ -150,16 +150,17 @@ describe("the ticket's commits (#3092, #2983 closed over unpushed ones)", () => 
 	});
 
 	it("reads the pushed ref from the host's config, not the worktree's (#4280)", () => {
-		const wt = `${root}-wt`;
+		const wt = path.join(root, ".claude/worktrees/q");
 		git("worktree", "add", "-q", "--detach", wt);
+		git("update-ref", "refs/remotes/origin/queue/q", "HEAD");
 		fs.writeFileSync(
 			path.join(wt, ".claude/workflow-core.json"),
 			JSON.stringify({ contract: 1, modules: [] }),
 		);
 		expect(readUnlandedCommits(wt, 12, "", { host: root }).pushed).toBe(
-			"origin/landing",
+			"origin/queue/q",
 		);
-		fs.rmSync(wt, { recursive: true, force: true });
+		git("worktree", "remove", "--force", wt);
 	});
 
 	it("names none citing only another tracker's #12, or #120", () => {
@@ -229,9 +230,9 @@ describe("a commit the comment names", () => {
 
 describe("the pushed ref it compares against", () => {
 	it("throws, naming the ref, in a checkout whose pushed ref is absent", () => {
-		git("update-ref", "-d", "refs/remotes/origin/landing");
+		git("update-ref", "-d", "refs/remotes/origin/main");
 		commit("Fix the stop (#12)");
-		expect(() => unlanded(12)).toThrow("no origin/landing to compare against");
+		expect(() => unlanded(12)).toThrow("no origin/main to compare against");
 	});
 
 	it("reads origin/main with the landing module off", () => {
@@ -269,11 +270,11 @@ describe("the refusal and its escape", () => {
 			12,
 			readUnlandedCommits(root, 12, "", { host: root }),
 		);
-		expect(text).toContain("#12's commit is not on origin/landing");
+		expect(text).toContain("#12's commit is not on origin/main");
 		expect(text).toContain(
 			`  ${git("rev-parse", "--short", sha)} Fix the stop (#12)\n`,
 		);
-		expect(text).toContain("git fetch origin landing");
+		expect(text).toContain("git fetch origin main");
 		expect(text).toContain("**Unlanded:**");
 	});
 

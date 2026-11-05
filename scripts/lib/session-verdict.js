@@ -21,7 +21,7 @@ const { gitRead } = require("./dirty-tree.js");
 const { readOwnPaths } = require("./own-work.js");
 const markerLib = require("./test-pass-marker.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
-const { startRef } = require("./landing-refs.js");
+const { VERIFIED_REF } = require("./landing-refs.js");
 const { pushGateState } = require("./test-gate.js");
 
 const { shortSha } = markerLib;
@@ -136,7 +136,7 @@ function newestContained(commits, root, execFn) {
 function readOwnWork(sessionId, { root, tree }, ledger, execFn) {
 	const head = gitRead(["rev-parse", "HEAD"], tree, execFn)?.trim();
 	const base = gitRead(
-		["merge-base", "HEAD", startRef({ root })],
+		["merge-base", "HEAD", VERIFIED_REF],
 		tree,
 		execFn,
 	)?.trim();
@@ -163,7 +163,7 @@ function readOwnWork(sessionId, { root, tree }, ledger, execFn) {
  */
 function buildOwedText(root, { at, verdict }, log) {
 	const own = verdict.judged && verdict.within;
-	const start = startRef({ root });
+	const start = VERIFIED_REF;
 	return {
 		unattested:
 			"no set of certificates in `" +

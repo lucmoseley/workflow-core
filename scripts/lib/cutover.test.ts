@@ -3,8 +3,8 @@
  * The cutover's core (#4248) against real git: a bare origin carrying `main` and
  * `landing`, and a main checkout cloned from it whose `main` tracks
  * `landing`, as the shared-tree model set it. The session listing is
- * injected; the cut is a detached worktree from `origin/landing`, and the
- * land a push of `HEAD:landing`, as lib/session-checkout.js's do, without
+ * injected; the cut is a detached worktree from `origin/main`, and the land a
+ * push of `HEAD` to that worktree's queue ref, as lib/session-checkout.js's do, without
  * its dependency store or lander start. The program's boundary set is
  * scripts/cutover-main-checkout.test.ts.
  *
@@ -59,14 +59,15 @@ const ports = ({
 	listed: () => (Array.isArray(agents) ? { agents } : agents),
 	cut: (root: string, name: string) => {
 		const dir = path.join(tmp, name);
-		git(root, "worktree", "add", "-q", "--detach", dir, "origin/landing");
+		git(root, "worktree", "add", "-q", "--detach", dir, "origin/main");
 		git(dir, "config", "user.email", "t@t");
 		git(dir, "config", "user.name", "t");
 		return { dir };
 	},
 	land: (dir: string) => {
-		git(dir, "push", "-q", "origin", "HEAD:landing");
-		return { head: git(dir, "rev-parse", "HEAD"), lander: null };
+		const queue = `queue/${path.basename(dir)}`;
+		git(dir, "push", "-q", "origin", `HEAD:refs/heads/${queue}`);
+		return { queue, head: git(dir, "rev-parse", "HEAD"), lander: null };
 	},
 	orphanedEdits: (root: string) =>
 		readOrphanedEdits(root, Date.now(), () => null),
@@ -138,10 +139,10 @@ it("refuses where no listing can show the main checkout empty", () => {
 	expect(isCutOver(main)).toBe(false);
 });
 
-it("lands main's local commits, reports each edit left by name, and removes the upstream", () => {
+it("pushes main's local commits to a queue ref, reports each edit left by name, and removes the upstream", () => {
 	const own = commitIn(main, { "local.md": "mine\n" }, "local only");
 	commitIn(other, { "b.md": "b\n" }, "a neighbour's");
-	git(other, "push", "-q", "origin", "HEAD:landing");
+	git(other, "push", "-q", "origin", "HEAD:main");
 	fs.writeFileSync(path.join(main, "a.md"), "edited\n");
 	fs.writeFileSync(path.join(main, "stray.md"), "new\n");
 
@@ -152,23 +153,30 @@ it("lands main's local commits, reports each edit left by name, and removes the 
 
 	expect(r.status).toBe("cut-over");
 	git(main, "fetch", "-q", "origin");
-	git(main, "merge-base", "--is-ancestor", own, "origin/landing");
+	git(
+		main,
+		"merge-base",
+		"--is-ancestor",
+		own,
+		`origin/queue/cutover-main-${own.slice(0, 9)}`,
+	);
 	expect(isCutOver(main)).toBe(true);
 	expect(fs.readFileSync(path.join(main, "a.md"), "utf8")).toBe("edited\n");
 	const text = render(r);
-	expect(text).toContain("landed main's 1 local commit(s)");
+	expect(text).toContain("pushed main's 1 local commit(s)");
+	expect(text).toContain("to queue/cutover-main-");
 	expect(text).toContain(
 		"2 edit(s) remain in the main checkout, none discarded",
 	);
 	expect(text).toContain("  a.md — ");
 	expect(text).toContain("  stray.md — ");
-	expect(text).toContain("all on origin/landing");
+	expect(text).toContain("once the lander takes them");
 });
 
 it("leaves the mark where merging main's commits conflicts, naming the files", () => {
 	commitIn(main, { "a.md": "main's\n" }, "local only");
 	commitIn(other, { "a.md": "landing's\n" }, "a neighbour's");
-	git(other, "push", "-q", "origin", "HEAD:landing");
+	git(other, "push", "-q", "origin", "HEAD:main");
 
 	const r = cutover(main, ports());
 

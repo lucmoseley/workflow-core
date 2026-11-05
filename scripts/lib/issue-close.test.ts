@@ -1084,7 +1084,7 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		git("add", "-A");
 		git("commit", "-qm", message);
 	};
-	const push = () => git("update-ref", "refs/remotes/origin/landing", "HEAD");
+	const push = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
 
 	beforeEach(() => {
 		vi.stubEnv("WFC_MODULES", undefined);
@@ -1098,7 +1098,7 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 	it("denies a close whose commit is unpushed, naming it and the escape", () => {
 		const reason = readDenyReason("gh issue close 12", lined);
 		expect(reason).toContain(
-			"This close reports work that has not landed: gh issue close 12\n\n#12's commit is not on origin/landing",
+			"This close reports work that has not landed: gh issue close 12\n\n#12's commit is not on origin/main",
 		);
 		expect(reason).toContain(" Fix the stop (#12)\n");
 		expect(reason).toContain("**Unlanded:**");
@@ -1125,7 +1125,7 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		).toBe("allow");
 	});
 
-	it("denies a close whose --comment names a commit off HEAD that origin/landing lacks (#3092)", () => {
+	it("denies a close whose --comment names a commit off HEAD that origin/main lacks (#3092)", () => {
 		push();
 		git("checkout", "-q", "-b", "side");
 		commit("Fix the stop");
@@ -1158,7 +1158,7 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		const wt = () => path.join(dir, "wt");
 		/* Cut from the pushed ref, before the main checkout's unpushed commit. */
 		const cut = () =>
-			git("worktree", "add", "-q", "--detach", wt(), "origin/landing");
+			git("worktree", "add", "-q", "--detach", wt(), "origin/main");
 		const fromWorktree = () =>
 			verdict("gh issue close 12", lined, { tree: treeAt(wt()) });
 
@@ -1188,15 +1188,16 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		});
 
 		it("takes the pushed ref from the host root's config, not the worktree's (#4280)", () => {
-			git("worktree", "add", "-q", "--detach", wt());
-			fs.mkdirSync(path.join(wt(), ".claude"), { recursive: true });
+			const session = path.join(shared, ".claude", "worktrees", "q");
+			git("worktree", "add", "-q", "--detach", session);
+			fs.mkdirSync(path.join(session, ".claude"), { recursive: true });
 			fs.writeFileSync(
-				path.join(wt(), ".claude", "workflow-core.json"),
+				path.join(session, ".claude", "workflow-core.json"),
 				JSON.stringify({ contract: 1, tracker: "acme/tracker", modules: [] }),
 			);
-			git("update-ref", "refs/remotes/origin/main", "HEAD");
-			const d = run("gh issue close 12", lined, { tree: treeAt(wt()) });
-			expect(d?.deny).toContain("#12's commit is not on origin/landing");
+			git("update-ref", "refs/remotes/origin/queue/q", "HEAD~1");
+			const d = run("gh issue close 12", lined, { tree: treeAt(session) });
+			expect(d?.deny).toContain("#12's commit is not on origin/queue/q");
 		});
 	});
 

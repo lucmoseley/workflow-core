@@ -127,10 +127,12 @@ describe("the push rules, end to end", () => {
 
 	it("hands the -landing twins with the landing module on (#2409)", () => {
 		fullHost(["suites", "landing"]);
-		const ctx = emission(at, "git push origin HEAD:landing", { env: offSuite })
+		const ctx = emission(at, "git push origin HEAD:queue/s1", { env: offSuite })
 			.additionalContext as string;
-		expect(ctx).toContain("PUSH TO `landing` ONCE THE TESTS YOU TOUCHED PASS");
-		expect(ctx).toContain("IS TESTED BY THE LANDER");
+		expect(ctx).toContain(
+			"PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS",
+		);
+		expect(ctx).toContain("IS TESTED BY THE QUEUE LANDER");
 		// No push owes a certificate under landing (#2929).
 		expect(ctx).not.toMatch(/WARNS UNLESS|ATTESTED|push:check/);
 		expect(ctx).not.toContain("A CI VERDICT COVERS");

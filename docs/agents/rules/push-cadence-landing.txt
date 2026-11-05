@@ -1,7 +1,7 @@
-PUSH TO `landing` ONCE THE TESTS YOU TOUCHED PASS — run them by name or with
-the bare test command; the lander runs the full suite. The push is your own
-act; never ask the founder for it. Push before the turn's last message, or say
-in that message why the push is held.
+PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS — run them by name or with
+the bare test command; the queue lander runs the full suite. The push is your
+own act; never ask the founder for it. Push before the turn's last message, or
+say in that message why the push is held.
 
   {command:test}
   {command:typecheck}
@@ -12,8 +12,10 @@ in that message why the push is held.
 A push costs nothing; holding one back buys nothing. `.husky/post-commit`'s
 unpushed count is a reminder, not a prompt.
 
-A REJECTED PUSH means `landing` moved: land again.
+A REJECTED PUSH means your queue ref holds a commit HEAD lacks: merge it as the
+land step says, then land again.
 
-A push to `landing` has not landed: the lander moves `main` to it only once the
-full suite passes there, 25–60 min later, and reverts a commit that breaks it.
-Never write `result:` on the strength of the push.
+A push to your queue ref has not landed: the queue lander moves `main` to it
+only once the full suite passes on it, and drops a ref that fails. `result:`
+never rests on a queue push alone: write it only once `node
+scripts/landing-status.js` reads the commit landed.

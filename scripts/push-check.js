@@ -7,9 +7,9 @@
  * (#4244).
  * It never pushes and never runs tests.
  *
- * THE RANGE is merge-base(HEAD, <pushed ref>)..HEAD, `attestationOf`'s default
- * and the base the narrowed default resolves, the pushed ref being
- * lib/landing-refs.js's `pushedRef`; nothing is fetched, so a stale ref only
+ * THE RANGE is merge-base(HEAD, <verified ref>)..HEAD, `attestationOf`'s
+ * default and the base the narrowed default resolves, the verified ref being
+ * lib/landing-refs.js's `VERIFIED_REF`; nothing is fetched, so a stale ref only
  * widens it.
  *
  * Exits 0 where every commit is attested, naming the certificates; 1 where a
@@ -46,7 +46,7 @@ const {
 const { pushGateState } = require("./lib/test-gate.js");
 const { caught } = require("./lib/caught.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-const { pushedRef } = require("./lib/landing-refs.js");
+const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { execGit } = require("./lib/git.js");
 
 /** @param {string} line */
@@ -177,7 +177,7 @@ function main() {
 	 * wrong for a push that sends nothing. */
 	if (verdict.judged && verdict.base === sha) {
 		say(
-			`✓  nothing to push: HEAD is at ${shortSha(sha)}, its merge-base with ${pushedRef({ root })}.`,
+			`✓  nothing to push: HEAD is at ${shortSha(sha)}, its merge-base with ${VERIFIED_REF}.`,
 		);
 		return 0;
 	}

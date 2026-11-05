@@ -1,13 +1,13 @@
 // @vitest-environment node
 /*
  * scripts/start-lander-on-push.js (#2405): the boundary set, run as the
- * harness runs it — that a push to `landing` starts the lander detached, the
+ * harness runs it — that a push to a queue ref starts the lander detached, the
  * hook returning before the start does. Which pushes count is
  * lib/lander-on-push.test.ts's (#2785). A stub `node` ahead on
  * PATH stands in for start-lander.js: it waits for a gate file, then records
  * its launch; any other node call goes to the real one.
  *
- * Loosen it and a push to `landing` sits untested until some later session
+ * Loosen it and a queue ref sits untested until some later session
  * starts, or a push elsewhere starts a lander nobody asked for.
  */
 import { execFileSync } from "node:child_process";
@@ -97,8 +97,8 @@ afterEach(() => {
 });
 
 it.each([
-	"git push origin HEAD:landing",
-	"timeout 60 git push -q origin HEAD:landing",
+	"git push origin HEAD:queue/q1",
+	"timeout 60 git push -q origin HEAD:refs/heads/queue/q1",
 ])(
 	"starts the lander after %s, returning before the start does",
 	async (command) => {
@@ -114,8 +114,8 @@ it.each([
 	},
 );
 
-it("starts it from a bare push on a branch named landing", async () => {
-	git("switch", "-q", "-c", "landing");
+it("starts it from a bare push on a branch named for a queue ref", async () => {
+	git("switch", "-q", "-c", "queue/q1");
 	fs.writeFileSync(gate, "");
 
 	expect(run("git push").status).toBe(0);
@@ -126,13 +126,14 @@ it("starts nothing after a push to another ref or a dry run, or with the module 
 	fs.writeFileSync(gate, "");
 	for (const command of [
 		"git push origin main",
-		"git push --dry-run origin HEAD:landing",
+		"git push origin HEAD:landing",
+		"git push --dry-run origin HEAD:queue/q1",
 	])
 		expect(run(command).status, command).toBe(0);
-	expect(run("git push origin HEAD:landing", "suites").status).toBe(0);
+	expect(run("git push origin HEAD:queue/q1", "suites").status).toBe(0);
 	/* A control launch after them all: once its record lands, any launch the
 	 * pushes above made has had its chance to land first. */
-	expect(run("git push origin HEAD:landing").status).toBe(0);
+	expect(run("git push origin HEAD:queue/q1").status).toBe(0);
 
 	expect(await launchRecorded()).toHaveLength(1);
 });

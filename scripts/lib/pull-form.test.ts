@@ -217,7 +217,9 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 			cutOver: false,
 		});
 		expect(reason).toContain("reconcile in your session's own worktree");
-		expect(reason).toContain("session-checkout.js land");
+		expect(reason).toContain(
+			"session-checkout.js land` run there merges `origin/main` and pushes its queue ref",
+		);
 		expect(reason).not.toContain(readPullRule());
 	});
 
@@ -230,11 +232,11 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 	});
 
 	it("still refuses a merge onto an unresolved tree once levelled, naming the worktree route (#301, #4229)", () => {
-		const reason = readDenyReason('git -C "$W" merge origin/landing', {
+		const reason = readDenyReason('git -C "$W" merge origin/main', {
 			modules: ["landing"],
 		});
 		expect(reason).toContain(
-			"`git -C .claude/worktrees/<session-name> merge origin/landing`",
+			"`git -C .claude/worktrees/<session-name> merge origin/main`",
 		);
 		expect(reason).toContain("session-checkout.js land");
 	});

@@ -3,20 +3,22 @@
  * branches (#2408, spec #2261). A reader asks one of two answers and never
  * names a branch itself:
  *
- *   - start (`startRef`): what is verified, or where a session starts — the
- *     worktree cut, the changed-file selection base, the CI verdict. Release
- *     reads `VERIFIED_REF`, which is `origin/main` in both shapes.
+ *   - verified, or where a session starts (`VERIFIED_REF`): the worktree cut,
+ *     the changed-file selection base, release, the CI verdict. It is
+ *     `origin/main` in both shapes, `main` being the green tip.
  *   - pushed (`pushedRef`, `readUnpushedRef`): what a session has pushed —
  *     push coverage, the unpushed count, commit-ledger status.
  *
- * With the `landing` module on, sessions push to `landing` and only the lander
- * moves `main`, so both answers are `origin/landing`. With it off, both are
- * `origin/main`. A config that will not read answers off, as `wfc_module_on`
- * does. A reader already holding the module's state asks `startRefFor` or
- * `pushedRefFor`.
+ * With the `landing` module on, a session pushes to its own queue ref,
+ * `queue/<worktree name>`, and only the lander moves `main` (#4458), so the
+ * pushed answer is that ref's remote-tracking ref where it stands, and
+ * `origin/main` where it does not: before the first push, once the lander has
+ * landed and deleted the ref, and for a tree that is no session worktree.
+ * With the module off, it is `origin/main`. A config that will not read
+ * answers off, as `wfc_module_on` does.
  *
- *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<root>]
- *     prints that ref, or the pushed ref's branch, for the checkout at <root>,
+ *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<tree>]
+ *     prints that ref, or the pushed ref's branch, for the checkout at <tree>,
  *     else the host root, for shell and workflows
  */
 
@@ -80,6 +82,10 @@ function trackingRefspec(branch) {
 	return `+refs/heads/${branch}:refs/remotes/${REMOTE}/${branch}`;
 }
 
+/* Every queue ref's tracking ref, for a fetch, and the glob that names them. */
+const QUEUE_REFSPEC = trackingRefspec(`${QUEUE_PREFIX}*`);
+const QUEUE_TRACKING_GLOB = `refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`;
+
 /**
  * The branch a remote-tracking ref of `REMOTE` names.
  * @param {string} ref
@@ -104,37 +110,22 @@ function landingOn(opts) {
 }
 
 /**
- * @param {boolean} on
- * @returns {string}
- */
-function startRefFor(on) {
-	return on ? LANDING_REF : VERIFIED_REF;
-}
-
-/**
- * @param {boolean} on
- * @returns {string}
- */
-function pushedRefFor(on) {
-	return on ? LANDING_REF : VERIFIED_REF;
-}
-
-/**
- * The remote ref a session starts from and is judged against.
- * @param {{root?: string}} [opts] the host root whose config is read
- * @returns {string}
- */
-function startRef(opts) {
-	return startRefFor(landingOn(opts));
-}
-
-/**
- * The remote ref holding every commit sessions have pushed.
- * @param {{root?: string}} [opts] the host root whose config is read
+ * The remote ref holding what the session in `tree` has pushed: its queue
+ * ref's remote-tracking ref where the `landing` module is on, `tree` is a
+ * session worktree and that ref resolves there, else `origin/main`.
+ * @param {{root?: string, tree?: string}} [opts] the host root whose config
+ *   is read, and the session's tree top level
  * @returns {string}
  */
 function pushedRef(opts) {
-	return pushedRefFor(landingOn(opts));
+	const tree = opts?.tree;
+	if (!tree || !landingOn(opts)) return VERIFIED_REF;
+	const { mainCheckout } = require("./main-checkout.js");
+	const own = queueRefOf(mainCheckout(tree) ?? "", tree);
+	if (own === null) return VERIFIED_REF;
+	const ref = `${REMOTE}/${own}`;
+	const { commitSha } = require("./commit-sha.js");
+	return commitSha(tree, `refs/remotes/${ref}`) === null ? VERIFIED_REF : ref;
 }
 
 /**
@@ -173,26 +164,19 @@ if (require.main === module) {
 	const answer = new Map([
 		["pushed", pushedRef],
 		["unpushed", readUnpushedRef],
-		/* Strict, for a workflow: a config that will not read fails here rather
-		 * than naming `main`. */
 		[
 			"pushed-branch",
-			(/** @type {{root?: string}|undefined} */ o) =>
-				branchOf(
-					pushedRefFor(
-						require("./workflow-core-config.js").moduleOn("landing", o),
-					),
-				),
+			(/** @type {{root?: string}|undefined} */ o) => branchOf(pushedRef(o)),
 		],
 	]).get(verb ?? "");
 	if (!answer || more.length > 0) {
 		require("./write-fd.js").writeFd(
 			2,
-			"usage: landing-refs.js pushed|unpushed|pushed-branch [<root>]\n",
+			"usage: landing-refs.js pushed|unpushed|pushed-branch [<tree>]\n",
 		);
 		process.exit(2);
 	}
-	process.stdout.write(`${answer(root ? { root } : undefined)}\n`);
+	process.stdout.write(`${answer(root ? { root, tree: root } : undefined)}\n`);
 }
 
 module.exports = {
@@ -207,13 +191,12 @@ module.exports = {
 	landingOn,
 	LANDING_REF,
 	pushedRef,
-	pushedRefFor,
 	QUEUE_PREFIX,
+	QUEUE_REFSPEC,
+	QUEUE_TRACKING_GLOB,
 	queueRefOf,
 	REMOTE,
 	readUnpushedRef,
-	startRef,
-	startRefFor,
 	trackingRefspec,
 	VERIFIED_BRANCH,
 	VERIFIED_REF,

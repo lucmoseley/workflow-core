@@ -295,8 +295,8 @@ describe("an overflow seat (#2610)", () => {
 		expect(readBgLaunches()).toEqual([]);
 	});
 
-	it("starts the session in a fresh worktree detached at origin/landing, as a plan launch does (#4245)", () => {
-		const landing = seedLandingCheckout(fx.dir);
+	it("starts the session in a fresh worktree detached at origin/main, as a plan launch does (#4245)", () => {
+		const main = seedLandingCheckout(fx.dir);
 		stubBg();
 		const r = dispatch(1, {
 			...overflowEnv(200),
@@ -312,7 +312,7 @@ describe("an overflow seat (#2610)", () => {
 				cwd,
 				encoding: "utf8",
 			}).stdout.trim(),
-		).toBe(landing);
+		).toBe(main);
 	});
 
 	it("sizes the set from the batch's checkout's table, whichever checkout the loop's env names (#3700)", () => {

@@ -140,14 +140,13 @@ function mainMovedAt(mainAt, heartbeat) {
 }
 
 /**
- * What the refill loop does about a reading (#2692, ruled at #2672): start a
- * lander where it is dead, and file the stall ticket where `main` has not
- * moved with `landing` ahead of it and a lander running or dead, since one
- * that fails on every start is restarted each tick and never seen running.
- * Neither for a held queue, which has its held-queue issue, nor for a lander
- * between runs on a fresh beat.
+ * What the refill loop does about a reading (#2692, ruled at #2672): file
+ * the stall ticket where `main` has not moved with `landing` ahead of it and
+ * a lander running or dead, since one that fails on every start is restarted
+ * each tick and never seen running. Not for a held queue, which has its
+ * held-queue issue, nor for a lander between runs on a fresh beat.
  * @param {QueueReading} r
- * @returns {{start: boolean, ticket: {landing: string, movedAt: number}|null}}
+ * @returns {{ticket: {landing: string, movedAt: number}|null}}
  */
 function supervision(r) {
 	const found = stallFindings(r);
@@ -155,7 +154,6 @@ function supervision(r) {
 	const running = r.heartbeat !== null && r.alive(r.heartbeat.pid);
 	const stalled = found.find((f) => "movedAt" in f);
 	return {
-		start: dead,
 		ticket:
 			stalled &&
 			"movedAt" in stalled &&

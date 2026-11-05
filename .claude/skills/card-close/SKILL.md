@@ -157,7 +157,7 @@ Add any source document step 3's write-back edited to that pathspec.
 
 **Commit by pathspec** (`.claude/skills/roadmap-edit/SKILL.md` step 8).
 
-Then push, per `CLAUDE.md` §Conventions. Every push to `landing` runs the suite and the document guards (`.github/workflows/scheduled-checks.yml`), and the lander moves `main` only to a tip that run passed (#2413); `node scripts/landing-status.js` says whether your commits have landed.
+Then push, per `CLAUDE.md` §Conventions. Every queue ref the queue lander batches runs the suite and the document guards on `lander/batch` (`.github/workflows/scheduled-checks.yml`), and it moves `main` only to a batch that run passed (#4458); `node scripts/landing-status.js` says whether your commits have landed.
 
 The commit gives back this session's claims on the pair, the two most contended files in the repo, and prints `Released …` (#2058). Where it names only one — a partial commit left the other dirty — commit the rest, or release by hand once it is clean: `node scripts/session-arbiter.js release <path>`.
 

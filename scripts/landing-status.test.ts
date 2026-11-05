@@ -2,8 +2,9 @@
 /*
  * scripts/landing-status.js end to end (#2407), on a fixture remote.
  *
- * Loosen it and a session reports a queued commit as landed, misses the revert
- * the lander pushed onto its work, or claims a state off refs it never fetched.
+ * Loosen it and a session reports a queued commit as landed, a commit on its
+ * own queue ref as unpushed, misses the revert the lander pushed onto its
+ * work, or claims a state off refs it never fetched.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -108,6 +109,7 @@ afterEach(() => {
 });
 
 it("reads a landed, a queued and a reverted commit, naming the revert's sha, after fetching", () => {
+	const tree = worktree("s");
 	const landed = commit("landed");
 	git(work, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
 	const reverted = commit("broken");
@@ -115,21 +117,46 @@ it("reads a landed, a queued and a reverted commit, naming the revert's sha, aft
 	const revert = git(work, "rev-parse", "HEAD");
 	const queued = commit("queued");
 	const unpushed = commit("unpushed");
-	git(work, "push", "-q", "origin", `${queued}:landing`);
-	/* Local tracking refs stale: only a fetch shows the push above. */
-	git(work, "update-ref", "refs/remotes/origin/landing", landed);
+	git(
+		work,
+		"push",
+		"-q",
+		"origin",
+		`${queued}:refs/heads/queue/s`,
+		`${queued}:landing`,
+	);
+	/* Local tracking ref stale: only a fetch shows the push above. */
+	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);
 	ledger(landed, reverted, queued, unpushed);
 
-	const r = runStatus();
+	const r = runStatus("landing", ["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+	expect(r.stdout.split("\n").filter(Boolean).slice(0, 4)).toEqual([
 		`landed: ${landed.slice(0, 9)} landed — on main`,
 		`reverted by ${revert.slice(0, 9)}: ${reverted.slice(0, 9)} broken`,
-		`queued: ${queued.slice(0, 9)} queued — on landing, not yet on main`,
-		`unpushed: ${unpushed.slice(0, 9)} unpushed — not on landing`,
-		NO_QUEUE,
+		`queued: ${queued.slice(0, 9)} queued — on queue/s, not yet on main`,
+		`unpushed: ${unpushed.slice(0, 9)} unpushed — not pushed to queue/s`,
 	]);
+});
+
+it("reads a commit as landed once the lander deleted its landed queue ref, the fetch pruning it", () => {
+	const tree = worktree("s");
+	const landed = commit("landed");
+	git(work, "push", "-q", "origin", "HEAD:main");
+	/* The tracking ref of a queue ref the lander has since deleted. */
+	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);
+	const unpushed = commit("unpushed");
+	ledger(landed, unpushed);
+
+	const r = runStatus("landing", ["--session", SESSION], tree);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout.split("\n").filter(Boolean).slice(0, 2)).toEqual([
+		`landed: ${landed.slice(0, 9)} landed — on main`,
+		`unpushed: ${unpushed.slice(0, 9)} unpushed — not pushed to queue/s`,
+	]);
+	expect(git(work, "for-each-ref", "refs/remotes/origin/queue/")).toBe("");
 });
 
 it("says the remote could not be read and claims no state", () => {
@@ -139,26 +166,27 @@ it("says the remote could not be read and claims no state", () => {
 	const r = runStatus();
 
 	expect(r.status).toBe(1);
-	expect(r.stderr).toMatch(/could not read origin's main and landing/);
+	expect(r.stderr).toMatch(/could not read origin's main and queue refs/);
 	expect(r.stderr).toMatch(/No state claimed\./);
 	expect(r.stderr).toMatch(/Check `git fetch origin` works/);
 	expect(r.stdout).toBe("");
 });
 
 it("leaves out a commit an amend replaced, reporting its replacement", () => {
+	const tree = worktree("s");
 	const old = commit("work");
 	git(work, "commit", "-q", "--amend", "-m", "work amended");
 	const amended = git(work, "rev-parse", "HEAD");
-	git(work, "push", "-q", "origin", "HEAD:landing");
+	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/s");
 	ledger(old, amended);
 
-	const r = runStatus();
+	const r = runStatus("landing", ["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
-		`queued: ${amended.slice(0, 9)} work amended — on landing, not yet on main`,
-		NO_QUEUE,
-	]);
+	expect(r.stdout.split("\n").find(Boolean)).toBe(
+		`queued: ${amended.slice(0, 9)} work amended — on queue/s, not yet on main`,
+	);
+	expect(r.stdout).not.toContain(old.slice(0, 9));
 });
 
 it("ends on the queue's line: the refs waiting, the oldest's wait and the 7-day figures off the queue log", () => {

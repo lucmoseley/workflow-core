@@ -3,14 +3,13 @@
  * (#4229): every launcher and session goes through it, and no caller runs
  * `git worktree` itself.
  *
- * CUT fetches `landing`, adds a worktree detached at `origin/landing` under
+ * CUT fetches `main`, adds a worktree detached at `origin/main` under
  * `.claude/worktrees/<session-name>/` of the main checkout, and attaches its
  * dependencies.
  *
  * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
- * worktree cut for it where the repository lands through `landing`, else the
- * main checkout, since a repository without the `landing` module has no
- * `origin/landing` to cut from. Its name is the prompt's words and a random
+ * worktree cut for it where the repository has the `landing` module, else the
+ * main checkout, since without it no session pushes a queue ref of its own. Its name is the prompt's words and a random
  * suffix, so a session's worktree reads as its task. A resume runs in
  * the directory its job recorded, so it reopens the same worktree.
  *
@@ -26,7 +25,7 @@
  * directory renamed into place whole, and is never installed into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
- * WARM builds the store for a freshly fetched `origin/landing`'s lockfile
+ * WARM builds the store for a freshly fetched `origin/main`'s lockfile
  * where none stands, so a cut needs no build of its own (#4318). The refill
  * tick runs it, detached, ahead of its launches, and its dispatcher cuts with
  * `noBuild`: a cut finding no store refuses at once rather than build inside
@@ -41,20 +40,24 @@
  * directories their owner's write bit back first (`removeTree`).
  * Residual: the owner's own `chmod`, or a root process, still writes through.
  *
- * LAND merges a freshly fetched `origin/landing` into the worktree's `HEAD` and
- * pushes `HEAD:landing`, then starts the lander. A merge, never a rebase: git
- * runs `pre-merge-commit`, and so the whole pre-commit stack, on a merge
- * commit, and no hook at all on a rebase (#3106), which would skip the
- * re-anchor the merge owes. A registry-anchor conflict is settled by the
- * per-row merge driver git config names (#4171). Neither the merge nor the
- * push carries a timeout of its own: every checker their hooks run is bounded
- * already (#4187). A push beaten by a neighbour is filed as a `land` row in
- * the divergence log (#4446), the push running here where no Bash hook sees it.
+ * LAND merges a freshly fetched `origin/main` into the worktree's `HEAD` and
+ * pushes `HEAD:refs/heads/queue/<worktree name>`, the session's own queue ref
+ * (#4458), then starts the queue lander, which tests it with every other
+ * waiting ref and moves `main` on green. The merge keeps a conflict with
+ * `main` in the session's hands, where the lander would drop the ref for it.
+ * A merge, never a rebase: git runs `pre-merge-commit`, and so the whole
+ * pre-commit stack, on a merge commit, and no hook at all on a rebase (#3106),
+ * which would skip the re-anchor the merge owes. A registry-anchor conflict is
+ * settled by the per-row merge driver git config names (#4171). Neither the
+ * merge nor the push carries a timeout of its own: every checker their hooks
+ * run is bounded already (#4187). A push refused as no fast-forward is filed
+ * as a `land` row in the divergence log (#4446), the push running here where
+ * no Bash hook sees it.
  *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * REAP clears landed worktrees and unlinked stores, save `origin/landing`'s.
+ * REAP clears landed worktrees and unlinked stores, save `origin/main`'s.
  *
  * REOPEN gives a finished background job its worktree back so `claude attach`
  * can wake it: an open from the agents view fails before any hook runs where
@@ -93,18 +96,16 @@ const {
 } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const {
-	branchOf,
-	pushedRefFor,
-	startRefFor,
+	pushedRef,
+	QUEUE_REFSPEC,
+	queueRefOf,
+	REMOTE,
 	trackingRefspec,
+	VERIFIED_BRANCH,
+	VERIFIED_REF,
 } = require("./landing-refs.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
-
-/* Every verb here runs with the `landing` module on. */
-const START = startRefFor(true);
-const PUSHED = pushedRefFor(true);
-const SHARED_BRANCHES = [...new Set([START, PUSHED])].map(branchOf);
 const WORKTREES = path.join(".claude", "worktrees");
 const STORES = path.join(WORKTREES, ".dep-stores");
 const LOCKFILE = "package-lock.json";
@@ -174,15 +175,22 @@ function rootOf(cwd) {
 }
 
 /**
- * Fetch `landing` into `origin/landing`, again where a neighbour's fetch held
- * the ref's lock.
+ * Fetch `main` and every queue ref, pruning the queue refs gone from the
+ * remote, again where a neighbour's fetch held a ref's lock.
  * @param {string} root
  */
-function fetchLanding(root) {
+function fetchShared(root) {
 	for (let tries = 1; ; tries++)
 		try {
 			git(
-				["fetch", "--quiet", "origin", ...SHARED_BRANCHES.map(trackingRefspec)],
+				[
+					"fetch",
+					"--quiet",
+					"--prune",
+					REMOTE,
+					trackingRefspec(VERIFIED_BRANCH),
+					QUEUE_REFSPEC,
+				],
 				root,
 			);
 			return;
@@ -314,12 +322,12 @@ const buildWorktreeSource = (dir) => (name) => {
 };
 
 /**
- * The manifests `origin/landing` carries, read from the main checkout `root`.
+ * The manifests `origin/main` carries, read from the main checkout `root`.
  * @param {string} root
  * @returns {ManifestSource}
  */
-const buildLandingSource = (root) => (name) => {
-	const r = spawnGitSync(["cat-file", "blob", `${START}:${name}`], {
+const buildStartSource = (root) => (name) => {
+	const r = spawnGitSync(["cat-file", "blob", `${VERIFIED_REF}:${name}`], {
 		cwd: root,
 		stdio: ["ignore", "pipe", "ignore"],
 		timeout: GIT_TIMEOUT_MS,
@@ -470,7 +478,7 @@ function attach(cwd, { noBuild = false } = {}) {
 
 /**
  * Cut the session worktree for `name`: detached at a freshly fetched
- * `origin/landing`, its dependencies attached. A worktree whose attach fails
+ * `origin/main`, its dependencies attached. A worktree whose attach fails
  * is removed.
  * @param {string} cwd anywhere in the repository
  * @param {string} name the session's name
@@ -488,8 +496,8 @@ function cut(cwd, name, how = {}) {
 		throw new CheckoutError(
 			`${dir} already exists — pick another session name, or resume the session that worktree belongs to`,
 		);
-	fetchLanding(root);
-	return addWorktree(root, dir, START, how);
+	fetchShared(root);
+	return addWorktree(root, dir, VERIFIED_REF, how);
 }
 
 /**
@@ -553,12 +561,12 @@ const isAncestor = (a, b, cwd) =>
 		timeout: GIT_TIMEOUT_MS,
 	}).status === 0;
 
-/** git's words for a push refused because the remote ref moved past ours. */
+/** git's words for a push refused because the remote ref holds a commit ours lacks. */
 const MOVED = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
 
 /**
- * Start the lander after a push: the post-push hook sees no push made inside
- * a script. The main checkout's start-lander.js where this code runs from a
+ * Start the queue lander after a push: the post-push hook sees no push made
+ * inside a script. The main checkout's start-lander.js where this code runs from a
  * linked worktree of it, so no lander runs from a tree the reaper may remove.
  * @param {string} root the main checkout
  * @param {string} dir the worktree
@@ -603,70 +611,97 @@ function refuseUnlandable(dir, root) {
 }
 
 /**
- * Merge the pushed ref into `HEAD`.
+ * Merge `origin/main` into `HEAD`.
  * @param {string} dir
  */
-function mergeLanding(dir) {
-	if (gitShown(["merge", "--no-edit", PUSHED], dir).ok) return;
+function mergeMain(dir) {
+	if (gitShown(["merge", "--no-edit", VERIFIED_REF], dir).ok) return;
 	if (!fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)))
 		throw new CheckoutError(
-			`git did not start the merge of ${PUSHED}, its output above — clear what it names, then land again`,
+			`git did not start the merge of ${VERIFIED_REF}, its output above — clear what it names, then land again`,
 		);
 	const conflicted = git(["diff", "--name-only", "--diff-filter=U"], dir);
 	throw new CheckoutError(
 		conflicted
-			? `merging ${PUSHED} conflicts in ${conflicted.split("\n").join(", ")} — resolve them and \`git commit\` (it runs the pre-commit gates), or \`git merge --abort\`, then land again`
-			: `the merge of ${PUSHED} was refused, its output above — fix the finding and \`git commit\` (it runs the same gates), or \`git merge --abort\`, then land again`,
+			? `merging ${VERIFIED_REF} conflicts in ${conflicted.split("\n").join(", ")} — resolve them and \`git commit\` (it runs the pre-commit gates), or \`git merge --abort\`, then land again`
+			: `the merge of ${VERIFIED_REF} was refused, its output above — fix the finding and \`git commit\` (it runs the same gates), or \`git merge --abort\`, then land again`,
 	);
 }
 
 /**
+ * The session worktree `dir`'s queue ref, refused where it is none.
+ * @param {string} dir
+ * @param {string} root
+ * @returns {string}
+ */
+function queueRefOrRefuse(dir, root) {
+	const queue = queueRefOf(root, fs.realpathSync(dir));
+	if (queue === null)
+		throw new CheckoutError(
+			`${dir} is no session worktree under ${path.join(root, WORKTREES)}/, so it has no queue ref to land through — land from a worktree ${buildCutCommand()} cuts`,
+		);
+	return queue;
+}
+
+/**
  * @param {string} cwd anywhere in the worktree
- * @returns {{ dir: string, head: string, merged: boolean, pushed: boolean, lander: string | null }}
+ * @returns {{ dir: string, queue: string, head: string, merged: boolean, pushed: boolean, lander: string | null }}
  */
 function land(cwd) {
 	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
 	const root = rootOf(dir);
 	refuseUnlandable(dir, root);
-	fetchLanding(root);
-	if (isAncestor("HEAD", PUSHED, dir))
+	const queue = queueRefOrRefuse(dir, root);
+	fetchShared(root);
+	const pushed = pushedRef({ root, tree: dir });
+	if (isAncestor("HEAD", VERIFIED_REF, dir) || isAncestor("HEAD", pushed, dir))
 		return {
 			dir,
+			queue,
 			head: git(["rev-parse", "HEAD"], dir),
 			merged: false,
 			pushed: false,
 			lander: null,
 		};
-	const merged = !isAncestor(PUSHED, "HEAD", dir);
-	if (merged) mergeLanding(dir);
+	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
+	if (merged) mergeMain(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
-	const push = gitShown(["push", "origin", `HEAD:${branchOf(PUSHED)}`], dir);
+	const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
 	if (!push.ok && MOVED.test(push.output)) {
 		recordMoved(root, dir, push.output);
-		throw new CheckoutError(MOVED_LINE);
+		throw new CheckoutError(
+			`${MOVED_LINE} — merge \`${REMOTE}/${queue}\` into HEAD, then land again`,
+		);
 	}
 	if (!push.ok)
 		throw new CheckoutError(
-			"the push to landing was refused, its output above — fix the finding, then land again",
+			`the push to ${queue} was refused, its output above — fix the finding, then land again`,
 		);
-	return { dir, head, merged, pushed: true, lander: startLanderFor(root, dir) };
+	return {
+		dir,
+		queue,
+		head,
+		merged,
+		pushed: true,
+		lander: startLanderFor(root, dir),
+	};
 }
 
 /**
- * The beaten push's row is counted against a freshly fetched origin/landing,
- * so `behind` is the neighbours' real lead; where the fetch fails, against the
- * stale one, `behind` then a lower bound.
+ * The refused push's row is counted against freshly fetched refs, so `behind`
+ * is the remote's real lead; where the fetch fails, against the stale ones,
+ * `behind` then a lower bound.
  * @param {string} root
  * @param {string} dir
  * @param {string} output the refused push's output
  */
 function recordMoved(root, dir, output) {
 	try {
-		fetchLanding(root);
+		fetchShared(root);
 	} catch (err) {
 		writeFd(
 			2,
-			`session checkout: landing not re-fetched, so the divergence row's behind is a lower bound (${caught(err).message})\n`,
+			`session checkout: queue refs not re-fetched, so the divergence row's behind is a lower bound (${caught(err).message})\n`,
 		);
 	}
 	try {
@@ -759,22 +794,22 @@ function launchInto(root, into, how) {
 
 /**
  * WARM, above. Null where the repository has no `landing` module or
- * `origin/landing` carries no lockfile.
+ * `origin/main` carries no lockfile.
  * @param {string} cwd anywhere in the repository
  * @returns {Ensured | null}
  */
 function warm(cwd) {
 	const root = rootOf(cwd);
 	if (!moduleOn("landing", { root })) return null;
-	fetchLanding(root);
-	return ensureStore(root, buildLandingSource(root), { noWait: true });
+	fetchShared(root);
+	return ensureStore(root, buildStartSource(root), { noWait: true });
 }
 
 /*
  * REAP, run on each refill-loop tick, clears what the worktrees folder no
  * longer needs and names what it may not clear:
  *   - a session worktree whose every `HEAD` commit is on a freshly fetched
- *     `origin/landing`, whose tree is clean, and whose session is neither live
+ *     `origin/main` or its own queue ref, whose tree is clean, and whose session is neither live
  *     (a process's cwd lies in it), resumable (a job record whose cwd lies in
  *     it is in any state but `done` or `failed`) nor finished under `KEEP_MS`
  *     ago is removed, its path, `HEAD` sha, and each job's id and seat whose
@@ -856,16 +891,17 @@ function ageOf(at, now) {
 }
 
 /**
- * A worktree's dirty paths, its commits not on `origin/landing`, its last
- * commit, and how long since that commit or an index write, the later. The
- * status takes no optional lock, so it never rewrites the index whose age it
- * reads; it leaves out the store link, which an adopter's `node_modules/`
- * ignore, matching directories only, would show untracked.
+ * A worktree's dirty paths, its commits on neither `origin/main` nor its queue
+ * ref, its last commit, and how long since that commit or an index write, the
+ * later. The status takes no optional lock, so it never rewrites the index
+ * whose age it reads; it leaves out the store link, which an adopter's
+ * `node_modules/` ignore, matching directories only, would show untracked.
  * @param {string} dir
  * @param {number} now
+ * @param {string} root the main checkout
  * @returns {Omit<Stranded, "filed">}
  */
-function readWorktreeState(dir, now) {
+function readWorktreeState(dir, now, root) {
 	const dirty = git(
 		[
 			"--no-optional-locks",
@@ -878,7 +914,16 @@ function readWorktreeState(dir, now) {
 		dir,
 	);
 	const unlanded = Number(
-		git(["rev-list", "--count", "HEAD", "--not", PUSHED], dir),
+		git(
+			[
+				"rev-list",
+				"--count",
+				"HEAD",
+				"--not",
+				...new Set([VERIFIED_REF, pushedRef({ root, tree: dir })]),
+			],
+			dir,
+		),
 	);
 	const [at = "0", ...subject] = git(
 		["log", "-1", "--format=%ct %h %s"],
@@ -955,7 +1000,7 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 				standing.push(dir);
 				continue;
 			}
-			const state = readWorktreeState(dir, now);
+			const state = readWorktreeState(dir, now, root);
 			if (state.dirty > 0 || state.unlanded > 0) {
 				out.stranded.push({
 					...state,
@@ -1200,9 +1245,9 @@ function reap(cwd) {
 		const judged = moduleOn("landing", { root });
 		if (judged)
 			try {
-				fetchLanding(root);
+				fetchShared(root);
 			} catch (err) {
-				/* A stale `origin/landing` only reads more work as unlanded. */
+				/* A stale `origin/main` only reads more work as unlanded. */
 				out.fetchFailed = caught(err).message.trim();
 			}
 		out.pruned = prune(root);
@@ -1221,11 +1266,11 @@ function reap(cwd) {
 		const storesDir = path.join(root, STORES);
 		const kept = readLinkedStores(standing);
 		/* Residual: after a failed fetch this keeps the store of a stale
-		 * `origin/landing`'s lockfile, one store more than the next cut uses,
+		 * `origin/main`'s lockfile, one store more than the next cut uses,
 		 * until a pass whose fetch succeeds. */
-		const landingLock = judged ? buildLandingSource(root)(LOCKFILE) : null;
-		if (landingLock !== null)
-			kept.add(path.join(storesDir, storeKeyOf(landingLock)));
+		const startLock = judged ? buildStartSource(root)(LOCKFILE) : null;
+		if (startLock !== null)
+			kept.add(path.join(storesDir, storeKeyOf(startLock)));
 		reapStores(storesDir, kept, now, out);
 		sweepBuildFailures(storesDir, kept);
 		return out;
@@ -1273,8 +1318,6 @@ module.exports = {
 	attach,
 	CheckoutError,
 	cut,
-	PUSHED,
-	START,
 	isSessionWorktreeDir,
 	land,
 	launchDir,

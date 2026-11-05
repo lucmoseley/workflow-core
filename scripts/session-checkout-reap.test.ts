@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * `session-checkout.js reap` against real git (#4247): a bare origin carrying
- * `main` and `landing`, a main checkout cloned from it, and worktrees cut by
+ * `main`, a main checkout cloned from it, and worktrees cut by
  * the module itself, each linked to a dependency store `npm` (a stub) built.
  *
  * Loosen it and cleanup loses work: a worktree with uncommitted or unlanded
@@ -161,7 +161,7 @@ beforeEach(() => {
 	);
 	fs.writeFileSync(path.join(main, "package.json"), "{}\n");
 	commitIn(main, "package-lock.json", "lock-1\n");
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(main, "push", "-q", "origin", "HEAD:main");
 });
 
 afterEach(() => {
@@ -178,9 +178,9 @@ it("removes landed, clean worktrees of finished sessions, then the store none li
 	const store = path.dirname(
 		fs.realpathSync(path.join(landed, "node_modules")),
 	);
-	/* The landed work moves origin/landing's lockfile off the store's. */
+	/* The landed work moves origin/main's lockfile off the store's. */
 	commitIn(landed, "package-lock.json", "lock-2\n");
-	git(landed, "push", "-q", "origin", "HEAD:landing");
+	git(landed, "push", "-q", "origin", "HEAD:main");
 	recordJob("j1", landed, "done", Date.now() - 4 * DAY);
 
 	const r = reap();
@@ -199,7 +199,7 @@ it("removes landed, clean worktrees of finished sessions, then the store none li
 	expect(fs.existsSync(stores())).toBe(true);
 });
 
-it("keeps the store for origin/landing's lockfile though no worktree links it, for the next cut (#4318)", () => {
+it("keeps the store for origin/main's lockfile though no worktree links it, for the next cut (#4318)", () => {
 	const gone = cut("gone-session");
 	const store = path.dirname(fs.realpathSync(path.join(gone, "node_modules")));
 
@@ -211,7 +211,7 @@ it("keeps the store for origin/landing's lockfile though no worktree links it, f
 	expect(fs.existsSync(path.join(store, "node_modules", "lock"))).toBe(true);
 });
 
-it("removes the build failure record of a store no cut can ask for, keeping origin/landing's (#4318)", () => {
+it("removes the build failure record of a store no cut can ask for, keeping origin/main's (#4318)", () => {
 	const gone = cut("gone-session");
 	const key = path.basename(
 		path.dirname(fs.realpathSync(path.join(gone, "node_modules"))),
@@ -242,7 +242,7 @@ it("reports a dead session's dirty or unlanded worktree with its idle time and l
 		/stranded: dirty-work — 1 uncommitted path; idle \d+m; last commit [0-9a-f]+ lock-1 — its session is gone: land it with `cd \S+dirty-work && node scripts\/session-checkout\.js land`, or, judged worthless, `git worktree remove --force \S+dirty-work`/,
 	);
 	expect(r.stderr).toMatch(
-		/stranded: unlanded-work — 1 commit not on origin\/landing; idle \d+m; last commit [0-9a-f]+ never pushed — /,
+		/stranded: unlanded-work — 1 commit on neither origin\/main nor its queue ref; idle \d+m; last commit [0-9a-f]+ never pushed — /,
 	);
 	expect(registered()).toEqual(expect.arrayContaining([dirty, unlanded]));
 	expect(fs.readFileSync(path.join(dirty, "half.txt"), "utf8")).toBe(
@@ -397,7 +397,7 @@ it("prunes and sweeps strays but judges no worktree where the landing module is 
 	expect(fs.readdirSync(stores())).toHaveLength(1);
 });
 
-it("exits 1 naming what it could not remove, and says where a failed fetch leaves origin/landing", () => {
+it("exits 1 naming what it could not remove, and says where a failed fetch leaves origin/main", () => {
 	const stuck = worktree("stuck-leftover");
 	fs.mkdirSync(stuck, { recursive: true });
 	git(main, "remote", "set-url", "origin", path.join(tmp, "gone.git"));
@@ -408,7 +408,7 @@ it("exits 1 naming what it could not remove, and says where a failed fetch leave
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
-		"session checkout: fetching landing failed, so origin/landing may be stale and read more work as unlanded: ",
+		"session checkout: fetching main and the queue refs failed, so origin/main may be stale and read more work as unlanded: ",
 	);
 	expect(r.stderr).toContain(`session checkout: could not reap ${stuck}: `);
 	expect(r.stderr).toContain(
@@ -493,9 +493,9 @@ it("removes a landed worktree whose store link an adopter's directory-only ignor
 		"node_modules/\n.claude/worktrees/\n",
 	);
 	commitIn(main, ".gitignore", "directory-only ignore");
-	git(main, "push", "-q", "origin", "HEAD:landing");
+	git(main, "push", "-q", "origin", "HEAD:main");
 	git(landed, "fetch", "-q", "origin");
-	git(landed, "checkout", "-q", "--detach", "origin/landing");
+	git(landed, "checkout", "-q", "--detach", "origin/main");
 	const keeper = cut("keeps-the-store");
 	fs.writeFileSync(path.join(keeper, "half.txt"), "keeps it standing");
 
@@ -586,15 +586,15 @@ describe("reopen", () => {
 	it("rebuilds a removed worktree at its recorded sha with its store linked, then attaches the job on its seat", () => {
 		const tree = cut("reopen-me");
 		commitIn(tree, "done.txt", "landed work");
-		git(tree, "push", "-q", "origin", "HEAD:landing");
+		git(tree, "push", "-q", "origin", "HEAD:refs/heads/queue/reopen-me");
 		const head = git(tree, "rev-parse", "HEAD");
 		recordJob("abc123", tree, "done", Date.now() - 4 * DAY);
 		expect(reap().status).toBe(0);
 		expect(fs.existsSync(tree)).toBe(false);
-		/* The record, not origin/landing, names the sha. */
+		/* The record, not origin/main, names the sha. */
 		const later = cut("later-work");
 		commitIn(later, "later.txt", "after the reap");
-		git(later, "push", "-q", "origin", "HEAD:landing");
+		git(later, "push", "-q", "origin", "HEAD:main");
 
 		const r = reopen("abc123");
 

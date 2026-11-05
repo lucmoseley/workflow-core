@@ -785,7 +785,7 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 describe("commits the pushed ref lacks (#3101)", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" }).trim();
-	const push = () => git("update-ref", "refs/remotes/origin/landing", "HEAD");
+	const push = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
 	const fix = () => {
 		// The suite leaves `landing` off; the sandbox restores the env after.
 		process.env.WFC_MODULES = "landing";
@@ -810,7 +810,7 @@ describe("commits the pushed ref lacks (#3101)", () => {
 		fix();
 		const r = run([]);
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("#534's commit is not on origin/landing");
+		expect(r.stderr).toContain("#534's commit is not on origin/main");
 		expect(r.stderr).toContain(" Fix the stop (#534)\n");
 		expect(r.stderr).toContain("**Unlanded:**");
 		untouched();
@@ -827,19 +827,19 @@ describe("commits the pushed ref lacks (#3101)", () => {
 		setUp({ parentLabels: null });
 		fix();
 		delete process.env.WFC_MODULES;
-		const wt = path.join(sb.dir, "wt");
+		const wt = path.join(sb.repo, ".claude", "worktrees", "q");
 		git("worktree", "add", "-q", "--detach", wt);
 		fs.writeFileSync(
 			path.join(wt, ".claude", "workflow-core.json"),
 			JSON.stringify({ contract: 1, tracker: "acme/widgets", modules: [] }),
 		);
-		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		git("update-ref", "refs/remotes/origin/queue/q", "HEAD~1");
 		const r = run([], COMMENT, wt);
-		expect(r.stderr).toContain("#534's commit is not on origin/landing");
+		expect(r.stderr).toContain("#534's commit is not on origin/queue/q");
 		untouched();
 	});
 
-	it("refuses a close whose comment names a commit off HEAD that origin/landing lacks (#3092)", () => {
+	it("refuses a close whose comment names a commit off HEAD that origin/main lacks (#3092)", () => {
 		setUp({ parentLabels: null });
 		fix();
 		push();

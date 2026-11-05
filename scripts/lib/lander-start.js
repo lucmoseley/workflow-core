@@ -1,47 +1,61 @@
 /*
- * lander-start.js — whether to start a lander, and the detached start
- * (#2405, spec #2261).
+ * lander-start.js — whether to start the queue lander, and the detached start
+ * (#2405, spec #2261; #4458).
  */
 
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
+const { QUEUE_PREFIX, REMOTE } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { forgetSession, fromEnv } = require("./session-id.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { probeUserScope } = require("./user-scope.js");
 
-const NOT_AHEAD = {
-	equal: "landing equals main",
-	behind: "landing is behind main",
-	diverged: "landing and main have diverged",
-};
-
 /**
  * @typedef {object} StartDeps
  * @property {() => number|null} holder the live lander's pid, or null
- * @property {() => {landing: string|null,
- *   relation: import("./lander.js").Relation}} refs where the
- *   remote's `landing` stands against `main`
- * @property {() => number} spawnRun starts a detached lander, returning its pid
+ * @property {() => string[]} waiting the queue refs waiting on the remote
+ * @property {() => number} spawnRun starts a detached queue lander,
+ *   returning its pid
  */
 
 /**
- * Starts a lander only where none runs and `landing` is ahead of `main`.
+ * Starts a queue lander only where none runs and a queue ref waits.
  * Residual: two starts inside one lander's startup both spawn, and the
  * second exits on the lock.
  * @param {StartDeps} deps
- * @returns {{started: number, landing: string} | {skipped: string}}
+ * @returns {{started: number, waiting: string[]} | {skipped: string}}
  */
-function startLander({ holder, refs, spawnRun }) {
+function startLander({ holder, waiting, spawnRun }) {
 	const pid = holder();
 	if (pid !== null)
 		return { skipped: `a lander is already running (pid ${pid})` };
-	const { landing, relation } = refs();
-	if (landing === null) return { skipped: "the remote has no landing branch" };
-	if (relation !== "ahead") return { skipped: NOT_AHEAD[relation] };
-	return { started: spawnRun(), landing };
+	const refs = waiting();
+	if (refs.length === 0) return { skipped: "no queue ref waits" };
+	return { started: spawnRun(), waiting: refs };
+}
+
+/**
+ * The queue refs the remote of `root` holds, by branch, as `queue/<name>`.
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readWaitingQueueRefs(root) {
+	const heads = `refs/heads/${QUEUE_PREFIX}`;
+	return execGit(["ls-remote", REMOTE, `${heads}*`], {
+		cwd: root,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+		timeout: GIT_TIMEOUT_MS,
+	})
+		.split("\n")
+		.flatMap((line) => {
+			const ref = line.split("\t")[1] ?? "";
+			return ref.startsWith(heads) ? [ref.slice("refs/heads/".length)] : [];
+		});
 }
 
 /* A guess: a session-start launch can read the oracle before its session is
@@ -162,6 +176,7 @@ function spawnDetachedRun({
 }
 
 module.exports = {
+	readWaitingQueueRefs,
 	startLander,
 	launcherName,
 	spawnDetachedRun,

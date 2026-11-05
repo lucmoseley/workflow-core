@@ -20,7 +20,7 @@
  *      falls in the window outside the paths a levelling fast-forward changed.
  *
  * THE TWO COSTS, read from every seat's transcripts of this repo
- * (lib/project-dirs.js): each `Edit` call on a path tracked at origin/landing
+ * (lib/project-dirs.js): each `Edit` call on a path tracked at origin/main
  * that did not error, from the assistant record that made it to the result;
  * and each landing route call that merged, from its start to the merge
  * commit's committer time — its fetch, the merge and the pre-merge-commit
@@ -29,8 +29,9 @@
  * commit.
  *
  * THE LANDING RATES, from the same calls, a week: lands that merged a moved
- * origin/landing first, against #4229's predicted 491 to 587, and lands a
- * neighbour's push beat (#4446), against #4166's race window.
+ * origin/main first, against #4229's predicted 491 to 587, and lands whose
+ * push was no fast-forward of the queue ref (#4446), against #4166's race
+ * window.
  *
  * A reaped worktree's HEAD reflog is gone, so check 3's reflog half sees only
  * the worktrees still registered; the merge-subject half sees every merge.
@@ -47,7 +48,7 @@ const { caught } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { landerLog } = require("./lib/lander-start.js");
-const { startRefFor } = require("./lib/landing-refs.js");
+const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const {
 	listTranscripts,
@@ -378,7 +379,7 @@ async function readCosts(root, w) {
 	}
 	const tracked = new Set(
 		parseNulList(
-			git(["ls-tree", "-r", "-z", "--name-only", startRefFor(true)], root),
+			git(["ls-tree", "-r", "-z", "--name-only", VERIFIED_REF], root),
 		),
 	);
 	return {

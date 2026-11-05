@@ -70,7 +70,7 @@
 # so the next member's re-read sees the previous one's bg-spare.
 #
 # EACH SESSION STARTS IN A DIRECTORY OF ITS OWN (#4229): a worktree cut from
-# `origin/landing` by `scripts/session-checkout.js launch-dir`, or this
+# `origin/main` by `scripts/session-checkout.js launch-dir`, or this
 # checkout where the repo has no `landing` module. A member that gets no
 # directory is named on stderr and skipped, as a re-read refusal is. With
 # WFC_DISPATCH_NO_BUILD=1, which the refill loop sets (#4318), a cut finding no
@@ -921,7 +921,7 @@ while [[ $# -gt 0 ]]; do
   refuse_if_kernel_unhealthy
 
   # THE SESSION'S DIRECTORY (the header's). A launch that fails after the cut
-  # leaves its worktree for the reaper (#4247): clean at `origin/landing`,
+  # leaves its worktree for the reaper (#4247): clean at `origin/main`,
   # unless it timed out after the session started there.
   # Its stderr, a store build's output or the refusal, goes to the launch's
   # temp file, which the launch below overwrites, so a refusal's reason sits

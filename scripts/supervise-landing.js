@@ -2,8 +2,9 @@
 /*
  * supervise-landing.js — one supervision pass over the landing queue of the
  * checkout it runs in (#2692, ruled at #2672), which the refill loop runs in
- * every served or launched-in checkout each tick: where `landing` is ahead
- * of `main` and no lander runs, it starts one through start-lander.js; where
+ * every served or launched-in checkout each tick: where a queue ref waits on
+ * the remote and no lander's heartbeat names a live pid, it starts the queue lander through
+ * start-lander.js, the one launcher; where
  * `main` has not moved for lib/landing-stall.js's STALL_MS, it files or
  * refreshes the stall ticket (lib/stall-ticket.js), which it closes once
  * `main` moves. A held queue it leaves to the held-queue issue. It files and
@@ -60,8 +61,19 @@ function main(argv = process.argv.slice(2)) {
 	}
 	if (!moduleOn("landing", { root })) return 0;
 	const queue = readQueue(root);
-	const { start, ticket } = supervision(queue);
-	if (start) startLander(root, flagValue(parsed.flags, "--tester"));
+	const { ticket } = supervision(queue);
+	/** @type {import("./lib/queue-gauge.js").QueueGauge | null} */
+	let gauge = null;
+	/** @type {unknown} */
+	let unread = null;
+	try {
+		gauge = readQueueGauge(root, now());
+	} catch (err) {
+		unread = err;
+	}
+	const running = queue.heartbeat !== null && queue.alive(queue.heartbeat.pid);
+	if (gauge !== null && gauge.waiting.length > 0 && !running)
+		startLander(root, flagValue(parsed.flags, "--tester"));
 	const deps = liveQueueDeps(root);
 	const tend = stallTicketTender(deps, markersDir(root));
 	for (const line of tend({
@@ -75,13 +87,10 @@ function main(argv = process.argv.slice(2)) {
 		},
 	}))
 		say(line);
-	let gauge;
-	try {
-		gauge = readQueueGauge(root, now());
-	} catch (err) {
+	if (gauge === null) {
 		/* Fail-open (#4485): the stall ticket above is tended without it. */
 		say(
-			`queue alert: could not read the landing queue: ${parseErrorText(err)}`,
+			`queue alert: could not read the landing queue: ${parseErrorText(unread)}`,
 		);
 		return 0;
 	}

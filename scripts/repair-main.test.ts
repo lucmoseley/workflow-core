@@ -133,7 +133,6 @@ describe("the proofs", () => {
 	});
 
 	it("refuses where no reflog entry is an ancestor of origin, writing nothing", () => {
-		git(repo, "update-ref", "-d", "refs/remotes/origin/main");
 		const orphan = git(
 			repo,
 			"commit-tree",
@@ -141,7 +140,7 @@ describe("the proofs", () => {
 			"elsewhere",
 			`${git(repo, "rev-parse", "HEAD")}^{tree}`,
 		);
-		git(repo, "update-ref", "refs/remotes/origin/landing", orphan);
+		git(repo, "update-ref", "refs/remotes/origin/main", orphan);
 		fs.writeFileSync(refFile, "");
 		const r = repair();
 		expectRefused(r, "is an ancestor of");
@@ -222,9 +221,9 @@ describe("the proofs", () => {
 	it("refuses an origin ref git will not read, as it may be the one with the proof", () => {
 		fs.writeFileSync(refFile, "");
 		const r = repair(repo, SESSION, {
-			WFC_GIT: stubGit("refs/remotes/origin/landing", "exit 129"),
+			WFC_GIT: stubGit("refs/remotes/origin/main", "exit 129"),
 		});
-		expectRefused(r, "could not read origin/landing", "Re-run");
+		expectRefused(r, "could not read origin/main", "Re-run");
 		expect(fs.readFileSync(refFile, "utf8")).toBe("");
 	});
 
@@ -312,13 +311,6 @@ it("says so where the target is the reflog's last entry", () => {
 	expect(r.status).toBe(0);
 	expect(fs.readFileSync(refFile, "utf8")).toBe(`${shaOf("B")}\n`);
 	expect(r.stdout).toContain("No reflog entry is newer than the target.");
-});
-
-it("takes origin/landing as proof where origin/main is behind it", () => {
-	git(repo, "update-ref", "refs/remotes/origin/landing", shaOf("A"));
-	fs.writeFileSync(refFile, "");
-	expect(repair().status).toBe(0);
-	expect(fs.readFileSync(refFile, "utf8")).toBe(`${shaOf("A")}\n`);
 });
 
 it("reports an index that will not rebuild, with main restored and the entries still listed", () => {

@@ -105,7 +105,7 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-it("exits 0 having landed main's local commit, named the edit left and removed the upstream", () => {
+it("exits 0 having pushed main's local commit to a queue ref, named the edit left and removed the upstream", () => {
 	const own = commitIn(main, { "local.md": "mine\n" }, "local only");
 	fs.writeFileSync(path.join(main, "a.md"), "edited\n");
 	listSessionIn(tmp);
@@ -114,11 +114,17 @@ it("exits 0 having landed main's local commit, named the edit left and removed t
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toContain("the main checkout is cut over");
-	expect(r.stderr).toContain("landed main's 1 local commit(s)");
+	expect(r.stderr).toContain("pushed main's 1 local commit(s)");
 	expect(r.stderr).toContain("1 edit(s) remain in the main checkout");
 	expect(r.stderr).toContain("  a.md — ");
 	git(main, "fetch", "-q", "origin");
-	git(main, "merge-base", "--is-ancestor", own, "origin/landing");
+	git(
+		main,
+		"merge-base",
+		"--is-ancestor",
+		own,
+		`origin/queue/cutover-main-${own.slice(0, 9)}`,
+	);
 	expect(() => upstream()).toThrow();
 });
 
@@ -141,7 +147,7 @@ it("exits 1 naming the git that failed", () => {
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toMatch(
-		/^cutover: failed: git fetch --quiet origin landing failed in /,
+		/^cutover: failed: git fetch --quiet origin main failed in /,
 	);
 	expect(upstream()).toBe("refs/heads/landing");
 });

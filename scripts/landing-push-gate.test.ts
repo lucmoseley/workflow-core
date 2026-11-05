@@ -75,11 +75,12 @@ describe("with the landing module on", () => {
 		expect(r.status, r.stderr).toBe(0);
 	});
 
-	it("refuses a push to main of any other sha, naming it and the landing route", () => {
+	it("refuses a push to main of any other sha, naming it and the queue ref route", () => {
 		ledgerHolds("f".repeat(40));
 		const r = check(buildRefLine(sha, "refs/heads/main"));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(sha);
+		expect(r.stderr).toContain("Push your session's queue ref instead");
 		expect(r.stderr).toContain("session-checkout.js land");
 	});
 

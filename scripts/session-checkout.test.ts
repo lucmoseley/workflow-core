@@ -1,14 +1,14 @@
 // @vitest-environment node
 /*
  * scripts/session-checkout.js against real git (#4235): a bare origin carrying
- * `main` and `landing`, a main checkout cloned from it, and the linked
- * worktrees each cut adds. `npm` is a stub that records each install.
+ * `main`, a main checkout cloned from it, and the linked worktrees each cut
+ * adds, each landing through its own queue ref (#4485). `npm` is a stub that records each install.
  *
  * Loosen it and a session starts on stale work or local `main`, two sessions
  * install into one tree, a tool writes under a store every neighbour on its
  * lockfile reads, or a lockfile change runs against a tree built for another
  * lockfile. Loosen `land` (#4239) and a merge commit skips the pre-commit
- * gates, a push raced by a neighbour is lost or misreported, a registry-anchor
+ * gates, a rewritten HEAD's push is lost or misreported, a registry-anchor
  * conflict costs a hand merge, or uncommitted work reads as landed.
  *
  * Every land runs with the `landing` module on and a live process holding the
@@ -95,14 +95,14 @@ const landOnOrigin = (files: Record<string, string>) => {
 	const other = path.join(tmp, "other");
 	if (fs.existsSync(other)) {
 		git(other, "fetch", "-q", "origin");
-		git(other, "reset", "-q", "--hard", "origin/landing");
+		git(other, "reset", "-q", "--hard", "origin/main");
 	} else {
-		git(tmp, "clone", "-q", "-b", "landing", origin, other);
+		git(tmp, "clone", "-q", "-b", "main", origin, other);
 		git(other, "config", "user.email", "t@t");
 		git(other, "config", "user.name", "t");
 	}
 	const sha = commitIn(other, files, "landed elsewhere");
-	git(other, "push", "-q", "origin", "HEAD:landing");
+	git(other, "push", "-q", "origin", "HEAD:main");
 	return sha;
 };
 
@@ -147,10 +147,10 @@ beforeEach(() => {
 		},
 		"seed",
 	);
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(main, "push", "-q", "origin", "HEAD:main");
 	commitIn(main, { "landed.txt": "x" }, "landed");
-	git(main, "push", "-q", "origin", "HEAD:landing");
-	git(main, "reset", "-q", "--hard", "origin/main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	git(main, "reset", "-q", "--hard", "HEAD~1");
 	holdLanderLock();
 });
 
@@ -160,7 +160,7 @@ afterEach(() => {
 	removeTree(tmp);
 });
 
-it("cuts a worktree detached at a freshly fetched origin/landing under the worktrees folder", () => {
+it("cuts a worktree detached at a freshly fetched origin/main under the worktrees folder", () => {
 	const ahead = landOnOrigin({ "elsewhere.txt": "y" });
 
 	const r = run(main, "cut", "brisk-otter");
@@ -169,14 +169,14 @@ it("cuts a worktree detached at a freshly fetched origin/landing under the workt
 	const dir = worktree("brisk-otter");
 	expect(r.stdout).toBe(`${dir}\n`);
 	expect(git(dir, "rev-parse", "HEAD")).toBe(ahead);
-	expect(git(dir, "rev-parse", "origin/landing")).toBe(ahead);
+	expect(git(dir, "rev-parse", "origin/main")).toBe(ahead);
 	expect(() => git(dir, "symbolic-ref", "-q", "HEAD")).toThrow();
 	expect(git(main, "worktree", "list", "--porcelain")).toContain(
 		`worktree ${dir}\n`,
 	);
 });
 
-it("gives a launch a worktree named for its prompt where the repository lands through landing (#4245)", () => {
+it("gives a launch a worktree named for its prompt where the repository lands through queue refs (#4245)", () => {
 	const ahead = landOnOrigin({ "elsewhere.txt": "y" });
 
 	const first = run(main, "launch-dir", "/implement 4245");
@@ -275,7 +275,7 @@ it("shares one store between cuts with the same lockfile, and builds a second fo
 	expect(readInstalls()).toHaveLength(2);
 });
 
-it("warms the store for origin/landing's lockfile, so a no-build launch then cuts with no install of its own (#4318)", () => {
+it("warms the store for origin/main's lockfile, so a no-build launch then cuts with no install of its own (#4318)", () => {
 	landOnOrigin({ "package-lock.json": "lock-3\n" });
 
 	const warmed = run(main, "warm");
@@ -288,7 +288,7 @@ it("warms the store for origin/landing's lockfile, so a no-build launch then cut
 	const dir = launched.stdout.trim();
 	const store = path.dirname(fs.realpathSync(path.join(dir, "node_modules")));
 	expect(warmed.stderr).toBe(
-		`session checkout: origin/landing's lockfile uses ${store}, built now\n`,
+		`session checkout: origin/main's lockfile uses ${store}, built now\n`,
 	);
 	expect(
 		fs.readFileSync(path.join(store, "node_modules", "lock"), "utf8"),
@@ -336,7 +336,7 @@ it("names a failed warm build in each no-build refusal until a build succeeds, w
 	);
 });
 
-it("leaves a live builder of origin/landing's store to finish when warming, running no install of its own", () => {
+it("leaves a live builder of origin/main's store to finish when warming, running no install of its own", () => {
 	expect(run(main, "warm").status).toBe(0);
 	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));
 	removeTree(path.join(stores(), key));
@@ -352,7 +352,7 @@ it("leaves a live builder of origin/landing's store to finish when warming, runn
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toBe(
-		`session checkout: origin/landing's lockfile uses ${path.join(stores(), key)}, which another process is building\n`,
+		`session checkout: origin/main's lockfile uses ${path.join(stores(), key)}, which another process is building\n`,
 	);
 	expect(readInstalls()).toEqual([]);
 });
@@ -508,7 +508,7 @@ it("attaches nothing to a worktree with no lockfile", () => {
 	landOnOrigin({ "package-lock.json": "" });
 	git(path.join(tmp, "other"), "rm", "-q", "package-lock.json");
 	git(path.join(tmp, "other"), "commit", "-qm", "drop lock");
-	git(path.join(tmp, "other"), "push", "-q", "origin", "HEAD:landing");
+	git(path.join(tmp, "other"), "push", "-q", "origin", "HEAD:main");
 
 	const r = run(main, "cut", "one");
 
@@ -555,9 +555,15 @@ const installHooks = (hooks: Record<string, string>) => {
 const parents = (cwd: string, rev: string) =>
 	git(cwd, "rev-list", "--parents", "-n1", rev).split(" ").slice(1);
 
-const landingTip = () => git(origin, "rev-parse", "landing");
+const mainTip = () => git(origin, "rev-parse", "main");
+/** The tip of `name`'s queue ref on origin, or "" where it has none. */
+const queueTip = (name = "one") =>
+	spawnSync("git", ["rev-parse", "--verify", "--quiet", `queue/${name}`], {
+		cwd: origin,
+		encoding: "utf8",
+	}).stdout.trim();
 
-it("lands a worktree: merges the moved origin/landing, the merge commit running pre-merge-commit, and pushes HEAD:landing", () => {
+it("lands a worktree: merges the moved origin/main, the merge commit running pre-merge-commit, and pushes its queue ref, leaving main to the lander", () => {
 	const ran = path.join(tmp, "merge-hook-ran");
 	installHooks({ "pre-merge-commit": `echo ran >> ${shellQuote(ran)}` });
 	expect(run(main, "cut", "one").status).toBe(0);
@@ -569,11 +575,16 @@ it("lands a worktree: merges the moved origin/landing, the merge commit running 
 
 	expect(r.status, r.stderr).toBe(0);
 	const head = git(dir, "rev-parse", "HEAD");
-	expect(landingTip()).toBe(head);
+	expect(queueTip()).toBe(head);
+	expect(mainTip()).toBe(theirs);
+	expect(git(origin, "branch", "--list", "landing")).toBe("");
 	expect(parents(dir, head)).toEqual([mine, theirs]);
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 	expect(r.stderr).toContain(
-		`pushed ${head} to landing, origin/landing merged in first`,
+		`pushed ${head} to queue/one, origin/main merged in first`,
+	);
+	expect(r.stderr).toContain(
+		"It has not landed: the queue lander moves main to it once the full suite passes. Read its outcome, once, with `node scripts/landing-status.js`.",
 	);
 	const started = `SKIP: a lander is already running (pid ${landerHolder?.pid})`;
 	expect(r.stderr).toContain(started);
@@ -582,51 +593,42 @@ it("lands a worktree: merges the moved origin/landing, the merge commit running 
 	);
 });
 
-it("pushes a worktree already ahead of origin/landing with no merge, and lands nothing where HEAD is on it", () => {
+it("pushes a worktree already ahead of origin/main with no merge, and lands nothing where HEAD is on main or its queue ref", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	const dir = worktree("one");
 
 	const idle = run(dir, "land");
 	const mine = commitIn(dir, { "mine.txt": "m" }, "mine");
 	const ahead = run(dir, "land");
+	const again = run(dir, "land");
 
 	expect(idle.status, idle.stderr).toBe(0);
 	expect(idle.stderr).toContain("nothing to land");
 	expect(ahead.status, ahead.stderr).toBe(0);
-	expect(landingTip()).toBe(mine);
+	expect(ahead.stderr).toContain(`pushed ${mine} to queue/one\n`);
+	expect(queueTip()).toBe(mine);
 	expect(git(dir, "rev-parse", "HEAD")).toBe(mine);
+	expect(again.status, again.stderr).toBe(0);
+	expect(again.stderr).toContain("on origin/main or origin/queue/one already");
 });
 
-it("reports a push raced by a neighbour with the land-again route, and landing again merges the newer tip and pushes", () => {
-	const raced = path.join(tmp, "raced");
-	const other = path.join(tmp, "other");
-	landOnOrigin({ "first.txt": "1" });
-	/* The neighbour pushes between land's fetch and its push, from inside the
-	 * merge's hook, once. */
-	installHooks({
-		"pre-merge-commit": [
-			"unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE",
-			`[ -e ${shellQuote(raced)} ] && exit 0`,
-			`touch ${shellQuote(raced)}`,
-			`echo 2 > ${shellQuote(path.join(other, "second.txt"))}`,
-			`git -C ${shellQuote(other)} add -A && git -C ${shellQuote(other)} commit -qm second && git -C ${shellQuote(other)} push -q origin HEAD:landing`,
-		].join("\n"),
-	});
+it("reports a push refused as no fast-forward of its queue ref with the merge route, records its row, and lands once merged", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	const dir = worktree("one");
-	commitIn(dir, { "mine.txt": "m" }, "mine");
-	landOnOrigin({ "third.txt": "3" });
+	const first = commitIn(dir, { "mine.txt": "m" }, "mine");
+	expect(run(dir, "land").status).toBe(0);
+	git(dir, "reset", "-q", "--hard", "HEAD~1");
+	commitIn(dir, { "redone.txt": "r" }, "redone");
 
-	const first = run(dir, "land");
+	const refused = run(dir, "land");
 
-	expect(first.status).toBe(1);
-	expect(first.stderr).toContain(
-		"landing moved after the fetch: a neighbour pushed first — land again",
+	expect(refused.status).toBe(1);
+	expect(refused.stderr).toContain(
+		"the push is no fast-forward: your queue ref holds a commit HEAD lacks, so HEAD was rewritten after a push — merge `origin/queue/one` into HEAD, then land again",
 	);
-	const neighbour = landingTip();
-	expect(git(other, "rev-parse", "HEAD")).toBe(neighbour);
-	/* One `land` row, counted against the re-fetched origin/landing: HEAD
-	 * carries mine and its merge, the neighbour's commit is the one behind. */
+	expect(queueTip()).toBe(first);
+	/* One `land` row, counted against the re-fetched queue ref: HEAD carries
+	 * the redone commit, the pushed one is the one behind. */
 	const projects = path.join(tmp, "config", "projects");
 	const rows = fs
 		.readdirSync(projects)
@@ -637,16 +639,35 @@ it("reports a push raced by a neighbour with the land-again route, and landing a
 				: [];
 		})
 		.map((line) => line.split("\t"));
-	expect(rows.map((r) => [...r.slice(1, 6), r[7]])).toEqual([
-		["main", "land", "2", "1", "diverged", "origin/landing"],
+	expect(rows.map((r) => [...r.slice(2, 6), r[7]])).toEqual([
+		["land", "1", "1", "diverged", "origin/queue/one"],
 	]);
 
+	git(dir, "merge", "-q", "--no-edit", "origin/queue/one");
 	const second = run(dir, "land");
 
 	expect(second.status, second.stderr).toBe(0);
 	const head = git(dir, "rev-parse", "HEAD");
-	expect(landingTip()).toBe(head);
-	expect(parents(dir, head)[1]).toBe(neighbour);
+	expect(queueTip()).toBe(head);
+	expect(parents(dir, head)[1]).toBe(first);
+});
+
+it("refuses to land from a linked worktree outside the worktrees folder, which has no queue ref, pushing nothing", () => {
+	const stray = path.join(tmp, "stray");
+	git(main, "worktree", "add", "-q", "--detach", stray, "origin/main");
+	git(stray, "config", "user.email", "t@t");
+	git(stray, "config", "user.name", "t");
+	commitIn(stray, { "mine.txt": "m" }, "mine");
+
+	const r = run(stray, "land");
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		`${stray} is no session worktree under ${path.join(main, ".claude", "worktrees")}/, so it has no queue ref to land through`,
+	);
+	expect(
+		git(origin, "for-each-ref", "--format=%(refname)", "refs/heads/queue/"),
+	).toBe("");
 });
 
 it("settles a registry-anchor conflict through the per-row merge driver, with no hand merge", () => {
@@ -672,7 +693,7 @@ it("settles a registry-anchor conflict through the per-row merge driver, with no
 	const r = run(dir, "land");
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(git(origin, "show", `landing:${anchors}`)).toBe(
+	expect(git(origin, "show", `queue/one:${anchors}`)).toBe(
 		write({ a: "a1", b: "b2" }).trim(),
 	);
 });
@@ -688,7 +709,7 @@ it("leaves any other conflict for the session to resolve and commit, naming the 
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
-		"merging origin/landing conflicts in shared.txt — resolve them and `git commit`",
+		"merging origin/main conflicts in shared.txt — resolve them and `git commit`",
 	);
 	expect(again.status).toBe(1);
 	expect(again.stderr).toContain("a merge is in progress in this worktree");
@@ -699,7 +720,7 @@ it("leaves any other conflict for the session to resolve and commit, naming the 
 	const landed = run(dir, "land");
 
 	expect(landed.status, landed.stderr).toBe(0);
-	expect(git(origin, "show", "landing:shared.txt")).toBe("both");
+	expect(git(origin, "show", "queue/one:shared.txt")).toBe("both");
 });
 
 it("refuses to land from the main checkout, naming the cut route, and refuses a land given an argument", () => {
@@ -721,15 +742,13 @@ it("refuses to land a worktree with uncommitted changes, naming them, and pushes
 	const dir = worktree("one");
 	commitIn(dir, { "mine.txt": "m" }, "mine");
 	fs.writeFileSync(path.join(dir, "mine.txt"), "edited");
-	const before = landingTip();
-
 	const r = run(dir, "land");
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
 		"uncommitted changes to mine.txt would not land — commit them",
 	);
-	expect(landingTip()).toBe(before);
+	expect(queueTip()).toBe("");
 });
 
 it("refuses to land with the landing module off, naming the route that module's absence leaves", () => {
@@ -759,10 +778,10 @@ it("leaves a merge a gate refused in progress, saying to fix the finding and com
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain("gate says no");
 	expect(r.stderr).toContain(
-		"the merge of origin/landing was refused, its output above — fix the finding and `git commit`",
+		"the merge of origin/main was refused, its output above — fix the finding and `git commit`",
 	);
 	expect(git(dir, "rev-parse", "MERGE_HEAD")).toBe(theirs);
-	expect(landingTip()).toBe(theirs);
+	expect(queueTip()).toBe("");
 });
 
 it("reports a push a hook refused as a finding to fix, not a race", () => {
@@ -770,19 +789,17 @@ it("reports a push a hook refused as a finding to fix, not a race", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	const dir = worktree("one");
 	commitIn(dir, { "mine.txt": "m" }, "mine");
-	const before = landingTip();
-
 	const r = run(dir, "land");
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain("push gate says no");
 	expect(r.stderr).toContain(
-		"the push to landing was refused, its output above — fix the finding, then land again",
+		"the push to queue/one was refused, its output above — fix the finding, then land again",
 	);
-	expect(landingTip()).toBe(before);
+	expect(queueTip()).toBe("");
 });
 
-it("reports a landed push as landed where the lander will not start, naming the start to run", () => {
+it("reports a queue push as pushed where the lander will not start, naming the start to run", () => {
 	fs.rmSync(path.join(markers(), ".lander.log"), { force: true });
 	fs.mkdirSync(path.join(markers(), ".lander.log"));
 	expect(run(main, "cut", "one").status).toBe(0);
@@ -792,8 +809,8 @@ it("reports a landed push as landed where the lander will not start, naming the 
 	const r = run(dir, "land");
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(landingTip()).toBe(mine);
-	expect(r.stderr).toContain(`pushed ${mine} to landing`);
+	expect(queueTip()).toBe(mine);
+	expect(r.stderr).toContain(`pushed ${mine} to queue/one`);
 	expect(r.stderr).toMatch(
 		/the lander did not start \(.*EISDIR.*\) — run `node \S*start-lander\.js`/,
 	);

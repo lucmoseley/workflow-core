@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
- * scripts/start-lander.js end to end (#2405): it starts a detached lander that
- * lands a pushed commit, and starts none where one runs, `landing` is level
- * with `main` or the module is off.
+ * scripts/start-lander.js end to end (#2405, #4458): it starts a detached queue
+ * lander that lands a queue ref's commit, and starts none where one runs, no
+ * queue ref waits or the module is off.
  *
  * Loosen it and the session-start route starts no lander, or two landers
  * race to test and push.
@@ -30,6 +30,7 @@ let remote: string;
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
+/** A commit on `work`'s HEAD, pushed as `queue/<message>`. */
 const commit = (message: string) => {
 	fs.writeFileSync(path.join(work, `${message}.txt`), message);
 	git(work, "add", "-A");
@@ -43,7 +44,7 @@ const commit = (message: string) => {
 		"-qm",
 		message,
 	);
-	git(work, "push", "-q", "origin", "HEAD:landing");
+	git(work, "push", "-q", "origin", `HEAD:refs/heads/queue/${message}`);
 	return git(work, "rev-parse", "HEAD");
 };
 
@@ -85,7 +86,7 @@ beforeEach(() => {
 	git(tmp, "init", "-q", "--bare", "-b", "main", remote);
 	git(tmp, "clone", "-q", remote, work);
 	commit("seed");
-	git(work, "push", "-q", "origin", "HEAD:main");
+	git(work, "push", "-q", "origin", "HEAD:main", ":refs/heads/queue/seed");
 });
 
 afterEach(() => {
@@ -93,7 +94,7 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-it("starts one detached lander that lands the push, and none beside it", async () => {
+it("starts one detached queue lander that lands the queue ref, and none beside it", async () => {
 	const sha = commit("work");
 	const release = path.join(tmp, "release");
 	const tester = gatedTester(release);
@@ -101,9 +102,7 @@ it("starts one detached lander that lands the push, and none beside it", async (
 	const first = start(["--tester", tester]);
 	expect(first.status, first.stderr).toBe(0);
 	expect(first.stdout).toMatch(
-		new RegExp(
-			`^\\S+Z started the lander, testing ${sha.slice(0, 9)} \\(launched by no session; pid \\d+\\); its output: `,
-		),
+		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work \(launched by no session; pid \d+\); its output: /,
 	);
 	await waitFor(() => fs.existsSync(path.join(markers(), ".lander.pid")));
 
@@ -121,11 +120,11 @@ it("starts one detached lander that lands the push, and none beside it", async (
 	);
 });
 
-it("starts none where landing is level with main", () => {
+it("starts none where no queue ref waits", () => {
 	const r = start(["--tester", "true"]);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toBe("SKIP: landing equals main\n");
+	expect(r.stdout).toBe("SKIP: no queue ref waits\n");
 	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });
 

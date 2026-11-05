@@ -19,8 +19,8 @@
  * recipe gives (#290) — so a deny cannot wedge ordinary work.
  *
  * WITH THE `landing` MODULE ON, A SESSION RECONCILES IN ITS OWN WORKTREE
- * (#4229), merging `origin/landing` and pushing `HEAD:landing` by
- * `scripts/session-checkout.js land`.
+ * (#4229), merging `origin/main` and pushing its own queue ref by
+ * `scripts/session-checkout.js land` (#4458).
  * Once the main checkout is also cut over (lib/cutover.js) the walk stands
  * down on a tree it resolves: lib/main-checkout-write.js refuses every merge,
  * pull or rebase there, and lib/level-main.js alone moves its `main`. An
@@ -144,10 +144,7 @@ const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { buildCutCommand, landingCutOver } = require("./cutover.js");
-const { pushedRefFor, VERIFIED_REF } = require("./landing-refs.js");
-
-/* With `landing` on, a session's land merges the pushed ref. */
-const PUSHED = pushedRefFor(true);
+const { VERIFIED_REF } = require("./landing-refs.js");
 const { ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
@@ -259,7 +256,7 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
 	ctx.moduleOn("landing")
-		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${PUSHED}\` and pushes.`
+		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${VERIFIED_REF}\` and pushes its queue ref.`
 		: ruleOrFallback(
 				ctx,
 				"pull-fast-forward",
@@ -779,7 +776,7 @@ An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C ${landing ? `.claude/worktrees/<session-name> merge ${PUSHED}` : `.claude/worktrees/reconcile merge ${VERIFIED_REF}`}\` — or assign
+command — \`git -C ${landing ? `.claude/worktrees/<session-name> merge ${VERIFIED_REF}` : `.claude/worktrees/reconcile merge ${VERIFIED_REF}`}\` — or assign
 it literally in the same Bash call${landing ? "" : ", as the recipe below does"}. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 

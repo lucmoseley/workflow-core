@@ -2,8 +2,8 @@ name: CI
 
 # NO TRIGGER OF ITS OWN BUT DISPATCH (mantahostels#906, mantahostels#910).
 # .github/workflows/scheduled-checks.yml calls this file four times a day
-# (mantahostels#3490) and on every push to `landing`, where the lander reads
-# that run as its tester (#2413).
+# (mantahostels#3490) and on every push to `lander/batch`, where the queue
+# lander reads that run as its tester (#4458).
 #
 # It CALLS rather than holds the schedule because GitHub's idle auto-disable
 # takes down a whole workflow FILE, `workflow_dispatch` included (mantahostels#909) — so a
@@ -12,7 +12,7 @@ name: CI
 # `schedule` still reads `schedule`.
 #
 # No `concurrency` / `cancel-in-progress` block. Do not add one: a group keeps
-# one pending run and cancels the rest, so a `landing` tip pushed between two
+# one pending run and cancels the rest, so a `lander/batch` tip pushed between two
 # others would go untested and the lander would read no verdict at it.
 #
 # Run the suite by hand with `gh workflow run ci.yml` — ANY SESSION may: this

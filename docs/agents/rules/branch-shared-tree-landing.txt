@@ -1,2 +1,4 @@
-THE SHARED TREE'S `main` TRACKS `origin/landing`, where sessions push: set it
-once with `git branch --set-upstream-to=origin/landing main`.
+THE SHARED TREE IS NOT YET CUT OVER: its `main` still tracks `origin/landing`,
+which takes no push. Cut it over once with `node
+scripts/cutover-main-checkout.js`, and land from a session worktree, whose land
+step pushes its own queue ref.

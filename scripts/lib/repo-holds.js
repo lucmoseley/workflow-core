@@ -89,8 +89,7 @@ const {
 	TIMEOUT_EXIT,
 } = require("./run-budgeted.js");
 const { takesLabel } = require("./takes-label.js");
-const { pushedRefFor } = require("./landing-refs.js");
-const { moduleReader, resolveKey } = require("./workflow-core-config.js");
+const { resolveKey } = require("./workflow-core-config.js");
 
 /**
  * @typedef {{command: string} | {issueClosed: number} | {probe: true}} ClearCheck
@@ -130,9 +129,6 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  *
  * @typedef {{text: string, isOutage: boolean}} ProbeFailure
  */
-
-/* The pushed ref a probe resolves with the `landing` module on. */
-const PUSHED = pushedRefFor(true);
 
 /* Untraced: a clear check runs inside a tick, which it must not hold for long,
  * and has to span a slow `git fetch`. */
@@ -923,27 +919,18 @@ function readGuardLoadFailure(root) {
 
 /**
  * What fails of `root`'s shared `.git` and guard entry, or null where the probe
- * passes. `origin` and `main` are the shared tree's, and `landing` is read as
- * `origin/landing`, as the shared tree keeps no local one. Reads off a config
- * fault, logged, with the landing module off.
+ * passes. `origin` and `main` are the shared tree's.
  * @param {string} root
- * @param {Log} log
  * @returns {ProbeFailure|null}
  */
-function readProbeFailure(root, log) {
-	const hasLanding = moduleReader(root, (what, detail) =>
-		log(`probe of ${root}: ${what}: ${detail}`),
-	)("landing");
+function readProbeFailure(root) {
 	const fetched = gitOutcome(
 		["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin"],
 		[],
 		root,
 		FETCH_TIMEOUT_MS,
 	);
-	const refs = [
-		{ name: "main", rev: "refs/heads/main" },
-		...(hasLanding ? [{ name: PUSHED, rev: `refs/remotes/${PUSHED}` }] : []),
-	];
+	const refs = [{ name: "main", rev: "refs/heads/main" }];
 	const unresolved = refs.flatMap(({ name, rev }) => {
 		const read = readCommit(gitReader(root), rev);
 		if (!read.ok)
@@ -1304,7 +1291,7 @@ function tendHolds(roots, served, now, log) {
 	const readFailure = (root) => {
 		const known = probed.get(root);
 		if (known !== undefined) return known;
-		const failure = readProbeFailure(root, log);
+		const failure = readProbeFailure(root);
 		probed.set(root, failure);
 		return failure;
 	};

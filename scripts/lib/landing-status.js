@@ -1,7 +1,8 @@
 /*
  * landing-status.js — where each of a session's commits stands on the landing
- * route (#2407, spec #2261): landed on `main`, queued on `landing`, reverted by
- * a revert that sits on `landing`, or not on `landing` at all.
+ * route (#2407, spec #2261; #4458): landed on `main`, queued on the session's
+ * own queue ref, reverted by a revert that sits on `landing`, or pushed to no
+ * queue ref at all.
  *
  * A REVERT is a commit on `landing` whose message carries lib/lander.js's
  * buildRevertLine.
@@ -10,9 +11,10 @@
 const { caught } = require("./caught.js");
 const { LANDER_GIT_TIMEOUT_MS, buildRevertLine } = require("./lander.js");
 const {
-	branchOf,
+	LANDING_BRANCH,
 	LANDING_REF,
-	pushedRefFor,
+	pushedRef,
+	QUEUE_REFSPEC,
 	REMOTE,
 	trackingRefspec,
 	VERIFIED_BRANCH,
@@ -20,17 +22,16 @@ const {
 } = require("./landing-refs.js");
 const { execGit } = require("./git.js");
 
-/* `landing-status` runs with the `landing` module on. */
-const PUSHED = pushedRefFor(true);
-
 /**
  * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "reverted", by: string}
  *   | {kind: "unpushed"}} CommitState
  * @typedef {{
+ *   pushed: string,
  *   isOn: (ref: string, sha: string) => boolean,
  *   revertOf: (sha: string) => string|null,
- * }} StatusGit `revertOf` answers the oldest commit on `landing`, after
- *   `sha`, that reverts it
+ * }} StatusGit `pushed` is lib/landing-refs.js's pushed ref for the session's
+ *   tree; `revertOf` answers the oldest commit on `landing`, after `sha`, that
+ *   reverts it
  */
 
 /**
@@ -53,7 +54,7 @@ function commitStates(commits, git) {
  * @returns {CommitState|null}
  */
 function stateOf(sha, git) {
-	if (!git.isOn(PUSHED, sha)) {
+	if (!git.isOn(git.pushed, sha)) {
 		if (git.isOn(VERIFIED_REF, sha)) return { kind: "landed" };
 		return git.isOn("HEAD", sha) ? { kind: "unpushed" } : null;
 	}
@@ -78,28 +79,32 @@ function standingRevert(sha, git) {
 /**
  * @param {{sha: string, state: CommitState}} entry
  * @param {string} subject
+ * @param {string|null} queue the session's queue ref, `queue/<name>`, or null
+ *   where its tree is no session worktree
  */
-function buildStateLine({ sha, state }, subject) {
+function buildStateLine({ sha, state }, subject, queue) {
 	const head = `${sha.slice(0, 9)} ${subject}`;
 	switch (state.kind) {
 		case "landed":
 			return `landed: ${head} — on main`;
 		case "queued":
-			return `queued: ${head} — on landing, not yet on main`;
+			return `queued: ${head} — on ${queue ?? "a queue ref"}, not yet on main`;
 		case "reverted":
 			return `reverted by ${state.by.slice(0, 9)}: ${head}`;
 		case "unpushed":
-			return `unpushed: ${head} — not on landing`;
+			return `unpushed: ${head} — not pushed to ${queue ?? "a queue ref"}`;
 	}
 }
 
 /**
- * Git in `root`, after one fetch of both branches from `origin`. Every read
- * throws where git fails, the fetch included.
+ * Git in `root`, after one fetch from `origin` of `main`, `landing` and every
+ * queue ref, pruning the queue refs gone from it. Every read throws where git
+ * fails, the fetch included.
  * @param {string} root
+ * @param {string} tree the session's tree top level
  * @returns {StatusGit & {subjectOf: (sha: string) => string}}
  */
-function fetchedGit(root) {
+function fetchedGit(root, tree) {
 	/** @param {string[]} args */
 	const git = (args) =>
 		execGit(args, {
@@ -111,11 +116,14 @@ function fetchedGit(root) {
 	git([
 		"fetch",
 		"--quiet",
+		"--prune",
 		REMOTE,
 		trackingRefspec(VERIFIED_BRANCH),
-		trackingRefspec(branchOf(PUSHED)),
+		trackingRefspec(LANDING_BRANCH),
+		QUEUE_REFSPEC,
 	]);
 	return {
+		pushed: pushedRef({ root, tree }),
 		isOn(ref, sha) {
 			try {
 				git(["merge-base", "--is-ancestor", sha, ref]);

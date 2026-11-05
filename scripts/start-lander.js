@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /*
- * start-lander.js — start a detached lander where none runs and the remote's
- * `landing` is ahead of `main` (#2405, spec #2261).
+ * start-lander.js — start a detached queue lander (scripts/queue-lander.js)
+ * where none runs and a `queue/<name>` ref waits on the remote (#2405, spec
+ * #2261; #4458).
  *
  *   node scripts/start-lander.js [--tester <command>] [--launched-by <name>]
  *
  * The lander's output is appended to `.lander.log` in the canonical
  * checkout's markers directory. Called by start-lander-on-push.js after a push
- * to `landing`, and by the session-start launcher, both appending this
- * script's own output there too, so its started line, naming the launching
- * session (#2478), opens the run. The refill loop's supervision
+ * to a queue ref, by lib/session-checkout.js's land, and by the session-start
+ * launcher, each appending this script's own output there too, so its started
+ * line, naming the launching session (#2478), opens the run. The refill loop's supervision
  * (supervise-landing.js, #2692), which runs as no session, names itself with
  * `--launched-by`.
  *
@@ -24,10 +25,11 @@ const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { listedAgents } = require("./lib/agent-liveness.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { landerLock, remoteGit, short } = require("./lib/lander.js");
+const { landerLock } = require("./lib/lander.js");
 const {
 	landerLog,
 	launcherName,
+	readWaitingQueueRefs,
 	spawnDetachedRun,
 	startLander,
 } = require("./lib/lander-start.js");
@@ -67,7 +69,7 @@ function main(argv = process.argv.slice(2)) {
 	let by = "";
 	const result = startLander({
 		holder: landerLock(root).holder,
-		refs: remoteGit(root).refs,
+		waiting: () => readWaitingQueueRefs(root),
 		spawnRun: () => {
 			/* Named before the spawn, so the started line opens the run's log.
 			 * Self-test waived: a session-start launch runs before its session
@@ -77,7 +79,7 @@ function main(argv = process.argv.slice(2)) {
 				launcherName(() => listedAgents({ requireSelf: false }));
 			return spawnDetachedRun({
 				root,
-				script: path.join(__dirname, "lander.js"),
+				script: path.join(__dirname, "queue-lander.js"),
 				tester: flagValue(parsed.flags, "--tester"),
 				log,
 			});
@@ -88,7 +90,7 @@ function main(argv = process.argv.slice(2)) {
 		return 0;
 	}
 	say(
-		`${new Date().toISOString()} started the lander, testing ${short(result.landing)} (launched by ${by}; pid ${result.started}); its output: ${log}`,
+		`${new Date().toISOString()} started the queue lander, ${result.waiting.length} queue ref(s) waiting: ${result.waiting.join(", ")} (launched by ${by}; pid ${result.started}); its output: ${log}`,
 	);
 	return 0;
 }

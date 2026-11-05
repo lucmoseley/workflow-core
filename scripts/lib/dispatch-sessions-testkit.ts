@@ -175,9 +175,9 @@ export function writeCache(
 export const LANDING_MODULES = `${process.env.WFC_MODULES},landing`;
 
 /**
- * Give the fixture's repository a bare origin under `dir` with `landing` one
- * commit past `main`; the `origin/landing` sha a worktree is cut at. A run
- * cuts one only under LANDING_MODULES.
+ * Give the fixture's repository a bare origin under `dir` with `main` one
+ * commit past `landing`, and the checkout at `landing`; the `origin/main` sha
+ * a worktree is cut at. A run cuts one only under LANDING_MODULES.
  */
 export function seedLandingCheckout(dir: string): string {
 	const git = (...args: string[]) =>
@@ -190,9 +190,9 @@ export function seedLandingCheckout(dir: string): string {
 	git("commit", "-q", "--allow-empty", "-m", "seed");
 	git("push", "-q", "origin", "HEAD:main", "HEAD:landing");
 	git("commit", "-q", "--allow-empty", "-m", "landed");
-	git("push", "-q", "origin", "HEAD:landing");
-	git("reset", "-q", "--hard", "origin/main");
-	return git("rev-parse", "origin/landing");
+	git("push", "-q", "origin", "HEAD:main");
+	git("reset", "-q", "--hard", "origin/landing");
+	return git("rev-parse", "origin/main");
 }
 
 /** Register the beforeEach/afterEach that build and remove a fresh root. */

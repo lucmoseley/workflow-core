@@ -26,16 +26,19 @@
  *    the command, or a PR whose head branch or author `gh pr view` reads as
  *    Dependabot's.
  *
- * WHAT PASSES: a destination of `main` or under `spike/` — the #174 precedent,
+ * WHAT PASSES: a destination of `main` (with `landing` off) or under
+ *   `spike/` — the #174 precedent,
  *   a data branch kept off `main` on purpose — or outside `refs/heads/` (a
  *   tag, a note); `--tags` with no refspec; any deletion but `main`'s; a
  *   detached HEAD's bare push, which git itself refuses; `--help`,
  *   `--dry-run`.
  *
- * WITH THE `landing` MODULE ON (#2409, spec #2261), sessions push to `landing`
- *   and only the lander moves `main`: a push to `main` is denied, `landing`
- *   passes in its place, and a forced push or a deletion of `landing` is
- *   denied as one of `main` is.
+ * WITH THE `landing` MODULE ON (#4485, spec #4458), sessions push their own
+ *   queue refs and only the queue lander moves `main`: a push to `main` is
+ *   denied, and so is any push to `landing`, the old lander's branch, which
+ *   stays on the remote as the rollback; a forced push or a deletion of
+ *   `landing` is denied as one of `main` is. Each refusal of a push names the
+ *   session's own queue ref, or the launch where it has none.
  *
  * QUEUE REFS, WITH `landing` ON (#4458): a session's own queue ref is
  *   `queue/<name>`, `<name>` its worktree's under `.claude/worktrees/` of the
@@ -150,7 +153,7 @@ const publishRule = (ctx) =>
 		? ruleOrFallback(
 				ctx,
 				"branch-publish-landing",
-				"Work lands through `landing` — never a push to `main`, no other branch on the remote, and never a pull request",
+				"Work lands through your session's queue ref — never a push to `main` or `landing`, no other branch on the remote, and never a pull request",
 			)
 		: ruleOrFallback(
 				ctx,
@@ -181,13 +184,29 @@ const mainRewind = (ctx, what, segment) => ({
 });
 
 /**
+ * A refused push's refusal: with `landing` on, naming the session's own queue
+ * ref between the opening and the rule.
+ * @param {BranchPublishContext} ctx
+ * @param {string} what the refusal's opening, "This …"
+ * @param {string} segment
+ * @returns {Refusal}
+ */
+const refusePush = (ctx, what, segment) =>
+	ctx.moduleOn("landing")
+		? {
+				reason: `${what}: @CMD@\n\n${ownRefLine(ctx, ownQueueRef(ctx))}\n\n${publishRule(ctx)}`,
+				segment,
+			}
+		: refuse(ctx, what, segment);
+
+/**
  * @param {BranchPublishContext} ctx
  * @param {string} what completing "This …"
  * @param {string} segment
  * @returns {Refusal}
  */
 const landingRewind = (ctx, what, segment) => ({
-	reason: `This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "landing-rewind", "Never force-push or delete `landing`")}`,
+	reason: `This ${what}: @CMD@\n\n${ownRefLine(ctx, ownQueueRef(ctx))}\n\n${ruleOrFallback(ctx, "landing-rewind", "Never force-push or delete `landing` or a queue ref")}`,
 	segment,
 });
 
@@ -211,13 +230,21 @@ function ownQueueRef(ctx) {
  * @returns {Refusal}
  */
 const queueRefusal = (ctx, what, own, segment) => ({
-	reason: `${what}: @CMD@\n\n${
-		own
-			? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin ${shellQuote(`HEAD:refs/heads/${own}`)}\`.`
-			: `This session runs outside a worktree under ${path.join(ctx.root, ".claude", "worktrees")}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`.claude/worktrees/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`
-	}\n\n${ruleOrFallback(ctx, "queue-ref", "Push your work to your session's own queue ref, a creation or a fast-forward, never forced")}`,
+	reason: `${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${ruleOrFallback(ctx, "queue-ref", "Push your work to your session's own queue ref, a creation or a fast-forward, never forced")}`,
 	segment,
 });
+
+/**
+ * The line naming the session's own queue ref, or the launch where it has
+ * none.
+ * @param {BranchPublishContext} ctx
+ * @param {string | null} own
+ */
+function ownRefLine(ctx, own) {
+	return own
+		? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin ${shellQuote(`HEAD:refs/heads/${own}`)}\`.`
+		: `This session runs outside a worktree under ${path.join(ctx.root, ".claude", "worktrees")}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`.claude/worktrees/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
+}
 
 /**
  * @param {BranchPublishContext} ctx
@@ -343,7 +370,6 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
 function isAllowedDst(ref, ctx) {
 	if (ref.startsWith("refs/heads/spike/")) return true;
 	if (ref === "refs/heads/main") return !ctx.moduleOn("landing");
-	if (ref === LANDING_HEAD) return ctx.moduleOn("landing");
 	return !ref.startsWith("refs/heads/");
 }
 
@@ -438,18 +464,24 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 	if (isAllowedDst(ref, ctx)) return null;
 	const branch = branchNamed(ref);
 	if (ref === "refs/heads/main")
-		return refuse(
+		return refusePush(
 			ctx,
 			"This pushes to main, which only the lander moves",
 			segment,
 		);
+	if (ref === LANDING_HEAD && ctx.moduleOn("landing"))
+		return refusePush(
+			ctx,
+			`This pushes to \`${LANDING_BRANCH}\`, which takes no push: work lands through queue refs`,
+			segment,
+		);
 	if (bare)
-		return refuse(
+		return refusePush(
 			ctx,
 			`This pushes the branch the tree is on, ${branch}`,
 			segment,
 		);
-	return refuse(
+	return refusePush(
 		ctx,
 		`This publishes a branch other than main, ${branch}`,
 		segment,

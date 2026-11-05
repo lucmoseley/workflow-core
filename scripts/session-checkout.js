@@ -12,15 +12,16 @@
  *     process still works in it; with --no-build, a cut or attach finding no
  *     dependency store refuses rather than build one
  *   node scripts/session-checkout.js warm
- *     builds the dependency store for origin/landing's lockfile where none
+ *     builds the dependency store for origin/main's lockfile where none
  *     stands, leaving a live builder to finish
  *   node scripts/session-checkout.js attach [<worktree>]
  *     re-points the worktree's node_modules at the store for its lockfile;
  *     the current directory's worktree where none is named
  *   node scripts/session-checkout.js land
- *     merges origin/landing into the current directory's worktree and pushes
- *     HEAD:landing, saying on stderr what it did; refused, it says why and
- *     what to do before landing again
+ *     merges origin/main into the current directory's worktree and pushes
+ *     HEAD to its queue ref, queue/<worktree name>, saying on stderr what it
+ *     did and how to read the outcome; refused, it says why and what to do
+ *     before landing again
  *   node scripts/session-checkout.js reap
  *     removes landed, clean worktrees no session can resume and none
  *     finished in the last 3 days, stray directories and unlinked dependency
@@ -52,14 +53,13 @@ const {
 	cut,
 	land,
 	launchDir,
-	PUSHED,
 	reap,
-	START,
 	warm,
 	reopen,
 } = require("./lib/session-checkout.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
-const { branchOf } = require("./lib/landing-refs.js");
+const { REMOTE, VERIFIED_REF } = require("./lib/landing-refs.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
@@ -115,7 +115,7 @@ function renderReaped(r) {
 	return [
 		...(r.fetchFailed
 			? [
-					`fetching ${branchOf(PUSHED)} failed, so ${PUSHED} may be stale and read more work as unlanded: ${r.fetchFailed}`,
+					`fetching main and the queue refs failed, so ${VERIFIED_REF} may be stale and read more work as unlanded: ${r.fetchFailed}`,
 				]
 			: []),
 		...counted.flatMap(([items, what]) =>
@@ -132,7 +132,7 @@ function renderReaped(r) {
 						? `${s.dirty} uncommitted path${s.dirty === 1 ? "" : "s"}`
 						: "",
 					s.unlanded > 0
-						? `${s.unlanded} commit${s.unlanded === 1 ? "" : "s"} not on ${PUSHED}`
+						? `${s.unlanded} commit${s.unlanded === 1 ? "" : "s"} on neither ${VERIFIED_REF} nor its queue ref`
 						: "",
 				]
 					.filter(Boolean)
@@ -186,8 +186,8 @@ const RUN = {
 		writeFd(
 			2,
 			made === null
-				? `session checkout: no landing module, or no lockfile on ${START}, so no store is warmed\n`
-				: `session checkout: ${START}'s lockfile uses ${made.store}${WARMED[made.state]}\n`,
+				? `session checkout: no landing module, or no lockfile on ${VERIFIED_REF}, so no store is warmed\n`
+				: `session checkout: ${VERIFIED_REF}'s lockfile uses ${made.store}${WARMED[made.state]}\n`,
 		);
 	},
 	attach: (named) => {
@@ -204,8 +204,8 @@ const RUN = {
 		writeFd(
 			2,
 			made.pushed
-				? `session checkout: pushed ${made.head} to ${branchOf(PUSHED)}${made.merged ? `, ${PUSHED} merged in first` : ""}\n${made.lander}\n`
-				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${PUSHED} already\n`,
+				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. Read its outcome, once, with \`node ${scriptPath("landing-status.js")}\`.\n`
+				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${VERIFIED_REF} or ${REMOTE}/${made.queue} already\n`,
 		);
 	},
 	reap: () => {

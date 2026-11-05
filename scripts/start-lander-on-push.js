@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /*
- * start-lander-on-push.js — PostToolUse hook: after a push to `landing`,
- * start the lander detached (#2405, spec #2261). The core is
- * lib/lander-on-push.js.
+ * start-lander-on-push.js — PostToolUse hook: after a push to a queue ref,
+ * `queue/<name>`, start the queue lander detached (#2405, spec #2261; #4458).
+ * The core is lib/lander-on-push.js.
  *
- * IMPLICIT:  after a Bash call that pushes to `landing`, runs start-lander.js
- *            detached, which — where the `landing` module is on, no lander
- *            runs and the remote's `landing` is ahead of `main` — starts
- *            `lander.js run` in a session of its own.
- * JUSTIFIED: fail-safe — a push to `landing` that starts no lander sits
- *            untested until some later session starts, and every session
- *            meanwhile builds on a `main` behind its own work.
+ * IMPLICIT:  after a Bash call that pushes to a queue ref, runs
+ *            start-lander.js detached, which — where the `landing` module is
+ *            on, no lander runs and a queue ref waits on the remote — starts
+ *            `queue-lander.js run` in a session of its own.
+ * JUSTIFIED: fail-safe — a queue push that starts no lander sits untested
+ *            until some later session starts, and every session meanwhile
+ *            builds on a `main` behind its own work.
  * DEFEAT:    turning the `landing` module off; deleting the registration.
  * TREE:      both — resolves the pushed ref in the session's checkout, the hook's cwd, and starts the lander under the host root's config
  *
@@ -18,7 +18,7 @@
  * PostToolUseFailure instead, where this hook is not registered
  * (hook-registrations.test.ts pins it). A push whose failure the call hides
  * (`|| true`, a later `;`) still starts start-lander.js, which reads the remote
- * and starts nothing where `landing` is not ahead of `main`.
+ * and starts nothing where no queue ref waits.
  *
  * Wired on PostToolUse with matcher "Bash", narrowed `if: Bash(*push*)`,
  * unanchored because the walk reads a push behind a launcher wrapper.

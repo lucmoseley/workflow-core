@@ -144,7 +144,7 @@ const {
 	readCommandOrDefault,
 	moduleOn,
 } = require("./lib/workflow-core-config.js");
-const { startRef } = require("./lib/landing-refs.js");
+const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { pushGateState } = require("./lib/test-gate.js");
 const { selectTouched } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
@@ -1063,7 +1063,7 @@ function withSession(route, options) {
  * mantahostels#3208: THE DEFAULT'S BASE. Bare `npm run test` — argv `isFullRunArgv` calls
  * full-shaped, without a session-typed `--full` — narrows to the diff
  * against `merge-base(HEAD, <start ref>)`, the start ref being
- * lib/landing-refs.js's `startRef`. IT IS NEVER FETCHED: a stale remote ref only widens the selection where the merge-base
+ * lib/landing-refs.js's `VERIFIED_REF`. IT IS NEVER FETCHED: a stale remote ref only widens the selection where the merge-base
  * still resolves against it. WHERE IT DOES
  * NOT EXIST OR THE MERGE-BASE CANNOT BE RESOLVED, the base falls back to
  * `HEAD` instead — which NARROWS the selection to uncommitted work alone,
@@ -2082,7 +2082,7 @@ function buildQueueRecheck(route, options) {
 			return "";
 		}
 	};
-	const start = startRef({ root });
+	const start = VERIFIED_REF;
 	const readTips = () => `${readTip("HEAD")} ${readTip(start)}`;
 	let seen = readTips();
 	let warned = false;

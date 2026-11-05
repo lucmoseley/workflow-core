@@ -8,7 +8,7 @@
  */
 
 const { MOVED_LINE } = require("./land-refusal.js");
-const { branchOf, pushedRefFor, startRefFor } = require("./landing-refs.js");
+const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -25,18 +25,18 @@ const INTO_RECONCILE = / into reconcile-/;
 /* What a levelling report says when it left main unmoved (lib/level-main.js
  * renderOutcome, scripts/level-main.js). A failed install follows a move, so
  * it is not one. */
-const NOT_MOVED = /^(?:refused: |waiting: main carries |level main: failed)/;
+const NOT_MOVED = /^(?:refused: |level main: failed)/;
 /* The header scripts/level-main.js puts over each report. */
 const HEADER = /^levelling (\S.*)$/;
 const STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s/;
 const LAND = /\bsession-checkout\.js\s+land\b/;
 /** @param {string} text */
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-/* scripts/session-checkout.js's land line, which names the pushed ref. */
-const PUSHED_REF = pushedRefFor(true);
-const PUSHED_TO = `pushed ([0-9a-f]{7,40}) to ${escapeRe(branchOf(PUSHED_REF))}`;
+/* scripts/session-checkout.js's land line, which names the session's queue
+ * ref and the verified ref it merged. */
+const PUSHED_TO = `pushed ([0-9a-f]{7,40}) to ${escapeRe(QUEUE_PREFIX)}\\S+`;
 const MERGED_AND_PUSHED = new RegExp(
-	`${PUSHED_TO}, ${escapeRe(PUSHED_REF)} merged in first`,
+	`${PUSHED_TO}, ${escapeRe(VERIFIED_REF)} merged in first`,
 );
 const PUSHED = new RegExp(PUSHED_TO);
 const WEEK_MS = 7 * 24 * 60 * 60_000;
@@ -251,8 +251,9 @@ function toolSpans(records) {
 /**
  * What a landing route call did: `merged` with the merge commit it pushed
  * (`session-checkout.js land` prints the `HEAD` it pushed, which is the merge
- * of origin/landing where it says it merged first), `pushed` where it pushed
- * with no merge, `moved` where a neighbour's push beat its own (#4446),
+ * of origin/main where it says it merged first), `pushed` where it pushed
+ * with no merge, `moved` where its queue ref refused it as no fast-forward
+ * (#4446),
  * `failed` where it returned any other error — a conflict, a refused gate —
  * and null where it is no landing route call or landed nothing.
  * @param {ToolSpan} span
@@ -375,8 +376,9 @@ function zeroChecks(r) {
 }
 
 /**
- * The landing route's weekly rates: lands that merged a moved origin/landing
- * first, against #4229's prediction, and pushes a neighbour beat (#4446),
+ * The landing route's weekly rates: lands that merged a moved origin/main
+ * first, against #4229's prediction, and pushes refused as no fast-forward
+ * (#4446),
  * against #4166's race window.
  * @param {Reading["costs"]} c
  * @param {Window} w
@@ -393,7 +395,7 @@ function landRates(c, w) {
 	let verdict = "within";
 	if (rate < low) verdict = "below";
 	else if (rate > high) verdict = "above";
-	return `landing route a week: ${rate} merged ${PUSHED_REF} first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
+	return `landing route a week: ${rate} merged ${VERIFIED_REF} first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused as no fast-forward of the queue ref, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
 }
 
 /**
@@ -410,7 +412,7 @@ function render(r, w) {
 			(k) =>
 				`${k.count === 0 ? "PASS" : "FAIL"} ${k.name}: ${k.count} — ${k.detail}`,
 		),
-		`Edit on a path tracked at ${startRefFor(true)}, call to result: ${spreadText(c.edit)}; ${c.editErrors} errored Edit(s) left out; over ${c.transcripts} transcripts, ${c.unparsed} unparsable line(s)`,
+		`Edit on a path tracked at ${VERIFIED_REF}, call to result: ${spreadText(c.edit)}; ${c.editErrors} errored Edit(s) left out; over ${c.transcripts} transcripts, ${c.unparsed} unparsable line(s)`,
 		`landing merge, call start to merge commit (fetch, merge and gates): ${spreadText(c.mergeToCommit)}; ${c.land.failed + c.land.moved} landing call(s) that errored left out${c.mergeUnread > 0 ? `; ${c.mergeUnread} sha(s) git no longer holds` : ""}`,
 		`landing route call that merged, whole (push included): ${spreadText(c.mergeCall)}`,
 		landRates(c, w),

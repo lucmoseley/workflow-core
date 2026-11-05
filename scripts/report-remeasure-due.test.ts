@@ -835,7 +835,7 @@ describe("the re-measure trigger", () => {
 		);
 	});
 
-	it("counts only what main holds: silent on a sha queued on landing, and reporting one on neither ref until a record of the same review names one that is on main (#3846)", () => {
+	it("counts only what main holds: silent on a sha queued on a queue ref, and reporting one on neither ref until a record of the same review names one that is on main (#3846)", () => {
 		const fx = fixture({ hits: {}, issues: FILED });
 		const [corrected, onMain, queued, replaced, lost] = trailerCheckout(fx, [
 			{ file: "a.txt" },
@@ -859,7 +859,7 @@ describe("the re-measure trigger", () => {
 			"-q",
 			"--no-verify",
 			"origin",
-			`${queued}:refs/heads/landing`,
+			`${queued}:refs/heads/queue/s`,
 		);
 		const unheld = "d".repeat(40);
 		fx.setHits({
@@ -895,7 +895,7 @@ describe("the re-measure trigger", () => {
 			expect(body).not.toContain(`landed ${landed}`);
 	});
 
-	it("takes an escape on a sha queued on landing into no count and no fault, until it lands (#3846)", () => {
+	it("takes an escape on a sha queued on a queue ref into no count and no fault, until it lands (#3846)", () => {
 		const fx = fixture({ hits: {}, issues: FILED });
 		const [onMain, queued] = trailerCheckout(fx, [
 			{ file: "a.txt" },
@@ -916,7 +916,7 @@ describe("the re-measure trigger", () => {
 			"-q",
 			"--no-verify",
 			"origin",
-			`${queued}:refs/heads/landing`,
+			`${queued}:refs/heads/queue/s`,
 		);
 		fx.setHits({
 			"o/manta": [
@@ -933,7 +933,7 @@ describe("the re-measure trigger", () => {
 		expect(fx.issueBody.body().split("\n")[0]).toMatch(/^0 commits on/);
 	});
 
-	it("reads the pushed ref as main with the landing module off, so a sha only on landing is off main (#3846)", () => {
+	it("reads no queue ref with the landing module off, so a sha only on one is off main (#3846)", () => {
 		const fx = fixture({ hits: {} });
 		const [onMain, queued] = trailerCheckout(fx, [
 			{ file: "a.txt" },
@@ -948,7 +948,7 @@ describe("the re-measure trigger", () => {
 			"origin",
 			`${onMain}:refs/heads/main`,
 		);
-		gitIn(code, "update-ref", "refs/remotes/origin/landing", queued);
+		gitIn(code, "update-ref", "refs/remotes/origin/queue/s", queued);
 		fx.setHits({ "o/manta": [ticket(1, [], [record(1, undefined, queued)])] });
 		expect(run(fx, { WFC_MODULES: "" }).stderr).toContain(
 			`OFF MAIN: o/manta#1 has a record naming landed ${queued}`,

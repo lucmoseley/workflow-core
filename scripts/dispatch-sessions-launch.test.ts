@@ -58,8 +58,8 @@ describe("the session's directory (#4245)", () => {
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-	it("starts each member in a fresh worktree detached at origin/landing", () => {
-		const landing = seedLandingCheckout(fx.dir);
+	it("starts each member in a fresh worktree detached at origin/main", () => {
+		const main = seedLandingCheckout(fx.dir);
 		stubClaude({});
 		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
 			WFC_MODULES: LANDING_MODULES,
@@ -77,7 +77,7 @@ describe("the session's directory (#4245)", () => {
 		] as const) {
 			expect(path.dirname(cwd)).toBe(worktrees);
 			expect(path.basename(cwd)).toMatch(name);
-			expect(git(cwd, "rev-parse", "HEAD")).toBe(landing);
+			expect(git(cwd, "rev-parse", "HEAD")).toBe(main);
 			expect(() => git(cwd, "symbolic-ref", "-q", "HEAD")).toThrow();
 		}
 		expect(git(fx.dir, "status", "--porcelain", "-uno")).toBe("");
@@ -125,11 +125,11 @@ describe("the session's directory (#4245)", () => {
 
 	it("refuses a refill-loop member whose lockfile has no store at once, running no install, then launches it once warmed (#4318)", () => {
 		seedLandingCheckout(fx.dir);
-		git(fx.dir, "checkout", "-q", "--detach", "origin/landing");
+		git(fx.dir, "checkout", "-q", "--detach", "origin/main");
 		fs.writeFileSync(path.join(fx.dir, "package-lock.json"), "lock-1\n");
 		git(fx.dir, "add", "package-lock.json");
 		git(fx.dir, "commit", "-qm", "lockfile");
-		git(fx.dir, "push", "-q", "origin", "HEAD:landing");
+		git(fx.dir, "push", "-q", "origin", "HEAD:main");
 		const installs = path.join(fx.dir, "npm-installs");
 		const npm = path.join(fx.dir, "npm-stub");
 		fs.writeFileSync(

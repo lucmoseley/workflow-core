@@ -4,9 +4,10 @@
  *
  * A ticket's commits are those on HEAD citing `#n`, as census-digest.js reads
  * them, and any commit the close's comment names by sha. One is unlanded
- * where the pushed ref (lib/landing-refs.js: `origin/landing` with the
- * `landing` module on) holds neither it nor a twin of the same author date
- * and subject — a push rebased onto a moved `landing` lands under a new hash.
+ * where the pushed ref (lib/landing-refs.js: the session's own queue ref with
+ * the `landing` module on, where it stands, else `origin/main`) holds neither
+ * it nor a twin of the same author date and subject — a commit rebased before
+ * its push lands under a new hash.
  *
  * Reads the remote-tracking ref as it stands, never fetching: a push from
  * this clone moves it, a push from another clone does not.
@@ -92,7 +93,7 @@ function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING, host }) {
 		if (!r.ok) throw new Error(`git ${args[0]}: ${r.why}`);
 		return r.out;
 	};
-	const pushed = pushedRef({ root: host });
+	const pushed = pushedRef({ root: host, tree: root });
 	if (!commitOrThrow(read, pushed))
 		throw new Error(`no ${pushed} to compare against`);
 	const format = "--format=%h%x00%at%x00%s";

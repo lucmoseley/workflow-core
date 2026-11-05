@@ -63,6 +63,7 @@ const {
 	moduleReader,
 } = require("./lib/workflow-core-config.js");
 const { readPendingTasks } = require("./lib/pending-tasks");
+const { scriptPath } = require("./lib/script-path.js");
 const { ledgerRoot } = require("./lib/arbiter-ledger.js");
 const { readUnpushedRef } = require("./lib/landing-refs.js");
 const { landingTwin } = require("./lib/rule-gates.js");
@@ -180,15 +181,19 @@ const CADENCE_CITATION = {
  * The push, with `push_check` before it only where a push still owes a
  * certificate — `pushGateState` decides (#2933). A config it cannot read
  * keeps the check, which prints the fault itself. The rule named is the
- * route's: `landing` swaps in its twin, as the guard-push-rules core does (#2409).
+ * route's: `landing` swaps in its twin, as the guard-push-rules core does
+ * (#2409), and its push is the land step's, of the session's queue ref (#4485).
  * @param {string} ref
  */
 function buildPushStep(ref) {
-	const rule = CADENCE_CITATION[landingTwin(MODULE_CTX, "push-cadence")];
+	const twin = landingTwin(MODULE_CTX, "push-cadence");
+	const rule = CADENCE_CITATION[twin];
 	const gate = pushGateState({ root: REPO_ROOT });
-	return gate.state === "skip"
-		? `The push is your own act (${rule}): push to \`${ref}\` — ${gate.line}.`
-		: `The push is your own act (${rule}): run \`${readCommandOrDefault("push_check")}\`, then push.`;
+	if (gate.state !== "skip")
+		return `The push is your own act (${rule}): run \`${readCommandOrDefault("push_check")}\`, then push.`;
+	return twin === "push-cadence-landing"
+		? `The push is your own act (${rule}): land it with \`node ${scriptPath("session-checkout.js")} land\`, which pushes your queue ref — ${gate.line}.`
+		: `The push is your own act (${rule}): push to \`${ref}\` — ${gate.line}.`;
 }
 
 /**
