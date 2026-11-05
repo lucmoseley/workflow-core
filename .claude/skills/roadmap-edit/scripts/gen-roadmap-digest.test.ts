@@ -236,14 +236,18 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 			path.join(home, "sessions", `${process.pid}.json`),
 			JSON.stringify({
 				pid: process.pid,
-				sessionId: "holder",
+				sessionId: "digest-holder",
 				procStart: stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[19],
 			}),
 		);
-		const claimed = runInProcess(arbiterScript, ["claim", out, "holder"], {
-			env,
-			cwd: repo,
-		});
+		const claimed = runInProcess(
+			arbiterScript,
+			["claim", out, "digest-holder"],
+			{
+				env,
+				cwd: repo,
+			},
+		);
 		expect(claimed.status).toBe(0);
 
 		const r = runInProcess(
@@ -252,7 +256,7 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 			{ env, cwd: repo },
 		);
 		expect(r.status, r.stderr).toBe(0);
-		expect(r.stderr).toContain("is also held by session holder");
+		expect(r.stderr).toContain("digest-holder");
 		expect(fs.existsSync(out)).toBe(true);
 
 		fs.rmSync(home, { recursive: true, force: true });

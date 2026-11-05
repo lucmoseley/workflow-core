@@ -75,7 +75,9 @@ function claimTarget(target) {
 		[arbiter, "claim", target],
 		{ encoding: "utf8" },
 	);
-	const said = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+	const said = r.error
+		? `no claim taken on ${target}: the arbiter did not run (${r.error.message})`
+		: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
 	if (said) console.error(said);
 }
 

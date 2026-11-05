@@ -69,7 +69,7 @@
  *    rule was not (mantahostels#1648).
  */
 
-const { readCutOver } = require("./cutover.js");
+const { landingCutOver } = require("./cutover.js");
 const { ruleModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unsetText, walkGit } = require("./shell-parse.js");
@@ -116,8 +116,7 @@ function decide(command, ctx) {
 	/** @type {boolean | undefined} */
 	let cutOver;
 	const isCutOver = () => {
-		if (cutOver === undefined)
-			cutOver = ctx.moduleOn("landing") && readCutOver(ctx.git) === true;
+		if (cutOver === undefined) cutOver = landingCutOver(ctx.moduleOn, ctx.git);
 		return cutOver;
 	};
 	let ruleSubject = false;
