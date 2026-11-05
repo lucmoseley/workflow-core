@@ -34,11 +34,7 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const {
-	REVERT_BASE_ENV,
-	readLanderRevert,
-	readRevertBase,
-} = require("./lib/clean-revert.js");
+const { buildRevertBaseEnv } = require("./lib/clean-revert.js");
 const { LANDING_BRANCH } = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
@@ -86,15 +82,12 @@ function judge(stdin, tree) {
 			);
 			continue;
 		}
-		const culprit = readLanderRevert();
-		const base =
-			culprit && readRevertBase(tree, { culprit, onto: tip, head: sha });
 		const r = spawnSync(
 			process.execPath,
 			[CHECK, "--against", tip, "--head", sha],
 			{
 				stdio: ["ignore", 2, 2],
-				env: { ...process.env, [REVERT_BASE_ENV]: base || "" },
+				env: buildRevertBaseEnv(tree, { onto: tip, head: sha }),
 			},
 		);
 		if (r.status === 1) {

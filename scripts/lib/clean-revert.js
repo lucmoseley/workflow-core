@@ -36,8 +36,10 @@ const {
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
-/* Set by the hook alone, which assigns it on every run from readRevertBase,
- * so a value a caller set before the hook never reaches a gate. */
+/* The culprit's parent a direction gate also judges against (#4451). Set on a
+ * gate's run only by buildRevertBaseEnv, which .husky/pre-commit reaches
+ * through scripts/lander-revert-base.js and assigns on every run, so a value
+ * set before the hook never reaches a gate. */
 const REVERT_BASE_ENV = "WFC_LANDER_REVERT_BASE";
 
 const ANCHOR_FILES = new Set([
@@ -198,7 +200,7 @@ function judgeCleanRevert(cwd, { culprit, onto, tree }) {
  */
 function whyNotCleanRevert(cwd, judged) {
 	const verdict = judgeCleanRevert(cwd, judged);
-	return "why" in verdict ? verdict.why : null;
+	return whyOf(verdict);
 }
 
 /**
@@ -240,7 +242,7 @@ function judgeLanderRevert(cwd, { culprit, sha, tip }) {
  */
 function whyNotLanderRevert(cwd, pushed) {
 	const verdict = judgeLanderRevert(cwd, pushed);
-	return "why" in verdict ? verdict.why : null;
+	return whyOf(verdict);
 }
 
 /**
@@ -255,7 +257,7 @@ function whyNotLanderRevert(cwd, pushed) {
 function readRevertBase(cwd, { culprit, onto, head }) {
 	if (head) {
 		const verdict = judgeLanderRevert(cwd, { culprit, sha: head, tip: onto });
-		return "side" in verdict ? verdict.side : null;
+		return sideOf(verdict);
 	}
 	const [full, base] = [culprit, onto].map((rev) => commitSha(cwd, rev));
 	const tree = gitOut(cwd, ["write-tree"]);
@@ -265,16 +267,36 @@ function readRevertBase(cwd, { culprit, onto, head }) {
 		onto: base,
 		tree: tree.trim(),
 	});
-	return "side" in verdict ? verdict.side : null;
+	return sideOf(verdict);
+}
+
+/** @param {{side: string} | {why: string}} verdict */
+const whyOf = (verdict) => ("why" in verdict ? verdict.why : null);
+/** @param {{side: string} | {why: string}} verdict */
+const sideOf = (verdict) => ("side" in verdict ? verdict.side : null);
+
+/**
+ * The environment a direction gate judges `onto` (or `head` pushed onto it)
+ * in: `env` with WFC_LANDER_REVERT_BASE set to the base readRevertBase finds
+ * for the culprit `env` names, else emptied.
+ * @param {string} cwd
+ * @param {{onto: string, head?: string}} judged
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {NodeJS.ProcessEnv}
+ */
+function buildRevertBaseEnv(cwd, { onto, head }, env = process.env) {
+	const culprit = env[LANDER_REVERT_ENV];
+	const base = culprit ? readRevertBase(cwd, { culprit, onto, head }) : null;
+	return { ...env, [REVERT_BASE_ENV]: base ?? "" };
 }
 
 module.exports = {
 	LANDER_REVERT_ENV,
 	REVERT_BASE_ENV,
+	buildRevertBaseEnv,
 	buildRevertLine,
 	readKeptAnchors,
 	readLanderRevert,
-	readRevertBase,
 	whyNotCleanRevert,
 	whyNotLanderRevert,
 };

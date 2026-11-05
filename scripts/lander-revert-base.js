@@ -10,9 +10,13 @@
  * IN NO `scripts/` FAMILY (code-standards §N3), as landing-registry-gate.js.
  */
 
-const { readLanderRevert, readRevertBase } = require("./lib/clean-revert.js");
+const {
+	REVERT_BASE_ENV,
+	buildRevertBaseEnv,
+} = require("./lib/clean-revert.js");
+const { writeFd } = require("./lib/write-fd.js");
 
-const culprit = readLanderRevert();
-const base =
-	culprit && readRevertBase(process.cwd(), { culprit, onto: "HEAD" });
-if (base) process.stdout.write(`${base}\n`);
+const base = buildRevertBaseEnv(process.cwd(), { onto: "HEAD" })[
+	REVERT_BASE_ENV
+];
+if (base) writeFd(1, `${base}\n`);

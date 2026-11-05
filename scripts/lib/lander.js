@@ -60,10 +60,9 @@ const { execGroupedSync } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
 const {
 	LANDER_REVERT_ENV,
-	REVERT_BASE_ENV,
+	buildRevertBaseEnv,
 	buildRevertLine,
 	readKeptAnchors,
-	readRevertBase,
 } = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
@@ -2579,15 +2578,13 @@ const buildRevertEnv = (culprit) => ({
  */
 function readRegistryRows(dir, culprit, against) {
 	const [onto = "HEAD", , head] = against;
-	const env = buildRevertEnv(culprit);
-	const base = readRevertBase(dir, { culprit, onto, head });
 	const r = spawnSync(
 		process.execPath,
 		[REGISTRY_CHECK, "--json", "--against", ...against],
 		{
 			cwd: dir,
 			encoding: "utf8",
-			env: { ...env, [REVERT_BASE_ENV]: base ?? "" },
+			env: buildRevertBaseEnv(dir, { onto, head }, buildRevertEnv(culprit)),
 			timeout: LANDER_GIT_TIMEOUT_MS,
 		},
 	);

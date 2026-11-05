@@ -2,7 +2,7 @@
 /*
  * Tests for the second baseline a verified lander revert is judged against
  * (#4451): scripts/lander-revert-base.js, lib/clean-revert.js's
- * readRevertBase and lib/check.js's --against diff, driven through
+ * buildRevertBaseEnv and lib/check.js's --against diff, driven through
  * check-guard-registry.js, a direction gate the lander's revert meets.
  *
  * Near the run-cost budget (base §X8 (5)): two cases cross the lander's real
