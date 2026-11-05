@@ -294,6 +294,20 @@ Blocking edges and parent links use GitHub's **native** sub-issue and dependency
 
 **Wire the edge as well as stating the order.** Where one ticket genuinely gates another, saying so in prose settles nothing a query can read — add the native `blocked_by` edge in the same session. The same holds on the roadmap, where the ordering lives in a card's `needs` (mantahostels#1618).
 
+### Breaking a spec into build units
+
+<!-- rule:size-line:begin -->
+**A spec is filed as build units, not one ticket per slice** (#4410, ruled at #4380). Draft vertical slices at the vendored skill's one-fresh-window size; the slice count is the build-size estimate. The **build unit** is what one session builds: one `kind:ticket`, `takes:implement`, a sub-issue of the spec, its `## Acceptance criteria` one checkbox per slice, each a demoable end-to-end behaviour, its title the unit's scope with no card-id prefix. **This overrides the vendored "sized to fit in a single fresh context window" for the build unit only**.
+
+- **21 or fewer slices make one build unit.** 21 = 10 autocompactions (the backstop, `COMPACTION_BACKSTOP` in `scripts/lib/compaction-set.js`) × ~226K tokens of work per compaction (the ~287K autocompaction trigger less the 61K median post-compaction base) ÷ 107K median working-context growth of one of today's one-window sessions, over 4,991 Opus 5.5 transcripts (#4380). Moving the backstop re-derives this figure.
+- **More than 21 are cut into chunks of at most 21 slices**, each a contiguous run in blocking order, prefactoring in the first. Each chunk is one build unit whose body says it is one unit of a larger spec.
+- **The independence test.** Two chunks may run in parallel only where all hold: each has its own oracle, a test or check that passes or fails on that chunk alone; neither changes an interface or schema the other reads; neither needs the other's result; the code they touch has little co-change history. File overlap alone settles nothing either way.
+- **A pair that fails is chained by a native `blocked_by` edge; a pair that passes gets no edge**.
+- **The quiz step presents the breakdown as build units**: each with its slice list, slice count and edges.
+
+Specs already split into tickets stay as they are.
+<!-- rule:size-line:end -->
+
 ## Placing a new issue — decide the parent at creation
 
 <!-- rule:issue-parent-unplaced:begin -->

@@ -548,6 +548,7 @@ r_research_artefact_scratch=$'- `rule:research-artefact-scratch` — dispatching
 r_wayfinder_ops_shapes=$'- `rule:wayfinder-ops-shapes` — a map, child ticket, blocking edge, frontier query, claim or resolve step, or a map left with nothing to resolve'
 r_kind_label_vocabulary=$'- `rule:kind-label-vocabulary` — applying or reading a `kind:` label'
 r_spec_only_contract=$'- `rule:spec-only-contract` — writing, amending or reading a spec, or lifting one filed under a `kind:brief` up to its map with `node scripts/promote-spec.js <brief>`'
+r_size_line=$'- `rule:size-line` — filing a spec\'s tickets: how many build units, which chunks may run in parallel, and how the quiz step presents them'
 r_takes_label_nuances=$'- `rule:takes-label-nuances` — applying, removing or reading `takes:children` or `takes:human`'
 r_waiting_external_vocabulary=$'- `rule:waiting-external-vocabulary` — reading `waiting:external` (a label edit has the tracker-rules guard print it)'
 
@@ -573,8 +574,8 @@ tracker_frame="THE TRACKER RULES ARE NOT BELOW — \`docs/agents/issue-tracker.m
 #
 # DO NOT HAND-GUESS WHICH ARM IS LARGEST. Re-measure after any edit to this
 # block or to `tracker_frame`:
-#   for c in card-close to-spec to-tickets to-tickets implement triage wayfinder; do
-#     bash -c "matched=$c; source <(sed -n '/^never_act_line=/,/^fi\$/p' scripts/inject-tracker-docs.sh); printf '%s %s\n' \"\$c\" \"\${#tracker_index}\"";
+#   for c in card-close to-spec to-tickets implement triage wayfinder; do
+#     bash -c "matched=$c; source <(sed -n '/^never_act_line=/,/^# \/implement.s opening/p' scripts/inject-tracker-docs.sh); printf '%s %s\n' \"\$c\" \"\${#tracker_index}\"";
 #   done
 # and put whichever prints the highest number physically last.
 tracker_index=""
@@ -583,9 +584,6 @@ if [[ "$matched" == "card-close" ]]; then
 fi
 if [[ "$matched" == "to-spec" ]]; then
   tracker_index=$'\n\n'"${tracker_frame}"$'\n'"${r_kind_label_vocabulary}"$'\n'"${r_issue_title_card_id}"$'\n'"${r_spec_only_contract}"
-fi
-if [[ "$matched" == "to-tickets" ]]; then
-  tracker_index=$'\n\n'"${tracker_frame}"$'\n'"${r_kind_label_vocabulary}"$'\n'"${r_issue_title_card_id}"$'\n'"${r_decisions_search_first}"$'\n'"${r_spec_only_contract}"
 fi
 if [[ "$matched" == "implement" ]]; then
   tracker_index=$'\n\n'"${tracker_frame}"$'\n'"${r_roadmap_gating}"$'\n'"${r_card_close_route}"$'\n'"${r_decisions_search_first}"$'\n'"${r_research_artefact_scratch}"
@@ -596,14 +594,17 @@ fi
 if [[ "$matched" == "wayfinder" ]]; then
   tracker_index=$'\n\n'"${tracker_frame}"$'\n'"${r_roadmap_gating}"$'\n'"${r_decisions_search_first}"$'\n'"${r_wayfinder_ops_shapes}"$'\n'"${r_waiting_external_vocabulary}"
 fi
+if [[ "$matched" == "to-tickets" ]]; then
+  tracker_index=$'\n\n'"${tracker_frame}"$'\n'"${r_kind_label_vocabulary}"$'\n'"${r_issue_title_card_id}"$'\n'"${r_decisions_search_first}"$'\n'"${r_spec_only_contract}"$'\n'"${r_size_line}"
+fi
 
-# /implement's opening step (#893), and /triage's whole-spec review (#892),
+# /implement's opening steps (#893, #4410), and /triage's whole-spec review (#892),
 # ride along here because the vendored skill file cannot carry them
 # /triage's arm, the longer, stays LAST:
 # check-context-budget.js reads a name's last assignment as its value.
 closing_steps=""
 if [[ "$matched" == "implement" ]]; then
-  closing_steps=$'\n\n'"Before starting, read the ticket's parent spec — the sub-issue parent claim-issue.js prints, or the issue a \`## Parent\` line names — and the resolution comment on each closed blocker (\`gh api repos/{owner}/{repo}/issues/<n>/dependencies/blocked_by\`)."
+  closing_steps=$'\n\n'"Before starting, read the ticket's parent spec — the sub-issue parent claim-issue.js prints, or the issue a \`## Parent\` line names — and the resolution comment on each closed blocker (\`gh api repos/{owner}/{repo}/issues/<n>/dependencies/blocked_by\`). Then run \`node scripts/build-state.js <n> --spec <parent>\`: it creates or resumes the ticket's build state file, keyed by issue number, and prints its path. Every unit keeps one, a one-slice unit included. Fill \`slices\` from the acceptance criteria, \`standingRules\` with each do-not constraint from the spec and from what you learn, \`filesTouched\` and \`next\`; it survives compaction where the conversation does not. At each slice boundary rewrite it, and commit citing the ticket. Before ending, rewrite it. The closing /code-review runs over the commits \`node scripts/spec-commits.js <n>\` lists for the ticket."
 fi
 # The finding classes restate docs/agents/issue-tracker.md §Every close says what
 # is still outstanding, their home. "Fifth" is #3811's ruling and is untraced: no

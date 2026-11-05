@@ -6,6 +6,9 @@
  *
  *   node scripts/spec-commits.js <spec> [--since <sha>] [--json]
  *
+ * Run on a ticket with no sub-issues, it lists the commits citing that
+ * ticket: `/implement`'s closing review over one build unit (#4410).
+ *
  * Prints the commits oldest first, the files they touched, the one `git show`
  * that is their combined diff, and the newest one's sha for the triage
  * comment's `**Reviewed through:**` line. No commit at all is a decision-only

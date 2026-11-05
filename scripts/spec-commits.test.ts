@@ -127,6 +127,17 @@ describe("spec-commits CLI", () => {
 		expect(r.out).toMatch(/git show [0-9a-f]{12} [0-9a-f]{12}\n/);
 	});
 
+	/* /implement's closing review runs it on the build unit's own ticket (#4410). */
+	it("lists the commits citing a ticket that has no sub-issues", () => {
+		commit("t.js", "Build the unit's next slice (#10)", "2026-09-05T00:00:00Z");
+		const r = run([]);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("1 commit(s) cite #10 (no ticket)");
+		expect(r.out).toContain("Build the unit's next slice");
+		expect(r.out).not.toContain("first ticket");
+		expect(r.out).toMatch(/git show [0-9a-f]{12}\n/);
+	});
+
 	it("says a spec no commit cites is decision-only and skips the review", () => {
 		const r = run([ticket(50)]);
 		expect(r.status).toBe(0);

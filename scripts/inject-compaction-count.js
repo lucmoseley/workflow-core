@@ -2,7 +2,9 @@
 /*
  * inject-compaction-count.js — PreCompact and SessionStart (`compact`) hook.
  * Tells the model, once per autocompaction, how many times this session has
- * autocompacted (#1148, ruled at #1142 Q1 (A)).
+ * autocompacted (#1148, ruled at #1142 Q1 (A)), and what to do next: below
+ * the backstop, re-read its build state file, issue and own git history and
+ * carry on; at it, hand off and end (#4410, `lib/compaction-set.js`).
  *
  * IN NO §N3 FAMILY: it refuses nothing and checks nothing, and keeps the
  * guard contract — fails open, exits 0.
@@ -31,8 +33,8 @@
  * `lib/compaction-set.js` drops the pending key they leave.
  *
  * IMPLICIT:  at every compaction, writes a trigger marker; after one, reads
- *            and deletes it, reads the transcript tail and writes the
- *            compaction set.
+ *            and deletes it, reads the transcript tail and the issue-claim
+ *            store, and writes the compaction set.
  * JUSTIFIED: fail-safe — refuses nothing (#1142).
  * DEFEAT:    none; silent on every failure path. A payload that does not
  *            parse or names no session, and a missing trigger marker, are
@@ -51,8 +53,9 @@ const {
 	PENDING_PREFIX,
 	recordCompactions,
 	buildCompactionSentence,
-	COMPACTION_ADVICE,
+	compactionAdvice,
 } = require("./lib/compaction-set");
+const { buildStateFile, claimedIssue } = require("./lib/build-state");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
@@ -120,7 +123,23 @@ function afterCompaction(payload, sid) {
 	}
 	const pending = `${PENDING_PREFIX}${new Date().toISOString()}`;
 	const count = recordCompactions(sid, [...earlier, pending]);
-	return `${buildCompactionSentence(count)} ${COMPACTION_ADVICE}`;
+	return `${buildCompactionSentence(count)} ${compactionAdvice(count, unitOf(sid))}`;
+}
+
+/**
+ * The issue this session's claim holds, and its build state file where one
+ * exists — the re-read the advice names.
+ * @param {string} sid
+ */
+function unitOf(sid) {
+	let issue = null;
+	try {
+		issue = claimedIssue(sid);
+	} catch (err) {
+		logFailOpen("issue claims unreadable", err);
+	}
+	const file = issue === null ? null : buildStateFile(issue);
+	return { issue, stateFile: file && fs.existsSync(file) ? file : null };
 }
 
 /** @param {string} raw */

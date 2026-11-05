@@ -597,11 +597,26 @@ describe("the rules that were already here", () => {
 		expect(inject("/triage 893")).not.toContain("dependencies/blocked_by");
 	});
 
+	it("tells /implement to create or resume its build state file and commit at each slice boundary (#4410)", () => {
+		const ctx = inject("/implement 4419");
+		expect(ctx).toContain("`node scripts/build-state.js <n> --spec <parent>`");
+		expect(ctx).toContain("a one-slice unit included");
+		expect(ctx).toContain("`standingRules`");
+		expect(ctx).toContain(
+			"At each slice boundary rewrite it, and commit citing the ticket.",
+		);
+		expect(ctx).toContain(
+			"The closing /code-review runs over the commits `node scripts/spec-commits.js <n>` lists for the ticket.",
+		);
+		for (const cmd of ["/triage 4419", "/to-tickets 4410", "/wayfinder 4419"])
+			expect(inject(cmd)).not.toContain("build-state.js");
+	});
+
 	it("gives /triage alone the whole-spec review (#892)", () => {
 		const triage = inject("/triage 849");
 		expect(triage).toContain("node scripts/spec-commits.js <n>");
 		expect(triage).not.toContain("codereview-pass");
-		expect(inject("/implement 186")).not.toContain("spec-commits.js");
+		expect(inject("/implement 186")).not.toContain("whole-spec review");
 	});
 
 	it("files /triage's first-pass findings under an open spec and re-reviews from Reviewed through (#897)", () => {
@@ -1624,6 +1639,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		"kind-label-vocabulary": ["to-spec", "to-tickets", "triage"],
 		"takes-label-nuances": ["triage"],
 		"waiting-external-vocabulary": ["wayfinder", "triage"],
+		"size-line": ["to-tickets"],
 	};
 
 	it.each(Object.entries(ruleOwners))(
