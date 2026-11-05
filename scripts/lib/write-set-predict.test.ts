@@ -332,7 +332,7 @@ describe("pathsNamedIn", () => {
 
 	it("prefers an exact tracked path over the files nested beneath it", () => {
 		// Without exact-first, a root README.md loses to its own nested namesakes
-		// and resolves to nothing — this repo has three.
+		// and resolves to nothing.
 		const files = ["README.md", "app/README.md", "docs/README.md"];
 		expect(pathsNamedIn("rewrite `README.md`", files)).toEqual(["README.md"]);
 	});

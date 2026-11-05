@@ -5,9 +5,8 @@
  * exclusion reason, and whether the launch's own job is still alive
  * (mantahostels#3488).
  *
- * Out of pick-next.js so each decision is tested by calling it (#4329). The
- * ledger, the job store and the oracle are read there and handed in; the
- * clock is a parameter too, so an age is asserted without wall time (§X9).
+ * The ledger, the job store and the oracle are read in pick-next.js and
+ * handed in; the clock is a parameter too (§X9).
  */
 
 const { TERMINAL_STATES: JOB_STATE_TERMINAL } = require("./agent-liveness.js");

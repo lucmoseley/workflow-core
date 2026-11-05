@@ -7,9 +7,6 @@
  *
  * Loosen a case and a run offers an issue the launcher will drop at launch, or
  * prints a finished launch as live and a reader never chases it.
- *
- * Pure over seeded ledger entries, job records and an oracle listing; the
- * clock is passed in, so an age is asserted without wall time (§X9).
  */
 import { describe, expect, it } from "vitest";
 

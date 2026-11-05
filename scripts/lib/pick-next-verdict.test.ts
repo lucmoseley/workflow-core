@@ -7,15 +7,12 @@
  *
  * Loosen a case and `/pick-next` offers a blocked, claimed, gated or
  * container issue as takeable, or ranks the queue so the wrong ticket leads.
- *
- * Each case builds the blocker graph the program builds, over fake reads in
- * the served repo, then enriches and ranks in process; the clock is passed in
- * (§X9). The program's own cases keep the reads, the render and the exit.
  */
 import { describe, expect, it } from "vitest";
 
 const {
 	enrichAll,
+	kindSetsOf,
 	proseBlockedOf,
 	rankFrontier,
 	waitCell,
@@ -71,7 +68,7 @@ const ledgerEntry = (n: number, over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** Every issue's verdict and the frontier, through `enrichAll` as main calls it. */
+/** Every issue's verdict and the frontier, over fake reads in the served repo. */
 async function verdictOf(fx: Fx) {
 	const raw = fx.issues.map((i) => ({
 		number: i.number,
@@ -130,16 +127,10 @@ async function verdictOf(fx: Fx) {
 			},
 		]),
 	);
-	const label = (n: string) => n.startsWith("wayfinder:map");
 	const ctx = {
 		blockers: graph,
 		timelineByIssue,
-		mapNumbers: new Set(
-			raw.filter((i) => i.labels.some(label)).map((i) => i.number),
-		),
-		specNumbers: new Set(
-			raw.filter((i) => i.labels.includes("kind:spec")).map((i) => i.number),
-		),
+		...kindSetsOf(raw),
 		listed: {
 			ids: new Set(["self"]),
 			names: new Map(),
@@ -480,5 +471,20 @@ describe("the waiting:external escalation", () => {
 		});
 		expect(over.order).toEqual([1, 2]);
 		expect(waitCell(over.of(1))).toBe("7d!");
+	});
+});
+
+describe("kindSetsOf", () => {
+	it("takes a map by its exact label and a spec by `kind:spec`, nothing near either", () => {
+		const issue = (number: number, labels: string[]) =>
+			({ number, labels }) as { number: number; labels: string[] };
+		const sets = kindSetsOf([
+			issue(1, ["wayfinder:map"]),
+			issue(2, ["wayfinder:mapped"]),
+			issue(3, ["kind:spec"]),
+			issue(4, []),
+		] as never);
+		expect([...sets.mapNumbers]).toEqual([1]);
+		expect([...sets.specNumbers]).toEqual([3]);
 	});
 });

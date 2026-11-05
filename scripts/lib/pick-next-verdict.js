@@ -4,10 +4,9 @@
  * held out of the frontier, earliest-applicable first (mantahostels#105); and the
  * frontier those verdicts rank into.
  *
- * Out of pick-next.js so each branch is tested by calling it (#4329). Every
- * read is done there and handed in through `enrichIssue`'s context: the
- * blocker graph, the timelines, the claims, the ledger, the goal set and the
- * clock, a function so each age is read when it is computed, as before.
+ * Every read is done in pick-next.js and handed in through `enrichIssue`'s
+ * context: the blocker graph, the timelines, the claims, the ledger, the goal
+ * set and the clock, a function so each age is read when it is computed.
  */
 
 const blockerGraph = require("./blocker-graph.js");
@@ -405,6 +404,22 @@ function enrichIssue(i, ctx) {
 }
 
 /**
+ * The maps and the specs among `issues`, by their labels: the two kinds the
+ * verdict's grouping and the parent-claim test read.
+ * @param {RawIssue[]} issues
+ */
+function kindSetsOf(issues) {
+	const numbersWith = (/** @type {string} */ label) =>
+		new Set(
+			issues.filter((i) => i.labels.includes(label)).map((i) => i.number),
+		);
+	return {
+		mapNumbers: numbersWith("wayfinder:map"),
+		specNumbers: numbersWith("kind:spec"),
+	};
+}
+
+/**
  * Every issue's verdict, and the inheritance each passes on, worked out once
  * over the whole set first.
  * @param {DepsResolved[]} withDeps
@@ -432,6 +447,7 @@ function rankFrontier(enriched) {
 
 module.exports = {
 	enrichAll,
+	kindSetsOf,
 	proseBlockedOf,
 	rankFrontier,
 	tiersOf,

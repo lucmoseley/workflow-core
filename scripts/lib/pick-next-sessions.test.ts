@@ -8,9 +8,6 @@
  * Loosen a case and a run from a worktree reads an empty store as an
  * unclaimed frontier and offers live work as takeable, or promises headroom
  * stopping this very session could never return.
- *
- * The tree cases run real git and realpath on one canonical checkout and one
- * linked worktree, built once for the file in a temp directory and only read.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

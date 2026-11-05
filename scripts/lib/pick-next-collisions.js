@@ -8,8 +8,8 @@
  * *intent* from prose is where precision dies — mantahostels#185 measured a prose-content
  * detector at ~15% while its presence check was fine.
  *
- * Out of pick-next.js so each pairing is tested by calling it (#4329). The
- * tracked-file list and the claims are read there and handed in.
+ * The tracked-file list and the claims are read in pick-next.js and handed
+ * in.
  */
 
 const { pathsNamedIn } = require("./write-set-predict.js");

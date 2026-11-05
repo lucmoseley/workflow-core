@@ -5,10 +5,8 @@
  * issue's body on disk with its cache key (mantahostels#409, mantahostels#385), and the
  * band-read-required verdict (mantahostels#1485).
  *
- * Out of pick-next.js so each is tested by calling it (#4329). The store root
- * and the dump directory are parameters, so a test runs both on a temp
- * directory; the cache lookup and the conflict graph are read there and
- * handed in.
+ * The store root and the dump directory are parameters; the cache lookup
+ * and the conflict graph are read in pick-next.js and handed in.
  */
 
 const fs = require("node:fs");

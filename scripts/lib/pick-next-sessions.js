@@ -4,8 +4,7 @@
  * store it read claims from is the tree they were filed under (mantahostels#703);
  * and which finished sessions are still resident (mantahostels#421).
  *
- * Out of pick-next.js so each decision is tested by calling it (#4329). The
- * reads stay there: the oracle listing, the arbiter store, the env. What
+ * The reads stay in pick-next.js: the oracle listing, the arbiter store, the env. What
  * comes in is what they returned; the tree comparison runs git and realpath
  * on the two directories it is handed, which is all it reads.
  */

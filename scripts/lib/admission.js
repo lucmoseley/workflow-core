@@ -2057,13 +2057,20 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
  * carries the arithmetic, while selection wants `admissionFrom`'s lenient one,
  * which still admits where memory or the session count is unreadable, so a
  * full run degrades rather than dying. Where both read, they agree on the
- * slots selected, the session floor included: the caller credits no reclaim.
- * @param {Omit<Parameters<typeof machineAdmission>[0], "pendingSpares">} inputs
+ * slots selected, the session floor included, since no reclaim is credited.
+ * @param {{
+ *   listed: Parameters<typeof machineAdmission>[0]["listed"],
+ *   reclaimable: {ok: true, count: number} | {ok: false, error: string},
+ *   landers: Landers,
+ * }} inputs `reclaimable` counts the reclaimable sessions; their memory is
+ *   never credited here
  */
 function selectionAdmission({ listed, reclaimable, landers }) {
 	const readings = machineAdmission({
 		listed,
-		reclaimable,
+		reclaimable: reclaimable.ok
+			? { ok: true, mb: 0, count: reclaimable.count }
+			: reclaimable,
 		pendingSpares: LAUNCH_SPARES,
 		landers,
 	});

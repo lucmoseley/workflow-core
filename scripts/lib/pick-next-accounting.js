@@ -5,8 +5,8 @@
  * (mantahostels#1507), the band no command opens (mantahostels#1626), and the run summary
  * the skill's §6 message is written from (mantahostels#1001).
  *
- * Out of pick-next.js so each figure is tested by calling it (#4329). Every
- * input is the run's own state, already read; nothing here reads anything.
+ * Every input is the run's own state, already read; nothing here reads
+ * anything.
  */
 
 const { NO_COMMAND_VALUES, takesValue } = require("./takes-label.js");
@@ -209,12 +209,6 @@ function dispatchableFloorOf(graph, frontier, bundles) {
  * the distinction against mantahostels#1507's `dispatchable` predicate, which subtracts
  * `children` unconditionally from `graph.proposed`: same two label values,
  * different rule, so the two deliberately do not share a body.
- *
- * SO THE `openChildCount === 0` CLAUSE IS PINNED ONLY IN THE MODULE TEST. No
- * frontier fixture can present a non-zero count — the exclusion cascade got
- * there first — so only `noCommandOf` called directly with one
- * (lib/pick-next-accounting.test.ts) tells it from `takes.includes(CHILDREN)`
- * alone. It is what keeps the term right if that cascade is reordered.
  *
  * @param {string[]} takes
  * @param {number} openChildCount

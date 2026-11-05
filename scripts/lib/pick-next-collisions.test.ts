@@ -6,9 +6,6 @@
  *
  * Loosen a case and a run warns against the very issue it offers, or stays
  * silent while a candidate's session would write under a live one.
- *
- * Pure over issues and a seeded tracked-file list; the git read stays in the
- * program's own cases.
  */
 import { describe, expect, it } from "vitest";
 

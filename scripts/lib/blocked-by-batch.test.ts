@@ -8,8 +8,7 @@
  * In process against a WFC_GH stub served from one long-lived process for the
  * whole file (#2878): the batch's query is answered by gh-fake's
  * answerBlockedBy and each REST page by asRecorded, both held to the real gh
- * by gh.contract.test.ts. The stub keeps its call log and retry counts in the
- * case's temp directory.
+ * by gh.contract.test.ts.
  *
  * Breaking it lets `/pick-next` launch a blocked issue: a batch failure read
  * as an empty blocker list, or a 26th blocker past the batch's page unseen.

@@ -9,9 +9,6 @@
  * Loosen a case and a run dispatches a ~60 s band-read subagent it did not
  * need, reads a grep back as an agent's judgement, or leaves a band read
  * unable to store its answer.
- *
- * The store and the dump are real files under each case's own temp
- * directory; the cache lookup and the conflict graph are seeded.
  */
 import fs from "node:fs";
 import os from "node:os";

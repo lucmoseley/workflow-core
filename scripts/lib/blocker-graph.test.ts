@@ -206,7 +206,6 @@ describe("a served issue's own blockers", () => {
 	});
 
 	it("counts reach transitively over open descendants, not one step (mantahostels#101)", async () => {
-		// 1 <- 2 <- 3 <- 4: #1 holds out three issues, not one.
 		const { graph } = await graphOf({
 			1: {},
 			2: { deps: [`${OWN}#1`] },
@@ -394,8 +393,7 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 	});
 
 	it("holds nothing on a marker naming this repo's closed issue, and reads it not", async () => {
-		// mantahostels#831 closed; the issues naming it were takeable all along
-		// (the real shape measured 24 August 2026).
+		// mantahostels#831 closed; the issues naming it were takeable all along.
 		const { graph, reads } = await graphOf({
 			832: { body: "**Blocked on** #831." },
 		});
@@ -419,7 +417,6 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 	});
 
 	it("holds a served issue on another repo's marker whose read fails", async () => {
-		// Launching past a blocker is the one error the shortlist cannot take back.
 		const { graph } = await graphOf(
 			{ 1: { body: "**Blocked on** o/y#12." } },
 			{ failIssues: ["o/y#12"] },

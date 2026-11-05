@@ -8,9 +8,6 @@
  *
  * Loosen a case and §5's accounting line stops summing, or §6 is written off
  * a figure the run never decided.
- *
- * Pure over seeded frontier issues and a seeded conflict graph; the program's
- * own cases keep the render of each figure.
  */
 import { describe, expect, it } from "vitest";
 

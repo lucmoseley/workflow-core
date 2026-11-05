@@ -185,6 +185,7 @@ const {
 } = require("./lib/pick-next-sessions.js");
 const {
 	enrichAll,
+	kindSetsOf,
 	proseBlockedOf,
 	rankFrontier,
 	tiersOf,
@@ -578,7 +579,6 @@ const { readLiveLanders } = require("./lib/local-tester.js");
  */
 function claimedIssues(listed) {
 	try {
-		// Which tree the claims came from (mantahostels#703): lib/pick-next-sessions.js.
 		const elsewhere = storeElsewhere(REPO_ROOT, arbiter.paths.repoRoot());
 		return claimsFromStore(arbiter.heldIssues(listed), elsewhere);
 	} catch (e) {
@@ -2662,9 +2662,7 @@ function admissionOf(listed) {
 	const { mem, procs, host, live, floorRead, memory, admission } =
 		selectionAdmission({
 			listed,
-			reclaimable: reclaimable.ok
-				? { ok: true, mb: 0, count: reclaimable.count }
-				: reclaimable,
+			reclaimable,
 			landers: readLiveLanders(),
 		});
 	return {
@@ -2724,14 +2722,7 @@ async function main() {
 	const resolvedGoal = resolveGoal(GOAL_ASK, issues, blockers);
 	for (const n of resolvedGoal?.ranked ?? []) goalRanked.add(n);
 
-	const mapNumbers = new Set(
-		issues
-			.filter((i) => i.labels.includes("wayfinder:map"))
-			.map((i) => i.number),
-	);
-	const specNumbers = new Set(
-		issues.filter((i) => i.labels.includes("kind:spec")).map((i) => i.number),
-	);
+	const { mapNumbers, specNumbers } = kindSetsOf(issues);
 
 	const timelineByIssue = await timelinesByIssue(issues);
 
