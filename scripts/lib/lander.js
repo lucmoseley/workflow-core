@@ -2210,12 +2210,11 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 		if (FULL_SHA.test(a) && FULL_SHA.test(b)) ancestors.add(key);
 		return true;
 	};
-	/* Shas this run has seen as local commits, which a run never loses. */
+	/* A run never loses a local commit. */
 	/** @type {Set<string>} */
 	const localShas = new Set();
 	/**
-	 * Whether every one of `shas` is a local commit, in one fork for those not
-	 * yet seen (#4326). An unanswered read is a no, so refs() fetches.
+	 * An unanswered read is a no, so refs() fetches.
 	 * @param {string[]} shas
 	 */
 	const areAllLocal = (shas) => {
