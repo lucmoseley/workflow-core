@@ -1,0 +1,344 @@
+// @vitest-environment node
+/*
+ * `session-checkout.js reap` against real git (#4247): a bare origin carrying
+ * `main` and `landing`, a main checkout cloned from it, and worktrees cut by
+ * the module itself, each linked to a dependency store `npm` (a stub) built.
+ *
+ * Loosen it and cleanup loses work: a worktree with uncommitted or unlanded
+ * commits, or one a live or resumable session still needs, is removed, or a
+ * store is pulled from under a worktree or a build in flight. Tighten it and
+ * the worktrees folder grows without bound and stranded work goes unnamed.
+ *
+ * Every case but the young one runs with the clock an hour on, past the
+ * window a fresh cut or store is left alone in; only `Date` is faked, so git
+ * and the processes it spawns keep real time.
+ *
+ * Every case cuts real worktrees off a real bare origin, seam 1's fixture
+ * (#4229), so the file runs over the 10 s budget (base §X8 (5)).
+ */
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
+
+const SCRIPT = path.resolve(__dirname, "session-checkout.js");
+const HOUR = 60 * 60_000;
+
+let tmp: string;
+let origin: string;
+let main: string;
+let seat: string;
+let npmStub: string;
+let held: ReturnType<typeof spawn>[] = [];
+
+const git = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+const commitIn = (cwd: string, name: string, message: string) => {
+	fs.writeFileSync(path.join(cwd, name), message);
+	git(cwd, "add", "-A");
+	git(
+		cwd,
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"user.name=t",
+		"commit",
+		"-qm",
+		message,
+	);
+};
+
+const run = (...args: string[]) =>
+	runInProcess(SCRIPT, args, {
+		cwd: main,
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: main,
+			CLAUDE_CONFIG_DIR: seat,
+			WFC_NPM: npmStub,
+			WFC_MODULES: "landing",
+		},
+	});
+
+const worktrees = () => path.join(main, ".claude", "worktrees");
+const worktree = (name: string) => path.join(worktrees(), name);
+const stores = () => path.join(worktrees(), ".dep-stores");
+
+const cut = (name: string) => {
+	const r = run("cut", name);
+	expect(r.status, r.stderr).toBe(0);
+	return worktree(name);
+};
+
+/** A reap pass with the clock `ahead` ms on. */
+const reap = (ahead = HOUR) => {
+	vi.setSystemTime(Date.now() + ahead);
+	try {
+		return run("reap");
+	} finally {
+		vi.useRealTimers();
+		vi.useFakeTimers({ toFake: ["Date"] });
+	}
+};
+
+const registered = () =>
+	git(main, "worktree", "list", "--porcelain")
+		.split("\n")
+		.filter((l) => l.startsWith("worktree "))
+		.map((l) => l.slice("worktree ".length));
+
+/** A job record on the seat whose session's cwd is `cwd`, in `state`. */
+const recordJob = (id: string, cwd: string, state: string) => {
+	const dir = path.join(seat, "jobs", id);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, "state.json"),
+		JSON.stringify({ sessionId: `${id}-session`, cwd, state }),
+	);
+};
+
+/** A live process whose command line carries `marker`, with `cwd`. */
+const holdProcess = (cwd: string, marker = "held") => {
+	const child = spawn("sh", ["-c", "sleep 60", marker], {
+		cwd,
+		stdio: "ignore",
+	});
+	held.push(child);
+	return child.pid as number;
+};
+
+/** A pid no process holds: an exited child, already reaped. */
+const deadPid = () => spawnSync("true").pid;
+
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "reap-")));
+	origin = path.join(tmp, "origin.git");
+	main = path.join(tmp, "main");
+	seat = path.join(tmp, "seat");
+	npmStub = path.join(tmp, "npm");
+	fs.mkdirSync(seat);
+	fs.writeFileSync(
+		npmStub,
+		"#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock\n",
+	);
+	fs.chmodSync(npmStub, 0o755);
+	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
+	git(tmp, "clone", "-q", origin, main);
+	fs.writeFileSync(
+		path.join(main, ".gitignore"),
+		"/node_modules\n.claude/worktrees/\n",
+	);
+	fs.writeFileSync(path.join(main, "package.json"), "{}\n");
+	commitIn(main, "package-lock.json", "lock-1\n");
+	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+	for (const child of held) child.kill();
+	held = [];
+	if (fs.existsSync(tmp)) execFileSync("chmod", ["-R", "u+w", tmp]);
+	fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+it("removes landed, clean worktrees of finished sessions, then the store none links any more", () => {
+	const landed = cut("landed-work");
+	const idle = cut("never-worked");
+	const store = path.dirname(
+		fs.realpathSync(path.join(landed, "node_modules")),
+	);
+	commitIn(landed, "done.txt", "work since landed");
+	git(landed, "push", "-q", "origin", "HEAD:landing");
+	recordJob("j1", landed, "done");
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain(
+		"removed landed worktrees: landed-work, never-worked",
+	);
+	expect(r.stderr).toContain(
+		`removed unlinked dependency store: ${path.basename(store)}`,
+	);
+	expect(registered()).toEqual([main]);
+	expect(fs.existsSync(landed)).toBe(false);
+	expect(fs.existsSync(idle)).toBe(false);
+	expect(fs.existsSync(store)).toBe(false);
+	expect(fs.existsSync(stores())).toBe(true);
+});
+
+it("reports a dead session's dirty or unlanded worktree with its idle time and last commit, removing neither", () => {
+	const dirty = cut("dirty-work");
+	const unlanded = cut("unlanded-work");
+	fs.writeFileSync(path.join(dirty, "half.txt"), "half done");
+	commitIn(unlanded, "mine.txt", "never pushed");
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toMatch(
+		/stranded: dirty-work — 1 uncommitted path; idle \d+m; last commit [0-9a-f]+ lock-1 — its session is gone: land it with `node scripts\/session-checkout\.js land` from inside it/,
+	);
+	expect(r.stderr).toMatch(
+		/stranded: unlanded-work — 1 commit not on origin\/landing; idle \d+m; last commit [0-9a-f]+ never pushed — /,
+	);
+	expect(registered()).toEqual(expect.arrayContaining([dirty, unlanded]));
+	expect(fs.readFileSync(path.join(dirty, "half.txt"), "utf8")).toBe(
+		"half done",
+	);
+	/* Both still link the store, so it stays. */
+	expect(fs.readdirSync(stores())).toHaveLength(1);
+});
+
+it("leaves a live session's worktree and a resumable one untouched and unreported, landed or not", () => {
+	const live = cut("live-session");
+	const parked = cut("parked-session");
+	const asking = cut("asking-session");
+	fs.writeFileSync(path.join(live, "half.txt"), "in progress");
+	holdProcess(live);
+	recordJob("j1", parked, "stopped");
+	recordJob("j2", asking, "blocked");
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe("");
+	expect(registered()).toEqual(expect.arrayContaining([live, parked, asking]));
+});
+
+it("prunes a stale registration and removes unregistered directories, reporting one that still has a .git file", () => {
+	const gone = cut("gone-dir");
+	execFileSync("chmod", ["-R", "u+w", gone]);
+	fs.rmSync(gone, { recursive: true });
+	const stray = worktree("probe-leftover");
+	fs.mkdirSync(path.join(stray, ".claude", "tmp"), { recursive: true });
+	fs.writeFileSync(path.join(stray, ".claude", "tmp", "marker"), "x");
+	const orphan = worktree("orphaned-checkout");
+	fs.mkdirSync(orphan);
+	fs.writeFileSync(path.join(orphan, ".git"), "gitdir: /nowhere\n");
+	fs.writeFileSync(path.join(orphan, "unsaved.txt"), "work");
+	const isolated = worktree("isolated-4242");
+	fs.mkdirSync(isolated);
+	fs.writeFileSync(path.join(worktrees(), "scratch.log"), "a loose file");
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain("pruned stale registration: gone-dir\n");
+	expect(r.stderr).toContain("removed unregistered directory: probe-leftover");
+	expect(r.stderr).toContain(
+		"orphaned: orphaned-checkout has a .git file but no registration, so git cannot read its uncommitted work",
+	);
+	expect(registered()).toEqual([main]);
+	expect(fs.existsSync(stray)).toBe(false);
+	expect(fs.readFileSync(path.join(orphan, "unsaved.txt"), "utf8")).toBe(
+		"work",
+	);
+	expect(fs.existsSync(isolated)).toBe(true);
+	expect(fs.existsSync(path.join(worktrees(), "scratch.log"))).toBe(true);
+});
+
+it("removes a frozen store no worktree links and a dead build's lock and staging, keeping a linked store and a live build's", () => {
+	const kept = cut("keeps-store");
+	fs.writeFileSync(path.join(kept, "half.txt"), "keeps it standing");
+	const linked = path.dirname(fs.realpathSync(path.join(kept, "node_modules")));
+	const frozen = path.join(stores(), "0123456789abcdef");
+	fs.mkdirSync(path.join(frozen, "node_modules", "pkg"), { recursive: true });
+	fs.writeFileSync(path.join(frozen, "node_modules", "pkg", "index.js"), "");
+	execFileSync("chmod", ["-R", "a-w", path.join(frozen, "node_modules")]);
+	const building = "fedcba9876543210";
+	const builder = holdProcess(tmp);
+	fs.writeFileSync(
+		path.join(stores(), `.build-${building}.lock`),
+		`${builder}\n`,
+	);
+	fs.mkdirSync(path.join(stores(), `.build-${building}-${builder}`));
+	fs.mkdirSync(path.join(stores(), building, "node_modules"), {
+		recursive: true,
+	});
+	const dead = deadPid();
+	fs.writeFileSync(
+		path.join(stores(), ".build-aaaaaaaaaaaaaaaa.lock"),
+		`${dead}\n`,
+	);
+	fs.mkdirSync(path.join(stores(), `.build-aaaaaaaaaaaaaaaa-${dead}`));
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain(
+		"removed unlinked dependency store: 0123456789abcdef",
+	);
+	expect(fs.readdirSync(stores()).sort()).toEqual(
+		[
+			path.basename(linked),
+			building,
+			`.build-${building}-${builder}`,
+			`.build-${building}.lock`,
+		].sort(),
+	);
+});
+
+it("leaves a worktree, directory or store changed within the last five minutes alone", () => {
+	const fresh = cut("just-cut");
+	const stray = worktree("half-made");
+	fs.mkdirSync(stray);
+
+	const r = reap(0);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe("");
+	expect(fs.existsSync(fresh)).toBe(true);
+	expect(fs.existsSync(stray)).toBe(true);
+	expect(fs.readdirSync(stores())).toHaveLength(1);
+});
+
+it("leaves a locked worktree alone", () => {
+	const locked = cut("locked-agent");
+	git(main, "worktree", "lock", "--reason", "claude agent", locked);
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(registered()).toContain(locked);
+});
+
+it("turns away a pass while another holds the reap lock", () => {
+	const landed = cut("landed-work");
+	const holder = holdProcess(tmp, "session-checkout.js");
+	fs.writeFileSync(path.join(main, ".git", "wfc-reap.pid"), `${holder}\n`);
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe(
+		`session checkout: a reap pass is running already (pid ${holder})\n`,
+	);
+	expect(fs.existsSync(landed)).toBe(true);
+});
+
+it("prunes and sweeps strays but judges no worktree where the landing module is off", () => {
+	const landed = cut("landed-work");
+	const stray = worktree("probe-leftover");
+	fs.mkdirSync(stray);
+
+	vi.setSystemTime(Date.now() + HOUR);
+	const r = runInProcess(SCRIPT, ["reap"], {
+		cwd: main,
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: main,
+			CLAUDE_CONFIG_DIR: seat,
+			WFC_MODULES: "",
+		},
+	});
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(fs.existsSync(landed)).toBe(true);
+	expect(fs.existsSync(stray)).toBe(false);
+	expect(fs.readdirSync(stores())).toHaveLength(1);
+});

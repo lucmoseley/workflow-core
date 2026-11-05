@@ -243,6 +243,23 @@ function levelCheckouts(roots) {
 }
 
 /**
+ * Start a reap pass over each checkout's worktrees folder
+ * (`session-checkout.js reap`, #4247), detached: removing a store may outlast
+ * a tick. Its report goes to the loop's log; its pid lock turns away a pass
+ * started while one runs.
+ * @param {string[]} roots
+ */
+function reapWorktrees(roots) {
+	for (const root of roots)
+		if (hasConfig(root))
+			startDetached(
+				`reaping worktrees in ${root}`,
+				[path.join(SCRIPTS, "session-checkout.js"), "reap"],
+				root,
+			);
+}
+
+/**
  * Run one of the machine incident filers on the review checkout's tracker: the
  * incidents are the machine's, so one checkout files them. Logged only where it
  * filed or failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
@@ -1432,6 +1449,7 @@ function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
 	levelCheckouts(roots);
+	reapWorktrees(roots);
 	fileMachineTickets("file-memory-kill-tickets.js", "memory kills");
 	fileMachineTickets("file-process-runaway-tickets.js", "process runaways");
 	return tendHolds(roots, served, now, log);

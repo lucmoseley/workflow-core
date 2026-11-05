@@ -37863,6 +37863,12 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/session-checkout-reap.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/session-checkout.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -37870,7 +37876,9 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout-reap.test.ts",
 			"scripts/session-checkout.test.ts"
 		],
 		"scripts/session-checkout.test.ts": [

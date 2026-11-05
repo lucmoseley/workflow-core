@@ -219,6 +219,10 @@ process.stdout.write("started the lander");\n`,
 		`require("node:fs").appendFileSync(${JSON.stringify(at("levelled"))}, process.cwd() + " " + process.argv.slice(2).join(" ") + "\\n");\n`,
 	);
 	stub(
+		"session-checkout.js",
+		`require("node:fs").appendFileSync(${JSON.stringify(at("reaped"))}, process.cwd() + " " + process.argv.slice(2).join(" ") + "\\n");\n`,
+	);
+	stub(
 		"pick-next.js",
 		`process.stdout.write(JSON.stringify({
 	frontier: [{ number: 5, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: [] }],
@@ -393,6 +397,12 @@ describe("run (#2435)", () => {
 		expect(readLines(at("levelled"))).toEqual([
 			`${fs.realpathSync(repo)} --quiet`,
 		]);
+		// And a reap pass over its worktrees folder, in it (#4247).
+		await polled(
+			() => readLines(at("reaped")).length > 0,
+			"no reap pass started",
+		);
+		expect(readLines(at("reaped"))).toEqual([`${fs.realpathSync(repo)} reap`]);
 		expect(r.stdout).toContain(
 			`landing in ${repo}: exit 0\n  started the lander`,
 		);

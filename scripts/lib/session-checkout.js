@@ -42,8 +42,7 @@
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * Residual: nothing removes a store no worktree links; the reaper does that
- * (#4247).
+ * REAP clears landed worktrees and unlinked stores; its rules sit above it.
  */
 
 const crypto = require("node:crypto");
@@ -52,11 +51,25 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
-const { execGit, GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
+const { readProcCwd } = require("./claude-sessions.js");
+const { deref } = require("./deref.js");
+const {
+	execGit,
+	GIT_TIMEOUT_MS,
+	gitCommonDirOrThrow,
+	spawnGitSync,
+} = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
 const { mainCheckout } = require("./main-checkout.js");
+const { pidLock } = require("./pid-lock.js");
+const { REAL_PROC } = require("./proc-root.js");
 const { scriptPath } = require("./script-path.js");
+const {
+	readJobCwds,
+	readLinkedWorktrees,
+	worktreeHolding,
+} = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
@@ -495,4 +508,339 @@ function launchDir(cwd, prompt) {
 		: root;
 }
 
-module.exports = { attach, CheckoutError, cut, land, launchDir, STORES };
+/*
+ * REAP, run on each refill-loop tick, clears what the worktrees folder no
+ * longer needs and names what it may not clear:
+ *   - a session worktree whose every `HEAD` commit is on a freshly fetched
+ *     `origin/landing`, whose tree is clean, and whose session is neither live
+ *     (a process's cwd lies in it) nor resumable (a job record whose cwd lies
+ *     in it is in any state but `done` or `failed`) is removed;
+ *   - one dirty or unlanded, of a dead and non-resumable session, is reported
+ *     with its idle time and last commit, never removed;
+ *   - registrations whose directory is gone are pruned, and a directory there
+ *     with no registration is removed, save one still carrying a `.git` file:
+ *     git can no longer read its uncommitted work, so it is reported;
+ *   - a dependency store no registered worktree links is removed, and so is a
+ *     dead build's lock and staging directory.
+ * Left alone: a locked worktree (the harness's agent trees), the suite's
+ * `isolated-*` trees, which lib/isolated-worktree.js sweeps, a live build's
+ * lock, staging and store, and anything changed within `YOUNG_MS` — a cut
+ * registers its directory, and a build renames its store into place, moments
+ * before the link that names it.
+ */
+
+/* `git worktree add` and a store's rename-then-link each take about a second
+ * (#4166 Finding 6). Untraced: five minutes is room for a loaded machine. */
+const YOUNG_MS = 5 * 60_000;
+const ISOLATED = /^isolated-/;
+const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
+const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
+const BUILD_STAGING = /^\.build-[0-9a-f]+-(\d+)$/;
+/* The job states no resume follows: the session finished, or failed. */
+const ENDED = new Set(["done", "failed"]);
+/* The script a reap pass runs as; a pidfile naming any other is stale. */
+const REAP_HOLDERS = ["session-checkout.js"];
+
+/**
+ * @typedef {{ dir: string, idleMs: number, last: string, dirty: number,
+ *   unlanded: number }} Stranded
+ * @typedef {{ removed: string[], stranded: Stranded[], orphans: string[],
+ *   pruned: string[], strays: string[], stores: string[], failed: string[],
+ *   fetchFailed: string | null }} Reaped
+ */
+
+/**
+ * Every directory some process on this machine has as its cwd: a session,
+ * or a tool it left running. The real /proc, whatever a test stands in.
+ * @returns {string[]}
+ */
+function readProcessCwds() {
+	/** @type {string[]} */
+	const out = [];
+	for (const pid of fs.readdirSync(REAL_PROC))
+		if (/^\d+$/.test(pid)) {
+			const cwd = readProcCwd(pid, REAL_PROC);
+			if (cwd) out.push(cwd.replace(/ \(deleted\)$/, ""));
+		}
+	return out;
+}
+
+/**
+ * Milliseconds since `at` was last written or renamed; Infinity where it is
+ * gone.
+ * @param {string} at
+ * @param {number} now
+ */
+function ageOf(at, now) {
+	const st = fs.lstatSync(at, { throwIfNoEntry: false });
+	return st ? now - Math.max(st.mtimeMs, st.ctimeMs) : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * A worktree's dirty paths, its commits not on `origin/landing`, its last
+ * commit, and how long since that commit or an index write, the later.
+ * @param {string} dir
+ * @param {number} now
+ * @returns {Stranded}
+ */
+function readWorktreeState(dir, now) {
+	const dirty = git(["status", "--porcelain"], dir);
+	const unlanded = Number(
+		git(["rev-list", "--count", "HEAD", "--not", "origin/landing"], dir),
+	);
+	const [at = "0", ...subject] = git(
+		["log", "-1", "--format=%ct %h %s"],
+		dir,
+	).split(" ");
+	const index = path.join(
+		git(["rev-parse", "--absolute-git-dir"], dir),
+		"index",
+	);
+	return {
+		dir,
+		idleMs: Math.min(ageOf(index, now), now - Number(at) * 1000),
+		last: subject.join(" "),
+		dirty: dirty ? dirty.split("\n").length : 0,
+		unlanded,
+	};
+}
+
+/**
+ * The session worktrees in `base`, each removed where REAP allows and
+ * reported where it is stranded.
+ * @param {string} root
+ * @param {string} base the worktrees folder
+ * @param {number} now
+ * @param {Reaped} out
+ * @returns {string[]} every registered worktree still standing
+ */
+function reapWorktrees(root, base, now, out) {
+	const registered = readLinkedWorktrees(root);
+	if (registered === null)
+		throw new Error(`git would not list the worktrees of ${root}`);
+	const held = [
+		...readProcessCwds().map(deref),
+		...readJobCwds()
+			.filter((j) => j.state === null || !ENDED.has(j.state))
+			.map((j) => j.cwd),
+	];
+	/** @type {string[]} */
+	const standing = [];
+	for (const dir of registered) {
+		if (
+			path.dirname(dir) !== base ||
+			ISOLATED.test(path.basename(dir)) ||
+			!fs.existsSync(dir) ||
+			ageOf(dir, now) < YOUNG_MS ||
+			held.some((cwd) => worktreeHolding(cwd, [dir]))
+		) {
+			standing.push(dir);
+			continue;
+		}
+		try {
+			const admin = git(["rev-parse", "--absolute-git-dir"], dir);
+			if (fs.existsSync(path.join(admin, "locked"))) {
+				standing.push(dir);
+				continue;
+			}
+			const state = readWorktreeState(dir, now);
+			if (state.dirty > 0 || state.unlanded > 0) {
+				out.stranded.push(state);
+				standing.push(dir);
+				continue;
+			}
+			git(["worktree", "remove", dir], root);
+			out.removed.push(dir);
+		} catch (err) {
+			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
+			standing.push(dir);
+		}
+	}
+	return standing;
+}
+
+/**
+ * Every directory in `base` git has no registration for: removed where it
+ * carries no `.git` file, reported where it does.
+ * @param {string} base
+ * @param {string[]} standing
+ * @param {number} now
+ * @param {Reaped} out
+ */
+function reapStrays(base, standing, now, out) {
+	for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+		const dir = path.join(base, entry.name);
+		if (
+			!entry.isDirectory() ||
+			dir === path.join(base, path.basename(STORES)) ||
+			ISOLATED.test(entry.name) ||
+			standing.includes(dir) ||
+			ageOf(dir, now) < YOUNG_MS
+		)
+			continue;
+		if (fs.existsSync(path.join(dir, ".git"))) {
+			out.orphans.push(dir);
+			continue;
+		}
+		try {
+			removeTree(dir);
+			out.strays.push(dir);
+		} catch (err) {
+			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
+		}
+	}
+}
+
+/**
+ * The store each of `standing` links its `node_modules` to.
+ * @param {string[]} standing
+ * @returns {Set<string>}
+ */
+function readLinkedStores(standing) {
+	const linked = new Set();
+	for (const dir of standing)
+		try {
+			const target = fs.readlinkSync(path.join(dir, "node_modules"));
+			linked.add(path.dirname(path.resolve(dir, target)));
+		} catch {
+			/* No link: a worktree with no lockfile, or a real directory. */
+		}
+	return linked;
+}
+
+/**
+ * The store keys a live build holds; each dead build's lock removed.
+ * @param {string} storesDir
+ * @param {string[]} names
+ * @param {number} now
+ * @returns {Set<string>}
+ */
+function readLiveBuilds(storesDir, names, now) {
+	const building = new Set();
+	for (const name of names) {
+		const key = BUILD_LOCK.exec(name)?.[1];
+		if (key === undefined) continue;
+		const lock = path.join(storesDir, name);
+		let holder = 0;
+		try {
+			holder = Number(fs.readFileSync(lock, "utf8").trim());
+		} catch {
+			/* Released since the listing. */
+		}
+		if (holder > 0 && pidAlive(holder)) building.add(key);
+		else if (ageOf(lock, now) >= YOUNG_MS) fs.rmSync(lock, { force: true });
+	}
+	return building;
+}
+
+/**
+ * Every store no worktree in `standing` links, and every dead build's
+ * staging directory, removed.
+ * @param {string} storesDir
+ * @param {string[]} standing
+ * @param {number} now
+ * @param {Reaped} out
+ */
+function reapStores(storesDir, standing, now, out) {
+	if (!fs.existsSync(storesDir)) return;
+	const names = fs.readdirSync(storesDir);
+	const linked = readLinkedStores(standing);
+	const building = readLiveBuilds(storesDir, names, now);
+	for (const name of names) {
+		const at = path.join(storesDir, name);
+		const builder = BUILD_STAGING.exec(name)?.[1];
+		const unused =
+			builder === undefined
+				? STORE_KEY.test(name) &&
+					!building.has(name) &&
+					!linked.has(at) &&
+					ageOf(at, now) >= YOUNG_MS &&
+					ageOf(path.join(at, "node_modules"), now) >= YOUNG_MS
+				: !pidAlive(Number(builder));
+		if (!unused) continue;
+		try {
+			removeTree(at);
+			if (builder === undefined) out.stores.push(at);
+		} catch (err) {
+			out.failed.push(`${at}: ${caught(err).message.trim()}`);
+		}
+	}
+}
+
+/**
+ * Prune every registration whose directory is gone; the worktree name each
+ * pruned, from git's report, which it writes on stderr.
+ * @param {string} root
+ * @returns {string[]}
+ */
+function prune(root) {
+	const r = spawnGitSync(["worktree", "prune", "--verbose"], {
+		cwd: root,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+		timeout: GIT_TIMEOUT_MS,
+	});
+	if (r.error) throw r.error;
+	if (r.status !== 0)
+		throw new Error(`git worktree prune exited ${r.status}: ${r.stderr}`);
+	return [
+		...`${r.stdout}${r.stderr}`.matchAll(/^Removing worktrees\/([^:]+):/gm),
+	].map((m) => m[1] ?? "");
+}
+
+/**
+ * REAP, above. One pass runs at a time per repository; another finds it busy.
+ * @param {string} cwd anywhere in the repository
+ * @param {number} [now]
+ * @returns {Reaped | { busy: number | null }}
+ */
+function reap(cwd, now = Date.now()) {
+	const root = rootOf(cwd);
+	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
+	const lock = pidLock(path.join(common, "wfc-reap.pid"), REAP_HOLDERS);
+	if (!lock.acquire()) return { busy: lock.holder() };
+	try {
+		/** @type {Reaped} */
+		const out = {
+			removed: [],
+			stranded: [],
+			orphans: [],
+			pruned: [],
+			strays: [],
+			stores: [],
+			failed: [],
+			fetchFailed: null,
+		};
+		/* With `landing` off no session worktree is cut, and none can be
+		 * judged landed. */
+		const judged = moduleOn("landing", { root });
+		if (judged)
+			try {
+				fetchLanding(root);
+			} catch (err) {
+				/* A stale `origin/landing` only reads more work as unlanded. */
+				out.fetchFailed = caught(err).message.trim();
+			}
+		out.pruned = prune(root);
+		const base = path.join(root, WORKTREES);
+		if (!fs.existsSync(base)) return out;
+		const standing = judged
+			? reapWorktrees(root, base, now, out)
+			: (readLinkedWorktrees(root) ?? []);
+		reapStrays(base, standing, now, out);
+		reapStores(path.join(root, STORES), standing, now, out);
+		return out;
+	} finally {
+		lock.release();
+	}
+}
+
+module.exports = {
+	attach,
+	CheckoutError,
+	cut,
+	land,
+	launchDir,
+	reap,
+	STORES,
+};
