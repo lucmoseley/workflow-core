@@ -9,11 +9,19 @@
  * a launch's helper only where it is buildKeyHelper() for an overflow seat
  * declared on the launch's config dir.
  *
+ * THE HELPER'S PATH outlives the code that launched it (#4392). Run
+ * from one of the refill loop's code worktrees, which the loop removes once
+ * it adopts a newer tip (lib/refill-code.js), the helper names this file
+ * through the boot link, which always names the worktree the loop last ran.
+ * Moving or renaming this file strands every live overflow session, as does
+ * removing a session worktree or plugin version a loop ran from.
+ *
  *   node scripts/lib/overflow-key.js <key var> <secrets file>
  *     prints the variable's value; a missing file or variable exits 1 naming
  *     the variable and the file, never a value; bad usage exits 2.
  */
 
+const fs = require("node:fs");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const {
@@ -21,6 +29,7 @@ const {
 	readSecretKeepingIgnore,
 	secretsFile,
 } = require("./env-file.js");
+const { throughBootLink } = require("./refill-control-code.js");
 const { scriptPath } = require("./script-path.js");
 const { shellQuote } = require("./sh-quote.js");
 const { writeFd } = require("./write-fd.js");
@@ -60,13 +69,24 @@ function keyCheck(keyVar) {
 	return "why" in read ? read : { file };
 }
 
+/** The program a helper names, through the boot link where there is one. */
+const helperProgram = () => throughBootLink(__filename) ?? __filename;
+
+/**
+ * @param {string} program
+ * @param {string} keyVar
+ * @param {string} file
+ */
+const helperCommand = (program, keyVar, file) =>
+	[process.execPath, program, keyVar, file].map(shellQuote).join(" ");
+
 /**
  * The `apiKeyHelper` command printing `keyVar` from `file`.
  * @param {string} keyVar
  * @param {string} file
  */
 function buildKeyHelper(keyVar, file) {
-	return [process.execPath, __filename, keyVar, file].map(shellQuote).join(" ");
+	return helperCommand(helperProgram(), keyVar, file);
 }
 
 /**
@@ -77,13 +97,17 @@ function buildKeyHelper(keyVar, file) {
  */
 function buildKeySettings(keyVar) {
 	const key = keyCheck(keyVar);
-	return "why" in key
-		? key
-		: {
-				settings: JSON.stringify({
-					apiKeyHelper: buildKeyHelper(keyVar, key.file),
-				}),
-			};
+	if ("why" in key) return key;
+	const program = helperProgram();
+	if (!fs.existsSync(program))
+		return {
+			why: `no key helper at ${program} for ${keyVar}: the refill loop's boot link names no worktree holding it; the loop points it after its first tick, so the next tick launches`,
+		};
+	return {
+		settings: JSON.stringify({
+			apiKeyHelper: helperCommand(program, keyVar, key.file),
+		}),
+	};
 }
 
 module.exports = { buildKeyHelper, buildKeySettings };
