@@ -42,12 +42,15 @@ const {
 	SHORT_SHA,
 } = require("./git.js");
 const { isCutOver } = require("./cutover.js");
+const { LANDING_REF, pushedRefFor } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
+/* What sessions push to with the `landing` module on, which levelling waits behind. */
+const PUSHED = pushedRefFor(true);
 const LOCKFILE = "package-lock.json";
 /* What `npm ci` reads besides the lockfile; `.npmrc` only where present. */
 const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
@@ -317,10 +320,7 @@ function installIfStale(root, work, install) {
  */
 function readUnlanded(root, local) {
 	try {
-		git(
-			["rev-parse", "--verify", "--quiet", "refs/remotes/origin/landing"],
-			root,
-		);
+		git(["rev-parse", "--verify", "--quiet", `refs/remotes/${PUSHED}`], root);
 	} catch (err) {
 		if (caught(err).status !== 1) throw err;
 		return local;
@@ -331,7 +331,7 @@ function readUnlanded(root, local) {
 			"--reverse",
 			"--right-only",
 			"--cherry-pick",
-			"origin/landing...HEAD",
+			`${PUSHED}...HEAD`,
 		],
 		root,
 	)
@@ -547,14 +547,14 @@ function renderOutcome(o, now) {
 			break;
 		case "shared":
 			lines.push(
-				`refused: the main checkout's main still tracks origin/landing, so it has not been cut over to the worktree model and main was not moved — run \`node ${scriptPath("cutover-main-checkout.js")}\`, ${next}`,
+				`refused: the main checkout's main still tracks ${LANDING_REF}, so it has not been cut over to the worktree model and main was not moved — run \`node ${scriptPath("cutover-main-checkout.js")}\`, ${next}`,
 			);
 			break;
 		case "ahead":
 			lines.push(
 				o.unlanded.length === 0
-					? `waiting: main carries ${o.local.length} commit(s) not yet on ${UPSTREAM}, all on origin/landing — once the lander takes them, ${next}`
-					: `refused: main carries ${o.unlanded.length} commit(s) on neither ${UPSTREAM} nor origin/landing, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
+					? `waiting: main carries ${o.local.length} commit(s) not yet on ${UPSTREAM}, all on ${PUSHED} — once the lander takes them, ${next}`
+					: `refused: main carries ${o.unlanded.length} commit(s) on neither ${UPSTREAM} nor ${PUSHED}, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
 				...o.unlanded.map((sha) => `  ${short(sha)}`),
 			);
 			break;

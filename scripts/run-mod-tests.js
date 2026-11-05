@@ -48,7 +48,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { readFdAll } = require("./lib/read-fd.js");
 const { isZeroSha, parsePushes } = require("./lib/push-refs.js");
-const { pushedRef } = require("./lib/landing-refs.js");
+const { startRef } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
@@ -137,7 +137,7 @@ function readBaseOf(sha, remote) {
 	)
 		return remote;
 	try {
-		return git(["merge-base", sha, pushedRef()]) || null;
+		return git(["merge-base", sha, startRef()]) || null;
 	} catch {
 		return null;
 	}

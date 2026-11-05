@@ -27,7 +27,7 @@ interface Step {
 interface Workflow {
 	name: string;
 	on: { schedule: { cron: string }[] };
-	jobs: { quiet: { name: string; if: string; steps: Step[] } };
+	jobs: { quiet: { name: string; if: string; steps: Partial<Step>[] } };
 }
 
 const workflow = yaml.load(
@@ -37,7 +37,7 @@ const workflow = yaml.load(
 	),
 ) as Workflow;
 const job = workflow.jobs.quiet;
-const step = job.steps[0] as Step;
+const step = job.steps.find((s) => s.run) as Step;
 
 let dir: string;
 beforeEach(() => {
@@ -79,6 +79,12 @@ describe("landing-quiet.yml", () => {
 	it("runs hourly, in the code repo alone", () => {
 		expect(workflow.on.schedule).toEqual([{ cron: "17 * * * *" }]);
 		expect(job.if).toContain("lucmoseley/workflow-core");
+	});
+
+	it("asks the ref switch which branch it watches, from this checkout", () => {
+		expect(step.run).toContain(
+			"node scripts/lib/landing-refs.js pushed-branch",
+		);
 	});
 
 	it("names the threshold it applies where an email shows it", () => {

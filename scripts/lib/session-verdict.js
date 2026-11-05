@@ -21,7 +21,7 @@ const { gitRead } = require("./dirty-tree.js");
 const { readOwnPaths } = require("./own-work.js");
 const markerLib = require("./test-pass-marker.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
-const { pushedRef } = require("./landing-refs.js");
+const { startRef } = require("./landing-refs.js");
 const { pushGateState } = require("./test-gate.js");
 
 const { shortSha } = markerLib;
@@ -124,7 +124,7 @@ function newestContained(commits, root, execFn) {
 }
 
 /**
- * The paths the session's own commits carry from the pushed ref to HEAD, or
+ * The paths the session's own commits carry from the start ref to HEAD, or
  * null — the whole range — where git or the ledger will not answer. `tip`
  * keeps the working tree's uncommitted files out: a commit is what is judged.
  * @param {string} sessionId
@@ -136,7 +136,7 @@ function newestContained(commits, root, execFn) {
 function readOwnWork(sessionId, { root, tree }, ledger, execFn) {
 	const head = gitRead(["rev-parse", "HEAD"], tree, execFn)?.trim();
 	const base = gitRead(
-		["merge-base", "HEAD", pushedRef({ root })],
+		["merge-base", "HEAD", startRef({ root })],
 		tree,
 		execFn,
 	)?.trim();
@@ -163,7 +163,7 @@ function readOwnWork(sessionId, { root, tree }, ledger, execFn) {
  */
 function buildOwedText(root, { at, verdict }, log) {
 	const own = verdict.judged && verdict.within;
-	const pushed = pushedRef({ root });
+	const start = startRef({ root });
 	return {
 		unattested:
 			"no set of certificates in `" +
@@ -172,8 +172,8 @@ function buildOwedText(root, { at, verdict }, log) {
 			"counts as tested when certificates of whole-suite or ADMISSIBLE `npm run test` " +
 			"runs, from any sessions, between them selected every file " +
 			(own
-				? `this session's own commits change in its range from \`${pushed}\``
-				: `its range from \`${pushed}\` changes`) +
+				? `this session's own commits change in its range from \`${start}\``
+				: `its range from \`${start}\` changes`) +
 			", each still holding at the commit (ADR-0009). At " +
 			shortSha(at) +
 			":\n" +
@@ -198,7 +198,7 @@ function buildOwedText(root, { at, verdict }, log) {
 				"because HEAD contains it. `npm run test:changed` is not its equal: it " +
 				"selects only your uncommitted files, so after a commit it selects " +
 				"nothing from it (#1217). `scripts/run-vitest.js` SELECTS FROM YOUR DIFF " +
-				`AGAINST \`merge-base(HEAD, ${pushed})\` AND ESCALATES TO THE WHOLE SUITE ` +
+				`AGAINST \`merge-base(HEAD, ${start})\` AND ESCALATES TO THE WHOLE SUITE ` +
 				"ITSELF where `docs/test-read-edges.json` is stale or unreadable, the diff " +
 				"touches a dependency-graph root, or the expansion failed — so whichever " +
 				"certificate it records clears this, and the run says which you got " +

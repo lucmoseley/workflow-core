@@ -36,6 +36,7 @@ const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
+const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -46,8 +47,6 @@ const { writeFd } = require("./write-fd.js");
 /* scheduled-checks.yml carries the `landing` push trigger, as it calls every
  * job `main`'s sweep judges by. */
 const SUITE_WORKFLOW = "scheduled-checks.yml";
-const LANDING = "landing";
-const MAIN = "main";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
 /* The aggregate job #2414's ruleset on `main` requires. */
@@ -205,7 +204,7 @@ function readJobsOnMain(asked, reads) {
 	if (red.length === 0 && unsettled.length > 0)
 		return {
 			kind: "unread",
-			reason: `no finished ${SUITE_WORKFLOW} run on ${MAIN} passed or failed ${unsettled.map((j) => `'${j}'`).join(", ")}`,
+			reason: `no finished ${SUITE_WORKFLOW} run on ${VERIFIED_BRANCH} passed or failed ${unsettled.map((j) => `'${j}'`).join(", ")}`,
 		};
 	return {
 		kind: "read",
@@ -291,8 +290,8 @@ const listRuns = (branch, limit, filter = []) =>
  */
 function liveReads(root) {
 	return {
-		runs: () => listRuns(LANDING, RUN_LIST_LIMIT, ["--event", "push"]),
-		mainRuns: () => listRuns(MAIN, MAIN_RUN_LIMIT),
+		runs: () => listRuns(LANDING_BRANCH, RUN_LIST_LIMIT, ["--event", "push"]),
+		mainRuns: () => listRuns(VERIFIED_BRANCH, MAIN_RUN_LIMIT),
 		jobsOf: (run) =>
 			JSON.parse(gh(["run", "view", String(run), "--json", "jobs"])).jobs,
 		failedLogOf: (run) => gh(["run", "view", String(run), "--log-failed"]),
@@ -373,7 +372,7 @@ function settle(v, sha) {
 		kind: "unknown",
 		reason:
 			v.run === null
-				? `no ${SUITE_WORKFLOW} push run on ${LANDING} at ${sha.slice(0, 9)}`
+				? `no ${SUITE_WORKFLOW} push run on ${LANDING_BRANCH} at ${sha.slice(0, 9)}`
 				: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
 	};
 }
@@ -530,7 +529,7 @@ const liveNamedReads = (root) => ({
 			"run",
 			NAMED_WORKFLOW,
 			"--ref",
-			MAIN,
+			VERIFIED_BRANCH,
 			"-f",
 			`sha=${sha}`,
 			"-f",

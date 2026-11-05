@@ -92,9 +92,19 @@ const {
 	worktreeLabel,
 } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
+const {
+	branchOf,
+	pushedRefFor,
+	startRefFor,
+	trackingRefspec,
+} = require("./landing-refs.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
 
+/* Every verb here runs with the `landing` module on. */
+const START = startRefFor(true);
+const PUSHED = pushedRefFor(true);
+const SHARED_BRANCHES = [...new Set([START, PUSHED])].map(branchOf);
 const WORKTREES = path.join(".claude", "worktrees");
 const STORES = path.join(WORKTREES, ".dep-stores");
 const LOCKFILE = "package-lock.json";
@@ -172,12 +182,7 @@ function fetchLanding(root) {
 	for (let tries = 1; ; tries++)
 		try {
 			git(
-				[
-					"fetch",
-					"--quiet",
-					"origin",
-					"+refs/heads/landing:refs/remotes/origin/landing",
-				],
+				["fetch", "--quiet", "origin", ...SHARED_BRANCHES.map(trackingRefspec)],
 				root,
 			);
 			return;
@@ -314,7 +319,7 @@ const buildWorktreeSource = (dir) => (name) => {
  * @returns {ManifestSource}
  */
 const buildLandingSource = (root) => (name) => {
-	const r = spawnGitSync(["cat-file", "blob", `origin/landing:${name}`], {
+	const r = spawnGitSync(["cat-file", "blob", `${START}:${name}`], {
 		cwd: root,
 		stdio: ["ignore", "pipe", "ignore"],
 		timeout: GIT_TIMEOUT_MS,
@@ -484,7 +489,7 @@ function cut(cwd, name, how = {}) {
 			`${dir} already exists — pick another session name, or resume the session that worktree belongs to`,
 		);
 	fetchLanding(root);
-	return addWorktree(root, dir, "origin/landing", how);
+	return addWorktree(root, dir, START, how);
 }
 
 /**
@@ -598,20 +603,20 @@ function refuseUnlandable(dir, root) {
 }
 
 /**
- * Merge `origin/landing` into `HEAD`.
+ * Merge the pushed ref into `HEAD`.
  * @param {string} dir
  */
 function mergeLanding(dir) {
-	if (gitShown(["merge", "--no-edit", "origin/landing"], dir).ok) return;
+	if (gitShown(["merge", "--no-edit", PUSHED], dir).ok) return;
 	if (!fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)))
 		throw new CheckoutError(
-			"git did not start the merge of origin/landing, its output above — clear what it names, then land again",
+			`git did not start the merge of ${PUSHED}, its output above — clear what it names, then land again`,
 		);
 	const conflicted = git(["diff", "--name-only", "--diff-filter=U"], dir);
 	throw new CheckoutError(
 		conflicted
-			? `merging origin/landing conflicts in ${conflicted.split("\n").join(", ")} — resolve them and \`git commit\` (it runs the pre-commit gates), or \`git merge --abort\`, then land again`
-			: "the merge of origin/landing was refused, its output above — fix the finding and `git commit` (it runs the same gates), or `git merge --abort`, then land again",
+			? `merging ${PUSHED} conflicts in ${conflicted.split("\n").join(", ")} — resolve them and \`git commit\` (it runs the pre-commit gates), or \`git merge --abort\`, then land again`
+			: `the merge of ${PUSHED} was refused, its output above — fix the finding and \`git commit\` (it runs the same gates), or \`git merge --abort\`, then land again`,
 	);
 }
 
@@ -624,7 +629,7 @@ function land(cwd) {
 	const root = rootOf(dir);
 	refuseUnlandable(dir, root);
 	fetchLanding(root);
-	if (isAncestor("HEAD", "origin/landing", dir))
+	if (isAncestor("HEAD", PUSHED, dir))
 		return {
 			dir,
 			head: git(["rev-parse", "HEAD"], dir),
@@ -632,10 +637,10 @@ function land(cwd) {
 			pushed: false,
 			lander: null,
 		};
-	const merged = !isAncestor("origin/landing", "HEAD", dir);
+	const merged = !isAncestor(PUSHED, "HEAD", dir);
 	if (merged) mergeLanding(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
-	const push = gitShown(["push", "origin", "HEAD:landing"], dir);
+	const push = gitShown(["push", "origin", `HEAD:${branchOf(PUSHED)}`], dir);
 	if (!push.ok && MOVED.test(push.output)) {
 		recordMoved(root, dir, push.output);
 		throw new CheckoutError(MOVED_LINE);
@@ -873,7 +878,7 @@ function readWorktreeState(dir, now) {
 		dir,
 	);
 	const unlanded = Number(
-		git(["rev-list", "--count", "HEAD", "--not", "origin/landing"], dir),
+		git(["rev-list", "--count", "HEAD", "--not", PUSHED], dir),
 	);
 	const [at = "0", ...subject] = git(
 		["log", "-1", "--format=%ct %h %s"],
@@ -1268,6 +1273,8 @@ module.exports = {
 	attach,
 	CheckoutError,
 	cut,
+	PUSHED,
+	START,
 	isSessionWorktreeDir,
 	land,
 	launchDir,

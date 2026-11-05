@@ -52,11 +52,14 @@ const {
 	cut,
 	land,
 	launchDir,
+	PUSHED,
 	reap,
+	START,
 	warm,
 	reopen,
 } = require("./lib/session-checkout.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
+const { branchOf } = require("./lib/landing-refs.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
@@ -112,7 +115,7 @@ function renderReaped(r) {
 	return [
 		...(r.fetchFailed
 			? [
-					`fetching landing failed, so origin/landing may be stale and read more work as unlanded: ${r.fetchFailed}`,
+					`fetching ${branchOf(PUSHED)} failed, so ${PUSHED} may be stale and read more work as unlanded: ${r.fetchFailed}`,
 				]
 			: []),
 		...counted.flatMap(([items, what]) =>
@@ -129,7 +132,7 @@ function renderReaped(r) {
 						? `${s.dirty} uncommitted path${s.dirty === 1 ? "" : "s"}`
 						: "",
 					s.unlanded > 0
-						? `${s.unlanded} commit${s.unlanded === 1 ? "" : "s"} not on origin/landing`
+						? `${s.unlanded} commit${s.unlanded === 1 ? "" : "s"} not on ${PUSHED}`
 						: "",
 				]
 					.filter(Boolean)
@@ -183,8 +186,8 @@ const RUN = {
 		writeFd(
 			2,
 			made === null
-				? "session checkout: no landing module, or no lockfile on origin/landing, so no store is warmed\n"
-				: `session checkout: origin/landing's lockfile uses ${made.store}${WARMED[made.state]}\n`,
+				? `session checkout: no landing module, or no lockfile on ${START}, so no store is warmed\n`
+				: `session checkout: ${START}'s lockfile uses ${made.store}${WARMED[made.state]}\n`,
 		);
 	},
 	attach: (named) => {
@@ -201,8 +204,8 @@ const RUN = {
 		writeFd(
 			2,
 			made.pushed
-				? `session checkout: pushed ${made.head} to landing${made.merged ? ", origin/landing merged in first" : ""}\n${made.lander}\n`
-				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on origin/landing already\n`,
+				? `session checkout: pushed ${made.head} to ${branchOf(PUSHED)}${made.merged ? `, ${PUSHED} merged in first` : ""}\n${made.lander}\n`
+				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${PUSHED} already\n`,
 		);
 	},
 	reap: () => {

@@ -144,7 +144,10 @@ const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { buildCutCommand, landingCutOver } = require("./cutover.js");
-const { LANDING_REF, VERIFIED_REF } = require("./landing-refs.js");
+const { pushedRefFor, VERIFIED_REF } = require("./landing-refs.js");
+
+/* With `landing` on, a session's land merges the pushed ref. */
+const PUSHED = pushedRefFor(true);
 const { ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
@@ -256,7 +259,7 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
 	ctx.moduleOn("landing")
-		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${LANDING_REF}\` and pushes.`
+		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${PUSHED}\` and pushes.`
 		: ruleOrFallback(
 				ctx,
 				"pull-fast-forward",
@@ -776,7 +779,7 @@ An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C ${landing ? `.claude/worktrees/<session-name> merge ${LANDING_REF}` : `.claude/worktrees/reconcile merge ${VERIFIED_REF}`}\` — or assign
+command — \`git -C ${landing ? `.claude/worktrees/<session-name> merge ${PUSHED}` : `.claude/worktrees/reconcile merge ${VERIFIED_REF}`}\` — or assign
 it literally in the same Bash call${landing ? "" : ", as the recipe below does"}. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 
