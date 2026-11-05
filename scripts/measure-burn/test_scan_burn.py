@@ -903,12 +903,11 @@ def test_no_overflow_launch_recorded_leaves_every_session_counted(
 
 
 def test_an_unread_launch_record_refuses_rather_than_counting_overflow_as_plan(
-    corpus, seats, isolated_home
+    corpus, seats, unreadable_launch_record
 ):
-    isolated_home.rmdir()
     corpus("s1", [rec("r1", session="s1")])
     seats(".claude2", ["s1"])
     with pytest.raises(SystemExit) as e:
         sb.main(["--all"])
-    assert str(isolated_home) in str(e.value.code)
+    assert str(unreadable_launch_record) in str(e.value.code)
     assert "fix that read and re-run" in str(e.value.code)
