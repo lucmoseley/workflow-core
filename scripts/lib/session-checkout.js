@@ -689,7 +689,7 @@ function launchInto(root, into, how) {
 		);
 	if (!fs.existsSync(dir))
 		throw new CheckoutError(
-			`${dir} is registered but gone — \`node scripts/session-checkout.js reopen <job-id>\` rebuilds a reaped one`,
+			`${dir} is registered but gone — \`node ${scriptPath("session-checkout.js")} reopen <job-id>\` rebuilds a reaped one`,
 		);
 	const holders = readProcesses().filter((p) =>
 		worktreeHolding(deref(p.cwd), [dir]),
