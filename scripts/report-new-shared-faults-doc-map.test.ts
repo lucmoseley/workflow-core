@@ -496,11 +496,11 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 			expect(fs.existsSync(aged)).toBe(false);
 		}, 30_000);
 
-		it("lists only its own leftover root, never os.tmpdir(), over a populated directory", () => {
+		it("lists only its own leftover root, never os.tmpdir(), over a populated directory (mantahostels#1883)", () => {
 			const repo = docMapRepo("report-new-shared-faults-sweep-reads-");
-			/* A populated root, so a sweep that lists more than it should has
-			 * entries to walk. Live names (this process), and names that are
-			 * not ours at all. */
+			/* A populated root, so a sweep that lists each entry's contents
+			 * shows up as extra listings. Live names (this process), and names
+			 * that are not ours at all. */
 			const gone = deadPid();
 			for (let i = 0; i < 20; i++) {
 				fs.mkdirSync(path.join(leftoverRoot(), `tree-${process.pid}-live${i}`));
@@ -508,15 +508,22 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 				fs.mkdirSync(path.join(leftoverRoot(), `not-ours-${gone}-${i}`));
 			}
 
-			/* os.tmpdir() here holds ~225,000 entries and costs ~400 ms to
-			 * list, so the one directory the sweep may list is its own root. */
+			/* No output shows what a listing costs, so the listings are counted:
+			 * the cost of listing os.tmpdir() is measured in the subject's
+			 * leftover header. Listings under the repo's own .git (the
+			 * worktree registrations) are git's admin, not the temp dir. */
+			const gitDir = path.resolve(repo.root, ".git");
 			const readdir = vi.spyOn(fs, "readdirSync");
+			const opendir = vi.spyOn(fs, "opendirSync");
 			let listed: string[];
 			try {
 				sweepOnly(repo.root);
-				listed = readdir.mock.calls.map(([dir]) => path.resolve(String(dir)));
+				listed = [...readdir.mock.calls, ...opendir.mock.calls]
+					.map(([dir]) => path.resolve(String(dir)))
+					.filter((dir) => !dir.startsWith(gitDir + path.sep));
 			} finally {
 				readdir.mockRestore();
+				opendir.mockRestore();
 			}
 
 			expect(listed).toEqual([path.resolve(leftoverRoot())]);
