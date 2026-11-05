@@ -922,6 +922,16 @@ describe("rule:size-line before a takes:implement filing (#4450)", () => {
 			"Could not list #528's sub-issues (HTTP 404: Not Found) — filing without the shared-file check.",
 		);
 	});
+
+	it("files without weighing earlier filings where the acts ledger will not read, saying so", () => {
+		setUp();
+		fs.mkdirSync(store.paths.actLedger(ME, sb.repo), { recursive: true });
+		const r = run(filing(["takes:implement"]));
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"Could not read this session's acts ledger — filing without weighing its earlier filings under rule:size-line.",
+		);
+	});
 });
 
 describe("assignment", () => {

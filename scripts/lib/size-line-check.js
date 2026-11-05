@@ -10,7 +10,8 @@ const { takesLabel } = require("./takes-label.js");
 const IMPLEMENT_LABEL = takesLabel("implement");
 
 /* A repo path with at least one directory and a code extension: a shared doc
- * or config file says nothing about co-change. */
+ * or config file says nothing about co-change.
+ * Residual: a source file at the repo root is never matched. */
 const SOURCE_PATH =
 	/(?<![\w./-])(?:[\w.-]+\/)+[\w.-]+\.(?:[cm]?js|jsx|tsx?|sh|py)(?![\w/-])/g;
 
@@ -27,15 +28,15 @@ const isOpenImplement = (c) =>
 	c.state === "open" && c.labels.includes(IMPLEMENT_LABEL);
 
 /**
- * The issues the new ticket must be weighed against, each with the source
- * files it shares (none for an earlier filing of this session's) — empty
- * where the new ticket is no `takes:implement` or every one is confirmed.
- * @param {{labels: string[], body: string, filed: Candidate[],
- *   siblings: Candidate[], confirmed: Set<number>}} at
+ * The issues a new `takes:implement` ticket must be weighed against, each
+ * with the source files it shares (none for an earlier filing of this
+ * session's), less those confirmed. A closed or relabelled one is passed
+ * over: it can take no further slice.
+ * @param {{body: string, filed: Candidate[], siblings: Candidate[],
+ *   confirmed: Set<number>}} at
  * @returns {Overlap[]}
  */
-function sizeLineCandidates({ labels, body, filed, siblings, confirmed }) {
-	if (!labels.includes(IMPLEMENT_LABEL)) return [];
+function sizeLineCandidates({ body, filed, siblings, confirmed }) {
 	const named = sourcePaths(body);
 	/** @type {Map<number, Overlap>} */
 	const found = new Map();
@@ -65,4 +66,4 @@ function buildSizeLineRefusal(rule, overlaps, confirmed) {
 	return `${rule}\n\nThis takes:implement ticket may belong to the same build unit as:\n${lines.join("")}Nothing filed. Apply the independence test above to each: where they share a build unit, add this work to that ticket as a slice instead. Where each is its own unit, re-run with --size-line-checked ${all.join(",")}, and chain any pair that fails the test with a blocked_by edge once filed.`;
 }
 
-module.exports = { buildSizeLineRefusal, sizeLineCandidates, sourcePaths };
+module.exports = { IMPLEMENT_LABEL, buildSizeLineRefusal, sizeLineCandidates };

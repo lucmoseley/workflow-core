@@ -63,6 +63,7 @@ const { buildDistinctFromHint } = require("./lib/similar-titles.js");
 const { hasStandaloneLine } = require("./lib/standalone-line.js");
 const { readRuleText } = require("./lib/rule-text.js");
 const {
+	IMPLEMENT_LABEL,
 	buildSizeLineRefusal,
 	sizeLineCandidates,
 } = require("./lib/size-line-check.js");
@@ -84,6 +85,7 @@ const { addedCheckVerdict } = require("./lib/gate-check.js");
 const {
 	assignSelf,
 	claimIfFree,
+	labelNames,
 	readIssue,
 	readOwnFilings,
 	readParent: readIssueParent,
@@ -125,8 +127,8 @@ function readOpts({ flags, lists }) {
 		standalone: flagValue(flags, "--standalone"),
 		bodyFile: flagValue(flags, "--body-file"),
 		assignSelf: flags["--assign-self"] === true,
-		distinct: issueList("--distinct-from", lists["--distinct-from"] ?? []),
-		sizeChecked: issueList(
+		distinct: parseIssueList("--distinct-from", lists["--distinct-from"] ?? []),
+		sizeChecked: parseIssueList(
 			"--size-line-checked",
 			lists["--size-line-checked"] ?? [],
 		),
@@ -164,7 +166,7 @@ function readOpts({ flags, lists }) {
  * @param {string[]} csvs
  * @returns {Set<number>}
  */
-function issueList(flag, csvs) {
+function parseIssueList(flag, csvs) {
 	/** @type {Set<number>} */
 	const distinct = new Set();
 	for (const csv of csvs)
@@ -527,11 +529,10 @@ function checkSimilar(repo, opts) {
  *   opts: ReturnType<typeof readOpts>}} at
  */
 function checkSizeLine({ repo, labels, body, opts }) {
-	if (!labels.includes(takesLabel("implement"))) return;
+	if (!labels.includes(IMPLEMENT_LABEL)) return;
 	const overlaps = sizeLineCandidates({
-		labels,
 		body,
-		filed: readOwnFiled(repo),
+		filed: readOwnFiledIssues(repo),
 		siblings: readSiblings(repo, opts.parent),
 		confirmed: opts.sizeChecked,
 	});
@@ -547,13 +548,19 @@ function checkSizeLine({ repo, labels, body, opts }) {
 }
 
 /**
- * The issues this session filed in `repo`, each read; one that will not read
- * is passed over, saying so.
+ * The issues this session filed in `repo`, each read. An unreadable ledger or
+ * issue is passed over, saying so: fails open, as the similar-title list
+ * does (#4450).
  * @param {string} repo
  */
-function readOwnFiled(repo) {
+function readOwnFiledIssues(repo) {
+	const { numbers, unreadable } = readOwnFilings(repo);
+	if (unreadable)
+		io.out(
+			"Could not read this session's acts ledger — filing without weighing its earlier filings under rule:size-line.\n",
+		);
 	const read = [];
-	for (const n of readOwnFilings(repo)) {
+	for (const n of numbers) {
 		try {
 			read.push(readIssue(repo, n));
 		} catch (e) {
@@ -566,7 +573,7 @@ function readOwnFiled(repo) {
 }
 
 /**
- * The open sub-issues of `parent`, labels as names.
+ * The sub-issues of `parent`. A failed read is passed over, saying so (#4450).
  * @param {string} repo
  * @param {number|undefined} parent
  */
@@ -580,7 +587,7 @@ function readSiblings(repo, parent) {
 				number: k.number,
 				state: k.state,
 				body: k.body ?? "",
-				labels: (k.labels ?? []).map((l) => l.name),
+				labels: labelNames(k),
 			}),
 		);
 	} catch (e) {
