@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { OWN_LOOKUP } from "./lib/husky-shim.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -217,6 +218,15 @@ describe("install-hooks.js", () => {
 		const before = fs.readFileSync(shim(), "utf8");
 		expect(install(shared).status).toBe(0);
 		expect(fs.readFileSync(shim(), "utf8")).toBe(before);
+	});
+
+	it("patches a stock shim husky copied read-only, leaving it writable for husky's next copy (#4372)", () => {
+		execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
+		fs.chmodSync(shim(), 0o444);
+		expect(install(shared).status).toBe(0);
+		expect(fs.readFileSync(shim(), "utf8")).toContain(OWN_LOOKUP);
+		expect(fs.statSync(shim()).mode & 0o200).toBe(0o200);
+		execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
 	});
 
 	it("exits 2 naming the shim, leaving it untouched, where husky's lookup line is gone", () => {
