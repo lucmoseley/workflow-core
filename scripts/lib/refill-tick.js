@@ -54,6 +54,7 @@ const {
 const { stopOn } = require("./claude-stop.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
+const { seatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -605,7 +606,11 @@ const resume = resumeSteps(buildResumeIo(log));
 function typeResume(l, prompt) {
 	const [file, args, opts] = buildTypedAttach(l.jobId, prompt);
 	return childFailure(
-		runChild(file, args, { ...opts, cwd: l.root, env: resume.seatEnv(l) }),
+		runChild(file, args, {
+			...opts,
+			cwd: l.root,
+			env: seatEnv(process.env, l.seat),
+		}),
 	);
 }
 

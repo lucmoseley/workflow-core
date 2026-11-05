@@ -18,6 +18,7 @@ const { buildKeySettings } = require("./overflow-key.js");
 const { moveParkedBy } = require("./parked.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { findResumed } = require("./resumed-copy.js");
+const { runClaude } = require("./seat-claude.js");
 const { copyTranscript } = require("./seat-move.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 
@@ -32,7 +33,7 @@ const buildResumeIo = (log) => ({
 	env: () => process.env,
 	keySettings: buildKeySettings,
 	authRefusal: (launch) => launchAuthRefusal({ bin: claudeBin(), ...launch }),
-	runClaude: (args, opts) => runChild(claudeBin(), args, opts),
+	runClaude,
 	readJobRecord,
 	findResumed,
 	copyTranscript,
