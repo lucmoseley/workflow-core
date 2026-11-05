@@ -256,18 +256,6 @@
 					"text": "has uncommitted changes that no live session claims"
 				},
 				{
-					"id": "debt-one",
-					"core": "guard-file-claim",
-					"kind": "warn",
-					"text": "carries a registered debt"
-				},
-				{
-					"id": "debt-many",
-					"core": "guard-file-claim",
-					"kind": "warn",
-					"text": "registered debts: edits were denied here"
-				},
-				{
 					"id": "claim-broken",
 					"core": "guard-file-claim",
 					"kind": "warn",
@@ -1571,9 +1559,9 @@
 			"needles": [],
 			"silent": "Writes the session's self-plugin marker for the canary to read, and prints nothing (#2438)."
 		},
-		"sweep-debts-detached.sh": {
+		"session-start-sweeps.sh": {
 			"needles": [],
-			"silent": "Drains the debt register and sweeps for self-throttling; both halves print nothing. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start — a zero would now measure that ruling, not retrieval."
+			"silent": "Starts the detached housekeeping sweeps and sweeps for self-throttling; neither prints anything. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start — a zero would now measure that ruling, not retrieval."
 		},
 		"check-ci-status.js --notify": {
 			"needles": [
@@ -1970,17 +1958,6 @@
 				{
 					"id": "claim-refused",
 					"text": ["session-arbiter: ", "is held by session"]
-				}
-			]
-		},
-		"C11": {
-			"span": "— `debt clear <path> <issue>`, refused on a bare path where more than one stands",
-			"printedBy": "session-arbiter.js debt clear ambiguous refusal",
-			"route": "cli",
-			"needles": [
-				{
-					"id": "name-the-one",
-					"text": "so name the one to clear"
 				}
 			]
 		}

@@ -637,11 +637,11 @@ describe("wiring", () => {
 	/* A piggyback on an existing entry, never a SessionStart hook of its own,
 	 * on CPU cost (mantahostels#1362, mantahostels#1130). */
 	it("is reached at SessionStart through the existing detached launcher", () => {
-		expect(hookIsWired("SessionStart", "sweep-debts-detached.sh", "")).toBe(
+		expect(hookIsWired("SessionStart", "session-start-sweeps.sh", "")).toBe(
 			true,
 		);
 		const launcher = fs.readFileSync(
-			path.resolve(__dirname, "sweep-debts-detached.sh"),
+			path.resolve(__dirname, "session-start-sweeps.sh"),
 			"utf8",
 		);
 		expect(launcher).toMatch(/check-self-throttling\.js" --notify/);

@@ -1,18 +1,20 @@
 // @vitest-environment node
 /*
- * The SessionStart drain (mantahostels#1251).
+ * The SessionStart housekeeping launcher.
  *
- * The register's ONLY drain since a claim stopped retiring anything.
+ * Pins that it stays silent and exits 0, even where node is absent; that it
+ * reaches the self-throttling sweep (mantahostels#1362); that it starts each
+ * detached job it owns, in a session of its own; and that none of the
+ * tracker-writing or file-deleting ones run under VITEST.
  *
  * Behavioural, not textual: a substring assertion on the hook's shell shape
  * passes vacuously, the `command -v node >/dev/null 2>&1` prefix satisfying a
  * check that the output is silenced (mantahostels#1251).
  *
- * It also pins what the launcher starts detached beside the drain, and that
- * none of the tracker-writing or file-deleting ones run under VITEST. It is a
- * `SessionStart` hook in `.claude/settings.json`: loosen a case and debts
- * accrete undrained, a session start fails or prints into the transcript, or
- * a test run deletes real scratch files or writes to the real tracker.
+ * It is a `SessionStart` hook in `self-plugin/hooks/hooks.json`: loosen a case
+ * and a session start fails or prints into the transcript, a housekeeping job
+ * stops running, or a test run deletes real scratch files or writes to the
+ * real tracker.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,21 +23,12 @@ import path from "node:path";
 // `vi` here is `vi.waitFor` only — a poll for a detached child to settle, not
 // mocking (§X2).
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import {
-	fakeGh,
-	freshSandbox,
-	ghClosedList,
-	store,
-} from "./lib/arbiter-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
-const SCRIPT = path.join(__dirname, "sweep-debts-detached.sh");
-const REL = "docs/doc-map.md";
+const SCRIPT = path.join(__dirname, "session-start-sweeps.sh");
 
-/** Run the hook exactly as .claude/settings.json does. */
 /* A just-swept, empty cache for the self-throttling notice this launcher also
- * runs (mantahostels#1404): it then reports nothing and kicks no sweep of its own, leaving
- * the debt half alone under test. An ABSENT file would not do — that is the one
+ * runs (mantahostels#1404): it then reports nothing and kicks no sweep of its own. An ABSENT file would not do — that is the one
  * state the notice answers by launching a 10-19s corpus walk. */
 const quietThrottleState = () => {
 	const file = path.join(os.tmpdir(), `throttle-quiet-${process.pid}.json`);
@@ -51,8 +44,7 @@ const quietThrottleState = () => {
  *
  * WITHOUT THESE it reads the machine's own refresh stamp and APPENDS to the
  * machine's `~/.claude/self-throttling-history.jsonl` — a test writing real state, and
- * one whose extra filesystem work lands in the launcher's synchronous half,
- * where the assertion below is timing the detached debt child against it.
+ * one whose extra filesystem work lands in the launcher's synchronous half.
  */
 const throttleEnv = () => {
 	const base = path.join(os.tmpdir(), `throttle-sandbox-${process.pid}`);
@@ -68,50 +60,17 @@ const throttleEnv = () => {
 	};
 };
 
+/** Run the hook exactly as self-plugin/hooks/hooks.json does. */
 const run = () =>
 	spawnSync(SCRIPT, [], {
 		encoding: "utf8",
 		env: { ...process.env, ...throttleEnv() },
 	});
 
-describe("the SessionStart debt drain", () => {
-	const sb = freshSandbox(() => {
-		// A repo the arbiter will accept a path inside, since `debt own` refuses
-		// anything outside one.
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
-		fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
-		fs.writeFileSync(path.join(sb.repo, REL), "body\n");
-	});
-
-	it("retires a closed issue's entry after its own exit, so the next session start is clean", async () => {
-		/* A gh that sleeps before answering, so the detached child is provably
-		 * still running when the launcher returns. `ghClosedList` answers
-		 * instantly, which leaves the assertion below racing it. */
-		fakeGh(sb, `sleep 1; echo '[{"number":73}]'`);
-		store.ownDebt(REL, 73, "an edit owed on a ticket that has since closed");
-
+describe("the SessionStart housekeeping launcher", () => {
+	it("prints nothing into the transcript and exits green", () => {
 		const r = run();
-
-		// Returns to the session start immediately: the whole `gh issue list` is
-		// still ahead of the child at this point (mantahostels#1111).
 		expect(r.status).toBe(0);
-		/* Still there, so the launcher did not wait on the child, because the stub gh above sleeps a second and the child is
-		 * blocked on it. That sleep is what makes this assertion mean something:
-		 * against an instant gh the child can finish inside the parent's own
-		 * runtime, and "not yet" then fails on a fast machine or a loaded one
-		 * without anything being wrong (observed at mantahostels#1404). */
-		expect(store.readDebts(REL)).toHaveLength(1);
-
-		await vi.waitFor(() => expect(store.readDebts(REL)).toHaveLength(0), {
-			timeout: 15_000,
-			interval: 100,
-		});
-	}, 20_000);
-
-	it("says nothing about the register, which never reaches the transcript", () => {
-		ghClosedList(sb, []);
-		store.ownDebt(REL, 73, "still owed");
-		const r = run();
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toBe("");
 	});
@@ -121,8 +80,6 @@ describe("the SessionStart debt drain", () => {
 		// neutralises what a test never explicitly set, not only what it overrides.
 		process.env.WFC_THROTTLE_NOTICE = "1";
 		try {
-			ghClosedList(sb, []);
-			store.ownDebt(REL, 73, "still owed");
 			expect(run().stdout).toBe("");
 		} finally {
 			delete process.env.WFC_THROTTLE_NOTICE;
@@ -237,15 +194,15 @@ describe("the SessionStart debt drain", () => {
 
 	it("never reaches the scratch reaper under VITEST, which deletes real files", async () => {
 		const { log } = launcherReach({ VITEST: "1" });
-		expect(await reached(log, "session-arbiter.js")).toBe(true);
+		expect(await reached(log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(log, "scratch-sweep.js")).toBe(false);
 	});
 
 	it("never reaches the tracker-writing sweep under VITEST", async () => {
 		const { log } = launcherReach({ VITEST: "1" });
-		/* The debt sweep proves the launcher ran at all — without it an absent
-		 * log would pass this vacuously. */
-		expect(await reached(log, "session-arbiter.js")).toBe(true);
+		/* The throttling sweep proves the launcher ran at all — without it an
+		 * absent log would pass this vacuously. */
+		expect(await reached(log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(log, "retire-stale-containers.js")).toBe(false);
 	});
 
@@ -253,7 +210,7 @@ describe("the SessionStart debt drain", () => {
 		const live = launcherReach({ VITEST: undefined });
 		expect(await reached(live.log, "report-suite-queue-wait.js")).toBe(true);
 		const test = launcherReach({ VITEST: "1" });
-		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "report-suite-queue-wait.js")).toBe(false);
 	});
 
@@ -261,7 +218,7 @@ describe("the SessionStart debt drain", () => {
 		const live = launcherReach({ VITEST: undefined });
 		expect(await reached(live.log, "report-arch-scan-due.js")).toBe(true);
 		const test = launcherReach({ VITEST: "1" });
-		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "report-arch-scan-due.js")).toBe(false);
 	});
 
@@ -269,7 +226,7 @@ describe("the SessionStart debt drain", () => {
 		const live = launcherReach({ VITEST: undefined });
 		expect(await reached(live.log, "report-heresy-sweep-due.js")).toBe(true);
 		const test = launcherReach({ VITEST: "1" });
-		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "report-heresy-sweep-due.js")).toBe(false);
 	});
 
@@ -277,7 +234,7 @@ describe("the SessionStart debt drain", () => {
 		const live = launcherReach({ VITEST: undefined });
 		expect(await reached(live.log, "start-lander.js")).toBe(true);
 		const test = launcherReach({ VITEST: "1" });
-		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "start-lander.js")).toBe(false);
 	});
 
@@ -285,7 +242,7 @@ describe("the SessionStart debt drain", () => {
 		const live = launcherReach({ VITEST: undefined });
 		expect(await reached(live.log, "check-landing-stall.js")).toBe(true);
 		const test = launcherReach({ VITEST: "1" });
-		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "check-landing-stall.js")).toBe(false);
 	});
 
@@ -304,7 +261,7 @@ describe("the SessionStart debt drain", () => {
 		expect(line).toMatch(/ sid=\d+$/);
 		expect(line?.endsWith(` sid=${ours}`)).toBe(false);
 		const test = launcherReach({ VITEST: "1" });
-		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "repo-checks.js")).toBe(false);
 	});
 
@@ -318,20 +275,4 @@ describe("the SessionStart debt drain", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
 	});
-
-	it("leaves every entry standing when gh cannot answer", async () => {
-		ghClosedList(sb, [73]);
-		process.env.WFC_GH = path.join(sb.dir, "no-such-gh");
-		store.ownDebt(REL, 73, "an edit owed on a ticket that has since closed");
-		expect(run().status).toBe(0);
-
-		// WAIT FOR THE CHILD TO HAVE FAILED, then assert. Asserting straight after
-		// `run()` cannot fail: the sweep is detached, so the register is trivially
-		// intact whatever the sweep would have done to it.
-		await vi.waitFor(
-			() => expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain("sweep"),
-			{ timeout: 15_000, interval: 100 },
-		);
-		expect(store.readDebts(REL)).toHaveLength(1);
-	}, 20_000);
 });

@@ -150,8 +150,10 @@ narration path, death point, commits landed, artefacts survived and file
 claims. **Read `RESUMPTION.md` and the narration file yourself, then continue
 that intent in this session**: an `/implement` stays an `/implement`, from
 where it died. Its dirty files are now yours to finish: your next write to each
-takes its claim, unless the takeover says its claims stay held — then free
-one with `node scripts/session-arbiter.js release --force <path>`.
+takes its claim, unless the takeover says its claims stay held — then they
+stay listed, and your writes go ahead with a conflict warning, until its host
+process ends; after that they are ordinary stale claims your next write to
+each takes.
 
 ## Reference
 

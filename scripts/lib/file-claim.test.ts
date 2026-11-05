@@ -13,7 +13,7 @@
  * Cases run in process through the dispatcher's own merge and injection. The
  * arbiter answers through `runInProcess`, the process harness's owned fake,
  * except in the boundary cases that cross lib/file-claim-host.js for real:
- * the real arbiter denying, one that exits non-zero, and one that hangs.
+ * the real arbiter warning, one that exits non-zero, and one that hangs.
  *
  * A payload it misreads lets one session clobber another's live edit, and a
  * fault that denies instead of logging wedges every write.
@@ -1169,8 +1169,8 @@ describe("it hands over the claim rules before the mistake", () => {
 
 	/* The sanctioned scratch directory sits INSIDE `.claude/`, so it reaches the
 	 * refusing arm unless the arm above it takes it first (mantahostels#2089, mantahostels#2103). A
-	 * session writing throwaway scratch has no claim to release and no debt to
-	 * own, so the rules would be four kilobytes it can never act on. */
+	 * session writing throwaway scratch has no claim to release, so the rules
+	 * would be four kilobytes it can never act on. */
 	it("says nothing on a write to the sanctioned scratch directory", () => {
 		live(sb, "a");
 		expect(
@@ -1516,7 +1516,7 @@ describe("the cases a mutant must not survive (#2788)", () => {
 		expect(r.output).toEqual({ additionalContext: "a note" });
 	});
 
-	it("names the context a denial carries as dropped", () => {
+	it("carries the context and names a permission decision as dropped", () => {
 		const r = run(writePayload(docMap()), {
 			arbiterCheck: standIn(
 				JSON.stringify({
@@ -1529,28 +1529,10 @@ describe("the cases a mutant must not survive (#2788)", () => {
 				}),
 			),
 		});
-		expect(r.output?.permissionDecision).toBe("deny");
-		expect(r.output?.permissionDecisionReason).toBe("held");
+		expect(r.output?.permissionDecision).toBeUndefined();
+		expect(r.output?.additionalContext).toBe("and more");
 		expect(r.logs).toEqual([
-			"arbiter answered fields a dispatcher part cannot carry — dropped: hookSpecificOutput.additionalContext",
-		]);
-	});
-
-	it("names a decision other than deny as dropped", () => {
-		const r = run(writePayload(docMap()), {
-			arbiterCheck: standIn(
-				JSON.stringify({
-					hookSpecificOutput: {
-						hookEventName: "PreToolUse",
-						permissionDecision: "ask",
-						permissionDecisionReason: "why",
-					},
-				}),
-			),
-		});
-		expect(r.output).toBeNull();
-		expect(r.logs).toEqual([
-			"arbiter answered fields a dispatcher part cannot carry — dropped: hookSpecificOutput.permissionDecision",
+			"arbiter answered fields a dispatcher part cannot carry — dropped: hookSpecificOutput.permissionDecision, hookSpecificOutput.permissionDecisionReason",
 		]);
 	});
 

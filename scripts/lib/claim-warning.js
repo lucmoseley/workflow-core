@@ -140,9 +140,7 @@ const WARN_HEAD =
 	"The live claims on the paths this command names:\n\n";
 const WARN_TAIL =
 	"\n\nWrite anyway and you clobber an edit git cannot merge back. " +
-	// arbiter-literal-exempt: ctx.corePaths spells it; the ledger prices this text.
-	"Wait for it instead, backgrounded — `node scripts/session-arbiter.js wait <path>` " +
-	"— and carry on with your ticket; past its ceiling, ask the holder with `request`.\n\n" +
+	"Leave the path to its holder and carry on with the rest of your ticket.\n\n" +
 	"Residual: a write no parse here recognises — a heredoc, a wrapper, a script that writes for you — " +
 	"is invisible, so silence is not proof the path is free.";
 

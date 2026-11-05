@@ -19,7 +19,6 @@ const issues = require("./arbiter-issue-claims.js");
 const locksMod = require("./arbiter-locks.js");
 const markers = require("./arbiter-markers.js");
 const observations = require("./arbiter-observations.js");
-const requests = require("./arbiter-requests.js");
 const snapshots = require("./arbiter-snapshots.js");
 const wants = require("./arbiter-wants.js");
 const { caught } = require("./caught.js");
@@ -199,18 +198,11 @@ const SWEPT_FAMILIES = [
 	},
 	/*
 	 * A want is dropped the moment its wait ends by any route, and readWants
-	 * deletes one whose session is gone. The backstop is for the case none of that
+	 * skips one whose session is gone. The backstop is for the case none of that
 	 * reaches — a session killed mid-wait on a machine that then reboots, where
 	 * the pid check cannot even be attempted (mantahostels#1195).
 	 */
 	{ name: "pruneWants", dir: core.paths.wantsDir, ageMs: wants.WANT_AGE_MS },
-	// A request pins nothing and frees nothing when it goes, so age alone is safe
-	// by construction (mantahostels#1702; mantahostels#318 does not govern).
-	{
-		name: "pruneRequests",
-		dir: core.paths.requestsDir,
-		ageMs: requests.REQUEST_AGE_MS,
-	},
 	/*
 	 * Never swept under a live session whatever its age: mtime is that session's
 	 * last Bash call, and sweeping would make its next call read the whole tier as

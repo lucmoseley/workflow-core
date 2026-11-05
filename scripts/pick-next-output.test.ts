@@ -1500,19 +1500,6 @@ describe("the run summary (mantahostels#1001)", () => {
 		expect(r.json().summary.admit).toBe(false);
 	});
 
-	it("carries the owed-work counts, and prints unknown where the store will not read", async () => {
-		const counted = await run({
-			issues: [{ number: 1, body: "one" }],
-			debts: [{ path: "scripts/a.js", issue: 9 }],
-		});
-		expect(block(counted.out)).toMatch(/owed work +1 debt entries/);
-		const r = await run({
-			issues: [{ number: 1, body: "one" }],
-			debtsUnreadable: true,
-		});
-		expect(block(r.out)).toMatch(/owed work +unknown debt entries/);
-	});
-
 	/*
 	 * mantahostels#1780: the summary's `carrying` figure is null two ways — nobody asked git,
 	 * or git would not answer — and only the second may be reported as "unknown

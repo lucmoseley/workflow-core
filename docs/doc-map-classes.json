@@ -912,7 +912,7 @@
 		"section": "Skills & settings",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "The delivery mod (#849, #854, #855, #856): a thin loop that appends a report this session's own start produced, a release request against a file it holds, or a sweep verdict that changed mid-session, into the live session; README states the tested version, the floor and the off-switch",
+		"role": "The delivery mod (#849, #854, #856): a thin loop that appends a report this session's own start produced, or a sweep verdict that changed mid-session, into the live session; README states the tested version, the floor and the off-switch",
 		"route": null,
 		"consumes": [
 			{

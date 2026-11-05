@@ -8,7 +8,7 @@
  * dependence on this repo's own issue state. The stub answers `gh api …` from a
  * fixture and logs every `gh issue edit …`, which is what these tests assert on.
  *
- * `scripts/sweep-debts-detached.sh` runs it detached at every session start,
+ * `scripts/session-start-sweeps.sh` runs it detached at every session start,
  * output unread: loosen a case and a live container is silently retagged off
  * its children, or a discharged one sits on the `/pick-next` frontier with
  * nothing to type.

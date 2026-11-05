@@ -1,12 +1,11 @@
 /*
  * register.ts, the wfc-delivery mod — brings a report this session's own start produced into the
  * session while it runs, rather than at the next session start (#849, #854),
- * a release request against a file it holds at its next turn rather than
- * its next write to that file (#855), and a sweep verdict that changes while
- * it runs within about ten minutes (#856).
+ * and a sweep verdict that changes while it runs within about ten minutes
+ * (#856).
  *
  * A thin loop over scripts/deliver-to-session.js, which owns every rule of
- * what is due: owner, allow-list, once per session, the arbiter's wording.
+ * what is due: owner, allow-list, once per session.
  *
  * Hooks `session.start`, and `turn.start` and `turn.complete` to run its
  * loop only while a main-loop turn runs (#3247). Whether one runs is kept in
@@ -29,7 +28,7 @@ export const register: Register = (on) => {
 	// #849 §Guard safety.
 	const tickMs = 30_000;
 	/* "A few seconds" (#849 §Guard safety), a guess never measured: `--reports`
-	 * reads files, and `--requests` bounds its arbiter run at 4 s. */
+	 * reads files. */
 	const runTimeoutMs = 5000;
 	/* #849 §CI re-check mid-session. The first run is 10 minutes in: the
 	 * session-start check covers the minutes before. Counted from the last run,
@@ -44,15 +43,7 @@ export const register: Register = (on) => {
 	const turnRef = { plugin: "wfc-delivery", key: "isTurnRunning" } as const;
 	const scriptRelPath = "scripts/deliver-to-session.js";
 	const deliveryHeader =
-		"Delivered by the wfc-delivery mod: a report this session's own start produced, a release request against a file it holds, or a sweep verdict that changed since (#849).";
-
-	/* The claim store's directory changes whenever any session takes or gives up
-	 * a claim, this one's among them; its claims are read only then (#855). */
-	const sources = [
-		{ flag: "--reports", watch: ["notifyReports"] },
-		{ flag: "--requests", watch: ["requests", "locks"] },
-	] as const;
-	type Paths = Record<(typeof sources)[number]["watch"][number], string>;
+		"Delivered by the wfc-delivery mod: a report this session's own start produced, or a sweep verdict that changed since (#849).";
 
 	/* The helpers COPIED names in scripts/wfc-mods-copies.test.ts are copied in
 	 * the liveness mod, not shared: the tests' inline load, standing for the
@@ -117,15 +108,15 @@ export const register: Register = (on) => {
 			// Hosted, the script is the one the host plugin ships (#933).
 			const root = $.plugin.name === modName ? e.cwd : $.plugin.root;
 			const script = `${root}/${scriptRelPath}`;
-			let paths: Paths | undefined;
-			// Per source, absent until its first stat, so the first tick forks each.
-			const stamps = new Map<string, string>();
+			// The notify-reports store, named by the script's `--paths`.
+			let store: string | undefined;
+			// Absent until the store's first stat, so the first tick forks.
+			let storeStamp: number | undefined;
 			/* Printed text not yet appended. The script's ledger already holds it,
 			 * so it is offered from here, never printed again; dropped after
 			 * maxOffers rejections, or lost to a reload or the session's end. A
 			 * report is shown again by the next session start's replay (#854); a
-			 * release request only once its said-once marker is swept, about an
-			 * hour on; a CI re-check never this session (#891). */
+			 * CI re-check never this session (#891). */
 			let pending = "";
 			let offers = 0;
 			let isBusy = false;
@@ -145,13 +136,11 @@ export const register: Register = (on) => {
 				return ran.stdout;
 			};
 
-			const storePaths = async (): Promise<Paths> => {
-				const printed = JSON.parse(await run(["--paths"]));
-				for (const { watch } of sources)
-					for (const key of watch)
-						if (typeof printed[key] !== "string")
-							throw new Error(`${scriptRelPath} --paths named no ${key}`);
-				return printed;
+			const storePath = async (): Promise<string> => {
+				const { notifyReports } = JSON.parse(await run(["--paths"]));
+				if (typeof notifyReports !== "string")
+					throw new Error(`${scriptRelPath} --paths named no notifyReports`);
+				return notifyReports;
 			};
 
 			const deliver = async () => {
@@ -187,23 +176,16 @@ export const register: Register = (on) => {
 			};
 
 			// A held row never stops a newer report being fetched.
-			const fetch = async ({ flag, watch }: (typeof sources)[number]) => {
-				paths ??= await storePaths();
-				const known = paths;
+			const fetch = async () => {
+				store ??= await storePath();
 				// -1 for a missing directory: nothing has written there yet.
-				const stamp = (
-					await Promise.all(
-						watch.map((key) =>
-							$.fs.stat(known[key]).then(
-								(s) => s.mtimeMs,
-								() => -1,
-							),
-						),
-					)
-				).join();
-				if (stamp === stamps.get(flag)) return;
-				const out = (await run([flag])).trim();
-				stamps.set(flag, stamp);
+				const stamp = await $.fs.stat(store).then(
+					(s) => s.mtimeMs,
+					() => -1,
+				);
+				if (stamp === storeStamp) return;
+				const out = (await run(["--reports"])).trim();
+				storeStamp = stamp;
 				hold(out);
 			};
 
@@ -234,11 +216,8 @@ export const register: Register = (on) => {
 			/* Each step asks whether the loop still runs, so a tick a turn's end
 			 * overtakes forks and appends nothing more. */
 			const steps = async (isCiChecked: boolean) => {
-				// One source failing never starves the other.
-				for (const source of sources) {
-					if (!timer) return;
-					await fetch(source).catch(failed);
-				}
+				if (!timer) return;
+				await fetch().catch(failed);
 				if (isCiChecked && timer) await recheckCi().catch(failed);
 				if (pending && timer) await deliver().catch(failed);
 			};

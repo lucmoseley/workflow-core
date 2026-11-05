@@ -46,17 +46,8 @@
  * session in both modes. A claim's file counts as carrying work where it is
  * dirty in the main checkout or in a worktree its holder owns.
  *
- * IT ALSO REPORTS AN UNANSWERED RELEASE REQUEST (mantahostels#1784, spec mantahostels#1702's story
- * 18) — the one route to a holder that stays idle forever, since the in-band
- * notice at `claim`/`release` only fires when the holder next does something.
- * A request past the same threshold, not declined, names the path, requester,
- * holder and age, in both modes: this is the founder's own escape hatch, so a
- * hand run has to see it exactly as a --notify run does. This script only
- * ever reads the request register — nothing here answers, declines or drops
- * a request.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports the standing count of file claims whose holder has plausibly finished, itemising those that carry uncommitted work; each finished session's worktree that carries uncommitted work; and any release request nobody has answered past the threshold. It never breaks a claim and never answers a request.
- * JUSTIFIED: fail-safe — a claim outliving its host blocks every later session's write to that path and nothing else notices; a request nobody answers reaches no holder that stays idle forever except through the founder acting on this line. A run that cannot tell live from finished reports nothing rather than calling a claim dead.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports the standing count of file claims whose holder has plausibly finished, itemising those that carry uncommitted work; and each finished session's worktree that carries uncommitted work. It never breaks a claim.
+ * JUSTIFIED: fail-safe — a claim outliving its host warns every later writer of that path of a merge conflict that is not there, and nothing else notices. A run that cannot tell live from finished reports nothing rather than calling a claim dead.
  * DEFEAT:    none; --hours <n> moves both reporting thresholds on a hand run.
  */
 
@@ -78,7 +69,7 @@ const {
 const { worktreeLabel } = require("./lib/session-worktrees.js");
 
 // The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
-const { readLocks, readRequests, paths } = require("./lib/arbiter-store");
+const { readLocks, paths } = require("./lib/arbiter-store");
 
 /**
  * An age with no verb — "11d", "18h" — for a sentence that supplies its own.
@@ -94,7 +85,6 @@ const describeAge = (hours) =>
 	hours === null ? "held since an unreadable time" : `held ${ageOf(hours)}`;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
-/** @typedef {import("./lib/arbiter-store").RequestRecord} RequestRecord */
 /** @typedef {import("./lib/arbiter-store").ListedLock} Lock */
 /** @typedef {import("./lib/stranded-count").WorktreeDirt} WorktreeDirt */
 /**
@@ -102,56 +92,6 @@ const describeAge = (hours) =>
  *   claimedAt: string | null, hoursHeld: number | null}} Stranded
  * @typedef {{file?: string, path?: string, reason: string}} Unreadable
  */
-
-/**
- * @param {RequestRecord[] | null} requests
- * @param {number} hours
- */
-function unansweredRequests(requests, hours) {
-	return (requests || []).filter((r) => {
-		if (r.declined) return false;
-		const held = hoursHeld(r.since);
-		// An unreadable `since` is reported, not suppressed: the threshold
-		// only exists to keep noise down.
-		return held === null || held >= hours;
-	});
-}
-
-/**
- * @param {RequestRecord} r
- * @param {(id: string) => string} nameOf
- */
-const holderName = (r, nameOf) =>
-	r.holder ? nameOf(r.holder) : "an unknown holder";
-
-/**
- * Warn + say the unanswered-request findings. Called exactly once.
- * @param {Ctx} ctx
- * @param {{requests: RequestRecord[] | null, unanswered: RequestRecord[],
- *   hours: number, nameOf: (id: string) => string}} opts
- */
-function reportUnanswered(ctx, { requests, unanswered, hours, nameOf }) {
-	if (requests === null) {
-		const msg = `the release-request register could not be read, so whether anyone is waiting on a held file is unknown — not nothing. See: node ${scriptPath("check-guard-errors.js")}`;
-		ctx.warn("UNREADABLE-REQUESTS", msg);
-		ctx.say(`\nUNREADABLE-REQUESTS: ${msg}`);
-	}
-	for (const r of unanswered)
-		ctx.warn(
-			"UNANSWERED-REQUEST",
-			`${r.subject} — ${nameOf(r.requester)} asks ${holderName(r, nameOf)} to release, unanswered for ${ageOf(hoursHeld(r.since))}`,
-			r,
-		);
-	if (unanswered.length === 0) return;
-	// Said in both modes, unlike the claims sections below.
-	ctx.say(
-		`\nUNANSWERED-REQUEST (${unanswered.length}) standing — a release request nobody has answered past ${hours}h. This sweep cannot deliver it; go to the holder's terminal yourself.`,
-	);
-	for (const r of unanswered)
-		ctx.say(
-			`  ${r.subject} — ${nameOf(r.requester)} asks ${holderName(r, nameOf)}, unanswered for ${ageOf(hoursHeld(r.since))}${r.why ? `: "${r.why}"` : ""}`,
-		);
-}
 
 /**
  * `lock.unreadable` distinguishes the two reasons classifyClaims folds
@@ -394,39 +334,11 @@ runCheck({
 		if (!Number.isFinite(hours) || hours < 0)
 			ctx.usageError("--hours must be a non-negative number.");
 
-		/*
-		 * Release requests nobody has answered past the threshold. Read and
-		 * reported FIRST, before any of the claim-store/oracle machinery below:
-		 * the register is a separate directory that a request can stand in even
-		 * where a lock cannot be read, and this escape hatch must not go silent
-		 * exactly when the rest of the sweep is degraded.
-		 *
-		 * readRequests() already drops what this report must never show: a
-		 * request whose requester is no longer live, and — by construction, since
-		 * cmdClaim/cmdRelease unlink the record on each — one the requester has
-		 * since claimed or the holder has since released. `null` here means the
-		 * register would not read, which costs this section alone, reported as
-		 * UNREADABLE-REQUESTS rather than folded into "no requests standing".
-		 */
-		const requests = readRequests();
-		const unanswered = unansweredRequests(requests, hours);
-
-		// `nameOf` starts as the identity function and is upgraded below once the
-		// oracle has been read for the claims loop — reportUnanswered() may fire
-		// before that point, on any of the three early exits, and prints the raw
-		// session id rather than delay the founder's escape hatch on a call this
-		// section does not itself need.
-		let nameOf = (/** @type {string} */ id) => id;
-
-		const sayUnanswered = () =>
-			reportUnanswered(ctx, { requests, unanswered, hours, nameOf });
-
 		// null is a store that would not open, never an empty one (mantahostels#174) — and the
 		// store lives outside the repo, so it is SKIP, not BROKEN (lib/check.js's
 		// subject/apparatus split).
 		const locks = readLocks();
 		if (locks === null) {
-			sayUnanswered();
 			ctx.skip(
 				`the file-claim store at ${paths.locksDir()} could not be read, so what is held is unknown — not nothing. See: node ${scriptPath("check-guard-errors.js")}`,
 			);
@@ -435,15 +347,9 @@ runCheck({
 		 * still spends no oracle call. */
 		const dirtyTrees = readDirtyWorktrees();
 		if (locks.length === 0 && dirtyTrees.found.length === 0) {
-			sayUnanswered();
 			return {
 				okLine: `no files are claimed, and no worktree carries uncommitted work.${unreadWorktrees(dirtyTrees.unreadable)}`,
-				data: {
-					claims: 0,
-					unanswered,
-					unansweredCount: unanswered.length,
-					requestsReadable: requests !== null,
-				},
+				data: { claims: 0 },
 			};
 		}
 
@@ -465,12 +371,11 @@ runCheck({
 		// unjudged for want of the oracle, and readLocks() surfaces those rather
 		// than dropping them (mantahostels#1692), so `locks.length` would fold them in.
 		if (!ids) {
-			sayUnanswered();
 			ctx.skip(
 				`${why}. ${locks.filter((l) => !l.unreadable).length} file claim(s) and ${dirtyTrees.found.length} dirty worktree(s) went unjudged — none of them is being called stranded on an oracle this run could not read.`,
 			);
 		}
-		nameOf = (/** @type {string} */ id) => names?.get(id) || id;
+		const nameOf = (/** @type {string} */ id) => names?.get(id) || id;
 
 		// The classification loop itself lives in lib/stranded-count.js, shared
 		// with pick-next.js's headline count (mantahostels#1800) — this reader keeps only its
@@ -525,15 +430,11 @@ runCheck({
 			root: paths.repoRoot(),
 			nameOf,
 		});
-		sayUnanswered();
 		sayClosingAdvice(ctx, { itemised, unreadable });
 
 		return {
 			okLine: `${okLineFor({ stranded, dirty, locks, hours })}${unreadWorktrees(dirtyTrees.unreadable)}`,
-			noun:
-				unanswered.length > 0
-					? "possibly-stranded file claim(s) or worktree(s), or unanswered release request(s)"
-					: "possibly-stranded file claim(s) or worktree(s)",
+			noun: "possibly-stranded file claim(s) or worktree(s)",
 			data: {
 				stranded,
 				strandedCount: stranded.length,
@@ -551,9 +452,6 @@ runCheck({
 				strandedWorktrees: trees.stranded.map(strandedWorktreeData),
 				strandedWorktreeCount: trees.stranded.length,
 				youngWorktrees: trees.young,
-				unanswered,
-				unansweredCount: unanswered.length,
-				requestsReadable: requests !== null,
 			},
 		};
 	},

@@ -181,7 +181,7 @@ entry whose claim *is* this sentence, holds it where it is.
 
 **Grep the destination before calling a relocation blocked.** Already
 carried → a plain cut leaving a `(§Bnn)` pointer. Genuinely absent and the file
-held → ticket it and register the debt rather than waiting.
+held → ticket it rather than waiting.
 
 A refusal goes in the commit message beside the cuts it accompanied.
 

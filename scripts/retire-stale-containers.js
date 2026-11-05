@@ -64,7 +64,7 @@
  * and rule (b)'s population is bounded by how many specs sit un-ticketed at
  * once (mantahostels#1663).
  *
- * WHERE IT RUNS: detached at session start, as sweep-debts-detached.sh's fourth
+ * WHERE IT RUNS: detached at session start, as session-start-sweeps.sh's third
  * job (its header carries why there and not a hook entry of its own). Being
  * detached, it races check-issue-labels.js two hook entries later, so a
  * STALE-CONTAINER reported at one session start may already be retagged by the
@@ -142,7 +142,7 @@ runCheck({
 		"node retire-stale-containers.js [--dry-run] [--warn] [--json] [--notify]",
 	flags: ["--dry-run"],
 	// Wrapped whole, for the reason lib/detached-run.js's header gives:
-	// sweep-debts-detached.sh spawns this detached under `stdio: "ignore"` and
+	// session-start-sweeps.sh spawns this detached under `stdio: "ignore"` and
 	// returns, so nothing else on this machine can tell a run that swept from a
 	// child that never started (mantahostels#1910). A --dry-run from the command line files a
 	// record too — it reached the same seam, and the file records that the code

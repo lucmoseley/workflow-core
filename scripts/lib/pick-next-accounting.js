@@ -292,7 +292,6 @@ function noCommandOf(frontier, openChildren) {
  * @property {Graph} graph
  * @property {Issue[]} degraded
  * @property {{why: string|null}} dispatched
- * @property {{ok: boolean, count?: number}} debts
  * @property {{ok: boolean, stranded?: number, carrying?: number|null, strandedWorktrees?: number}} stranded
  * @property {number} noCommandCount
  * @property {number[]} rottedContainers
@@ -318,7 +317,6 @@ function summaryOf(run) {
 		graph,
 		degraded,
 		dispatched,
-		debts,
 		stranded,
 	} = run;
 	const labelDefects = frontier
@@ -377,7 +375,6 @@ function summaryOf(run) {
 			: enriched.filter((i) => i.dispatchHeld).length,
 		dispatchHeldUnknown: dispatched.why,
 		labelDefects,
-		debtEntries: debts.ok ? debts.count : null,
 		strandedClaims: stranded.ok ? stranded.stranded : null,
 		strandedClaimsCarrying: stranded.ok ? stranded.carrying : null,
 		strandedWorktrees: stranded.ok ? stranded.strandedWorktrees : null,

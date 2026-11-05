@@ -213,7 +213,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const root = build({
 			claude: region(
 				"- Claiming. **Enforced** (#113): `scripts/guard-file-claim.sh` denies the write.",
-				"- Debt. **Enforced** (#120): the same `scripts/guard-file-claim.sh` hook registers it.",
+				"- Warning. **Enforced** (#120): the same `scripts/guard-file-claim.sh` hook warns of a neighbour's claim.",
 			),
 			files: {
 				"scripts/guard-file-claim.sh": "#!/bin/sh\nexit 2\n",

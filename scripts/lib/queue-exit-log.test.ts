@@ -11,7 +11,7 @@
  * queue-exit log is never touched.
  *
  * `report-suite-queue-wait.js`, launched at every session start by
- * `sweep-debts-detached.sh`, sums this log into the daily queue-wait alarm
+ * `session-start-sweeps.sh`, sums this log into the daily queue-wait alarm
  * (#1157); a loosened case lets lines drop or land in a worktree's file, and
  * the alarm under-reads the wait it exists to surface.
  */

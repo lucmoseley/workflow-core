@@ -209,8 +209,6 @@ export interface Fixture {
 	failSubIssues?: number[];
 	/** Issue numbers whose sub_issues call exits 0 printing nothing. */
 	emptySubIssues?: number[];
-	/** Debt-store entries for the owed-work count (mantahostels#1206). */
-	debts?: Array<{ path: string; issue?: number; gist?: string }>;
 	/**
 	 * Lines in `.pick-next/dispatched.jsonl`, the ledger
 	 * `scripts/dispatch-sessions.sh` appends to as it launches (mantahostels#1528).
@@ -228,8 +226,6 @@ export interface Fixture {
 	}>;
 	/** Makes the ledger path a directory, so the read throws EISDIR (mantahostels#1528). */
 	dispatchLedgerUnreadable?: boolean;
-	/** Locks the debts dir to 0o000, simulating a store that will not read (mantahostels#1206). */
-	debtsUnreadable?: boolean;
 }
 
 /* The stub `gh`'s files in each test's sandbox, named once for the handler and the test. */
@@ -439,8 +435,6 @@ const stubOracle = () => {
 	);
 	return { WFC_CLAUDE_BIN: bin, CLAUDE_CODE_SESSION_ID: kit.oracleSelfId };
 };
-/** Dirs a case locked to 0o000, which rmSync cannot empty until unlocked. */
-const lockedDirs: string[] = [];
 const stubClaims = (fx: Fixture) => {
 	const home = path.join(kitHome(), ".claude");
 	const repo =
@@ -491,25 +485,6 @@ const stubClaims = (fx: Fixture) => {
 				claimedAt: new Date(Date.now() - s.hoursAgo * 3_600_000).toISOString(),
 			}),
 		);
-	}
-
-	const debtsDir = path.join(home, "projects", projectSlug(repo), "debts");
-	fs.rmSync(debtsDir, { recursive: true, force: true });
-	fs.mkdirSync(debtsDir, { recursive: true });
-	(fx.debts ?? []).forEach((d, i) => {
-		fs.writeFileSync(
-			path.join(debtsDir, `debt-${i}.json`),
-			JSON.stringify({
-				path: d.path,
-				issue: d.issue ?? null,
-				gist: d.gist ?? null,
-				createdAt: daysAgo(1),
-			}),
-		);
-	});
-	if (fx.debtsUnreadable) {
-		fs.chmodSync(debtsDir, 0o000);
-		lockedDirs.push(debtsDir);
 	}
 
 	return { CLAUDE_CONFIG_DIR: home, CLAUDE_PROJECT_DIR: repo };
@@ -703,7 +678,6 @@ export function installPickNextHarness() {
 		stubRepo([]);
 	});
 	afterEach(() => {
-		for (const d of lockedDirs.splice(0)) fs.chmodSync(d, 0o700);
 		fs.rmSync(kit.dir, { recursive: true, force: true });
 		for (const r of roots.splice(0))
 			fs.rmSync(r, { recursive: true, force: true });

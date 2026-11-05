@@ -472,8 +472,8 @@ function judgedListing(agents, call, opts) {
  *
  * `read` is a seam for the suite alone, and it arrives in an options object
  * rather than positionally because both exports are passed around as bare
- * function values — `store.forceRelease(rel, me, listedSessionIds)` — where a
- * stray positional argument would silently stand in for the oracle itself.
+ * function values, where a stray positional argument would silently stand in
+ * for the oracle itself.
  *
  * @template T
  * @param {Opts|undefined} opts

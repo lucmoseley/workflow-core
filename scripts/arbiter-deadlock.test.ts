@@ -13,6 +13,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	arbiterCli,
+	breaks,
 	freshSandbox,
 	live,
 	registerSession,
@@ -38,9 +39,19 @@ const neighbourHolds = (sessionId: string, subject: string) => {
 	expect(verdict).toBe("claimed");
 };
 
-/** `sessionId` waiting on `subject`, as `wait <path>` records it; the cycle walk reads the holder off the locks. */
-const waitsOn = (sessionId: string, subject: string) =>
-	store.recordWant(subject, store.identify(sessionId));
+/** Issue `n` claimed by `sessionId`. */
+const claimsIssue = (sessionId: string, n: number) =>
+	expect(store.claimIssue(n, store.identify(sessionId)).status).toBe("claimed");
+
+/** `sessionId` waiting on issue `n`, as `wait <n>` records it; the cycle walk reads the claimant off the issue claims. */
+const waitsOn = (sessionId: string, n: number) =>
+	store.recordWant(`issue #${n}`, store.identify(sessionId));
+
+/** Every issue currently claimed, by number. */
+const readClaimedIssues = () =>
+	(store.listIssueClaims()?.claims ?? [])
+		.map((c: { issue: number }) => c.issue)
+		.sort();
 
 describe("claim-all: every subject in one call", () => {
 	it("takes every subject when all are free", () => {
@@ -72,22 +83,9 @@ describe("claim-all: every subject in one call", () => {
 });
 
 describe("the waiter register (mantahostels#1195)", () => {
-	it("drops the record the moment the session claims anything", () => {
-		neighbourHolds("neighbour", "docs/a.md");
-		live(sb, "mine");
-		waitsOn("mine", "docs/a.md");
-		expect(store.readWants()).toHaveLength(1);
-		expect(
-			cli(["claim", inRepo("docs/b.md")], { CLAUDE_CODE_SESSION_ID: "mine" })
-				.status,
-		).toBe(0);
-		expect(store.readWants()).toEqual([]);
-	});
-
 	it("forgets a want whose session is gone", () => {
-		neighbourHolds("neighbour", "docs/a.md");
 		live(sb, "mine");
-		waitsOn("mine", "docs/a.md");
+		waitsOn("mine", 540);
 		// Rewrite the record onto a pid/start pair that cannot be alive.
 		const f = store.paths.want("mine");
 		const rec = JSON.parse(fs.readFileSync(f, "utf8"));
@@ -97,7 +95,7 @@ describe("the waiter register (mantahostels#1195)", () => {
 });
 
 describe("the cycle report under list (mantahostels#1195)", () => {
-	/** Two sessions, each holding what the other waits on. */
+	/** Two sessions, each claiming the issue the other waits on. */
 	const buildCycle = () => {
 		// Two DIFFERENT live pids. The testkit keys its registry file by pid, so
 		// registering both sessions on this process would leave only the second —
@@ -109,10 +107,10 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 		const b = store.identify("sess-b");
 		expect(a.durable).toBe(true);
 		expect(b.durable).toBe(true);
-		expect(store.acquire("docs/a.md", a).verdict).toBe("claimed");
-		expect(store.acquire("docs/b.md", b).verdict).toBe("claimed");
-		waitsOn("sess-a", "docs/b.md");
-		waitsOn("sess-b", "docs/a.md");
+		claimsIssue("sess-a", 540);
+		claimsIssue("sess-b", 541);
+		waitsOn("sess-a", 541);
+		waitsOn("sess-b", 540);
 	};
 
 	it("names a two-session cycle as a deadlock, once", () => {
@@ -125,34 +123,20 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 		expect(listing).toContain("sess-b");
 	});
 
-	it("still names the cycle when a member was RESUMED onto a new pid (#259)", () => {
-		// A resumed holder read as dead breaks the ring in the report while it is
-		// still a ring on disk: the reader is told WAITING and waits on a holder
-		// that is itself blocked.
-		buildCycle();
-		const f = store.paths.lock("docs/a.md");
-		const rec = JSON.parse(fs.readFileSync(f, "utf8"));
-		fs.writeFileSync(
-			f,
-			JSON.stringify({ ...rec, pid: 999_999, procStart: "1" }),
-		);
-		const listing = readListing(["list"]);
-		expect(listing).toContain("DEADLOCK  2 session(s)");
-	});
-
 	it("tells the reader which act breaks it", () => {
 		buildCycle();
 		const listing = readListing(["list"]);
-		expect(listing).toContain("holds a DIRTY file commits it");
-		expect(listing).toContain("end a file wait");
+		expect(listing).toContain("release-issue <n>");
+		expect(listing).toContain("ends its wait");
 	});
 
-	it("calls a waiter behind a busy holder WAITING, never a deadlock", () => {
-		neighbourHolds("neighbour", "docs/a.md");
+	it("calls a waiter behind a busy claimant WAITING, never a deadlock", () => {
+		live(sb, "neighbour");
+		claimsIssue("neighbour", 540);
 		live(sb, "mine");
-		waitsOn("mine", "docs/a.md");
+		waitsOn("mine", 540);
 		const listing = readListing(["list"]);
-		// The holder is not itself waiting, so this wait ends on its own.
+		// The claimant is not itself waiting, so this wait ends on its own.
 		expect(listing).toContain("WAITING");
 		expect(listing).not.toContain("DEADLOCK");
 	});
@@ -165,28 +149,12 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 		expect(listing).not.toContain("DEADLOCK");
 	});
 
-	it("sees a cycle closed by the region umbrella, not just by equal paths", () => {
-		fs.writeFileSync(inRepo("docs/doc-map.md"), "# map\n");
-		registerSession(sb, "sess-a", process.ppid);
-		registerSession(sb, "sess-b", process.pid);
-		const a = store.identify("sess-a");
-		const b = store.identify("sess-b");
-		// sess-a holds the WHOLE map; sess-b holds an unrelated file. sess-b waits
-		// on one region of the map, which only the umbrella rule connects to
-		// sess-a's whole-file lock (mantahostels#970).
-		expect(store.acquire("docs/doc-map.md", a).verdict).toBe("claimed");
-		expect(store.acquire("docs/other.md", b).verdict).toBe("claimed");
-		waitsOn("sess-a", "docs/other.md");
-		waitsOn("sess-b", "docs/doc-map.md#B999");
-		expect(readListing(["list"])).toContain("DEADLOCK  2 session(s)");
-	});
-
 	it("reports the cycle without releasing anything", () => {
 		buildCycle();
 		readListing(["list"]);
-		// Diagnosis only: a report that dropped a lock would be a force-release
+		// Diagnosis only: a report that dropped a claim would be a release
 		// nobody asked for.
-		expect(readHeldPaths()).toEqual(["docs/a.md", "docs/b.md"]);
+		expect(readClaimedIssues()).toEqual([540, 541]);
 	});
 });
 
@@ -206,26 +174,21 @@ describe("the write hook route (mantahostels#1195, #4249)", () => {
 		expect(r.stdout).toContain("merge conflict");
 		expect(store.readWants()).toEqual([]);
 	});
-
-	it("drops the want when the hook route takes a claim", () => {
-		neighbourHolds("neighbour", "docs/a.md");
-		live(sb, "mine");
-		waitsOn("mine", "docs/a.md");
-		expect(store.readWants()).toHaveLength(1);
-		check("mine", "docs/b.md");
-		expect(store.readWants()).toEqual([]);
-	});
 });
 
 describe("claim-all keeps the notices claim gives (mantahostels#1195's review)", () => {
-	it("passes on a debt notice for a subject it took", () => {
+	it("passes on a break notice for a subject it took", () => {
 		live(sb, "mine");
-		store.ownDebt("docs/a.md", 999, "an edit that was denied earlier");
+		breaks.recordBreak(
+			"docs/a.md",
+			{ sessionId: "mine", claimId: "lost-claim" },
+			live(sb, "neighbour"),
+		);
 		const r = cli(["claim-all", inRepo("docs/a.md"), inRepo("docs/b.md")], {
 			CLAUDE_CODE_SESSION_ID: "mine",
 		});
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("999");
+		expect(r.stderr).toContain("claim on docs/a.md was broken");
 	});
 });
 
@@ -244,9 +207,8 @@ describe("what the code review found", () => {
 	});
 
 	it("keeps a resumed waiter's record instead of deleting it", () => {
-		neighbourHolds("neighbour", "docs/a.md");
 		live(sb, "mine");
-		waitsOn("mine", "docs/a.md");
+		waitsOn("mine", 540);
 		const f = store.paths.want("mine");
 		const rec = JSON.parse(fs.readFileSync(f, "utf8"));
 		// A resumed session reads as dead to holderAlive — same id, fresh host.

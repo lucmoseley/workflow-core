@@ -1,5 +1,5 @@
 /*
- * commit-check.js — the arbiter store's answer about a commit (#2882): what
+ * write-ledger.js — the arbiter store's write ledger for a commit (#2882): what
  * this session wrote.
  */
 
@@ -9,9 +9,9 @@ const { caught } = require("./caught.js");
  * The require sits inside the try so a store that will not load fails this
  * advisory check open, as mantahostels#3278 has it, rather than reaching
  * refuse-on-throw's deny.
- * @type {import("./commit-form.js").CommitFormPorts["commitCheck"]}
+ * @type {import("./commit-form.js").CommitFormPorts["writeLedger"]}
  */
-function readCommitCheck(sessionId) {
+function readWriteLedger(sessionId) {
 	try {
 		const store = require("./arbiter-store.js");
 		const written = store.readWritesBy(sessionId);
@@ -27,4 +27,4 @@ function readCommitCheck(sessionId) {
 	}
 }
 
-module.exports = { readCommitCheck };
+module.exports = { readWriteLedger };
