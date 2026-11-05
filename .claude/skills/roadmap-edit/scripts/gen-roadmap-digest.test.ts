@@ -5,8 +5,7 @@
  * pins down when it is allowed to produce no file.
  *
  * No ticket found for the destination rule: its first commit names none. The
- * claim cases follow mantahostels#103's ruling that the script abort on a held
- * digest.
+ * claim case follows #4249: a held digest is written, with a warning.
  *
  * Spawned through roadmap-fixture's `run` over a fake roadmap in a temp
  * directory, so the real roadmap is never read and the real digest never
@@ -208,8 +207,7 @@ describe("large roadmap compaction", () => {
 
 describe("the file claim a script takes for itself (mantahostels#99's signal 3)", () => {
 	// This script is invisible to the PreToolUse guard, which only sees
-	// Write/Edit/NotebookEdit, so it takes the claim itself. mantahostels#103 ruled it must
-	// ABORT on a held file rather than record and carry on.
+	// Write/Edit/NotebookEdit, so it takes the claim itself.
 	const arbiterScript = path.resolve(
 		SCRIPTS_DIR,
 		"../../../../scripts/session-arbiter.js",

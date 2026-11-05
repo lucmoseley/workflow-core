@@ -19,7 +19,7 @@
  * neighbour task also needs `--config-dir`, the arm's config dir, where the fake
  * neighbour is registered on a detached `sleep` of `--hold` seconds (default
  * 600) and takes a real claim through the sandbox's own arbiter: the claim
- * holds until that process ends, so a session can wait it out. The hold runs
+ * holds until that process ends. The hold runs
  * from the build, so launch the session at once: a launch after
  * `neighbour.expiresAt` in `task.json` meets no claim.
  *
