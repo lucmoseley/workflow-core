@@ -1,14 +1,13 @@
 // @vitest-environment node
 /*
- * lib/session-name.js (#4395) against real files in a temp directory: the
- * latest `custom-title` is the session's name, a transcript naming none or a
+ * lib/session-name.js (#4395): the latest `custom-title` is the session's name, a transcript naming none or a
  * missing file reads null, one that will not read says why, and the prefix is
  * the shell scripts' (#3701).
  *
  * Loosen one and a session moved onto an overflow key takes its first name
- * rather than the one its row shows, a move throws on a transcript it cannot
- * read, or the prefix drifts from the one the shell scripts name an
- * overflow job with.
+ * rather than the one its row shows, an unreadable transcript names it after
+ * its prompt in silence, or the prefix drifts from the one the shell scripts
+ * name an overflow job with.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -24,7 +23,6 @@ beforeEach(() => {
 const title = (customTitle: string) =>
 	JSON.stringify({ type: "custom-title", customTitle, sessionId: "s1" });
 
-/** A transcript of `lines`, its path. */
 const transcript = (...lines: string[]) => {
 	const file = path.join(dir, "s1.jsonl");
 	fs.writeFileSync(file, `${lines.join("\n")}\n`);

@@ -261,6 +261,9 @@ describe("moveSession (#3734, #3736)", () => {
 		expect(movedName("Implement 7: a title")).toMatchObject({
 			name: "Overflow · Implement 7: a title",
 			read: ["/home/u/.claude3/projects/-home-u-repo/s-job7.jsonl"],
+			lines: expect.not.arrayContaining([
+				expect.stringContaining("name not read"),
+			]),
 		});
 	});
 

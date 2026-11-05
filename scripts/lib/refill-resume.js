@@ -356,8 +356,7 @@ function resumeSteps(io) {
 
 	/**
 	 * The name `l`'s session takes moved onto a key: the name its row shows,
-	 * else its prompt, after the prefix an overflow launch is named with, so
-	 * its row says it spends credits. A copy inherits its session's name, which
+	 * else its prompt, after the prefix an overflow launch is named with. A copy inherits its session's name, which
 	 * on a plan seat carries no prefix (#4395).
 	 * @param {JobLaunch} l
 	 * @param {{sessionId: string, cwd: string}} ids
@@ -389,8 +388,7 @@ function resumeSteps(io) {
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {{move?: MoveTarget, name?: string}} [moved] `move`, the target
 	 *   of a move onto `l`'s seat, which `l` already names; `name`, the name
-	 *   the resumed job takes, which left out keeps the session's, a copy
-	 *   inheriting it (#4395)
+	 *   the resumed job takes, which left out keeps the session's
 	 * @returns {Resumed}
 	 */
 	function resumeStopped(l, prompt, { sessionId, cwd }, { move, name } = {}) {

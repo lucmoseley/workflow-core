@@ -17,7 +17,7 @@ const OVERFLOW_PREFIX = "Overflow · ";
 /**
  * The latest `custom-title` in transcript `file`, null where it has none or
  * no file; why not where the file will not read, for the caller to log and
- * fall back from, since a name never fails the act that wants it (#4395).
+ * fall back from, since a name never fails the act that wants it.
  * @param {string} file
  * @returns {{name: string|null}|{why: string}}
  */
