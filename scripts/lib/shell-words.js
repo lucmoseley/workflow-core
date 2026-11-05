@@ -253,6 +253,47 @@ function commandName(w) {
 /** @param {string} w a command word, read */
 const isGhCommand = (w) => commandName(w) === "gh";
 
+/** The interpreters whose inline program inlineInterp reads. */
+const INTERPRETER = /^(python|python[0-9].*|node|nodejs)$/;
+
+/**
+ * Does this command run its program from the command line, or from a heredoc
+ * or here-string, rather than from a script file (mantahostels#2854)? `-c` for
+ * python, `-e`/`--eval`/`-p`/`--print` for node, and a heredoc or here-string
+ * opener for either — only a heredoc's BODY is dropped as data.
+ *
+ * A PIPE IS NOT READ (mantahostels#2865): treating a bare `python3` as inline
+ * would fire on every `python3` in a pipeline.
+ *
+ * THE SCAN STOPS AT THE SCRIPT, and must: a flag past the module or file name
+ * belongs to the PROGRAM, not to the interpreter, so scanning the whole word
+ * list fired on `python3 -m pip install -c "docs/x.md"` and on
+ * `node scripts/foo.js -e "docs/x.md"`, neither of which runs an inline
+ * program. A bare `-` reads as a flag, which is what `python3 - <<'PY'` needs.
+ *
+ * TWO MISSED WARNS IT COSTS, both the safe direction: a bundled short option
+ * (`python3 -uc '…'` is valid and reads as no inline flag), and a
+ * separate-value flag before the inline one (`python3 -W ignore -c '…'` stops
+ * at `ignore`).
+ *
+ * THE HEREDOC TEST IS BOUNDED BY THAT STOP (mantahostels#2865), not
+ * unconditional: `node script.js <<'EOF'` stops at `script.js`, so a heredoc
+ * feeding DATA to a script file says nothing.
+ * @param {string} prog
+ * @param {string[]} args
+ * @param {() => { kind: string }[]} redirects
+ */
+function inlineInterp(prog, args, redirects) {
+	const flag = prog.startsWith("node") ? /^(-e|--eval|-p|--print)/ : /^-c/;
+	for (const word of args) {
+		if (flag.test(word)) return true;
+		if (!word.startsWith("-")) return false;
+	}
+	return redirects().some(
+		(r) => r.kind === "heredoc" || r.kind === "here-string",
+	);
+}
+
 /** Each interpreter's flags whose next word is code, not a script (#3456). */
 const INLINE_CODE = {
 	node: new Set(["-e", "--eval", "-p", "--print"]),
@@ -1174,6 +1215,7 @@ function gitValueFlags(sub) {
 }
 
 module.exports = {
+	INTERPRETER,
 	QUOTED,
 	absolute,
 	hasExpansion,
@@ -1186,6 +1228,7 @@ module.exports = {
 	commandName,
 	isGhCommand,
 	isInlineCode,
+	inlineInterp,
 	isGitValueOption,
 	gitWords,
 	ghWords,

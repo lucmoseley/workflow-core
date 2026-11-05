@@ -125,6 +125,52 @@ describe("a cut-over main checkout refuses writes to its tree (#4248)", () => {
 	});
 });
 
+describe("an inline interpreter run from the main checkout is refused (#4469)", () => {
+	const fromMain = (command: string) =>
+		refusal("Bash", { command }, { cwd: at.main });
+
+	it("refuses a heredoc-fed python3 whose cwd is the main checkout", () => {
+		const reason = fromMain(
+			"python3 - <<'EOF'\nopen('a.md','w').write('x')\nEOF",
+		);
+		expect(reason).toContain("runs an inline program in the main checkout");
+		expect(reason).toContain("`cd` into your own worktree");
+	});
+
+	it("refuses `node -e`, `python3 -c` and a piped `python3 -` there", () => {
+		for (const command of [
+			`node -e "require('fs').writeFileSync('a.md','x')"`,
+			`python3 -c "open('a.md','w').write('x')"`,
+			`echo "open('a.md','w')" | python3 -`,
+		])
+			expect(fromMain(command)).toContain("runs an inline program");
+	});
+
+	it("refuses one a session in its worktree reaches through `cd`", () => {
+		const reason = refusal("Bash", {
+			command: `cd ${at.main} && python3 - <<'EOF'\nopen('a.md','w')\nEOF`,
+		});
+		expect(reason).toContain("runs an inline program in the main checkout");
+		expect(reason).toContain(`Your session's worktree is ${at.worktree}`);
+	});
+
+	it("allows it in the session's worktree, and in a gitignored store", () => {
+		expect(
+			refusal("Bash", { command: "python3 - <<'EOF'\nprint(1)\nEOF" }),
+		).toBeNull();
+		const store = path.join(at.main, ".claude", "tmp");
+		fs.mkdirSync(store, { recursive: true });
+		expect(
+			refusal("Bash", { command: `python3 -c 'print(1)'` }, { cwd: store }),
+		).toBeNull();
+	});
+
+	it("allows a script file run there", () => {
+		expect(fromMain("python3 scripts/x.py")).toBeNull();
+		expect(fromMain("node scripts/x.js <<'EOF'\ndata\nEOF")).toBeNull();
+	});
+});
+
 describe("before the cutover, or with `landing` off, it refuses nothing (#4248)", () => {
 	it("allows an Edit of the main checkout while its main tracks landing", () => {
 		git(at.main, "config", "branch.main.merge", "refs/heads/landing");

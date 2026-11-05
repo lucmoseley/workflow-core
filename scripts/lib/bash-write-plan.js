@@ -101,7 +101,7 @@
  */
 
 const { normAbs, parseCommand, walkCommands } = require("./shell-parse.js");
-const { literal } = require("./shell-words.js");
+const { INTERPRETER, inlineInterp, literal } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { isScratch } = require("./scratch-dir.js");
 
@@ -136,9 +136,6 @@ const CD_PREFIX = new Set([
 	"time",
 	"!",
 ]);
-
-/** The interpreters whose inline program the tenth arm reads. */
-const INTERPRETER = /^(python|python[0-9].*|node|nodejs)$/;
 
 /** The routes whose write puts a whole file back (#2028). */
 const RESTORE_ROUTES = ["cp", "mv", "git restore", "git checkout"];
@@ -190,44 +187,6 @@ function quotedTokens(text) {
 		for (const m of text.matchAll(new RegExp(`${q}[^${q}\\s]+${q}`, "g")))
 			seen.add(m[0].slice(1, -1));
 	return [...seen];
-}
-
-/**
- * Does this command run its program from the command line, or from a heredoc
- * or here-string, rather than from a script file (mantahostels#2854)? `-c` for
- * python, `-e`/`--eval`/`-p`/`--print` for node, and a heredoc or here-string
- * opener for either — only a heredoc's BODY is dropped as data.
- *
- * A PIPE IS NOT READ (mantahostels#2865): treating a bare `python3` as inline
- * would fire on every `python3` in a pipeline.
- *
- * THE SCAN STOPS AT THE SCRIPT, and must: a flag past the module or file name
- * belongs to the PROGRAM, not to the interpreter, so scanning the whole word
- * list fired on `python3 -m pip install -c "docs/x.md"` and on
- * `node scripts/foo.js -e "docs/x.md"`, neither of which runs an inline
- * program. A bare `-` reads as a flag, which is what `python3 - <<'PY'` needs.
- *
- * TWO MISSED WARNS IT COSTS, both the safe direction: a bundled short option
- * (`python3 -uc '…'` is valid and reads as no inline flag), and a
- * separate-value flag before the inline one (`python3 -W ignore -c '…'` stops
- * at `ignore`).
- *
- * THE HEREDOC TEST IS BOUNDED BY THAT STOP (mantahostels#2865), not
- * unconditional: `node script.js <<'EOF'` stops at `script.js`, so a heredoc
- * feeding DATA to a script file says nothing.
- * @param {string} prog
- * @param {string[]} args
- * @param {() => { kind: string }[]} redirects
- */
-function inlineInterp(prog, args, redirects) {
-	const flag = prog.startsWith("node") ? /^(-e|--eval|-p|--print)/ : /^-c/;
-	for (const word of args) {
-		if (flag.test(word)) return true;
-		if (!word.startsWith("-")) return false;
-	}
-	return redirects().some(
-		(r) => r.kind === "heredoc" || r.kind === "here-string",
-	);
 }
 
 /**
