@@ -36,6 +36,8 @@ const { expectedRemainderUsd } = require("./session-spend.js");
  * @property {number} endedAt ms, the session's latest transcript write
  * @property {number} bytes its transcripts' size when priced
  * @property {number} costUsd its cumulative cost at that size
+ * @property {number} [sharedUsd] what that cost repeats from the members
+ *   before it in its chain of resumed copies (#4370)
  * @property {string} outcome `key-exhausted`: its latest API answer was a credit
  *   refusal
  * @property {number} [refusedAt] ms, that refusal's time; absent, `endedAt` stands
