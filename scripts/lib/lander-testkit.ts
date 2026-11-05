@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
+import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
 import { runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
@@ -149,7 +150,9 @@ export const writeTrackerConfig = () => {
 
 /**
  * A tracker of issues held in a JSON file, served by a gh stub, with the
- * config naming it.
+ * config naming it. Each JSON read it answers goes through `asRecorded`, which
+ * holds it to the fixture gh.contract.test.ts holds to the real gh: a list or
+ * view answers only the `--json` fields asked for, as gh does.
  */
 export const stubTracker = () => {
 	const store = path.join(tmp, "issues.json");
@@ -159,17 +162,20 @@ export const stubTracker = () => {
 		tmp,
 		`#!/usr/bin/env node
 const fs = require("node:fs");
+${RECORDED_SHAPES}
 const a = process.argv.slice(2);
 const read = () => JSON.parse(fs.readFileSync(${JSON.stringify(store)}, "utf8"));
 const write = (all) => fs.writeFileSync(${JSON.stringify(store)}, JSON.stringify(all));
-const out = (o) => process.stdout.write(typeof o === "string" ? o : JSON.stringify(o));
+const out = (o) => process.stdout.write(o);
 const flag = (name) => a[a.indexOf(name) + 1];
 const is = (...words) => words.every((w, i) => a[i] === w);
 if (is("issue", "list")) {
 	const state = flag("--state");
-	out(read().filter((i) => state === "all" || i.state === state.toUpperCase()));
+	const rows = read().filter((i) => state === "all" || i.state === state.toUpperCase());
+	out(asRecorded("issueListRows", rows.map((r) => askedFields(a, r))) + "\\n");
 } else if (is("api") && a[1].endsWith("/labels")) {
-	out([[{ name: "urgent" }, { name: "bug" }, { name: "takes:implement" }, { name: "kind:ticket" }]]);
+	const labels = ["urgent", "bug", "takes:implement", "kind:ticket"].map((name) => ({ name }));
+	out(asRecorded("labelsPage", [labels]));
 } else if (is("issue", "create")) {
 	if (flag("--title").startsWith("Re-land") && fs.existsSync(${JSON.stringify(refuseReland)})) {
 		process.stderr.write("gh down\\n");
@@ -180,10 +186,18 @@ if (is("issue", "list")) {
 	const labels = a.flatMap((w, i) => (w === "--label" ? [{ name: a[i + 1] }] : []));
 	all.push({ number, title: flag("--title"), state: "OPEN", labels, body: fs.readFileSync(0, "utf8") });
 	write(all);
-	out("https://github.com/o/here/issues/" + number + "\\n");
+	out(buildCreateAnswer("o/here", number));
 } else if (is("issue", "view")) {
-	const issue = read().find((i) => String(i.number) === a[2]);
-	out(a.includes("--jq") ? issue.body : { body: issue.body });
+	const row = askedFields(a, read().find((i) => String(i.number) === a[2]));
+	const text = asRecorded("issueView", row);
+	if (!a.includes("--jq")) out(text + "\\n");
+	else {
+		const jq = flag("--jq").match(/^\\.(\\w+)$/);
+		if (!jq) throw new Error("stub tracker reads no --jq filter but .<field>: " + flag("--jq"));
+		// gh's --jq prints a string raw and anything else as JSON.
+		const v = row[jq[1]] ?? null;
+		out((typeof v === "string" ? v : JSON.stringify(v)) + "\\n");
+	}
 } else if (is("issue", "close")) {
 	const all = read();
 	const issue = all.find((i) => String(i.number) === a[2]);

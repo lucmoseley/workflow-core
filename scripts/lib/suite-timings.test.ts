@@ -14,6 +14,7 @@
  * made it.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	formatShares,
@@ -45,7 +46,13 @@ describe("reportRoot (#2413)", () => {
 	const exists = (f: string) => here.has(f);
 	const runner = "/home/runner/work/wc/wc/.claude/worktrees/isolated-1";
 
-	it("keeps this checkout's root where every name is inside it", () => {
+	it("takes this checkout's root where its names name files here", () => {
+		expect(reportRoot(named(`${ROOT}/scripts/x.test.ts`), ROOT, exists)).toBe(
+			ROOT,
+		);
+	});
+
+	it("falls back to this checkout's root where no name is a file here", () => {
 		expect(reportRoot(named(`${ROOT}/a.test.ts`), ROOT, exists)).toBe(ROOT);
 	});
 
@@ -57,6 +64,30 @@ describe("reportRoot (#2413)", () => {
 				exists,
 			),
 		).toBe(runner);
+	});
+
+	it("takes an isolated worktree under this checkout as the root its names sit under (#4352)", () => {
+		const isolated = `${ROOT}/.claude/worktrees/isolated-2673`;
+		const report = named(
+			`${isolated}/eslint.config.test.ts`,
+			`${isolated}/scripts/x.test.ts`,
+		);
+		const root = reportRoot(report, ROOT, exists);
+		expect(root).toBe(isolated);
+		expect(rowsFrom(report, root).map((r) => r.file)).toEqual([
+			"eslint.config.test.ts",
+			"scripts/x.test.ts",
+		]);
+	});
+
+	it("takes the isolated worktree over this checkout while that worktree still exists (#4352)", () => {
+		const isolated = `${ROOT}/.claude/worktrees/isolated-1`;
+		const prefix = `${path.relative(ROOT, isolated)}/`;
+		const existsInEither = (f: string) =>
+			exists(f) || (f.startsWith(prefix) && exists(f.slice(prefix.length)));
+		expect(
+			reportRoot(named(`${isolated}/scripts/x.test.ts`), ROOT, existsInEither),
+		).toBe(isolated);
 	});
 
 	it("keeps a shared subdirectory in the names, where every file sits in one", () => {

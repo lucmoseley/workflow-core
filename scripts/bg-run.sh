@@ -924,7 +924,10 @@ cmd_run() {
       : >"$TOUCHER_KEEPS_TRAP"
     fi
     while kill -0 "$parent" 2>/dev/null; do
-      sleep "$HEARTBEAT_S"
+      # Off the caller's output: the KILL below orphans this `sleep`, and an
+      # orphan holding the caller's pipe holds its read open for up to a
+      # heartbeat after the command returned.
+      sleep "$HEARTBEAT_S" >/dev/null 2>&1
       touch "$dir/beat" 2>/dev/null || exit 0
       sample_mem "$dir" "$parent" "$BASHPID"
     done

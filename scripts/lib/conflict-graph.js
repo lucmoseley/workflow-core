@@ -14,7 +14,7 @@
  * graph sits under.
  *
  * `docs/reference-roadmap.html` IS ABSENT BY RULING, NOT BY OVERSIGHT (mantahostels#1074).
- * The pairs naming it are exactly the pressure STAMP_PATHS' comment below exists
+ * The pairs naming it are exactly the pressure `lib/stamp-paths.js`'s header exists
  * to resist. It was considered and ruled READER-TESTED PER TICKET
  * instead, the test being in `.claude/skills/pick-next/SKILL.md` §5. Do not
  * re-litigate the absence, and do not add `docs/roadmap-digest.md` either — the
@@ -35,6 +35,7 @@
 
 const { isListedLive } = require("./agent-liveness.js");
 const arbiter = require("./arbiter-store");
+const { STAMP_PATHS, withoutStamps } = require("./stamp-paths.js");
 
 /**
  * A candidate row as `writeSetsFor` builds it, and the held-file rows
@@ -51,12 +52,6 @@ const arbiter = require("./arbiter-store");
  */
 
 /*
- * The stamp allowlist. A file earns a place here only by a ruling that issues
- * sharing it run together — never by how many candidates name it.
- */
-const STAMP_PATHS = ["docs/doc-map.md", "CLAUDE.md"];
-
-/*
  * Whether a band read could still tell you anything about this row's `sizeBand`.
  *
  * THE TEST IS THE SOURCE, NEVER `sizeBand` ITSELF (mantahostels#1484). A provisional row's size
@@ -70,18 +65,6 @@ const STAMP_PATHS = ["docs/doc-map.md", "CLAUDE.md"];
  */
 /** @param {{source: string}} c */
 const isSizeless = (c) => c.source !== "band-read";
-
-/**
- * @param {string} p
- * @param {string[]} stamps
- */
-const isStamp = (p, stamps) => stamps.includes(p);
-/**
- * @param {string[]} paths
- * @param {string[]} stamps
- */
-const withoutStamps = (paths, stamps) =>
-	paths.filter((p) => !isStamp(p, stamps));
 
 /**
  * Every candidate's predicted write-set, in the ranking order handed in.
@@ -612,4 +595,4 @@ function countByFile(conflicts) {
 		.sort((a, b) => b.pairs - a.pairs || a.path.localeCompare(b.path));
 }
 
-module.exports = { STAMP_PATHS, writeSetsFor, readHeldFiles, buildGraph };
+module.exports = { writeSetsFor, readHeldFiles, buildGraph };

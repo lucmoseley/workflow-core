@@ -202,9 +202,26 @@ export function spawnDetached(args: string[], spawnEnv: NodeJS.ProcessEnv) {
 	return { child, pid: child.pid };
 }
 
-/* `check` again until it stops saying RUNNING, so a kill is read once the
- * staleness window has opened, however long the machine took to open it. */
+/* A clock pinned past the staleness window, for a `check` that should read a
+ * kill the moment the case makes it rather than STALE_S of real time later
+ * (base §X9). Two seconds past it covers `beat`'s whole-second mtime. */
+export function pastStale() {
+	const past = Math.floor(Date.now() / 1000) + Number(FAST.WFC_BG_STALE_S) + 2;
+	return { WFC_BG_NOW: String(past) };
+}
+
+/* `name`'s verdict once its toucher has died, read from pastStale()'s clock.
+ * The pinned clock reads any beat as stale, so the toucher's death is waited
+ * for first: a toucher outliving its wrapper beats on, and a real clock would
+ * read that run RUNNING (cmd_run's toucher note). */
 export async function untilVerdict(name: string) {
+	const toucher = runFile(name, ".toucher");
+	if (toucher !== "") {
+		await waitFor(`${name}'s toucher to die`, () => isDead(Number(toucher)));
+		return check(name, pastStale());
+	}
+	/* Killed before cmd_run recorded its toucher: only the real clock can
+	 * tell a beating orphan from a dead one. */
 	let got: ReturnType<typeof check> | undefined;
 	await poll(() => {
 		got = check(name);
