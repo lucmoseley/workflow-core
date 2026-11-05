@@ -15,11 +15,8 @@ const { transcriptPath } = require("./project-slug.js");
 const { MODEL } = require("./refill-decide.js");
 const { seatIdOf } = require("./refill-seats.js");
 const { buildErrorText } = require("./caught.js");
-
 const { movedOnto } = require("./refill-blocks.js");
-
-/* dispatch-sessions.sh's and name-issue-session.sh's. */
-const OVERFLOW_PREFIX = "Overflow · ";
+const { OVERFLOW_PREFIX } = require("./session-name.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -48,6 +45,7 @@ const OVERFLOW_PREFIX = "Overflow · ";
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   copySpendUsd: (file: string) => number,
  *   sessionSpendUsd: (file: string) => number,
+ *   sessionName: (file: string) => string|null,
  *   runArbiter: (root: string, cmd: "claim-issue"|"release-issue", n: number,
  *     sessionId: string) => ChildRun,
  *   movePassMarkers: typeof import("./move-pass-markers.js").movePassMarkers,
@@ -357,18 +355,16 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The name `l`'s session takes moved onto a key: its job's name, else its
-	 * prompt, after the prefix dispatch-sessions.sh names an overflow launch
-	 * with, so its row says it spends credits. A copy inherits its session's
-	 * name, which on a plan seat carries no prefix (#4395).
+	 * The name `l`'s session takes moved onto a key: the name its row shows,
+	 * else its prompt, after the prefix an overflow launch is named with, so
+	 * its row says it spends credits. A copy inherits its session's name, which
+	 * on a plan seat carries no prefix (#4395).
 	 * @param {JobLaunch} l
+	 * @param {{sessionId: string, cwd: string}} ids
 	 */
-	function overflowNameOf(l) {
-		const job = /** @type {{name?: unknown}|null} */ (
-			io.readJobRecord(l.seat, l.jobId)
-		);
+	function overflowNameOf(l, { sessionId, cwd }) {
 		const name =
-			typeof job?.name === "string" && job.name ? job.name : l.prompt;
+			io.sessionName(transcriptPath(l.seat, cwd, sessionId)) ?? l.prompt;
 		return name.startsWith(OVERFLOW_PREFIX)
 			? name
 			: `${OVERFLOW_PREFIX}${name}`;
@@ -511,7 +507,7 @@ function resumeSteps(io) {
 			io.copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
 			removeJobRecord(seat, sessionId, cwd);
 		if (prepared) return { failed: prepared };
-		const name = target.keyVar ? overflowNameOf(l) : undefined;
+		const name = target.keyVar ? overflowNameOf(l, ids) : undefined;
 		const r = resumeStopped(movedOnto(l, target), prompt, ids, {
 			move: target,
 			name,

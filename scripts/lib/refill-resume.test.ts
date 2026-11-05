@@ -74,6 +74,7 @@ function fakeIo(over: Partial<ResumeIo> = {}) {
 		recordLaunch: recorded("recordLaunch", () => true),
 		copySpendUsd: () => 0,
 		sessionSpendUsd: () => 0,
+		sessionName: () => null,
 		runArbiter: recorded("runArbiter", () => ran("Released #7")),
 		movePassMarkers: recorded("movePassMarkers", () => null),
 		moveParkedBy: recorded("moveParkedBy", () => undefined),
@@ -216,6 +217,7 @@ describe("resumeStopped", () => {
 
 describe("moveSession (#3734, #3736)", () => {
 	const job = { ...LAUNCH, jobId: "job7", prompt: "/implement 7" } as never;
+	const OnKey = { seat: TARGET, keyVar: "K2", allowanceUsd: 40 };
 
 	it("names a transcript it could not copy, resuming nothing", () => {
 		const { steps, callsTo } = fakeIo({
@@ -237,53 +239,37 @@ describe("moveSession (#3734, #3736)", () => {
 		expect(callsTo("stop")).toEqual([[TARGET, "s-job7"]]);
 	});
 
-	it("names a plan session moved onto a key with the overflow prefix, its job's name after it (#4395)", () => {
+	/** The `-n` a move onto `target` passes, its transcript naming the session `name`. */
+	const movedName = (name: string | null, target: object = OnKey) => {
+		const read: string[] = [];
 		const { steps, callsTo } = fakeIo({
-			readJobRecord: (seat) =>
-				seat === SEAT
-					? { name: "Implement 7: a title" }
-					: { state: "working", sessionId: "s-copy" },
+			sessionName: (file) => {
+				read.push(file);
+				return name;
+			},
 		});
-		steps.moveSession(
-			job,
-			{ seat: TARGET, keyVar: "K2", allowanceUsd: 40 },
-			PROMPT,
-			IDS,
-		);
+		steps.moveSession(job, target as never, PROMPT, IDS);
 		const [[args]] = callsTo("runClaude") as [[string[]]];
-		expect(args.slice(0, 5)).toEqual([
-			"--bg",
-			"--resume",
-			"s-job7",
-			"-n",
-			"Overflow · Implement 7: a title",
-		]);
+		const at = args.indexOf("-n");
+		return { name: at < 0 ? null : args[at + 1], read };
+	};
+
+	it("names a plan session moved onto a key with the overflow prefix, the name its transcript gives after it (#4395)", () => {
+		expect(movedName("Implement 7: a title")).toEqual({
+			name: "Overflow · Implement 7: a title",
+			read: ["/home/u/.claude3/projects/-home-u-repo/s-job7.jsonl"],
+		});
 	});
 
-	it("names an unnamed job moved onto a key after its prompt, and never prefixes twice (#4395)", () => {
-		const nameOf = (name: string | null) => {
-			const { steps, callsTo } = fakeIo({
-				readJobRecord: (seat) =>
-					seat === SEAT ? { name } : { state: "working", sessionId: "s-copy" },
-			});
-			steps.moveSession(
-				job,
-				{ seat: TARGET, keyVar: "K2", allowanceUsd: 40 },
-				PROMPT,
-				IDS,
-			);
-			const [[args]] = callsTo("runClaude") as [[string[]]];
-			return args[args.indexOf("-n") + 1];
-		};
-		expect(nameOf(null)).toBe("Overflow · /implement 7");
-		expect(nameOf("Overflow · Implement 7")).toBe("Overflow · Implement 7");
+	it("names a session whose transcript gives no name after its prompt, and never prefixes twice (#4395)", () => {
+		expect(movedName(null).name).toBe("Overflow · /implement 7");
+		expect(movedName("Overflow · Implement 7").name).toBe(
+			"Overflow · Implement 7",
+		);
 	});
 
 	it("leaves a session moved onto a plan seat its own name", () => {
-		const { steps, callsTo } = fakeIo();
-		steps.moveSession(job, { seat: TARGET }, PROMPT, IDS);
-		const [[args]] = callsTo("runClaude") as [[string[]]];
-		expect(args).not.toContain("-n");
+		expect(movedName("Implement 7", { seat: TARGET }).name).toBeNull();
 	});
 
 	it("stops the copy and hands it nothing where its ledger row will not write (#3730)", () => {

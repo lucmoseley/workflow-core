@@ -59,6 +59,7 @@ const { launchAuthRefusal } = require("./launch-auth.js");
 const { buildKeySettings } = require("./overflow-key.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { copyTranscript } = require("./seat-move.js");
+const { readSessionName } = require("./session-name.js");
 const { resumeSteps } = require("./refill-resume.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -628,6 +629,7 @@ const resumeIo = {
 	recordLaunch,
 	copySpendUsd: (file) => fileSpend(file).usd,
 	sessionSpendUsd,
+	sessionName: readSessionName,
 	runArbiter: (root, cmd, n, sessionId) =>
 		runChild(
 			process.execPath,
