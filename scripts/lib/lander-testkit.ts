@@ -56,6 +56,9 @@ export const markers = () => path.join(work, ".claude", "tmp", "markers");
 /** Where the levelling stub records each start, one `<cwd> <args>` line. */
 export const levelled = () => path.join(tmp, "levelled");
 
+/** Where stubTracker records each call it has no arm for, one argv a line. */
+const unansweredLog = () => path.join(tmp, "unanswered-gh");
+
 /** The script the lander starts after a move in place of level-main.js. */
 const levelStub = () => {
 	const stub = path.join(tmp, "level-stub.js");
@@ -91,7 +94,16 @@ export function landerSandbox(): void {
 		git(work, "remote", "set-url", "origin", remote);
 	});
 
-	afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+	afterEach(() => {
+		try {
+			if (fs.existsSync(unansweredLog()))
+				throw new Error(
+					`stub tracker has no recorded answer for:\n${fs.readFileSync(unansweredLog(), "utf8")}`,
+				);
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 }
 
@@ -152,11 +164,16 @@ export const writeTrackerConfig = () => {
  * A tracker of issues held in a JSON file, served by a gh stub, with the
  * config naming it. Each JSON read it answers goes through `asRecorded`, which
  * holds it to the fixture gh.contract.test.ts holds to the real gh: a list or
- * view answers only the `--json` fields asked for, as gh does.
+ * view answers only the `--json` fields asked for, as gh does. `issue close`
+ * and `issue edit` print nothing: every caller discards a write's stdout.
+ * A call with no arm exits 1 and fails the case from landerSandbox's
+ * afterEach, naming its argv, since the lander's fail-open paths can swallow
+ * the exit.
  */
 export const stubTracker = () => {
 	const store = path.join(tmp, "issues.json");
 	const refuseReland = path.join(tmp, "refuse-reland");
+	const unanswered = unansweredLog();
 	fs.writeFileSync(store, "[]");
 	const gh = stubGhScript(
 		tmp,
@@ -210,7 +227,11 @@ if (is("issue", "list")) {
 	if (a.includes("--body-file")) issue.body = fs.readFileSync(flag("--body-file"), "utf8");
 	a.forEach((w, i) => w === "--add-label" && issue.labels.push({ name: a[i + 1] }));
 	write(all);
-} else out("[]");
+} else {
+	fs.appendFileSync(${JSON.stringify(unanswered)}, JSON.stringify(a) + "\\n");
+	process.stderr.write("stub tracker has no recorded answer for: gh " + a.join(" ") + "\\n");
+	process.exit(1);
+}
 `,
 	);
 	writeTrackerConfig();
