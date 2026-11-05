@@ -8,7 +8,10 @@
  * it judges is what `git revert` of that culprit makes on the judged commit's
  * parent, recomputed here with `git merge-tree`, whose ort merge is the one
  * `git revert` runs. So the variable carries nothing past a gate but a clean
- * revert of a commit the repo holds.
+ * revert of a commit the repo holds. A culprit reverted with its conflicting
+ * dependents (#4453) is pushed as one line of reverts, so the variable may name
+ * several commits, space-separated, in the order their reverts were committed,
+ * and a push is judged one revert at a time; a commit names one.
  *
  * A CONFLICT ONLY IN ANCHOR FILES STILL COUNTS AS CLEAN (#3935). `git merge-file
  * --ours` settles the file for the side the revert is made on. Regenerating it
@@ -45,8 +48,30 @@ const ANCHOR_FILES = new Set([
 /** @param {string} sha */
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 
-/** The culprit WFC_LANDER_REVERT names, or null where it is unset. */
-const readLanderRevert = () => process.env[LANDER_REVERT_ENV] || null;
+/**
+ * The commits WFC_LANDER_REVERT names, in the order their reverts were
+ * committed, or null where it names none.
+ * @returns {string[]|null}
+ */
+const readLanderRevert = () => {
+	const named = (process.env[LANDER_REVERT_ENV] ?? "")
+		.split(" ")
+		.filter(Boolean);
+	return named.length > 0 ? named : null;
+};
+
+/**
+ * The environment a revert of `reverted` is committed or pushed in, in the
+ * order their reverts were committed.
+ * @param {string[]} reverted
+ */
+const buildRevertEnv = (reverted) => ({
+	...process.env,
+	[LANDER_REVERT_ENV]: reverted.join(" "),
+});
+
+/** @param {string} file whether readKeptAnchors settles a conflict in it */
+const isAnchorFile = (file) => ANCHOR_FILES.has(file);
 
 /**
  * @param {string} cwd
@@ -182,38 +207,71 @@ function whyNotCleanRevert(cwd, { culprit, onto, tree }) {
 }
 
 /**
- * Why the commit `sha`, pushed onto `tip`, is not the lander's revert of
- * `culprit`, or null where it is: its one parent is `tip`, its message carries
- * git's revert line for `culprit`, and its tree is the clean revert.
+ * Why the commits `sha` pushes onto `tip` are not the lander's reverts of
+ * `culprits`, in that order, or null where they are: one line of commits on
+ * `tip`, one per culprit, each with a single parent, git's revert line for its
+ * culprit in its message, and the clean revert of it on that parent as its tree.
  * @param {string} cwd
- * @param {{culprit: string, sha: string, tip: string}} pushed
+ * @param {{culprits: string[], sha: string, tip: string}} pushed
  * @returns {string|null}
  */
-function whyNotLanderRevert(cwd, { culprit, sha, tip }) {
-	const [full, head, base] = [culprit, sha, tip].map((rev) =>
-		commitSha(cwd, rev),
-	);
-	if (!full) return `${culprit} is not a commit here`;
+function whyNotLanderRevert(cwd, { culprits, sha, tip }) {
+	const full = culprits.map((c) => commitSha(cwd, c));
+	const unknown = culprits.find((_, i) => !full[i]);
+	if (unknown !== undefined) return `${unknown} is not a commit here`;
+	const [head, base] = [sha, tip].map((rev) => commitSha(cwd, rev));
 	if (!head || !base) return `${sha} or ${tip} is not a commit here`;
-	const parents = gitOut(cwd, ["rev-list", "--parents", "-n", "1", head]);
-	if (parents?.trim() !== `${head} ${base}`)
-		return `${sha} is not one commit on ${tip}`;
-	const line = buildRevertLine(full);
-	const message = gitOut(cwd, ["log", "-1", "--format=%B", head]) ?? "";
+	const listed = gitOut(cwd, [
+		"rev-list",
+		"--reverse",
+		"--parents",
+		`${base}..${head}`,
+	]);
+	const line = (listed ?? "")
+		.split("\n")
+		.filter(Boolean)
+		.map((l) => l.split(" "));
+	const isLine =
+		line.length === culprits.length &&
+		line.every(
+			([, ...parents], i) =>
+				parents.length === 1 && parents[0] === (line[i - 1]?.[0] ?? base),
+		);
+	if (!isLine)
+		return `${sha} is not ${culprits.length === 1 ? "one commit" : `a line of ${culprits.length} commits`} on ${tip}`;
+	for (const [i, [commit = "", onto = ""]] of line.entries()) {
+		const why = whyNotOneRevert(cwd, {
+			culprit: full[i] ?? "",
+			commit,
+			onto,
+		});
+		if (why !== null) return why;
+	}
+	return null;
+}
+
+/**
+ * Why `commit` is not the clean revert of `culprit` on its parent `onto`,
+ * carrying git's revert line, or null where it is.
+ * @param {string} cwd
+ * @param {{culprit: string, commit: string, onto: string}} judged
+ * @returns {string|null}
+ */
+function whyNotOneRevert(cwd, { culprit, commit, onto }) {
+	const line = buildRevertLine(culprit);
+	const message = gitOut(cwd, ["log", "-1", "--format=%B", commit]) ?? "";
 	if (!message.includes(line))
-		return `${sha}'s message does not carry "${line}"`;
-	const tree = gitOut(cwd, ["rev-parse", `${head}^{tree}`]);
-	if (tree === null) return `${sha}'s tree cannot be read`;
-	return whyNotCleanRevert(cwd, {
-		culprit: full,
-		onto: base,
-		tree: tree.trim(),
-	});
+		return `${commit}'s message does not carry "${line}"`;
+	const tree = gitOut(cwd, ["rev-parse", `${commit}^{tree}`]);
+	if (tree === null) return `${commit}'s tree cannot be read`;
+	return whyNotCleanRevert(cwd, { culprit, onto, tree: tree.trim() });
 }
 
 module.exports = {
 	LANDER_REVERT_ENV,
+	buildRevertEnv,
 	buildRevertLine,
+	isAnchorFile,
 	readKeptAnchors,
 	readLanderRevert,
 	whyNotCleanRevert,

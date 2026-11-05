@@ -86,6 +86,25 @@ describe("ticketFiler", () => {
 		expect(f.reopened).toEqual([]);
 	});
 
+	it("files the culprit's fix ticket past an open re-land ticket of a dependent reverted with it, whose title names its sha too, and names that ticket (#4453)", () => {
+		const D = "d".repeat(40);
+		const f = filer("Add the widget (#12)", {
+			states: { 12: "open" },
+			listed: [
+				{
+					number: 7,
+					title: `Re-land ${D.slice(0, 9)}, reverted with ${C.slice(0, 9)} by the lander: x`,
+				},
+			],
+		});
+		const said = f.said({
+			dependents: [{ commit: D, revert: R, files: ["shared.txt"] }],
+		});
+		expect(said).toBe("fix ticket already open: #7\nFiled #9: https://x/9");
+		const [{ input }] = f.files;
+		expect(input).toContain(`- ${D.slice(0, 9)}, reverted in ${R}: #7`);
+	});
+
 	it("names the failing CI jobs where the tester named no failing file (#3253)", () => {
 		const bodies: string[] = [];
 		ticketFiler({
