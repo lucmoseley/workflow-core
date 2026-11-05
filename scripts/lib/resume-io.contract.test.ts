@@ -21,12 +21,11 @@ import {
 } from "./agents-stop-fake";
 import { parseResumed } from "./bg-resume.js";
 import {
-	buildBgBranch,
 	buildRekeyedResponse,
 	FAKE_COPY,
 	type ResumeKind,
 } from "./bg-resume-fake";
-import { writeClaudeStub } from "./claude-stub";
+import { buildBgBranch, writeClaudeStub } from "./claude-stub";
 import { ledgerPath } from "./dispatch-ledger.js";
 import { jobDirPath, jobStatePath } from "./job-paths.js";
 import { markersDir, PASS_MARKER_PREFIXES } from "./marker-root.js";

@@ -14,12 +14,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import {
-	buildBgBranch,
-	buildRekeyedResponse,
-	FAKE_COPY,
-} from "./bg-resume-fake";
-import { writeClaudeStub } from "./claude-stub";
+import { buildRekeyedResponse, FAKE_COPY } from "./bg-resume-fake";
+import { buildBgBranch, writeClaudeStub } from "./claude-stub";
 import { jobDirPath, jobStatePath } from "./job-paths.js";
 import { resumeSteps } from "./refill-resume.js";
 import { buildResumeIo } from "./resume-io.js";
@@ -89,7 +85,7 @@ it("runs the --bg --resume in the job record's worktree, leaving its uncommitted
 	writeClaudeStub(bin, [
 		buildBgBranch({
 			out,
-			onResume: `pwd -P > ${shellQuote(ranIn)}; printf %s ${shellQuote(running)} > ${shellQuote(record)}`,
+			onLaunch: `pwd -P > ${shellQuote(ranIn)}; printf %s ${shellQuote(running)} > ${shellQuote(record)}`,
 		}),
 	]);
 	Object.assign(process.env, {
