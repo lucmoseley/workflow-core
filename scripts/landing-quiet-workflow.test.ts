@@ -81,6 +81,12 @@ describe("landing-quiet.yml", () => {
 		expect(job.if).toContain("lucmoseley/workflow-core");
 	});
 
+	it("asks the ref switch which branch it watches, from this checkout", () => {
+		expect(step.run).toContain(
+			"node scripts/lib/landing-refs.js pushed-branch",
+		);
+	});
+
 	it("names the threshold it applies where an email shows it", () => {
 		const hours = step.env.QUIET_HOURS;
 		expect(workflow.name).toContain(`${hours}h`);

@@ -52,7 +52,10 @@ jobs:
         # moves landing and must turn this green. curl for --retry-all-errors,
         # which `gh api` lacks; 3 retries is a guess.
         run: |
-          branch=$(node scripts/lib/landing-refs.js pushed-branch)
+          if ! branch=$(node scripts/lib/landing-refs.js pushed-branch); then
+            echo "::error title=Check broken, not a stall::Could not ask scripts/lib/landing-refs.js which branch sessions push to, its error above. The push age is unread: read git log, then this run's log."
+            exit 1
+          fi
           activity="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/activity?ref=refs/heads/$branch&per_page=1"
           if ! pushed=$(curl -fsS --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" "$activity" | jq -er '.[0].timestamp'); then
             echo "::error title=Check broken, not a stall::Could not read $branch's newest push from $activity. Its state is unknown: read git log origin/$branch, then this run's log."

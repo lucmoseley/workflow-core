@@ -131,10 +131,11 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  * @typedef {{text: string, isOutage: boolean}} ProbeFailure
  */
 
-/* Untraced: a clear check runs inside a tick, which it must not hold for long,
- * and has to span a slow `git fetch`. */
 /* The pushed ref a probe resolves with the `landing` module on. */
 const PUSHED = pushedRefFor(true);
+
+/* Untraced: a clear check runs inside a tick, which it must not hold for long,
+ * and has to span a slow `git fetch`. */
 const CLEAR_CHECK_TIMEOUT_MS = 30_000;
 
 /* How long the runner waits after its TERM before its KILL; a guess, as

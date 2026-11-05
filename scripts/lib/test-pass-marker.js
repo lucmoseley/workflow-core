@@ -62,7 +62,12 @@ const {
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
-const { pushedRef, startRef, VERIFIED_REF } = require("./landing-refs.js");
+const {
+	landingOn,
+	pushedRefFor,
+	startRefFor,
+	VERIFIED_REF,
+} = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
@@ -1358,7 +1363,8 @@ function attestationOf(
 	if (!ctx.root) return { judged: false, why: "no git repository to read" };
 	const { git } = gitReader(ctx);
 	const fromRemote = Boolean(remoteSha && !ZERO_SHA.test(remoteSha));
-	const start = startRef({ root: ctx.root });
+	const on = landingOn({ root: ctx.root });
+	const start = startRefFor(on);
 	let base;
 	let range;
 	try {
@@ -1378,7 +1384,7 @@ function attestationOf(
 	 * range keeps tree holding: with nothing to push, no landing change waits
 	 * to be tested with the pusher's. */
 	const countedPaths =
-		pushedRef({ root: ctx.root }) !== VERIFIED_REF && range.length > 0
+		pushedRefFor(on) !== VERIFIED_REF && range.length > 0
 			? new Set(range)
 			: null;
 	if (within) {

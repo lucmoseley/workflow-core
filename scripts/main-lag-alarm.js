@@ -27,7 +27,11 @@
  * Needs no npm install.
  */
 
-const { LANDING_BRANCH } = require("./lib/landing-refs.js");
+const {
+	LANDING_BRANCH,
+	LANDING_REF,
+	VERIFIED_REF,
+} = require("./lib/landing-refs.js");
 const { STALL_MS, formatHoursMin } = require("./lib/landing-stall.js");
 
 /* GitHub's ceiling for one page of the activity feed. */
@@ -120,7 +124,7 @@ async function judgeLag(get, now) {
 	if (!isQueued(status))
 		return {
 			stalled: false,
-			line: `main ${mainSha.slice(0, 9)}, last pushed ${tip.timestamp}, is level with landing (${status}).`,
+			line: `main ${mainSha.slice(0, 9)}, last pushed ${tip.timestamp}, is level with ${LANDING_BRANCH} (${status}).`,
 		};
 	const landing = await readPushes(get, LANDING_BRANCH, PUSH_PAGE);
 	const atMove = landing.find((p) => Date.parse(p.timestamp) <= mainAt);
@@ -135,7 +139,7 @@ async function judgeLag(get, now) {
 			? mainAt
 			: Date.parse(firstAfter.timestamp);
 	const age = now - since;
-	const line = `main has not moved since ${tip.timestamp}, with landing ${status} of it since ${new Date(since).toISOString()}: ${formatHoursMin(age)}, against ${formatHoursMin(STALL_MS)}.`;
+	const line = `main has not moved since ${tip.timestamp}, with ${LANDING_BRANCH} ${status} of it since ${new Date(since).toISOString()}: ${formatHoursMin(age)}, against ${formatHoursMin(STALL_MS)}.`;
 	return { stalled: age > STALL_MS, line };
 }
 
@@ -176,7 +180,7 @@ async function runAlarm({ get, now, say }) {
 		verdict = await judgeLag(get, now);
 	} catch (e) {
 		say(
-			`::error title=Check broken, not a stall::Could not read main's lag behind ${LANDING_BRANCH}: ${e instanceof Error ? e.message : String(e)}. The queue's state is unknown: read git log origin/main..origin/landing, then this run's log.`,
+			`::error title=Check broken, not a stall::Could not read main's lag behind ${LANDING_BRANCH}: ${e instanceof Error ? e.message : String(e)}. The queue's state is unknown: read git log ${VERIFIED_REF}..${LANDING_REF}, then this run's log.`,
 		);
 		return 2;
 	}

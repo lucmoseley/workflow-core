@@ -8,7 +8,7 @@
  */
 
 const { MOVED_LINE } = require("./land-refusal.js");
-const { pushedRefFor, startRefFor } = require("./landing-refs.js");
+const { branchOf, pushedRefFor, startRefFor } = require("./landing-refs.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -30,9 +30,15 @@ const NOT_MOVED = /^(?:refused: |waiting: main carries |level main: failed)/;
 const HEADER = /^levelling (\S.*)$/;
 const STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s/;
 const LAND = /\bsession-checkout\.js\s+land\b/;
-const MERGED_AND_PUSHED =
-	/pushed ([0-9a-f]{7,40}) to landing, origin\/landing merged in first/;
-const PUSHED = /pushed [0-9a-f]{7,40} to landing/;
+/** @param {string} text */
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+/* scripts/session-checkout.js's land line, which names the pushed ref. */
+const PUSHED_REF = pushedRefFor(true);
+const PUSHED_TO = `pushed ([0-9a-f]{7,40}) to ${escapeRe(branchOf(PUSHED_REF))}`;
+const MERGED_AND_PUSHED = new RegExp(
+	`${PUSHED_TO}, ${escapeRe(PUSHED_REF)} merged in first`,
+);
+const PUSHED = new RegExp(PUSHED_TO);
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 /* #4229's prediction, from #4166's replay: pushes that find `landing` moved
  * and so merge first, a week, at W = 15 to 60 min. */
@@ -387,7 +393,7 @@ function landRates(c, w) {
 	let verdict = "within";
 	if (rate < low) verdict = "below";
 	else if (rate > high) verdict = "above";
-	return `landing route a week: ${rate} merged ${pushedRefFor(true)} first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
+	return `landing route a week: ${rate} merged ${PUSHED_REF} first, of ${weekly(landed)} pushed — ${verdict} the predicted ${low}–${high} (#4229; against ${SHARED_MERGES} merges on the shared checkout); ${weekly(moved)} refused because a neighbour pushed first, ${share} of ${tried} push attempt(s) (#4166: 6% of pushes came under 60 s after another)`;
 }
 
 /**

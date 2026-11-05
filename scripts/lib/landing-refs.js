@@ -15,7 +15,7 @@
  * does. A reader already holding the module's state asks `startRefFor` or
  * `pushedRefFor`.
  *
- *   node scripts/lib/landing-refs.js start|pushed|unpushed|pushed-branch [<root>]
+ *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<root>]
  *     prints that ref, or the pushed ref's branch, for the checkout at <root>,
  *     else the host root, for shell and workflows
  */
@@ -48,6 +48,7 @@ function branchOf(ref) {
 }
 
 /**
+ * Whether the `landing` module is on, for a reader asking both answers.
  * @param {{root?: string}} [opts]
  * @returns {boolean}
  */
@@ -130,18 +131,24 @@ function readUnpushedRef(opts) {
 if (require.main === module) {
 	const [verb, root, ...more] = process.argv.slice(2);
 	const answer = new Map([
-		["start", startRef],
 		["pushed", pushedRef],
 		["unpushed", readUnpushedRef],
+		/* Strict, for a workflow: a config that will not read fails here rather
+		 * than naming `main`, which would watch the wrong branch unseen. */
 		[
 			"pushed-branch",
-			(/** @type {{root?: string}|undefined} */ o) => branchOf(pushedRef(o)),
+			(/** @type {{root?: string}|undefined} */ o) =>
+				branchOf(
+					pushedRefFor(
+						require("./workflow-core-config.js").moduleOn("landing", o),
+					),
+				),
 		],
 	]).get(verb ?? "");
 	if (!answer || more.length > 0) {
 		require("./write-fd.js").writeFd(
 			2,
-			"usage: landing-refs.js start|pushed|unpushed|pushed-branch [<root>]\n",
+			"usage: landing-refs.js pushed|unpushed|pushed-branch [<root>]\n",
 		);
 		process.exit(2);
 	}
@@ -151,6 +158,7 @@ if (require.main === module) {
 module.exports = {
 	branchOf,
 	LANDING_BRANCH,
+	landingOn,
 	LANDING_REF,
 	pushedRef,
 	pushedRefFor,

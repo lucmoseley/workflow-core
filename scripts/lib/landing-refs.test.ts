@@ -18,7 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
 
-const { pushedRef, readUnpushedRef } =
+const { pushedRef, readUnpushedRef, startRef } =
 	createRequire(__filename)("./landing-refs.js");
 const SCRIPT = path.join(__dirname, "landing-refs.js");
 
@@ -56,6 +56,20 @@ describe("pushedRef", () => {
 	it("is origin/main where the config will not read", () => {
 		host(null, "{ not json");
 		expect(pushedRef({ root })).toBe("origin/main");
+	});
+});
+
+describe("startRef", () => {
+	it("is origin/landing where the landing module is on, as pushedRef is", () => {
+		host(["suites", "landing"]);
+		expect(startRef({ root })).toBe("origin/landing");
+	});
+
+	it("is origin/main where the module is off or the config will not read", () => {
+		host(["suites"]);
+		expect(startRef({ root })).toBe("origin/main");
+		host(null, "{ not json");
+		expect(startRef({ root })).toBe("origin/main");
 	});
 });
 
@@ -117,11 +131,25 @@ describe("the CLI", () => {
 		expect(r.stdout).toBe("origin/landing\n");
 	});
 
+	it("prints the pushed ref's branch for a workflow", () => {
+		host(["landing"]);
+		const r = cli(["pushed-branch", root]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("landing\n");
+	});
+
+	it("fails the pushed branch on a config that will not read, never naming main", () => {
+		host(null, "{ not json");
+		const r = cli(["pushed-branch", root]);
+		expect(r.status).not.toBe(0);
+		expect(r.stdout).toBe("");
+	});
+
 	it("refuses anything else with its usage", () => {
 		const r = cli(["verified"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			"usage: landing-refs.js pushed|unpushed [<root>]",
+			"usage: landing-refs.js pushed|unpushed|pushed-branch [<root>]",
 		);
 	});
 });

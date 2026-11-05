@@ -125,7 +125,7 @@ const publishRule = (ctx) =>
 		? ruleOrFallback(
 				ctx,
 				"branch-publish-landing",
-				`Work lands through \`${LANDING_BRANCH}\` — never a push to \`main\`, no other branch on the remote, and never a pull request`,
+				"Work lands through `landing` — never a push to `main`, no other branch on the remote, and never a pull request",
 			)
 		: ruleOrFallback(
 				ctx,
@@ -162,7 +162,7 @@ const mainRewind = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const landingRewind = (ctx, what, segment) => ({
-	reason: `This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "landing-rewind", `Never force-push or delete \`${LANDING_BRANCH}\``)}`,
+	reason: `This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "landing-rewind", "Never force-push or delete `landing`")}`,
 	segment,
 });
 
