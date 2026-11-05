@@ -1,8 +1,8 @@
 /*
- * file-claim.js — the dispatcher core that refuses a write to a file another
- * live session is holding (mantahostels#113), and hands a session the claim
- * rules before its first mistake rather than only in the refusal that follows
- * one (mantahostels#1646, spec mantahostels#1762). Its production port is
+ * file-claim.js — the dispatcher core that warns a write to a file another
+ * live session is holding of the likely merge conflict (mantahostels#113,
+ * #4249), and hands a session the claim rules at its first guarded write
+ * (mantahostels#1646, spec mantahostels#1762). Its production port is
  * lib/file-claim-host.js.
  *
  * THIN BY DESIGN. Every verdict is the arbiter's — scripts/session-arbiter.js
@@ -52,17 +52,16 @@
  * never in silence. Output that is not JSON is logged and the write allowed.
  *
  * THE TIER TEST IS THIS CORE'S, AND CHOOSES ONLY WHETHER TO SPEAK. The arbiter
- * stays the authority on what is claimed and refused (mantahostels#102); a
+ * stays the authority on what is claimed and contended (mantahostels#102); a
  * prefix drifted out of step here costs a hint not given, never a wrong
  * verdict. It reads the path as the session's tree spells it, and that tree's
  * register, so a linked worktree's write is read by its own repo-relative path
- * (#4242). It refuses on docs/, .claude/, CLAUDE.md and AGENTS.md; scripts/ is
- * a detect-only tier (mantahostels#287) never denied on; everything further
+ * (#4242). It warns on docs/, .claude/, CLAUDE.md and AGENTS.md; scripts/ is
+ * a detect-only tier (mantahostels#287) never warned on; everything further
  * out is left to git (mantahostels#103). ONE HOLE: .claude/tmp/, the sanctioned
  * scratch directory (mantahostels#2089, mantahostels#2103), which
  * arbiter-core.js's EXEMPT list drops from both tiers and this core keeps the
- * claim rules off — throwaway bytes carry no claim to release and no debt to
- * own.
+ * claim rules off — throwaway bytes carry no claim to release.
  *
  * THE RULES, in each call's PRIORITY ORDER. What priority means here is
  * SURVIVAL, not importance (mantahostels#2386): the ids arrive in one
@@ -71,8 +70,6 @@
  *  - claim-bash-route LEADS the claim cluster: the injection stops at the
  *    first id that does not fit rather than skipping to a smaller one, and
  *    nothing anywhere reprints claim-bash-route.
- *  - denied-edit-debt is LAST: a refusal reprints it in full with the real
- *    path, so it costs nothing on the deny tier.
  *  - A path-tied rule leads the docs arm on its own path, in a host with every
  *    module it names on (#2302): roadmap-edit on docs/reference-roadmap.html
  *    (#2021; nothing here tells a hand edit from the roadmap-edit loop's own,
@@ -105,9 +102,7 @@
  *  - THE NOTE SPENDS THE CEILING. Each arm's first envelope is nearly full, so
  *    a note of a few hundred bytes drops file-claim to the next write —
  *    mantahostels#2334's whole-file notice on docs/doc-map.md already does on
- *    the deny arm. It defers unlatched and arrives whole next time.
- *  - A REFUSAL still displaces the cluster whole; denied-edit-debt is
- *    reprinted in it, the other three are not.
+ *    the guarded arm. It defers unlatched and arrives whole next time.
  *  - The entry ids are read off tool writes only: a `sed -i`, a heredoc or a
  *    script appending an entry is never warned about.
  */
@@ -355,7 +350,6 @@ function docsRules(rel, { agentDoc, cls }, note, ctx) {
 			"claim-bash-route",
 			"file-claim",
 			"claim-release",
-			"denied-edit-debt",
 		],
 	};
 }
@@ -383,7 +377,6 @@ function scriptRules(rel, agentDoc, creating, note) {
 				"claim-bash-route",
 				"file-claim",
 				"claim-release",
-				"denied-edit-debt",
 			],
 		};
 	/* The adopter templates of CLAUDE.md and AGENTS.md live here. */
@@ -396,7 +389,6 @@ function scriptRules(rel, agentDoc, creating, note) {
 			"claim-bash-route",
 			"file-claim",
 			"claim-release",
-			"denied-edit-debt",
 		],
 	};
 }

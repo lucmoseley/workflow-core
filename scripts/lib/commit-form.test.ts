@@ -94,13 +94,6 @@ const { readRuleText } = req("./rule-text.js") as {
 	readRuleText: (id: string) => string;
 };
 
-/* The arbiter is CommonJS, required here only to ARRANGE a foreign claim the
- * core then reads back through the same store. */
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const store: any = req("./arbiter-store.js");
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const proc: any = req("./arbiter-proc.js");
-
 const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");
 
 let dir: string;
@@ -2181,266 +2174,6 @@ describe("an unset variable in the target is the cwd (#312, #326)", () => {
 	});
 });
 
-/*
- * mantahostels#1539. A pathspec takes the WORKING-TREE copy of every path it names, so the
- * index rule this guard's headline teaches cures nothing here: commit 607c6f63
- * followed it exactly and still landed a neighbour's whole new doc-map
- * entry under a message describing only its own.
- *
- * Warn-only and whole-file, per mantahostels#1560; the test is mantahostels#1558's, and lives in
- * arbiter-store.test.ts. What only shows here is the seam: which commands reach
- * it, and what the session actually reads.
- */
-describe("a pathspec commit warns when it would sweep a live neighbour's work", () => {
-	const doc = "docs/a.md";
-	const mapPath = "docs/doc-map.md";
-	const abs = (rel: string) => path.join(shared, rel);
-
-	/** A doc-map with two §B entries, so a region claim has somewhere to live. */
-	const map = (b196: string, b197: string) =>
-		[
-			"# Doc map",
-			"",
-			"## Section B — figures",
-			"",
-			"The preamble.",
-			"",
-			"### B196 · The first",
-			"",
-			b196,
-			"",
-			"### B197 · The second",
-			"",
-			b197,
-			"",
-		].join("\n");
-
-	const write = (rel: string, text: string) => {
-		fs.mkdirSync(path.dirname(abs(rel)), { recursive: true });
-		fs.writeFileSync(abs(rel), text);
-	};
-
-	/**
-	 * A live session other than the committer, holding `subject` with the tree's
-	 * current bytes pinned — the arrangement mantahostels#1558's test fires on.
-	 *
-	 * The registry entry is written by hand rather than through the testkit
-	 * sandbox, because this suite's repo and config dir are its own.
-	 */
-	const neighbour = (subject: string, session = "alice", name?: string) => {
-		fs.mkdirSync(path.join(config, "sessions"), { recursive: true });
-		fs.writeFileSync(
-			path.join(config, "sessions", `${process.pid}.json`),
-			JSON.stringify({
-				pid: process.pid,
-				sessionId: session,
-				procStart: proc.readProcStartOf(process.pid),
-				status: "idle",
-				cwd: shared,
-				...(name === undefined ? {} : { name }),
-			}),
-		);
-		const me = store.identify(session);
-		store.acquire(subject, me);
-		store.recordContent(subject, me);
-	};
-
-	beforeEach(() => {
-		writes();
-		write(doc, "committed\n");
-		write(mapPath, map("B196 as committed.", "B197 as committed."));
-		git(shared, "add", "-A");
-		git(shared, "commit", "-qm", "seed");
-	});
-
-	it("names the path, the holder and the act", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc, "alice", "Wayfinder 1584");
-		const out = run(`git commit -m "x" -- ${doc}`);
-		expect(out).toContain("This commit names docs/a.md");
-		expect(out).toContain("(Wayfinder 1584)");
-		expect(out).toContain("swept in under your message");
-		expect(out).toContain("#1539");
-	});
-
-	it("fires through an unset variable in the target (#326)", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc, "alice", "Wayfinder 1584");
-		expect(run(`git -C "$UNSET_326" commit -m "x" -- ${doc}`)).toContain(
-			"This commit names docs/a.md",
-		);
-	});
-
-	it("offers the other paths where the pathspec names any (mantahostels#3272)", () => {
-		write(doc, "alice's unsaved edit\n");
-		write("b.md", "mine\n");
-		git(shared, "add", "b.md");
-		git(shared, "commit", "-qm", "b");
-		write("b.md", "my own edit\n");
-		neighbour(doc, "alice", "Wayfinder 1584");
-		const out = run(`git commit -m "x" -- ${doc} b.md`);
-		expect(out).toContain("Commit your own paths instead");
-		expect(out).not.toContain("Swept:");
-	});
-
-	it("counts a directory word as another path — it names more than the file", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(run('git commit -m "x" -- docs')).toContain(
-			"Commit your own paths instead",
-		);
-	});
-
-	it("hands back the declared sweep where the file IS the whole pathspec (mantahostels#3270)", () => {
-		// "Commit your own paths instead" offers no move at all here, which is
-		// the defect mantahostels#3272 replaced this foot to fix.
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc, "alice", "Wayfinder 1584");
-		const out = run(`git commit -m "x" -- ${doc}`);
-		expect(out).toContain("This file is the whole pathspec");
-		expect(out).toContain("Swept: docs/a.md (Wayfinder 1584)");
-		expect(out).not.toContain("Commit your own paths instead");
-	});
-
-	it("composes the declared sweep from the region, not a template", () => {
-		write(mapPath, map("B196 as committed.", "B197, alice's unsaved edit."));
-		neighbour(`${mapPath}#B197`, "alice", "Wayfinder 1584");
-		expect(run(`git commit -m "x" -- ${mapPath}`)).toContain(
-			"Swept: §B197 (Wayfinder 1584)",
-		);
-	});
-
-	it("reads `./docs/a.md` as the whole pathspec, not as another path (mantahostels#3315)", () => {
-		// The foot compares the resolved word against the arbiter's repo-relative
-		// answer; without normalisation the `./` made them different paths.
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc, "alice", "Wayfinder 1584");
-		const out = run(`git commit -m "x" -- ./${doc}`);
-		expect(out).toContain("This file is the whole pathspec");
-		expect(out).not.toContain("Commit your own paths instead");
-	});
-
-	it("keeps the old foot where a pathspec word's text cannot be read", () => {
-		// The word is dropped from the resolved list, so the collision-only test
-		// would otherwise say there is nothing else to commit when $OTHER may
-		// well name something.
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc, "alice", "Wayfinder 1584");
-		const out = run(`git commit -m "x" -- ${doc} "$OTHER"`);
-		expect(out).toContain("Commit your own paths instead");
-		expect(out).not.toContain("This file is the whole pathspec");
-	});
-
-	it("caps the collision sentences at ten, in both lists (mantahostels#3272)", () => {
-		// One list rendered twice, so one cap governs both. Twelve claimed files,
-		// all named by the pathspec, so the declared-sweep foot is the one shown.
-		const files: string[] = [];
-		for (let i = 0; i < 12; i++) {
-			const rel = `docs/c${i}.md`;
-			write(rel, "committed\n");
-			files.push(rel);
-		}
-		git(shared, "add", "-A");
-		git(shared, "commit", "-qm", "twelve");
-		for (const rel of files) write(rel, "alice's unsaved edit\n");
-		for (const rel of files) neighbour(rel, "alice", "Wayfinder 1584");
-		const text = run(`git commit -m "x" -- ${files.join(" ")}`);
-		expect(text.match(/swept in under your message/g)).toHaveLength(10);
-		expect(text.match(/^ {2}Swept: /gm)).toHaveLength(10);
-		expect(text).toContain("… and 2 more claimed path(s) this commit names.");
-		expect(text).toContain("\n  … and 2 more\n");
-	});
-
-	it("hands back no recovery command — nothing has been swept yet (mantahostels#1582)", () => {
-		// The warn is PreToolUse. The actor who needs the neighbour's bytes after a
-		// sweep is the neighbour, and session-arbiter.js already reaches them.
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(run(`git commit -m "x" -- ${doc}`)).not.toContain("cat-file");
-	});
-
-	it("does not tell the session to wait for the holder to release (mantahostels#1406)", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(run(`git commit -m "x" -- ${doc}`)).not.toMatch(/\bwait\b/i);
-	});
-
-	it("names the neighbour's region, and says the whole file goes anyway", () => {
-		write(mapPath, map("B196 as committed.", "B197, alice's unsaved edit."));
-		neighbour(`${mapPath}#B197`, "alice", "Wayfinder 1584");
-		const out = run(`git commit -m "x" -- ${mapPath}`);
-		expect(out).toContain("holds a claim on §B197 of it");
-		expect(out).toContain(
-			"takes the whole working-tree file, their region included",
-		);
-	});
-
-	it("says nothing about a path no live session holds", () => {
-		write(doc, "my own edit\n");
-		expect(verdict(`git commit -m "x" -- ${doc}`)).toBe("allow");
-	});
-
-	it("says nothing about the contended path when the commit does not name it", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(verdict('git commit -m "x" -- a.md')).toBe("allow");
-	});
-
-	it("warns on a contended path reached through a directory in the pathspec", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(verdict('git commit -m "x" -- docs')).toBe("warn");
-	});
-
-	it("never fires mid-sequence — a merge commit carries no pathspec", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		fs.writeFileSync(
-			path.join(shared, ".git", "MERGE_HEAD"),
-			git(shared, "rev-parse", "HEAD"),
-		);
-		expect(verdict(`git commit -m "x" -- ${doc}`)).toBe("allow");
-	});
-
-	it("is outranked by the sweeping deny in the same command", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(verdict(`git commit -am "x" -- ${doc}`)).toBe("deny");
-		// "Outranked" is a claim about WHICH message won, so it must be checked.
-		expect(readDenyReason(`git commit -am "x" -- ${doc}`)).toContain(SWEEPS);
-	});
-
-	it("says nothing when the pathspec word's text cannot be read", () => {
-		// An unexpanded $VAR: the guard judges on what it can see and guesses at
-		// nothing (mantahostels#103 §6).
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(verdict('git commit -m "x" -- "$PATHS"')).toBe("allow");
-	});
-
-	it("says nothing with no session id — there is nobody to except", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		expect(run(`git commit -m "x" -- ${doc}`, shared, null)).toBe("");
-	});
-
-	it("still warns on a claimed path where the write ledger cannot be read, the sweep check needing none (mantahostels#3278)", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		recordWrite("b.md");
-		lockLedger();
-		expect(verdict(`git commit -m "x" -- ${doc}`)).toBe("warn");
-		expect(logged()).not.toMatch(/sweep check was skipped/);
-	});
-
-	it("records nothing beside the sweep check where the ledger reads", () => {
-		write(doc, "alice's unsaved edit\n");
-		neighbour(doc);
-		run(`git commit -m "x" -- ${doc}`);
-		expect(logged()).toBe("");
-	});
-});
-
 /** The escape both untracked-path warns offer: the commit script first, the hand-typed intent-add after it. */
 const expectScriptAheadOfAddN = (out: string) => {
 	const script = out.indexOf("node scripts/commit-paths.js");
@@ -2602,30 +2335,6 @@ describe("a pathspec commit warns when it names a path git does not track", () =
 			verdict(`git commit -m "x" -- ${path.join(dir, "outside.md")}`),
 		).toBe("allow");
 		expect(logged()).toContain("left unjudged for mantahostels#1612");
-	});
-
-	it("outranks the neighbour-sweep warn when one command triggers both", () => {
-		writes();
-		// git rejects the whole commit, so the sweep never happens.
-		fs.writeFileSync(path.join(shared, "a.md"), "alice's unsaved edit\n");
-		fs.mkdirSync(path.join(config, "sessions"), { recursive: true });
-		fs.writeFileSync(
-			path.join(config, "sessions", `${process.pid}.json`),
-			JSON.stringify({
-				pid: process.pid,
-				sessionId: "alice",
-				procStart: proc.readProcStartOf(process.pid),
-				status: "idle",
-				cwd: shared,
-			}),
-		);
-		const me = store.identify("alice");
-		store.acquire("a.md", me);
-		store.recordContent("a.md", me);
-		newFile("new.md");
-		const out = run('git commit -m "x" -- a.md new.md');
-		expect(out).toContain("git does not track yet");
-		expect(out).not.toContain("#1539");
 	});
 
 	it("needs no session id — it reads git, not the write ledger", () => {
@@ -2815,19 +2524,17 @@ describe("a pathspec commit warns when a directory word leaves a new file behind
 });
 
 /*
- * mantahostels#3280. Two warns outranked the pathspec-sweep verdict defectively, and the
- * fix is to those warns rather than to the ordering rule.
+ * mantahostels#3280.
  *
- * D1: mantahostels#1612 rests on "git rejects the whole commit, so the sweep never
- * happens". That is false of `git add -N x && git commit … -- x …` — the escape
- * mantahostels#1612 itself prints. The guard judges PreToolUse, so x is untracked here and
- * tracked by the time git runs: the commit succeeds and the sweep did reach the
- * tree.
+ * D1: mantahostels#1612 rests on "git rejects the whole commit". That is false
+ * of `git add -N x && git commit … -- x …` — the escape mantahostels#1612
+ * itself prints. The guard judges PreToolUse, so x is untracked here and
+ * tracked by the time git runs: the commit succeeds.
  *
- * D2: mantahostels#1651 describes a commit that SUCCEEDS and leaves scratch behind, and it
- * took the slot ahead of one that succeeds and takes a neighbour's work.
+ * D2: mantahostels#1651 describes a commit that SUCCEEDS and leaves scratch
+ * behind, so it is the lowest-ranked warn.
  */
-describe("the warns that outranked the sweep verdict defectively (mantahostels#3280)", () => {
+describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 	const doc = "docs/a.md";
 
 	const newFile = (rel: string, text = "new\n") => {
@@ -2835,40 +2542,20 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 		fs.writeFileSync(path.join(shared, rel), text);
 	};
 
-	/** A live session other than the committer, holding `subject` with the tree's current bytes pinned. */
-	const neighbour = (subject: string, session = "alice") => {
-		fs.mkdirSync(path.join(config, "sessions"), { recursive: true });
-		fs.writeFileSync(
-			path.join(config, "sessions", `${process.pid}.json`),
-			JSON.stringify({
-				pid: process.pid,
-				sessionId: session,
-				procStart: proc.readProcStartOf(process.pid),
-				status: "idle",
-				cwd: shared,
-			}),
-		);
-		const me = store.identify(session);
-		store.acquire(subject, me);
-		store.recordContent(subject, me);
-	};
-
 	beforeEach(() => {
 		writes();
 		newFile(doc, "committed\n");
 		git(shared, "add", "-A");
 		git(shared, "commit", "-qm", "seed");
-		fs.writeFileSync(path.join(shared, doc), "alice's unsaved edit\n");
-		neighbour(doc);
+		fs.writeFileSync(path.join(shared, doc), "an unsaved edit\n");
 	});
 
 	describe("D1 — a word an earlier segment intent-adds", () => {
-		it("lets the sweep verdict through, mantahostels#1612 being a false positive there", () => {
+		it("suppresses mantahostels#1612, a false positive there", () => {
 			newFile("new.md");
 			const out = run(
 				`git add -N new.md && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -2900,7 +2587,7 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			newFile("new.md");
 			expect(
 				run(`git add -vN new.md && git commit -m "x" -- ${doc} new.md`),
-			).toContain("#1539");
+			).not.toContain("#1612");
 		});
 
 		it("suppresses only the word actually intent-added", () => {
@@ -2926,7 +2613,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N ./new.md && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -2935,7 +2621,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N new.md && git commit -m "x" -- ${doc} .//new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -2947,7 +2632,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git -C ${path.join(shared, "sub")} add -N new.md && git commit -m "x" -- ${doc} sub/new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -2958,7 +2642,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N src/new.md && git commit -m "x" -- ${doc} src`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -2977,7 +2660,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N src && git commit -m "x" -- ${doc} src/new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3005,7 +2687,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -f -N src && git commit -m "x" -- ${doc} src/x.log`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3015,7 +2696,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add --force -N src && git commit -m "x" -- ${doc} src/x.log`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3025,7 +2705,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -fN src && git commit -m "x" -- ${doc} src/x.log`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3035,7 +2714,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git -C ${path.join(shared, "sub")} add -N src && git commit -m "x" -- ${doc} sub/src/new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3060,7 +2738,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3071,7 +2748,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.bin --pathspec-file-nul && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3094,7 +2770,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3104,7 +2779,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file=paths.txt && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3115,7 +2789,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} new.md other.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3125,7 +2798,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} src/new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3136,7 +2808,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git -C ${path.join(shared, "sub")} add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} sub/new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3148,7 +2819,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.bin --pathspec-file-nul && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3170,7 +2840,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3248,7 +2917,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`printf 'x\\n' > log.txt && git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3260,7 +2928,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			const out = run(
 				`printf 'other.md\\n' >> paths.txt && git add -N --pathspec-from-file paths.txt && git commit -m "x" -- ${doc} new.md`,
 			);
-			expect(out).toContain("#1539");
 			expect(out).not.toContain("#1612");
 		});
 
@@ -3341,13 +3008,6 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			fs.writeFileSync(path.join(shared, "src", "old.md"), "edited\n");
 			newFile("src/new.md");
 		};
-
-		it("loses the slot to the sweep verdict on the same command", () => {
-			mixedDir();
-			const out = run(`git commit -m "x" -- src ${doc}`);
-			expect(out).toContain("#1539");
-			expect(out).not.toContain("#1651");
-		});
 
 		it("loses to the `git add` index warn in a later segment", () => {
 			// A behaviour change mantahostels#3280 names: the index warn is the more

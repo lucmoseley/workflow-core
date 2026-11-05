@@ -104,11 +104,6 @@
  * cli-args-exempt: its own parseArgs refuses every unknown flag, `--help`
  * included, before anything is written.
  *
- * The commit guard never sees the git calls made here, so its one verdict about
- * the world — a live neighbour's unsaved edits under a named path
- * (mantahostels#1539) — is reproduced from the guard's own store read and
- * sweepWarning. Warn only.
- *
  * THE INDEX LOCK (#585). A neighbour's commit holds `index.lock` for its whole
  * run, hooks included. Detected by git's own refusal — exit 128, stderr opening
  * `fatal: Unable to create '…index.lock': File exists.` — never by polling the
@@ -160,8 +155,6 @@ const { formatHeader, parseHeader } = require("./lib/hunk-header.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
-const { sweepWarning, sweptPaths } = require("./lib/commit-form.js");
-const { readCommitCheck } = require("./lib/commit-check.js");
 const {
 	commitKey,
 	stampVariable,
@@ -884,52 +877,6 @@ function assertDirectoryCommittable(p, tracked) {
 }
 
 /**
- * The commit guard's mantahostels#1539 warning, for any named path a live neighbour holds
- * with unsaved edits, composed by the guard's own sweepWarning. Silent with no
- * session id; one line where the arbiter store gave no answer.
- * @param {string[]} paths
- */
-function warnNeighbours(paths) {
-	const session = process.env.CLAUDE_CODE_SESSION_ID;
-	if (!session) return;
-	const { sweeps, fault } = readCommitCheck(
-		paths.map((p) => path.resolve(p)),
-		session,
-	);
-	if (sweeps === null) {
-		err(
-			`${NAME}: ${fault} — the mantahostels#1539 sweep check was skipped for this commit.\n`,
-		);
-		return;
-	}
-	if (sweeps.length === 0) return;
-	// The Swept lines end in a newline already; the pointer to other paths does not.
-	const others = hasUnflaggedPath(paths, sweptPaths(sweeps));
-	err(`${sweepWarning(sweeps, others)}${others ? "\n" : ""}`);
-	err("This is a warning, not a refusal: the commit goes ahead.\n");
-}
-
-/**
- * @param {string[]} paths
- * @param {Set<string>} collided
- * @returns {boolean}
- */
-function hasUnflaggedPath(paths, collided) {
-	// Each word joined to git's own prefix for the cwd, the spelling the arbiter
-	// answers in. A mismatch fails open to "there are other paths", the guard's
-	// direction (mantahostels#3315).
-	const prefix = git(["rev-parse", "--show-prefix"]).stdout.trim();
-	return paths.some(
-		(p) =>
-			!collided.has(
-				path.posix.normalize(
-					prefix + path.relative(process.cwd(), path.resolve(p)),
-				),
-			),
-	);
-}
-
-/**
  * The files a patch touches — a rename's new name only — read from the top
  * level: from a subdirectory `git apply` drops every path outside it as if it
  * were not in the patch. Null where git cannot parse the patch.
@@ -1068,8 +1015,6 @@ function renumberHeader(line, shift) {
  */
 function commitPatch(message, cut, whole) {
 	const { patch, root, patched, sections } = preparePatch(cut, whole);
-
-	warnNeighbours(whole);
 
 	// The commit itself is made from this private index, so its sweeper starts
 	// whatever the test gate.
@@ -2256,8 +2201,6 @@ function main() {
 	if (patch !== null) commitPatch(message, patch, paths);
 
 	const { toAdd, specs } = prepareWhole(paths);
-
-	warnNeighbours(paths);
 
 	const stampEnv = preLockRun(sweptRunFiles, (index) =>
 		buildCommitIndex({ index, specs, toAdd }),

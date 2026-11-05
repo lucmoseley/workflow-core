@@ -1170,11 +1170,6 @@
 				"kind": "path",
 				"ref": "docs/agents/rules/commit-pathspec.txt",
 				"gloss": "the rule it extends"
-			},
-			{
-				"kind": "path",
-				"ref": "scripts/lib/arbiter-locks.js",
-				"gloss": "the `park()` it clears as the only working-tree restorer"
 			}
 		],
 		"reader": "agent"

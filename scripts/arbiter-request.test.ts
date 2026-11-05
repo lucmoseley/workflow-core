@@ -554,14 +554,12 @@ describe("the notice delivered to the holder (mantahostels#1783)", () => {
 		expect(r.stderr).toContain("waiting on a file this one holds");
 		expect(r.stderr).toContain("late ask");
 		// The claim is gone, so the notice must NOT send this session off to
-		// release or decline a file it no longer holds — and the park offer, which
-		// answers a refusal this release did not hit, stays unsaid.
+		// release or decline a file it no longer holds.
 		expect(r.stderr).toContain("That release answers it");
-		expect(r.stderr).not.toContain("--park");
 		expect(r.stderr).not.toContain("decline");
 	});
 
-	it("offers --park where the release refused the file as dirty", () => {
+	it("still tells the holder of the request where the release refused the file as dirty", () => {
 		committedRepo();
 		registerSession(sb, "holder", process.pid);
 		expect(claim("holder").status).toBe(0);
@@ -574,8 +572,7 @@ describe("the notice delivered to the holder (mantahostels#1783)", () => {
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("waiting on a file this one holds");
-		expect(r.stderr).toContain("release --park");
-		expect(r.stderr).toContain("uncommitted work");
+		expect(r.stderr).toContain("still holds an uncommitted change");
 	});
 
 	it("stays silent on a request the holder has already declined", () => {
@@ -731,10 +728,7 @@ describe("claim-all settles only what it really claimed (#1487)", () => {
 		neighbourHolds("neighbour", "docs/a.md");
 		neighbourHolds("neighbour", detectOnly);
 		registerSession(sb, "mine", process.ppid);
-		expect(
-			cli(["claim", inRepo("docs/a.md")], { CLAUDE_CODE_SESSION_ID: "mine" })
-				.status,
-		).toBe(1);
+		store.recordWant("docs/a.md", store.identify("mine"));
 		expect(
 			cli(["claim-all", inRepo(detectOnly)], {
 				CLAUDE_CODE_SESSION_ID: "mine",

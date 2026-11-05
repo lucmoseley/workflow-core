@@ -1,16 +1,18 @@
-A FILE A LIVE SESSION HAS WRITTEN IS TAKEN. Leave it until that session
-releases it, its own commit lands all its hunks (#2058, #2148), or its process ends.
+A FILE A LIVE SESSION HAS WRITTEN IS CLAIMED. Writing it yourself is not
+refused: each session edits its own worktree, so the claim protects no bytes.
+It tells you that you and the holder are both changing the file, and that
+whichever of you lands second will likely meet a merge conflict there (#4249).
 
-Writing the file is what takes the claim. A clean `git status` alone says
-nothing about whether a file is free: a file reads clean between one session's
-own writes (mantahostels#66, an incident in its closing comment — its title names other work).
+Writing the file is what takes the claim. It runs until the holder releases it,
+its own commit lands all its hunks (#2058, #2148), or its process ends.
 
-TWO TIERS, and only the first ever refuses:
+TWO TIERS, and only the first ever warns:
 
-  docs/ .claude/ CLAUDE.md AGENTS.md   deny — the write is refused outright
+  docs/ .claude/ CLAUDE.md AGENTS.md   warn — a write to a file a neighbour
+                                       holds goes ahead, with the warning
   scripts/                             detect only — the claim is taken and
-                                       recorded, and nothing is ever refused
-                                       on it (mantahostels#287)
+                                       recorded, and nothing is said on it
+                                       (mantahostels#287)
 
 Everything else is left to git.
 
@@ -19,36 +21,10 @@ register row, or one top-level section (mantahostels#848, mantahostels#970).
 
 YOUR PRIOR BYTES ARE PINNED, so a clobber by any route is reported at your next
 write and again at release, with the recovery command below. A claim keeps the
-ten versions before this one; an unclaimed write — a detect-only path's second
-writer, or any Bash-route write — gets one, re-minted each write:
+ten versions before this one; an unclaimed write — a held file's second writer,
+or any Bash-route write — gets one, re-minted each write:
 
   node scripts/session-arbiter.js versions <path>
 
-DENIED? Wait on the holder in the background, never by asking the founder, and
-take another subject meanwhile (mantahostels#1682):
-
-  node scripts/session-arbiter.js wait <path>
-
-It exits DEADLOCK at once on the hold-while-waiting ring of mantahostels#1406.
-
-STILL BLOCKED, AND THE FILE IS THE TICKET? The escape, and the last move rather
-than the first (mantahostels#411):
-
-  node scripts/session-arbiter.js release --force <path>
-
-It is for a holder that has FINISHED while its host runs on. It refuses while
-the holder is live — every attempt measured (mantahostels#444, mantahostels#1686) — refuses on a dirty
-file, and never releases on doubt. Wait hit its ceiling, claim still held? Ask its
-holder, in band, and carry on with the rest of your ticket (mantahostels#1702):
-
-  node scripts/session-arbiter.js request <path> "<one line on why>"
-
-Only once that too refuses or goes unanswered: abandon that one edit, finish the
-rest of the ticket, and record the blocked edit as a visible debt.
-
-CONTENDED, OR NEEDING MORE THAN ONE SUBJECT? Take them together or not at all,
-in one fixed order:
-
-  node scripts/session-arbiter.js claim-all <path>...
-
-Read what is held before you start: `node scripts/session-arbiter.js list`.
+WARNED? Keep your change to that file small and land it soon, or do another
+part of your ticket first. Read what is held: `node scripts/session-arbiter.js list`.

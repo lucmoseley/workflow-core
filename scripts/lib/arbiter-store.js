@@ -14,7 +14,7 @@
  *                             the git shims, the subject vocabulary, the
  *                             sessions registry, the age sweeps
  *   arbiter-records.js        the record shapes, as types only
- *   arbiter-locks.js          the claim registry, and parking an edit
+ *   arbiter-locks.js          the claim registry
  *   arbiter-content.js        content pins, prior versions, clobber reporting
  *   arbiter-observations.js   the second writer's baseline on detect-only paths
  *   arbiter-snapshots.js      the tier scan, for writes no hook sees
@@ -172,7 +172,6 @@ module.exports = {
 	readObservedBy: observations.readObservedBy,
 	observedVersions: observations.observedVersions,
 	ownDebt: debts.ownDebt,
-	park: locksMod.park,
 	readActsBy: ledger.readActsBy,
 	readBilledPathsBy: ledger.readBilledPathsBy,
 	readCommitsBy: ledger.readCommitsBy,
@@ -207,7 +206,6 @@ module.exports = {
 	subjectFor: core.subjectFor,
 	subjectPath: core.subjectPath,
 	subjectsOverlap: core.subjectsOverlap,
-	sweepRisk: locksMod.sweepRisk,
 	sweepDebts: debts.sweepDebts,
 	readSelectsBy: ledger.readSelectsBy,
 	readLandedBy: ledger.readLandedBy,

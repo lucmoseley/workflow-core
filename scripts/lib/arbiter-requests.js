@@ -277,25 +277,17 @@ function requestAge(since) {
  * telling it that it is waiting on itself is the deadlock report's job, not
  * this one's.
  *
- * `dirty` is a THUNK, not a boolean: subjectDirty shells out to git, and the
- * common case is no request standing at all, where nothing here needs the
- * answer. cmdRelease passes a constant — its verdict already decided it.
- *
  * `freed` is the release that SUCCEEDED. Without it the notice tells a holder
  * that no longer holds anything to go and release the file, two lines before
  * dropRequests destroys the record it is reporting.
  * @param {string} subject the subject held, region tail and all
  * @param {string|null} sessionId the holder
- * @param {{ nameOf: (id: string|null) => string, dirty: () => boolean, freed?: boolean }} opts
- *   `nameOf` resolves id to name; `dirty` says whether the file carries
- *   uncommitted work; `freed` whether the caller has just given the subject up
+ * @param {{ nameOf: (id: string|null) => string, freed?: boolean }} opts
+ *   `nameOf` resolves id to name; `freed` whether the caller has just given
+ *   the subject up
  * @returns {string|null}
  */
-function buildRequestNotice(
-	subject,
-	sessionId,
-	{ nameOf, dirty, freed = false },
-) {
+function buildRequestNotice(subject, sessionId, { nameOf, freed = false }) {
 	if (!sessionId) return null;
 	const all = readRequests();
 	if (all === null) {
@@ -319,16 +311,15 @@ function buildRequestNotice(
 		),
 	);
 	if (fresh.length === 0) return null;
-	return buildRequestText(fresh, freed, freed ? false : dirty(), nameOf);
+	return buildRequestText(fresh, freed, nameOf);
 }
 
 /**
  * @param {RequestRecord[]} records
  * @param {boolean} freed the subject has just been given up
- * @param {boolean} dirty the file carries uncommitted work
  * @param {(id: string|null) => string} nameOf
  */
-function buildRequestText(records, freed, dirty, nameOf) {
+function buildRequestText(records, freed, nameOf) {
 	const one = records.length === 1;
 	const asks = records
 		.map(
@@ -345,10 +336,7 @@ function buildRequestText(records, freed, dirty, nameOf) {
 	return (
 		head +
 		"A request is a courtesy. Nothing of yours is blocked and the requester is not sitting on it — they were told to carry on with the rest of their ticket. So finish what you are doing first.\n\n" +
-		`Then either hand ${one ? "it" : "them"} over — ${buildArbiterCommand`release <path>`} — or say no, which is worth more than silence because it tells the requester *read and refused* rather than *not read yet*:\n  ${buildArbiterCommand`decline <path> "<reason>"`}\n` +
-		(dirty
-			? "\nThis file carries uncommitted work, so an ordinary release refuses it. You do not have to commit a half-finished edit to hand it over: `release --park` sets the edit aside, restores the file, releases it, and prints how to get your work back (mantahostels#1405).\n"
-			: "")
+		`Then either hand ${one ? "it" : "them"} over — ${buildArbiterCommand`release <path>`} — or say no, which is worth more than silence because it tells the requester *read and refused* rather than *not read yet*:\n  ${buildArbiterCommand`decline <path> "<reason>"`}\n`
 	);
 }
 
