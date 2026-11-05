@@ -15,6 +15,67 @@
  *
  * Loosen it and a fault in the program's own wiring, of its libs, children
  * and exits, passes unseen (#2851).
+ *
+ * Why each case stays a full tick (§X8 (5), §X11): every branch a module can
+ * own runs in-process in its module's test (#4282, #4314–#4316). A case below
+ * is a production adapter crossed for real (A), an exit path or input channel
+ * (E), a §X3 spawn shape — a signal, two processes, a real lock (S), a
+ * boundary regression (R), or a branch still in lib/refill-tick.js's or
+ * refill-loop.js's shell, with no core entry to test it from (B, #4356).
+ * - run (#2435): ends at a mid-dispatch stop E; appends the concurrency
+ *   record A; supervises a foreign checkout's launches B; tracks a launch a
+ *   kill cut off S R; tickets earlyoom's and memwatch's incidents A (two
+ *   children); the review child launches detached S, a second runner exits S;
+ *   ticks on a wake line E.
+ * - panel (#4060): keeps a failed probe's figure A (usage-probe.js).
+ * - dry run (#2611): prints the overflow dispatch E (the dry-run argv), A.
+ * - overflow allowance (#3698): stops one past it A (`claude stop`);
+ *   records the listed id B.
+ * - Console read (#4071): starts the read A; none where its row will not
+ *   write S (fail-open); none on a dry run B.
+ * - goal (#3864): reads the frontier bare once cleared A (pick-next argv).
+ * - parked launch (#2699, #3940): unlabels where it ended unblocked A; out of
+ *   scope (#3950) B, opted out B; an unreadable transcript S (fail-open);
+ *   closed issues A, an unreadable closed list S; stops an away park once A;
+ *   the #4147 key in its marker B; a hold-attached park B; the permission
+ *   cause B; the UNKNOWN line across ticks B.
+ * - API error (#2705): types into the live session A (attach, pty_type.py);
+ *   the auth refusal B; judged by state.json A; the overflow copy's key B;
+ *   the copy tracked as the job A; a launcher line naming no job B; pass
+ *   markers moved A, kept with the open past id B.
+ * - limit hold (#3735): resumes under its seat A; held where state.json reads
+ *   stopped B or another session B; the ledger hold A and its swap A; moved
+ *   to another plan seat A, unconfirmed B, an uncopied transcript B; onto a
+ *   key A, its first overflow start A, an unwritable ledger row B.
+ * - host restart (#2707): types after 5 min A; stops under the swap hold A;
+ *   a cleared swap hold resumes A, a refused re-read A (admission --launch),
+ *   a copy handed off B, a session handed off A (rescue-sessions.js).
+ * - daemon cwd (#2937): sizes the seat from the served checkout's cost
+ *   table A R (the real allowance.js).
+ * - normal-mode park (#3621): resumes in place A, on its cause's prompt A,
+ *   noting the ledger's acts B, the marker handed on A or kept S; resumes
+ *   from its marker (#3773) B ×3; launches afresh with no job A; an away
+ *   park's ledger row released before the shortlist B (#3872).
+ * - `set --resume` (#3861): restarts E, refuses a damaged control E, exits
+ *   1 on no launch E. `start` (#3868): --unless-stopped E.
+ * - a case's end (#4140): this file's own teardown, owned by no module.
+ * - boot-resume (#3878): restarts E, no second loop E, exits 1 E; watch
+ *   (#4139): restarts the unit A (systemctl), a live holder B, a launch in
+ *   flight S, a damaged control B, exits 1 E; no lock (#4083): exits 1 E S,
+ *   keeps the crash B, names the holder S, `start` exits 1 E.
+ * - paused (#3856): clears an older stop B, crossing reap and lander A;
+ *   resumes with no restart S. Opted out (#4188): unticks A. Away (#3870):
+ *   the lock held by another writer S; a dry run writes nothing B. Waits
+ *   (#3859): pauses on no progress, resumed by `set --resume` A S.
+ * - repo hold (#3857): its command run for real A; none on a dry run B.
+ *   Probe hold (#3860): a broken .git A, the other checkout A, the state's
+ *   probe A, its parked resumed A, none on a dry run B. Guard entry (#4226):
+ *   raises and files A, attaches and resumes A.
+ * - cleared repo hold (#3863): its resume step is the shell's B ×7.
+ * - restart's kills (#3880): resumed by id A, a copy a kill beat S R, set
+ *   off by boot-resume R; the manager's restart (#3971) A ×3; a resumed
+ *   session typed A, handed off A; a job no transcript backs A.
+ * - phone notice (#3871): one on raise, one on clear A (gh workflow).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
