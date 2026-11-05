@@ -77,7 +77,8 @@ const { URGENT_LABEL } = require("./urgent-label.js");
  * @property {boolean} [gateConflict]
  * @property {boolean} [gateHolds]
  * @property {boolean} [gateOnHolds]
- * @property {unknown} [excluded]
+ * @property {string|null} [excluded]
+ * @property {ExclusionCategory|null} [exclusionCategory] the tally's bucket for `excluded`
  * @property {import("./dispatch-ledger").DispatchRecord} [dispatchRec] the ledger entry holding it (#752)
  * @property {boolean} [dispatchHeld]
  * @property {boolean} [assignedUnclaimed]
@@ -281,12 +282,26 @@ const isQuestionType = (issue) =>
  */
 
 /**
+ * The open tally's buckets for an exclusion, in the tally's own order (#591).
+ * Each limb of `exclusionOf` names its own (#4381).
+ */
+const EXCLUSION_CATEGORIES = /** @type {const} */ ([
+	"degraded",
+	"blocked",
+	"claimed",
+	"already dispatched",
+	"container",
+	"gated",
+]);
+/** @typedef {typeof EXCLUSION_CATEGORIES[number]} ExclusionCategory */
+
+/**
  * Why an issue is held out of the frontier, earliest-applicable first, or
  * null where nothing holds it.
  * @param {DepsResolved} i
  * @param {EnrichContext} ctx
  * @param {{openBlockers: {label: string, native: boolean}[], dispatchReason: string|null, resolved: ReturnType<typeof resolveGate>}} facts
- * @returns {string|null}
+ * @returns {{category: ExclusionCategory, text: string}|null}
  */
 function exclusionOf(i, ctx, facts) {
 	const { openBlockers, dispatchReason, resolved } = facts;
@@ -295,25 +310,45 @@ function exclusionOf(i, ctx, facts) {
 	// these locals carry that proof where the flag alone cannot.
 	const gate = resolved.gate;
 	const gateOn = resolved.gateOn;
-	if (i.depsUnknown) return `readiness unknown — ${i.depsUnknown}`;
+	if (i.depsUnknown)
+		return {
+			category: "degraded",
+			text: `readiness unknown — ${i.depsUnknown}`,
+		};
 	if (openBlockers.length > 0)
-		return `blocked by ${openBlockers
-			.map((b) => (b.native ? b.label : `${b.label} (prose only)`))
-			.join(", ")}`;
+		return {
+			category: "blocked",
+			text: `blocked by ${openBlockers
+				.map((b) => (b.native ? b.label : `${b.label} (prose only)`))
+				.join(", ")}`,
+		};
 	if (claims.held.has(i.number))
-		return `claimed by ${claimHolder(i.assignees, claims.held.get(i.number), claims.kept, listed.names)}`;
+		return {
+			category: "claimed",
+			text: `claimed by ${claimHolder(i.assignees, claims.held.get(i.number), claims.kept, listed.names)}`,
+		};
 	const parent = parentHeld.held.get(i.number);
 	if (parent)
-		return `claimed through parent map ${parent.label} by ${claimHolder([], parent.sessionId, parent.kept, listed.names)}`;
-	if (dispatchReason) return dispatchReason;
+		return {
+			category: "claimed",
+			text: `claimed through parent map ${parent.label} by ${claimHolder([], parent.sessionId, parent.kept, listed.names)}`,
+		};
+	if (dispatchReason)
+		return { category: "already dispatched", text: dispatchReason };
 	if (openChildren.get(i.number)) {
 		const unread = ctx.blockers.childrenUnread.get(i.number);
-		return `container — ${openChildren.get(i.number)} open children${unread ? ` by its summary; sub-issues unreadable (${unread})` : ""}`;
+		return {
+			category: "container",
+			text: `container — ${openChildren.get(i.number)} open children${unread ? ` by its summary; sub-issues unreadable (${unread})` : ""}`,
+		};
 	}
 	if (resolved.gateHolds && gate && !gate.malformed)
-		return `gated until ${gate.iso} (${gate.daysLeft}d) — ${gate.reason || "no reason given"}`;
+		return {
+			category: "gated",
+			text: `gated until ${gate.iso} (${gate.daysLeft}d) — ${gate.reason || "no reason given"}`,
+		};
 	if (resolved.gateOnHolds && gateOn && !gateOn.malformed)
-		return `gated on ${gateOn.condition}`;
+		return { category: "gated", text: `gated on ${gateOn.condition}` };
 	return null;
 }
 
@@ -360,11 +395,12 @@ function enrichIssue(i, ctx) {
 	const dispatchReason = dispatchRec
 		? `dispatched ${dispatchAge(dispatchRec, ctx.now())}`
 		: null;
-	const excluded = exclusionOf(i, ctx, {
+	const exclusion = exclusionOf(i, ctx, {
 		openBlockers,
 		dispatchReason,
 		resolved,
 	});
+	const excluded = exclusion?.text ?? null;
 	return {
 		...i,
 		openBlockers,
@@ -394,7 +430,8 @@ function enrichIssue(i, ctx) {
 		gateOnHolds: resolved.gateOnHolds,
 		dispatchRec,
 		excluded,
-		dispatchHeld: dispatchReason !== null && excluded === dispatchReason,
+		exclusionCategory: exclusion?.category ?? null,
+		dispatchHeld: exclusion?.category === "already dispatched",
 		// Assigned, but no live session recorded a claim: fail open, and say so
 		// under the shortlist rather than silently. Excluded issues are left out —
 		// this run is not offering them.
@@ -446,6 +483,7 @@ function rankFrontier(enriched) {
 }
 
 module.exports = {
+	EXCLUSION_CATEGORIES,
 	enrichAll,
 	kindSetsOf,
 	proseBlockedOf,

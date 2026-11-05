@@ -67,7 +67,7 @@
  * This checker measures ONE revision and raises the level finding; the direction
  * is lib/check.js's, which materialises the index and HEAD by blob fetch, runs
  * this file over each and reports only what the commit adds. Nothing here reads
- * the working tree on either side, so a neighbour's half-saved CLAUDE.md is not
+ * the working tree on either side, so a half-saved CLAUDE.md is not
  * charged to this commit.
  *
  * WHAT --against MEANS FOR A CORE FILE (#36). CAP_SOURCE is a core file
@@ -657,8 +657,8 @@ function readDescriptions(ctx, root) {
 	const skillsDir = path.join(root, ".claude", "skills");
 	const commandsDir = path.join(root, ".claude", "commands");
 	/**
-	 * A run pointed at the shared working tree reads whatever a neighbour has
-	 * mid-save, so it can disagree with the same commit's --against reading, which
+	 * A run pointed at the working tree reads its uncommitted bytes, so it
+	 * can disagree with the same commit's --against reading, which
 	 * is materialised out of git (mantahostels#1786).
 	 *
 	 * @type {Record<string, string>}
@@ -811,7 +811,7 @@ function readInjectedDocs(ctx, root) {
  * ~5 KB payload, and in the wrong direction to matter for any other.
  *
  * Parsed, never executed. --against reads the injector out of git, so running it
- * would both defeat that and run whatever a neighbour had half-saved to disk.
+ * would both defeat that and run whatever was half-saved to disk.
  */
 
 /* Only these are added up. The five review strings are named directly: since

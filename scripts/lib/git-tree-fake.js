@@ -13,7 +13,7 @@ const isAtOrUnder = (dir, at) =>
 /**
  * A tree classifier answering from a declared layout: a directory takes the
  * class of the deepest declared path it is at or under, so a linked worktree
- * may sit inside the shared tree; "" and anything declared nowhere answer as
+ * may sit inside the main checkout; "" and anything declared nowhere answer as
  * git does for them.
  *
  * Declare a path git cannot answer for (a `.git` naming a gitdir that is gone)
@@ -45,7 +45,7 @@ const unresolvedTreeClassifier = (root) => () => {
 
 /**
  * @typedef {object} RefLayout
- * @property {string} root the repository's shared working tree
+ * @property {string} root the repository's main checkout
  * @property {string | null} head the branch checked out there, null where
  *   HEAD is detached
  * @property {Record<string, string | null>} [worktrees] each linked worktree's

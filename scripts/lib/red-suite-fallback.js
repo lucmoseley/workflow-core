@@ -18,7 +18,7 @@
  * ran from, and the log's last line is shown while the cooldown holds.
  *
  * IT LAUNCHES FROM THE TREE THE CALLER LOADED FROM, which a half-edited
- * shared checkout can break. check-ci-status.js
+ * checkout can break. check-ci-status.js
  * requires report-red-suite.js at load, so a launch only follows a load of
  * the filer's whole require tree from that same tree moments before.
  *

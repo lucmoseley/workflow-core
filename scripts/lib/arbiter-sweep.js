@@ -12,7 +12,6 @@
 const { gitCommonDir, spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
-const bases = require("./arbiter-bases.js");
 const breaks = require("./arbiter-breaks.js");
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
@@ -212,20 +211,6 @@ const SWEPT_FAMILIES = [
 		dir: core.paths.requestsDir,
 		ageMs: requests.REQUEST_AGE_MS,
 	},
-	// pruneBases is in pruneAll's body: one session owns many per-path bases (#110).
-	{
-		name: "pruneSessionBases",
-		dir: core.paths.sessionBasesDir,
-		ageMs: bases.BASE_AGE_MS,
-		nameFor: (id) => path.basename(core.paths.sessionBase(id)),
-	},
-	// An `accept-head` log outlives its bases by nothing: a week from its last accept.
-	{
-		name: "pruneAcceptedHeads",
-		dir: core.paths.acceptedHeadsDir,
-		ageMs: bases.BASE_AGE_MS,
-		nameFor: (id) => path.basename(core.paths.acceptedHeads(id)),
-	},
 	/*
 	 * Never swept under a live session whatever its age: mtime is that session's
 	 * last Bash call, and sweeping would make its next call read the whole tier as
@@ -267,23 +252,8 @@ function pruneAll(liveness) {
 			);
 		else core.sweepAged(family.dir(), family.ageMs, () => false);
 	}
-	pruneBases();
 	pruneBlobRefs();
 	issues.pruneIssueClaims(liveness);
-}
-
-/**
- * Age out per-path bases (#110), sparing every one a live session owns — by
- * filename suffix, as readObservedBy finds its own. An unreadable registry sweeps
- * nothing: a live session's base must not go on doubt.
- */
-function pruneBases() {
-	const live = core.readLiveOrLog("pruneBases");
-	if (live === null) return;
-	const suffixes = [...live].map((id) => core.pairSuffix(id));
-	core.sweepAged(core.paths.basesDir(), bases.BASE_AGE_MS, (f) =>
-		suffixes.some((suffix) => f.endsWith(suffix)),
-	);
 }
 
 module.exports = {

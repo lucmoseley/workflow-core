@@ -9,7 +9,7 @@
  * post-image is empty and absence cannot be tested by position without
  * refusing the deletion of one of two identical adjacent lines. A deleted
  * file is checked whole, and a rename's new name; its old name may stay on
- * disk, holding a neighbour's edits (#3723).
+ * disk.
  */
 
 const { formatSide, parseHeader } = require("./hunk-header.js");

@@ -43,7 +43,7 @@
  *      WARNs (mantahostels#1785). A path that exists on disk but is merely untracked WARNs
  *      regardless of age (mantahostels#1193): the register edit and the file's own commit
  *      are separate steps, so this is normal mid-ticket state, not drift, and
- *      it must not block an unrelated commit in the shared working tree.
+ *      it must not block an unrelated commit.
  *   4. Live routes — every path a Section C route sends the reader to exists.
  *      A dead one FAILs (mantahostels#212); one present on disk but merely untracked WARNs,
  *      on assertion 2's reasoning (mantahostels#1403). Stricter than assertion 2 in one

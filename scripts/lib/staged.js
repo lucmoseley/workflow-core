@@ -1,8 +1,8 @@
 /*
  * staged.js — the commit's staged side as the pre-commit checkers read it:
  * the staged path list and each path's blob, never the worktree copy, since
- * the commit carries the blob and in the shared tree a worktree read would
- * judge a neighbour's half-written edit. Shared by scripts/check-ruff-introduced.js (#122),
+ * the commit carries the blob and a worktree read would judge an unstaged
+ * edit. Shared by scripts/check-ruff-introduced.js (#122),
  * scripts/check-format-staged.js (#1332, #1354),
  * scripts/check-swallowed-errors.js (#1830) and
  * scripts/check-lockfile-sync.js (#3434).

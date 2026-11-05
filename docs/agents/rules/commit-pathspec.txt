@@ -2,10 +2,9 @@ COMMIT BY PATHSPEC, NEVER `git add` FIRST.
 
   node scripts/commit-paths.js -m "…" -- <paths>   (Bash `timeout: 600000`)
 
-It intent-adds new paths, refuses a typo, an ignored path or a directory
-hiding new files, and waits out a neighbour's index lock. Exits: 0 done,
-1 lock held — re-run, 2 fix the input, 3 git or a hook refused. The hand form
-stays legal:
+It intent-adds new paths and refuses a typo, an ignored path or a directory
+hiding new files. Exits: 0 done, 2 fix the input, 3 git or a hook refused.
+The hand form stays legal:
 
   git commit -m "…" -- <paths>
 
@@ -18,9 +17,9 @@ By hand, a file git does not track yet needs `git add -N <path>` first: a
 pathspec cannot reach it, and git exits 1 having committed nothing.
 
 THE WORKING TREE IS A SECOND HAZARD. A pathspec takes the working-tree copy of
-every path it names, a live neighbour's unsaved edits included (mantahostels#1539).
-Commit your own paths and leave theirs. Sharing a file with them? `--patch`
-commits your lines alone (docs/agents/partial-commit.md).
+every path it names, a subagent's unfinished edit included (mantahostels#1539).
+Splitting the work in one file across commits? `--patch` commits the lines
+you pick (docs/agents/partial-commit.md).
 
 WHAT THE GUARD DOES NOT CATCH. Its warns are advisory — the commit lands — so
 read the index yourself before committing. It stands down mid-merge, rebase,

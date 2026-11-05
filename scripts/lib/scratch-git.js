@@ -43,8 +43,8 @@
  *    seen.
  *  - A heredoc into `bash` is not read, nor is any route lib/script-runs.js's
  *    LIMITS name.
- *  - A `cd` that SUCCEEDS into a scratch directory under the shared tree that
- *    is not a repository still lets git walk up into the shared `.git/`. The
+ *  - A `cd` that SUCCEEDS into a scratch directory under a checkout that
+ *    is not a repository still lets git walk up into that checkout's git dir. The
  *    refusal says to build scratch under `mktemp -d`; nothing enforces it.
  *  - A script over the host's read cap, or unreadable, is allowed, logged; so
  *    is one git cannot say is tracked (mantahostels#103 §6).

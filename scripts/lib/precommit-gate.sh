@@ -237,8 +237,8 @@ gate_tmpdir() {
 # gate_stage_out <dir> <path>...
 #
 # Copies each repo path to <dir>/<basename>, read from the INDEX (`:<path>`) and
-# never from the worktree: the tree is repo-global, so reading a file in place
-# judges a parallel session's half-written copy rather than this commit's bytes.
+# never from the worktree: reading a file in place judges an unsaved edit the
+# commit does not carry rather than this commit's bytes.
 #
 # A path prefixed `opt:` is OPTIONAL — unreadable, its copy is removed and the
 # gate carries on. That is for a file whose absence the checker reads correctly:

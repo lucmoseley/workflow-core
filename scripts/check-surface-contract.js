@@ -19,7 +19,7 @@
  * helper-surface.test.ts's to prove.
  *
  * READS COMMITS ONLY, as release-plugin.js does: a working-tree read would
- * judge a neighbour's half-written manifest. Commit an edit before checking it.
+ * judge a half-written manifest. Commit an edit before checking it.
  *
  * NEEDS THE TAGS FETCHED. A checkout with none reads as "no release yet" and
  * SKIPs, so the CI step fetches them first.

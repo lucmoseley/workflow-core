@@ -1,6 +1,6 @@
 /*
  * hook-shims.js — keeps an exit-0 shim at each hook script a live session
- * still runs after the shared tree deleted it (#2879).
+ * still runs after the main checkout deleted it (#2879).
  *
  * WHY. A session reads its hook lines once, at its start (docs/environment.md),
  * so a session started before a port keeps running the old line. Where the

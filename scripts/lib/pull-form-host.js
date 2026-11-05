@@ -13,7 +13,6 @@ const {
 	HOOK_GIT_TIMEOUT_MS,
 } = require("./git.js");
 const { parseFileAliases } = require("./git-alias.js");
-const { readTopLevel } = require("./git-tree.js");
 const { readMainState } = require("./main-ref.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -30,30 +29,17 @@ const read = (dir, args) =>
 	);
 
 /**
- * Whether git answers in `dir` without error.
- * @param {string} dir
- * @param {string[]} args
- */
-const isAnswered = (dir, args) =>
-	gitOrNull(["-C", dir, ...args], { timeout: HOOK_GIT_TIMEOUT_MS }) !== null;
-
-/**
  * @param {string} root
  * @returns {import("./pull-form.js").PullFormPorts}
  */
 const buildHostPorts = (root) => ({
 	pullFf: (dir) => read(dir, ["config", "--get", "pull.ff"]),
-	cleanRequireForce: (dir) =>
-		read(dir, ["config", "--type=bool", "--get", "clean.requireForce"]),
 	currentBranch: (dir) =>
 		read(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
 	isCommit: (dir, word) => {
 		const r = readCommit(gitReader(dir, HOOK_GIT_TIMEOUT_MS), word);
 		return r.ok && r.sha !== null;
 	},
-	isTree: (dir, word) =>
-		isAnswered(dir, ["rev-parse", "--verify", "--quiet", `${word}^{tree}`]),
-	topLevel: (dir) => readTopLevel(dir) ?? "",
 	readFileAliases: (dir) => {
 		/* Exit 1 is no alias at all; anything else is git not saying. */
 		const r = gitReader(dir, HOOK_GIT_TIMEOUT_MS)(
@@ -62,7 +48,6 @@ const buildHostPorts = (root) => ({
 		);
 		return r.ok ? parseFileAliases(r.out) : null;
 	},
-	showPrefix: (dir) => read(dir, ["rev-parse", "--show-prefix"]),
 	isMainUnreadable: () => {
 		const commonDir = gitCommonDir(root, { timeout: HOOK_GIT_TIMEOUT_MS });
 		return (

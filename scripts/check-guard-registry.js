@@ -212,8 +212,8 @@ const {
  * runs at the top of run() before any scan reads it (mantahostels#1833).
  *
  * The working directory's worktree, not `hostRoot()`, in every mode (#3386):
- * the harness sets CLAUDE_PROJECT_DIR to the shared tree, so a run inside a
- * linked worktree would judge the shared tree's bytes, and --review would
+ * the harness sets CLAUDE_PROJECT_DIR to the main checkout, so a run inside a
+ * linked worktree would judge the main checkout's bytes, and --review would
  * write its anchors there.
  */
 let root = worktreeRoot();
@@ -256,9 +256,9 @@ function setRoot(dir) {
 	if (!dir) {
 		const refusal = nestedCopyRefusal();
 		if (refusal) throw brokenError(refusal);
-		/* rule-text resolves its store on hostRoot(), the shared tree, so a
-		 * linked worktree's run would pair its own triggers with the shared
-		 * tree's fragments (#3386). */
+		/* rule-text resolves its store on hostRoot(), the main checkout, so a
+		 * linked worktree's run would pair its own triggers with the main
+		 * checkout's fragments (#3386). */
 		if (root !== hostRoot()) pinStore();
 		return;
 	}
@@ -271,7 +271,7 @@ function setRoot(dir) {
  * Whether `core`, this file's own tree, is a copy nested inside `root` with no
  * repository of its own — a `git archive` unpack under `.claude/tmp/` (#3450).
  * Such a run resolves `root` to the enclosing checkout, so a re-anchoring
- * meant for the copy's clean bytes would judge the shared tree. A `.git`
+ * meant for the copy's clean bytes would judge the enclosing checkout. A `.git`
  * between the two (a linked worktree, a submodule) makes the copy a tree of
  * its own, and worktreeRoot() already answers for it.
  * @param {string} core
@@ -1157,8 +1157,8 @@ function unwiredNarrowingFindings(wired) {
  * DEFEAT RECORDS, IT NEVER DEMANDS, and `convenience` is as legal an answer as
  * `fail-safe`. mantahostels#1181 ruled Archon's "individually defeatable" clause does not
  * transfer: their worktree-per-run isolation means a behaviour protects only its
- * own run, while this repo's shared tree means almost every implicit behaviour
- * protects NEIGHBOURS, where a per-session off switch is a hole by construction.
+ * own run, while this repo's sessions share stores and one `landing`, so almost
+ * every implicit behaviour protects NEIGHBOURS, where a per-session off switch is a hole by construction.
  * The assertion is that the script SAYS what it does and which kind it is;
  * whether convenience is good enough is a reader's call.
  *
@@ -1695,7 +1695,7 @@ function lineOf(text, index) {
  *
  * Also returns UNRULED lines — content at column 0 that is neither a bullet nor
  * allowed furniture. Silently skipping them is a gate that PASSES when it should
- * fail: a region holding "1. Never checkout the shared tree." beside one valid
+ * fail: a region holding "1. Never commit in the main checkout." beside one valid
  * bullet reported one rule, no findings, exit 0.
  *
  * `region.body` begins immediately after BEGIN on BEGIN's own line, so body

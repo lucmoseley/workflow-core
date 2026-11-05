@@ -4,7 +4,7 @@ index bffb26187ba59fac0bd2f921d9beae515322400a..254cc05cf8ec52bb439f1355a1bb84c3
 +++ b/scripts/check-instruction-surface.js
 @@ -40,9 +40,9 @@
   *
-  * READS HEAD, NOT THE WORKING TREE, so a neighbour's half-saved guard is not
+  * READS HEAD, NOT THE WORKING TREE, so a half-saved guard is not
   * reported as a verdict expiring. Residual: a change that is committed but not
 - * yet pushed reads the same as any other, skills are counted on disk, and an
 - * untracked file falls back to disk — never an untracked settings file, which a
@@ -37,7 +37,7 @@ index bffb26187ba59fac0bd2f921d9beae515322400a..254cc05cf8ec52bb439f1355a1bb84c3
   * check-context-budget.js draws, and the one the census's own addendum adopted
   * (mantahostels#1757).
   *
-+ * Read at `rev` (#1977), as the hook entries are, so a neighbour's uncommitted
++ * Read at `rev` (#1977), as the hook entries are, so an uncommitted
 + * skill is neither reported nor anchored. Each SKILL.md is read through git's
 + * own link resolution, so a linked skill directory, a linked SKILL.md and a
 + * link to a link all reach their committed target's text (#2369). Disk answers

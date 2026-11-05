@@ -164,7 +164,7 @@ const PATHS_SHOWN_CAP = 10;
 
 /** @param {CommitFormContext} ctx */
 const untrackedEscape = (ctx) =>
-	`Commit with \`node ${ctx.scriptPath("commit-paths.js")} -m "…" -- <paths>\` (Bash \`timeout: 600000\`): it intent-adds a file git does not know yet, and waits out a neighbour's index lock. By hand, \`git add -N <path>\` is the exception — intent-to-add stages a name and no content.`;
+	`Commit with \`node ${ctx.scriptPath("commit-paths.js")} -m "…" -- <paths>\` (Bash \`timeout: 600000\`): it intent-adds a file git does not know yet. By hand, \`git add -N <path>\` is the exception — intent-to-add stages a name and no content.`;
 
 /** @param {CommitFormContext} ctx */
 const denySweeping = (ctx) => `This commit form sweeps the shared index: @CMD@

@@ -4,7 +4,7 @@
  * started judged and confirmed, a copy handed what the session held, a move
  * onto another seat or onto an overflow key recorded. Every read, write and
  * child process goes through the ResumeIo port, whose production adapter is
- * lib/refill-tick.js's; lib/refill-blocks.js's acts call these through its
+ * lib/resume-io.js's; lib/refill-blocks.js's acts call these through its
  * BlockIo.
  */
 

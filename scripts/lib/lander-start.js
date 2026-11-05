@@ -112,7 +112,7 @@ function runStartLander(
  * so no hook's process-group kill reaches it, appending its output to `log`,
  * behind `wrap`'s words. It runs as no session: under the starting one's id and
  * root, admission counts that session as itself, the fix tickets it files are
- * claimed for it, and its suite read the shared tree (#2410).
+ * claimed for it, and its suite read the main checkout (#2410).
  * Residual: a scope the probe allowed can still fail to start, and then
  * systemd-run's refusal lands in the log and the returned pid exits at once.
  * @param {{root: string, script: string, tester?: string, log: string,

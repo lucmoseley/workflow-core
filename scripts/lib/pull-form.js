@@ -1,8 +1,7 @@
 /*
  * pull-form.js — the guard-pull-form core (#2797, #3226): divergence on the
- * shared `main` is reconciled by fast-forward or not at all, `main` is never
- * moved backwards (#765), and the shared tree's uncommitted work is never
- * discarded wholesale (#768).
+ * shared `main` is reconciled by fast-forward or not at all, and `main` is
+ * never moved backwards (#765).
  *
  * Why: the working tree is repo-global, so a `git pull`, `git merge` or `git
  * rebase` that does anything but fast-forward rewrites or re-parents commits
@@ -74,25 +73,6 @@
  *    branch word, or an unresolved tree where the verdict needs one, FAILS
  *    CLOSED (#301). On a `main` that cannot be read every one of these still
  *    refuses, and its text adds scripts/repair-main.js, the one route (#3198).
- *  - It also refuses DISCARDING the shared tree's uncommitted work (#768),
- *    docs/agents/rules/shared-tree-discard.txt: in the shared tree only, a
- *    `git reset --hard`/`--merge`/`--keep` naming HEAD, the checked-out
- *    branch or nothing; a `git checkout` or `git restore` whose pathspec
- *    covers the whole tree, or is file-fed; a forced `git clean` naming no
- *    path or the whole tree, or an unforced one where `clean.requireForce` is
- *    false or `-i` is spelled; a `git stash` push or save naming no path or
- *    the whole tree; and a forced `git checkout`/`git switch` onto a branch. A
- *    pathspec covers the whole tree when it resolves to the root or above —
- *    `.` from the top, `..` from a subdirectory, `:/`, `:`, `:(top)`, `*`,
- *    `**\/*.md` — or is excludes alone; a bare `-p` covers it too. A glob
- *    after a partial name (`src/a*`) and a directory short of the root pass,
- *    though each can discard a neighbour's edits under it. `git restore
- *    --staged` without `--worktree` writes only the index, and passes. `git
- *    reset --keep` naming HEAD discards nothing (measured on git 2.43.0) and
- *    is refused anyway. A word before `--` it cannot read, or an unresolved
- *    tree under a whole-tree form, FAILS CLOSED; a named path passes in any
- *    tree. `git -c clean.requireForce=false clean` passes: the parser consumes
- *    git's own `-c` before the guard reads the arguments.
  *  - What passes on `git merge` and `git rebase`: `git merge --ff-only`, the
  *    worktree recipe's own last step, and `--abort`, `--continue`, `--quit`,
  *    `--skip`, `--edit-todo` and `--show-current-patch`, which finish or
@@ -148,9 +128,9 @@
  * process. It answers a Decision: a refusal's complete text, the pull rule to
  * hand over, or nothing.
  *
- * FIVE WALKS, IN THIS ORDER, THE FIRST REFUSAL WINNING: the unreadable alias
- * (any tree of the repo), the reset (shared tree), the ref write (any tree),
- * the discard (shared tree) and the reconciliation (shared tree). Each is STRICT (#301, #311): an
+ * FOUR WALKS, IN THIS ORDER, THE FIRST REFUSAL WINNING: the unreadable alias
+ * (any tree of the repo), the reset (shared tree), the ref write (any tree)
+ * and the reconciliation (shared tree). Each is STRICT (#301, #311): an
  * unresolved tree reaches its judge as "" rather than being skipped, and the
  * judge owns both the verdict and any fail-open record.
  *
@@ -166,7 +146,7 @@ const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { readCutOver } = require("./cutover.js");
 const { LANDING_REF, VERIFIED_REF } = require("./landing-refs.js");
 const { ruleUnlessModule } = require("./rule-gates.js");
-const { normAbs, parseCommand, walkGit } = require("./shell-parse.js");
+const { parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -175,18 +155,10 @@ const { trimEndRun } = require("./trim-run.js");
  * @typedef {object} PullFormPorts
  * @property {(dir: string) => string} pullFf `git config --get pull.ff`; ""
  *   where git errors or times out
- * @property {(dir: string) => string} cleanRequireForce `git config
- *   --type=bool --get clean.requireForce`; "" where git errors
  * @property {(dir: string) => string} currentBranch the checked-out branch's
  *   short name; "" where HEAD is detached or git errors
  * @property {(dir: string, word: string) => boolean} isCommit whether `word`
  *   names a commit there
- * @property {(dir: string, word: string) => boolean} isTree whether `word`
- *   names a tree-ish there
- * @property {(dir: string) => string} topLevel the tree's root; "" where git
- *   errors
- * @property {(dir: string) => string} showPrefix the directory below the
- *   root, `/`-terminated; "" at the root or where git errors
  * @property {() => boolean} isMainUnreadable whether the shared `main` is broken
  *   rather than moved, read on a rewind's refusal alone
  * @property {(dir: string) => import("./git-alias.js").FileAliases | null}
@@ -219,9 +191,8 @@ const { trimEndRun } = require("./trim-run.js");
 const PULL_VALUE_FLAGS =
 	"-s -X -S? -j? -o --cleanup --strategy --strategy-option --upload-pack --depth --shallow-since --shallow-exclude --deepen --refmap --server-option --negotiation-tip";
 
-/* The value-taking options of `git checkout` and `git switch`, read by both
- * the rewind and the discard judges; one left out makes its value read as a
- * branch or a path. */
+/* The value-taking options of `git checkout` and `git switch`, read by the
+ * rewind judge; one left out makes its value read as a branch or a path. */
 const CHECKOUT_VALUE_FLAGS = "-b -B --orphan --conflict --pathspec-from-file";
 const SWITCH_VALUE_FLAGS = "-c -C --create --force-create --orphan --conflict";
 
@@ -239,25 +210,6 @@ const REF_VALUE_FLAGS = {
 /** @param {import("./kit-context.js").KitContext} ctx */
 const buildMainUnreadableLine = (ctx) =>
 	`\`main\` IS UNREADABLE HERE, NOT MOVED: repair it with \`node ${ctx.scriptPath("repair-main.js")}\`, which refuses unless every proof holds and backs up first. Every other route to write \`main\` stays refused. File the reflog entries it lists on a ticket.`;
-
-/** Each discarding subcommand's per-path form and value-taking options. */
-/** @type {Record<string, { safe: string, spec: string }>} */
-const DISCARD = {
-	checkout: {
-		safe: "git checkout -- <your paths>",
-		spec: CHECKOUT_VALUE_FLAGS,
-	},
-	switch: { safe: "git restore -- <your paths>", spec: SWITCH_VALUE_FLAGS },
-	restore: {
-		safe: "git restore -- <your paths>",
-		spec: "-s --source --conflict --pathspec-from-file",
-	},
-	clean: { safe: "git clean -f -- <your paths>", spec: "-e --exclude" },
-	stash: {
-		safe: "git stash push -- <your paths>",
-		spec: "-m --message --pathspec-from-file",
-	},
-};
 
 /**
  * @template S
@@ -318,14 +270,6 @@ const pullRule = (ctx) =>
 const isLevelled = (ctx) =>
 	ctx.moduleOn("landing") && readCutOver(ctx.git) === true;
 
-/** @param {PullFormContext} ctx */
-const discardRule = (ctx) =>
-	ruleOrFallback(
-		ctx,
-		"shared-tree-discard",
-		"Never discard work across the whole shared tree",
-	);
-
 /**
  * The rewind refusal, framed by lib/main-rewind.js.
  * @param {Judging} j
@@ -339,27 +283,6 @@ const rewindDeny = (j, segment, what) => ({
 		: rewindReason(j.ctx, what),
 	segment,
 });
-
-/**
- * @param {Judging} j
- * @param {string} segment
- * @param {string} what completing "This …"
- * @param {string} safe the per-path form
- * @returns {Refusal}
- */
-const discardDeny = (j, segment, what, safe) => ({
-	reason: `This ${what}: @CMD@\n\nName your own paths instead — \`${safe}\`.\n\n${discardRule(j.ctx)}`,
-	segment,
-});
-
-/** @param {Judging} j @param {string} segment */
-const resetDiscardDeny = (j, segment) =>
-	discardDeny(
-		j,
-		segment,
-		"resets every working file in the shared tree to HEAD",
-		"git restore --staged --worktree -- <your paths>",
-	);
 
 // ── REWINDING `main` (#765) ──────────────────────────────────────────────
 
@@ -378,17 +301,11 @@ const judgeUnreadAlias = (j, { segment }) =>
 
 /**
  * @typedef {{ helping: boolean, pathspec: boolean, patch: boolean,
- *   fromFile: boolean, ddash: boolean, discarding: boolean }} ResetArgs
+ *   fromFile: boolean, ddash: boolean }} ResetArgs
  */
 
 /** @type {ArgTable<ResetArgs>} */
 const RESET_ARGS = {
-	/* git takes the last mode spelled. */
-	"flag:--hard": { discarding: true },
-	"flag:--merge": { discarding: true },
-	"flag:--keep": { discarding: true },
-	"flag:--soft": { discarding: false },
-	"flag:--mixed": { discarding: false },
 	/* Interactive or file-fed paths: an unstage whatever commit it names, unless
 	 * a later `--no-` takes them back (#4008). */
 	"flag:-p": { patch: true },
@@ -421,7 +338,6 @@ function judgeReset(j, { segment, sub, tree, args }) {
 			patch: false,
 			fromFile: false,
 			ddash: false,
-			discarding: false,
 		},
 		onArg: (w, s) => {
 			/* A word after `--` is a path. */
@@ -429,17 +345,19 @@ function judgeReset(j, { segment, sub, tree, args }) {
 			else positional.push(w);
 		},
 	});
-	/* git refuses `--hard`, `--merge` and `--keep` with paths. */
 	if (a.helping || a.pathspec || a.patch || a.fromFile) return null;
-	const discard = () => (a.discarding ? resetDiscardDeny(j, segment) : null);
 	const [first, ...more] = positional;
-	/* None names HEAD, which moves no branch but can still discard. */
-	if (first === undefined) return discard();
+	/* None names HEAD, which moves no branch. */
+	if (first === undefined) return null;
 	/* Two or more are a tree-ish and paths, where a word I cannot read could
-	 * be `--hard`. */
+	 * be `--hard` before a commit. */
 	if (more.length > 0)
 		return positional.some((w) => j.known(w) === null)
-			? resetDiscardDeny(j, segment)
+			? rewindDeny(
+					j,
+					segment,
+					"carries a word I cannot read, which could be a mode that moves the shared `main` to the commit beside it — spell it literally",
+				)
 			: null;
 	const commit = j.known(first);
 	if (commit === null)
@@ -449,8 +367,7 @@ function judgeReset(j, { segment, sub, tree, args }) {
 			"resets the shared tree to a commit I cannot read — spell it literally, or use `git reset -- <path>` to unstage",
 		);
 	const lands = resetLands(j, tree, commit, a.ddash);
-	if (lands === "here") return discard();
-	if (lands === "path") return null;
+	if (lands === "here" || lands === "path") return null;
 	return rewindDeny(
 		j,
 		segment,
@@ -736,321 +653,6 @@ function judgeBranchMove({ positional, scope, refIs, deny }) {
 		: deny("renames the shared tree's branch, `main`, away");
 }
 
-// ── DISCARDING THE SHARED TREE'S UNCOMMITTED WORK (#768) ─────────────────
-
-/**
- * Does this one pathspec name the whole working tree? "yes", "no", or
- * "exclude", which names nothing on its own. `top` and `prefix` are both
- * empty where the tree is unknown, which reads the cwd as the root, so only a
- * word staying below its own directory passes. An unreadable word is a yes:
- * it could be `.`.
- * @param {string | null} text the word's text, null where unreadable
- * @param {{ top: string, prefix: string }} at
- * @returns {"yes" | "no" | "exclude"}
- */
-function coversTree(text, { top, prefix }) {
-	if (text === null) return "yes";
-	const m = readMagic(text, prefix);
-	if (m === null) return "exclude";
-	let { w } = m;
-	/* A glob starting a path component reaches everything under the directory
-	 * before it; one after a partial name matches only that name's paths. */
-	const glob = w.search(/[*?[]/);
-	if (glob >= 0) {
-		w = w.slice(0, glob);
-		if (w.endsWith("/")) w = w.slice(0, -1);
-		else if (w !== "") return "no";
-	}
-	if (w === "") w = ".";
-	if (w.startsWith("/")) {
-		if (!top) return "yes";
-		const n = normAbs(w).replace(/\/$/, "");
-		return `${top}/`.startsWith(`${n}/`) ? "yes" : "no";
-	}
-	/* git's own prefix, not a path compare, so a symlinked spelling of the root
-	 * still reads as the root. */
-	return normAbs(`/q/${m.rel}${w}`).startsWith("/q/") ? "no" : "yes";
-}
-
-/**
- * A pathspec's magic, long or short, read off: the rest, and the prefix it
- * is relative to — "" where `top` or `/` anchors it at the root. Null for an
- * exclude.
- * @param {string} text
- * @param {string} prefix
- * @returns {{ w: string, rel: string } | null}
- */
-function readMagic(text, prefix) {
-	if (text.startsWith(":(") && text.indexOf(")", 2) >= 0) {
-		const close = text.indexOf(")");
-		const magic = text.slice(0, close);
-		if (magic.includes("exclude")) return null;
-		return {
-			w: text.slice(close + 1),
-			rel: magic.includes("top") ? "" : prefix,
-		};
-	}
-	if (!text.startsWith(":")) return { w: text, rel: prefix };
-	let w = text.slice(1);
-	let rel = prefix;
-	while (/^[/!^]/.test(w)) {
-		if (!w.startsWith("/")) return null;
-		rel = "";
-		w = w.slice(1);
-	}
-	return { w: w.replace(/^:/, ""), rel };
-}
-
-/**
- * @typedef {{ helping: boolean, fromFile: boolean, force: boolean,
- *   discardChanges: boolean, interactive: boolean, dryrun: boolean,
- *   patch: boolean, staged: boolean, worktree: boolean, ddash: boolean
- *   }} DiscardArgs
- */
-
-/** @type {ArgTable<DiscardArgs>} */
-const DISCARD_ARGS = {
-	"opt:--pathspec-from-file": { fromFile: true },
-	"dangling:--pathspec-from-file": { fromFile: true },
-	"flag:--no-pathspec-from-file": { fromFile: false },
-	/* Each negation clears its own spelling alone: `git switch -f
-	 * --no-discard-changes` and `git clean -f --no-interactive` still force
-	 * (measured, #4008). */
-	"flag:-f": { force: true },
-	"flag:--force": { force: true },
-	"flag:--no-force": { force: false },
-	"flag:--discard-changes": { discardChanges: true },
-	"flag:--no-discard-changes": { discardChanges: false },
-	/* `git clean -i` deletes without `-f`. */
-	"flag:-i": { interactive: true },
-	"flag:--interactive": { interactive: true },
-	"flag:--no-interactive": { interactive: false },
-	"flag:-n": { dryrun: true },
-	"flag:--dry-run": { dryrun: true },
-	"flag:--no-dry-run": { dryrun: false },
-	"flag:-p": { patch: true },
-	"flag:--patch": { patch: true },
-	"flag:--no-patch": { patch: false },
-	"flag:-S": { staged: true },
-	"flag:--staged": { staged: true },
-	"flag:--no-staged": { staged: false },
-	"flag:-W": { worktree: true },
-	"flag:--worktree": { worktree: true },
-	"flag:--no-worktree": { worktree: false },
-	"flag:--": { ddash: true },
-};
-
-/** @returns {DiscardArgs} */
-const discardArgs = () => ({
-	helping: false,
-	fromFile: false,
-	force: false,
-	discardChanges: false,
-	interactive: false,
-	dryrun: false,
-	patch: false,
-	staged: false,
-	worktree: false,
-	ddash: false,
-});
-
-/**
- * @typedef {object} DiscardCall one discard, read
- * @property {Judging} j
- * @property {string} tree "" where unresolved
- * @property {DiscardArgs} a
- * @property {string[]} pre the bare words before a `--`
- * @property {string[]} post the words after it
- * @property {(paths: string[]) => boolean} cover isTreeCovered's, here
- * @property {(word: string) => "yes" | "no" | "exclude"} covers coversTree's
- * @typedef {[what: string, form?: string] | null} DiscardVerdict what the
- *   command does, completing "This …", and the per-path form where it is
- *   not the subcommand's own
- */
-
-const OVERWRITES = "overwrites every working file in the shared tree";
-const FORCES =
-	"forces the shared tree onto a branch, dropping every uncommitted edit";
-const STASHES = "stashes every uncommitted edit in the shared tree";
-
-/**
- * A discard that writes every file named, the whole tree among them:
- * file-fed paths, a bare `-p`, or a whole-tree pathspec.
- * @param {DiscardCall} d
- * @param {string[]} paths
- */
-const isOverwrite = ({ a, cover }, paths) =>
-	a.fromFile || (a.patch && paths.length === 0) || cover(paths);
-
-/** @type {Record<string, (d: DiscardCall) => DiscardVerdict>} */
-const DISCARD_VERDICTS = {
-	checkout: (d) => {
-		const paths = [...checkoutPaths(d), ...d.post];
-		if (isOverwrite(d, paths)) return [OVERWRITES];
-		/* A forced switch resets every working file to the branch. */
-		return d.a.force && paths.length === 0
-			? [FORCES, "git restore -- <your paths>"]
-			: null;
-	},
-	switch: ({ a }) => (a.force || a.discardChanges ? [FORCES] : null),
-	/* `--staged` without `--worktree` writes only the index. */
-	restore: (d) =>
-		!(d.a.staged && !d.a.worktree) && isOverwrite(d, [...d.pre, ...d.post])
-			? [OVERWRITES]
-			: null,
-	clean: (d) =>
-		isTreeWipe(d) ? ["deletes every untracked file in the shared tree"] : null,
-	stash: ({ a, pre, post, cover }) => {
-		const paths = [...pre, ...post];
-		return a.fromFile || paths.length === 0 || cover(paths) ? [STASHES] : null;
-	},
-};
-
-/**
- * A `git checkout`, `git switch`, `git restore`, `git clean` or `git stash`
- * in the shared tree, or an unresolved one. Each can write every working
- * file at once; judged here is whether this spelling does.
- * @param {Judging} j
- * @param {GitCall} call
- * @returns {Refusal | null}
- */
-function judgeDiscard(j, { segment, sub, tree, args }) {
-	const { safe, spec } = tableEntry(DISCARD, sub);
-	/** @param {string} what @param {string} [form] */
-	const deny = (what, form = safe) => discardDeny(j, segment, what, form);
-	const verb = sub === "stash" ? stashVerb(j, args) : PUSH;
-	if (verb === null)
-		return deny(
-			"runs a stash command I cannot read, which could stash every edit in the shared tree",
-		);
-	const rest = verb.word ? args.slice(1) : args;
-	if (verb.name === "save")
-		return readArgs(rest, {
-			sub,
-			spec: "-m --message",
-			table: DISCARD_ARGS,
-			state: discardArgs(),
-		}).helping
-			? null
-			: deny(STASHES);
-	if (verb.name !== "push") return null;
-	/** @type {string[]} */
-	const pre = [];
-	/** @type {string[]} */
-	const post = [];
-	const a = readArgs(rest, {
-		sub,
-		spec,
-		table: DISCARD_ARGS,
-		state: discardArgs(),
-		onArg: (w, s) => (s.ddash ? post : pre).push(w),
-	});
-	if (a.helping) return null;
-	/* Before a `--`, a word I cannot read could be `-f`, `-W` or `.` alike. */
-	if (pre.some((w) => j.known(w) === null))
-		return deny(
-			"carries a word I cannot read, which could be an option or pathspec that discards every edit in the shared tree",
-		);
-	const verdict = tableEntry(
-		DISCARD_VERDICTS,
-		sub,
-	)(discardCall(j, tree, a, { pre, post }));
-	return verdict ? deny(...verdict) : null;
-}
-
-/** A stash with no command word, or an option first: a push. */
-const PUSH = { name: "push", word: false };
-
-/**
- * The stash command a first word names, `word` true where it took one; a
- * first word that is an option, or none, is a push. Null where it cannot be
- * read.
- * @param {Judging} j
- * @param {string[]} args
- * @returns {{ name: string, word: boolean } | null}
- */
-function stashVerb(j, args) {
-	const head = args[0];
-	if (head === undefined || head.startsWith("-")) return PUSH;
-	const name = j.known(head);
-	return name === null ? null : { name, word: true };
-}
-
-/**
- * @param {Judging} j
- * @param {string} tree
- * @param {DiscardArgs} a
- * @param {{ pre: string[], post: string[] }} words
- * @returns {DiscardCall}
- */
-function discardCall(j, tree, a, { pre, post }) {
-	/* Both empty where the tree is unknown. */
-	const at = {
-		top: tree ? j.ctx.topLevel(tree) : "",
-		prefix: tree ? j.ctx.showPrefix(tree) : "",
-	};
-	/** @param {string} w */
-	const covers = (w) => coversTree(j.known(w), at);
-	return {
-		j,
-		tree,
-		a,
-		pre,
-		post,
-		covers,
-		cover: (paths) => isTreeCovered(paths, covers),
-	};
-}
-
-/**
- * A checkout's paths before a `--`: the words less the first where it is a
- * tree-ish — always before a `--`, and without one where it names a tree, as
- * git decides. A whole-tree word is never a tree-ish.
- * @param {DiscardCall} d
- */
-function checkoutPaths({ j, tree, a, pre, covers }) {
-	const head = pre[0];
-	if (head === undefined || covers(head) !== "no") return pre;
-	return a.ddash || !tree || j.ctx.isTree(tree, j.known(head) ?? "")
-		? pre.slice(1)
-		: pre;
-}
-
-/**
- * Whether a `git clean` deletes every untracked file. clean.requireForce=false
- * deletes unforced; an unknown tree's config is unreadable, so it counts as
- * forced. With no path it cleans the directory it runs in.
- * @param {DiscardCall} d
- */
-function isTreeWipe({ j, tree, a, pre, post, cover }) {
-	if (a.dryrun) return false;
-	const force =
-		a.force ||
-		a.interactive ||
-		!tree ||
-		j.ctx.cleanRequireForce(tree) === "false";
-	const paths = [...pre, ...post];
-	return force && cover(paths.length > 0 ? paths : ["."]);
-}
-
-/**
- * Does this pathspec list name the whole tree? Any one word naming it does,
- * and so does a list of excludes alone, which git reads as everything but
- * them.
- * @param {string[]} words
- * @param {(word: string) => "yes" | "no" | "exclude"} covers
- */
-function isTreeCovered(words, covers) {
-	if (words.length === 0) return false;
-	let positive = false;
-	for (const w of words) {
-		const rc = covers(w);
-		if (rc === "yes") return true;
-		if (rc === "no") positive = true;
-	}
-	return !positive;
-}
-
 // ── RECONCILING THE SHARED `main` (mantahostels#245, #290) ───────────────
 
 /**
@@ -1216,12 +818,6 @@ const WALKS = [
 		"the ref write",
 		"repo",
 		["branch", "update-ref", "symbolic-ref", "checkout", "switch"],
-	],
-	[
-		judgeDiscard,
-		"the discard",
-		"shared",
-		["checkout", "switch", "restore", "clean", "stash"],
 	],
 	[
 		(j, call) =>

@@ -102,10 +102,10 @@ const lines = (out) =>
  * against each parent, which over-selects.
  *
  * WHICH UNCOMMITTED FILES ARE THE SESSION'S is the tree's answer, not this
- * one's: an overlay worktree carries only its own (#812), the shared tree
- * everyone's. `tip` reads that commit in HEAD's place and no uncommitted
+ * one's: an overlay worktree carries only its own (#812), the working tree
+ * all of them. `tip` reads that commit in HEAD's place and no uncommitted
  * file at all: the re-run guard passes one carrying exactly what the overlay
- * would, so it reads the run's set from the shared tree (#1218).
+ * would, so it reads the run's set from the working tree (#1218).
  *
  * `byPatch` narrows #1154's rule for a caller to whom over-billing is the
  * costly error (#3108): a commit no ledger names is the session's own only

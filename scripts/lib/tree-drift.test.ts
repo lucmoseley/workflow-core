@@ -18,15 +18,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { freshSandbox, liveHolder, putLock, store } from "./arbiter-testkit";
 
 const {
 	readTreeSnapshot,
 	drift,
 	format,
 	neighbourDirty,
-	formatNeighbourDirty,
-	fromArbiter,
 	endOfRunTreeIdentity,
 } = require("./tree-drift.js");
 
@@ -330,11 +327,9 @@ describe("drift", () => {
 	});
 
 	/*
-	 * The boundary of the window comparison, and it stays here: a neighbour who
-	 * left a file half-written BEFORE the window opened and then sat still breaks
-	 * the suite exactly as mantahostels#273 did, and `drift` reports nothing. That case is
-	 * answered by `neighbourDirty` below, off the arbiter's claims, rather than by
-	 * widening this — mantahostels#291.
+	 * The boundary of the window comparison: a file left half-written BEFORE
+	 * the window opened breaks the suite exactly as mantahostels#273 did, and
+	 * `drift` reports nothing (mantahostels#291).
 	 */
 	it("cannot see a file left half-written before the window opened", () => {
 		write("src/a.js", "half-written, and nobody touches it again\n");
@@ -537,184 +532,5 @@ describe("neighbourDirty", () => {
 				"me",
 			).map((e: { path: string }) => e.path),
 		).toEqual(["src/a.js", "src/b.js"]);
-	});
-});
-
-describe("formatNeighbourDirty", () => {
-	it("says nothing where nothing is held", () => {
-		expect(formatNeighbourDirty(null)).toBeNull();
-	});
-
-	it("names the issue and who to wait for", () => {
-		const out = formatNeighbourDirty([
-			{ path: "scripts/x.js", sessionId: "them", pid: 7 },
-		]);
-		expect(out).toContain("#291");
-		expect(out).toContain("scripts/x.js  held by them (pid 7)");
-	});
-
-	it("resolves a session id to a name through the given resolver", () => {
-		const out = formatNeighbourDirty(
-			[{ path: "scripts/x.js", sessionId: "abc123", pid: 7 }],
-			undefined,
-			(id: string) => `wayfinder-${id}`,
-		);
-		expect(out).toContain("scripts/x.js  held by wayfinder-abc123 (pid 7)");
-	});
-
-	it("marks a dead holder and says waiting will not help", () => {
-		const out = formatNeighbourDirty([
-			{ path: "scripts/x.js", sessionId: "them", pid: 7, dead: true },
-		]);
-		expect(out).toContain("scripts/x.js  held by them (pid 7) — GONE");
-		expect(out).toContain("commit or revert");
-		expect(out).not.toContain("Re-run once a live holder releases");
-	});
-
-	it("tells you to wait where the holder is still alive", () => {
-		const out = formatNeighbourDirty([
-			{ path: "scripts/x.js", sessionId: "them", pid: 7, dead: false },
-		]);
-		expect(out).toContain("Re-run once a live holder releases");
-		expect(out).not.toContain("GONE");
-	});
-
-	it("gives both instructions where the two kinds are mixed", () => {
-		const out = formatNeighbourDirty([
-			{ path: "scripts/x.js", sessionId: "them", pid: 7, dead: false },
-			{ path: "scripts/y.js", sessionId: "gone", pid: 8, dead: true },
-		]);
-		expect(out).toContain("Re-run once a live holder releases");
-		expect(out).toContain("commit or revert");
-	});
-
-	it("omits the pid where the lock recorded none", () => {
-		const out = formatNeighbourDirty([
-			{ path: "scripts/x.js", sessionId: "them", pid: null },
-		]);
-		expect(out).toContain("held by them");
-		expect(out).not.toContain("pid");
-	});
-
-	it("caps the list, so a busy tree cannot bury the summary", () => {
-		const held = Array.from({ length: 15 }, (_, i) => ({
-			path: `f${i}`,
-			sessionId: "them",
-			pid: 7,
-		}));
-		const out = formatNeighbourDirty(held, 12);
-		expect(out).toContain("… and 3 more");
-		expect(out.match(/^ {3}f\d+ {2}held by/gm)).toHaveLength(12);
-	});
-});
-
-/*
- * Against a real claim store under a scratch config dir: who else held a dirty
- * file when the run began (mantahostels#392). A lock naming this process's own
- * pid and start time is what makes a holder read as alive.
- */
-describe("fromArbiter", () => {
-	freshSandbox(() => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
-	});
-
-	const liveClaim = (rel: string, sessionId: string) =>
-		putLock(rel, { sessionId, ...liveHolder() });
-
-	it("names a neighbour's claim on a file that was already dirty", () => {
-		liveClaim("scripts/x.js", "them");
-
-		expect(
-			fromArbiter({ head: "abc", files: { "scripts/x.js": "h" } }),
-		).toEqual([
-			{
-				path: "scripts/x.js",
-				sessionId: "them",
-				pid: process.pid,
-				dead: false,
-			},
-		]);
-	});
-
-	it("says nothing about a file this session holds itself", () => {
-		liveClaim("scripts/x.js", "me");
-
-		expect(
-			fromArbiter({ head: "abc", files: { "scripts/x.js": "h" } }),
-		).toBeNull();
-	});
-
-	it("reaches an untracked path, which is where a new file lives", () => {
-		liveClaim("scripts/new.js", "them");
-
-		expect(
-			fromArbiter({ head: "abc", files: {}, untracked: ["scripts/new.js"] }),
-		).toHaveLength(1);
-	});
-
-	it("reads the session id from the environment", () => {
-		// Once the id is the claim's holder, the claim is this session's own.
-		liveClaim("scripts/x.js", "them");
-		const snap = { head: "abc", files: { "scripts/x.js": "h" } };
-		expect(fromArbiter(snap)).toHaveLength(1);
-
-		process.env.CLAUDE_CODE_SESSION_ID = "them";
-		expect(fromArbiter(snap)).toBeNull();
-	});
-
-	it("says nothing where the session cannot name itself", () => {
-		liveClaim("scripts/x.js", "them");
-		process.env.CLAUDE_CODE_SESSION_ID = "";
-
-		expect(
-			fromArbiter({ head: "abc", files: { "scripts/x.js": "h" } }),
-		).toBeNull();
-	});
-
-	it("says nothing where the store could not be read", () => {
-		// Not the catch: `listLocks` handles its own read errors and returns null,
-		// so this exercises the null path rather than the throw. A file standing
-		// where the locks directory belongs makes every read fail.
-		const dir = store.paths.locksDir();
-		fs.mkdirSync(path.dirname(dir), { recursive: true });
-		fs.writeFileSync(dir, "not a directory");
-
-		expect(
-			fromArbiter({ head: "abc", files: { "scripts/x.js": "h" } }),
-		).toBeNull();
-	});
-
-	it("costs the suite nothing where the store will not load", () => {
-		const boom = () => {
-			throw new Error("cannot resolve arbiter-store");
-		};
-
-		expect(() =>
-			fromArbiter({ head: "abc", files: { "scripts/x.js": "h" } }, boom),
-		).not.toThrow();
-		expect(
-			fromArbiter({ head: "abc", files: { "scripts/x.js": "h" } }, boom),
-		).toBeNull();
-	});
-
-	it("costs the suite nothing where listing the claims throws", () => {
-		const throwingStore = () => ({
-			listLocks: () => {
-				throw new Error("store blew up");
-			},
-		});
-
-		expect(
-			fromArbiter(
-				{ head: "abc", files: { "scripts/x.js": "h" } },
-				throwingStore,
-			),
-		).toBeNull();
-	});
-
-	it("says nothing where git could not answer, so there is no snapshot", () => {
-		liveClaim("scripts/x.js", "them");
-
-		expect(fromArbiter(null)).toBeNull();
 	});
 });

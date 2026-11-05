@@ -66,8 +66,8 @@
  *    its neighbour guard-commit-form's does (mantahostels#2127), and
  *    `Bash(*commit-paths.js*)` for the form CLAUDE.md requires (#1727).
  *  - A commit-paths.js `--patch` commit lands only its patch's hunks of each
- *    file it carries, but each is judged whole from the working tree, so a
- *    neighbour's uncommitted lines in one count as landing.
+ *    file it carries, but each is judged whole from the working tree, so
+ *    uncommitted lines in one count as landing.
  *  - Suppressed mid-merge, mid-rebase, mid-cherry-pick, mid-revert and mid-am.
  *    A replay commit's contents were chosen by an earlier session, and
  *    refusing it strands the sequence.
@@ -111,7 +111,7 @@
  *    on its new event and matcher, not the row pinning it.
  *  - The needle-text limb reads guard-fire-needles.json from the tree AS IT
  *    WILL BE and the CORPUS from the WORKING TREE for every file the commit
- *    does not land. So a literal a neighbour's uncommitted edit still prints
+ *    does not land. So a literal an uncommitted edit still prints
  *    reads as printed here and the commit is allowed.
  *  - Containment is a plain substring search over every corpus byte, so a
  *    literal quoted in a fixture, a rule fragment or a comment counts as

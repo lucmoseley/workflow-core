@@ -119,44 +119,6 @@ describe(".husky/post-commit's release-on-commit block", () => {
 		expectSurvived(r);
 	});
 
-	it("takes the paths of the commit WFC_COMMITTED_SHA names, whatever HEAD has moved to (#3746)", () => {
-		const repo = hookRepo("post-commit-release-named-", ["mine.md"], ECHO_ARGV);
-		const mine = repo.git("rev-parse", "HEAD").toString().trim();
-		fs.writeFileSync(path.join(repo.root, "neighbour.md"), "x");
-		repo.git("add", "neighbour.md");
-		repo.git("commit", "-q", "-m", "a neighbour's");
-
-		const r = runBlock(repo.root, { WFC_COMMITTED_SHA: mine });
-
-		expect(r.out.split("\n").filter(Boolean)).toEqual([
-			"release-committed",
-			"--commit",
-			mine,
-			"mine.md",
-		]);
-		expectSurvived(r);
-	});
-
-	it("releases a commit WFC_COMMITTED_SHA names, whatever replay a neighbour has begun (#3746)", () => {
-		const repo = hookRepo(
-			"post-commit-release-named-replay-",
-			["mine.md"],
-			ECHO_ARGV,
-		);
-		const mine = repo.git("rev-parse", "HEAD").toString().trim();
-		fs.writeFileSync(path.join(repo.root, ".git", "CHERRY_PICK_HEAD"), "x");
-
-		const r = runBlock(repo.root, { WFC_COMMITTED_SHA: mine });
-
-		expect(r.out.split("\n").filter(Boolean)).toEqual([
-			"release-committed",
-			"--commit",
-			mine,
-			"mine.md",
-		]);
-		expectSurvived(r);
-	});
-
 	it("keeps a path containing a space as ONE argument", () => {
 		const repo = hookRepo(
 			"post-commit-release-space-",

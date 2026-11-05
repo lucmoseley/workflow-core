@@ -344,28 +344,6 @@ const paths = {
 		path.join(paths.snapshotsDir(), `${idSlug(sessionId)}.txt`),
 
 	/**
-	 * What HEAD held for a path at this session's first write to it (#110) — the
-	 * base #100's stale-write-back gate judges a commit against.
-	 */
-	basesDir: () => path.join(stateDir(), "bases"),
-	/**
-	 * @param {string} rel
-	 * @param {string} sessionId
-	 */
-	base: (rel, sessionId) =>
-		path.join(paths.basesDir(), pairFile(rel, sessionId)),
-	/** Each session's `accept-head` log (#112): the reverts it declared intentional. */
-	acceptedHeadsDir: () => path.join(stateDir(), "accepted-heads"),
-	/** @param {string} sessionId */
-	acceptedHeads: (sessionId) =>
-		path.join(paths.acceptedHeadsDir(), `${idSlug(sessionId)}.jsonl`),
-	/** HEAD at each session's start: the base for a path with none of its own. */
-	sessionBasesDir: () => path.join(stateDir(), "session-bases"),
-	/** @param {string} sessionId */
-	sessionBase: (sessionId) =>
-		path.join(paths.sessionBasesDir(), `${idSlug(sessionId)}.json`),
-
-	/**
 	 * Keyed by (path, broken claim), so a path broken twice keeps both records —
 	 * and both pins, which are what each break's recovery sha lives on.
 	 * @param {string} rel
@@ -431,8 +409,8 @@ const paths = {
 		),
 	droppedLog: () => path.join(stateDir(), "dropped-debts.log"),
 	/**
-	 * One line per commit-paths.js run: its outcome and the seconds it waited on
-	 * the index lock, for a census of whether the 180 s ceiling is right (#585).
+	 * One line per commit-paths.js run: its outcome and the seconds its pre-lock
+	 * gates and suite took (#1651).
 	 * Not guard-errors.log, which check-guard-errors.js reads as fail-opens.
 	 * Unrotated: one ~40-byte line a commit, so it has not earned log-rotate.js.
 	 */
@@ -1553,7 +1531,6 @@ module.exports = {
 	readRecord,
 	readRecordOrFlag,
 	readRecordOrLog,
-	buildRecordText,
 	REFUSING,
 	registryLookup,
 	registryNames,
