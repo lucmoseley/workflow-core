@@ -16,10 +16,7 @@
  *
  * Loosen one and a tick can judge launches a kill left out of the state, list
  * before the relief steps, dispatch a batch not yet on record, or a dry run can
- * stop on an absent or damaged control, or write, launch or drop a marker; or a
- * tick can miss the founder's return, read slots, seats or a probe while paused
- * or stopping, start a Console read then, stop on a full week, or miss the
- * quiet an empty registry shows a hold's notice.
+ * stop on an absent or damaged control, or write, launch or drop a marker.
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
@@ -444,7 +441,6 @@ describe("the tick's concurrency row (#3770)", () => {
 		const { io } = fakeIo(stateOf(), {
 			readFreeSlots: () => ({
 				slots: 1,
-				/* The run test's fake carries only the fields concurrency.js reads. */
 				admission: { ...ADMISSION_VERDICT, slots: 1 } as never,
 			}),
 			appendTick: (tickRecord) => {

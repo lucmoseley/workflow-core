@@ -17,12 +17,12 @@
  * and exits, passes unseen (#2851).
  *
  * Why each case stays a full tick (§X8 (5), §X11): every branch a module can
- * own runs in-process in its module's test (#4282, #4314–#4316). A case below
- * is a production adapter crossed for real (A), an exit path or input channel
- * (E), a spawn shape — a signal, or a second live process holding the pid
- * or control lock (S), a §N5 fail-open (F), a boundary regression (R), or a
- * branch still in lib/refill-tick.js's or refill-loop.js's shell, with no
- * core entry to test it from (B, #4356).
+ * own runs in-process in its module's test. A case below is a production
+ * adapter crossed for real (A), an exit path or input channel (E), a spawn
+ * shape — a signal, or a second live process holding the pid or control lock
+ * (S), a §N5 fail-open (F), a boundary regression (R), or a branch still in
+ * lib/refill-tick.js's or refill-loop.js's shell, with no core entry to test
+ * it from (B, #4356).
  * - run (#2435): ends at a mid-dispatch stop E; appends the concurrency
  *   record A; supervises a foreign checkout's launches B; tracks a launch a
  *   kill cut off S R; tickets earlyoom's and memwatch's incidents A (two
