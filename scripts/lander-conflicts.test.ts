@@ -1,22 +1,24 @@
 // @vitest-environment node
 /*
  * scripts/lander.js end to end on a culprit whose revert conflicts (#3932,
- * #3935, #4453), against lib/lander-testkit.ts's real-git sandbox.
+ * #3935, #4452, #4453), against lib/lander-testkit.ts's real-git sandbox.
  *
  * Loosen it and a red merge, an anchors-file conflict or a later commit
  * conflicting with the revert holds the queue on a batch the lander could have
- * cleared, or lands a revert that drops a row `landing` moved since; loosen
- * the cap or the dependents' own reverts and it reverts past what it can
- * name.
+ * cleared, or lands a revert that drops a row `landing` moved since, or one
+ * whose regenerated file reads stale; loosen the cap or the dependents' own
+ * reverts and it reverts past what it can name.
  *
- * Over the 10 s file budget: six of its ten cases are real lander runs that
- * bisect and revert, with a registry check (#4301's profile); #4326 cuts the script's own forks. The #4453 holds call the
- * revert alone.
+ * Over the 10 s file budget: seven of its thirteen cases are real lander
+ * runs that bisect and revert, ~100–170 forks a run and a registry check
+ * (#4301's profile); #4480 brings it under. The #4453 holds call the revert
+ * alone.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildRevertLine, whyNotLanderRevert } from "./lib/clean-revert.js";
 import { remoteGit } from "./lib/lander.js";
 import {
 	commit,
@@ -28,6 +30,7 @@ import {
 	stubTracker,
 	work,
 } from "./lib/lander-testkit";
+import { render } from "./lib/read-edges-render.js";
 
 landerSandbox();
 
@@ -327,5 +330,107 @@ describe("a culprit whose revert conflicts in a hand-written file (#4453)", () =
 			),
 		});
 		expect(git(remote, "rev-parse", "landing")).toBe(tip);
+	});
+});
+
+describe("a culprit whose revert conflicts in a regenerated file (#4452)", () => {
+	const Manifest = "docs/test-read-edges.json";
+
+	/** A commit adding `<name>.txt` and a test reading it, the manifest rendered. */
+	const commitReadBy = (name: string) => {
+		fs.writeFileSync(
+			path.join(work, `${name}.test.ts`),
+			`const ROOT = path.resolve(__dirname, "..");\nfs.readFileSync(path.join(ROOT, "${name}.txt"));\n`,
+		);
+		fs.writeFileSync(path.join(work, `${name}.txt`), name);
+		fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(work, Manifest), render(work).text);
+		return commit(name);
+	};
+
+	const commitRedThenLater = () => {
+		const base = commitReadBy("base");
+		const red = commitReadBy("red");
+		const tip = commitReadBy("later");
+		return { base, red, tip };
+	};
+
+	it("reverts it and lands, the file as its generator renders it on the revert's tree", async () => {
+		const { base, red, tip } = commitRedThenLater();
+		git(work, "push", "-q", "origin", `${base}:main`, `${tip}:landing`);
+		const { gh } = stubTracker();
+		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain(`revert ${red} on landing`);
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-parse", "landing")).toBe(landed);
+		expect(git(remote, "log", "-1", "--format=%b", landed)).toContain(
+			`Conflicts in ${Manifest} regenerated on the revert's tree by scripts/generate-test-read-edges.js`,
+		);
+		git(work, "fetch", "-q", "origin");
+		const edges = JSON.parse(git(work, "show", `${landed}:${Manifest}`)).edges;
+		expect(Object.keys(edges)).toEqual(["base.txt", "later.txt"]);
+		expect(`${git(work, "show", `${landed}:${Manifest}`)}\n`).toBe(
+			render(work, { at: landed }).text,
+		);
+		expect(
+			whyNotLanderRevert(work, { culprits: [red], sha: landed, tip }),
+		).toBeNull();
+	});
+
+	it("settles a conflict in an anchors file and the manifest together, rendering on the anchors kept", () => {
+		const Anchors = "scripts/instruction-surface-anchors.json";
+		const writeAnchors = (row: string, far: string) => {
+			fs.mkdirSync(path.join(work, "scripts"), { recursive: true });
+			fs.writeFileSync(
+				path.join(work, Anchors),
+				`${JSON.stringify({ row, b: 0, c: 0, d: 0, e: 0, f: 0, far }, null, "\t")}\n`,
+			);
+		};
+		writeAnchors("seed", "seed");
+		commitReadBy("base");
+		writeAnchors("culprit", "culprit");
+		const red = commitReadBy("red");
+		writeAnchors("later", "culprit");
+		const tip = commitReadBy("later");
+		git(work, "push", "-q", "origin", `${tip}:landing`);
+
+		const made = remoteGit(work).revertOnLanding(red, null, "why");
+
+		expect(made).toMatchObject({ sha: expect.any(String) });
+		const sha = "sha" in made ? made.sha : "";
+		git(work, "fetch", "-q", "origin");
+		expect(JSON.parse(git(work, "show", `${sha}:${Anchors}`))).toMatchObject({
+			row: "later",
+			far: "seed",
+		});
+		expect(`${git(work, "show", `${sha}:${Manifest}`)}\n`).toBe(
+			render(work, { at: sha }).text,
+		);
+		expect(whyNotLanderRevert(work, { culprits: [red], sha, tip })).toBeNull();
+	});
+
+	it("refuses a revert whose regenerated file is not its generator's output", () => {
+		const { red, tip } = commitRedThenLater();
+		expect(() => git(work, "revert", "--no-commit", red)).toThrow();
+		expect(git(work, "diff", "--name-only", "--diff-filter=U")).toBe(Manifest);
+		git(work, "checkout", "--ours", "--", Manifest);
+		git(work, "add", "--", Manifest);
+		git(
+			work,
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-qm",
+			`Revert "red"\n\n${buildRevertLine(red)}`,
+		);
+		const sha = git(work, "rev-parse", "HEAD");
+
+		expect(whyNotLanderRevert(work, { culprits: [red], sha, tip })).toBe(
+			`its tree is not the clean revert of ${red} on ${tip}`,
+		);
 	});
 });

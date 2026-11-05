@@ -60,11 +60,13 @@ const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const { execGroupedSync } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
 const {
+	buildRevertBaseEnv,
 	buildRevertEnv,
 	buildRevertLine,
-	isAnchorFile,
+	isSettledFile,
 	parseRevertLine,
-	readKeptAnchors,
+	readSettledConflicts,
+	renderRegenerated,
 } = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
@@ -2404,13 +2406,12 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * gate lets the clean revert leave rows stale, which the fix ticket then
 	 * names (#3127). Any other refusal holds the queue, naming the registry
 	 * rows it refused on where it was that gate's (#3123). A conflict only in
-	 * anchor files is settled by lib/clean-revert.js's rule (#3935). A conflict
-	 * in any other file reverts first each later commit that changed one,
-	 * newest first, each its own commit, then the culprit (#4453). A
-	 * generated-only file's conflict reverts none: it is regenerated (#4452). Past MAX_DEPENDENTS_REVERTED
-	 * of them,
-	 * or where one's own revert fails or the culprit's still conflicts after
-	 * them, it holds, naming why.
+	 * anchor and regenerated files is settled by lib/clean-revert.js's rule
+	 * (#3935, #4452). A conflict in any other file reverts first each later
+	 * commit that changed one, newest first, each its own commit, then the
+	 * culprit (#4453). Past MAX_DEPENDENTS_REVERTED of them, or where one's own
+	 * revert fails or the culprit's still conflicts after them, it holds,
+	 * naming why.
 	 * @param {string} culprit
 	 * @param {string|null} parent
 	 * @param {string} tip
@@ -2679,9 +2680,11 @@ function commitRevert({ dir, inTree, timeoutMs }, reverted, body) {
 }
 
 /**
- * The revert's anchor-file conflicts staged as lib/clean-revert.js settles them,
- * with the commit message's line saying so; else why the revert did not apply,
- * with the conflicted files no rule settles.
+ * The revert's conflicts staged as lib/clean-revert.js settles them, with the
+ * commit message's line saying so; else why the revert did not apply, with
+ * the conflicted files no rule settles. A regenerated file is rendered on the
+ * tree with every other conflict settled, its own conflicted bytes standing as
+ * `onto`'s, which its render never reads.
  * @param {(args: string[]) => string} inTree git in the revert's worktree
  * @param {string|null} stderr the revert's, null where it applied
  * @param {{dir: string, culprit: string, onto: string, side: string|undefined}} revert
@@ -2691,23 +2694,46 @@ function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 	if (stderr === null) return { note: "" };
 	const conflicted = inTree(["diff", "--name-only", "--diff-filter=U"]);
 	const paths = conflicted.split("\n").filter(Boolean);
-	const unsettled = paths.filter((file) => !isAnchorFile(file));
-	const kept =
+	const unsettled = paths.filter((file) => !isSettledFile(file));
+	const settled =
 		side === undefined
 			? null
-			: readKeptAnchors(dir, { culprit, onto, side }, paths);
-	if (kept === null)
+			: readSettledConflicts(dir, { culprit, onto, side }, paths);
+	if (settled === null)
 		return { failed: buildConflictFailure(stderr, conflicted), unsettled };
+	const { kept, regenerated } = settled;
 	for (const [file, bytes] of kept) {
 		fs.writeFileSync(path.join(dir, file), bytes);
 		inTree(["add", "--", file]);
 	}
+	const generatedPaths = [...regenerated.keys()];
+	if (generatedPaths.length > 0) {
+		inTree(["checkout", "--ours", "--", ...generatedPaths]);
+		inTree(["add", "--", ...generatedPaths]);
+		const tree = inTree(["write-tree"]).trim();
+		for (const [file, generated] of regenerated) {
+			const rendered = renderRegenerated(dir, generated, tree);
+			if ("failed" in rendered)
+				return {
+					failed: `${buildConflictFailure(stderr, conflicted)}; ${generated.generator} could not render ${file} on the revert's tree: ${parseFirstLine(rendered.failed)}`,
+					unsettled: [],
+				};
+			fs.writeFileSync(path.join(dir, file), rendered.bytes);
+			inTree(["add", "--", file]);
+		}
+	}
 	/* Every hunk kept: a culprit that touched only those files reverts to nothing. */
-	return inTree(["diff", "--cached", "--name-only"]).trim() === ""
-		? { failed: buildConflictFailure(stderr, conflicted), unsettled: [] }
-		: {
-				note: `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`,
-			};
+	if (inTree(["diff", "--cached", "--name-only"]).trim() === "")
+		return { failed: buildConflictFailure(stderr, conflicted), unsettled: [] };
+	return {
+		note:
+			(kept.size > 0
+				? `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`
+				: "") +
+			(regenerated.size > 0
+				? `Conflicts in ${generatedPaths.join(", ")} regenerated on the revert's tree by ${[...regenerated.values()].map((g) => g.generator).join(", ")}.\n\n`
+				: ""),
+	};
 }
 
 /**
@@ -2796,17 +2822,18 @@ const buildRevertOrder = (culprit, dependents = []) => [
  * says rather than reading as no row owed (#3127).
  * @param {string} dir
  * @param {string[]} reverted
- * @param {string[]} against
+ * @param {string[]} against `<rev>`, or `<rev> --head <sha>`
  * @returns {{refused: RegistryRow[], exempted: RegistryRow[]}|null}
  */
 function readRegistryRows(dir, reverted, against) {
+	const [onto = "HEAD", , head] = against;
 	const r = spawnSync(
 		process.execPath,
 		[REGISTRY_CHECK, "--json", "--against", ...against],
 		{
 			cwd: dir,
 			encoding: "utf8",
-			env: buildRevertEnv(reverted),
+			env: buildRevertBaseEnv(dir, { onto, head }, buildRevertEnv(reverted)),
 			timeout: LANDER_GIT_TIMEOUT_MS,
 		},
 	);

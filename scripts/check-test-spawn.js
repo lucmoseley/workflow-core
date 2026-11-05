@@ -12,9 +12,9 @@
  * A SPAWN is one call of spawnSync, spawn, execFileSync or execFile whose
  * program is `"node"` or `process.execPath`, of execSync or exec on a command
  * string starting `node `, or of fork, in a test file (lib/test-kind.js) under
- * scripts/ or .claude/skills/. A call passing node `-e`, `--eval`, `-p` or
- * `--print` before its first non-flag word runs inline code, not a program,
- * and is not one. Its identity is the file and the call's first line, whitespace collapsed, with
+ * scripts/ or .claude/skills/. A call whose node words lib/shell-words.js's
+ * `programSource` reads as `inline` runs inline code, not a program, and is
+ * not one. Its identity is the file and the call's first line, whitespace collapsed, with
  * a count among identical lines (lib/fault-profiles.js's `test-spawn`
  * profile): an edit to that line reads as a new spawn, and moving it does not.
  *
@@ -31,7 +31,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { isInlineCode } = require("./lib/shell-words.js");
+const { programSource } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
@@ -171,7 +171,8 @@ function unstatedSpawns(source) {
 		const open = source.indexOf("(", at);
 		const close = src.closeOf(open);
 		if (
-			isInlineCode("node", nodeWords(source.slice(open, close), Boolean(m[1])))
+			programSource("node", nodeWords(source.slice(open, close), Boolean(m[1])))
+				?.source === "inline"
 		)
 			continue;
 		const lineStart = src.lineStartOf(at);
