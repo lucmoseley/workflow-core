@@ -100,7 +100,9 @@ function fakeIo(
 			control: control(),
 			damaged: null,
 		})),
-		changeControl: recorded("changeControl", () => null),
+		changeControl: recorded("changeControl", (change) =>
+			controlFileFake(control()).changeControl(change),
+		),
 		isOptedOut: () => false,
 		readConfiguredSeats: () => [SEAT],
 		readIncluded: () => [WFC],
@@ -117,9 +119,18 @@ function fakeIo(
 			agents: [],
 		})),
 		stopNeverStarted: recorded("stopNeverStarted", () => []),
-		tendCheckouts: recorded("tendCheckouts", () => []),
+		hasConfig: () => true,
+		superviseLanding: recorded("superviseLanding", () => undefined),
+		levelMain: recorded("levelMain", () => undefined),
+		startReapPass: recorded("startReapPass", () => undefined),
+		fileMachineTickets: recorded("fileMachineTickets", () => undefined),
+		tendHolds: recorded("tendHolds", () => []),
 		readListing: recorded("readListing", () => ({ agents: [], why: null })),
-		capOverflowSessions: recorded("capOverflowSessions", () => undefined),
+		recordListedOverflowSessions: recorded(
+			"recordListedOverflowSessions",
+			() => undefined,
+		),
+		stopOverAllowance: recorded("stopOverAllowance", () => []),
 		blockIo: () =>
 			({ log: (line: string) => lines.push(line) }) as unknown as ReturnType<
 				TickIo["blockIo"]
@@ -129,7 +140,11 @@ function fakeIo(
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
 		readCause: () => null as never,
-		actOnLaunches: recorded("actOnLaunches", (listed) => listed),
+		unparkAnswered: recorded("unparkAnswered", () => undefined),
+		tendClosedParks: recorded("tendClosedParks", () => undefined),
+		actOnBlocks: recorded("actOnBlocks", (listed) => listed),
+		actOnIdle: recorded("actOnIdle", (launches) => launches),
+		releaseAwayParks: recorded("releaseAwayParks", (launches) => launches),
 		attachProbeParks: recorded("attachProbeParks", () => undefined),
 		readLiftedHolds: recorded("readLiftedHolds", () => []),
 		releaseEndedHolds: recorded("releaseEndedHolds", () => undefined),
@@ -156,7 +171,7 @@ function fakeIo(
 			held: [],
 			goal: null,
 		})) as unknown as TickIo["readFrontier"],
-		readParkers: () => [],
+		readParkMarkers: () => [],
 		launchBatch: recorded("launchBatch", (batch) => ({
 			launched: batch.map((l) => ({
 				...l,
@@ -223,14 +238,18 @@ describe("the tick's step order (#4212)", () => {
 		expectOrder(calls, "readState", "settleKilled");
 		expectOrder(calls, "settleKilled", "readRegistry");
 		expectOrder(calls, "stopNeverStarted", "readListing");
-		expectOrder(calls, "tendCheckouts", "readListing");
+		expectOrder(calls, "tendHolds", "readListing");
 	});
 
 	it("judges and acts on the launches only after the listing, and reads the room after them", async () => {
 		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
 		await tickOf(io);
-		expectOrder(calls, "readListing", "actOnLaunches");
-		expectOrder(calls, "actOnLaunches", "readLiftedHolds");
+		expectOrder(calls, "readListing", "unparkAnswered");
+		expectOrder(calls, "unparkAnswered", "tendClosedParks");
+		expectOrder(calls, "tendClosedParks", "actOnBlocks");
+		expectOrder(calls, "actOnBlocks", "actOnIdle");
+		expectOrder(calls, "actOnIdle", "releaseAwayParks");
+		expectOrder(calls, "releaseAwayParks", "readLiftedHolds");
 		expectOrder(calls, "readLiftedHolds", "readFreeSlots");
 		expectOrder(calls, "readFreeSlots", "actOnLimits");
 		expectOrder(calls, "actOnLimits", "readSeats");
@@ -471,18 +490,17 @@ describe("the room a stopping tick reads (#4071)", () => {
 describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4147)", () => {
 	const Seat2 = "/home/u/.claude4";
 	const parkedRow = { ...row(5), labels: ["takes:implement", "parked"] };
-	/** A parker of #5 on Seat2, its marker naming `keyVar` where given. */
+	/** A park marker of #5 on Seat2, naming `keyVar` where given. */
 	const parker = (keyVar?: string) => ({
-		root: WFC,
-		number: 5,
+		issues: [5],
 		sessionId: "s-job5",
+		writtenAt: 1,
 		job: {
 			seat: Seat2,
 			jobId: "job5",
 			cwd: WFC,
 			...(keyVar ? { keyVar } : {}),
 		},
-		resumeCwd: WFC,
 	});
 	/** A tick over SEAT, sized, and Seat2 with room and no cap sized yet; each
 	 * checkout the seats were read in, and each cap sized, fitting 1. */
@@ -506,7 +524,7 @@ describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4
 					capped.push(`${root} ${seat}/${members}`);
 					return 1;
 				},
-				readParkers: () => parkers,
+				readParkMarkers: () => parkers,
 			},
 			{ frontier: [parkedRow] },
 		);
@@ -581,6 +599,55 @@ describe("the dry-run policy (#4212)", () => {
 		expect(live.calls).not.toContain("launchBatch");
 	});
 
+	it("calls none of the adapter's acts, reaping as a dry run (#4356)", async () => {
+		const reaped: boolean[] = [];
+		const { io, calls } = fakeIo(stateOf({ launches: [record()] }), {
+			reap: (dryRun) => {
+				reaped.push(dryRun);
+			},
+		});
+		await runTick(io, {
+			dryRun: true,
+			now: NOW,
+			opening: {
+				...opening(awayControl()),
+				typed: { at: NOW - MIN, seat: null },
+			},
+		});
+		expect(reaped).toEqual([true]);
+		for (const port of [
+			"changeControl",
+			"tendQuietBench",
+			"settleKilled",
+			"stopNeverStarted",
+			"superviseLanding",
+			"levelMain",
+			"startReapPass",
+			"fileMachineTickets",
+			"tendHolds",
+			"recordListedOverflowSessions",
+			"stopOverAllowance",
+			"sendHoldNotices",
+			"unparkAnswered",
+			"tendClosedParks",
+			"actOnBlocks",
+			"actOnIdle",
+			"releaseAwayParks",
+			"attachProbeParks",
+			"releaseEndedHolds",
+			"actOnLimits",
+			"probeDueSeats",
+			"startDueConsoleReads",
+		])
+			expect(calls).not.toContain(port);
+	});
+
+	it("releases no ended launch's hold on a paused dry run (#4356)", async () => {
+		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
+		await tickOf(io, control({ paused: { by: "founder", at: 7 } }), true);
+		expect(calls).not.toContain("releaseEndedHolds");
+	});
+
 	it("returns at its decision, reading no manager restart and settling nothing", async () => {
 		const { io, calls } = fakeIo(stateOf());
 		const r = await tickOf(io, control(), true);
@@ -626,9 +693,9 @@ const controlFileFake = (initial: Control) => {
 };
 
 describe("a control change under the lock (#2522)", () => {
-	it("goes on over a change the adapter answers no write for, logging none", async () => {
+	it("goes on over the change a dry run previews, writing and logging none", async () => {
 		const away = awayControl();
-		const { io, lines } = fakeIo(stateOf());
+		const { io, lines, calls } = fakeIo(stateOf());
 		const r = await runTick(io, {
 			dryRun: true,
 			now: NOW,
@@ -637,6 +704,7 @@ describe("a control change under the lock (#2522)", () => {
 				typed: { at: NOW - MIN, seat: null },
 			},
 		});
+		expect(calls).not.toContain("changeControl");
 		expect(lines.join("\n")).not.toContain("the founder is back");
 		expect(r.decision).not.toHaveProperty("stop");
 	});
@@ -768,7 +836,7 @@ describe("a paused tick (#3856)", () => {
 		expect(said).not.toContain("free slots");
 		expect(said).not.toContain("resumed 0 of");
 		expect(calls).toEqual(
-			expect.arrayContaining(["reap", "tendCheckouts", "releaseEndedHolds"]),
+			expect.arrayContaining(["reap", "tendHolds", "releaseEndedHolds"]),
 		);
 		expect(disk().launches[0].finishedAt).not.toBeNull();
 		for (const port of [
@@ -841,5 +909,146 @@ describe("the hold notices' agent read (#3871)", () => {
 		expect(await noticedAgents({ seats: [], faults: [], agents: [] })).toEqual([
 			null,
 		]);
+	});
+});
+
+describe("the sessions parked on a lifted repo hold (#3863)", () => {
+	const keptLifted = async (c: Control) => {
+		const dropped: unknown[] = [];
+		const { io, calls } = fakeIo(stateOf(), {
+			dropSettledLifted: (settled) => {
+				dropped.push(settled);
+			},
+		});
+		await tickOf(io, c);
+		return { calls, dropped };
+	};
+
+	it("reads the lifted holds on a live tick", async () => {
+		const { calls } = await keptLifted(control());
+		expect(calls).toContain("readLiftedHolds");
+	});
+
+	it("keeps them through a tick that stops, reading and dropping none", async () => {
+		const { calls, dropped } = await keptLifted(
+			control({ stopRequested: true }),
+		);
+		expect(calls).not.toContain("readLiftedHolds");
+		expect(dropped).toEqual([[]]);
+	});
+
+	it("keeps them through a paused tick, reading and dropping none", async () => {
+		const { calls, dropped } = await keptLifted(
+			control({ paused: { by: "founder", at: 7 } }),
+		);
+		expect(calls).not.toContain("readLiftedHolds");
+		expect(dropped).toEqual([[]]);
+	});
+});
+
+describe("the checkouts a live tick tends (#3284, #4247, #4248)", () => {
+	it("supervises, levels and reaps each landing root with a config, skipping a gone one, and tends every root's holds", async () => {
+		const gone = "/home/u/gone";
+		const acts: string[] = [];
+		const holdRoots: string[][] = [];
+		const { io } = fakeIo(
+			stateOf({ launches: [record({ root: gone, jobId: "j9" })] }),
+			{
+				hasConfig: (root) => root !== gone,
+				superviseLanding: (root) => acts.push(`supervise ${root}`),
+				levelMain: (root) => acts.push(`level ${root}`),
+				startReapPass: (root) => acts.push(`reap ${root}`),
+				fileMachineTickets: (script) => acts.push(`file ${script}`),
+				tendHolds: (roots) => {
+					holdRoots.push(roots);
+					return [];
+				},
+			},
+		);
+		await tickOf(io);
+		expect(acts).toEqual([
+			`supervise ${WFC}`,
+			`level ${WFC}`,
+			`reap ${WFC}`,
+			"file file-memory-kill-tickets.js",
+			"file file-process-runaway-tickets.js",
+		]);
+		expect(holdRoots).toEqual([[WFC, gone]]);
+	});
+});
+
+describe("an overflow session's listed id (#3701)", () => {
+	const overflow = { kind: "overflow", dir: "/k", keyVar: "K2" };
+	const recordedWith = async (
+		declared: { seats: object[]; errors: string[] },
+		agents: object[] | null,
+	) => {
+		const recorded: unknown[] = [];
+		const { io } = fakeIo(stateOf(), {
+			readListing: () => ({ agents: agents as never, why: null }),
+			recordListedOverflowSessions: (a) => {
+				recorded.push(a);
+			},
+		});
+		await runTick(io, {
+			dryRun: false,
+			now: NOW,
+			opening: { ...opening(control()), declared: declared as never },
+		});
+		return recorded;
+	};
+	const listed = [{ id: "j", sessionId: "s", kind: "background" }];
+
+	it("records the ids the listing shows where an overflow seat is declared soundly", async () => {
+		expect(
+			await recordedWith({ seats: [overflow], errors: [] }, listed),
+		).toEqual([listed]);
+	});
+
+	it("records none off an unread listing, no overflow seat, or a faulted seat file", async () => {
+		expect(await recordedWith({ seats: [overflow], errors: [] }, null)).toEqual(
+			[],
+		);
+		expect(await recordedWith({ seats: [], errors: [] }, listed)).toEqual([]);
+		expect(
+			await recordedWith({ seats: [overflow], errors: ["bad"] }, listed),
+		).toEqual([]);
+	});
+});
+
+describe("the parks a tick sweeps (#3950, #3872)", () => {
+	const Other = "/home/u/other";
+
+	it("takes answered parks off in every checkout it could serve, not only the served", async () => {
+		const swept: string[][] = [];
+		const { io } = fakeIo(stateOf(), {
+			readIncluded: () => [WFC, Other],
+			unparkAnswered: (roots) => {
+				swept.push(roots);
+			},
+		});
+		await tickOf(io);
+		expect(swept).toEqual([[WFC, Other]]);
+	});
+
+	it("sweeps the served alone, logged, where discovery will not read", async () => {
+		const swept: string[][] = [];
+		const { io, lines } = fakeIo(stateOf(), {
+			readIncluded: () => {
+				throw new Error("EACCES");
+			},
+			unparkAnswered: (roots) => {
+				swept.push(roots);
+			},
+		});
+		await tickOf(io);
+		expect(swept).toEqual([[WFC]]);
+		expect(lines.join("\n")).toContain("unserved parks unread: ");
+	});
+
+	it("releases the away parks' ledger rows before it reads the shortlist", async () => {
+		const { io, calls } = fakeIo(stateOf());
+		await tickOf(io);
+		expectOrder(calls, "releaseAwayParks", "readFrontier");
 	});
 });

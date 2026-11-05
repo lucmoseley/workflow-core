@@ -2,11 +2,10 @@
  * refill-tick-core.js — the refill loop's tick (#2012, #2123, spec #1995,
  * #4212): its step order, its dry-run policy and its own readings, with no I/O
  * of its own. Every read, write and child process goes through the TickIo port,
- * whose production adapter is lib/refill-tick.js; a dry run takes that adapter
- * with its writes no-ops. A dry run differs in the policy branches here (it
- * previews over no control as over a stopped one, judges no listing by a boot's
- * kills and stops at its decision) and in what those no-ops answer, which is
- * policy too.
+ * whose adapter is lib/refill-tick.js. A dry run takes the same adapter and
+ * differs in the policy branches here: it previews over no control as over a
+ * stopped one, judges no listing by a boot's kills, calls none of the
+ * adapter's acts, and stops at its decision.
  *
  * A TICK: read founder presence, and in away mode write what it changes under
  * the control lock (#2522), untick each repo its owner opted out (#4188), reap,
@@ -26,6 +25,7 @@
  * #2497).
  */
 
+const { buildErrorText } = require("./caught.js");
 const { buildTickRecord } = require("./concurrency.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const blocks = require("./refill-blocks.js");
@@ -40,6 +40,7 @@ const {
 	awayChangeOf,
 	decideTick,
 	NOTHING_LAUNCHABLE,
+	readParkers,
 	UNREAD,
 } = require("./refill-decide.js");
 const {
@@ -207,13 +208,13 @@ function stopNeverStarted(registry, jobs, stop) {
  *   log: (line: string) => void,
  *   readControl: () => ControlRead,
  *   changeControl: (change: (c: Control) => Control|null) =>
- *     ControlWrite|{busy: string}|null,
+ *     ControlWrite|{busy: string},
  *   isOptedOut: (root: string) => boolean,
  *   readConfiguredSeats: () => string[],
  *   readIncluded: () => string[],
  *   servedRoots: (scope: import("./refill-loop.js").Scope) =>
  *     {roots: string[], dropped: {root: string, why: string}[]},
- *   reap: () => void,
+ *   reap: (dryRun: boolean) => void,
  *   tendQuietBench: (control: Control,
  *     tick: {lastTypedAt: number|null, served: string[], now: number}) => Control,
  *   readManagerRestart: () => Parameters<typeof withManagerRestart>[1],
@@ -222,16 +223,28 @@ function stopNeverStarted(registry, jobs, stop) {
  *   settleKilled: (read: LoopState, served: string[]) => LoopState,
  *   readRegistry: () => RegistryListing,
  *   stopNeverStarted: (registry: RegistryListing, spared: Set<string>) => string[],
- *   tendCheckouts: (served: string[], launches: LoopLaunch[], now: number) => string[],
+ *   hasConfig: (root: string) => boolean,
+ *   superviseLanding: (root: string) => void,
+ *   levelMain: (root: string) => void,
+ *   startReapPass: (root: string) => void,
+ *   fileMachineTickets: (script: string, label: string) => void,
+ *   tendHolds: (roots: string[], served: string[], now: number) => string[],
  *   readListing: (trusted: boolean) => {agents?: AgentRecord[]|null, why?: string|null},
- *   capOverflowSessions: (declared: DeclaredSeats, agents: AgentRecord[]|null) => void,
+ *   recordListedOverflowSessions: (agents: AgentRecord[]) => void,
+ *   stopOverAllowance: (declared: DeclaredSeats, agents: AgentRecord[]|null) => string[],
  *   blockIo: (served: string[]) => BlockIo,
  *   readSwapHold: () => Seen["swapHold"],
  *   sendHoldNotices: (roots: string[],
  *     seen: {agents: AgentRecord[]|null, isPaused: boolean}, now: number) => void,
  *   readProgress: (l: LoopLaunch, served: string[]) => object,
  *   readCause: import("./refill-blocks.js").CauseOf,
- *   actOnLaunches: (listed: LoopLaunch[], mode: "normal"|"away",
+ *   unparkAnswered: (roots: string[], seen: Seen) => void,
+ *   tendClosedParks: (served: string[]) => void,
+ *   actOnBlocks: (listed: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
+ *     LoopLaunch[],
+ *   actOnIdle: (launches: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
+ *     LoopLaunch[],
+ *   releaseAwayParks: (launches: LoopLaunch[], mode: "normal"|"away",
  *     served: string[], seen: Seen) => LoopLaunch[],
  *   attachProbeParks: (broken: string[], launches: LoopLaunch[]) => void,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
@@ -253,8 +266,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *     {holds: import("./refill-decide.js").TickInput["holds"]},
  *   readFrontier: (roots: string[], goal: import("./refill-loop.js").Scope["goal"]) =>
  *     Promise<Awaited<ReturnType<typeof import("./refill-frontier.js").refillFrontier>>>,
- *   readParkers: (frontier: import("./refill-decide.js").MergedRow[]) =>
- *     import("./refill-decide.js").ParkerReading[],
+ *   readParkMarkers: (root: string) => import("./parked.js").ParkMarkerRead[],
  *   launchBatch: (batch: import("./refill-decide.js").Launch[], served: string[]) =>
  *     BatchOutcome,
  *   resumeHeld: (resumes: import("./refill-decide.js").HeldResume[],
@@ -273,19 +285,19 @@ function stopNeverStarted(registry, jobs, stop) {
 
 /**
  * The control `change` leaves, made on a fresh read under the control lock and
- * `said` called on what it wrote; `control` where it changes nothing. A dry run's adapter writes nothing, answering null, and the tick
- * goes on over the change previewed.
+ * `said` called on what it wrote; `control` where it changes nothing. A dry
+ * run writes nothing and goes on over the change previewed.
  * @param {TickIo} io
  * @param {Control|null} control
  * @param {(c: Control) => Control|null} change
- * @param {{what: string, said: (write: Control, fresh: Control) => void}} how
- *   `what`, the change's name in the busy line
+ * @param {{what: string, said: (write: Control, fresh: Control) => void,
+ *   dryRun: boolean}} how  `what`, the change's name in the busy line
  */
-function settleUnderLock(io, control, change, { what, said }) {
+function settleUnderLock(io, control, change, { what, said, dryRun }) {
 	const next = control && change(control);
 	if (!next) return control;
+	if (dryRun) return next;
 	const written = io.changeControl(change);
-	if (written === null) return next;
 	if ("busy" in written) {
 		io.log(`${what} waits for the next tick: ${written.busy}`);
 		return control;
@@ -298,15 +310,15 @@ function settleUnderLock(io, control, change, { what, said }) {
  * The control after this tick's read of the founder (controlAfterPresence).
  * @param {TickIo} io
  * @param {Control|null} control
- * @param {number|null} lastPromptAt
- * @param {number} now
+ * @param {{dryRun: boolean, lastPromptAt: number|null, now: number}} tick
  */
-const settleAwayMode = (io, control, lastPromptAt, now) =>
+const settleAwayMode = (io, control, { dryRun, lastPromptAt, now }) =>
 	settleUnderLock(
 		io,
 		control,
 		(c) => controlAfterPresence(c, lastPromptAt, now),
 		{
+			dryRun,
 			what: "away mode's change",
 			said: (write) => {
 				if (write.scope.mode === "normal")
@@ -322,14 +334,16 @@ const settleAwayMode = (io, control, lastPromptAt, now) =>
  * (controlWithoutOptedOut). A busy lock leaves it ticked a tick longer, which
  * serves nothing: scopeRoots drops it meanwhile.
  * @param {TickIo} io
+ * @param {boolean} dryRun
  * @param {Control|null} control
  */
-const settleOptedOut = (io, control) =>
+const settleOptedOut = (io, dryRun, control) =>
 	settleUnderLock(
 		io,
 		control,
 		(c) => controlWithoutOptedOut(c, io.isOptedOut)?.control ?? null,
 		{
+			dryRun,
 			what: "the opt-out untick",
 			said: (write, fresh) => {
 				for (const root of fresh.scope.repos)
@@ -340,6 +354,141 @@ const settleOptedOut = (io, control) =>
 			},
 		},
 	);
+
+/** The machine incident filers a tick runs, on the review checkout's tracker:
+ * earlyoom kills (#3094) and memwatch's process runaways (#3807).
+ * @type {[string, string][]} */
+const MACHINE_FILERS = [
+	["file-memory-kill-tickets.js", "memory kills"],
+	["file-process-runaway-tickets.js", "process runaways"],
+];
+
+/**
+ * What a real tick does for its checkouts ahead of its decision: each landing
+ * root with a workflow-core config has its landing queue supervised, its main
+ * checkout levelled (#4248) and its worktrees reaped (#4247), a checkout gone
+ * since its launch being skipped (#3284); the machine incident filers run; the
+ * repo holds are tended. The served checkouts whose probe failed.
+ * @param {TickIo} io
+ * @param {string[]} served
+ * @param {LoopLaunch[]} launches
+ * @param {number} now
+ */
+function tendCheckouts(io, served, launches, now) {
+	const roots = landingRoots(served, launches);
+	const configured = roots.filter((root) => io.hasConfig(root));
+	for (const root of configured) io.superviseLanding(root);
+	for (const root of configured) io.levelMain(root);
+	for (const root of configured) io.startReapPass(root);
+	for (const [script, label] of MACHINE_FILERS)
+		io.fileMachineTickets(script, label);
+	return io.tendHolds(roots, served, now);
+}
+
+/**
+ * Stop each overflow session past its allowance (lib/overflow-budget.js,
+ * #3698), logged, first giving each overflow launch the session id the listing
+ * shows for it (#3701), where the listing read and the seat file declares an
+ * overflow seat without fault, paused or stopping alike.
+ * @param {TickIo} io
+ * @param {DeclaredSeats} declared
+ * @param {AgentRecord[]|null} agents
+ */
+function capOverflowSessions(io, declared, agents) {
+	const hasOverflow = declared.seats.some((s) => s.kind === "overflow");
+	if (agents && hasOverflow && declared.errors.length === 0)
+		io.recordListedOverflowSessions(agents);
+	for (const line of io.stopOverAllowance(declared, agents)) io.log(line);
+}
+
+/**
+ * The checkouts whose answered parks a tick takes off: `served` and every other
+ * it could serve, the idle alarm's set (#3950). Discovery that
+ * will not read leaves `served`, logged.
+ * @param {TickIo} io
+ * @param {string[]} served
+ * @returns {string[]}
+ */
+function parkSweepRootsOf(io, served) {
+	try {
+		return [...new Set([...served, ...io.readIncluded()])];
+	} catch (e) {
+		io.log(`unserved parks unread: ${buildErrorText(e)}`);
+		return served;
+	}
+}
+
+/**
+ * The tick's acts on its launches: the answered parks taken off, the closed
+ * issues' parks cleared (#3940), the blocked and idle launches acted on, then
+ * each away park's ledger row released once normal mode is live, ahead of the
+ * shortlist read (#3872).
+ * Then each served checkout's broken probe has the parks made meanwhile
+ * attached to its hold.
+ * @param {TickIo} io
+ * @param {LoopLaunch[]} listed
+ * @param {{mode: "normal"|"away", served: string[], broken: string[],
+ *   seen: Seen}} tick
+ */
+function actOnLaunches(io, listed, { mode, served, broken, seen }) {
+	io.unparkAnswered(parkSweepRootsOf(io, served), seen);
+	io.tendClosedParks(served);
+	const acted = io.releaseAwayParks(
+		io.actOnIdle(io.actOnBlocks(listed, mode, seen), mode, seen),
+		mode,
+		served,
+		seen,
+	);
+	io.attachProbeParks(broken, acted);
+	return acted;
+}
+
+/**
+ * The relief a real tick takes off the registry alone, ahead of the CLI
+ * listing (#2665): each job that never started stopped, then the checkouts
+ * tended. The served checkouts whose probe failed.
+ * @param {TickIo} io
+ * @param {{registry: RegistryListing, state: LoopState, served: string[],
+ *   now: number}} tick
+ */
+function relieve(io, { registry, state, served, now }) {
+	for (const line of io.stopNeverStarted(registry, bootSparedJobs(state)))
+		io.log(line);
+	return tendCheckouts(io, served, state.launches, now);
+}
+
+/**
+ * A real tick's acts off its listing: each overflow session past its allowance
+ * stopped, then each repo hold's notice sent.
+ * @param {TickIo} io
+ * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
+ *   registry: RegistryListing, roots: string[], paused: boolean,
+ *   now: number}} tick
+ */
+function actOnListing(io, { declared, agents, registry, roots, paused, now }) {
+	capOverflowSessions(io, declared, agents);
+	io.sendHoldNotices(
+		roots,
+		{ agents: noticeAgentsOf(agents, registry), isPaused: paused },
+		now,
+	);
+}
+
+/**
+ * The control the tick goes on: the quiet bench route's step taken on a live
+ * tick's sound, running control (#3852).
+ * @param {TickIo} io
+ * @param {{dryRun: boolean, parsed: Control|null, unsettled: Control,
+ *   typedAt: number|null, now: number}} tick
+ */
+const stepQuietBench = (io, { dryRun, parsed, unsettled, typedAt, now }) =>
+	dryRun || parsed === null || unsettled.stopRequested
+		? unsettled
+		: io.tendQuietBench(unsettled, {
+				lastTypedAt: typedAt,
+				served: io.servedRoots(unsettled.scope).roots,
+				now,
+			});
 
 /**
  * The tick's listing, an empty one read as nothing live where a boot's killed
@@ -385,15 +534,17 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  * for the tick after the resume (#3856); a hold its finishes ended is still
  * released, as that tick's `before` no longer shows it holding. The walks'
  * probe stamps are for this read alone: settleTick writes the tick's own.
+ * A dry run acts on none, previewing the slots as free.
  * @param {TickIo} io
- * @param {{control: Control, seatListRead: boolean, before: LoopLaunch[],
- *   judged: LoopLaunch[], seen: Seen, served: string[],
+ * @param {{dryRun: boolean, control: Control, seatListRead: boolean,
+ *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
  *   declared: DeclaredSeats, typedSeat: string|null,
  *   seatTriedAt: Record<string, number>}} tick
  */
 function settleRoom(
 	io,
 	{
+		dryRun,
 		control,
 		seatListRead,
 		before,
@@ -406,7 +557,7 @@ function settleRoom(
 	},
 ) {
 	if (control.paused) {
-		io.releaseEndedHolds(before, judged, seen.io);
+		if (!dryRun) io.releaseEndedHolds(before, judged, seen.io);
 		return {
 			launches: judged,
 			slots: 0,
@@ -423,25 +574,22 @@ function settleRoom(
 		overflowReadings(declared, sized, (seat) => io.seatBudget(seat, served[0]));
 	/** @type {Probe[]} */
 	const moveProbes = [];
-	const { launches, slots, workingChange } = io.actOnLimits(
-		before,
-		judged,
-		control.scope.mode,
-		{
-			...seen,
-			typedSeat,
-			readMoveSeats: () => {
-				const read = io.readSeats(control.seats, 1, served[0], {
-					typedSeat,
-					sizeAll: true,
-				});
-				moveProbes.push(...read.probes);
-				return { seats: read.seats, overflow: overflowOf(read.seats) };
-			},
-			seatListRead,
-			slots: free,
-		},
-	);
+	const { launches, slots, workingChange } = dryRun
+		? { launches: judged, slots: free, workingChange: 0 }
+		: io.actOnLimits(before, judged, control.scope.mode, {
+				...seen,
+				typedSeat,
+				readMoveSeats: () => {
+					const read = io.readSeats(control.seats, 1, served[0], {
+						typedSeat,
+						sizeAll: true,
+					});
+					moveProbes.push(...read.probes);
+					return { seats: read.seats, overflow: overflowOf(read.seats) };
+				},
+				seatListRead,
+				slots: free,
+			});
 	const { seats, probes: walked } = io.readSeats(
 		control.seats,
 		slots,
@@ -449,15 +597,17 @@ function settleRoom(
 		{ typedSeat },
 	);
 	const walks = [...moveProbes, ...walked];
-	const probes = [
-		...walks,
-		...io.probeDueSeats(
-			control.seats,
-			seatTriedAfter(seatTriedAt, walks, io.now()),
-		),
-	];
+	const probes = dryRun
+		? walks
+		: [
+				...walks,
+				...io.probeDueSeats(
+					control.seats,
+					seatTriedAfter(seatTriedAt, walks, io.now()),
+				),
+			];
 	const overflow = overflowOf(seats);
-	if (!control.stopRequested)
+	if (!dryRun && !control.stopRequested)
 		io.startDueConsoleReads(declared, seats, served[0]);
 	return {
 		launches,
@@ -505,7 +655,7 @@ async function decide(io, input, scope) {
 	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
 		merged.frontier
 	);
-	const parkers = io.readParkers(frontier);
+	const parkers = readParkers(frontier, io.readParkMarkers);
 	const decision = decideTick({
 		...input,
 		seats: sizeParkerSeats(input.seats, parkers, io.capSizer(served.roots[0])),
@@ -631,39 +781,41 @@ const buildStandInControl = (io, dryRun, now) => ({
 async function runTick(io, { dryRun, now, opening }) {
 	const { control: stored, damaged } = opening.control;
 	const { declared, typed } = opening;
-	const parsed = settleOptedOut(io, settleAwayMode(io, stored, typed.at, now));
+	const parsed = settleOptedOut(
+		io,
+		dryRun,
+		settleAwayMode(io, stored, { dryRun, lastPromptAt: typed.at, now }),
+	);
 	const unsettled = parsed ?? buildStandInControl(io, dryRun, now);
-	io.reap();
-	const control =
-		parsed === null || unsettled.stopRequested
-			? unsettled
-			: io.tendQuietBench(unsettled, {
-					lastTypedAt: typed.at,
-					served: io.servedRoots(unsettled.scope).roots,
-					now,
-				});
+	io.reap(dryRun);
+	const control = stepQuietBench(io, {
+		dryRun,
+		parsed,
+		unsettled,
+		typedAt: typed.at,
+		now,
+	});
 	/* A dry run previews the state on disk: the marker is the live tick's to apply
 	 * and drop. */
 	const managerRestart = dryRun ? null : io.readManagerRestart();
 	const served = io.servedRoots(control.scope).roots;
+	const onDisk = io.readState();
 	const state = withManagerRestart(
-		io.settleKilled(io.readState(), served),
+		dryRun ? onDisk : io.settleKilled(onDisk, served),
 		managerRestart,
 		io.readCurrentBootId(),
 	);
-	/* Relief first, off the registry alone: the CLI listing below can outrun
-	 * its caps under the very pressure relief exists for (#2665). */
 	const registry = io.readRegistry();
-	for (const line of io.stopNeverStarted(registry, bootSparedJobs(state)))
-		io.log(line);
-	const broken = io.tendCheckouts(served, state.launches, now);
+	const broken = dryRun ? [] : relieve(io, { registry, state, served, now });
 	const agents = readTickListing(io, dryRun, state, registry);
 	/* Read side by side here anyway, so the undocumented registry the relief
 	 * steps trust is checked against the documented listing every tick. */
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) io.log(line);
-	io.capOverflowSessions(declared, agents);
 	const paused = control.paused !== undefined;
+	const roots = landingRoots(served, state.launches);
+	if (!dryRun)
+		actOnListing(io, { declared, agents, registry, roots, paused, now });
 	/** @type {Seen} */
 	const seen = {
 		agents,
@@ -672,22 +824,19 @@ async function runTick(io, { dryRun, now, opening }) {
 		swapHold: io.readSwapHold(),
 		paused,
 	};
-	const roots = landingRoots(served, state.launches);
-	io.sendHoldNotices(
-		roots,
-		{
-			agents: noticeAgentsOf(agents, registry),
-			isPaused: paused,
-		},
-		now,
-	);
 	const booted = dryRun ? state : settleBootKilled(state, seen, registry);
 	const listed = judgedLaunches(booted.launches, agents, now, {
 		progressOf: (l) => io.readProgress(l, served),
 		causeOf: io.readCause,
 	});
-	const acted = io.actOnLaunches(listed, control.scope.mode, served, seen);
-	io.attachProbeParks(broken, acted);
+	const acted = dryRun
+		? listed
+		: actOnLaunches(io, listed, {
+				mode: control.scope.mode,
+				served,
+				broken,
+				seen,
+			});
 	/* A dry run, a paused tick or a stopping one sets nothing running, and the
 	 * lifted holds keep for a later tick. */
 	const { launches: judged, settled: liftedSettled } =
@@ -703,6 +852,7 @@ async function runTick(io, { dryRun, now, opening }) {
 		probes,
 		overflow,
 	} = settleRoom(io, {
+		dryRun,
 		control,
 		seatListRead: isSeatListRead(parsed),
 		before: state.launches,

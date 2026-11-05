@@ -130,7 +130,13 @@ const {
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
 const seatReading = require("./lib/seat-reading.js");
-const { awaitLoopHold, bootVerdictOf } = require("./lib/refill-boot.js");
+const {
+	awaitLoopHold,
+	buildFetchFailedLine,
+	holdRun,
+	runBootResume,
+	runWatch,
+} = require("./lib/refill-boot.js");
 const { readCurrentBootId, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
@@ -142,11 +148,8 @@ const {
 	writeManagerRestart,
 } = require("./lib/refill-files.js");
 const {
-	bootResumeFailed,
-	bootResumed,
 	readState,
 	runForgotten,
-	runHeld,
 	updateState,
 } = require("./lib/refill-state.js");
 const refillBatch = require("./lib/refill-batch.js");
@@ -449,9 +452,18 @@ function launchHeld() {
 	return { pid: child.pid, fetchError: launch.fetchError };
 }
 
-/** @param {string} why */
-const buildFetchFailedLine = (why) =>
-	`fetch failed, starting on the last fetched tip: ${why}`;
+/**
+ * The ports `boot-resume` and `watch` share.
+ * @param {(line: string) => void} write
+ */
+const bootPorts = (write) => ({
+	readControl: readControlChecked,
+	readState,
+	holder: lock.holder,
+	self: process.pid,
+	updateState: (/** @type {import("./lib/refill-state.js").Transition} */ t) =>
+		updateState(t, write),
+});
 
 /**
  * What the user manager's boot unit runs (lib/refill-boot.js): this process's
@@ -464,69 +476,30 @@ function bootResume() {
 		fs.mkdirSync(path.dirname(files.log), { recursive: true });
 		fs.appendFileSync(files.log, stamped);
 	};
-	const bootId = readCurrentBootId();
-	if (bootId === null)
-		note(
-			"boot resume: this boot's id will not read, so a manager restart reads as a boot (#3971)",
-		);
-	const { control, damaged } = readControlChecked(note);
-	const state = readState(note);
-	const verdict = bootVerdictOf({
-		control,
-		damaged,
-		stopped: state.stopped,
-		pid: lock.holder(),
-		self: process.pid,
+	return runBootResume({
+		...bootPorts(note),
+		note,
+		bootId: readCurrentBootId,
+		now: Date.now,
+		writeManagerRestart,
+		launch: launchLoop,
 	});
-	if (!verdict.resume) {
-		note(verdict.line);
-		if (verdict.tellLoop) {
-			writeManagerRestart(Date.now());
-			note(verdict.tellLoop);
-		}
-		return 0;
-	}
-	/* Before the launch, so a loop that dies ahead of its first tick leaves it;
-	 * and heldAt then says whether the new loop ever held the pidfile. */
-	updateState(bootResumed(bootId, Date.now()), note);
-	const launched = launchLoop();
-	if ("error" in launched) {
-		/* No new loop held it, so the last one's death still stands for `status`. */
-		updateState(bootResumeFailed(state.heldAt), note);
-		note(`boot resume: not resumed: ${launched.error}`);
-		return 1;
-	}
-	if (launched.fetchError)
-		note(`boot resume: ${buildFetchFailedLine(launched.fetchError)}`);
-	note(`${verdict.line}, pid ${launched.pid}`);
-	return 0;
 }
 
-/**
- * What the watch timer's unit runs (#4139): restarts the boot unit only where
- * `boot-resume` would resume. Each of its refusals stands until someone acts, so
- * logging one here would repeat it at every firing, and `boot-resume` and `status`
- * name a damaged file. A launch in flight reads as a running loop: a restart would
- * race a `start`, or kill a `boot-resume` mid-fetch.
- */
+/** What the watch timer's unit runs (lib/refill-boot.js's runWatch, #4139). */
 function watch() {
-	const { control, damaged } = readControlChecked(() => undefined);
-	const { resume } = bootVerdictOf({
-		control,
-		damaged,
-		stopped: readState(() => undefined).stopped,
-		pid: lock.holder() ?? launchLock.holder(),
-		self: process.pid,
+	const outcome = runWatch({
+		...bootPorts(() => undefined),
+		launchHolder: launchLock.holder,
+		restartBootUnit: () =>
+			runCommand("systemctl", [
+				"--user",
+				"restart",
+				"refill-loop-boot.service",
+			]),
 	});
-	if (!resume) return 0;
-	const { error } = runCommand("systemctl", [
-		"--user",
-		"restart",
-		"refill-loop-boot.service",
-	]);
-	if (error === null) return 0;
-	writeFd(2, `${error}\n`);
-	return 1;
+	if (outcome.code === 1) writeFd(2, `${outcome.message}\n`);
+	return outcome.code;
 }
 
 /** @param {import("./lib/cli-args").Parsed} parsed */
@@ -929,12 +902,18 @@ function startGateSweep(sweeper) {
 }
 
 async function run() {
-	if (!lock.acquire()) {
-		log(`another refill loop holds ${files.pid}; exiting`);
-		return 0;
-	}
+	/* Before the hold, so it is never held past this process; release
+	 * removes only a pidfile naming this one. */
 	process.on("exit", lock.release);
-	updateState(runHeld(Date.now(), readCurrentBootId()), log);
+	const held = holdRun({
+		acquire: lock.acquire,
+		pidFile: files.pid,
+		log,
+		now: Date.now,
+		bootId: readCurrentBootId,
+		updateState: (t) => updateState(t, log),
+	});
+	if (!held) return 0;
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(sig, () => process.exit(0));
 	log(`refill loop running, pid ${process.pid}, from ${SCRIPTS}`);

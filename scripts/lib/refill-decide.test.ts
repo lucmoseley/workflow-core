@@ -20,6 +20,7 @@ const {
 	buildLoopWait,
 	decideTick,
 	pickMoveSeat,
+	readParkers,
 } = require("./refill-decide.js");
 const { parseCapFits, readSizedSeats } = require("./seat-reading.js");
 const { mergeFrontiers } = require("./frontier-order.js");
@@ -1982,5 +1983,59 @@ describe("decideTick on a predicted write-set clash (#4355)", () => {
 				why: "clashes on scripts/a.js with #1 launched this tick",
 			},
 		]);
+	});
+});
+
+describe("readParkers (#3773)", () => {
+	const Other = "/home/u/other";
+	const Wfc = "/home/u/wfc";
+	const parked = (root: string, number: number) =>
+		row(root, number, "implement", {
+			labels: ["takes:implement", "parked"],
+		});
+	const marker = (
+		sessionId: string,
+		writtenAt: number,
+		cwd: string | null,
+	) => ({
+		issues: [5],
+		sessionId,
+		writtenAt,
+		job: { seat: "/s2", jobId: `j-${sessionId}`, cwd },
+	});
+
+	it("takes the newest marker listing a parked row, resuming in its cwd, else the checkout holding it", () => {
+		const read: string[] = [];
+		const readMarkers = (root: string) => {
+			read.push(root);
+			return root === Wfc
+				? [marker("s-old", 1, "/old"), marker("s-new", 2, "/new")]
+				: [{ ...marker("s-o", 1, null), limitParks: 2, cause: "LIMIT" }];
+		};
+		const frontier = [
+			parked(Wfc, 5),
+			{ ...parked(Wfc, 5), number: 6 },
+			row(Wfc, 5),
+			parked(Other, 5),
+			parked(Wfc, 5),
+		] as never;
+		expect(readParkers(frontier, readMarkers)).toEqual([
+			expect.objectContaining({
+				root: Wfc,
+				sessionId: "s-new",
+				resumeCwd: "/new",
+			}),
+			{
+				root: Other,
+				number: 5,
+				sessionId: "s-o",
+				job: { seat: "/s2", jobId: "j-s-o", cwd: null },
+				resumeCwd: Other,
+				limitParks: 2,
+				parkCause: "LIMIT",
+			},
+			expect.objectContaining({ root: Wfc, sessionId: "s-new" }),
+		]);
+		expect(read).toEqual([Wfc, Other]);
 	});
 });
