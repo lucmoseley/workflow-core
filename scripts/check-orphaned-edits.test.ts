@@ -455,14 +455,11 @@ describe("a linked worktree's dirt", () => {
 		expect(readFilings()).toEqual([]);
 	});
 
-	it("falls back to the ledger's host-relative spelling where no session owns the worktree", () => {
+	it("is owned by the ledger at the file's path in its tree where no session owns the worktree (#4397)", () => {
 		worktreeOf(null, 30);
 		fakeClaude("bystander", "ledger-owner");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
-		fs.writeFileSync(
-			store.paths.ledger("ledger-owner"),
-			".claude/worktrees/w1/a.txt\n",
-		);
+		fs.writeFileSync(store.paths.ledger("ledger-owner"), "a.txt\n");
 
 		expect(run().out).not.toContain("ORPHANED-EDIT");
 	});
@@ -485,28 +482,21 @@ describe("a linked worktree's dirt", () => {
 		worktreeOf("dead-owner-3", 30);
 		fakeClaude("bystander", "mover");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
-		fs.writeFileSync(
-			store.paths.ledger("mover"),
-			".claude/worktrees/w1/a.txt\n",
-		);
+		fs.writeFileSync(store.paths.ledger("mover"), "a.txt\n");
 
 		expect(run().out).not.toContain("ORPHANED-EDIT");
 		expect(readFilings()).toEqual([]);
 	});
 
-	it("counts, never files, an old file in an unowned worktree outside the host root", () => {
-		worktreeOf(null, 30, path.join(sb.dir, "outside-wt"));
+	it("judges an old file in an unowned worktree outside the host root by its path there (#4397)", () => {
+		const wt = worktreeOf(null, 30, path.join(sb.dir, "outside-wt"));
 		fakeClaude("bystander");
 
-		const r = run(["--json"]);
+		const data = JSON.parse(run(["--json"]).stdout);
 
-		const data = JSON.parse(r.stdout);
-		expect(data.orphanCount).toBe(0);
-		expect(data.unjudged).toBe(1);
-		expect(readFilings()).toEqual([]);
-		expect(run().out).toContain(
-			"1 old file(s) in worktrees outside the host root that no session owns went unjudged",
-		);
+		expect(data.orphans.map((o: { worktree: string }) => o.worktree)).toEqual([
+			wt,
+		]);
 	});
 
 	it("names a registration whose directory has gone, and judges the rest", () => {

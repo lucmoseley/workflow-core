@@ -52,7 +52,11 @@ import {
 	type Row,
 } from "./lib/agents-stop-fake";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
-import { buildRekeyedResponse, FAKE_COPY } from "./lib/bg-resume-fake";
+import {
+	buildBgBranch,
+	buildRekeyedResponse,
+	FAKE_COPY,
+} from "./lib/bg-resume-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { ledgerPath, readOverflowLookup } from "./lib/dispatch-ledger.js";
 import { readGhAnswer } from "./lib/gh-fake";
@@ -1978,7 +1982,11 @@ describe("a session held on its seat's limit (#3735)", () => {
 					buildJobRow(Job, "blocked", { sessionId: Session }),
 				]),
 				`if [ "$1" = "stop" ] || [ "$1" = "rm" ]; then echo "$* in $CLAUDE_CONFIG_DIR" >> "$calls"; [ "$1" = "rm" ] && rm -rf "$CLAUDE_CONFIG_DIR/jobs/$2"; echo stopped; exit 0; fi`,
-				`if [ "$1" = "--bg" ]; then echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume} cat ${shellQuote(at("bg-stdout"))}; cat ${shellQuote(at("bg-stderr"))} >&2; exit 0; fi`,
+				buildBgBranch({
+					out: at("bg-stdout"),
+					err: at("bg-stderr"),
+					onResume: `echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume}`,
+				}),
 			]);
 		};
 		const startsOnTarget = () => {

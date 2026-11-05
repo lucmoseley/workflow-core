@@ -292,26 +292,8 @@ function ownChanges(tree, ctx) {
 		);
 		return [];
 	}
-	const mine = new Set(ledgerInTree(tree, ledger, ctx.root));
+	const mine = new Set(ledger);
 	return changed.filter((p) => mine.has(p));
-}
-
-/**
- * The write ledger as `tree` names its paths. The ledger records a path from
- * the root (lib/arbiter-ledger.js's recordWrite), so a worktree's file carries
- * the worktree's place under the root, and a worktree outside the root has
- * none.
- * @param {string} tree
- * @param {string[]} ledger
- * @param {string} root
- */
-function ledgerInTree(tree, ledger, root) {
-	if (tree === root) return ledger;
-	if (!tree.startsWith(`${root}/`)) return [];
-	const prefix = `${tree.slice(root.length + 1)}/`;
-	return ledger
-		.filter((rel) => rel.startsWith(prefix))
-		.map((rel) => rel.slice(prefix.length));
 }
 
 /**
