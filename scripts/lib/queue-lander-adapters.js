@@ -14,7 +14,7 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
-const { execGit } = require("./git.js");
+const { execGit, gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
@@ -104,7 +104,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		} catch (err) {
 			const broken = BROKEN_OBJECT.exec(String(caught(err).stderr ?? ""));
 			if (!broken) throw err;
-			const common = git(["rev-parse", "--git-common-dir"]).trim();
+			const common = gitCommonDirOrThrow(root);
 			fs.rmSync(
 				path.resolve(root, common, "objects", broken[1] ?? "", broken[2] ?? ""),
 				{ force: true },
