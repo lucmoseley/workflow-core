@@ -8,8 +8,8 @@
  *   node check-host-root-test-isolation.js [--json] [--warn]
  *
  * `lib/host-root.js`'s `hostRoot()` answers `CLAUDE_PROJECT_DIR` where it is
- * set, else the git top level of the spawn's cwd — which, uncontained, is the
- * real repo the test itself runs inside. A script rooted through it (directly
+ * set, else the main checkout owning the spawn's cwd — which, uncontained, is
+ * the real repo the test itself runs inside. A script rooted through it (directly
  * or via `lib/marker-root.js`) then reads and writes the live
  * `.claude/tmp/markers/` tree: marker latches, counters, the test-log store.
  * #154 was one instance, fixed at 757bfc1f by setting CLAUDE_PROJECT_DIR on
@@ -289,7 +289,7 @@ runCheck({
 			);
 			ctx.say(`${rel} spawns ${scripts.join(", ")}.`);
 			ctx.say(
-				"  Those scripts root through hostRoot() (lib/host-root.js) or gr_root (lib/guard-root.sh), which answer an inherited CLAUDE_PROJECT_DIR first and fall back to the git top level of the spawn's cwd.",
+				"  Those scripts root through hostRoot() (lib/host-root.js) or gr_root (lib/guard-root.sh), which answer an inherited CLAUDE_PROJECT_DIR first and fall back to the main checkout owning the spawn's cwd.",
 			);
 			ctx.say(
 				"  Fix: give the spawn env a CLAUDE_PROJECT_DIR under the case's temp directory (scripts/run-vitest.test.ts and similar spawn helpers show the shape).",

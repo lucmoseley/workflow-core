@@ -28,6 +28,7 @@ const LIB = path.resolve(__dirname, "lib");
 let tmp: string;
 let repo: string;
 let repoLink: string;
+let linked: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -35,6 +36,24 @@ beforeAll(() => {
 	fs.mkdirSync(path.join(repo, "sub"), { recursive: true });
 	fs.writeFileSync(path.join(repo, "file.txt"), "x\n");
 	execFileSync("git", ["init", "-q"], { cwd: repo });
+	execFileSync(
+		"git",
+		[
+			"-c",
+			"user.name=t",
+			"-c",
+			"user.email=t@t",
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"x",
+		],
+		{ cwd: repo },
+	);
+	linked = path.join(tmp, "linked");
+	execFileSync("git", ["worktree", "add", "-q", linked], { cwd: repo });
+	fs.mkdirSync(path.join(linked, "sub"));
 	repoLink = path.join(tmp, "repo-link");
 	fs.symlinkSync(repo, repoLink);
 	fs.mkdirSync(path.join(tmp, "nowhere"));
@@ -116,6 +135,22 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			"a file rather than a directory",
 			() => [tmp, path.join(repo, "file.txt")],
 			() => path.join(repo, "file.txt"),
+		],
+		[
+			/* The Bash tool sets no CLAUDE_PROJECT_DIR (#4482). */
+			"no CLAUDE_PROJECT_DIR, from a linked worktree",
+			() => [linked, undefined],
+			() => repo,
+		],
+		[
+			"no CLAUDE_PROJECT_DIR, from a linked worktree's subdirectory",
+			() => [path.join(linked, "sub"), undefined],
+			() => repo,
+		],
+		[
+			"no CLAUDE_PROJECT_DIR, from the main checkout",
+			() => [path.join(repo, "sub"), undefined],
+			() => repo,
 		],
 		[
 			"no CLAUDE_PROJECT_DIR and no repository",

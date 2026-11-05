@@ -3,7 +3,11 @@
  * repository.
  *
  * THE CONTRACT, in order: `CLAUDE_PROJECT_DIR` where the harness sets it, else
- * the git top level of the working directory, symlinks dereferenced either way.
+ * the main checkout owning the working directory, symlinks dereferenced either
+ * way: in a linked worktree the parent of a git common dir called `.git`,
+ * elsewhere the git top level. The Bash tool sets no `CLAUDE_PROJECT_DIR`, so a
+ * script a worktree session runs by hand reaches the shared stores through this
+ * limb (#4482).
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
  *
@@ -38,9 +42,15 @@
  */
 
 const path = require("node:path");
-const { execGit, gitCommonDir, gitCommonDirOrThrow } = require("./git.js");
+const {
+	execGit,
+	gitCommonDir,
+	gitCommonDirOrThrow,
+	revParseWithCommonDirOrThrow,
+} = require("./git.js");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
+const { checkoutOfCommonDir } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
 
 /**
@@ -82,6 +92,24 @@ function gitTopLevel(cwd, timeoutMs) {
 }
 
 /**
+ * The main checkout owning `cwd`, symlinks dereferenced: `main-checkout.js`'s
+ * rule, else the git top level — a bare repository's worktree, a submodule or
+ * a `--separate-git-dir` checkout has no main checkout to name. Throws where
+ * git names no top level.
+ * @param {string} cwd
+ * @param {number} [timeoutMs]
+ * @returns {string}
+ */
+function owningCheckout(cwd, timeoutMs) {
+	const [top = "", common = ""] = revParseWithCommonDirOrThrow(
+		cwd,
+		["--show-toplevel"],
+		{ timeout: timeoutMs },
+	);
+	return deref(checkoutOfCommonDir(common) ?? top);
+}
+
+/**
  * The host repository's root.
  * @param {string} [cwd] the directory the git limb asks from
  * @param {{ timeoutMs?: number, onTimeout?: () => void }} [opts] the git
@@ -95,7 +123,7 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 	if (memo.key === cwd) return memo.value;
 	let value;
 	try {
-		value = gitTopLevel(cwd, timeoutMs);
+		value = owningCheckout(cwd, timeoutMs);
 	} catch (e) {
 		if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 		/* Fails open to the working directory (mantahostels#103 §6), silently: this is what
@@ -129,25 +157,36 @@ function sessionTree({ cwd }) {
  * is a linked worktree of the host repository, else `hostRoot()`. It is what a
  * test run reads and where a script writing tracked files writes (#4438).
  *
- * NOT `hostRoot()` ALONE (#2940). The harness sets `CLAUDE_PROJECT_DIR` to the
- * main checkout for every Bash call, so a run launched inside a linked worktree
- * would otherwise test the main checkout's files and say nothing. State keyed on
+ * NOT `hostRoot()` ALONE (#2940). `hostRoot()` names the main checkout, so a
+ * run launched inside a linked worktree would otherwise test the main
+ * checkout's files and say nothing. State keyed on
  * the host stays there — the arbiter's directory on `hostRoot()`, the marker
  * store on the git common dir: only which files are under test follows the
  * worktree.
+ *
+ * With neither a `host` nor `CLAUDE_PROJECT_DIR`, the git top level alone:
+ * `hostRoot()` would name the main checkout of that same repository, so the
+ * common-dir comparison below could only agree, at three more git forks.
  * @param {string} [cwd]
  * @param {{ host?: string, timeoutMs?: number, onTimeout?: () => void }} [opts]
  *   `host`, where the caller already holds it, so the answer reads no ambient
- *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`, and with neither the git
- *   top level is host and worktree alike. `timeoutMs` bounds each git read,
- *   none by default; a read past it answers the host and calls `onTimeout`
+ *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`. `timeoutMs` bounds each
+ *   git read, none by default; a read past it answers the host — the working
+ *   directory where no host was given — and calls `onTimeout`
  * @returns {string}
  */
 function worktreeRoot(
 	cwd = process.cwd(),
 	{ host: given, timeoutMs, onTimeout } = {},
 ) {
-	if (!given && !process.env.CLAUDE_PROJECT_DIR) return hostRoot(cwd);
+	if (!given && !process.env.CLAUDE_PROJECT_DIR) {
+		try {
+			return gitTopLevel(cwd, timeoutMs);
+		} catch (e) {
+			if (caught(e).code === "ETIMEDOUT") onTimeout?.();
+			return hostRoot(cwd, { timeoutMs });
+		}
+	}
 	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);
 	try {
 		const top = gitTopLevel(cwd, timeoutMs);

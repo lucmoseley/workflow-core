@@ -4738,6 +4738,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-orphaned-edits.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/check-orphaned-edits.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
