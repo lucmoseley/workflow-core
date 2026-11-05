@@ -23,7 +23,6 @@
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { runStartLander } = require("./lib/lander-start.js");
-const path = require("node:path");
 const {
 	mainMovedAt,
 	readQueue,
@@ -42,9 +41,6 @@ const USAGE = `usage: node ${scriptPath("supervise-landing.js")} [--tester <comm
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = { usage: USAGE, flags: { "--tester": "value" } };
 
-/* The stall the open stall ticket was filed for. */
-const STALL_RECORD = ".landing-stall-ticket.json";
-
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
 
@@ -61,11 +57,9 @@ function main(argv = process.argv.slice(2)) {
 	const queue = readQueue(root);
 	const { start, ticket } = supervision(queue);
 	if (start) startLander(root, flagValue(parsed.flags, "--tester"));
-	const tend = stallTicketTender(
-		liveQueueDeps(root),
-		path.join(markersDir(root), STALL_RECORD),
-	);
+	const tend = stallTicketTender(liveQueueDeps(root), markersDir(root));
 	for (const line of tend({
+		main: queue.main,
 		movedAt: mainMovedAt(queue.mainAt, queue.heartbeat),
 		stall: ticket && {
 			landing: ticket.landing,

@@ -226,7 +226,7 @@ it("closes the stall ticket with the stall's length once main moves, and files a
 	const [closed] = readIssues();
 	expect(closed.state).toBe("CLOSED");
 	expect(closed.closeComment).toMatch(
-		/^`main` moved at \S+, after standing 2 h 30 min since \S+\.$/,
+		/^`main` moved to `[0-9a-f]{40}` at \S+, after standing 2 h 30 min since \S+\.$/,
 	);
 	expect(supervise().stdout).toBe("");
 
@@ -240,6 +240,37 @@ it("closes the stall ticket with the stall's length once main moves, and files a
 		"CLOSED",
 		"OPEN",
 	]);
+});
+
+it("closes the stall ticket on a move no heartbeat recorded, onto a commit older than the stall", () => {
+	commit("seed", 150 * MIN, "main", "landing");
+	commit("work", 200 * MIN, "landing");
+	aheadFor(150 * MIN);
+	beat(process.pid);
+	expect(supervise().stdout).toContain("Filed #100");
+
+	git(work, ["push", "-q", "origin", "HEAD:main"]);
+	const moved = supervise();
+
+	expect(moved.stdout).toBe("stall ticket: closed #100.\n");
+	expect(readIssues()[0].closeComment).toMatch(
+		/^`main` moved to `[0-9a-f]{40}`, having stood since \S+\.$/,
+	);
+});
+
+it("drops a torn stall record, saying so, and closes nothing", () => {
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(path.join(markers(), ".landing-stall-ticket.json"), "{");
+	commit("seed", 5 * MIN, "main", "landing");
+
+	const r = supervise();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toContain("would not parse and is dropped");
+	expect(
+		fs.existsSync(path.join(markers(), ".landing-stall-ticket.json")),
+	).toBe(false);
+	expect(readIssues()).toEqual([]);
 });
 
 it("starts a dead lander and files the stall ticket too where main has stood 2 h", () => {

@@ -1,6 +1,6 @@
 name: Main lagging landing 2h
 
-# The off-machine stall check (#4443): scripts/check-main-lag.js fails where
+# The off-machine stall check (#4443): scripts/main-lag-alarm.js fails where
 # landing is ahead of main and main has not moved for lib/landing-stall.js's
 # STALL_MS. The refill loop's stall ticket needs the machine up; this does not.
 # GitHub sends a scheduled run's failure to the user who last changed the cron
@@ -30,10 +30,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            scripts/check-main-lag.js
+            scripts/main-lag-alarm.js
             scripts/lib
           sparse-checkout-cone-mode: false
       - name: Read main's lag behind landing
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/check-main-lag.js
+        run: node scripts/main-lag-alarm.js

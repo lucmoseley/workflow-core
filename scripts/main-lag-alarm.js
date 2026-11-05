@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /*
- * check-main-lag.js — the off-machine stall check (#4443), run hourly on
+ * main-lag-alarm.js — the off-machine stall check (#4443), run hourly on
  * GitHub by .github/workflows/main-lag.yml: fails where `landing` is ahead of
  * `main` and `main` has not moved for lib/landing-stall.js's STALL_MS, so a
  * stall is caught with the machine off or the refill loop dead.
  *
- *   node scripts/check-main-lag.js
+ *   node scripts/main-lag-alarm.js
  *
  * Reads GITHUB_API_URL, GITHUB_REPOSITORY and GH_TOKEN, as Actions sets them.
+ *
+ * NOT A `check-*`: runCheck's alphabet reads GitHub unreachable as SKIP, exit
+ * 0, and a liveness alarm that goes green whenever it cannot read the queue
+ * is silent exactly when nobody can see the machine. Its own three codes keep
+ * the alphabet's meanings for the rest.
  *
  * The clock is the on-machine stall's: from `main`'s last push, or from when
  * `landing` first went ahead of it where that is later (#3303). With no
@@ -18,11 +23,11 @@
  * the clock.
  *
  * Prints GitHub annotations. Exit codes: 0 where `main` is level or moved
- * within STALL_MS; 1 on a stall, or a check that could not read the queue.
+ * within STALL_MS; 1 on a stall; 2 where it could not read the queue.
  * Needs no npm install.
  */
 
-const { STALL_MS } = require("./lib/landing-stall.js");
+const { STALL_MS, formatHoursMin } = require("./lib/landing-stall.js");
 
 /* GitHub's ceiling for one page of the activity feed. */
 const PUSH_PAGE = 100;
@@ -37,14 +42,18 @@ const RETRY_MS = 2000;
  * @typedef {{stalled: boolean, line: string}} Verdict
  */
 
-/** @param {number} ms */
-const formatAge = (ms) => {
-	const min = Math.floor(ms / 60_000);
-	return `${Math.floor(min / 60)} h ${min % 60} min`;
-};
-
 /** @param {string} status a compare endpoint's status of `landing` to `main` */
-const queued = (status) => status === "ahead" || status === "diverged";
+const isQueued = (status) => status === "ahead" || status === "diverged";
+
+/** @param {unknown} p @returns {p is Push} */
+const isPush = (p) =>
+	typeof p === "object" &&
+	p !== null &&
+	"timestamp" in p &&
+	typeof p.timestamp === "string" &&
+	Number.isFinite(Date.parse(p.timestamp)) &&
+	"after" in p &&
+	typeof p.after === "string";
 
 /**
  * @param {Get} get
@@ -52,11 +61,27 @@ const queued = (status) => status === "ahead" || status === "diverged";
  * @param {number} perPage
  * @returns {Promise<[Push, ...Push[]]>} newest first
  */
-async function pushes(get, ref, perPage) {
+async function readPushes(get, ref, perPage) {
 	const feed = await get(`/activity?ref=refs/heads/${ref}&per_page=${perPage}`);
 	if (!Array.isArray(feed) || feed.length === 0)
 		throw new Error(`no push to ${ref} in the activity feed`);
+	if (!feed.every(isPush))
+		throw new Error(`a push to ${ref} with no timestamp or sha in the feed`);
 	return /** @type {[Push, ...Push[]]} */ (feed);
+}
+
+/**
+ * @param {Get} get
+ * @param {string} branch
+ * @returns {Promise<string>} the branch's sha
+ */
+async function readBranchSha(get, branch) {
+	const ref = /** @type {{object?: {sha?: unknown}}} */ (
+		await get(`/git/ref/heads/${branch}`)
+	);
+	const sha = ref.object?.sha;
+	if (typeof sha !== "string") throw new Error(`no sha for ${branch}`);
+	return sha;
 }
 
 /**
@@ -65,7 +90,7 @@ async function pushes(get, ref, perPage) {
  * @param {string} head
  * @returns {Promise<string>}
  */
-async function compareStatus(get, base, head) {
+async function readCompareStatus(get, base, head) {
 	const { status } = /** @type {{status?: unknown}} */ (
 		await get(`/compare/${base}...${head}`)
 	);
@@ -80,26 +105,36 @@ async function compareStatus(get, base, head) {
  * @returns {Promise<Verdict>}
  */
 async function judgeLag(get, now) {
-	const [tip] = await pushes(get, "main", 1);
-	const mainAt = Date.parse(tip.timestamp);
-	const status = await compareStatus(get, tip.after, "landing");
-	if (!queued(status))
+	const [tip] = await readPushes(get, "main", 1);
+	const mainSha = await readBranchSha(get, "main");
+	/* The feed is not documented as fresh: a `main` it has not caught up
+	 * with has just moved. */
+	if (mainSha !== tip.after)
 		return {
 			stalled: false,
-			line: `main ${tip.after.slice(0, 9)}, last pushed ${tip.timestamp}, is level with landing (${status}).`,
+			line: `main is at ${mainSha.slice(0, 9)}, newer than the activity feed's last push, ${tip.timestamp}.`,
 		};
-	const landing = await pushes(get, "landing", PUSH_PAGE);
+	const mainAt = Date.parse(tip.timestamp);
+	const status = await readCompareStatus(get, mainSha, "landing");
+	if (!isQueued(status))
+		return {
+			stalled: false,
+			line: `main ${mainSha.slice(0, 9)}, last pushed ${tip.timestamp}, is level with landing (${status}).`,
+		};
+	const landing = await readPushes(get, "landing", PUSH_PAGE);
 	const atMove = landing.find((p) => Date.parse(p.timestamp) <= mainAt);
-	const after = landing.filter((p) => Date.parse(p.timestamp) > mainAt);
+	const firstAfter = landing
+		.filter((p) => Date.parse(p.timestamp) > mainAt)
+		.at(-1);
 	const aheadAtMove =
 		atMove !== undefined &&
-		queued(await compareStatus(get, tip.after, atMove.after));
+		isQueued(await readCompareStatus(get, mainSha, atMove.after));
 	const since =
-		aheadAtMove || after.length === 0
+		aheadAtMove || firstAfter === undefined
 			? mainAt
-			: Date.parse(/** @type {Push} */ (after.at(-1)).timestamp);
+			: Date.parse(firstAfter.timestamp);
 	const age = now - since;
-	const line = `main has not moved since ${tip.timestamp}, with landing ${status} of it since ${new Date(since).toISOString()}: ${formatAge(age)}, against ${formatAge(STALL_MS)}.`;
+	const line = `main has not moved since ${tip.timestamp}, with landing ${status} of it since ${new Date(since).toISOString()}: ${formatHoursMin(age)}, against ${formatHoursMin(STALL_MS)}.`;
 	return { stalled: age > STALL_MS, line };
 }
 
@@ -135,7 +170,7 @@ function liveGet(env) {
  * @param {{get: Get, now: number, say: (line: string) => void}} deps
  * @returns {Promise<number>}
  */
-async function main({ get, now, say }) {
+async function runAlarm({ get, now, say }) {
 	let verdict;
 	try {
 		verdict = await judgeLag(get, now);
@@ -143,7 +178,7 @@ async function main({ get, now, say }) {
 		say(
 			`::error title=Check broken, not a stall::Could not read main's lag behind landing: ${e instanceof Error ? e.message : String(e)}. The queue's state is unknown: read git log origin/main..origin/landing, then this run's log.`,
 		);
-		return 1;
+		return 2;
 	}
 	if (!verdict.stalled) {
 		say(verdict.line);
@@ -155,19 +190,23 @@ async function main({ get, now, say }) {
 	return 1;
 }
 
-if (require.main === module)
-	main({
+/** @returns {Promise<number>} */
+const main = () =>
+	runAlarm({
 		get: liveGet(process.env),
 		now: Date.now(),
 		say: (line) => process.stdout.write(`${line}\n`),
-	}).then(
+	});
+
+if (require.main === module)
+	main().then(
 		(code) => {
 			process.exitCode = code;
 		},
 		(e) => {
-			process.stderr.write(`check-main-lag: ${e}\n`);
-			process.exitCode = 1;
+			process.stderr.write(`main-lag-alarm: ${e}\n`);
+			process.exitCode = 2;
 		},
 	);
 
-module.exports = { main };
+module.exports = { main, runAlarm };
