@@ -79,6 +79,15 @@ function linkedWorktrees(root) {
 }
 
 /**
+ * Whether the write refusal binds: the `landing` module on and the main
+ * checkout `gitRead` reads cut over. A git that cannot answer reads as not.
+ * @param {(module: "landing") => boolean} moduleOn
+ * @param {import("./git.js").GitReader} gitRead
+ */
+const landingCutOver = (moduleOn, gitRead) =>
+	moduleOn("landing") && readCutOver(gitRead) === true;
+
+/**
  * Whether the main checkout at `root` is cut over. A config git cannot read
  * answers not cut over.
  * @param {string} root
@@ -278,4 +287,10 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 	}
 }
 
-module.exports = { cutover, isCutOver, readCutOver, renderCutover };
+module.exports = {
+	cutover,
+	isCutOver,
+	landingCutOver,
+	readCutOver,
+	renderCutover,
+};
