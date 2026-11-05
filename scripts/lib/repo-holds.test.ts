@@ -746,8 +746,7 @@ describe("a tick's store resolution (#4398)", () => {
 	const holds = load("./repo-holds.js");
 	const { tendHoldNotices } = load("./repo-hold-notices.js");
 
-	/** The `--git-common-dir` forks of every hold call a tick makes over two
-	 * served checkouts, a park hold open in one, each tick run through `run`. */
+	/** The `--git-common-dir` forks of every hold call a tick makes. */
 	const countTickForks = (run: (calls: () => void) => void) => {
 		serve();
 		const other = at("other");
