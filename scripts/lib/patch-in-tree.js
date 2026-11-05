@@ -17,6 +17,10 @@ const { formatSide, parseHeader } = require("./hunk-header.js");
  * @typedef {{header: string, newStart: number, lines: string[], noEol: boolean}} NewSide
  * @typedef {{section: string, file: string}} PatchSection one `diff --git`
  *   section of a patch and the top-level file it touches
+ * @typedef {{text: string, blob: string, mode: string|null}} TreeFile a
+ *   top-level path as git would store it: its text, its blob sha (a
+ *   submodule's HEAD commit), and its mode, null for a regular file in a
+ *   checkout that does not track the executable bit
  */
 
 /**
@@ -110,23 +114,43 @@ function missingHunks(section, text) {
 
 /**
  * Why this tree does not hold `section`'s post-image for `file`, or null
- * where it does. `readText` gives a top-level path's text as git would store
- * it, or null where nothing is on disk there.
+ * where it does. `readFile` gives a top-level path as git would store it, or
+ * null where nothing is on disk there. A binary section is judged by its
+ * `index ..<new>` sha, a mode change by its `new mode`; neither has a hunk.
  * @param {PatchSection} s
- * @param {(file: string) => string|null} readText
+ * @param {(file: string) => TreeFile|null} readFile
  * @returns {string|null}
  */
-function notInTree({ section, file }, readText) {
-	const text = readText(file);
+function notInTree({ section, file }, readFile) {
+	const tree = readFile(file);
 	if (/^deleted file mode /m.test(section))
-		return text === null ? null : "deleted, still on disk";
+		return tree === null ? null : "deleted, still on disk";
 	const created = /^(?:rename from|new file mode) /m.test(section);
-	if (text === null)
-		return parseNewSides(section).length > 0 || created ? "not on disk" : null;
-	const missing = missingHunks(section, text);
+	const newMode = /^new (?:file )?mode (\d+)$/m.exec(section)?.[1];
+	const binary = /^GIT binary patch$/m.test(section);
+	if (tree === null)
+		return parseNewSides(section).length > 0 || created || newMode || binary
+			? "not on disk"
+			: null;
+	if (newMode && !holdsMode(tree.mode, newMode))
+		return `mode ${tree.mode ?? "of a regular file"}, the patch gives ${newMode}`;
+	const post = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(section)?.[1];
+	if (binary && post && !tree.blob.startsWith(post))
+		return `blob ${tree.blob.slice(0, post.length)}, the patch gives ${post}`;
+	const missing = missingHunks(section, tree.text);
 	return missing.length > 0
 		? `lacks the lines of hunk ${missing.join(", ")}`
 		: null;
 }
+
+/**
+ * Whether a tree file of `mode` holds `want`. A regular file whose
+ * executable bit the checkout does not track (`mode` null) holds either
+ * regular-file mode, as git reports no change between them there.
+ * @param {string|null} mode
+ * @param {string} want
+ */
+const holdsMode = (mode, want) =>
+	mode === null ? /^100[67]/.test(want) : mode === want;
 
 module.exports = { notInTree };

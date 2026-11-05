@@ -617,6 +617,74 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readIndex()).toBe(before);
 	});
 
+	/** Runs `patch`, expecting a refusal naming `why`, and nothing written. */
+	const expectNotInTree = (patch: string, why: RegExp) => {
+		const tip = readHead();
+		const before = readIndex();
+		const r = run(["-m", "x", "--patch", patch]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(why);
+		expect(r.stderr).toMatch(
+			/would show the commit reversed.*Nothing written/s,
+		);
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+	};
+	const cut = (name: string, ...args: string[]) => {
+		const patch = path.join(sb.dir, name);
+		fs.writeFileSync(patch, git("diff", "HEAD", ...args));
+		return patch;
+	};
+
+	it("refuses a mode change this tree's file does not have (#4339)", () => {
+		const file = path.join(sb.repo, "a.md");
+		fs.chmodSync(file, 0o755);
+		const patch = cut("mode.patch", "-U0", "--", "a.md");
+		expect(fs.readFileSync(patch, "utf8")).toMatch(/^new mode 100755$/m);
+		fs.chmodSync(file, 0o644);
+		expectNotInTree(patch, /for a\.md \(mode 100644, the patch gives 100755\)/);
+	});
+
+	it("refuses a binary patch whose new blob this tree's file does not hold (#4339)", () => {
+		const bin = path.join(sb.repo, "b.bin");
+		fs.writeFileSync(bin, Buffer.from([0, 1, 2, 255]));
+		git("add", "b.bin");
+		git("commit", "-qm", "seed bin");
+		fs.writeFileSync(bin, Buffer.from([0, 9, 9, 255]));
+		const patch = cut("bin.patch", "--binary", "--", "b.bin");
+		const post = git("hash-object", "b.bin").trim();
+		git("checkout", "--", "b.bin");
+		expectNotInTree(
+			patch,
+			new RegExp(`for b\\.bin \\(blob [0-9a-f]+, the patch gives ${post}\\)`),
+		);
+	});
+
+	it("commits a submodule hunk matching the submodule's HEAD, and refuses one that does not (#4339)", () => {
+		const sub = path.join(sb.repo, "sub");
+		const subGit = (...args: string[]) =>
+			execFileSync(
+				"git",
+				["-c", "user.name=t", "-c", "user.email=t@t", ...args],
+				{ cwd: sub, encoding: "utf8" },
+			).trim();
+		fs.mkdirSync(sub);
+		subGit("init", "-q");
+		subGit("commit", "-q", "--allow-empty", "-m", "one");
+		const old = subGit("rev-parse", "HEAD");
+		git("add", "sub");
+		git("commit", "-qm", "seed sub");
+		subGit("commit", "-q", "--allow-empty", "-m", "two");
+		const next = subGit("rev-parse", "HEAD");
+		const patch = cut("sub.patch", "-U0", "--", "sub");
+		subGit("checkout", "-q", old);
+		expectNotInTree(patch, /for sub \(lacks the lines of hunk \+1\)/);
+		subGit("checkout", "-q", next);
+		const r = run(["-m", "bump sub", "--patch", patch]);
+		expect(r.status).toBe(0);
+		expect(git("rev-parse", "HEAD:sub").trim()).toBe(next);
+	});
+
 	it("refuses a file both in the patch and named whole, and a patch that does not apply, writing neither index", () => {
 		const patch = shared();
 		const tip = readHead();

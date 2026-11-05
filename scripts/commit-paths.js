@@ -1288,16 +1288,25 @@ function preparePatch(cut, whole) {
 }
 
 /**
- * Refuses a patch whose post-image lines this tree's files lack (#4338), the
- * next bare commit staging the reverse of it. Takes the cut's sections, whose new-side lines number the file they
+ * Refuses a patch whose post-image this tree's files lack — lines, mode or
+ * binary content (#4338, #4339) — the next bare commit staging the reverse of
+ * it. Takes the cut's sections, whose new-side lines number the file they
  * were cut from.
  * @param {string} root
  * @param {PatchSection[]} sections
  */
 function refuseNotInTree(root, sections) {
+	const fileMode =
+		git([
+			"-C",
+			root,
+			"config",
+			"--type=bool",
+			"core.fileMode",
+		]).stdout.trim() !== "false";
 	const refusals = [];
 	for (const s of sections) {
-		const why = notInTree(s, (file) => readTreeText(root, file));
+		const why = notInTree(s, (file) => readTreeFile(root, file, fileMode));
 		if (why !== null) refusals.push(`${s.file} (${why})`);
 	}
 	if (refusals.length > 0)
@@ -1308,15 +1317,17 @@ function refuseNotInTree(root, sections) {
 }
 
 /**
- * A top-level path's text as git would store it — cleaned by its attributes,
- * so a CRLF checkout reads as its LF diff does — a symlink's target, or a
- * submodule's `Subproject commit` line; null where nothing is on disk there.
- * The clean writes the blob to the object store, where gc prunes it if unused.
+ * A top-level path as git would store it — its text cleaned by its
+ * attributes, so a CRLF checkout reads as its LF diff does; a symlink's
+ * target; a submodule's `Subproject commit` line — with its blob sha and
+ * mode; null where nothing is on disk there. The clean writes the blob to the
+ * object store, where gc prunes it if unused.
  * @param {string} root
  * @param {string} file
- * @returns {string|null}
+ * @param {boolean} fileMode the checkout's core.fileMode
+ * @returns {import("./lib/patch-in-tree.js").TreeFile|null}
  */
-function readTreeText(root, file) {
+function readTreeFile(root, file, fileMode) {
 	const p = path.join(root, file);
 	let stat;
 	try {
@@ -1324,24 +1335,44 @@ function readTreeText(root, file) {
 	} catch {
 		return null;
 	}
-	if (stat.isSymbolicLink()) return fs.readlinkSync(p);
+	if (stat.isSymbolicLink()) {
+		const text = fs.readlinkSync(p);
+		const blob = readGit(["hash-object", "--stdin"], file, text).trim();
+		return { text, blob, mode: "120000" };
+	}
 	if (stat.isDirectory()) {
 		const sub = git(["-C", p, "rev-parse", "HEAD"]);
-		return sub.status === 0 ? `Subproject commit ${sub.stdout}` : null;
+		if (sub.status !== 0) return null;
+		const blob = sub.stdout.trim();
+		return { text: `Subproject commit ${blob}\n`, blob, mode: "160000" };
 	}
-	const blob = git(["-C", root, "hash-object", "-w", "--", file]);
-	if (blob.status !== 0)
+	const blob = readGit(
+		["-C", root, "hash-object", "-w", "--", file],
+		file,
+	).trim();
+	// git's own test of the executable bit: the owner's.
+	const exec = stat.mode & 0o100 ? "100755" : "100644";
+	return {
+		text: readGit(["cat-file", "blob", blob], file),
+		blob,
+		mode: fileMode ? exec : null,
+	};
+}
+
+/**
+ * git's stdout for `args`; refuses where git fails reading `file`.
+ * @param {string[]} args
+ * @param {string} file
+ * @param {string} [input]
+ */
+function readGit(args, file, input) {
+	const r = git(args, undefined, input);
+	if (r.status !== 0)
 		fail(
-			`git could not read ${file} from the working tree (${blob.stderr.trim()}). Nothing written.`,
+			`git could not read ${file} from the working tree (${r.stderr.trim()}). Nothing written.`,
 			2,
 		);
-	const clean = git(["cat-file", "blob", blob.stdout.trim()]);
-	if (clean.status !== 0)
-		fail(
-			`git could not read back ${file}'s cleaned blob (${clean.stderr.trim()}). Nothing written.`,
-			2,
-		);
-	return clean.stdout;
+	return r.stdout;
 }
 
 /**
