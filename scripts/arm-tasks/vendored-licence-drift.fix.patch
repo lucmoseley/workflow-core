@@ -1,5 +1,5 @@
 diff --git a/scripts/check-vendored-skills.js b/scripts/check-vendored-skills.js
-index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23530b3935 100644
+index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60465527e4 100644
 --- a/scripts/check-vendored-skills.js
 +++ b/scripts/check-vendored-skills.js
 @@ -91,12 +91,17 @@
@@ -22,28 +22,27 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
   *   fetch failed, GitHub unreachable       UPSTREAM-UNREADABLE  WARN — and a
   *                                                               run where EVERY
   *                                                               row failed that
-@@ -108,11 +113,15 @@
+@@ -108,11 +113,14 @@
   * `parseGhFailureReason`, never from a rule of this checker's own (mantahostels#3066).
   *
   * THE UPSTREAM RECORD (#2394, ruled at #2377). A `--write` run that neither
 - * SKIPs nor breaks writes `.agents/vendored-upstream-pass.json`: the sha256 of
 - * the lock and of NOTICES as the run read them, and the date. UPSTREAM-MOVED
 - * does not stop the write. Without `--write` it only says whether it would
-- * write one, so a check run dirties nothing (#4449); with it, a cut-over main
-- * checkout is refused before any fetch, since that tree takes no edits (#4229).
+- * write one (#4449); with it, a cut-over main checkout is refused before any
+- * fetch (#4229).
 + * SKIPs nor breaks, and finds every lock source's licence matching its notice,
 + * writes
 + * `.agents/vendored-upstream-pass.json`: the sha256 of the lock and of NOTICES
 + * as the run read them, the date, and each source's licence verdict. Any other
 + * licence row writes none, so a mismatch is cleared by refreshing NOTICES and
 + * re-running, never by recording it; UPSTREAM-MOVED does not stop the write.
-+ * Without `--write` it only says whether it would write one, so a check run
-+ * dirties nothing (#4449); with it, a cut-over main checkout is refused before
-+ * any fetch, since that tree takes no edits (#4229).
++ * Without `--write` it only says whether it would write one (#4449); with it,
++ * a cut-over main checkout is refused before any fetch (#4229).
   * `--covered <dir>` is the offline half, run by `.husky/pre-commit` on a commit
   * staging the lock: it reads the staged lock, NOTICES and record that the hook
   * copies into <dir>, and fails where the record is missing or either hash
-@@ -142,6 +151,7 @@ const {
+@@ -142,6 +150,7 @@ const {
  	LOCK,
  	NOTICES,
  	noticeFaults,
@@ -51,7 +50,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
  } = require("./lib/vendored-notices.js");
  const {
  	execGit,
-@@ -165,6 +175,7 @@ const COVERED = [LOCK, NOTICES];
+@@ -165,6 +174,7 @@ const COVERED = [LOCK, NOTICES];
   * @typedef {{
   *   ranOn: string,
   *   sha256: Record<string, string | null>,
@@ -59,7 +58,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
   * }} UpstreamRecord
   * @typedef {{
   *   vendoredAt: string,
-@@ -491,6 +502,11 @@ function remoteFor(lock, rel) {
+@@ -491,6 +501,11 @@ function remoteFor(lock, rel) {
   *   state: "moved" | "taken" | "same" | "gone" | "unreadable" | "unresolved" | "fault",
   *   detail?: string,
   * }} UpstreamRow
@@ -71,7 +70,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
   */
  
  /**
-@@ -554,6 +570,48 @@ function buildUpstreamReport(root) {
+@@ -554,6 +569,48 @@ function buildUpstreamReport(root) {
  	return rows;
  }
  
@@ -120,7 +119,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
  /**
   * @param {{ notFound: boolean, broken: boolean }} failed
   * @returns {"gone" | "fault" | "unreadable"}
-@@ -937,6 +995,27 @@ const UPSTREAM_WARNINGS = {
+@@ -937,6 +994,27 @@ const UPSTREAM_WARNINGS = {
  	},
  };
  
@@ -148,7 +147,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
  /**
   * @param {import("./lib/check").CheckContext} ctx
   * @param {UpstreamRow} r
-@@ -960,23 +1039,27 @@ function reportUpstreamRow(ctx, r) {
+@@ -960,23 +1038,27 @@ function reportUpstreamRow(ctx, r) {
   */
  function runUpstream(ctx, root) {
  	let rows;
@@ -178,7 +177,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
  	/* Upstream is the SUBJECT here, so an unreachable GitHub is a SKIP: a
  	 * green run over a fetch that never happened is the failure mode. A 404
  	 * is excluded, being an answer rather than a failure to get one.
-@@ -986,32 +1069,52 @@ function runUpstream(ctx, root) {
+@@ -986,32 +1068,52 @@ function runUpstream(ctx, root) {
  	 * UPSTREAM-UNRESOLVED is a finding about the lock, reached without a
  	 * network and actionable while GitHub is down. */
  	const [firstUnreadable] = unreadable;
@@ -237,7 +236,7 @@ index 8eb1af0df38458f1b17c4e3f4c0ce75421349fa4..171c47adf34b6f725cf9f0195907aa23
  	if (!ctx.has("--write")) {
  		ctx.say(
  			`  ${RECORD} is due: run again with --write to write it, then stage it with ${LOCK}.`,
-@@ -1022,6 +1125,9 @@ function writeRecord(ctx, root, read) {
+@@ -1022,6 +1124,9 @@ function writeRecord(ctx, root, read) {
  	const record = {
  		ranOn: new Date().toISOString().slice(0, 10),
  		sha256: read,
