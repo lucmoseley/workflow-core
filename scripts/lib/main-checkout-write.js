@@ -10,7 +10,8 @@
  * resolving into the main checkout's own tree — not into a linked worktree
  * under it, not under `.git` — at a path git does not ignore, tracked or not;
  * and a git command that writes the main checkout's index, `HEAD` or files
- * (`WRITERS`).
+ * (`WRITERS`) — save a restore of named tracked files to HEAD (`RESTORES`),
+ * which only removes dirt, and which the refusal names as the way out of it.
  *
  * GITIGNORED STORES STAY WRITABLE: claims, markers, ledgers and scratch under
  * `.claude/` are what every session shares, and git ignores them.
@@ -63,6 +64,86 @@ const READ_ONLY = {
 	clean: (a) => a.includes("-n") || a.includes("--dry-run"),
 	commit: (a) => a.includes("--dry-run"),
 	stash: (a) => a[0] === "list" || a[0] === "show",
+};
+
+/**
+ * A source naming HEAD, the only tree a restore here may take a file back to.
+ * @param {string | undefined} s
+ */
+const atHead = (s) => s === "HEAD" || s === "@";
+
+/**
+ * A pathspec naming one file: no `.`, directory, glob, pathspec magic or
+ * quoted word the parser leaves unread (`\u0001`), so a restore cannot sweep
+ * a tree's dirt wholesale.
+ * @param {string} p
+ * @param {string} tree the directory git resolves `p` against
+ */
+function namesOneFile(p, tree) {
+	if (p === "" || p.startsWith(":") || p.includes("\u0001") || /[*?[]/.test(p))
+		return false;
+	try {
+		return !fs.statSync(path.resolve(tree, p)).isDirectory();
+	} catch {
+		return true;
+	}
+}
+
+/**
+ * The source a `git restore` word names, or null where the word names none;
+ * `-s` may close a cluster (`-Ws HEAD`) or carry its value (`-sHEAD`).
+ * @param {string} w
+ * @param {() => string | undefined} next the following word, consumed
+ * @returns {string | undefined | null}
+ */
+function restoreSource(w, next) {
+	if (w === "--source") return next();
+	if (w.startsWith("--source=")) return w.slice("--source=".length);
+	const short = /^-[^-]*?s(.*)$/.exec(w);
+	if (short) return short[1] || next();
+	return null;
+}
+
+/**
+ * Taking named tracked files back to HEAD: the one write that only removes
+ * dirt from the main checkout, so the refusal names it as the way out
+ * (#4449). The source must be HEAD by name — a bare restore takes the index,
+ * which may hold a staged write.
+ * @type {Record<string, (args: string[], tree: string) => boolean>}
+ */
+const RESTORES = {
+	checkout: (a, tree) => {
+		const dash = a.indexOf("--");
+		const paths = a.slice(dash + 1);
+		return (
+			dash === 1 &&
+			atHead(a[0]) &&
+			paths.length > 0 &&
+			paths.every((p) => namesOneFile(p, tree))
+		);
+	},
+	restore: (a, tree) => {
+		/** @type {string[]} */
+		const paths = [];
+		let headSource = false;
+		for (let i = 0; i < a.length; i++) {
+			const w = a[i] ?? "";
+			if (w === "--") {
+				paths.push(...a.slice(i + 1));
+				break;
+			}
+			const source = restoreSource(w, () => a[++i]);
+			if (source !== null) {
+				if (!atHead(source)) return false;
+				headSource = true;
+			} else if (!w.startsWith("-")) paths.push(w);
+		}
+		return (
+			headSource &&
+			paths.length > 0 &&
+			paths.every((p) => namesOneFile(p, tree))
+		);
+	},
 };
 
 class GitUnanswered extends Error {}
@@ -138,8 +219,9 @@ function findWrite(subject, ctx) {
 	if (found) return found;
 	walkGit(
 		parsed,
-		({ segment, sub, args }) => {
-			if (!found && !READ_ONLY[sub]?.(args)) found = { git: segment };
+		({ segment, sub, args, tree }) => {
+			if (!found && !READ_ONLY[sub]?.(args) && !RESTORES[sub]?.(args, tree))
+				found = { git: segment };
 		},
 		ctx,
 		{ subs: WRITERS, noun: "main-checkout write", scope: "shared" },
@@ -183,7 +265,7 @@ function decide(subject, ctx) {
 			"rel" in w
 				? `This writes ${w.rel} in the main checkout`
 				: "This git command writes the main checkout's index, HEAD or files";
-		const text = `${what}: @CMD@\n\nThe main checkout takes no edits or commits: its \`main\` follows \`origin/main\` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229). ${route(w, ctx)} Gitignored stores under it stay writable.`;
+		const text = `${what}: @CMD@\n\nThe main checkout takes no edits or commits: its \`main\` follows \`origin/main\` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229). ${route(w, ctx)} Gitignored stores under it stay writable${"rel" in w ? `, and a tracked file already dirtied there goes back to HEAD with \`git -C ${ctx.root} restore --source=HEAD --staged --worktree -- ${w.rel}\`` : ""}.`;
 		return {
 			deny: denyText(ctx, "rel" in w ? subject : w.git, text),
 		};
