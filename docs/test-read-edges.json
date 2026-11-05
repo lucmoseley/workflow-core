@@ -501,6 +501,11 @@
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		".github/workflows/main-lag.yml": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/main-lag-alarm.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		".github/workflows/named-rerun.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -585,6 +590,7 @@
 			"scripts/lib/precommit-gate.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/serialised.test.ts",
+			"scripts/main-lag-alarm.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/post-commit-release-claims.test.ts",
 			"scripts/post-commit-touched-by-notice.test.ts",
@@ -694,6 +700,7 @@
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
+			"scripts/main-lag-alarm.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/post-commit-release-claims.test.ts",
@@ -12005,6 +12012,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/serialised.test.ts",
+			"scripts/main-lag-alarm.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-release-claims.test.ts",
@@ -18361,6 +18369,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/serialised.test.ts",
+			"scripts/main-lag-alarm.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-release-claims.test.ts",
@@ -25048,6 +25057,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/serialised.test.ts",
+			"scripts/main-lag-alarm.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-release-claims.test.ts",
@@ -37569,6 +37579,22 @@
 			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/lost-deny-rates.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/main-lag-alarm.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/main-lag-alarm.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/main-lag-alarm.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
