@@ -155,10 +155,12 @@ const { openTrackingIssue } = require("./lib/tracking-issue");
  * goes red only where another job did, so it owes no ticket of its own. */
 const VERDICT_JOB = "Suite passed";
 /* scheduled-checks.yml's per-file CI time job, which turns the sweep red once
- * #4293 makes it a need of `Suite passed`. */
+ * #4293 makes it a need of `Suite passed`. Its red is a median
+ * over three sweeps, so it has no culprit commit to bisect, and its tickets
+ * are the per-file cut tickets under #2729 (#4290), never a filer's. */
 const FILE_TIMES_JOB = "Test file CI times";
 const FILE_TIMES_ROUTE =
-	"each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — `node scripts/check-file-ci-time.js` names the files";
+	"each file over the limit is cut under its own profiled ticket (a sub-issue of #2729, #4290) — `node scripts/check-file-ci-time.js` names the files";
 
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");
@@ -1593,7 +1595,8 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 }
 
 /**
- * Whether a sweep's red is the per-file CI time gate's alone.
+ * Whether a sweep's red is the per-file CI time gate's alone: a median over
+ * three sweeps, which no single commit caused.
  *
  * @param {Run} r
  * @param {RunFailures|null|undefined} failures
