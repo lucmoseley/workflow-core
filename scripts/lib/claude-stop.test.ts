@@ -56,6 +56,7 @@ beforeEach(() => {
 			'case "$(cat "$d/answer" 2>/dev/null)" in',
 			'  nojob) echo "warning: retrying" >&2; echo "No job matching \'$2\'." >&2; exit 1 ;;',
 			'  busy) echo "daemon socket is busy" >&2; exit 1 ;;',
+			'  killed) echo "going down" >&2; kill -KILL $$ ;;',
 			"esac",
 			'echo "stopped $2"',
 		].join("\n"),
@@ -135,6 +136,32 @@ describe("stopOn", () => {
 		expect(stopOn(seats[0], "aaaa1111")).toMatchObject({
 			ok: false,
 			said: "No job matching 'aaaa1111'.",
+		});
+	});
+
+	it("reports a claude that cannot start as ENOENT", () => {
+		expect(stopOn(seats[0], "aaaa1111", path.join(root, "absent"))).toEqual({
+			ok: false,
+			why: "ENOENT",
+			said: null,
+			timedOut: false,
+			noJob: false,
+		});
+	});
+
+	it("reports a spawn that throws as an outcome, never a throw", () => {
+		expect(stopOn(seats[0], "aaaa\u00001111")).toMatchObject({
+			ok: false,
+			why: "ERR_INVALID_ARG_VALUE",
+		});
+	});
+
+	it("reports a claude killed by a signal, with its last line", () => {
+		seatsAnswering("killed");
+		expect(stopOn(seats[0], "aaaa1111")).toMatchObject({
+			ok: false,
+			why: "exit on a signal: going down",
+			timedOut: false,
 		});
 	});
 

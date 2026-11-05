@@ -10,6 +10,7 @@
 
 const fs = require("node:fs");
 const { configDirs } = require("./arbiter-store");
+const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { readJobRecord, shortJobId } = require("./job-paths.js");
 const { buildSeatEnv, runClaude } = require("./seat-claude.js");
@@ -125,13 +126,13 @@ function stopSession(id, sessionId) {
  */
 function stopOn(seat, id, bin = claudeBin()) {
 	const r = runClaude(["stop", id], {
-		cwd: process.cwd(),
 		env: buildSeatEnv(process.env, seat),
 		timeout: STOP_TIMEOUT_MS,
 		bin,
 	});
 	if (!r.failed) return { ok: true, said: r.stdout.trim() || "ok" };
-	// What the DAEMON said is what tells noJob from a timeout. Its LAST line,
+	// error.code / status, never `r.failed`: an error's message embeds the
+	// whole argv. What the DAEMON said tells noJob from a timeout. Its LAST line,
 	// per docs/agents/verification.md: the reason prints under any warnings.
 	const said =
 		r.stderr
@@ -140,8 +141,7 @@ function stopOn(seat, id, bin = claudeBin()) {
 			.filter(Boolean)
 			.pop()
 			?.slice(0, 120) ?? null;
-	const errCode = /** @type {NodeJS.ErrnoException | undefined} */ (r.error)
-		?.code;
+	const errCode = caught(r.error).code;
 	const code = errCode || `exit ${r.status ?? "on a signal"}`;
 	return {
 		ok: false,

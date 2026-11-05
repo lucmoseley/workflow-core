@@ -25,9 +25,10 @@ function buildSeatEnv(env, seat, over = {}) {
 }
 
 /**
- * `claude <args>` run to its end in `cwd` under `env` (buildSeatEnv's).
+ * `claude <args>` run to its end in `cwd` (else the caller's) under `env`
+ * (buildSeatEnv's).
  * @param {string[]} args
- * @param {{cwd: string, env: NodeJS.ProcessEnv, timeout?: number, bin?: string}} opts
+ * @param {{cwd?: string, env: NodeJS.ProcessEnv, timeout?: number, bin?: string}} opts
  *   `bin` where the caller pins a CLI version
  */
 function runClaude(
