@@ -21,9 +21,9 @@
  * file itself, which the core loads in place, and `--check` exits 1 naming
  * each registration out of step.
  *
- * A RUN WRITES THE SESSION'S OWN TREE, `worktreeRoot()`, never `hostRoot()`:
- * from a linked worktree the host is the main checkout, and the render landed
- * there as an orphaned edit (#4438).
+ * A RUN WRITES THE SESSION'S OWN TREE, `worktreeRoot()`: from a linked
+ * worktree `hostRoot()` is the main checkout, where a render would be an
+ * orphaned edit (#4438).
  */
 
 const fs = require("node:fs");

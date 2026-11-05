@@ -46,10 +46,10 @@ const { requiredGroup } = require("./lib/regex-group.js");
 const { trimEndRun, trimRun } = require("./lib/trim-run.js");
 const { caught } = require("./lib/caught.js");
 
-/* Every path here — the source documents and the fragment store — is host
- * content (#1): a plugin install keeps this script beside the core's own
- * files, but `docs/agents/rules` lives in the repository being worked on.
- * The session's own tree, never the main checkout behind it (#4438). */
+/* Every path here — the source documents and the fragment store — is in the
+ * session's own tree (#1, #4438): a plugin install keeps this script beside
+ * the core's own files, but `docs/agents/rules` lives in the repository being
+ * worked on. */
 const ROOT = worktreeRoot();
 const STORE = path.join(ROOT, "docs", "agents", "rules");
 /* The host's store, never rule-text's store in force: that falls back to the

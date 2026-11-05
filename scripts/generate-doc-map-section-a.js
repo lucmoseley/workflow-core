@@ -76,10 +76,9 @@ function main(argv) {
 	});
 	const flag = (/** @type {string} */ name) => flags[name] === true;
 	const value = (/** @type {string} */ name) => flagValue(flags, name) ?? null;
-	/* The HOST repo, through the one seam (#1): in a plugin install
-	 * `path.join(__dirname, "..")` is the plugin root, and the map and sidecar
-	 * were looked for inside the plugin. The session's own tree, never the main
-	 * checkout behind it (#4438). */
+	/* The session's own tree, through the one seam (#1, #4438): in a plugin
+	 * install `path.join(__dirname, "..")` is the plugin root, and the map and
+	 * sidecar were looked for inside the plugin. */
 	const repoRoot = worktreeRoot();
 	const mapPath = value("--map") || path.join(repoRoot, DEFAULT_MAP);
 	const dataFile = value("--data-file") || path.join(repoRoot, SIDECAR_PATH);

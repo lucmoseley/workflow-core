@@ -125,8 +125,9 @@ function sessionTree({ cwd }) {
 }
 
 /**
- * The tree a test run reads: the git top level of the working directory where
- * that is a linked worktree of the host repository, else `hostRoot()`.
+ * The session's tree: the git top level of the working directory where that
+ * is a linked worktree of the host repository, else `hostRoot()`. It is what a
+ * test run reads and where a script writing tracked files writes (#4438).
  *
  * NOT `hostRoot()` ALONE (#2940). The harness sets `CLAUDE_PROJECT_DIR` to the
  * main checkout for every Bash call, so a run launched inside a linked worktree

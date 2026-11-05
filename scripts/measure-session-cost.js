@@ -29,8 +29,8 @@ const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
 const {
-	SESSION_COST_TABLE,
 	priceFor,
+	tablePath,
 	readSessionSpendEvents,
 } = require("./lib/session-spend");
 const { requiredGroup } = require("./lib/regex-group");
@@ -159,8 +159,7 @@ function landedCurve(sessions, totalUsd) {
  */
 function writeClaimed(body) {
 	const arbiter = path.join(__dirname, "session-arbiter.js");
-	/* The session's own tree, never the main checkout behind it (#4438). */
-	const table = path.join(worktreeRoot(), SESSION_COST_TABLE);
+	const table = tablePath(worktreeRoot());
 	const claim = spawnSync("node", [arbiter, "claim", table], {
 		encoding: "utf8",
 	});

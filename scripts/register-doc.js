@@ -621,10 +621,9 @@ function claimAndRead(docPath, value, flag) {
 		return code;
 	};
 
-	/* The HOST repo's sidecar, through the one seam (#1), never
-	 * `path.join(__dirname, "..")` — in a plugin install that is the plugin root,
-	 * and the register looked for the adopter's sidecar inside the plugin. The
-	 * session's own tree, never the main checkout behind it (#4438). */
+	/* The sidecar in the session's own tree, through the one seam (#1, #4438),
+	 * never `path.join(__dirname, "..")` — in a plugin install that is the plugin
+	 * root, and the register looked for the adopter's sidecar inside the plugin. */
 	const dataFile =
 		value("--data-file") || path.join(worktreeRoot(), SIDECAR_PATH);
 	try {
