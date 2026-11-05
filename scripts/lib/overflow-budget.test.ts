@@ -497,7 +497,12 @@ describe("a resumed copy's settled spend (#4208)", () => {
 			buildModelTurn(3_000_000, "r2"),
 		);
 		writeListing([{ id: "0000c001", sessionId: parent, state: "working" }]);
-		expect(budget()).toMatchObject({ running: 1, settledUsd: 12 });
+		/* the root held as before: spent 20 + remainder 7. */
+		expect(budget()).toMatchObject({
+			running: 1,
+			settledUsd: 12,
+			reservedUsd: 27,
+		});
 	});
 
 	it("takes a moved chain's off-key spend off once", () => {
@@ -515,6 +520,26 @@ describe("a resumed copy's settled spend (#4208)", () => {
 			buildModelTurn(1_000_000, "r3"),
 		);
 		expect(budget()).toMatchObject({ settledUsd: 24 });
+	});
+});
+
+describe("a running resumed copy (#4369)", () => {
+	it("is held at what it adds to its settled parent, plus its own spend's remainder", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		writeListing([{ id: "0000c002", sessionId: copy, state: "working" }]);
+		/* spent 32, past u 3: share 12 + remainder 7 = 19 held. */
+		expect(budget()).toMatchObject({
+			running: 1,
+			settledUsd: 20,
+			reservedUsd: 19,
+		});
 	});
 });
 

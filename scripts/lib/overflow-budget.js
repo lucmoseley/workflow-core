@@ -206,29 +206,42 @@ function priceSessions(seat, lookup) {
 }
 
 /**
- * The key's sessions the listing holds running, each at its ledger row's spend.
+ * The key's sessions the listing holds running.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
- * @param {LedgerEntry[]} ledger
  * @param {() => import("./agent-liveness.js").Listing} readAgents
- * @returns {RunningRun[]}
+ * @returns {string[]}
  * @throws where the listing cannot be read: a key's running sessions must not
  *   read as none
  */
-function readRunning(seat, lookup, ledger, readAgents) {
+function readRunning(seat, lookup, readAgents) {
 	const listing = readAgents();
 	if (listing.why !== undefined) throw new Error(listing.why);
-	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
 	return listing.agents
 		.filter(
 			(a) =>
 				!isTerminalAgent(a) &&
 				lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar === seat.keyVar,
 		)
-		.map((a) => ({
-			sessionId: a.sessionId,
-			spentUsd: spent.get(a.sessionId) ?? null,
-		}));
+		.map((a) => a.sessionId);
+}
+
+/**
+ * Running sessions, each at its ledger row's spend and its chain share (#4369).
+ * @param {string[]} sessionIds
+ * @param {LedgerEntry[]} ledger
+ * @param {LedgerEntry[]} chainPriced the ledger, its chain members at their
+ *   shares
+ * @returns {RunningRun[]}
+ */
+function priceRunning(sessionIds, ledger, chainPriced) {
+	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+	const share = new Map(chainPriced.map((e) => [e.sessionId, e.costUsd]));
+	return sessionIds.map((sessionId) => ({
+		sessionId,
+		spentUsd: spent.get(sessionId) ?? null,
+		shareUsd: share.get(sessionId),
+	}));
 }
 
 /**
@@ -253,10 +266,12 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
-		running = readRunning(seat, lookup, ledger, readAgents);
-		// A running session's remainder grows from its own spend, so only the
-		// settled rows take a copy's chain share (#4208).
 		settled = settleChainsOnce(seat, lookup, ledger);
+		running = priceRunning(
+			readRunning(seat, lookup, readAgents),
+			ledger,
+			settled,
+		);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };

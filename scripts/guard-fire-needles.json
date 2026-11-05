@@ -1091,13 +1091,6 @@
 					"text": "RECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL."
 				},
 				{
-					"id": "pull-fast-forward-landing",
-					"core": "guard-pull-form",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "WITH `landing` BY FAST-FORWARD OR NOT AT ALL."
-				},
-				{
 					"id": "main-rewind",
 					"core": "guard-pull-form",
 					"kind": "deny",

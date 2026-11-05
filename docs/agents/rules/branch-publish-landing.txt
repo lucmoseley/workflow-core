@@ -5,15 +5,9 @@ Sessions push to `landing`. Never push to `main`, never `gh pr create`, never
 open a pull request through `gh api`, and never push a branch other than
 `landing`.
 
-From the shared tree:
-
-  git push origin main:landing   # rejected? landing moved — git pull --ff-only, retry
-
-From a worktree:
+Land from your session's worktree:
 
   node scripts/session-checkout.js land   # merges origin/landing, pushes; refused? do as it says, land again
-
-A REFUSED `git pull --ff-only`: `rule:pull-fast-forward-landing` says what next.
 
 After the push, `node scripts/landing-status.js` reads each commit as landed,
 queued, or reverted by a later commit.

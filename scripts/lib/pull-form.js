@@ -19,10 +19,19 @@
  * divergence that needs a real merge, the throwaway worktree the rule's own
  * recipe gives (#290) — so a deny cannot wedge ordinary work.
  *
+ * WITH THE `landing` MODULE ON, A SESSION RECONCILES IN ITS OWN WORKTREE
+ * (#4229), merging `origin/landing` and pushing `HEAD:landing` by
+ * `scripts/session-checkout.js land`.
+ * Once the main checkout is also cut over (lib/cutover.js) the walk stands
+ * down on a tree it resolves: lib/main-checkout-write.js refuses every merge,
+ * pull or rebase there, and lib/level-main.js alone moves its `main`. An
+ * unresolved tree is still judged, since that guard does not see one. A
+ * cutover git cannot read counts as none.
+ *
  * LIMITS
  *  - The rule it prints is docs/agents/rules/pull-fast-forward.txt
- *    (mantahostels#1648), or its `-landing` twin with the `landing` module on
- *    (#2409). It prints it on two exclusive limbs (spec mantahostels#1762):
+ *    (mantahostels#1648). It prints it on two exclusive limbs (spec
+ *    mantahostels#1762):
  *    inside the refusal, and, where nothing was refused, as context before an
  *    allowed `git pull --ff-only`, a bare pull the repo's `pull.ff=only` has
  *    already made safe, `git merge --ff-only`, or a bare pull whose tree could
@@ -153,8 +162,10 @@
 
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
-const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
+const { readCutOver } = require("./cutover.js");
+const { LANDING_REF, VERIFIED_REF } = require("./landing-refs.js");
+const { ruleUnlessModule } = require("./rule-gates.js");
 const { normAbs, parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
@@ -176,15 +187,14 @@ const { trimEndRun } = require("./trim-run.js");
  *   errors
  * @property {(dir: string) => string} showPrefix the directory below the
  *   root, `/`-terminated; "" at the root or where git errors
- * @property {() => string} pushedRef the remote ref sessions push to, read on
- *   a refusal alone, so an allowed call reads no config (#2536)
  * @property {() => boolean} isMainUnreadable whether the shared `main` is broken
  *   rather than moved, read on a rewind's refusal alone
  * @property {(dir: string) => import("./git-alias.js").FileAliases | null}
  *   readFileAliases the aliases the config files a tree sees define, null where git
  *   could not say; read only for a word no table already answers
- * @typedef {import("./kit-context.js").KitContext & PullFormPorts}
- *   PullFormContext
+ * @typedef {import("./kit-context.js").KitContext & PullFormPorts
+ *   & { git: import("./git.js").GitReader }} PullFormContext `git` runs in the
+ *   main checkout
  * @typedef {import("./shell-parse.js").GitCall} GitCall
  * @typedef {{ reason: string, segment: string }} Refusal the reason before
  *   the splice, and the segment, masked
@@ -294,16 +304,19 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
 	ctx.moduleOn("landing")
-		? ruleOrFallback(
-				ctx,
-				"pull-fast-forward-landing",
-				"Reconcile the shared `main` with `landing` by fast-forward or not at all",
-			)
+		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: \`node ${ctx.scriptPath("session-checkout.js")} cut <session-name>\` prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${LANDING_REF}\` and pushes.`
 		: ruleOrFallback(
 				ctx,
 				"pull-fast-forward",
 				"Reconcile the shared `main` by fast-forward or not at all",
 			);
+
+/**
+ * Whether the main checkout is levelled — `landing` on and cut over.
+ * @param {PullFormContext} ctx
+ */
+const isLevelled = (ctx) =>
+	ctx.moduleOn("landing") && readCutOver(ctx.git) === true;
 
 /** @param {PullFormContext} ctx */
 const discardRule = (ctx) =>
@@ -1158,21 +1171,24 @@ const reconcileDeny = (j, segment) => ({
  * @param {string} segment
  * @returns {Refusal}
  */
-const unresolvedDeny = (j, sub, segment) => ({
-	reason: `I cannot tell which working tree this \`git ${sub}\` lands in — an empty or
+const unresolvedDeny = (j, sub, segment) => {
+	const landing = j.ctx.moduleOn("landing");
+	return {
+		reason: `I cannot tell which working tree this \`git ${sub}\` lands in — an empty or
 unexpanded \`-C\`, or a \`cd\` to a path I cannot resolve: @CMD@
 
 An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C .claude/worktrees/reconcile merge ${j.ctx.pushedRef()}\` — or assign
-it literally in the same Bash call, as the recipe below does. A \`pushd\`, a
+command — \`git -C ${landing ? `.claude/worktrees/<session-name> merge ${LANDING_REF}` : `.claude/worktrees/reconcile merge ${VERIFIED_REF}`}\` — or assign
+it literally in the same Bash call${landing ? "" : ", as the recipe below does"}. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 
 ${pullRule(j.ctx)}`,
-	segment,
-});
+		segment,
+	};
+};
 
 /**
  * A per-subcommand table's row for `sub`. WALKS hands each judge only the
@@ -1207,7 +1223,13 @@ const WALKS = [
 		"shared",
 		["checkout", "switch", "restore", "clean", "stash"],
 	],
-	[judgeReconcile, "the reconciliation", "shared", ["pull", "merge", "rebase"]],
+	[
+		(j, call) =>
+			call.tree && isLevelled(j.ctx) ? null : judgeReconcile(j, call),
+		"the reconciliation",
+		"shared",
+		["pull", "merge", "rebase"],
+	],
 ];
 
 /**
@@ -1254,14 +1276,11 @@ function decide(command, ctx) {
 
 	/* PRE-EMPTIVE INJECTION (mantahostels#1648, spec mantahostels#1762): the
 	 * rule handed to a reconciliation nothing refused, as context, so an allow
-	 * stays an allow. With `landing` on, the recipe is its twin (#2409). */
+	 * stays an allow. With `landing` on there is no recipe to hand. */
 	if (!ruleSubject) return null;
 	return {
-		injectRules: ["pull-fast-forward", "pull-fast-forward-landing"],
-		skip: [
-			...ruleModule(ctx, "landing", ["pull-fast-forward-landing"]),
-			...ruleUnlessModule(ctx, "landing", ["pull-fast-forward"]),
-		],
+		injectRules: ["pull-fast-forward"],
+		skip: ruleUnlessModule(ctx, "landing", ["pull-fast-forward"]),
 	};
 }
 

@@ -14,7 +14,6 @@ const {
 } = require("./git.js");
 const { parseFileAliases } = require("./git-alias.js");
 const { readTopLevel } = require("./git-tree.js");
-const { pushedRef } = require("./landing-refs.js");
 const { readMainState } = require("./main-ref.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -64,9 +63,6 @@ const buildHostPorts = (root) => ({
 		return r.ok ? parseFileAliases(r.out) : null;
 	},
 	showPrefix: (dir) => read(dir, ["rev-parse", "--show-prefix"]),
-	/* In process, not a landing-refs.js spawn: one node start spared a
-	 * refusal. */
-	pushedRef: () => pushedRef({ root }),
 	isMainUnreadable: () => {
 		const commonDir = gitCommonDir(root, { timeout: HOOK_GIT_TIMEOUT_MS });
 		return (
