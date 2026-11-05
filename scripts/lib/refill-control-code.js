@@ -39,6 +39,26 @@ const bootLinkProgram = (codeDir) => path.join(bootLinkOf(codeDir), PROGRAM);
 const isGone = (err) => caught(err).code === "ENOENT";
 
 /**
+ * `file` named through the boot link where it sits in one of the loop's code
+ * worktrees, which the loop removes once it adopts a newer tip; null where it
+ * sits in none.
+ * @param {string} file a real path
+ */
+function throughBootLink(file) {
+	const codeDir = refillPath(CODE_DIR);
+	let realCodeDir;
+	try {
+		realCodeDir = fs.realpathSync(codeDir);
+	} catch (err) {
+		if (isGone(err)) return null;
+		throw err;
+	}
+	if (!file.startsWith(`${realCodeDir}${path.sep}`)) return null;
+	const [, ...inTip] = path.relative(realCodeDir, file).split(path.sep);
+	return path.join(bootLinkOf(codeDir), ...inTip);
+}
+
+/**
  * The program the loop at `pid` runs, resolved against its cwd; null where the
  * process is gone or its command line names none.
  * @param {number} pid
@@ -110,4 +130,5 @@ module.exports = {
 	bootLinkProgram,
 	handOff,
 	readRunningProgram,
+	throughBootLink,
 };

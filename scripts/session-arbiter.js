@@ -988,8 +988,8 @@ function wholeFileRegionWarning(rel) {
 }
 
 /**
- * The script path: a script that writes a tracked doc claims it here, as the
- * write hook would for a Write or Edit (mantahostels#99's signal 3).
+ * The script path: a script that writes a tracked file claims it here, and is
+ * warned where a live neighbour also holds it (#4249).
  * @param {string|undefined} filePath
  * @param {string} sessionId
  * @param {boolean} [generator] the §A generator saying so — see

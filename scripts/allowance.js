@@ -25,7 +25,8 @@
  * member alone. Only where a trusted bar is past its threshold does it read
  * the running sessions — one `claude agents --json` call and their own
  * transcripts, no allowance spent — leaving out those the launch record marks
- * overflow, whose spend bills a key and not this seat (#3696). A bar counts only the spend projected to
+ * overflow, whose spend bills a key and not this seat (#3696), a record read
+ * only where the seat file declares an overflow seat (#4393). A bar counts only the spend projected to
  * land before its own `resetsAt`, by the cost table's `landedByHours`; spend
  * after it falls in the next window, and a reset that does not parse counts
  * all of it (#2925). `cap.error` is set, and `cap.launch` is 0,
@@ -34,7 +35,7 @@
  */
 
 const { readFdAll } = require("./lib/read-fd.js");
-const { readEveryOverflowLookup } = require("./lib/dispatch-ledger.js");
+const { readDeclaredOverflowLookup } = require("./lib/dispatch-ledger.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
@@ -141,7 +142,7 @@ function capOf(result, args) {
 		return { launch: 0, error: `running sessions unreadable: ${listed.why}` };
 	let overflowLaunchOf;
 	try {
-		overflowLaunchOf = readEveryOverflowLookup();
+		overflowLaunchOf = readDeclaredOverflowLookup();
 	} catch (e) {
 		return {
 			launch: 0,

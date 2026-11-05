@@ -10,7 +10,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeOverflowCheckout } from "./lib/overflow-launch-fake";
+import {
+	declareOverflowSeat,
+	writeOverflowCheckout,
+	writeUnreadableLedgerCheckout,
+} from "./lib/overflow-launch-fake";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "overflow-sessions.js");
@@ -43,10 +47,19 @@ describe("overflow-sessions.js", () => {
 		expect(r.stdout).toBe("");
 	});
 
-	it("exits 1 with why where the checkouts cannot be listed", () => {
-		const r = run({ HOME: path.join(home, "absent") });
+	it("exits 1 with why where an overflow seat is declared and a ledger will not read", () => {
+		declareOverflowSeat(home);
+		writeUnreadableLedgerCheckout(home, "broken");
+		const r = run({ HOME: home });
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(path.join(home, "absent"));
+		expect(r.stderr).toContain(path.join(home, "broken"));
 		expect(r.stderr).toContain("fix that read and re-run");
+	});
+
+	it("marks nothing, reading no ledger, where no overflow seat is declared (#4393)", () => {
+		writeUnreadableLedgerCheckout(home, "broken");
+		const r = run({ HOME: home });
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("");
 	});
 });
