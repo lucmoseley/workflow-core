@@ -90,7 +90,6 @@
 
 const { scriptPath } = require("./lib/script-path.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
-const nodePath = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { isOutcomeError } = require("./lib/check");
 const {
@@ -118,12 +117,7 @@ const idSeam = require("./lib/session-id");
 const { MAP_LABEL } = require("./lib/issue-gate");
 const { parentVerdictOf } = require("./lib/parent-claims");
 const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
-const {
-	isInOtherRepo,
-	parseIssueRef,
-	refKey,
-	refLabel,
-} = require("./lib/issue-ref");
+const { isInOtherRepo, parseIssueRef, refLabel } = require("./lib/issue-ref");
 const blockerGraph = require("./lib/blocker-graph");
 const {
 	blockedByMany,
@@ -139,7 +133,6 @@ const { readState } = require("./lib/refill-state.js");
 const { unclosedLaunchOf } = require("./lib/unclosed-launch.js");
 const { writeFd } = require("./lib/write-fd.js");
 const conflictGraph = require("./lib/conflict-graph");
-const { STAMP_PATHS } = require("./lib/stamp-paths.js");
 const strandedCount = require("./lib/stranded-count");
 const {
 	RETRO_BUNDLE_CAP,
@@ -154,15 +147,18 @@ const {
 	DEFAULT_WINDOW_HOURS: DISPATCH_WINDOW_HOURS,
 } = require("./lib/dispatch-ledger");
 const { WAITING_LABEL } = require("./lib/frontier-order.js");
-const { openDescendants } = require("./lib/goal-set.js");
+const { resolveGoal } = require("./lib/goal-set.js");
+const { goalRefRepo } = require("./lib/goal-ref-repo.js");
 const { buildGoalRefusal, parseGoalForm } = require("./lib/refill-goal.js");
 const { snapshotFile } = require("./lib/pick-next-snapshot.js");
 const {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
+	notProposedLines,
 	openTallyOf,
 	summaryOf,
+	takesCell,
 } = require("./lib/pick-next-accounting.js");
 const {
 	bandReadRequiredOf,
@@ -171,15 +167,16 @@ const {
 } = require("./lib/pick-next-band-read.js");
 const {
 	annotatePaths,
+	collisionBlockLines,
 	collisionsOf,
 } = require("./lib/pick-next-collisions.js");
 const {
 	dispatchAge,
 	dispatchLiveness,
+	dispatchLivenessCell,
 	dispatchLivenessLabel,
 } = require("./lib/pick-next-dispatched.js");
 const {
-	claimHolder,
 	claimsFromStore,
 	reclaimableFrom,
 	storeElsewhere,
@@ -398,9 +395,6 @@ async function readTimelineOf(n) {
  * sort reads is elapsed time on the timeline, which a stale label cannot fake.
  */
 const RETRO_LABEL = takesLabel("triage");
-// "none" is a fault, not a state — every open issue carries one.
-/** @param {string[]} takes */
-const takesCell = (takes) => (takes.length > 0 ? takes.join("+") : "none");
 
 /**
  * Elapsed days, or null where the label is off or its start unreadable.
@@ -464,15 +458,7 @@ const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT;
 const docMapQueueOf = (list) =>
 	list.filter((i) => DOC_MAP_HINT.test(i.body)).map((i) => i.number);
 
-/*
- * Printed pairs are capped; --json carries the lot. A hot file drives the count
- * quadratically — one live run gave 94 pairs, most of them `docs/doc-map.md`,
- * which nearly every open issue names — and a list that long buries the
- * shortlist above it.
- */
-const INFLIGHT_PRINT_CAP = 20;
-
-/** Graph rows printed per block; --json carries the lot. UNMEASURED, unlike INFLIGHT_PRINT_CAP. */
+/** Graph rows printed per block; --json carries the lot. UNMEASURED, unlike lib/pick-next-collisions.js's INFLIGHT_PRINT_CAP. */
 const GRAPH_PRINT_CAP = 20;
 /** Files named in the graph's by-file summary. */
 const GRAPH_FILE_CAP = 8;
@@ -484,10 +470,8 @@ const GRAPH_FILE_CAP = 8;
 const sessionName = (s) =>
 	String(s).length > 34 ? `${String(s).slice(0, 33)}…` : String(s);
 
-/** Warm entries printed; --json carries the lot. UNMEASURED, unlike INFLIGHT_PRINT_CAP. */
+/** Warm entries printed; --json carries the lot. UNMEASURED, unlike lib/pick-next-collisions.js's INFLIGHT_PRINT_CAP. */
 const WRITE_SET_PRINT_CAP = 20;
-/** NOT PROPOSED rows printed; --json carries the lot. UNMEASURED, set to match the caps beside it. */
-const NOT_PROPOSED_PRINT_CAP = 20;
 const DERIVE_PER_LINE = 12;
 
 /**
@@ -770,24 +754,6 @@ function writeRunSnapshot(payload) {
  * @property {number[]} noCommand
  * @property {ReturnType<typeof pulledInRows>} pulledIn
  */
-
-/**
- * The reasons in precedence order, each with its printed detail; `render`
- * groups by that order.
- * @satisfies {Record<NotLaunchedReason, (d: any) => string>} `any`: each
- * reason's detail has its own shape, built in lib/pick-next-accounting.js.
- */
-const NOT_LAUNCHED_REASONS = {
-	"no command": (d) => takesCell(d.takes),
-	"file held by a running session": (d) =>
-		`${d.session} holds ${d.files.join(", ")}`,
-	"shares a file": (d) =>
-		`with #${d.with} on ${d.file} (provisional — the band read confirms or clears it)`,
-	"no admission slot": (d) =>
-		`${d.freeSlots === null ? "free slots unknown" : `${d.slots} slot(s)`}, as of this run`,
-};
-const REASON_ORDER = Object.keys(NOT_LAUNCHED_REASONS);
-/** @typedef {import("./lib/pick-next-accounting.js").NotLaunchedReason} NotLaunchedReason */
 
 /** The spec's own figure (#575): names past it make the line too long to read. */
 const TALLY_NAMES_AT_MOST = 3;
@@ -1386,61 +1352,8 @@ function renderShortlist(state) {
 }
 
 /** @param {State} state */
-function printCollisionPairs(state) {
-	const { collisions, inFlightCollisions, docMapQueue, claims, listed } = state;
-	/**
-	 * A pair sharing only stamp paths (STAMP_PATHS — a
-	 * ruling that grows over time, mantahostels#1301) is one the skill tells the
-	 * reader to discount — stamp-sharing, not a conflict
-	 * (.claude/skills/pick-next/SKILL.md; mantahostels#593, mantahostels#1312). Text only;
-	 * --json keeps every pair. The DOC-MAP QUEUE pointer names the
-	 * stamps actually shared, never the whole allowlist (mantahostels#1312) — it is
-	 * gated on a suppressed pair sharing docs/doc-map.md specifically,
-	 * since that block explains nothing about a CLAUDE.md-only pair.
-	 * @param {{paths: string[]}} c
-	 */
-	const isStampPair = (c) => c.paths.every((p) => STAMP_PATHS.includes(p));
-	const printed = collisions.filter((c) => !isStampPair(c));
-	const stampCollisions = collisions.filter(isStampPair);
-	const suppressed = stampCollisions.length;
-	const stampsShared = STAMP_PATHS.filter((p) =>
-		stampCollisions.some((c) => c.paths.includes(p)),
-	);
-	console.log(
-		"\nPOSSIBLE FILE COLLISIONS — repo paths named in both issue bodies.\nAdvisory: the order above is unchanged, and a body may name a file it\nonly refers to. Bodies naming no file can still collide.\n`in flight` is a claimed issue: a session may be writing that file now.\n",
-	);
-	for (const c of printed)
-		console.log(
-			`  possible collision: #${c.a} <-> #${c.b} on ${c.paths.join(", ")}`,
-		);
-	if (suppressed) {
-		const pointToQueue =
-			docMapQueue.length > 0 && stampsShared.includes("docs/doc-map.md");
-		console.log(
-			`  ${suppressed} pair${suppressed === 1 ? "" : "s"} sharing only a stamp path (${stampsShared.join(", ")}) suppressed${
-				pointToQueue ? " — see the DOC-MAP QUEUE below" : ""
-			}; --json carries every pair.`,
-		);
-	}
-	for (const c of inFlightCollisions.slice(0, INFLIGHT_PRINT_CAP))
-		console.log(
-			`  in flight: #${c.candidate} <-> #${c.inFlight} (claimed by ${claimHolder(c.claimedBy, c.claimedSession, claims.kept, listed.names)}) on ${c.paths.join(", ")}`,
-		);
-	if (inFlightCollisions.length > INFLIGHT_PRINT_CAP)
-		console.log(
-			`  ... and ${inFlightCollisions.length - INFLIGHT_PRINT_CAP} more in-flight pairs — --json carries every one.`,
-		);
-}
-
-/** @param {State} state */
 function renderCollisions(state) {
-	const { tracked, collisions, inFlightCollisions } = state;
-	if (!tracked.ok)
-		console.log(
-			`\nPOSSIBLE FILE COLLISIONS — unavailable: could not list tracked files\n  ${tracked.error}`,
-		);
-	else if (collisions.length > 0 || inFlightCollisions.length > 0)
-		printCollisionPairs(state);
+	for (const line of collisionBlockLines(state)) console.log(line);
 }
 
 /** @param {State} state */
@@ -2045,14 +1958,12 @@ function renderDispatched(state) {
 		);
 		for (const i of dispatchedShown) {
 			const rec = i.dispatchRec;
-			const rawLiveness = dispatchLiveness(rec, listed, dispatchJobs);
-			const liveness = dispatchLivenessLabel(rawLiveness);
+			const livenessCell = dispatchLivenessCell(
+				dispatchLiveness(rec, listed, dispatchJobs),
+			);
 			// pad() pads a short label but never truncates a long one (mantahostels#3488
 			// Standards, the "finished: <detail>" case) — `pad(…, 14) + " "`
 			// keeps a separator even where the cell overruns the column.
-			const livenessCell = rawLiveness.why
-				? `${liveness} (${rawLiveness.why})`
-				: liveness;
 			console.log(
 				`  #${i.number}  ${dispatchAge(rec, Date.now())}  ${pad(livenessCell, 14)} ${String(i.title).slice(0, 40)}`,
 			);
@@ -2096,26 +2007,7 @@ function renderExcluded(state, dispatchedShown) {
 
 /** @param {State} state */
 function renderNotProposed(state) {
-	const notLaunched = notLaunchedOf(state).sort(
-		(a, b) => REASON_ORDER.indexOf(a.reason) - REASON_ORDER.indexOf(b.reason),
-	);
-	console.log(
-		`\nNOT PROPOSED (${notLaunched.length}) — frontier issues outside the set, by the first reason that applies\n`,
-	);
-	if (notLaunched.length === 0) console.log("  none");
-	/** @type {NotLaunchedReason | null} */
-	let shownReason = null;
-	for (const e of notLaunched.slice(0, NOT_PROPOSED_PRINT_CAP)) {
-		if (e.reason !== shownReason) console.log(`  ${e.reason}:`);
-		shownReason = e.reason;
-		console.log(
-			`    #${e.number}  ${NOT_LAUNCHED_REASONS[e.reason](e.detail)}`,
-		);
-	}
-	if (notLaunched.length > NOT_PROPOSED_PRINT_CAP)
-		console.log(
-			`  ... and ${notLaunched.length - NOT_PROPOSED_PRINT_CAP} more — --json carries every one.`,
-		);
+	for (const line of notProposedLines(notLaunchedOf(state))) console.log(line);
 }
 
 /** @param {State["summary"]} summary */
@@ -2362,78 +2254,6 @@ async function resolveBlockers(issues, byNumber) {
 			proseBlocked: proseBlockedOf(graph, i),
 		})),
 		blockers: graph,
-	};
-}
-
-/**
- * The `owner/name` a goal ref names: its `<dir>` is a checkout's directory name.
- * @param {import("./lib/refill-goal.js").AskedRef} ref
- * @param {string|null} ownRepo
- * @returns {string|null|undefined} undefined where no checkout bears the name
- */
-function readGoalRefRepo(ref, ownRepo) {
-	if (ref.repo === null || ref.repo === nodePath.basename(REPO_ROOT))
-		return ownRepo;
-	return readHostTracker(nodePath.join(homeDir(), ref.repo)) ?? undefined;
-}
-
-/**
- * The goal's open members, and the numbers its tier ranks on, worked out afresh
- * from this run's reads: `drain` as the ref's open descendants, `unblock` as the
- * ref and everything holding it out, children and other repos' blockers included,
- * which take its tier by inheritance. A ref to a checkout gone from this machine
- * ranks nothing.
- * @param {NonNullable<typeof GOAL_ASK>|null} ask
- * @param {Enriching[]} issues
- * @param {import("./lib/blocker-graph").Graph} graph
- * @returns {{members: import("./lib/refill-goal.js").GoalMember[], ranked: number[]}|null}
- */
-function resolveGoal(ask, issues, graph) {
-	if (ask === null) return null;
-	const { ownRepo } = graph;
-	const refs = [];
-	for (const { repo: name, number } of ask.refs) {
-		const repo = readGoalRefRepo({ repo: name, number }, ownRepo);
-		if (repo === undefined) {
-			writeFd(2, `--goal names ${name}#${number}: no checkout named ${name}\n`);
-			return { members: [], ranked: [] };
-		}
-		refs.push({ repo, number });
-	}
-	/** @param {Enriching} i */
-	const memberOf = (i) => ({
-		repo: ownRepo,
-		number: i.number,
-		title: i.title,
-	});
-	const [first] = refs;
-	if (ask.form === "drain" && first) {
-		const members = openDescendants(issues, first, ownRepo).map(memberOf);
-		return { members, ranked: members.map((m) => m.number) };
-	}
-	const elsewhere = refs.find((r) => isInOtherRepo(r, ownRepo));
-	if (elsewhere) {
-		writeFd(
-			2,
-			`--goal names ${refLabel(elsewhere, ownRepo)}, another repo's: run it there\n`,
-		);
-		process.exit(2);
-	}
-	const ranked = refs.map((r) => r.number);
-	if (ask.form === "unblock" && first) {
-		const titles = new Map(issues.map((i) => [i.number, i.title]));
-		const members = blockerGraph
-			.holdersOf(graph, refKey(first))
-			.map(({ served, ref, info }) => ({
-				repo: ref.repo,
-				number: ref.number,
-				title: (served ? titles.get(ref.number) : info?.title) ?? null,
-			}));
-		return { members, ranked };
-	}
-	return {
-		members: issues.filter((i) => ranked.includes(i.number)).map(memberOf),
-		ranked,
 	};
 }
 
@@ -2719,7 +2539,14 @@ async function main() {
 	const byNumber = new Map(issues.map((i) => [i.number, i]));
 	const { withDeps, blockers } = await resolveBlockers(issues, byNumber);
 	const { openChildren } = blockers;
-	const resolvedGoal = resolveGoal(GOAL_ASK, issues, blockers);
+	const resolvedGoal = resolveGoal(GOAL_ASK, issues, blockers, (ref, own) =>
+		goalRefRepo(ref, own, REPO_ROOT),
+	);
+	if (resolvedGoal && "refusal" in resolvedGoal) {
+		writeFd(2, `${resolvedGoal.refusal}\n`);
+		process.exit(2);
+	}
+	if (resolvedGoal?.notice) writeFd(2, `${resolvedGoal.notice}\n`);
 	for (const n of resolvedGoal?.ranked ?? []) goalRanked.add(n);
 
 	const { mapNumbers, specNumbers } = kindSetsOf(issues);

@@ -390,6 +390,13 @@ a test run through `runCore`'s `worktree` option
 the worktree's state and not the main checkout's; a host-root core's store is
 read at the main checkout (#4242).
 
+**A session's `.claude/tmp/` is its own tree's** (#4275). A core spells the directory through `scripts/lib/scratch-dir.js`,
+and one testing a repo-relative path tests the session-tree spelling before
+the claim check, which spells a worktree's file from the host root,
+`.claude/worktrees/<n>/…`, under the guarded `.claude/` tier. The hook-owned
+stores under the host's `.claude/tmp/`, `markers/` and `agents/`, are shared
+stores, read at the host root.
+
 ## Fail open, and the log that makes it visible
 
 **Every `PreToolUse` guard fails open by default** (mantahostels#103, mantahostels#147): a missing `jq`, an

@@ -76,6 +76,7 @@
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { absolute, literal } = require("./shell-words.js");
 const { remedyKind } = require("./scratch-remedy.js");
+const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { shellQuote } = require("./sh-quote.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 
@@ -283,14 +284,14 @@ function mdSpan(s) {
 function remedy(tool, bare, escaped, root) {
 	switch (remedyKind(tool)) {
 		case "write":
-			return ["Same write, sanctioned path", `${root}/.claude/tmp/${bare}`];
+			return ["Same write, sanctioned path", `${root}/${SCRATCH_DIR}${bare}`];
 		case "move":
 			return [
 				"Move it into the sanctioned directory, then edit it there",
-				`mv ${escaped} .claude/tmp/${shellQuote(bare)}`,
+				`mv ${escaped} ${SCRATCH_DIR}${shellQuote(bare)}`,
 			];
 		case "command":
-			return ["Same command, sanctioned spelling", `.claude/tmp/${bare}`];
+			return ["Same command, sanctioned spelling", `${SCRATCH_DIR}${bare}`];
 	}
 }
 

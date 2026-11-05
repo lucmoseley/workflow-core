@@ -86,6 +86,7 @@
 const path = require("node:path");
 const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
+const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
@@ -229,7 +230,7 @@ const REMEDY = {
  * @param {CoreContext} ctx
  */
 function refusal(found, rule, ctx) {
-	const sanctioned = `${treeOr(ctx, ctx).root}/.claude/tmp/${found.flatName}`;
+	const sanctioned = `${treeOr(ctx, ctx).root}/${SCRATCH_DIR}${found.flatName}`;
 	return `Refused: this writes a file straight into the job directory's own tmp folder — ${found.flat}
 
 Session scratch goes in \`.claude/tmp/\`. ${REMEDY[remedyKind(ctx.tool)](sanctioned)}

@@ -8,10 +8,13 @@
  * *intent* from prose is where precision dies — mantahostels#185 measured a prose-content
  * detector at ~15% while its presence check was fine.
  *
+ * It also builds the POSSIBLE FILE COLLISIONS block's complete text (#4382).
  * The tracked-file list and the claims are read in pick-next.js and handed
  * in.
  */
 
+const { STAMP_PATHS } = require("./stamp-paths.js");
+const { claimHolder } = require("./pick-next-sessions.js");
 const { pathsNamedIn } = require("./write-set-predict.js");
 
 /** @typedef {{ok: true, files: string[]} | {ok: false, error: string}} TrackedFiles */
@@ -127,4 +130,77 @@ function collisionsOf(frontier, enriched, held, tracked) {
 	return { collisions, inFlightCollisions };
 }
 
-module.exports = { annotatePaths, collisionsOf };
+/*
+ * Printed pairs are capped; --json carries the lot. A hot file drives the count
+ * quadratically — one live run gave 94 pairs, most of them `docs/doc-map.md`,
+ * which nearly every open issue names — and a list that long buries the
+ * shortlist above it.
+ */
+const INFLIGHT_PRINT_CAP = 20;
+
+/**
+ * The POSSIBLE FILE COLLISIONS block's lines, header first; one line saying
+ * so where git could not list the tracked files, and none where no pair fired.
+ *
+ * A pair sharing only stamp paths (`STAMP_PATHS` — a ruling that grows over
+ * time, mantahostels#1301) is one the skill tells the reader to discount —
+ * stamp-sharing, not a conflict (.claude/skills/pick-next/SKILL.md;
+ * mantahostels#593, mantahostels#1312) — so it prints as a count. Text only;
+ * --json keeps every pair. The DOC-MAP QUEUE pointer names the stamps actually
+ * shared, never the whole allowlist (mantahostels#1312), and is gated on a
+ * suppressed pair sharing docs/doc-map.md specifically, since that block
+ * explains nothing about a CLAUDE.md-only pair.
+ * @param {{tracked: TrackedFiles, collisions: ReturnType<typeof collisionsOf>["collisions"], inFlightCollisions: ReturnType<typeof collisionsOf>["inFlightCollisions"], docMapQueue: number[], claims: {kept?: boolean}, listed: {names?: Map<string, string>|null}}} state
+ * @returns {string[]}
+ */
+function collisionBlockLines(state) {
+	const {
+		tracked,
+		collisions,
+		inFlightCollisions,
+		docMapQueue,
+		claims,
+		listed,
+	} = state;
+	if (!tracked.ok)
+		return [
+			`\nPOSSIBLE FILE COLLISIONS — unavailable: could not list tracked files\n  ${tracked.error}`,
+		];
+	if (collisions.length === 0 && inFlightCollisions.length === 0) return [];
+	/** @param {{paths: string[]}} c */
+	const isStampPair = (c) => c.paths.every((p) => STAMP_PATHS.includes(p));
+	const stampCollisions = collisions.filter(isStampPair);
+	const suppressed = stampCollisions.length;
+	const stampsShared = STAMP_PATHS.filter((p) =>
+		stampCollisions.some((c) => c.paths.includes(p)),
+	);
+	const lines = [
+		"\nPOSSIBLE FILE COLLISIONS — repo paths named in both issue bodies.\nAdvisory: the order above is unchanged, and a body may name a file it\nonly refers to. Bodies naming no file can still collide.\n`in flight` is a claimed issue: a session may be writing that file now.\n",
+		...collisions
+			.filter((c) => !isStampPair(c))
+			.map(
+				(c) =>
+					`  possible collision: #${c.a} <-> #${c.b} on ${c.paths.join(", ")}`,
+			),
+	];
+	if (suppressed) {
+		const pointToQueue =
+			docMapQueue.length > 0 && stampsShared.includes("docs/doc-map.md");
+		lines.push(
+			`  ${suppressed} pair${suppressed === 1 ? "" : "s"} sharing only a stamp path (${stampsShared.join(", ")}) suppressed${
+				pointToQueue ? " — see the DOC-MAP QUEUE below" : ""
+			}; --json carries every pair.`,
+		);
+	}
+	for (const c of inFlightCollisions.slice(0, INFLIGHT_PRINT_CAP))
+		lines.push(
+			`  in flight: #${c.candidate} <-> #${c.inFlight} (claimed by ${claimHolder(c.claimedBy, c.claimedSession, claims.kept, listed.names)}) on ${c.paths.join(", ")}`,
+		);
+	if (inFlightCollisions.length > INFLIGHT_PRINT_CAP)
+		lines.push(
+			`  ... and ${inFlightCollisions.length - INFLIGHT_PRINT_CAP} more in-flight pairs — --json carries every one.`,
+		);
+	return lines;
+}
+
+module.exports = { annotatePaths, collisionBlockLines, collisionsOf };
