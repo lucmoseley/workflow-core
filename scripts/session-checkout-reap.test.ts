@@ -184,6 +184,24 @@ it("keeps the store for origin/landing's lockfile though no worktree links it, f
 	expect(fs.existsSync(path.join(store, "node_modules", "lock"))).toBe(true);
 });
 
+it("removes the build failure record of a store no cut can ask for, keeping origin/landing's (#4318)", () => {
+	const gone = cut("gone-session");
+	const key = path.basename(
+		path.dirname(fs.realpathSync(path.join(gone, "node_modules"))),
+	);
+	fs.writeFileSync(path.join(stores(), `.build-${key}.failed`), "kept\n");
+	fs.writeFileSync(
+		path.join(stores(), ".build-0123456789abcdef.failed"),
+		"stale\n",
+	);
+
+	expect(reap().status).toBe(0);
+
+	expect(fs.readdirSync(stores()).filter((n) => n.endsWith(".failed"))).toEqual(
+		[`.build-${key}.failed`],
+	);
+});
+
 it("reports a dead session's dirty or unlanded worktree with its idle time and last commit, removing neither", () => {
 	const dirty = cut("dirty-work");
 	const unlanded = cut("unlanded-work");

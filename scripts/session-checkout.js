@@ -34,7 +34,6 @@
  * issue (no `report-*`).
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -132,14 +131,12 @@ function renderReaped(r) {
 	];
 }
 
-/**
- * What a warm pass did to its store, as a suffix to the store's path.
- * @param {{ store: string, built: boolean }} made
- */
-function describeWarmed(made) {
-	if (made.built) return ", built now";
-	return fs.existsSync(made.store) ? "" : ", which another process is building";
-}
+/** What a warm pass did to its store, as a suffix to the store's path. */
+const WARMED = {
+	built: ", built now",
+	standing: "",
+	building: ", which another process is building",
+};
 
 /**
  * Each command's run, saying what it did; a refusal throws.
@@ -162,7 +159,7 @@ const RUN = {
 			2,
 			made === null
 				? "session checkout: no landing module, or no lockfile on origin/landing, so no store is warmed\n"
-				: `session checkout: origin/landing's lockfile uses ${made.store}${describeWarmed(made)}\n`,
+				: `session checkout: origin/landing's lockfile uses ${made.store}${WARMED[made.state]}\n`,
 		);
 	},
 	attach: (named) => {

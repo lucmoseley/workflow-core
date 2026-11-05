@@ -20,6 +20,9 @@
  *
  * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
  * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
+ * The no-build case (#4318) adds two dispatcher runs and a warm pass: it drives
+ * the dispatcher against a real origin and a stub `npm`, seam 1's fixture
+ * (#4229), which no in-process call reaches.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -124,6 +127,15 @@ describe("the session's directory (#4245)", () => {
 		expect(warmed.code).toBe(0);
 		expect(launchCwds()).toHaveLength(1);
 		expect(readInstalls()).toHaveLength(1);
+	});
+
+	it("leaves the loop's no-build switch out of a launched session's environment (#4318)", () => {
+		const envLog = path.join(fx.dir, "launch-env");
+		stubClaude({ envLog });
+		run(["sonnet", "/implement 342"], { WFC_DISPATCH_NO_BUILD: "1" });
+		const env = fs.readFileSync(envLog, "utf8");
+		expect(env).toContain("WFC_CLAUDE_BIN=");
+		expect(env).not.toContain("WFC_DISPATCH_NO_BUILD");
 	});
 
 	it("starts the member in the checkout itself where the repository has no landing module", () => {

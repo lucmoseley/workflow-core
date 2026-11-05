@@ -261,6 +261,34 @@ it("refuses a no-build launch that meets no store at once, naming the warm route
 	).toEqual([]);
 });
 
+it("names a failed warm build in each no-build refusal until a build succeeds, which clears it (#4318)", () => {
+	fs.writeFileSync(
+		npmStub,
+		"#!/bin/sh\necho registry unreachable >&2\nexit 7\n",
+	);
+
+	const failed = run(main, "warm");
+	const refused = run(main, "launch-dir", "--no-build", "/implement 4318");
+
+	expect(failed.status).toBe(1);
+	expect(refused.status).toBe(1);
+	expect(refused.stderr).toMatch(
+		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 building a store in .* — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
+	);
+
+	fs.writeFileSync(
+		npmStub,
+		`#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock && pwd >> ${shellQuote(npmCalls)}\n`,
+	);
+	expect(run(main, "warm").status).toBe(0);
+	expect(run(main, "launch-dir", "--no-build", "/implement 4318").status).toBe(
+		0,
+	);
+	expect(fs.readdirSync(stores()).filter((n) => n.endsWith(".failed"))).toEqual(
+		[],
+	);
+});
+
 it("leaves a live builder of origin/landing's store to finish when warming, running no install of its own", () => {
 	expect(run(main, "warm").status).toBe(0);
 	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));
@@ -447,7 +475,7 @@ it("exits 2 on a usage error", () => {
 	expect(run(main, "attach", "a", "b").status).toBe(2);
 });
 
-it("leaves no worktree and no store behind where the install fails, and says how to retry", () => {
+it("leaves no worktree and no store behind where the install fails, only the failure's record, and says how to retry", () => {
 	fs.writeFileSync(npmStub, "#!/bin/sh\nexit 7\n");
 
 	const r = run(main, "cut", "one");
@@ -456,7 +484,13 @@ it("leaves no worktree and no store behind where the install fails, and says how
 	expect(r.stderr).toContain("npm ci exited 7");
 	expect(r.stderr).toContain("then attach again");
 	expect(fs.existsSync(worktree("one"))).toBe(false);
-	expect(fs.readdirSync(stores())).toEqual([]);
+	const left = fs.readdirSync(stores());
+	expect(left).toEqual([
+		expect.stringMatching(/^\.build-[0-9a-f]{16}\.failed$/),
+	]);
+	expect(
+		fs.readFileSync(path.join(stores(), String(left[0])), "utf8"),
+	).toContain("npm ci exited 7");
 	expect(git(main, "worktree", "list")).not.toContain("one");
 });
 

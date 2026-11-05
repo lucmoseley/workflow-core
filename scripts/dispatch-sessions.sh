@@ -446,6 +446,9 @@ unset WFC_SEAT_REASON
 # The overflow seat the refill loop asked for; unset as the reason is.
 seat_key="${WFC_SEAT_KEY:-}"
 unset WFC_SEAT_KEY
+# Whether a cut may build its store (#4318); unset as the reason is.
+no_build="${WFC_DISPATCH_NO_BUILD:-}"
+unset WFC_DISPATCH_NO_BUILD
 gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_key"})" || exit 2
 {
   read -r seat_kind burn_state
@@ -902,7 +905,7 @@ while [[ $# -gt 0 ]]; do
   # first under its REFUSED line, where lib/refill-batch.js reads it.
   checkout_err="${launch_out_file:-/dev/null}"
   checkout_args=(launch-dir)
-  [[ "${WFC_DISPATCH_NO_BUILD:-}" == 1 ]] && checkout_args+=(--no-build)
+  [[ "$no_build" == 1 ]] && checkout_args+=(--no-build)
   if ! launch_dir="$(node "$here/session-checkout.js" "${checkout_args[@]}" "$prompt" 2>"$checkout_err")"; then
     printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
     sed 's/^/  /' "$checkout_err" >&2
