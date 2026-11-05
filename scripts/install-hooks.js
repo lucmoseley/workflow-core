@@ -39,6 +39,7 @@ const {
 	readShim,
 	shimPaths,
 } = require("./lib/husky-shim.js");
+const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -53,7 +54,12 @@ if (read.state === "unknown") {
 	process.exit(2);
 }
 if (read.state === "stock")
-	fs.writeFileSync(shim, read.body.replace(HUSKY_LOOKUP, OWN_LOOKUP));
+	// A rename, not an overwrite: husky copies the shim with its source's mode,
+	// read-only where node_modules is an immutable dependency store, and the
+	// owner write bit lets husky's next copy overwrite it (#4372).
+	writeFileAtomic(shim, read.body.replace(HUSKY_LOOKUP, OWN_LOOKUP), {
+		mode: (fs.statSync(shim).mode & 0o777) | 0o200,
+	});
 if (read.state === "absent")
 	// husky writes none under HUSKY=0, CI's way of skipping hooks.
 	writeFd(
