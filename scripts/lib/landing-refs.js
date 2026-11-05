@@ -142,7 +142,7 @@ function landingOn(opts) {
 function pushedRef(opts) {
 	const tree = opts?.tree;
 	if (!tree || !landingOn(opts)) return VERIFIED_REF;
-	const own = ownQueueRef(tree, opts?.root);
+	const own = ownQueueRef(tree);
 	if (own === null) return VERIFIED_REF;
 	const ref = `${REMOTE}/${own}`;
 	const { commitSha } = require("./commit-sha.js");
