@@ -231,7 +231,6 @@ describe("takeover: the success path", () => {
 	});
 
 	describe("with no job record and no cwd on its row (#4464)", () => {
-		/** frozenHolder with its job record gone. */
 		const recordless = () => {
 			frozenHolder();
 			fs.rmSync(path.join(plan(), "jobs", SHORT), { recursive: true });
