@@ -27,10 +27,14 @@ function buildSeatEnv(env, seat, over = {}) {
 /**
  * `claude <args>` run to its end in `cwd` under `env` (buildSeatEnv's).
  * @param {string[]} args
- * @param {{cwd: string, env: NodeJS.ProcessEnv, timeout?: number}} opts
+ * @param {{cwd: string, env: NodeJS.ProcessEnv, timeout?: number, bin?: string}} opts
+ *   `bin` where the caller pins a CLI version
  */
-function runClaude(args, { cwd, env, timeout = CHILD_TIMEOUT_MS }) {
-	const r = spawnRaw(claudeBin(), args, {
+function runClaude(
+	args,
+	{ cwd, env, timeout = CHILD_TIMEOUT_MS, bin = claudeBin() },
+) {
+	const r = spawnRaw(bin, args, {
 		cwd,
 		env,
 		stdio: ["ignore", "pipe", "pipe"],

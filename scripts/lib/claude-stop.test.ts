@@ -52,6 +52,7 @@ beforeEach(() => {
 			"#!/bin/sh",
 			'd="$CLAUDE_CONFIG_DIR"',
 			`echo "$(basename "$d") $2" >> ${shellQuote(path.join(root, "stops"))}`,
+			`echo "\${CLAUDE_CODE_SESSION_ID:-none} \${CLAUDE_JOB_DIR:-none}" > ${shellQuote(path.join(root, "identity"))}`,
 			'case "$(cat "$d/answer" 2>/dev/null)" in',
 			'  nojob) echo "warning: retrying" >&2; echo "No job matching \'$2\'." >&2; exit 1 ;;',
 			'  busy) echo "daemon socket is busy" >&2; exit 1 ;;',
@@ -135,5 +136,14 @@ describe("stopOn", () => {
 			ok: false,
 			said: "No job matching 'aaaa1111'.",
 		});
+	});
+
+	it("runs without the caller's session identity", () => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "caller-session");
+		vi.stubEnv("CLAUDE_JOB_DIR", path.join(root, "caller-job"));
+		stopOn(seats[0], "aaaa1111");
+		expect(fs.readFileSync(path.join(root, "identity"), "utf8").trim()).toBe(
+			"none none",
+		);
 	});
 });

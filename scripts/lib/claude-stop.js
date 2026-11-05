@@ -8,12 +8,11 @@
  * only the job and its session calls stopSession, which finds the seat (#1571).
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { configDirs } = require("./arbiter-store");
-const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { readJobRecord, shortJobId } = require("./job-paths.js");
+const { buildSeatEnv, runClaude } = require("./seat-claude.js");
 
 /**
  * @typedef {{ok: true, said: string}
@@ -125,36 +124,32 @@ function stopSession(id, sessionId) {
  * @returns {StopOutcome}
  */
 function stopOn(seat, id, bin = claudeBin()) {
-	try {
-		const out = execFileSync(bin, ["stop", id], {
-			encoding: "utf8",
-			timeout: STOP_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, CLAUDE_CONFIG_DIR: seat },
-		});
-		return { ok: true, said: out.trim() || "ok" };
-	} catch (e) {
-		const err = caught(e);
-		// err.code / err.status, never err.message: the message embeds the whole argv.
-		// What the DAEMON said is separate, and it is what tells noJob from a
-		// timeout. Its LAST line, per docs/agents/verification.md: the reason
-		// prints under any warnings.
-		const said =
-			String(err.stderr || "")
-				.split("\n")
-				.map((l) => l.trim())
-				.filter(Boolean)
-				.pop()
-				?.slice(0, 120) ?? null;
-		const code = err.code || `exit ${err.status ?? "on a signal"}`;
-		return {
-			ok: false,
-			why: said ? `${code}: ${said}` : code,
-			said,
-			timedOut: err.code === "ETIMEDOUT",
-			noJob: /No job matching/.test(said ?? ""),
-		};
-	}
+	const r = runClaude(["stop", id], {
+		cwd: process.cwd(),
+		env: buildSeatEnv(process.env, seat),
+		timeout: STOP_TIMEOUT_MS,
+		bin,
+	});
+	if (!r.failed) return { ok: true, said: r.stdout.trim() || "ok" };
+	// What the DAEMON said is what tells noJob from a timeout. Its LAST line,
+	// per docs/agents/verification.md: the reason prints under any warnings.
+	const said =
+		r.stderr
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean)
+			.pop()
+			?.slice(0, 120) ?? null;
+	const errCode = /** @type {NodeJS.ErrnoException | undefined} */ (r.error)
+		?.code;
+	const code = errCode || `exit ${r.status ?? "on a signal"}`;
+	return {
+		ok: false,
+		why: said ? `${code}: ${said}` : code,
+		said,
+		timedOut: errCode === "ETIMEDOUT",
+		noJob: /No job matching/.test(said ?? ""),
+	};
 }
 
 module.exports = {
