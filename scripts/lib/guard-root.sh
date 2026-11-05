@@ -33,9 +33,24 @@
 # this to find the directory it logs to, so a gl_log from here would recurse.
 # The fallback is $PWD, which is the repo root on every wired path — a hook runs
 # from it — and wrong only for a guard hand-run from a subdirectory.
+#
+# WITHOUT CLAUDE_PROJECT_DIR, THE MAIN CHECKOUT (#4482): in a linked worktree
+# the parent of a git common dir called `.git`, else the top level — one fork
+# for both reads, as hostRoot()'s owningCheckout() makes it.
 gr_root() {
-  local root real
-  root="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")}"
+  local root real out
+  if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+    root="$CLAUDE_PROJECT_DIR"
+  elif out="$(git rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)"; then
+    root="${out%%$'\n'*}"
+    out="${out#*$'\n'}"
+    if [[ "${out##*/}" == .git ]]; then
+      root="${out%/*}"
+      [[ -n "$root" ]] || root=/
+    fi
+  else
+    root="$PWD"
+  fi
   # Only a trailing slash, and never the last one: a repo rooted at / would
   # otherwise normalise to the empty string.
   [[ "$root" == / ]] || root="${root%/}"

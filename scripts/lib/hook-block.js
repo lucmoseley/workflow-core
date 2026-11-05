@@ -36,7 +36,7 @@ const MAX_BLOCKS = 3;
  * order and the real `CLAUDE_PROJECT_DIR` of the session running the suite
  * wins, minting every test's counters in the main checkout. `hostRoot()` (#1)
  * supplies the rest — `CLAUDE_PROJECT_DIR` where the harness sets it, else the
- * git top level — so this function does not read `CLAUDE_PROJECT_DIR` itself.
+ * main checkout — so this function does not read `CLAUDE_PROJECT_DIR` itself.
  * @returns {string}
  */
 function repoRoot() {
