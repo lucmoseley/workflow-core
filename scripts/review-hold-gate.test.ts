@@ -13,9 +13,10 @@
  * runs the live script, because the hold reads the index git builds for the
  * commit, which no stub reproduces; its wiring into `.husky/pre-commit` and the
  * adopter skeleton is read off those files.
- * `tree=` comes from `commit-paths.js --tree`, as review-hold.txt hands it to a
- * session, so a drift between that computation and the hook's fails here; the
- * Stop backstop and push guard read the same marker, so they are run on it too.
+ * `tree=` comes from `commit-paths.js --tree`, or mid-merge from the index, as
+ * write-review-marker.js takes it for a session, so a drift between that
+ * computation and the hook's fails here; the Stop backstop and push guard read
+ * the same marker, so they are run on it too.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -771,6 +772,38 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		);
 	});
 
+	/** A merge held on SECRET alone, PLAIN landed and PRICE this worktree's, with the review's artefacts left. */
+	const heldMerge = () => {
+		diverge([PLAIN], [PRICE]);
+		inWt(["merge", "--no-commit", "origin/landing"]);
+		stageInWt(SECRET, "reviewed\n");
+		leaveArtefacts(path.join(wt, ".claude", "tmp"));
+	};
+	const writeMarkerInWt = (paths: string) =>
+		runInProcess(
+			WRITE_MARKER,
+			[
+				"--base",
+				"HEAD",
+				"--findings",
+				"0",
+				"--tier",
+				"escalated",
+				"--areas",
+				"secrets",
+				"--paths",
+				paths,
+			],
+			{
+				cwd: wt,
+				env: {
+					...quietEnv(),
+					CLAUDE_CODE_SESSION_ID: SID,
+					CLAUDE_PROJECT_DIR: repo,
+				},
+			},
+		);
+
 	it("passes a land's clean merge bringing a neighbour's glob change, with no marker", () => {
 		diverge([SECRET], [PLAIN]);
 		const r = inWt(["merge", "--no-edit", "origin/landing"]);
@@ -803,7 +836,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		);
 	});
 
-	it("holds a glob both sides changed, git combining them cleanly", () => {
+	it("holds a glob both sides changed, git combining them cleanly, until the marker names it (#4426)", () => {
 		write(SECRET, "line 1\nline 2\nline 3\nline 4\nline 5\n");
 		git("commit", "-qam", "five lines");
 		git("worktree", "add", "-q", "--detach", wt, "HEAD");
@@ -814,6 +847,11 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		git("-C", wt, "commit", "-qm", "mine");
 		const before = wtCount();
 		refusedIn(inWt(["merge", "--no-edit", "origin/landing"]), wt, before);
+		leaveArtefacts(path.join(wt, ".claude", "tmp"));
+		expect(writeMarkerInWt(SECRET).stderr).toBe("");
+		const r = inWt(["commit", "--no-edit"]);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
 	});
 
 	it("holds a clean merge carrying new bytes on a glob neither side wrote", () => {
@@ -824,38 +862,21 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		refusedIn(inWt(["commit", "--no-edit"]), wt, before);
 	});
 
-	it("clears a held merge on the marker review-hold.txt says to write, paths= naming every staged path", () => {
-		diverge([PLAIN], [PRICE]);
-		inWt(["merge", "--no-commit", "origin/landing"]);
-		stageInWt(SECRET, "reviewed\n");
-		leaveArtefacts(path.join(wt, ".claude", "tmp"));
-		const w = runInProcess(
-			WRITE_MARKER,
-			[
-				"--base",
-				"HEAD",
-				"--findings",
-				"0",
-				"--tier",
-				"escalated",
-				"--areas",
-				"secrets",
-				"--paths",
-				git("-C", wt, "diff", "--cached", "--name-only").split("\n").join(","),
-			],
-			{
-				cwd: wt,
-				env: {
-					...quietEnv(),
-					CLAUDE_CODE_SESSION_ID: SID,
-					CLAUDE_PROJECT_DIR: repo,
-				},
-			},
-		);
-		expect(w.stderr).toBe("");
+	it("clears a held merge on the marker review-hold.txt says to write, paths= naming the held path alone (#4426)", () => {
+		heldMerge();
+		expect(writeMarkerInWt(SECRET).stderr).toBe("");
 		const r = inWt(["commit", "--no-edit"]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
+	});
+
+	it("holds a merge whose marker's paths= names only a landed path, not the held one", () => {
+		heldMerge();
+		expect(writeMarkerInWt(PLAIN).stderr).toBe("");
+		const before = wtCount();
+		const r = inWt(["commit", "--no-edit"]);
+		refusedIn(r, wt, before);
+		expect(r.stderr).toContain(`its paths= does not name ${SECRET}`);
 	});
 
 	it("holds a merge whole where its side is on no remote-tracking ref", () => {
