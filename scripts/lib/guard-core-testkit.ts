@@ -17,8 +17,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineTemplate, trioTemplate } from "./git-fixture";
 import { loadCores } from "./guard-core-load.js";
-import { dispatch, hostAdapters, type Output } from "./guard-dispatch.js";
+import { dispatch, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
+import { hostAdapters } from "./guard-host-ports.js";
 import { MARKERS_REL } from "./marker-root.js";
 import { readHookPersistChars } from "./rule-emission.js";
 

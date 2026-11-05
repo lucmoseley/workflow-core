@@ -4,7 +4,7 @@
  * description-less plugin skill back into the start listing, or stops the
  * Skill tool loading it (#2037).
  *
- * Usage:  node scripts/check-harness-canary.js [--notify | --probe | --probe-agent-id] [--json]
+ * Usage:  node scripts/check-harness-canary.js [--notify | --probe | --probe-agent-id] [--write] [--json]
  *
  * WHAT IT GUARDS. A workflow-core skill shipped with no `description` costs
  * no adopter start a listing line and still loads by name (#1958, #2036).
@@ -37,9 +37,11 @@
  * THE AGENT_ID PROBE (`--probe-agent-id`, and part of `--probe`) runs in the
  * core's checkout alone, as #1837 is the core's ticket (#2819). It reads the
  * binary for `agent_id` on a subagent's `PreCompact` and `SessionStart`
- * payloads (lib/agent-id-probe.js). It edits no label (mantahostels#136).
+ * payloads (lib/agent-id-probe.js). It edits no label (mantahostels#136), and
+ * comments only under `--write`, which the hook passes and the probe it
+ * launches inherits (#4449).
  *
- * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 and prints it at each start.
+ * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 (the hook passing --write) and prints it at each start.
  * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block. The agent_id probe replaces #1837's hand re-check per release (#2819).
  * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false; `--probe-agent-id` re-reads the binary for a fixed suspected false.
  * TREE:      host — probes the harness from a scratch directory and asks whether the host root is the core
@@ -348,8 +350,9 @@ function commentFixed(v) {
  * record it. The caller holds the lock.
  * @param {string} version
  * @param {AgentIdVerdict | undefined} prior
+ * @param {boolean} write whether a fixed verdict may comment (#4449)
  */
-function probeAgentIdAndRecord(version, prior) {
+function probeAgentIdAndRecord(version, prior, write) {
 	/** @type {AgentIdVerdict} */
 	const v = {
 		version,
@@ -359,7 +362,7 @@ function probeAgentIdAndRecord(version, prior) {
 	if (v.verdict === "fixed")
 		v.commented =
 			(prior?.version === version && prior.commented === true) ||
-			commentFixed(v);
+			(write && commentFixed(v));
 	writeState({ agentId: v });
 	return v;
 }
@@ -367,7 +370,7 @@ function probeAgentIdAndRecord(version, prior) {
 /**
  * Probe under the lock and record the verdicts; null where a probe holds it.
  * @param {string} version
- * @param {{ listing: boolean, agentId: boolean }} which
+ * @param {{ listing: boolean, agentId: boolean, write: boolean }} which
  */
 function probeAndRecord(version, which) {
 	fs.mkdirSync(configDir(), { recursive: true });
@@ -381,7 +384,8 @@ function probeAndRecord(version, which) {
 			last = probe(version);
 			writeState({ last });
 		}
-		if (which.agentId) probeAgentIdAndRecord(version, readState().agentId);
+		if (which.agentId)
+			probeAgentIdAndRecord(version, readState().agentId, which.write);
 		return { last };
 	} finally {
 		lock.release();
@@ -390,10 +394,11 @@ function probeAndRecord(version, which) {
 
 /** Launch `flag` detached — node's `detached` starts a new session, so a
  * harness killing the hook's group spares it.
- * @param {"--probe" | "--probe-agent-id"} flag */
-function detachProbe(flag) {
+ * @param {"--probe" | "--probe-agent-id"} flag
+ * @param {boolean} write passed on, so the probe may comment (#4449) */
+function detachProbe(flag, write) {
 	try {
-		spawn(process.execPath, [__filename, flag], {
+		spawn(process.execPath, [__filename, flag, ...(write ? ["--write"] : [])], {
 			detached: true,
 			stdio: "ignore",
 		}).unref();
@@ -445,16 +450,17 @@ function atStart(ctx, state, version, { okLine, core }) {
 	const agent = forVersion(state.agentId, version);
 	if (core && agent?.verdict === "fixed") ctx.say(buildFixedText(agent));
 	const agentOwed = core && isAgentIdOwed(state, version);
+	const write = ctx.has("--write");
 	const seen = forVersion(state.last, version);
 	if (seen?.verdict === "red") {
 		reportRed(ctx, seen);
-		if (agentOwed) detachProbe("--probe-agent-id");
+		if (agentOwed) detachProbe("--probe-agent-id", write);
 		return {};
 	}
 	const retrying =
 		seen?.verdict === "unprobed" && Date.now() - Date.parse(seen.at) < RETRY_MS;
-	if (state.passed !== version && !retrying) detachProbe("--probe");
-	else if (agentOwed) detachProbe("--probe-agent-id");
+	if (state.passed !== version && !retrying) detachProbe("--probe", write);
+	else if (agentOwed) detachProbe("--probe-agent-id", write);
 	if (state.passed === version) return { okLine };
 	return { okLine: `probing Claude Code ${version} in the background.` };
 }
@@ -556,7 +562,11 @@ function runProbes(ctx, version, core) {
 		return ctx.skip(
 			`the agent_id probe runs in workflow-core's own checkout alone, for #${GAP_ISSUE}.`,
 		);
-	const ran = probeAndRecord(version, { listing, agentId: core });
+	const ran = probeAndRecord(version, {
+		listing,
+		agentId: core,
+		write: ctx.has("--write"),
+	});
 	if (ran === null)
 		return ctx.skip(
 			`another probe holds ${lockPath()}; its verdict lands in ${statePath()}.`,
@@ -568,8 +578,8 @@ function runProbes(ctx, version, core) {
 runCheck({
 	name: "harness-canary",
 	usage:
-		"node check-harness-canary.js [--notify | --probe | --probe-agent-id] [--json]",
-	flags: ["--probe", "--probe-agent-id"],
+		"node check-harness-canary.js [--notify | --probe | --probe-agent-id] [--write] [--json]",
+	flags: ["--probe", "--probe-agent-id", "--write"],
 	run(ctx) {
 		const version = readClaudeVersion(claudeBin());
 		if (!version)

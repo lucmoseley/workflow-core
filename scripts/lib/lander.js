@@ -60,6 +60,7 @@ const { execGroupedSync } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
 const {
 	LANDER_REVERT_ENV,
+	buildRevertBaseEnv,
 	buildRevertLine,
 	readSettledConflicts,
 	renderRegenerated,
@@ -2593,20 +2594,22 @@ const buildRevertEnv = (culprit) => ({
  * The guard-registry rows the gate refuses and exempts on a revert of
  * `culprit` in `dir`, judged `--against` the `against` arguments; null where
  * the gate cannot answer, which the fix ticket then says rather than reading
- * as no row owed (#3127).
+ * as no row owed (#3127). The second baseline is resolved as the gate's hook
+ * resolves it (#4451), so the rows named are the ones it refused on.
  * @param {string} dir
  * @param {string} culprit
- * @param {string[]} against
+ * @param {string[]} against `<rev>`, or `<rev> --head <sha>`
  * @returns {{refused: RegistryRow[], exempted: RegistryRow[]}|null}
  */
 function readRegistryRows(dir, culprit, against) {
+	const [onto = "HEAD", , head] = against;
 	const r = spawnSync(
 		process.execPath,
 		[REGISTRY_CHECK, "--json", "--against", ...against],
 		{
 			cwd: dir,
 			encoding: "utf8",
-			env: buildRevertEnv(culprit),
+			env: buildRevertBaseEnv(dir, { onto, head }, buildRevertEnv(culprit)),
 			timeout: LANDER_GIT_TIMEOUT_MS,
 		},
 	);

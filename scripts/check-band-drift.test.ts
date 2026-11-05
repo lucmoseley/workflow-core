@@ -121,7 +121,7 @@ function stubGh(open: { number: number; title: string }[] = []) {
 
 const run = (
 	gh: { env: Record<string, string> },
-	args: string[] = [],
+	args: string[] = ["--write"],
 	seats: Partial<Record<"A" | "B" | "C", string>> = {},
 ) => {
 	const seat = path.join(sandbox, "seat");
@@ -189,6 +189,17 @@ describe("a reading below half its baseline", () => {
 		expect(r.out).toContain("Refreshed #42.");
 		expect(gh.calls()).not.toContain("issue create");
 		expect(gh.bodyCalls()).toContain("replace 42");
+		expect(r.status).toBe(0);
+	});
+
+	it("files nothing without --write, and says what would file it (#4449)", () => {
+		transcript(bandQuestions(N, overlapsAt(N, 0.3)));
+		const gh = stubGh([{ number: 42, title: TITLE }]);
+		const r = run(gh, []);
+		expect(r.out).toContain("price bands have narrowed");
+		expect(r.out).toContain("Not filed: `--write` files or refreshes");
+		expect(gh.calls()).toBe("");
+		expect(gh.bodyCalls()).toBe("");
 		expect(r.status).toBe(0);
 	});
 

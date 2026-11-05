@@ -191,7 +191,7 @@ const { treeOr } = require("./tree-or.js");
  *   readLatch: (name: string) => string | null,
  *   session: string,
  *   root: string,
- *   tree: () => Pick<import("./guard-dispatch.js").TreePorts, "root">,
+ *   tree: () => Pick<import("./guard-host-ports.js").TreePorts, "root">,
  * }} Ctx the kit's context, the part this core reads, and its own ports;
  *   `tree` the session's, whose npm scripts and read graph are read (#4242),
  *   else the host's at `root`

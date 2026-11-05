@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { buildJobIdWord } from "./claude-stub";
 import { shellQuote } from "./sh-quote.js";
 
 export type StopKind = "ok" | "noJob";
@@ -75,10 +76,6 @@ export const buildPermissionRow = (id: string): Row =>
 		status: "waiting",
 		waitingFor: "permission prompt",
 	});
-
-/* `text` as one sh word, every `id` in it spliced as "$2". */
-const buildJobIdWord = (text: string, id: string) =>
-	text.split(id).map(shellQuote).join('"$2"');
 
 /** The `agents` branch: prints `listing`, or fails where it is null. */
 export const buildAgentsBranch = (listing: Row[] | null) =>

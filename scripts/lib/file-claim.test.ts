@@ -36,13 +36,9 @@ import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
 import { cutWorktree } from "./git-fixture";
 import { loadedCores, runCore, splitCheckout } from "./guard-core-testkit";
-import {
-	type Adapters,
-	dispatch,
-	hostAdapters,
-	type Output,
-} from "./guard-dispatch.js";
+import { dispatch, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
+import { type Adapters, hostAdapters } from "./guard-host-ports.js";
 import { registrationsOf } from "./hook-wiring";
 import { readHookPersistChars, readRuleCap } from "./rule-emission.js";
 import { readRuleText } from "./rule-text.js";

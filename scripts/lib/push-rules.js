@@ -75,7 +75,7 @@ const REVIEW_SUM = "sum.push-review-warn";
  *   check-ci-status.js reads
  * @typedef {import("./kit-context.js").KitContext & PushPorts & {
  *   session: string,
- *   tree: () => Pick<import("./guard-dispatch.js").TreePorts, "root"> }}
+ *   tree: () => Pick<import("./guard-host-ports.js").TreePorts, "root"> }}
  *   PushContext `session` is the payload's session id, raw; "" where it
  *   carries none
  */

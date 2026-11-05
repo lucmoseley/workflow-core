@@ -250,7 +250,7 @@ function readAnswer(stdout, ctx) {
  * (logged).
  * @param {string} rel
  * @param {FileClaimContext} ctx
- * @param {import("./guard-dispatch.js").TreePorts} tree
+ * @param {import("./guard-host-ports.js").TreePorts} tree
  */
 function readAuthorityClass(rel, ctx, tree) {
 	try {
