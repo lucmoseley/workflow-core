@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * lib/session-name.js (#4395): the latest `custom-title` is the session's name, a transcript naming none or a
+ * lib/session-name.js (#4395) against real files in a temp directory: the
+ * latest `custom-title` is the session's name, a transcript naming none or a
  * missing file reads null, one that will not read says why, and the prefix is
  * the shell scripts' (#3701).
  *
@@ -12,12 +13,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OVERFLOW_PREFIX, readSessionName } from "./session-name.js";
 
 let dir = "";
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-name-"));
+});
+afterEach(() => {
+	fs.rmSync(dir, { recursive: true, force: true });
 });
 
 const title = (customTitle: string) =>

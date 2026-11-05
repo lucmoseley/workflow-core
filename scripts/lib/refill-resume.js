@@ -356,8 +356,9 @@ function resumeSteps(io) {
 
 	/**
 	 * The name `l`'s session takes moved onto a key: the name its row shows,
-	 * else its prompt, after the prefix an overflow launch is named with. A copy inherits its session's name, which
-	 * on a plan seat carries no prefix (#4395).
+	 * else its prompt, after the prefix an overflow launch is named with. A
+	 * copy inherits its session's name, which on a plan seat carries no prefix
+	 * (#4395).
 	 * @param {JobLaunch} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
