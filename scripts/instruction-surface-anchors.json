@@ -78,7 +78,7 @@
 		"SessionStart scripts/inject-tracker-docs.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
 		"SessionStart scripts/session-arbiter.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/session-arbiter.js prune-markers --detach || true",
 		"SessionStart scripts/sweep-debts-detached.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/sweep-debts-detached.sh",
-		"SessionStart scripts/check-ci-status.js": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify || true",
+		"SessionStart scripts/check-ci-status.js": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify --write || true",
 		"SessionStart scripts/check-orphan-wait-loops.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphan-wait-loops.js --notify || true",
 		"SessionStart scripts/reap-orphan-hooks.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-orphan-hooks.js --notify || true",
 		"SessionStart scripts/check-kernel-stall.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-kernel-stall.js --notify || true",
