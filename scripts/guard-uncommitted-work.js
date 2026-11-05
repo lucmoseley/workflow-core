@@ -205,13 +205,13 @@ function refuseUncommitted(payload, sid, tree) {
 	 * "wrote nothing" — and both land on silence, because a change attributable
 	 * to nobody is billed to nobody. Without this filter the guard would order a
 	 * session to commit a file it never wrote. */
-	const written = store.readWritesBy(sid);
+	const written = store.readWritesBy(sid, tree);
 	if (written === null || written.length === 0) return false;
 
 	const dirty = readDirtyTracked(tree);
 	if (dirty === null) return false;
 
-	const theirs = readClaimedElsewhere(sid);
+	const theirs = readClaimedElsewhere(sid, { tree });
 	/* Already sorted, and unique by construction — see `readDirtyTracked`. */
 	const claimFiltered = dirty.filter(
 		(rel) => written.includes(rel) && !theirs.has(rel),
@@ -240,7 +240,7 @@ function refuseUncommitted(payload, sid, tree) {
 	const handoff = waitingHandoff(payload, sid);
 	if (handoff.down) return false;
 
-	const observed = readObservedElsewhere(sid);
+	const observed = readObservedElsewhere(sid, tree);
 	const mine = claimFiltered.filter((rel) => !observed.paths.has(rel));
 	if (mine.length === 0) return false;
 

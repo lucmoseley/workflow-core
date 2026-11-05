@@ -25,6 +25,7 @@ import {
 	DEAD,
 	durably,
 	freshSandbox,
+	gitRepo,
 	live,
 	liveHolder,
 	locks as locksMod,
@@ -32,6 +33,7 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
+import { cutWorktree } from "./git-fixture";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
@@ -1538,5 +1540,73 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 			dirtyA();
 			expect(store.release(rel, me, { generator: true }).verdict).toBe("dirty");
 		});
+	});
+});
+
+describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
+	const rel = "docs/x.md";
+	let wt = "";
+	const writeIn = (tree: string, text: string) =>
+		fs.writeFileSync(path.join(tree, rel), text);
+	const inDir = <T>(dir: string, fn: () => T): T => {
+		const back = process.cwd();
+		process.chdir(dir);
+		try {
+			return fn();
+		} finally {
+			process.chdir(back);
+		}
+	};
+
+	beforeEach(() => {
+		gitRepo(sb);
+		writeIn(sb.repo, "as committed\n");
+		commitAll(sb);
+		wt = cutWorktree(sb.repo);
+	});
+
+	const holdDirtyInWorktree = () => {
+		const me = live(sb, "alice");
+		inDir(wt, () => store.acquire(rel, me));
+		writeIn(wt, "half-written in the worktree\n");
+		return me;
+	};
+
+	it("records the worktree on the lock, and no tree on a main-checkout claim", () => {
+		holdDirtyInWorktree();
+		store.acquire("docs/y.md", live(sb, "bob"));
+		const byHolder = Object.fromEntries(
+			(store.listLocks() as { sessionId: string; tree?: string }[]).map((l) => [
+				l.sessionId,
+				l.tree,
+			]),
+		);
+		expect(byHolder).toEqual({ alice: wt, bob: undefined });
+	});
+
+	it("refuses a release run from the main checkout of a claim dirty in the worktree", () => {
+		const me = holdDirtyInWorktree();
+		inDir(sb.repo, () => {
+			expect(store.subjectDirty(rel)).toBe(false);
+			expect(store.release(rel, me).verdict).toBe("dirty");
+		});
+	});
+
+	it("leaves a worktree-dirty claim out of the clean ones, read from the main checkout", () => {
+		const me = holdDirtyInWorktree();
+		inDir(sb.repo, () => expect(store.readHeldClean(me.sessionId)).toEqual([]));
+		writeIn(wt, "as committed\n");
+		inDir(sb.repo, () =>
+			expect(store.readHeldClean(me.sessionId)).toEqual([rel]),
+		);
+	});
+
+	it("releases a worktree claim from the main checkout once the worktree is clean, though the main checkout is dirty", () => {
+		const me = holdDirtyInWorktree();
+		writeIn(wt, "as committed\n");
+		writeIn(sb.repo, "a main-checkout edit\n");
+		inDir(sb.repo, () =>
+			expect(store.release(rel, me).verdict).toBe("released"),
+		);
 	});
 });

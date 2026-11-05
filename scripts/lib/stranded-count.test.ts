@@ -184,22 +184,29 @@ describe("countStranded", () => {
 		expect(r.carrying).toBe(1);
 	});
 
-	it("counts a claim as carrying work where its file is dirty in its holder's worktree, not another's (#4244)", () => {
-		const tree = (sessionId: string, ...paths: string[]) => ({
-			worktree: `/wt/${sessionId}`,
-			owner: { sessionId, name: null },
-			dirty: new Set(paths),
-			writtenMs: null,
-		});
+	it("counts a claim as carrying work where its file is dirty in the tree its holder wrote it in, not another (#4457)", () => {
+		const found = [
+			{ worktree: "/wt/dead", dirty: new Set(["a.md"]) },
+			{ worktree: "/wt/other", dirty: new Set(["b.md"]) },
+		];
 		const r = mod.countStranded(
-			[lock("a.md", "dead", 24), lock("b.md", "dead", 24)],
+			[
+				{ ...lock("a.md", "dead", 24), tree: "/wt/dead" },
+				{ ...lock("b.md", "dead", 24), tree: "/wt/dead" },
+			],
 			new Set(["live"]),
-			{
-				dirty: new Set(),
-				worktrees: [tree("dead", "a.md"), tree("other", "b.md")],
-			},
+			{ dirty: new Set(), found },
 		);
 		expect(r).toMatchObject({ stranded: 2, carrying: 1 });
+	});
+
+	it("does not count a worktree claim on a path dirty only in the main checkout (#4457)", () => {
+		const r = mod.countStranded(
+			[{ ...lock("docs/x.md", "dead", 24), tree: "/wt/dead" }],
+			new Set(["live"]),
+			{ dirty: new Set(["docs/x.md"]), found: [] },
+		);
+		expect(r).toMatchObject({ stranded: 1, carrying: 0 });
 	});
 
 	it("counts a claim whose holder is listed but the oracle calls terminal, past the threshold", () => {
@@ -236,13 +243,17 @@ describe("readDirtyPaths", () => {
 });
 
 describe("isDirtyClaim", () => {
-	it("is false against a dirty set of null", () => {
-		expect(mod.isDirtyClaim(null, "a.md")).toBe(false);
+	const dirt = (...paths: string[]) => mod.dirtByTree(new Set(paths), []);
+
+	it("is false against a dirt map of null", () => {
+		expect(mod.isDirtyClaim(null, { path: "a.md" })).toBe(false);
 	});
 
 	it("judges a region claim by its whole file", () => {
 		expect(
-			mod.isDirtyClaim(new Set(["docs/doc-map.md"]), "docs/doc-map.md#B42"),
+			mod.isDirtyClaim(dirt("docs/doc-map.md"), {
+				path: "docs/doc-map.md#B42",
+			}),
 		).toBe(true);
 	});
 });

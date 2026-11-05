@@ -40,7 +40,7 @@ const {
 
 /** @typedef {{ path: string, at: number }} Quote a selection-ledger entry (#1220) */
 /**
- * @typedef {{ readWritesBy: (id: string) => string[]|null,
+ * @typedef {{ readWritesBy: (id: string, tree?: string) => string[]|null,
  *   readSelectsBy?: (id: string) => Quote[]|null,
  *   readLandedBy?: (id: string) => Set<string>|null }
  *   & import("./neighbour-dirt.js").LockSource} Ledger
@@ -102,10 +102,11 @@ const {
  *
  * @param {string[]} dirty tracked paths with modifications
  * @param {{ sessionId?: string|null, ledger?: Ledger, untracked?: string[],
- *   renames?: { path: string, source: string }[],
+ *   renames?: { path: string, source: string }[], tree?: string,
  *   committedAt?: (p: string) => number }} [options] `committedAt` answers a
  *   path's last commit in ms, 0 where it has none; `renames` are the staged
- *   ones, as `readTrackedStatus` reads them
+ *   ones, as `readTrackedStatus` reads them; `tree` is the tree `dirty` was
+ *   read in, whose ledger lines and claims alone count (#4457)
  * @returns {{ mine: string[], theirs: string[], quoted: string[] }}
  */
 function attributeDirty(
@@ -115,6 +116,7 @@ function attributeDirty(
 		ledger = arbiterStore,
 		untracked = [],
 		renames = [],
+		tree = arbiterStore.treeRoot(),
 		committedAt,
 	} = {},
 ) {
@@ -129,7 +131,7 @@ function attributeDirty(
 	/** @type {Set<string>} */
 	let held = new Set();
 	try {
-		if (sessionId) written = ledger.readWritesBy(sessionId);
+		if (sessionId) written = ledger.readWritesBy(sessionId, tree);
 	} catch {
 		written = null;
 	}
@@ -147,7 +149,7 @@ function attributeDirty(
 	}
 	try {
 		if (sessionId && ((written && written.length > 0) || quoted.length > 0))
-			held = readClaimedElsewhere(sessionId, ledger);
+			held = readClaimedElsewhere(sessionId, { tree, source: ledger });
 	} catch {
 		written = null;
 	}
@@ -324,6 +326,7 @@ function ownSelection(
 		untracked,
 		renames: status.renames,
 		ledger,
+		tree: root,
 		committedAt: lastCommitAt(root, execFn),
 	});
 	const tip = overlayCommit(root, head, mine, execFn);

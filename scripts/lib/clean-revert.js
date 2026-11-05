@@ -8,7 +8,10 @@
  * on its push. The name only asks: a gate grants the exemption where the tree
  * it judges is what `git revert` of that culprit makes on the judged commit's
  * parent, recomputed here with `git merge-tree`, whose ort merge is the one
- * `git revert` runs.
+ * `git revert` runs. A culprit reverted with its conflicting dependents
+ * (#4453) is pushed as one line of reverts, so the variable may name several
+ * commits, space-separated, in the order their reverts were committed; a
+ * commit names one.
  *
  * A CONFLICT ONLY IN ANCHOR FILES STILL COUNTS AS CLEAN (#3935). `git merge-file
  * --ours` settles the file for the side the revert is made on. Regenerating it
@@ -59,8 +62,36 @@ const ANCHOR_FILES = new Set([
 /** @param {string} sha */
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 
-/** The culprit WFC_LANDER_REVERT names, or null where it is unset. */
-const readLanderRevert = (env = process.env) => env[LANDER_REVERT_ENV] || null;
+/**
+ * The commit `message`'s revert line names, or null where it carries none.
+ * @param {string} message
+ * @returns {string|null}
+ */
+const parseRevertLine = (message) =>
+	/This reverts commit ([0-9a-f]{40})\./.exec(message)?.[1] ?? null;
+
+/**
+ * The commits WFC_LANDER_REVERT names, or null where it names none.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]|null}
+ */
+const readLanderRevert = (env = process.env) => {
+	const named = (env[LANDER_REVERT_ENV] ?? "").split(" ").filter(Boolean);
+	return named.length > 0 ? named : null;
+};
+
+/**
+ * The environment a revert of `reverted` is committed or pushed in.
+ * @param {string[]} reverted
+ */
+const buildRevertEnv = (reverted) => ({
+	...process.env,
+	[LANDER_REVERT_ENV]: reverted.join(" "),
+});
+
+/** @param {string} file whether readSettledConflicts settles a conflict in it */
+const isSettledFile = (file) =>
+	ANCHOR_FILES.has(file) || REGENERATED_FILES.has(file);
 
 /**
  * @param {string} cwd
@@ -245,40 +276,99 @@ function whyNotCleanRevert(cwd, judged) {
 }
 
 /**
- * The commit `sha`, pushed onto `tip`, judged as the lander's revert of
- * `culprit`: its one parent is `tip`, its message carries git's revert line
- * for `culprit`, and its tree is the clean revert.
+ * The commits `sha` pushes onto `tip` judged as the lander's reverts of
+ * `culprits`, in that order: one line of commits on `tip`, one per culprit,
+ * each with a single parent, git's revert line for its culprit in its message,
+ * and the clean revert of it on that parent as its tree. Its side is the last
+ * culprit's.
  * @param {string} cwd
- * @param {{culprit: string, sha: string, tip: string}} pushed
+ * @param {{culprits: string[], sha: string, tip: string}} pushed
  * @returns {{side: string} | {why: string}}
  */
-function judgeLanderRevert(cwd, { culprit, sha, tip }) {
-	const [full, head, base] = [culprit, sha, tip].map((rev) =>
-		commitSha(cwd, rev),
-	);
-	if (!full) return { why: `${culprit} is not a commit here` };
+function judgeLanderRevert(cwd, { culprits, sha, tip }) {
+	/** @type {string[]} */
+	const full = [];
+	for (const c of culprits) {
+		const resolved = commitSha(cwd, c);
+		if (!resolved) return { why: `${c} is not a commit here` };
+		full.push(resolved);
+	}
+	const [head, base] = [sha, tip].map((rev) => commitSha(cwd, rev));
 	if (!head || !base) return { why: `${sha} or ${tip} is not a commit here` };
-	const parents = gitOut(cwd, ["rev-list", "--parents", "-n", "1", head]);
-	if (parents?.trim() !== `${head} ${base}`)
-		return { why: `${sha} is not one commit on ${tip}` };
-	const line = buildRevertLine(full);
-	const message = gitOut(cwd, ["log", "-1", "--format=%B", head]) ?? "";
-	if (!message.includes(line))
-		return { why: `${sha}'s message does not carry "${line}"` };
-	const tree = gitOut(cwd, ["rev-parse", `${head}^{tree}`]);
-	if (tree === null) return { why: `${sha}'s tree cannot be read` };
-	return judgeCleanRevert(cwd, {
-		culprit: full,
-		onto: base,
-		tree: tree.trim(),
-	});
+	const chain = readCommitChain(cwd, base, head, full);
+	if (chain === null)
+		return {
+			why: `${sha} is not ${culprits.length === 1 ? "one commit" : `a line of ${culprits.length} commits`} on ${tip}`,
+		};
+	/** @type {{side: string} | {why: string}} */
+	let verdict = { why: "no commit was judged" };
+	for (const step of chain) {
+		verdict = judgeOneRevert(cwd, step);
+		if ("why" in verdict) return verdict;
+	}
+	return verdict;
 }
 
 /**
- * Why the commit `sha`, pushed onto `tip`, is not the lander's revert of
- * `culprit`, or null where it is.
+ * The commits `base..head`, oldest first, each paired with its one parent and
+ * the culprit at its place in `culprits`, where they form a single line on
+ * `base` one commit per culprit; else null.
  * @param {string} cwd
- * @param {{culprit: string, sha: string, tip: string}} pushed
+ * @param {string} base
+ * @param {string} head
+ * @param {string[]} culprits
+ * @returns {{culprit: string, commit: string, onto: string}[]|null}
+ */
+function readCommitChain(cwd, base, head, culprits) {
+	const listed = gitOut(cwd, [
+		"rev-list",
+		"--reverse",
+		"--parents",
+		`${base}..${head}`,
+	]);
+	const rows = (listed ?? "").split("\n").filter(Boolean);
+	if (rows.length !== culprits.length) return null;
+	/** @type {{culprit: string, commit: string, onto: string}[]} */
+	const chain = [];
+	let onto = base;
+	for (const [i, row] of rows.entries()) {
+		const [commit, ...parents] = row.split(" ");
+		const culprit = culprits[i];
+		if (
+			commit === undefined ||
+			culprit === undefined ||
+			parents.length !== 1 ||
+			parents[0] !== onto
+		)
+			return null;
+		chain.push({ culprit, commit, onto });
+		onto = commit;
+	}
+	return chain;
+}
+
+/**
+ * `commit` judged as the clean revert of `culprit` on its parent `onto`,
+ * carrying git's revert line.
+ * @param {string} cwd
+ * @param {{culprit: string, commit: string, onto: string}} judged
+ * @returns {{side: string} | {why: string}}
+ */
+function judgeOneRevert(cwd, { culprit, commit, onto }) {
+	const line = buildRevertLine(culprit);
+	const message = gitOut(cwd, ["log", "-1", "--format=%B", commit]) ?? "";
+	if (!message.includes(line))
+		return { why: `${commit}'s message does not carry "${line}"` };
+	const tree = gitOut(cwd, ["rev-parse", `${commit}^{tree}`]);
+	if (tree === null) return { why: `${commit}'s tree cannot be read` };
+	return judgeCleanRevert(cwd, { culprit, onto, tree: tree.trim() });
+}
+
+/**
+ * Why the commits `sha` pushes onto `tip` are not the lander's reverts of
+ * `culprits`, or null where they are.
+ * @param {string} cwd
+ * @param {{culprits: string[], sha: string, tip: string}} pushed
  * @returns {string|null}
  */
 function whyNotLanderRevert(cwd, pushed) {
@@ -288,18 +378,21 @@ function whyNotLanderRevert(cwd, pushed) {
 
 /**
  * The second baseline a direction gate judges a verified lander revert of
- * `culprit` against (#4451): the culprit's parent the revert restores, or null
- * where the judged side is no clean revert of it. The judged side is the
- * commit `head` pushed onto `onto`, else the index committed onto `onto`.
+ * `culprits` against (#4451): the last culprit's parent its revert restores,
+ * or null where the judged side is no clean revert of them. The judged side
+ * is the commits `head` pushed onto `onto`, else the index committed onto
+ * `onto`, which reverts one commit.
  * @param {string} cwd
- * @param {{culprit: string, onto: string, head?: string}} judged
+ * @param {{culprits: string[], onto: string, head?: string}} judged
  * @returns {string|null}
  */
-function readRevertBase(cwd, { culprit, onto, head }) {
+function readRevertBase(cwd, { culprits, onto, head }) {
 	if (head) {
-		const verdict = judgeLanderRevert(cwd, { culprit, sha: head, tip: onto });
+		const verdict = judgeLanderRevert(cwd, { culprits, sha: head, tip: onto });
 		return sideOf(verdict);
 	}
+	const [culprit] = culprits;
+	if (culprits.length !== 1 || culprit === undefined) return null;
 	const [full, base] = [culprit, onto].map((rev) => commitSha(cwd, rev));
 	const tree = gitOut(cwd, ["write-tree"]);
 	if (!full || !base || tree === null) return null;
@@ -326,8 +419,8 @@ const sideOf = (verdict) => ("side" in verdict ? verdict.side : null);
  * @returns {NodeJS.ProcessEnv}
  */
 function buildRevertBaseEnv(cwd, { onto, head }, env = process.env) {
-	const culprit = readLanderRevert(env);
-	const base = culprit ? readRevertBase(cwd, { culprit, onto, head }) : null;
+	const culprits = readLanderRevert(env);
+	const base = culprits ? readRevertBase(cwd, { culprits, onto, head }) : null;
 	return { ...env, [REVERT_BASE_ENV]: base ?? "" };
 }
 
@@ -335,7 +428,10 @@ module.exports = {
 	LANDER_REVERT_ENV,
 	REVERT_BASE_ENV,
 	buildRevertBaseEnv,
+	buildRevertEnv,
 	buildRevertLine,
+	isSettledFile,
+	parseRevertLine,
 	readLanderRevert,
 	readSettledConflicts,
 	renderRegenerated,

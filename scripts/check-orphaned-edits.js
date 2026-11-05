@@ -76,7 +76,7 @@
  * IMPLICIT:  at every session start (its hook passes --write), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
- * TREE:      host — walks the main checkout and every linked worktree (#4244)
+ * TREE:      host — walks the main checkout, as git's common dir names it from whichever tree launched the run (#4483), and every linked worktree (#4244)
  */
 
 const { spawnSync } = require("node:child_process");
@@ -87,6 +87,8 @@ const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { mainCheckout } = require("./lib/main-checkout.js");
+const { deref } = require("./lib/deref.js");
 const {
 	readLinkedWorktrees,
 	worktreeLabel,
@@ -254,6 +256,7 @@ function readUnfiledOrphans(filings, root) {
 /**
  * Every path a live session owns by claim, observation or ledger — or a
  * sentence saying why that cannot be read.
+ * `owned` holds ownedKey()s: a record counts in the tree it names (#4457).
  * @returns {{owned: Set<string>, why?: undefined, names: Map<string, string>, listed: SweepRead} | {why: string, owned?: undefined, names?: undefined, listed?: undefined}}
  */
 function readOwnedByLive() {
@@ -270,22 +273,32 @@ function readOwnedByLive() {
 }
 
 /**
+ * The key an owned path is held under: its tree, then its path in that tree.
+ * @param {string} tree
+ * @param {string} rel
+ */
+const ownedKey = (tree, rel) => `${tree}\0${rel}`;
+
+/**
  * @param {any[]} locks
- * @returns {string[]} the path of every lock a live holder has
+ * @returns {string[]} the ownedKey of every lock a live holder has
  */
 function heldLockPaths(locks) {
 	/** @type {string[]} */
 	const paths = [];
 	for (const lock of locks) {
 		if (!lock || lock.unreadable) continue;
-		if (proc.holderAlive(lock)) paths.push(store.subjectPath(lock.path));
+		if (proc.holderAlive(lock))
+			paths.push(
+				ownedKey(store.recordTree(lock), store.subjectPath(lock.path)),
+			);
 	}
 	return paths;
 }
 
 /**
- * Every path a live listed session observes or has in its ledger — or why
- * one of those stores would not read.
+ * The ownedKey of every path a live listed session observes or has in its
+ * ledger — or why one of those stores would not read.
  * @param {any} listed
  * @returns {{paths: string[], why?: undefined} | {why: string, paths?: undefined}}
  */
@@ -294,14 +307,15 @@ function readLiveSessionPaths(listed) {
 	const paths = [];
 	for (const id of listed.ids) {
 		if (!isListedLive(id, listed.ids, listed.terminal)) continue;
-		const observed = store.readObservedBy(id);
+		const observed = store.readObservedEntriesBy(id);
 		if (observed === null)
 			return { why: "the arbiter's observation store would not read" };
-		for (const rel of observed) paths.push(store.subjectPath(rel));
-		const written = store.readWritesBy(id);
+		for (const o of observed)
+			paths.push(ownedKey(o.tree, store.subjectPath(o.path)));
+		const written = store.readWriteEntriesBy(id);
 		if (written === null)
 			return { why: `session ${id}'s write ledger would not read` };
-		for (const rel of written) paths.push(rel);
+		for (const w of written) paths.push(ownedKey(w.tree, w.rel));
 	}
 	return { paths };
 }
@@ -544,11 +558,12 @@ function sortByAge(tree, dirty, { hours, now }) {
 
 /**
  * @param {string} rel
+ * @param {string} tree the tree `rel` is in
  * @param {Map<string, string>} names
  * @param {number} now
  */
-function describeWriter(rel, names, now) {
-	const w = store.readLastWriterOf(rel);
+function describeWriter(rel, tree, names, now) {
+	const w = store.readLastWriterOf(rel, { tree });
 	if (!w) return "unknown — no surviving write ledger names it";
 	const name = names.get(w.sessionId);
 	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${describeAge((now - w.at) / 3_600_000)} ago`;
@@ -601,9 +616,8 @@ function findOrphans(ctx, old, { now }) {
  * Whether a live session owns an old edit, and where none does, who last
  * wrote it, as printed.
  *
- * A live claim, observation or ledger entry at the file's path owns it in
- * whichever tree it sits: a key names no tree, so a neighbour's claim on the
- * same path in another worktree keeps it too, the safe direction. Past that,
+ * A live claim, observation or ledger entry at the file's path in its tree
+ * owns it; the same path in another tree is other bytes (#4457). Past that,
  * a worktree's owner answers for every file in it, and a worktree no session
  * owns is named by the ledger.
  * @param {OldEdit} o
@@ -612,7 +626,7 @@ function findOrphans(ctx, old, { now }) {
  * @returns {{kind: "owned"} | {kind: "orphan", writer: string}}
  */
 function judgeWriter(o, { owners, owned, names, listed, now }) {
-	if (owned.has(o.path)) return { kind: "owned" };
+	if (owned.has(ownedKey(o.tree, o.path))) return { kind: "owned" };
 	const owner = o.worktree === null ? undefined : owners.get(o.tree);
 	if (owner) {
 		if (isListedLive(owner.sessionId, listed.ids, listed.terminal))
@@ -622,7 +636,10 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 			writer: `session ${owner.sessionId}${owner.name ? ` (${owner.name})` : ""}, whose worktree it is — no longer listed, or listed but stopped`,
 		};
 	}
-	return { kind: "orphan", writer: describeWriter(o.path, names, now) };
+	return {
+		kind: "orphan",
+		writer: describeWriter(o.path, o.tree, names, now),
+	};
 }
 
 const LANDED_REF = "origin/landing";
@@ -897,6 +914,25 @@ function describeUnread({ linked, unread }) {
 	return parts.length > 0 ? ` ${parts.join("; ")}.` : "";
 }
 
+/**
+ * The main checkout, never a linked worktree: `hostRoot()` is the launch
+ * directory, so a session started inside a worktree would judge that
+ * worktree's live dirt as the main checkout's (#4483). It is made the host for
+ * the rest of the run, so the arbiter's stores, the module config and the filer
+ * all read the main checkout too. RESIDUAL: a linked worktree of a
+ * `--separate-git-dir` checkout, whose common dir is not named `.git`, is
+ * still read as the main checkout.
+ * @returns {string}
+ */
+function adoptMainCheckout() {
+	const host = hostRoot();
+	const checkout = mainCheckout(host);
+	const main = checkout === null ? host : deref(checkout);
+	if (main === host) return host;
+	process.env.CLAUDE_PROJECT_DIR = main;
+	return main;
+}
+
 runCheck({
 	name: "orphaned-edits",
 	usage:
@@ -910,7 +946,7 @@ runCheck({
 			"non-negative",
 		);
 
-		const root = hostRoot();
+		const root = adoptMainCheckout();
 		const dirty = readDirtyTracked(root);
 		// git is the apparatus here, not the subject: BROKEN (§N4).
 		if (dirty === null)

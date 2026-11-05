@@ -92,9 +92,13 @@ export function reviewFixture() {
 		git(tree, "commit", "-qm", rel, "--", rel);
 	};
 
-	/** Credit `rel` to `sid`'s write ledger, as record-write.sh does. */
-	const recordWrite = (rel: string, sid = ME) =>
-		execFileSync("node", [ARBITER, "record", rel, sid], { env: arbiterEnv() });
+	/** Credit `rel` to `sid`'s write ledger, as record-write.sh does, run in
+	 * `tree` so the line names it (#4457). */
+	const recordWrite = (rel: string, sid = ME, tree = f.shared) =>
+		execFileSync("node", [ARBITER, "record", rel, sid], {
+			env: arbiterEnv(),
+			cwd: tree,
+		});
 
 	return {
 		f,
@@ -114,7 +118,7 @@ export function reviewFixture() {
 		/** Commit `rel` in `tree`, credited to `sid`'s write ledger. */
 		commitBy: (rel: string, body: string, sid = ME, tree = f.shared) => {
 			commitFile(rel, body, tree);
-			recordWrite(rel, sid);
+			recordWrite(rel, sid, tree);
 		},
 		recordWrite,
 		/** Commit `rel` billed to `sid` by the commit ledger alone (#2390). */

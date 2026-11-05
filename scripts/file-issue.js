@@ -35,8 +35,9 @@
  * Destination is unfilled (lib/issue-gate.js, #717), and no `urgent` an open
  * ancestor already passes down (#3648).
  *
- * ORDER: every other refusal, then the similar-title list's, then create,
- * then link, then (--assign-self, or a map under a session id) claim.
+ * ORDER: every other refusal, then the similar-title list's, then
+ * rule:size-line's, then create, then link, then (--assign-self, or a map
+ * under a session id) claim.
  * A failure after the create exits 1 naming the created issue and the
  * remedy, and deletes nothing: re-running files a duplicate.
  *

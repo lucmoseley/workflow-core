@@ -4656,6 +4656,24 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			).toEqual({ mine: ["solo.ts"], theirs: ["shared.ts"], quoted: [] });
 		});
 
+		it("subtracts no path a live neighbour holds in another tree (#4457)", () => {
+			const lock = {
+				sessionId: "other",
+				path: "shared.ts",
+				tree: "/elsewhere",
+				pid: process.pid,
+				procStart: arbiterProc.readProcStartOf(process.pid),
+				bootId: arbiterProc.readCurrentBootId(),
+			};
+			expect(
+				attributeDirty(["shared.ts"], {
+					sessionId: "mine",
+					tree: "/here",
+					ledger: ledgerOf(["shared.ts"], [lock]),
+				}),
+			).toEqual({ mine: ["shared.ts"], theirs: [], quoted: [] });
+		});
+
 		it("subtracts a path whose own hunks have all landed, and nothing where that read throws (#2539)", () => {
 			const landed = {
 				...ledgerOf(["landed.ts", "pending.ts"]),
@@ -6108,13 +6126,15 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				return dir;
 			}
 
-			const ledger = () =>
+			/** The neighbour's claim sits in `dir`, the tree read (#4457). */
+			const ledger = (dir: string) =>
 				ledgerOf(
 					["mine.txt", "gone.txt", "brand-new.test.ts", "held.txt"],
 					[
 						{
 							sessionId: "neighbour",
 							path: "held.txt",
+							tree: dir,
 							pid: process.pid,
 							procStart: arbiterProc.readProcStartOf(process.pid),
 							bootId: arbiterProc.readCurrentBootId(),
@@ -6147,7 +6167,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const err = sink();
 				const code = await main(argv, {
 					root: dir,
-					ledger: ledger(),
+					ledger: ledger(dir),
 					execFn,
 					loadEdges: () => ({}),
 					renderEdges: () => ({}),
@@ -6238,7 +6258,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					root: dir,
 					pid: 5410,
 					sessionId: "mine",
-					ledger: ledger(),
+					ledger: ledger(dir),
 					execFn,
 					loadEdges: () => ({}),
 					renderEdges: () => ({}),
@@ -6375,7 +6395,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						root: dir,
 						pid: 5408,
 						sessionId: "mine",
-						ledger: ledger(),
+						ledger: ledger(dir),
 						alive: () => false,
 						execFn,
 						loadEdges: () => ({}),
@@ -6661,8 +6681,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 
 			describe("a file an inline python/node program quoted, as the session's own (#1220)", () => {
-				const quoting = (at: number) => ({
-					...ledger(),
+				const quoting = (dir: string, at: number) => ({
+					...ledger(dir),
 					readSelectsBy: () => [{ path: "orphan.txt", at }],
 				});
 
@@ -6671,7 +6691,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					const { seen, out } = await runSeeing(dir, ["--changed"], {
 						pid: 5418,
 						sessionId: "mine",
-						ledger: quoting(Date.now() + 60_000),
+						ledger: quoting(dir, Date.now() + 60_000),
 					});
 					expect(seen.read("orphan.txt")).toBe("orphan\n");
 					expect(out).toContain(
@@ -6684,7 +6704,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					const { seen, out } = await runSeeing(dir, [], {
 						pid: 5419,
 						sessionId: "mine",
-						ledger: quoting(1),
+						ledger: quoting(dir, 1),
 					});
 					expect(seen.read("orphan.txt")).toBe(headText);
 					expect(out).not.toContain("(#1220)");
@@ -6695,7 +6715,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					const { err } = await runSeeing(dir, ["--isolated", "x.test.ts"], {
 						pid: 5420,
 						sessionId: "mine",
-						ledger: quoting(Date.now() + 60_000),
+						ledger: quoting(dir, Date.now() + 60_000),
 					});
 					expect(err).toContain("REFUSED");
 					expect(err).not.toContain("orphan.txt");

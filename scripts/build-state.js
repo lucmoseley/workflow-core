@@ -18,6 +18,8 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { buildStateFile, newBuildState } = require("./lib/build-state.js");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { caught } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
+const { COMPACTIONS_MARKER } = require("./lib/compaction-set.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE = "usage: node scripts/build-state.js <n> [--spec <parent>]";
@@ -42,11 +44,13 @@ function main(argv) {
 		if (fs.existsSync(file)) {
 			const text = fs.readFileSync(file, "utf8");
 			JSON.parse(text);
-			process.stdout.write(`Resumed ${file}\n${text.trimEnd()}\n`);
+			process.stdout.write(
+				`Resumed ${file}\n${text.trimEnd()}\nA predecessor that stopped at the backstop left its unfinished state in the newest comment on #${issue} carrying a **${COMPACTIONS_MARKER}:** line; read it before resuming.\n`,
+			);
 			return 0;
 		}
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		const text = `${JSON.stringify(newBuildState(issue, spec), null, "\t")}\n`;
+		const text = `${JSON.stringify(newBuildState(issue, spec, now()), null, "\t")}\n`;
 		writeFileAtomic(file, text);
 		process.stdout.write(`Created ${file}\n${text}`);
 		return 0;

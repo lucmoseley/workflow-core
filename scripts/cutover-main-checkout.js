@@ -49,7 +49,7 @@ function main(argv = process.argv.slice(2)) {
 	try {
 		const at = now();
 		/** @param {string} rel */
-		const lastWriter = (rel) => store.readLastWriterOf(rel, root);
+		const lastWriter = (rel) => store.readLastWriterOf(rel, { root });
 		const result = cutover(root, {
 			moduleOn: () => moduleOn("landing", { root }),
 			listed: () => listedAgents(),
