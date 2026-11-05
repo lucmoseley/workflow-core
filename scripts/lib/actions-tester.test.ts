@@ -388,11 +388,12 @@ const askNamed = (
 	r: ReturnType<typeof fakeNamedReads>,
 	{
 		root = namedRoot(),
-		now = clock().now,
+		now = undefined as (() => number) | undefined,
 		iso = [{ branch: "lander/iso-1", sha: SHA }],
 	} = {},
-) =>
-	queueTester({
+) => {
+	const time = clock();
+	return queueTester({
 		root,
 		reads: {
 			...r.reads,
@@ -401,9 +402,10 @@ const askNamed = (
 			isoRefs: () => iso,
 			runsOn: () => [],
 		},
-		wait: async () => undefined,
-		now,
+		wait: time.wait,
+		now: now ?? time.now,
 	}).verdict(SHA, ["scripts/lib/a.test.ts"]);
+};
 
 it("dispatches the named files at the sha and reads its own run's green, naming no run (#3764)", async () => {
 	const r = fakeNamedReads({ conclusion: "success" });
