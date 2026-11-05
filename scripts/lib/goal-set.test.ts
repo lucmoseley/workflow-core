@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-const { openDescendants } = require("./goal-set.js");
+const { openDescendants, resolveGoal } = require("./goal-set.js");
 
 const OWN = "o/r";
 /** An open issue here, its parent the issue `parent` names, or none. */
@@ -52,5 +52,69 @@ describe("openDescendants (#3866)", () => {
 		expect(
 			numbers(openDescendants(issues, { repo: "o/manta", number: 40 }, OWN)),
 		).toEqual([7, 8]);
+	});
+});
+
+describe("resolveGoal (#4382)", () => {
+	const map = [issue(1), issue(2, 1), issue(3, 2), issue(5)].map((i) => ({
+		...i,
+		title: `t${i.number}`,
+	}));
+	const graph = { ownRepo: OWN };
+	/** The checkouts on this machine, by name; `null` is this one. */
+	const checkouts = new Map<string | null, string>([
+		[null, OWN],
+		["manta", "o/manta"],
+	]);
+	const ownCheckout = (ref: { repo: string | null }) => checkouts.get(ref.repo);
+
+	it("ranks nothing for a checkout gone from the machine, and says so", () => {
+		// Moved from scripts/pick-next.test.ts.
+		expect(
+			resolveGoal(
+				{ form: "drain", refs: [{ repo: "ghost", number: 5 }] },
+				map,
+				graph,
+				ownCheckout,
+			),
+		).toEqual({
+			members: [],
+			ranked: [],
+			notice: "--goal names ghost#5: no checkout named ghost",
+		});
+		// The positive pair: a checkout here drains with no notice.
+		expect(
+			resolveGoal(
+				{ form: "drain", refs: [{ repo: null, number: 1 }] },
+				map,
+				graph,
+				ownCheckout,
+			),
+		).toMatchObject({ ranked: [2, 3], notice: null });
+	});
+
+	it("refuses an unblock in another repo, naming it, and ranks an issue list here", () => {
+		expect(
+			resolveGoal(
+				{ form: "unblock", refs: [{ repo: "manta", number: 40 }] },
+				map,
+				graph,
+				ownCheckout,
+			),
+		).toEqual({
+			refusal: "--goal names o/manta#40, another repo's: run it there",
+		});
+		expect(
+			resolveGoal(
+				{ form: "issues", refs: [{ repo: null, number: 5 }] },
+				map,
+				graph,
+				ownCheckout,
+			),
+		).toEqual({
+			members: [{ repo: OWN, number: 5, title: "t5" }],
+			ranked: [5],
+			notice: null,
+		});
 	});
 });

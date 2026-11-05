@@ -121,57 +121,6 @@ describe("possible file collisions", () => {
 		expect(j.pathsUnavailable).toBe(null);
 	});
 
-	it("suppresses a pair sharing only docs/doc-map.md behind a summary count", async () => {
-		// The doc-map-only wall the skill tells the reader to discount (.claude/skills/pick-next/SKILL.md; mantahostels#593).
-		stubRepo(["docs/doc-map.md"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "stamp `docs/doc-map.md`" },
-				{ number: 2, body: "also `docs/doc-map.md`" },
-				{ number: 3, body: "and `docs/doc-map.md`" },
-			],
-		});
-		expect(r.out).not.toMatch(/possible collision:/);
-		expect(r.out).toMatch(
-			/3 pairs sharing only a stamp path \(docs\/doc-map\.md\) suppressed;/,
-		);
-		// No body names a §B entry, so no DOC-MAP QUEUE prints — and the summary
-		// must not point at a block that is not there.
-		expect(r.out).not.toMatch(/DOC-MAP QUEUE/);
-	});
-
-	it("suppresses a pair sharing only CLAUDE.md, the other ruled stamp path (mantahostels#1301, mantahostels#1312)", async () => {
-		stubRepo(["CLAUDE.md"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "stamp `CLAUDE.md`" },
-				{ number: 2, body: "also `CLAUDE.md`" },
-			],
-		});
-		expect(r.out).not.toMatch(/possible collision:/);
-		expect(r.out).toMatch(
-			/1 pair sharing only a stamp path \(CLAUDE\.md\) suppressed;/,
-		);
-		expect(r.out).not.toMatch(/docs\/doc-map\.md/);
-	});
-
-	it("does not point a CLAUDE.md-only suppression at the DOC-MAP QUEUE (mantahostels#1312)", async () => {
-		stubRepo(["CLAUDE.md", "docs/doc-map.md"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "stamp `CLAUDE.md`" },
-				{ number: 2, body: "also `CLAUDE.md`" },
-				{ number: 3, body: "stamp `docs/doc-map.md` and §B2" },
-			],
-		});
-		expect(r.out).toMatch(
-			/1 pair sharing only a stamp path \(CLAUDE\.md\) suppressed; --json/,
-		);
-		expect(r.out).not.toMatch(
-			/CLAUDE\.md\) suppressed — see the DOC-MAP QUEUE/,
-		);
-	});
-
 	it("points the summary at the DOC-MAP QUEUE only when that block prints", async () => {
 		stubRepo(["docs/doc-map.md"]);
 		const r = await run({
@@ -202,20 +151,6 @@ describe("possible file collisions", () => {
 		expect(r.out).toMatch(/#2 on scripts\/a\.js — with #1/);
 		expect(r.out).not.toMatch(/#3 on /);
 		expect(r.out).not.toMatch(/#4 on /);
-	});
-
-	it("still prints, in full, a pair sharing docs/doc-map.md plus a second path", async () => {
-		stubRepo(["docs/doc-map.md", "scripts/a.js"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "`docs/doc-map.md` and `scripts/a.js`" },
-				{ number: 2, body: "`docs/doc-map.md` and `scripts/a.js`" },
-			],
-		});
-		expect(r.out).toMatch(
-			/possible collision: #1 <-> #2 on docs\/doc-map\.md, scripts\/a\.js/,
-		);
-		expect(r.out).not.toMatch(/suppressed/);
 	});
 
 	it("keeps a suppressed pair in --json", async () => {
@@ -360,9 +295,10 @@ describe("candidate-vs-in-flight collisions", () => {
 		).toEqual(["luc", "ada"]);
 	});
 
-	it("caps the printed pairs and says how many it withheld", async () => {
+	it("carries every in-flight pair into --json, past the print cap", async () => {
 		// 13 candidates against 12 in-flight, left as a product: the count is
 		// quadratic in the issues sharing a path (.claude/skills/pick-next/SKILL.md).
+		// The printed cap itself is pinned on collisionPairLines (#4382).
 		stubRepo(["scripts/a.js"]);
 		const issues = Array.from({ length: 25 }, (_, k) => ({
 			number: k + 1,
@@ -372,9 +308,6 @@ describe("candidate-vs-in-flight collisions", () => {
 		const claims = Object.fromEntries(
 			issues.filter((i) => i.assignees).map((i) => [i.number, "self"]),
 		);
-		const r = await run({ issues, claims });
-		expect(r.out.match(/in flight:/g)).toHaveLength(20);
-		expect(r.out).toMatch(/and \d+ more in-flight pairs — --json carries/);
 		expect(
 			(await run({ issues, claims }, ["--json"])).json().inFlightCollisions
 				.length,

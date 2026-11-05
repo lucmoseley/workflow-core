@@ -15,6 +15,7 @@ const {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
+	notLaunchedText,
 	openTallyOf,
 	summaryOf,
 } = require("./pick-next-accounting.js");
@@ -43,6 +44,20 @@ const reasons = (rows: { number: number; reason: string }[]) =>
 	Object.fromEntries(rows.map((r) => [r.number, r.reason]));
 
 describe("why a frontier issue did not launch (#591)", () => {
+	it("prints a no-admission-slot row's slot count, or unknown where admission read none (#4382)", () => {
+		const row = (detail: object) => ({
+			number: 3,
+			reason: "no admission slot",
+			detail,
+		});
+		expect(notLaunchedText(row({ slots: 2, freeSlots: 2 }))).toBe(
+			"2 slot(s), as of this run",
+		);
+		expect(notLaunchedText(row({ slots: 1, freeSlots: null }))).toBe(
+			"free slots unknown, as of this run",
+		);
+	});
+
 	it("cuts the set below the slot count as no admission slot", () => {
 		const rows = notLaunchedOf(
 			launchState({

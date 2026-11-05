@@ -12,6 +12,8 @@
  * in.
  */
 
+const { STAMP_PATHS } = require("./conflict-graph.js");
+const { claimHolder } = require("./pick-next-sessions.js");
 const { pathsNamedIn } = require("./write-set-predict.js");
 
 /** @typedef {{ok: true, files: string[]} | {ok: false, error: string}} TrackedFiles */
@@ -127,4 +129,57 @@ function collisionsOf(frontier, enriched, held, tracked) {
 	return { collisions, inFlightCollisions };
 }
 
-module.exports = { annotatePaths, collisionsOf };
+/**
+ * The POSSIBLE FILE COLLISIONS block's lines, header first.
+ *
+ * A pair sharing only stamp paths (`STAMP_PATHS` — a ruling that grows over
+ * time, mantahostels#1301) is one the skill tells the reader to discount —
+ * stamp-sharing, not a conflict (.claude/skills/pick-next/SKILL.md;
+ * mantahostels#593, mantahostels#1312) — so it prints as a count. Text only;
+ * --json keeps every pair. The DOC-MAP QUEUE pointer names the stamps actually
+ * shared, never the whole allowlist (mantahostels#1312), and is gated on a
+ * suppressed pair sharing docs/doc-map.md specifically, since that block
+ * explains nothing about a CLAUDE.md-only pair.
+ * @param {{collisions: ReturnType<typeof collisionsOf>["collisions"], inFlightCollisions: ReturnType<typeof collisionsOf>["inFlightCollisions"], docMapQueue: number[], claims: {kept?: boolean}, listed: {names?: Map<string, string>|null}}} state
+ * @param {number} inFlightCap the in-flight pairs printed before the rest are counted
+ * @returns {string[]}
+ */
+function collisionPairLines(state, inFlightCap) {
+	const { collisions, inFlightCollisions, docMapQueue, claims, listed } = state;
+	/** @param {{paths: string[]}} c */
+	const isStampPair = (c) => c.paths.every((p) => STAMP_PATHS.includes(p));
+	const stampCollisions = collisions.filter(isStampPair);
+	const suppressed = stampCollisions.length;
+	const stampsShared = STAMP_PATHS.filter((p) =>
+		stampCollisions.some((c) => c.paths.includes(p)),
+	);
+	const lines = [
+		"\nPOSSIBLE FILE COLLISIONS — repo paths named in both issue bodies.\nAdvisory: the order above is unchanged, and a body may name a file it\nonly refers to. Bodies naming no file can still collide.\n`in flight` is a claimed issue: a session may be writing that file now.\n",
+		...collisions
+			.filter((c) => !isStampPair(c))
+			.map(
+				(c) =>
+					`  possible collision: #${c.a} <-> #${c.b} on ${c.paths.join(", ")}`,
+			),
+	];
+	if (suppressed) {
+		const pointToQueue =
+			docMapQueue.length > 0 && stampsShared.includes("docs/doc-map.md");
+		lines.push(
+			`  ${suppressed} pair${suppressed === 1 ? "" : "s"} sharing only a stamp path (${stampsShared.join(", ")}) suppressed${
+				pointToQueue ? " — see the DOC-MAP QUEUE below" : ""
+			}; --json carries every pair.`,
+		);
+	}
+	for (const c of inFlightCollisions.slice(0, inFlightCap))
+		lines.push(
+			`  in flight: #${c.candidate} <-> #${c.inFlight} (claimed by ${claimHolder(c.claimedBy, c.claimedSession, claims.kept, listed.names)}) on ${c.paths.join(", ")}`,
+		);
+	if (inFlightCollisions.length > inFlightCap)
+		lines.push(
+			`  ... and ${inFlightCollisions.length - inFlightCap} more in-flight pairs — --json carries every one.`,
+		);
+	return lines;
+}
+
+module.exports = { annotatePaths, collisionPairLines, collisionsOf };

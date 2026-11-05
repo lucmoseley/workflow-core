@@ -25,6 +25,40 @@ const CHILDREN = takesValue("children");
 /** @typedef {{number: number, reason: NotLaunchedReason, detail: object}} NotLaunchedRow */
 
 /**
+ * An issue's `takes:` values as one table cell.
+ * "none" is a fault, not a state — every open issue carries one.
+ * @param {string[]} takes
+ */
+const takesCell = (takes) => (takes.length > 0 ? takes.join("+") : "none");
+
+/**
+ * The reasons in precedence order, each with its printed detail; pick-next.js's
+ * render groups by that order.
+ * @satisfies {Record<NotLaunchedReason, (d: any) => string>} `any`: each
+ * reason's detail has its own shape, built in `notLaunchedOf` below.
+ */
+const NOT_LAUNCHED_REASONS = {
+	"no command": (d) => takesCell(d.takes),
+	"file held by a running session": (d) =>
+		`${d.session} holds ${d.files.join(", ")}`,
+	"shares a file": (d) =>
+		`with #${d.with} on ${d.file} (provisional — the band read confirms or clears it)`,
+	"no admission slot": (d) =>
+		`${d.freeSlots === null ? "free slots unknown" : `${d.slots} slot(s)`}, as of this run`,
+};
+/** @type {NotLaunchedReason[]} */
+const REASON_ORDER = /** @type {NotLaunchedReason[]} */ (
+	Object.keys(NOT_LAUNCHED_REASONS)
+);
+
+/**
+ * A NOT PROPOSED row's printed detail.
+ * @param {NotLaunchedRow} row
+ * @returns {string}
+ */
+const notLaunchedText = (row) => NOT_LAUNCHED_REASONS[row.reason](row.detail);
+
+/**
  * WHY EACH FRONTIER ISSUE OUTSIDE THE SET DID NOT LAUNCH (#591), the reasons
  * pick-next can know. Earliest-applicable wins, in `NotLaunchedReason`'s
  * order; the skill adds the rest of the vocabulary (a prose gate, the
@@ -357,6 +391,9 @@ module.exports = {
 	dispatchableFloorOf,
 	noCommandOf,
 	notLaunchedOf,
+	notLaunchedText,
 	openTallyOf,
+	REASON_ORDER,
 	summaryOf,
+	takesCell,
 };

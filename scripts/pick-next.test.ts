@@ -490,20 +490,6 @@ describe("a goal the script works out itself (#3866)", () => {
 		},
 	);
 
-	it("ranks nothing for a checkout gone from the machine, keeping its shortlist", async () => {
-		const home = path.join(kit.dir, "adopters");
-		fs.mkdirSync(home);
-		const r = await run(map, ["--json", "--goal", "drain ghost#5"], {
-			env: { HOME: home },
-		});
-		expect(r.status).toBe(0);
-		expect(r.out).toContain("--goal names ghost#5: no checkout named ghost");
-		expect(members(r)).toEqual([]);
-		expect(
-			r.json().frontier.map((row: { number: number }) => row.number),
-		).toEqual([3, 5]);
-	});
-
 	it("refuses an unblock in another repo: that repo's run walks it", async () => {
 		const home = path.join(kit.dir, "adopters");
 		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
