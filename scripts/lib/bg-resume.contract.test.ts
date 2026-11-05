@@ -4,7 +4,7 @@
  * (#2968) to one case list, run against the installed harness's recorded
  * responses (scripts/fixtures/bg-resume.json, re-recorded by
  * `node scripts/record-claude-responses.js`) and against lib/bg-resume-fake.ts,
- * which refill-loop-run.test.ts's `claude` stub prints. Breaking it costs the
+ * which the refill-loop-run suites' `claude` stub prints. Breaking it costs the
  * refill loop's resume: a response the parse misreads counts a working
  * resume failed.
  */

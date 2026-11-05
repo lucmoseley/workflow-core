@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Holds lib/meminfo-fake.ts, which refill-loop-run.test.ts points
+ * Holds lib/meminfo-fake.ts, which lib/refill-loop-run-testkit.ts points
  * `WFC_MEMINFO` at, to the real `/proc/meminfo` and to the parser the refill
  * loop reads the swap hold through (lib/admission.js's readSwapHold, over
  * lib/meminfo.js, #3093).

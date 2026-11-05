@@ -4,7 +4,7 @@
  * a fake ResumeIo: what the resume launches and with which key, how it judges
  * the job the launcher named, what a copy is handed, and what a move to
  * another seat or onto a key stops where it fails. The fake answers in the ports' shapes but no contract test pins it to
- * the adapter: scripts/refill-loop-run.test.ts crosses the real one.
+ * the adapter: scripts/refill-loop-run.test.ts and its recovery suite cross the real one.
  *
  * Loosen one and a resume can bill the plan for a key's session, count a job
  * still stopped or another session's as resumed, leave a failed move's resume
