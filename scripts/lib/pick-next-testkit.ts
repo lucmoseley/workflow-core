@@ -361,7 +361,7 @@ const stubGh = (fx: Fixture) => {
 	return stubGhScript(kit.dir, ghServer.script);
 };
 /** A `ps` line as the real one prints it: comm, then the full argv. */
-export const buildPsLine = (comm: string, args: string) => `${comm} ${args}`;
+const buildPsLine = (comm: string, args: string) => `${comm} ${args}`;
 /** The two processes one live session is (docs/environment.md). */
 export const sessionProcs = (id: string, exe = "claude") => [
 	buildPsLine(

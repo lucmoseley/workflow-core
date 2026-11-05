@@ -280,6 +280,21 @@ describe("what the graph says about its own inputs", () => {
 		]);
 	});
 
+	it("names a prediction's source `grep`, never a band read (mantahostels#588)", () => {
+		const [c] = graph.writeSetsFor(
+			[{ number: 1, paths: [] }],
+			[
+				{
+					number: 1,
+					writeSet: ["scripts/a.js"],
+					sizeBand: null,
+					provisional: true,
+				},
+			],
+		);
+		expect(c).toMatchObject({ source: "grep", sizeBand: null });
+	});
+
 	it("reads a size a band read spelled `Small`, which nothing validates", () => {
 		const g = build([cand(1, ["a.js"], "Small "), cand(2, ["a.js"], "SMALL")]);
 		expect(g.mergeable).toEqual([{ a: 1, b: 2, paths: ["a.js"] }]);

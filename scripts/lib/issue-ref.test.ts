@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * scanIssueRefs against the three regexes it replaced (#3477).
+ * scanIssueRefs against the three regexes it replaced (#3477), and how a ref
+ * read from an API URL is judged same-repo or foreign.
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -145,5 +146,17 @@ for (const form of Object.values(REF_FORMS))
 		});
 		expect(out.signal, "the scan ran past HANG_TIMEOUT_MS").toBeNull();
 		expect(out.status, out.stderr).toBe(0);
+	});
+});
+
+describe("a ref read from an API URL", () => {
+	const { isInOtherRepo, parseIssueRef, refLabel } = require("./issue-ref.js");
+
+	it("reads an API URL naming the child's own repo as that repo, not another", () => {
+		const ref = parseIssueRef("https://api.github.com/repos/o/r/issues/20");
+		expect(ref).toEqual({ repo: "o/r", number: 20 });
+		expect(isInOtherRepo(ref, "o/r")).toBe(false);
+		expect(refLabel(ref, "o/r")).toBe("#20");
+		expect(refLabel(ref, "o/there")).toBe("o/r#20");
 	});
 });

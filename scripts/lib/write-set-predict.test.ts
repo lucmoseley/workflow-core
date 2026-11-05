@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { predict, storeProvisional, pathsNamedIn } =
+const { DOC_MAP_HINT, predict, storeProvisional, pathsNamedIn } =
 	require("./write-set-predict.js") as typeof import("./write-set-predict");
 const { readEntry, bodyHash, writeEntry } = require("./write-set-cache.js");
 
@@ -320,5 +320,51 @@ describe("storeProvisional", () => {
 		const r = storeProvisional(root, issue, tracked(REPO));
 		expect(r.ok).toBe(false);
 		expect(r.why).toBeTruthy();
+	});
+});
+
+describe("pathsNamedIn", () => {
+	it("ignores a directory, which git never lists", () => {
+		expect(
+			pathsNamedIn("everything under `scripts/lib`", ["scripts/lib/gh.js"]),
+		).toEqual([]);
+	});
+
+	it("prefers an exact tracked path over the files nested beneath it", () => {
+		// Without exact-first, a root README.md loses to its own nested namesakes
+		// and resolves to nothing — this repo has three.
+		const files = ["README.md", "app/README.md", "docs/README.md"];
+		expect(pathsNamedIn("rewrite `README.md`", files)).toEqual(["README.md"]);
+	});
+
+	it("ignores an ambiguous filename rather than guessing which file it meant", () => {
+		expect(
+			pathsNamedIn("rewrite `index.ts`", ["a/index.ts", "b/index.ts"]),
+		).toEqual([]);
+	});
+
+	it("matches only on a path boundary, never mid-filename", () => {
+		expect(pathsNamedIn("rewrite `a.js`", ["scripts/data.js"])).toEqual([]);
+	});
+
+	it("finds a path inside a backticked command line", () => {
+		expect(
+			pathsNamedIn("run `node scripts/a.js --json`", ["scripts/a.js"]),
+		).toEqual(["scripts/a.js"]);
+	});
+});
+
+describe("DOC_MAP_HINT", () => {
+	it("keeps out a bare B45 and a plain doc-map mention", () => {
+		expect(DOC_MAP_HINT.test("the entry is B45")).toBe(false);
+		expect(DOC_MAP_HINT.test("mentions docs/doc-map.md as context")).toBe(
+			false,
+		);
+	});
+
+	it("flags an unnumbered §B entry, which is how a new entry is always written", () => {
+		expect(DOC_MAP_HINT.test("writes its `docs/doc-map.md` §B entry")).toBe(
+			true,
+		);
 	});
 });

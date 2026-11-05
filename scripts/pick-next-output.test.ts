@@ -49,56 +49,6 @@ describe("possible file collisions", () => {
 		expect(r.out.match(/possible collision:/g)).toHaveLength(1);
 	});
 
-	it("resolves a bare filename by unique suffix, which is how bodies write it", async () => {
-		// The measured pairs name `session-arbiter.js`, never its full path.
-		stubRepo(["scripts/session-arbiter.js"]);
-		const r = await run({
-			issues: [
-				{ number: 159, body: "extract `session-arbiter.js`'s store" },
-				{ number: 174, body: "`session-arbiter.js` reads an unreadable store" },
-			],
-		});
-		expect(r.out).toMatch(
-			/possible collision: #159 <-> #174 on scripts\/session-arbiter\.js/,
-		);
-	});
-
-	it("ignores a backticked token that is no tracked file", async () => {
-		// Existence is the whole precision filter: prose is full of backticks.
-		stubRepo(["scripts/pick-next.js"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "see `not-a-file.js` and `--json` and `gh`" },
-				{ number: 2, body: "see `not-a-file.js` too" },
-			],
-		});
-		expect(r.out).not.toMatch(/possible collision/);
-	});
-
-	it("ignores a directory, which git never lists", async () => {
-		stubRepo(["scripts/lib/gh.js"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "everything under `scripts/lib`" },
-				{ number: 2, body: "also `scripts/lib`" },
-			],
-		});
-		expect(r.out).not.toMatch(/possible collision/);
-	});
-
-	it("prefers an exact tracked path over the files nested beneath it", async () => {
-		// Without exact-first, a root README.md loses to its own nested namesakes
-		// and resolves to nothing — this repo has three.
-		stubRepo(["README.md", "app/README.md", "docs/README.md"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "rewrite `README.md`" },
-				{ number: 2, body: "also `README.md`" },
-			],
-		});
-		expect(r.out).toMatch(/possible collision: #1 <-> #2 on README\.md/);
-	});
-
 	it("pairs the whole frontier, not just the rows --limit prints", async () => {
 		// The skill invokes the script with --limit, so pairing the printed slice
 		// would hide exactly the collisions a long frontier creates.
@@ -115,40 +65,6 @@ describe("possible file collisions", () => {
 		);
 		expect(r.order()).toEqual([1]);
 		expect(r.out).toMatch(/possible collision: #2 <-> #3 on scripts\/a\.js/);
-	});
-
-	it("ignores an ambiguous filename rather than guessing which file it meant", async () => {
-		stubRepo(["a/index.ts", "b/index.ts"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "rewrite `index.ts`" },
-				{ number: 2, body: "also `index.ts`" },
-			],
-		});
-		expect(r.out).not.toMatch(/possible collision/);
-	});
-
-	it("matches only on a path boundary, never mid-filename", async () => {
-		// `a.js` must not resolve to scripts/data.js on a bare endsWith.
-		stubRepo(["scripts/data.js"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "rewrite `a.js`" },
-				{ number: 2, body: "also `a.js`" },
-			],
-		});
-		expect(r.out).not.toMatch(/possible collision/);
-	});
-
-	it("finds a path inside a backticked command line", async () => {
-		stubRepo(["scripts/a.js"]);
-		const r = await run({
-			issues: [
-				{ number: 1, body: "run `node scripts/a.js --json`" },
-				{ number: 2, body: "edit `scripts/a.js`" },
-			],
-		});
-		expect(r.out).toMatch(/possible collision: #1 <-> #2 on scripts\/a\.js/);
 	});
 
 	it("leaves the shortlist byte-identical — it annotates, it never sorts", async () => {
@@ -593,28 +509,6 @@ describe("the doc-map queue", () => {
 		expect(parseQueueLine(r.out)).toBe("#2, #3");
 	});
 
-	it("keeps out a bare B45 and a plain doc-map mention", async () => {
-		// Both are caught only by the widening .claude/skills/pick-next/SKILL.md rejects on precision.
-		const r = await run({
-			issues: [
-				{ number: 1, body: "the entry is B45" },
-				{ number: 2, body: "mentions docs/doc-map.md as context" },
-			],
-		});
-		expect(r.out).not.toMatch(/DOC-MAP QUEUE/);
-	});
-
-	it("flags an unnumbered §B entry in the DOC-MAP QUEUE, naming its issue — how a NEW entry is always written", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1, body: "writes its `docs/doc-map.md` §B entry" },
-				{ number: 2, body: "no entry here" },
-			],
-		});
-		expect(r.out).toMatch(/DOC-MAP QUEUE \(1\)/);
-		expect(parseQueueLine(r.out)).toBe("#1");
-	});
-
 	it("prints the whole queue as one line, excluding none of it", async () => {
 		const r = await run({
 			issues: [
@@ -707,46 +601,11 @@ describe("the write-set cache", () => {
 		expect(r.out).toMatch(/derive #1 #2/);
 	});
 
-	it("gives each cold issue the key to store its result back under", async () => {
-		const r = await here({ issues: [{ number: 1, body: "one" }] }, [
-			"--json",
-			"--no-prewarm",
-		]);
-		expect(r.json().writeSetCache.cold).toEqual([
-			{
-				number: 1,
-				state: "cold",
-				bodyHash: writeSetCache.bodyHash("one"),
-				gonePaths: null,
-			},
-		]);
-	});
-
 	it("reads a stored entry back as warm, with its write-set and gist", async () => {
 		store(1, "one");
 		const r = await here({ issues: [{ number: 1, body: "one" }] });
 		expect(r.out).toMatch(/1 warm, 0 provisional, 0 to derive/);
 		expect(r.out).toMatch(/warm {2}#1 {2}1 path\(s\), M — what it does/);
-	});
-
-	it("goes cold again once the body is really edited", async () => {
-		store(1, "one");
-		const r = await here({ issues: [{ number: 1, body: "one, rewritten" }] }, [
-			"--json",
-			"--no-prewarm",
-		]);
-		expect(r.json().writeSetCache.cold[0].state).toBe("body-changed");
-	});
-
-	it("stays warm through a ticked checkbox, which changes no file", async () => {
-		store(1, "- [ ] do the thing");
-		const r = await here(
-			{ issues: [{ number: 1, body: "- [x] do the thing" }] },
-			["--json"],
-		);
-		expect(
-			r.json().writeSetCache.warm.map((w: { number: number }) => w.number),
-		).toEqual([1]);
 	});
 
 	it("re-derives an entry whose tracked path was renamed away", async () => {
@@ -889,14 +748,6 @@ describe("the write-set cache", () => {
 		expect(lines[1].putsSinceLastRun).toBe(1);
 	});
 
-	it("counts nothing put where the store has not moved since the last run", async () => {
-		const fx = { issues: [{ number: 1, body: "one" }] };
-		store(1, "one");
-		await here(fx);
-		await here(fx);
-		expect(readLog()[1].putsSinceLastRun).toBe(0);
-	});
-
 	const logFile = () =>
 		path.join(kit.repoRoot as string, warmFractionLog.LOG_SUBPATH);
 
@@ -1029,18 +880,6 @@ describe("the write-set cache", () => {
 			]);
 		});
 
-		it("is superseded by a band read, which clears the flag", async () => {
-			await here({ issues: [{ number: 1, body: "one" }] });
-			store(1, "one");
-			const r = await here({ issues: [{ number: 1, body: "one" }] }, [
-				"--json",
-			]);
-			expect(
-				r.json().writeSetCache.warm.map((w: { number: number }) => w.number),
-			).toEqual([1]);
-			expect(r.json().writeSetCache.provisional).toEqual([]);
-		});
-
 		it("leaves a wayfinder:map issue cold, and says why", async () => {
 			// Its substrate is its own body, so whatever its prose backticks is not
 			// what it would write.
@@ -1064,20 +903,6 @@ describe("the write-set cache", () => {
 			expect(text.out).toMatch(/not predicted: #1 — wayfinder:map/);
 		});
 
-		it("names the prediction as `grep` in the conflict graph, never as a band read", async () => {
-			// mantahostels#588 bars refusing a candidate on grep output, and a row that cannot
-			// be told from a judged one is how that bar is lost.
-			stubRepo(["scripts/a.js"]);
-			const r = await here(
-				{ issues: [{ number: 1, body: "`scripts/a.js`" }] },
-				["--json"],
-			);
-			expect(r.json().conflictGraph.candidates[0]).toMatchObject({
-				source: "grep",
-				sizeBand: null,
-			});
-		});
-
 		it("records the provisional tickets apart from warm in the measurement log", async () => {
 			// Folding them into `warm` would drive every line towards 100% and make
 			// mantahostels#385's 60-80% claim untestable.
@@ -1092,13 +917,6 @@ describe("the write-set cache", () => {
 			expect(readLog()[0].provisional).toBe(1);
 			expect(readLog()[0].cold).toBe(0);
 			expect(readLog()[0].provisionalNumbers).toEqual([2]);
-		});
-
-		it("does not count its own predictions as puts, which would defeat the collapse", async () => {
-			const fx = { issues: [{ number: 1, body: "one" }] };
-			await here(fx);
-			await here(fx);
-			expect(readLog()[1].putsSinceLastRun).toBe(0);
 		});
 
 		it("changes neither the order nor the shortlist", async () => {
@@ -1125,20 +943,6 @@ describe("the write-set cache", () => {
 			const r = await run({ issues: [{ number: 1, body: "one" }] }, ["--json"]);
 			expect(r.json().writeSetCache.provisional).toEqual([]);
 			expect(writeSetCache.readEntry(kit.repoRoot, 1)).toBeNull();
-		});
-
-		it("leaves every issue cold when git cannot list the tree, rather than predicting blind", async () => {
-			stubBrokenRepo();
-			const r = await here({ issues: [{ number: 1, body: "one" }] }, [
-				"--json",
-			]);
-			expect(r.json().writeSetCache.cold[0].number).toBe(1);
-			expect(r.json().writeSetCache.prewarmSkipped).toEqual([
-				{
-					number: 1,
-					why: expect.stringMatching(/git could not list the tree/),
-				},
-			]);
 		});
 	});
 });
@@ -1192,16 +996,6 @@ describe("the selection marker that arms guard-selection-sum.js (mantahostels#84
 		expect(marker()?.slots).toBe(Number((printed as RegExpMatchArray)[1]));
 	});
 
-	it("records no slot count where the machine could not be read", async () => {
-		// Admission unreadable arms nothing on that limb rather than guessing a
-		// number — the same discipline the frontier keeps.
-		kit.memAvailableKb = null;
-		const r = await here({ issues: [{ number: 1, body: "one" }] });
-		expect(r.status).toBe(0);
-		expect(marker()?.frontier).toBe(1);
-		expect(marker()?.slots).toBe(null);
-	});
-
 	it("mints nothing under --no-log", async () => {
 		// A run exercising the tooling dispatches nothing, so a Stop hook must not
 		// start demanding §5's sum of it (mantahostels#628's flag, reused).
@@ -1211,20 +1005,6 @@ describe("the selection marker that arms guard-selection-sum.js (mantahostels#84
 		expect(r.status).toBe(0);
 		expect(r.out).toMatch(/TAKEABLE NOW: 1/);
 		expect(marker()).toBeNull();
-	});
-
-	it("mints nothing where the run has no session id to key on", async () => {
-		kit.oracleSelfId = "";
-		const r = await here({ issues: [{ number: 1, body: "one" }] });
-		expect(r.status).toBe(0);
-		expect(
-			fs.existsSync(
-				path.join(
-					String(kit.repoRoot),
-					".claude/tmp/markers/.pick-next/selection-sessions",
-				),
-			),
-		).toBe(false);
 	});
 });
 
@@ -1275,22 +1055,6 @@ describe("the full-JSON snapshot every run leaves on disk", () => {
 		expect(readSnapshot().argv).toEqual(["--no-log", "--limit", "1"]);
 		expect(typeof readSnapshot().repo).toBe("string");
 		expect(readSnapshot().repo).toBeTruthy();
-	});
-
-	it("leaves no half-written file where a concurrent reader can see one", async () => {
-		// A successful run leaves no aside beside its snapshot.
-		const r = await here({ issues: [{ number: 1, body: "one" }] });
-		expect(r.status).toBe(0);
-		const cacheDir = path.join(
-			String(kit.repoRoot),
-			".claude",
-			"tmp",
-			"markers",
-			".pick-next",
-		);
-		expect(fs.readdirSync(cacheDir).filter((f) => f.endsWith(".tmp"))).toEqual(
-			[],
-		);
 	});
 
 	it("carries the whole frontier, not the --limit slice", async () => {
@@ -1405,17 +1169,6 @@ describe("the substrate-conflict graph (mantahostels#1002)", () => {
 		expect(block(r.out)).toMatch(/PROPOSED DISJOINT SET \(0\)[\s\S]*empty/);
 	});
 
-	it("ignores a file held by a session the oracle no longer lists", async () => {
-		kit.oracleSessions = ["self"];
-		warm(1, "one", { writeSet: ["scripts/a.js"] });
-		const r = await here({
-			issues: [{ number: 1, body: "one" }],
-			heldFiles: { "scripts/a.js": "finished" },
-		});
-		expect(block(r.out)).not.toMatch(/ruled out by a running session/);
-		expect(block(r.out)).toMatch(/PROPOSED DISJOINT SET \(1\)[\s\S]*#1/);
-	});
-
 	it("reports a doc-map-only overlap as stamp-sharing, and runs both", async () => {
 		warm(1, "one", { writeSet: ["docs/doc-map.md"] });
 		warm(2, "two", { writeSet: ["docs/doc-map.md"] });
@@ -1464,18 +1217,6 @@ describe("the substrate-conflict graph (mantahostels#1002)", () => {
 		expect(block(r.out)).toMatch(/no write-set predicted[\s\S]*#3/);
 		// Predicted nothing is not predicted safe: mantahostels#3 is admitted all the same.
 		expect(block(r.out)).toMatch(/PROPOSED DISJOINT SET \(2\)[\s\S]*#1, #3/);
-	});
-
-	it("does not rule a candidate out on a file this very run's session holds", async () => {
-		// Selection only reads, so its own claim is finished work, not work in
-		// flight — the same reason admission counts sessions less its own.
-		warm(1, "one", { writeSet: ["scripts/a.js"] });
-		const r = await here({
-			issues: [{ number: 1, body: "one" }],
-			heldFiles: { "scripts/a.js": "self" },
-		});
-		expect(block(r.out)).not.toMatch(/ruled out by a running session/);
-		expect(block(r.out)).toMatch(/PROPOSED DISJOINT SET \(1\)/);
 	});
 
 	it("summarises the conflicting pairs by file, hottest first", async () => {

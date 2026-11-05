@@ -173,6 +173,11 @@ describe("readCheckoutTracking (#3487)", () => {
 		});
 	});
 
+	it("finds a checkout its owner opted out of the refill loop, whose blocker another repo still pulls in (#3281)", () => {
+		const z = checkout("z", { tracker: "o/z", refillLoop: false });
+		expect(readCheckoutTracking("o/z", home)).toEqual({ root: z });
+	});
+
 	it("names that neighbour where nothing tracks the repo", () => {
 		const broken = checkout("aaa", {});
 		breakConfig(broken);

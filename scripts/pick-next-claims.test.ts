@@ -19,10 +19,8 @@ import { describe, expect, it } from "vitest";
 import {
 	writeAdopterCheckout,
 	writeIssueClaim,
-	writeTornClaim,
 } from "./lib/claim-store-testkit";
 import {
-	buildPsLine,
 	FIXTURE_DRAW,
 	IDLE_PAIR_MB,
 	type Issue,
@@ -92,21 +90,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(/raised to 4 by the session floor of 8/);
 	});
 
-	it("holds the session floor while swap and free memory are both short (#2690)", async () => {
-		kit.oracleSessions = ["self", "a@601", "b@602"];
-		kit.oracleWorking = ["a", "b"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB, "602": WORKING_PAIR_KB };
-		kit.psOut = [...sessionProcs("a"), ...sessionProcs("b")].join("\n");
-		kit.meminfoText = `MemTotal: 8114464 kB\nMemAvailable: ${2100 * 1024} kB\nSwapTotal: ${2048 * 1024} kB\nSwapFree: ${245 * 1024} kB\n`;
-		kit.sessionFloor = "8";
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(
-			/session floor\s+8 working sessions .*; 3 working, this run's own counted, so 0 floor slot\(s\), held while swap is 245 of 2048 MB free and 2100 MB available, under 25% and 2200 MB \(#2690\)/,
-		);
-		// the p95 slot stays: 794 MB holds the live draw and one more
-		expect(r.out).toMatch(/free slots\s+1\n/);
-	});
-
 	it("holds every slot at the load ceiling, naming the load (#834)", async () => {
 		kit.oracleSessions = ["self", "a"];
 		kit.psOut = sessionProcs("a").join("\n");
@@ -128,19 +111,6 @@ describe("admission", () => {
 		);
 		expect(r.out).toMatch(/free slots\s+0/);
 		expect(r.out).toMatch(/HOLD — 1 session\(s\) running on the machine/);
-	});
-
-	it("does not count an orphaned bg-pty-host as a live session", async () => {
-		kit.oracleSessions = ["self", "a"];
-		kit.psOut = [
-			...sessionProcs("a"),
-			...sessionProcs("gone-1"),
-			...sessionProcs("gone-2"),
-			...sessionProcs("gone-3"),
-		].join("\n");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+1 alongside this one/);
-		expect(r.out).not.toMatch(/live sessions\s+4/);
 	});
 
 	it("leaves the count unknown when the oracle will not answer, never falling back to the scan", async () => {
@@ -179,45 +149,6 @@ describe("admission", () => {
 		expect(second.out).not.toMatch(/live sessions\s+0 alongside this one/);
 	});
 
-	it("subtracts this run's own session, so a lone session still admits one", async () => {
-		kit.oracleSessions = ["self"];
-		kit.memAvailableKb = 50 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+0 alongside this one/);
-		expect(r.out).toMatch(/START ONE NOW — no session is running/);
-	});
-
-	it("prints a process count matching the bare name, `claude.exe` and the launcher path", async () => {
-		// The binary lives in .../versions/2.1.233, so `ps` reports comm
-		// `2.1.233` and only argv[0] says `claude`.
-		kit.psOut = [
-			...sessionProcs("a"),
-			...sessionProcs("b", "/usr/bin/claude.exe"),
-			buildPsLine("2.1.233", "/home/lucmo/.local/bin/claude daemon run"),
-			buildPsLine("node", "node scripts/pick-next.js"),
-			buildPsLine("clauded", "clauded --not-ours"),
-		].join("\n");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/\(5 claude processes/);
-	});
-
-	it("counts the versioned binary a resumed session re-execs, whose basename is a version", async () => {
-		kit.psOut = [
-			...sessionProcs("a"),
-			buildPsLine(
-				"2.1.234",
-				"/home/lucmo/.local/share/claude/versions/2.1.234 --resume /home/lucmo/.claude/projects/p/s.jsonl",
-			),
-			// Some other tool's versions directory is not ours.
-			buildPsLine(
-				"2.1.234",
-				"/opt/acme/versions/2.1.234 --resume nothing-of-ours",
-			),
-		].join("\n");
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/\(3 claude processes/);
-	});
-
 	it("holds when the headroom is under one slot and sessions are live", async () => {
 		kit.oracleSessions = ["self", "a@601"];
 		kit.procPssKb = { "601": WORKING_PAIR_KB };
@@ -232,20 +163,6 @@ describe("admission", () => {
 		// A hold is about the machine, not the tracker: the shortlist still prints.
 		expect(r.status).toBe(0);
 		expect(r.order()).toEqual([1]);
-	});
-
-	it("admits one when no session is running, however tight the memory", async () => {
-		// A daemon and a host are claude processes but not sessions, so the
-		// oracle reports none alongside and the guarantee admits one anyway.
-		kit.psOut = [
-			buildPsLine("claude", "claude daemon run --origin transient"),
-			buildPsLine("claude", "/home/lucmo/.local/bin/claude agents"),
-		].join("\n");
-		kit.memAvailableKb = 50 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+0/);
-		expect(r.out).toMatch(/START ONE NOW — no session is running/);
-		expect(r.out).not.toMatch(/HOLD/);
 	});
 
 	it("says so and still admits when the headroom cannot be read", async () => {
@@ -265,26 +182,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(/live sessions\s+1 alongside this one/);
 		expect(r.out).toMatch(/process count unavailable: .+/);
 		expect(r.out).not.toMatch(/claude processes/);
-	});
-
-	/*
-	 * Without `CLAUDE_CODE_SESSION_ID` neither the subtraction nor the reader's
-	 * own self-test can pick this run out of the list.
-	 */
-	it("treats a lone listed session as this one when the session id is unset", async () => {
-		kit.oracleSelfId = "";
-		kit.oracleSessions = ["whoever"];
-		kit.memAvailableKb = 50 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+0 alongside this one/);
-		expect(r.out).toMatch(/START ONE NOW — no session is running/);
-	});
-
-	it("subtracts nothing from several listed sessions when the session id is unset", async () => {
-		kit.oracleSelfId = "";
-		kit.oracleSessions = ["a", "b", "c"];
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/live sessions\s+3 alongside this one/);
 	});
 
 	/* This run never reaps (mantahostels#1029); it says what a reap would be worth, so a low
@@ -331,17 +228,6 @@ describe("admission", () => {
 		expect(j.admission.reclaimableError).toMatch(/CLAUDE_CODE_SESSION_ID/);
 	});
 
-	it("charges a young neighbour the draw it has yet to reach (#2221)", async () => {
-		kit.oracleSessions = ["self", "a@601"];
-		kit.procPssKb = { "601": 300 * 1024 };
-		kit.memAvailableKb = 2900 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		// 429 + 1.645 × 154 − 300 held = 383 MB still to come; 2 more fit 1806.
-		expect(r.out).toMatch(/free slots\s+2/);
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.admission.drawNeedMb).toBe(383);
-	});
-
 	it("carries the count into --json, and the refusal where the oracle will not answer", async () => {
 		kit.oracleSessions = ["self", "a"];
 		kit.oracleFinished = ["a"];
@@ -380,87 +266,6 @@ describe("admission", () => {
 			admit: true,
 			reason: expect.stringContaining("3 free slot"),
 		});
-	});
-
-	/* mantahostels#1295: a reader of --json must be able to reconstruct `freeSlots` the same
-	 * way a human reads the reservedNote in `reason`. */
-	it("carries the reservation into --json", async () => {
-		kit.oracleSessions = ["self", "a"];
-		kit.psOut = [
-			...sessionProcs("a"),
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		kit.procCwds = { "111": "/tmp/x/spare" };
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		// the idle pair and the one a launch warms
-		expect(j.admission.reservedMb).toBe(1180);
-		expect(j.admission.reservedError).toBeNull();
-	});
-
-	it("reports the reservation as unreadable, never silently as zero, when the overhead scan fails", async () => {
-		kit.oracleSessions = ["self", "a"];
-		kit.psFails = true;
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.admission.reservedMb).toBe(0);
-		expect(typeof j.admission.reservedError).toBe("string");
-	});
-
-	/*
-	 * mantahostels#1295: this run's own ADMISSION block reserves the spare pool's pair
-	 * too, off the SAME oracle read `listed` already made — `poolReserve`
-	 * exactly as `scripts/admission.js` prices it.
-	 */
-	it("reserves one idle spare pair, shrinking the free-slot count", async () => {
-		kit.oracleSessions = ["self", "a@601"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB };
-		kit.psOut = [
-			...sessionProcs("a"),
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		kit.procCwds = { "111": "/tmp/x/spare" };
-		const r = await run({ issues: [{ number: 1 }] });
-		// 4000 − 2 × 590 − 794 − 300 = 1726 MB: 2 more and a pair fit, 3 more and two do not.
-		expect(r.out).toMatch(/free slots\s+2/);
-		expect(r.out).toMatch(/reserving 1180 MB for the spare pool/);
-	});
-
-	it("does not reserve a claimed spare — a live session keeps its /spare/ path", async () => {
-		kit.oracleSessions = ["self", "a@601", "other@111"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB, "111": WORKING_PAIR_KB };
-		kit.psOut = [
-			...sessionProcs("a"),
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		const r = await run({ issues: [{ number: 1 }] });
-		// No idle pair is left, so the reserve falls back to the measured one.
-		expect(r.out).toMatch(
-			new RegExp(`reserving ${2 * IDLE_PAIR_MB} MB for the spare pool`),
-		);
-		// 4000 − 212 − 794 − 300 = 2694 MB; the live draw and 5 more need 2393 and 4 pairs.
-		expect(r.out).toMatch(/free slots\s+4/);
-	});
-
-	/*
-	 * The always-admit-one branch computes `freeSlots` net of the reservation
-	 * too, so its reason must name the reservation the same way the ordinary
-	 * branch does — otherwise a reader sees a slot count they cannot
-	 * reconstruct from the printed reason (mantahostels#1295).
-	 */
-	it("names the reservation in the always-admit-one reason too", async () => {
-		kit.oracleSessions = ["self"];
-		kit.psOut = [
-			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-		].join("\n");
-		kit.memAvailableKb = 4000 * 1024;
-		kit.procCwds = { "111": "/tmp/x/spare" };
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/free slots\s+1/);
-		expect(r.out).toMatch(
-			/no session is running, so one is admitted whatever the headroom after reserving 1180 MB for the spare pool/,
-		);
 	});
 
 	/*
@@ -560,18 +365,6 @@ describe("admission", () => {
 			expect(m.working).toEqual({ count: 2, mb: 957, unknown: null });
 			expect(m.finished).toMatchObject({ count: 1, mb: 410, reapable: 1 });
 		});
-
-		it("prints an unreadable reading as unknown, never 0", async () => {
-			const { "301": _, ...pss } = fixture.pss;
-			machine(pss);
-			const r = await run({ issues: [{ number: 1 }] });
-			expect(r.out).toMatch(
-				/ {2}working {10}unknown \(pid 301's smaps_rollup unreadable\)/,
-			);
-			expect(r.out).toMatch(
-				/ {2}everything else {2}unknown \(a row above it is unknown\)/,
-			);
-		});
 	});
 
 	it("reads the machine without touching the tracker", async () => {
@@ -629,36 +422,6 @@ describe("owed work (mantahostels#1206)", () => {
 			},
 		});
 		expect(r.out).toMatch(/stranded claims\s+1/);
-	});
-
-	it("does not count a claim younger than the strand threshold", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [{ number: 1 }],
-			staleFiles: {
-				a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 1 },
-			},
-		});
-		expect(r.out).toMatch(/stranded claims\s+0/);
-	});
-
-	it("draws the strand boundary at 12 hours — mantahostels#1746's derived threshold", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [{ number: 1 }],
-			staleFiles: {
-				a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 11 },
-				b: { path: "scripts/b.js", sessionId: "dead-2", hoursAgo: 13 },
-			},
-		});
-		expect(r.out).toMatch(/stranded claims\s+1/);
-	});
-
-	it("prints unknown, never zero, when the running-session oracle cannot be read", async () => {
-		kit.oracleFails = true;
-		const r = await run({ issues: [{ number: 1 }] });
-		expect(r.out).toMatch(/stranded claims\s+unknown/);
-		expect(r.out).not.toMatch(/stranded claims\s+0/);
 	});
 
 	/*
@@ -785,17 +548,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 		expect(r.out).toMatch(/#1\s+.*claimed by owner/);
 	});
 
-	it("offers an assigned issue whose claim's session has finished", async () => {
-		// The mantahostels#633 failure: every assignee is the login `owner`, so a finished
-		// session's assignment hid its issue for good.
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
-			claims: { 1: "alice" },
-		});
-		expect(r.order()).toEqual([1, 2]);
-	});
-
 	it("names the assignments it decided to ignore, rather than dropping them silently", async () => {
 		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
 		expect(r.out).toMatch(/ASSIGNED BUT UNCLAIMED \(1\) — treated as takeable/);
@@ -906,40 +658,11 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 		expect(r.calls().filter((c) => c.includes("/parent"))).toEqual([]);
 	});
 
-	it("reads a parent named by a real API URL as the child's own repo", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const r = await run({
-			issues: [
-				{ number: 20, labels: ["wayfinder:map"] },
-				{
-					number: 21,
-					parentUrl: "https://api.github.com/repos/o/r/issues/20",
-				},
-			],
-			claims: { 20: "alice" },
-		});
-		expect(r.order()).toEqual([]);
-		expect(r.out).toMatch(/#21\s+.*parent map #20 by session alice/);
-		expect(r.calls().filter((c) => c.includes("/parent"))).toEqual([]);
-	});
-
 	it("offers a child whose live-claimed parent is no map", async () => {
 		kit.oracleSessions = ["self", "alice"];
 		const r = await run({
 			issues: [
 				{ number: 20, labels: ["kind:spec"] },
-				{ number: 21, parent: 20 },
-			],
-			claims: { 20: "alice" },
-		});
-		expect(r.order()).toEqual([21]);
-	});
-
-	it("offers a child whose parent's claim is held by an ended session", async () => {
-		kit.oracleSessions = ["self"];
-		const r = await run({
-			issues: [
-				{ number: 20, labels: ["wayfinder:map"] },
 				{ number: 21, parent: 20 },
 			],
 			claims: { 20: "alice" },
@@ -980,25 +703,6 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 		/* #7 here is not that parent: only the child of o/there#7 is held. */
 		expect(r.order()).toEqual([7, 22]);
 		expect(r.out).toMatch(/#21\s+.*parent map o\/there#7 by session alice/);
-	});
-
-	it("offers the child with a WARN where the parent repo's store reads only in part", async () => {
-		kit.oracleSessions = ["self", "alice"];
-		const home = path.join(kit.dir, "adopters");
-		const there = otherCheckout(home, { 8: "alice" });
-		writeTornClaim(claudeConfig(), there);
-		const r = await run(
-			{
-				parents: { 21: thereMap },
-				issues: [{ number: 21, parentUrl: `${thereUrl}/issues/7` }],
-			},
-			[],
-			{ env: { HOME: home } },
-		);
-		expect(r.order()).toEqual([21]);
-		expect(r.out).toContain(
-			"WARN: the claim on parent o/there#7 was not read: 1 issue-claim record could not be read and was dropped",
-		);
 	});
 
 	it("offers the child with a WARN where the parent repo's store cannot be found", async () => {
@@ -1054,15 +758,6 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 			claims: { 1: "alice" },
 		});
 		expect(r.out).toMatch(/#1\s+.*claimed by session Implement 708/);
-	});
-
-	it("falls back to a short id where the oracle named no session", async () => {
-		kit.oracleSessions = ["self", "0b1a4d3e-1111-2222-3333-444455556666"];
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			claims: { 1: "0b1a4d3e-1111-2222-3333-444455556666" },
-		});
-		expect(r.out).toMatch(/claimed by session 0b1a4d3e(?!-)/);
 	});
 
 	it("hedges the in-flight pair on a degraded read too", async () => {
@@ -1198,25 +893,6 @@ describe("issues the launcher has already dispatched", () => {
 		expect(r.order()).toEqual([1]);
 	});
 
-	it("re-admits one whose launch the refill loop handed off, inside the window (#2744)", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }, { number: 3 }],
-			dispatched: [
-				{ issues: [2], jobId: "job2", released: true },
-				{ issues: [3], jobId: "job3" },
-			],
-		});
-		expect(r.order()).toEqual([1, 2]);
-	});
-
-	it("re-admits one whose ledger entry has aged out of the window", async () => {
-		const r = await run({
-			issues: [{ number: 2 }],
-			dispatched: [{ issues: [2], hoursAgo: 1.5 }],
-		});
-		expect(r.order()).toEqual([2]);
-	});
-
 	it("prints the block, the launcher's window and the --force way past it", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }],
@@ -1307,23 +983,6 @@ describe("issues the launcher has already dispatched", () => {
 			});
 			expect(r.order()).toEqual([2]);
 			expect(r.out).not.toContain("ALREADY DISPATCHED");
-		});
-
-		it("still holds one whose takes: value is the command it was launched under", async () => {
-			const r = await run({
-				issues: [{ number: 2, labels: ["takes:triage"] }],
-				dispatched: [{ issues: [2], prompt: "/triage 2" }],
-			});
-			expect(r.order()).toEqual([]);
-			expect(r.out).toContain("ALREADY DISPATCHED (1)");
-		});
-
-		it("holds on an entry whose prompt carries no readable command", async () => {
-			const r = await run({
-				issues: [{ number: 2, labels: ["takes:wayfinder"] }],
-				dispatched: [{ issues: [2], prompt: "2" }],
-			});
-			expect(r.order()).toEqual([]);
 		});
 	});
 });

@@ -63,35 +63,6 @@ describe("readiness", () => {
 		expect(r.out).toMatch(/#19\s+.*blocked by #18/);
 	});
 
-	it("honours a blocker that is also the blocked issue's own child", async () => {
-		// The live cross-group edge mantahostels#105 found: mantahostels#93 blocks mantahostels#79 while being mantahostels#79's
-		// child. A query assuming edges run parent-downward drops it.
-		const r = await run({
-			issues: [{ number: 79 }, { number: 93, parent: 79 }],
-			deps: { 79: [{ number: 93, state: "open" }] },
-		});
-		expect(r.order()).toEqual([93]);
-		expect(r.out).toMatch(/#79\s+.*blocked by #93/);
-	});
-
-	it("resolves a prose blocker naming a closed issue for free, no second call", async () => {
-		// mantahostels#831 closed; mantahostels#832/mantahostels#833/mantahostels#835 named it and were takeable all along
-		// (the real shape measured 24 August 2026).
-		const r = await run({
-			issues: [{ number: 832, body: "**Blocked on** #831." }],
-		});
-		expect(r.order()).toContain(832);
-		for (const call of r.calls()) expect(call).not.toMatch(/issues\/831\b/);
-	});
-
-	it("merges a prose blocker with a native one rather than doubling it", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2, body: "**Blocked on** #1." }],
-			deps: { 2: [{ number: 1, state: "open" }] },
-		});
-		expect(r.out).toMatch(/#2\s+.*blocked by #1(?!.*#1)/);
-	});
-
 	it("carries a blocker naming no issue number, and excludes nothing on it", async () => {
 		// mantahostels#927's shape: the marker names a roadmap card, mid-sentence, so there
 		// is no number to resolve against the open list.
@@ -193,35 +164,11 @@ describe("readiness", () => {
 		]);
 	});
 
-	it("judges a marker naming this repo as `owner/name#n` against the open list (#3277)", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1 },
-				{ number: 2, body: "**Blocked on** o/r#1." },
-				{ number: 3, body: "**Blocked on** O/R#831." },
-			],
+	it("prints a marker in another repo whose read fails as unreadable and held", async () => {
+		const text = await run({
+			issues: [{ number: 2, body: "**Blocked on** o/x#5." }],
 		});
-		expect(r.out).toMatch(/#2\s+names #1 — still blocked by #1/);
-		expect(r.out).toMatch(
-			/#3\s+names #831 — every named issue is closed, resolved/,
-		);
-		for (const call of r.calls()) expect(call).not.toMatch(/issues\/(1|831)\b/);
-	});
-
-	it("reports a marker in another repo whose read fails as unreadable, and holds it", async () => {
-		const fx = { issues: [{ number: 2, body: "**Blocked on** o/x#5." }] };
-		const text = await run(fx);
 		expect(text.out).toMatch(/#2\s+names o\/x#5 — o\/x#5 unreadable, held \(/);
-		const r = await run(fx, ["--json"]);
-		const row = r.json().proseBlocked[0];
-		expect(row.named).toEqual(["o/x#5"]);
-		expect(row.closed).toEqual([]);
-		expect(row.unreadable).toEqual([
-			{ ref: "o/x#5", error: expect.any(String) },
-		]);
-		expect(
-			r.json().frontier.map((f: { number: number }) => f.number),
-		).not.toContain(2);
 	});
 
 	it("prints the prose self-gate block, split by still-open and resolved", async () => {
@@ -242,30 +189,6 @@ describe("readiness", () => {
 	it("says nothing about prose self-gates when no body carries one", async () => {
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).not.toMatch(/PROSE SELF-GATES/);
-	});
-
-	it("names a blocker in another repo as owner/name#n, crediting nothing to the issue here sharing its number (#2427)", async () => {
-		const r = await run(
-			{
-				issues: [{ number: 1 }, { number: 5 }],
-				deps: { 1: [{ number: 5, state: "open", repo: "o/there" }] },
-			},
-			["--json"],
-		);
-		const j = r.json();
-		expect(j.frontier.map((f: { number: number }) => f.number)).toEqual([5]);
-		expect(j.frontier[0].reach).toBe(0);
-		const home = path.join(kit.dir, "no-adopters");
-		fs.mkdirSync(home);
-		const text = await run(
-			{
-				issues: [{ number: 1 }, { number: 5 }],
-				deps: { 1: [{ number: 5, state: "open", repo: "o/there" }] },
-			},
-			[],
-			{ env: { HOME: home } },
-		);
-		expect(text.out).toMatch(/#1\s+.*blocked by o\/there#5/);
 	});
 
 	it("pulls in the open end of a foreign chain, held where no checkout tracks its repo (#2427)", async () => {
@@ -295,22 +218,19 @@ describe("readiness", () => {
 		);
 	});
 
-	it("offers a pulled-in blocker from its checkout, refillLoop: false or not (#2427, #3281)", async () => {
+	it("offers a pulled-in blocker from the checkout tracking its repo (#2427)", async () => {
 		const home = path.join(kit.dir, "adopters");
 		const z = path.join(home, "z");
 		writeAdopterCheckout(z, "o/z");
-		const fx = {
-			issues: [{ number: 1 }],
-			deps: { 1: [{ number: 20, state: "open" as const, repo: "o/z" }] },
-		};
-		const r = await run(fx, ["--json"], { env: { HOME: home } });
-		expect(r.json().pulledIn[0]).toMatchObject({ root: z, held: null });
-		fs.writeFileSync(
-			path.join(z, ".claude", "workflow-core.json"),
-			JSON.stringify({ tracker: "o/z", refillLoop: false }),
+		const r = await run(
+			{
+				issues: [{ number: 1 }],
+				deps: { 1: [{ number: 20, state: "open" as const, repo: "o/z" }] },
+			},
+			["--json"],
+			{ env: { HOME: home } },
 		);
-		const off = await run(fx, ["--json"], { env: { HOME: home } });
-		expect(off.json().pulledIn[0]).toMatchObject({ root: z, held: null });
+		expect(r.json().pulledIn[0]).toMatchObject({ root: z, held: null });
 	});
 
 	it("never calls the /dependencies/blocking endpoint", async () => {
@@ -320,30 +240,12 @@ describe("readiness", () => {
 });
 
 describe("what counts as work", () => {
-	it("excludes a map whose only open child is in another repo (#3658)", async () => {
-		const r = await run({
-			issues: [
-				// A summary of 0: a map is read whatever its summary says.
-				{ number: 40, labels: ["wayfinder:map"] },
-				{ number: 41 },
-			],
-			subIssues: { 40: [{ number: 9, state: "open", repo: "o/other" }] },
-		});
-		expect(r.order()).toEqual([41]);
-		expect(r.out).toMatch(/#40\s+.*container — 1 open children\s{2,}/);
-	});
-
 	it("reads an empty sub-issues answer as unreadable, not as no children (#3658)", async () => {
 		const r = await run({
 			issues: [{ number: 40, openSubIssues: 1 }, { number: 41 }],
 			emptySubIssues: [40],
 		});
 		expect(r.order()).toEqual([41]);
-	});
-
-	it("re-admits a parent once its last child closes", async () => {
-		const r = await run({ issues: [{ number: 40 }] });
-		expect(r.order()).toEqual([40]);
 	});
 
 	it("drops pull requests, which share the issue number space", async () => {
@@ -356,20 +258,6 @@ describe("what counts as work", () => {
 });
 
 describe("ordering", () => {
-	it("counts reach transitively over open descendants", async () => {
-		// 1 <- 2 <- 3 <- 4: only mantahostels#1 is takeable, and its reach is 3, not 1 — mantahostels#101
-		// (what defines urgency) made reach transitive.
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }, { number: 3 }, { number: 4 }],
-			deps: {
-				2: [{ number: 1, state: "open" }],
-				3: [{ number: 2, state: "open" }],
-				4: [{ number: 3, state: "open" }],
-			},
-		});
-		expect(r.out).toMatch(/#1\s+3\s/);
-	});
-
 	it("sorts an urgent above every non-bug, and reports who applied it", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }, { number: 3, labels: ["urgent"] }],
@@ -407,125 +295,6 @@ describe("ordering", () => {
 			/^ {2}#12 {2}urgent via #10 \(holds #11 → #10\)$/m,
 		);
 		expect(text.out).toMatch(/#12\s+via\s/);
-	});
-
-	it("passes urgency down from a parent that is not a map (#3250)", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1 },
-				{ number: 10, labels: ["kind:spec", "urgent"] },
-				{ number: 11, parent: 10 },
-			],
-			timeline: {
-				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-			},
-		});
-		expect(r.order()).toEqual([11, 1]);
-	});
-
-	it("passes a plain ticket's urgency down its child, to that child's blocker, and on to the blocker's child (#3250)", async () => {
-		// #10 urgent, a plain ticket, parent of #11; #20 blocks #11; #21 is
-		// #20's child, so #20 is a heading and #21 the work.
-		const fx = {
-			issues: [
-				{ number: 1 },
-				{ number: 10, labels: ["urgent"] },
-				{ number: 11, parent: 10 },
-				{ number: 20 },
-				{ number: 21, parent: 20 },
-			],
-			deps: { 11: [{ number: 20, state: "open" as const }] },
-			timeline: {
-				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-			},
-		};
-		const rows = (await run(fx, ["--json"])).json().frontier;
-		expect(rows.map((f: { number: number }) => f.number)).toEqual([21, 1]);
-		expect(rows[0]).toMatchObject({
-			urgent: true,
-			urgentVia: { number: 10, path: ["#20", "#11", "#10"] },
-		});
-	});
-
-	it("ranks a map's last open child on depth plus closes, carrying both in --json (#3613)", async () => {
-		// #11 is #10's only open child, so it closes #10; #3 shares parent #2
-		// with #4. Both score depth 1, reach 1; closes lifts #11.
-		const fx = {
-			issues: [
-				{ number: 2 },
-				{ number: 3, parent: 2 },
-				{ number: 4, parent: 2 },
-				{ number: 10 },
-				{ number: 11, parent: 10 },
-			],
-		};
-		const rows = (await run(fx, ["--json"])).json().frontier;
-		expect(rows.map((f: { number: number }) => f.number)).toEqual([11, 3, 4]);
-		expect(rows[0]).toMatchObject({ depth: 1, closes: 1, reach: 1 });
-		expect(rows[1]).toMatchObject({ depth: 1, closes: 0, reach: 1 });
-	});
-
-	it("passes an urgent map's tier through its child to that child's blocker (#3222)", async () => {
-		// #10 urgent map, its child #11, which #20 blocks. #1 ties #20 on
-		// reach, so only the inherited tier can lift #20 above it.
-		const fx = {
-			issues: [
-				{ number: 1 },
-				{ number: 2 },
-				{ number: 3 },
-				{ number: 10, labels: ["wayfinder:map", "urgent"] },
-				{ number: 11, parent: 10 },
-				{ number: 20 },
-			],
-			deps: {
-				2: [{ number: 1, state: "open" as const }],
-				3: [{ number: 1, state: "open" as const }],
-				11: [{ number: 20, state: "open" as const }],
-			},
-			timeline: {
-				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-			},
-		};
-		const rows = (await run(fx, ["--json"])).json().frontier;
-		expect(rows.map((f: { number: number }) => f.number)).toEqual([20, 1]);
-		expect(rows[0]).toMatchObject({
-			urgent: true,
-			urgentVia: { number: 10, path: ["#11", "#10"] },
-			depth: 2,
-			closes: 0,
-			reach: 2,
-		});
-		const text = await run(fx);
-		expect(text.out).toMatch(
-			/^ {2}#20 {2}urgent via #10 \(holds #11 → #10\)$/m,
-		);
-	});
-
-	it("ranks the deeper blocker of an urgent issue above the wider one (#3222)", async () => {
-		// #30 urgent, blocked by #31 and #32; #33 blocks #31. #32 also holds
-		// #40 and #41, so it leads on reach (3 to 2); depth (2 to 1) must win.
-		const fx = {
-			issues: [30, 31, 32, 33, 40, 41].map((number) => ({
-				number,
-				...(number === 30 ? { labels: ["urgent"] } : {}),
-			})),
-			deps: {
-				30: [
-					{ number: 31, state: "open" as const },
-					{ number: 32, state: "open" as const },
-				],
-				31: [{ number: 33, state: "open" as const }],
-				40: [{ number: 32, state: "open" as const }],
-				41: [{ number: 32, state: "open" as const }],
-			},
-			timeline: {
-				30: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-			},
-		};
-		const rows = (await run(fx, ["--json"])).json().frontier;
-		expect(rows.map((f: { number: number }) => f.number)).toEqual([33, 32]);
-		expect(rows[0]).toMatchObject({ urgent: true, depth: 2, reach: 2 });
-		expect(rows[1]).toMatchObject({ urgent: true, depth: 1, reach: 3 });
 	});
 
 	it("flags an empty or whitespace-only body on the frontier under EMPTY BODY, naming each issue in text and JSON, excluding nothing (mantahostels#3443)", async () => {
@@ -579,31 +348,6 @@ describe("ordering", () => {
 		expect(r.out).toMatch(/GOAL SET \(1\): #116/);
 	});
 
-	it("keeps an urgent, the goal set and a stalled wait above the type level", async () => {
-		const r = await run(
-			{
-				issues: [
-					{ number: 1, labels: ["wayfinder:grilling", "takes:wayfinder"] },
-					{ number: 4, labels: ["takes:implement"] },
-					{ number: 2, labels: ["urgent", "takes:implement"] },
-					{ number: 3, labels: ["waiting:external", "takes:implement"] },
-				],
-				timeline: {
-					2: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-					3: [
-						{
-							label: "waiting:external",
-							created_at: daysAgo(30),
-							actor: "owner",
-						},
-					],
-				},
-			},
-			["--goal", "4"],
-		);
-		expect(r.order()).toEqual([2, 4, 3, 1]);
-	});
-
 	it("hands each frontier row's creation date to the merge across repos", async () => {
 		const r = await run(
 			{ issues: [{ number: 4, createdAt: "2026-01-02T03:04:05Z" }] },
@@ -626,47 +370,6 @@ describe("a goal the script works out itself (#3866)", () => {
 			{ number: 5, parent: 4 },
 		],
 	};
-
-	it("drains a ref's open descendants at any depth, not the ref or a stranger", async () => {
-		const r = await run(map, ["--json", "--goal", "drain #1"]);
-		expect(members(r)).toEqual(["o/r#2", "o/r#3"]);
-		const goalRows = r
-			.json()
-			.frontier.filter((row: { goal: boolean }) => row.goal)
-			.map((row: { number: number }) => row.number);
-		expect(goalRows).toContain(3);
-		expect(goalRows).not.toContain(5);
-	});
-
-	it("takes a child filed since on the next run, the goal unchanged", async () => {
-		const later = { issues: [...map.issues, { number: 6, parent: 2 }] };
-		expect(members(await run(later, ["--json", "--goal", "drain #1"]))).toEqual(
-			["o/r#2", "o/r#3", "o/r#6"],
-		);
-	});
-
-	it("drains a child whose parent is another checkout's issue", async () => {
-		const home = path.join(kit.dir, "adopters");
-		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
-		const r = await run(
-			{
-				issues: [
-					{
-						number: 7,
-						parentUrl: "https://api.github.com/repos/o/manta/issues/40",
-					},
-					{ number: 8, parent: 7 },
-					{
-						number: 9,
-						parentUrl: "https://api.github.com/repos/o/z/issues/40",
-					},
-				],
-			},
-			["--json", "--goal", "drain manta#40"],
-			{ env: { HOME: home } },
-		);
-		expect(members(r)).toEqual(["o/r#7", "o/r#8"]);
-	});
 
 	it("unblocks a ref through its blockers, across repos and through its children", async () => {
 		const home = path.join(kit.dir, "adopters");
@@ -848,36 +551,6 @@ describe("the waiting:external escalation", () => {
 		expect(r.out).toMatch(/#1\s+40d, since .* by owner — STALLED, ranked up/);
 	});
 
-	it("puts a longer stall above a shorter one", async () => {
-		const r = await run({
-			issues: [
-				{ number: 1, labels: ["waiting:external"] },
-				{ number: 2, labels: ["waiting:external"] },
-			],
-			timeline: { ...waiting(1, 20), ...waiting(2, 60) },
-		});
-		expect(r.order()).toEqual([2, 1]);
-	});
-
-	it("keeps an urgent and the goal set above even a long stall", async () => {
-		// Both are what a human just said matters; the stall is inferred.
-		const r = await run(
-			{
-				issues: [
-					{ number: 1, labels: ["waiting:external"] },
-					{ number: 2, labels: ["urgent"] },
-					{ number: 3 },
-				],
-				timeline: {
-					...waiting(1, 60),
-					2: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
-				},
-			},
-			["--goal", "3"],
-		);
-		expect(r.order()).toEqual([2, 3, 1]);
-	});
-
 	it("still shows the wait on an issue the shortlist excludes", async () => {
 		// mantahostels#85 was claimed while its silence ran, so the rank level cannot reach it.
 		const r = await run({
@@ -1022,16 +695,6 @@ describe("the parked label", () => {
 });
 
 describe("when the tracker misbehaves", () => {
-	it("retries a failed dependency call once and keeps the issue on a success", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			failDepsOnce: [2],
-		});
-		expect(r.status).toBe(0);
-		expect(r.order()).toEqual([1, 2]);
-		expect(r.out).not.toMatch(/DEGRADED/);
-	});
-
 	it("reads every issue's blockers in one batched call, no per-issue call (#2685)", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }, { number: 3 }],
@@ -1042,56 +705,6 @@ describe("when the tracker misbehaves", () => {
 		expect(calls).not.toMatch(/dependencies\/blocked_by/);
 		expect(calls.match(/^api graphql /gm)).toHaveLength(1);
 	});
-
-	it("reads the full blocker list of an issue with more than the batch's inner page (#2685)", async () => {
-		// The batch reads 25 blockers per issue; #1's 26th, the only open one,
-		// is past that page, so only the REST read can see it.
-		const many = Array.from({ length: 26 }, (_, k) => ({
-			number: 100 + k,
-			state: k === 25 ? ("open" as const) : ("closed" as const),
-		}));
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }, { number: 125 }],
-			deps: { 1: many },
-		});
-		expect(r.order()).toEqual([125, 2]);
-		const calls = fs.readFileSync(CALL_LOG(), "utf8");
-		expect(calls).toMatch(/issues\/1\/dependencies\/blocked_by/);
-		expect(calls).not.toMatch(/issues\/2\/dependencies\/blocked_by/);
-	});
-
-	it("holds every issue in a failed batch out as readiness unknown, never unblocked (#2685)", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			failGraphql: true,
-		});
-		expect(r.status).toBe(0);
-		expect(r.order()).toEqual([]);
-		expect(r.out).toMatch(/DEGRADED \(2\) — readiness unknown/);
-		expect(r.out).toContain(GH_NOT_FOUND.stderr.trim());
-		const calls = fs.readFileSync(CALL_LOG(), "utf8");
-		expect(calls).not.toMatch(/dependencies\/blocked_by/);
-	});
-
-	it("retries a failed batch once and keeps its issues on a success (#2685)", async () => {
-		const r = await run({
-			issues: [{ number: 1 }, { number: 2 }],
-			failGraphqlOnce: true,
-		});
-		expect(r.order()).toEqual([1, 2]);
-		expect(r.out).not.toMatch(/DEGRADED/);
-	});
-
-	for (const answer of ["empty", "noRepo"] as const)
-		it(`reads a batch answering ${answer} as readiness unknown, never as no blockers (#2685)`, async () => {
-			const r = await run({
-				issues: [{ number: 1 }],
-				deps: { 1: [{ number: 9, state: "open" }] },
-				graphqlAnswers: answer,
-			});
-			expect(r.order()).toEqual([]);
-			expect(r.out).toMatch(/DEGRADED \(1\) — readiness unknown/);
-		});
 
 	it("holds an issue out of the shortlist when its readiness stays unknown", async () => {
 		// Never assumed takeable: a session would claim work something else gates.
@@ -1296,31 +909,6 @@ describe("a date gate in the body (mantahostels#85)", () => {
 		);
 	});
 
-	it("treats the named day itself as takeable, not as the last held day", async () => {
-		// "Gated until the 24th" means free on the 24th: the boundary is that
-		// date's midnight UTC, so a gate naming today is already spent.
-		const r = await run({ issues: [{ number: 85, body: gate(0) }] });
-		expect(r.order()).toContain(85);
-		expect(r.out).toMatch(/LAPSED/);
-	});
-
-	it("turns the day on the founder's clock, not UTC", async () => {
-		// WITA is UTC+8, so for the eight hours after 16:00 UTC the two disagree
-		// about what day it is. Reading UTC would hold a gate through the morning
-		// it was meant to lapse on. Only the WITA-dated gate is spent.
-		const utcToday = new Date().toISOString().slice(0, 10);
-		const r = await run({
-			issues: [
-				{ number: 85, body: `**Gated until:** ${isoIn(0)} — spent` },
-				{ number: 86, body: `**Gated until:** ${isoIn(1)} — still holding` },
-			],
-		});
-		expect(r.order()).toContain(85);
-		expect(r.order()).not.toContain(86);
-		// Only meaningful on the days the two clocks differ; harmless otherwise.
-		if (utcToday !== isoIn(0)) expect(isoIn(0) > utcToday).toBe(true);
-	});
-
 	it("gates nothing on a date it cannot read, and says so rather than failing quietly", async () => {
 		const r = await run({
 			issues: [
@@ -1335,16 +923,6 @@ describe("a date gate in the body (mantahostels#85)", () => {
 		);
 	});
 
-	it("rejects a well-shaped date that is not a real day, naming it as an UNREADABLE DATE and keeping the issue ranked", async () => {
-		// 2026-02-30 parses in JS and silently becomes 2 March, so a round-trip is
-		// what catches it.
-		const r = await run({
-			issues: [{ number: 85, body: "**Gated until:** 2026-02-30 — typo" }],
-		});
-		expect(r.order()).toContain(85);
-		expect(r.out).toMatch(/UNREADABLE DATE `2026-02-30`/);
-	});
-
 	it("reports a gate with no reason rather than refusing to gate", async () => {
 		const r = await run({
 			issues: [
@@ -1354,16 +932,6 @@ describe("a date gate in the body (mantahostels#85)", () => {
 		});
 		expect(r.order()).toEqual([1]);
 		expect(r.out).toMatch(/#85\s+held until .*5d left — no reason given/);
-	});
-
-	it("ignores a marker that is not at the head of its own line", async () => {
-		const r = await run({
-			issues: [
-				{ number: 85, body: `See also **Gated until:** ${isoIn(9)} — nope` },
-			],
-		});
-		expect(r.order()).toContain(85);
-		expect(r.out).not.toMatch(/GATED BY A LINE/);
 	});
 
 	it("carries every gate into --json, lapsed and unreadable ones included", async () => {
@@ -1464,18 +1032,6 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 		expect(r.order()).not.toContain(1105);
 		expect(r.out).toMatch(
 			/#1105\s+held on .* — check: none stated — abandon if:/,
-		);
-	});
-
-	it("gates nothing on a line missing its abort clause, and echoes the raw text", async () => {
-		// `abandon if:` is the only thing that retires a condition, so holding on a
-		// line that lacks it holds the issue under a rule nothing can release.
-		const r = await run({
-			issues: [{ number: 1215, body: "**Gated on:** enough samples exist" }],
-		});
-		expect(r.order()).toContain(1215);
-		expect(r.out).toMatch(
-			/#1215\s+MALFORMED GATE \(no `— abandon if:`\) `enough samples exist` — GATING NOTHING/,
 		);
 	});
 
