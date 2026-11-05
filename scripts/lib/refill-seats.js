@@ -176,6 +176,13 @@ function readDeclaredSeats(home = homeDir()) {
 
 /**
  * @param {SeatList} list
+ * @returns {boolean}
+ */
+const declaresOverflowSeat = (list) =>
+	list.seats.some((s) => s.kind === "overflow");
+
+/**
+ * @param {SeatList} list
  * @param {string} keyVar
  * @returns {OverflowSeat|null}
  */
@@ -293,6 +300,7 @@ function unlistedSeats(seats) {
 
 module.exports = {
 	buildSeatName,
+	declaresOverflowSeat,
 	findOverflowSeat,
 	isSameSeat,
 	readConfiguredSeats,

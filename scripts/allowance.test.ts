@@ -17,7 +17,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeOverflowCheckout } from "./lib/overflow-launch-fake";
+import {
+	declareOverflowSeat,
+	writeOverflowCheckout,
+	writeUnreadableLedgerCheckout,
+} from "./lib/overflow-launch-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import {
@@ -233,20 +237,21 @@ describe("--cap (#371)", () => {
 		).toEqual([[plan, 10]]);
 	});
 
-	it("refuses the launch where the launch record will not read", () => {
-		writeCache(dir, { session: 94, week: 7 });
-		const r = runInProcess(
-			SCRIPT,
-			["--json", "--config-dir", dir, "--cap", "3", ...thresholds],
-			{
-				stdin: "",
-				env: { ...capEnv("[]"), HOME: path.join(dir, "absent") },
-			},
-		);
-		const { cap } = JSON.parse(r.stdout);
+	it("refuses the launch where an overflow seat is declared and the launch record will not read", () => {
+		declareOverflowSeat(dir);
+		writeUnreadableLedgerCheckout(dir, "broken-checkout");
+		const cap = capRun(thresholds, "[]");
 		expect(cap.launch).toBe(0);
-		expect(cap.error).toContain(path.join(dir, "absent"));
+		expect(cap.error).toContain(path.join(dir, "broken-checkout"));
 		expect(cap.error).toContain("fix that read and re-run");
+	});
+
+	it("caps as before where no overflow seat is declared, however the launch record reads (#4393)", () => {
+		const readable = capRun(thresholds, "[]");
+		writeUnreadableLedgerCheckout(dir, "broken-checkout");
+		const unreadable = capRun(thresholds, "[]");
+		expect(readable.error).toBeUndefined();
+		expect(unreadable).toEqual(readable);
 	});
 
 	it("reads an empty listing as nothing running, not as unreadable", () => {

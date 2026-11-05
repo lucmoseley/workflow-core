@@ -28,7 +28,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-/* Relative to this file, as claimOrAbort's arbiter is. The one caller that
+/* Relative to this file, as claimTarget's arbiter is. The one caller that
  * runs a COPY of this file is scripts/check-digest-render.js, from the staged
  * copy pre-commit writes to a temp dir where no sibling scripts/ exists; it
  * names its own scripts dir in WFC_CORE_SCRIPTS_DIR for this fallback (#3). */
@@ -54,13 +54,12 @@ const { requireKey } = (() => {
  */
 
 /**
- * Take the file-claim on `target`, or stop. Failing open on every internal
- * error is the arbiter's own rule (mantahostels#103 §6) and is repeated here: a missing or
- * broken arbiter must not stop the digest being generated, only a live holder
- * must.
+ * Take the file-claim on `target`, passing on the arbiter's warning where a
+ * live neighbour holds it too (#4249). A missing or broken arbiter must not
+ * stop the digest being generated (mantahostels#103 §6).
  * @param {string} target
  */
-function claimOrAbort(target) {
+function claimTarget(target) {
 	// Resolved relative to this file, NOT from CLAUDE_PROJECT_DIR: that names the
 	// repo the *session* is working on, which need not be the checkout this skill
 	// lives in, and pointing at the wrong root makes the arbiter look missing and
@@ -76,14 +75,10 @@ function claimOrAbort(target) {
 		[arbiter, "claim", target],
 		{ encoding: "utf8" },
 	);
-	if (r.status === 1) {
-		console.error(r.stderr.trim());
-		console.error(
-			"\nAborting before writing the digest. Re-run once the holder has finished;" +
-				"\nthe roadmap HTML you already edited is untouched and still needs one.",
-		);
-		process.exit(1);
-	}
+	const said = r.error
+		? `no claim taken on ${target}: the arbiter did not run (${r.error.message})`
+		: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+	if (said) console.error(said);
 }
 
 /**
@@ -254,10 +249,7 @@ if (toStdout) {
 } else {
 	// The file-claim guard watches Write/Edit/NotebookEdit and is blind to a file
 	// written by a script, so a script that writes a tracked doc claims it for
-	// itself (mantahostels#99's signal 3). mantahostels#103 ruled the helper must ABORT rather than merely
-	// record, or the digest is protected for everyone and from nobody (mantahostels#64, an
-	// incident struck while it was worked, recorded on mantahostels#96 — its title names
-	// other work).
+	// itself (mantahostels#99's signal 3).
 	// Provably unreachable: usage() above exits the process whenever !toStdout
 	// and !outPath both hold, and this branch is reached only when !toStdout —
 	// the checker just cannot see across the two separate `if`s.
@@ -266,7 +258,7 @@ if (toStdout) {
 			"gen-roadmap-digest.js: outPath is unset outside --stdout — usage() " +
 				"should have exited before reaching here; check the argv parsing above.",
 		);
-	claimOrAbort(outPath);
+	claimTarget(outPath);
 	fs.writeFileSync(outPath, md);
 	console.error(
 		`wrote ${outPath} — ${md.length} chars, ${ITEMS.length} cards, ${version}`,

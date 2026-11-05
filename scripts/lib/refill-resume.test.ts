@@ -1,157 +1,99 @@
 // @vitest-environment node
 /*
  * The refill loop's resume of a stopped session (lib/refill-resume.js) against
- * a fake ResumeIo: what the resume launches and with which key, how it judges
- * the job the launcher named, what a copy is handed, and what a move to
- * another seat or onto a key stops where it fails. The fake answers in the ports' shapes but no contract test pins it to
- * the adapter: scripts/refill-loop-run.test.ts crosses the real one.
+ * lib/resume-io-fake.ts, which resume-io.contract.test.ts holds to the
+ * production adapter: what the resume launches and with which key, how it
+ * judges the job the launcher named, what a copy is handed, and what a move to
+ * another seat or onto a key stops where it fails.
  *
  * Loosen one and a resume can bill the plan for a key's session, count a job
  * still stopped or another session's as resumed, leave a failed move's resume
  * starting, or run a move's job on a key unrecorded.
  */
 import { describe, expect, it } from "vitest";
-import {
-	buildRekeyedResponse,
-	FAKE_COPY,
-	type ResumeKind,
-} from "./bg-resume-fake";
+import { FAKE_COPY } from "./bg-resume-fake";
 import { resumeSteps } from "./refill-resume.js";
-
-type ResumeIo = import("./refill-resume.js").ResumeIo;
-type ChildRun = ReturnType<ResumeIo["runClaude"]>;
+import {
+	ANSWERS,
+	COPY_SESSION,
+	FAULTS,
+	fakeResumeIo,
+	JOB,
+	KEY_VAR,
+	type Picks,
+	SESSION,
+} from "./resume-io-fake";
 
 const SEAT = "/home/u/.claude3";
 const TARGET = "/home/u/.claude4";
 const ROOT = "/home/u/repo";
 const PROMPT = "carry on";
 const LAUNCH = { root: ROOT, issues: [7], seat: SEAT };
-const IDS = { sessionId: "s-job7", cwd: ROOT };
+const IDS = { sessionId: SESSION, cwd: ROOT };
 
-/** The launcher's run, answering `kind` for job `resumed`. */
-const launched = (kind: ResumeKind, resumed = "job7"): ChildRun => {
-	const r = buildRekeyedResponse(kind, resumed, FAKE_COPY);
-	return {
-		status: 0,
-		stdout: r.stdout,
-		stderr: r.stderr,
-		error: undefined,
-		failed: null,
-		out: `${r.stdout}${r.stderr}`.trim(),
-	};
-};
-
-const ran = (out: string): ChildRun => ({
-	status: 0,
-	stdout: out,
-	stderr: "",
-	error: undefined,
-	failed: null,
-	out,
-});
-
-function fakeIo(over: Partial<ResumeIo> = {}) {
-	const calls: { port: string; args: unknown[] }[] = [];
-	const lines: string[] = [];
-	const recorded =
-		<A extends unknown[], R>(port: string, f: (...args: A) => R) =>
-		(...args: A) => {
-			calls.push({ port, args });
-			return f(...args);
-		};
-	const io: ResumeIo = {
-		log: (line) => lines.push(line),
-		env: () => ({ PATH: "/bin" }),
-		keySettings: (keyVar) => ({ settings: `{"apiKeyHelper":"${keyVar}"}` }),
-		authRefusal: recorded("authRefusal", () => null),
-		runClaude: recorded("runClaude", () => launched("copy")),
-		readJobRecord: () => ({ state: "working", sessionId: "s-copy" }),
-		findResumed: recorded("findResumed", () => null),
-		copyTranscript: recorded("copyTranscript", () => null),
-		hasJobRecord: () => false,
-		stop: recorded("stop", () => ({ ok: true, said: "stopped" })),
-		overflowLookup: () => () => null,
-		recordLaunch: recorded("recordLaunch", () => true),
-		copySpendUsd: () => 0,
-		sessionSpendUsd: () => 0,
-		sessionName: () => ({ name: null }),
-		runArbiter: recorded("runArbiter", () => ran("Released #7")),
-		movePassMarkers: recorded("movePassMarkers", () => null),
-		moveParkedBy: recorded("moveParkedBy", () => undefined),
-		...over,
-	};
-	const callsTo = (port: string) =>
-		calls.filter((c) => c.port === port).map((c) => c.args);
-	return { io, calls, lines, callsTo, steps: resumeSteps(io) };
+/** The resume steps over the fake serving `picks`, its env `env`, else
+ * fakeResumeIo's bare PATH. */
+function fakeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
+	const fake = fakeResumeIo(picks, env);
+	return { ...fake, steps: resumeSteps(fake.io) };
 }
 
 describe("resumeStopped", () => {
 	it("refuses the --bg --resume where its auth would not bill the subscription, launching nothing (#2236)", () => {
-		const { steps, callsTo } = fakeIo({
-			authRefusal: () => "an apiKeyHelper setting is in force (#2236)",
-		});
+		const { steps, callsTo } = fakeIo({ authRefusal: "refused" });
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
-			failed: "an apiKeyHelper setting is in force (#2236)",
+			failed: ANSWERS.authRefusal.refused,
 		});
 		expect(callsTo("runClaude")).toEqual([]);
 	});
 
 	it("reads a launcher line naming no job as a failed resume (#2963)", () => {
-		const { steps } = fakeIo({ runClaude: () => ran("no job named") });
+		const { steps } = fakeIo({ runClaude: "noJob" });
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
-			failed: "the launcher never said what it started: no job named",
+			failed: `the launcher never said what it started: ${ANSWERS.runClaude.noJob.out}`,
 		});
 	});
 
 	it("counts a job woken in place whose state.json names its session, running", () => {
-		const { steps } = fakeIo({
-			runClaude: () => launched("woke"),
-			readJobRecord: () => ({ state: "working", sessionId: "s-job7" }),
-		});
+		const { steps } = fakeIo({ runClaude: "woke", readJobRecord: "working" });
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
 			failed: null,
-			jobId: "job7",
-			sessionId: "s-job7",
+			jobId: JOB,
+			sessionId: SESSION,
 			copy: false,
 		});
 	});
 
 	it("does not count a woken job whose state.json still reads stopped", () => {
-		const { steps } = fakeIo({
-			runClaude: () => launched("woke"),
-			readJobRecord: () => ({ state: "stopped", sessionId: "s-job7" }),
-		});
+		const { steps } = fakeIo({ runClaude: "woke", readJobRecord: "stopped" });
 		const r = steps.resumeStopped(LAUNCH, PROMPT, IDS);
 		expect(r.failed).toContain("state.json reads stopped");
 	});
 
 	it("does not count a woken job whose state.json reads another session", () => {
 		const { steps } = fakeIo({
-			runClaude: () => launched("woke"),
-			readJobRecord: () => ({ state: "working", sessionId: "s-other" }),
+			runClaude: "woke",
+			readJobRecord: "otherSession",
 		});
 		const r = steps.resumeStopped(LAUNCH, PROMPT, IDS);
-		expect(r.failed).toContain("session s-other, not s-job7");
+		expect(r.failed).toContain(`session s-other, not ${SESSION}`);
 	});
 
 	it("carries an overflow session's key to its copy: its settings, no key in its env, the ledger's mark and its marker (#4147, #3701)", () => {
-		const { steps, callsTo } = fakeIo({
-			env: () => ({
+		const { steps, callsTo } = fakeIo(
+			{ overflowLookup: "launched" },
+			{
 				PATH: "/bin",
-				K2: "sk-must-not-pass",
+				[KEY_VAR]: "sk-must-not-pass",
 				ANTHROPIC_API_KEY: "sk-must-not-pass",
 				CLAUDE_CODE_SESSION_ID: "s-loop",
-			}),
-			overflowLookup: () => (q) =>
-				"sessionId" in q && q.sessionId === "s-job7"
-					? ({ allowanceUsd: 50 } as never)
-					: null,
-		});
-		const r = steps.resumeStopped({ ...LAUNCH, keyVar: "K2" }, PROMPT, IDS);
+			},
+		);
+		const r = steps.resumeStopped({ ...LAUNCH, keyVar: KEY_VAR }, PROMPT, IDS);
 		expect(r).toEqual({
 			failed: null,
 			jobId: FAKE_COPY,
-			sessionId: "s-copy",
+			sessionId: COPY_SESSION,
 			copy: true,
 		});
 		const [[args, opts]] = callsTo("runClaude") as [
@@ -160,9 +102,9 @@ describe("resumeStopped", () => {
 		expect(args).toEqual([
 			"--bg",
 			"--resume",
-			"s-job7",
+			SESSION,
 			"--settings",
-			'{"apiKeyHelper":"K2"}',
+			ANSWERS.keySettings.settings.settings,
 			PROMPT,
 		]);
 		expect(opts.env).toEqual({ PATH: "/bin", CLAUDE_CONFIG_DIR: SEAT });
@@ -172,95 +114,111 @@ describe("resumeStopped", () => {
 					issues: [],
 					jobId: FAKE_COPY,
 					overflow: {
-						keyVar: "K2",
+						keyVar: KEY_VAR,
 						allowanceUsd: 50,
-						sessionId: "s-copy",
-						copyOf: "s-job7",
+						sessionId: COPY_SESSION,
+						copyOf: SESSION,
 					},
 				}),
 			],
 		]);
 		expect(callsTo("moveParkedBy")).toEqual([
 			[
-				"s-job7",
+				SESSION,
 				[7],
 				{
 					root: ROOT,
-					copySessionId: "s-copy",
-					job: { seat: SEAT, keyVar: "K2", jobId: FAKE_COPY, cwd: ROOT },
+					copySessionId: COPY_SESSION,
+					job: { seat: SEAT, keyVar: KEY_VAR, jobId: FAKE_COPY, cwd: ROOT },
 				},
 			],
 		]);
+	});
+
+	it("names a key whose settings will not build, launching nothing", () => {
+		const { steps, callsTo } = fakeIo({ keySettings: "unreadable" });
+		expect(
+			steps.resumeStopped({ ...LAUNCH, keyVar: KEY_VAR }, PROMPT, IDS),
+		).toEqual({ failed: ANSWERS.keySettings.unreadable.why });
+		expect(callsTo("runClaude")).toEqual([]);
 	});
 
 	it("hands a plan seat's copy its claims and pass markers, recording no ledger row (#2963, #4105)", () => {
 		const { steps, callsTo } = fakeIo();
 		steps.resumeStopped(LAUNCH, PROMPT, IDS);
 		expect(callsTo("runArbiter")).toEqual([
-			[ROOT, "release-issue", 7, "s-job7"],
-			[ROOT, "claim-issue", 7, "s-copy"],
+			[ROOT, "release-issue", 7, SESSION],
+			[ROOT, "claim-issue", 7, COPY_SESSION],
 		]);
-		expect(callsTo("movePassMarkers")).toEqual([[ROOT, "s-job7", "s-copy"]]);
+		expect(callsTo("movePassMarkers")).toEqual([[ROOT, SESSION, COPY_SESSION]]);
 		expect(callsTo("recordLaunch")).toEqual([]);
 	});
 
 	it("leaves the pass markers where the past id is still live, logging it (#4105)", () => {
-		const { steps, lines } = fakeIo({
-			movePassMarkers: () => "s-job7 is still live",
-		});
+		const { steps, lines } = fakeIo({ movePassMarkers: "live" });
 		steps.resumeStopped(LAUNCH, PROMPT, IDS);
 		expect(lines).toContain(
-			"pass markers of s-job7 not moved: s-job7 is still live",
+			`pass markers of ${SESSION} not moved: ${ANSWERS.movePassMarkers.live}`,
 		);
 	});
 });
 
 describe("moveSession (#3734, #3736)", () => {
-	const job = { ...LAUNCH, jobId: "job7", prompt: "/implement 7" } as never;
-	const keyTarget = { seat: TARGET, keyVar: "K2", allowanceUsd: 40 };
+	const job = { ...LAUNCH, jobId: JOB, prompt: "/implement 7" } as never;
+	const keyTarget = { seat: TARGET, keyVar: KEY_VAR, allowanceUsd: 40 };
 
 	it("names a transcript it could not copy, resuming nothing", () => {
-		const { steps, callsTo } = fakeIo({
-			copyTranscript: () => "copying its transcript a to b: EISDIR",
-		});
+		const { steps, callsTo } = fakeIo({ copyTranscript: "uncopied" });
 		expect(steps.moveSession(job, { seat: TARGET }, PROMPT, IDS)).toEqual({
-			failed: "copying its transcript a to b: EISDIR",
+			failed: ANSWERS.copyTranscript.uncopied,
 		});
 		expect(callsTo("runClaude")).toEqual([]);
 	});
 
 	it("stops what may be starting on the target where the resume is not confirmed", () => {
 		const { steps, callsTo } = fakeIo({
-			runClaude: () => launched("continued", "s-job7"),
-			readJobRecord: () => null,
+			runClaude: "continued",
+			readJobRecord: "unread",
+			stop: "noJob",
 		});
 		const r = steps.moveSession(job, { seat: TARGET }, PROMPT, IDS);
 		expect(r.failed).toContain("not confirmed");
-		expect(callsTo("stop")).toEqual([[TARGET, "s-job7"]]);
+		expect(callsTo("stop")).toEqual([[TARGET, JOB]]);
 	});
 
-	/** The `-n` a move onto `target` passes, its transcript naming the session `name`. */
+	it("stops the job and names the fault where the dispatch ledger will not read (#3730)", () => {
+		const { steps, callsTo } = fakeIo({ overflowLookup: "unreadable" });
+		const r = steps.moveSession(
+			job,
+			{ seat: SEAT, keyVar: KEY_VAR, allowanceUsd: 40 },
+			PROMPT,
+			IDS,
+		);
+		expect(r.failed).toContain(FAULTS.overflowLookup.unreadable);
+		expect(callsTo("stop")).toContainEqual([SEAT, FAKE_COPY]);
+		expect(callsTo("runArbiter")).toEqual([]);
+	});
+
+	/** The `-n` a move onto `target` passes, its transcript read as `name`. */
 	const movedName = (
-		name: string | null | { why: string },
+		name: Picks["sessionName"],
 		target: object = keyTarget,
 	) => {
-		const read: string[] = [];
-		const { steps, callsTo, lines } = fakeIo({
-			sessionName: (file) => {
-				read.push(file);
-				return typeof name === "object" && name ? name : { name };
-			},
-		});
+		const { steps, callsTo, lines } = fakeIo({ sessionName: name });
 		steps.moveSession(job, target as never, PROMPT, IDS);
 		const [[args]] = callsTo("runClaude") as [[string[]]];
 		const at = args.indexOf("-n");
-		return { name: at < 0 ? null : args[at + 1], read, lines };
+		return {
+			name: at < 0 ? null : args[at + 1],
+			read: callsTo("sessionName"),
+			lines,
+		};
 	};
 
 	it("names a plan session moved onto a key with the overflow prefix, the name its transcript gives after it (#4395)", () => {
-		expect(movedName("Implement 7: a title")).toMatchObject({
+		expect(movedName("named")).toMatchObject({
 			name: "Overflow · Implement 7: a title",
-			read: ["/home/u/.claude3/projects/-home-u-repo/s-job7.jsonl"],
+			read: [[`${SEAT}/projects/-home-u-repo/${SESSION}.jsonl`]],
 			lines: expect.not.arrayContaining([
 				expect.stringContaining("name not read"),
 			]),
@@ -268,33 +226,27 @@ describe("moveSession (#3734, #3736)", () => {
 	});
 
 	it("names a session whose transcript gives no name after its prompt, and never prefixes twice (#4395)", () => {
-		expect(movedName(null).name).toBe("Overflow · /implement 7");
-		expect(movedName("Overflow · Implement 7").name).toBe(
-			"Overflow · Implement 7",
-		);
+		expect(movedName("unnamed").name).toBe("Overflow · /implement 7");
+		expect(movedName("prefixed").name).toBe("Overflow · Implement 7");
 	});
 
 	it("names a session whose transcript will not read after its prompt, logging why (#4395)", () => {
-		const r = movedName({ why: "reading t: EACCES" });
+		const r = movedName("unreadable");
 		expect(r.name).toBe("Overflow · /implement 7");
 		expect(r.lines).toContain(
-			"s-job7's name not read, so named after its prompt: reading t: EACCES",
+			`${SESSION}'s name not read, so named after its prompt: ${ANSWERS.sessionName.unreadable.why}`,
 		);
 	});
 
 	it("leaves a session moved onto a plan seat its own name", () => {
-		expect(movedName("Implement 7", { seat: TARGET }).name).toBeNull();
+		expect(movedName("named", { seat: TARGET }).name).toBeNull();
 	});
 
 	it("stops the copy and hands it nothing where its ledger row will not write (#3730)", () => {
-		const { steps, callsTo } = fakeIo({
-			recordLaunch: () => {
-				throw new Error("EACCES");
-			},
-		});
+		const { steps, callsTo } = fakeIo({ recordLaunch: "unwritable" });
 		const r = steps.moveSession(
 			job,
-			{ seat: SEAT, keyVar: "K2", allowanceUsd: 40 },
+			{ seat: SEAT, keyVar: KEY_VAR, allowanceUsd: 40 },
 			PROMPT,
 			IDS,
 		);

@@ -1,6 +1,6 @@
 /*
  * The `admission.js --json --launch --skip-allowance` verdict
- * refill-loop-run.test.ts's admission stub prints, held to what the real
+ * lib/refill-loop-run-testkit.ts's admission stub prints, held to what the real
  * script prints by lib/admission-verdict.contract.test.ts (#3331). Its
  * `satisfies` holds it to every field lib/concurrency.js reads, so dropping
  * one fails typecheck, not the run test's loop; `memory` carries only the

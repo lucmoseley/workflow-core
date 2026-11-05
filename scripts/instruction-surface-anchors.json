@@ -313,7 +313,7 @@
 			"source": "#1846, #3583"
 		},
 		"scripts/lib/file-claim.js": {
-			"digest": "259512c3b6450d4d",
+			"digest": "a3bcd4adff72de34",
 			"verdict": "at need — a merge-conflict warning on the contended write itself (#4249); cluster on the first clean guarded write, led on a `derived` or `generated-only` doc by the authority-class rule, on the roadmap HTML (roadmap on) by the roadmap-edit rule, on the operating manual (governance and roadmap on) by the manual-sync rule, and on a skill file, CLAUDE.md or AGENTS.md by the writing-for-agents rule, which outside both tiers it prints alone. Run as a core of scripts/guard-dispatch.js (#2788). Re-fed at 6f96cb55e under #3583 through `guard-dispatch.js --only guard-file-claim` (the module limbs by editing a clone's modules; docs/operating-manual.md is absent there, and the limb reads the path alone): first clean write 3808 B; the holder's second write 3526 B, the claim-release rule; led clusters 3996 B (roadmap-digest), 4007 B (roadmap HTML), 4037 B (manual), 3985 B (CLAUDE.md, AGENTS.md, a .claude skill); .agents/skills/tdd/SKILL.md alone 249 B; a scripts/ write 1701 B, creating a scripts/guard-*.js or .sh 1835 B with guard-authoring first. Against baf2c5a06 only a created scripts/guard-x.spec.js moved, 1835 to 1701 B: f14cfb5b0 (#3012) reads it as a test file, so it gets no guard-authoring. Payloads aimed at 61bcf56a0's root trim (absolute and `./` paths) are byte-identical. Unfed: 8c4a7741f's entry-budget cut, which only shortens the arbiter's timeout, needs a hung arbiter with the budget nearly spent and prints nothing on a live one.",
 			"selfSufficient": "yes — the contended-write warning names the holder, the likely merge conflict and the `list` command; the clean-fire cluster states each rule and its command; fed an Edit of docs/roadmap-digest.md it opens with rule:doc-authority-class, of docs/reference-roadmap.html with rule:roadmap-edit where roadmap is on and with rule:claim-bash-route where it is off, of docs/operating-manual.md with rule:manual-sync where governance and roadmap are on and without it where either is off, of CLAUDE.md with rule:writing-for-agents, of .agents/skills/tdd/SKILL.md with rule:writing-for-agents alone, and of docs/working-contract.md with none of the three.",
 			"source": "#2788, #3583"
@@ -325,19 +325,19 @@
 			"source": "#2788"
 		},
 		"scripts/lib/job-dir-scratch.js": {
-			"digest": "c7f228d1d714d6bd",
+			"digest": "414db324cfc267bf",
 			"verdict": "at need — on the write call itself, run as a core of scripts/guard-dispatch.js. Fed at 18a1598da under #3143 through the entry (`--only guard-job-dir-scratch`, a fake CLAUDE_JOB_DIR): a Write, an Edit and a Bash `>` into the job dir's tmp folder refused (1987, 1990 and 2022 B; the Bash one also 2022 B through the whole entry); a Write into a subfolder there warned once (1639 B), then 0 B; a write outside any job dir and a Bash read of `$CLAUDE_JOB_DIR/tasks/x.output` passed, 0 B. With the rule store unreadable it still refuses (666 B) and warns (318 B), ending in the fallback naming docs/agents/rules/job-dir-scratch.txt. Re-fed at f02912eec8 under #3178: a Write and a Bash `>` into `<job>/tmp/wt/.claude/tmp/` passed, 0 B; a Write climbing out of one by `..` into the flat tmp folder refused (1960 B). Re-fed at a82cb8560 under #4129: Write, Edit and Bash refused 1945, 1948 and 1949 B, the warn 1618 B. Byte counts are the deny reason or context text alone, not hook stdout.",
 			"selfSufficient": "yes — the deny hands the sanctioned target, whichever spelling wrote it (Same write / Move it to / Same command); the warn states the rule, the location, and the naming convention; the unreadable-store fallback names the file to read; re-fed at #3146 with an empty rule store, the same fallback through ruleOrFallback",
 			"source": "#3143, #4129"
 		},
 		"scripts/lib/root-scratch.js": {
-			"digest": "01f98c849417fb76",
+			"digest": "f2cb98d258aeacb1",
 			"verdict": "at need — on the write call; no latch, so every stray is refused. Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); re-fed at #2896 through the entry: a Write and a Bash redirect to a root dotfile each gave the same deny and sanctioned target. Re-fed at 6f96cb55e under #3583 through `guard-dispatch.js --only guard-root-scratch`, whole stdout from a 48-character root: Bash redirect 884 B, Write 985 B (the root printed twice), Edit and NotebookEdit 977 B (the root once, an `mv` line as the remedy); tee, cp and a `$VAR` name denied, a repeat denied again; 0 B on a gitignored, tracked or `.claude/tmp/` target, the `mv` line and the `dd` escape. #3609's shellQuote (02f808400) leaves a safe name bare, so a Bash or Write deny is 2 B shorter than at 8c4a7741f and an Edit's 6 B; a name needing quotes is unchanged. At #4129 two of its lines come from docs/agents/rules/scratch-dir-sanctioned.txt and self-spelt-escape.txt.",
 			"selfSufficient": "yes — names the rule, the reason, the corrected target (bare, whichever spelling wrote it; an `mv` line for an Edit or NotebookEdit) and the `dd` escape; with the store unreadable it still refuses, each of the two lines naming its file.",
 			"source": "#2789, #3583, #4129"
 		},
 		"scripts/lib/scratch-overwrite.js": {
-			"digest": "0982d2bea170b2e5",
+			"digest": "41dbdf1a34ae715e",
 			"verdict": "at need — refuses the first Write over the unrecorded file, before its bytes are replaced (778 B deny); the identical re-send passes silent. Once per path. Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); re-fed at #2896 through the entry: an unrecorded .claude/tmp file gave the same once-only deny with the session-suffixed path",
 			"selfSufficient": "yes — states the risk, hands a ready-made session-suffixed path, and names the re-send as the escape.",
 			"source": "#2789"

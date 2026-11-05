@@ -4,18 +4,20 @@
  * the test's temp directory: git real there, `gh` through WFC_GH's route stub,
  * and a probe hold's filing through the real file-issue.js that lib/file-through.js
  * spawns. The tick's wiring of these, one case per adapter it crosses, is
- * refill-loop-run.test.ts's; the CLI's is repo-hold.test.ts's (#4314).
+ * refill-loop-run-recovery.test.ts's; the CLI's is repo-hold.test.ts's (#4314).
  *
  * Broken, a repo hold (#3857) or probe hold (#3860) that never lifts stops every
  * launch into a served checkout, and one that never raises launches sessions into
  * a broken `.git`.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
+import { writeFaultyGit } from "./git-fault-fake";
 import {
 	ISSUE,
 	LOGGED_OUT,
@@ -734,5 +736,79 @@ describe("a lifted hold's record (#3863)", () => {
 		);
 
 		expect(fs.readdirSync(path.join(store(), "lifted"))).toEqual([]);
+	});
+});
+
+describe("a tick's store resolution (#4398)", () => {
+	/* Through require, as lib/repo-hold-notices.js reaches it, so the tick's
+	 * calls share one copy of the module and its tick scope. */
+	const load = createRequire(__filename);
+	const holds = load("./repo-holds.js");
+	const { tendHoldNotices } = load("./repo-hold-notices.js");
+
+	/** The `--git-common-dir` forks of every hold call a tick makes. */
+	const countTickForks = (run: (calls: () => void) => void) => {
+		serve();
+		const other = at("other");
+		probedCheckout.instantiate(other);
+		writeConfig(other);
+		const served = [repo, other];
+		raiseHold(repo, {
+			kind: "park",
+			act: "repair main",
+			issue: 12,
+			clearCheck: { issueClosed: 12 },
+			session: null,
+			now: NOW,
+		});
+		const counter = writeFaultyGit(
+			{ words: ["--git-common-dir"] },
+			{ script: ":" },
+			{ under: dir },
+		);
+		vi.stubEnv("WFC_GIT", counter.git);
+		const lines: string[] = [];
+		const log = (l: string) => lines.push(l);
+		run(() => {
+			const broken = holds.tendHolds(served, served, NOW, log);
+			holds.readTickHolds(served, broken);
+			holds.attachProbeParks(broken, [], log);
+			holds.readLiftedHolds(served, log);
+			tendHoldNotices(served, { agents: null, isPaused: false }, NOW, log);
+		});
+		return counter.hits();
+	};
+
+	it("forks git for each served checkout's common dir once a tick", () => {
+		expect(countTickForks((calls) => holds.withTickStores(calls))).toBe(2);
+	});
+
+	it("forks them anew on the next tick", () => {
+		expect(
+			countTickForks((calls) => {
+				holds.withTickStores(calls);
+				holds.withTickStores(calls);
+			}),
+		).toBe(4);
+	});
+
+	it("keeps nothing outside a tick, as the CLI's calls run", () => {
+		expect(countTickForks((calls) => calls())).toBeGreaterThan(2);
+	});
+
+	it("asks git again on each call where it will not name the common dir, so a repair inside a tick keys anew", () => {
+		const counter = writeFaultyGit(
+			{ words: ["--git-common-dir"] },
+			{ exit: 128 },
+			{ under: dir },
+		);
+		vi.stubEnv("WFC_GIT", counter.git);
+
+		holds.withTickStores(() => {
+			holds.holdsDir(repo);
+			holds.holdsDir(repo);
+		});
+
+		expect(counter.hits()).toBe(2);
 	});
 });

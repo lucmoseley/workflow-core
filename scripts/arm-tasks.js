@@ -19,7 +19,8 @@
  * neighbour task also needs `--config-dir`, the arm's config dir, where the fake
  * neighbour is registered on a detached `sleep` of `--hold` seconds (default
  * 600) and takes a real claim through the sandbox's own arbiter: the claim
- * holds until that process ends, so a session can wait it out. The hold runs
+ * holds until that process ends, and a session's write to it is warned of a
+ * likely merge conflict until then. The hold runs
  * from the build, so launch the session at once: a launch after
  * `neighbour.expiresAt` in `task.json` meets no claim.
  *
@@ -227,10 +228,14 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 			cwd: repo,
 			env,
 			encoding: "utf8",
-		}).status;
-	if (claim(sessionId) !== 0) throw new Error("the neighbour's claim failed");
-	if (claim("arm-probe") !== 1)
-		throw new Error("the neighbour's claim does not refuse another session");
+		});
+	if (claim(sessionId).status !== 0)
+		throw new Error("the neighbour's claim failed");
+	// A revision before #4249 refuses the probe; one after warns it, naming the
+	// neighbour.
+	const probe = claim("arm-probe");
+	if (probe.status !== 1 && !probe.stderr.includes(sessionId))
+		throw new Error("the neighbour's claim does not reach another session");
 	const expiresAt = new Date(Date.now() + holdSeconds * 1000).toISOString();
 	return { sessionId, pid, path: task.neighbour.path, holdSeconds, expiresAt };
 }
