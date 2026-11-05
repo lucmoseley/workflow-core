@@ -14,16 +14,15 @@
  * In no family (§N3): it moves a branch and rebuilds a tree, so it is no
  * `check-*` gate, and it files nothing.
  *
- * The report goes to stderr, under a `levelling <main checkout>` line that
- * tells one checkout's report from another's in the refill loop's log, which
- * every served checkout's pass writes to (scripts/measure-worktree-model.js). Exit 0 level or forwarded with the fetch and any
- * install done, 1 anything else, 2 a usage error.
+ * The report goes to stderr (lib/level-main.js `buildReport`). Exit 0 level
+ * or forwarded with the fetch and any install done, 1 anything else, 2 a
+ * usage error.
  */
 
 const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { level, renderOutcome } = require("./lib/level-main.js");
+const { buildReport, level } = require("./lib/level-main.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const store = require("./lib/arbiter-store");
 const { writeFd } = require("./lib/write-fd.js");
@@ -53,21 +52,12 @@ function main(argv = process.argv.slice(2)) {
 			lastWriter: (rel) => store.readLastWriterOf(rel, root),
 			now: at,
 		});
-		const moved = outcome.status === "level" || outcome.status === "forwarded";
-		const clean =
-			moved && outcome.fetchError === null && !outcome.install.error;
-		const quiet =
-			parsed.flags["--quiet"] === true &&
-			outcome.fetchError === null &&
-			!outcome.install.error &&
-			!outcome.install.installed &&
-			["level", "busy", "shared"].includes(outcome.status);
-		if (!quiet)
-			writeFd(
-				2,
-				`levelling ${root}\n${renderOutcome(outcome, at).join("\n")}\n`,
-			);
-		return clean ? 0 : 1;
+		const report = buildReport(root, outcome, {
+			now: at,
+			quiet: parsed.flags["--quiet"] === true,
+		});
+		writeFd(2, report.text);
+		return report.code;
 	} catch (err) {
 		writeFd(
 			2,

@@ -80,6 +80,7 @@ const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
+const { buildCutCommand } = require("./cutover.js");
 const { scriptPath } = require("./script-path.js");
 const {
 	readJobCwds,
@@ -575,7 +576,7 @@ function startLanderFor(root, dir) {
 function refuseUnlandable(dir, root) {
 	if (dir === root)
 		throw new CheckoutError(
-			`the main checkout is never landed from — land from your session worktree, or cut one with \`node ${scriptPath("session-checkout.js")} cut <session-name>\``,
+			`the main checkout is never landed from — land from your session worktree, or cut one with ${buildCutCommand()}`,
 		);
 	if (!moduleOn("landing", { root }))
 		throw new CheckoutError(

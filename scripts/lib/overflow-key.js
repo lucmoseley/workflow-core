@@ -77,7 +77,7 @@ const helperProgram = () => throughBootLink(__filename) ?? __filename;
  * @param {string} keyVar
  * @param {string} file
  */
-const helperCommand = (program, keyVar, file) =>
+const buildHelperCommand = (program, keyVar, file) =>
 	[process.execPath, program, keyVar, file].map(shellQuote).join(" ");
 
 /**
@@ -86,7 +86,7 @@ const helperCommand = (program, keyVar, file) =>
  * @param {string} file
  */
 function buildKeyHelper(keyVar, file) {
-	return helperCommand(helperProgram(), keyVar, file);
+	return buildHelperCommand(helperProgram(), keyVar, file);
 }
 
 /**
@@ -101,11 +101,11 @@ function buildKeySettings(keyVar) {
 	const program = helperProgram();
 	if (!fs.existsSync(program))
 		return {
-			why: `no key helper at ${program} for ${keyVar}: the refill loop's boot link names no worktree holding it; the loop points it after its first tick, so the next tick launches`,
+			why: `no key helper at ${program} for ${keyVar}: the refill loop's boot link names no worktree holding it. Before the loop's first tick, the tick points it and the next tick launches; otherwise the tip it names has moved this file`,
 		};
 	return {
 		settings: JSON.stringify({
-			apiKeyHelper: helperCommand(program, keyVar, key.file),
+			apiKeyHelper: buildHelperCommand(program, keyVar, key.file),
 		}),
 	};
 }

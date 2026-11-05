@@ -7,7 +7,7 @@
  * stores stay writable. Driven through runCore on the testkit's split
  * checkout, so the dispatcher's root and tree come from a real worktree pair.
  *
- * Loosen it and a session's edit lands as dirt in the main checkout, which
+ * Loosen it and a session's edit lands uncommitted in the main checkout, which
  * the levelling fast-forward then refuses on.
  */
 
@@ -98,18 +98,22 @@ describe("a cut-over main checkout refuses writes to its tree (#4248)", () => {
 		).toBeNull();
 	});
 
-	it("names the cut where the session stands in the main checkout", () => {
+	it("sends a session whose cwd is the main checkout to its own worktree, or the cut", () => {
+		const reason = refusal(
+			"Bash",
+			{ command: `git -C ${at.main} restore a.md` },
+			{ cwd: at.main },
+		);
+		expect(reason).toContain(
+			`\`cd\` into your own worktree under ${path.join(at.main, ".claude", "worktrees")}/ where you have one`,
+		);
+		expect(reason).toContain("session-checkout.js cut <session-name>");
+	});
+
+	it("names the worktree to a session in one, whatever tree `-C` names", () => {
 		expect(
-			refusal(
-				"Edit",
-				{
-					file_path: path.join(at.main, "a.md"),
-					old_string: "a",
-					new_string: "b",
-				},
-				{ cwd: at.main },
-			),
-		).toContain("session-checkout.js cut <session-name>");
+			refusal("Bash", { command: `git -C ${at.main} restore a.md` }),
+		).toContain(`as \`git -C ${at.worktree} …\``);
 	});
 
 	it("leaves the branch move to this core, the pin standing down", () => {

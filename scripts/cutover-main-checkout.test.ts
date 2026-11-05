@@ -1,33 +1,29 @@
 // @vitest-environment node
 /*
- * The cutover (#4248) against real git: a bare origin carrying `main` and
- * `landing`, and a main checkout cloned from it whose `main` tracks
- * `landing`, as the shared-tree model set it. The session listing is
- * injected; the cut is a detached worktree from `origin/landing`, and the
- * land a push of `HEAD:landing`, as lib/session-checkout.js's do, without
- * its dependency store or lander start.
+ * cutover-main-checkout.js's boundary set (§X11, #4346): each exit, argv, a
+ * directory no main checkout holds, and the adapters its shell wires crossed
+ * for real — the session listing through a `claude` stand-in at
+ * WFC_CLAUDE_BIN, the cut through an `npm` stand-in at WFC_NPM, the land
+ * pushing to a bare origin, git in a temporary directory. Its branches are
+ * lib/cutover.test.ts's.
  *
- * Loosen it and the main checkout is cut over under a live session, a local
- * commit is lost rather than landed, an edit there is discarded, or a
- * conflicted merge flips the mark anyway.
+ * Loosen it and the program reports a cutover it did not make, exits 0 on a
+ * refusal, or wires an adapter that never reaches git or the listing.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { cutover, isCutOver, renderCutover } from "./lib/cutover.js";
-import {
-	describeAge,
-	level,
-	readDirt,
-	renderOutcome,
-} from "./lib/level-main.js";
+import { runInProcess } from "./lib/run-in-process.js";
+
+const SCRIPT = path.resolve(__dirname, "cutover-main-checkout.js");
 
 let tmp: string;
 let origin: string;
 let main: string;
-let other: string;
+let config: string;
+let landerHolder: ReturnType<typeof spawn> | undefined;
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
@@ -40,155 +36,138 @@ const commitIn = (cwd: string, files: Record<string, string>, msg: string) => {
 	return git(cwd, "rev-parse", "HEAD");
 };
 
-interface Agent {
-	name?: string;
-	sessionId: string;
-	cwd?: string;
-}
+/** The listing `claude agents --json` answers: one session, in `cwd`. */
+const listSessionIn = (cwd: string) => {
+	const body = JSON.stringify([{ name: "live", sessionId: "s-1", cwd }]);
+	const bin = path.join(config, "bin", "claude");
+	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\n`);
+	fs.chmodSync(bin, 0o755);
+};
 
-const ports = ({
-	agents = [],
-	on = true,
-}: {
-	agents?: Agent[] | { why: string };
-	on?: boolean;
-} = {}) => ({
-	moduleOn: () => on,
-	listed: () => (Array.isArray(agents) ? { agents } : agents),
-	cut: (root: string, name: string) => {
-		const dir = path.join(tmp, name);
-		git(root, "worktree", "add", "-q", "--detach", dir, "origin/landing");
-		git(dir, "config", "user.email", "t@t");
-		git(dir, "config", "user.name", "t");
-		return { dir };
-	},
-	land: (dir: string) => {
-		git(dir, "push", "-q", "origin", "HEAD:landing");
-		return { head: git(dir, "rev-parse", "HEAD"), lander: null };
-	},
-	dirt: (root: string) => readDirt(root, Date.now(), () => null),
-	level: (root: string) =>
-		level(root, { install: () => undefined, now: Date.now() }),
-});
+const run = (cwd: string, ...args: string[]) => {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		CLAUDE_PROJECT_DIR: main,
+		CLAUDE_CONFIG_DIR: config,
+		WFC_CLAUDE_CONFIG_A: config,
+		WFC_CLAUDE_CONFIG_B: config,
+		WFC_CLAUDE_CONFIG_C: config,
+		WFC_CLAUDE_BIN: path.join(config, "bin", "claude"),
+		WFC_NPM: path.join(tmp, "npm"),
+		WFC_MODULES: "landing",
+	};
+	delete env.CLAUDE_CODE_SESSION_ID;
+	return runInProcess(SCRIPT, args, { cwd, env });
+};
 
-const render = (r: ReturnType<typeof cutover>) =>
-	renderCutover(r, {
-		describeAge,
-		renderLevel: (o) => renderOutcome(o, Date.now()),
-		now: Date.now(),
-	}).join("\n");
+const upstream = () =>
+	execFileSync("git", ["config", "--get", "branch.main.merge"], {
+		cwd: main,
+		encoding: "utf8",
+		stdio: "pipe",
+	}).trim();
 
 beforeEach(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cutover-")));
 	origin = path.join(tmp, "origin.git");
 	main = path.join(tmp, "main");
-	other = path.join(tmp, "other");
+	config = path.join(tmp, "config");
+	fs.mkdirSync(path.join(config, "bin"), { recursive: true });
+	fs.writeFileSync(
+		path.join(tmp, "npm"),
+		"#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock\n",
+	);
+	fs.chmodSync(path.join(tmp, "npm"), 0o755);
 	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
 	git(tmp, "clone", "-q", origin, main);
 	git(main, "config", "user.email", "t@t");
 	git(main, "config", "user.name", "t");
-	commitIn(main, { "a.md": "a\n", "package-lock.json": "{}\n" }, "seed");
+	commitIn(
+		main,
+		{ ".gitignore": ".claude/\n", "a.md": "a\n", "package-lock.json": "{}\n" },
+		"seed",
+	);
 	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
 	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
-	git(tmp, "clone", "-q", origin, other);
-	git(other, "config", "user.email", "t@t");
-	git(other, "config", "user.name", "t");
+	/* A live process whose command line names lander.js holds the lander's
+	 * lock, so the land's lander start finds one running. */
+	landerHolder = spawn("sh", ["-c", "sleep 60", "lander.js"], {
+		stdio: "ignore",
+	});
+	const markers = path.join(main, ".claude", "tmp", "markers");
+	fs.mkdirSync(markers, { recursive: true });
+	fs.writeFileSync(path.join(markers, ".lander.pid"), `${landerHolder.pid}\n`);
 });
 
 afterEach(() => {
+	landerHolder?.kill();
+	execFileSync("chmod", ["-R", "u+w", tmp]);
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-it("refuses while a session stands in the main checkout, changing nothing", () => {
-	const r = cutover(
-		main,
-		ports({ agents: [{ name: "live", sessionId: "s", cwd: main }] }),
-	);
-	expect(r).toEqual({ status: "occupied", sessions: ["live"] });
-	expect(isCutOver(main)).toBe(false);
-	expect(render(r)).toContain("still stand in the main checkout");
-});
-
-it("counts a session in a subdirectory of the main checkout, not one in a linked worktree under it", () => {
-	const sub = path.join(main, "docs");
-	fs.mkdirSync(sub);
-	const linked = path.join(main, ".claude", "worktrees", "wt");
-	git(main, "worktree", "add", "-q", "--detach", linked);
-	const r = cutover(
-		main,
-		ports({
-			agents: [
-				{ name: "below", sessionId: "b", cwd: `${sub}/` },
-				{ name: "linked", sessionId: "l", cwd: linked },
-			],
-		}),
-	);
-	expect(r).toEqual({ status: "occupied", sessions: ["below"] });
-});
-
-it("refuses where no listing can show the main checkout empty", () => {
-	expect(cutover(main, ports({ agents: { why: "no oracle" } }))).toEqual({
-		status: "unlisted",
-		why: "no oracle",
-	});
-	expect(isCutOver(main)).toBe(false);
-});
-
-it("lands main's local commits, reports each edit left by name, and removes the upstream", () => {
+it("exits 0 having landed main's local commit, named the edit left and removed the upstream", () => {
 	const own = commitIn(main, { "local.md": "mine\n" }, "local only");
-	commitIn(other, { "b.md": "b\n" }, "a neighbour's");
-	git(other, "push", "-q", "origin", "HEAD:landing");
 	fs.writeFileSync(path.join(main, "a.md"), "edited\n");
-	fs.writeFileSync(path.join(main, "stray.md"), "new\n");
+	listSessionIn(tmp);
 
-	const r = cutover(
-		main,
-		ports({ agents: [{ name: "elsewhere", sessionId: "e", cwd: other }] }),
-	);
+	const r = run(main);
 
-	expect(r.status).toBe("cut-over");
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain("the main checkout is cut over");
+	expect(r.stderr).toContain("landed main's 1 local commit(s)");
+	expect(r.stderr).toContain("1 edit(s) remain in the main checkout");
+	expect(r.stderr).toContain("  a.md — ");
 	git(main, "fetch", "-q", "origin");
 	git(main, "merge-base", "--is-ancestor", own, "origin/landing");
-	expect(isCutOver(main)).toBe(true);
-	expect(fs.readFileSync(path.join(main, "a.md"), "utf8")).toBe("edited\n");
-	const text = render(r);
-	expect(text).toContain("landed main's 1 local commit(s)");
-	expect(text).toContain(
-		"2 edit(s) remain in the main checkout, none discarded",
+	expect(() => upstream()).toThrow();
+});
+
+it("exits 1, cutting nothing over, while the listing puts a session in the main checkout", () => {
+	listSessionIn(main);
+
+	const r = run(main);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain("1 session(s) still stand in the main checkout");
+	expect(r.stderr).toContain("  live");
+	expect(upstream()).toBe("refs/heads/landing");
+});
+
+it("exits 1 naming the git that failed", () => {
+	listSessionIn(tmp);
+	git(main, "remote", "set-url", "origin", path.join(tmp, "gone.git"));
+
+	const r = run(main);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toMatch(
+		/^cutover: failed: git fetch --quiet origin landing failed in /,
 	);
-	expect(text).toContain("  a.md — ");
-	expect(text).toContain("  stray.md — ");
-	expect(text).toContain("all on origin/landing");
+	expect(upstream()).toBe("refs/heads/landing");
 });
 
-it("leaves the mark where merging main's commits conflicts, naming the files", () => {
-	commitIn(main, { "a.md": "main's\n" }, "local only");
-	commitIn(other, { "a.md": "landing's\n" }, "a neighbour's");
-	git(other, "push", "-q", "origin", "HEAD:landing");
+it("exits 1 from a directory no main checkout holds", () => {
+	const r = run(tmp);
 
-	const r = cutover(main, ports());
-
-	expect(r).toMatchObject({ status: "unmerged", local: 1, files: ["a.md"] });
-	expect(isCutOver(main)).toBe(false);
-	expect(render(r)).toContain("session-checkout.js land");
+	expect(r.status).toBe(1);
+	expect(r.stderr).toBe("cutover: no main checkout holds this directory\n");
 });
 
-it("cuts over with nothing to land, and a second run only reports", () => {
-	const first = cutover(main, ports());
-	expect(first).toMatchObject({
-		status: "cut-over",
-		already: false,
-		landed: null,
-	});
-	const second = cutover(
-		main,
-		ports({ agents: [{ name: "late", sessionId: "l", cwd: main }] }),
-	);
-	expect(second).toMatchObject({ status: "cut-over", already: true });
-	expect(render(second)).toContain("main is level with origin/main");
+it("exits 2 on an argument it does not take", () => {
+	const r = run(main, "--now");
+
+	expect(r.status).toBe(2);
+	expect(r.stderr).toContain("usage: node scripts/cutover-main-checkout.js");
+	expect(upstream()).toBe("refs/heads/landing");
 });
 
-it("does nothing with the `landing` module off", () => {
-	expect(cutover(main, ports({ on: false }))).toEqual({ status: "module-off" });
-	expect(isCutOver(main)).toBe(false);
+it("cuts over the main checkout from a linked worktree of it", () => {
+	listSessionIn(tmp);
+	const linked = path.join(tmp, "linked");
+	git(main, "worktree", "add", "-q", "--detach", linked);
+
+	const r = run(linked);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(() => upstream()).toThrow();
 });

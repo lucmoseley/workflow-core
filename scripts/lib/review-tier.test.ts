@@ -547,9 +547,9 @@ describe("the fragments", () => {
 		);
 	});
 
-	// #1925, #1948: nothing holds a worktree commit, so the hold's text never
-	// reaches it — the tier block must name a command that prints the marker
-	// command (#2040).
+	// #1925, #1948, #4383: a session reads the hold's text only once refused,
+	// after its review — the tier block must name a command that prints the
+	// marker command (#2040).
 	it("hand a staged review a command printing the marker command with every flag, in a worktree too", () => {
 		expect(readFragment("review-tier-escalated")).toContain(
 			"Record it with the marker script, worktree too: `scripts/lib/rule-text.sh review-hold`.",
@@ -561,7 +561,6 @@ describe("the fragments", () => {
 		expect(hold).toMatch(
 			/^ {2}node scripts\/write-review-marker\.js .*--paths /m,
 		);
-		expect(hold).toContain("A worktree commit is not held");
 	});
 
 	// #1625's re-measure checker parses these records off the tracker.

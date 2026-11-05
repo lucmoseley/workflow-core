@@ -143,7 +143,7 @@
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
-const { landingCutOver } = require("./cutover.js");
+const { buildCutCommand, landingCutOver } = require("./cutover.js");
 const { LANDING_REF, VERIFIED_REF } = require("./landing-refs.js");
 const { ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
@@ -256,18 +256,12 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
 	ctx.moduleOn("landing")
-		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: \`node ${ctx.scriptPath("session-checkout.js")} cut <session-name>\` prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${LANDING_REF}\` and pushes.`
+		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${LANDING_REF}\` and pushes.`
 		: ruleOrFallback(
 				ctx,
 				"pull-fast-forward",
 				"Reconcile the shared `main` by fast-forward or not at all",
 			);
-
-/**
- * Whether the main checkout is levelled — `landing` on and cut over.
- * @param {PullFormContext} ctx
- */
-const isLevelled = (ctx) => landingCutOver(ctx.moduleOn, ctx.git);
 
 /**
  * The rewind refusal, framed by lib/main-rewind.js.
@@ -820,7 +814,9 @@ const WALKS = [
 	],
 	[
 		(j, call) =>
-			call.tree && isLevelled(j.ctx) ? null : judgeReconcile(j, call),
+			call.tree && landingCutOver(j.ctx.moduleOn, j.ctx.git)
+				? null
+				: judgeReconcile(j, call),
 		"the reconciliation",
 		"shared",
 		["pull", "merge", "rebase"],

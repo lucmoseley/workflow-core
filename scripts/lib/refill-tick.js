@@ -20,7 +20,6 @@
  * has.
  */
 
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
@@ -83,10 +82,12 @@ const {
 const {
 	buildCheckoutEnv,
 	discoverRepos,
+	startDetachedIn,
 	homeDir,
 	isOptedOut,
 	readExclusionWhy,
 } = require("./refill-repos.js");
+const { startLevelling } = require("./level-main.js");
 const loop = require("./refill-loop.js");
 const core = require("./refill-tick-core.js");
 const { buildLaunchesLine } = require("./refill-tick-settle.js");
@@ -199,17 +200,10 @@ function superviseLanding(root) {
 	if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
 }
 
-/**
- * Start a levelling pass over `root`'s main checkout (scripts/level-main.js,
- * #4248), detached: an `npm ci` in it may outlast a tick. Its pid lock turns
- * away a pass started while one runs.
- * @param {string} root
- */
+/** @param {string} root */
 const levelMain = (root) =>
-	startDetached(
-		`levelling ${root}`,
-		[path.join(SCRIPTS, "level-main.js"), "--quiet"],
-		root,
+	startLevelling(root, (err) =>
+		log(`levelling ${root}: not started (${buildErrorText(err)})`),
 	);
 
 /**
@@ -439,21 +433,9 @@ function runReview(lastRunOn, now) {
  * @param {string} [root]
  */
 function startDetached(label, args, root = REVIEW_ROOT) {
-	/** @param {unknown} err */
-	const notStarted = (err) =>
-		log(`${label}: not started (${buildErrorText(err)})`);
-	try {
-		const child = spawn(process.execPath, args, {
-			cwd: root,
-			env: buildCheckoutEnv(root),
-			detached: true,
-			stdio: ["ignore", "ignore", "inherit"],
-		});
-		child.on("error", notStarted);
-		child.unref();
-	} catch (err) {
-		notStarted(err);
-	}
+	startDetachedIn(root, args, (err) =>
+		log(`${label}: not started (${buildErrorText(err)})`),
+	);
 }
 
 /**
