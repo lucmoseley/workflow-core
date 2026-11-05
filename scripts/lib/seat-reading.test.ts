@@ -31,6 +31,7 @@ import {
 	seatReadingOf,
 	seatsDueRead,
 	seatTriedAfter,
+	sizeParkerSeats,
 	sizeResumeSeats,
 } from "./seat-reading.js";
 import { buildUsageCache } from "./usage-probe-fake";
@@ -851,5 +852,80 @@ describe("the reads both callers share (#4218)", () => {
 		expect(lines).toEqual([
 			`fault: cap on ${dir} unsized: the loop serves no checkout to size it in`,
 		]);
+	});
+
+	it("reads a checkout with no cost table as a fault, not a full seat, naming allowance.js's own why (#2937)", () => {
+		/* Past the week ceiling, so the cap reads the cost table. */
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(buildUsageCache({ session: 10, week: 98 }, Date.now())),
+		);
+		const cap = runInProcess(
+			path.resolve(__dirname, "..", "allowance.js"),
+			capArgs(dir, 1, { week: 97, session: 90 }),
+			{
+				stdin: "",
+				env: {
+					...process.env,
+					WFC_SESSION_COST_TABLE: path.join(dir, "no-such-table.json"),
+				},
+			},
+		);
+		/* A trustworthy reading exits 0; the cap's fault rides in its payload. */
+		expect(cap.status).toBe(0);
+		expect(parseCapFits(cap.stdout)).toEqual({
+			fits: null,
+			why: expect.stringMatching(/^the session cost table is unreadable/),
+			fault: true,
+		});
+	});
+});
+
+describe("sizeParkerSeats (#3669, #4147)", () => {
+	const reading = (name: string, fits: number | null, week = 10) => ({
+		...seat(name, week, 10),
+		fits,
+	});
+	/** A parker of #5 on `name`, its marker naming `keyVar` where given, else a plan seat's. */
+	const parker = (name: string, keyVar?: string) => ({
+		root: "wfc",
+		number: 5,
+		sessionId: "s-5",
+		job: { ...seatIdOf({ seat: name, keyVar }), jobId: "j5", cwd: "wfc" },
+		resumeCwd: "wfc",
+	});
+	/** The seats sized, each cap's reading fits 1, with the seats it read. */
+	const size = (
+		seats: ReturnType<typeof reading>[],
+		parkers: ReturnType<typeof parker>[],
+	) => {
+		const read: string[] = [];
+		const out = sizeParkerSeats(seats, parkers, (name, members) => {
+			read.push(`${name}/${members}`);
+			return 1;
+		});
+		return { read, fits: out.map((s) => s.fits) };
+	};
+
+	it("sizes a parker's seat with room and no cap for one resume, as a plan seat's", () => {
+		expect(size([reading("a", 3), reading("b", null)], [parker("b")])).toEqual({
+			read: ["b/1"],
+			fits: [3, 1],
+		});
+	});
+
+	it("reads none of a plan seat's cap for a marker naming an overflow key on its dir (#4147)", () => {
+		expect(
+			size([reading("a", 3), reading("b", null)], [parker("b", "K2")]),
+		).toEqual({ read: [], fits: [3, null] });
+	});
+
+	it("leaves a parker's seat with no room, or one sized already, as it reads", () => {
+		expect(
+			size(
+				[reading("a", 3), reading("b", null, FULL)],
+				[parker("a"), parker("b")],
+			),
+		).toEqual({ read: [], fits: [3, null] });
 	});
 });

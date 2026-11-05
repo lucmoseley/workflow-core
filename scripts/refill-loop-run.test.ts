@@ -7,7 +7,7 @@
  * The program and its lib/ closure are copied into a sandbox `scripts/`, its
  * children stubbed beside it: admission, the allowance cap, the reap, the
  * shortlist, the gate check and the dispatcher are all found from the
- * program's own directory. The cwd-outside-every-checkout cases run the real
+ * program's own directory. The cwd-outside-every-checkout case runs the real
  * allowance.js, as only it reads the host's cost table (#2937). The copy is
  * no git checkout, so run() adopts no newer code, and the morning review's
  * root is the sandbox, with no config, so no tick files a review on a real
@@ -15,6 +15,68 @@
  *
  * Loosen it and a fault in the program's own wiring, of its libs, children
  * and exits, passes unseen (#2851).
+ *
+ * Why each case stays a full tick (§X8 (5), §X11): every branch a module can
+ * own runs in-process in its module's test. A case below is a production
+ * adapter crossed for real (A), an exit path or input channel (E), a spawn
+ * shape — a signal, or a second live process holding the pid or control lock
+ * (S), a §N5 fail-open (F), a boundary regression (R), or a branch still in
+ * lib/refill-tick.js's or refill-loop.js's shell, with no core entry to test
+ * it from (B, #4356).
+ * - run (#2435): ends at a mid-dispatch stop E; appends the concurrency
+ *   record A; supervises a foreign checkout's launches B; tracks a launch a
+ *   kill cut off S R; tickets earlyoom's and memwatch's incidents A (two
+ *   children); the review child launches detached S, a second runner exits S;
+ *   ticks on a wake line E.
+ * - panel (#4060): keeps a failed probe's figure A (usage-probe.js).
+ * - dry run (#2611): prints the overflow dispatch E (the dry-run argv), A.
+ * - overflow allowance (#3698): stops one past it A (`claude stop`);
+ *   records the listed id B.
+ * - Console read (#4071): starts the read A; none where its row will not
+ *   write F; none on a dry run B.
+ * - goal (#3864): reads the frontier bare once cleared A (pick-next argv).
+ * - parked launch (#2699, #3940): unlabels where it ended unblocked A; out of
+ *   scope (#3950) B, opted out B; an unreadable transcript F;
+ *   closed issues A, an unreadable closed list F; stops an away park once A;
+ *   the #4147 key in its marker B; a hold-attached park B; the permission
+ *   cause B; the UNKNOWN line across ticks B.
+ * - API error (#2705): types into the live session A (attach, pty_type.py);
+ *   the auth refusal B; judged by state.json A; the overflow copy's key B;
+ *   the copy tracked as the job A; a launcher line naming no job B; pass
+ *   markers moved A, kept with the open past id B.
+ * - limit hold (#3735): resumes under its seat A; held where state.json reads
+ *   stopped B or another session B; the ledger hold A and its swap A; moved
+ *   to another plan seat A, unconfirmed B, an uncopied transcript B; onto a
+ *   key A, its first overflow start A, an unwritable ledger row B.
+ * - host restart (#2707): types after 5 min A; stops under the swap hold A;
+ *   a cleared swap hold resumes A, a refused re-read A (admission --launch),
+ *   a copy handed off B, a session handed off A (rescue-sessions.js).
+ * - daemon cwd (#2937): sizes the seat from the served checkout's cost
+ *   table A R (the real allowance.js).
+ * - normal-mode park (#3621): resumes in place A, on its cause's prompt A,
+ *   noting the ledger's acts B, the marker handed on A or kept F; resumes
+ *   from its marker (#3773) B ×3; launches afresh with no job A; an away
+ *   park's ledger row released before the shortlist B (#3872).
+ * - `set --resume` (#3861): restarts E, refuses a damaged control E, exits
+ *   1 on no launch E. `start` (#3868): --unless-stopped E.
+ * - a case's end (#4140): this file's own teardown, owned by no module.
+ * - boot-resume (#3878): restarts E, no second loop E, exits 1 E; watch
+ *   (#4139): restarts the unit A (systemctl), a live holder B, a launch in
+ *   flight S, a damaged control B, exits 1 E; no lock (#4083): exits 1 E S,
+ *   keeps the crash B, names the holder S, `start` exits 1 E.
+ * - paused (#3856): clears an older stop B, crossing the reap A;
+ *   resumes with no restart S. Opted out (#4188): unticks A. Away (#3870):
+ *   the lock held by another writer S; a dry run writes nothing B. Waits
+ *   (#3859): pauses on no progress, resumed by `set --resume` A S.
+ * - repo hold (#3857): its command run for real A; none on a dry run B.
+ *   Probe hold (#3860): a broken .git A, the other checkout A, the state's
+ *   probe A, its parked resumed A, none on a dry run B. Guard entry (#4226):
+ *   raises and files A, attaches and resumes A.
+ * - cleared repo hold (#3863): its resume step is the shell's B ×7.
+ * - restart's kills (#3880): resumed by id A, a copy a kill beat S R, set
+ *   off by boot-resume R; the manager's restart (#3971) A ×3; a resumed
+ *   session typed A, handed off A; a job no transcript backs A.
+ * - phone notice (#3871): one on raise, one on clear A (gh workflow).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -229,6 +291,7 @@ process.stdout.write("started the lander");\n`,
 	retroBundles: [],
 	pulledIn: [],
 	pulledInUnread: [],
+	conflictGraph: { candidates: [], inFlight: [] },
 	running: [],
 }));\n`,
 	);
@@ -476,20 +539,6 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toContain(`landing in ${at("gone")}`);
 	});
 
-	it("counts a session the tick launched in its concurrency row (#3770)", async () => {
-		const file = ledgerPath(repo);
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		stub(
-			"dispatch-sessions.sh",
-			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${shellQuote(file)}
-node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
-		);
-		await settled(run(1), "run that launches");
-		const [line] = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
-		const { count } = ADMISSION_VERDICT.memory.working;
-		expect(line).toMatchObject({ working: count + 1, ceiling: count + 1 });
-	});
-
 	it("tracks a launch a kill cut off between the dispatcher's start and the state write (#4180)", async () => {
 		const file = ledgerPath(repo);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -540,35 +589,6 @@ kill -9 $PPID\n`,
 		expect(r.stdout).toMatch(
 			/repo \/implement 5's launch at .* started job job5, which a kill left out of the state: tracking it/,
 		);
-	});
-
-	it("logs a damaged state file and ticks on the defaults (#3380)", async () => {
-		const state = at(".refill-loop-state.json");
-		fs.writeFileSync(state, "{ not json");
-		const r = await settled(run(1), "run over a damaged state file");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`${state} is damaged (`);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
-	it("stops at its first tick on a damaged control file, recorded control-damaged (#3389)", async () => {
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(control, "{ not json");
-		const r = await settled(run(1), "run over a damaged control file");
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual([]);
-		expect(readStopped()).toMatchObject({
-			reason: "control-damaged",
-			detail: expect.stringContaining(`${control} is damaged (`),
-		});
-	});
-
-	it("stops at its first tick on an absent control file, recorded explicit (#3389)", async () => {
-		fs.rmSync(at(".refill-loop-control.json"));
-		const r = await settled(run(1), "run with no control file");
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual([]);
-		expect(readStopped()).toMatchObject({ reason: "explicit" });
 	});
 
 	/** Gives the sandbox's code root, the review root, a workflow-core config. */
@@ -813,16 +833,6 @@ process.exitCode = ${status};\n`,
 		return r;
 	};
 
-	it("reads a seat past its reset with no free slot and another seat ahead", async () => {
-		stubProbe("stopped", 0);
-		writeSeats();
-		await oneTick();
-		expect(readLines(at("probes"))).toEqual([at("behind")]);
-		expect(readLoopState().seatTriedAt[at("behind")]).toEqual(
-			expect.any(Number),
-		);
-	});
-
 	it("keeps a failed probe's last figure and does not retry it on the next tick", async () => {
 		stubProbe("failed (the seat is not logged in)", 1);
 		writeSeats();
@@ -830,35 +840,15 @@ process.exitCode = ${status};\n`,
 		const failed = await oneTick();
 		expect(fs.readFileSync(behindCache(), "utf8")).toBe(figure);
 		expect(failed.stdout).toContain(`/usage on ${at("behind")}:`);
+		// Probed past its reset with no free slot, the seat ahead left alone.
+		expect(readLines(at("probes"))).toEqual([at("behind")]);
 		const state = readLoopState();
+		expect(state.seatTriedAt[at("behind")]).toEqual(expect.any(Number));
 		writeSeats();
 		fs.writeFileSync(behindCache(), figure);
 		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
 		await oneTick();
 		expect(readLines(at("probes"))).toEqual([at("behind")]);
-	});
-
-	it("reads nothing on a paused tick", async () => {
-		stubProbe("stopped", 0);
-		writeSeats();
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				paused: { by: "founder", at: 7 },
-			}),
-		);
-		const running = run(0);
-		await polled(
-			() =>
-				fs.existsSync(at(".refill-loop-state.json")) &&
-				readLoopState().lastTick !== null,
-			"no paused tick wrote its state",
-		);
-		requestStop();
-		expect((await settled(running, "paused run")).status).toBe(0);
-		expect(readLines(at("probes"))).toEqual([]);
 	});
 });
 
@@ -907,29 +897,9 @@ describe("a dry run with overflow seats (#2611)", () => {
 		expect(r.stdout).toContain(
 			`would run in ${repo} on overflow seat ${overflowSeat()}, each member billed to key=WFC_TEST_KEY: ${dispatch()}`,
 		);
+		// The decision's summary line, which the dry run prints ahead of it.
+		expect(r.stdout).toMatch(/^dry run: /m);
 		expect(readLines(at("dispatches"))).toEqual([]);
-	});
-
-	it("waits on the plan's reset once every key is spent", async () => {
-		weekAt(100);
-		writeSeatFile(2);
-		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
-	});
-
-	it("launches on the plan seat while it has room, as with no overflow line", async () => {
-		weekAt(10);
-		for (const grant of [200, null]) {
-			writeSeatFile(grant);
-			expect((await runDry()).stdout).toContain(
-				`would run in ${repo} on ${seat}: ${dispatch()}`,
-			);
-		}
-	});
-
-	it("waits on the plan seat's full week as before with no overflow line", async () => {
-		weekAt(100);
-		writeSeatFile(null);
-		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
 	});
 });
 
@@ -993,14 +963,6 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 			`stopped overflow session Overflow · job (${job}) on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
 		);
 		expect(readLines(at("stops"))).toEqual([`stop ${job}`]);
-	});
-
-	it("leaves one under it alone", async () => {
-		writeTranscript(5_000_000);
-		const r = await oneTick();
-		expect(r.status).toBe(0);
-		expect(r.stdout).not.toContain("overflow session");
-		expect(readLines(at("stops"))).toEqual([]);
 	});
 
 	it("records the session id the listing shows for a launch `--bg` gave none (#3701)", async () => {
@@ -1071,27 +1033,6 @@ describe("a due Console read on the real tick (#4071)", () => {
 		expect(readLines(runnerCallsFile())).toEqual([]);
 	});
 
-	it("starts none on a paused tick", async () => {
-		updateControl({ paused: { by: "founder", at: 7 } });
-		const running = run(0);
-		await polled(
-			() => fs.existsSync(at(".refill-loop-state.json")),
-			"no paused tick wrote its state",
-		);
-		requestStop();
-		expect((await settled(running, "paused run")).status).toBe(0);
-		expectNoReadStarted();
-	});
-
-	it("starts none on a stopping tick", async () => {
-		updateControl({ stopRequested: true });
-		const r = await settled(run(0), "run asked to stop");
-		expect(r.status).toBe(0);
-		// The tick reached admission, which the start follows.
-		expect(readLines(at("ticks"))).toHaveLength(1);
-		expectNoReadStarted();
-	});
-
 	it("starts none on a dry run", async () => {
 		const r = await runDry();
 		expect(r.status).toBe(0);
@@ -1117,28 +1058,8 @@ describe("the loop's goal across ticks (#3864)", () => {
 		stub(
 			"pick-next.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("picks"))}, process.argv.slice(2).join(" ") + "\\n");
-process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [] }));\n`,
+process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [], conflictGraph: { candidates: [], inFlight: [] } }));\n`,
 		);
-	const readPicksThenStop = async (
-		running: ReturnType<typeof startRun>,
-		reads: number,
-	) => {
-		await polled(
-			() => readLines(at("picks")).length > 0,
-			"no tick read the frontier",
-		);
-		for (let i = 1; i < reads; i++) {
-			const seen = readLines(at("picks")).length;
-			fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
-			await polled(
-				() => readLines(at("picks")).length > seen,
-				"a later tick read no frontier",
-			);
-		}
-		requestStop();
-		return settled(running, "run reading the goal");
-	};
-
 	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
 		stubRecordingShortlist();
 		writeScope({
@@ -1165,35 +1086,6 @@ process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: 
 		requestStop();
 		expect((await settled(running, "run reading the goal")).status).toBe(0);
 		expect(readLines(at("picks"))[0]).toBe("--json --goal 7");
-	});
-
-	it("logs a garbled goal and carries on bare", async () => {
-		stubRecordingShortlist();
-		writeScope({ mode: "normal", repos: [repo], goal: "soon" });
-		const r = await readPicksThenStop(startRun(), 1);
-		expect(r.status).toBe(0);
-		expect(readLines(at("picks"))[0]).toBe("--json");
-		expect(r.stdout).toContain("goal is garbled");
-	});
-
-	it("holds a confirmed topic's set as stored from tick to tick", async () => {
-		stubRecordingShortlist();
-		const goal = {
-			form: "topic",
-			text: "faster tests",
-			refs: [{ repo: path.basename(repo), number: 7 }],
-			setAt: 3,
-		};
-		writeScope({ mode: "normal", repos: [repo], goal });
-		const r = await readPicksThenStop(startRun(), 2);
-		expect(r.status).toBe(0);
-		const picks = readLines(at("picks"));
-		expect(picks.length).toBeGreaterThanOrEqual(2);
-		for (const pick of picks) expect(pick).toBe("--json --goal 7");
-		expect(
-			JSON.parse(fs.readFileSync(at(".refill-loop-control.json"), "utf8")).scope
-				.goal,
-		).toEqual(goal);
 	});
 });
 
@@ -2680,31 +2572,6 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 		expect(r.stdout).not.toContain("unsized");
 		expect(r.stdout).toContain(`would run in ${repo} on ${seat}`);
 	});
-
-	it("logs a checkout with no cost table as a fault, not a full seat", async () => {
-		const r = await dryRun();
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			`fault: cap on ${seat} unsized: the session cost table is unreadable`,
-		);
-		expect(r.stdout).toContain("no plan has room right now");
-	});
-
-	it("logs a loop serving no checkout as a fault", async () => {
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				scope: { mode: "normal", repos: [], goal: null },
-			}),
-		);
-		const r = await dryRun();
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			`fault: cap on ${seat} unsized: the loop serves no checkout to size it in`,
-		);
-	});
 });
 
 describe("a parked ticket in a normal-mode loop (#3621)", () => {
@@ -2722,6 +2589,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	retroBundles: [],
 	pulledIn: [],
 	pulledInUnread: [],
+	conflictGraph: { candidates: [], inFlight: [] },
 }));\n`,
 		);
 		if (!parker) return;
@@ -2917,56 +2785,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		);
 	});
 
-	describe("a marker naming an overflow key on a plan seat's dir (#4147)", () => {
-		/** A marker on a second plan seat, with room and no cap sized yet; the seats each cap read asked for. */
-		const seedOnSeat2 = (keyLine: string) => {
-			const seat2 = at("seat2");
-			seed(true, seat2);
-			writeMarker(`seat ${seat2}\n${keyLine}job ${Job}\ncwd ${repo}\n5\n`);
-			fs.writeFileSync(
-				path.join(seat2, ".claude.json"),
-				JSON.stringify(buildUsageCache({ session: 10, week: 10 }, Date.now())),
-			);
-			const control = at(".refill-loop-control.json");
-			fs.writeFileSync(
-				control,
-				JSON.stringify({
-					...JSON.parse(fs.readFileSync(control, "utf8")),
-					seats: [seat, seat2],
-				}),
-			);
-			stub(
-				"allowance.js",
-				`require("node:fs").appendFileSync(${JSON.stringify(at("cap-reads"))}, process.env.CLAUDE_CONFIG_DIR + "\\n");
-process.stdout.write(JSON.stringify({ cap: { launch: 1 } }));\n`,
-			);
-			return seat2;
-		};
-
-		it("launches afresh, resuming nothing and reading none of the plan seat's cap", async () => {
-			const seat2 = seedOnSeat2("key K2\n");
-			const r = await settled(run(1), ParkedRun);
-			expect(r.status).toBe(0);
-			expect(fs.existsSync(at("calls"))).toBe(false);
-			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-			expect(r.stdout).toContain(
-				"its session ran on overflow seat key=K2; launching afresh",
-			);
-			expect(readLines(at("cap-reads"))).not.toContain(seat2);
-		});
-
-		it("sizes the seat for a marker naming no key, as a plan seat's", async () => {
-			const seat2 = seedOnSeat2("");
-			wakesInPlace();
-			const r = await settled(run(1), ParkedRun);
-			expect(r.status).toBe(0);
-			expect(readLines(at("calls"))).toEqual([
-				`--bg --resume s-job5 ${PARKED_PROMPT}`,
-			]);
-			expect(readLines(at("cap-reads"))).toContain(seat2);
-		});
-	});
-
 	it("releases an away park's ledger row before the tick reads its shortlist, so the ticket resumes (#3872)", async () => {
 		seed();
 		const pickNext = path.join(scripts, "pick-next.js");
@@ -3109,20 +2927,6 @@ describe("`start` with no process (#3868)", () => {
 			"the stopped loop did not end",
 		);
 	};
-
-	it("restarts a stopped loop from its stored repos, goal, mode and pause, ending the stop", async () => {
-		writeStored({ stopRequested: true, stopRequestedAt: 6, paused });
-		const before = readStored();
-		const r = await commandFromRepo("start");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(/^refill loop started: pid \d+$/m);
-		await stopOnceHolding();
-		const after = readStored();
-		expect(after.scope).toMatchObject(before.scope);
-		expect(after.paused).toEqual(paused);
-		expect(after.noProgressFrom).toBeGreaterThan(5);
-		expect(after.stopRequestedAt).toBeGreaterThan(6);
-	});
 
 	it("starts a crashed loop from its stored settings as they were, with --unless-stopped", async () => {
 		writeStored({ paused });
@@ -3487,9 +3291,6 @@ describe("a paused loop on the real tick (#3856)", () => {
 	const readState = () => JSON.parse(fs.readFileSync(stateFile(), "utf8"));
 	const ticksDone = () =>
 		polled(() => fs.existsSync(stateFile()), "no paused tick wrote its state");
-	const recording = (name: string) =>
-		`require("node:fs").appendFileSync(${JSON.stringify(at(name))}, "called\\n");\n`;
-
 	const setCommand = (flag: string) =>
 		/* spawn-kept: two processes at once, as requestStop's. */
 		spawnSync(
@@ -3498,50 +3299,13 @@ describe("a paused loop on the real tick (#3856)", () => {
 			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
 		);
 
-	it("keeps the housekeeping, launches nothing and makes no slot, usage or cap read", async () => {
-		stub("reap-finished-sessions.js", recording("reaped"));
-		stub("allowance.js", recording("capped"));
-		/* Past any listing grace, and listed nowhere, so judged finished. */
-		fs.writeFileSync(
-			stateFile(),
-			JSON.stringify({
-				launches: [
-					{
-						root: repo,
-						issues: [9],
-						prompt: "/implement 9",
-						seat,
-						jobId: "gone",
-						launchedAt: Date.now() - 3600 * 1000,
-						finishedAt: null,
-					},
-				],
-			}),
-		);
-		pauseControl();
-		const running = run(1);
-		await polled(
-			() => readState().lastTick !== undefined && readState().lastTick !== null,
-			"no paused tick wrote its state",
-		);
-		requestStop();
-		const r = await settled(running, "run while paused");
-
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			`idle: paused by founder at ${new Date(7).toISOString()}`,
-		);
-		expect(r.stdout).not.toContain("free slots");
-		expect(r.stdout).not.toContain("resumed 0 of");
-		expect(readLines(at("reaped")).length).toBeGreaterThan(0);
-		expect(readLines(at("supervised")).length).toBeGreaterThan(0);
-		expect(readState().launches[0].finishedAt).not.toBeNull();
-		expect(fs.existsSync(at("ticks"))).toBe(false);
-		expect(fs.existsSync(at("capped"))).toBe(false);
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-	});
-
 	it("clears a stop recorded before this run once it holds the pidfile (#3861)", async () => {
+		/* The reap child's one crossing; refill-tick-core.test.ts's "a paused
+		 * tick" holds what a paused tick does and does not call. */
+		stub(
+			"reap-finished-sessions.js",
+			`require("node:fs").appendFileSync(${JSON.stringify(at("reaped"))}, "called\\n");\n`,
+		);
 		pauseControl();
 		fs.writeFileSync(
 			stateFile(),
@@ -3554,6 +3318,7 @@ describe("a paused loop on the real tick (#3856)", () => {
 		await settled(running, "paused run");
 		expect(readState().stopped.reason).toBe("explicit");
 		expect(readState().stopped.at).toBeGreaterThan(6);
+		expect(readLines(at("reaped")).length).toBeGreaterThan(0);
 	});
 
 	it("launches again on a resume, with no restart (#3943)", async () => {
@@ -3620,81 +3385,12 @@ describe("away mode's return on the real tick (#3870)", () => {
 			}),
 		);
 	};
-	/* Safe beside the running loop, which writes the control file only on a
-	 * tick and ticks only on a wake. */
-	const backdateSwitch = (ms: number) => {
-		const control = readControl();
-		fs.writeFileSync(
-			controlFile(),
-			JSON.stringify({ ...control, away: { ...control.away, since: ms } }),
-		);
-	};
 	const typedAt = (ms: number) =>
 		fs.writeFileSync(at("no-presence"), `${new Date(ms).toISOString()}\n`);
 	const wake = () =>
 		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
-	const setAway = () =>
-		/* spawn-kept: two processes at once, as requestStop's. */
-		spawnSync(
-			process.execPath,
-			[path.join(scripts, "refill-loop.js"), "set", "--away"],
-			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
-		);
 	const modeIs = (mode: string) =>
 		polled(() => readControl().scope.mode === mode, `no tick read ${mode}`);
-	const absentRead = () =>
-		polled(
-			() => readControl().away?.absentSeen === true,
-			"no tick recorded the absent read",
-		);
-
-	it("returns and logs it, then a manual --away holds until the next absent read and present one", async () => {
-		seedAway(true);
-		typedAt(Date.now());
-		const running = run(1);
-		await modeIs("normal");
-		expect(readControl().away).toBeUndefined();
-
-		expect(setAway().status).toBe(0);
-		const switchedAt = readControl().away.since;
-		const stateFile = at(".refill-loop-state.json");
-		const tickAfterSwitch = () =>
-			JSON.parse(fs.readFileSync(stateFile, "utf8")).lastTick?.at > switchedAt;
-		await polled(tickAfterSwitch, "no tick followed the manual switch");
-		expect(readControl().scope.mode).toBe("away");
-		expect(readControl().away.absentSeen).toBe(false);
-
-		/* The switch reads as presence for its first window (#4184), so both it
-		 * and the last prompt go back four of presence.js's 30-minute windows. */
-		const longAgo = Date.now() - 2 * 60 * 60 * 1000;
-		backdateSwitch(longAgo);
-		typedAt(longAgo);
-		wake();
-		await absentRead();
-		expect(readControl().scope.mode).toBe("away");
-
-		typedAt(Date.now());
-		wake();
-		await modeIs("normal");
-		requestStop();
-		const r = await settled(running, "run through two returns");
-
-		expect(r.status).toBe(0);
-		expect(r.stdout.match(/mode normal: the founder is back/g)).toHaveLength(2);
-	});
-
-	it("records an absent read and stays away", async () => {
-		seedAway(false);
-		const running = run(1);
-		await absentRead();
-		requestStop();
-		const r = await settled(running, "run while absent");
-
-		expect(r.status).toBe(0);
-		expect(readControl().scope.mode).toBe("away");
-		expect(readControl().away.since).toBe(7);
-		expect(r.stdout).not.toContain("the founder is back");
-	});
 
 	it("leaves the return to the next tick while another writer holds the lock", async () => {
 		seedAway(true);
@@ -3804,24 +3500,6 @@ describe("the loop's own waits on the real tick (#3859)", () => {
 		expect(resumed.status).toBe(0);
 		/* The stub dispatcher asks for the stop that ends this run. */
 		const r = await settled(running, "run after a resume");
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches")).join("\n")).toContain("/implement 5");
-	});
-
-	it("waits out a full week with the process up, then launches by itself once the bar resets", async () => {
-		weekAt(100);
-		const running = run(1);
-		await polled(
-			() => state().lastTick?.idle?.startsWith("a plan resets") === true,
-			"no tick waited on the allowance",
-		);
-		expect(state().stopped ?? null).toBeNull();
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-		expect(statusJson().lastTick.planWait).toEqual(state().lastTick.planWait);
-
-		weekAt(10);
-		wake();
-		const r = await settled(running, "run after the reset");
 		expect(r.status).toBe(0);
 		expect(readLines(at("dispatches")).join("\n")).toContain("/implement 5");
 	});
@@ -4998,25 +4676,6 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 		return done;
 	};
 
-	const holdCli = (...args: string[]) =>
-		runInProcess(path.join(__dirname, "repo-hold.js"), args, {
-			cwd: repo,
-			env: loopEnv({
-				CLAUDE_PROJECT_DIR: repo,
-				CLAUDE_JOB_DIR: "",
-				CLAUDE_CODE_SESSION_ID: "",
-			}),
-		});
-	const raisePark = (act = "repair main") =>
-		holdCli(
-			"raise",
-			"--act",
-			act,
-			"--issue",
-			String(Issue),
-			"--clear-command",
-			"test -f fixed",
-		);
 	const readStatus = async () =>
 		(
 			await runInProcessAsync(
@@ -5025,17 +4684,6 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 				{ cwd: dir, env: loopEnv({}) },
 			)
 		).stdout;
-
-	const Min = 60_000;
-	/** When a slot last worked, as the tick before this one read it. */
-	const slotWorkedAgo = (ms: number) =>
-		fs.writeFileSync(
-			at("last-slot-worked.json"),
-			JSON.stringify({
-				workedAt: Date.now() - ms,
-				tickedAt: Date.now() - Min,
-			}),
-		);
 
 	beforeEach(() => {
 		writeConfig();
@@ -5071,14 +4719,5 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 		expect(after.stdout).toContain("clear notice seen");
 		await tickRun(serve());
 		expect(readPhases()).toEqual(["raise", "clear"]);
-	});
-
-	it("counts a registry and listing holding nobody as no slot working", async () => {
-		raisePark();
-		slotWorkedAgo(31 * Min);
-		fs.mkdirSync(path.join(seat, "sessions"), { recursive: true });
-		writeClaudeStub(at("claude"), [buildAgentsBranch([])]);
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise"]);
 	});
 });
