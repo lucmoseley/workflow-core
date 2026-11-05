@@ -175,6 +175,10 @@ describe("takeover: the success path", () => {
 		expect(r.stdout).toContain(
 			`Narration: ${path.join(snapshotDir(), `${SHORT}.narration.txt`)}`,
 		);
+		expect(r.stdout).toContain(`Worktree: ${sb.repo}`);
+		expect(r.stdout).toContain(
+			`scripts/dispatch-sessions.sh --into ${sb.repo}`,
+		);
 		expect(r.stdout).toContain("Death point:\nA: Delegated the suite.");
 		expect(r.stdout).toContain("Commits landed:");
 		expect(r.stdout).toContain("Artefacts survived:");

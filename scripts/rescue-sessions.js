@@ -2193,6 +2193,7 @@ function buildResumptionText(job, t) {
 		`Adopted #${t.n} ${t.title}`,
 		`Intent: ${job.intent || "(no job record — read the narration's first USER line)"}`,
 		`Narration: ${path.join(t.out, `${t.short}.narration.txt`)}`,
+		`Worktree: ${job.cwd || "(not recorded — find its dirty files with git worktree list)"}`,
 		`Death point:\n${job.deathPoint || "(none)"}`,
 		`Commits landed: ${buildLandedLine(job)}`,
 		`Artefacts survived: ${job.artefactsSurvived && job.artefactsSurvived.length > 0 ? job.artefactsSurvived.join(", ") : "none"}`,
@@ -2201,7 +2202,9 @@ function buildResumptionText(job, t) {
 			: "Its file claims, listed and not moved — your next write takes each:",
 		...readFileClaimLines(t.sessionId),
 		"",
-		"Read the narration yourself, then continue its intent in this session.",
+		job.cwd
+			? `Read the narration yourself, then continue its intent in its worktree: cd ${job.cwd}, or relaunch there with scripts/dispatch-sessions.sh --into ${job.cwd} <model> <prompt>.`
+			: "Read the narration yourself, then continue its intent in this session.",
 	].join("\n");
 }
 
