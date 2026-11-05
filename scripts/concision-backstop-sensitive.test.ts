@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins that a path under a declared sensitive glob owes the escalated review
- * tier at any size (#1618). The fixture and the reasoning behind it:
+ * tier at any size (#1618). Loosen a case and a change to a declared area
+ * gets the standard review, or none under the churn floor. The fixture:
  * concision-backstop.test.ts's header.
  */
 

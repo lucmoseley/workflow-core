@@ -13,7 +13,7 @@ import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { runInProcess } from "./run-in-process.js";
 
 export const BACKSTOP = path.resolve(__dirname, "..", "concision-backstop.sh");
-export const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");
+const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");
 export const INJECTOR = path.resolve(__dirname, "..", "inject-tracker-docs.sh");
 
 export const ME = "session-under-test";
@@ -75,7 +75,7 @@ export const storePath = (pick: (store: any) => string) => {
 
 export const ledgerFor = (sid: string) => storePath((s) => s.paths.ledger(sid));
 
-export const arbiter = (args: string[], e: NodeJS.ProcessEnv) => {
+const arbiter = (args: string[], e: NodeJS.ProcessEnv) => {
 	const r = runInProcess(ARBITER, args, { env: e });
 	if (r.status !== 0)
 		throw new Error(`session-arbiter.js ${args[0]}: ${r.stderr}`);
@@ -116,8 +116,8 @@ const buildTemplate = (root: string) => {
 	fs.writeFileSync(path.join(repoDir, "seed.md"), "seed\n");
 	gitAt(repoDir, "add", "seed.md");
 	gitAt(repoDir, "commit", "-qm", "init");
-	// The SessionStart run every case starts from, made once here: it writes
-	// only ME's base marker, which the copy carries.
+	// The SessionStart run every case starts from, made once here (#4308): it
+	// writes only ME's base marker, which the copy carries.
 	const r = spawnSync(BACKSTOP, ["start"], {
 		cwd: repoDir,
 		encoding: "utf8",

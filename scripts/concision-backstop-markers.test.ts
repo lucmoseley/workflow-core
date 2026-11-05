@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
  * Pins that the Stop backstop accepts only a pass marker that covers the
- * range this session changed (mantahostels#139). The fixture and the reasoning
- * behind it: concision-backstop.test.ts's header.
+ * range this session changed (mantahostels#139). Loosen a case and a pass
+ * over one commit excuses the session's later, unreviewed ones. The fixture
+ * and the two-session setup: concision-backstop.test.ts's header.
  */
 
 import fs from "node:fs";

@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
  * Pins that the Stop backstop bills a concision pass or code review only for
- * work this session wrote, against a valid base, and accepts only a pass
- * marker that covers the range changed.
+ * work this session wrote, in its own tree, against a valid base. The
+ * marker, floor and sensitive-tier cases sit in the -markers, -floor and
+ * -sensitive files, split so no file runs past the per-file limit (#4308).
  *
  * concision-backstop.sh fires at Stop against a diff of a REPO-GLOBAL working
  * tree, so its whole correctness question is whose work it is looking at (mantahostels#114).

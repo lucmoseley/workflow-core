@@ -1,8 +1,10 @@
 // @vitest-environment node
 /*
- * Pins the backstop's /implement floor, the in-session pass, the Husky hooks
- * as code and the closing steps it hands over. The fixture and the reasoning
- * behind it: concision-backstop.test.ts's header.
+ * Pins the backstop's /implement floor (mantahostels#2769), the in-session
+ * pass (mantahostels#1143), the Husky hooks as code (mantahostels#2779) and the
+ * closing steps it hands over (#2031). Loosen a case and an /implement
+ * session or a hook-only change ends with no review, or the nag stops naming
+ * the steps it owes. The fixture: concision-backstop.test.ts's header.
  */
 
 import { spawnSync } from "node:child_process";
@@ -105,7 +107,9 @@ describe("the /implement floor — mantahostels#2769", () => {
 					hook_event_name: "UserPromptSubmit",
 					prompt: "/implement 2769",
 				}),
-				// Its `takes:` read (#1164) stays off the network.
+				// Its `takes:` read (#1164) stays off the network. CLAUDE_CONFIG_DIR
+				// restates env()'s for check-guard-test-isolation.js, which reads
+				// only this call site.
 				env: { ...env(), CLAUDE_CONFIG_DIR: cfg, WFC_GH: "false" },
 			},
 		);
