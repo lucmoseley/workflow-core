@@ -1,7 +1,7 @@
 /*
  * marker-line.js — whether a comment carries a `**Marker:**` line, the one
  * reading of a resolution line resolve-ticket.js and census-digest.js share
- * (#2376).
+ * (#2376), and the pattern behind it for a reader that captures the value.
  */
 
 /**
@@ -11,7 +11,7 @@
  * @param {string} value a pattern the line must open with after the marker
  * @param {string} [flags]
  */
-const lineRe = (marker, value, flags = "m") =>
+const buildLineRe = (marker, value, flags = "m") =>
 	new RegExp(`^[ \\t]*\\*\\*${marker}:\\*\\*[ \\t]*${value}`, flags);
 
 /**
@@ -19,6 +19,7 @@ const lineRe = (marker, value, flags = "m") =>
  * @param {string} marker
  * @param {string} value
  */
-const hasLine = (comment, marker, value) => lineRe(marker, value).test(comment);
+const hasLine = (comment, marker, value) =>
+	buildLineRe(marker, value).test(comment);
 
-module.exports = { hasLine, lineRe };
+module.exports = { hasLine, buildLineRe };

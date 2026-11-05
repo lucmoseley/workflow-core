@@ -7,9 +7,10 @@
  * Usage:  node scripts/check-compaction-backstop.js [--days <n>] [--json]
  *
  * Reads the `kind:ticket` issues closed in the last n days. A unit's count is
- * the sum of the `**Compactions:** <n>` lines on all its comments, so a unit
- * built across two sessions — a backstop hand-off, then a resolution — counts
- * both. A unit with no such line closed before the log existed, or by hand,
+ * each session's highest `**Compactions:** <n> (session <id>)` line across its
+ * comments, plus every line naming no session, so a unit built across two
+ * sessions — a backstop hand-off, then a resolution — counts both, each once.
+ * A unit with no such line closed before the log existed, or by hand,
  * and is counted apart, never binned.
  *
  * A FOLLOW-UP is a sub-issue of the unit's spec filed after the unit closed.
@@ -23,8 +24,8 @@
  * Bins: 0, 1, 2–3, 4–6, 7–10, 11+, the last two split at the backstop. The
  * spec's five are untraced (#4410 §Values).
  *
- * A report: it raises no finding and gates nothing. SKIP where the tracker or
- * git will not answer.
+ * A report: it raises no finding and gates nothing. SKIP where the tracker
+ * will not answer; BROKEN where git will not.
  */
 
 const { now, runCheck } = require("./lib/check");

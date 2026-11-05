@@ -359,7 +359,7 @@ function listIssueClaims(root) {
  * @param {string} sid
  * @returns {number|null}
  */
-function claimedIssue(sid) {
+function readClaimedIssue(sid) {
 	const mine = (listIssueClaims()?.claims ?? []).filter(
 		(c) => c?.sessionId === sid && typeof c.issue === "number",
 	);
@@ -515,7 +515,7 @@ function pruneIssueClaims(liveness) {
 module.exports = {
 	claimIssue,
 	claimIssueExclusive,
-	claimedIssue,
+	readClaimedIssue,
 	heldIssues,
 	listIssueClaims,
 	pruneIssueClaims,

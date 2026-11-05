@@ -56,7 +56,7 @@ const {
 	compactionAdvice,
 } = require("./lib/compaction-set");
 const { buildStateFile } = require("./lib/build-state");
-const { claimedIssue } = require("./lib/arbiter-issue-claims");
+const { readClaimedIssue } = require("./lib/arbiter-issue-claims");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
@@ -124,7 +124,7 @@ function afterCompaction(payload, sid) {
 	}
 	const pending = `${PENDING_PREFIX}${new Date().toISOString()}`;
 	const count = recordCompactions(sid, [...earlier, pending]);
-	return `${buildCompactionSentence(count)} ${compactionAdvice(count, unitOf(sid))}`;
+	return `${buildCompactionSentence(count)} ${compactionAdvice(count, unitOf(sid), sid)}`;
 }
 
 /**
@@ -135,12 +135,12 @@ function afterCompaction(payload, sid) {
 function unitOf(sid) {
 	let issue = null;
 	try {
-		issue = claimedIssue(sid);
+		issue = readClaimedIssue(sid);
 	} catch (err) {
 		logFailOpen("issue claims unreadable", err);
 	}
 	const file = issue === null ? null : buildStateFile(issue);
-	return { issue, stateFile: file && fs.existsSync(file) ? file : null, sid };
+	return { issue, stateFile: file && fs.existsSync(file) ? file : null };
 }
 
 /** @param {string} raw */

@@ -1208,7 +1208,7 @@ describe("the **Compactions:** line", () => {
 		expect(lastPosted()).toBe(own);
 	});
 
-	it("adds its own line beside one quoted from another session", () => {
+	it("adds its own line beside one quoted from another session (#4410)", () => {
 		setUp();
 		compacted(["c1"]);
 		const quoted = `${COMMENT}**Compactions:** 10 (session sess-before)\n`;

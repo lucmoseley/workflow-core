@@ -14,7 +14,7 @@ const path = require("node:path");
 const { hookStoreRoot } = require("./hook-store-root");
 const { markersDir } = require("./marker-root");
 const { readSeen, writeSeen } = require("./report-once");
-const { lineRe } = require("./marker-line");
+const { buildLineRe } = require("./marker-line");
 
 const COMPACTIONS_PREFIX = ".session-ceiling-compactions-";
 /* A compaction counted before its boundary reached the transcript. */
@@ -79,17 +79,14 @@ const COMPACTIONS_MARKER = "Compactions";
 const buildCompactionsLine = (count, sid) =>
 	`**${COMPACTIONS_MARKER}:** ${count} (session ${sid})`;
 /** Captures the count, then the session where the line names one. */
-const COMPACTIONS_LINE_RE = lineRe(
+const COMPACTIONS_LINE_RE = buildLineRe(
 	COMPACTIONS_MARKER,
 	"(\\d+)(?:[ \\t]+\\(session ([^)\\s]+)\\))?",
 	"gm",
 );
 /** @param {string} comment @param {string} sid */
 const hasSessionCompactionsLine = (comment, sid) =>
-	lineRe(
-		COMPACTIONS_MARKER,
-		`\\d+[ \\t]+\\(session ${sid.replace(/[^\w-]/g, "\\$&")}\\)`,
-	).test(comment);
+	[...comment.matchAll(COMPACTIONS_LINE_RE)].some((m) => m[2] === sid);
 
 /** @param {number} count */
 function buildCompactionSentence(count) {
@@ -104,11 +101,11 @@ const COMPACTION_BACKSTOP = 10;
 
 /**
  * @param {number} count
- * @param {{issue: number|null, stateFile: string|null, sid: string}} unit the
- *   issue this session's claim holds, its build state file where one exists,
- *   and the session
+ * @param {{issue: number|null, stateFile: string|null}} unit the issue this
+ *   session's claim holds, and its build state file where one exists
+ * @param {string} sid the session its hand-off line names
  */
-function compactionAdvice(count, { issue, stateFile, sid }) {
+function compactionAdvice(count, { issue, stateFile }, sid) {
 	const theIssue = issue ? `issue #${issue}` : "the issue you are working";
 	if (count >= COMPACTION_BACKSTOP) {
 		const update = stateFile
