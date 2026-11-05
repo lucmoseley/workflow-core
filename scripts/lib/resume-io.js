@@ -20,6 +20,7 @@ const { buildCheckoutEnv } = require("./refill-repos.js");
 const { findResumed } = require("./resumed-copy.js");
 const { runClaude } = require("./seat-claude.js");
 const { copyTranscript } = require("./seat-move.js");
+const { readSessionName } = require("./session-name.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 
 const SCRIPTS = path.dirname(__dirname);
@@ -43,6 +44,7 @@ const buildResumeIo = (log) => ({
 	recordLaunch: record,
 	copySpendUsd: (file) => fileSpend(file).usd,
 	sessionSpendUsd,
+	sessionName: readSessionName,
 	runArbiter: (root, cmd, n, sessionId) =>
 		runChild(
 			process.execPath,

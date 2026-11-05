@@ -24,6 +24,8 @@ import {
 	SESSION,
 } from "./resume-io-fake";
 
+type JobLaunch = import("./refill-blocks.js").JobLaunch;
+
 const SEAT = "/home/u/.claude3";
 const TARGET = "/home/u/.claude4";
 const ROOT = "/home/u/repo";
@@ -37,6 +39,37 @@ function fakeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 	const fake = fakeResumeIo(picks, env);
 	return { ...fake, steps: resumeSteps(fake.io) };
 }
+
+describe("readResumeTarget", () => {
+	it("takes the listing's session id over its job record's", () => {
+		const { steps } = fakeIo({ readJobRecord: "otherSession" });
+		expect(
+			steps.readResumeTarget({
+				...LAUNCH,
+				jobId: JOB,
+				sessionId: SESSION,
+			} as unknown as JobLaunch),
+		).toEqual(IDS);
+	});
+
+	it("falls back to the checkout where the job record names no cwd", () => {
+		const { steps } = fakeIo({ readJobRecord: "working" });
+		expect(
+			steps.readResumeTarget({ ...LAUNCH, jobId: JOB } as unknown as JobLaunch),
+		).toEqual(IDS);
+	});
+
+	it("reads no job record for a launch naming no job, its target the checkout", () => {
+		const { steps, callsTo } = fakeIo({ readJobRecord: "working" });
+		expect(
+			steps.readResumeTarget({
+				...LAUNCH,
+				sessionId: SESSION,
+			} as unknown as JobLaunch),
+		).toEqual(IDS);
+		expect(callsTo("readJobRecord")).toEqual([]);
+	});
+});
 
 describe("resumeStopped", () => {
 	it("refuses the --bg --resume where its auth would not bill the subscription, launching nothing (#2236)", () => {
@@ -164,7 +197,8 @@ describe("resumeStopped", () => {
 });
 
 describe("moveSession (#3734, #3736)", () => {
-	const job = { ...LAUNCH, jobId: JOB } as never;
+	const job = { ...LAUNCH, jobId: JOB, prompt: "/implement 7" } as never;
+	const keyTarget = { seat: TARGET, keyVar: KEY_VAR, allowanceUsd: 40 };
 
 	it("names a transcript it could not copy, resuming nothing", () => {
 		const { steps, callsTo } = fakeIo({ copyTranscript: "uncopied" });
@@ -196,6 +230,49 @@ describe("moveSession (#3734, #3736)", () => {
 		expect(r.failed).toContain(FAULTS.overflowLookup.unreadable);
 		expect(callsTo("stop")).toContainEqual([SEAT, FAKE_COPY]);
 		expect(callsTo("runArbiter")).toEqual([]);
+	});
+
+	/** The `-n` a move onto `target` passes, its transcript read as `name`. */
+	const movedName = (
+		name: Picks["sessionName"],
+		target: object = keyTarget,
+	) => {
+		const { steps, callsTo, lines } = fakeIo({ sessionName: name });
+		steps.moveSession(job, target as never, PROMPT, IDS);
+		const [[args]] = callsTo("runClaude") as [[string[]]];
+		const at = args.indexOf("-n");
+		return {
+			name: at < 0 ? null : args[at + 1],
+			read: callsTo("sessionName"),
+			lines,
+		};
+	};
+
+	it("names a plan session moved onto a key with the overflow prefix, the name its transcript gives after it (#4395)", () => {
+		expect(movedName("named")).toMatchObject({
+			name: "Overflow · Implement 7: a title",
+			read: [[`${SEAT}/projects/-home-u-repo/${SESSION}.jsonl`]],
+			lines: expect.not.arrayContaining([
+				expect.stringContaining("name not read"),
+			]),
+		});
+	});
+
+	it("names a session whose transcript gives no name after its prompt, and never prefixes twice (#4395)", () => {
+		expect(movedName("unnamed").name).toBe("Overflow · /implement 7");
+		expect(movedName("prefixed").name).toBe("Overflow · Implement 7");
+	});
+
+	it("names a session whose transcript will not read after its prompt, logging why (#4395)", () => {
+		const r = movedName("unreadable");
+		expect(r.name).toBe("Overflow · /implement 7");
+		expect(r.lines).toContain(
+			`${SESSION}'s name not read, so named after its prompt: ${ANSWERS.sessionName.unreadable.why}`,
+		);
+	});
+
+	it("leaves a session moved onto a plan seat its own name", () => {
+		expect(movedName("named", { seat: TARGET }).name).toBeNull();
 	});
 
 	it("stops the copy and hands it nothing where its ledger row will not write (#3730)", () => {
