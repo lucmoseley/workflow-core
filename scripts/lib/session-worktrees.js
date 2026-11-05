@@ -25,7 +25,8 @@ const { worktreePaths } = require("./worktree-paths.js");
 
 /**
  * @typedef {{sessionId: string, name: string|null}} Owner
- * @typedef {{sessionId: string, name: string|null, cwd: string, at: number}} JobCwd
+ * @typedef {{sessionId: string, name: string|null, cwd: string, at: number,
+ *   state: string|null}} JobCwd
  * @typedef {{cwds?: Map<string, string>, names?: Map<string, string>}} ListedCwds
  *   the agents oracle's read: each listed session's cwd and name
  */
@@ -47,7 +48,25 @@ function readLinkedWorktrees(root) {
 }
 
 /**
- * The cwd, session and name of every job record on every seat.
+ * A job record's cwd, session, name and state; null where it names no cwd or
+ * session.
+ * @param {ReturnType<typeof readJobRecordIn>} job
+ * @returns {JobCwd | null}
+ */
+function jobCwdOf(job) {
+	if (typeof job?.cwd !== "string" || typeof job.sessionId !== "string")
+		return null;
+	return {
+		sessionId: job.sessionId,
+		name: typeof job.name === "string" ? job.name : null,
+		cwd: deref(job.cwd),
+		at: Date.parse(job.updatedAt ?? "") || 0,
+		state: typeof job.state === "string" ? job.state : null,
+	};
+}
+
+/**
+ * The cwd, session, name and state of every job record on every seat.
  * @returns {JobCwd[]}
  */
 function readJobCwds() {
@@ -62,15 +81,8 @@ function readJobCwds() {
 			continue;
 		}
 		for (const id of ids) {
-			const job = readJobRecordIn(path.join(store, id));
-			if (typeof job?.cwd !== "string" || typeof job.sessionId !== "string")
-				continue;
-			out.push({
-				sessionId: job.sessionId,
-				name: typeof job.name === "string" ? job.name : null,
-				cwd: deref(job.cwd),
-				at: Date.parse(job.updatedAt ?? "") || 0,
-			});
+			const job = jobCwdOf(readJobRecordIn(path.join(store, id)));
+			if (job) out.push(job);
 		}
 	}
 	return out;
@@ -157,7 +169,9 @@ const worktreeLabel = (root, wt) => hostRelative(root, wt) ?? wt;
 
 module.exports = {
 	hostRelative,
+	readJobCwds,
 	readLinkedWorktrees,
+	worktreeHolding,
 	worktreeLabel,
 	worktreeOwners,
 };

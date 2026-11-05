@@ -56,6 +56,7 @@ const { buildDriftLines } = require("./registry-agents.js");
 const {
 	overflowReadings,
 	seatTriedAfter,
+	sizeParkerSeats,
 	sizeResumeSeats,
 } = require("./seat-reading.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
@@ -254,9 +255,6 @@ function stopNeverStarted(registry, jobs, stop) {
  *     Promise<Awaited<ReturnType<typeof import("./refill-frontier.js").refillFrontier>>>,
  *   readParkers: (frontier: import("./refill-decide.js").MergedRow[]) =>
  *     import("./refill-decide.js").ParkerReading[],
- *   sizeParkerSeats: (seats: import("./refill-decide.js").SizedSeat[],
- *     parkers: import("./refill-decide.js").ParkerReading[], root: string|undefined) =>
- *     import("./refill-decide.js").SizedSeat[],
  *   launchBatch: (batch: import("./refill-decide.js").Launch[], served: string[]) =>
  *     BatchOutcome,
  *   resumeHeld: (resumes: import("./refill-decide.js").HeldResume[],
@@ -510,7 +508,7 @@ async function decide(io, input, scope) {
 	const parkers = io.readParkers(frontier);
 	const decision = decideTick({
 		...input,
-		seats: io.sizeParkerSeats(input.seats, parkers, served.roots[0]),
+		seats: sizeParkerSeats(input.seats, parkers, io.capSizer(served.roots[0])),
 		frontier,
 		retroBundles: merged.retroBundles,
 		failedShortlists: merged.failed,

@@ -126,6 +126,26 @@ describe("the loop's goal (#3864)", () => {
 		expect(asked).toEqual({ [served]: "2", [other]: "20,21" });
 	});
 
+	it("hands a confirmed topic's stored set out as its refs, on every read", async () => {
+		const asked: (string | null)[] = [];
+		const topic = {
+			form: "topic",
+			text: "faster tests",
+			refs: [{ repo: path.basename(served), number: 7 }],
+			setAt: 3,
+		};
+		for (let read = 0; read < 2; read++)
+			await refillFrontier(
+				[served],
+				topic,
+				async (_root: string, goal: string | null) => {
+					asked.push(goal);
+					return list([]);
+				},
+			);
+		expect(asked).toEqual(["7", "7"]);
+	});
+
 	it.each([
 		["drain", (s: string) => `drain ${s}#5`, (s: string) => `drain ${s}#5`],
 		["unblock", () => "unblock #5", () => null],

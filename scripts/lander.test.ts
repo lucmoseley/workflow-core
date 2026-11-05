@@ -10,8 +10,7 @@
  * one red commit hold back the green ones around it.
  *
  * Over the 10 s file budget: each case is a real lander run, and the red
- * ones bisect and revert at ~100–170 forks a run (#4301's profile); #4326
- * cuts the script's own forks.
+ * ones bisect and revert: 78 forks in the three-commit red run (#4326's profile).
  */
 import fs from "node:fs";
 import path from "node:path";

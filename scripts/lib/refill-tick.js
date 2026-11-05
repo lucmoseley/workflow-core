@@ -84,7 +84,7 @@ const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { findResumed } = require("./resumed-copy.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
-const { MODEL, hasRoom, isParked } = require("./refill-decide.js");
+const { MODEL, isParked } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const { appendTick, concurrencyFiles } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
@@ -93,7 +93,6 @@ const {
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
-	isSameSeat,
 	seatIdOf,
 } = require("./refill-seats.js");
 const {
@@ -238,6 +237,23 @@ function levelCheckouts(roots) {
 			startDetached(
 				`levelling ${root}`,
 				[path.join(SCRIPTS, "level-main.js"), "--quiet"],
+				root,
+			);
+}
+
+/**
+ * Start a reap pass over each checkout's worktrees folder
+ * (`session-checkout.js reap`, #4247), detached: removing a store may outlast
+ * a tick. Its report goes to the loop's log; its pid lock turns away a pass
+ * started while one runs.
+ * @param {string[]} roots
+ */
+function startReapPasses(roots) {
+	for (const root of roots)
+		if (hasConfig(root))
+			startDetached(
+				`reaping worktrees in ${root}`,
+				[path.join(SCRIPTS, "session-checkout.js"), "reap"],
 				root,
 			);
 }
@@ -1184,24 +1200,6 @@ function readParkers(frontier) {
 }
 
 /**
- * `seats` with each parker's seat that has room but no cap sized, sized for
- * one resume: only the first seat with room is sized for the decision, and a
- * resume is held to the same cap as a launch (#3669). In away mode, where none
- * resumes, a cap sized 0 still reads full for the idle alarm's hold (#3850).
- * @param {import("./refill-decide.js").SizedSeat[]} seats
- * @param {import("./refill-decide.js").ParkerReading[]} parkers
- * @param {string|undefined} root the checkout the cap is sized in
- */
-const sizeParkerSeats = (seats, parkers, root) =>
-	seats.map((s) =>
-		s.fits === null &&
-		hasRoom(s) &&
-		parkers.some((p) => p.job && isSameSeat(p.job, s))
-			? { ...s, fits: seatReading.capSizer(root, log)(s.seat, 1) }
-			: s,
-	);
-
-/**
  * The park markers in `root`'s checkout, null, logged, where they will not read,
  * for the resume step to wait rather than read a parked session as answered
  * (#3863).
@@ -1432,6 +1430,7 @@ function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
 	levelCheckouts(roots);
+	startReapPasses(roots);
 	fileMachineTickets("file-memory-kill-tickets.js", "memory kills");
 	fileMachineTickets("file-process-runaway-tickets.js", "process runaways");
 	return tendHolds(roots, served, now, log);
@@ -1630,7 +1629,6 @@ const productionIo = {
 	readTickHolds,
 	readFrontier: refillFrontier,
 	readParkers,
-	sizeParkerSeats,
 	launchBatch: launchOrResume,
 	resumeHeld: (resumes, held, seen, how) =>
 		blocks.resumeHeldLaunches(resumes, held, seen, how),
