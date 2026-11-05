@@ -368,7 +368,7 @@ describe("with the landing module on, `landing` takes `main`'s place (#2409)", (
 	});
 
 	it.each([
-		"git push origin main:landing",
+		"git push origin HEAD:landing",
 		"git -C ../wt push origin HEAD:landing",
 		"git push origin refs/heads/main:refs/heads/landing",
 		"git push origin spike/x",
@@ -380,8 +380,8 @@ describe("with the landing module on, `landing` takes `main`'s place (#2409)", (
 	});
 
 	it.each([
-		["git push -f origin main:landing", "force-pushes `landing`"],
-		["git push origin +main:landing", "force-pushes `landing`"],
+		["git push -f origin HEAD:landing", "force-pushes `landing`"],
+		["git push origin +HEAD:landing", "force-pushes `landing`"],
 		["git push origin --delete landing", "deletes `landing` on the remote"],
 		["git push origin :landing", "deletes `landing` on the remote"],
 	])("%s is denied, naming that it %s", (command, what) => {
@@ -399,7 +399,7 @@ describe("with the landing module on, `landing` takes `main`'s place (#2409)", (
 
 it("leaves main's pushes and landing's refusal as they were with landing off", () => {
 	expect(denial("git push origin main")).toBeNull();
-	expect(denial("git push origin main:landing")).toContain(
+	expect(denial("git push origin HEAD:landing")).toContain(
 		readRuleText("branch-publish"),
 	);
 });
@@ -495,7 +495,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 
 	it("passes a deletion of landing, and refuses a forced push to it as any branch, with landing off", () => {
 		expect(denial("git push origin --delete landing")).toBeNull();
-		const why = denial("git push -f origin main:landing");
+		const why = denial("git push -f origin HEAD:landing");
 		expect(why).toContain("a branch other than main, landing");
 		expect(why).toContain(readRuleText("branch-publish"));
 	});

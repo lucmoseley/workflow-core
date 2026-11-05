@@ -18,13 +18,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	admissionFrom,
+	buildMemoryBreakdownLines,
+	buildSessionFloorLine,
 	readRunningVitestSuites,
 	readTreePssKb,
 	SUITE_RESTING_MB,
 	SWAP_HOLD_AVAILABLE_MB,
+	selectionAdmission,
 	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
 import {
@@ -36,7 +39,9 @@ import {
 	writeProcRoot,
 	writeReapScript,
 } from "./lib/admission-testkit";
+import { admissionSessionIds } from "./lib/agent-liveness";
 import { writeCache } from "./lib/dispatch-sessions-testkit";
+import { readLiveLanders } from "./lib/local-tester";
 import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -179,7 +184,9 @@ interface Machine {
 /* This process as a lander holding a whole suite, at its charge (#3323). */
 const WHOLE_LANDER: Lander = { pid: process.pid, chargeMb: 1150 };
 
-const run = (m: Machine = {}) => {
+/** The environment that stands the fake machine `m` up, for admission.js
+ * run as a program and for lib/admission.js called in process alike. */
+const machineEnv = (m: Machine = {}) => {
 	const {
 		mb = 4000,
 		sessions = [SELF],
@@ -193,38 +200,40 @@ const run = (m: Machine = {}) => {
 		reaped = [],
 		reapFails = false,
 		reapRaw,
-		args = [],
 		hostConfig = HOST_DRAW,
 		agentsRaw,
 		load = 0.5,
 		sessionCeiling = "0",
-		json = true,
 		landers = [],
 		states = {},
 		sessionFloor = "",
 		swap = null,
 	} = m;
 	const host = writeHostRepo(dir, hostConfig);
+	return {
+		...buildIsolatedEnv(dir, { landers }),
+		WFC_MEMINFO: meminfo(mb, swap),
+		WFC_PS: ps(psLines, { fails: psFails }),
+		WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
+		WFC_PROC: writeProcRoot(dir, { pss, parents, cwds, environs }),
+		WFC_REAP_SCRIPT: writeReapScript(dir, reaped, {
+			fails: reapFails,
+			raw: reapRaw,
+		}),
+		WFC_LOADAVG: writeLoadavg(dir, load),
+		WFC_SESSION_CEILING: sessionCeiling,
+		...(sessionFloor === null
+			? { WFC_SESSION_FLOOR: undefined, HOME: dir }
+			: { WFC_SESSION_FLOOR: sessionFloor }),
+		CLAUDE_CODE_SESSION_ID: self,
+		CLAUDE_PROJECT_DIR: host,
+	};
+};
+
+const run = (m: Machine = {}) => {
+	const { args = [], json = true } = m;
 	const r = runInProcess(SCRIPT, [...(json ? ["--json"] : []), ...args], {
-		env: {
-			...process.env,
-			...buildIsolatedEnv(dir, { landers }),
-			WFC_MEMINFO: meminfo(mb, swap),
-			WFC_PS: ps(psLines, { fails: psFails }),
-			WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
-			WFC_PROC: writeProcRoot(dir, { pss, parents, cwds, environs }),
-			WFC_REAP_SCRIPT: writeReapScript(dir, reaped, {
-				fails: reapFails,
-				raw: reapRaw,
-			}),
-			WFC_LOADAVG: writeLoadavg(dir, load),
-			WFC_SESSION_CEILING: sessionCeiling,
-			...(sessionFloor === null
-				? { WFC_SESSION_FLOOR: undefined, HOME: dir }
-				: { WFC_SESSION_FLOOR: sessionFloor }),
-			CLAUDE_CODE_SESSION_ID: self,
-			CLAUDE_PROJECT_DIR: host,
-		},
+		env: { ...process.env, ...machineEnv(m) },
 	});
 	return {
 		status: r.status,
@@ -1181,7 +1190,7 @@ describe("aggregate session draw (#2221)", () => {
 		expect(json.slots).toBe(1);
 	});
 
-	it("gives the lenient verdict pick-next sizes a burst with the same answer", () => {
+	it("gives the admission verdict pick-next sizes a burst with the same answer", () => {
 		const mem = { ok: true as const, mb: 4962 };
 		const procs = { ok: true as const, sessions: 10, working: 0 };
 		const a = admissionFrom(mem, procs, {
@@ -1710,7 +1719,7 @@ describe("the CPU limb (#830)", () => {
 	});
 });
 
-/* pick-next's lenient verdict carries the same limb (#834). */
+/* pick-next's admission verdict carries the same limb (#834). */
 describe("admissionFrom's CPU limb (#834)", () => {
 	const mem = { ok: true as const, mb: 4000 + FLOOR };
 	const procs = { ok: true as const, sessions: 1, working: 0 };
@@ -1771,7 +1780,7 @@ describe("admissionFrom's CPU limb (#834)", () => {
 	});
 });
 
-/* pick-next's lenient verdict charges the per-slot pair as the strict one does (#2568). */
+/* pick-next's admission verdict charges the per-slot pair as the strict one does (#2568). */
 describe("admissionFrom's per-slot pending pair (#2568)", () => {
 	const mem = { ok: true as const, mb: 4000 + FLOOR };
 	const procs = { ok: true as const, sessions: 1, working: 0 };
@@ -1793,7 +1802,7 @@ describe("admissionFrom's per-slot pending pair (#2568)", () => {
 	});
 });
 
-/* pick-next's lenient verdict applies the session floor as the strict one does (#2507). */
+/* pick-next's admission verdict applies the session floor as the strict one does (#2507). */
 describe("admissionFrom's session floor (#2507)", () => {
 	// a 1300 MB budget: 1 slot at p95 (929, not 1666), 2 at the 600 MB mean
 	const mem = { ok: true as const, mb: 1300 + HELD };
@@ -1864,6 +1873,166 @@ describe("admissionFrom's session floor (#2507)", () => {
 		expect(a.sessionFloorSlots).toBe(0);
 		expect(a.sessionFloorLifted).toBe(false);
 		expect(a.swapHold).toEqual(swapHold);
+	});
+});
+
+/*
+ * pick-next.js's ADMISSION block, `selectionAdmission`, in process (#4329):
+ * the readings off the machine and the admission verdict over them, no reclaim
+ * credited.
+ */
+describe("selectionAdmission, pick-next.js's readings and verdict", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	const machine = (m: Machine = {}) => {
+		for (const [k, v] of Object.entries({
+			...machineEnv(m),
+			WFC_ORACLE_CACHE: "0",
+		}))
+			vi.stubEnv(k, v);
+		const r = selectionAdmission({
+			listed: admissionSessionIds(),
+			reclaimable: { ok: true, count: 0 },
+			landers: readLiveLanders(),
+		});
+		return r;
+	};
+	const idleSpare =
+		"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock";
+
+	it("counts live sessions off the listing, never an orphaned host `ps` still shows", () => {
+		const host = (id: string) =>
+			`claude /home/u/.local/bin/claude bg-pty-host --session ${id}`;
+		const { procs } = machine({
+			sessions: [SELF, "a"],
+			psLines: [host("a"), host("gone-1"), host("gone-2"), host("gone-3")],
+		});
+		expect(procs).toMatchObject({ ok: true, sessions: 1, processes: 4 });
+	});
+
+	it("subtracts this run's own session, so with no other session and a daemon and host running it admits one however tight the memory", () => {
+		const { procs, admission } = machine({
+			mb: 50,
+			sessions: [SELF],
+			psLines: [
+				"claude claude daemon run --origin transient",
+				"claude /home/lucmo/.local/bin/claude agents",
+			],
+		});
+		expect(procs).toMatchObject({ ok: true, sessions: 0 });
+		expect(admission.admit).toBe(true);
+		expect(admission.reason).toMatch(/^no session is running/);
+	});
+
+	it("counts the bare-name, `claude.exe`, launcher-path and resumed versioned-binary shapes, and nothing else", () => {
+		const { procs } = machine({
+			psLines: [
+				"claude claude",
+				"claude.exe /usr/bin/claude.exe",
+				"2.1.233 /home/lucmo/.local/bin/claude daemon run",
+				"2.1.234 /home/lucmo/.local/share/claude/versions/2.1.234 --resume /home/lucmo/.claude/projects/p/s.jsonl",
+				"2.1.234 /opt/acme/versions/2.1.234 --resume nothing-of-ours",
+				"node node scripts/pick-next.js",
+				"clauded clauded --not-ours",
+			],
+		});
+		expect(procs.processes).toBe(4);
+	});
+
+	it("takes a lone listed session for this one where no session id is set, and admits one", () => {
+		const { procs, admission } = machine({
+			mb: 50,
+			self: "",
+			sessions: ["whoever"],
+		});
+		expect(procs).toMatchObject({ ok: true, sessions: 0 });
+		expect(admission.admit).toBe(true);
+		expect(admission.reason).toMatch(/^no session is running/);
+	});
+
+	it("subtracts nothing from several listed sessions where no session id is set", () => {
+		const { procs } = machine({ self: "", sessions: ["a", "b", "c"] });
+		expect(procs).toMatchObject({ ok: true, sessions: 3 });
+	});
+
+	it("charges a young neighbour the draw it has yet to reach (#2221)", () => {
+		// ceil(600 + 1.645 × 200 − 300 held) = 629 MB still to come.
+		const { admission } = machine({
+			sessions: [SELF, "a@601"],
+			pss: { "601": mbKb(300) },
+		});
+		expect(admission.drawNeedMb).toBe(629);
+	});
+
+	it("reserves one idle spare pair and the pair a launch warms, shrinking the free slots, and says so", () => {
+		const bare = machine({ mb: 4000, sessions: [SELF, "a"] });
+		const { admission } = machine({
+			mb: 4000,
+			sessions: [SELF, "a"],
+			psLines: [idleSpare],
+			cwds: idleAt("111"),
+		});
+		// floor(605000 / 1024) = 590 MB a pair, twice
+		expect(admission.reservedMb).toBe(1180);
+		expect(admission.reservedError).toBeNull();
+		expect(admission.freeSlots).toBeLessThan(Number(bare.admission.freeSlots));
+		expect(admission.reason).toMatch(/reserving 1180 MB for the spare pool/);
+	});
+
+	it("reserves no claimed spare, a live session's own, falling back to the measured pair", () => {
+		const { admission } = machine({
+			mb: 4000,
+			sessions: [SELF, "other@111"],
+			psLines: [idleSpare],
+		});
+		expect(admission.reservedMb).toBe(2 * PAIR);
+	});
+
+	it("names the reservation in the always-admit-one reason too", () => {
+		const { admission } = machine({
+			mb: 4000,
+			sessions: [SELF],
+			psLines: [idleSpare],
+			cwds: idleAt("111"),
+		});
+		expect(admission.freeSlots).toBe(1);
+		expect(admission.reason).toMatch(
+			/no session is running, so one is admitted whatever the headroom after reserving 1180 MB for the spare pool/,
+		);
+	});
+
+	it("reports the reservation unreadable, never silently zero, where the overhead scan fails", () => {
+		const { admission } = machine({ sessions: [SELF, "a"], psFails: true });
+		expect(admission.reservedMb).toBe(0);
+		expect(admission.reservedError).toEqual(expect.any(String));
+	});
+
+	it("names the swap hold on the session floor line, holding the floor's slots (#2690)", () => {
+		const { floorRead, admission } = machine({
+			mb: 2100,
+			swap: { totalMb: 2048, freeMb: 245 },
+			sessions: [SELF, "a", "b"],
+			states: { a: "working", b: "working" },
+			sessionFloor: "8",
+		});
+		expect(admission.sessionFloorSlots).toBe(0);
+		expect(buildSessionFloorLine(floorRead, admission)).toMatch(
+			/; 3 working, this run's own counted, so 0 floor slot\(s\), held while swap is 245 of 2048 MB free and 2100 MB available, under 25% and 2200 MB \(#2690\)$/,
+		);
+	});
+
+	it("prints an unreadable session reading in the breakdown as unknown, and the remainder with it, never 0", () => {
+		const { memory } = machine({
+			sessions: [SELF, "a@301"],
+			states: { a: "working" },
+		});
+		const lines = buildMemoryBreakdownLines(memory).join("\n");
+		expect(lines).toMatch(
+			/^ {2}working {10}unknown \(pid 301's smaps_rollup unreadable\)/m,
+		);
+		expect(lines).toMatch(
+			/^ {2}everything else {2}unknown \(a row above it is unknown\)/m,
+		);
 	});
 });
 

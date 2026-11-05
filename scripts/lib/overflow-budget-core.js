@@ -17,9 +17,10 @@
  * (docs/practice/capacity-planning-and-admission.md): each running session holds
  * max(Q, spent so far + session-spend's expected remainder), and a new launch
  * holds Q, the cost table's `meanUsd` — read, never a constant (#2570). A running
- * session's ledger row is held, not settled, so a session counts once (#3695). One
- * whose row falls outside the basis holds Q alone: that spend came off another
- * cycle or is already in the reading.
+ * session's ledger row is held, not settled, so a session counts once (#3695); a
+ * resumed copy's spend there is its chain share, the remainder still read from
+ * its own spend (#4369). One whose row falls outside the basis holds Q alone:
+ * that spend came off another cycle or is already in the reading.
  *
  *   headroom = credit − settled spend − Σ running reservations
  *   fit      = floor(headroom / Q), or 0 on an exhausted key
@@ -36,11 +37,17 @@ const { expectedRemainderUsd } = require("./session-spend.js");
  * @property {number} endedAt ms, the session's latest transcript write
  * @property {number} bytes its transcripts' size when priced
  * @property {number} costUsd its cumulative cost at that size
+ * @property {number} [sharedUsd] what that cost repeats from the members
+ *   before it in its chain of resumed copies (#4370)
  * @property {string} outcome `key-exhausted`: its latest API answer was a credit
  *   refusal
  * @property {number} [refusedAt] ms, that refusal's time; absent, `endedAt` stands
  *
- * @typedef {{sessionId: string, spentUsd: number|null}} RunningRun
+ * @typedef {object} RunningRun
+ * @property {string} sessionId
+ * @property {number|null} spentUsd its cumulative spend, null before a transcript
+ * @property {number} [shareUsd] what it adds to the members of its chain of
+ *   resumed copies before it (#4369); absent, `spentUsd` stands
  *
  * @typedef {{remainingUsd: number, grantUsd: number, grantedOn: string,
  *   expiresOn: string}} Credit a Promotional credits row, its dates YYYY-MM-DD
@@ -85,7 +92,7 @@ function reservationUsd(run, table) {
 	if (run.spentUsd === null) return table.meanUsd;
 	return Math.max(
 		table.meanUsd,
-		run.spentUsd + expectedRemainderUsd(run.spentUsd, table),
+		(run.shareUsd ?? run.spentUsd) + expectedRemainderUsd(run.spentUsd, table),
 	);
 }
 

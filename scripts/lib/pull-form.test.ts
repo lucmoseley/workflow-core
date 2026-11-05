@@ -60,6 +60,8 @@ interface Over {
 	/** True: every rule fetch throws, as an empty store does. */
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
+	/** False: the main checkout's `main` still tracks `landing`; left off, cut over. */
+	cutOver?: boolean;
 	isDir?: (path: string) => boolean;
 	readFileAliases?: Record<string, string | null> | null;
 	corePaths?: (text: string) => string;
@@ -80,6 +82,10 @@ function harness(over: Over = {}) {
 		vars: over.vars ?? {},
 		isDir: over.isDir ?? (() => true),
 		moduleOn: (m: string) => (over.modules ?? []).includes(m),
+		git: () => ({
+			ok: true,
+			out: over.cutOver === false ? "refs/heads/landing\n" : "",
+		}),
 		treeClass,
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
@@ -95,8 +101,6 @@ function harness(over: Over = {}) {
 			if (over.storeFault) throw new Error(`rule-text: no fragment for ${id}`);
 			return readRuleText(id);
 		},
-		pushedRef: () =>
-			over.modules?.includes("landing") ? "origin/landing" : "origin/main",
 		isMainUnreadable: () => over.mainUnreadable ?? false,
 		readFileAliases: () =>
 			over.readFileAliases === null
@@ -173,14 +177,6 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 		expect(readDenyReason("git pull --rebase", { storeFault: true })).toBe(
 			"This reconciles the shared `main` by rewriting or merging, not by fast-forward: git pull --rebase\n\nReconcile the shared `main` by fast-forward or not at all; the rule could not be read from docs/agents/rules/pull-fast-forward.txt. Read that file before doing anything else.",
 		);
-		expect(
-			readDenyReason("git pull --rebase", {
-				storeFault: true,
-				modules: ["landing"],
-			}),
-		).toContain(
-			"Reconcile the shared `main` with `landing` by fast-forward or not at all; the rule could not be read from docs/agents/rules/pull-fast-forward-landing.txt. Read that file before doing anything else.",
-		);
 	});
 
 	it("spells the refusal's paths at the plugin root, before the command is spliced in (#343)", () => {
@@ -212,25 +208,43 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		expect(handed(d)).toEqual(["pull-fast-forward"]);
 	});
 
-	it("requests both twins in priority order, the module choosing one (#2409)", () => {
-		expect(run("git pull --ff-only")).toEqual({
-			injectRules: ["pull-fast-forward", "pull-fast-forward-landing"],
-			skip: ["pull-fast-forward-landing"],
-		});
-	});
+	it.each([
+		"git pull --ff-only",
+		"git pull --rebase",
+		"git merge origin/landing",
+	])(
+		"%s passes once landing is on and the main checkout cut over, the write guard owning that tree (#4229)",
+		(command) => {
+			expect(run(command, { modules: ["landing"] })).toBeNull();
+		},
+	);
 
-	it("hands the landing recipe in place of today's with the landing module on (#2409)", () => {
-		expect(handed(run("git pull --ff-only", { modules: ["landing"] }))).toEqual(
-			["pull-fast-forward-landing"],
-		);
-	});
-
-	it("refuses a merge with the landing recipe with the module on (#2409)", () => {
+	it("refuses a merge before cutover with the worktree land route (#4229)", () => {
 		const reason = readDenyReason("git merge origin/landing", {
 			modules: ["landing"],
+			cutOver: false,
 		});
-		expect(reason).toContain(readRuleText("pull-fast-forward-landing"));
+		expect(reason).toContain("reconcile in your session's own worktree");
+		expect(reason).toContain("session-checkout.js land");
 		expect(reason).not.toContain(readPullRule());
+	});
+
+	it("hands no recipe to an allowed pull before cutover with landing on (#4229)", () => {
+		expect(
+			handed(
+				run("git pull --ff-only", { modules: ["landing"], cutOver: false }),
+			),
+		).toEqual([]);
+	});
+
+	it("still refuses a merge onto an unresolved tree once levelled, naming the worktree route (#301, #4229)", () => {
+		const reason = readDenyReason('git -C "$W" merge origin/landing', {
+			modules: ["landing"],
+		});
+		expect(reason).toContain(
+			"`git -C .claude/worktrees/<session-name> merge origin/landing`",
+		);
+		expect(reason).toContain("session-checkout.js land");
 	});
 
 	it.each([
@@ -682,14 +696,6 @@ ${readPullRule()}`);
 		expect(readDenyReason('git -C "$W" rebase origin/main')).toContain(
 			"this `git rebase` lands in",
 		);
-	});
-
-	it("names the landing upstream in the escape with the module on (#2536)", () => {
-		expect(
-			readDenyReason('git -C "$W" merge origin/landing', {
-				modules: ["landing"],
-			}),
-		).toContain("`git -C .claude/worktrees/reconcile merge origin/landing`");
 	});
 
 	it("refuses an innocent tree too — the accepted cost of failing closed", () => {

@@ -20,65 +20,58 @@
  * own runs in-process in its module's test. A case below is a production
  * adapter crossed for real (A), an exit path or input channel (E), a spawn
  * shape — a signal, or a second live process holding the pid or control lock
- * (S), a §N5 fail-open (F), a boundary regression (R), or a branch still in
- * lib/refill-tick.js's or refill-loop.js's shell, with no core entry to test
- * it from (B, #4356).
+ * (S), a §N5 fail-open (F), or a boundary regression (R).
  * - run (#2435): ends at a mid-dispatch stop E; appends the concurrency
- *   record A; supervises a foreign checkout's launches B; tracks a launch a
- *   kill cut off S R; tickets earlyoom's and memwatch's incidents A (two
- *   children); the review child launches detached S, a second runner exits S;
- *   ticks on a wake line E.
+ *   record A; supervises a foreign checkout's launches A (supervise-landing.js);
+ *   tracks a launch a kill cut off S R; tickets earlyoom's and memwatch's
+ *   incidents A (two children); the review child launches detached S, a
+ *   second runner exits S; ticks on a wake line E.
  * - panel (#4060): keeps a failed probe's figure A (usage-probe.js).
  * - dry run (#2611): prints the overflow dispatch E (the dry-run argv), A.
- * - overflow allowance (#3698): stops one past it A (`claude stop`);
- *   records the listed id B.
+ * - overflow allowance (#3698): stops one past it A (`claude stop`).
  * - Console read (#4071): starts the read A; none where its row will not
- *   write F; none on a dry run B.
+ *   write F.
  * - goal (#3864): reads the frontier bare once cleared A (pick-next argv).
- * - parked launch (#2699, #3940): unlabels where it ended unblocked A; out of
- *   scope (#3950) B, opted out B; an unreadable transcript F;
- *   closed issues A, an unreadable closed list F; stops an away park once A;
- *   the #4147 key in its marker B; a hold-attached park B; the permission
- *   cause B; the UNKNOWN line across ticks B.
+ * - parked launch (#2699, #3940): unlabels where it ended unblocked A; an
+ *   unreadable transcript F; closed issues A, an unreadable closed list F;
+ *   stops an away park once A; a session attached through the
+ *   real hold store still parked R (#3858: attaching exempts nothing).
  * - API error (#2705): types into the live session A (attach, pty_type.py);
- *   the auth refusal B; judged by state.json A; the overflow copy's key B;
- *   the copy tracked as the job A; a launcher line naming no job B; pass
- *   markers moved A, kept with the open past id B.
- * - limit hold (#3735): resumes under its seat A; held where state.json reads
- *   stopped B or another session B; the ledger hold A and its swap A; moved
- *   to another plan seat A, unconfirmed B, an uncopied transcript B; onto a
- *   key A, its first overflow start A, an unwritable ledger row B.
+ *   judged by state.json A; the copy tracked as the job A; pass markers
+ *   moved A.
+ * - limit hold (#3735): resumes under its seat A; the ledger hold A and its
+ *   swap A; moved to another plan seat A; onto a key A, its first overflow
+ *   start A.
  * - host restart (#2707): types after 5 min A; stops under the swap hold A;
  *   a cleared swap hold resumes A, a refused re-read A (admission --launch),
- *   a copy handed off B, a session handed off A (rescue-sessions.js).
+ *   a session handed off A (rescue-sessions.js).
  * - daemon cwd (#2937): sizes the seat from the served checkout's cost
  *   table A R (the real allowance.js).
  * - normal-mode park (#3621): resumes in place A, on its cause's prompt A,
- *   noting the ledger's acts B, the marker handed on A or kept F; resumes
- *   from its marker (#3773) B ×3; launches afresh with no job A; an away
- *   park's ledger row released before the shortlist B (#3872).
+ *   the marker handed on A or kept F; launches afresh with no job A.
  * - `set --resume` (#3861): restarts E, refuses a damaged control E, exits
  *   1 on no launch E. `start` (#3868): --unless-stopped E.
  * - a case's end (#4140): this file's own teardown, owned by no module.
  * - boot-resume (#3878): restarts E, no second loop E, exits 1 E; watch
- *   (#4139): restarts the unit A (systemctl), a live holder B, a launch in
- *   flight S, a damaged control B, exits 1 E; no lock (#4083): exits 1 E S,
- *   keeps the crash B, names the holder S, `start` exits 1 E.
- * - paused (#3856): clears an older stop B, crossing the reap A;
- *   resumes with no restart S. Opted out (#4188): unticks A. Away (#3870):
- *   the lock held by another writer S; a dry run writes nothing B. Waits
- *   (#3859): pauses on no progress, resumed by `set --resume` A S.
- * - repo hold (#3857): its command run for real A; none on a dry run B.
- *   Probe hold (#3860): a broken .git A, the other checkout A, the state's
- *   probe A, its parked resumed A, none on a dry run B. Guard entry (#4226):
- *   raises and files A, attaches and resumes A.
- * - cleared repo hold (#3863): its resume step is the shell's B ×7.
+ *   (#4139): restarts the unit A (systemctl), a launch in flight S, exits 1
+ *   E; no lock (#4083): exits 1 E S, names the holder S, `start` exits 1 E.
+ * - paused (#3856): an older stop cleared, crossing the reap A (its one
+ *   crossing); resumes with no restart S. Opted out (#4188): unticks A. Away
+ *   (#3870): the lock held by another writer S. Waits (#3859): pauses on no
+ *   progress, resumed by `set --resume` A S.
+ * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
+ *   broken .git A, the other checkout A, the state's probe A, its parked
+ *   resumed A, a stored hold left out of a dry run's preview A (the hold
+ *   store read). Guard entry (#4226): raises and files A, attaches and
+ *   resumes A.
+ * - cleared repo hold (#3863): its raiser and attached resumed off a hand
+ *   lift A (repo-hold.js lift).
  * - restart's kills (#3880): resumed by id A, a copy a kill beat S R, set
  *   off by boot-resume R; the manager's restart (#3971) A ×3; a resumed
  *   session typed A, handed off A; a job no transcript backs A.
  * - phone notice (#3871): one on raise, one on clear A (gh workflow).
  */
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -96,12 +89,10 @@ import {
 	buildAgentsBranch,
 	buildJobRow,
 	buildListedRow,
-	buildPermissionRow,
 	buildStopBranch,
 	type Row,
 } from "./lib/agents-stop-fake";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
-import { writeSeatHelper } from "./lib/auth-status-fake";
 import {
 	buildRekeyedResponse,
 	FAKE_COPY,
@@ -964,34 +955,12 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 		);
 		expect(readLines(at("stops"))).toEqual([`stop ${job}`]);
 	});
-
-	it("records the session id the listing shows for a launch `--bg` gave none (#3701)", async () => {
-		recordDispatch({
-			issues: [6],
-			model: "opus",
-			prompt: "/implement 6",
-			root: repo,
-			jobId: job,
-			overflow: { keyVar: "WFC_TEST_KEY", allowanceUsd: 50, sessionId: null },
-		});
-		expect(readOverflowLookup([repo])({ jobId: job })?.sessionId).toBeNull();
-		const r = await oneTick();
-		expect(r.status).toBe(0);
-		expect(readOverflowLookup([repo])({ jobId: job })).toMatchObject({
-			sessionId,
-			allowanceUsd: 50,
-		});
-	});
 });
 
 describe("a due Console read on the real tick (#4071)", () => {
 	const consoleLogFile = () =>
 		at(".overflow-ledger/WFC_TEST_KEY.console.jsonl");
 	const runnerCallsFile = () => at("console-runs");
-	const expectNoReadStarted = () => {
-		expect(fs.existsSync(consoleLogFile())).toBe(false);
-		expect(readLines(runnerCallsFile())).toEqual([]);
-	};
 	const oneTick = async () => {
 		const running = run(0);
 		await ticked(1);
@@ -1031,13 +1000,6 @@ describe("a due Console read on the real tick (#4071)", () => {
 			`console read of ${overflowSeat()}: not started (`,
 		);
 		expect(readLines(runnerCallsFile())).toEqual([]);
-	});
-
-	it("starts none on a dry run", async () => {
-		const r = await runDry();
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`would run in ${repo} on ${seat}:`);
-		expectNoReadStarted();
 	});
 });
 
@@ -1092,7 +1054,6 @@ process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: 
 describe("a parked launch (#2699)", () => {
 	const Job = "job7";
 	const blockedRow = buildJobRow(Job, "blocked");
-	const permissionRow = buildPermissionRow(Job);
 	const SeededJob = {
 		state: "blocked",
 		detail: "needs your decision",
@@ -1186,12 +1147,6 @@ describe("a parked launch (#2699)", () => {
 			),
 		);
 
-	const expectNothingActed = () => {
-		expect(readLines(at("stops"))).toEqual([]);
-		expect(readGhActs()).toEqual([]);
-		expect(launchState()).not.toHaveProperty("parkStopped");
-	};
-
 	describe("whose session has left the listing (#3940)", () => {
 		const Unlabel = "issue edit 7 --repo o/r --remove-label parked";
 		const reply = (text: string) => ({
@@ -1231,47 +1186,6 @@ describe("a parked launch (#2699)", () => {
 			expect(readLines(at("gh-calls"))).toContain(Unlabel);
 			expect(fs.existsSync(markerPath("s-job7"))).toBe(false);
 			expect(r.stdout).toContain("ended unblocked: parked off #7");
-		});
-
-		/** A checkout under HOME the loop's scope leaves out, a marker listing #9 in it. */
-		const parkedOutOfScope = (name: string, config: object) => {
-			const other = at(name);
-			probedCheckout.instantiate(other);
-			fs.mkdirSync(path.join(other, ".claude"), { recursive: true });
-			fs.writeFileSync(
-				path.join(other, ".claude", "workflow-core.json"),
-				JSON.stringify({ tracker: "o/other", ...config }),
-			);
-			const marker = markerPath("s-other", other);
-			writeMarkerAMinuteOld(marker, `seat ${seat}\n9\n`);
-			const file = path.join(seat, "projects", "p", "s-other.jsonl");
-			fs.mkdirSync(path.dirname(file), { recursive: true });
-			fs.writeFileSync(
-				file,
-				`${JSON.stringify(reply("Merged.\n\nresult: closed #9"))}\n`,
-			);
-			return marker;
-		};
-
-		const UnlabelOther = "issue edit 9 --repo o/other --remove-label parked";
-
-		it("takes the label off in a checkout the loop's scope leaves out (#3950)", async () => {
-			const marker = parkedOutOfScope("other", {});
-			fakeClaude([LISTED]);
-			const r = await twoTicks();
-			expect(r.status).toBe(0);
-			expect(readLines(at("gh-calls"))).toContain(UnlabelOther);
-			expect(fs.existsSync(marker)).toBe(false);
-			expect(r.stdout).toContain("ended unblocked: parked off #9");
-		});
-
-		it("leaves the label on in a checkout opted out of the loop (#3950)", async () => {
-			const marker = parkedOutOfScope("opted-out", { refillLoop: false });
-			fakeClaude([LISTED]);
-			const r = await twoTicks();
-			expect(r.status).toBe(0);
-			expect(readLines(at("gh-calls"))).not.toContain(UnlabelOther);
-			expect(fs.existsSync(marker)).toBe(true);
 		});
 
 		it("keeps the label, logged, where its transcript will not read", async () => {
@@ -1352,25 +1266,6 @@ describe("a parked launch (#2699)", () => {
 		]);
 	});
 
-	it("records an overflow launch's key in the marker of a park it stops (#4147)", async () => {
-		const state = JSON.parse(
-			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
-		);
-		fs.writeFileSync(
-			at(".refill-loop-state.json"),
-			JSON.stringify({
-				...state,
-				launches: [{ ...state.launches[0], keyVar: "K2" }],
-			}),
-		);
-		fakeClaude([LISTED, blockedRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		expect(readLines(markerPath("s-job7"))).toEqual(
-			expect.arrayContaining([`seat ${seat}`, "key K2", `job ${Job}`, "7"]),
-		);
-	});
-
 	it("gives a session attached to a repo hold the ordinary park act, its ticket labelled parked (#3858)", async () => {
 		const holdCli = (args: string[], jobDir: string) =>
 			runInProcess(path.join(__dirname, "repo-hold.js"), args, {
@@ -1406,39 +1301,6 @@ describe("a parked launch (#2699)", () => {
 		).toHaveLength(1);
 		const listed = holdCli(["list"], "").stdout;
 		expect(listed).toContain(`sessions: raiser, ${Job}`);
-	});
-
-	/** Rewrites job7's record with `over` merged in. */
-	const jobAs = (over: object) =>
-		fs.writeFileSync(
-			jobFile(),
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(jobFile(), "utf8")),
-				...over,
-			}),
-		);
-
-	it("comments a stopped permission park's cause on its ticket (#2846)", async () => {
-		fakeClaude([LISTED, permissionRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("PERMISSION"));
-		expect(readLines(markerPath("s-job7"))).toContain("cause PERMISSION");
-	});
-
-	it("logs an UNKNOWN park's row and job shape once across ticks, and stops nothing (#2851, #3200)", async () => {
-		jobAs({ tempo: 7 });
-		fakeClaude([LISTED, blockedRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		const { state, detail, needs, inFlight, cliVersion } = SeededJob;
-		const job = { state, tempo: 7, detail, needs, inFlight, cliVersion };
-		expect(readLines(at("ticks")).length).toBeGreaterThanOrEqual(2);
-		const line = `block unread repo /implement 7: job tempo is not a string; row ${JSON.stringify(blockedRow)}; job ${JSON.stringify(job)}`;
-		expect(r.stdout.split(line)).toHaveLength(2);
-		expectNothingActed();
-		expect(launchState()).toMatchObject({ block: { cause: "UNKNOWN" } });
 	});
 });
 
@@ -1649,18 +1511,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		);
 	});
 
-	it("refuses the --bg --resume where its auth would not bill the subscription (#2236)", async () => {
-		seed(tried({ attachAt: Date.now() - 2 * 60 * 1000 }));
-		fakeResumeClaude(Job, [LISTED, blockedRow]);
-		writeSeatHelper(seat);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([`stop ${Job}`]);
-		expect(r.stdout).toMatch(
-			/could not resume .*an apiKeyHelper setting is in force.*#2236/,
-		);
-	});
-
 	it("relaunches a held session, judging it by state.json, not the launcher's exit", async () => {
 		seed(heldDue);
 		const failed = JSON.stringify({
@@ -1680,48 +1530,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(launchState()).toMatchObject({
 			finishedAt: null,
 			resumes: { tries: 2, heldAt: expect.any(Number) },
-		});
-	});
-
-	it("carries an overflow session's key to its copy: the launch, the ledger's mark, and no second hold (#4147)", async () => {
-		seed(heldDue, { keyVar: "K2" });
-		declareKey("K2");
-		fs.mkdirSync(path.dirname(markerPath("s-job7")), { recursive: true });
-		fs.writeFileSync(markerPath("s-job7"), "7\n");
-		fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
-		fs.writeFileSync(
-			ledgerPath(repo),
-			`${JSON.stringify({ ts: new Date().toISOString(), issues: [7], prompt: "/implement 7", jobId: Job, kind: "overflow", keyVar: "K2", allowanceUsd: 50, sessionId: "s-job7" })}\n`,
-		);
-		fakeResumeClaude(
-			Job,
-			[LISTED],
-			writesCopyRecord(
-				JSON.stringify({ state: "working", sessionId: "s-copy" }),
-			),
-		);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		// Resumed on its key, never the plan login (#3701).
-		const resume = readLines(at("calls")).find((l) => l.startsWith("--bg"));
-		const settings = resume?.match(
-			/^--bg --resume s-job7 --settings (\{.*\}) /,
-		)?.[1];
-		expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
-			new RegExp(`/lib/overflow-key\\.js'? '?K2'? '?${keySecrets()}`),
-		);
-		expect(resume?.endsWith(` ${Prompt}`)).toBe(true);
-		expect(launchState()).toMatchObject({ jobId: FAKE_COPY, keyVar: "K2" });
-		expect(readHeldIssues()).toEqual([[7], []]);
-		expect(readLines(markerPath("s-copy"))).toContain("key K2");
-		expect(JSON.parse(readLines(ledgerPath(repo)).at(-1) ?? "")).toMatchObject({
-			issues: [],
-			jobId: FAKE_COPY,
-			kind: "overflow",
-			keyVar: "K2",
-			allowanceUsd: 50,
-			sessionId: "s-copy",
-			copyOf: "s-job7",
 		});
 	});
 
@@ -1795,33 +1603,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 				"base=x\nfindings=1\n",
 			);
 			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(false);
-		});
-
-		it("leaves them where the past id is open elsewhere, logging it", async () => {
-			const r = await resumeListing([
-				LISTED,
-				buildJobRow("elsewhere", "working", { sessionId: "s-job7" }),
-			]);
-			expect(fs.existsSync(buildPassPath("s-copy"))).toBe(false);
-			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(true);
-			expect(r.stdout).toContain(
-				"pass markers of s-job7 not moved: s-job7 is still live",
-			);
-		});
-	});
-
-	it("reads a launcher line naming no job as a failed resume, the session held for its next (#2963)", async () => {
-		seed(heldDue);
-		fakeResumeClaude(Job, [LISTED], `echo "no job named"; exit 0;`);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(
-			/could not resume .*: the launcher never said what it started: no job named/,
-		);
-		expect(launchState()).toMatchObject({
-			jobId: Job,
-			finishedAt: null,
-			resumes: { heldAt: expect.any(Number) },
 		});
 	});
 });
@@ -2021,36 +1802,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(comments).toContain("Lost: ");
 			expect(r.stdout).toContain(`moved ${Job}`);
 		});
-
-		it("leaves it held on its old seat, its transcript intact, where the resume is not confirmed, and stops what may be starting", async () => {
-			seedMove();
-			const before = fs.readFileSync(oldTranscript(), "utf8");
-			claudeFor("");
-			const r = await oneTick(Run, 1);
-			expect(r.status).toBe(0);
-			expect(launchState()).toMatchObject({
-				seat,
-				limitHeld: { sessionId: Session, failedTries: 1 },
-			});
-			expect(launchState().limitHeld).not.toHaveProperty("resumedAt");
-			expect(fs.readFileSync(oldTranscript(), "utf8")).toBe(before);
-			expect(readLines(at("calls"))).toContain(`stop ${Short} in ${target()}`);
-			expect(r.stdout).toContain("could not move");
-			expect(readLines(at("gh-calls")).join("\n")).toContain("could not move");
-		});
-
-		it("names a transcript it could not copy, resuming nothing", async () => {
-			seedMove();
-			fs.mkdirSync(newTranscript(), { recursive: true });
-			claudeFor("");
-			const r = await oneTick(Run, 1);
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("copying its transcript");
-			expect(
-				readLines(at("calls")).filter((c) => c.startsWith("--bg")),
-			).toEqual([]);
-			expect(launchState()).toMatchObject({ seat });
-		});
 	});
 
 	describe("moved onto an overflow seat (#3736)", () => {
@@ -2134,40 +1885,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(launchState().movedAt).toBe(start.at);
 			expect(r.stdout).toContain("first overflow launch on");
 		});
-
-		it("stops the copy and puts it back held on its plan seat, its claims kept, where its ledger row will not write (#3730)", async () => {
-			seedOverflow();
-			arbiterAs("s-job7", "claim-issue", "7");
-			fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
-			fs.appendFileSync(ledgerPath(repo), "");
-			fs.chmodSync(ledgerPath(repo), 0o444);
-			const r = await oneTick(Run, 1);
-			expect(r.status).toBe(0);
-			expect(readLines(at("calls"))).toContain(`stop ${FAKE_COPY}`);
-			expect(launchState()).toMatchObject({
-				seat,
-				jobId: Job,
-				limitHeld: { failedTries: 1 },
-			});
-			expect(launchState()).not.toHaveProperty("keyVar");
-			expect(launchState()).not.toHaveProperty("movedAt");
-			expect(`${r.stdout}${r.stderr}`).toContain(
-				"not recorded in the dispatch ledger",
-			);
-			const claims = arbiterAs("s-job7", "issue-claims");
-			expect(claims).toContain("s-job7");
-			expect(claims).not.toContain("s-copy");
-		});
-	});
-
-	it("stays held where the launcher named a job its state.json reads stopped", async () => {
-		seed();
-		weekAt(10);
-		fakeResumeClaude(Job, [LISTED], "", "woke");
-		const r = await oneTick(Run, 1);
-		expect(r.status).toBe(0);
-		expect(launchState().limitHeld).not.toHaveProperty("resumedAt");
-		expect(r.stdout).toContain("state.json reads stopped");
 	});
 
 	it("writes a dispatch-ledger hold past the run, and its stop names the session and seat (#3785)", async () => {
@@ -2211,23 +1928,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect.objectContaining({ issues: [7], jobId: Job }),
 		]);
 		expect(rows[1]).not.toHaveProperty("heldUntil");
-	});
-
-	it("stays held and names the failure where state.json reads another session", async () => {
-		seed("s-other");
-		weekAt(10);
-		fakeResumeClaude(Job, [LISTED], "", "woke");
-		const r = await oneTick(Run, 1);
-		expect(r.status).toBe(0);
-		expect(launchState()).toMatchObject({
-			finishedAt: null,
-			limitHeld: { sessionId: "s-job7" },
-			limitResumes: { tries: 1 },
-		});
-		expect(r.stdout).toContain("session s-other, not s-job7");
-		expect(readLines(at("gh-calls")).join("\n")).toContain(
-			"session s-other, not s-job7",
-		);
 	});
 });
 
@@ -2465,42 +2165,6 @@ process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, s
 		});
 	});
 
-	it("hands off a copy still idle under its own job, releasing the hold its first job took (#2963)", async () => {
-		seed(6, { tries: 2, triedAt: Date.now() - 6 * Min });
-		const copyDir = path.join(seat, "jobs", FAKE_COPY);
-		fs.mkdirSync(copyDir, { recursive: true });
-		fs.copyFileSync(
-			path.join(jobDir(), "state.json"),
-			path.join(copyDir, "state.json"),
-		);
-		const state = JSON.parse(
-			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
-		);
-		Object.assign(state.launches[0], {
-			jobId: FAKE_COPY,
-			copiedFrom: Job,
-			relaunchedAt: Date.now() - 8 * Min,
-		});
-		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
-		ledgerLaunch(Job);
-		fakeResumeClaude(FAKE_COPY, [LISTED, { ...workingRow, id: FAKE_COPY }]);
-		const r = await oneTick(IdleRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([`stop ${FAKE_COPY}`]);
-		expect(readHandOffs()[0]?.args).toEqual([
-			"hand-off",
-			"--from",
-			seat,
-			"--job",
-			FAKE_COPY,
-			"--session",
-			"s-job7",
-			"--issue",
-			"7",
-		]);
-		expect(readHeldIssues()).toEqual([]);
-	});
-
 	it("hands off a session still idle after its two typed resumes: stop, snapshot comment, claim released, launch finished", async () => {
 		seed(6, { tries: 2, triedAt: Date.now() - 6 * Min });
 		ledgerLaunch(Job);
@@ -2613,8 +2277,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	const stopOnResume = () =>
 		`node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
 
-	const logsResumeDir = ' echo "dir $PWD" >> "$calls";';
-
 	const launches = () =>
 		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).launches;
 
@@ -2660,23 +2322,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(launches().at(-1).nothingToRepeat).toBe(true);
 	});
 
-	it("notes the acts its session had already made on the new launch, read from the ledger before the wake (#3942)", async () => {
-		seed();
-		/* A child, as the store is the sandbox's seat through the loop's env. */
-		execFileSync(
-			process.execPath,
-			[
-				"-e",
-				`require(${JSON.stringify(path.join(scripts, "lib", "arbiter-ledger.js"))}).recordAct("file owner/repo#5", "s-job5", ${JSON.stringify(repo)})`,
-			],
-			{ env: loopEnv({}) },
-		);
-		wakesInPlace();
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(launches().at(-1).actsBefore).toEqual({ file: 1 });
-	});
-
 	it("hands the old session's marker to the copy, whose typing or ending then takes the label off (#3940)", async () => {
 		seed();
 		fakeResumeClaude(
@@ -2706,69 +2351,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(r.stdout).toContain("marker of s-job5 not moved");
 	});
 
-	/* What the launcher leaves on a gone job: a new directory under its id. */
-	const restoresJobRecord = () => {
-		const jobDir = path.join(seat, "jobs", Job);
-		const record = JSON.stringify({
-			state: "working",
-			sessionId: "s-job5",
-			cwd: repo,
-		});
-		return ` mkdir -p ${shellQuote(jobDir)}; echo ${shellQuote(record)} > ${shellQuote(path.join(jobDir, "state.json"))};`;
-	};
-
-	it.each([
-		{
-			record: "gone",
-			damage: () =>
-				fs.rmSync(path.join(seat, "jobs", Job), { recursive: true }),
-			resumeAs: "continued",
-			onResume: restoresJobRecord,
-		},
-		{
-			record: "torn",
-			damage: () =>
-				fs.writeFileSync(path.join(seat, "jobs", Job, "state.json"), "{"),
-			resumeAs: "copy",
-			onResume: () => "",
-		},
-	] as const)(
-		"resumes from its marker alone, launching nothing fresh, where its job's record is $record (#3773)",
-		async ({ damage, resumeAs, onResume }) => {
-			seed();
-			damage();
-			const parkedIn = at("parked-in");
-			fs.mkdirSync(parkedIn);
-			writeMarker(`seat ${seat}\njob ${Job}\ncwd ${parkedIn}\n5\n`);
-			fakeResumeClaude(
-				Job,
-				[LISTED],
-				stopOnResume() + logsResumeDir + onResume(),
-				resumeAs,
-			);
-			const r = await settled(run(1), ParkedRun);
-			expect(r.status).toBe(0);
-			expect(readLines(at("calls"))).toEqual([
-				`--bg --resume s-job5 ${PARKED_PROMPT}`,
-				`dir ${parkedIn}`,
-			]);
-			expect(readLines(at("dispatches"))).toEqual([]);
-		},
-	);
-
-	it("resumes from its checkout where its marker names a job and no cwd (#3773)", async () => {
-		seed();
-		writeMarker(`seat ${seat}\njob ${Job}\n5\n`);
-		fakeResumeClaude(Job, [LISTED], stopOnResume() + logsResumeDir);
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([
-			`--bg --resume s-job5 ${PARKED_PROMPT}`,
-			`dir ${repo}`,
-		]);
-		expect(readLines(at("dispatches"))).toEqual([]);
-	});
-
 	it("launches afresh on its takes: command where the resume names no job", async () => {
 		seed();
 		fakeResumeClaude(Job, [LISTED]);
@@ -2783,46 +2365,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(r.stdout).toMatch(
 			/parked .* \/implement 5 not resumed: the launcher never said what it started/,
 		);
-	});
-
-	it("releases an away park's ledger row before the tick reads its shortlist, so the ticket resumes (#3872)", async () => {
-		seed();
-		const pickNext = path.join(scripts, "pick-next.js");
-		const ledger = ledgerPath(repo);
-		fs.writeFileSync(
-			pickNext,
-			`require("node:fs").copyFileSync(${JSON.stringify(ledger)}, ${JSON.stringify(at("ledger-at-read"))});\n${fs.readFileSync(pickNext, "utf8")}`,
-		);
-		fs.mkdirSync(path.dirname(ledger), { recursive: true });
-		fs.writeFileSync(ledger, "");
-		fs.writeFileSync(
-			at(".refill-loop-state.json"),
-			JSON.stringify({
-				launches: [
-					{
-						root: repo,
-						issues: [5],
-						prompt: "/implement 5",
-						seat,
-						jobId: Job,
-						launchedAt: Date.now() - 2000,
-						finishedAt: Date.now() - 1000,
-						parkStopped: Date.now() - 1500,
-						parkedAway: true,
-					},
-				],
-			}),
-		);
-		fakeResumeClaude(Job, [LISTED], stopOnResume());
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(
-			readLines(at("ledger-at-read")).map((l) => JSON.parse(l).released),
-		).toContain(Job);
-		expect(readLines(at("calls"))).toEqual([
-			`--bg --resume s-job5 ${PARKED_PROMPT}`,
-		]);
-		expect(launches()[0]).not.toHaveProperty("parkedAway");
 	});
 });
 
@@ -3129,7 +2671,6 @@ describe("boot-resume after a restart (#3878)", () => {
 			);
 		};
 		const readCalls = () => readLines(at("systemctl-calls"));
-		const logFile = at.bind(null, ".refill-loop.log");
 
 		it("restarts the boot unit past a dead loop's pidfile, so boot-resume decides", async () => {
 			writeControl();
@@ -3138,30 +2679,6 @@ describe("boot-resume after a restart (#3878)", () => {
 			expect((await watch()).status).toBe(0);
 			expect(readCalls()).toEqual(["--user restart refill-loop-boot.service"]);
 			expect(fs.existsSync(at("ticks"))).toBe(false);
-		});
-
-		it("does nothing and writes no log line for a live holder, even a paused one", async () => {
-			fs.writeFileSync(
-				loopControlFile(),
-				JSON.stringify({
-					noProgressFrom: countFrom,
-					stopRequested: false,
-					paused: { by: "command", at: countFrom },
-					seats: [seat],
-					scope: { mode: "normal", repos: [repo], goal: null },
-				}),
-			);
-			const holder = spawnHolder();
-			try {
-				expect((await watch()).status).toBe(0);
-				expect(readCalls()).toEqual([]);
-				expect(fs.existsSync(logFile())).toBe(false);
-				expect(fs.existsSync(at(".refill-loop-manager-restart.json"))).toBe(
-					false,
-				);
-			} finally {
-				await exited(holder);
-			}
 		});
 
 		it("stands down while a launch is in flight, its lock live", async () => {
@@ -3174,13 +2691,6 @@ describe("boot-resume after a restart (#3878)", () => {
 			} finally {
 				await exited(launcher);
 			}
-		});
-
-		it("leaves a damaged control alone, writing no log line", async () => {
-			fs.writeFileSync(loopControlFile(), "{");
-			expect((await watch()).status).toBe(0);
-			expect(readCalls()).toEqual([]);
-			expect(fs.existsSync(logFile())).toBe(false);
 		});
 
 		it("exits 1, naming the restart, where it fails, for the unit's ExecStopPost", async () => {
@@ -3230,19 +2740,6 @@ describe("boot-resume after a restart (#3878)", () => {
 				"boot resume: not resumed: the loop exited without holding",
 			);
 			expect(readLog()).not.toContain("resumed the loop");
-		});
-
-		it("boot-resume keeps the last loop's crash on record where the loop dies", async () => {
-			writeControl();
-			fs.writeFileSync(
-				at(".refill-loop-state.json"),
-				JSON.stringify({ heldAt: 5 }),
-			);
-			await commandWithPreload(Dies, "boot-resume");
-			expect(
-				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-					.heldAt,
-			).toBe(5);
 		});
 
 		it("boot-resume names the holder where the loop loses the lock", async () => {
@@ -3313,7 +2810,6 @@ describe("a paused loop on the real tick (#3856)", () => {
 		);
 		const running = run(1);
 		await ticksDone();
-		expect(readState().stopped).toBeNull();
 		requestStop();
 		await settled(running, "paused run");
 		expect(readState().stopped.reason).toBe("explicit");
@@ -3415,19 +2911,6 @@ describe("away mode's return on the real tick (#3870)", () => {
 		} finally {
 			holder.kill();
 		}
-	});
-
-	it("writes nothing on a dry run", async () => {
-		seedAway(true);
-		typedAt(Date.now());
-		const r = await runInProcessAsync(
-			path.join(scripts, "refill-loop.js"),
-			["dry-run"],
-			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }) },
-		);
-		expect(r.status).toBe(0);
-		expect(r.stdout).not.toContain("the founder is back");
-		expect(readControl().scope.mode).toBe("away");
 	});
 });
 
@@ -3539,20 +3022,6 @@ describe("a repo hold on the real tick (#3857)", () => {
 		expect(passing.stdout).toContain("repair main");
 		expect(passing.stdout).toContain("passed command: test -f fixed");
 		expect(listed()).toContain("none open");
-	});
-
-	it("lifts nothing on a dry run", async () => {
-		raise("--clear-command", "true");
-
-		const dryRun = await runInProcessAsync(
-			path.join(scripts, "refill-loop.js"),
-			["dry-run"],
-			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }) },
-		);
-
-		expect(dryRun.status).toBe(0);
-		expect(dryRun.stdout).toContain("dry run:");
-		expect(listed()).toContain("repair main");
 	});
 });
 
@@ -3759,20 +3228,8 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		expect(fs.existsSync(markerPath("s-job9"))).toBe(false);
 	});
 
-	it("probes nothing on a dry run, and leaves a stored hold's launches out of its preview", async () => {
+	it("leaves a stored hold's launches out of a dry run's preview", async () => {
 		breakHead();
-
-		const clean = await runInProcessAsync(
-			path.join(scripts, "refill-loop.js"),
-			["dry-run"],
-			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }) },
-		);
-
-		expect(clean.stdout).toContain("dry run:");
-		expect(clean.stdout).not.toContain("probe failed");
-		expect(await readStatus()).toContain("none open");
-		expect(readFiled()).toHaveLength(0);
-
 		await tickRun(serveClose().gh);
 		const held = await runInProcessAsync(
 			path.join(scripts, "refill-loop.js"),
@@ -4011,171 +3468,6 @@ describe("the sessions parked on a cleared repo hold (#3863)", () => {
 		expect(holdAs(null, "list").stdout).toContain("none open");
 		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
 		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toEqual([]);
-	});
-
-	it("takes up the launch the loop already holds for a session it parked, finished and stopped", async () => {
-		const id = raiseWith("job8");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		const at0 = Date.now() - 3_600_000;
-		fs.writeFileSync(
-			stateFile(),
-			JSON.stringify({
-				launches: [
-					{
-						root: repo,
-						issues: [8],
-						prompt: "/implement 8",
-						seat,
-						reason: "first with room",
-						jobId: "job8",
-						sessionId: "s-job8",
-						launchedAt: at0,
-						finishedAt: at0,
-						parkStopped: at0,
-					},
-				],
-			}),
-		);
-		fakeResumeClaude("job8", [LISTED]);
-
-		const r = await tickUntil(1, () => readCalls().length === 1);
-
-		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(
-			/resumed repo \/implement 8, parked at .* on repo hold/,
-		);
-		const [launch] = readState().launches;
-		expect(launch).toMatchObject({
-			issues: [8],
-			prompt: "/implement 8",
-			finishedAt: null,
-			jobId: FAKE_COPY,
-			copiedFrom: "job8",
-		});
-		expect(launch).not.toHaveProperty("parkStopped");
-		expect(launch).not.toHaveProperty("holdCleared");
-	});
-
-	it("resumes those that do not fit on later ticks, new launches behind them", async () => {
-		const id = raiseWith("job7", "job8", "job9");
-		writeParkMarker("job7", 7, 30);
-		writeParkMarker("job8", 8, 20);
-		writeParkMarker("job9", 9, 10);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job7", [LISTED]);
-
-		const first = await tickUntil(2, () => readCalls().length === 2);
-
-		expect(first.status).toBe(0);
-		expect(readCalls()).toEqual([resumeOf("job7"), resumeOf("job8")]);
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-		expect(first.stdout).toMatch(/resumed 2 of 3 due/);
-
-		const last = await tickUntil(2, () => fs.existsSync(at("dispatches")));
-
-		expect(last.status).toBe(0);
-		expect(readCalls().at(-1)).toBe(resumeOf("job9"));
-		expect(readCalls()).toHaveLength(3);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
-	it("takes the swap hold's try count on a failed resume, then its hand-off", async () => {
-		const id = raiseWith("job8");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job8", [LISTED]);
-		fs.writeFileSync(at("bg-stdout"), "");
-		fs.writeFileSync(at("bg-stderr"), "");
-		stub(
-			"rescue-sessions.js",
-			`require("node:fs").appendFileSync(${JSON.stringify(at("hand-offs"))}, process.argv.slice(2).join(" ") + "\\n");\nprocess.stdout.write("commented: #8\\n");\n`,
-		);
-
-		const failed = await tickUntil(1);
-
-		expect(failed.status).toBe(0);
-		expect(failed.stdout).toMatch(/could not resume .*try 1 of 3/);
-		expect(readState().launches[0].holdCleared.tries).toBe(1);
-		expect(editCalls()).toEqual([]);
-		expect(fs.existsSync(markerPath("s-job8"))).toBe(true);
-
-		const state = readState();
-		state.launches[0].holdCleared.tries = 2;
-		fs.writeFileSync(stateFile(), JSON.stringify(state));
-
-		const last = await tickUntil(1);
-
-		expect(last.status).toBe(0);
-		expect(last.stdout).toMatch(/could not resume .*try 3 of 3/);
-		expect(readLines(at("hand-offs"))).toEqual([
-			`hand-off --from ${seat} --job job8 --session s-job8 --issue 8`,
-		]);
-		expect(readState().launches[0]).toMatchObject({
-			finishedAt: expect.any(Number),
-			handedOff: expect.any(Number),
-		});
-		expect(readState().launches[0]).not.toHaveProperty("holdCleared");
-		expect(editCalls()).toEqual([
-			"issue edit 8 --repo o/r --remove-label parked",
-		]);
-		expect(fs.existsSync(markerPath("s-job8"))).toBe(false);
-	});
-
-	it("stops one its normal-mode round still holds, then resumes it", async () => {
-		const id = raiseWith("job8");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job8", [LISTED, buildJobRow("job8", "blocked")]);
-
-		const r = await tickUntil(1, () => readCalls().length === 2);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual(["stop job8", resumeOf("job8")]);
-	});
-
-	it("keeps a lifted hold's sessions through a tick that stops", async () => {
-		const id = raiseWith("job8");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job8", [LISTED, buildJobRow("job8", "blocked")]);
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				stopRequested: true,
-			}),
-		);
-
-		const r = await settled(run(1, { WFC_GH: gh }), "run told to stop");
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
-		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toHaveLength(1);
-	});
-
-	it("keeps a lifted hold's sessions through a paused tick", async () => {
-		const id = raiseWith("job8");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job8", [LISTED]);
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				paused: { by: "test", at: Date.now() },
-			}),
-		);
-
-		const r = await tickUntil(1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
-		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toHaveLength(1);
 	});
 });
 

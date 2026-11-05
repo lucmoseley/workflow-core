@@ -7,14 +7,12 @@ in that message why the push is held.
   {command:typecheck}
   {command:check}
   <the edited file's own checker>
-  git push origin main:landing   # worktree: node scripts/session-checkout.js land
+  node scripts/session-checkout.js land
 
 A push costs nothing; holding one back buys nothing. `.husky/post-commit`'s
 unpushed count is a reminder, not a prompt.
 
-The push sends EVERY commit on `main`, a parallel session's too.
-
-A REJECTED PUSH means `landing` moved: `git pull --ff-only`, then retry.
+A REJECTED PUSH means `landing` moved: land again.
 
 A push to `landing` has not landed: the lander moves `main` to it only once the
 full suite passes there, 25–60 min later, and reverts a commit that breaks it.

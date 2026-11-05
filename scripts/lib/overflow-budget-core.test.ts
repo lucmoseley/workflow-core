@@ -89,6 +89,14 @@ describe("reservations and fit", () => {
 		expect(b.fit).toBe(Math.floor((200 - b.reservedUsd) / 4));
 	});
 
+	it("holds a resumed copy at its chain share plus its own spend's remainder (#4369)", () => {
+		const b = budgetOf({
+			...base,
+			running: [{ sessionId: "a", spentUsd: 5, shareUsd: 1 }],
+		});
+		expect(b.reservedUsd).toBe(1 + 7);
+	});
+
 	it("holds a running session's ledger row rather than settling it too", () => {
 		const row = entry(at(2026, 10, 24), 5);
 		const b = budgetOf({
@@ -105,7 +113,9 @@ describe("reservations and fit", () => {
 		const b = budgetOf({
 			...base,
 			ledger: [row],
-			running: [{ sessionId: row.sessionId, spentUsd: row.costUsd }],
+			running: [
+				{ sessionId: row.sessionId, spentUsd: row.costUsd, shareUsd: 30 },
+			],
 		});
 		expect(b.reservedUsd).toBe(4);
 		expect(b.headroomUsd).toBe(196);

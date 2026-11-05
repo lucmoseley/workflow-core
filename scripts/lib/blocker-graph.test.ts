@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 const {
 	blockerGraph,
 	closesOf,
+	holdersOf,
 	inheritance,
 	openBlockersOf,
 	proseOf,
@@ -189,6 +190,30 @@ describe("the walk into other repos", () => {
 		expect(pulledInOf(graph).unread).toEqual([
 			{ ref: "o/y#10", error: "HTTP 502", holds: ["me/served#1"] },
 		]);
+	});
+});
+
+describe("a served issue's own blockers", () => {
+	it("honours a blocker that is also the blocked issue's own child (mantahostels#105)", async () => {
+		// The live cross-group edge: mantahostels#93 blocks mantahostels#79 while
+		// being its child. A walk assuming edges run parent-downward drops it.
+		const { graph } = await graphOf({
+			79: { deps: [`${OWN}#93`] },
+			93: { parent: 79 },
+		});
+		expect(openBlockersOf(graph, 79)).toEqual([{ label: "#93", native: true }]);
+		expect(openBlockersOf(graph, 93)).toEqual([]);
+	});
+
+	it("counts reach transitively over open descendants, not one step (mantahostels#101)", async () => {
+		const { graph } = await graphOf({
+			1: {},
+			2: { deps: [`${OWN}#1`] },
+			3: { deps: [`${OWN}#2`] },
+			4: { deps: [`${OWN}#3`] },
+		});
+		expect(reachOf(graph, 1)).toBe(3);
+		expect(reachOf(graph, 3)).toBe(1);
 	});
 });
 
@@ -367,6 +392,43 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 		expect(reads.filter((r: string) => r.startsWith("issue me/"))).toEqual([]);
 	});
 
+	it("holds nothing on a marker naming this repo's closed issue, and reads it not", async () => {
+		// mantahostels#831 closed; the issues naming it were takeable all along.
+		const { graph, reads } = await graphOf({
+			832: { body: "**Blocked on** #831." },
+		});
+		expect(proseOf(graph, 832).closed).toEqual(["#831"]);
+		expect(openBlockersOf(graph, 832)).toEqual([]);
+		expect(reads).toEqual([]);
+	});
+
+	it("judges `owner/name#n` naming this repo in any case as its own, at no read (#3277)", async () => {
+		const { graph, reads } = await graphOf({
+			1: { body: "**Blocked on** ME/SERVED#831 and Me/Served#2." },
+			2: {},
+		});
+		expect(proseOf(graph, 1)).toMatchObject({
+			open: ["#2"],
+			closed: ["#831"],
+			unreadable: [],
+		});
+		expect(openBlockersOf(graph, 1)).toEqual([{ label: "#2", native: false }]);
+		expect(reads).toEqual([]);
+	});
+
+	it("holds a served issue on another repo's marker whose read fails", async () => {
+		const { graph } = await graphOf(
+			{ 1: { body: "**Blocked on** o/y#12." } },
+			{ failIssues: ["o/y#12"] },
+		);
+		expect(proseOf(graph, 1).unreadable).toEqual([
+			{ ref: "o/y#12", error: "HTTP 404" },
+		]);
+		expect(openBlockersOf(graph, 1)).toEqual([
+			{ label: "o/y#12", native: false },
+		]);
+	});
+
 	it("judges a marker a native edge also names, at no extra read", async () => {
 		const { graph, reads } = await graphOf({
 			1: { deps: ["o/y#10"], body: "**Blocked on** o/y#10." },
@@ -376,6 +438,36 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 			{ label: "o/y#10", native: true },
 		]);
 		expect(reads.filter((r: string) => r === "issue o/y#10")).toEqual([]);
+	});
+});
+
+describe("holdersOf: what an `unblock` goal names (#3866)", () => {
+	it("walks a ref's blockers across repos and through its children, the ref included", async () => {
+		// 2 is 1's child; 3 and o/y#10 block 1; o/z#20 blocks o/y#10; 4 and the
+		// closed o/y#11 hold nothing.
+		const { graph } = await graphOf(
+			{
+				1: { deps: [`${OWN}#3`, "o/y#10", "o/y#11"] },
+				2: { parent: 1 },
+				3: {},
+				4: {},
+			},
+			{
+				deps: { "o/y#10": ["o/z#20"] },
+				issues: { "o/y#11": { state: "closed" } },
+			},
+		);
+		expect(
+			holdersOf(graph, `${OWN}#1`).map(
+				(n: { ref: { repo: string; number: number } }) =>
+					`${n.ref.repo}#${n.ref.number}`,
+			),
+		).toEqual([`${OWN}#1`, `${OWN}#2`, `${OWN}#3`, "o/y#10", "o/z#20"]);
+	});
+
+	it("names nothing for a ref no node carries", async () => {
+		const { graph } = await graphOf({ 1: {} });
+		expect(holdersOf(graph, `${OWN}#99`)).toEqual([]);
 	});
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const { mergeFrontiers } = require("./frontier-order.js");
+const { compareLevels, mergeFrontiers } = require("./frontier-order.js");
 
 const row = (number: number, over: Record<string, unknown> = {}) => ({
 	number,
@@ -20,6 +20,16 @@ const ranked = ({
 }: {
 	frontier: { root: string; number: number }[];
 }) => frontier.map((r) => `${r.root}#${r.number}`);
+
+describe("compareLevels", () => {
+	it("puts a longer stalled wait above a shorter one, not only a stall above none", () => {
+		expect(
+			[row(1, { stallDays: 20 }), row(2, { stallDays: 60 }), row(3)]
+				.sort(compareLevels)
+				.map((r) => r.number),
+		).toEqual([2, 1, 3]);
+	});
+});
 
 describe("mergeFrontiers (#2003)", () => {
 	it("holds every sort level across repos: bug, urgent, goal, stalled wait, type, depth, reach, collision", () => {
