@@ -7,7 +7,7 @@
  * The program and its lib/ closure are copied into a sandbox `scripts/`, its
  * children stubbed beside it: admission, the allowance cap, the reap, the
  * shortlist, the gate check and the dispatcher are all found from the
- * program's own directory. The cwd-outside-every-checkout cases run the real
+ * program's own directory. The cwd-outside-every-checkout case runs the real
  * allowance.js, as only it reads the host's cost table (#2937). The copy is
  * no git checkout, so run() adopts no newer code, and the morning review's
  * root is the sandbox, with no config, so no tick files a review on a real
@@ -2499,31 +2499,6 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 		expect(r.stdout).not.toContain("unsized");
 		expect(r.stdout).toContain(`would run in ${repo} on ${seat}`);
 	});
-
-	it("logs a checkout with no cost table as a fault, not a full seat", async () => {
-		const r = await dryRun();
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			`fault: cap on ${seat} unsized: the session cost table is unreadable`,
-		);
-		expect(r.stdout).toContain("no plan has room right now");
-	});
-
-	it("logs a loop serving no checkout as a fault", async () => {
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				scope: { mode: "normal", repos: [], goal: null },
-			}),
-		);
-		const r = await dryRun();
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			`fault: cap on ${seat} unsized: the loop serves no checkout to size it in`,
-		);
-	});
 });
 
 describe("a parked ticket in a normal-mode loop (#3621)", () => {
@@ -2734,56 +2709,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(r.stdout).toMatch(
 			/parked .* \/implement 5 not resumed: the launcher never said what it started/,
 		);
-	});
-
-	describe("a marker naming an overflow key on a plan seat's dir (#4147)", () => {
-		/** A marker on a second plan seat, with room and no cap sized yet; the seats each cap read asked for. */
-		const seedOnSeat2 = (keyLine: string) => {
-			const seat2 = at("seat2");
-			seed(true, seat2);
-			writeMarker(`seat ${seat2}\n${keyLine}job ${Job}\ncwd ${repo}\n5\n`);
-			fs.writeFileSync(
-				path.join(seat2, ".claude.json"),
-				JSON.stringify(buildUsageCache({ session: 10, week: 10 }, Date.now())),
-			);
-			const control = at(".refill-loop-control.json");
-			fs.writeFileSync(
-				control,
-				JSON.stringify({
-					...JSON.parse(fs.readFileSync(control, "utf8")),
-					seats: [seat, seat2],
-				}),
-			);
-			stub(
-				"allowance.js",
-				`require("node:fs").appendFileSync(${JSON.stringify(at("cap-reads"))}, process.env.CLAUDE_CONFIG_DIR + "\\n");
-process.stdout.write(JSON.stringify({ cap: { launch: 1 } }));\n`,
-			);
-			return seat2;
-		};
-
-		it("launches afresh, resuming nothing and reading none of the plan seat's cap", async () => {
-			const seat2 = seedOnSeat2("key K2\n");
-			const r = await settled(run(1), ParkedRun);
-			expect(r.status).toBe(0);
-			expect(fs.existsSync(at("calls"))).toBe(false);
-			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-			expect(r.stdout).toContain(
-				"its session ran on overflow seat key=K2; launching afresh",
-			);
-			expect(readLines(at("cap-reads"))).not.toContain(seat2);
-		});
-
-		it("sizes the seat for a marker naming no key, as a plan seat's", async () => {
-			const seat2 = seedOnSeat2("");
-			wakesInPlace();
-			const r = await settled(run(1), ParkedRun);
-			expect(r.status).toBe(0);
-			expect(readLines(at("calls"))).toEqual([
-				`--bg --resume s-job5 ${PARKED_PROMPT}`,
-			]);
-			expect(readLines(at("cap-reads"))).toContain(seat2);
-		});
 	});
 
 	it("releases an away park's ledger row before the tick reads its shortlist, so the ticket resumes (#3872)", async () => {

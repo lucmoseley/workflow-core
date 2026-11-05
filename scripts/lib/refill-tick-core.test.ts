@@ -4,10 +4,11 @@
  * its steps, what a kill between two of them leaves the next tick, its
  * dry-run policy, and how it carries a restart's killed launches and a
  * limit-held launch into the state, the idle reason and the tick's record
- * (#4315), the sessions it launched into that record, and the room a paused or
- * stopping tick leaves unread (#4282). Every port records its call, so a case
- * reads the order off one list; the state file is held in memory
- * (stateFileFake). The fake answers in
+ * (#4315), the sessions it launched into that record, the room a paused or
+ * stopping tick leaves unread, and which checkout it sizes the seats and a
+ * parker's seat in (#4282). Every port records its call, so a case reads the
+ * order off one list; the state file is held in memory (stateFileFake). The
+ * fake answers in
  * the ports' shapes but no contract test pins it to the adapter, bar
  * ADMISSION_VERDICT, which admission-verdict.contract.test.ts holds:
  * scripts/refill-loop-run.test.ts runs the real one.
@@ -155,7 +156,6 @@ function fakeIo(
 			goal: null,
 		})) as unknown as TickIo["readFrontier"],
 		readParkers: () => [],
-		sizeParkerSeats: (seats) => seats,
 		launchBatch: recorded("launchBatch", (batch) => ({
 			launched: batch.map((l) => ({
 				...l,
@@ -479,6 +479,81 @@ describe("the room a paused or stopping tick reads (#4060, #4071)", () => {
 		const live = fakeIo(stateOf());
 		await tickOf(live.io);
 		expect(live.calls).toContain("startDueConsoleReads");
+	});
+});
+
+describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4147)", () => {
+	const Seat2 = "/home/u/.claude4";
+	const parkedRow = { ...row(5), labels: ["takes:implement", "parked"] };
+	/** A parker of #5 on Seat2, its marker naming `keyVar` where given. */
+	const parker = (keyVar?: string) => ({
+		root: WFC,
+		number: 5,
+		sessionId: "s-job5",
+		job: {
+			seat: Seat2,
+			jobId: "job5",
+			cwd: WFC,
+			...(keyVar ? { keyVar } : {}),
+		},
+		resumeCwd: WFC,
+	});
+	/** A tick over SEAT, sized, and Seat2 with room and no cap sized yet; each
+	 * checkout the seats were read in, and each cap sized, fitting 1. */
+	const tickOver = async (
+		parkers: ReturnType<typeof parker>[],
+		c = control(),
+	) => {
+		const roots: (string | undefined)[] = [];
+		const capped: string[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				readSeats: (_seats, _slots, root) => {
+					roots.push(root);
+					return {
+						seats: [sized, { ...sized, seat: Seat2, fits: null }],
+						probes: [],
+					};
+				},
+				capSizer: (root) => (seat, members) => {
+					capped.push(`${root} ${seat}/${members}`);
+					return 1;
+				},
+				readParkers: () => parkers,
+			},
+			{ frontier: [parkedRow] },
+		);
+		const r = await tickOf(io, c);
+		const routes =
+			"launches" in r.decision
+				? r.decision.launches.map((l) => l.parkedRoute)
+				: [];
+		return { roots, capped, routes };
+	};
+
+	it("sizes a parker's seat for one resume in the first served checkout, so its ticket resumes there (#3669)", async () => {
+		const { capped, routes } = await tickOver([parker()]);
+		expect(capped).toEqual([`${WFC} ${Seat2}/1`]);
+		expect(routes).toEqual([
+			expect.objectContaining({
+				resume: expect.objectContaining({ seat: Seat2, sessionId: "s-job5" }),
+			}),
+		]);
+	});
+
+	it("sizes none of a plan seat's cap for a marker naming an overflow key on its dir, and launches it afresh (#4147)", async () => {
+		const { capped, routes } = await tickOver([parker("K2")]);
+		expect(capped).toEqual([]);
+		expect(routes).toEqual([
+			{ afresh: "its session ran on overflow seat key=K2" },
+		]);
+	});
+
+	it("reads the seats in the first served checkout, and in none where the loop serves no checkout (#2937)", async () => {
+		expect((await tickOver([])).roots).toEqual([WFC]);
+		const none = await tickOver([], control({ scope: normal([]) }));
+		expect(none.roots).toEqual([undefined]);
 	});
 });
 
