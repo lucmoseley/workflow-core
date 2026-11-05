@@ -332,12 +332,12 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-harness-canary.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-harness-canary.js --notify --write || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-orphaned-edits.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-orphaned-edits.js --notify --write || true",
 						"timeout": 60
 					},
 					{

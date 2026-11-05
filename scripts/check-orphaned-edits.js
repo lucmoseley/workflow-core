@@ -5,15 +5,16 @@
  * in its write ledger, unchanged for at least 24 hours — and file each one
  * once as a `takes:triage` issue.
  *
- * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json]
+ * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json] [--write]
  *
  * WHY (#810, the spec; #794 Q2, Q5–Q7, the rulings). An uncommitted edit in the
  * main checkout enters every suite run that reads it rather than a
  * worktree at HEAD (#812), and voids every certificate whose read closure it
  * touches (#787).
  *
- * TWO RUNS (#813, #2038): at SessionStart it files and prints nothing, and
- * `npm run status` runs it by hand for the report.
+ * TWO RUNS (#813, #2038): at SessionStart, under `--write`, it files and
+ * prints nothing, and `npm run status` runs it by hand for the report, filing
+ * nothing without `--write` (#4449).
  *
  * LIVE MEANS LISTED BY THE ORACLE AND NOT TERMINAL (`isListedLive`): a finished
  * background session never commits its edit, so its ledger holds nothing back.
@@ -63,7 +64,7 @@
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at every session start, files each uncommitted tracked file that no live session owns once as a takes:triage issue, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
+ * IMPLICIT:  at every session start (its hook passes --write), files each uncommitted tracked file that no live session owns once as a takes:triage issue, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
  * TREE:      host — walks the main checkout and every linked worktree (#4244)
@@ -159,15 +160,7 @@ const describeLocation = (o) =>
  * @returns {{taken: string|null, status: string}}
  */
 function takeFiling(dir, o) {
-	const key = createHash("sha256")
-		.update(
-			o.worktree
-				? `${o.worktree}\0${o.path}\0${o.blob}`
-				: `${o.path}\0${o.blob}`,
-		)
-		.digest("hex")
-		.slice(0, 32);
-	const marker = path.join(dir, `${key}.json`);
+	const marker = markerPath(dir, o);
 	try {
 		fs.closeSync(fs.openSync(marker, "wx"));
 		return { taken: marker, status: "" };
@@ -176,18 +169,58 @@ function takeFiling(dir, o) {
 		if (code !== "EEXIST")
 			return { taken: null, status: `not filed: ${message}` };
 	}
+	return { taken: null, status: filedStatus(marker) };
+}
+
+/**
+ * The filing marker for `o` under `dir`, one per path and blob.
+ * @param {string} dir
+ * @param {Orphan} o
+ */
+function markerPath(dir, o) {
+	const key = createHash("sha256")
+		.update(
+			o.worktree
+				? `${o.worktree}\0${o.path}\0${o.blob}`
+				: `${o.path}\0${o.blob}`,
+		)
+		.digest("hex")
+		.slice(0, 32);
+	return path.join(dir, `${key}.json`);
+}
+
+/**
+ * What an existing marker says of its filing.
+ * @param {string} marker
+ */
+function filedStatus(marker) {
 	let ref = "";
 	try {
 		ref = JSON.parse(fs.readFileSync(marker, "utf8")).ref ?? "";
 	} catch {
 		// Empty or torn: the filing that made it is running or was killed.
 	}
-	return {
-		taken: null,
-		status: ref
-			? `already filed: ${ref}`
-			: "filing in progress or interrupted — search the tracker before filing by hand",
-	};
+	return ref
+		? `already filed: ${ref}`
+		: "filing in progress or interrupted — search the tracker before filing by hand";
+}
+
+/**
+ * What a run without --write says of each orphan: an existing marker's
+ * filing, else that --write would file it. Takes no marker.
+ * @param {Orphan[]} orphans
+ * @param {string} root
+ */
+function unfiled(orphans, root) {
+	const dir = orphans.length > 0 ? filedDir(root) : null;
+	return orphans.map((o) => {
+		const marker = dir === null ? null : markerPath(dir, o);
+		const filed =
+			marker !== null && fs.existsSync(marker)
+				? filedStatus(marker)
+				: "not filed: `--write` files it";
+		return { ...o, filed };
+	});
 }
 
 /**
@@ -610,8 +643,10 @@ function describeUnread({ linked, unread, unjudged }) {
 
 runCheck({
 	name: "orphaned-edits",
-	usage: "node check-orphaned-edits.js [--hours <n>] [--notify] [--json]",
+	usage:
+		"node check-orphaned-edits.js [--hours <n>] [--notify] [--json] [--write]",
 	valueFlags: ["--hours"],
+	flags: ["--write"],
 	run(ctx) {
 		const hours = ctx.numberValue(
 			"--hours",
@@ -662,7 +697,9 @@ runCheck({
 
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
-		const { filings, orphans } = fileOrphans(found, { root, now });
+		const { filings, orphans } = ctx.has("--write")
+			? fileOrphans(found, { root, now })
+			: { filings: 0, orphans: unfiled(found, root) };
 
 		const threshold = describeThreshold(hours, cutOver);
 		if (!ctx.notify) reportOrphans(ctx, orphans, threshold);

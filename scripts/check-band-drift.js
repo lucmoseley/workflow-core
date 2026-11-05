@@ -3,8 +3,8 @@
  * check-band-drift.js — watch for agents narrowing their price bands across
  * the board, the evasion no per-turn guard can see.
  *
- * Usage:  node scripts/check-band-drift.js  [--days <n>] [--json]
- *         npm run status -- --only band-drift
+ * Usage:  node scripts/check-band-drift.js  [--days <n>] [--json] [--write]
+ *         npm run status -- --only band-drift [--write]
  *
  * WHAT IT IS FOR (#472 limb C, specified at #486, built at #487). The close-
  * rivals limb of scripts/guard-priced-options.js refuses a question whose top
@@ -27,9 +27,12 @@
  *
  * A CHECKER THAT FILES, where every other filer is a scheduled `report-*`
  * script: the corpus is machine-local, so no CI runner could read it, and
- * `npm run status` is the one surface that runs here.
+ * `npm run status` is the one surface that runs here. It files only under
+ * `--write` (`npm run status -- --write`): a check run writes nothing to the
+ * tracker (#4449), and says what it would have filed.
  *
- * FILES, NEVER FAILS. Either band reading below half its baseline files or
+ * FILES, NEVER FAILS. Either band reading below half its baseline files (under
+ * --write) or
  * refreshes one tracking issue through lib/tracking-issue.js, the top-figure
  * share above 1.5 times its baseline another, and the run WARNs. Nothing here
  * is a FAIL: drift is the founder's to judge. scripts/check-cleared-trackers.js
@@ -43,7 +46,7 @@
  * split). A seat that is simply absent is skipped quietly; a CI runner has
  * none at all and reports SKIP.
  *
- * IMPLICIT:  on `npm run status`, reads 14 days of session transcripts across every seat and files or refreshes one tracking issue when price bands have narrowed by more than half, and another when top figures bunch at 70 by more than half again.
+ * IMPLICIT:  on `npm run status -- --write`, reads 14 days of session transcripts across every seat and files or refreshes one tracking issue when price bands have narrowed by more than half, and another when top figures bunch at 70 by more than half again.
  * JUSTIFIED: fail-safe — band-narrowing spreads across sessions, so no per-turn guard sees it; a run that cannot read the corpus or holds too few questions files nothing rather than guessing.
  * DEFEAT:    --days <n> moves the window on a hand run, and editing lib/band-baseline.js's BAND_BASELINE or TOP_BASELINE moves the thresholds; its comment forbids that without a re-measurement, and nothing enforces it.
  */
@@ -469,11 +472,13 @@ const conditionOf = (watch) => () => {
  *
  * @param {{ title: string, body: string }} issue
  * @param {number} days
+ * @param {boolean} write
  * @returns {string}
  */
-function fileDrift(issue, days) {
+function fileDrift(issue, days, write) {
 	if (days !== DEFAULT_DAYS)
 		return `Not filed: --days ${days} is not the ${DEFAULT_DAYS}-day window the baseline was read over.`;
+	if (!write) return "Not filed: `--write` files or refreshes its tracker.";
 	try {
 		return fileOrRefresh({ ...issue, label: LABEL, labels: [LABEL] });
 	} catch (e) {
@@ -483,8 +488,9 @@ function fileDrift(issue, days) {
 
 const SPEC = {
 	name: "band-drift",
-	usage: "node check-band-drift.js [--days <n>] [--json]",
+	usage: "node check-band-drift.js [--days <n>] [--json] [--write]",
 	valueFlags: ["--days"],
+	flags: ["--write"],
 	/** @param {import("./lib/check").CheckContext} ctx */
 	run(ctx) {
 		const days = ctx.has("--days") ? Number(ctx.value("--days")) : DEFAULT_DAYS;
@@ -535,7 +541,11 @@ const SPEC = {
 				readingLines.push(`${watch.prefix}${w.summary}`);
 			else {
 				drifted = true;
-				const filed = fileDrift({ title: watch.title, body: w.body }, days);
+				const filed = fileDrift(
+					{ title: watch.title, body: w.body },
+					days,
+					ctx.has("--write"),
+				);
 				const msg = `${watch.headline}: ${w.summary} ${filed}`;
 				ctx.say(msg);
 				ctx.warn(watch.code, msg);

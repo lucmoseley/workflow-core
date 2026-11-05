@@ -1652,7 +1652,7 @@
 				}
 			]
 		},
-		"check-harness-canary.js --notify": {
+		"check-harness-canary.js --notify --write": {
 			"needles": [
 				{
 					"id": "harness-canary",
@@ -1661,7 +1661,7 @@
 				}
 			]
 		},
-		"check-orphaned-edits.js --notify": {
+		"check-orphaned-edits.js --notify --write": {
 			"needles": [],
 			"silent": "Files each orphaned edit's triage issue and prints nothing; the report is read on npm run status (#2038)."
 		},

@@ -414,7 +414,7 @@ const REGISTRATIONS: Registration[] = [
 		/* Silent unless the installed Claude Code's probe went red; a version
 		 * neither passed nor probed launches the probe detached (#2037). */
 		event: "SessionStart",
-		id: "scripts/check-harness-canary.js --notify",
+		id: "scripts/check-harness-canary.js --notify --write",
 		matcher: null,
 		covers: [],
 	},
@@ -422,7 +422,7 @@ const REGISTRATIONS: Registration[] = [
 		/* Silent; files each orphaned edit's triage issue once per path and blob
 		 * (#813), the report read on `npm run status` (#2038). */
 		event: "SessionStart",
-		id: "scripts/check-orphaned-edits.js --notify",
+		id: "scripts/check-orphaned-edits.js --notify --write",
 		matcher: null,
 		covers: [],
 	},

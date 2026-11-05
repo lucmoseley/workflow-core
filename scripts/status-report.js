@@ -3,7 +3,7 @@
  * status-report.js — run the repo-health checkers that do not fire at
  * SessionStart, on demand.
  *
- * Usage:  npm run status  [-- --only <substring>] [-- --serial]
+ * Usage:  npm run status  [-- --only <substring>] [-- --serial] [-- --write]
  *
  * `--serial` runs the checkers one at a time; a checker's own children are its
  * own, and check-primitives.js still counts four checks at once.
@@ -21,6 +21,11 @@
  * instead of suppressing it, and exits non-zero on a fault (`lib/check.js`).
  * Two go further: `check-capture-drain.js` calls `gh` rather than reading its
  * state file, and `check-hook-liveness.js` adds its `settings` assertion.
+ *
+ * READ-ONLY UNLESS `--write` (#4449). No checker here writes to the tracker
+ * or the tree on a bare run, so an audit can run it safely; `--write` is passed
+ * on to the checkers in WRITERS, which then file, refresh or record as their
+ * own headers say. The test holds a bare run to no `gh` write and a clean tree.
  *
  * EXIT CODE. Always 0 for any checker's own verdict — this reports, a human
  * decides — so a fault never breaks a caller. Only this runner crashing exits
@@ -129,6 +134,13 @@ const CHECKS = [
 ];
 
 /**
+ * The checkers that write under `--write`, and only then: band-drift files or
+ * refreshes its tracking issues, history-trim appends its tracked watch file,
+ * orphaned-edits files each orphan's triage issue.
+ */
+const WRITERS = new Set(["band-drift", "history-trim", "orphaned-edits"]);
+
+/**
  * Checkers whose clean run IS the report — a standing to read, not a finding —
  * so their body is printed even under an `OK:` line. A SKIP is no clean run:
  * it stays with the clean list.
@@ -155,12 +167,13 @@ function fail(msg) {
 
 const { flags } = parseOrExit(process.argv.slice(2), {
 	usage:
-		`usage: node ${scriptPath("status-report.js")} [--only <substring>] [--serial]\n` +
+		`usage: node ${scriptPath("status-report.js")} [--only <substring>] [--serial] [--write]\n` +
 		`  e.g. \`node ${scriptPath("status-report.js")} --only gates\``,
-	flags: { "--only": "value", "--serial": "boolean" },
+	flags: { "--only": "value", "--serial": "boolean", "--write": "boolean" },
 });
 const onlyValue = flagValue(flags, "--only") ?? null;
 const serial = flags["--serial"] === true;
+const write = flags["--write"] === true;
 
 const selected = onlyValue
 	? CHECKS.filter(([name]) => name.includes(onlyValue))
@@ -180,7 +193,11 @@ function run(entry) {
 	return new Promise((resolve) => {
 		const child = spawn(
 			process.execPath,
-			[path.join(CORE_SCRIPTS, script), ...args],
+			[
+				path.join(CORE_SCRIPTS, script),
+				...args,
+				...(write && WRITERS.has(name) ? ["--write"] : []),
+			],
 			{
 				cwd: hostRoot(),
 				env: process.env,
