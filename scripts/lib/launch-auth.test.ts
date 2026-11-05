@@ -197,7 +197,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 		).toContain("no declared overflow seat's");
 	});
 
-	it("refuses a --settings that is not inline JSON", () => {
+	it("refuses a --settings that is not inline JSON, naming it as not inline JSON", () => {
 		declarePlanOverflow();
 		expect(
 			launchAuthRefusal({

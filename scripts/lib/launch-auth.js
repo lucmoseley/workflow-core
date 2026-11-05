@@ -89,7 +89,7 @@ function readAuthStatus(bin, env, cwd) {
 /**
  * The `apiKeyHelper` the launch's `--settings` sets, null where it sets none,
  * or why it cannot be read: `claude` takes a `--settings` that is not JSON as
- * a file path, whose helper this guard would never see.
+ * a file path, whose helper this guard would never see (#2570).
  * @param {string|undefined} settings
  * @returns {{helper: unknown}|{why: string}}
  */

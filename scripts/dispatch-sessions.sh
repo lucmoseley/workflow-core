@@ -633,10 +633,12 @@ fi
 # the last two say when the key is free again: its next cycle, or, where the
 # key has a Console reading, a newer reading (lib/overflow-budget-core.js).
 budget_fields() {
-  jq -r '(.nextCycleStart / 1000 | strflocaltime("%Y-%m-%d")) as $next |
+  jq -r '(if .readAt == null
+      then .nextCycleStart / 1000 | strflocaltime("%Y-%m-%d")
+      else null end) as $next |
     [.fit, .headroomUsd, .qUsd, .running, .reservedUsd, .exhausted,
-    (if .readAt == null then "until \($next)" else "until a newer Console reading" end),
-    (if .readAt == null then "resets \($next)" else "resets at a newer Console reading" end)] | @tsv' <<<"$1"
+    ($next | if . then "until \(.)" else "until a newer Console reading" end),
+    ($next | if . then "resets \(.)" else "resets at a newer Console reading" end)] | @tsv' <<<"$1"
 }
 # Why the seat fits no session, from the fields budget_fields last read.
 no_fit_line() {
