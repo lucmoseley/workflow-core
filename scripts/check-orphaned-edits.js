@@ -904,9 +904,9 @@ function describeUnread({ linked, unread }) {
  * directory, so a session started inside a worktree would judge that
  * worktree's live dirt as the main checkout's (#4483). It is made the host for
  * the rest of the run, so the arbiter's stores, the module config and the filer
- * all read the main checkout too. A common dir naming no checkout keeps the
- * host root. RESIDUAL: a linked worktree of a `--separate-git-dir` checkout,
- * whose common dir is not named `.git`, is still read as the main checkout.
+ * all read the main checkout too. RESIDUAL: a linked worktree of a
+ * `--separate-git-dir` checkout, whose common dir is not named `.git`, is
+ * still read as the main checkout.
  * @returns {string}
  */
 function adoptMainCheckout() {
