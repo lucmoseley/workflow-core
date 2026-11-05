@@ -6,8 +6,8 @@ file claims are stranded and yours to retake, and each one's work sits
 UNCOMMITTED in its own worktree.
 
 You are taking one over. Your `<ticket>-brief.md` alongside this file carries
-the ticket-specific facts, the dead session's worktree among them: `cd` into it
-and work there.
+the ticket-specific facts, the dead session's worktree among them: your launch
+started you in it, so work there.
 
 ## 1. Read the dead session's own account first
 

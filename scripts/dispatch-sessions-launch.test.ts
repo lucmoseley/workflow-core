@@ -83,6 +83,41 @@ describe("the session's directory (#4245)", () => {
 		expect(git(fx.dir, "status", "--porcelain", "-uno")).toBe("");
 	});
 
+	it("starts a one-member set --into an existing session worktree, cutting none (#4385)", () => {
+		seedLandingCheckout(fx.dir);
+		stubClaude({});
+		const env = { WFC_MODULES: LANDING_MODULES };
+		expect(run(["sonnet", "/implement 341"], env).code).toBe(0);
+		const [dead] = launchCwds();
+
+		const r = run(["--into", dead, "opus", "/implement 343"], env);
+
+		expect(r.code, r.stderr).toBe(0);
+		expect(launchCwds()).toEqual([dead, dead]);
+		expect(
+			fs
+				.readdirSync(path.join(fx.dir, ".claude", "worktrees"))
+				.filter((d) => !d.startsWith(".")),
+		).toEqual([path.basename(dead)]);
+	});
+
+	it("refuses --into for a set of more than one member", () => {
+		stubClaude({});
+		const r = run([
+			"--into",
+			fx.dir,
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/implement 342",
+		]);
+		expect(r.code).toBe(2);
+		expect(r.stderr).toContain(
+			"--into starts one session in one worktree; this set has 2 members",
+		);
+		expect(launchCwds()).toEqual([]);
+	});
+
 	it("refuses a refill-loop member whose lockfile has no store at once, running no install, then launches it once warmed (#4318)", () => {
 		seedLandingCheckout(fx.dir);
 		git(fx.dir, "checkout", "-q", "--detach", "origin/landing");

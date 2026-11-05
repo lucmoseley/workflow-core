@@ -81,18 +81,23 @@ one short brief per ticket, `<ticket>-brief.md`, carrying only:
 - anything that has changed *under* the ticket since it died — a neighbour's
   commit touching its files, a blocker that has cleared.
 
-Dispatch one ticket first and read its result:
+Dispatch one ticket first, into its dead session's worktree, and read its
+result:
 
-    scripts/dispatch-sessions.sh \
+    scripts/dispatch-sessions.sh --into <cwd> \
       opus "/implement <n> — RESUMED from <plan> session <short-id>; read .claude/tmp/rescue/RESUMPTION.md then <n>-brief.md FIRST"
+
+`--into` starts the successor with that worktree as its cwd, and refuses one
+a live process still works in — a source session step 3 did not stop. Where
+`index.json`'s `cwd` is the main checkout, drop `--into`.
 
 Add `--force` only on the exit-4 refusal, which means the source plan's dispatch
 of that issue is still inside the ledger's one-hour window. `--force` also skips
 the allowance gate, so read the allowance yourself first; never add
 `--force-memory`, which skips the per-member memory re-read.
 
-Then dispatch the rest in one call — `dispatch-sessions.sh` staggers them and
-re-reads memory per member.
+Then dispatch the rest, one call per ticket, each `--into` its own dead
+session's worktree; each call re-reads memory before its launch.
 
 ### 5. Watch
 

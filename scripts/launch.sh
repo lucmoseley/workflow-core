@@ -8,7 +8,7 @@
 #
 # Usage:
 #   scripts/launch.sh [--dry-run] [--force] [--no-advisor] [--model <alias>] \
-#       <command> [args...]
+#       [--into <worktree>] <command> [args...]
 #
 # Examples:
 #   scripts/launch.sh pick-next
@@ -40,11 +40,11 @@ here="$(cd "$here" && pwd)"
 source "$here/lib/launch-models.sh"
 
 usage() {
-  printf 'usage: %s [--dry-run] [--force] [--no-advisor] [--model <alias>] <command> [args...]\n' "$0" >&2
+  printf 'usage: %s [--dry-run] [--force] [--no-advisor] [--model <alias>] [--into <worktree>] <command> [args...]\n' "$0" >&2
 }
 
 # Flags ahead of <command> are either consumed here (--model) or forwarded
-# verbatim to dispatch-sessions.sh, whose own flags must precede its
+# verbatim to dispatch-sessions.sh, `--into` with its worktree, whose own flags must precede its
 # <model> <prompt> pair — this script's <command> [args...] plays that role.
 flags=()
 override_model=""
@@ -61,6 +61,14 @@ while [[ $# -gt 0 && "$1" == --* ]]; do
     --model=*)
       override_model="${1#--model=}"
       shift
+      ;;
+    --into)
+      [[ $# -ge 2 ]] || {
+        usage
+        exit 2
+      }
+      flags+=("$1" "$2")
+      shift 2
       ;;
     *)
       flags+=("$1")

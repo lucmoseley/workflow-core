@@ -14,6 +14,11 @@
  * suffix, so a session's worktree reads as its task. A resume runs in
  * the directory its job recorded, so it reopens the same worktree.
  *
+ * LAUNCH-INTO is the directory a successor starts in to finish a dead
+ * session's uncommitted work: that session's own worktree, named by the
+ * caller, refused where git does not list it under the worktrees folder or
+ * any live process still has its cwd inside it (#4385).
+ *
  * ATTACH points the worktree's `node_modules` at the dependency store keyed by
  * the hash of the worktree's own `package-lock.json`, building that store
  * first where none exists. A store is built once, by `npm ci --ignore-scripts`
@@ -651,17 +656,50 @@ function buildSessionName(prompt) {
 }
 
 /**
- * LAUNCH-DIR, above.
+ * LAUNCH-DIR, above; with `into`, LAUNCH-INTO.
  * @param {string} cwd anywhere in the repository
  * @param {string} prompt
- * @param {{ noBuild?: boolean }} [how] passed to the cut
+ * @param {{ noBuild?: boolean, into?: string }} [how] `noBuild` passed to
+ *   the cut or attach
  * @returns {string}
  */
 function launchDir(cwd, prompt, how = {}) {
 	const root = rootOf(cwd);
+	const { into, ...build } = how;
+	if (into !== undefined) return launchInto(root, into, build);
 	return moduleOn("landing", { root })
-		? cut(root, buildSessionName(prompt), how).dir
+		? cut(root, buildSessionName(prompt), build).dir
 		: root;
+}
+
+/**
+ * LAUNCH-INTO, above: `into`, dereferenced, where it is a registered session
+ * worktree of `root` no process works in, its dependencies re-attached.
+ * @param {string} root the main checkout
+ * @param {string} into
+ * @param {{ noBuild?: boolean }} how passed to the attach
+ * @returns {string}
+ */
+function launchInto(root, into, how) {
+	const dir = deref(path.resolve(into));
+	const base = path.join(root, WORKTREES);
+	if (path.dirname(dir) !== base || !readWorktreesOrThrow(root).includes(dir))
+		throw new CheckoutError(
+			`${dir} is no session worktree of ${root} — name a directory \`git worktree list\` shows under ${base}`,
+		);
+	if (!fs.existsSync(dir))
+		throw new CheckoutError(
+			`${dir} is registered but gone — \`node scripts/session-checkout.js reopen <job-id>\` rebuilds a reaped one`,
+		);
+	const holders = readProcesses().filter((p) =>
+		worktreeHolding(deref(p.cwd), [dir]),
+	);
+	if (holders.length > 0)
+		throw new CheckoutError(
+			`a live process still works in ${dir} (pid ${holders.map((p) => p.pid).join(", ")}) — stop the session that holds it first, or launch from outside it`,
+		);
+	attach(dir, how);
+	return dir;
 }
 
 /**
@@ -731,17 +769,17 @@ const REAP_HOLDERS = ["session-checkout.js"];
  */
 
 /**
- * Every directory some process on this machine has as its cwd. The real
+ * Every process on this machine with a readable cwd, and that cwd. The real
  * /proc, whatever a test stands in.
- * @returns {string[]}
+ * @returns {{ pid: string, cwd: string }[]}
  */
-function readProcessCwds() {
-	/** @type {string[]} */
+function readProcesses() {
+	/** @type {{ pid: string, cwd: string }[]} */
 	const out = [];
 	for (const pid of fs.readdirSync(REAL_PROC))
 		if (/^\d+$/.test(pid)) {
 			const cwd = readProcCwd(pid, REAL_PROC);
-			if (cwd) out.push(cwd.replace(/ \(deleted\)$/, ""));
+			if (cwd) out.push({ pid, cwd: cwd.replace(/ \(deleted\)$/, "") });
 		}
 	return out;
 }
@@ -1103,7 +1141,11 @@ function reap(cwd) {
 		out.pruned = prune(root);
 		const base = path.join(root, WORKTREES);
 		if (!fs.existsSync(base)) return out;
-		const pass = { now, cwds: readProcessCwds().map(deref), record };
+		const pass = {
+			now,
+			cwds: readProcesses().map((p) => deref(p.cwd)),
+			record,
+		};
 		const standing = judged
 			? reapWorktrees(root, base, pass, out)
 			: readWorktreesOrThrow(root);

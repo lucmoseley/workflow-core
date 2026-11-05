@@ -76,6 +76,10 @@
 # WFC_DISPATCH_NO_BUILD=1, which the refill loop sets (#4318), a cut finding no
 # dependency store for its lockfile is such a member: the loop's warm pass
 # builds the store, so no `npm ci` runs inside its timeout for this call.
+# `--into <worktree>` starts a one-member set in that existing session
+# worktree instead, a dead session's, so its successor finishes the work
+# left uncommitted there (#4385); a worktree a live process still works in
+# is refused as a member with no directory is.
 #
 # Exit codes: 0 launched (or dry-run; a member dropped by any drop above
 #             still exits 0, as does a set the allowance cap cut short),
@@ -235,6 +239,7 @@ dry_run=0
 force=0
 force_memory=0
 advisor=1
+into=""
 
 # One EXIT trap for all three temp files: `trap ... EXIT` REPLACES the
 # handler, so a second one would silently leak whichever file the first was
@@ -354,6 +359,14 @@ while [[ $# -gt 0 ]]; do
       advisor=0
       shift
       ;;
+    --into)
+      [[ $# -ge 2 ]] || {
+        printf -- '--into names no worktree\n' >&2
+        exit 2
+      }
+      into="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -367,7 +380,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $# -eq 0 || $(($# % 2)) -ne 0 ]]; then
-  printf 'usage: %s [--dry-run] [--force] [--force-memory] [--no-advisor] <model> <prompt> [<model> <prompt> ...]\n' "$0" >&2
+  printf 'usage: %s [--dry-run] [--force] [--force-memory] [--no-advisor] [--into <worktree>] <model> <prompt> [<model> <prompt> ...]\n' "$0" >&2
+  exit 2
+fi
+if [[ -n "$into" && $# -ne 2 ]]; then
+  printf -- '--into starts one session in one worktree; this set has %d members\n' $(($# / 2)) >&2
   exit 2
 fi
 
@@ -906,6 +923,7 @@ while [[ $# -gt 0 ]]; do
   checkout_err="${launch_out_file:-/dev/null}"
   checkout_args=(launch-dir)
   [[ "$no_build" == 1 ]] && checkout_args+=(--no-build)
+  [[ -n "$into" ]] && checkout_args+=(--into "$into")
   if ! launch_dir="$(node "$here/session-checkout.js" "${checkout_args[@]}" "$prompt" 2>"$checkout_err")"; then
     printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
     sed 's/^/  /' "$checkout_err" >&2
