@@ -63,9 +63,7 @@ const f = (n) => path.join(env.STUB_DIR, n);
 const a = argv;
 const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
 const say = (kind, value) => { out(asRecorded(kind, value)); exit(0); };
-/* gh sends a row only the fields its call's --json asks for. */
-const asked = (a[a.indexOf("--json") + 1] ?? "").split(",");
-const sayRows = (value) => say("issueListRows", value.map((r) => Object.fromEntries(asked.filter((k) => k in r).map((k) => [k, r[k]]))));
+const sayRows = (value) => say("issueListRows", value.map((r) => askedFields(a, r)));
 const sayPage = (kind, items) => say(kind, [items]);
 fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
 const timeline = (a[1] ?? "").split("/");

@@ -169,11 +169,10 @@ const write = (all) => fs.writeFileSync(${JSON.stringify(store)}, JSON.stringify
 const out = (o) => process.stdout.write(o);
 const flag = (name) => a[a.indexOf(name) + 1];
 const is = (...words) => words.every((w, i) => a[i] === w);
-const fields = (issue) => Object.fromEntries(flag("--json").split(",").map((f) => [f, issue[f]]));
 if (is("issue", "list")) {
 	const state = flag("--state");
 	const rows = read().filter((i) => state === "all" || i.state === state.toUpperCase());
-	out(asRecorded("issueListRows", rows.map(fields)) + "\\n");
+	out(asRecorded("issueListRows", rows.map((r) => askedFields(a, r))) + "\\n");
 } else if (is("api") && a[1].endsWith("/labels")) {
 	const labels = ["urgent", "bug", "takes:implement", "kind:ticket"].map((name) => ({ name }));
 	out(asRecorded("labelsPage", [labels]));
@@ -189,12 +188,15 @@ if (is("issue", "list")) {
 	write(all);
 	out(buildCreateAnswer("o/here", number));
 } else if (is("issue", "view")) {
-	const row = JSON.parse(asRecorded("issueRow", fields(read().find((i) => String(i.number) === a[2]))));
-	if (!a.includes("--jq")) out(JSON.stringify(row) + "\\n");
+	const row = askedFields(a, read().find((i) => String(i.number) === a[2]));
+	const text = asRecorded("issueView", row);
+	if (!a.includes("--jq")) out(text + "\\n");
 	else {
 		const jq = flag("--jq").match(/^\\.(\\w+)$/);
 		if (!jq) throw new Error("stub tracker reads no --jq filter but .<field>: " + flag("--jq"));
-		out(row[jq[1]] + "\\n");
+		// gh's --jq prints a string raw and anything else as JSON.
+		const v = row[jq[1]] ?? null;
+		out((typeof v === "string" ? v : JSON.stringify(v)) + "\\n");
 	}
 } else if (is("issue", "close")) {
 	const all = read();

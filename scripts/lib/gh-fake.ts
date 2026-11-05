@@ -292,9 +292,7 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		// gh issue list --json with every field a stub's rows carry; a real answer
 		// holds only the fields its call asks for.
 		issueListRows: JSON.parse(${JSON.stringify(ISSUE_LIST_ROWS.stdout)}),
-		// gh issue view --json answers one object of the fields a list row holds.
-		issueRow: JSON.parse(${JSON.stringify(ISSUE_LIST_ROWS.stdout)})[0],
-		// lib/issue-close.js's gh issue view --json.
+		// gh issue view --json: lib/issue-close.js's fields, and lander.js's state.
 		issueView: JSON.parse(${JSON.stringify(ISSUE_VIEW.stdout)}),
 		// lib/idle-efforts.js's QUERY, --paginate --slurp.
 		idleIssuesPage: JSON.parse(${JSON.stringify(IDLE_ISSUES_PAGE.stdout)}),
@@ -323,6 +321,11 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	if (!(kind in recorded)) throw new Error("no recorded answer for " + kind);
 	walk(recorded[kind], value, kind);
 	return JSON.stringify(value);
+}
+// \`value\` cut to the fields \`argv\`'s --json asks for, as gh cuts a row.
+function askedFields(argv, value) {
+	const asked = (argv[argv.indexOf("--json") + 1] ?? "").split(",");
+	return Object.fromEntries(asked.filter((k) => k in value).map((k) => [k, value[k]]));
 }
 function buildCreateAnswer(repo, number) {
 	return ${JSON.stringify(ISSUE_CREATE.stdout)}.replace("synthetic/synthetic", repo).replace(/\\d+\\n$/, number + "\\n");
