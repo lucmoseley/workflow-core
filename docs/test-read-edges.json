@@ -500,6 +500,11 @@
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		".github/workflows/main-lag.yml": [
+			"scripts/check-main-lag.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		".github/workflows/named-rerun.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -566,6 +571,7 @@
 			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-main-lag.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -659,6 +665,7 @@
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-host-root-test-isolation.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-main-lag.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
@@ -4650,6 +4657,22 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-main-checkout-commit.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-main-lag.js": [
+			"scripts/check-main-lag.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-main-lag.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -11710,6 +11733,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-main-lag.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -17785,6 +17809,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-main-lag.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -24178,6 +24203,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-main-lag.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",

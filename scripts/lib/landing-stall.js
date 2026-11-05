@@ -44,7 +44,9 @@ const {
 } = require("./lander.js");
 
 /* About 3.6 median whole-suite runs of 1987 s (#2672, from #2666's
- * measurement); not measured against red batches. */
+ * measurement); not measured against red batches. #2261 asked for 90 min,
+ * untraced; #2672's measurement replaced it. .github/workflows/main-lag.yml's
+ * off-machine check reads this too. */
 const STALL_MS = 2 * 60 * 60 * 1000;
 /* Untraced: five missed beats, so one slow tester tick is never read as a
  * death. */
@@ -262,6 +264,7 @@ function recordWake(file, { startedAt, now }) {
 
 module.exports = {
 	STALL_MS,
+	mainMovedAt,
 	readQueue,
 	stallFindings,
 	supervision,

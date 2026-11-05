@@ -1,0 +1,39 @@
+name: Main lagging landing 2h
+
+# The off-machine stall check (#4443): scripts/check-main-lag.js fails where
+# landing is ahead of main and main has not moved for lib/landing-stall.js's
+# STALL_MS. The refill loop's stall ticket needs the machine up; this does not.
+# GitHub sends a scheduled run's failure to the user who last changed the cron
+# or re-enabled this file.
+#
+# PLANNED ABSENCE: Actions tab > Main lagging landing 2h > "..." > Disable
+# workflow, and "Enable workflow" on return.
+on:
+  schedule:
+    # Hourly because GitHub drops scheduled runs; off landing-quiet.yml's
+    # minute and off minute 0, GitHub's named high-load window.
+    - cron: "47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lag:
+    # This name and the workflow's are the part of the alarm an email carries.
+    name: Main moved within 2 hours of landing going ahead - if red, read the stall ticket
+    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    # A guess: a checkout and four API reads with retries.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/check-main-lag.js
+            scripts/lib
+          sparse-checkout-cone-mode: false
+      - name: Read main's lag behind landing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-main-lag.js
