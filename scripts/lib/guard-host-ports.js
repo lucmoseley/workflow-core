@@ -35,9 +35,8 @@ const { sharedReaders } = require("./kit-context.js");
  * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts
  *   & Partial<Pick<KitContext, "fallbackCwd" | "vars">>} Adapters
  *   the hook's own directory and expansion scope, which test support fills
- *   in place of the hook's; the dispatcher's entry leaves both to the kit's, the
- *   process's
- *   cwd and environment
+ *   in place of the hook's; the dispatcher's entry leaves both to the kit's,
+ *   the process's cwd and environment
  */
 
 /**
