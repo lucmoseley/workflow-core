@@ -522,9 +522,7 @@ function checkSimilar(repo, opts) {
 }
 
 /**
- * Refuses a `takes:implement` ticket, printing rule:size-line, while an open
- * one this session filed, or an open sibling sharing a source file, is not
- * named in --size-line-checked. Each read fails open, saying so.
+ * The size-line refusal the header describes. Each read fails open, saying so.
  * @param {{repo: string, labels: string[], body: string,
  *   opts: ReturnType<typeof readOpts>}} at
  */
