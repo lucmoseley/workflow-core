@@ -40,6 +40,7 @@
 const path = require("node:path");
 const { normAbs } = require("./shell-parse.js");
 const { reviewSuffix, segment } = require("./review-suffix.js");
+const { SCRATCH_DIR } = require("./scratch-dir.js");
 
 /**
  * @typedef {{ path: string, has: (target: string) => boolean | null,
@@ -58,11 +59,11 @@ const { reviewSuffix, segment } = require("./review-suffix.js");
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(given, ctx) {
-	if (!given.includes(".claude/tmp/")) return null;
+	if (!given.includes(SCRATCH_DIR)) return null;
 	const target = normAbs(
 		given.startsWith("/") ? given : `${ctx.cwd || ctx.fallbackCwd}/${given}`,
 	);
-	if (!target.includes("/.claude/tmp/")) return null;
+	if (!target.includes(`/${SCRATCH_DIR}`)) return null;
 	if (!ctx.session) {
 		ctx.log("no session id — a scratch write allowed unrecorded");
 		return null;

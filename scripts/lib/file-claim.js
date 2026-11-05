@@ -62,8 +62,7 @@
  * scratch directory (mantahostels#2089, mantahostels#2103), which
  * arbiter-core.js's EXEMPT list drops from both tiers — throwaway bytes carry
  * no claim to release. It is tested in the session's tree BEFORE the arbiter
- * runs, as the arbiter spells a worktree's scratch from the host root, where
- * it falls under .claude/ (#4275).
+ * runs (#4275; scratch-dir.js holds why).
  *
  * THE RULES, in each call's PRIORITY ORDER. What priority means here is
  * SURVIVAL, not importance (mantahostels#2386): the ids arrive in one
@@ -414,6 +413,7 @@ function decide(file, ctx) {
 	const rel = (
 		file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
 	).replace(/^\.\//, "");
+	/* Scratch never reaches the arbiter, so nothing it would log is said. */
 	if (isScratch(rel)) return null;
 	const answer = arbiterAnswer(file, ctx);
 	if ("decision" in answer) return answer.decision;

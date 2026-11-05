@@ -1143,23 +1143,32 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 	/* Cut where the checkout module cuts one, the host's store spells the
 	 * worktree's scratch `.claude/worktrees/…`, a guarded path a claim can sit
 	 * on (#4275). */
-	it("warns on no claim the host's store holds on the worktree's own .claude/tmp/", () => {
+	const heldWrite = (rel: string) => {
 		const nested = cutWorktree(at.main);
 		storeAt(at.main);
 		store.acquire(
-			path.relative(at.main, path.join(nested, ".claude/tmp/x.out")),
+			path.relative(at.main, path.join(nested, rel)),
 			live(split, "theirs"),
 		);
 		live(split, "mine");
-		const said = runCore(
-			NAME,
-			toolCall(
-				"Bash",
-				{ command: "echo hi > .claude/tmp/x.out" },
-				{ session_id: "mine" },
-			),
-			{ root: at.main, worktree: nested },
-		).output?.additionalContext;
-		expect(said ?? "").not.toContain("HELD");
+		return (
+			runCore(
+				NAME,
+				toolCall(
+					"Bash",
+					{ command: `echo hi > ${rel}` },
+					{ session_id: "mine" },
+				),
+				{ root: at.main, worktree: nested },
+			).output?.additionalContext ?? ""
+		);
+	};
+
+	it("warns on no claim the host's store holds on the worktree's own .claude/tmp/", () => {
+		expect(heldWrite(".claude/tmp/x.out")).not.toContain("HELD");
+	});
+
+	it("warns on the claim the host's store holds on the same worktree's doc", () => {
+		expect(heldWrite("docs/x.md")).toContain("HELD");
 	});
 });

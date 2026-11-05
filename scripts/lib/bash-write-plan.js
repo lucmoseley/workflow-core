@@ -84,10 +84,8 @@
  *    the `guard-npm-install` core deny a benign command whose prose named an install.
  *  - The tier test in addTarget only saves the store a read: claim-warning.js's
  *    `isGuarded` decides, and drift here makes it UNDER-fire — a missed
- *    warning, never a wrong one. Its one exception is scratch under
- *    `.claude/tmp/`, dropped here by its session-tree spelling, since the
- *    store spells a worktree's scratch from the host root, where it is
- *    guarded (#4275).
+ *    warning, never a wrong one. Its one exception is scratch, dropped here
+ *    by its session-tree spelling (#4275; scratch-dir.js holds why).
  *  - The credit half inherits EVERY limit above: a spelling not read, a target
  *    behind a variable, a heredoc body. So it narrows the mantahostels#2778 gap
  *    rather than closing it (mantahostels#296).

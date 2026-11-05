@@ -1673,18 +1673,24 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	/* Cut where the checkout module cuts one, the host's store spells the
 	 * worktree's scratch `.claude/worktrees/…`, under the guarded `.claude/`
 	 * tier, so only the session-tree test keeps it unclaimed (#4275). */
-	it("takes no claim on the worktree's own .claude/tmp/", () => {
+	const writeIn = (rel: string) => {
 		const nested = cutWorktree(at.main);
 		storeAt(at.main);
 		live(split, "bob");
-		const r = runCore(
+		return runCore(
 			"guard-file-claim",
-			writePayload(path.join(nested, ".claude/tmp/scratch.md"), {
-				session_id: "bob",
-			}),
+			writePayload(path.join(nested, rel), { session_id: "bob" }),
 			{ root: at.main, worktree: nested },
 		);
-		expect(r.output).toBeNull();
+	};
+
+	it("takes no claim on the worktree's own .claude/tmp/", () => {
+		expect(writeIn(".claude/tmp/scratch.md").output).toBeNull();
 		expect(store.listLocks()).toEqual([]);
+	});
+
+	it("takes the claim on the same worktree's doc", () => {
+		writeIn("docs/plain.md");
+		expect(store.listLocks()).toHaveLength(1);
 	});
 });
