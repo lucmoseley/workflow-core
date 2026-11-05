@@ -17,7 +17,7 @@
  * implementation would make the check check itself.
  *
  * SO IT MUST BE KEPT IN STEP BY HAND. `inlineInterp` below tracks
- * lib/shell-words.js's `inlineInterp`, which stops the scan at the
+ * lib/bash-write-plan.js's `inlineInterp`, which stops the scan at the
  * script. mantahostels#2854's published 137/206 firings and 33%/46% false
  * warns were measured BEFORE that narrowing, so they over-count: this script
  * now reports fewer firings than those figures did, and re-deriving them means

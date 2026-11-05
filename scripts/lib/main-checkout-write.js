@@ -10,11 +10,15 @@
  * resolving into the main checkout's own tree — not into a linked worktree
  * under it, not under `.git` — at a path git does not ignore, tracked or not;
  * and a git command that writes the main checkout's index, `HEAD` or files
- * (`WRITERS`); and an inline interpreter — `python3 -`, `node -e`, a
- * heredoc- or stdin-fed program — run from a directory in that tree, whose
- * targets live in another language's strings and cannot be read (#4469).
- * That refusal is a guess that the program writes, taken because its way
- * out — `cd` into the session's worktree and run it there — costs nothing.
+ * (`WRITERS`); and an interpreter (`INTERPRETERS`) run from a directory in
+ * that tree whose program is no existing file — `python3 -`, `node -e`,
+ * `bash -c`, a piped or heredoc-fed program, through any wrapper lib/
+ * shell-words.js's unwrap strips — since what it writes lives in another
+ * language's strings and cannot be read (#4469). That refusal is a guess
+ * that the program writes, taken because its way out — `cd` into the
+ * session's worktree and run it there — costs nothing. A flag taking a value
+ * before the script (`python3 -W ignore x.py`) and `python3 -m` read as no
+ * file, so are refused too.
  *
  * GITIGNORED STORES STAY WRITABLE: claims, markers, ledgers and scratch under
  * `.claude/` are what every session shares, and git ignores them.
@@ -23,11 +27,11 @@
  *  - A target writeTargets does not read — `dd of=`, a script file writing
  *    on the session's behalf, an inline interpreter run from outside the
  *    main checkout naming a path in it — or one it cannot resolve is not
- *    seen; so is a command run outside Claude Code, and an interpreter whose
- *    cwd the walk loses, recorded; and an inline flag inlineInterp does not
- *    read — bundled (`python3 -uc`) or behind a valued flag (`python3 -W
- *    ignore -c`, `-W ignore -`) — so such a program is not refused (#4469).
- *    The pre-commit limb holds a
+ *    seen; so is a command run outside Claude Code; an interpreter whose cwd
+ *    the walk loses (`cd "$X"`, `pushd`), recorded; one run from a gitignored
+ *    directory under the main checkout, which may still write `../` into
+ *    its tree; one behind a launcher unwrap does not strip (`uv run`); and
+ *    a script file that writes the tree. The pre-commit limb holds a
  *    commit made by any route.
  *  - A `git` that cannot answer for the path or the upstream allows the
  *    write, recorded (mantahostels#103 §6).
@@ -38,13 +42,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
-const {
-	INTERPRETER,
-	absolute,
-	inlineInterp,
-	literal,
-} = require("./shell-words.js");
+const { absolute, literal, unwrap } = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
+
+/* Interpreters whose program, when no script file, can write unread. */
+const INTERPRETERS = /^(python[0-9.]*|node|nodejs|bash|sh|dash|zsh|perl|ruby)$/;
 
 /* git verbs that write a work tree's index, HEAD or files. */
 const WRITERS = [
@@ -127,38 +129,36 @@ function refusedPath(p, ctx, dir = false) {
 }
 
 /**
- * Whether an interpreter's words read its program from stdin: a bare `-`
- * before the first word that is no flag.
- * @param {string[]} args
- */
-function isStdinProgram(args) {
-	for (const w of args) {
-		if (w === "-") return true;
-		if (!w.startsWith("-")) return false;
-	}
-	return false;
-}
-
-/**
- * The main-checkout directory an inline interpreter runs in, relative, else
- * null.
+ * The main-checkout directory an interpreter runs in, relative, where its
+ * program is no existing file, else null.
  * @param {import("./shell-parse.js").Command} cmd
  * @param {string[]} spans
  * @param {CoreContext} ctx
  * @returns {string | null}
  */
 function interpreterDir(cmd, spans, ctx) {
-	const words = cmd.words.map((w) => literal(w, spans).text);
+	const words = unwrap(cmd.words, spans).words.map(
+		(w) => literal(w, spans).text,
+	);
 	const prog = path.basename(words[0] ?? "");
-	if (!INTERPRETER.test(prog)) return null;
-	const args = words.slice(1);
-	if (!inlineInterp(prog, args, cmd.redirects) && !isStdinProgram(args))
-		return null;
+	if (!INTERPRETERS.test(prog)) return null;
 	if (!cmd.cwd) {
-		ctx.log(`the walk lost the cwd of an inline ${prog} — run unchecked`);
+		ctx.log(`the walk lost the cwd of a ${prog} — run unchecked`);
 		return null;
 	}
+	const script = words.slice(1).find((w) => !w.startsWith("-"));
+	if (script && script !== "-" && isFile(path.resolve(cmd.cwd, script)))
+		return null;
 	return refusedPath(cmd.cwd, ctx, true);
+}
+
+/** @param {string} p */
+function isFile(p) {
+	try {
+		return fs.statSync(p).isFile();
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -233,7 +233,7 @@ function describe(w, subject) {
 	if ("interp" in w) {
 		const at = w.dir === "." ? "" : `, at ${w.dir}`;
 		return {
-			what: `This runs an inline program in the main checkout${at}, and what it writes cannot be read off the command`,
+			what: `This runs an interpreter on a program that is no file, in the main checkout${at}, and what it writes cannot be read off the command`,
 			cmd: w.interp,
 		};
 	}
