@@ -28,8 +28,8 @@ const path = require("node:path");
 const { readLastLaunchAt } = require("./dispatch-ledger.js");
 const { joinInherited, mergeFrontiers } = require("./frontier-order.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { caught } = require("./caught.js");
 const { runGrouped } = require("./grouped-child.js");
+const { parseShortlist } = require("./shortlist-parse.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { refKey } = require("./issue-ref.js");
 const { buildGoalRead, buildShortlistGoal } = require("./refill-goal.js");
@@ -72,30 +72,6 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
  *   {pulledIn: PulledRow[], pulledInUnread: UnreadPull[], ownRepo: string|null,
  *    goalSet: import("./refill-goal.js").ShortlistGoal|null, running: number[]}} Shortlist
  */
-
-/**
- * A shortlist's `--json` output, parsed.
- * @param {string} stdout
- * @returns {Shortlist | {error: string}}
- */
-function parseShortlist(stdout) {
-	try {
-		const out = JSON.parse(stdout);
-		if (!Array.isArray(out.pulledIn) || !Array.isArray(out.pulledInUnread))
-			throw new Error("no pulledIn or pulledInUnread list");
-		return {
-			rows: out.frontier,
-			retroBundles: out.retroBundles,
-			pulledIn: out.pulledIn,
-			pulledInUnread: out.pulledInUnread,
-			ownRepo: out.ownRepo,
-			goalSet: out.goalSet,
-			running: out.running,
-		};
-	} catch (parseErr) {
-		return { error: `unparseable --json: ${caught(parseErr).message}` };
-	}
-}
 
 /**
  * One checkout's shortlist frontier, read with the checkout as its root, its
