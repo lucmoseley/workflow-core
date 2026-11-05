@@ -55,6 +55,7 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
+const { pidLock } = require("./pid-lock.js");
 const { CLASSES_FILE, sectionAMatcher } = require("./doc-map.js");
 const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const { execGroupedSync } = require("./grouped-child.js");
@@ -79,7 +80,7 @@ const LANDER_GIT_TIMEOUT_MS = 120 * 1000;
 const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
 /* Measured on #3913: the gate stack fits this up to load 42-56, if time scales
  * with load, which no run measured. */
-const REVERT_COMMIT_TIMEOUT_MS = 600 * 1000;
+const GATED_COMMIT_TIMEOUT_MS = 600 * 1000;
 const REGISTRY_CHECK = path.join(__dirname, "..", "check-guard-registry.js");
 
 /** A culprit `mergedSide` reads no side of: a plain commit's. */
@@ -150,9 +151,11 @@ const NETWORK =
  *   of one failure
  * @typedef {{kind: "green", run?: number}
  *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[]}
- *   | {kind: "unknown", reason: string}} Verdict `run` the CI run that passed
- *   it and `jobs` the failing CI jobs, where the tester read a CI run;
- *   `failures` where it named the failing tests
+ *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
+ *   CI run that passed it and `jobs` the failing CI jobs, where the tester
+ *   read a CI run; `failures` where it named the failing tests; `transient`
+ *   where asking again shortly can reach a verdict, as when its suite slot
+ *   stayed shut
  * @typedef {"flake" | "base" | "bisect" | "confirm" | "parent"
  *   | "parent-main"
  *   | "parent-files" | "side" | "side-confirm"} RerunWhy
@@ -1416,10 +1419,12 @@ function nextAction(s) {
  */
 
 /**
- * @param {LanderDeps} deps
+ * The tester's verdict, beating the heartbeat while it is awaited.
+ * @param {Pick<LanderDeps, "tester" | "beat">} deps
  * @param {string} sha
  * @param {string[]} [files]
  * @param {boolean} [lands]
+ * @returns {Promise<Verdict>}
  */
 async function verdictAt({ tester, beat }, sha, files, lands) {
 	beat(sha);
@@ -1616,18 +1621,20 @@ async function readMainJobs({ tester, git }, jobs, since) {
 }
 
 /**
- * `call`'s result, retried with backoff while it fails on a network fault.
+ * `call`'s result, retried with backoff while it fails on a fault `isFault`
+ * names, a network fault where none is given.
  * @template T
- * @param {LanderDeps} deps
- * @param {() => T} call
+ * @param {{wait?: (ms: number) => Promise<void>}} deps
+ * @param {() => T | Promise<T>} call
+ * @param {(err: unknown) => boolean} [isFault]
  * @returns {Promise<T>}
  */
-async function remote({ wait = pause }, call) {
+async function remote({ wait = pause }, call, isFault = isNetworkFault) {
 	for (let attempt = 1; ; attempt++) {
 		try {
-			return call();
+			return await call();
 		} catch (err) {
-			if (attempt >= REMOTE_TRIES || !isNetworkFault(err)) throw err;
+			if (attempt >= REMOTE_TRIES || !isFault(err)) throw err;
 			await wait(
 				REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random()),
 			);
@@ -2049,6 +2056,13 @@ function landerFiles(root) {
 	};
 }
 
+/* Both landers hold one lock, so neither runs while the other does, nor takes
+ * the other's pidfile as stale. */
+const LANDER_SCRIPTS = ["lander.js", "queue-lander.js"];
+
+/** @param {string} root the canonical checkout's root */
+const landerLock = (root) => pidLock(landerFiles(root).pid, LANDER_SCRIPTS);
+
 /**
  * A file's text, or null where it cannot be read.
  * @param {string} file
@@ -2117,6 +2131,168 @@ function readHeartbeat(file) {
 }
 
 /**
+ * Those of `shas` that name a commit present in `root`'s repo; none where git
+ * cannot be asked, so a caller fetches.
+ * @param {string} root
+ * @param {string[]} shas
+ * @returns {string[]}
+ */
+function readLocalCommits(root, shas) {
+	if (shas.length === 0) return [];
+	let printed;
+	try {
+		printed = execGit(["cat-file", "--batch-check=%(objectname)"], {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["pipe", "pipe", "pipe"],
+			timeout: LANDER_GIT_TIMEOUT_MS,
+			input: shas.map((sha) => `${sha}^{commit}\n`).join(""),
+		});
+	} catch {
+		return [];
+	}
+	return printed.split("\n").filter((line) => shas.includes(line));
+}
+
+/**
+ * Git in `root`, its output read, under the lander's timeout.
+ * @param {string} root
+ * @param {string[]} args
+ */
+const readGit = (root, args) =>
+	execGit(args, {
+		cwd: root,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+		timeout: LANDER_GIT_TIMEOUT_MS,
+	});
+
+/**
+ * Whether commit `a` is `b` or one of its ancestors in `root`'s repo. Exit 1
+ * is git's no; any other fault throws.
+ * @param {string} root
+ * @param {string} a
+ * @param {string} b
+ */
+function isAncestor(root, a, b) {
+	try {
+		readGit(root, ["merge-base", "--is-ancestor", a, b]);
+		return true;
+	} catch (err) {
+		if (caught(err).status === 1) return false;
+		throw err;
+	}
+}
+
+/**
+ * The heads of lib/landing-refs.js's remote that `patterns` match, each sha
+ * by its full ref name. Where one is not a commit `areLocal` finds, `fetch`'s
+ * refspecs for those heads are fetched first; none fetches nothing.
+ * @param {string} root
+ * @param {string[]} patterns
+ * @param {(heads: Map<string, string>) => string[]} fetch
+ * @param {(shas: string[]) => boolean} [areLocal]
+ * @returns {Map<string, string>}
+ */
+function readRemoteHeads(
+	root,
+	patterns,
+	fetch,
+	areLocal = (shas) =>
+		readLocalCommits(root, shas).length === new Set(shas).size,
+) {
+	const heads = new Map(
+		readGit(root, ["ls-remote", REMOTE, ...patterns])
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => {
+				const [sha = "", ref = ""] = line.split("\t");
+				return [ref, sha];
+			}),
+	);
+	const refspecs = fetch(heads);
+	if (refspecs.length > 0 && !areLocal([...heads.values()]))
+		readGit(root, ["fetch", "--quiet", REMOTE, ...refspecs]);
+	return heads;
+}
+
+/**
+ * `use`'s result in a throwaway worktree of `root` detached at `tip`, so the
+ * checkout's own tree and branch are never touched. The worktree is removed
+ * after; a removal that fails prints and never replaces the result, as a
+ * hook's child that left its commit's group can still be writing there
+ * (#3913).
+ * @template T
+ * @param {string} root
+ * @param {string} tip
+ * @param {{program: string, use: string}} names the program printing a
+ *   failed removal, and what the worktree is for
+ * @param {(dir: string, inTree: (args: string[], timeout?: number) => string) => T} use
+ * @returns {T}
+ */
+function withThrowawayTree(root, tip, { program, use: purpose }, use) {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${program}-${purpose}-`));
+	readGit(root, ["worktree", "add", "--quiet", "--detach", dir, tip]);
+	/** @param {string[]} args @param {number} [timeout] */
+	const inTree = (args, timeout = LANDER_GIT_TIMEOUT_MS) =>
+		execGit(args, {
+			cwd: dir,
+			encoding: "utf8",
+			stdio: ["pipe", "pipe", "pipe"],
+			timeout,
+		});
+	try {
+		return use(dir, inTree);
+	} finally {
+		const unremoved = stderrIfThrown(() =>
+			readGit(root, ["worktree", "remove", "--force", dir]),
+		);
+		if (unremoved !== null)
+			writeFd(
+				2,
+				`${program}: could not remove the ${purpose}'s worktree ${dir}: ${parseRefusal(unremoved)}\n`,
+			);
+	}
+}
+
+/**
+ * The files a merge or revert left conflicted in the worktree `inTree` runs
+ * git in.
+ * @param {(args: string[]) => string} inTree
+ * @returns {string[]}
+ */
+const readConflictedFiles = (inTree) =>
+	inTree(["diff", "--name-only", "--diff-filter=U"])
+		.split("\n")
+		.filter(Boolean);
+
+/**
+ * A push from `root` to lib/landing-refs.js's remote. Its timeout is the
+ * pre-push hook's run, which a retry would only repeat, so it throws as no
+ * network fault.
+ * @param {string} root
+ * @param {string[]} args the push's flags and refspecs
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+function pushRemote(root, args, env = process.env) {
+	try {
+		execGit(["push", "--quiet", REMOTE, ...args], {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: PUSH_TIMEOUT_MS,
+			env,
+		});
+	} catch (err) {
+		if (caught(err).code !== "ETIMEDOUT") throw err;
+		throw new Error(
+			`git push ${args.join(" ")} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
+			{ cause: err },
+		);
+	}
+}
+
+/**
  * @typedef {LanderGit & {committedAt: (sha: string) => number}} RemoteGit
  *   with a local commit's committer time in ms
  */
@@ -2130,7 +2306,7 @@ function readHeartbeat(file) {
  * @param {number} [revertCommitTimeoutMs]
  * @returns {RemoteGit}
  */
-function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
+function remoteGit(root, revertCommitTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 	/**
 	 * @param {string[]} args
 	 * @param {number} [timeout]
@@ -2152,22 +2328,10 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			input,
 		});
 	/**
-	 * A push to the remote. Its timeout is the pre-push hook's run, which a
-	 * retry would only repeat, so it throws as no network fault.
 	 * @param {string} refspec
 	 * @param {NodeJS.ProcessEnv} [env]
 	 */
-	const push = (refspec, env) => {
-		try {
-			git(["push", "--quiet", REMOTE, refspec], PUSH_TIMEOUT_MS, env);
-		} catch (err) {
-			if (caught(err).code !== "ETIMEDOUT") throw err;
-			throw new Error(
-				`git push ${refspec} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
-				{ cause: err },
-			);
-		}
-	};
+	const push = (refspec, env) => pushRemote(root, [refspec], env);
 	/**
 	 * Why a revert's push failed, or null where `landing` moved and the revert
 	 * is made again on its new tip. A network fault throws, for runLander to
@@ -2230,14 +2394,10 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	/** @type {Set<string>} */
 	const ancestors = new Set();
 	/** @param {string} a @param {string} b */
-	const isAncestor = (a, b) => {
+	const isAncestorKept = (a, b) => {
 		const key = `${a} ${b}`;
 		if (ancestors.has(key)) return true;
-		try {
-			git(["merge-base", "--is-ancestor", a, b]);
-		} catch {
-			return false;
-		}
+		if (!isAncestor(root, a, b)) return false;
 		if (FULL_SHA.test(a) && FULL_SHA.test(b)) ancestors.add(key);
 		return true;
 	};
@@ -2250,27 +2410,14 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 */
 	const areAllLocal = (shas) => {
 		const unseen = shas.filter((sha) => !localShas.has(sha));
-		if (unseen.length === 0) return true;
-		let printed;
-		try {
-			printed = git(
-				["cat-file", "--batch-check=%(objectname)"],
-				LANDER_GIT_TIMEOUT_MS,
-				process.env,
-				{ input: unseen.map((sha) => `${sha}^{commit}\n`).join("") },
-			);
-		} catch {
-			return false;
-		}
-		for (const line of printed.split("\n"))
-			if (unseen.includes(line)) localShas.add(line);
+		for (const sha of readLocalCommits(root, unseen)) localShas.add(sha);
 		return unseen.every((sha) => localShas.has(sha));
 	};
 	/** @param {string|null} main @param {string} landing @returns {Relation} */
 	const relationOf = (main, landing) => {
 		if (main === landing) return "equal";
-		if (main === null || isAncestor(main, landing)) return "ahead";
-		return isAncestor(landing, main) ? "behind" : "diverged";
+		if (main === null || isAncestorKept(main, landing)) return "ahead";
+		return isAncestorKept(landing, main) ? "behind" : "diverged";
 	};
 	/**
 	 * @param {string|null} base
@@ -2314,35 +2461,39 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			.slice(1);
 	return {
 		refs() {
-			const listed = git([
-				"ls-remote",
-				REMOTE,
-				`refs/heads/${VERIFIED_BRANCH}`,
-				`refs/heads/${LANDING_BRANCH}`,
-			]);
-			/** @param {string} branch */
-			const shaOf = (branch) =>
-				listed
-					.split("\n")
-					.map((line) => line.split("\t"))
-					.find(([, ref]) => ref === `refs/heads/${branch}`)?.[0] ?? null;
-			const main = shaOf(VERIFIED_BRANCH);
-			const landing = shaOf(LANDING_BRANCH);
+			const mainRef = `refs/heads/${VERIFIED_BRANCH}`;
+			const landingRef = `refs/heads/${LANDING_BRANCH}`;
+			const heads = readRemoteHeads(
+				root,
+				[mainRef, landingRef],
+				(listed) =>
+					listed.has(landingRef)
+						? [
+								trackingRefspec(VERIFIED_BRANCH),
+								trackingRefspec(LANDING_BRANCH),
+							]
+						: [],
+				areAllLocal,
+			);
+			const main = heads.get(mainRef) ?? null;
+			const landing = heads.get(landingRef) ?? null;
 			if (landing === null) return { main, landing, relation: "ahead" };
-			if (!areAllLocal([main, landing].filter((sha) => sha !== null)))
-				git([
-					"fetch",
-					"--quiet",
-					REMOTE,
-					trackingRefspec(VERIFIED_BRANCH),
-					trackingRefspec(LANDING_BRANCH),
-				]);
 			return { main, landing, relation: relationOf(main, landing) };
 		},
 		pushMain(sha) {
 			push(`${sha}:refs/heads/${VERIFIED_BRANCH}`);
 		},
-		contains: (tip, sha) => tip === sha || isAncestor(sha, tip),
+		contains(tip, sha) {
+			if (tip === sha) return true;
+			/* A fault is a no: a sha this checkout lacks, as a red batch's a gc
+			 * took or a CI run's on a commit never fetched, is held by no tip
+			 * here, so it is never owed, waited on or released. */
+			try {
+				return isAncestorKept(sha, tip);
+			} catch {
+				return false;
+			}
+		},
 		committedAt(sha) {
 			const at = Number(git(["log", "-1", "--format=%ct", sha]).trim()) * 1000;
 			if (!Number.isFinite(at) || at === 0)
@@ -2423,34 +2574,16 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * @returns {{sha: string, stale: RegistryRow[]|null, dependents?: Dependent[]} | {failed: string}}
 	 */
 	function revertCommit(culprit, parent, tip, why) {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lander-revert-"));
-		git(["worktree", "add", "--quiet", "--detach", dir, tip]);
-		/** @param {string[]} args */
-		const inTree = (args) =>
-			execGit(args, {
-				cwd: dir,
-				encoding: "utf8",
-				stdio: ["pipe", "pipe", "pipe"],
-				timeout: LANDER_GIT_TIMEOUT_MS,
-			});
-		try {
-			return revertWithDependents(
-				{ dir, inTree, readParents, timeoutMs: revertCommitTimeoutMs },
-				{ culprit, parent, tip, why },
-			);
-		} finally {
-			/* Never replaces the return: a hook's child that left the commit's group
-			 * outlives the kill and can still be writing in `dir`, and a throw here
-			 * would lose the hold's reason (#3913). */
-			const unremoved = stderrIfThrown(() =>
-				git(["worktree", "remove", "--force", dir]),
-			);
-			if (unremoved !== null)
-				writeFd(
-					2,
-					`lander: could not remove the revert's worktree ${dir}: ${parseRefusal(unremoved)}\n`,
-				);
-		}
+		return withThrowawayTree(
+			root,
+			tip,
+			{ program: "lander", use: "revert" },
+			(dir, inTree) =>
+				revertWithDependents(
+					{ dir, inTree, readParents, timeoutMs: revertCommitTimeoutMs },
+					{ culprit, parent, tip, why },
+				),
+		);
 	}
 }
 
@@ -2696,8 +2829,8 @@ function commitRevert({ dir, inTree, timeoutMs }, reverted, body) {
  */
 function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 	if (stderr === null) return { note: "" };
-	const conflicted = inTree(["diff", "--name-only", "--diff-filter=U"]);
-	const paths = conflicted.split("\n").filter(Boolean);
+	const paths = readConflictedFiles(inTree);
+	const conflicted = paths.join("\n");
 	const unsettled = paths.filter((file) => !isSettledFile(file));
 	const settled =
 		side === undefined
@@ -2853,8 +2986,19 @@ function readRegistryRows(dir, reverted, against) {
 }
 
 module.exports = {
+	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
+	isAncestor,
+	isNetworkFault,
+	landerLock,
+	parseRefusal,
+	pushRemote,
+	readConflictedFiles,
+	readRemoteHeads,
+	remote,
+	verdictAt,
+	withThrowawayTree,
 	buildRevertLine,
 	failingList,
 	short,

@@ -379,9 +379,10 @@ it("holds one slot for the run and releases it, and never runs past a shut gate"
 			}),
 		exec: recordingExec().exec,
 	}).verdict(touching);
-	expect(shut).toMatchObject({
+	expect(shut).toEqual({
 		kind: "unknown",
 		reason: expect.stringMatching(/^no suite slot/),
+		transient: true,
 	});
 	expect(fs.existsSync(ran)).toBe(false);
 	expect(
@@ -1130,9 +1131,10 @@ if (argv[0] === "workflow") {
 			exec: recordingExec().exec,
 			memoryShut,
 		}).verdict(passing);
-		expect(v).toMatchObject({
+		expect(v).toEqual({
 			kind: "unknown",
 			reason: expect.stringMatching(/^no suite slot by the ceiling/),
+			transient: true,
 		});
 		expect(memoryShut).not.toHaveBeenCalled();
 		expect(holderLines()).toHaveLength(1);

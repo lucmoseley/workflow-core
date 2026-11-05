@@ -11,113 +11,48 @@
  * the local one (lib/local-tester.js), the suite in the lander's own
  * worktree, or the Actions one (lib/actions-tester.js), the suite workflow's
  * push run on `landing`, handing the local one what no push run tests.
- * `--tester` swaps in `<command> <sha> [<file>…]`, run
- * in the canonical checkout:
- * the whole suite, or only the files where they are given. Exit 0 is green,
- * exit 1 red with each non-empty stdout line a failing file, any other exit
- * no verdict.
- *
- * After each move of `main` it adopts the new tip as the code this repo's
- * guard hooks run, where its guards load (lib/guard-code.js, #4227), and
- * starts a levelling pass over the main checkout (scripts/level-main.js,
- * #4248), detached, since an `npm ci` in it may outlast the next landing.
+ * `--tester` swaps in a command, and after each move of `main` it takes the
+ * step lib/lander-cli.js holds.
  *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
+ *
+ * cli-args-exempt: lib/lander-cli.js's openLanderRun parses it, through
+ * lib/cli-args.js.
  *
  * Exit codes: 0 on any exit or hold the lander reaches, a held lock and a
  * failed git call included; 1 on a throw before the run; 2 on a command line
  * it refuses.
  */
 
-const { spawn } = require("node:child_process");
 const { spawnGitSync } = require("./lib/git.js");
 const { parseErrorText } = require("./lib/caught.js");
-const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { ticketFiler } = require("./lib/fix-ticket.js");
 const { gh } = require("./lib/gh.js");
-const { adoptGuardCodeAt, adoptionLine } = require("./lib/guard-code.js");
 const { heldQueueFiler } = require("./lib/held-queue.js");
 const {
 	buildActionLine,
 	fileLedger,
 	heartbeatWriter,
 	landerFiles,
+	landerLock,
 	readHeartbeat,
 	remoteGit,
 	runLander,
 } = require("./lib/lander.js");
 const { actionsTester, namedRerun } = require("./lib/actions-tester.js");
 const { localTester } = require("./lib/local-tester.js");
-const { startLevelling } = require("./lib/level-main.js");
-const { pidLock } = require("./lib/pid-lock.js");
+const {
+	afterMainMove,
+	commandTester,
+	openLanderRun,
+	say,
+	stampedLog,
+} = require("./lib/lander-cli.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { similarTitles } = require("./lib/tracker-ops.js");
-const { scriptPath } = require("./lib/script-path.js");
-const { repoRoot } = require("./lib/test-pass-marker.js");
-const {
-	buildModuleOffLine,
-	moduleOn,
-	readConfig,
-	requireKey,
-} = require("./lib/workflow-core-config.js");
+const { readConfig, requireKey } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
-
-const USAGE = `usage: node ${scriptPath("lander.js")} run [--tester <command>]
-  without --tester, the tester .claude/workflow-core.json's landingTester names
-  <command> <sha> [<file>…] exits 0 green, 1 red (stdout: failing files),
-  else no verdict`;
-
-/** @type {import("./lib/cli-args.js").CliSpec} */
-const CLI = {
-	usage: USAGE,
-	commands: { run: { usage: USAGE, flags: { "--tester": "value" } } },
-};
-
-/** @param {string} line */
-const say = (line) => writeFd(1, `${line}\n`);
-
-/**
- * @param {string} command
- * @param {string} root
- * @returns {import("./lib/lander.js").Tester}
- */
-const commandTester = (command, root) => ({
-	verdict: (sha, files = []) =>
-		new Promise((resolve) => {
-			const child = spawn(
-				"sh",
-				["-c", `${command} "$@"`, "tester", sha, ...files],
-				{ cwd: root, stdio: ["ignore", "pipe", "inherit"] },
-			);
-			let out = "";
-			child.stdout.on("data", (chunk) => {
-				out += chunk;
-			});
-			child.on("error", (err) =>
-				resolve({
-					kind: "unknown",
-					reason: `tester did not start: ${err.message}`,
-				}),
-			);
-			child.on("close", (code, signal) => {
-				if (code === 0) resolve({ kind: "green" });
-				else if (code === 1)
-					resolve({
-						kind: "red",
-						files: out
-							.split("\n")
-							.map((l) => l.trim())
-							.filter(Boolean),
-					});
-				else
-					resolve({
-						kind: "unknown",
-						reason: `tester ended ${signal ?? `exit ${code}`}`,
-					});
-			});
-		}),
-});
 
 /**
  * The tester `landingTester` names.
@@ -190,18 +125,9 @@ function liveFiler(root) {
 
 /** @param {string[]} [argv] @returns {Promise<number>} */
 async function main(argv = process.argv.slice(2)) {
-	const parsed = parseOrCode(argv, CLI);
-	if (typeof parsed === "number") return parsed;
-	const tester = flagValue(parsed.flags, "--tester");
-	const root = repoRoot();
-	if (root === null) {
-		writeFd(2, "lander: not in a git checkout\n");
-		return 1;
-	}
-	if (!moduleOn("landing", { root })) {
-		say(`SKIP: ${buildModuleOffLine("landing")}`);
-		return 0;
-	}
+	const opened = openLanderRun(argv, "lander.js");
+	if (typeof opened === "number") return opened;
+	const { root, tester } = opened;
 	const files = landerFiles(root);
 	await runLander({
 		git: remoteGit(root),
@@ -212,21 +138,15 @@ async function main(argv = process.argv.slice(2)) {
 		tracker: liveFiler(root),
 		ledger: fileLedger(files.ledger),
 		noVerdict: fileLedger(files.noVerdict),
-		lock: pidLock(files.pid, "lander.js"),
+		lock: landerLock(root),
 		beat: heartbeatWriter(files.heartbeat),
 		lastHold: () => readHeartbeat(files.heartbeat)?.hold ?? null,
 		lastRed: () => readHeartbeat(files.heartbeat)?.red ?? null,
 		lastOwed: () => readHeartbeat(files.heartbeat)?.owed ?? [],
 		lastMoved: () => readHeartbeat(files.heartbeat)?.movedAt ?? null,
-		log: (a) => say(`${new Date().toISOString()} ${buildActionLine(a)}`),
+		log: stampedLog(buildActionLine),
 		say,
-		mainMoved: () => {
-			const adoption = adoptGuardCodeAt(root, { fetch: false });
-			if (adoption) say(adoptionLine(adoption));
-			startLevelling(root, (err) =>
-				say(`levelling not started: ${parseErrorText(err)}`),
-			);
-		},
+		mainMoved: () => afterMainMove(root),
 	});
 	return 0;
 }

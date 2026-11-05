@@ -7,7 +7,8 @@
  *
  * Each group of runs holds one suite slot from the install to its last
  * command; a sharded whole run takes one slot per shard. A slot still shut at
- * the queue's wait bound is no verdict: the tester never runs unadmitted.
+ * the queue's wait bound is a transient no verdict, which asking again later
+ * can turn to one: the tester never runs unadmitted.
  *
  * Any step that fails before the suite reports — the checkout, the slot, the
  * install, a command that will not start, is killed, or fails naming no
@@ -585,7 +586,8 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 				reason: `no suite slot: ${caught(err).message}`,
 			};
 		}
-		if (!slot.ok) return { kind: "unknown", reason: slot.reason };
+		if (!slot.ok)
+			return { kind: "unknown", reason: slot.reason, transient: true };
 		try {
 			try {
 				install(dir, exec);

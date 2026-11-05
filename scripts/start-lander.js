@@ -24,14 +24,13 @@ const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { listedAgents } = require("./lib/agent-liveness.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { landerFiles, remoteGit, short } = require("./lib/lander.js");
+const { landerLock, remoteGit, short } = require("./lib/lander.js");
 const {
 	landerLog,
 	launcherName,
 	spawnDetachedRun,
 	startLander,
 } = require("./lib/lander-start.js");
-const { pidLock } = require("./lib/pid-lock.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
@@ -67,7 +66,7 @@ function main(argv = process.argv.slice(2)) {
 	const log = landerLog(root);
 	let by = "";
 	const result = startLander({
-		holder: pidLock(landerFiles(root).pid, "lander.js").holder,
+		holder: landerLock(root).holder,
 		refs: remoteGit(root).refs,
 		spawnRun: () => {
 			/* Named before the spawn, so the started line opens the run's log.
