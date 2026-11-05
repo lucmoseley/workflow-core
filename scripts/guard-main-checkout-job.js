@@ -54,7 +54,7 @@ const {
 } = require("./lib/job-paths.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { runClaude, seatEnv } = require("./lib/seat-claude.js");
+const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
 /* Untraced. */
@@ -137,11 +137,13 @@ function decide(source, io) {
 function runOnJobSeat(args, cwd, env, job) {
 	const r = runClaude(args, {
 		cwd,
-		env: seatEnv(env, job.seat, job.providerEnv),
+		env: buildSeatEnv(env, job.seat, job.providerEnv),
 		timeout: CLAUDE_TIMEOUT_MS,
 	});
-	const output = `${r.out}${r.error ? caught(r.error).message : ""}`.trim();
-	return { ok: r.status === 0, output };
+	const output = [r.out, r.error && caught(r.error).message]
+		.filter(Boolean)
+		.join("\n");
+	return { ok: r.failed === null, output };
 }
 
 /**

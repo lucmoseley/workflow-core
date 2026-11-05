@@ -54,7 +54,7 @@ const {
 const { stopOn } = require("./claude-stop.js");
 const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
-const { seatEnv } = require("./seat-claude.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -595,7 +595,8 @@ function readTimelineOf(l) {
 const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
 
-const resume = resumeSteps(buildResumeIo(log));
+const resumeIo = buildResumeIo(log);
+const resume = resumeSteps(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
@@ -609,7 +610,7 @@ function typeResume(l, prompt) {
 		runChild(file, args, {
 			...opts,
 			cwd: l.root,
-			env: seatEnv(process.env, l.seat),
+			env: buildSeatEnv(resumeIo.env(), l.seat),
 		}),
 	);
 }

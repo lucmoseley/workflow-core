@@ -14,7 +14,7 @@ const { shortJobId } = require("./job-paths.js");
 const { transcriptPath } = require("./project-slug.js");
 const { MODEL } = require("./refill-decide.js");
 const { seatIdOf } = require("./refill-seats.js");
-const { seatEnv } = require("./seat-claude.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-blocks.js");
 
@@ -68,7 +68,7 @@ function resumeSteps(io) {
 	 * @returns {{env: NodeJS.ProcessEnv, settings?: string}|{why: string}}
 	 */
 	function buildSeatLaunch(l) {
-		const env = seatEnv(io.env(), l.seat);
+		const env = buildSeatEnv(io.env(), l.seat);
 		if (!l.keyVar) return { env };
 		const built = io.keySettings(l.keyVar);
 		if ("why" in built) return built;
@@ -449,7 +449,7 @@ function resumeSteps(io) {
 		const jobId = shortJobId(sessionId);
 		if (!io.hasJobRecord(seat, jobId)) return null;
 		const failed = childFailure(
-			io.runClaude(["rm", jobId], { cwd, env: seatEnv(io.env(), seat) }),
+			io.runClaude(["rm", jobId], { cwd, env: buildSeatEnv(io.env(), seat) }),
 		);
 		return failed && `removing its stale job record on ${seat}: ${failed}`;
 	}
