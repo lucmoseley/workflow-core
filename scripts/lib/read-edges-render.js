@@ -63,7 +63,7 @@ function readIsIntentToAdd(root, head) {
 		const [status, file] = fields.slice(i, i + 2);
 		if (status && file) staged.set(file, status);
 	}
-	const headIds = head ?? (hasHead(root) ? readHeadBlobIds(root) : new Map());
+	const headIds = head ?? (hasHead(root) ? readTreeBlobIds(root) : new Map());
 	return (file) =>
 		staged.get(file) === "D" || (!staged.has(file) && !headIds.has(file));
 }
@@ -90,14 +90,15 @@ function readIndexBlobIds(root) {
 }
 
 /**
- * Blob ids by path, from `ls-tree -r HEAD`, gitlinks left out as above.
+ * Blob ids by path, from `ls-tree -r <rev>`, gitlinks left out as above.
  *
  * @param {string} root
+ * @param {string} [rev]  a commit or tree
  */
-function readHeadBlobIds(root) {
+function readTreeBlobIds(root, rev = "HEAD") {
 	/** @type {Map<string, string>} */
 	const oidByPath = new Map();
-	for (const e of listTree("HEAD", [], { cwd: root, timeout: GIT_TIMEOUT_MS }))
+	for (const e of listTree(rev, [], { cwd: root, timeout: GIT_TIMEOUT_MS }))
 		if (e.mode !== GIT_MODE.gitlink) oidByPath.set(e.path, e.sha);
 	return oidByPath;
 }
@@ -180,7 +181,7 @@ const readIndexTree = (root) => blobTree(root, readIndexBlobIds(root));
  * @param {string[]} only  file paths, as the commit names them
  */
 function readCommitTree(root, only) {
-	const head = readHeadBlobIds(root);
+	const head = readTreeBlobIds(root);
 	const isIntentToAdd = readIsIntentToAdd(root, head);
 	const indexed = new Set(gitList(root, ["ls-files", "-z"]));
 	const isDroppedIntentToAdd = (/** @type {string} */ p) =>
@@ -198,14 +199,16 @@ function readCommitTree(root, only) {
 }
 
 /**
- * The tree `render` reads: what a commit of `only` will carry, else the
- * index, else the disk.
+ * The tree `render` reads: the commit or tree `at`, else what a commit of
+ * `only` will carry, else the index, else the disk.
  *
  * @param {string} root
  * @param {boolean} index
  * @param {string[] | undefined} only
+ * @param {string | undefined} at
  */
-function readTreeFor(root, index, only) {
+function readTreeFor(root, index, only, at) {
+	if (at) return blobTree(root, readTreeBlobIds(root, at));
 	if (only) return readCommitTree(root, only);
 	if (index) return readIndexTree(root);
 	return readWorkingTree(root);
@@ -213,12 +216,12 @@ function readTreeFor(root, index, only) {
 
 /**
  * @param {string} root
- * @param {{ index?: boolean, only?: string[], sites?: boolean }} [opts]  read
- *   the index, or what a commit of `only` will carry, rather than the disk;
- *   `sites` also finds each test's unseen reads
+ * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean }} [opts]
+ *   read the index, what a commit of `only` will carry, or the commit or tree
+ *   `at`, rather than the disk; `sites` also finds each test's unseen reads
  */
-function render(root, { index = false, only, sites = false } = {}) {
-	const tree = readTreeFor(root, index, only);
+function render(root, { index = false, only, at, sites = false } = {}) {
+	const tree = readTreeFor(root, index, only, at);
 	const read = new Set();
 	const { edges, anchored, tests, warnings, unseen } = buildManifest(
 		tree.tracked,

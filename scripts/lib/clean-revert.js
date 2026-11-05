@@ -16,6 +16,11 @@
  * stale: the fix ticket owes a guard-registry row's re-read, and a census row
  * reports on the full run.
  *
+ * A CONFLICT IN A REGENERATED FILE COUNTS AS CLEAN TOO (#4452): one
+ * lib/regenerated-files.js lists, which the revert's tree holds as its
+ * generator renders it there. Its output on that tree is the one right value,
+ * as the file records nothing but its inputs.
+ *
  * The guard registry's file is settled by its merge driver's own per-row merge
  * (#4171), so a revert and its recomputation agree whether or not the git they
  * run under defines the driver: where it does, the file never conflicts and
@@ -32,6 +37,7 @@ const {
 	REGISTRY_ANCHORS,
 	buildMergedAnchors,
 } = require("./registry-anchors-merge.js");
+const { REGENERATED_FILES } = require("./regenerated-files.js");
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
@@ -59,20 +65,28 @@ function gitOut(cwd, args) {
 }
 
 /**
- * The revert's bytes for each path in `conflicted`, its conflicted hunks keeping
- * `onto`'s side, or null where a path is no anchor file, a path's three versions
- * do not all exist, or a result is not JSON. An empty `conflicted` is null.
+ * How the revert settles each path in `conflicted`: an anchor file's bytes,
+ * its conflicted hunks keeping `onto`'s side, in `kept`; a regenerated file's
+ * path in `regenerated`, rendered once the rest of the tree is settled. Null
+ * where a path is neither, an anchor's three versions do not all exist or its
+ * result is not JSON, or `conflicted` is empty.
  * @param {string} cwd
  * @param {{culprit: string, onto: string, side: string}} revert `side` the
  *   parent of `culprit` the revert restores
  * @param {string[]} conflicted
- * @returns {Map<string, string>|null}
+ * @returns {{kept: Map<string, string>, regenerated: string[]}|null}
  */
-function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
+function readSettledConflicts(cwd, { culprit, onto, side }, conflicted) {
 	if (conflicted.length === 0) return null;
 	/** @type {Map<string, string>} */
 	const kept = new Map();
+	/** @type {string[]} */
+	const regenerated = [];
 	for (const file of conflicted) {
+		if (REGENERATED_FILES.has(file)) {
+			regenerated.push(file);
+			continue;
+		}
 		if (!ANCHOR_FILES.has(file)) return null;
 		const merged =
 			file === REGISTRY_ANCHORS
@@ -89,7 +103,23 @@ function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
 		if (merged === null || !isJson(merged)) return null;
 		kept.set(file, merged);
 	}
-	return kept;
+	return { kept, regenerated };
+}
+
+/**
+ * `file`'s bytes as its generator renders them on `tree`, or null where the
+ * render fails.
+ * @param {string} cwd
+ * @param {string} file a key of REGENERATED_FILES
+ * @param {string} tree a commit or tree
+ * @returns {string|null}
+ */
+function renderRegenerated(cwd, file, tree) {
+	try {
+		return REGENERATED_FILES.get(file)?.renderAt(cwd, tree) ?? null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -122,7 +152,7 @@ function isJson(text) {
 
 /**
  * Whether `tree` is the revert of `culprit` against `side` on `onto`: the
- * merge's own tree, or that tree with its anchor conflicts kept.
+ * merge's own tree, or that tree with its conflicts settled.
  * @param {string} cwd
  * @param {{culprit: string, onto: string, side: string, tree: string}} judged
  */
@@ -144,22 +174,27 @@ function isRevertTree(cwd, { culprit, onto, side, tree }) {
 	const [made, ...rest] = String(merged.stdout).split("\n");
 	if (merged.status === 0) return made === tree;
 	if (merged.status !== 1 || !made) return false;
-	const kept = readKeptAnchors(
+	const settled = readSettledConflicts(
 		cwd,
 		{ culprit, onto, side },
 		rest.slice(0, rest.indexOf("")),
 	);
-	if (kept === null) return false;
+	if (settled === null) return false;
+	const { kept, regenerated } = settled;
+	/** @param {string} file */
+	const readJudged = (file) =>
+		gitOut(cwd, ["cat-file", "blob", `${tree}:${file}`]);
 	const differing = gitOut(cwd, ["diff-tree", "-r", "--name-only", made, tree]);
 	return (
 		differing
 			?.split("\n")
 			.filter(Boolean)
-			.every((file) => kept.has(file)) &&
-		[...kept].every(
-			([file, bytes]) =>
-				gitOut(cwd, ["cat-file", "blob", `${tree}:${file}`]) === bytes,
-		)
+			.every((file) => kept.has(file) || regenerated.includes(file)) &&
+		[...kept].every(([file, bytes]) => readJudged(file) === bytes) &&
+		regenerated.every((file) => {
+			const bytes = renderRegenerated(cwd, file, tree);
+			return bytes !== null && readJudged(file) === bytes;
+		})
 	);
 }
 
@@ -214,8 +249,9 @@ function whyNotLanderRevert(cwd, { culprit, sha, tip }) {
 module.exports = {
 	LANDER_REVERT_ENV,
 	buildRevertLine,
-	readKeptAnchors,
 	readLanderRevert,
+	readSettledConflicts,
+	renderRegenerated,
 	whyNotCleanRevert,
 	whyNotLanderRevert,
 };
