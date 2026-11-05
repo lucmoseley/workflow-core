@@ -22,7 +22,7 @@
  *
  * Exit 0 done, 1 refused or failed (why on stderr), 2 a usage error. A reap
  * that could not remove something it should have exits 1; one that finds
- * stranded work exits 0, as reporting it is its job.
+ * stranded work exits 0.
  *
  * IT JOINS NO FAMILY (§G4, §N3): it gates nothing (no `check-*`), no hook
  * runs it (no `guard-*`), it generates no file (no `generate-*`) and files no
@@ -69,8 +69,8 @@ const CLI = {
 };
 
 /**
- * A reap pass's report lines, each stranded or orphaned worktree with its way
- * out; none where it found nothing to do.
+ * A reap pass's report lines, each stranded worktree and unregistered
+ * checkout with its way out.
  * @param {Exclude<ReturnType<typeof reap>, { busy: number | null }>} r
  * @returns {string[]}
  */
@@ -111,9 +111,9 @@ function renderReaped(r) {
 						", ",
 					)}; idle ${describeAge(s.idleMs)}; last commit ${s.last} — its session is gone: land it with \`node scripts/session-checkout.js land\` from inside it, or, judged worthless, \`git worktree remove --force ${s.dir}\``,
 		),
-		...r.orphans.map(
+		...r.unregistered.map(
 			(dir) =>
-				`orphaned: ${name(dir)} has a .git file but no registration, so git cannot read its uncommitted work — look through it, then remove it by hand`,
+				`unregistered checkout: ${name(dir)} has a .git file but no registration, so git cannot read its uncommitted work — look through it, then remove it by hand`,
 		),
 		...r.failed.map((f) => `could not reap ${f}`),
 	];

@@ -14,7 +14,7 @@
  * and the processes it spawns keep real time.
  *
  * Every case cuts real worktrees off a real bare origin, seam 1's fixture
- * (#4229), so the file runs over the 10 s budget (base §X8 (5)).
+ * (#4229), so the file runs at about the 10 s budget (base §X8 (5)).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -51,7 +51,7 @@ const commitIn = (cwd: string, name: string, message: string) => {
 	);
 };
 
-const run = (...args: string[]) =>
+const run = (args: string[], env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, args, {
 		cwd: main,
 		env: {
@@ -60,6 +60,7 @@ const run = (...args: string[]) =>
 			CLAUDE_CONFIG_DIR: seat,
 			WFC_NPM: npmStub,
 			WFC_MODULES: "landing",
+			...env,
 		},
 	});
 
@@ -68,16 +69,15 @@ const worktree = (name: string) => path.join(worktrees(), name);
 const stores = () => path.join(worktrees(), ".dep-stores");
 
 const cut = (name: string) => {
-	const r = run("cut", name);
+	const r = run(["cut", name]);
 	expect(r.status, r.stderr).toBe(0);
 	return worktree(name);
 };
 
-/** A reap pass with the clock `ahead` ms on. */
 const reap = (ahead = HOUR) => {
 	vi.setSystemTime(Date.now() + ahead);
 	try {
-		return run("reap");
+		return run(["reap"]);
 	} finally {
 		vi.useRealTimers();
 		vi.useFakeTimers({ toFake: ["Date"] });
@@ -231,7 +231,7 @@ it("prunes a stale registration and removes unregistered directories, reporting 
 	expect(r.stderr).toContain("pruned stale registration: gone-dir\n");
 	expect(r.stderr).toContain("removed unregistered directory: probe-leftover");
 	expect(r.stderr).toContain(
-		"orphaned: orphaned-checkout has a .git file but no registration, so git cannot read its uncommitted work",
+		"unregistered checkout: orphaned-checkout has a .git file but no registration, so git cannot read its uncommitted work",
 	);
 	expect(registered()).toEqual([main]);
 	expect(fs.existsSync(stray)).toBe(false);
@@ -304,6 +304,7 @@ it("leaves a locked worktree alone", () => {
 	const r = reap();
 
 	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe("");
 	expect(registered()).toContain(locked);
 });
 
@@ -327,18 +328,103 @@ it("prunes and sweeps strays but judges no worktree where the landing module is 
 	fs.mkdirSync(stray);
 
 	vi.setSystemTime(Date.now() + HOUR);
-	const r = runInProcess(SCRIPT, ["reap"], {
-		cwd: main,
-		env: {
-			...process.env,
-			CLAUDE_PROJECT_DIR: main,
-			CLAUDE_CONFIG_DIR: seat,
-			WFC_MODULES: "",
-		},
-	});
+	const r = run(["reap"], { WFC_MODULES: "" });
 
 	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe(
+		"session checkout: removed unregistered directory: probe-leftover\n",
+	);
 	expect(fs.existsSync(landed)).toBe(true);
 	expect(fs.existsSync(stray)).toBe(false);
 	expect(fs.readdirSync(stores())).toHaveLength(1);
+});
+
+it("exits 1 naming what it could not remove, and says where a failed fetch leaves origin/landing", () => {
+	const stuck = worktree("stuck-leftover");
+	fs.mkdirSync(stuck, { recursive: true });
+	git(main, "remote", "set-url", "origin", path.join(tmp, "gone.git"));
+	fs.chmodSync(worktrees(), 0o555);
+
+	const r = reap();
+	fs.chmodSync(worktrees(), 0o755);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		"session checkout: fetching landing failed, so origin/landing may be stale and read more work as unlanded: ",
+	);
+	expect(r.stderr).toContain(`session checkout: could not reap ${stuck}: `);
+	expect(r.stderr).toContain(
+		"session checkout: failed: 1 item could not be reaped, named above — clear what each names; the next pass tries again",
+	);
+	expect(fs.existsSync(stuck)).toBe(true);
+});
+
+it("reads a stranded worktree's idle time from its own last write, never from the reaper's status read", () => {
+	const dirty = cut("old-work");
+	const hoursAgo = (h: number) => new Date(Date.now() - h * HOUR);
+	fs.writeFileSync(path.join(dirty, "half.txt"), "half done");
+	git(dirty, "add", "half.txt");
+	const index = path.join(
+		git(dirty, "rev-parse", "--absolute-git-dir"),
+		"index",
+	);
+	fs.utimesSync(index, hoursAgo(5), hoursAgo(5));
+	fs.writeFileSync(path.join(dirty, "half.txt"), "more");
+	fs.utimesSync(path.join(dirty, "half.txt"), hoursAgo(5), hoursAgo(5));
+	execFileSync(
+		"git",
+		[
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"commit",
+			"--allow-empty",
+			"-qm",
+			"five hours old",
+		],
+		{
+			cwd: dirty,
+			env: { ...process.env, GIT_COMMITTER_DATE: hoursAgo(5).toISOString() },
+		},
+	);
+	fs.utimesSync(index, hoursAgo(5), hoursAgo(5));
+
+	const r = reap();
+
+	expect(r.stderr).toContain("idle 6h; last commit ");
+});
+
+it("removes a landed worktree whose store link an adopter's directory-only ignore shows untracked, leaving the store", () => {
+	const landed = cut("adopter-work");
+	const store = path.dirname(
+		fs.realpathSync(path.join(landed, "node_modules")),
+	);
+	fs.writeFileSync(
+		path.join(main, ".gitignore"),
+		"node_modules/\n.claude/worktrees/\n",
+	);
+	commitIn(main, ".gitignore", "directory-only ignore");
+	git(main, "push", "-q", "origin", "HEAD:landing");
+	git(landed, "fetch", "-q", "origin");
+	git(landed, "checkout", "-q", "--detach", "origin/landing");
+	const keeper = cut("keeps-the-store");
+	fs.writeFileSync(path.join(keeper, "half.txt"), "keeps it standing");
+
+	const r = reap();
+
+	expect(r.stderr).toContain("removed landed worktree: adopter-work");
+	expect(fs.existsSync(landed)).toBe(false);
+	expect(fs.existsSync(path.join(store, "node_modules", "lock"))).toBe(true);
+});
+
+it("leaves an unregistered directory a live process works in", () => {
+	const busy = worktree("probe-in-use");
+	fs.mkdirSync(busy, { recursive: true });
+	holdProcess(busy);
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(fs.existsSync(busy)).toBe(true);
 });

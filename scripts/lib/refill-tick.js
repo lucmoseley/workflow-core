@@ -249,7 +249,7 @@ function levelCheckouts(roots) {
  * started while one runs.
  * @param {string[]} roots
  */
-function reapWorktrees(roots) {
+function startReapPasses(roots) {
 	for (const root of roots)
 		if (hasConfig(root))
 			startDetached(
@@ -1449,7 +1449,7 @@ function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
 	levelCheckouts(roots);
-	reapWorktrees(roots);
+	startReapPasses(roots);
 	fileMachineTickets("file-memory-kill-tickets.js", "memory kills");
 	fileMachineTickets("file-process-runaway-tickets.js", "process runaways");
 	return tendHolds(roots, served, now, log);

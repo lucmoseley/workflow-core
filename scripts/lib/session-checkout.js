@@ -42,7 +42,7 @@
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * REAP clears landed worktrees and unlinked stores; its rules sit above it.
+ * REAP clears landed worktrees and unlinked stores.
  */
 
 const crypto = require("node:crypto");
@@ -519,7 +519,8 @@ function launchDir(cwd, prompt) {
  *     with its idle time and last commit, never removed;
  *   - registrations whose directory is gone are pruned, and a directory there
  *     with no registration is removed, save one still carrying a `.git` file:
- *     git can no longer read its uncommitted work, so it is reported;
+ *     git can no longer read its uncommitted work, so it is reported as an
+ *     unregistered checkout;
  *   - a dependency store no registered worktree links is removed, and so is a
  *     dead build's lock and staging directory.
  * Left alone: a locked worktree (the harness's agent trees), the suite's
@@ -529,14 +530,12 @@ function launchDir(cwd, prompt) {
  * before the link that names it.
  */
 
-/* `git worktree add` and a store's rename-then-link each take about a second
- * (#4166 Finding 6). Untraced: five minutes is room for a loaded machine. */
+/* Untraced: five minutes is room for a loaded machine. */
 const YOUNG_MS = 5 * 60_000;
 const ISOLATED = /^isolated-/;
 const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
 const BUILD_STAGING = /^\.build-[0-9a-f]+-(\d+)$/;
-/* The job states no resume follows: the session finished, or failed. */
 const ENDED = new Set(["done", "failed"]);
 /* The script a reap pass runs as; a pidfile naming any other is stale. */
 const REAP_HOLDERS = ["session-checkout.js"];
@@ -544,14 +543,16 @@ const REAP_HOLDERS = ["session-checkout.js"];
 /**
  * @typedef {{ dir: string, idleMs: number, last: string, dirty: number,
  *   unlanded: number }} Stranded
- * @typedef {{ removed: string[], stranded: Stranded[], orphans: string[],
+ * @typedef {{ removed: string[], stranded: Stranded[], unregistered: string[],
  *   pruned: string[], strays: string[], stores: string[], failed: string[],
  *   fetchFailed: string | null }} Reaped
+ * @typedef {{ now: number, cwds: string[] }} Pass when the pass runs, and
+ *   every live process's cwd
  */
 
 /**
- * Every directory some process on this machine has as its cwd: a session,
- * or a tool it left running. The real /proc, whatever a test stands in.
+ * Every directory some process on this machine has as its cwd. The real
+ * /proc, whatever a test stands in.
  * @returns {string[]}
  */
 function readProcessCwds() {
@@ -578,13 +579,26 @@ function ageOf(at, now) {
 
 /**
  * A worktree's dirty paths, its commits not on `origin/landing`, its last
- * commit, and how long since that commit or an index write, the later.
+ * commit, and how long since that commit or an index write, the later. The
+ * status takes no optional lock, so it never rewrites the index whose age it
+ * reads; it leaves out the store link, which an adopter's `node_modules/`
+ * ignore, matching directories only, would show untracked.
  * @param {string} dir
  * @param {number} now
  * @returns {Stranded}
  */
 function readWorktreeState(dir, now) {
-	const dirty = git(["status", "--porcelain"], dir);
+	const dirty = git(
+		[
+			"--no-optional-locks",
+			"status",
+			"--porcelain",
+			"--",
+			".",
+			":(top,exclude)node_modules",
+		],
+		dir,
+	);
 	const unlanded = Number(
 		git(["rev-list", "--count", "HEAD", "--not", "origin/landing"], dir),
 	);
@@ -596,9 +610,10 @@ function readWorktreeState(dir, now) {
 		git(["rev-parse", "--absolute-git-dir"], dir),
 		"index",
 	);
+	const written = fs.statSync(index, { throwIfNoEntry: false })?.mtimeMs ?? 0;
 	return {
 		dir,
-		idleMs: Math.min(ageOf(index, now), now - Number(at) * 1000),
+		idleMs: now - Math.max(written, Number(at) * 1000),
 		last: subject.join(" "),
 		dirty: dirty ? dirty.split("\n").length : 0,
 		unlanded,
@@ -606,20 +621,32 @@ function readWorktreeState(dir, now) {
 }
 
 /**
- * The session worktrees in `base`, each removed where REAP allows and
- * reported where it is stranded.
+ * Every linked worktree of `root`; a throw where git will not list them, as
+ * each would then read unregistered.
  * @param {string} root
- * @param {string} base the worktrees folder
- * @param {number} now
- * @param {Reaped} out
- * @returns {string[]} every registered worktree still standing
+ * @returns {string[]}
  */
-function reapWorktrees(root, base, now, out) {
+function readWorktreesOrThrow(root) {
 	const registered = readLinkedWorktrees(root);
 	if (registered === null)
-		throw new Error(`git would not list the worktrees of ${root}`);
+		throw new Error(
+			`git would not list the worktrees of ${root}, so none can be judged — run \`git worktree list\` there to see why`,
+		);
+	return registered;
+}
+
+/**
+ * The session worktrees in `base`, judged by REAP's rules.
+ * @param {string} root
+ * @param {string} base the worktrees folder
+ * @param {Pass} pass
+ * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
+ * @returns {string[]} every registered worktree still standing
+ */
+function reapWorktrees(root, base, { cwds, now }, out) {
+	const registered = readWorktreesOrThrow(root);
 	const held = [
-		...readProcessCwds().map(deref),
+		...cwds,
 		...readJobCwds()
 			.filter((j) => j.state === null || !ENDED.has(j.state))
 			.map((j) => j.cwd),
@@ -649,6 +676,9 @@ function reapWorktrees(root, base, now, out) {
 				standing.push(dir);
 				continue;
 			}
+			const link = path.join(dir, "node_modules");
+			if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
+				fs.unlinkSync(link);
 			git(["worktree", "remove", dir], root);
 			out.removed.push(dir);
 		} catch (err) {
@@ -660,14 +690,14 @@ function reapWorktrees(root, base, now, out) {
 }
 
 /**
- * Every directory in `base` git has no registration for: removed where it
- * carries no `.git` file, reported where it does.
+ * Every directory in `base` git has no registration for and no live process
+ * works in.
  * @param {string} base
  * @param {string[]} standing
- * @param {number} now
- * @param {Reaped} out
+ * @param {Pass} pass
+ * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
  */
-function reapStrays(base, standing, now, out) {
+function reapStrays(base, standing, { cwds, now }, out) {
 	for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
 		const dir = path.join(base, entry.name);
 		if (
@@ -675,11 +705,12 @@ function reapStrays(base, standing, now, out) {
 			dir === path.join(base, path.basename(STORES)) ||
 			ISOLATED.test(entry.name) ||
 			standing.includes(dir) ||
-			ageOf(dir, now) < YOUNG_MS
+			ageOf(dir, now) < YOUNG_MS ||
+			cwds.some((cwd) => worktreeHolding(cwd, [dir]))
 		)
 			continue;
 		if (fs.existsSync(path.join(dir, ".git"))) {
-			out.orphans.push(dir);
+			out.unregistered.push(dir);
 			continue;
 		}
 		try {
@@ -709,13 +740,13 @@ function readLinkedStores(standing) {
 }
 
 /**
- * The store keys a live build holds; each dead build's lock removed.
+ * Remove each dead build's lock; the store keys a live build holds.
  * @param {string} storesDir
  * @param {string[]} names
  * @param {number} now
  * @returns {Set<string>}
  */
-function readLiveBuilds(storesDir, names, now) {
+function sweepBuildLocks(storesDir, names, now) {
 	const building = new Set();
 	for (const name of names) {
 		const key = BUILD_LOCK.exec(name)?.[1];
@@ -739,13 +770,13 @@ function readLiveBuilds(storesDir, names, now) {
  * @param {string} storesDir
  * @param {string[]} standing
  * @param {number} now
- * @param {Reaped} out
+ * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
  */
 function reapStores(storesDir, standing, now, out) {
 	if (!fs.existsSync(storesDir)) return;
 	const names = fs.readdirSync(storesDir);
 	const linked = readLinkedStores(standing);
-	const building = readLiveBuilds(storesDir, names, now);
+	const building = sweepBuildLocks(storesDir, names, now);
 	for (const name of names) {
 		const at = path.join(storesDir, name);
 		const builder = BUILD_STAGING.exec(name)?.[1];
@@ -791,10 +822,10 @@ function prune(root) {
 /**
  * REAP, above. One pass runs at a time per repository; another finds it busy.
  * @param {string} cwd anywhere in the repository
- * @param {number} [now]
  * @returns {Reaped | { busy: number | null }}
  */
-function reap(cwd, now = Date.now()) {
+function reap(cwd) {
+	const now = Date.now();
 	const root = rootOf(cwd);
 	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
 	const lock = pidLock(path.join(common, "wfc-reap.pid"), REAP_HOLDERS);
@@ -804,7 +835,7 @@ function reap(cwd, now = Date.now()) {
 		const out = {
 			removed: [],
 			stranded: [],
-			orphans: [],
+			unregistered: [],
 			pruned: [],
 			strays: [],
 			stores: [],
@@ -824,10 +855,11 @@ function reap(cwd, now = Date.now()) {
 		out.pruned = prune(root);
 		const base = path.join(root, WORKTREES);
 		if (!fs.existsSync(base)) return out;
+		const pass = { now, cwds: readProcessCwds().map(deref) };
 		const standing = judged
-			? reapWorktrees(root, base, now, out)
-			: (readLinkedWorktrees(root) ?? []);
-		reapStrays(base, standing, now, out);
+			? reapWorktrees(root, base, pass, out)
+			: readWorktreesOrThrow(root);
+		reapStrays(base, standing, pass, out);
 		reapStores(path.join(root, STORES), standing, now, out);
 		return out;
 	} finally {
