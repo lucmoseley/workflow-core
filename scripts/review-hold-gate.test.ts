@@ -14,8 +14,9 @@
  * commit, which no stub reproduces; its wiring into `.husky/pre-commit` and the
  * adopter skeleton is read off those files.
  * `tree=` comes from `commit-paths.js --tree`, or mid-merge from the index, as
- * write-review-marker.js takes it for a session, so a drift between that computation and the hook's fails here; the
- * Stop backstop and push guard read the same marker, so they are run on it too.
+ * write-review-marker.js takes it for a session, so a drift between that
+ * computation and the hook's fails here; the Stop backstop and push guard read
+ * the same marker, so they are run on it too.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -835,7 +836,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		);
 	});
 
-	it("holds a glob both sides changed, git combining them cleanly, until the marker names it", () => {
+	it("holds a glob both sides changed, git combining them cleanly, until the marker names it (#4426)", () => {
 		write(SECRET, "line 1\nline 2\nline 3\nline 4\nline 5\n");
 		git("commit", "-qam", "five lines");
 		git("worktree", "add", "-q", "--detach", wt, "HEAD");

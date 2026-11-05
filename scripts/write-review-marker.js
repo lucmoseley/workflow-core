@@ -256,11 +256,11 @@ function repoRelative(root, paths) {
  * @param {string} what
  * @param {string} [remedy] a sentence on the way out
  */
-function treeOrFail(r, what, remedy = "") {
+function treeOrFail(r, what, remedy) {
 	const tree = String(r.stdout ?? "").trim();
 	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
 		fail(
-			`${what} failed (exit ${r.status}): ${String(r.stderr ?? "").trim()}${remedy} Nothing written.`,
+			`${what} failed (exit ${r.status}): ${String(r.stderr ?? "").trim()}${remedy ? ` ${remedy}` : ""} Nothing written.`,
 			1,
 		);
 	return tree;
@@ -304,7 +304,7 @@ const readIndexTree = (root) =>
 	treeOrFail(
 		spawnGitSync(["write-tree"], { cwd: root, encoding: "utf8" }),
 		"git write-tree mid-merge",
-		" Resolve and stage every conflicted path first.",
+		"Resolve and stage every conflicted path first.",
 	);
 
 /**

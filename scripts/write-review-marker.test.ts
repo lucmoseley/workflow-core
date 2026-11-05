@@ -281,6 +281,7 @@ describe("mid-merge (#4426)", () => {
 		fs.writeFileSync(patch, "");
 		const r = run([...Flags, "--paths", "b.js", "--patch", patch]);
 		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--patch has no place mid-merge");
 		expect(r.stderr).toContain("Drop --patch and re-run.");
 		expect(fs.existsSync(marker())).toBe(false);
 	});
