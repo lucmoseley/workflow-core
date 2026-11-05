@@ -36,13 +36,8 @@
  */
 
 const { caught, parseErrorText } = require("./caught.js");
-const {
-	isNetworkFault,
-	parseRefusal,
-	remote,
-	short,
-	verdictAt,
-} = require("./lander.js");
+const { parseRefusal, remote, short, verdictAt } = require("./lander.js");
+const { isNetworkFault } = require("./network-fault.js");
 
 /* Untraced, a first guess and stated as one: the codes a fork returns while
  * the machine is short of processes or memory for a moment. */

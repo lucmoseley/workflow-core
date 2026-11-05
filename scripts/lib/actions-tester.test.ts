@@ -119,6 +119,38 @@ const recording = (verdict: Verdict) => {
 	return { tester, asked };
 };
 
+it("retries a run read the network dropped, never reading it as no verdict", async () => {
+	const jobs = [{ name: "Full suite / Vitest (1/1)", conclusion: "failure" }];
+	const r = reads([() => [run(1, "failure")], () => [run(1, "failure")]], jobs);
+	const log = r.failedLogOf;
+	let dropped = false;
+	r.failedLogOf = () => {
+		if (dropped) return log();
+		dropped = true;
+		throw Object.assign(new Error("gh failed"), {
+			stderr:
+				"failed to get run log: http2: server sent GOAWAY and closed the connection",
+		});
+	};
+	expect(await verdictOf(r)).toMatchObject({
+		kind: "red",
+		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
+	});
+});
+
+it("reads a run read that fails on anything but the network as no verdict", async () => {
+	const r = reads([() => [run(1, "failure")]]);
+	r.failedLogOf = () => {
+		throw Object.assign(new Error("gh failed"), {
+			stderr: "HTTP 404: Not Found",
+		});
+	};
+	expect(await verdictOf(r)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/runs unreadable: HTTP 404/),
+	});
+});
+
 it("reads a successful run at the sha as green, naming the run", async () => {
 	expect(await verdictOf(reads([() => [run(1, "success")]]))).toEqual({
 		kind: "green",

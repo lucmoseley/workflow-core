@@ -46,6 +46,7 @@ const path = require("node:path");
 const { gitBinary, gitSpawnOptions } = require("./git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
+const { isNetworkFault } = require("./network-fault.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
 const {
@@ -401,7 +402,12 @@ async function pollRun(read, unread, { wait, now }) {
 		try {
 			v = read();
 		} catch (err) {
-			return unread(err);
+			/* A network fault is retried to the run's bound, never read as
+			 * no verdict. */
+			if (!isNetworkFault(err) || now() - start >= RUN_BOUND_MS)
+				return unread(err);
+			await wait(POLL_MS);
+			continue;
 		}
 		const waited = now() - start;
 		if (

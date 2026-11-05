@@ -45,6 +45,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { caught, parseErrorText } = require("./caught.js");
+const { isNetworkFault } = require("./network-fault.js");
 const { FULL_SHA } = require("./commit-sha.js");
 const { parseFirstLine } = require("./first-line.js");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -141,8 +142,6 @@ function stderrIfThrown(call) {
  * book's "Addressing Cascading Failures" chapter sets for a retrying client. */
 const REMOTE_TRIES = 5;
 const REMOTE_BACKOFF_MS = 4 * 1000;
-const NETWORK =
-	/Could not resolve host|Connection timed out|Connection reset|returned error: 5\d\d|HTTP 5\d\d/;
 
 /**
  * @typedef {{file: string, test: string, message?: string,
@@ -1279,16 +1278,6 @@ function resumable(r) {
 		/* Read again, as `main`'s jobs may have run since. */
 		jobsOnMain: null,
 	};
-}
-
-/**
- * Whether a remote git call's failure is a network fault a retry can
- * outlast: git naming one, or the call timing out.
- * @param {unknown} err
- */
-function isNetworkFault(err) {
-	const e = caught(err);
-	return e.code === "ETIMEDOUT" || NETWORK.test(e.stderr ?? "");
 }
 
 /**
@@ -2990,7 +2979,6 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
 	isAncestor,
-	isNetworkFault,
 	landerLock,
 	parseRefusal,
 	pushRemote,
