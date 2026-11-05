@@ -111,7 +111,11 @@ describe("a verified lander revert is judged against its culprit's parent as wel
 			path.join(__dirname, "..", ".husky", "pre-commit"),
 			"utf8",
 		);
-		const resolutions = hook.match(/scripts\/lander-revert-base\.js/g) ?? [];
+		const code = hook
+			.split("\n")
+			.filter((line) => !/^\s*#/.test(line))
+			.join("\n");
+		const resolutions = code.match(/scripts\/lander-revert-base\.js/g) ?? [];
 		expect(resolutions).toHaveLength(1);
 		expect(hook.indexOf("export WFC_LANDER_REVERT_BASE")).toBeLessThan(
 			hook.indexOf("--against HEAD"),

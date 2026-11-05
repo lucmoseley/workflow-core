@@ -90,10 +90,10 @@ const issue = (state: string, comments?: unknown[]) => ({
 	...(comments ? { comments: { nodes: comments } } : {}),
 });
 
-/** The arbiter run as `session` over this case's store, refusing a failure. */
-function arbiter(args: string[], session: string) {
+/** The arbiter run as `session` over this case's store, from `cwd`, refusing a failure. */
+function arbiter(args: string[], session: string, cwd = dir) {
 	const r = runInProcess(path.join(__dirname, "session-arbiter.js"), args, {
-		cwd: dir,
+		cwd,
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: path.join(dir, "config"),
@@ -110,9 +110,9 @@ function claim(n: number, session = sid) {
 	arbiter(["claim-issue", String(n)], session);
 }
 
-/** Record `session`'s write of `rel` in the write ledger the guard reads. */
-function wrote(rel: string, session = sid) {
-	arbiter(["record", rel], session);
+/** Record `session`'s write of `rel` in the write ledger the guard reads, made in `tree`. */
+function wrote(rel: string, session = sid, tree = dir) {
+	arbiter(["record", rel], session, tree);
 }
 
 /**
@@ -500,8 +500,8 @@ describe("the hand-off on a posted round (#2391)", () => {
 			commit("checkout", "-q", "src/a.txt");
 			const wt = cutWorktree(dir);
 			fs.writeFileSync(path.join(wt, "src", "a.txt"), "three\n");
-			/* Keyed by its path in the tree, as the recorder run there keys it (#4397). */
-			wrote("src/a.txt");
+			/* Keyed by its path in the tree, as the recorder run there keys it (#4397), and stamped with that tree (#4457). */
+			wrote("src/a.txt", sid, wt);
 			const reason = withHandOff(HAND_OFF, { worktree: wt });
 			expect(reason).toContain(
 				"`src/a.txt` is uncommitted and unnamed in the hand-off",

@@ -776,9 +776,8 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	});
 
 	/*
-	 * A run from a worktree has both sides resolving independently to that
-	 * worktree. They agree — and every claim is still filed under the canonical
-	 * checkout's slug, so the run reads none.
+	 * A run from a linked worktree in production's shape: no CLAUDE_PROJECT_DIR,
+	 * claims filed under the canonical checkout.
 	 */
 	const linkedWorktree = () => {
 		const canonical = kit.repoRoot as string;
@@ -808,8 +807,20 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		return { canonical: fs.realpathSync(canonical), wt: fs.realpathSync(wt) };
 	};
 
-	it("says so from inside a linked worktree, where the two roots agree", async () => {
-		const { canonical, wt } = linkedWorktree();
+	/*
+	 * A store keyed on the worktree itself, through a CLAUDE_PROJECT_DIR naming
+	 * it: both sides agree on the worktree, and every claim is still filed under
+	 * the canonical checkout's slug, so the run reads none.
+	 */
+	const worktreeKeyed = () => {
+		const trees = linkedWorktree();
+		kit.noProjectDir = false;
+		kit.claimsRepo = trees.wt;
+		return trees;
+	};
+
+	it("says so where the store is keyed on a linked worktree", async () => {
+		const { canonical, wt } = worktreeKeyed();
 		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
 		expect(r.out).toMatch(/CLAIMS DEGRADED/);
 		expect(r.out).toMatch(/a linked worktree of/);
@@ -818,7 +829,7 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	});
 
 	it("carries the worktree case into --json, with the tree to re-run from", async () => {
-		const { canonical } = linkedWorktree();
+		const { canonical } = worktreeKeyed();
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
 		expect(j.claimsDegraded.storeElsewhere).toBe(true);
 		expect(j.claimsDegraded.why).toMatch(/linked worktree of/);
@@ -827,19 +838,19 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	});
 
 	/*
-	 * mantahostels#1 is assigned and a LIVE session holds its claim — filed under the canonical checkout — so a run from the
-	 * canonical tree excludes it. From the worktree the store reads empty, and
-	 * the issue is offered as takeable while somebody is on it.
+	 * mantahostels#1 is assigned and a LIVE session holds its claim, filed under
+	 * the canonical checkout. From the worktree the store resolves to that
+	 * checkout too (#4482), so the issue stays out of the shortlist.
 	 */
-	it("shows a live session's issue as takeable, which is the fault itself", async () => {
+	it("reads the canonical checkout's claims from inside a linked worktree", async () => {
 		linkedWorktree();
 		kit.oracleSessions = ["self", "alice"];
 		const r = await run({
 			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
 			claims: { 1: "alice" },
 		});
-		expect(r.order()).toContain(1);
-		expect(r.out).toMatch(/CLAIMS DEGRADED/);
+		expect(r.order()).not.toContain(1);
+		expect(r.out).not.toMatch(/CLAIMS DEGRADED/);
 	});
 
 	/*
