@@ -232,4 +232,40 @@ describe("the tick's control read (#3389)", () => {
 			damaged: null,
 		});
 	});
+
+	describe("its goal (#3864)", () => {
+		const writeGoal = (goal: unknown) =>
+			fs.writeFileSync(
+				file(),
+				JSON.stringify({
+					noProgressFrom: 5,
+					stopRequested: false,
+					seats: [],
+					scope: { mode: "normal", repos: ["/r/wfc"], goal },
+				}),
+			);
+
+		it("logs a garbled goal and reads the control bare, not damaged", () => {
+			writeGoal("soon");
+			const r = read();
+			expect(r.damaged).toBeNull();
+			expect(r.control?.scope.goal).toBeNull();
+			expect(r.lines).toEqual([
+				`${file()}'s goal is garbled; the loop runs bare until a set replaces it`,
+			]);
+		});
+
+		it("reads a confirmed topic's set as stored, logging nothing", () => {
+			const goal = {
+				form: "topic",
+				text: "faster tests",
+				refs: [{ repo: "wfc", number: 7 }],
+				setAt: 3,
+			};
+			writeGoal(goal);
+			const r = read();
+			expect(r.control?.scope.goal).toEqual(goal);
+			expect(r.lines).toEqual([]);
+		});
+	});
 });

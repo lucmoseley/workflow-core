@@ -3,7 +3,7 @@
  * #4212): the child processes, files and listings lib/refill-tick-core.js's
  * runTick reads and writes, which owns the tick's step order and its dry-run
  * policy. scripts/refill-loop.js's `run` drives it and its `dry-run` prints
- * one, through the dry-run adapter, whose acts are no-ops. The CLI logs through
+ * one, through the same adapter, the core calling none of its acts. The CLI logs through
  * the same say and log, at the same files (#3392).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
@@ -29,7 +29,7 @@ const { readRegistryAgents } = require("./registry-agents.js");
 const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
-const { projectSlug, transcriptPath } = require("./project-slug.js");
+const { projectSlug } = require("./project-slug.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 const { readAllowance } = require("./allowance.js");
 const seatReading = require("./seat-reading.js");
@@ -50,26 +50,19 @@ const {
 const { readJobs } = require("./hung-jobs.js");
 const { readSwapHold } = require("./admission.js");
 const {
-	blockCause,
 	resumedIdleSince,
 	hasRepliedSince,
 	hasTurnedSince,
 } = require("./block-cause.js");
-const { parseResumed } = require("./bg-resume.js");
 const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { buildKeySettings } = require("./overflow-key.js");
-const {
-	jobDirPath,
-	readJobCwd,
-	readJobRecord,
-	shortJobId,
-} = require("./job-paths.js");
+const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { copyTranscript } = require("./seat-move.js");
+const { resumeSteps } = require("./refill-resume.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
 	moveParkedBy,
-	newestMarkerListing,
 	readParkMarkers,
 	readParkMarkersOrThrow,
 	readParkedBy,
@@ -84,7 +77,7 @@ const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { findResumed } = require("./resumed-copy.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
-const { MODEL, hasRoom, isParked } = require("./refill-decide.js");
+const { MODEL } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const { appendTick, concurrencyFiles } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
@@ -93,8 +86,6 @@ const {
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
-	isSameSeat,
-	seatIdOf,
 } = require("./refill-seats.js");
 const {
 	buildCheckoutEnv,
@@ -209,38 +200,44 @@ function stopNeverStarted(registry, spared) {
 }
 
 /**
- * Supervise each checkout's landing queue, in that checkout
- * (scripts/supervise-landing.js). A checkout gone since its launch is skipped
- * (#3284).
- * @param {string[]} roots
+ * Supervise `root`'s landing queue, in that checkout
+ * (scripts/supervise-landing.js), logged where it said anything.
+ * @param {string} root
  */
-function superviseLanding(roots) {
-	for (const root of roots) {
-		if (!hasConfig(root)) continue;
-		const r = runChild(
-			process.execPath,
-			[path.join(SCRIPTS, "supervise-landing.js")],
-			{ cwd: root, env: buildCheckoutEnv(root) },
-		);
-		if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
-	}
+function superviseLanding(root) {
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, "supervise-landing.js")],
+		{ cwd: root, env: buildCheckoutEnv(root) },
+	);
+	if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
 }
 
 /**
- * Start a levelling pass over each checkout's main checkout
- * (scripts/level-main.js, #4248), detached: an `npm ci` in it may outlast a
- * tick. Its pid lock turns away a pass started while one runs.
- * @param {string[]} roots
+ * Start a levelling pass over `root`'s main checkout (scripts/level-main.js,
+ * #4248), detached: an `npm ci` in it may outlast a tick. Its pid lock turns
+ * away a pass started while one runs.
+ * @param {string} root
  */
-function levelCheckouts(roots) {
-	for (const root of roots)
-		if (hasConfig(root))
-			startDetached(
-				`levelling ${root}`,
-				[path.join(SCRIPTS, "level-main.js"), "--quiet"],
-				root,
-			);
-}
+const levelMain = (root) =>
+	startDetached(
+		`levelling ${root}`,
+		[path.join(SCRIPTS, "level-main.js"), "--quiet"],
+		root,
+	);
+
+/**
+ * Start a reap pass over `root`'s worktrees folder (`session-checkout.js
+ * reap`, #4247), detached: removing a store may outlast a tick. Its report goes
+ * to the loop's log; its pid lock turns away a pass started while one runs.
+ * @param {string} root
+ */
+const startReapPass = (root) =>
+	startDetached(
+		`reaping worktrees in ${root}`,
+		[path.join(SCRIPTS, "session-checkout.js"), "reap"],
+		root,
+	);
 
 /**
  * Run one of the machine incident filers on the review checkout's tracker: the
@@ -526,56 +523,12 @@ function readProgress(l, served) {
 	return progress;
 }
 
-/**
- * The job record's fields the classifier reads, for an UNKNOWN's log line.
- * @param {unknown} job
- */
-function jobShape(job) {
-	if (typeof job !== "object" || job === null) return job;
-	const rec = /** @type {Record<string, unknown>} */ (job);
-	return Object.fromEntries(
-		[
-			"state",
-			"tempo",
-			"detail",
-			"needs",
-			"needsOverlay",
-			"block",
-			"inFlight",
-			"cliVersion",
-		].map((k) => [k, rec[k]]),
-	);
-}
-
-/** Each launch's last logged UNKNOWN why, by job id or launch name.
- * @type {Map<string, string>} */
-const unknownLogged = new Map();
-
-/**
- * A parked launch's block cause (lib/block-cause.js), from its listing row,
- * its job record and its transcript's user and assistant rows; an unread
- * transcript reads UNKNOWN and acts on nothing (#2358 F9), and an UNKNOWN is
- * logged with why, once per launch for each why (#3200).
- * @type {import("./refill-blocks.js").CauseOf}
- */
-function readCause(l, row) {
-	const job = readJobRecordOf(l);
-	const tail =
-		readTranscriptRows(l, job)?.filter(
-			(r) => r.type === "user" || r.type === "assistant",
-		) ?? null;
-	const reading = blockCause({ row, job, tail });
-	const why = blocks.unknownNews(
-		unknownLogged,
-		l.jobId ?? blocks.launchName(l),
-		reading,
-	);
-	if (why !== null)
-		log(
-			`block unread ${blocks.launchName(l)}: ${why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
-		);
-	return reading;
-}
+/** lib/refill-blocks.js's CauseOf on the job record and transcript. */
+const readCause = blocks.causeReader({
+	readJob: (l) => readJobRecordOf(l),
+	readTail: (l, job) => readTranscriptRows(l, job),
+	log,
+});
 
 /**
  * Label `l`'s issues `parked` in its checkout's tracker; each the label would
@@ -594,29 +547,18 @@ function labelParked(l) {
 }
 
 /**
- * Add `numbers` to session `sessionId`'s `.parked-` marker in `l`'s checkout,
- * with `l`'s seat, job and cwd for a normal-mode loop to resume (#3709); null
- * once written, else why not. Fails open: an unwritten marker leaves the
+ * Add `numbers` to session `sessionId`'s `.parked-` marker with `record`;
+ * null once written, else why not. Fails open: an unwritten marker leaves the
  * label for a claim to clear, and the loop line says so (#3584).
- * @param {import("./refill-loop.js").LoopLaunch} l
- * @param {string} sessionId
- * @param {number[]} numbers
- * @param {number} [limitParks]  a limit-cap park's count in a row (#3804)
+ * @type {import("./refill-blocks.js").BlockIo["recordParked"]}
  */
-function recordParked(l, sessionId, numbers, limitParks) {
+function recordParked(sessionId, numbers, record) {
 	try {
-		writeParkedBy(sessionId, [...readParkedBy(sessionId, l.root), ...numbers], {
-			root: l.root,
-			job: l.jobId
-				? {
-						...seatIdOf(l),
-						jobId: l.jobId,
-						cwd: readJobCwd(l.seat, l.jobId),
-					}
-				: null,
-			limitParks,
-			cause: l.block?.cause,
-		});
+		writeParkedBy(
+			sessionId,
+			[...readParkedBy(sessionId, record.root), ...numbers],
+			record,
+		);
 		return null;
 	} catch (e) {
 		return buildErrorText(e);
@@ -668,31 +610,38 @@ const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
 
 /**
- * The environment a `claude` call on `l`'s seat runs in: `stop`, `attach` and
- * the job record are scoped to CLAUDE_CONFIG_DIR.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat">} l
+ * The production adapter of lib/refill-resume.js's resume steps.
+ * @type {import("./refill-resume.js").ResumeIo}
  */
-const seatEnv = (l) => ({ ...process.env, CLAUDE_CONFIG_DIR: l.seat });
+const resumeIo = {
+	log,
+	env: () => process.env,
+	keySettings: buildKeySettings,
+	authRefusal: (launch) => launchAuthRefusal({ bin: claudeBin(), ...launch }),
+	runClaude: (args, opts) => runChild(claudeBin(), args, opts),
+	readJobRecord,
+	findResumed,
+	copyTranscript,
+	hasJobRecord: (seat, jobId) => fs.existsSync(jobDirPath(seat, jobId)),
+	stop: stopOn,
+	overflowLookup: (root) => readOverflowLookup([root]),
+	recordLaunch,
+	copySpendUsd: (file) => fileSpend(file).usd,
+	sessionSpendUsd,
+	runArbiter: (root, cmd, n, sessionId) =>
+		runChild(
+			process.execPath,
+			[path.join(SCRIPTS, "session-arbiter.js"), cmd, String(n)],
+			{
+				cwd: root,
+				env: { ...buildCheckoutEnv(root), CLAUDE_CODE_SESSION_ID: sessionId },
+			},
+		),
+	movePassMarkers,
+	moveParkedBy,
+};
 
-/**
- * The environment and `--settings` a `--bg` launch of `l`'s session hands its
- * child: on an overflow seat, its key's helper and neither a key nor this
- * process's session id, as dispatch-sessions.sh launches it (#3701); why not
- * where the key cannot be read.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat"|"keyVar">} l
- * @returns {{env: NodeJS.ProcessEnv, settings?: string}|{why: string}}
- */
-function buildSeatLaunch(l) {
-	/** @type {NodeJS.ProcessEnv} */
-	const env = seatEnv(l);
-	if (!l.keyVar) return { env };
-	const built = buildKeySettings(l.keyVar);
-	if ("why" in built) return built;
-	delete env.ANTHROPIC_API_KEY;
-	delete env.CLAUDE_CODE_SESSION_ID;
-	delete env[l.keyVar];
-	return { env, settings: built.settings };
-}
+const resume = resumeSteps(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
@@ -703,7 +652,7 @@ function buildSeatLaunch(l) {
 function typeResume(l, prompt) {
 	const [file, args, opts] = buildTypedAttach(l.jobId, prompt);
 	return childFailure(
-		runChild(file, args, { ...opts, cwd: l.root, env: seatEnv(l) }),
+		runChild(file, args, { ...opts, cwd: l.root, env: resume.seatEnv(l) }),
 	);
 }
 
@@ -725,355 +674,6 @@ function readResumeTargetOf(l) {
 	};
 }
 
-/**
- * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `l`'s checkout;
- * what it printed, or null where it failed.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root">} l
- * @param {"claim-issue"|"release-issue"} cmd
- * @param {number} n
- * @param {string} sessionId
- */
-function arbiterAs(l, cmd, n, sessionId) {
-	const r = runChild(
-		process.execPath,
-		[path.join(SCRIPTS, "session-arbiter.js"), cmd, String(n)],
-		{
-			cwd: l.root,
-			env: { ...buildCheckoutEnv(l.root), CLAUDE_CODE_SESSION_ID: sessionId },
-		},
-	);
-	if (!r.failed) return r.out;
-	log(`${cmd} #${n} as ${sessionId} failed: ${childFailure(r)}`);
-	return null;
-}
-
-/**
- * Move each issue claim session `from` holds on `l`'s issues to its copy's
- * session `to` (#2963).
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues">} l
- * @param {string} from
- * @param {string} to
- */
-function moveClaims(l, from, to) {
-	for (const n of l.issues)
-		if (arbiterAs(l, "release-issue", n, from)?.startsWith("Released"))
-			arbiterAs(l, "claim-issue", n, to);
-}
-
-/**
- * lib/parked.js's moveParkedBy for `l`. Fails open (#3709): a marker left names a job a
- * resume then falls back from.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
- * @param {string} from
- * @param {{sessionId: string|null, jobId: string, cwd: string}} copy
- */
-function moveParked(
-	{ root, issues, seat, keyVar },
-	from,
-	{ sessionId, jobId, cwd },
-) {
-	try {
-		moveParkedBy(from, issues, {
-			root,
-			copySessionId: sessionId,
-			job: { ...seatIdOf({ seat, keyVar }), jobId, cwd },
-		});
-	} catch (e) {
-		log(`marker of ${from} not moved: ${buildErrorText(e)}`);
-	}
-}
-
-/**
- * lib/move-pass-markers.js's movePassMarkers for `l`. Fails open (#4105): a marker
- * left only owes its pass again.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root">} l
- * @param {string} from
- * @param {string} to
- */
-function movePasses({ root }, from, to) {
-	try {
-		const left = movePassMarkers(root, from, to);
-		if (left) log(`pass markers of ${from} not moved: ${left}`);
-	} catch (e) {
-		log(`pass markers of ${from} not moved: ${buildErrorText(e)}`);
-	}
-}
-
-/**
- * Mark an overflow session's copy overflow in the dispatch ledger, the only such
- * mark a parking session can read (#4147), naming the session it copies so the
- * cap prices the two together (#4195). No issues, so the row holds nothing:
- * the first job keeps the ledger hold. Fails open, logged: unmarked, the copy's
- * own park reads as a plan seat's.
- * @param {{root: string, keyVar: string}} on
- * @param {string} from the session it copies
- * @param {{jobId: string, sessionId: string|null}} copy
- */
-function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
-	const failure = `overflow copy ${jobId} of ${from} not marked in the dispatch ledger`;
-	try {
-		const lookup = readOverflowLookup([root]);
-		/* Marked already where a kill came after the mark and before the state
-		 * write, and the next step adopts the copy (#4157). */
-		if (lookup({ jobId })) return;
-		const first = lookup({ sessionId: from });
-		if (!first) {
-			log(`${failure}: no launch of ${from} on key=${keyVar} is recorded`);
-			return;
-		}
-		const written = recordLaunch({
-			issues: [],
-			model: MODEL,
-			prompt: `copy of ${from}`,
-			root,
-			jobId,
-			overflow: {
-				keyVar,
-				allowanceUsd: first.allowanceUsd,
-				sessionId,
-				copyOf: from,
-			},
-		});
-		if (!written) log(failure);
-	} catch (e) {
-		log(`${failure}: ${buildErrorText(e)}`);
-	}
-}
-
-/**
- * The dispatch-ledger row for job `run`, which a resume of session `from`
- * started on `l`'s overflow seat, where it owes one: a move onto the key's
- * first launch there, at its allowance (#3736), else a copy's, at its first
- * job's. A plan seat's job, or one woken in place on its key, owes none.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
- * @param {string} from
- * @param {{jobId: string, sessionId: string|null}} run
- * @param {{copy: boolean, cwd: string,
- *   move?: import("./refill-blocks.js").MoveTarget}} how  `move`, the target
- *   of a move onto the key
- * @returns {string|null} why a move's job could not be recorded, which stops
- *   it, else null
- */
-function recordOnKey({ root, seat, keyVar }, from, run, how) {
-	if (!keyVar) return null;
-	const { copy, move } = how;
-	if (!move) {
-		if (copy) recordOverflowCopy({ root, keyVar }, from, run);
-		return null;
-	}
-	const failed =
-		move.allowanceUsd === undefined
-			? "no allowance read for the key"
-			: recordMovedOverflow({ root, keyVar }, from, {
-					...run,
-					allowanceUsd: move.allowanceUsd,
-					offKeyUsd: readOffKeyUsd({ seat, from, cwd: how.cwd, copy }),
-				});
-	if (!failed) return null;
-	/* Unrecorded, it would run on the key uncapped and unreserved. */
-	const stop = stopOn(seat, run.jobId);
-	return stop.ok || stop.noJob
-		? failed
-		: `${failed}, and its job not stopped: ${stop.why}`;
-}
-
-/**
- * What a session moved onto a key carries in its new transcript from before
- * the move, which its plan paid (#3736): a copy repeats its parent's
- * main-thread requests (#4195), and a job woken in place keeps its whole
- * session. Read off the parent's transcript the move put on `seat`; 0 where it
- * will not read, which charges the key for it.
- * @param {{seat: string, from: string, cwd: string, copy: boolean}} moved
- */
-function readOffKeyUsd({ seat, from, cwd, copy }) {
-	const file = transcriptPath(seat, cwd, from);
-	return copy ? fileSpend(file).usd : sessionSpendUsd(file);
-}
-
-/**
- * Record the job a move onto an overflow seat started as a launch on its key,
- * with the allowance it moved with (#3736), so the budget gate reserves for it
- * and the allowance stop caps it as any overflow launch. No issues, as a
- * copy's: the launch it moved keeps the ledger hold.
- * @param {{root: string, keyVar: string}} on
- * @param {string} from the session it moved
- * @param {{jobId: string, sessionId: string|null, allowanceUsd: number,
- *   offKeyUsd: number}} run
- * @returns {string|null} why it was not recorded, else null
- */
-function recordMovedOverflow({ root, keyVar }, from, run) {
-	const failure = `moved overflow job ${run.jobId} of ${from} not recorded in the dispatch ledger`;
-	try {
-		/* Recorded already where a kill came after the record and before the
-		 * state write, and the next step adopts the job (#4180). */
-		if (readOverflowLookup([root])({ jobId: run.jobId })) return null;
-		const written = recordLaunch({
-			issues: [],
-			model: MODEL,
-			prompt: `move of ${from}`,
-			root,
-			jobId: run.jobId,
-			overflow: {
-				keyVar,
-				allowanceUsd: run.allowanceUsd,
-				sessionId: run.sessionId,
-				offKeyUsd: run.offKeyUsd,
-			},
-		});
-		return written ? null : failure;
-	} catch (e) {
-		return `${failure}: ${buildErrorText(e)}`;
-	}
-}
-
-/**
- * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from its
- * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
- * wakes a stopped job in place, else starts a copy under a new job and
- * session id, which carries the conversation on and takes the issue claims
- * (#2963, #2968). An overflow session's carries its key's `--settings`
- * (buildSeatLaunch), so it never bills the plan, and the flags always start a
- * copy (#3692 (d)). The resume counts where the launcher named the job it
- * started (lib/bg-resume.js) and that job's state.json does not read failed;
- * a later tick judges the resumed turn.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
- * @param {string} prompt
- * @param {{sessionId: string, cwd: string}} target
- * @param {import("./refill-blocks.js").MoveTarget} [move] the target of a
- *   move onto `l`'s seat, which `l` already names
- * @returns {import("./refill-blocks.js").Resumed}
- */
-function resumeStopped(l, prompt, { sessionId, cwd }, move) {
-	const launch = buildSeatLaunch(l);
-	if ("why" in launch) return { failed: launch.why };
-	const { env, settings } = launch;
-	const refusal = launchAuthRefusal({ bin: claudeBin(), env, cwd, settings });
-	if (refusal) return { failed: refusal };
-	const keyArgs = settings === undefined ? [] : ["--settings", settings];
-	const r = runChild(
-		claudeBin(),
-		["--bg", "--resume", sessionId, ...keyArgs, prompt],
-		{ cwd, env },
-	);
-	const failed = childFailure(r);
-	if (failed) return { failed };
-	const started = parseResumed(r);
-	if (!started)
-		return {
-			failed: `the launcher never said what it started: ${r.out.split("\n").pop()}`,
-		};
-	const { jobId } = started;
-	const after = /** @type {{state?: unknown, detail?: unknown,
-		sessionId?: unknown}|null} */ (readJobRecordOf({ ...l, jobId }));
-	if (after?.state === "failed")
-		return { failed: `state failed: ${after.detail}` };
-	if (!started.copy)
-		return settleWoken(l, { jobId, sessionId, cwd, after }, move);
-	const copySession =
-		typeof after?.sessionId === "string" ? after.sessionId : null;
-	return settleCopy(l, sessionId, { jobId, sessionId: copySession, cwd }, move);
-}
-
-/**
- * A resume that woke the stopped job itself: confirmed where its state.json,
- * which already names its session, reads it no longer stopped; on a move onto
- * a key, recorded as that key's launch.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
- * @param {{jobId: string, sessionId: string, cwd: string,
- *   after: {state?: unknown, sessionId?: unknown}|null}} woken
- * @param {import("./refill-blocks.js").MoveTarget} [move]
- * @returns {import("./refill-blocks.js").Resumed}
- */
-function settleWoken(l, { jobId, sessionId, cwd, after }, move) {
-	if (after?.sessionId !== sessionId || after.state === "stopped")
-		return {
-			failed: `not confirmed: job ${jobId}'s state.json reads ${after?.state ?? "(unread)"}, session ${after?.sessionId ?? "(unread)"}, not ${sessionId}`,
-		};
-	return recordWoken(l, { sessionId, cwd }, { jobId, sessionId }, move);
-}
-
-/**
- * Hand copy `copy` of session `from` what the session held: on an overflow
- * seat its ledger mark, then its issue claims, pass markers and park marker.
- * The mark comes first, so a move's copy that will not record, and is
- * stopped, takes nothing from the session it leaves held.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
- * @param {string} from
- * @param {{jobId: string, sessionId: string|null, cwd: string}} copy
- * @param {import("./refill-blocks.js").MoveTarget} [move] a move onto the
- *   key, whose allowance the copy, that key's first launch of the session,
- *   runs at (#3736)
- * @returns {import("./refill-blocks.js").Resumed} failed only where a move's
- *   job will not record, and is stopped
- */
-function settleCopy(l, from, copy, move) {
-	const { jobId, sessionId } = copy;
-	const unrecorded = recordOnKey(
-		l,
-		from,
-		{ jobId, sessionId },
-		{ copy: true, cwd: copy.cwd, move },
-	);
-	if (unrecorded) return { failed: unrecorded };
-	if (sessionId) {
-		moveClaims(l, from, sessionId);
-		movePasses(l, from, sessionId);
-	} else
-		log(
-			`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
-		);
-	moveParked(l, from, copy);
-	return { failed: null, jobId, sessionId, copy: true };
-}
-
-/**
- * lib/resumed-copy.js's findResumed for `l`'s seat, past `l`'s earlier
- * sessions: a copy found is handed what the session held (#4157, #4180); why
- * not, where the job store or a transcript will not read.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar"|"pastSessionIds">} l
- * @param {{sessionId: string, cwd: string}} target
- * @param {number} since
- * @param {import("./refill-blocks.js").MoveTarget} [move] the target of a
- *   move onto `l`'s seat, which `l` already names
- * @returns {import("./refill-blocks.js").Adopted}
- */
-function adoptResumed(l, target, since, move) {
-	const found = findResumed(l.seat, target, since, l.pastSessionIds ?? []);
-	if (found === null || "unread" in found) return found;
-	const { jobId, sessionId } = found;
-	const r = found.copy
-		? settleCopy(
-				l,
-				target.sessionId,
-				{ jobId, sessionId, cwd: target.cwd },
-				move,
-			)
-		: recordWoken(l, target, { jobId, sessionId }, move);
-	/* A move's job that will not record is stopped, so it reads as no job. */
-	return r.failed === null ? r : { unread: r.failed };
-}
-
-/**
- * The job a resume woke in place, confirmed or found after a kill; on a move
- * onto a key, recorded as that key's launch.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
- * @param {{sessionId: string, cwd: string}} target
- * @param {{jobId: string, sessionId: string|null}} found
- * @param {import("./refill-blocks.js").MoveTarget} [move]
- * @returns {import("./refill-blocks.js").Resumed}
- */
-function recordWoken(l, target, { jobId, sessionId }, move) {
-	const unrecorded = recordOnKey(
-		l,
-		target.sessionId,
-		{ jobId, sessionId },
-		{ copy: false, cwd: target.cwd, move },
-	);
-	return unrecorded
-		? { failed: unrecorded }
-		: { failed: null, jobId, sessionId, copy: false };
-}
-
 /** @param {import("./refill-loop.js").LoopLaunch} l */
 const writeLaunch = (l) => updateState(launchRecorded(l), log);
 
@@ -1091,7 +691,7 @@ const adoptKilledLaunches = (state, served) =>
 			readActsBefore: buildActsBeforeReader(served),
 			recordLaunch,
 			adoptResumed: (l, { seat, sessionId, cwd }, since) =>
-				adoptResumed({ ...l, seat }, { sessionId, cwd }, since),
+				resume.adoptResumed({ ...l, seat }, { sessionId, cwd }, since),
 			log,
 		});
 		for (const l of launched)
@@ -1101,105 +701,6 @@ const adoptKilledLaunches = (state, served) =>
 		gates.dropTried(files.gates, launched, log);
 		return launched;
 	});
-
-/**
- * Remove any job record for session `sessionId`'s short id on seat `seat`
- * (`claude rm`, which keeps transcripts); null once none is left, else why not.
- * @param {string} seat
- * @param {string} sessionId
- * @param {string} cwd
- */
-function removeJobRecord(seat, sessionId, cwd) {
-	const jobId = shortJobId(sessionId);
-	if (!fs.existsSync(jobDirPath(seat, jobId))) return null;
-	const failed = childFailure(
-		runChild(claudeBin(), ["rm", jobId], {
-			cwd,
-			env: seatEnv({ seat }),
-		}),
-	);
-	return failed && `removing its stale job record on ${seat}: ${failed}`;
-}
-
-/**
- * Carry `l`'s stopped session to seat `target` and resume it there under its
- * own session id (#2159's steps, #3734): its transcript copied, any job record
- * for it on `target` removed so its resume keeps the id instead of starting a
- * copy, then resumeStopped under `target`, which reads back the job's state. A resume that failed may still be starting, so it is
- * stopped, and two live processes never share the id; the old seat's
- * transcript is left whole, for its next try.
- * @param {import("./refill-blocks.js").JobLaunch} l
- * @param {import("./refill-blocks.js").MoveTarget} target
- * @param {string} prompt
- * @param {{sessionId: string, cwd: string}} ids
- * @returns {import("./refill-blocks.js").Resumed}
- */
-function moveSession(l, target, prompt, ids) {
-	const { seat } = target;
-	const { sessionId, cwd } = ids;
-	const prepared =
-		copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
-		removeJobRecord(seat, sessionId, cwd);
-	if (prepared) return { failed: prepared };
-	const r = resumeStopped(blocks.movedOnto(l, target), prompt, ids, target);
-	if (r.failed === null) return r;
-	const stop = stopOn(seat, shortJobId(sessionId));
-	if (!stop.ok && !stop.noJob)
-		log(`could not stop ${shortJobId(sessionId)}'s failed resume: ${stop.why}`);
-	return r;
-}
-
-/**
- * Each parked row's park marker, the newest written where several list it,
- * with the seat and job it names and the directory its session resumes in,
- * its marker's, else the checkout holding the marker (#3773).
- * @param {import("./refill-decide.js").MergedRow[]} frontier
- * @returns {import("./refill-decide.js").ParkerReading[]}
- */
-function readParkers(frontier) {
-	/** @type {Map<string, ReturnType<typeof readParkMarkers>>} */
-	const byRoot = new Map();
-	const readMarkersIn = (/** @type {string} */ root) => {
-		const read = byRoot.get(root) ?? readParkMarkers(root);
-		byRoot.set(root, read);
-		return read;
-	};
-	return frontier.flatMap((row) => {
-		if (!isParked(row)) return [];
-		const marker = newestMarkerListing(readMarkersIn(row.root), row.number);
-		if (!marker) return [];
-		const { job, sessionId, limitParks, cause } = marker;
-		return [
-			{
-				root: row.root,
-				number: row.number,
-				sessionId,
-				job,
-				resumeCwd: job?.cwd ?? row.root,
-				...(limitParks === undefined ? {} : { limitParks }),
-				...(cause === undefined ? {} : { parkCause: cause }),
-			},
-		];
-	});
-}
-
-/**
- * `seats` with each parker's seat that has room but no cap sized, sized for
- * one resume: only the first seat with room is sized for the decision, and a
- * resume is held to the same cap as a launch (#3669). In away mode, where none
- * resumes, a cap sized 0 still reads full for the idle alarm's hold (#3850).
- * @param {import("./refill-decide.js").SizedSeat[]} seats
- * @param {import("./refill-decide.js").ParkerReading[]} parkers
- * @param {string|undefined} root the checkout the cap is sized in
- */
-const sizeParkerSeats = (seats, parkers, root) =>
-	seats.map((s) =>
-		s.fits === null &&
-		hasRoom(s) &&
-		parkers.some((p) => p.job && isSameSeat(p.job, s))
-			? { ...s, fits: seatReading.capSizer(root, log)(s.seat, 1) }
-			: s,
-	);
 
 /**
  * The park markers in `root`'s checkout, null, logged, where they will not read,
@@ -1294,7 +795,7 @@ const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
 		readActsBefore: buildActsBeforeReader(served),
 		resume: ({ root, issues }, { seat, sessionId, cwd, parkCause }) =>
-			resumeStopped({ root, issues, seat }, parkedPromptOf(parkCause), {
+			resume.resumeStopped({ root, issues, seat }, parkedPromptOf(parkCause), {
 				sessionId,
 				cwd,
 			}),
@@ -1353,25 +854,18 @@ function readIdleSince(l) {
 }
 
 /**
- * `rescue-sessions.js hand-off` of `l`'s stopped session, run in its
- * checkout: it posts a `**Hand-off:**` comment on each issue and releases its
- * claim, `l.sessionId` standing in for a job record that is gone (#3988).
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * `rescue-sessions.js` run with `args` in `root`'s checkout.
+ * @param {string} root
+ * @param {string[]} args
  */
-const postHandOff = (l) =>
+const postHandOff = (root, args) =>
 	runChild(
 		process.execPath,
-		[
-			path.join(SCRIPTS, "rescue-sessions.js"),
-			"hand-off",
-			"--from",
-			l.seat,
-			"--job",
-			l.jobId,
-			...(l.sessionId ? ["--session", l.sessionId] : []),
-			...l.issues.flatMap((n) => ["--issue", String(n)]),
-		],
-		{ cwd: l.root, env: buildCheckoutEnv(l.root) },
+		[path.join(SCRIPTS, "rescue-sessions.js"), ...args],
+		{
+			cwd: root,
+			env: buildCheckoutEnv(root),
+		},
 	);
 
 /**
@@ -1384,13 +878,13 @@ const blockIo = (served) => ({
 	stop: stopOn,
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
-	resumeStopped,
-	adoptResumed,
+	resumeStopped: resume.resumeStopped,
+	adoptResumed: resume.adoptResumed,
 	writeLaunch,
 	admitResume,
 	stagger: staggerResume,
-	moveSession,
-	removeJobRecord,
+	moveSession: resume.moveSession,
+	removeJobRecord: resume.removeJobRecord,
 	jobStateOf: readJobRecordOf,
 	writeLedgerHold: (l, until) =>
 		recordLaunch({
@@ -1409,33 +903,18 @@ const blockIo = (served) => ({
 		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	labelParked,
 	recordParked,
+	readJobCwd,
 	readParkMarkers: readParkMarkersOrNull,
 	findParkTranscript,
 	readMainChain,
 	unparkSession,
 	comment: commentOn,
 	postHandOff,
-	release: (l) => release({ jobId: ledgerJobOf(l), root: l.root }),
+	release,
 	progressOf: (l) => readProgress(l, served),
 	readActsBefore: buildActsBeforeReader(served),
 	log,
 });
-
-/**
- * What a real tick does for its checkouts ahead of its decision; the served
- * checkouts whose probe failed.
- * @param {string[]} served
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @param {number} now
- */
-function tendCheckouts(served, launches, now) {
-	const roots = loop.landingRoots(served, launches);
-	superviseLanding(roots);
-	levelCheckouts(roots);
-	fileMachineTickets("file-memory-kill-tickets.js", "memory kills");
-	fileMachineTickets("file-process-runaway-tickets.js", "process runaways");
-	return tendHolds(roots, served, now, log);
-}
 
 /**
  * `actOnLimits`, then the ledger holds it ended released.
@@ -1448,42 +927,6 @@ function actOnLimitsAndRelease(before, judged, mode, seen) {
 	const acted = blocks.actOnLimits(judged, mode, seen);
 	blocks.releaseEndedHolds(before, acted.launches, seen.io);
 	return acted;
-}
-
-/**
- * The checkouts whose answered parks a tick takes off: `served` and every other
- * it could serve, the idle alarm's set, as a label left on an open ticket hides
- * it from that alarm (#3950). This sets no launch running there. Discovery that
- * will not read leaves `served`, logged.
- * @param {string[]} served
- * @returns {string[]}
- */
-function readParkSweepRoots(served) {
-	try {
-		return [...new Set([...served, ...readIncluded()])];
-	} catch (e) {
-		log(`unserved parks unread: ${buildErrorText(e)}`);
-		return served;
-	}
-}
-
-/**
- * The tick's acts on its blocked and idle launches, then each away park's ledger
- * row released once normal mode is live.
- * @param {import("./refill-loop.js").LoopLaunch[]} listed
- * @param {"normal"|"away"} mode
- * @param {string[]} served
- * @param {Parameters<typeof blocks.actOnBlocks>[2]} seen
- */
-function actOnLaunches(listed, mode, served, seen) {
-	blocks.unparkAnswered(readParkSweepRoots(served), seen);
-	tendClosedParks(served);
-	return blocks.releaseAwayParks(
-		blocks.actOnIdle(blocks.actOnBlocks(listed, mode, seen), mode, seen),
-		mode,
-		served,
-		seen.io,
-	);
 }
 
 /**
@@ -1536,20 +979,6 @@ function changeControl(change, waitMs) {
 }
 
 /**
- * Stop each overflow session past its allowance (lib/overflow-budget.js,
- * #3698), logged. Paused or stopping alike: a running overflow session spends
- * either way.
- * @param {Parameters<typeof stopOverAllowance>[0]} declared
- * @param {Parameters<typeof stopOverAllowance>[1]} agents
- */
-function capOverflowSessions(declared, agents) {
-	const hasOverflow = declared.seats.some((s) => s.kind === "overflow");
-	if (agents && hasOverflow && declared.errors.length === 0)
-		recordListedOverflowSessions(agents);
-	for (const line of stopOverAllowance(declared, agents)) log(line);
-}
-
-/**
  * Give each overflow launch the session id `agents` lists for its job
  * (lib/dispatch-ledger.js's recordListedSessionIds), logging what fails.
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
@@ -1583,8 +1012,8 @@ function stepQuietBench(control, { lastTypedAt, served, now }) {
 const TICK_LOCK_WAIT_MS = 1000;
 
 /**
- * The production adapter of lib/refill-tick-core.js's runTick: this module's
- * reads, writes and child processes.
+ * The adapter of lib/refill-tick-core.js's runTick: this module's reads,
+ * writes and child processes.
  * @type {import("./refill-tick-core.js").TickIo}
  */
 const productionIo = {
@@ -1596,7 +1025,7 @@ const productionIo = {
 	readConfiguredSeats,
 	readIncluded,
 	servedRoots,
-	reap: () => reapFinished(false),
+	reap: reapFinished,
 	tendQuietBench: stepQuietBench,
 	readManagerRestart: () => readManagerRestart(log),
 	readCurrentBootId,
@@ -1604,17 +1033,28 @@ const productionIo = {
 	settleKilled,
 	readRegistry: readRegistryAgents,
 	stopNeverStarted,
-	tendCheckouts,
+	hasConfig,
+	superviseLanding,
+	levelMain,
+	startReapPass,
+	fileMachineTickets,
+	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
 	readListing: (trusted) =>
 		trusted ? readAgentsAfterBoot() : listedAgents({ requireSelf: false }),
-	capOverflowSessions,
+	recordListedOverflowSessions,
+	stopOverAllowance,
 	blockIo,
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
 	readProgress,
 	readCause,
-	actOnLaunches,
+	unparkAnswered: blocks.unparkAnswered,
+	tendClosedParks,
+	actOnBlocks: blocks.actOnBlocks,
+	actOnIdle: blocks.actOnIdle,
+	releaseAwayParks: (launches, mode, served, seen) =>
+		blocks.releaseAwayParks(launches, mode, served, seen.io),
 	attachProbeParks: (broken, launches) =>
 		attachProbeParks(broken, launches, log),
 	readLiftedHolds: (roots) => readLiftedHolds(roots, log),
@@ -1629,8 +1069,7 @@ const productionIo = {
 	readGateJudgements: () => gates.readGateStore(files.gates, log).pending,
 	readTickHolds,
 	readFrontier: refillFrontier,
-	readParkers,
-	sizeParkerSeats,
+	readParkMarkers,
 	launchBatch: launchOrResume,
 	resumeHeld: (resumes, held, seen, how) =>
 		blocks.resumeHeldLaunches(resumes, held, seen, how),
@@ -1647,36 +1086,6 @@ const productionIo = {
 	},
 };
 
-/** A dry run's act: none. */
-const noAct = () => undefined;
-
-/**
- * The dry run's adapter: the production one with every act a no-op answering as
- * though nothing was done, and the reap its own dry run.
- * @type {import("./refill-tick-core.js").TickIo}
- */
-const dryRunIo = {
-	...productionIo,
-	changeControl: () => null,
-	reap: () => reapFinished(true),
-	tendQuietBench: (control) => control,
-	settleKilled: (read) => read,
-	stopNeverStarted: () => [],
-	tendCheckouts: () => [],
-	capOverflowSessions: noAct,
-	sendHoldNotices: noAct,
-	actOnLaunches: (listed) => listed,
-	attachProbeParks: noAct,
-	releaseEndedHolds: noAct,
-	actOnLimits: (_before, judged, _mode, { slots }) => ({
-		launches: judged,
-		slots,
-		workingChange: 0,
-	}),
-	probeDueSeats: () => [],
-	startDueConsoleReads: noAct,
-};
-
 /**
  * One tick (lib/refill-tick-core.js's runTick): its decision and the start it
  * judged against. Under `dryRun` nothing is reaped, launched or written.
@@ -1686,7 +1095,7 @@ function tick({ dryRun }) {
 	const now = Date.now();
 	const control = readControl();
 	const declared = readDeclaredSeats();
-	return runTick(dryRun ? dryRunIo : productionIo, {
+	return runTick(productionIo, {
 		dryRun,
 		now,
 		opening: { control, declared, typed: readLastTyped(declared) },

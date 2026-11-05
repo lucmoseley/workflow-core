@@ -248,13 +248,6 @@ const paths = {
 		path.join(paths.requestsDir(), pairFile(rel, requester)),
 
 	/**
-	 * Unfinished edits set aside by `release --park` (mantahostels#1405). Outside the working
-	 * tree, like everything else here: a parked copy inside the repo would show up
-	 * in `git status` as exactly the dirty file it was parked to remove.
-	 */
-	parkedDir: () => path.join(stateDir(), "parked"),
-
-	/**
 	 * The write ledger: which paths THIS session actually wrote (mantahostels#114).
 	 *
 	 * Separate from the lock registry, deliberately, on two counts that make the

@@ -4,11 +4,15 @@
  * its steps, what a kill between two of them leaves the next tick, its
  * dry-run policy, and how it carries a restart's killed launches and a
  * limit-held launch into the state, the idle reason and the tick's record
- * (#4315). Every port records its call, so a case reads the order off one
- * list; the state file is held in memory (stateFileFake). The fake answers in
- * the ports' shapes but no contract test pins it to the adapter, bar
- * ADMISSION_VERDICT, which admission-verdict.contract.test.ts holds:
- * scripts/refill-loop-run.test.ts runs the real one.
+ * (#4315); the sessions it launched into that record, the room a paused or
+ * stopping tick leaves unread, which checkout it sizes the seats and a
+ * parker's seat in, away mode's return, a paused tick, a full week's wait and
+ * the hold notices' agent read (#4282). Every port records its call, so a case
+ * reads the order off one list; the state file is held in memory
+ * (stateFileFake), and the control file under its lock (controlFileFake). The
+ * fake answers in the ports' shapes but no contract test pins it to the
+ * adapter, bar ADMISSION_VERDICT, which admission-verdict.contract.test.ts
+ * holds: scripts/refill-loop-run.test.ts runs the real one.
  *
  * Loosen one and a tick can judge launches a kill left out of the state, list
  * before the relief steps, dispatch a batch not yet on record, or a dry run can
@@ -17,6 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
 import { buildHeldStopText } from "./refill-blocks.js";
+import { controlInMode } from "./refill-loop.js";
 import {
 	type Launch,
 	MIN,
@@ -95,7 +100,9 @@ function fakeIo(
 			control: control(),
 			damaged: null,
 		})),
-		changeControl: recorded("changeControl", () => null),
+		changeControl: recorded("changeControl", (change) =>
+			controlFileFake(control()).changeControl(change),
+		),
 		isOptedOut: () => false,
 		readConfiguredSeats: () => [SEAT],
 		readIncluded: () => [WFC],
@@ -112,9 +119,18 @@ function fakeIo(
 			agents: [],
 		})),
 		stopNeverStarted: recorded("stopNeverStarted", () => []),
-		tendCheckouts: recorded("tendCheckouts", () => []),
+		hasConfig: () => true,
+		superviseLanding: recorded("superviseLanding", () => undefined),
+		levelMain: recorded("levelMain", () => undefined),
+		startReapPass: recorded("startReapPass", () => undefined),
+		fileMachineTickets: recorded("fileMachineTickets", () => undefined),
+		tendHolds: recorded("tendHolds", () => []),
 		readListing: recorded("readListing", () => ({ agents: [], why: null })),
-		capOverflowSessions: recorded("capOverflowSessions", () => undefined),
+		recordListedOverflowSessions: recorded(
+			"recordListedOverflowSessions",
+			() => undefined,
+		),
+		stopOverAllowance: recorded("stopOverAllowance", () => []),
 		blockIo: () =>
 			({ log: (line: string) => lines.push(line) }) as unknown as ReturnType<
 				TickIo["blockIo"]
@@ -124,7 +140,11 @@ function fakeIo(
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
 		readCause: () => null as never,
-		actOnLaunches: recorded("actOnLaunches", (listed) => listed),
+		unparkAnswered: recorded("unparkAnswered", () => undefined),
+		tendClosedParks: recorded("tendClosedParks", () => undefined),
+		actOnBlocks: recorded("actOnBlocks", (listed) => listed),
+		actOnIdle: recorded("actOnIdle", (launches) => launches),
+		releaseAwayParks: recorded("releaseAwayParks", (launches) => launches),
 		attachProbeParks: recorded("attachProbeParks", () => undefined),
 		readLiftedHolds: recorded("readLiftedHolds", () => []),
 		releaseEndedHolds: recorded("releaseEndedHolds", () => undefined),
@@ -151,8 +171,7 @@ function fakeIo(
 			held: [],
 			goal: null,
 		})) as unknown as TickIo["readFrontier"],
-		readParkers: () => [],
-		sizeParkerSeats: (seats) => seats,
+		readParkMarkers: () => [],
 		launchBatch: recorded("launchBatch", (batch) => ({
 			launched: batch.map((l) => ({
 				...l,
@@ -219,14 +238,18 @@ describe("the tick's step order (#4212)", () => {
 		expectOrder(calls, "readState", "settleKilled");
 		expectOrder(calls, "settleKilled", "readRegistry");
 		expectOrder(calls, "stopNeverStarted", "readListing");
-		expectOrder(calls, "tendCheckouts", "readListing");
+		expectOrder(calls, "tendHolds", "readListing");
 	});
 
 	it("judges and acts on the launches only after the listing, and reads the room after them", async () => {
 		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
 		await tickOf(io);
-		expectOrder(calls, "readListing", "actOnLaunches");
-		expectOrder(calls, "actOnLaunches", "readLiftedHolds");
+		expectOrder(calls, "readListing", "unparkAnswered");
+		expectOrder(calls, "unparkAnswered", "tendClosedParks");
+		expectOrder(calls, "tendClosedParks", "actOnBlocks");
+		expectOrder(calls, "actOnBlocks", "actOnIdle");
+		expectOrder(calls, "actOnIdle", "releaseAwayParks");
+		expectOrder(calls, "releaseAwayParks", "readLiftedHolds");
 		expectOrder(calls, "readLiftedHolds", "readFreeSlots");
 		expectOrder(calls, "readFreeSlots", "actOnLimits");
 		expectOrder(calls, "actOnLimits", "readSeats");
@@ -431,6 +454,113 @@ describe("a limit-held launch through the tick (#3735)", () => {
 	});
 });
 
+describe("the tick's concurrency row (#3770)", () => {
+	it("counts the sessions the tick launched into its working figure", async () => {
+		const records: { working: number | null; ceiling: number | null }[] = [];
+		const { io } = fakeIo(stateOf(), {
+			readFreeSlots: () => ({
+				slots: 1,
+				admission: { ...ADMISSION_VERDICT, slots: 1 } as never,
+			}),
+			appendTick: (tickRecord) => {
+				records.push(tickRecord);
+			},
+		});
+		const r = await tickOf(io);
+		expect("launches" in r.decision && r.decision.launches).toHaveLength(1);
+		const { count } = ADMISSION_VERDICT.memory.working;
+		expect(records).toEqual([
+			expect.objectContaining({ working: count + 1, ceiling: count + 1 }),
+		]);
+	});
+});
+
+describe("the room a stopping tick reads (#4071)", () => {
+	it("starts no Console read on a stopping tick, which reads admission all the same", async () => {
+		const stopping = fakeIo(stateOf());
+		await tickOf(stopping.io, control({ stopRequested: true }));
+		expect(stopping.calls).toContain("readFreeSlots");
+		expect(stopping.calls).not.toContain("startDueConsoleReads");
+		const live = fakeIo(stateOf());
+		await tickOf(live.io);
+		expect(live.calls).toContain("startDueConsoleReads");
+	});
+});
+
+describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4147)", () => {
+	const Seat2 = "/home/u/.claude4";
+	const parkedRow = { ...row(5), labels: ["takes:implement", "parked"] };
+	/** A park marker of #5 on Seat2, naming `keyVar` where given. */
+	const parker = (keyVar?: string) => ({
+		issues: [5],
+		sessionId: "s-job5",
+		writtenAt: 1,
+		job: {
+			seat: Seat2,
+			jobId: "job5",
+			cwd: WFC,
+			...(keyVar ? { keyVar } : {}),
+		},
+	});
+	/** A tick over SEAT, sized, and Seat2 with room and no cap sized yet; each
+	 * checkout the seats were read in, and each cap sized, fitting 1. */
+	const tickOver = async (
+		parkers: ReturnType<typeof parker>[],
+		c = control(),
+	) => {
+		const roots: (string | undefined)[] = [];
+		const capped: string[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				readSeats: (_seats, _slots, root) => {
+					roots.push(root);
+					return {
+						seats: [sized, { ...sized, seat: Seat2, fits: null }],
+						probes: [],
+					};
+				},
+				capSizer: (root) => (seat, members) => {
+					capped.push(`${root} ${seat}/${members}`);
+					return 1;
+				},
+				readParkMarkers: () => parkers,
+			},
+			{ frontier: [parkedRow] },
+		);
+		const r = await tickOf(io, c);
+		const routes =
+			"launches" in r.decision
+				? r.decision.launches.map((l) => l.parkedRoute)
+				: [];
+		return { roots, capped, routes };
+	};
+
+	it("sizes a parker's seat for one resume in the first served checkout, so its ticket resumes there (#3669)", async () => {
+		const { capped, routes } = await tickOver([parker()]);
+		expect(capped).toEqual([`${WFC} ${Seat2}/1`]);
+		expect(routes).toEqual([
+			expect.objectContaining({
+				resume: expect.objectContaining({ seat: Seat2, sessionId: "s-job5" }),
+			}),
+		]);
+	});
+
+	it("sizes none of a plan seat's cap for a marker naming an overflow key on its dir, and launches it afresh (#4147)", async () => {
+		const { capped, routes } = await tickOver([parker("K2")]);
+		expect(capped).toEqual([]);
+		expect(routes).toEqual([
+			{ afresh: "its session ran on overflow seat key=K2" },
+		]);
+	});
+
+	it("reads the seats in the first served checkout, and in none where the loop serves no checkout (#2937)", async () => {
+		expect((await tickOver([])).roots).toEqual([WFC]);
+		const none = await tickOver([], control({ scope: normal([]) }));
+		expect(none.roots).toEqual([undefined]);
+	});
+});
+
 describe("the dry-run policy (#4212)", () => {
 	it("previews a loop with no control file without stopping, and stops a real tick on it", async () => {
 		const dry = fakeIo(stateOf());
@@ -440,6 +570,7 @@ describe("the dry-run policy (#4212)", () => {
 		const real = await tickOf(live.io, null);
 		expect(real.decision).toMatchObject({ stop: "explicit" });
 		expect(live.disk().stopped).toMatchObject({ reason: "explicit" });
+		expect(live.calls).not.toContain("launchBatch");
 	});
 
 	it("previews over a damaged control, which stops a real tick recorded control-damaged", async () => {
@@ -461,6 +592,60 @@ describe("the dry-run policy (#4212)", () => {
 			stop: "control-damaged",
 			detail: expect.stringContaining(damaged),
 		});
+		expect(live.disk().stopped).toMatchObject({
+			reason: "control-damaged",
+			detail: expect.stringContaining(damaged),
+		});
+		expect(live.calls).not.toContain("launchBatch");
+	});
+
+	it("calls none of the adapter's acts, reaping as a dry run (#4356)", async () => {
+		const reaped: boolean[] = [];
+		const { io, calls } = fakeIo(stateOf({ launches: [record()] }), {
+			reap: (dryRun) => {
+				reaped.push(dryRun);
+			},
+		});
+		await runTick(io, {
+			dryRun: true,
+			now: NOW,
+			opening: {
+				...opening(awayControl()),
+				typed: { at: NOW - MIN, seat: null },
+			},
+		});
+		expect(reaped).toEqual([true]);
+		for (const port of [
+			"changeControl",
+			"tendQuietBench",
+			"settleKilled",
+			"stopNeverStarted",
+			"superviseLanding",
+			"levelMain",
+			"startReapPass",
+			"fileMachineTickets",
+			"tendHolds",
+			"recordListedOverflowSessions",
+			"stopOverAllowance",
+			"sendHoldNotices",
+			"unparkAnswered",
+			"tendClosedParks",
+			"actOnBlocks",
+			"actOnIdle",
+			"releaseAwayParks",
+			"attachProbeParks",
+			"releaseEndedHolds",
+			"actOnLimits",
+			"probeDueSeats",
+			"startDueConsoleReads",
+		])
+			expect(calls).not.toContain(port);
+	});
+
+	it("releases no ended launch's hold on a paused dry run (#4356)", async () => {
+		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
+		await tickOf(io, control({ paused: { by: "founder", at: 7 } }), true);
+		expect(calls).not.toContain("releaseEndedHolds");
 	});
 
 	it("returns at its decision, reading no manager restart and settling nothing", async () => {
@@ -483,10 +668,34 @@ describe("the dry-run policy (#4212)", () => {
 	});
 });
 
+/**
+ * The control file under its lock, each change made on its fresh read. No
+ * contract test holds it to refill-tick.js's changeControl; the sandbox case
+ * "leaves the return to the next tick while another writer holds the lock"
+ * crosses the real lock (#4356).
+ */
+const controlFileFake = (initial: Control) => {
+	let onDisk = initial;
+	const changeControl: TickIo["changeControl"] = (change) => {
+		const fresh = onDisk;
+		const write = change(fresh);
+		if (!write) return { control: fresh, wrote: null };
+		onDisk = write;
+		return { control: write, wrote: { write, fresh } };
+	};
+	return {
+		read: () => onDisk,
+		write: (c: Control) => {
+			onDisk = c;
+		},
+		changeControl,
+	};
+};
+
 describe("a control change under the lock (#2522)", () => {
-	it("goes on over a change the adapter answers no write for, logging none", async () => {
+	it("goes on over the change a dry run previews, writing and logging none", async () => {
 		const away = awayControl();
-		const { io, lines } = fakeIo(stateOf());
+		const { io, lines, calls } = fakeIo(stateOf());
 		const r = await runTick(io, {
 			dryRun: true,
 			now: NOW,
@@ -495,6 +704,7 @@ describe("a control change under the lock (#2522)", () => {
 				typed: { at: NOW - MIN, seat: null },
 			},
 		});
+		expect(calls).not.toContain("changeControl");
 		expect(lines.join("\n")).not.toContain("the founder is back");
 		expect(r.decision).not.toHaveProperty("stop");
 	});
@@ -502,12 +712,7 @@ describe("a control change under the lock (#2522)", () => {
 	it("logs the write a live tick's control change made", async () => {
 		const away = awayControl();
 		const { io, lines } = fakeIo(stateOf(), {
-			changeControl: (change) => {
-				const write = change(away);
-				return write
-					? { control: write, wrote: { write, fresh: away } }
-					: { control: away, wrote: null };
-			},
+			changeControl: controlFileFake(away).changeControl,
 		});
 		await runTick(io, {
 			dryRun: false,
@@ -536,5 +741,314 @@ describe("a control change under the lock (#2522)", () => {
 		expect(lines).toContain(
 			"away mode's change waits for the next tick: pid 7",
 		);
+	});
+});
+
+describe("away mode's return through the tick (#3870)", () => {
+	const tickAt = (
+		io: TickIo,
+		file: ReturnType<typeof controlFileFake>,
+		now: number,
+		typedAt: number | null,
+	) =>
+		runTick(io, {
+			dryRun: false,
+			now,
+			opening: { ...opening(file.read()), typed: { at: typedAt, seat: null } },
+		});
+	const returns = (lines: string[]) =>
+		lines.filter((l) => l.startsWith("mode normal: the founder is back"));
+
+	it("returns and logs it, then a manual --away holds until the next absent read and present one", async () => {
+		const file = controlFileFake(awayControl());
+		const { io, lines } = fakeIo(stateOf(), {
+			changeControl: file.changeControl,
+		});
+		const typed = NOW - MIN;
+		await tickAt(io, file, NOW, typed);
+		expect(file.read().scope.mode).toBe("normal");
+		expect(file.read()).not.toHaveProperty("away");
+		expect(returns(lines)).toHaveLength(1);
+
+		/* What `set --away` writes (refill-commands.test.ts's "a set's switch to
+		 * away"): a switch after the prompt just read. */
+		const switchedAt = NOW + MIN;
+		file.write(controlInMode(file.read(), "away", switchedAt));
+		await tickAt(io, file, switchedAt + MIN, typed);
+		expect(file.read().scope.mode).toBe("away");
+		expect(file.read().away).toEqual({ since: switchedAt, absentSeen: false });
+
+		/* The switch reads as presence for its first window (#4184): two hours on,
+		 * neither it nor the prompt does. */
+		const absentAt = switchedAt + 120 * MIN;
+		await tickAt(io, file, absentAt, typed);
+		expect(file.read().scope.mode).toBe("away");
+		expect(file.read().away?.absentSeen).toBe(true);
+		expect(returns(lines)).toHaveLength(1);
+
+		await tickAt(io, file, absentAt + MIN, absentAt);
+		expect(file.read().scope.mode).toBe("normal");
+		expect(returns(lines)).toHaveLength(2);
+	});
+
+	it("records an absent read and stays away", async () => {
+		const since = NOW - 60 * MIN;
+		const file = controlFileFake(
+			control({
+				scope: { ...normal([WFC]), mode: "away" },
+				away: { since, absentSeen: false },
+			}),
+		);
+		const { io, lines } = fakeIo(stateOf(), {
+			changeControl: file.changeControl,
+		});
+		await tickAt(io, file, NOW, null);
+		expect(file.read().scope.mode).toBe("away");
+		expect(file.read().away).toEqual({ since, absentSeen: true });
+		expect(lines.join("\n")).not.toContain("the founder is back");
+	});
+});
+
+describe("a paused tick (#3856)", () => {
+	const paused = control({ paused: { by: "founder", at: 7 } });
+
+	it("keeps the housekeeping, launches nothing and makes no slot, usage or cap read", async () => {
+		/* Past any listing grace, and listed nowhere, so judged finished. */
+		const gone = record({
+			root: WFC,
+			seat: SEAT,
+			jobId: "gone",
+			launchedAt: NOW - 60 * MIN,
+		});
+		const capReads: string[] = [];
+		const { io, calls, lines, disk } = fakeIo(stateOf({ launches: [gone] }), {
+			capSizer: () => () => {
+				capReads.push("cap");
+				return null;
+			},
+		});
+		await tickOf(io, paused);
+
+		const said = lines.join("\n");
+		expect(said).toContain(
+			`idle: paused by founder at ${new Date(7).toISOString()}`,
+		);
+		expect(said).not.toContain("free slots");
+		expect(said).not.toContain("resumed 0 of");
+		expect(calls).toEqual(
+			expect.arrayContaining(["reap", "tendHolds", "releaseEndedHolds"]),
+		);
+		expect(disk().launches[0].finishedAt).not.toBeNull();
+		for (const port of [
+			"readFreeSlots",
+			"actOnLimits",
+			"readSeats",
+			"probeDueSeats",
+			"startDueConsoleReads",
+			"readFrontier",
+			"launchBatch",
+		])
+			expect(calls).not.toContain(port);
+		expect(capReads).toEqual([]);
+	});
+});
+
+describe("the loop's wait on a full week (#3859)", () => {
+	it("idles on the plan's reset with its wait on record, then launches once the bar resets", async () => {
+		const full = fakeIo(stateOf(), {
+			readSeats: () => ({
+				seats: [{ ...sized, week: 100, weekFull: true, fits: null }],
+				probes: [],
+			}),
+		});
+		const waited = await tickOf(full.io);
+		expect(waited.decision).toMatchObject({
+			idle: expect.stringMatching(/^a plan resets/),
+			planWait: expect.any(Object),
+		});
+		expect(full.disk().stopped).toBeNull();
+		expect(full.disk().lastTick?.planWait).toEqual(
+			"planWait" in waited.decision && waited.decision.planWait,
+		);
+		expect(full.calls).not.toContain("launchBatch");
+
+		const reset = fakeIo(full.disk());
+		const launched = await tickOf(reset.io);
+		expect(
+			"launches" in launched.decision && launched.decision.launches,
+		).toHaveLength(1);
+		expect(reset.calls).toContain("launchBatch");
+	});
+});
+
+describe("the hold notices' agent read (#3871)", () => {
+	const noticedAgents = async (registry: object) => {
+		const seen: unknown[] = [];
+		const { io } = fakeIo(stateOf(), {
+			/* An empty listing reads as unread, as the CLI's does. */
+			readListing: () => ({ agents: null, why: "unread" }),
+			readRegistry: () => registry as never,
+			sendHoldNotices: (_roots, s) => {
+				seen.push(s.agents);
+			},
+		});
+		await tickOf(io);
+		return seen;
+	};
+
+	it("counts a registry and listing holding nobody as no slot working", async () => {
+		expect(
+			await noticedAgents({ seats: [SEAT], faults: [], agents: [] }),
+		).toEqual([[]]);
+	});
+
+	it("counts nothing off a registry that faulted or read no seat", async () => {
+		expect(
+			await noticedAgents({ seats: [SEAT], faults: ["x"], agents: [] }),
+		).toEqual([null]);
+		expect(await noticedAgents({ seats: [], faults: [], agents: [] })).toEqual([
+			null,
+		]);
+	});
+});
+
+describe("the sessions parked on a lifted repo hold (#3863)", () => {
+	const keptLifted = async (c: Control) => {
+		const dropped: unknown[] = [];
+		const { io, calls } = fakeIo(stateOf(), {
+			dropSettledLifted: (settled) => {
+				dropped.push(settled);
+			},
+		});
+		await tickOf(io, c);
+		return { calls, dropped };
+	};
+
+	it("reads the lifted holds on a live tick", async () => {
+		const { calls } = await keptLifted(control());
+		expect(calls).toContain("readLiftedHolds");
+	});
+
+	it("keeps them through a tick that stops, reading and dropping none", async () => {
+		const { calls, dropped } = await keptLifted(
+			control({ stopRequested: true }),
+		);
+		expect(calls).not.toContain("readLiftedHolds");
+		expect(dropped).toEqual([[]]);
+	});
+
+	it("keeps them through a paused tick, reading and dropping none", async () => {
+		const { calls, dropped } = await keptLifted(
+			control({ paused: { by: "founder", at: 7 } }),
+		);
+		expect(calls).not.toContain("readLiftedHolds");
+		expect(dropped).toEqual([[]]);
+	});
+});
+
+describe("the checkouts a live tick tends (#3284, #4247, #4248)", () => {
+	it("supervises, levels and reaps each landing root with a config, skipping a gone one, and tends every root's holds", async () => {
+		const gone = "/home/u/gone";
+		const acts: string[] = [];
+		const holdRoots: string[][] = [];
+		const { io } = fakeIo(
+			stateOf({ launches: [record({ root: gone, jobId: "j9" })] }),
+			{
+				hasConfig: (root) => root !== gone,
+				superviseLanding: (root) => acts.push(`supervise ${root}`),
+				levelMain: (root) => acts.push(`level ${root}`),
+				startReapPass: (root) => acts.push(`reap ${root}`),
+				fileMachineTickets: (script) => acts.push(`file ${script}`),
+				tendHolds: (roots) => {
+					holdRoots.push(roots);
+					return [];
+				},
+			},
+		);
+		await tickOf(io);
+		expect(acts).toEqual([
+			`supervise ${WFC}`,
+			`level ${WFC}`,
+			`reap ${WFC}`,
+			"file file-memory-kill-tickets.js",
+			"file file-process-runaway-tickets.js",
+		]);
+		expect(holdRoots).toEqual([[WFC, gone]]);
+	});
+});
+
+describe("an overflow session's listed id (#3701)", () => {
+	const overflow = { kind: "overflow", dir: "/k", keyVar: "K2" };
+	const recordedWith = async (
+		declared: { seats: object[]; errors: string[] },
+		agents: object[] | null,
+	) => {
+		const recorded: unknown[] = [];
+		const { io } = fakeIo(stateOf(), {
+			readListing: () => ({ agents: agents as never, why: null }),
+			recordListedOverflowSessions: (a) => {
+				recorded.push(a);
+			},
+		});
+		await runTick(io, {
+			dryRun: false,
+			now: NOW,
+			opening: { ...opening(control()), declared: declared as never },
+		});
+		return recorded;
+	};
+	const listed = [{ id: "j", sessionId: "s", kind: "background" }];
+
+	it("records the ids the listing shows where an overflow seat is declared soundly", async () => {
+		expect(
+			await recordedWith({ seats: [overflow], errors: [] }, listed),
+		).toEqual([listed]);
+	});
+
+	it("records none off an unread listing, no overflow seat, or a faulted seat file", async () => {
+		expect(await recordedWith({ seats: [overflow], errors: [] }, null)).toEqual(
+			[],
+		);
+		expect(await recordedWith({ seats: [], errors: [] }, listed)).toEqual([]);
+		expect(
+			await recordedWith({ seats: [overflow], errors: ["bad"] }, listed),
+		).toEqual([]);
+	});
+});
+
+describe("the parks a tick sweeps (#3950, #3872)", () => {
+	const Other = "/home/u/other";
+
+	it("takes answered parks off in every checkout it could serve, not only the served", async () => {
+		const swept: string[][] = [];
+		const { io } = fakeIo(stateOf(), {
+			readIncluded: () => [WFC, Other],
+			unparkAnswered: (roots) => {
+				swept.push(roots);
+			},
+		});
+		await tickOf(io);
+		expect(swept).toEqual([[WFC, Other]]);
+	});
+
+	it("sweeps the served alone, logged, where discovery will not read", async () => {
+		const swept: string[][] = [];
+		const { io, lines } = fakeIo(stateOf(), {
+			readIncluded: () => {
+				throw new Error("EACCES");
+			},
+			unparkAnswered: (roots) => {
+				swept.push(roots);
+			},
+		});
+		await tickOf(io);
+		expect(swept).toEqual([[WFC]]);
+		expect(lines.join("\n")).toContain("unserved parks unread: ");
+	});
+
+	it("releases the away parks' ledger rows before it reads the shortlist", async () => {
+		const { io, calls } = fakeIo(stateOf());
+		await tickOf(io);
+		expectOrder(calls, "releaseAwayParks", "readFrontier");
 	});
 });

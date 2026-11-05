@@ -20,6 +20,7 @@ const {
 	buildLoopWait,
 	decideTick,
 	pickMoveSeat,
+	readParkers,
 } = require("./refill-decide.js");
 const { parseCapFits, readSizedSeats } = require("./seat-reading.js");
 const { mergeFrontiers } = require("./frontier-order.js");
@@ -616,7 +617,11 @@ describe("decideTick on overflow seats (#2611)", () => {
 					overflow("y", 0, "2026-10-28"),
 				],
 			}),
-		).toMatchObject({ launches: [], planWait: { resets: null } });
+		).toMatchObject({
+			launches: [],
+			planWait: { resets: null },
+			idle: expect.stringMatching(/^a plan resets/),
+		});
 	});
 
 	it("decides as before with no overflow seat declared", () => {
@@ -1851,5 +1856,186 @@ describe("decideTick ranking", () => {
 		]);
 		const d = tick({ frontier, retroBundles, freeSlots: 3 });
 		expect(launched(d)).toEqual(["busy#2", "quiet#3", "busy#1"]);
+	});
+});
+
+describe("decideTick on a predicted write-set clash (#4355)", () => {
+	const writes = (...writeSet: string[]) => ({ writeSet });
+
+	it("skips a row sharing a file with a launch this tick for the next row", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", writes("scripts/a.js")),
+				row("wfc", 2, "implement", writes("scripts/a.js", "scripts/b.js")),
+				row("wfc", 3, "implement", writes("scripts/c.js")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#3"]);
+		expect(d.skipped).toEqual([
+			{
+				root: "wfc",
+				number: 2,
+				why: "clashes on scripts/a.js with #1 launched this tick",
+			},
+		]);
+	});
+
+	it("skips a row whose file a running session holds", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", {
+					...writes("scripts/a.js"),
+					heldBy: {
+						paths: ["scripts/a.js"],
+						session: "Implement 9",
+						sessionId: "s-9",
+					},
+				}),
+				row("wfc", 2),
+				row("wfc", 3),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#2", "wfc#3"]);
+		expect(d.skipped).toEqual([
+			{
+				root: "wfc",
+				number: 1,
+				why: "clashes on scripts/a.js held by Implement 9",
+			},
+		]);
+	});
+
+	it("resumes a parked row onto files its own parked session holds", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 1,
+			seats: [seat("/s1", 10, 10)],
+			frontier: [
+				row("wfc", 2, "implement", {
+					labels: ["takes:implement", "parked"],
+					parkedAt: "2026-10-18T09:00:00Z",
+					...writes("scripts/a.js"),
+					heldBy: {
+						paths: ["scripts/a.js"],
+						session: "Implement 2",
+						sessionId: "s-2",
+					},
+				}),
+				row("wfc", 1),
+			],
+			parkers: [
+				{
+					root: "wfc",
+					number: 2,
+					sessionId: "s-2",
+					job: { seat: "/s1", jobId: "j-2" },
+					resumeCwd: "wfc",
+				},
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#2"]);
+		expect(d.skipped).toEqual([]);
+	});
+
+	it("never skips on a shared stamp path", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", writes("docs/doc-map.md", "CLAUDE.md")),
+				row("wfc", 2, "implement", writes("docs/doc-map.md", "CLAUDE.md")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+		expect(d.skipped).toEqual([]);
+	});
+
+	it("reads one file in two checkouts as no clash", () => {
+		const d = tick({
+			frontier: [
+				row("wfc", 1, "implement", writes("scripts/a.js")),
+				row("other", 2, "implement", writes("scripts/a.js")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "other#2"]);
+	});
+
+	it("still fills every slot, in rank order, where only clashing rows remain", () => {
+		const d = tick({
+			freeSlots: 3,
+			frontier: [
+				row("wfc", 1, "implement", writes("scripts/a.js")),
+				row("wfc", 2, "implement", {
+					...writes("scripts/b.js"),
+					heldBy: {
+						paths: ["scripts/b.js"],
+						session: "Implement 9",
+						sessionId: "s-9",
+					},
+				}),
+				row("wfc", 3, "implement", writes("scripts/a.js")),
+				row("wfc", 4, "implement", writes("scripts/a.js")),
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2", "wfc#3"]);
+		expect(d.skipped).toEqual([
+			{
+				root: "wfc",
+				number: 4,
+				why: "clashes on scripts/a.js with #1 launched this tick",
+			},
+		]);
+	});
+});
+
+describe("readParkers (#3773)", () => {
+	const Other = "/home/u/other";
+	const Wfc = "/home/u/wfc";
+	const parked = (root: string, number: number) =>
+		row(root, number, "implement", {
+			labels: ["takes:implement", "parked"],
+		});
+	const marker = (
+		sessionId: string,
+		writtenAt: number,
+		cwd: string | null,
+	) => ({
+		issues: [5],
+		sessionId,
+		writtenAt,
+		job: { seat: "/s2", jobId: `j-${sessionId}`, cwd },
+	});
+
+	it("takes the newest marker listing a parked row, resuming in its cwd, else the checkout holding it", () => {
+		const read: string[] = [];
+		const readMarkers = (root: string) => {
+			read.push(root);
+			return root === Wfc
+				? [marker("s-old", 1, "/old"), marker("s-new", 2, "/new")]
+				: [{ ...marker("s-o", 1, null), limitParks: 2, cause: "LIMIT" }];
+		};
+		const frontier = [
+			parked(Wfc, 5),
+			{ ...parked(Wfc, 5), number: 6 },
+			row(Wfc, 5),
+			parked(Other, 5),
+			parked(Wfc, 5),
+		] as never;
+		expect(readParkers(frontier, readMarkers)).toEqual([
+			expect.objectContaining({
+				root: Wfc,
+				sessionId: "s-new",
+				resumeCwd: "/new",
+			}),
+			{
+				root: Other,
+				number: 5,
+				sessionId: "s-o",
+				job: { seat: "/s2", jobId: "j-s-o", cwd: null },
+				resumeCwd: Other,
+				limitParks: 2,
+				parkCause: "LIMIT",
+			},
+			expect.objectContaining({ root: Wfc, sessionId: "s-new" }),
+		]);
+		expect(read).toEqual([Wfc, Other]);
 	});
 });

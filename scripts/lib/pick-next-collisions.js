@@ -13,7 +13,7 @@
  * in.
  */
 
-const { STAMP_PATHS } = require("./conflict-graph.js");
+const { STAMP_PATHS } = require("./stamp-paths.js");
 const { claimHolder } = require("./pick-next-sessions.js");
 const { pathsNamedIn } = require("./write-set-predict.js");
 

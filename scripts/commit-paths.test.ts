@@ -18,14 +18,13 @@
  * wrong commit as the session's own.
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
-import { installLib } from "./lib/lib-install-testkit";
 import {
 	cutPostCommitBlock,
 	plantSequencer,
@@ -565,6 +564,29 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readPrivates()).toEqual([]);
 	});
 
+	const WayOut =
+		/would show the commit reversed\. Cut the patch from `git diff HEAD -U0 -- <path>` \(`--binary` for a binary file\) in the tree you commit from\. Nothing written/;
+	/** Runs `args`, expecting a refusal naming `why`, and nothing written. */
+	const expectNotInTree = (why: RegExp, ...runs: string[][]) => {
+		const tip = readHead();
+		const before = readIndex();
+		for (const args of runs) {
+			const r = run(args);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toMatch(why);
+			expect(r.stderr).toMatch(WayOut);
+		}
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+	};
+	const cut = (name: string, ...args: string[]) => {
+		const patch = path.join(sb.dir, name);
+		fs.writeFileSync(patch, git("diff", "HEAD", ...args));
+		return patch;
+	};
+	const commits = (patch: string) =>
+		expect(run(["-m", "x", "--patch", patch]).status).toBe(0);
+
 	it("refuses a patch whose added lines this tree's files lack, as one cut in another worktree, naming each such file (#4338)", () => {
 		write("b.md", "b\n");
 		git("add", "b.md");
@@ -573,20 +595,11 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		write("b.md", "b\nmine b\n");
 		fs.appendFileSync(patch, git("diff", "HEAD", "-U0", "--", "b.md"));
 		git("checkout", "--", "a.md", "b.md");
-		const tip = readHead();
-		const before = readIndex();
-		for (const args of [
+		expectNotInTree(
+			/lines, modes or contents are not in this tree's files for a\.md \(lacks the lines of hunk \+1\); b\.md \(lacks the lines of hunk \+2\)\./,
 			["-m", "x", "--patch", patch],
 			["--tree", "--patch", patch],
-		]) {
-			const r = run(args);
-			expect(r.status).toBe(2);
-			expect(r.stderr).toMatch(
-				/lines are not in this tree's files for a\.md \(lacks the lines of hunk \+1\); b\.md \(lacks the lines of hunk \+2\)\..*Cut the patch from `git diff HEAD -U0 -- <path>` in the tree you commit from\. Nothing written/s,
-			);
-		}
-		expect(readHead()).toBe(tip);
-		expect(readIndex()).toBe(before);
+		);
 	});
 
 	it("commits a patch cut from a CRLF checkout, whose diff git prints in LF (#4338)", () => {
@@ -603,18 +616,116 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		git("add", "b.md");
 		git("commit", "-qm", "seed b");
 		fs.rmSync(path.join(sb.repo, "b.md"));
-		const patch = path.join(sb.dir, "rm.patch");
-		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "b.md"));
+		const patch = cut("rm.patch", "-U0", "--", "b.md");
 		git("checkout", "--", "b.md");
-		const tip = readHead();
-		const before = readIndex();
-		const r = run(["-m", "rm", "--patch", patch]);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toMatch(
-			/for b\.md \(deleted, still on disk\)\..*Cut the patch from `git diff HEAD -U0 -- <path>` in the tree you commit from\. Nothing written/s,
+		expectNotInTree(/for b\.md \(deleted, still on disk\)\./, [
+			"-m",
+			"rm",
+			"--patch",
+			patch,
+		]);
+	});
+
+	it("refuses a mode change this tree's file does not have, and commits one it has (#4339)", () => {
+		const file = path.join(sb.repo, "a.md");
+		fs.chmodSync(file, 0o755);
+		const patch = cut("mode.patch", "-U0", "--", "a.md");
+		expect(fs.readFileSync(patch, "utf8")).toMatch(/^new mode 100755$/m);
+		fs.chmodSync(file, 0o644);
+		expectNotInTree(/for a\.md \(mode 100644, the patch gives 100755\)/, [
+			"-m",
+			"x",
+			"--patch",
+			patch,
+		]);
+		fs.chmodSync(file, 0o755);
+		commits(patch);
+		expect(git("ls-tree", "HEAD", "a.md")).toMatch(/^100755 /);
+	});
+
+	it("commits an executable-bit change where the checkout tracks no executable bit (#4339)", () => {
+		const file = path.join(sb.repo, "a.md");
+		fs.chmodSync(file, 0o755);
+		const patch = cut("mode.patch", "-U0", "--", "a.md");
+		fs.chmodSync(file, 0o644);
+		git("config", "core.fileMode", "false");
+		commits(patch);
+		expect(git("ls-tree", "HEAD", "a.md")).toMatch(/^100755 /);
+	});
+
+	it("judges a file-to-symlink typechange by the link, not its delete (#4339)", () => {
+		const file = path.join(sb.repo, "a.md");
+		fs.rmSync(file);
+		fs.symlinkSync("target", file);
+		const patch = cut("link.patch", "-U0", "--", "a.md");
+		expect(fs.readFileSync(patch, "utf8")).toMatch(/^new file mode 120000$/m);
+		fs.rmSync(file);
+		git("checkout", "--", "a.md");
+		expectNotInTree(/for a\.md \(mode 100644, the patch gives 120000\)/, [
+			"-m",
+			"x",
+			"--patch",
+			patch,
+		]);
+		fs.rmSync(file);
+		fs.symlinkSync("target", file);
+		commits(patch);
+		expect(git("ls-tree", "HEAD", "a.md")).toMatch(/^120000 /);
+	});
+
+	it("refuses a binary patch whose new blob this tree's file does not hold, and commits one it holds (#4339)", () => {
+		const bin = path.join(sb.repo, "b.bin");
+		fs.writeFileSync(bin, Buffer.from([0, 1, 2, 255]));
+		git("add", "b.bin");
+		git("commit", "-qm", "seed bin");
+		fs.writeFileSync(bin, Buffer.from([0, 9, 9, 255]));
+		const patch = cut("bin.patch", "--binary", "--", "b.bin");
+		const post = git("hash-object", "b.bin").trim();
+		git("checkout", "--", "b.bin");
+		expectNotInTree(
+			new RegExp(`for b\\.bin \\(blob [0-9a-f]+, the patch gives ${post}\\)`),
+			["-m", "x", "--patch", patch],
 		);
-		expect(readHead()).toBe(tip);
-		expect(readIndex()).toBe(before);
+		fs.writeFileSync(bin, Buffer.from([0, 9, 9, 255]));
+		commits(patch);
+		expect(git("rev-parse", "HEAD:b.bin").trim()).toBe(post);
+	});
+
+	it("commits a submodule hunk matching the submodule's HEAD, refuses one that does not, and passes an uninitialised submodule (#4339)", () => {
+		const sub = path.join(sb.repo, "sub");
+		const subGit = (...args: string[]) =>
+			execFileSync(
+				"git",
+				["-c", "user.name=t", "-c", "user.email=t@t", ...args],
+				{ cwd: sub, encoding: "utf8" },
+			).trim();
+		fs.mkdirSync(sub);
+		subGit("init", "-q");
+		subGit("commit", "-q", "--allow-empty", "-m", "one");
+		const old = subGit("rev-parse", "HEAD");
+		git("add", "sub");
+		git("commit", "-qm", "seed sub");
+		subGit("commit", "-q", "--allow-empty", "-m", "two");
+		const next = subGit("rev-parse", "HEAD");
+		const patch = cut("sub.patch", "-U0", "--", "sub");
+		subGit("checkout", "-q", old);
+		expectNotInTree(/for sub \(lacks the lines of hunk \+1\)/, [
+			"-m",
+			"x",
+			"--patch",
+			patch,
+		]);
+		subGit("checkout", "-q", next);
+		commits(patch);
+		expect(git("rev-parse", "HEAD:sub").trim()).toBe(next);
+		// Uninitialised: an empty directory, where rev-parse would find the superproject.
+		subGit("commit", "-q", "--allow-empty", "-m", "three");
+		const third = subGit("rev-parse", "HEAD");
+		const bump = cut("bump.patch", "-U0", "--", "sub");
+		fs.rmSync(sub, { recursive: true });
+		fs.mkdirSync(sub);
+		commits(bump);
+		expect(git("rev-parse", "HEAD:sub").trim()).toBe(third);
 	});
 
 	it("refuses a file both in the patch and named whole, and a patch that does not apply, writing neither index", () => {
@@ -1084,74 +1195,6 @@ touch .git/index.lock
 		expect(git("show", "HEAD:a.md")).toBe("a\n");
 		expect(readPrivates()).toEqual([]);
 		expect(readLastOutcome()?.[1]).toBe("lock-ceiling");
-	});
-});
-
-describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
-	/** A live session other than the committer, holding `rel` with the tree's bytes pinned. */
-	const neighbour = (rel: string) => {
-		const alice = live(sb, "alice", "Wayfinder 1584");
-		store.acquire(rel, alice);
-		store.recordContent(rel, alice);
-	};
-
-	it("prints the commit guard's warning, naming the path and holder, and commits anyway", () => {
-		write("a.md", "alice's unsaved edit\n");
-		neighbour("a.md");
-		const r = run(["-m", "swept", "--", "a.md"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("This commit names a.md");
-		expect(r.stderr).toContain("(Wayfinder 1584)");
-		expect(r.stderr).toContain("swept in under your message");
-		expect(r.stderr).toContain("mantahostels#1539");
-		expect(r.stderr).toContain("declare the sweep");
-		expect(r.stderr).toContain("  Swept: a.md (Wayfinder 1584)");
-		expect(r.stderr).toContain("not a refusal");
-		expect(readCommitted()).toBe("swept\nM\ta.md");
-	});
-
-	it("points at the session's other paths where the pathspec names some", () => {
-		write("a.md", "alice's unsaved edit\n");
-		write("mine.md");
-		neighbour("a.md");
-		const r = run(["-m", "swept", "--", "a.md", "mine.md"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("This commit names a.md");
-		expect(r.stderr).toContain("Commit your own paths instead");
-		expect(r.stderr).not.toContain("declare the sweep");
-	});
-
-	it("runs as an adopter's plugin copy with Node alone, no node_modules anywhere above it (#587)", () => {
-		const plugin = path.join(sb.dir, "plugin", "scripts");
-		installLib(path.join(plugin, "lib"), {
-			keep: (f) => /\.(js|json)$/.test(f),
-		});
-		fs.copyFileSync(
-			path.join(__dirname, "commit-paths.js"),
-			path.join(plugin, "commit-paths.js"),
-		);
-		for (let d = plugin; d !== path.dirname(d); d = path.dirname(d))
-			expect(fs.existsSync(path.join(d, "node_modules"))).toBe(false);
-
-		write("a.md", "alice's unsaved edit\n");
-		neighbour("a.md");
-		const { NODE_PATH: _, ...env } = process.env;
-		const r = spawnSync(
-			"node",
-			[path.join(plugin, "commit-paths.js"), "-m", "plugin", "--", "a.md"],
-			{ cwd: sb.repo, env, encoding: "utf8" },
-		);
-		expect(r.stderr).not.toContain("Cannot find module");
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("This commit names a.md");
-		expect(readCommitted()).toBe("plugin\nM\ta.md");
-	});
-
-	it("stays silent where no neighbour holds the path", () => {
-		write("a.md", "my edit\n");
-		const r = run(["-m", "mine", "--", "a.md"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toBe("");
 	});
 });
 

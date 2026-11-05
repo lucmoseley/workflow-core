@@ -9,7 +9,7 @@
 
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
-const { PARKED_LABEL } = require("./parked.js");
+const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { isSameSeat, seatIdOf } = require("./refill-seats.js");
 const {
 	COMMAND_VALUES,
@@ -17,6 +17,7 @@ const {
 	takesValue,
 } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
+const { withoutStamps } = require("./stamp-paths.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
 /* Three finishes in a row with no progress pause the loop (#1920, #3859). */
@@ -60,13 +61,23 @@ const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
+/* A row whose predicted write-set shares a substrate file with a held file or
+ * a launch this tick, deferred behind the clean rows (#4355). */
+const CLASH_PREFIX = "clashes on ";
+/** @param {Skip} s */
+const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 
 /**
  * `parkedAt` is when `parked` went on, null where the label is off or its
- * start would not read.
+ * start would not read. `writeSet` is its shortlist's predicted write-set;
+ * `heldBy` the substrate files of it a running session holds (#4355).
  * @typedef {import("./frontier-order.js").FrontierRow & {root: string,
- *   takes: string[], labels: string[], parkedAt?: string|null}} MergedRow
+ *   takes: string[], labels: string[], parkedAt?: string|null,
+ *   writeSet?: string[], heldBy?: HeldBy}} MergedRow
  */
+/** @typedef {{paths: string[], session: string, sessionId: string|null}} HeldBy
+ *   substrate files of a row's write-set a running session holds, and that
+ *   session's name and id */
 /** @typedef {import("./retro-bundles.js").RetroLaunch & {root: string}} MergedBundle */
 
 /**
@@ -797,7 +808,11 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
  * judgement queued walks behind that judgement, which a launch of its issue
  * would drop from the queue. A judgement goes ahead of the ranking: its
  * issue is held out of every ranking until one runs. A retro-bundle member
- * launches its whole bundle, at its best-ranked member's place. Residual:
+ * launches its whole bundle, at its best-ranked member's place. A row whose
+ * substrate write-set meets a held file or a launch this tick waits behind
+ * every clean row, a parked one included, then fills what slots they leave
+ * (#4355); a parked row's own session holding its files is no clash, as it
+ * resumes onto them. Residual:
  * enough resumable parked rows to fill every slot hold the judgements back a
  * tick.
  * @param {TickInput} input
@@ -865,20 +880,64 @@ function fill(
 			(n) => taken.has(key(row.root, n)),
 		);
 	};
+	/** @type {Map<string, number>} root and path -> the issue launched this
+	 * tick that writes it */
+	const writtenBy = new Map();
+	/** @param {MergedRow} row */
+	const substrateOf = (row) => withoutStamps(row.writeSet ?? []);
+	/** @param {string} root @param {string} p */
+	const pathKey = (root, p) => `${root}\0${p}`;
+	/** Why `row`, routed as `next`, would clash with a held file or a launch
+	 * this tick, or null.
+	 * @param {MergedRow} row
+	 * @param {Exclude<ReturnType<typeof nextOf>, {why: string}>} next */
+	const buildClashWhy = (row, next) => {
+		const resumer =
+			next.parkedRoute && "resume" in next.parkedRoute
+				? next.parkedRoute.resume.sessionId
+				: null;
+		const by = row.heldBy;
+		const [held] = by && by.sessionId !== resumer ? by.paths : [];
+		if (held !== undefined)
+			return `${CLASH_PREFIX}${held} held by ${by?.session}`;
+		for (const p of substrateOf(row)) {
+			const partner = writtenBy.get(pathKey(row.root, p));
+			if (partner !== undefined)
+				return `${CLASH_PREFIX}${p} with #${partner} launched this tick`;
+		}
+		return null;
+	};
+	/** @type {{row: MergedRow, why: string}[]} rank order */
+	const clashing = [];
+	/** Launch `row` as `next` routes it, its substrate paths marked written.
+	 * @param {MergedRow} row
+	 * @param {Exclude<ReturnType<typeof nextOf>, {why: string}>} next */
+	const launchRow = (row, next) => {
+		if (next.parkedRoute && "resume" in next.parkedRoute)
+			seatsLeft = spendSeatFit(seatsLeft, next.parkedRoute.resume.seat);
+		for (const p of substrateOf(row)) {
+			const at = pathKey(row.root, p);
+			if (!writtenBy.has(at)) writtenBy.set(at, row.number);
+		}
+		launch(row.root, next.issues, next.prompt, {
+			parkedRoute: next.parkedRoute,
+		});
+	};
+	/** @param {MergedRow} row @param {string} why */
+	const skip = (row, why) =>
+		skipped.push({ root: row.root, number: row.number, why });
 	/** @param {MergedRow[]} rows */
 	const walk = (rows) => {
 		for (const row of rows) {
 			if (launches.length >= slots) break;
 			const next = nextOf(row);
 			if ("why" in next) {
-				skipped.push({ root: row.root, number: row.number, why: next.why });
+				skip(row, next.why);
 				continue;
 			}
-			if (next.parkedRoute && "resume" in next.parkedRoute)
-				seatsLeft = spendSeatFit(seatsLeft, next.parkedRoute.resume.seat);
-			launch(row.root, next.issues, next.prompt, {
-				parkedRoute: next.parkedRoute,
-			});
+			const clash = buildClashWhy(row, next);
+			if (clash === null) launchRow(row, next);
+			else clashing.push({ row, why: clash });
 		}
 	};
 	const queued = new Set(judgements.map((j) => key(j.root, j.number)));
@@ -893,6 +952,14 @@ function fill(
 		else skipped.push({ root: j.root, number: j.number, why });
 	}
 	walk([...parked.filter(hasQueuedJudgement), ...rest]);
+	/* An empty slot costs more than a predicted clash (mantahostels#588).
+	 * Residual: such a row still launches onto its held file, or beside its
+	 * partner, that same tick. */
+	for (const { row, why } of clashing) {
+		const next = launches.length < slots ? nextOf(row) : { why };
+		if ("why" in next) skip(row, next.why);
+		else launchRow(row, next);
+	}
 	return { launches, skipped };
 }
 
@@ -1165,7 +1232,44 @@ function decideUnpaused(input) {
  * @param {{launchedAt: number, relaunchedAt?: number}} l */
 const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
 
+/**
+ * Each parked row's park marker, the newest written where several list it,
+ * with the seat and job it names and the directory its session resumes in,
+ * its marker's, else the checkout holding the marker (#3773). Each checkout's
+ * markers are read once.
+ * @param {MergedRow[]} frontier
+ * @param {(root: string) => import("./parked.js").ParkMarkerRead[]} readMarkers
+ * @returns {ParkerReading[]}
+ */
+function readParkers(frontier, readMarkers) {
+	/** @type {Map<string, import("./parked.js").ParkMarkerRead[]>} */
+	const byRoot = new Map();
+	const markersIn = (/** @type {string} */ root) => {
+		const read = byRoot.get(root) ?? readMarkers(root);
+		byRoot.set(root, read);
+		return read;
+	};
+	return frontier.flatMap((row) => {
+		if (!isParked(row)) return [];
+		const marker = newestMarkerListing(markersIn(row.root), row.number);
+		if (!marker) return [];
+		const { job, sessionId, limitParks, cause } = marker;
+		return [
+			{
+				root: row.root,
+				number: row.number,
+				sessionId,
+				job,
+				resumeCwd: job?.cwd ?? row.root,
+				...(limitParks === undefined ? {} : { limitParks }),
+				...(cause === undefined ? {} : { parkCause: cause }),
+			},
+		];
+	});
+}
+
 module.exports = {
+	readParkers,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
@@ -1196,7 +1300,9 @@ module.exports = {
 	awayChangeOf,
 	buildLimitCapText,
 	buildSkipReason,
+	CLASH_PREFIX,
 	decideTick,
+	isClashSkip,
 	fitsLaunch,
 	hasRoom,
 	isParked,

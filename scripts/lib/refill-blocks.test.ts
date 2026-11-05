@@ -29,6 +29,7 @@ import {
 	actOnLimits,
 	buildChildLine,
 	buildHeldStopText,
+	causeReader,
 	isHeld,
 	LISTING_GRACE_MS,
 	markParked,
@@ -137,15 +138,16 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 		hasTurnedSince: () => false,
 		hasRepliedSince: () => false,
 		labelParked: () => [],
-		recordParked: (_, sid, ns) => {
+		recordParked: (sid, ns) => {
 			calls.push(`record ${sid} ${ns.join(",")}`);
 			return null;
 		},
+		readJobCwd: () => null,
 		readParkMarkers: () => [],
 		unparkSession: () => null,
 		comment: (_, body) => calls.push(`comment ${body}`),
-		postHandOff: (l) => {
-			calls.push(`hand-off ${l.jobId}`);
+		postHandOff: (_root, args) => {
+			calls.push(`hand-off ${args[args.indexOf("--job") + 1]}`);
 			return { failed: null, out: "" };
 		},
 		release: () => true,
@@ -287,7 +289,7 @@ describe("which parks the loop stops (#2699)", () => {
 			).toEqual([]);
 	});
 
-	it("logs and comments a stop with its cause, mode and issues, and any label it missed", () => {
+	it("logs and comments a stop with its cause, mode and issues, and any label it missed (#2846)", () => {
 		const since = new Date(NOW).toISOString();
 		const stopped = blocks([parkedFor("PERMISSION", 0)], blocked, "away");
 		const line = `stopped PERMISSION park design-vault /implement 42 (away mode, blocked since ${since}); labelled parked: #42`;
@@ -330,6 +332,37 @@ describe("which parks the loop stops (#2699)", () => {
 		});
 		expect(none.calls.some((c) => c.startsWith("record "))).toBe(false);
 		expect(logs(none.calls)[0]).not.toMatch(/left parked/);
+	});
+
+	it("records in the marker the seat, key, job and cwd the session resumes from, and the block's cause (#3709, #4147)", () => {
+		const records: unknown[] = [];
+		const io: Partial<BlockIo> = {
+			readJobCwd: (seat, jobId) => `${seat}/${jobId}/cwd`,
+			recordParked: (sid, ns, rec) => {
+				records.push([sid, ns, rec]);
+				return null;
+			},
+		};
+		blocks([parkedFor("PERMISSION", 0, { keyVar: "K2" })], blocked, "away", {
+			io,
+		});
+		expect(records).toEqual([
+			[
+				"s-p",
+				[42],
+				{
+					root: "/home/u/design-vault",
+					job: {
+						seat: "/home/u/.claude3",
+						keyVar: "K2",
+						jobId: "p",
+						cwd: "/home/u/.claude3/p/cwd",
+					},
+					limitParks: undefined,
+					cause: "PERMISSION",
+				},
+			],
+		]);
 	});
 
 	it("says in the stop line why the labelled issues are not in the marker (#3584)", () => {
@@ -749,6 +782,46 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const r = idle(typed(2, 5), 30, { agents: listed });
 		expect(r.calls.slice(0, 2)).toEqual(["stop job42", "hand-off job42"]);
 		expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+	});
+
+	it("hands off a copy under its own job and session, releasing the hold its first job took (#2963)", () => {
+		const handed: string[][] = [];
+		const released: unknown[] = [];
+		const copy = {
+			...typed(2, 5),
+			jobId: "copy42",
+			copiedFrom: "job42",
+			sessionId: "s-copy",
+		} as Launch;
+		const r = idle(copy, 30, {
+			agents: listed,
+			io: {
+				postHandOff: (root, args) => {
+					handed.push([root, ...args]);
+					return { failed: null, out: "" };
+				},
+				release: (ledger) => {
+					released.push(ledger);
+					return true;
+				},
+			},
+		});
+		expect(r.calls[0]).toBe("stop copy42");
+		expect(handed).toEqual([
+			[
+				copy.root,
+				"hand-off",
+				"--from",
+				copy.seat,
+				"--job",
+				"copy42",
+				"--session",
+				"s-copy",
+				"--issue",
+				"42",
+			],
+		]);
+		expect(released).toEqual([{ jobId: "job42", root: copy.root }]);
 	});
 
 	describe("one a boot resumed, its resume writing no restart row (#3880)", () => {
@@ -1482,6 +1555,31 @@ describe("unknownNews (#3200)", () => {
 	});
 });
 
+describe("causeReader (#3200, #2358 F9)", () => {
+	it("reads an unread transcript UNKNOWN, logging it once for each why with the row and the record's classifier fields", () => {
+		const lines: string[] = [];
+		const job = { state: "blocked", tempo: "idle", other: "not logged" };
+		let tail: Record<string, unknown>[] | null = null;
+		const causeOf = causeReader({
+			readJob: () => job,
+			readTail: () => tail,
+			log: (line) => lines.push(line),
+		});
+		const l = record();
+		const row = agent("job42", "blocked") as never;
+		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatch(
+			/^block unread design-vault \/implement 42: .+; row \{.*"sessionId":"s-job42".*\}; job \{"state":"blocked","tempo":"idle"\}$/,
+		);
+		tail = [{ type: "system" }];
+		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(lines).toHaveLength(2);
+		expect(lines[1]).not.toBe(lines[0]);
+	});
+});
+
 describe("buildChildLine (#3645)", () => {
 	it.each([
 		[
@@ -2078,7 +2176,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				const { calls } = limits([launch], live, {
 					io: {
 						hasRepliedSince: () => false,
-						recordParked: (_, __, ___, limitParks) => {
+						recordParked: (_, __, { limitParks }) => {
 							counts.push(limitParks);
 							return null;
 						},
@@ -2153,7 +2251,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 					{
 						seats: [planSeat({ seat: "/other" })],
 						io: {
-							recordParked: (_, __, ___, limitParks) => {
+							recordParked: (_, __, { limitParks }) => {
 								counts.push(limitParks);
 								return null;
 							},
@@ -3119,10 +3217,13 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 				jobId: "p",
 				root: "/repo",
 				finishedAt: NOW - MIN,
+				parkStopped: NOW - MIN,
 				nothingToRepeat: true,
 			}),
 		]);
+		expect(out.launches[0]).toMatchObject({ finishedAt: null });
 		expect(out.launches[0]).toHaveProperty("holdCleared");
+		expect(out.launches[0]).not.toHaveProperty("parkStopped");
 		expect(out.launches[0]).not.toHaveProperty("nothingToRepeat");
 	});
 
@@ -3511,6 +3612,76 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 			handedOff: NOW,
 		});
 		expect(third.out.launches[0]).not.toHaveProperty("bootKilled");
+	});
+});
+
+describe("the resume step for a session parked on a cleared repo hold (#3863)", () => {
+	const parked = (tries: number) =>
+		record({
+			sessionId: "s-p",
+			holdCleared: {
+				at: NOW - MIN,
+				sessionId: "s-p",
+				cwd: "/",
+				tries,
+				hold: "abc",
+			},
+		});
+	const step = (l: Launch, over: Partial<BlockIo> = {}) => {
+		const unparked: string[] = [];
+		const { io, calls } = fakeIo({
+			unparkSession: (_root, sessionId, issues) => {
+				unparked.push(`${sessionId} ${issues.join(",")}`);
+				return null;
+			},
+			...over,
+		});
+		const lines: string[] = [];
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io: { ...io, log: (line: string) => lines.push(line) },
+			swapHold: NO_HOLD,
+		};
+		const out = resumeHeldLaunches(resumableOf([l], seen), [l], seen, {
+			isStopped: () => false,
+			record: unrecorded,
+		});
+		return { out, calls, lines, unparked };
+	};
+
+	it("resumes the launch it took up as its copy, its hold gone and its label off", () => {
+		const { out, calls, lines, unparked } = step(parked(0));
+		expect(calls).toContain("resume job42");
+		expect(lines.join("\n")).toMatch(
+			/resumed design-vault \/implement 42, parked at .* on repo hold abc/,
+		);
+		expect(out.started).toBe(1);
+		expect(out.launches[0]).toMatchObject({
+			finishedAt: null,
+			jobId: "job42-copy",
+			copiedFrom: "job42",
+		});
+		expect(out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(unparked).toEqual(["s-p 42"]);
+	});
+
+	it("counts a failed resume a try, its label kept, and hands it off at the third, its label off", () => {
+		const failing = { resumeStopped: () => ({ failed: "exit 1" }) } as never;
+		const first = step(parked(0), failing);
+		expect(first.lines.join("\n")).toMatch(/could not resume .*try 1 of 3/);
+		expect(first.out.launches[0]?.holdCleared?.tries).toBe(1);
+		expect(first.unparked).toEqual([]);
+
+		const third = step(parked(2), failing);
+		expect(third.lines.join("\n")).toMatch(/could not resume .*try 3 of 3/);
+		expect(third.calls).toContain("hand-off job42");
+		expect(third.out.launches[0]).toMatchObject({
+			finishedAt: NOW,
+			handedOff: NOW,
+		});
+		expect(third.out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(third.unparked).toEqual(["s-p 42"]);
 	});
 });
 

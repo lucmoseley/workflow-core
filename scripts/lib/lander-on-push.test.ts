@@ -40,7 +40,7 @@ function harness({ branch = "topic", landing = true, cwd = REPO } = {}) {
 it.each([
 	"git push origin HEAD:landing",
 	"git push origin main:refs/heads/landing",
-	"git push -f origin main:landing",
+	"git push -f origin HEAD:landing",
 	"timeout 60 git push -q origin HEAD:landing",
 	"env GIT_TRACE=0 git push origin HEAD:landing",
 	"git push origin main && git push origin HEAD:landing",

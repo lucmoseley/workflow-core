@@ -10,9 +10,9 @@
  * one red commit hold back the green ones around it.
  *
  * Over the 10 s file budget: each case is a real lander run, and the red
- * ones bisect and revert at ~100–170 forks a run (#4301's profile); #4326
- * cuts the script's own forks.
+ * ones bisect and revert: 78 forks in the three-commit red run (#4326's profile).
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";
@@ -29,6 +29,7 @@ import {
 	stubTester,
 	stubTracker,
 	tmp,
+	unansweredLog,
 	work,
 	writeTrackerConfig,
 } from "./lib/lander-testkit";
@@ -252,3 +253,22 @@ it("files on a later run the fix ticket a run failed to file, across the heartbe
 	expect(ticket.title).toMatch(/^Re-land /);
 	expect(ticket.state).toBe("OPEN");
 });
+
+it.each([
+	["a verb it has no arm for", ["issue", "reopen", "1", "--repo", "o/here"]],
+	["a flag its arm ignores", ["issue", "edit", "1", "--remove-label", "bug"]],
+])(
+	"the stub tracker refuses %s, recording the argv for afterEach to fail the case (#4357)",
+	(_, argv) => {
+		const { gh } = stubTracker();
+
+		const r = spawnSync(gh.gh, argv, { encoding: "utf8" });
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`gh ${argv.join(" ")}`);
+		expect(fs.readFileSync(unansweredLog(), "utf8")).toContain(
+			JSON.stringify(argv),
+		);
+		fs.rmSync(unansweredLog());
+	},
+);

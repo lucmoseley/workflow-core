@@ -237,98 +237,30 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 		expect(out(["check", inRepo("docs/other.md"), "a"])).toBe("");
 	});
 
-	it("emits a PreToolUse deny naming the holder", () => {
+	it("lets the write through on a held file, warning of the merge conflict and naming the holder (#4249)", () => {
 		registerSession(sb, "alice", process.pid);
 		store.acquire("docs/doc-map.md", store.identify("alice"));
 		registerSession(sb, "bob", process.pid);
 		const json = JSON.parse(out(["check", inRepo("docs/doc-map.md"), "bob"]));
-		expect(json.hookSpecificOutput.permissionDecision).toBe("deny");
-		expect(json.hookSpecificOutput.permissionDecisionReason).toContain("alice");
+		expect(json.hookSpecificOutput.permissionDecision).toBeUndefined();
+		const said = json.hookSpecificOutput.additionalContext;
+		expect(said).toContain("docs/doc-map.md is also held by session alice");
+		expect(said).toContain("likely meet a merge conflict");
+		// The neighbour keeps its claim; the writer takes none.
+		expect(store.readHeldBy("bob")).toEqual([]);
+		expect(store.readHeldBy("alice")).toEqual(["docs/doc-map.md"]);
 	});
 
-	it("prints each command in a denial with a path holding a space as one shell word (#3987)", () => {
-		registerSession(sb, "alice", process.pid);
-		store.acquire("docs/a b.md", store.identify("alice"));
-		registerSession(sb, "bob", process.pid);
-		const reason = JSON.parse(out(["check", inRepo("docs/a b.md"), "bob"]))
-			.hookSpecificOutput.permissionDecisionReason;
-		for (const command of [
-			"wait",
-			"release --force",
-			"request",
-			"debt clear",
-			"debt own",
-		])
-			expect(reason).toContain(
-				`node scripts/session-arbiter.js ${command} ${shellQuote("docs/a b.md")}`,
-			);
-	});
-
-	it("opens with the neighbour wait, then other subject, force and request (mantahostels#1686, #543)", () => {
-		// A plain retry and a switch of subject carried every recovery that
-		// worked; leading with `release --force` never did (mantahostels#1682).
-		// The wait (#540) subsumes the retry, catching a mid-write release in
-		// seconds, so it leads, and force and request close.
-		registerSession(sb, "alice", process.pid);
-		store.acquire("docs/doc-map.md", store.identify("alice"));
-		registerSession(sb, "bob", process.pid);
-		const reason = JSON.parse(out(["check", inRepo("docs/doc-map.md"), "bob"]))
-			.hookSpecificOutput.permissionDecisionReason;
-
-		const at = (needle: string) => {
-			const i = reason.indexOf(needle);
-			expect(i, `missing: ${needle}`).toBeGreaterThan(-1);
-			return i;
-		};
-		// The first line names the holder and the wait command, so an adopter
-		// without the core's CLAUDE.md meets it where the block happens.
-		const [first] = reason.split("\n");
-		expect(first).toContain("alice");
-		expect(first).toContain(
-			"node scripts/session-arbiter.js wait docs/doc-map.md",
-		);
-		expect(reason).toContain("Do not ask the founder whether to wait");
-		// mantahostels#1406's hold-while-waiting is what DEADLOCK catches.
-		expect(reason).toContain("#1406");
-		expect(reason).toContain("DEADLOCK");
-		expect(at("session-arbiter.js wait")).toBeLessThan(at("another subject"));
-		expect(at("another subject")).toBeLessThan(at("release --force"));
-		expect(at("release --force")).toBeLessThan(at("arbiter.js request"));
-		expect(reason).toContain("release --force docs/doc-map.md");
-		// What stops a session reaching for it against a live neighbour: it asks
-		// the liveness oracle, and refuses rather than guessing when it cannot.
-		expect(reason).toContain("claude agents --json");
-		expect(reason).toContain("never a release on doubt");
-		for (const refusal of [
-			"dirty file",
-			"cleanliness git cannot confirm",
-			"claim store it cannot read",
-			"changed underneath it",
-		])
-			expect(reason).toContain(refusal);
-		expect(reason).toContain("git cat-file -p <sha>");
-		// Both exits are routed, because the stub is already written either way:
-		// a force that succeeds leaves an entry owing nothing, and clearing it is
-		// the never-owed case, not the never-owned one.
-		expect(reason).toContain("debt clear docs/doc-map.md unowned");
-		// Anchored on the invocation, not the prose mention of `--force` further
-		// up, which would pass vacuously.
-		expect(reason.indexOf("release --force")).toBeLessThan(
-			reason.indexOf("debt own"),
-		);
-	});
-
-	it("aborts a script with exit 1 on a held file, and exits 0 on a free one", () => {
-		// mantahostels#103: signal 3's helper must stop its caller, not merely record —
-		// record-only would leave the digest protected for everyone and from
-		// nobody (mantahostels#64, mantahostels#103).
+	it("lets a script go on with exit 0 on a held file, warning and naming the holder (#4249)", () => {
 		registerSession(sb, "alice", process.pid);
 		store.acquire("docs/roadmap-digest.md", store.identify("alice"));
 		registerSession(sb, "bob", process.pid);
 
 		const held = cli(["claim", inRepo("docs/roadmap-digest.md"), "bob"]);
-		expect(held.status).toBe(1);
-		expect(held.stderr).toContain("alice");
+		expect(held.status).toBe(0);
+		expect(held.stderr).toContain(
+			"docs/roadmap-digest.md is also held by session alice",
+		);
 
 		expect(cli(["claim", inRepo("docs/free.md"), "bob"]).status).toBe(0);
 	});
@@ -507,12 +439,11 @@ describe("the release CLI, as the skill loops invoke it", () => {
 			"claims the WHOLE of",
 		);
 
-		const denied = JSON.parse(
+		const warned = JSON.parse(
 			run(["check", docMap()], live(sb, "bob").sessionId).stdout,
 		);
-		expect(denied.hookSpecificOutput.permissionDecision).toBe("deny");
-		expect(denied.hookSpecificOutput.permissionDecisionReason).toContain(
-			"alice",
+		expect(warned.hookSpecificOutput.additionalContext).toContain(
+			"also held by session alice",
 		);
 	});
 });
@@ -810,27 +741,26 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 		live(sb, "bob");
 	});
 
-	it("names the holder in a claim denial, keeping the id for the commands that need one", () => {
+	it("names the holder in a claim warning, keeping the id beside it", () => {
 		fakeClaude([
 			["alice", "Wayfinder 1162"],
 			["bob", "Implement 1104"],
 		]);
 		const r = runAs(["claim", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("Wayfinder 1162");
 		expect(r.stderr).toContain("alice");
 	});
 
 	it("renders the holder in full: name, id, pid and claimed-at (mantahostels#2452)", () => {
-		// The WHOLE shape, not a substring of it. describeHolder and parkFirst share
-		// one formatter now, and the pid-and-claimed-at trailer — which only
-		// describeHolder takes — is the part a refactor of it could silently drop.
+		// The WHOLE shape, not a substring of it. The pid-and-claimed-at trailer is
+		// the part a refactor of describeSession could silently drop.
 		fakeClaude([
 			["alice", "Wayfinder 1162"],
 			["bob", "Implement 1104"],
 		]);
 		const r = runAs(["claim", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(
 			/Wayfinder 1162 \(id alice, pid \d+\) since \d{4}-\d{2}-\d{2}T/,
 		);
@@ -851,7 +781,7 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
 		fakeClaude([], 3);
 		const r = runAs(["claim", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/Wayfinder 1162 \(id alice, pid \d+\)/);
 	});
 
@@ -882,7 +812,7 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	it("falls back to the bare id when neither the oracle nor the registry names it", () => {
 		fakeClaude([["alice", "Wayfinder 1162"]], 3);
 		const r = runAs(["claim", inRepo(rel)], "bob");
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("alice");
 		expect(r.stderr).not.toContain("Wayfinder 1162");
 	});
@@ -907,7 +837,7 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	it("makes NO oracle call on the hook path, which mantahostels#411 bars it from", () => {
 		fakeClaude([["alice", "Wayfinder 1162"]]);
 		const r = runAs(["check", inRepo(rel), "bob"], "bob");
-		expect(r.stdout).toContain("deny");
+		expect(r.stdout).toContain("also held by session");
 		expect(r.stdout).toContain("alice");
 		expect(oracleCalls()).toBe(0);
 	});
@@ -1153,15 +1083,17 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 		expect(out(["check", inRepo("docs/other.md"), "a"])).toBe("");
 	});
 
-	it("denies rather than warns when a live session holds the dirty file", () => {
+	it("names the holder rather than an unclaimed diff when a live session holds the dirty file", () => {
 		// A holder is the stronger signal: naming them beats telling the session to
 		// go and read a diff.
 		registerSession(sb, "alice", process.pid);
 		store.acquire("docs/doc-map.md", store.identify("alice"));
 		fs.writeFileSync(inRepo("docs/doc-map.md"), "alice's work\n");
 		registerSession(sb, "bob", process.pid);
-		const json = JSON.parse(out(["check", inRepo("docs/doc-map.md"), "bob"]));
-		expect(json.hookSpecificOutput.permissionDecision).toBe("deny");
+		const said = JSON.parse(out(["check", inRepo("docs/doc-map.md"), "bob"]))
+			.hookSpecificOutput.additionalContext;
+		expect(said).toContain("also held by session alice");
+		expect(said).not.toContain("no live session claims");
 	});
 
 	// mantahostels#122 kept this warning on the ground that it fires at most once per file per
@@ -1319,7 +1251,7 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toBe(
-			"unknown flag: --forse\n\nusage: session-arbiter.js release [--force] [--park] [--generator] [--not-mine] <path>\n",
+			"unknown flag: --forse\n\nusage: session-arbiter.js release [--force] [--generator] [--not-mine] <path>\n",
 		);
 		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
 			"docs/a.md",
@@ -1340,10 +1272,7 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 	 * fail-open catch logged before exiting 0 with nothing said. */
 	it.each([
 		[["claim"], "claim <path> [session-id] [--generator]"],
-		[
-			["release"],
-			"release [--force] [--park] [--generator] [--not-mine] <path>",
-		],
+		[["release"], "release [--force] [--generator] [--not-mine] <path>"],
 		[["versions"], "versions <path>"],
 		[["debt", "own"], 'debt own <path> <issue> "<gist>"'],
 		[["debt", "clear"], "debt clear <path> [<issue>|unowned]"],
@@ -1395,7 +1324,6 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 	it.each([
 		[["claim", "docs/a.md", "--generator"]],
 		[["release", "--force", "docs/a.md"]],
-		[["release", "--park", "docs/a.md"]],
 		[["release", "docs/a.md", "--generator"]],
 		[["list", "--all"]],
 		[["stale-check", "--staged"]],
@@ -1691,37 +1619,6 @@ describe("debt — the denied session's half", () => {
 	const debt = (...args: string[]) => cli(["debt", ...args]);
 	const own = (issue = "123", gist?: string) =>
 		debt("own", rel, issue, ...(gist === undefined ? [] : [gist]));
-
-	describe("the stub a denial writes, through the real deny paths", () => {
-		it("the hook's deny writes it, pointing at debt own, so the debt exists even if the denied session does nothing", () => {
-			registerSession(sb, "alice", process.pid);
-			store.acquire(rel, store.identify("alice"));
-			registerSession(sb, "bob", process.pid);
-			const json = JSON.parse(out(["check", inRepo(rel), "bob"]));
-			expect(json.hookSpecificOutput.permissionDecision).toBe("deny");
-			expect(json.hookSpecificOutput.permissionDecisionReason).toContain(
-				"debt own",
-			);
-			expect(readDebt()).toMatchObject({
-				path: rel,
-				issue: null,
-				recordedBy: "bob",
-			});
-		});
-
-		it("a script's denial writes the stub too, not only the hook path's", () => {
-			registerSession(sb, "alice", process.pid);
-			store.acquire(rel, store.identify("alice"));
-			registerSession(sb, "bob", process.pid);
-			const r = cli(["claim", inRepo(rel), "bob"]);
-			expect(r.status).toBe(1);
-			expect(readDebt()).toMatchObject({
-				path: rel,
-				issue: null,
-				recordedBy: "bob",
-			});
-		});
-	});
 
 	describe("the notice reaching a claimant", () => {
 		it("rides a fresh claim's hook output into the claimant's context", () => {
@@ -2296,13 +2193,12 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		).toBe(true);
 	});
 
-	it("still denies on the refusing tier", () => {
+	it("warns of the held file on the guarded tier, never denying (#4249)", () => {
 		aliceWrites("docs/doc-map.md", "alice's\n");
 		registerSession(sb, "bob", process.pid);
-		expect(
-			notes(out(["check", inRepo("docs/doc-map.md"), "bob"]))
-				.permissionDecision,
-		).toBe("deny");
+		const seen = notes(out(["check", inRepo("docs/doc-map.md"), "bob"]));
+		expect(seen.permissionDecision).toBeUndefined();
+		expect(seen.additionalContext).toContain("also held by session");
 	});
 
 	it("keeps the detect-only tier quiet about dirt nobody claims", () => {
@@ -2329,12 +2225,10 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	it("lets a script claim a detect-only path, and never aborts it there", () => {
-		// cmdClaim is the helper a SCRIPT calls for itself, and mantahostels#103 ruled it must
-		// abort its caller. Two halves, and they moved in opposite directions: the
-		// CLAIM now spans the watched union, so a script writing a scripts/ file gets
-		// a content record; the ABORT stays on the refusing tier, since there is
-		// nothing to abort where nothing is refused, and aborting here would be the
-		// per-file mutex on the repo's busiest directory that mantahostels#287 declined.
+		// cmdClaim is the helper a SCRIPT calls for itself. The CLAIM spans the
+		// watched union, so a script writing a scripts/ file gets a content record;
+		// the held-file warning stays on the guarded tier, the noise on the repo's
+		// busiest directory being what mantahostels#287 declined.
 		//
 		// Alice takes both claims BEFORE bob is registered: the registry is keyed by
 		// pid, so registering bob replaces alice's entry and alice can take no more.
@@ -2354,8 +2248,10 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		expect(r.status).toBe(0);
 		expect(r.stderr).not.toContain("is held by session");
 
-		// A refusing path is still aborted, so the widening did not disarm it.
-		expect(cli(["claim", inRepo("docs/doc-map.md"), "bob"]).status).toBe(1);
+		// The guarded tier warns, and goes on (#4249).
+		const guarded = cli(["claim", inRepo("docs/doc-map.md"), "bob"]);
+		expect(guarded.status).toBe(0);
+		expect(guarded.stderr).toContain("is also held by session");
 	});
 
 	describe("a second writer's own baseline on the detect-only tier (mantahostels#363)", () => {
@@ -2685,9 +2581,9 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			).toBe("alice's work\n");
 		});
 
-		it("carries the news into the denial, where the loser is most often standing", () => {
-			// On the refusing tier the breaker holds the file, so the loser's next
-			// write is denied.
+		it("carries the news ahead of the held-file warning, where the loser is most often standing", () => {
+			// On the guarded tier the breaker holds the file, so the loser's next
+			// write meets it as the neighbour.
 			aliceWrites("docs/doc-map.md", "alice's work\n");
 			const lock = core.readRecord(store.paths.lock("docs/doc-map.md"));
 			fs.writeFileSync(
@@ -2701,9 +2597,12 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 			registerSession(sb, "alice", process.pid);
 			const seen = notes(out(["check", inRepo("docs/doc-map.md"), "alice"]));
-			expect(seen.permissionDecision).toBe("deny");
-			expect(seen.permissionDecisionReason).toContain("was broken at");
-			expect(seen.permissionDecisionReason).toContain("git cat-file -p");
+			expect(seen.permissionDecision).toBeUndefined();
+			expect(seen.additionalContext).toContain("was broken at");
+			expect(seen.additionalContext).toContain("git cat-file -p");
+			expect(seen.additionalContext.indexOf("was broken at")).toBeLessThan(
+				seen.additionalContext.indexOf("also held by session"),
+			);
 		});
 
 		it("keeps the pin across the session-start sweep, then drops it with the record", () => {
@@ -3310,11 +3209,11 @@ describe("region claims — a §B entry, not the whole file", () => {
 			...(anchor === undefined ? [] : [anchor]),
 		]);
 
-	const denial = (raw: string) => {
-		const json = JSON.parse(raw);
-		return json.hookSpecificOutput.permissionDecision === "deny"
-			? json.hookSpecificOutput.permissionDecisionReason
-			: null;
+	/** The held-file warning a write was given (#4249); a deny fails the case. */
+	const warning = (raw: string): string => {
+		const { hookSpecificOutput: hso } = JSON.parse(raw);
+		expect(hso.permissionDecision).toBeUndefined();
+		return hso.additionalContext;
 	};
 
 	it("lets two sessions hold two different entries at once", () => {
@@ -3327,23 +3226,13 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(held).toContain(`${docMap}#B2`);
 	});
 
-	it("still denies a second session the SAME entry, naming the holder and the entry", () => {
+	it("warns a second session on the SAME entry, naming the holder and the entry", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("alice", "Body of the first entry.");
-		const reason = denial(check("bob", "Body of the first entry."));
+		const reason = warning(check("bob", "Body of the first entry."));
 		expect(reason).toContain("alice");
 		expect(reason).toContain(`${docMap}#B1`);
-	});
-
-	it("records the region on the debt the denial registers", () => {
-		// Without this the queue stays as unreadable as it was: thirty entries all
-		// reading `docs/doc-map.md`, none saying which part of it is owed.
-		registerSession(sb, "alice", process.pid);
-		registerSession(sb, "bob", neighbourPid);
-		check("alice", "Body of the second entry.");
-		check("bob", "Body of the second entry.");
-		expect(out(["debt", "list"])).toContain(`${docMap}#B2`);
 	});
 
 	it("counts the file's torn records in a region claim's notice (mantahostels#1408)", () => {
@@ -3410,27 +3299,22 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(notice).toContain("release");
 	});
 
-	it("takes NEITHER region when a neighbour holds one of them", () => {
-		// All-or-none, through claim-all's seam: holding B1 while waiting on B2 is
-		// the state mantahostels#1406 exists to prevent.
+	it("takes the free region and warns of the one a neighbour holds", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("bob", "Body of the second entry.");
-		const reason = denial(check("alice", straddling));
-		expect(reason).toContain("bob");
-		expect(reason).toContain(`${docMap}#B2`);
-		expect(paths()).not.toContain(`${docMap}#B1`);
+		const reason = warning(check("alice", straddling));
+		expect(reason).toContain(`${docMap}#B2 is also held by session bob`);
+		expect(paths()).toContain(`${docMap}#B1`);
 	});
 
-	it("never tells a REFUSED straddling write to release what it does not hold", () => {
-		// The notice and the refusal rode the same message: "claims 2 regions …
-		// release them" printed above "none was claimed".
+	it("never tells a straddling write to release a region a neighbour holds", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("bob", "Body of the second entry.");
-		const reason = denial(check("alice", straddling));
+		const reason = warning(check("alice", straddling));
 		expect(reason).not.toContain("Release them as soon as you are done");
-		expect(reason).toContain("None of the 2 regions");
+		expect(reason).not.toContain(`release ${docMap}#B2`);
 	});
 
 	it("surfaces a debt registered against the SECOND region it takes", () => {
@@ -3499,11 +3383,11 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(out(["check", inRepo("docs/other.md"), "alice"])).toBe("");
 	});
 
-	it("never tells a REFUSED whole-file Write to release what it does not hold", () => {
+	it("never tells a contended whole-file Write to release what it does not hold", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("alice", "Body of the first entry.");
-		const reason = denial(check("bob"));
+		const reason = warning(check("bob"));
 		expect(reason).toContain("alice");
 		expect(reason).not.toContain("Release it as soon as you are done");
 	});
@@ -3518,37 +3402,20 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(log).not.toContain("claiming the whole file");
 	});
 
-	it("denies a region claim while a neighbour holds the whole file, naming the neighbour", () => {
+	it("warns a region write while a neighbour holds the whole file, naming the HELD subject", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("alice"); // whole-file Write
-		expect(denial(check("bob", "Body of the first entry."))).toContain("alice");
+		const reason = warning(check("bob", "Body of the first entry."));
+		expect(reason).toContain(`${docMap} is also held by session alice`);
+		expect(reason).toContain(`it covers ${docMap}#B1`);
 	});
 
-	it("sends that denial to force the claim that is HELD, not the one asked for", () => {
-		// Named the requested region, the escape answers `No claim on …` and dead
-		// ends — the neighbour holds the file, not the entry.
-		registerSession(sb, "alice", process.pid);
-		registerSession(sb, "bob", neighbourPid);
-		check("alice");
-		const reason = denial(check("bob", "Body of the first entry."));
-		expect(reason).toContain(`release --force ${docMap}\n`);
-		expect(reason).not.toContain(
-			`release --force ${shellQuote(`${docMap}#B1`)}`,
-		);
-		// The debt, by contrast, is the edit bob could not make — so it keys on the
-		// region, which is where the denial wrote the stub.
-		expect(reason).toContain(`debt own ${shellQuote(`${docMap}#B1`)}`);
-		expect(reason).toContain(
-			`${docMap}#B1 cannot be claimed while it is covered`,
-		);
-	});
-
-	it("denies a whole-file write while a neighbour holds one entry, naming the neighbour and keeping no lock of its own", () => {
+	it("warns a whole-file write while a neighbour holds one entry, naming the neighbour and keeping no lock of its own", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("alice", "Body of the first entry.");
-		const reason = denial(check("bob"));
+		const reason = warning(check("bob"));
 		expect(reason).toContain("alice");
 		// And bob's own lock did not survive the back-off, or alice could never be
 		// released either.
@@ -3595,7 +3462,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 			"docs/other.md",
 		]);
 		const raw = out(["check", inRepo("docs/other.md"), "bob", "Body A."]);
-		expect(JSON.parse(raw).hookSpecificOutput.permissionDecision).toBe("deny");
+		expect(warning(raw)).toContain("docs/other.md is also held by session");
 	});
 
 	/**
@@ -3780,10 +3647,7 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		store.acquire("docs/a.md", store.identify("alice"));
-		expect(
-			cli(["claim", inRepo("docs/a.md")], { CLAUDE_CODE_SESSION_ID: "bob" })
-				.status,
-		).toBe(1);
+		store.recordWant("docs/a.md", store.identify("bob"));
 		expect(alloc("bob").stdout.trim()).toBe("B8");
 		expect(store.readWants()).toEqual([]);
 	});
@@ -4200,10 +4064,10 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 		expect(r.stderr).not.toContain(whole);
 	});
 
-	it("warns that it takes the whole file even when the claim is then DENIED", () => {
+	it("warns that it takes the whole file even where a neighbour holds it", () => {
 		store.acquire(docMap, live(sb, "bob"));
 		const r = claim(docMap);
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(whole);
 	});
 
@@ -4442,38 +4306,10 @@ describe("releasing a region the rest of the file's dirt no longer pins (mantaho
 
 	it("drops a claim on a region that has vanished from the document", () => {
 		// The wedge a refusal here would create: nothing can ever make a region
-		// that exists in neither revision clean, and force, park and plain release
-		// all reach the same test. It has no bytes to hand anyone, so it goes.
+		// that exists in neither revision clean, and force and plain release both
+		// reach the same test. It has no bytes to hand anyone, so it goes.
 		store.acquire(`${docMap}#B999`, alice());
 		expect(release(`${docMap}#B999`).status).toBe(0);
-		expect(store.listLocks()).toEqual([]);
-	});
-
-	it("still parks the whole file, which mantahostels#1434 does not narrow", () => {
-		// --park REWRITES bytes where release merely hands a claim over, so it
-		// keeps weighing the whole file. Narrowing it to the region would skip
-		// park's own refusal on a file a live neighbour has also written.
-		store.acquire(`${docMap}#B196`, alice());
-		writeMap(doc("B196 as committed.", "B197, mid-edit by a neighbour."));
-
-		const r = release(`${docMap}#B196`, "--park");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Parked the uncommitted changes");
-		expect(fs.readFileSync(inRepo(docMap), "utf8")).toBe(
-			doc("B196 as committed.", "B197 as committed."),
-		);
-	});
-
-	it("still parks the session's own dirty region", () => {
-		store.acquire(`${docMap}#B196`, alice());
-		writeMap(doc("B196, half-rewritten.", "B197 as committed."));
-
-		const r = release(`${docMap}#B196`, "--park");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Parked the uncommitted changes");
-		expect(fs.readFileSync(inRepo(docMap), "utf8")).toBe(
-			doc("B196 as committed.", "B197 as committed."),
-		);
 		expect(store.listLocks()).toEqual([]);
 	});
 });
@@ -4729,7 +4565,7 @@ describe("release-committed — the claim goes back when the commit lands (manta
 		expect(held(docMap)).toBe(false);
 	});
 
-	it("hands a dirty refusal the park paragraph, the only route out of one (mantahostels#1783)", () => {
+	it("hands a dirty refusal the request notice (mantahostels#1783)", () => {
 		live(sb, "alice");
 		store.acquire(docMap, store.identify("alice"));
 		registerSession(sb, "bob", neighbourPid);
@@ -4741,7 +4577,7 @@ describe("release-committed — the claim goes back when the commit lands (manta
 		const r = releaseCommitted("alice", [docMap]);
 
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("--park");
+		expect(r.stderr).toContain("Another session is waiting on a file");
 		// firstSay mints the dedupe marker as it prints, so a notice suppressed
 		// here is a notice never said.
 		expect(held(docMap)).toBe(true);
@@ -5067,15 +4903,15 @@ describe("one claim store across seats (#383)", () => {
 		});
 	};
 
-	it("denies a seat-3 session the file a seat-2 session holds, naming the holder", () => {
+	it("warns a seat-3 session of the file a seat-2 session holds, naming the holder", () => {
 		const file = inRepo("docs/seat.md");
 		expect(
 			runOn(seat(".claude2"), "alice", ["claim", file, "alice"]).status,
 		).toBe(0);
 
 		const r = runOn(seat(".claude3"), "bob", ["claim", file, "bob"]);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("alice");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("also held by session alice");
 		expect(
 			runOn(seat(".claude3"), "bob", ["claim", inRepo("docs/other.md"), "bob"])
 				.status,
@@ -5407,7 +5243,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 			expect(r.stdout).toMatch(
 				/^DEADLOCK {2}docs\/held\.md — bob wants docs\/held\.md -> alice wants docs\/bobs\.md -> held by you/,
 			);
-			expect(r.stdout).toContain("release --park");
+			expect(r.stdout).toContain("release <path> once committed");
 			expect(r.status).toBe(7);
 			expect(wantOf("bob")).toBeNull();
 		});
