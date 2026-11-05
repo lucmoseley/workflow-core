@@ -228,7 +228,8 @@ function holdsDir(root) {
 	const stores = tickStores.getStore();
 	const known = stores?.get(root);
 	if (known !== undefined) return known;
-	const key = deref(gitCommonDir(root) ?? path.join(root, ".git"));
+	const common = gitCommonDir(root);
+	const key = deref(common ?? path.join(root, ".git"));
 	const hash = createHash("sha256").update(key).digest("hex");
 	const dir = refillPath(
 		path.join(
@@ -236,14 +237,14 @@ function holdsDir(root) {
 			`${path.basename(root)}-${hash.slice(0, STORE_KEY_LENGTH)}`,
 		),
 	);
-	stores?.set(root, dir);
+	if (common !== null) stores?.set(root, dir);
 	return dir;
 }
 
 /**
  * Run `fn` with each checkout's store resolved once, so a tick's many hold
- * calls fork git for each checkout's common dir once (#4398). The answers die
- * with `fn`, so a `.git` repaired between ticks keys anew on the next.
+ * calls fork git for each checkout's common dir once (#4398). A `.git` git will
+ * not name is asked again on each call, so its repair keys anew at once.
  * @template T
  * @param {() => T} fn
  * @returns {T}
