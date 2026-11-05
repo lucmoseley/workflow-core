@@ -14,7 +14,7 @@
  *   --ci        the CI re-check (#856): one `gh` call for the runs carrying
  *               the newest verdict (lib/ci-verdict.js), and only where they
  *               differ from the last this session saw,
- *               `check-ci-status.js --notify --recheck`, which fires no
+ *               `check-ci-status.js --notify --recheck --write`, which fires no
  *               sweep; its text printed to it once
  *   --paths     the store directory the mod stats, as JSON, printed alone
  *
@@ -316,7 +316,7 @@ function recheckEnvelope() {
 	// --json also keeps the run off persist mode: the stored report is the start's.
 	const ran = spawnSync(
 		process.execPath,
-		[CI_CHECK, "--notify", "--recheck", "--json", "--json-text"],
+		[CI_CHECK, "--notify", "--recheck", "--write", "--json", "--json-text"],
 		{ encoding: "utf8", timeout: CI_CHECK_TIMEOUT_MS },
 	);
 	/** @type {CiEnvelope | null} */

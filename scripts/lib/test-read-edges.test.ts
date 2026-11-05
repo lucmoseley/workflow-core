@@ -772,6 +772,21 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 		expect(edges["docs/zz/runs.jsonl"]).toEqual([T]);
 	});
 
+	it("anchors a script's read on worktreeRoot() as on hostRoot() (#4438)", () => {
+		const { edges } = build({
+			[T]: drives("scripts/zz/run.js"),
+			"scripts/zz/run.js": [
+				"const ROOT = worktreeRoot();",
+				`fs.readFileSync(path.join(ROOT, "docs/zz/a.md"), "utf8");`,
+				`fs.readFileSync(path.join(worktreeRoot(), "docs/zz/b.md"), "utf8");`,
+			].join("\n"),
+			"docs/zz/a.md": "",
+			"docs/zz/b.md": "",
+		});
+		expect(edges["docs/zz/a.md"]).toEqual([T]);
+		expect(edges["docs/zz/b.md"]).toEqual([T]);
+	});
+
 	it("reads a shell script's path operands, never its comments, heredocs or prose", () => {
 		/* Interpolated: a shell `${...}` written in a plain string trips
 		 * Biome's noTemplateCurlyInString. */

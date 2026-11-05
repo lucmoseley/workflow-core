@@ -305,7 +305,7 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify --write || true",
 						"timeout": 40,
 						"async": true
 					},
@@ -342,12 +342,12 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-harness-canary.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-harness-canary.js --notify --write || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify --write || true",
 						"timeout": 60
 					},
 					{

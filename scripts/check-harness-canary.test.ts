@@ -369,8 +369,8 @@ describe("the agent_id probe, in the core's checkout", () => {
 
 	it("on a context argument records fixed, comments on #1837 once, and prints it at each start", () => {
 		const env = core(CONTEXT_ARG);
-		run(["--probe-agent-id"], env);
-		run(["--probe-agent-id"], env);
+		run(["--probe-agent-id", "--write"], env);
+		run(["--probe-agent-id", "--write"], env);
 		expect(readState().agentId).toMatchObject({
 			verdict: "fixed",
 			commented: true,
@@ -388,6 +388,16 @@ describe("the agent_id probe, in the core's checkout", () => {
 			);
 		const hand = run([], env);
 		expect(hand.stderr).toContain("AGENT-ID-FIXED");
+	});
+
+	it("records fixed but comments nothing without --write (#4449)", () => {
+		const env = core(CONTEXT_ARG);
+		run(["--probe-agent-id"], env);
+		expect(readState().agentId).toMatchObject({
+			verdict: "fixed",
+			commented: false,
+		});
+		expect(readComments()).toEqual([]);
 	});
 
 	it("is unprobed, not fixed, on a binary with no anchor, and warns on a hand run", () => {

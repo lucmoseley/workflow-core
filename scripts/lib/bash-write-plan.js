@@ -145,7 +145,7 @@ const RESTORE_ROUTES = ["cp", "mv", "git restore", "git checkout"];
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} Ctx
- * @typedef {import("./guard-dispatch.js").TreePorts} Tree
+ * @typedef {import("./guard-host-ports.js").TreePorts} Tree
  * @typedef {{ targets: string[], credit: string[], select: string[],
  *   deleted: string[], restored: string[] }} Writes what one command writes:
  *   the tier-1 targets, absolute; the code paths to credit, the paths for the

@@ -40,7 +40,7 @@ const WHY_CHARS = 300;
  * — so a write that only moves an old citation is not judged for it.
  * @param {string} rel
  * @param {CoreContext} ctx
- * @param {import("./guard-dispatch.js").TreePorts} tree
+ * @param {import("./guard-host-ports.js").TreePorts} tree
  */
 function addedLines(rel, ctx, tree) {
 	const text = (/** @type {unknown} */ v) => (typeof v === "string" ? v : "");

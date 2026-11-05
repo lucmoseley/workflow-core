@@ -35,6 +35,7 @@ const {
 } = require("./lib/session-spend");
 const { requiredGroup } = require("./lib/regex-group");
 const { scriptPath } = require("./lib/script-path.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 
 /** 41 points, every 2.5%: a first guess at "small" (#371 item 2), not tuned. */
 const QUANTILE_STEPS = 40;
@@ -158,7 +159,7 @@ function landedCurve(sessions, totalUsd) {
  */
 function writeClaimed(body) {
 	const arbiter = path.join(__dirname, "session-arbiter.js");
-	const table = tablePath();
+	const table = tablePath(worktreeRoot());
 	const claim = spawnSync("node", [arbiter, "claim", table], {
 		encoding: "utf8",
 	});

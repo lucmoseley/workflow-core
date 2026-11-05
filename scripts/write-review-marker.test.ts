@@ -28,6 +28,7 @@ const git = (...args: string[]) =>
 	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
 		cwd: repo,
 		encoding: "utf8",
+		stdio: "pipe",
 	}).trim();
 
 beforeEach(() => {
@@ -240,6 +241,67 @@ describe("a review that left both artefacts", () => {
 		const { r, tree } = patchedRun("lib/b.js", "./a.js,lib/./b.js");
 		expect(r.status).toBe(0);
 		expect(readMarkerText()).toContain(`tree=${tree}\npaths=a.js,lib/b.js\n`);
+	});
+});
+
+describe("mid-merge (#4426)", () => {
+	/** A merge of `side`, which writes b.js, left uncommitted; a.js this branch's. */
+	const startMerge = (theirs = "b.js", text = "theirs\n") => {
+		git("checkout", "-q", "-b", "side");
+		fs.writeFileSync(path.join(repo, theirs), text);
+		git("add", "-A");
+		git("commit", "-qm", "side");
+		git("checkout", "-q", "-");
+		fs.writeFileSync(path.join(repo, "a.js"), "mine\n");
+		git("commit", "-qam", "mine");
+		git("merge", "--no-commit", "side");
+	};
+	const Flags = ["--base", "HEAD", "--findings", "0"];
+
+	beforeEach(() => {
+		artefact("standards");
+		artefact("spec");
+	});
+
+	it("takes tree= from the index and paths= as the held paths alone", () => {
+		startMerge();
+		fs.writeFileSync(path.join(repo, "c.js"), "added in the merge\n");
+		git("add", "c.js");
+		const r = run([...Flags, "--paths", "c.js"]);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(readMarkerText()).toContain(
+			`tree=${git("write-tree")}\npaths=c.js\n`,
+		);
+	});
+
+	it("refuses --patch, as git commits a merge whole", () => {
+		startMerge();
+		const patch = path.join(repo, "own.patch");
+		fs.writeFileSync(patch, "");
+		const r = run([...Flags, "--paths", "b.js", "--patch", patch]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--patch has no place mid-merge");
+		expect(r.stderr).toContain("Drop --patch and re-run.");
+		expect(fs.existsSync(marker())).toBe(false);
+	});
+
+	it("refuses while a conflict is unresolved", () => {
+		try {
+			startMerge("a.js", "theirs\n");
+		} catch {
+			// the conflict stops the merge
+		}
+		expect(git("rev-parse", "-q", "--verify", "MERGE_HEAD")).toMatch(
+			/^[0-9a-f]{40}$/,
+		);
+		const r = run([...Flags, "--paths", "a.js"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("git write-tree mid-merge failed");
+		expect(r.stderr).toContain(
+			"Resolve and stage every conflicted path first.",
+		);
+		expect(fs.existsSync(marker())).toBe(false);
 	});
 });
 
