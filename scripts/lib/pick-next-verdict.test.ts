@@ -182,9 +182,9 @@ async function verdictOf(fx: Fx) {
 	};
 }
 
-const gateCondition =
+const GATE_CONDITION =
 	"the eleven tickets have cleared the 5-day rework horizon";
-const gateOn = `Some body text.\n\n**Gated on:** ${gateCondition} — check: python3 scan_rework.py — abandon if: the label stops being applied\n\nMore text.`;
+const GATE_ON = `Some body text.\n\n**Gated on:** ${GATE_CONDITION} — check: python3 scan_rework.py — abandon if: the label stops being applied\n\nMore text.`;
 
 describe("why an issue is held out of the frontier", () => {
 	it("names each exclusion's tally category beside its reason (#4381)", async () => {
@@ -199,18 +199,18 @@ describe("why an issue is held out of the frontier", () => {
 				{ number: 7 },
 				{ number: 10, parent: 7 },
 				{ number: 8, body: "**Gated until:** 2099-01-01 — later" },
-				{ number: 9, body: gateOn },
+				{ number: 9, body: GATE_ON },
 			],
 			deps: { 3: [{ number: 1, state: "open" }] },
 			claims: { 4: "s1" },
 			parentHeld: { 5: { label: "#40", sessionId: "s2" } },
 			dispatched: { 6: [ledgerEntry(6)] },
 		});
-		const verdict = (n: number) => [
+		const reasonAndCategory = (n: number) => [
 			String(v.of(n).excluded).split(" ").slice(0, 2).join(" "),
 			v.of(n).exclusionCategory,
 		];
-		expect([2, 3, 4, 5, 6, 7, 8, 9].map(verdict)).toEqual([
+		expect([2, 3, 4, 5, 6, 7, 8, 9].map(reasonAndCategory)).toEqual([
 			["readiness unknown", "degraded"],
 			["blocked by", "blocked"],
 			["claimed by", "claimed"],
@@ -347,16 +347,16 @@ describe("why an issue is held out of the frontier", () => {
 		const v = await verdictOf({
 			issues: [
 				{ number: 1 },
-				{ number: 1215, body: gateOn, labels: ["waiting:external"] },
+				{ number: 1215, body: GATE_ON, labels: ["waiting:external"] },
 			],
 			timeline: { 1215: [{ label: "waiting:external", days: 5 }] },
 		});
-		expect(v.of(1215).excluded).toBe(`gated on ${gateCondition}`);
+		expect(v.of(1215).excluded).toBe(`gated on ${GATE_CONDITION}`);
 	});
 
 	it("holds a conditioned goal-set member out of the frontier (#3102)", async () => {
 		const v = await verdictOf({
-			issues: [{ number: 1 }, { number: 1215, body: gateOn }],
+			issues: [{ number: 1 }, { number: 1215, body: GATE_ON }],
 			goal: [1215],
 		});
 		expect(v.of(1215).goal).toBe(true);
