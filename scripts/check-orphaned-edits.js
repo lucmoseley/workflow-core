@@ -28,10 +28,18 @@
  * `lib/neighbour-dirt.js`'s `readClaimedElsewhere` passes it; the holder's ledger
  * still excludes the file.
  *
- * FILED ONCE PER PATH AND BLOB. The blob is `git hash-object` of the working
- * copy. Each filing first creates its own marker, exclusively, under
- * `orphaned-edits-filed/` in the git common dir, which every worktree shares —
- * so two sessions starting together cannot both file one orphan. A failed
+ * FILED ONCE PER PATH AND BLOB IN THE MAIN CHECKOUT, ONCE PER WORKTREE AND
+ * STATE IN A LINKED ONE (#4439): a dead worktree's files carry one decision,
+ * commit or discard it, so they share one issue, keyed by every orphan's path
+ * and blob together, so a change to any of them refiles once. That issue says
+ * which of them are already on `origin/landing` (lib/landed-edit.js), and,
+ * where all are, the worktree holds nothing else uncommitted and its `HEAD`
+ * no commit off it, names removing the worktree as the remedy. The blob is
+ * `git hash-object` of the working copy. Each filing first creates its own
+ * marker, exclusively, under `orphaned-edits-filed/` in the git common dir
+ * (lib/orphan-filings.js), which every worktree shares — so two sessions
+ * starting together cannot both file one orphan, and the reaper's `stranded:`
+ * line names a worktree's issue rather than flagging it again. A failed
  * filing deletes its marker and is retried at the next run. A filing that
  * timed out, or a run killed mid-filing, leaves its marker empty: reported as
  * interrupted and never retried, because it may have filed. RESIDUAL: the markers are per machine,
@@ -63,14 +71,13 @@
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at every session start, files each uncommitted tracked file that no live session owns once as a takes:triage issue, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
+ * IMPLICIT:  at every session start, files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
  * TREE:      host — walks the main checkout and every linked worktree (#4244)
  */
 
 const { spawnSync } = require("node:child_process");
-const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
@@ -84,6 +91,8 @@ const {
 	worktreeOwners,
 } = require("./lib/session-worktrees.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
+const { landedAs, unlandedCommits } = require("./lib/landed-edit.js");
+const { FILED_DIR, markerName, stateTag } = require("./lib/orphan-filings.js");
 const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
 const proc = require("./lib/arbiter-proc");
 const store = require("./lib/arbiter-store");
@@ -105,8 +114,6 @@ const MAX_FILED_PER_RUN = 2;
 /* Two filings at this ceiling stay inside the hook's 60-second timeout. */
 const FILER_TIMEOUT_MS = 25_000;
 
-const FILED_DIR = "orphaned-edits-filed";
-
 /**
  * @typedef {object} Orphan
  * @property {string} path    relative to its tree
@@ -117,6 +124,23 @@ const FILED_DIR = "orphaned-edits-filed";
  * @property {string} writer  the last known writer, as printed
  * @property {string} blob    the working copy's blob id, or "unknown"
  * @property {string} filed   what became of its triage issue, as printed
+ * @property {"blob"|"lines"|null} [landed]  in a linked worktree, how its
+ *   change reached `origin/landing` (lib/landed-edit.js), null where it has not
+ */
+
+/**
+ * One triage issue: a main-checkout orphan alone, or every orphan of one
+ * linked worktree (#4439).
+ * @typedef {object} Filing
+ * @property {string|null} worktree  as on its orphans
+ * @property {string} tree
+ * @property {Orphan[]} orphans
+ * @property {string} state   what its marker is keyed by: each orphan's path
+ *   and blob, so a change to any of them refiles once
+ * @property {number} others  the worktree's other uncommitted paths, too young
+ *   or owned to judge
+ * @property {number|null} unlanded  its `HEAD`'s commits off `origin/landing`,
+ *   null where that cannot be read
  */
 
 const filerPath = () =>
@@ -151,22 +175,14 @@ const describeLocation = (o) =>
 	o.worktree ? `${o.worktree}: ${o.path}` : o.path;
 
 /**
- * Take the filing of `o` by creating its marker exclusively. "taken" means
- * this run files it; otherwise the marker's state, as printed.
+ * Take filing `f` by creating its marker exclusively. "taken" means this run
+ * files it; otherwise the marker's state, as printed.
  * @param {string} dir
- * @param {Orphan} o
+ * @param {Filing} f
  * @returns {{taken: string|null, status: string}}
  */
-function takeFiling(dir, o) {
-	const key = createHash("sha256")
-		.update(
-			o.worktree
-				? `${o.worktree}\0${o.path}\0${o.blob}`
-				: `${o.path}\0${o.blob}`,
-		)
-		.digest("hex")
-		.slice(0, 32);
-	const marker = path.join(dir, `${key}.json`);
+function takeFiling(dir, f) {
+	const marker = path.join(dir, markerName(f));
 	try {
 		fs.closeSync(fs.openSync(marker, "wx"));
 		return { taken: marker, status: "" };
@@ -261,25 +277,20 @@ function buildCommands(o) {
 }
 
 /**
- * File one orphan through the filer. Returns the filer's last stdout line on
- * success, or null with the failure in `error` and, in `mayHaveFiled`,
- * whether the filer died before it could say.
+ * A main-checkout orphan's issue title and body.
  * @param {Orphan} o
- * @param {string} root
  */
-function fileOne(o, root) {
+function buildFileIssue(o) {
 	const c = buildCommands(o);
 	const body = [
 		"## What",
 		"",
-		`\`${o.path}\`${o.worktree ? ` in the worktree \`${o.worktree}\`` : ""} has uncommitted changes that no live session owns, unchanged for ${describeAge(o.ageHours)} (an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813).`,
+		`\`${o.path}\` has uncommitted changes that no live session owns, unchanged for ${describeAge(o.ageHours)} (an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813).`,
 		"",
 		`- Last known writer: ${o.writer}`,
 		`- Working-copy blob: \`${o.blob}\``,
 		"",
-		o.worktree
-			? "Its session has ended, so the work lands nowhere until someone commits it. Nothing has been reverted."
-			: "It enters every suite run that reads the main checkout, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
+		"It enters every suite run that reads the main checkout, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
 		"",
 		"## Decide",
 		"",
@@ -293,10 +304,123 @@ function fileOne(o, root) {
 		"",
 		"The revert destroys the edit — run it only after reading the diff.",
 	].join("\n");
+	return {
+		title: `Orphaned edit: ${o.path} (blob ${o.blob.slice(0, 10)})`,
+		body,
+	};
+}
+
+const LANDED_AS = {
+	blob: "yes, byte for byte",
+	lines: "yes, every changed line",
+};
+
+/** @param {"blob"|"lines"|null|undefined} landed */
+const describeLanded = (landed) => (landed ? LANDED_AS[landed] : "no");
+
+/**
+ * Whether removing filing `f`'s worktree loses nothing: every uncommitted
+ * path in it is an orphan already on `origin/landing`, and `HEAD` has no
+ * commit off it.
+ * @param {Filing} f
+ */
+const allLanded = (f) =>
+	f.worktree !== null &&
+	f.unlanded === 0 &&
+	f.others === 0 &&
+	f.orphans.every((o) => o.landed);
+
+/**
+ * The issue body's line on `HEAD`'s commits off `origin/landing`, none where
+ * there are none.
+ * @param {number|null} unlanded
+ * @returns {string[]}
+ */
+function describeUnlanded(unlanded) {
+	if (unlanded === null) return ["- Its commits off `origin/landing`: unread"];
+	if (unlanded === 0) return [];
+	return [
+		`- ${String(unlanded)} commit(s) on its \`HEAD\` not on \`origin/landing\``,
+	];
+}
+
+/**
+ * A linked worktree's issue title and body: one decision, whatever its count
+ * of files.
+ * @param {Filing} f
+ */
+function buildWorktreeIssue(f) {
+	const tree = shellQuote(f.tree);
+	const rows = f.orphans.map(
+		(o) =>
+			`| \`${o.path}\` | ${describeAge(o.ageHours)} | \`${o.blob.slice(0, 10)}\` | ${describeLanded(o.landed)} |`,
+	);
+	const writers = [...new Set(f.orphans.map((o) => o.writer))];
+	const decide = allLanded(f)
+		? [
+				"Every change in it is already on `origin/landing` and its `HEAD` has no commit off it, so it holds nothing unlanded. Remove it:",
+				"",
+				"```",
+				`git worktree remove --force ${tree}`,
+				"```",
+			]
+		: [
+				"Read the diff, then land it from inside the worktree, or, judged worthless, remove it:",
+				"",
+				"```",
+				`git -C ${tree} diff HEAD`,
+				`cd ${tree} && node scripts/session-checkout.js land`,
+				`git worktree remove --force ${tree}`,
+				"```",
+				"",
+				"The remove destroys every uncommitted change in it — run it only after reading the diff.",
+			];
+	const body = [
+		"## What",
+		"",
+		`The worktree \`${f.worktree}\` holds ${String(f.orphans.length)} uncommitted file(s) no live session owns (each an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813, #4439).`,
+		"",
+		"| File | Unchanged | Blob | On `origin/landing` |",
+		"| --- | --- | --- | --- |",
+		...rows,
+		"",
+		...writers.map((w) => `- Last known writer: ${w}`),
+		...(f.others > 0
+			? [
+					`- ${String(f.others)} other uncommitted path(s) in it, too young or owned to judge`,
+				]
+			: []),
+		...describeUnlanded(f.unlanded),
+		"",
+		"Its session has ended, so the work lands nowhere until someone lands it. Nothing has been reverted.",
+		"",
+		"## Decide",
+		"",
+		...decide,
+	].join("\n");
+	return {
+		title: `Orphaned edits: ${String(f.orphans.length)} file(s) in ${f.worktree} (state ${stateTag(f)})`,
+		body,
+	};
+}
+
+/**
+ * File one filing through the filer. Returns the filer's last stdout line on
+ * success, or null with the failure in `error` and, in `mayHaveFiled`,
+ * whether the filer died before it could say.
+ * @param {Filing} f
+ * @param {string} root
+ */
+function fileOne(f, root) {
+	/* A main-checkout filing holds its one orphan. */
+	const { title, body } =
+		f.worktree === null
+			? buildFileIssue(/** @type {Orphan} */ (f.orphans[0]))
+			: buildWorktreeIssue(f);
 	const args = [
 		filerPath(),
 		"--title",
-		`Orphaned edit: ${o.path}${o.worktree ? ` in ${o.worktree}` : ""} (blob ${o.blob.slice(0, 10)})`,
+		title,
 		"--label",
 		ORPHAN_LABEL,
 		"--standalone",
@@ -453,33 +577,97 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 	return { kind: "orphan", writer: describeWriter(o.path, names, now) };
 }
 
+/* The ref a dead worktree's work is judged landed on. */
+const LANDED_REF = "origin/landing";
+
 /**
- * Take the marker for `o`, or say why it cannot be filed.
- * @param {Orphan} o
+ * The orphans grouped into filings: each main-checkout orphan alone, each
+ * linked worktree's together, judged against `origin/landing` where it
+ * stands. In the order of each filing's oldest orphan.
+ * @param {Orphan[]} orphans oldest first
+ * @param {Map<string, number>} dirtyIn each linked worktree's count of
+ *   uncommitted paths
+ * @param {string} root
+ * @returns {Filing[]}
+ */
+function buildFilings(orphans, dirtyIn, root) {
+	const ref = gitRead(["rev-parse", "--verify", "-q", LANDED_REF], root)
+		? LANDED_REF
+		: null;
+	/** @type {Filing[]} */
+	const filings = [];
+	/** @type {Map<string, Filing>} */
+	const byTree = new Map();
+	for (const o of orphans) {
+		if (o.worktree === null) {
+			filings.push({
+				worktree: null,
+				tree: o.tree,
+				orphans: [o],
+				state: `${o.path}\0${o.blob}`,
+				others: 0,
+				unlanded: null,
+			});
+			continue;
+		}
+		const landed =
+			ref && o.blob !== "unknown"
+				? landedAs(o.tree, o.path, o.blob, ref)
+				: null;
+		const judged = { ...o, landed };
+		const f = byTree.get(o.tree);
+		if (f) {
+			f.orphans.push(judged);
+			continue;
+		}
+		const made = {
+			worktree: o.worktree,
+			tree: o.tree,
+			orphans: [judged],
+			state: "",
+			others: 0,
+			unlanded: ref ? unlandedCommits(o.tree, ref) : null,
+		};
+		byTree.set(o.tree, made);
+		filings.push(made);
+	}
+	for (const f of byTree.values()) {
+		f.others = (dirtyIn.get(f.tree) ?? 0) - f.orphans.length;
+		f.state = [
+			f.worktree,
+			...f.orphans.map((o) => `${o.path}\0${o.blob}`).sort(),
+		].join("\n");
+	}
+	return filings;
+}
+
+/**
+ * Take the marker for `f`, or say why it cannot be filed.
+ * @param {Filing} f
  * @param {string|null} dir
  * @returns {{taken: string} | {taken: null, filed: string}}
  */
-function takeOrphanMarker(o, dir) {
-	if (o.blob === "unknown")
-		return { taken: null, filed: "not filed: its blob could not be read" };
+function takeFilingMarker(f, dir) {
+	if (f.orphans.some((o) => o.blob === "unknown"))
+		return { taken: null, filed: "not filed: a blob could not be read" };
 	if (dir === null)
 		return {
 			taken: null,
 			filed:
 				"not filed: no marker directory in the git common dir, so a filing could repeat",
 		};
-	const { taken, status } = takeFiling(dir, o);
+	const { taken, status } = takeFiling(dir, f);
 	return taken === null ? { taken, filed: status } : { taken };
 }
 
 /**
- * @param {Orphan} o
+ * @param {Filing} f
  * @param {string} taken
  * @param {{root: string, now: number}} opts
- * @returns {string} the outcome, for `o.filed`
+ * @returns {string} the outcome, for each orphan's `filed`
  */
-function fileUnderMarker(o, taken, { root, now }) {
-	const res = fileOne(o, root);
+function fileUnderMarker(f, taken, { root, now }) {
+	const res = fileOne(f, root);
 	if (res.ref === null && res.mayHaveFiled)
 		return `filing interrupted, not retried — search the tracker: ${res.error}`;
 	if (res.ref === null) {
@@ -489,7 +677,7 @@ function fileUnderMarker(o, taken, { root, now }) {
 	try {
 		fs.writeFileSync(
 			taken,
-			`${JSON.stringify({ path: o.path, blob: o.blob, ref: res.ref, at: now })}\n`,
+			`${JSON.stringify({ worktree: f.worktree, paths: f.orphans.map((o) => o.path), ref: res.ref, at: now })}\n`,
 		);
 	} catch (e) {
 		// Its marker exists, so it is still never filed twice (#813).
@@ -499,36 +687,36 @@ function fileUnderMarker(o, taken, { root, now }) {
 }
 
 /**
- * File each orphan once, up to this run's cap.
- * @param {Orphan[]} orphans
+ * File each filing once, up to this run's cap.
+ * @param {Filing[]} filings
  * @param {{root: string, now: number}} opts
  * @returns {{filings: number, orphans: Orphan[]}} how many filings ran, and
- *   each orphan with its `filed` outcome
+ *   each orphan with its filing's outcome
  */
-function fileOrphans(orphans, { root, now }) {
-	const dir = orphans.length > 0 ? filedDir(root) : null;
-	let filings = 0;
+function fileOrphans(filings, { root, now }) {
+	const dir = filings.length > 0 ? filedDir(root) : null;
+	let ran = 0;
 	/** @type {Orphan[]} */
 	const triaged = [];
-	for (const o of orphans) {
-		const marker = takeOrphanMarker(o, dir);
+	const record = (/** @type {Filing} */ f, /** @type {string} */ filed) => {
+		for (const o of f.orphans) triaged.push({ ...o, filed });
+	};
+	for (const f of filings) {
+		const marker = takeFilingMarker(f, dir);
 		if (marker.taken === null) {
-			triaged.push({ ...o, filed: marker.filed });
+			record(f, marker.filed);
 			continue;
 		}
 		const { taken } = marker;
-		if (filings >= MAX_FILED_PER_RUN) {
+		if (ran >= MAX_FILED_PER_RUN) {
 			fs.rmSync(taken, { force: true });
-			triaged.push({
-				...o,
-				filed: "not filed yet: this run's filing cap is spent",
-			});
+			record(f, "not filed yet: this run's filing cap is spent");
 			continue;
 		}
-		filings++;
-		triaged.push({ ...o, filed: fileUnderMarker(o, taken, { root, now }) });
+		ran++;
+		record(f, fileUnderMarker(f, taken, { root, now }));
 	}
-	return { filings, orphans: triaged };
+	return { filings: ran, orphans: triaged };
 }
 
 /**
@@ -565,7 +753,10 @@ function reportOrphans(ctx, orphans, threshold) {
 				`    inspect: ${c.inspect}\n` +
 				`    commit:  ${c.commit}\n` +
 				`    revert:  ${c.revert}\n` +
-				`    triage:  ${o.filed}`,
+				`    triage:  ${o.filed}` +
+				(o.worktree
+					? `\n    on origin/landing: ${describeLanded(o.landed)}`
+					: ""),
 		);
 	}
 	ctx.say(
@@ -627,11 +818,14 @@ runCheck({
 		 * registration whose directory has gone is the usual cause. */
 		/** @type {string[]} */
 		const unread = [];
+		/** @type {Map<string, number>} */
+		const dirtyIn = new Map();
 		for (const wt of linked ?? []) {
 			const wtDirty = readDirtyTracked(wt);
 			if (wtDirty === null) unread.push(wt);
 			if (!wtDirty || wtDirty.length === 0) continue;
 			total += wtDirty.length;
+			dirtyIn.set(wt, wtDirty.length);
 			const tree = { root: wt, worktree: worktreeLabel(root, wt) };
 			sorted.push(sortByAge(tree, wtDirty, { hours, now }));
 		}
@@ -643,7 +837,10 @@ runCheck({
 
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
-		const { filings, orphans } = fileOrphans(found, { root, now });
+		const { filings, orphans } = fileOrphans(
+			buildFilings(found, dirtyIn, root),
+			{ root, now },
+		);
 
 		const threshold = describeThreshold(hours, cutOver);
 		if (!ctx.notify) reportOrphans(ctx, orphans, threshold);

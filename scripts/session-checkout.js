@@ -134,7 +134,11 @@ function renderReaped(r) {
 					.filter(Boolean)
 					.join(
 						", ",
-					)}; idle ${describeAge(s.idleMs)}; last commit ${s.last} — its session is gone: land it with \`node scripts/session-checkout.js land\` from inside it, or, judged worthless, \`git worktree remove --force ${s.dir}\``,
+					)}; idle ${describeAge(s.idleMs)}; last commit ${s.last} — ${
+					s.filed
+						? `its orphaned-edit issue ${s.filed} carries the decision`
+						: `its session is gone: land it with \`node scripts/session-checkout.js land\` from inside it, or, judged worthless, \`git worktree remove --force ${s.dir}\``
+				}`,
 		),
 		...r.unregistered.map(
 			(dir) =>

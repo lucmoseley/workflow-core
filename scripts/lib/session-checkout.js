@@ -78,6 +78,7 @@ const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
+const { readWorktreeFiling } = require("./orphan-filings.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
 const { buildCutCommand } = require("./cutover.js");
@@ -86,6 +87,7 @@ const {
 	readJobCwds,
 	readLinkedWorktrees,
 	worktreeHolding,
+	worktreeLabel,
 } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
@@ -759,12 +761,15 @@ const REAP_HOLDERS = ["session-checkout.js"];
 
 /**
  * @typedef {{ dir: string, idleMs: number, last: string, dirty: number,
- *   unlanded: number }} Stranded
+ *   unlanded: number, filed: string | null }} Stranded `filed` the
+ *   orphaned-edit issue check-orphaned-edits.js filed for it, which carries
+ *   its decision (#4439)
  * @typedef {{ removed: string[], stranded: Stranded[], unregistered: string[],
  *   pruned: string[], strays: string[], stores: string[], failed: string[],
  *   fetchFailed: string | null }} Reaped
- * @typedef {{ now: number, cwds: string[], record: string }} Pass when the
- *   pass runs, every live process's cwd, and the REAPED_RECORD path
+ * @typedef {{ now: number, cwds: string[], record: string, common: string }}
+ *   Pass when the pass runs, every live process's cwd, the REAPED_RECORD
+ *   path, and the git common dir
  * @typedef {{ job: string, seat: string, path: string, head: string,
  *   at: string }} ReapedTree one line of REAPED_RECORD
  */
@@ -804,7 +809,7 @@ function ageOf(at, now) {
  * ignore, matching directories only, would show untracked.
  * @param {string} dir
  * @param {number} now
- * @returns {Stranded}
+ * @returns {Omit<Stranded, "filed">}
  */
 function readWorktreeState(dir, now) {
 	const dirty = git(
@@ -862,7 +867,7 @@ function readWorktreesOrThrow(root) {
  * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
  * @returns {string[]} every registered worktree still standing
  */
-function reapWorktrees(root, base, { cwds, now, record }, out) {
+function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 	const registered = readWorktreesOrThrow(root);
 	const jobs = readJobCwds();
 	const held = [
@@ -898,7 +903,10 @@ function reapWorktrees(root, base, { cwds, now, record }, out) {
 			}
 			const state = readWorktreeState(dir, now);
 			if (state.dirty > 0 || state.unlanded > 0) {
-				out.stranded.push(state);
+				out.stranded.push({
+					...state,
+					filed: readWorktreeFiling(common, worktreeLabel(root, dir)),
+				});
 				standing.push(dir);
 				continue;
 			}
@@ -1146,6 +1154,7 @@ function reap(cwd) {
 			now,
 			cwds: readProcesses().map((p) => deref(p.cwd)),
 			record,
+			common,
 		};
 		const standing = judged
 			? reapWorktrees(root, base, pass, out)

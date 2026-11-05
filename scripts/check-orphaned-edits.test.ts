@@ -443,8 +443,105 @@ describe("a linked worktree's dirt", () => {
 		expect(r.out).toContain(`inspect: git -C ${wt} diff HEAD -- a.txt`);
 		const [filing] = readFilings();
 		expect(filing?.argv.join(" ")).toContain(
-			"Orphaned edit: a.txt in .claude/worktrees/w1 (blob",
+			"Orphaned edits: 1 file(s) in .claude/worktrees/w1 (state",
 		);
+	});
+
+	/** Dirty `rel` in worktree `wt` and back-date it `hours`. */
+	function dirtyIn(wt: string, rel: string, hours: number, content: string) {
+		const file = path.join(wt, rel);
+		fs.writeFileSync(file, content);
+		const at = new Date(Date.now() - hours * HOUR);
+		fs.utimesSync(file, at, at);
+	}
+
+	/** Point `origin/landing` at a commit on HEAD carrying `files`. */
+	function landOnOrigin(files: Record<string, string>) {
+		const g = (...args: string[]) =>
+			spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+				cwd: sb.repo,
+				encoding: "utf8",
+			});
+		const head = g("rev-parse", "HEAD").stdout.trim();
+		for (const [rel, content] of Object.entries(files))
+			fs.writeFileSync(path.join(sb.repo, rel), content);
+		g("commit", "-qam", "landed");
+		g("update-ref", "refs/remotes/origin/landing", "HEAD");
+		g("reset", "-q", "--hard", head);
+	}
+
+	const bodyOf = () => readFilings().map((f) => f.body);
+
+	it("files one issue for all of a dead worktree's files, and once more when any of them changes (#4439)", () => {
+		const wt = worktreeOf("dead-owner-5", 30);
+		dirtyIn(wt, "c.txt", 30, "worktree edit\n");
+
+		run();
+		run();
+
+		expect(readFilings()).toHaveLength(1);
+		const [filing] = readFilings();
+		expect(filing?.argv.join(" ")).toContain(
+			"Orphaned edits: 2 file(s) in .claude/worktrees/w1",
+		);
+		expect(filing?.body).toContain("| `a.txt` |");
+		expect(filing?.body).toContain("| `c.txt` |");
+
+		dirtyIn(wt, "c.txt", 30, "edited again\n");
+		run();
+		run();
+
+		expect(readFilings()).toHaveLength(2);
+	});
+
+	it("names removing the worktree where every change in it is already on origin/landing (#4439)", () => {
+		landOnOrigin({ "a.txt": "worktree edit\n" });
+		const wt = worktreeOf("dead-owner-6", 30);
+
+		const r = run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| `a.txt` | 30h |");
+		expect(body).toContain("| yes, byte for byte |");
+		expect(body).toContain("holds nothing unlanded");
+		expect(body).toContain(`git worktree remove --force ${wt}`);
+		expect(body).not.toContain("session-checkout.js land");
+		expect(r.out).toContain("on origin/landing: yes, byte for byte");
+	});
+
+	it("reads a change landed and since superseded as landed by its lines (#4439)", () => {
+		landOnOrigin({ "a.txt": "worktree edit\nlater line\n" });
+		worktreeOf("dead-owner-7", 30);
+
+		run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| yes, every changed line |");
+		expect(body).toContain("holds nothing unlanded");
+	});
+
+	it("keeps the land route where a change is not on origin/landing (#4439)", () => {
+		landOnOrigin({ "c.txt": "other\n" });
+		const wt = worktreeOf("dead-owner-8", 30);
+
+		run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| no |");
+		expect(body).toContain("session-checkout.js land");
+		expect(body).toContain(`git -C ${wt} diff HEAD`);
+	});
+
+	it("keeps the land route where another uncommitted path in it is too young to judge (#4439)", () => {
+		landOnOrigin({ "a.txt": "worktree edit\n" });
+		const wt = worktreeOf("dead-owner-9", 30);
+		dirtyIn(wt, "c.txt", 1, "fresh\n");
+
+		run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("1 other uncommitted path(s) in it");
+		expect(body).toContain("session-checkout.js land");
 	});
 
 	it("is owned while its session is listed live, though no claim or ledger names it", () => {

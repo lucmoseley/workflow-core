@@ -22,7 +22,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FILED_DIR, markerName } from "./lib/orphan-filings.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { worktreeLabel } from "./lib/session-worktrees.js";
 
 const SCRIPT = path.resolve(__dirname, "session-checkout.js");
 const HOUR = 60 * 60_000;
@@ -409,6 +411,29 @@ it("exits 1 naming what it could not remove, and says where a failed fetch leave
 		"session checkout: failed: 1 item could not be reaped, named above — clear what each names; the next pass tries again",
 	);
 	expect(fs.existsSync(stuck)).toBe(true);
+});
+
+it("names a stranded worktree's orphaned-edit issue in place of its ways out (#4439)", () => {
+	const dirty = cut("filed-work");
+	fs.writeFileSync(path.join(dirty, "half.txt"), "half done");
+	const filed = path.join(
+		git(main, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+		FILED_DIR,
+	);
+	fs.mkdirSync(filed, { recursive: true });
+	const label = worktreeLabel(main, fs.realpathSync(dirty));
+	fs.writeFileSync(
+		path.join(filed, markerName({ worktree: label, state: "s" })),
+		JSON.stringify({ ref: "https://github.com/o/r/issues/9", at: 1 }),
+	);
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toMatch(
+		/stranded: filed-work — 1 uncommitted path; .* — its orphaned-edit issue https:\/\/github\.com\/o\/r\/issues\/9 carries the decision/,
+	);
+	expect(r.stderr).not.toContain("git worktree remove --force");
 });
 
 it("reads a stranded worktree's idle time from its own last write, never from the reaper's status read", () => {
