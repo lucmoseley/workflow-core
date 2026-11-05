@@ -770,10 +770,10 @@
 					"text": "TRACKS `origin/landing`"
 				},
 				{
-					"id": "sweeps-index",
+					"id": "sweeps-dirty",
 					"core": "guard-commit-form",
 					"kind": "deny",
-					"text": "This commit form sweeps the shared index"
+					"text": "This commit form sweeps in every dirty tracked file"
 				},
 				{
 					"id": "no-verify",
@@ -782,28 +782,10 @@
 					"text": "This flag skips none of the pre-commit gates"
 				},
 				{
-					"id": "amend-shared-tip",
+					"id": "amend-pushed",
 					"core": "guard-commit-form",
 					"kind": "deny",
-					"text": "This amend rewrites whichever commit is `main`'s tip right now"
-				},
-				{
-					"id": "git-add",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "Staging before committing hands the shared index"
-				},
-				{
-					"id": "bare-commit-attributed",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "This commit names no pathspec, so it takes the whole index"
-				},
-				{
-					"id": "bare-commit-indexwide",
-					"core": "guard-commit-form",
-					"kind": "warn",
-					"text": "This commit names no pathspec, so it will take everything in the index"
+					"text": "This amend rewrites a commit already pushed"
 				},
 				{
 					"id": "untracked-pathspec",
@@ -869,7 +851,7 @@
 					"id": "commit-pathspec",
 					"core": "guard-commit-form",
 					"kind": "inject",
-					"text": "COMMIT BY PATHSPEC, NEVER `git add` FIRST."
+					"text": "COMMIT BY PATHSPEC."
 				},
 				{
 					"id": "commit-show-diff",

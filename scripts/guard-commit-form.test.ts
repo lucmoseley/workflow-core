@@ -9,8 +9,8 @@
  * guard-dispatch's own tests' (#3224).
  *
  * The guard compares the target tree against CLAUDE_PROJECT_DIR's, so a
- * throwaway repo stands in for the shared tree, a worktree of it for the
- * exempt case, and an unrelated repo for the other.
+ * throwaway repo stands in for this one, with a linked worktree of it, and an
+ * unrelated repo for the exempt case.
  *
  * The program runs through lib/run-in-process.js.
  */
@@ -32,13 +32,12 @@ import { runInProcess } from "./lib/run-in-process";
 
 const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const CORE = "guard-commit-form";
-const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 
 let dir: string;
 let shared: string;
 let worktree: string;
 let elsewhere: string;
-/** The write ledger's root, pointed at the temp dir so no test reads ~/.claude. */
+/** The config root, pointed at the temp dir so no test reads ~/.claude. */
 let config: string;
 
 const git = (cwd: string, ...args: string[]) =>
@@ -59,8 +58,7 @@ interface At {
 
 /**
  * The guard's run on `stdin`, from `cwd`, with CLAUDE_PROJECT_DIR at
- * `project`. CLAUDE_CODE_SESSION_ID is emptied unless `env` sets it, so a
- * real session's id cannot leak in as the guard's fallback.
+ * `project`.
  */
 const guard = (
 	stdin: string,
@@ -73,7 +71,6 @@ const guard = (
 			...process.env,
 			CLAUDE_PROJECT_DIR: project,
 			CLAUDE_CONFIG_DIR: config,
-			CLAUDE_CODE_SESSION_ID: "",
 			...env,
 		},
 	});
@@ -105,30 +102,6 @@ const emission = (
 /** The fail-open log this case's guard runs wrote. */
 const failOpenLog = () => readFailOpenLog(config, shared);
 
-/**
- * Runs the arbiter CLI, failing the test on a non-zero exit — runInProcess
- * does not throw on one itself.
- */
-const arbiter = (args: string[]) => {
-	const r = runInProcess(ARBITER, args, {
-		cwd: shared,
-		env: {
-			...process.env,
-			CLAUDE_PROJECT_DIR: shared,
-			CLAUDE_CONFIG_DIR: config,
-		},
-	});
-	if (r.status !== 0)
-		throw new Error(
-			`session-arbiter.js ${args.join(" ")} exited ${r.status}\n${r.stdout}${r.stderr}`,
-		);
-	return r.stdout;
-};
-
-/** What the post-write core records after an Edit: note that `session` wrote `file`. */
-const recordWrite = (file: string, session = "test") =>
-	arbiter(["record", file, session]);
-
 /* The store's Node accessor, so a test asks for a rule by id rather than
  * holding a second copy of its text. */
 const { readRuleText: storeText } = createRequire(__filename)(
@@ -154,37 +127,14 @@ const commitRule = () =>
 		.map((id) => readRuleText(id))
 		.join("\n\n");
 
-/* The framing line of the sweeping-index refusal (mantahostels#2145). */
-const SWEEPS = "This commit form sweeps the shared index";
-
-/** Puts something in the shared index, which is what the bare-commit warn reads. */
-const stageSomething = (at = shared, file = "a.md") => {
-	fs.writeFileSync(path.join(at, file), `${Math.random()}\n`);
-	git(at, "add", file);
-};
+/* The framing line of the `--no-verify` refusal (mantahostels#975). */
+const NO_VERIFY =
+	"This flag skips none of the pre-commit gates on a plain commit or merge";
 
 /** Puts a file on disk that git has never been told about. */
 const newFile = (rel: string, text = "new\n") => {
 	fs.mkdirSync(path.dirname(path.join(shared, rel)), { recursive: true });
 	fs.writeFileSync(path.join(shared, rel), text);
-};
-
-/** Makes the one write ledger on record unreadable. */
-const lockLedger = () => {
-	// The ledger's directory is keyed by a slug of the repo path, which is a
-	// temp dir here.
-	const projects = path.join(config, "projects");
-	const ledgers = fs
-		.readdirSync(projects)
-		.flatMap((slug) => {
-			const w = path.join(projects, slug, "writes");
-			return fs.existsSync(w)
-				? fs.readdirSync(w).map((f) => path.join(w, f))
-				: [];
-		})
-		.filter((p) => fs.statSync(p).isFile());
-	expect(ledgers).toHaveLength(1);
-	fs.chmodSync(ledgers[0], 0o000);
 };
 
 beforeEach(() => {
@@ -202,10 +152,10 @@ afterEach(() => {
 
 describe("each exit path", () => {
 	it("a deny is the refusal on exit 0, with no context", () => {
-		const out = emission('git commit -am "x"');
+		const out = emission('git commit -n -m "x" -- a.md');
 		expect(out.hookEventName).toBe("PreToolUse");
 		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toContain(SWEEPS);
+		expect(out.permissionDecisionReason).toContain(NO_VERIFY);
 		expect(out.additionalContext).toBeUndefined();
 	});
 
@@ -221,12 +171,13 @@ describe("each exit path", () => {
 	});
 
 	it("a warn is context with no decision, keyed by the field Claude Code reads", () => {
-		// A warn without hookEventName is dropped silently, leaving two of the
-		// three verdicts inert.
-		const out = emission("git add a.md");
+		// A warn without hookEventName is dropped silently, leaving the warns
+		// inert.
+		newFile("new.md");
+		const out = emission('git commit -m "x" -- new.md');
 		expect(out.hookEventName).toBe("PreToolUse");
 		expect(out.permissionDecision).toBeUndefined();
-		expect(out.additionalContext).toContain("#63");
+		expect(out.additionalContext).toContain("#1612");
 	});
 
 	it("a clean pathspec commit is handed the rules, and not refused", () => {
@@ -262,11 +213,10 @@ describe("the commit rules are handed over once a session", () => {
 	it("a warn outranks it, and leaves it unlatched for the next commit", () => {
 		// The rule is not spent by a warn — the next clean commit in the same
 		// session still gets it.
-		stageSomething();
-		const warned = emission('git commit -m "x"', "sess-C");
-		expect(warned.additionalContext).toContain("takes the whole index");
+		newFile("new.md");
+		const warned = emission('git commit -m "x" -- new.md', "sess-C");
+		expect(warned.additionalContext).toContain("#1612");
 		expect(warned.additionalContext).not.toContain("COMMIT BY PATHSPEC");
-		git(shared, "commit", "-qm", "drain");
 		expect(
 			emission('git commit -m "x" -- a.md', "sess-C").additionalContext,
 		).toBe(commitRule());
@@ -311,52 +261,30 @@ describe("each input channel", () => {
 		expect(failOpenLog()).toMatch(/no session_id in payload/);
 	});
 
-	it("attributes the staged paths through CLAUDE_CODE_SESSION_ID where the payload has no session id", () => {
-		stageSomething(shared, "a.md");
-		recordWrite("a.md");
-		expect(
-			emission('git commit -m "msg"', null, {
-				env: { CLAUDE_CODE_SESSION_ID: "test" },
-			}),
-		).toBeNull();
-	});
-
-	it("warns index-wide where neither the payload nor the environment names a session", () => {
-		stageSomething(shared, "a.md");
-		recordWrite("a.md");
-		const msg = emission('git commit -m "msg"', null).additionalContext;
-		expect(msg).toContain("a.md");
-		expect(msg).toContain("could not be read");
-	});
-
-	it("reads the shared tree off CLAUDE_PROJECT_DIR, a first commit's index included", () => {
-		// `git diff --cached HEAD` errors on an unborn branch, which would have
-		// made the guard silent on the very first commit of a repo.
+	it("reads this repo off CLAUDE_PROJECT_DIR, an unborn one included", () => {
 		const fresh = path.join(dir, "fresh");
 		fs.mkdirSync(fresh);
 		git(fresh, "init", "-q", "-b", "main", ".");
 		git(fresh, "config", "core.hooksPath", path.join(dir, "no-hooks"));
-		fs.writeFileSync(path.join(fresh, "a.md"), "a\n");
-		git(fresh, "add", "a.md");
-		const out = emission('git commit -m "init"', null, {
+		const out = emission('git commit -n -m "init"', null, {
 			cwd: fresh,
 			project: fresh,
 		});
-		expect(out.additionalContext).toContain("a.md");
+		expect(out.permissionDecision).toBe("deny");
 	});
 
-	it("leaves the shared tree alone where CLAUDE_PROJECT_DIR names another repo", () => {
+	it("leaves this repo alone where CLAUDE_PROJECT_DIR names another repo", () => {
 		expect(
-			emission('git commit -am "x"', "test", { project: elsewhere }),
+			emission('git commit -n -m "x"', "test", { project: elsewhere }),
 		).toBeNull();
 	});
 
 	it("allows, recorded, where CLAUDE_PROJECT_DIR is no repository", () => {
-		// With the repo unknown no tree is the shared one, and refusing would
+		// With the repo unknown no tree is this repo's, and refusing would
 		// wedge every git call in a repo git cannot read (lib/refuse-on-throw.js).
 		const opaque = mkDirOutsideRepo("not-a-repo-");
 		try {
-			const r = guard(payload('git commit -am "x"'), { project: opaque });
+			const r = guard(payload('git commit -n -m "x"'), { project: opaque });
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("");
 			expect(readFailOpenLog(config, opaque)).toMatch(
@@ -371,59 +299,58 @@ describe("each input channel", () => {
 		git(shared, "worktree", "add", "-q", "-b", "recipe", path.join(dir, "tmp"));
 		const at = { cwd: elsewhere, env: { CLAUDE_JOB_DIR: dir } };
 		expect(
-			emission('cd "$CLAUDE_JOB_DIR/tmp" && git commit -am "msg"', "test", at)
-				?.permissionDecision,
-		).toBeUndefined();
-		expect(
-			emission(
-				'cd "$CLAUDE_JOB_DIR/shared" && git commit -am "msg"',
-				"test",
-				at,
-			).permissionDecision,
+			emission('cd "$CLAUDE_JOB_DIR/tmp" && git commit -n -m "msg"', "test", at)
+				.permissionDecision,
 		).toBe("deny");
+		expect(failOpenLog()).toBe("");
 	});
 
-	it("judges the tree the hook runs in, a linked worktree exempt", () => {
+	it("judges the tree the hook runs in, a linked worktree included", () => {
 		expect(
-			emission('git commit -am "msg"', "test", { cwd: worktree })
-				?.permissionDecision,
-		).toBeUndefined();
+			emission('git commit -n -m "msg"', "test", { cwd: worktree })
+				.permissionDecision,
+		).toBe("deny");
+		expect(
+			emission('git commit -n -m "msg"', "test", { cwd: elsewhere }),
+		).toBeNull();
 	});
 });
 
 describe("each production adapter, crossed for real", () => {
-	it("reads this session's write ledger, silencing a commit of its own work", () => {
-		stageSomething(shared, "a.md");
-		recordWrite("a.md");
-		expect(
-			emission('git commit -m "msg"')?.additionalContext ?? "",
-		).not.toContain("never wrote");
-		stageSomething(shared, "b.md");
-		expect(
-			emission('git commit -m "msg"', "test2").additionalContext,
-		).toContain("never wrote");
-	});
-
-	it("falls back index-wide on a ledger it cannot read, and records why (mantahostels#135, mantahostels#3278)", () => {
-		stageSomething(shared, "a.md");
-		recordWrite("a.md"); // would silence it, if the read succeeded
-		lockLedger();
-		const msg = emission('git commit -m "msg"').additionalContext;
-		expect(msg).toContain("a.md");
-		expect(msg).toContain("could not be read");
-		expect(msg).not.toContain("never wrote");
+	it("reads whether HEAD is on the pushed ref (#4384)", () => {
+		const amend = (session: string) =>
+			emission("git commit --amend --no-edit", session)?.permissionDecision;
+		// No origin/main yet: git cannot answer, so the amend is allowed, recorded.
+		expect(amend("p1")).toBeUndefined();
 		expect(failOpenLog()).toMatch(
-			/the write ledger could not be read — the write ledger was unread/,
+			/git could not say whether HEAD in .* is pushed — the amend allowed unchecked/,
 		);
+		git(shared, "update-ref", "refs/remotes/origin/main", "HEAD");
+		const out = emission("git commit --amend --no-edit", "p2");
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"This amend rewrites a commit already pushed, as `HEAD` is on `origin/main`",
+		);
+		fs.writeFileSync(path.join(shared, "a.md"), "unpushed\n");
+		git(shared, "commit", "-qm", "unpushed", "--", "a.md");
+		expect(amend("p3")).toBeUndefined();
 	});
 
-	it("records an index git cannot read, rather than reading it as empty", () => {
-		stageSomething();
-		fs.writeFileSync(path.join(shared, ".git", "index"), "not an index at all");
+	it("reads the staged paths of a repo with no commits yet", () => {
+		const fresh = path.join(dir, "fresh");
+		fs.mkdirSync(path.join(fresh, "docs"), { recursive: true });
+		git(fresh, "init", "-q", "-b", "main", ".");
+		git(fresh, "config", "core.hooksPath", path.join(dir, "no-hooks"));
+		fs.writeFileSync(path.join(fresh, "docs", "doc-map.md"), "map\n");
+		const at = { cwd: fresh, project: fresh };
+		const doc = readRuleText("doc-map-precommit");
 		expect(
-			emission('git commit -m "x"')?.additionalContext ?? "",
-		).not.toContain("takes the whole index");
-		expect(failOpenLog()).toMatch(/git could not read the index/);
+			emission('git commit -m "init"', "p1", at).additionalContext,
+		).not.toContain(doc);
+		git(fresh, "add", "docs/doc-map.md");
+		expect(
+			emission('git commit -m "init"', "p2", at).additionalContext,
+		).toContain(doc);
 	});
 
 	it("reads a merge in progress off the git dir", () => {
@@ -433,9 +360,10 @@ describe("each production adapter, crossed for real", () => {
 		git(shared, "checkout", "-q", "main");
 		fs.writeFileSync(path.join(shared, "a.md"), "main\n");
 		git(shared, "commit", "-qm", "main", "--", "a.md");
+		git(shared, "update-ref", "refs/remotes/origin/main", "HEAD");
 		expect(() => git(shared, "merge", "other")).toThrow();
 		expect(
-			emission('git commit -am "merge"')?.permissionDecision,
+			emission("git commit --amend --no-edit")?.permissionDecision,
 		).toBeUndefined();
 	});
 

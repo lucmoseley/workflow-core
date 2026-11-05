@@ -21,22 +21,16 @@
  * git restore, git checkout -- <path> or a script is absent from this ledger and
  * is attributed to no session at all rather than guessed at.
  *
- * What decides it is not the price of a parser: BOTH consumers prefer a missing
- * entry to a false one, in OPPOSITE directions. A false entry makes
- * concision-backstop.sh LOUDER — it bills a session for a diff it does not own,
- * and the nag then sends that session to edit a file a live neighbour holds, the
- * collision guard-file-claim.sh exists to refuse. A false entry makes
- * the guard-commit-form core QUIETER — a neighbour's staged path reads as the
- * session's own work and the warn goes silent, and that warn is the last line
- * before mantahostels#63.
+ * What decides it is not the price of a parser: a missing entry is preferred
+ * to a false one. A false entry makes concision-backstop.sh LOUDER — it bills a
+ * session for a diff it does not own, and the nag then sends that session to
+ * edit a file a live neighbour holds, the collision guard-file-claim.sh exists
+ * to refuse.
  *
  * Measured cost of the gap (mantahostels#296, 1,579 transcripts / 789 sessions,
- * 18 Jul - 15 Aug 2026): 16 sessions Bash-wrote a watched path they never
- * tool-wrote and then ran a pathspec-less `git commit`, so the commit-form warn
- * named their own work as foreign — capped by that warn printing its own caveat
- * inline. On the concision backstop, 28 sessions had a tracked file changed only
- * via Bash and 0 went un-nagged; every one was caught on its other files, so the
- * miss is the pass's scope, not the pass.
+ * 18 Jul - 15 Aug 2026): on the concision backstop, 28 sessions had a tracked
+ * file changed only via Bash and 0 went un-nagged; every one was caught on its
+ * other files, so the miss is the pass's scope, not the pass.
  *
  * Crediting held paths instead adds almost nothing: 84% of Bash-write hits
  * reaching a watched prefix (495 of 586) and 75% of session-path pairs (156 of
