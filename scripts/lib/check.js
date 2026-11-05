@@ -89,6 +89,7 @@ const { fromEnv: sessionFromEnv } = require("./session-id.js");
 const { ENVELOPE_FRAME_KEYS } = require("./envelope-frame-keys.js");
 const { isUnder } = require("./is-under.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
+const { SIDE_ENV } = require("./check-side.js");
 const { GIT_MODE } = require("./git-mode.js");
 const {
 	brokenError,
@@ -146,15 +147,6 @@ const AGAINST_FLAGS = ["--root"];
  * its fd route either way. Reordering those two routes needs that read again.
  */
 const SAY_FD_ENV = "WFC_CHECK_SAY_FD";
-
-/*
- * Which side of an --against run this child reads: `baseline` on the <rev>
- * side, `index` on the commit's. Set by the re-exec below and by nothing else,
- * so a checker can skip work that feeds only a non-gating finding on the
- * baseline side — a network lookup, say — and its profile marks that finding
- * `indexOnly` so the diff never reads the gap as new (#2056).
- */
-const SIDE_ENV = "WFC_CHECK_SIDE";
 
 /** @returns {boolean} whether this run is an --against re-exec over <rev> */
 const isBaselineSide = () => process.env[SIDE_ENV] === "baseline";
