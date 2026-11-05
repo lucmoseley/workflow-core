@@ -39,9 +39,9 @@ const DEFAULT_SLICES = [5, 10, 20, 50, 100];
  * names under which the most of them name a file `exists` finds in this
  * checkout, else `root`. A report from an Actions runner names files under
  * the runner's own worktree, not this one, and a shard's files can all share
- * a subdirectory, so no common prefix is safe (#2413). A run in an isolated
- * worktree names files under `<root>/.claude/worktrees/<name>/`, so `root`
- * containing every name does not make it the checkout tested (#4352).
+ * a subdirectory, so no common prefix is safe (#2413). The deepest such
+ * ancestor wins, so a run in an isolated worktree keys its files under
+ * `<root>/.claude/worktrees/<name>/`, not under `root` (#4352).
  *
  * @param {{ testResults?: unknown[] }} report parsed vitest JSON
  * @param {string} root this checkout
