@@ -4148,8 +4148,9 @@ function buildRowForward(f) {
 /*
  * A LANDER REVERT LANDS WITH ITS STALE ROWS (#3127). The revert re-opens a
  * held queue, and a stale row is prose owed a re-read, not a broken build, so
- * where WFC_LANDER_REVERT names a culprit and lib/clean-revert.js confirms the
- * judged bytes are its clean revert, the staleness findings stand down and the
+ * where WFC_LANDER_REVERT names a culprit, or a culprit and the dependents
+ * reverted with it (#4453), and lib/clean-revert.js confirms the judged bytes
+ * are their clean reverts, the staleness findings stand down and the
  * lander's fix ticket owes the re-read. Every other fault still refuses.
  * Re-anchoring in the revert instead would assert a read nobody made. At
  * commit the message is not yet written, so only the tree is confirmed; the
@@ -4157,35 +4158,40 @@ function buildRowForward(f) {
  */
 
 /**
- * The culprit this commit or push is a confirmed clean revert of, or null.
+ * The commits this commit or push is a confirmed clean revert of, a push's
+ * one revert each, or null.
  * @param {Ctx} ctx
- * @returns {string|null}
+ * @returns {string[]|null}
  */
 function readExemptRevert(ctx) {
-	const culprit = readLanderRevert();
-	if (culprit === null) return null;
+	const culprits = readLanderRevert();
+	if (culprits === null) return null;
 	const { rev: tip, head: pushed } = againstRevs(ctx);
 	/* The committing tree's git, as --against materialises it: under a
 	 * worktree, CLAUDE_PROJECT_DIR can name another tree's index. */
 	const cwd = process.cwd();
 	const why = pushed
-		? whyNotLanderRevert(cwd, { culprit, sha: pushed, tip })
-		: whyNotCleanIndex(cwd, culprit, tip);
-	if (why === null) return culprit;
+		? whyNotLanderRevert(cwd, { culprits, sha: pushed, tip })
+		: whyNotCleanIndex(cwd, culprits, tip);
+	if (why === null) return culprits;
 	ctx.say(
-		`${LANDER_REVERT_ENV} names ${culprit}, but no staleness exemption: ${why}.`,
+		`${LANDER_REVERT_ENV} names ${culprits.join(" ")}, but no staleness exemption: ${why}.`,
 	);
 	return null;
 }
 
 /**
- * Why the index is not the clean revert of `culprit` on `onto`, or null.
+ * Why the index is not the clean revert of the one commit `culprits` names on
+ * `onto`, or null.
  * @param {string} cwd
- * @param {string} culprit
+ * @param {string[]} culprits
  * @param {string} onto
  * @returns {string|null}
  */
-function whyNotCleanIndex(cwd, culprit, onto) {
+function whyNotCleanIndex(cwd, culprits, onto) {
+	const [culprit] = culprits;
+	if (culprits.length !== 1 || culprit === undefined)
+		return "a commit is the revert of one commit";
 	const tree = spawnGitSync(["-C", cwd, "write-tree"], { encoding: "utf8" });
 	if (tree.status !== 0) return "the index cannot be written as a tree";
 	return whyNotCleanRevert(cwd, {
@@ -4205,15 +4211,15 @@ function whyNotCleanIndex(cwd, culprit, onto) {
  */
 function settleAdded(ctx, added) {
 	const stale = added.filter((f) => staleOf(f) !== null);
-	const culprit = stale.length > 0 ? readExemptRevert(ctx) : null;
+	const reverted = stale.length > 0 ? readExemptRevert(ctx) : null;
 	const { refuse, remedy } =
-		culprit === null
+		reverted === null
 			? settleStale(ctx, added)
 			: { refuse: added.filter((f) => staleOf(f) === null), remedy: [] };
-	const exempted = culprit === null ? [] : stale.map(buildRowForward);
-	if (exempted.length > 0)
+	const exempted = reverted === null ? [] : stale.map(buildRowForward);
+	if (reverted !== null && exempted.length > 0)
 		for (const line of [
-			`not refusing ${exempted.length} stale row(s): this is the lander's clean revert of ${culprit} (#3127), and its fix ticket owes each re-read:`,
+			`not refusing ${exempted.length} stale row(s): this is the lander's clean revert of ${reverted.join(", ")} (#3127), and its fix ticket owes each re-read:`,
 			...exempted.map((r) => `  ${r.row}: ${r.forward}`),
 		])
 			ctx.say(line);

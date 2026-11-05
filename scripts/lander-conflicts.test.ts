@@ -1,16 +1,20 @@
 // @vitest-environment node
 /*
  * scripts/lander.js end to end on a culprit whose revert conflicts (#3932,
- * #3935, #4452), against lib/lander-testkit.ts's real-git sandbox.
+ * #3935, #4452, #4453), against lib/lander-testkit.ts's real-git sandbox.
  *
- * Loosen it and a red merge or an anchors-file conflict holds the queue on a
- * batch the lander could have cleared, or lands a revert that drops a row
- * `landing` moved since, or one whose regenerated file reads stale.
+ * Loosen it and a red merge, an anchors-file conflict or a later commit
+ * conflicting with the revert holds the queue on a batch the lander could have
+ * cleared, or lands a revert that drops a row `landing` moved since, or one
+ * whose regenerated file reads stale; loosen the cap or the dependents' own
+ * reverts and it reverts past what it can name.
  *
- * Over the 10 s file budget: six of its nine cases are real lander runs that
- * bisect and revert, ~100–170 forks a run and a registry check (#4301's
- * profile); #4480 brings it under.
+ * Over the 10 s file budget: seven of its thirteen cases are real lander
+ * runs that bisect and revert, ~100–170 forks a run and a registry check
+ * (#4301's profile); #4480 brings it under. The #4453 holds call the revert
+ * alone.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -49,6 +53,16 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		return { merge, tip };
 	};
 
+	const revertConflicts = (merge: string, parent: string) => {
+		const r = spawnSync(
+			"git",
+			["merge-tree", "--write-tree", `--merge-base=${merge}`, "HEAD", parent],
+			{ cwd: work, encoding: "utf8" },
+		);
+		if (r.status !== 0 && r.status !== 1) throw new Error(r.stderr);
+		return r.status === 1;
+	};
+
 	const expectRedRevertedAndLanded = () => {
 		const landed = git(remote, "rev-parse", "main");
 		expect(git(remote, "rev-parse", "landing")).toBe(landed);
@@ -69,9 +83,7 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		git(work, "merge", "-q", "--no-edit", m);
 		const side = git(work, "rev-parse", "HEAD");
 		const { merge } = pushMergeOf(side, m);
-		expect(remoteGit(work).revertOnLanding(merge, m, "why")).toEqual({
-			failed: expect.stringContaining("(conflicts in shared.txt)"),
-		});
+		expect(revertConflicts(merge, m)).toBe(true);
 
 		const { gh } = stubTracker();
 		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
@@ -91,9 +103,7 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		git(work, "merge", "-q", "--no-edit", red);
 		const side = git(work, "rev-parse", "HEAD");
 		const { merge } = pushMergeOf(side, m);
-		expect(remoteGit(work).revertOnLanding(merge, m, "why")).toEqual({
-			failed: expect.stringContaining("(conflicts in shared.txt)"),
-		});
+		expect(revertConflicts(merge, m)).toBe(true);
 
 		const { gh } = stubTracker();
 		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
@@ -103,7 +113,7 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		expectRedRevertedAndLanded();
 	});
 
-	it("holds, naming the conflict and the merge the search ended at, where a merge on the side adds nothing the bisected parent lacks (#3936)", async () => {
+	it("reverts the merge with the later commit its revert conflicts with, where a merge on the side adds nothing the bisected parent lacks (#3936, #4453)", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const m = commit("m");
 		const main = commit("main");
@@ -117,15 +127,15 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		const r = await runLander(stubRedWhile("m", "side"), "landing", gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout).toContain(
-			`the revert of ${merge.slice(0, 9)} did not land`,
+		expect(r.stdout).toContain(`revert ${merge} on landing`);
+		expect(r.stdout).toMatch(
+			new RegExp(`file-fix-ticket ${merge}, reverted in \\w+ with ${tip}`),
 		);
-		expect(r.stdout).toContain("(conflicts in shared.txt)");
-		expect(r.stdout).toContain(
-			`no commit on its merged side to revert instead: its first red commit ${side.slice(0, 9)} is itself a merge with nothing further to search`,
-		);
-		expect(git(remote, "rev-parse", "landing")).toBe(tip);
-		expect(git(remote, "rev-parse", "main")).toBe(main);
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-parse", "landing")).toBe(landed);
+		const files = git(remote, "ls-tree", "--name-only", landed).split("\n");
+		expect(files).not.toContain("side.txt");
+		expect(files).not.toContain("tip.txt");
 	});
 });
 
@@ -185,17 +195,20 @@ describe("a culprit whose revert conflicts in an anchors file (#3935)", () => {
 		).toMatchObject({ row: "later", far: "seed" });
 	});
 
-	it("holds, naming the files, where the revert conflicts in another file too", async () => {
-		const { m, tip } = pushRedSide(() =>
+	it("reverts the later commit with it, and lands, where the revert conflicts in another file too (#4453)", async () => {
+		const { red, tip } = pushRedSide(() =>
 			fs.writeFileSync(path.join(work, "shared.txt"), "later\n"),
 		);
 		const { gh } = stubTracker();
 		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout).toContain(`(conflicts in ${Anchors}, shared.txt)`);
-		expect(git(remote, "rev-parse", "landing")).toBe(tip);
-		expect(git(remote, "rev-parse", "main")).toBe(m);
+		expect(r.stdout).toMatch(
+			new RegExp(`file-fix-ticket ${red}, reverted in \\w+ with ${tip}`),
+		);
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-parse", "landing")).toBe(landed);
+		expect(git(remote, "show", `${landed}:shared.txt`)).toBe("seed");
 	});
 
 	it("fails, naming the file, where the culprit touched only the anchors file, as keeping its hunks reverts nothing", () => {
@@ -211,6 +224,110 @@ describe("a culprit whose revert conflicts in an anchors file (#3935)", () => {
 
 		expect(remoteGit(work).revertOnLanding(culprit, null, "why")).toEqual({
 			failed: expect.stringContaining(`(conflicts in ${Anchors})`),
+		});
+		expect(git(remote, "rev-parse", "landing")).toBe(tip);
+	});
+});
+
+describe("a culprit whose revert conflicts in a hand-written file (#4453)", () => {
+	const writeShared = (text: string) =>
+		fs.writeFileSync(path.join(work, "shared.txt"), `${text}\n`);
+
+	const pushRedThen = (...later: string[]) => {
+		writeShared("seed");
+		const m = commit("m");
+		writeShared("red");
+		const red = commit("red");
+		const shas = later.map((name) => {
+			writeShared(name);
+			return commit(name);
+		});
+		const tip = git(work, "rev-parse", "HEAD");
+		git(work, "push", "-q", "origin", `${m}:main`, `${tip}:landing`);
+		return { m, red, later: shas, tip };
+	};
+
+	it("reverts the later commit with it as one push, moves main past both, and files a re-land ticket the fix ticket names", async () => {
+		const { red, later } = pushRedThen("later");
+		const { gh, readStore } = stubTracker();
+		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-parse", "landing")).toBe(landed);
+		expect(git(remote, "show", `${landed}:shared.txt`)).toBe("seed");
+		const files = git(remote, "ls-tree", "--name-only", landed).split("\n");
+		expect(files).not.toContain("red.txt");
+		expect(files).not.toContain("later.txt");
+		const reverts = git(remote, "log", "--format=%s", `${later[0]}..${landed}`);
+		expect(reverts.split("\n")).toEqual(['Revert "red"', 'Revert "later"']);
+
+		const issues: { number: number; title: string; body: string }[] =
+			readStore();
+		const reland = issues.find((i) =>
+			i.title.startsWith(
+				`Re-land ${later[0]?.slice(0, 9)}, reverted with ${red.slice(0, 9)}`,
+			),
+		);
+		const fix = issues.find((i) =>
+			i.title.startsWith(`Re-land ${red.slice(0, 9)}, reverted by the lander`),
+		);
+		expect(reland?.body).toContain(`Its revert conflicted with ${later[0]}`);
+		expect(fix?.body).toContain(`#${reland?.number}`);
+	});
+
+	it("fails, naming the cap and #4453, where more later commits changed the conflicting files than it reverts with one culprit", () => {
+		const { m, red, tip } = pushRedThen("a", "b", "c", "d");
+
+		expect(remoteGit(work).revertOnLanding(red, m, "why")).toEqual({
+			failed: expect.stringContaining(
+				"(conflicts in shared.txt); 4 later commits changed them, past the 3 the lander reverts with one culprit (#4453)",
+			),
+		});
+		expect(git(remote, "rev-parse", "landing")).toBe(tip);
+	});
+
+	it("fails, reverting nothing, where the conflicting file is generated-only", () => {
+		fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+		fs.writeFileSync(
+			path.join(work, "docs", "doc-map-classes.json"),
+			JSON.stringify({
+				"shared.txt": { section: "A", class: "generated-only" },
+			}),
+		);
+		const { m, red, tip } = pushRedThen("later");
+
+		expect(remoteGit(work).revertOnLanding(red, m, "why")).toEqual({
+			failed: expect.stringContaining(
+				"(conflicts in shared.txt); shared.txt is generated",
+			),
+		});
+		expect(git(remote, "rev-parse", "landing")).toBe(tip);
+	});
+
+	it("fails, naming the later commit, where its own revert does not apply", () => {
+		writeShared("seed");
+		const m = commit("m");
+		writeShared("red");
+		const red = commit("red");
+		writeShared("d");
+		const d = commit("d");
+		git(work, "checkout", "-q", "--detach", red);
+		writeShared("x");
+		commit("x");
+		try {
+			git(work, "merge", "-q", "--no-edit", d);
+		} catch {
+			/* shared.txt conflicts, settled below as the merge's own change. */
+		}
+		writeShared("resolved");
+		const tip = commit("resolved");
+		git(work, "push", "-q", "origin", `${m}:main`, `${tip}:landing`);
+
+		expect(remoteGit(work).revertOnLanding(red, m, "why")).toEqual({
+			failed: expect.stringContaining(
+				"a later commit that changed them, did not apply",
+			),
 		});
 		expect(git(remote, "rev-parse", "landing")).toBe(tip);
 	});
@@ -258,7 +375,7 @@ describe("a culprit whose revert conflicts in a regenerated file (#4452)", () =>
 			render(work, { at: landed }).text,
 		);
 		expect(
-			whyNotLanderRevert(work, { culprit: red, sha: landed, tip }),
+			whyNotLanderRevert(work, { culprits: [red], sha: landed, tip }),
 		).toBeNull();
 	});
 
@@ -291,7 +408,7 @@ describe("a culprit whose revert conflicts in a regenerated file (#4452)", () =>
 		expect(`${git(work, "show", `${sha}:${Manifest}`)}\n`).toBe(
 			render(work, { at: sha }).text,
 		);
-		expect(whyNotLanderRevert(work, { culprit: red, sha, tip })).toBeNull();
+		expect(whyNotLanderRevert(work, { culprits: [red], sha, tip })).toBeNull();
 	});
 
 	it("refuses a revert whose regenerated file is not its generator's output", () => {
@@ -312,7 +429,7 @@ describe("a culprit whose revert conflicts in a regenerated file (#4452)", () =>
 		);
 		const sha = git(work, "rev-parse", "HEAD");
 
-		expect(whyNotLanderRevert(work, { culprit: red, sha, tip })).toBe(
+		expect(whyNotLanderRevert(work, { culprits: [red], sha, tip })).toBe(
 			`its tree is not the clean revert of ${red} on ${tip}`,
 		);
 	});
