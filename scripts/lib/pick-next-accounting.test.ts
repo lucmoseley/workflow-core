@@ -152,12 +152,12 @@ describe("the DISPATCHABLE FLOOR (mantahostels#1507)", () => {
 });
 
 describe("the open-issue tally (#591)", () => {
-	it("tallies the gated, dispatched and degraded categories too", () => {
+	it("tallies each issue under the category its exclusion names (#4381)", () => {
 		const enriched = [
-			{ number: 1, excluded: null },
-			{ number: 2, excluded: "gated until 2026-11-14 (9d) — later" },
-			{ number: 3, excluded: "dispatched 0.1h ago — /implement 3" },
-			{ number: 4, excluded: "readiness unknown — HTTP 502" },
+			{ number: 1, exclusionCategory: null },
+			{ number: 2, exclusionCategory: "gated" },
+			{ number: 3, exclusionCategory: "already dispatched" },
+			{ number: 4, exclusionCategory: "degraded" },
 		];
 		const tally = openTallyOf({ enriched, frontier: [enriched[0]] });
 		const count = (name: string) =>
