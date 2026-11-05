@@ -14,14 +14,12 @@
  * it adopts a newer tip (lib/refill-code.js), the helper names this file
  * through the boot link, which always names the worktree the loop last ran.
  * Run from any other linked git worktree, a session's among them (#4425), it
- * names the main checkout's copy, as removing that worktree would strand it.
+ * names the main checkout's copy.
  * Moving or renaming this file strands every live overflow session, as does
  * removing a plugin version a loop ran from.
  *
  * Residual (#4425): a session launched from a linked worktree runs the main
- * checkout's copy, so one whose command line lags fails its helper; and a
- * worktree whose common dir names no checkout (lib/main-checkout.js) keeps
- * its own path.
+ * checkout's copy, so one whose command line lags fails its helper.
  *
  *   node scripts/lib/overflow-key.js <key var> <secrets file>
  *     prints the variable's value; a missing file or variable exits 1 naming
