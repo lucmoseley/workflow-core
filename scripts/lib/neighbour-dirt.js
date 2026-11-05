@@ -6,12 +6,10 @@
  * (claims only, #1922); and `readStrandedFiles`, a session's own uncommitted
  * files once they are subtracted, which a park's hand-off owes (#2391).
  *
- * THE STORES ARE KEYED ON THE HOST ROOT, a worktree file as
- * `.claude/worktrees/<name>/<path>` (`relativeToRepo`), while git in the
- * session's tree names it `<path>`. `keyPaths` pairs the two (#4243).
+ * The stores key a file by its path in the session's tree (#4397), as git in
+ * that tree names it.
  */
 
-const path = require("node:path");
 const { listedSessionIds } = require("./agent-liveness");
 const proc = require("./arbiter-proc");
 const store = require("./arbiter-store");
@@ -144,21 +142,6 @@ function readObservedElsewhere(sid) {
 }
 
 /**
- * Each of `rels`, paths git in `tree` names, beside the key the shared stores
- * record it under. A path the stores cannot key — a tree outside the host
- * root — is dropped: nothing recorded it, so it is billed to nobody.
- * @param {string} tree
- * @param {string[]} rels
- * @returns {{ rel: string, key: string }[]}
- */
-function keyPaths(tree, rels) {
-	return rels.flatMap((rel) => {
-		const key = store.relativeToRepo(path.join(tree, rel));
-		return key === null ? [] : [{ rel, key }];
-	});
-}
-
-/**
  * A session's ledgered files still uncommitted in `tree` — tracked and dirty,
  * or new and untracked — a live neighbour's claimed files aside, named as git
  * in `tree` names them; [] where the ledger or the tree cannot be read (#958:
@@ -173,13 +156,12 @@ function readStrandedFiles(sessionId, tree) {
 	const dirty = readDirtyTracked(tree);
 	if (!dirty) return [];
 	const theirs = readClaimedElsewhere(sessionId);
-	return keyPaths(tree, [...dirty, ...(readUntrackedFiles(tree) ?? [])])
-		.filter(({ key }) => written.includes(key) && !theirs.has(key))
-		.map(({ rel }) => rel);
+	return [...dirty, ...(readUntrackedFiles(tree) ?? [])].filter(
+		(rel) => written.includes(rel) && !theirs.has(rel),
+	);
 }
 
 module.exports = {
-	keyPaths,
 	readClaimedElsewhere,
 	readObservedElsewhere,
 	readStrandedFiles,

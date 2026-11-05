@@ -67,7 +67,7 @@ function buildHostPorts() {
 		/** @returns {import("./arbiter-store").ListedLock[] | null} */
 		listLocks: () => store().listLocks(),
 		/** @param {string} p */
-		relativeToRepo: (p) => store().relativeToRepo(p),
+		claimKey: (p) => store().claimKey(p),
 		/** @param {string} rel */
 		isGuarded: (rel) => store().isGuarded(rel),
 		/** @param {string} a @param {string} b */

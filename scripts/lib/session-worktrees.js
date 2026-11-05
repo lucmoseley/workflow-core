@@ -155,27 +155,18 @@ function worktreeOwners(worktrees, listed) {
 }
 
 /**
- * A worktree's path relative to the host root, or null where it sits outside
- * it — where no claim or ledger, both spelt host-relative, can name its files.
+ * How a worktree is named in a report: relative to the host root where it sits
+ * inside it, else as given.
  * @param {string} root
  * @param {string} wt
- * @returns {string|null}
+ * @returns {string}
  */
-function hostRelative(root, wt) {
+function worktreeLabel(root, wt) {
 	const rel = path.relative(deref(root), wt);
-	return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : null;
+	return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : wt;
 }
 
-/**
- * How a worktree is named in a report: host-relative where it can be, else
- * as given.
- * @param {string} root
- * @param {string} wt
- */
-const worktreeLabel = (root, wt) => hostRelative(root, wt) ?? wt;
-
 module.exports = {
-	hostRelative,
 	readJobCwds,
 	readLinkedWorktrees,
 	worktreeHolding,

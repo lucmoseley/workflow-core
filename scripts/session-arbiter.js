@@ -356,7 +356,7 @@ function claimSubjects(rel, anchor, anchorLength) {
 
 	let text;
 	try {
-		text = fs.readFileSync(path.join(store.paths.repoRoot(), rel), "utf8");
+		text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 	} catch (e) {
 		const { code, message } = caught(e);
 		return fallback(`the file could not be read (${code || message})`);
@@ -477,7 +477,7 @@ function unallocatedEntryNotes(file, newIds, sessionId) {
  */
 function cmdCheck(filePath, sessionId, { anchor, anchorLength, newIds } = {}) {
 	if (filePath === undefined) throw new Error("check needs a path");
-	const file = store.relativeToRepo(filePath);
+	const file = store.claimKey(filePath);
 	// The WATCHED union, not the warning tier: a scripts/ path takes a claim so
 	// its content is recorded (mantahostels#287, mantahostels#295).
 	if (file === null || !store.isWatched(file)) return;
@@ -657,10 +657,7 @@ const REGIONS_SHOWN = 12;
 function buildUnknownRegionReason(rel, region) {
 	let ids;
 	try {
-		const text = fs.readFileSync(
-			path.join(store.paths.repoRoot(), rel),
-			"utf8",
-		);
+		const text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 		ids = [...new Set(regions.parseRegions(text, rel).map((r) => r.id))];
 		if (ids.includes(region)) return null;
 		const append = region.match(/^B(\d+)$/);
@@ -768,10 +765,7 @@ function wholeFileRegionWarning(rel) {
 	// offered an append slot this call could not verify it has.
 	let allocatable = false;
 	try {
-		const text = fs.readFileSync(
-			path.join(store.paths.repoRoot(), rel),
-			"utf8",
-		);
+		const text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 		const ids = [...new Set(regions.parseRegions(text, rel).map((r) => r.id))];
 		const rows = ids.filter((id) => id.startsWith(regions.ROW_PREFIX));
 		// Sorted NUMERICALLY for the range below: document order need not be
@@ -830,7 +824,7 @@ function cmdClaim(filePath, sessionId, generator = false) {
 	// A script naming its own region spells the subject out —
 	// `claim docs/doc-map.md#B42` — rather than handing over an anchor it would
 	// have to quote through a shell.
-	const rel = store.relativeToRepo(filePath);
+	const rel = store.claimKey(filePath);
 	// The watched union, so a script writing a scripts/ file takes a claim and so
 	// gets a content record (mantahostels#295).
 	if (rel === null || !store.isWatched(rel)) return 0;
@@ -994,7 +988,7 @@ function cmdClaimAll(filePaths, sessionId) {
 		...new Set(
 			/** @type {string[]} */ (
 				filePaths
-					.map((p) => store.relativeToRepo(p))
+					.map((p) => store.claimKey(p))
 					.filter((r) => r !== null && store.isWatched(r))
 			),
 		),
@@ -1170,7 +1164,7 @@ function readOwnSubjectsOn(rel, sessionId) {
  */
 function cmdRelease(filePath, sessionId, opts = {}) {
 	if (filePath === undefined) return refuseUsage(usageOf("release"));
-	const rel = store.relativeToRepo(filePath);
+	const rel = store.claimKey(filePath);
 	if (rel !== null && store.splitSubject(rel).region === null) {
 		// A bare regioned path means "everything I hold on this file". A session
 		// holding three §B entries would otherwise have to remember and spell out
@@ -1206,7 +1200,7 @@ function releaseSubject(
 	sessionId,
 	{ generator = false, notMine = false } = {},
 ) {
-	const rel = filePath === null ? null : store.relativeToRepo(filePath);
+	const rel = filePath === null ? null : store.claimKey(filePath);
 	// The watched union: a scripts/ path takes a claim now (mantahostels#295), so its holder
 	// must be able to give it back. PLUS the exempt paths, which take no new
 	// claim but can still carry one minted before the exemption landed (mantahostels#2103) —
@@ -1421,7 +1415,7 @@ function cmdReleaseCommitted(sessionId, paths, commit) {
 	// (no session id)" after every commit a person makes in a terminal.
 	if (!sessionId) return 0;
 	const landed = new Set(
-		paths.map((p) => store.relativeToRepo(p)).filter((rel) => rel !== null),
+		paths.map((p) => store.claimKey(p)).filter((rel) => rel !== null),
 	);
 	const me = store.identify(sessionId);
 	const held = store.readHeldBy(sessionId);
@@ -1653,7 +1647,7 @@ function cmdRecordCommit(commit, sessionId) {
  */
 function cmdVersions(filePath, sessionId) {
 	if (filePath === undefined) return refuseUsage(usageOf("versions"));
-	const rel = store.relativeToRepo(filePath);
+	const rel = store.claimKey(filePath);
 	if (rel === null) {
 		writeStderr(`session-arbiter: ${filePath} is not in this repo\n`);
 		return 2;
@@ -2304,7 +2298,7 @@ function cmdList(all = false) {
  */
 function readHighWaterMarkFor(rel) {
 	const file = path.join(
-		store.paths.repoRoot(),
+		store.treeRoot(),
 		path.dirname(rel),
 		DATA_FILES.highWater,
 	);
@@ -2341,7 +2335,7 @@ function readHighWaterMarkFor(rel) {
  * @param {string} sessionId
  */
 function cmdAllocEntry(filePath, sessionId) {
-	const rel = store.relativeToRepo(filePath || "docs/doc-map.md");
+	const rel = store.claimKey(filePath || "docs/doc-map.md");
 	if (rel === null || !regions.isRegioned(rel)) {
 		writeStderr(
 			`session-arbiter: ${filePath} takes no per-entry claim, so there is no id to allocate. Only docs/doc-map.md does (mantahostels#848).\n`,
@@ -2351,7 +2345,7 @@ function cmdAllocEntry(filePath, sessionId) {
 
 	let text;
 	try {
-		text = fs.readFileSync(path.join(store.paths.repoRoot(), rel), "utf8");
+		text = fs.readFileSync(path.join(store.treeRoot(), rel), "utf8");
 	} catch (e) {
 		const { code, message } = caught(e);
 		writeStderr(

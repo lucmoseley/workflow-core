@@ -320,7 +320,8 @@ describe("a session in a linked worktree (#2386)", () => {
 		declare([RLS], tree);
 		recordBase();
 		write(SQL, "x\n", tree);
-		record(path.join(tree, SQL));
+		/* Keyed by its path in the tree, as the recorder run there keys it (#4397). */
+		record(SQL);
 		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
 	});
 
@@ -832,20 +833,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		expect(logs).toContain(
 			"the write ledger did not read — this session's unstaged changes left unmatched",
 		);
-	});
-
-	it("bills a worktree outside the root none of the root's ledger", () => {
-		declare([RLS]);
-		write(SQL);
-		record(SQL);
-		git("add", "--", SQL);
-		git("commit", "-qm", "own");
-		recordBase(ME);
-		const tree = path.join(sb.dir, "elsewhere");
-		git("worktree", "add", "-q", "--detach", tree);
-		declare([RLS], tree);
-		fs.rmSync(path.join(tree, SQL));
-		expect(envelope({ cwd: tree })).toBeNull();
 	});
 
 	it("logs a staged listing git fails, and states no tier (#3446)", () => {

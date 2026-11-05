@@ -21,6 +21,7 @@ import {
 } from "./agents-stop-fake";
 import { parseResumed } from "./bg-resume.js";
 import {
+	buildBgBranch,
 	buildRekeyedResponse,
 	FAKE_COPY,
 	type ResumeKind,
@@ -41,7 +42,6 @@ import {
 	KEY_VAR,
 	SESSION,
 } from "./resume-io-fake";
-import { shellQuote } from "./sh-quote.js";
 
 type ResumeIo = import("./refill-resume.js").ResumeIo;
 type ChildRun = ReturnType<ResumeIo["runClaude"]>;
@@ -95,9 +95,7 @@ function launchAs(kind: ResumeKind | null) {
 	const err = path.join(dir, "bg-err");
 	fs.writeFileSync(out, r ? r.stdout : "no job named\n");
 	fs.writeFileSync(err, r ? r.stderr : "");
-	writeClaudeStub(bin, [
-		`if [ "$1" = "--bg" ]; then cat ${shellQuote(out)}; cat ${shellQuote(err)} >&2; exit 0; fi`,
-	]);
+	writeClaudeStub(bin, [buildBgBranch({ out, err })]);
 	return io().runClaude(["--bg", "--resume", SESSION, "carry on"], {
 		cwd: root,
 		env: seatEnv(),
