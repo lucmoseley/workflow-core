@@ -19,6 +19,9 @@
  *
  * Loosen a case and the hook tells a session to edit files a live neighbour is
  * still writing, or lets prose and code end a session with no quality pass.
+ *
+ * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
+ * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";

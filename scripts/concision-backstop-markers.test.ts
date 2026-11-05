@@ -4,6 +4,9 @@
  * range this session changed (mantahostels#139). Loosen a case and a pass
  * over one commit excuses the session's later, unreviewed ones. The fixture
  * and the two-session setup: concision-backstop.test.ts's header.
+ *
+ * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
+ * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
 import fs from "node:fs";

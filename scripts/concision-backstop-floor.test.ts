@@ -5,6 +5,9 @@
  * closing steps it hands over (#2031). Loosen a case and an /implement
  * session or a hook-only change ends with no review, or the nag stops naming
  * the steps it owes. The fixture: concision-backstop.test.ts's header.
+ *
+ * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
+ * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
 import { spawnSync } from "node:child_process";

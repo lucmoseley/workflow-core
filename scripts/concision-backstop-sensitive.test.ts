@@ -4,6 +4,9 @@
  * tier at any size (#1618). Loosen a case and a change to a declared area
  * gets the standard review, or none under the churn floor. The fixture:
  * concision-backstop.test.ts's header.
+ *
+ * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
+ * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
 import fs from "node:fs";
