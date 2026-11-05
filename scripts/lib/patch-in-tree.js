@@ -1,8 +1,9 @@
 /*
  * patch-in-tree.js — whether a patch's post-image is already in the calling
- * tree's files (#4338). commit-paths.js --patch never writes the working
- * tree, so a patch cut in another worktree commits lines this tree lacks, and
- * git then shows this tree's files as that commit reversed.
+ * tree's files (#4338): its lines, a mode change, a binary file's bytes
+ * (#4339). commit-paths.js --patch never writes the working tree, so a patch
+ * cut in another worktree commits what this tree lacks, and git then shows
+ * this tree's files as that commit reversed.
  *
  * Residual: a hunk that only deletes lines is not checked, since its
  * post-image is empty and absence cannot be tested by position without
@@ -17,10 +18,10 @@ const { formatSide, parseHeader } = require("./hunk-header.js");
  * @typedef {{header: string, newStart: number, lines: string[], noEol: boolean}} NewSide
  * @typedef {{section: string, file: string}} PatchSection one `diff --git`
  *   section of a patch and the top-level file it touches
- * @typedef {{text: string, blob: string, mode: string|null}} TreeFile a
+ * @typedef {{text: string, blob: string, modes: string[]}} TreeFile a
  *   top-level path as git would store it: its text, its blob sha (a
- *   submodule's HEAD commit), and its mode, null for a regular file in a
- *   checkout that does not track the executable bit
+ *   submodule's HEAD commit), and each mode git would read it as — more than
+ *   one where the checkout does not track the executable bit or symlinks
  */
 
 /**
@@ -113,16 +114,15 @@ function missingHunks(section, text) {
 }
 
 /**
- * Why this tree does not hold `section`'s post-image for `file`, or null
- * where it does. `readFile` gives a top-level path as git would store it, or
- * null where nothing is on disk there. A binary section is judged by its
- * `index ..<new>` sha, a mode change by its `new mode`; neither has a hunk.
- * @param {PatchSection} s
- * @param {(file: string) => TreeFile|null} readFile
+ * Why this tree does not hold `section`'s post-image, or null where it does.
+ * `tree` is the section's file as git would store it, null where nothing is
+ * on disk there. A binary section is judged by its `index ..<new>` sha, a
+ * mode change by its `new mode`; neither has a hunk.
+ * @param {string} section
+ * @param {TreeFile|null} tree
  * @returns {string|null}
  */
-function notInTree({ section, file }, readFile) {
-	const tree = readFile(file);
+function notInTree(section, tree) {
 	if (/^deleted file mode /m.test(section))
 		return tree === null ? null : "deleted, still on disk";
 	const created = /^(?:rename from|new file mode) /m.test(section);
@@ -132,25 +132,18 @@ function notInTree({ section, file }, readFile) {
 		return parseNewSides(section).length > 0 || created || newMode || binary
 			? "not on disk"
 			: null;
-	if (newMode && !holdsMode(tree.mode, newMode))
-		return `mode ${tree.mode ?? "of a regular file"}, the patch gives ${newMode}`;
-	const post = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(section)?.[1];
-	if (binary && post && !tree.blob.startsWith(post))
-		return `blob ${tree.blob.slice(0, post.length)}, the patch gives ${post}`;
+	if (newMode && !tree.modes.includes(newMode))
+		return `mode ${tree.modes.join(" or ")}, the patch gives ${newMode}`;
+	if (binary) {
+		const post = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(section)?.[1];
+		if (!post) return "a binary section with no index line to check it by";
+		if (!tree.blob.startsWith(post))
+			return `blob ${tree.blob.slice(0, post.length)}, the patch gives ${post}`;
+	}
 	const missing = missingHunks(section, tree.text);
 	return missing.length > 0
 		? `lacks the lines of hunk ${missing.join(", ")}`
 		: null;
 }
-
-/**
- * Whether a tree file of `mode` holds `want`. A regular file whose
- * executable bit the checkout does not track (`mode` null) holds either
- * regular-file mode, as git reports no change between them there.
- * @param {string|null} mode
- * @param {string} want
- */
-const holdsMode = (mode, want) =>
-	mode === null ? /^100[67]/.test(want) : mode === want;
 
 module.exports = { notInTree };
