@@ -68,7 +68,7 @@ function recordWrite(filePath, sessionId) {
 	// The ledger names FILES, because the guard-commit-form core compares it against
 	// staged paths and git stages no region: an unstripped `docs/doc-map.md#B42`
 	// matches nothing there, so the session is warned off its own commit.
-	const subject = core.relativeToRepo(filePath);
+	const subject = core.claimKey(filePath);
 	if (subject === null) return null; // outside the repo; no diff can name it
 	// Stripped AFTER the path is made repo-relative, and after the null test: `#`
 	// is only a separator on a path the region set names, and that set is written

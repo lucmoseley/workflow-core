@@ -36,7 +36,7 @@
  */
 
 const path = require("node:path");
-const { execGit, gitCommonDir } = require("./git.js");
+const { execGit, gitCommonDir, gitCommonDirOrThrow } = require("./git.js");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { writeFd } = require("./write-fd.js");
@@ -137,8 +137,7 @@ function sessionTree({ cwd }) {
  *   `host`, where the caller already holds it, so the answer reads no ambient
  *   `CLAUDE_PROJECT_DIR` (#3327); else `hostRoot()`, and with neither the git
  *   top level is host and worktree alike. `timeoutMs` bounds each git read,
- *   none by default; a read past it answers the host, and the top-level read
- *   calls `onTimeout`
+ *   none by default; a read past it answers the host and calls `onTimeout`
  * @returns {string}
  */
 function worktreeRoot(
@@ -147,18 +146,18 @@ function worktreeRoot(
 ) {
 	if (!given && !process.env.CLAUDE_PROJECT_DIR) return hostRoot(cwd);
 	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);
-	let top;
 	try {
-		top = gitTopLevel(cwd, timeoutMs);
+		const top = gitTopLevel(cwd, timeoutMs);
+		if (top === host) return host;
+		const bound = { timeout: timeoutMs };
+		return gitCommonDirOrThrow(cwd, bound) === gitCommonDirOrThrow(host, bound)
+			? top
+			: host;
 	} catch (e) {
 		if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 		/* Outside any repository there is no worktree to prefer. */
 		return host;
 	}
-	if (top === host) return host;
-	const bound = { timeout: timeoutMs };
-	const mine = gitCommonDir(cwd, bound);
-	return mine !== null && mine === gitCommonDir(host, bound) ? top : host;
 }
 
 /**

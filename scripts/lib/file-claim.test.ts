@@ -19,6 +19,7 @@
  * fault that denies instead of logging wedges every write.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -30,6 +31,7 @@ import {
 	store,
 	storeAt,
 } from "./arbiter-testkit";
+import { recordToolWrite } from "./arbiter-tool-record.js";
 import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
 import { cutWorktree } from "./git-fixture";
@@ -1697,6 +1699,35 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		expect(
 			(store.listLocks() as Lock[]).map((l) => [l.sessionId, l.path]),
 		).toEqual([["alice", "docs/plain.md"]]);
+	});
+
+	it("pins the worktree's copy, not the main checkout's (#4397)", () => {
+		const wt = cutWorktree(at.main);
+		const hashOf = (tree: string, body: string) => {
+			const file = path.join(tree, "docs/plain.md");
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, body);
+			return spawnSync("git", ["hash-object", file], {
+				encoding: "utf8",
+			}).stdout.trim();
+		};
+		hashOf(at.main, "main copy\n");
+		const mine = hashOf(wt, "worktree copy\n");
+		writeFrom(wt, "bob");
+		/* The pin is the after-write record's, which the PostToolUse hook makes
+		 * in the session's directory. */
+		const back = process.cwd();
+		process.chdir(wt);
+		try {
+			recordToolWrite(path.join(wt, "docs/plain.md"), "bob");
+		} finally {
+			process.chdir(back);
+		}
+		const [lock] = store.listLocks() as (Lock & {
+			blob?: string;
+			preBlob?: string;
+		})[];
+		expect([lock?.blob, lock?.preBlob]).toEqual([mine, mine]);
 	});
 
 	it("takes no claim on the worktree's own .claude/tmp/", () => {

@@ -9,7 +9,9 @@
  * TWO TREES, ONE KEY. Dirt is read from the session's tree (`sessionTree`, the
  * payload's cwd); the write ledger, claims, debts and observations are the host
  * root's shared stores, keyed by the path in the session's tree
- * (`lib/arbiter-core.js`'s `treeRoot`), so git's spelling is the key.
+ * (`lib/arbiter-core.js`'s `treeRoot`), so git's spelling is the key. The two
+ * trees agree because the harness runs the hook in the payload's cwd, which
+ * `treeRoot` reads as the process's own.
  *
  * The uncommitted-work half of the turn-end rule, which this guard enforces,
  * lives in docs/agents/guard-registry.md §Conventions (#2034); the

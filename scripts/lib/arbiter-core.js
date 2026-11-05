@@ -782,7 +782,7 @@ function treeRoot() {
  * file this session's copy holds.
  * @param {string} filePath
  */
-function relativeToRepo(filePath) {
+function claimKey(filePath) {
 	const tree = treeRoot();
 	const rel = path.relative(tree, path.resolve(tree, filePath));
 	if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
@@ -1568,7 +1568,7 @@ module.exports = {
 	REFUSING,
 	registryLookup,
 	registryNames,
-	relativeToRepo,
+	claimKey,
 	repoRoot,
 	treeRoot,
 	liveOrResumed,

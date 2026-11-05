@@ -184,7 +184,7 @@ module.exports = {
 	recordWrite: ledger.recordWrite,
 	recordWant: wants.recordWant,
 	registerDenial: debts.registerDenial,
-	relativeToRepo: core.relativeToRepo,
+	claimKey: core.claimKey,
 	treeRoot: core.treeRoot,
 	release: locksMod.release,
 	releaseIssue: issues.releaseIssue,

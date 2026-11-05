@@ -126,7 +126,7 @@ describe("scope — the prefix rule, not a hand-listed hot set", () => {
 	});
 
 	it("returns null for a path outside the repo", () => {
-		expect(store.relativeToRepo("/etc/passwd")).toBeNull();
+		expect(store.claimKey("/etc/passwd")).toBeNull();
 	});
 });
 

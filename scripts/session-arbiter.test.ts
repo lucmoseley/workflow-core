@@ -1268,7 +1268,7 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		expect(r.stderr).toContain(`usage: session-arbiter.js ${usage}\n`);
 	});
 
-	/* #1346: each fell to store.relativeToRepo(undefined), whose TypeError main's
+	/* #1346: each fell to store.claimKey(undefined), whose TypeError main's
 	 * fail-open catch logged before exiting 0 with nothing said. */
 	it.each([
 		[["claim"], "claim <path> [session-id] [--generator]"],
