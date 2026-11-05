@@ -609,24 +609,6 @@ function typeResume(l, prompt) {
 	);
 }
 
-/**
- * `l`'s full session id, the listing's else its job record's, and its job's
- * cwd, else its checkout.
- * @param {import("./refill-blocks.js").JobLaunch} l
- * @returns {import("./refill-blocks.js").ResumeTarget}
- */
-function readResumeTargetOf(l) {
-	const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
-		readJobRecordOf(l)
-	);
-	return {
-		sessionId:
-			l.sessionId ??
-			(typeof job?.sessionId === "string" ? job.sessionId : null),
-		cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
-	};
-}
-
 /** @param {import("./refill-loop.js").LoopLaunch} l */
 const writeLaunch = (l) => updateState(launchRecorded(l), log);
 
@@ -830,7 +812,7 @@ const postHandOff = (root, args) =>
 const blockIo = (served) => ({
 	stop: stopOn,
 	type: typeResume,
-	resumeTargetOf: readResumeTargetOf,
+	resumeTargetOf: resume.readResumeTarget,
 	resumeStopped: resume.resumeStopped,
 	adoptResumed: resume.adoptResumed,
 	writeLaunch,

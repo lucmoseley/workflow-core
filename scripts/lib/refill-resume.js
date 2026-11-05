@@ -410,6 +410,24 @@ function resumeSteps(io) {
 	}
 
 	/**
+	 * `l`'s full session id, the listing's else its job record's, and its job's
+	 * cwd, else its checkout.
+	 * @param {JobLaunch} l
+	 * @returns {import("./refill-blocks.js").ResumeTarget}
+	 */
+	function readResumeTarget(l) {
+		const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
+			l.jobId ? io.readJobRecord(l.seat, l.jobId) : null
+		);
+		return {
+			sessionId:
+				l.sessionId ??
+				(typeof job?.sessionId === "string" ? job.sessionId : null),
+			cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
+		};
+	}
+
+	/**
 	 * resumeStopped's launcher run judged: the job it named, woken in place or
 	 * a copy, settled.
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
@@ -526,6 +544,7 @@ function resumeSteps(io) {
 	return {
 		adoptResumed,
 		moveSession,
+		readResumeTarget,
 		removeJobRecord,
 		resumeStopped,
 		seatEnv,

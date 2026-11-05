@@ -192,6 +192,29 @@ describe("release-plugin", () => {
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
+	it("refuses while migrations/hold.txt stands at HEAD, quoting it and tagging nothing (#4252)", () => {
+		write("migrations/hold.txt", "Held until the rollout ships.\n");
+		git("add", "--all");
+		git("commit", "-qm", "hold");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("releases are held by migrations/hold.txt");
+		expect(r.stderr).toContain("Held until the rollout ships.");
+		expect(git("tag", "--list")).toBe("");
+	});
+
+	it("refuses a commit from before the hold while origin/main carries it (#4252)", () => {
+		write("migrations/hold.txt", "Held until the rollout ships.\n");
+		git("add", "--all");
+		git("commit", "-qm", "hold");
+		landed();
+		git("checkout", "-q", "--detach", "HEAD~1");
+		const r = run({}, { onMain: false });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("releases are held by migrations/hold.txt");
+		expect(git("tag", "--list")).toBe("");
+	});
+
 	it("refuses a version already tagged, naming the tag", () => {
 		expect(run().status).toBe(0);
 		const r = run();
