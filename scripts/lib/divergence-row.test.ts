@@ -32,8 +32,9 @@ interface Ports {
 	projectDir: (top: string) => string;
 }
 
-const { divergenceRow } = require("./divergence-row.js") as {
+const { divergenceRow, landRow } = require("./divergence-row.js") as {
 	divergenceRow: (payload: unknown, ports: Ports) => Row | null;
+	landRow: (tree: string, output: string, ports: Ports) => Row | null;
 };
 
 /** A repo the fake git answers for: its counts against each ref it has. */
@@ -547,5 +548,50 @@ describe("divergenceRow", () => {
 		expect(fields(row)).toHaveLength(9);
 		expect(fields(row)[1]).toBe("a b c");
 		expect(fields(row)[7]).toBe("origin/x y");
+	});
+});
+
+describe("landRow", () => {
+	it("records a land a neighbour beat as kind `land`, against the pushed ref", () => {
+		expect(
+			fields(landRow(WORK, PUSH_REJECT.stderr, ports(repoAt(2, 1)))).slice(
+				1,
+				9,
+			),
+		).toEqual([
+			"work",
+			"land",
+			"2",
+			"1",
+			"diverged",
+			"4",
+			"origin/main",
+			"Updates were rejected because",
+		]);
+	});
+
+	it("records nothing for a push output carrying no refusal, or when switched off", () => {
+		expect(
+			landRow(WORK, "error: hook declined", ports(repoAt(2, 1))),
+		).toBeNull();
+		expect(
+			landRow(
+				WORK,
+				PUSH_REJECT.stderr,
+				ports(repoAt(2, 1), { disabled: true }),
+			),
+		).toBeNull();
+	});
+});
+
+describe("divergenceRow on PostToolUseFailure", () => {
+	it("reads a failed call's output from `error`", () => {
+		const failed = {
+			tool_name: "Bash",
+			cwd: WORK,
+			tool_input: { command: "git push origin main" },
+			error: `Exit code 1\n${PUSH_REJECT.stderr}`,
+		};
+		expect(fields(divergenceRow(failed, ports(repoAt(1, 0))))[2]).toBe("push");
 	});
 });

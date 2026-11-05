@@ -48,7 +48,8 @@
  * re-anchor the merge owes. A registry-anchor conflict is settled by the
  * per-row merge driver git config names (#4171). Neither the merge nor the
  * push carries a timeout of its own: every checker their hooks run is bounded
- * already (#4187).
+ * already (#4187). A push beaten by a neighbour is filed as a `land` row in
+ * the divergence log (#4446), the push running here where no Bash hook sees it.
  *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
@@ -632,13 +633,37 @@ function land(cwd) {
 	if (merged) mergeLanding(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
 	const push = gitShown(["push", "origin", "HEAD:landing"], dir);
+	if (!push.ok && MOVED.test(push.output)) {
+		recordMoved(root, dir, push.output);
+		throw new CheckoutError(
+			"landing moved after the fetch: a neighbour pushed first — land again, which merges the newer origin/landing into HEAD and pushes",
+		);
+	}
 	if (!push.ok)
 		throw new CheckoutError(
-			MOVED.test(push.output)
-				? "landing moved after the fetch: a neighbour pushed first — land again, which merges the newer origin/landing into HEAD and pushes"
-				: "the push to landing was refused, its output above — fix the finding, then land again",
+			"the push to landing was refused, its output above — fix the finding, then land again",
 		);
 	return { dir, head, merged, pushed: true, lander: startLanderFor(root, dir) };
+}
+
+/**
+ * File a push beaten by a neighbour as a divergence row (#4446), counted
+ * against a freshly fetched origin/landing so `behind` is the neighbours' real
+ * lead. Any fault drops the row: the refusal it records is the land's answer.
+ * @param {string} root
+ * @param {string} dir
+ * @param {string} output the refused push's output
+ */
+function recordMoved(root, dir, output) {
+	try {
+		fetchLanding(root);
+		const { landRow } = require("./divergence-row.js");
+		const { appendRow, buildHostPorts } = require("./divergence-row-host.js");
+		appendRow(landRow(dir, output, buildHostPorts(process.env)));
+	} catch {
+		/* An unrecorded refusal loses one observation; the land still says
+		 * why it stopped. */
+	}
 }
 
 /**

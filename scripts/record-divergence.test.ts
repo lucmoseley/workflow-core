@@ -234,6 +234,22 @@ describe("record-divergence.js", () => {
 		expect(marker).toBe("Not possible to fast-forward");
 	});
 
+	it("records a pull that exited non-zero, whose output PostToolUseFailure carries in `error`", () => {
+		const work = repoWith("failed-call", 1, 2);
+		run({
+			stdin: JSON.stringify({
+				hook_event_name: "PostToolUseFailure",
+				tool_name: "Bash",
+				cwd: work,
+				tool_input: { command: "git pull --ff-only origin main" },
+				error: "Exit code 128\nfatal: Not possible to fast-forward, aborting.",
+			}),
+		});
+		expect(readRows().map((r) => r.slice(1, 6))).toEqual([
+			["failed-call", "pull", "1", "2", "diverged"],
+		]);
+	});
+
 	it("stamps the row at WFC_NOW where it is set", () => {
 		const work = repoWith("pinned", 1, 1);
 		fire(work, "git pull --ff-only", FF_REFUSAL, {
@@ -482,6 +498,19 @@ describe("divergence-report.js", () => {
 		expect(out.byRepo.both.pull).toBe(1);
 		expect(out.byRepo.both.push).toBe(1);
 		expect(report()).toMatch(/on push \(lower bound\)/);
+	});
+
+	it("counts session-checkout.js's land rows in a column of their own", () => {
+		const dir = path.join(config, "projects", "-landed");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, "divergence.log"),
+			"2026-11-05T03:09:09.000Z\tlanded\tland\t2\t1\tdiverged\t9\torigin/landing\t! [rejected]\n",
+		);
+		const out = JSON.parse(report("--json"));
+		expect(out.byRepo.landed.land).toBe(1);
+		expect(out.byRepo.landed.medianBehindOnLand).toBe(1);
+		expect(report()).toMatch(/0 pull, 0 push, 1 land/);
 	});
 
 	it("drops rows outside --since", () => {

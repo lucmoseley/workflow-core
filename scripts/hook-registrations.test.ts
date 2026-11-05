@@ -181,6 +181,15 @@ const REGISTRATIONS: Registration[] = [
 		covers: ["Bash"],
 	},
 	{
+		/* #4446: a refused pull or push exits non-zero, so only this event
+		 * sees it. */
+		event: "PostToolUseFailure",
+		id: "scripts/record-divergence.js",
+		narrowing: "Bash(git *)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
 		/* #2026: a killed call fails, so only this event sees its exit code.
 		 * Unnarrowed, as any command can be killed. */
 		event: "PostToolUseFailure",

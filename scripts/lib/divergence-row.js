@@ -1,7 +1,9 @@
 /*
  * divergence-row.js — record-divergence.js's core (#2797): whether a Bash call
  * was a refused `git pull` or a rejected `git push`, and the row recording the
- * divergence that caused it (#289).
+ * divergence that caused it (#289). `session-checkout.js land` files its own
+ * refused push through landRow (#4446): that push runs inside node, where no
+ * Bash hook sees it.
  *
  * A CORE: it does no I/O. Every git read, the pushed ref, the session count,
  * the clock, the directory test and the log directory arrive as ports
@@ -69,14 +71,17 @@ const isPresent = (/** @type {unknown} */ v) =>
 	v !== undefined && v !== null && v !== false;
 
 /**
- * The text git printed: `tool_output`, else `tool_response`, else the whole
- * payload, as jq's `tostring` reads it — a string raw, anything else compact
- * JSON. The field's name has changed across harness versions.
+ * The text git printed: `tool_output`, else `tool_response`, else `error` —
+ * where a call that exited non-zero (PostToolUseFailure) carries it — else the
+ * whole payload, as jq's `tostring` reads it: a string raw, anything else
+ * compact JSON. The field's name has changed across harness versions.
  * @param {Record<string, unknown>} payload
  */
 function outputOf(payload) {
 	const v =
-		[payload.tool_output, payload.tool_response].find(isPresent) ?? payload;
+		[payload.tool_output, payload.tool_response, payload.error].find(
+			isPresent,
+		) ?? payload;
 	return typeof v === "string" ? v : JSON.stringify(v);
 }
 
@@ -176,10 +181,15 @@ function readRefusal(payload) {
 	);
 	const command = input?.command;
 	if (typeof command !== "string" || !command) return null;
-	const out = outputOf(p);
-	const marker = MARKERS.find((m) => out.includes(m));
+	const marker = markerIn(outputOf(p));
 	return marker ? { command, marker, cwd: p.cwd } : null;
 }
+
+/**
+ * The first refusal string `out` carries, or undefined.
+ * @param {string} out
+ */
+const markerIn = (out) => MARKERS.find((m) => out.includes(m));
 
 /**
  * The ref ahead/behind are counted against: the pushed ref (#2408), else —
@@ -213,7 +223,35 @@ function divergenceRow(payload, ports) {
 	/* A tree that is no directory has no top level either: git answers for
 	 * neither. */
 	if (!call?.tree) return null;
-	const top = ports.toplevel(call.tree);
+	return rowAt(call.tree, call.kind, refusal.marker, ports);
+}
+
+/**
+ * The row a refused `session-checkout.js land` push records, kind `land`, or
+ * null where its output carries no refusal string or the tree will not
+ * resolve. The caller fetches the pushed ref first, so `behind` is current.
+ * @param {string} tree the worktree landed from
+ * @param {string} output the push's output
+ * @param {DivergencePorts} ports
+ * @returns {Row | null}
+ */
+function landRow(tree, output, ports) {
+	if (ports.disabled) return null;
+	const marker = markerIn(output);
+	return marker ? rowAt(tree, "land", marker, ports) : null;
+}
+
+/**
+ * The row for a refusal of `kind` in `tree`, or null where the tree has no
+ * top level.
+ * @param {string} tree
+ * @param {string} kind pull | push | land
+ * @param {string} marker
+ * @param {DivergencePorts} ports
+ * @returns {Row | null}
+ */
+function rowAt(tree, kind, marker, ports) {
+	const top = ports.toplevel(tree);
 	if (!top) return null;
 
 	const ref = countedRef(top, ports);
@@ -227,17 +265,17 @@ function divergenceRow(payload, ports) {
 	const when = `${ports.now().toISOString().slice(0, 19)}.000Z`;
 	const fields = [
 		when,
-		flat(repoName(top, ports.commonDir(call.tree) ?? "")),
-		call.kind,
+		flat(repoName(top, ports.commonDir(tree) ?? "")),
+		kind,
 		ahead,
 		behind,
 		state,
 		n === null ? "-" : String(n),
 		flat(ref || "-"),
-		flat(refusal.marker),
+		flat(marker),
 	];
 	const dir = ports.projectDir(top);
 	return { dir, file: `${dir}/divergence.log`, line: `${fields.join("\t")}\n` };
 }
 
-module.exports = { divergenceRow };
+module.exports = { divergenceRow, landRow };
