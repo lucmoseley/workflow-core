@@ -11,15 +11,11 @@
  * off every map, and an open parent with an open child reads as a container,
  * leaving the fix ticket the one on the frontier. A filing file-issue.js
  * refuses under the cited ticket is filed standalone, naming the refusal.
- *
- * The queue lander's (#4458) is filed the same way for a queue ref it
- * dropped: naming the ref, its sha, the dropped ref and the files it
- * conflicted in or the refusal that stopped its merge, under the ticket its
- * newest citing commit's subject cites. `liveFilerDeps` gives both filers
- * their tracker, file-issue.js and git.
+ * One it refuses standalone too, exiting 2, throws a FilingRefusedError.
  */
 
 const { citedIssues } = require("./cited-issues.js");
+const { FilingRefusedError } = require("./filing-refused.js");
 const { gh, parseErrLine } = require("./gh.js");
 const { spawnGitSync } = require("./git.js");
 const { parseFirstLine } = require("./first-line.js");
@@ -28,7 +24,8 @@ const { QUEUE_PREFIX } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { scriptPath } = require("./script-path.js");
 const { takesLabel } = require("./takes-label.js");
-const { similarTitles } = require("./tracker-ops.js");
+const { readOwnFilings, similarTitles } = require("./tracker-ops.js");
+const { readSubIssues } = require("./issue-tree.js");
 const { requireKey } = require("./workflow-core-config.js");
 
 /* Untraced: room for the culprit's subject in a title a tracker list shows
@@ -201,8 +198,7 @@ function ticketFiler(deps) {
 }
 
 /**
- * The ticket its member's commits cite: the newest commit's citation, as
- * the subject that cites it names the work it carries.
+ * The ticket its member's commits cite: the newest commit's citation.
  * @param {readonly string[]} subjects newest first
  * @returns {number|null}
  */
@@ -210,8 +206,6 @@ const citedByAny = (subjects) =>
 	subjects.map(citedTicket).find((n) => n !== null) ?? null;
 
 /**
- * The evidence a drop's merge left: the files it conflicted in, or the
- * refusal that stopped it.
  * @param {import("./queue-lander.js").Unmerged} cause
  */
 const buildDropEvidence = (cause) =>
@@ -221,12 +215,18 @@ const buildDropEvidence = (cause) =>
 
 /**
  * @param {import("./queue-lander.js").Drop & {subject: string}} d
- * @returns {{title: string, body: string}}
+ * @returns {Omit<Ticket, "cited" | "checked">}
  */
 function dropTicketIssue({ name, sha, ref, onto, cause, subject }) {
 	const queued = `${QUEUE_PREFIX}${name}`;
+	const filedAs = `Fix ${queued} at ${short(sha)},`;
 	return {
-		title: `Fix ${queued} at ${short(sha)}, dropped by the queue lander: ${cutSubject(subject)}`,
+		title: `${filedAs} dropped by the queue lander: ${cutSubject(subject)}`,
+		filedAs,
+		citer: `a commit on ${queued}`,
+		uncited: `No commit on ${queued} cites a ticket of this repo.`,
+		reopenNote: `Reopened by the queue lander: ${queued} at ${sha}, which cites it, was dropped. Its fix ticket follows as a sub-issue.`,
+		noun: "fix ticket",
 		body: `## What to build
 
 The queue lander (#4458) dropped \`${queued}\` at ${sha}: merged alone onto \`main\` at ${onto}, ${buildDropEvidence(cause)}
@@ -244,13 +244,18 @@ Tip commit: ${quoteSubject(subject)}
 
 /**
  * @typedef {Omit<FilerDeps, "messageOf"> & {subjectsOf: (base: string,
- *   tip: string) => string[]}} DropFilerDeps `subjectsOf` the subjects of
- *   the commits on `tip` and not on `base`, newest first
+ *   tip: string) => string[], openUnits: (parent: number|null) => number[]}}
+ *   DropFilerDeps `subjectsOf` the subjects of the commits on `tip` and not
+ *   on `base`, newest first; `openUnits` the tickets rule:size-line weighs a
+ *   new one under `parent` against: its sub-issues and this session's
+ *   filings
  */
 
 /**
  * The queue lander's filer of a dropped member's fix ticket: `takes:implement`,
- * unassigned, under the ticket its commits cite, else standalone.
+ * unassigned, under the ticket its commits cite, else standalone. Each drop
+ * is its own fix, so every ticket rule:size-line would weigh it against is
+ * named checked.
  * @param {DropFilerDeps} deps
  * @returns {Pick<import("./queue-lander.js").QueueTracker, "fileDropTicket">}
  */
@@ -258,15 +263,15 @@ function dropTicketFiler(deps) {
 	return {
 		fileDropTicket(d) {
 			const subjects = deps.subjectsOf(d.onto, d.sha);
-			const queued = `${QUEUE_PREFIX}${d.name}`;
+			const [subject] = subjects;
+			if (subject === undefined)
+				throw new Error(
+					`${QUEUE_PREFIX}${d.name} at ${short(d.sha)} has no commit off ${short(d.onto)}`,
+				);
 			return fileTicket(deps, {
-				...dropTicketIssue({ ...d, subject: subjects[0] ?? "" }),
+				...dropTicketIssue({ ...d, subject }),
 				cited: citedByAny(subjects),
-				citer: `a commit on ${queued}`,
-				uncited: `No commit on ${queued} cites a ticket of this repo.`,
-				reopenNote: `Reopened by the queue lander: ${queued} at ${d.sha}, which cites it, was dropped. Its fix ticket follows as a sub-issue.`,
-				noun: "fix ticket",
-				filedAs: `Fix ${queued} at ${short(d.sha)},`,
+				checked: deps.openUnits,
 			});
 		},
 	};
@@ -287,6 +292,7 @@ function fileReland(deps, { sha, subject, ...ticket }) {
 		cited,
 		citer: short(sha),
 		uncited: `${short(sha)}'s subject cites no ticket of this repo.`,
+		checked: () => [],
 		noun: "re-land ticket",
 		filedAs: `Re-land ${short(sha)},`,
 	});
@@ -304,6 +310,9 @@ function fileReland(deps, { sha, subject, ...ticket }) {
  * @property {string} noun what the line naming an open one calls it
  * @property {string} filedAs the title prefix an open ticket already filed
  *   for the same work starts with
+ * @property {(parent: number|null) => readonly number[]} checked the open
+ *   tickets it is named its own build unit beside under `parent`, past
+ *   rule:size-line
  */
 
 /**
@@ -321,9 +330,10 @@ function fileTicket(deps, t) {
 		listed.length > 0
 			? ["--distinct-from", listed.map((c) => c.number).join(",")]
 			: [];
-	/** @param {string[]} placement */
-	const file = (placement) =>
-		deps.fileIssue(
+	/** @param {number|null} parent @param {string[]} placement */
+	const file = (parent, placement) => {
+		const checked = t.checked(parent);
+		return deps.fileIssue(
 			[
 				"--title",
 				t.title,
@@ -333,25 +343,28 @@ function fileTicket(deps, t) {
 				"kind:ticket",
 				...placement,
 				...distinct,
+				...(checked.length > 0
+					? ["--size-line-checked", checked.join(",")]
+					: []),
 				"--body-file",
 				"-",
 			],
 			t.body,
 		);
+	};
 	const placed = fileUnderCited(t, file, deps);
 	if ("filed" in placed) return placed.filed;
-	const ran = file(["--standalone", placed.why]);
+	const ran = file(null, ["--standalone", placed.why]);
 	if (ran.status === 0) return ran.stdout.trim();
-	throw new Error(
-		`${t.noun} for ${t.citer} not filed: ${parseFirstLine(ran.stderr)}`,
-	);
+	const why = `${t.noun} for ${t.citer} not filed: ${parseFirstLine(ran.stderr)}`;
+	throw ran.status === 2 ? new FilingRefusedError(why) : new Error(why);
 }
 
 /**
  * Files the ticket under the cited one: what file-issue printed, or why it
  * goes standalone.
  * @param {Ticket} t
- * @param {(placement: string[]) => Ran} file
+ * @param {(parent: number|null, placement: string[]) => Ran} file
  * @param {Pick<FilerDeps, "stateOf" | "reopen">} deps
  * @returns {{filed: string} | {why: string}}
  */
@@ -359,7 +372,7 @@ function fileUnderCited(t, file, deps) {
 	if (t.cited === null) return { why: t.uncited };
 	const unready = underCited(t.cited, t, deps);
 	if (unready !== null) return { why: unready };
-	const ran = file(["--parent", String(t.cited)]);
+	const ran = file(t.cited, ["--parent", String(t.cited)]);
 	if (ran.status === 0) return { filed: ran.stdout.trim() };
 	return {
 		why: `file-issue refused it under #${t.cited}, which ${t.citer} cites: ${parseFirstLine(ran.stderr)}`,
@@ -410,10 +423,18 @@ function liveFilerDeps(root) {
 			readGitIn(root, ["log", "--format=%s", `${base}..${tip}`])
 				.split("\n")
 				.filter(Boolean),
-		/* Throws on an unread list, unlike liveQueueDeps's: a retried ticket
-		 * that reached the tracker must not be filed a second time. */
+		/* Throws on an unread list: a retried ticket that reached the tracker
+		 * must not be filed a second time. */
 		similar: (title) => similarTitles(repo(), title).found,
 		fileIssue: liveQueueDeps(root).fileIssue,
+		openUnits: (parent) => [
+			...(parent === null
+				? []
+				: readSubIssues(parent, repo()).map(
+						(/** @type {{number: number}} */ k) => k.number,
+					)),
+			...readOwnFilings(repo()).numbers,
+		],
 		stateOf: (n) =>
 			gh([
 				"issue",

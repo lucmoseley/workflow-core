@@ -1,10 +1,10 @@
 /*
  * queue-lander-adapters.js — the production adapters lib/queue-lander.js
- * runs on (#4485, spec #4458): its git against lib/landing-refs.js's remote,
- * and its verdict ledger and batch record files.
+ * runs on: its git against lib/landing-refs.js's remote, and its verdict
+ * ledger and batch record files.
  *
  * A queue ref's push time is the one lib/queue-log.js logged for it at the
- * sha it now holds, and its take, land and drop rows are logged there too. A sha with no row, as one pushed from another machine,
+ * sha it now holds. A sha with no row, as one pushed from another machine,
  * falls back to its tip's committer time, as the remote, GitHub, tells git
  * no push time.
  */
@@ -40,6 +40,7 @@ const {
 	logQueueEvent,
 	queueLogFile,
 	readEnqueueTimes,
+	readNewestEvent,
 } = require("./queue-log.js");
 const { TransientFault } = require("./queue-lander.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
@@ -254,7 +255,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 
 	/**
 	 * Why `m` did not merge, else null. A fault that is no git refusal, a
-	 * spawn failure among them, throws for the run to retry.
+	 * spawn failure or a timeout among them, throws for the run to retry.
 	 * @param {Member} m
 	 * @param {(args: string[]) => string} inTree
 	 * @param {() => unknown} merge
@@ -267,11 +268,10 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		} catch (err) {
 			const e = caught(err);
 			if (e.code === "ETIMEDOUT")
-				return {
-					kind: "refused",
-					name: m.name,
-					reason: `its merge timed out after ${mergeTimeoutMs / 1000} s`,
-				};
+				throw new TransientFault(
+					`queue/${m.name}'s merge timed out after ${mergeTimeoutMs / 1000} s`,
+					{ cause: err },
+				);
 			if (e.status === undefined || BROKEN_OBJECT.test(String(e.stderr ?? "")))
 				throw err;
 			const files = readConflictedFiles(inTree);
@@ -459,17 +459,16 @@ function dropRecord(file) {
 }
 
 /**
- * The queue lander's take, land and drop rows, each at the queue ref's
- * snapshot sha and stamped now.
+ * A land or drop row repeating the newest row its ref holds at that sha is
+ * skipped, as a step a crash repeats writes it again.
  * @param {string} root
  * @returns {QueueLanderDeps["logQueue"]}
  */
 const queueLogger = (root) => (event, m) => {
-	logQueueEvent(queueLogFile(root), event, {
-		ref: `${QUEUE_HEADS}${m.name}`,
-		sha: m.sha,
-		at: now(),
-	});
+	const file = queueLogFile(root);
+	const ref = `${QUEUE_HEADS}${m.name}`;
+	if (event !== "take" && readNewestEvent(file, ref, m.sha) === event) return;
+	logQueueEvent(file, event, { ref, sha: m.sha, at: now() });
 };
 
 module.exports = {

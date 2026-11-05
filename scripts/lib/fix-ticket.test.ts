@@ -6,10 +6,16 @@
  * Loosen it and a reverted commit's or dropped queue ref's work can go
  * unrecorded, land under a closed ticket no map offers, or be filed twice.
  */
+
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler, ticketFiler } from "./fix-ticket.js";
 import type { FixTicket } from "./lander.js";
 import type { Drop } from "./queue-lander.js";
+
+// Required, not imported: an ESM import of filing-refused.js would load a
+// second copy of FilingRefusedError, which fix-ticket.js's throw is not.
+const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
 
 const C = "c".repeat(40);
 const P = "b".repeat(40);
@@ -285,11 +291,15 @@ const DROP: Drop = {
 };
 
 describe("dropTicketFiler", () => {
-	/** A filer over the member's commit `subjects`, newest first. */
+	/**
+	 * A filer over the member's commit `subjects`, newest first, with `units`
+	 * the open tickets under each parent, and file-issue exiting `status`.
+	 */
 	function dropFiler(
 		subjects: string[],
 		states: Record<number, "open" | "closed"> = {},
 		listed: { number: number; title: string }[] = [],
+		{ units = {} as Record<string, number[]>, status = 0 } = {},
 	) {
 		const files: { args: string[]; input: string }[] = [];
 		const ranges: string[] = [];
@@ -298,10 +308,13 @@ describe("dropTicketFiler", () => {
 				ranges.push(`${base}..${tip}`);
 				return subjects;
 			},
+			openUnits: (parent) => units[String(parent)] ?? [],
 			similar: () => listed,
 			fileIssue: (args, input) => {
 				files.push({ args, input });
-				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
+				return status === 0
+					? { status, stdout: "Filed #9: https://x/9\n", stderr: "" }
+					: { status, stdout: "", stderr: "file-issue: rule:x refused it\n" };
 			},
 			stateOf: (n) => {
 				const state = states[n];
@@ -362,6 +375,49 @@ describe("dropTicketFiler", () => {
 		]);
 
 		expect(f.said()).toBe("fix ticket already open: #5");
+		expect(f.files).toEqual([]);
+	});
+
+	it("names each open ticket under its placement checked past rule:size-line, as each drop is its own fix", () => {
+		const f = dropFiler(["Add the widget (#12)"], { 12: "open" }, [], {
+			units: { 12: [13, 14], null: [20] },
+		});
+		const g = dropFiler(["Tidy"], {}, [], { units: { null: [20] } });
+
+		f.said();
+		g.said();
+
+		expect(flag(f.files[0].args, "--size-line-checked")).toBe("13,14");
+		expect(flag(g.files[0].args, "--size-line-checked")).toBe("20");
+	});
+
+	it("throws a FilingRefusedError where file-issue refuses it standalone too, exiting 2", () => {
+		const f = dropFiler(["Add the widget (#12)"], { 12: "open" }, [], {
+			status: 2,
+		});
+
+		expect(() => f.said()).toThrow(FilingRefusedError);
+		expect(f.files.map((r) => r.args.includes("--standalone"))).toEqual([
+			false,
+			true,
+		]);
+	});
+
+	it("throws a plain error, for the next run to file again, where file-issue exits 1", () => {
+		const f = dropFiler(["Tidy"], {}, [], { status: 1 });
+
+		expect(() => f.said()).toThrow(
+			"fix ticket for a commit on queue/wt-1 not filed: file-issue: rule:x refused it",
+		);
+		expect(() => f.said()).not.toThrow(FilingRefusedError);
+	});
+
+	it("throws, filing nothing, where the member has no commit off main", () => {
+		const f = dropFiler([]);
+
+		expect(() => f.said()).toThrow(
+			"queue/wt-1 at aaaaaaaaa has no commit off fffffffff",
+		);
 		expect(f.files).toEqual([]);
 	});
 });

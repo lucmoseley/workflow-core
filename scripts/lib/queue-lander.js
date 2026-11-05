@@ -1,5 +1,5 @@
 /*
- * queue-lander.js — the landing queue's lander (#4485, spec #4458): tests
+ * queue-lander.js — the landing queue's lander: tests
  * every waiting `queue/<name>` ref merged onto `main` in one integration
  * commit, and moves `main` to it on a green verdict at that exact sha.
  *
@@ -19,39 +19,44 @@
  *   `mergeMembers` telling.
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
- *   a commit gate refused, it is dropped: `dropped/<name>` is created at its
- *   snapshot, then `queue/<name>` is compare-and-deleted against it, a moved
- *   one kept queued. A `dropped/<name>` already holding another sha leaves
- *   it to its own fix ticket, and the drop takes `dropped/<name>-<sha>`. Its
- *   fix ticket is filed next, through the injected tracker; one that will not
- *   file is filed again by the next run. Where it merges alone, it conflicts
- *   only with an earlier member, and it is deferred: left out of this batch,
- *   and taken again by the next. A later member still merges into this one.
+ *   a commit gate refused, it is dropped: the batch record leaves it out and
+ *   the drop record holds it, then `dropped/<name>` is created at its
+ *   snapshot and `queue/<name>` is compare-and-deleted against it, a moved
+ *   one kept queued. A drop record row whose dropped ref is missing is
+ *   dropped again, as a crash cut its drop short. A `dropped/<name>` already
+ *   holding another sha leaves it to its own fix ticket, and the drop takes
+ *   `dropped/<name>-<sha>`. Its fix ticket is filed next, through the
+ *   injected tracker; one that will not file is filed again by the next run,
+ *   and one the tracker refuses for good stops the run. Where it merges
+ *   alone, it conflicts only with an earlier member, and it is deferred: left
+ *   out of this batch, and taken again by the next. A later member still
+ *   merges into this one.
  * - **Green.** The integration sha is written to the green ledger, then `main`
  *   moves to it by a plain push. Each member merged into it whose ref still
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
  *   a moved one is kept and joins the next batch.
  * - **Reap.** With no batch in flight, each `dropped/<name>` whose fix ticket
- *   the run read closed at its start is compare-and-deleted. The lander alone
- *   writes `dropped/*` and holds the drop record that names each one's
- *   ticket, so the reap is its own.
+ *   the run read closed at its start is compare-and-deleted.
  * - **Queue log.** A take row for each member a batch takes, a land row for
  *   each member `main` moves past, and a drop row for each dropped member,
- *   through the injected `logQueue`.
+ *   through the injected `logQueue`. A batch `main` holds with its land rows
+ *   unrecorded, as a crash after the push leaves it, logs them on restart.
  * - **Verdicts.** A green or red reached at a sha is ledgered and survives a
  *   restart. An unknown verdict is no verdict: it lands nothing and is never
  *   ledgered, so the next run asks again.
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
- *   fault, a broken git object, a tester's `transient` no verdict, as its
- *   suite slot staying shut) is retried with backoff and the run's state
- *   kept; any other throw, or one outlasting the tries, exits naming it.
- * - A red integration verdict exits naming the red path (#4485).
+ *   fault, a broken git object, a merge timing out, a tester's `transient` no
+ *   verdict, as its suite slot staying shut) is retried with backoff and the
+ *   run's state kept; any other throw, or one outlasting the tries, exits
+ *   naming it.
+ * - A red integration verdict exits naming the red path.
  *
  * Unbuilt caller: the cutover's launcher, which starts scripts/queue-lander.js
  * on a queue push (#4485)
  */
 
 const { caught, parseErrorText } = require("./caught.js");
+const { FilingRefusedError } = require("./filing-refused.js");
 const { parseRefusal, remote, short, verdictAt } = require("./lander.js");
 const { DROPPED_PREFIX, QUEUE_PREFIX } = require("./landing-refs.js");
 const { isNetworkFault } = require("./network-fault.js");
@@ -76,7 +81,7 @@ class TransientFault extends Error {}
  * @property {readonly Member[]} members in push order
  * @property {readonly string[]} deferred the names of members left out, to
  *   be taken by the next batch
- * @property {readonly string[]} dropped the names of members dropped
+ * @property {readonly string[]} dropped
  * @property {string} onto `main` when its members were taken or merged
  * @property {string|null} integration the commit under test, null while
  *   merging
@@ -88,7 +93,7 @@ class TransientFault extends Error {}
  *   queue refs and dropped refs, each queue commit present locally
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
- * @property {string} sha its snapshot sha
+ * @property {string} sha
  * @property {string} ref the dropped ref holding it, after `refs/heads/`
  * @property {string} onto the `main` it would not merge onto alone
  * @property {Unmerged} cause that merge's conflict or refusal
@@ -101,8 +106,7 @@ class TransientFault extends Error {}
  *   first member that would not merge: conflicting in `files`, or its merge
  *   refused, as by a commit gate
  * @typedef {Exclude<MergeResult, {kind: "merged"}>} Unmerged
- * @typedef {{readonly onto: string, readonly result: MergeResult}} Merge a
- *   merge this run made onto `onto`
+ * @typedef {{readonly onto: string, readonly result: MergeResult}} Merge
  * @typedef {{readonly kind: "take-batch", readonly batch: Batch}
  *   | {readonly kind: "merge-members", readonly onto: string,
  *     readonly members: readonly Member[]}
@@ -115,6 +119,7 @@ class TransientFault extends Error {}
  *     readonly sha: string}
  *   | {readonly kind: "test-sha", readonly sha: string}
  *   | {readonly kind: "fast-forward-main", readonly sha: string}
+ *   | {readonly kind: "record-landed", readonly sha: string}
  *   | {readonly kind: "delete-landed-ref", readonly name: string,
  *     readonly sha: string}
  *   | {readonly kind: "exit", readonly reason: string}} QueueAction
@@ -133,7 +138,7 @@ class TransientFault extends Error {}
  * @property {{readonly sha: string, readonly reason: string}|null} unread
  *   the sha this run's tester reached no verdict at
  * @property {readonly DroppedRef[]} dropped
- * @property {readonly Drop[]} drops the drop record
+ * @property {readonly Drop[]} drops
  * @property {(ticket: number) => boolean} isClosed whether this run read the
  *   ticket closed at its start
  * @property {{readonly onto: string, readonly result: Unmerged}|null}
@@ -156,10 +161,7 @@ const exit = (reason) => ({ kind: "exit", reason });
 const byPushOrder = (a, b) =>
 	a.pushedAt - b.pushedAt || Number(a.name > b.name) - Number(a.name < b.name);
 
-/**
- * The batch's members still in it, neither deferred nor dropped.
- * @param {Batch} b
- */
+/** @param {Batch} b */
 const included = (b) =>
 	b.members.filter(
 		(m) => !b.deferred.includes(m.name) && !b.dropped.includes(m.name),
@@ -167,8 +169,7 @@ const included = (b) =>
 
 /**
  * Whether the batch is done: `main` holds it, pushed there by this lander or
- * already at its integration commit, as a crash after the push leaves it;
- * or every member was left out of it.
+ * already at its integration commit, as a crash after the push leaves it.
  * @param {Batch} b
  * @param {string} main
  */
@@ -199,8 +200,6 @@ function takeBatch(s, main) {
 }
 
 /**
- * The dropped ref `m` is kept at: `dropped/<name>`, unless that holds another
- * sha, left to its own fix ticket.
  * @param {Member} m
  * @param {readonly DroppedRef[]} dropped
  */
@@ -213,9 +212,7 @@ function droppedRefFor(m, dropped) {
 }
 
 /**
- * Drop or defer the member the batch merge stopped at: dropped where it does
- * not merge onto `main` alone either, as the batch's first member never
- * does, else deferred.
+ * Drop or defer the member the batch merge stopped at.
  * @param {readonly Member[]} members the batch's, still in it
  * @param {QueueState} s
  * @param {{onto: string, result: Unmerged}} u
@@ -282,10 +279,18 @@ function batchAction(b, s, main) {
 function nextQueueAction(s) {
 	const { main, batch } = s;
 	if (main === null) return exit("the remote has no main branch");
+	const cut = s.drops.find(
+		(d) =>
+			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha) &&
+			!(d.ticket !== null && s.isClosed(d.ticket)),
+	);
+	if (cut) return { kind: "drop-member", drop: cut };
 	const owed = s.drops.find(
 		(d) => d.ticket === null && !s.unfiled.includes(d.ref),
 	);
 	if (owed) return { kind: "file-fix-ticket", drop: owed };
+	if (batch && batch.phase !== "landed" && batch.integration === main)
+		return { kind: "record-landed", sha: main };
 	if (batch && !isDone(batch, main)) return batchAction(batch, s, main);
 	const merged = batch ? included(batch) : [];
 	const landed = merged.find(
@@ -323,7 +328,8 @@ function nextQueueAction(s) {
  *   remote's `branch` at `sha`, refused where it holds another sha
  * @typedef {object} QueueTracker
  * @property {(d: Drop) => string} fileDropTicket files the drop's fix ticket,
- *   returning the line naming it, as `#<n>`
+ *   returning the line naming it, as `#<n>`, and throwing a FilingRefusedError
+ *   where the tracker refuses it for good
  * @property {(n: number) => "open" | "closed"} stateOf the ticket's state,
  *   throwing where it cannot be read
  * @typedef {object} DropRecord
@@ -344,8 +350,8 @@ function nextQueueAction(s) {
  * @property {BatchRecord} record
  * @property {DropRecord} drops
  * @property {QueueTracker} tracker
- * @property {(event: LanderEvent, m: Member) => void} logQueue logs `event`
- *   for `m`'s queue ref at its snapshot sha
+ * @property {(event: LanderEvent, m: Pick<Member, "name" | "sha">) => void}
+ *   logQueue
  * @property {{acquire: () => boolean, release: () => void}} lock
  * @property {(batch: string|null) => void} beat writes the heartbeat,
  *   naming the sha under test
@@ -354,7 +360,7 @@ function nextQueueAction(s) {
  * @property {(action: QueueAction) => void} [log]
  * @property {() => void} [mainMoved] after each move of `main`
  * @property {(line: string) => void} [say] reports a fix ticket filed or
- *   left unfiled
+ *   left unfiled, or one whose state was not read
  * @typedef {Pick<QueueState, "batch" | "unread" | "unmerged" | "alone"
  *   | "kept" | "unfiled" | "isClosed">} QueueRun what a run carries between
  *   actions
@@ -394,35 +400,40 @@ function batchOf(run) {
 }
 
 /**
- * Drops the member: `dropped/<name>` created at its snapshot, then its queue
- * ref compare-and-deleted, a moved one kept queued. A step repeated after a
- * crash finds its ref already made, and keeps its filed ticket.
+ * Drops the member, each record written before the refs it names, so a rerun
+ * after a crash finishes the drop and never lands the member. A step repeated
+ * after a crash finds its ref already made, and keeps its filed ticket.
  * @param {QueueLanderDeps} deps
  * @param {Drop} d
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
 function dropMember(deps, d, run) {
-	const batch = batchOf(run);
-	deps.git.createRef(d.ref, d.sha);
-	deps.git.deleteRef(`${QUEUE_PREFIX}${d.name}`, d.sha);
+	const { batch } = run;
+	const member = batch?.members.some(
+		(m) => m.name === d.name && m.sha === d.sha,
+	);
+	const left =
+		batch && member && !batch.dropped.includes(d.name)
+			? leaveOut(batch, d.name, "dropped")
+			: batch;
+	if (left && left !== batch) deps.record.write(left);
 	const drops = deps.drops.read();
 	const was = drops.find((x) => x.ref === d.ref && x.sha === d.sha);
 	deps.drops.write([
 		...drops.filter((x) => x !== was),
 		{ ...d, ticket: was?.ticket ?? null },
 	]);
-	const left = leaveOut(batch, d.name, "dropped");
-	deps.record.write(left);
-	const m = batch.members.find((x) => x.name === d.name);
-	if (m) deps.logQueue("drop", m);
+	deps.git.createRef(d.ref, d.sha);
+	deps.git.deleteRef(`${QUEUE_PREFIX}${d.name}`, d.sha);
+	deps.logQueue("drop", d);
 	return { ...run, batch: left, unmerged: null, alone: null };
 }
 
 /**
  * Files the drop's fix ticket and records its number. A filing that throws
- * other than transiently, or prints no number, is reported and left for the
- * next run, so no tracker fault stops a landing.
+ * other than transiently or for good, or prints no number, is reported and
+ * left for the next run (#4485).
  * @param {QueueLanderDeps} deps
  * @param {Drop} d
  * @param {QueueRun} run
@@ -439,7 +450,7 @@ function fileFixTicket(deps, d, run) {
 	try {
 		line = deps.tracker.fileDropTicket(d);
 	} catch (err) {
-		if (isTransientFault(err)) throw err;
+		if (isTransientFault(err) || err instanceof FilingRefusedError) throw err;
 		return unfiled(parseRefusal(parseErrorText(err)));
 	}
 	const n = Number(FILED.exec(line)?.[1]);
@@ -488,11 +499,24 @@ function fastForwardMain(deps, sha, run) {
 	 * other. */
 	if (!deps.ledger.has(sha)) deps.ledger.add(sha);
 	deps.git.pushMain(sha);
+	const landed = recordLanded(deps, run);
+	deps.mainMoved?.();
+	return landed;
+}
+
+/**
+ * Logs a land row for each member `main` moved past, then records the batch
+ * landed; a crash between the two repeats the rows, which the log takes
+ * once.
+ * @param {QueueLanderDeps} deps
+ * @param {QueueRun} run
+ * @returns {QueueRun}
+ */
+function recordLanded(deps, run) {
 	/** @type {Batch} */
 	const batch = { ...batchOf(run), phase: "landed" };
-	deps.record.write(batch);
 	for (const m of included(batch)) deps.logQueue("land", m);
-	deps.mainMoved?.();
+	deps.record.write(batch);
 	return { ...run, batch };
 }
 
@@ -548,6 +572,8 @@ async function act(deps, action, run) {
 			return testSha(deps, action.sha, run);
 		case "fast-forward-main":
 			return fastForwardMain(deps, action.sha, run);
+		case "record-landed":
+			return recordLanded(deps, run);
 		case "delete-landed-ref":
 			return git.deleteRef(`${QUEUE_PREFIX}${action.name}`, action.sha)
 				? run
@@ -587,19 +613,23 @@ async function step(deps, run, log) {
 
 /**
  * Whether each recorded drop's fix ticket is closed, read once for the run.
- * One that cannot be read reads as open, kept for a later run to read again.
+ * One that cannot be read reads as open and is reported, its dropped ref
+ * kept for a later run to read again (#4485).
  * @param {QueueLanderDeps} deps
  * @returns {(ticket: number) => boolean}
  */
 function readClosedTickets(deps) {
+	const { say = () => undefined } = deps;
 	/** @type {Set<number>} */
 	const closed = new Set();
-	for (const { ticket } of deps.drops.read()) {
+	for (const { ticket, ref } of deps.drops.read()) {
 		if (ticket === null) continue;
 		try {
 			if (deps.tracker.stateOf(ticket) === "closed") closed.add(ticket);
-		} catch {
-			/* Read again by the next run. */
+		} catch (err) {
+			say(
+				`#${ticket}'s state not read, ${ref} kept for a later run: ${parseRefusal(parseErrorText(err))}`,
+			);
 		}
 	}
 	return (ticket) => closed.has(ticket);

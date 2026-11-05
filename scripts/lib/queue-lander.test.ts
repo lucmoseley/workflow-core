@@ -9,9 +9,11 @@
  * while a batch is tested lands half-tested or is deleted unlanded, a
  * restart tests a sha again, a network blip throws a batch away, a member
  * that conflicts with another is dropped or one that conflicts with `main`
- * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, or
- * a dropped ref outlives its closed ticket.
+ * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, a
+ * crash mid-drop lands the member or a crash after the push loses its land
+ * rows, or a dropped ref outlives its closed ticket.
  */
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import type { Verdict } from "./lander.js";
 import {
@@ -24,6 +26,10 @@ import {
 	type QueueLanderDeps,
 	runQueueLander,
 } from "./queue-lander.js";
+
+// Required, not imported: runQueueLander tests for filing-refused.js's own
+// FilingRefusedError, which an ESM import of it would load a second copy of.
+const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
 
 interface Ref {
 	sha: string;
@@ -769,6 +775,119 @@ describe("drop and defer", () => {
 		expect(kinds(second.actions)).toEqual(["file-fix-ticket", "exit"]);
 		expect(disk.drops.map((d) => d.ticket)).toEqual([100]);
 	});
+
+	it("stops the run on a fix ticket the tracker refuses for good, naming the refusal", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
+			b: { sha: "b1", pushedAt: 2, onMain: true },
+		});
+		const disk = freshDisk();
+		const refusal = "fix ticket for a commit on queue/a not filed: rule:x";
+
+		const { end, said } = await land(remote, disk, {
+			fileFault: () => new FilingRefusedError(refusal),
+		});
+
+		expect(end).toEqual({
+			kind: "exit",
+			reason: `stopped on an error: ${refusal}`,
+		});
+		expect(said).toEqual([]);
+		expect(disk.drops.map((d) => d.ticket)).toEqual([null]);
+		expect(remote.main).toBe("m0");
+	});
+
+	it("finishes a drop a crash cut short after its records, so the member never lands once it would merge", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
+			b: { sha: "b1", pushedAt: 2, onMain: true },
+		});
+		const disk = freshDisk();
+
+		const first = await land(remote, disk, {
+			fault: (call) => (call === "createRef" ? new Error("killed") : undefined),
+		});
+		remote.refs.set("a", { sha: "a1", pushedAt: 1 });
+		const second = await land(remote, disk);
+
+		expect(first.end).toEqual({
+			kind: "exit",
+			reason: "stopped on an error: killed",
+		});
+		expect(kinds(second.actions).slice(0, 3)).toEqual([
+			"drop-member",
+			"file-fix-ticket",
+			"merge-members",
+		]);
+		expect(second.end).toEqual(NO_QUEUE);
+		expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
+		expect(remote.main).toBe("b1");
+		expect(remote.refs.size).toBe(0);
+		expect(disk.filed.map((d) => d.ref)).toEqual(["dropped/a"]);
+		expect(disk.log).toEqual([
+			"take a@a1",
+			"take b@b1",
+			"drop a@a1",
+			"land b@b1",
+		]);
+	});
+
+	it("takes a member again whose drop a crash cut short before its drop record, and drops it then", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
+			b: { sha: "b1", pushedAt: 2, onMain: true },
+		});
+		const disk = freshDisk();
+		disk.batch = {
+			members: [
+				{ name: "a", sha: "a1", pushedAt: 1 },
+				{ name: "b", sha: "b1", pushedAt: 2 },
+			],
+			deferred: [],
+			dropped: ["a"],
+			onto: "m0",
+			integration: null,
+			phase: "merging",
+		};
+
+		const { end, actions } = await land(remote, disk);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(taken(actions)).toEqual([["a@a1"]]);
+		expect(remote.main).toBe("b1");
+		expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
+		expect(disk.filed.map((d) => d.ref)).toEqual(["dropped/a"]);
+	});
+});
+
+describe("a crash after main moved", () => {
+	it("logs the land rows of a batch main holds once on restart, then deletes its refs", async () => {
+		const remote = remoteOf("x1", {
+			x: { sha: "x1", pushedAt: 1, onMain: true },
+		});
+		const disk = freshDisk();
+		disk.green.add("x1");
+		disk.log = ["take x@x1"];
+		disk.batch = {
+			members: [{ name: "x", sha: "x1", pushedAt: 1 }],
+			deferred: [],
+			dropped: [],
+			onto: "m0",
+			integration: "x1",
+			phase: "testing",
+		};
+
+		const { end, actions } = await land(remote, disk);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).toEqual([
+			"record-landed",
+			"delete-landed-ref",
+			"exit",
+		]);
+		expect(disk.log).toEqual(["take x@x1", "land x@x1"]);
+		expect(disk.batch?.phase).toBe("landed");
+	});
 });
 
 describe("the reap", () => {
@@ -792,7 +911,7 @@ describe("the reap", () => {
 		disk.tickets.set(2, "open");
 		disk.drops = [dropOf("a", 1), dropOf("b", 2), dropOf("c", 3)];
 
-		const { end, actions } = await land(remote, disk);
+		const { end, actions, said } = await land(remote, disk);
 
 		expect(end).toEqual(NO_QUEUE);
 		expect(actions).toContainEqual({
@@ -800,6 +919,9 @@ describe("the reap", () => {
 			ref: "dropped/a",
 			sha: "a1",
 		});
+		expect(said).toEqual([
+			"#3's state not read, dropped/c kept for a later run: no issue #3",
+		]);
 		expect([...remote.dropped.keys()]).toEqual(["dropped/b", "dropped/c"]);
 		expect(disk.drops.map((d) => d.ref)).toEqual(["dropped/b", "dropped/c"]);
 	});

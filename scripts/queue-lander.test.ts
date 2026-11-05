@@ -15,6 +15,7 @@
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -34,6 +35,7 @@ import {
 	batchRecord,
 	dropRecord,
 	queueGit,
+	queueLogger,
 	verdictLedger,
 } from "./lib/queue-lander-adapters.js";
 import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
@@ -41,6 +43,10 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 landerSandbox();
+
+// Required, not imported: an ESM import of lib/queue-lander.js would load a
+// second copy of TransientFault, which queueGit's throw is not.
+const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
 
 const QUEUE_LANDER = path.resolve(__dirname, "queue-lander.js");
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
@@ -303,6 +309,44 @@ describe("the adapters", () => {
 		expect(() => g.createRef("dropped/a", seed)).toThrow(/stale info/);
 		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
 		expect(g.refs().dropped).toEqual([{ ref: "dropped/a", sha: a }]);
+	});
+
+	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed);
+		const b = pushQueue("b", seed);
+		const g = queueGit(work, 1);
+		g.refs();
+
+		expect(() =>
+			g.mergeMembers(seed, [
+				{ name: "a", sha: a, pushedAt: 1 },
+				{ name: "b", sha: b, pushedAt: 2 },
+			]),
+		).toThrow(TransientFault);
+	});
+
+	it("logs a land or drop row a crash repeats once, and a take row each time", () => {
+		fs.mkdirSync(markers(), { recursive: true });
+		const logQueue = queueLogger(work);
+		const m = { name: "a", sha: "a1" };
+
+		for (const event of [
+			"take",
+			"land",
+			"land",
+			"take",
+			"drop",
+			"drop",
+		] as const)
+			logQueue(event, m);
+
+		const rows = fs
+			.readFileSync(queueLogFile(work), "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l).event);
+		expect(rows).toEqual(["take", "land", "take", "drop"]);
 	});
 
 	it("lists each queue ref with its logged push time, its committer time where the log names none at its sha", () => {

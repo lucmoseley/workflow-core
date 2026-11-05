@@ -69,9 +69,25 @@ function readEnqueueTimes(file) {
 	return (ref, sha) => times.get(`${ref} ${sha}`) ?? null;
 }
 
+/**
+ * The event of the newest row naming `ref` at `sha`, null where none does.
+ * @param {string} file
+ * @param {string} ref
+ * @param {string} sha
+ * @returns {string|null}
+ */
+function readNewestEvent(file, ref, sha) {
+	let newest = null;
+	for (const row of readJsonl(file)?.rows ?? [])
+		if (row.ref === ref && row.sha === sha && typeof row.event === "string")
+			newest = row.event;
+	return newest;
+}
+
 module.exports = {
 	logEnqueue,
 	logQueueEvent,
 	queueLogFile,
 	readEnqueueTimes,
+	readNewestEvent,
 };
