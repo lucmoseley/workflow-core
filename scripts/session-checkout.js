@@ -42,6 +42,7 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
+const { buildWaysOut } = require("./lib/orphan-filings.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { describeAge } = require("./lib/level-main.js");
@@ -137,7 +138,7 @@ function renderReaped(r) {
 					)}; idle ${describeAge(s.idleMs)}; last commit ${s.last} — ${
 					s.filed
 						? `its orphaned-edit issue ${s.filed} carries the decision`
-						: `its session is gone: land it with \`node scripts/session-checkout.js land\` from inside it, or, judged worthless, \`git worktree remove --force ${s.dir}\``
+						: `its session is gone: land it with \`${buildWaysOut(s.dir).land}\`, or, judged worthless, \`${buildWaysOut(s.dir).remove}\``
 				}`,
 		),
 		...r.unregistered.map(

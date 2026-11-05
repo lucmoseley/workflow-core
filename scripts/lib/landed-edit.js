@@ -4,13 +4,13 @@
  * worktree whose every change has landed holds nothing to decide but its
  * removal.
  *
- * LANDED BY BLOB where the working copy is byte for byte the file at the ref,
- * or the file as some commit since `HEAD`'s merge base with the ref left it.
- * LANDED BY LINES where it is neither, but the ref's copy moved every line the
- * change moves, the same way: each line the change adds is more frequent
- * there than at `HEAD`, each it removes rarer. That reads a change landed and
- * since superseded as landed; a reordering, which moves no line's count, is
- * never read landed.
+ * The landed versions of a file are its copy at the ref and its copy as each
+ * commit since `HEAD`'s merge base with the ref left it. LANDED BY BLOB where
+ * the working copy is byte for byte one of them. LANDED BY LINES where one of
+ * them made the change: each line the change adds is at least as frequent
+ * there as in the working copy, each it removes at most as frequent. Checking
+ * every version, not the ref's alone, reads a change landed and since
+ * reworked as landed; a reordering, which moves no line's count, never is.
  */
 
 const fs = require("node:fs");
@@ -27,62 +27,81 @@ function countLines(text) {
 }
 
 /**
- * Every blob `rel` took on a commit in `base..ref`.
+ * The blob id of every landed version of `rel`: at `ref`, then as each commit
+ * in `base..ref` left it.
  * @param {string} tree
  * @param {string} rel
  * @param {string} ref
+ * @returns {string[]}
  */
-function landedBlobs(tree, rel, ref) {
-	const base = gitRead(["merge-base", "HEAD", ref], tree)?.trim();
-	if (!base) return [];
-	const raw = gitRead(
-		["log", "--format=", "--raw", "--no-abbrev", `${base}..${ref}`, "--", rel],
+function readLandedBlobs(tree, rel, ref) {
+	const atRef = gitRead(
+		["rev-parse", "--verify", "-q", `${ref}:${rel}`],
 		tree,
-	);
-	return (raw ?? "")
-		.split("\n")
-		.filter((l) => l.startsWith(":"))
-		.map((l) => l.split(" ")[3]);
+	)?.trim();
+	const base = gitRead(["merge-base", "HEAD", ref], tree)?.trim();
+	const raw = base
+		? gitRead(
+				[
+					"log",
+					"--format=",
+					"--raw",
+					"--no-abbrev",
+					`${base}..${ref}`,
+					"--",
+					rel,
+				],
+				tree,
+			)
+		: null;
+	/** @type {string[]} */
+	const blobs = atRef ? [atRef] : [];
+	for (const line of (raw ?? "").split("\n")) {
+		const [, , , blob] = line.startsWith(":") ? line.split(" ") : [];
+		if (blob && !blobs.includes(blob)) blobs.push(blob);
+	}
+	return blobs;
 }
 
 /**
- * Whether `there` moved every line `now` moved off `head`, the same way, and
- * at least one moved.
+ * Whether `there` made every line change `now` makes off `head`, at least as
+ * far, and at least one line changed.
  * @param {Map<string, number>} head
  * @param {Map<string, number>} now
  * @param {Map<string, number>} there
  */
-function movesAgree(head, now, there) {
+function isChangeMade(head, now, there) {
 	let moved = 0;
 	for (const line of new Set([...head.keys(), ...now.keys()])) {
 		const before = head.get(line) ?? 0;
-		const step = Math.sign((now.get(line) ?? 0) - before);
-		if (step === 0) continue;
+		const after = now.get(line) ?? 0;
+		if (after === before) continue;
 		moved++;
-		if (Math.sign((there.get(line) ?? 0) - before) !== step) return false;
+		const landed = there.get(line) ?? 0;
+		if (after > before ? landed < after : landed > after) return false;
 	}
 	return moved > 0;
 }
 
 /**
+ * Whether one of `blobs` made the working copy's change to `rel`.
  * @param {string} tree
  * @param {string} rel
- * @param {string} ref
+ * @param {string[]} blobs
  */
-function linesLanded(tree, rel, ref) {
-	const landed = gitRead(["show", `${ref}:${rel}`], tree);
-	if (landed === null) return false;
+function hasLandedLines(tree, rel, blobs) {
 	let work;
 	try {
 		work = fs.readFileSync(path.join(tree, rel), "utf8");
 	} catch {
 		return false;
 	}
-	return movesAgree(
-		countLines(gitRead(["show", `HEAD:${rel}`], tree) ?? ""),
-		countLines(work),
-		countLines(landed),
-	);
+	const head = countLines(gitRead(["show", `HEAD:${rel}`], tree) ?? "");
+	const now = countLines(work);
+	return blobs.some((b) => {
+		const landed = gitRead(["cat-file", "blob", b], tree);
+		return landed !== null && isChangeMade(head, now, countLines(landed));
+	});
 }
 
 /**
@@ -95,10 +114,9 @@ function linesLanded(tree, rel, ref) {
  * @returns {"blob"|"lines"|null}
  */
 function landedAs(tree, rel, blob, ref) {
-	const atRef = gitRead(["rev-parse", "--verify", "-q", `${ref}:${rel}`], tree);
-	if (atRef?.trim() === blob || landedBlobs(tree, rel, ref).includes(blob))
-		return "blob";
-	return linesLanded(tree, rel, ref) ? "lines" : null;
+	const blobs = readLandedBlobs(tree, rel, ref);
+	if (blobs.includes(blob)) return "blob";
+	return hasLandedLines(tree, rel, blobs) ? "lines" : null;
 }
 
 /**
@@ -106,9 +124,9 @@ function landedAs(tree, rel, blob, ref) {
  * @param {string} tree
  * @param {string} ref
  */
-function unlandedCommits(tree, ref) {
+function readUnlandedCommits(tree, ref) {
 	const n = gitRead(["rev-list", "--count", "HEAD", "--not", ref], tree);
 	return n === null ? null : Number(n.trim());
 }
 
-module.exports = { landedAs, unlandedCommits };
+module.exports = { landedAs, readUnlandedCommits };

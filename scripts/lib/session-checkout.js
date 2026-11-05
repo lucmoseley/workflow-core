@@ -78,7 +78,7 @@ const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
-const { readWorktreeFiling } = require("./orphan-filings.js");
+const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
 const { buildCutCommand } = require("./cutover.js");
@@ -758,12 +758,14 @@ const BUILD_FAILED = /^\.build-([0-9a-f]+)\.failed$/;
 const ENDED = new Set(["done", "failed"]);
 /* The script a reap pass runs as; a pidfile naming any other is stale. */
 const REAP_HOLDERS = ["session-checkout.js"];
+/* A dirt no marker records: an unread worktree defers to no issue. */
+const UNREAD_DIRT = "\0unread";
 
 /**
  * @typedef {{ dir: string, idleMs: number, last: string, dirty: number,
  *   unlanded: number, filed: string | null }} Stranded `filed` the
- *   orphaned-edit issue check-orphaned-edits.js filed for it, which carries
- *   its decision (#4439)
+ *   orphaned-edit issue check-orphaned-edits.js filed for it while its dirt
+ *   stood as it stands now, which carries its decision (#4439)
  * @typedef {{ removed: string[], stranded: Stranded[], unregistered: string[],
  *   pruned: string[], strays: string[], stores: string[], failed: string[],
  *   fetchFailed: string | null }} Reaped
@@ -905,7 +907,11 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 			if (state.dirty > 0 || state.unlanded > 0) {
 				out.stranded.push({
 					...state,
-					filed: readWorktreeFiling(common, worktreeLabel(root, dir)),
+					filed: readWorktreeFiling(
+						common,
+						worktreeLabel(root, dir),
+						readWorktreeDirt(dir) ?? [UNREAD_DIRT],
+					),
 				});
 				standing.push(dir);
 				continue;

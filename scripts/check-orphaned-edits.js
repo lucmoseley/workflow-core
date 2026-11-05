@@ -31,7 +31,9 @@
  * FILED ONCE PER PATH AND BLOB IN THE MAIN CHECKOUT, ONCE PER WORKTREE AND
  * STATE IN A LINKED ONE (#4439): a dead worktree's files carry one decision,
  * commit or discard it, so they share one issue, keyed by every orphan's path
- * and blob together, so a change to any of them refiles once. That issue says
+ * and blob together, so a change to any of them refiles once, naming the
+ * issue it supersedes. It waits while any file there is under the threshold,
+ * so files aging on different days still make one issue. That issue says
  * which of them are already on `origin/landing` (lib/landed-edit.js), and,
  * where all are, the worktree holds nothing else uncommitted and its `HEAD`
  * no commit off it, names removing the worktree as the remedy. The blob is
@@ -82,7 +84,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
-const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -92,8 +93,15 @@ const {
 	worktreeOwners,
 } = require("./lib/session-worktrees.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
-const { landedAs, unlandedCommits } = require("./lib/landed-edit.js");
-const { FILED_DIR, markerName, stateTag } = require("./lib/orphan-filings.js");
+const { landedAs, readUnlandedCommits } = require("./lib/landed-edit.js");
+const {
+	FILED_DIR,
+	buildWaysOut,
+	markerName,
+	readWorktreeDirt,
+	readWorktreeFiling,
+	stateTag,
+} = require("./lib/orphan-filings.js");
 const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
 const proc = require("./lib/arbiter-proc");
 const store = require("./lib/arbiter-store");
@@ -114,6 +122,10 @@ const MAX_FILED_PER_RUN = 2;
 
 /* Two filings at this ceiling stay inside the hook's 60-second timeout. */
 const FILER_TIMEOUT_MS = 25_000;
+
+/* Hex digits of a blob id a title or table shows: enough to tell a reader's
+ * issues apart; the marker, not the title, prevents a refile. */
+const BLOB_TAG_HEX = 10;
 
 /**
  * @typedef {object} Orphan
@@ -138,10 +150,14 @@ const FILER_TIMEOUT_MS = 25_000;
  * @property {Orphan[]} orphans
  * @property {string} state   what its marker is keyed by: each orphan's path
  *   and blob, so a change to any of them refiles once
- * @property {number} others  the worktree's other uncommitted paths, too young
- *   or owned to judge
+ * @property {string[]} dirt  every path `git status` lists in its worktree,
+ *   as `readWorktreeDirt` reads it; empty for a main-checkout filing
+ * @property {number} others  the worktree's paths besides its orphans:
+ *   untracked, deleted, owned by a live session, or of a blob unread
  * @property {number|null} unlanded  its `HEAD`'s commits off `origin/landing`,
  *   null where that cannot be read
+ * @property {string|null} held  why it is not filed this run, as printed;
+ *   null where it is filed
  */
 
 const filerPath = () =>
@@ -279,9 +295,11 @@ function buildCommands(o) {
 
 /**
  * A main-checkout orphan's issue title and body.
- * @param {Orphan} o
+ * @param {Filing} f
  */
-function buildFileIssue(o) {
+function buildFileIssue(f) {
+	const [o] = f.orphans;
+	if (!o) throw new Error("a main-checkout filing holds no orphan");
 	const c = buildCommands(o);
 	const body = [
 		"## What",
@@ -306,7 +324,7 @@ function buildFileIssue(o) {
 		"The revert destroys the edit — run it only after reading the diff.",
 	].join("\n");
 	return {
-		title: `Orphaned edit: ${o.path} (blob ${o.blob.slice(0, 10)})`,
+		title: `Orphaned edit: ${o.path} (blob ${o.blob.slice(0, BLOB_TAG_HEX)})`,
 		body,
 	};
 }
@@ -325,7 +343,7 @@ const describeLanded = (landed) => (landed ? LANDED_AS[landed] : "no");
  * commit off it.
  * @param {Filing} f
  */
-const allLanded = (f) =>
+const isRemovable = (f) =>
 	f.worktree !== null &&
 	f.unlanded === 0 &&
 	f.others === 0 &&
@@ -349,20 +367,22 @@ function describeUnlanded(unlanded) {
  * A linked worktree's issue title and body: one decision, whatever its count
  * of files.
  * @param {Filing} f
+ * @param {string|null} supersedes
  */
-function buildWorktreeIssue(f) {
+function buildWorktreeIssue(f, supersedes) {
 	const tree = shellQuote(f.tree);
+	const out = buildWaysOut(f.tree);
 	const rows = f.orphans.map(
 		(o) =>
-			`| \`${o.path}\` | ${describeAge(o.ageHours)} | \`${o.blob.slice(0, 10)}\` | ${describeLanded(o.landed)} |`,
+			`| \`${o.path}\` | ${describeAge(o.ageHours)} | \`${o.blob.slice(0, BLOB_TAG_HEX)}\` | ${describeLanded(o.landed)} |`,
 	);
 	const writers = [...new Set(f.orphans.map((o) => o.writer))];
-	const decide = allLanded(f)
+	const decide = isRemovable(f)
 		? [
 				"Every change in it is already on `origin/landing` and its `HEAD` has no commit off it, so it holds nothing unlanded. Remove it:",
 				"",
 				"```",
-				`git worktree remove --force ${tree}`,
+				out.remove,
 				"```",
 			]
 		: [
@@ -370,8 +390,8 @@ function buildWorktreeIssue(f) {
 				"",
 				"```",
 				`git -C ${tree} diff HEAD`,
-				`cd ${tree} && node ${scriptPath("session-checkout.js")} land`,
-				`git worktree remove --force ${tree}`,
+				out.land,
+				out.remove,
 				"```",
 				"",
 				"The remove destroys every uncommitted change in it — run it only after reading the diff.",
@@ -388,10 +408,15 @@ function buildWorktreeIssue(f) {
 		...writers.map((w) => `- Last known writer: ${w}`),
 		...(f.others > 0
 			? [
-					`- ${String(f.others)} other uncommitted path(s) in it, too young or owned to judge`,
+					`- ${String(f.others)} other path(s) in it, untracked, deleted or owned by a live session, not judged here`,
 				]
 			: []),
 		...describeUnlanded(f.unlanded),
+		...(supersedes
+			? [
+					`- Supersedes ${supersedes}, filed for this worktree before its dirt changed: close that one`,
+				]
+			: []),
 		"",
 		"Its session has ended, so the work lands nowhere until someone lands it. Nothing has been reverted.",
 		"",
@@ -411,13 +436,12 @@ function buildWorktreeIssue(f) {
  * whether the filer died before it could say.
  * @param {Filing} f
  * @param {string} root
+ * @param {string|null} supersedes the worktree's last issue, filed for
+ *   other dirt
  */
-function fileOne(f, root) {
-	/* A main-checkout filing holds its one orphan. */
+function fileOne(f, root, supersedes) {
 	const { title, body } =
-		f.worktree === null
-			? buildFileIssue(/** @type {Orphan} */ (f.orphans[0]))
-			: buildWorktreeIssue(f);
+		f.worktree === null ? buildFileIssue(f) : buildWorktreeIssue(f, supersedes);
 	const args = [
 		filerPath(),
 		"--title",
@@ -582,64 +606,116 @@ function judgeWriter(o, { owners, owned, names, listed, now }) {
 const LANDED_REF = "origin/landing";
 
 /**
+ * A main-checkout orphan's filing.
+ * @param {Orphan} o
+ * @returns {Filing}
+ */
+const buildFileFiling = (o) => ({
+	worktree: null,
+	tree: o.tree,
+	orphans: [o],
+	state: `${o.path}\0${o.blob}`,
+	dirt: [],
+	others: 0,
+	unlanded: null,
+	held: null,
+});
+
+/**
+ * Why a worktree's filing waits, or null where it is filed now: its dirt
+ * unread, or a file in it younger than the threshold. Filing once every file
+ * has aged keeps one dead worktree to one issue, not one per file reaching
+ * the threshold.
+ * @param {string[]|null} dirt
+ * @param {number} young
+ * @param {number} hours
+ */
+function describeHeld(dirt, young, hours) {
+	if (dirt === null)
+		return "not filed: git status would not list the worktree's paths";
+	if (young > 0)
+		return `not filed yet: ${String(young)} other file(s) in its worktree changed within ${String(hours)}h, and the worktree is filed once all have aged`;
+	return null;
+}
+
+/**
+ * Add worktree orphan `o` to its worktree's filing, starting one where none
+ * stands.
+ * @param {Map<string, Filing>} byTree accumulator: each worktree's filing
+ * @param {Filing[]} filings accumulator: a started filing is pushed here
+ * @param {Orphan} o
+ * @param {string|null} ref the landed ref, null where it does not stand
+ */
+function addToWorktree(byTree, filings, o, ref) {
+	const f = byTree.get(o.tree);
+	if (f) {
+		f.orphans.push(o);
+		return;
+	}
+	const made = {
+		worktree: o.worktree,
+		tree: o.tree,
+		orphans: [o],
+		state: "",
+		dirt: [],
+		others: 0,
+		unlanded: ref ? readUnlandedCommits(o.tree, ref) : null,
+		held: null,
+	};
+	byTree.set(o.tree, made);
+	filings.push(made);
+}
+
+/**
  * The orphans grouped into filings: each main-checkout orphan alone, each
  * linked worktree's together, judged against `origin/landing` where it
- * stands. In the order of each filing's oldest orphan.
+ * stands, in the order of each filing's oldest orphan. A worktree orphan
+ * whose blob will not read is filed with none, and returned apart.
  * @param {Orphan[]} orphans oldest first
- * @param {Map<string, number>} dirtyIn each linked worktree's count of
- *   uncommitted paths
- * @param {string} root
- * @returns {Filing[]}
+ * @param {{youngIn: Map<string, number>, hours: number, root: string}} opts
+ *   `youngIn` each linked worktree's count of files under the threshold
+ * @returns {{filings: Filing[], unfiled: Orphan[]}}
  */
-function buildFilings(orphans, dirtyIn, root) {
+function buildFilings(orphans, { youngIn, hours, root }) {
 	const ref = gitRead(["rev-parse", "--verify", "-q", LANDED_REF], root)
 		? LANDED_REF
 		: null;
 	/** @type {Filing[]} */
 	const filings = [];
+	/** @type {Orphan[]} */
+	const unfiled = [];
 	/** @type {Map<string, Filing>} */
 	const byTree = new Map();
 	for (const o of orphans) {
 		if (o.worktree === null) {
-			filings.push({
-				worktree: null,
-				tree: o.tree,
-				orphans: [o],
-				state: `${o.path}\0${o.blob}`,
-				others: 0,
-				unlanded: null,
-			});
+			filings.push(buildFileFiling(o));
 			continue;
 		}
-		const landed =
-			ref && o.blob !== "unknown"
-				? landedAs(o.tree, o.path, o.blob, ref)
-				: null;
-		const judged = { ...o, landed };
-		const f = byTree.get(o.tree);
-		if (f) {
-			f.orphans.push(judged);
+		if (o.blob === "unknown") {
+			unfiled.push({ ...o, filed: "not filed: its blob could not be read" });
 			continue;
 		}
-		const made = {
-			worktree: o.worktree,
-			tree: o.tree,
-			orphans: [judged],
-			state: "",
-			others: 0,
-			unlanded: ref ? unlandedCommits(o.tree, ref) : null,
-		};
-		byTree.set(o.tree, made);
-		filings.push(made);
+		addToWorktree(
+			byTree,
+			filings,
+			{
+				...o,
+				landed: ref ? landedAs(o.tree, o.path, o.blob, ref) : null,
+			},
+			ref,
+		);
 	}
 	for (const f of byTree.values()) {
-		f.others = (dirtyIn.get(f.tree) ?? 0) - f.orphans.length;
+		const dirt = readWorktreeDirt(f.tree);
+		f.held = describeHeld(dirt, youngIn.get(f.tree) ?? 0, hours);
+		f.dirt = dirt ?? [];
+		f.others = f.dirt.length - f.orphans.length;
 		f.state = [
 			f.worktree,
 			...f.orphans.map((o) => `${o.path}\0${o.blob}`).sort(),
 		].join("\n");
 	}
-	return filings;
+	return { filings, unfiled };
 }
 
 /**
@@ -649,8 +725,9 @@ function buildFilings(orphans, dirtyIn, root) {
  * @returns {{taken: string} | {taken: null, filed: string}}
  */
 function takeFilingMarker(f, dir) {
+	if (f.held !== null) return { taken: null, filed: f.held };
 	if (f.orphans.some((o) => o.blob === "unknown"))
-		return { taken: null, filed: "not filed: a blob could not be read" };
+		return { taken: null, filed: "not filed: its blob could not be read" };
 	if (dir === null)
 		return {
 			taken: null,
@@ -662,13 +739,29 @@ function takeFilingMarker(f, dir) {
 }
 
 /**
+ * What a filing's marker records once filed: a worktree's dirt, for the
+ * reaper's match, or a main-checkout file's path and blob.
+ * @param {Filing} f
+ * @param {string} ref
+ * @param {number} now
+ */
+const buildMarkerRecord = (f, ref, now) =>
+	f.worktree === null
+		? { path: f.orphans[0]?.path, blob: f.orphans[0]?.blob, ref, at: now }
+		: { worktree: f.worktree, dirt: f.dirt, ref, at: now };
+
+/**
  * @param {Filing} f
  * @param {string} taken
  * @param {{root: string, now: number}} opts
  * @returns {string} the outcome, for each orphan's `filed`
  */
 function fileUnderMarker(f, taken, { root, now }) {
-	const res = fileOne(f, root);
+	const supersedes =
+		f.worktree === null
+			? null
+			: readWorktreeFiling(path.dirname(path.dirname(taken)), f.worktree);
+	const res = fileOne(f, root, supersedes);
 	if (res.ref === null && res.mayHaveFiled)
 		return `filing interrupted, not retried — search the tracker: ${res.error}`;
 	if (res.ref === null) {
@@ -678,7 +771,7 @@ function fileUnderMarker(f, taken, { root, now }) {
 	try {
 		fs.writeFileSync(
 			taken,
-			`${JSON.stringify({ worktree: f.worktree, paths: f.orphans.map((o) => o.path), ref: res.ref, at: now })}\n`,
+			`${JSON.stringify(buildMarkerRecord(f, res.ref, now))}\n`,
 		);
 	} catch (e) {
 		// Its marker exists, so it is still never filed twice (#813).
@@ -820,15 +913,16 @@ runCheck({
 		/** @type {string[]} */
 		const unread = [];
 		/** @type {Map<string, number>} */
-		const dirtyIn = new Map();
+		const youngIn = new Map();
 		for (const wt of linked ?? []) {
 			const wtDirty = readDirtyTracked(wt);
 			if (wtDirty === null) unread.push(wt);
 			if (!wtDirty || wtDirty.length === 0) continue;
 			total += wtDirty.length;
-			dirtyIn.set(wt, wtDirty.length);
 			const tree = { root: wt, worktree: worktreeLabel(root, wt) };
-			sorted.push(sortByAge(tree, wtDirty, { hours, now }));
+			const aged = sortByAge(tree, wtDirty, { hours, now });
+			youngIn.set(wt, aged.young);
+			sorted.push(aged);
 		}
 		const old = sorted.flatMap((t) => t.old);
 		const young = sorted.reduce((n, t) => n + t.young, 0);
@@ -838,10 +932,10 @@ runCheck({
 
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
-		const { filings, orphans } = fileOrphans(
-			buildFilings(found, dirtyIn, root),
-			{ root, now },
-		);
+		const grouped = buildFilings(found, { youngIn, hours, root });
+		const filed = fileOrphans(grouped.filings, { root, now });
+		const { filings } = filed;
+		const orphans = [...filed.orphans, ...grouped.unfiled];
 
 		const threshold = describeThreshold(hours, cutOver);
 		if (!ctx.notify) reportOrphans(ctx, orphans, threshold);
