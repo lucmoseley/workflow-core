@@ -31,8 +31,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { configDirs } = require("./arbiter-store");
-const { hostRoot } = require("./host-root.js");
 const { readJsonl } = require("./jsonl.js");
+const { markersDir } = require("./marker-root.js");
 
 /**
  * One root's reading.
@@ -44,21 +44,21 @@ const { readJsonl } = require("./jsonl.js");
  * @property {number | null} lineCount
  */
 
+/** A shared ledger in the host's marker store, beside the seat-utilisation
+ *  history: the readings are of this machine's seat roots, so one baseline
+ *  serves every session on the machine and none on another (#4465). */
 /** @type {() => string} */
 const WATCH_FILE = () =>
 	process.env.WFC_HISTORY_TRIM_WATCH ||
-	path.join(hostRoot(), "docs", "data", "history-trim-watch.jsonl");
+	path.join(markersDir(), ".history-trim-watch.jsonl");
 
-/** The stamp is gitignored: it is bookkeeping for the throttle, not part of
- *  the tracked watch file's record. */
 /** @type {(watchFile: string) => string} */
 const RECORD_STAMP = (watchFile) => `${watchFile}.stamp`;
 
-/** One reading a day, matching seat-utilisation's own throttle. The watch file
- *  is TRACKED, so every line it appends is committed: several
+/** One reading a day, matching seat-utilisation's own throttle: several
  *  `npm run status` runs in one day would each append a reading identical to
- *  the last but for its timestamp, growing the file without narrowing when a
- *  trim happened. */
+ *  the last but for its timestamp, growing the ledger without narrowing when
+ *  a trim happened. */
 const RECORD_MIN_AGE_HOURS = 24;
 
 /**
@@ -113,9 +113,9 @@ function readRoots(dirs = configDirs()) {
  * NULL AND UNDEFINED ARE NOT THE SAME ANSWER. `null` is "no baseline yet" —
  * ENOENT, or a file with no lines — a legitimate first-ever run. `undefined`
  * is "a baseline exists and could not be read" — a permission error, or a
- * newest line that fails to parse. The watch file is TRACKED, so the second
- * case is this checker's own apparatus failing on repo bytes, never the
- * subject: silently reading it as "no baseline" would re-baseline over
+ * newest line that fails to parse. The second case is this checker's own
+ * apparatus failing, never the subject: silently reading it as "no baseline"
+ * would re-baseline over
  * whatever trim happened in the gap, the one failure mode this detector
  * exists to catch.
  *
