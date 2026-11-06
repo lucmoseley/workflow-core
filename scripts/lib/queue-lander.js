@@ -1510,7 +1510,8 @@ function stepOrEnd(s) {
  *   checkout now carries it
  * @property {() => number} now the clock, in ms
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
- *   filed or left unfiled, or one whose state was not read
+ *   filed or left unfiled, or one whose state was not read, and a run not
+ *   cancelled or an early batch push that failed
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
  *   | "superseded"> & {pending: Map<string, Pending>, acting: Batch|null}}
@@ -1997,7 +1998,7 @@ async function act(deps, action, run) {
 			if (was !== null) cancelAsk(deps, run, { sha: was, slot });
 			/** @type {string|null} */
 			let started = null;
-			/* A failed early push leaves the push to test-sha, as before it. */
+			/* A failed early push leaves the push to test-sha (#4573). */
 			const merged = git.mergeMembers(
 				action.onto,
 				action.members,

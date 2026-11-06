@@ -145,6 +145,7 @@ it("skips on the batch only gates a workflow on a lander push repeats, or the me
 	for (const [gate, step] of Object.entries(REPEATED_BY))
 		if (step !== null) expect(workflows, gate).toContain(step);
 	const rendered = [...REGENERATED_FILES.values()].map((r) => r.generator);
-	expect(skipped("lander_set").length).toBeGreaterThan(0);
-	for (const gate of skipped("lander_set")) expect(rendered).toContain(gate);
+	const neither = skipped("lander_set");
+	expect(neither.length).toBeGreaterThan(0);
+	for (const gate of neither) expect(rendered).toContain(gate);
 });

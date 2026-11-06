@@ -522,6 +522,7 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 			said.some((l) => l.includes("not pushed before its gate pass")),
 		).toBe(true);
 		expect(events.some((e) => e.startsWith("cancel"))).toBe(false);
+		expect(events).toContain(`push ${merges} on lander/batch-0`);
 		expect(asked).toEqual([merges]);
 	});
 
