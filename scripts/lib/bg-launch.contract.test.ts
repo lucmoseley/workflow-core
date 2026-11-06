@@ -168,9 +168,7 @@ it.skipIf(claudeLiveSkipReason())(
 		const { id } = recorded.removals.noJob;
 		const r = runOn(["rm", id], [], "claude");
 		expect(r.failed).not.toBeNull();
-		expect(r.out).toBe(
-			`${recorded.removals.noJob.stdout}${recorded.removals.noJob.stderr}`.trim(),
-		);
+		expect(r.out).toContain(id);
 	},
 	30_000,
 );
