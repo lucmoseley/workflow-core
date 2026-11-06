@@ -9,13 +9,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
 
-export interface SystemctlAnswers {
-	/** `is-enabled <unit>`'s state by unit; a unit not named is not-found. */
-	unitStates?: Record<string, string>;
-	/** `show <unit> --property=A,B`'s values by property, printed `A=value`. */
+export interface FakeUnit {
+	/** `is-enabled`'s state; a unit without one reads not-found. */
+	enabled?: string;
+	/** `is-active`'s state; a unit without one reads inactive. */
+	active?: string;
+	/** `show`'s properties by name. */
 	properties?: Record<string, string>;
+}
+
+export interface SystemctlAnswers {
+	units?: Record<string, FakeUnit>;
 	/** A verb that fails, with its exit code and stderr. */
 	fails?: Record<string, { exit: number; says?: string }>;
+	/** The cgroup root a unit's ControlGroup property sits under, as
+	 * WFC_CGROUP_ROOT: `kill` empties that cgroup's `cgroup.procs`, as the
+	 * killed processes leaving it would. */
+	cgroupRoot?: string;
 }
 
 /* systemctl(1): is-enabled exits 0 on these states, 4 on not-found, else 1. */
@@ -34,43 +44,76 @@ const arms = (entries: [string, string][]) =>
 		.map(([match, body]) => `  ${shellQuote(match)}) ${body};;`)
 		.join("\n");
 
-/**
- * A systemctl in `dir`, appending each call's `systemctl <args>` to
- * `dir/calls`. A verb neither failed nor read prints nothing and exits 0.
- * Its path, for WFC_SYSTEMCTL.
- */
-export function writeSystemctl(
-	dir: string,
-	{ unitStates = {}, properties = {}, fails = {} }: SystemctlAnswers = {},
+/* The real one prints a state unless --quiet; and exits 0 only on active, 3 for
+ * a loaded unit otherwise, 4 for one not loaded. */
+const say = (state: string) => `[ -n "$quiet" ] || echo ${shellQuote(state)}`;
+
+function buildScript(
+	log: string,
+	{ units = {}, fails = {}, cgroupRoot }: SystemctlAnswers,
 ): string {
-	fs.mkdirSync(dir, { recursive: true });
-	const bin = path.join(dir, "systemctl");
-	const states = arms(
-		Object.entries(unitStates).map(([unit, state]) => [
+	const list = Object.entries(units);
+	const enabled = arms(
+		list.flatMap(([unit, u]): [string, string][] =>
+			u.enabled === undefined
+				? []
+				: [
+						[
+							unit,
+							`${say(u.enabled)}; exit ${ENABLED_STATES.includes(u.enabled) ? 0 : 1}`,
+						],
+					],
+		),
+	);
+	const active = arms(
+		list.map(([unit, u]): [string, string] => [
 			unit,
-			`echo ${shellQuote(state)}; exit ${ENABLED_STATES.includes(state) ? 0 : 1}`,
+			`${say(u.active ?? "inactive")}; exit ${u.active === "active" ? 0 : 3}`,
 		]),
 	);
 	const shown = arms(
-		Object.entries(properties).map(([name, value]) => [
-			name,
-			`printf '%s\\n' ${shellQuote(`${name}=${value}`)}`,
-		]),
+		list.flatMap(([unit, u]): [string, string][] =>
+			Object.entries(u.properties ?? {}).map(
+				([name, value]): [string, string] => [
+					`${unit} ${name}`,
+					`if [ -n "$value" ]; then printf '%s\\n' ${shellQuote(value)}; else printf '%s\\n' ${shellQuote(`${name}=${value}`)}; fi`,
+				],
+			),
+		),
+	);
+	const killed = arms(
+		cgroupRoot === undefined
+			? []
+			: list.flatMap(([unit, u]): [string, string][] => {
+					const cg = u.properties?.ControlGroup;
+					return cg === undefined
+						? []
+						: [
+								[
+									unit,
+									`: > ${shellQuote(path.join(cgroupRoot, cg, "cgroup.procs"))}`,
+								],
+							];
+				}),
 	);
 	const failing = arms(
-		Object.entries(fails).map(([verb, { exit, says = "" }]) => [
-			verb,
-			`${says ? `echo ${shellQuote(says)} >&2; ` : ""}exit ${exit}`,
-		]),
+		Object.entries(fails).map(
+			([verb, { exit, says = "" }]): [string, string] => [
+				verb,
+				`${says ? `echo ${shellQuote(says)} >&2; ` : ""}exit ${exit}`,
+			],
+		),
 	);
-	fs.writeFileSync(
-		bin,
-		`#!/bin/sh
-echo systemctl "$*" >> ${shellQuote(path.join(dir, "calls"))}
-verb= unit= props=
+	return `#!/bin/sh
+echo systemctl "$*" >> ${shellQuote(log)}
+verb= unit= props= value= quiet= next=
 for a in "$@"; do
+  if [ -n "$next" ]; then props="$props,$a"; next=; continue; fi
   case "$a" in
-  --property=*) props=\${a#--property=};;
+  -p|--property) next=1;;
+  --property=*) props="$props,\${a#--property=}";;
+  --value) value=1;;
+  --quiet|-q) quiet=1;;
   -*) ;;
   *) if [ -z "$verb" ]; then verb=$a; else unit=$a; fi;;
   esac
@@ -81,21 +124,44 @@ esac
 case "$verb" in
 is-enabled)
   case "$unit" in
-${states}
-  *) echo not-found; exit 4;;
+${enabled}
+  *) ${say("not-found")}; exit 4;;
+  esac;;
+is-active)
+  case "$unit" in
+${active}
+  *) ${say("inactive")}; exit 4;;
   esac;;
 show)
   IFS=,
   for p in $props; do
-    case "$p" in
+    case "$unit $p" in
 ${shown}
     esac
   done;;
+kill)
+  case "$unit" in
+${killed}
+  esac;;
 esac
 exit 0
-`,
-		{ mode: 0o755 },
-	);
+`;
+}
+
+/**
+ * A systemctl in `dir`, appending each call's `systemctl <args>` to
+ * `dir/calls`. A verb neither failed nor modelled prints nothing and exits 0.
+ * Its path, for WFC_SYSTEMCTL.
+ */
+export function writeSystemctl(
+	dir: string,
+	answers: SystemctlAnswers = {},
+): string {
+	fs.mkdirSync(dir, { recursive: true });
+	const bin = path.join(dir, "systemctl");
+	fs.writeFileSync(bin, buildScript(path.join(dir, "calls"), answers), {
+		mode: 0o755,
+	});
 	return bin;
 }
 

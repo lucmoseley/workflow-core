@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
  * session-scope.js (#4341), run in process against a fake /proc, its
- * systemd tools stubs at WFC_BUSCTL, WFC_SYSTEMD_RUN and WFC_SYSTEMCTL that
- * log each call, so no test moves a real process.
+ * systemd tools stubs at WFC_BUSCTL and WFC_SYSTEMD_RUN and
+ * lib/systemctl-fake.ts at WFC_SYSTEMCTL, each logging its calls, so no test
+ * moves a real process.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -10,6 +11,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProcRoot } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process.js";
+import { writeSystemctl } from "./lib/systemctl-fake";
 
 const SCRIPT = path.join(__dirname, "session-scope.js");
 const NON_SYSTEMD = "/non-systemd";
@@ -32,7 +34,7 @@ function tmp(prefix: string) {
  * pids out of `/non-systemd` in the fake /proc, as the manager would. */
 function fakeTools(procRoot: string, { refuse = "", active = false } = {}) {
 	const dir = tmp("session-scope-bin-");
-	const log = path.join(dir, "calls.log");
+	const log = path.join(dir, "calls");
 	const tool = (name: string, body: string) => {
 		const file = path.join(dir, name);
 		fs.writeFileSync(
@@ -51,10 +53,13 @@ case "$1 $6 $7" in "--user AttachProcessesToUnit ssau")
 esac`,
 		),
 		WFC_SYSTEMD_RUN: tool("systemd-run", "exit 0"),
-		WFC_SYSTEMCTL: tool(
-			"systemctl",
-			active ? "exit 0" : 'case "$*" in *is-active*) exit 3;; esac',
-		),
+		WFC_SYSTEMCTL: writeSystemctl(dir, {
+			units: {
+				"wfc-session-500-19640000-watch.service": {
+					active: active ? "active" : "inactive",
+				},
+			},
+		}),
 	};
 	const calls = () =>
 		fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [];

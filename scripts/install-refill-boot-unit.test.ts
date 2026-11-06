@@ -43,9 +43,9 @@ let systemctl: string;
 
 const writeUnitStates = (boot: string, timer = "enabled") => {
 	systemctl = writeSystemctl(dir, {
-		unitStates: {
-			"refill-loop-boot.service": boot,
-			"refill-loop-watch.timer": timer,
+		units: {
+			"refill-loop-boot.service": { enabled: boot },
+			"refill-loop-watch.timer": { enabled: timer },
 		},
 	});
 };

@@ -19,6 +19,9 @@ const SHOWN = {
 	StartLimitIntervalUSec: "10min",
 };
 
+/* SUDO_UID 1000's manager, the unit the installer reads back. */
+const UNIT = "user@1000.service";
+
 let dir: string;
 const at = (name: string) => path.join(dir, name);
 const dropIn = () =>
@@ -35,7 +38,7 @@ const install = (env: NodeJS.ProcessEnv = { SUDO_UID: "1000" }) =>
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "install-user-manager-"));
-	systemctl = writeSystemctl(dir, { properties: SHOWN });
+	systemctl = writeSystemctl(dir, { units: { [UNIT]: { properties: SHOWN } } });
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -71,10 +74,14 @@ describe("install-user-manager-restart", () => {
 
 	it("exits 1 where the read-back shows the drop-in did not load", () => {
 		systemctl = writeSystemctl(dir, {
-			properties: {
-				Restart: "no",
-				OOMScoreAdjust: "100",
-				StartLimitIntervalUSec: "10s",
+			units: {
+				[UNIT]: {
+					properties: {
+						Restart: "no",
+						OOMScoreAdjust: "100",
+						StartLimitIntervalUSec: "10s",
+					},
+				},
 			},
 		});
 		const r = install();
@@ -87,7 +94,7 @@ describe("install-user-manager-restart", () => {
 
 	it("exits 1 where the reload fails", () => {
 		systemctl = writeSystemctl(dir, {
-			properties: SHOWN,
+			units: { [UNIT]: { properties: SHOWN } },
 			fails: { "daemon-reload": { exit: 3 } },
 		});
 		const r = install();

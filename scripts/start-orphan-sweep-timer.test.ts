@@ -1,12 +1,11 @@
 // @vitest-environment node
 /*
- * Pins start-orphan-sweep-timer.js against stand-in `systemctl` and
- * `systemd-run` at WFC_SYSTEMCTL and WFC_SYSTEMD_RUN (#4342): it starts the
- * reaper's timer where none runs, leaves one running a live script alone,
- * replaces one whose script is gone or older than its own, and stays green
- * where no user manager
- * answers. A live case holds
- * the stand-in's ExecStart shape to the real `systemctl`'s.
+ * Pins start-orphan-sweep-timer.js against lib/systemctl-fake.ts and a
+ * stand-in `systemd-run` at WFC_SYSTEMCTL and WFC_SYSTEMD_RUN (#4342, #3970):
+ * it starts the reaper's timer where none runs, leaves one running a live
+ * script alone, replaces one whose script is gone or older than its own, and
+ * stays green where no user manager answers. A live case holds the ExecStart
+ * shape the cases feed the fake to the real `systemctl`'s.
  *
  * Loosen a case and the sweep never runs with every session closed, or a
  * timer naming a pruned worktree's script fails at every firing unreplaced.
@@ -18,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { writeSystemctl } from "./lib/systemctl-fake";
 
 const { scriptInExecStart } = require("./start-orphan-sweep-timer.js") as {
 	scriptInExecStart: (exec: string) => string;
@@ -78,15 +78,14 @@ function standIn(name: string, body: string) {
 	return file;
 }
 
-/** `systemctl` answering a timer `active` or not, its service running `exec`. */
+/** `systemctl` answering the timer `active` or not, its service running `exec`. */
 function systemctl(active: boolean, exec = "") {
-	return standIn(
-		"systemctl",
-		`case "$2" in
-  is-active) echo ${active ? "active" : "inactive"}; exit ${active ? 0 : 3} ;;
-  show) echo '${exec}' ;;
-esac`,
-	);
+	return writeSystemctl(dir, {
+		units: {
+			"wfc-orphan-sweep.timer": { active: active ? "active" : "inactive" },
+			"wfc-orphan-sweep.service": { properties: { ExecStart: exec } },
+		},
+	});
 }
 
 function run(env: Record<string, string>) {
