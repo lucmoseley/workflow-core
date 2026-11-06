@@ -144,7 +144,7 @@ const INTERPRETER = /^(python|python[0-9].*|node|nodejs)$/;
 const RESTORE_ROUTES = ["cp", "mv", "git restore", "git checkout"];
 
 /**
- * @typedef {import("./guard-judge.js").CoreContext} Ctx
+ * @typedef {import("./core-contract.js").CoreContext} Ctx
  * @typedef {import("./guard-host-ports.js").TreePorts} Tree
  * @typedef {{ targets: string[], credit: string[], select: string[],
  *   deleted: string[], restored: string[] }} Writes what one command writes:

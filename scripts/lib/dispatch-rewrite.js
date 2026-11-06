@@ -69,7 +69,7 @@ const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
 const { shellQuote } = require("./sh-quote.js");
 
 /**
- * @typedef {Pick<import("./guard-judge.js").CoreContext, "agent" |
+ * @typedef {Pick<import("./core-contract.js").CoreContext, "agent" |
  *   "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText"> & {
  *   artefactFile: (description: unknown) => string,
  *   makeDir: (dir: string) => boolean,

@@ -51,7 +51,7 @@ const { creditable, warnings } = require("./claim-warning.js");
 const LEDGER = "led.claimed-bash-write";
 
 /**
- * @typedef {import("./guard-judge.js").CoreContext & import("./claim-warning.js").ClaimPorts & {
+ * @typedef {import("./core-contract.js").CoreContext & import("./claim-warning.js").ClaimPorts & {
  *   recordWrite: (rel: string, session: string) => unknown,
  *   recordSelect: (rel: string, session: string) => unknown,
  * }} Ctx
@@ -112,7 +112,7 @@ function judge(w, session, ctx) {
 /**
  * @param {string} subject the command
  * @param {Ctx} ctx
- * @returns {import("./guard-judge.js").CoreDecision}
+ * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(subject, ctx) {
 	const w = plan(subject, ctx);

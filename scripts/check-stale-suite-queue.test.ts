@@ -129,12 +129,12 @@ describe("what it reports", () => {
 		expect(report(run())).toContain("OK:");
 	});
 
-	/* The drift mantahostels#2034's own review caught: queueTurn requires a numeric `at`
+	/* The drift mantahostels#2034's own review caught: readTurn requires a numeric `at`
 	 * and an earlier draft of this sweep did not, so a marker with none was
-	 * reported stale here under advice queueTurn would not honour on that
-	 * same marker (queueTurn skips it outright). The walk is shared now
+	 * reported stale here under advice readTurn would not honour on that
+	 * same marker (readTurn skips it outright). The walk is shared now
 	 * (lib/suite-queue.js's readMarkers), so this asserts the shared answer. */
-	it("skips a marker with a numeric pid and no numeric at, matching queueTurn", () => {
+	it("skips a marker with a numeric pid and no numeric at, matching readTurn", () => {
 		fs.writeFileSync(
 			path.join(dir, "wfc-suite-queue-11.json"),
 			JSON.stringify({ pid: 11 }),

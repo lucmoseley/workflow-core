@@ -28,12 +28,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import type { CoreDecision } from "./core-contract.js";
 import { decide, type EchoContext } from "./echo-call.js";
 import { buildHostPorts } from "./echo-call-host.js";
 import chain from "./echo-chain.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
-import type { CoreDecision } from "./guard-judge.js";
 import { kitContext } from "./kit-context.js";
 import { resolveScriptPaths } from "./script-path.js";
 

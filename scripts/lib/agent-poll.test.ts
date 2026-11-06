@@ -28,9 +28,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decide, type PollContext } from "./agent-poll.js";
 import { buildHostPorts } from "./agent-poll-host.js";
 import { freshSandbox } from "./arbiter-testkit";
+import type { CoreDecision } from "./core-contract.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
-import type { CoreDecision } from "./guard-judge.js";
 import { kitContext } from "./kit-context.js";
 import { WAIT_SLOT } from "./wait-text.js";
 

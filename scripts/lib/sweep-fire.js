@@ -72,7 +72,7 @@ const { ruleOrFallback } = require("./guard-verdict.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
- * @typedef {import("./guard-judge.js").CoreContext} CoreContext
+ * @typedef {import("./core-contract.js").CoreContext} CoreContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./sweep-fire-host.js").Spend} Spend
  */
