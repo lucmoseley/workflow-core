@@ -22,7 +22,17 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	build,
+	hooksWiring,
+	ownClaims,
+	region,
+	removeTemps,
+	reviewIn,
+	run as runRegistry,
+	SELF_PLUGIN_HOOKS,
+} from "./lib/guard-registry-testkit";
 import {
 	commit,
 	git,
@@ -49,6 +59,7 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 landerSandbox();
+afterEach(removeTemps);
 
 // Required, not imported: an ESM import of lib/queue-lander.js would load a
 // second copy of TransientFault, which queueGit's throw is not.
@@ -203,6 +214,76 @@ describe("a run", () => {
 		});
 	});
 
+	it("lands two refs that changed different libraries of one guard-registry row in one batch, the row carried (#4514)", async () => {
+		const guard = "scripts/guard-pair.sh";
+		const fixture = build({
+			claude: region(
+				"- Pairs hold. **Enforced** (#4514): `scripts/guard-pair.sh` denies it.",
+			),
+			files: {
+				[guard]:
+					'#!/bin/sh\nsource "$(dirname "$0")/lib/a.sh"\nsource "$(dirname "$0")/lib/b.sh"\nexit 2\n',
+				"scripts/lib/a.sh": "a() { :; }\n",
+				"scripts/lib/b.sh": "b() { :; }\n",
+				[SELF_PLUGIN_HOOKS]: hooksWiring(guard),
+			},
+		});
+		fs.cpSync(fixture, work, { recursive: true });
+		const review = () => reviewIn(work, [guard], ownClaims(work));
+		review();
+		const base = commit("registry");
+		git(work, "push", "-q", "origin", `${base}:main`);
+		fs.writeFileSync(
+			path.join(work, ".git", "info", "attributes"),
+			`${ANCHORS} merge=registry-anchors\n`,
+		);
+		git(
+			work,
+			"config",
+			"merge.registry-anchors.driver",
+			`node ${shellQuote(path.resolve(__dirname, "merge-registry-anchors.js"))} %O %A %B`,
+		);
+		const a = pushQueue("a", base, () => {
+			fs.writeFileSync(
+				path.join(work, "scripts/lib/a.sh"),
+				"a() { exit 1; }\n",
+			);
+			review();
+		});
+		const b = pushQueue("b", base, () => {
+			fs.writeFileSync(
+				path.join(work, "scripts/lib/b.sh"),
+				"b() { exit 1; }\n",
+			);
+			review();
+		});
+		const hooks = path.resolve(
+			work,
+			git(work, "rev-parse", "--git-common-dir"),
+			"hooks",
+		);
+		fs.mkdirSync(hooks, { recursive: true });
+		fs.writeFileSync(
+			path.join(hooks, "pre-commit"),
+			"#!/bin/sh\nWFC_RULES_DIR= WFC_RULES_FALLBACK_DIR= CLAUDE_CODE_SESSION_ID=lander WFC_ANCHOR_LOCKS='[]' exec node scripts/check-guard-registry.js --against HEAD\n",
+			{ mode: 0o755 },
+		);
+
+		const r = await runLander(stubTester(0));
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).not.toContain("drop-member");
+		expect(r.stdout).toContain("exit no queue ref waits");
+		const main = git(remote, "rev-parse", "main");
+		expect(git(remote, "merge-base", "--is-ancestor", a, main)).toBe("");
+		expect(git(remote, "merge-base", "--is-ancestor", b, main)).toBe("");
+		git(work, "checkout", "-q", "--detach", main);
+		const stale = runRegistry(work).json.warnings.filter(
+			(w) => w.guard === guard,
+		);
+		expect(stale).toEqual([]);
+	});
+
 	it("drops a ref conflicting with main to dropped/<name>, files its fix ticket and lands the other, logging each", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const shared = path.join(work, "shared.txt");
@@ -267,10 +348,14 @@ describe("a run", () => {
 
 	it("drops a ref whose merge a gate refuses with the gate's findings, not its first line, and lands the other", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed, () =>
+			fs.writeFileSync(path.join(work, "gated.txt"), "a\n"),
+		);
+		const b = pushQueue("b", seed);
 		const hook = path.join(git(work, "rev-parse", "--git-common-dir"), "hooks");
 		fs.mkdirSync(path.resolve(work, hook), { recursive: true });
 		fs.writeFileSync(
-			path.resolve(work, hook, "pre-merge-commit"),
+			path.resolve(work, hook, "pre-commit"),
 			[
 				"#!/bin/sh",
 				"[ -e gated.txt ] || exit 0",
@@ -282,10 +367,6 @@ describe("a run", () => {
 			].join("\n"),
 			{ mode: 0o755 },
 		);
-		const a = pushQueue("a", seed, () =>
-			fs.writeFileSync(path.join(work, "gated.txt"), "a\n"),
-		);
-		const b = pushQueue("b", seed);
 		const { gh, readStore } = stubTracker();
 
 		const r = await runLander(stubTester(0), "landing", gh.env);
@@ -308,7 +389,7 @@ describe("a run", () => {
 			kind: "refused",
 			name: "a",
 			reason: expect.stringMatching(
-				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt\n/,
+				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt/,
 			),
 		});
 		const [ticket] = readStore();

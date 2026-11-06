@@ -215,9 +215,14 @@ const OUTCOMES = {
  *   pathspecs?: (ctx: CheckContext, rev: string) => string[],
  *   baseline?: "lazy" | "always",
  *   refuse?: (ctx: CheckContext) => void,
- *   settle?: (ctx: CheckContext, added: FaultItem[]) => { refuse: FaultItem[], remedy: string[], data?: object },
+ *   settle?: (ctx: CheckContext, added: FaultItem[], sides: Sides) => { refuse: FaultItem[], remedy: string[], data?: object },
  * }} AgainstSpec `settle`'s `data` joins the --json envelope, under the
  *   envelope's own keys
+ * @typedef {{
+ *   baseline: Record<string, unknown> | undefined,
+ *   read: (rev: string) => { outcome: Outcome, summary: string, envelope: Record<string, unknown> },
+ * }} Sides what settle() may read beyond the faults: the baseline's envelope,
+ *   and this checker re-run over another rev
  * @typedef {{
  *   name: string,
  *   usage: string,
@@ -907,7 +912,10 @@ function runAgainst(spec, ctx) {
 		refuse,
 		remedy,
 		data: settled,
-	} = against.settle?.(ctx, added) ?? {
+	} = against.settle?.(ctx, added, {
+		baseline: sides.baselineEnvelope,
+		read: (rev_) => readRev(spec, ctx, { against, materialise }, rev_),
+	}) ?? {
 		refuse: added,
 		remedy: [],
 	};
@@ -1024,6 +1032,30 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 		{ stream: which === "index" && !ctx.asJson, side: which },
 		ctx.args,
 	);
+}
+
+/**
+ * readSide over `rev` as a baseline, in a directory of its own removed on the
+ * way out.
+ *
+ * @param {CheckSpec} spec
+ * @param {CheckContext} ctx
+ * @param {{ against: AgainstSpec,
+ *   materialise: (rev: string, dir: string, pathspecs: string[]) => void }} at
+ * @param {string} rev
+ */
+function readRev(spec, ctx, { against, materialise }, rev) {
+	const work = fs.mkdtempSync(
+		path.join(os.tmpdir(), `check-against-${spec.name}-`),
+	);
+	try {
+		return readSide(ctx, { against, materialise, work }, rev, {
+			label: rev,
+			which: "baseline",
+		});
+	} finally {
+		fs.rmSync(work, { recursive: true, force: true });
+	}
 }
 
 /**

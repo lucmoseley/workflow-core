@@ -209,19 +209,25 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 					{ program: "queue-lander", use: "merge" },
 					(_dir, inTree) => {
 						for (const m of members) {
-							const failed = mergeFailure(m, inTree, () =>
+							/* `--no-commit`, then `git commit`: git writes a merge's tree
+							 * before pre-merge-commit runs, so only pre-commit's index
+							 * reaches the commit, the anchors a merge carries among
+							 * them (#4514). */
+							const failed = mergeFailure(m, inTree, () => {
 								inTree(
 									[
 										"merge",
 										"--no-ff",
-										"--no-edit",
+										"--no-commit",
 										"-m",
 										`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
 										m.sha,
 									],
 									mergeTimeoutMs,
-								),
-							);
+								);
+								if (isMerging(inTree))
+									inTree(["commit", "--no-edit"], mergeTimeoutMs);
+							});
 							if (failed) return failed;
 						}
 						return {
@@ -304,6 +310,20 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		}
 	}
 }
+
+/**
+ * Whether the tree `inTree` runs git in has a merge in progress: none follows
+ * a merge of a sha it already holds.
+ * @param {(args: string[]) => string} inTree
+ */
+const isMerging = (inTree) => {
+	try {
+		inTree(["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+		return true;
+	} catch {
+		return false;
+	}
+};
 
 /** @param {unknown} list @returns {list is string[]} */
 const isStringList = (list) =>

@@ -64,4 +64,4 @@ function buildMergedAnchors(base, ours, theirs) {
 	return buildAnchorsText(rows);
 }
 
-module.exports = { buildMergedAnchors };
+module.exports = { buildAnchorsText, buildMergedAnchors, parseRows };

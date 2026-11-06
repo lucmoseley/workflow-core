@@ -196,6 +196,11 @@ const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
 const { hasOwnGit, isTreeMember, treeOf } = require("./lib/tree-members.js");
+const {
+	judgeCarry,
+	readMerge,
+	writeCarried,
+} = require("./lib/registry-carry.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -357,7 +362,10 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__"]);
  *   rules: RuleRef[],
  *   detail: string,
  *   refusesCommit?: boolean,
- * }} StaleWarning
+ *   digest?: string,
+ *   hashes?: string[],
+ * }} StaleWarning `digest` and `hashes` are the row's digest and the files it
+ *   hashes, on an UNANCHORED or STALE-PROSE row, for a merge's carry (#4514)
  * @typedef {{
  *   kind: "REPRINTED",
  *   guard: string,
@@ -2479,9 +2487,10 @@ function noRegionFindings(st) {
  * @param {Map<string, RuleRef[]>} describedBy
  * @param {Map<string, WiredScript>} implicitScripts
  * @param {Record<string, string>} anchors
+ * @param {Set<string>} [fresh] accumulator: each target whose anchor holds
  * @returns {Warning[]}
  */
-function stalenessWarnings(describedBy, implicitScripts, anchors) {
+function stalenessWarnings(describedBy, implicitScripts, anchors, fresh) {
 	/** @type {Warning[]} */
 	const warnings = [];
 	const targets = [
@@ -2489,7 +2498,10 @@ function stalenessWarnings(describedBy, implicitScripts, anchors) {
 	].sort();
 
 	for (const g of targets) {
-		const warning = targetWarning(g, describedBy, implicitScripts, anchors);
+		const warning = targetWarning(g, describedBy, implicitScripts, {
+			anchors,
+			fresh,
+		});
 		if (warning) warnings.push(warning);
 	}
 
@@ -2530,12 +2542,16 @@ function staleGuards(describedBy, implicitScripts, anchors) {
  * @param {string} g
  * @param {Map<string, RuleRef[]>} describedBy
  * @param {Map<string, WiredScript>} implicitScripts
- * @param {Record<string, string>} anchors
+ * @param {{ anchors: Record<string, string>, fresh?: Set<string> }} held
+ *   the anchors, and an accumulator taking `g` where its anchor holds
  * @returns {Warning | null}
  */
-function targetWarning(g, describedBy, implicitScripts, anchors) {
-	const current = digestOf(g);
+function targetWarning(g, describedBy, implicitScripts, { anchors, fresh }) {
+	/** @type {Set<string>} */
+	const hashed = new Set();
+	const current = digestOf(g, hashed);
 	if (current === null) return null;
+	const hashes = [...hashed].sort();
 	const rules = describedBy.get(g) ?? [];
 	const recorded = anchors[g];
 	/** @type {string[]} */
@@ -2553,6 +2569,8 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
 			guard: g,
 			rules,
 			detail: `no entry in ${ANCHORS}, so nothing records that ${what} was ever read against it`,
+			digest: current,
+			hashes,
 		};
 	if (recorded !== current)
 		return {
@@ -2562,7 +2580,10 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
 			detail:
 				`the guard or a library its digest hashes changed since the last review (anchored ${recorded}, now ${current}) — ` +
 				`re-read ${what} against it`,
+			digest: current,
+			hashes,
 		};
+	fresh?.add(g);
 	return null;
 }
 
@@ -4240,6 +4261,8 @@ function buildReviewSummary(
  * be cleared — and prints the way out: re-read, re-anchor, stage the anchors file in the same
  * commit. No reason footer stands a refusal down: it would leave the anchor
  * stale and the full run's count above zero.
+ *
+ * A MERGE CARRIES what both its authors re-read (#4514): lib/registry-carry.js.
  */
 const STALE_KINDS = new Set(["UNANCHORED", "STALE-PROSE", "ORPHAN-ANCHOR"]);
 
@@ -4257,17 +4280,98 @@ const buildReviewLine = (guard) =>
 
 /**
  * The faults this commit adds that refuse it, and the way out of the stale
- * ones.
+ * ones. A merge's carried rows refuse nothing where this index is the merge
+ * commit's tree; under pre-merge-commit, whose index edits never reach the
+ * commit, they refuse, and `git commit` finishes the merge carrying them.
  *
  * @param {Ctx} ctx
  * @param {FaultItem[]} added
+ * @param {import("./lib/check.js").Sides} sides
+ * @returns {{ refuse: FaultItem[], remedy: string[], data: { carried: string[] } }}
+ */
+function settleStale(ctx, added, sides) {
+	const stale = added.map(staleOf).filter((w) => w !== null);
+	const { rev: tip, head: pushed } = againstRevs(ctx);
+	const carry =
+		stale.length > 0 && !pushed ? carryMerge(ctx, stale, sides) : null;
+	const carried = new Set(carry?.carried ?? []);
+	const isCarried = (/** @type {FaultItem} */ f) =>
+		carried.has(staleOf(f)?.guard ?? "");
+	const { refuse, remedy } = settleOwed(
+		ctx,
+		added.filter((f) => !isCarried(f)),
+		{ tip, pushed },
+	);
+	const data = { carried: [...carried] };
+	if (carried.size === 0 || carry?.lands) return { refuse, remedy, data };
+	return {
+		refuse: [...added.filter(isCarried), ...refuse],
+		remedy: [
+			...remedy,
+			"",
+			`${carried.size} row(s) above carry across this merge, each side having changed different files of its closure (#4514),`,
+			"  but git wrote this merge's tree before this hook ran. Finish the merge with them carried:",
+			"    git commit --no-edit",
+		],
+		data,
+	};
+}
+
+/**
+ * The rows a merge carries (#4514), written into the anchors file where this
+ * index is the merge commit's tree. Null where this commit makes no merge.
+ *
+ * @param {Ctx} ctx
+ * @param {StaleWarning[]} stale
+ * @param {import("./lib/check.js").Sides} sides
+ * @returns {{ carried: string[], lands: boolean } | null}
+ */
+function carryMerge(ctx, stale, sides) {
+	const merge = readMerge(root);
+	if (merge === null) return null;
+	/** @param {Record<string, unknown> | undefined} envelope */
+	const freshOf = (envelope) =>
+		Array.isArray(envelope?.fresh)
+			? new Set(/** @type {string[]} */ (envelope.fresh))
+			: null;
+	const { carried, kept, none } = judgeCarry(root, merge, stale, {
+		oursFresh: freshOf(sides.baseline),
+		readTheirsFresh: (rev) => {
+			const r = sides.read(rev);
+			return r.outcome === "BROKEN" || r.outcome === "SKIP"
+				? null
+				: freshOf(r.envelope);
+		},
+	});
+	if (none) ctx.say(`no row carried across this merge: ${none}.`);
+	for (const k of kept) ctx.say(`not carried ${k.guard} — ${k.why}.`);
+	if (carried.length === 0) return { carried: [], lands: merge.lands };
+	if (merge.lands) {
+		const failed = writeCarried(root, ANCHORS, carried);
+		if (failed) {
+			ctx.say(`no row carried across this merge: ${failed}.`);
+			return { carried: [], lands: true };
+		}
+	}
+	for (const c of carried)
+		ctx.say(
+			`${merge.lands ? "carried" : "carries"} ${c.guard} across the merge, anchored ${c.digest}: each side changed different files of its closure (#4514).`,
+		);
+	return { carried: carried.map((c) => c.guard), lands: merge.lands };
+}
+
+/**
+ * settleStale's judgement of the rows no merge carries.
+ *
+ * @param {Ctx} ctx
+ * @param {FaultItem[]} added
+ * @param {{ tip: string, pushed: string | undefined }} revs
  * @returns {{ refuse: FaultItem[], remedy: string[] }}
  */
-function settleStale(ctx, added) {
+function settleOwed(ctx, added, { tip, pushed }) {
 	const stale = added.map(staleOf).filter((w) => w !== null);
 	if (stale.length === 0) return { refuse: added, remedy: [] };
 
-	const { rev: tip, head: pushed } = againstRevs(ctx);
 	const { hashedBy, inputs } = readDigestInputs(stale.map((w) => w.guard));
 	const read = readHeldAtGate(ctx, inputs, pushed);
 	const { held, unavailable } = read;
@@ -4608,7 +4712,7 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 		for (const l of buildExpiredRow(w, via, annotated)) ctx.say(l);
 	};
 	for (const { guard, via } of expired) {
-		const w = targetWarning(guard, describedBy, implicitScripts, anchors);
+		const w = targetWarning(guard, describedBy, implicitScripts, { anchors });
 		if (w) say(w, via, implicitScripts.has(guard));
 	}
 	for (const g of gone)
@@ -4935,8 +5039,10 @@ runCheck({
 				anchors,
 			);
 
+		/** @type {Set<string>} */
+		const fresh = new Set();
 		const warnings = [
-			...stalenessWarnings(describedBy, implicitScripts, anchors),
+			...stalenessWarnings(describedBy, implicitScripts, anchors, fresh),
 			...reprintWarnings(enforcedRules),
 		];
 
@@ -5010,6 +5116,7 @@ runCheck({
 				findings,
 				total: findings.length,
 				warnings,
+				fresh: [...fresh].sort(byCodeUnit),
 				ruleStore: {
 					fragments,
 					triggers: triggerRefs.map((t) => ({
