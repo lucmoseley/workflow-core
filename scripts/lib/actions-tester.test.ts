@@ -833,7 +833,34 @@ it("never reads the whole suite asked again off a run older than the branch's ne
 		kind: "green",
 		run: 9,
 	});
-	expect([...stale.repushed, ...pushed.repushed]).toEqual([]);
+	expect(pushed.repushed).toEqual([]);
+	expect(stale.repushed).toEqual([`lander/iso-suite-base@${SHA}`]);
+});
+
+it("pushes the ref again once for the whole suite asked again where no run at the sha was ever listed, judging the run that push starts (#4572)", async () => {
+	const SuiteBase = "lander/iso-suite-base";
+	const atAsk = run(8, "success", { headSha: OTHER });
+	const recovered = queueReads([], {
+		iso: () => [{ branch: SuiteBase, sha: SHA }],
+		runsOn: () =>
+			recovered.repushed.length === 0 ? [atAsk] : [run(9, "success"), atAsk],
+	});
+	expect(await queueOf(recovered).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 9,
+	});
+	expect(recovered.repushed).toEqual([`${SuiteBase}@${SHA}`]);
+
+	const outage = queueReads([], {
+		iso: () => [{ branch: SuiteBase, sha: SHA }],
+		runsOn: () => [atAsk],
+	});
+	expect(await queueOf(outage).verdict(SHA, [], true)).toEqual({
+		kind: "red",
+		files: [],
+		noRun: true,
+	});
+	expect(outage.repushed).toEqual([`${SuiteBase}@${SHA}`]);
 });
 
 it("reads a ref moved, refused or cut off by the network on pushing it again as no verdict, transient only for the network (#4524)", async () => {

@@ -901,6 +901,8 @@ describe("the adapters", () => {
 		const verdicts = path.join(markers(), "v.jsonl");
 		const batch = path.join(markers(), "b.json");
 		fs.mkdirSync(markers(), { recursive: true });
+		const LedgeredAt = "2026-11-06T12:00:00.000Z";
+		vi.stubEnv("WFC_NOW", LedgeredAt);
 		verdictLedger(verdicts).add("s1", ["b.ts", "a.ts"], {
 			kind: "red",
 			files: ["a.ts"],
@@ -944,6 +946,7 @@ describe("the adapters", () => {
 				main: "m0",
 				files: ["a.ts"],
 				ticket: 90,
+				retakeAt: 5,
 			},
 			bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
 		};
@@ -951,34 +954,50 @@ describe("the adapters", () => {
 		const holding = (x: unknown) => ({ line: [], search: x, depth: 1 });
 		pipelineRecord(batch).write({ ...holding(b), search: b });
 
-		expect(verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])).toEqual({
+		expect(
+			verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])?.verdict,
+		).toEqual({
 			kind: "red",
 			files: ["a.ts"],
 		});
-		expect(verdictLedger(verdicts).get("s1", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s1", [])?.verdict).toEqual({
 			kind: "green",
 			run: 7,
 		});
-		expect(verdictLedger(verdicts).get("s3", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s3", [])?.verdict).toEqual({
 			kind: "red",
 			files: ["a.ts"],
 			retried: true,
 		});
-		expect(verdictLedger(verdicts).get("s4", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s4", [])?.verdict).toEqual({
 			kind: "red",
 			files: [],
 			noRun: true,
 		});
+		/* Its time read back, as a no-run red stands only so long, and a row
+		 * with none readable as the epoch (#4572). */
+		expect(verdictLedger(verdicts).get("s4", [])?.at).toBe(
+			Date.parse(LedgeredAt),
+		);
+		fs.appendFileSync(
+			verdicts,
+			`${JSON.stringify({ sha: "s5", files: [], verdict: { kind: "green" } })}\n`,
+		);
+		expect(verdictLedger(verdicts).get("s5", [])).toEqual({
+			verdict: { kind: "green" },
+			at: 0,
+		});
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();
-		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)).toEqual({
+		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)?.verdict).toEqual({
 			kind: "green",
 		});
-		expect(verdictLedger(verdicts).get("s1", [], 0)).toEqual(noFile);
+		expect(verdictLedger(verdicts).get("s1", [], 0)?.verdict).toEqual(noFile);
 		expect(pipelineRecord(batch).read()).toEqual(holding(b));
 		for (const torn of [
 			{ ...b, phase: "parked" },
 			{ ...b, hold: { kind: "refused", main: "m0" } },
+			{ ...b, hold: { ...b.hold, retakeAt: "soon" } },
 			{ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] },
 			{ ...b, slot: "1" },
 		]) {

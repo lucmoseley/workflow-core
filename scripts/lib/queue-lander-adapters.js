@@ -521,6 +521,13 @@ function parseVerdict(v) {
 	return null;
 }
 
+/**
+ * A ledger row's time in ms, the epoch where it has none readable, so a
+ * no-run red of unknown age is asked again rather than trusted (#4572).
+ * @param {unknown} at
+ */
+const parseLedgerTime = (at) => Date.parse(String(at)) || 0;
+
 /** @param {readonly string[]} files */
 const fileKey = (files) => [...files].sort().join("\n");
 
@@ -540,8 +547,8 @@ function verdictLedger(file) {
 			for (const row of rows.toReversed()) {
 				if (row.sha !== sha || !isStringList(row.files)) continue;
 				if (fileKey(row.files) !== key || (row.pass ?? 1) !== pass) continue;
-				const v = parseVerdict(row.verdict);
-				if (v) return v;
+				const verdict = parseVerdict(row.verdict);
+				if (verdict) return { verdict, at: parseLedgerTime(row.at) };
 			}
 			return null;
 		},
@@ -628,7 +635,9 @@ const isHold = (h) => {
 	if (typeof o?.main !== "string") return false;
 	if (o.kind === "base")
 		return (
-			isStringList(o.files) && (o.ticket === null || Number.isInteger(o.ticket))
+			isStringList(o.files) &&
+			(o.ticket === null || Number.isInteger(o.ticket)) &&
+			(o.retakeAt === undefined || Number.isFinite(o.retakeAt))
 		);
 	return (
 		o.kind === "refused" &&
