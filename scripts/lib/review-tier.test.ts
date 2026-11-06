@@ -33,10 +33,11 @@ import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 import { readShellConst } from "./shell-const-testkit";
 
-const { emissionMatches, RULE_ARG_RE } = require("./rule-emission.js") as {
-	emissionMatches: (text: string) => RegExpMatchArray[];
-	RULE_ARG_RE: RegExp;
-};
+const { emissionMatches, RULE_ARG_RE } =
+	require("./rule-emission-calls.js") as {
+		emissionMatches: (text: string) => RegExpMatchArray[];
+		RULE_ARG_RE: RegExp;
+	};
 const { decide } = require("./review-tier.js") as {
 	decide: (
 		skill: string,
