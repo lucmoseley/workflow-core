@@ -59,8 +59,9 @@
  * (lib/arbiter-core.js). One dir's read failing refuses the whole listing.
  *
  * EVERY LISTING CARRIES THE LIVE HEADLESS RUNS (lib/headless-runs.js,
- * #2608), which the oracle cannot see: `claude -p` on an overflow seat has no
- * daemon job. They are merged on every read and never cached, and the
+ * #2608): `claude -p` on an overflow seat has no daemon job. They are merged
+ * on every read and never cached, each replacing the row the oracle derives
+ * from its transcript (same session id, or a live row's pid, #4588), and the
  * self-test finds a headless caller among them. A store that will not read
  * is a `why`, as an oracle fault is, read before the oracle so no
  * single-flight follower spawns on one.
@@ -464,9 +465,7 @@ function mergedListing(agents, headlessAgents, call, opts) {
 
 	/** @type {Set<string>} */
 	const ids = new Set();
-	for (const a of agents)
-		if (a && typeof a.sessionId === "string" && a.sessionId)
-			ids.add(a.sessionId);
+	for (const a of agents) if (hasSessionId(a)) ids.add(a.sessionId);
 	if (ids.size === 0)
 		return {
 			why: `${call} listed ${agents.length} agent(s), none of them carrying a sessionId — the shape it reports has changed`,
@@ -483,15 +482,27 @@ function mergedListing(agents, headlessAgents, call, opts) {
 			why: `${call} does not list this very session (${me}), so its list is not a list of what is live`,
 		};
 
+	const headlessIds = new Set(headlessAgents.map((a) => a.sessionId));
+	const headlessPids = new Set(headlessAgents.map((a) => a.pid));
 	return {
 		agents: [
 			...agents.filter(
-				(a) => a && typeof a.sessionId === "string" && a.sessionId,
+				(a) =>
+					hasSessionId(a) &&
+					!headlessIds.has(a.sessionId) &&
+					!(!isTerminalAgent(a) && headlessPids.has(a.pid)),
 			),
 			...headlessAgents,
 		],
 	};
 }
+
+/**
+ * @param {any} a an oracle record, unjudged
+ * @returns {boolean}
+ */
+const hasSessionId = (a) =>
+	Boolean(a) && typeof a.sessionId === "string" && a.sessionId !== "";
 
 /**
  * The live headless runs as `{agents}`, or `{why}` where the store will not

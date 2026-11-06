@@ -208,12 +208,17 @@ const JOB_STATE_OF = /** @type {const} */ ({
  * @param {string} jobId
  * @returns {{state: string, sessionId: string, cwd: string,
  *   detail?: string}|null}
- * @throws where the record cannot be read
+ * @throws where the record or its log cannot be read
  */
 function readRunAsJob(jobId) {
 	const run = readRun(jobId);
 	if (!run) return null;
-	const { outcome } = readEndResult(run);
+	let outcome;
+	try {
+		({ outcome } = readEndResult(run));
+	} catch (e) {
+		throw new Error(`its log ${run.log}: ${caught(e).message}`, { cause: e });
+	}
 	const base = { sessionId: run.sessionId, cwd: run.cwd };
 	if (outcome === "running" || outcome === "success")
 		return { state: JOB_STATE_OF[outcome], ...base };

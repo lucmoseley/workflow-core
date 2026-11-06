@@ -12,7 +12,7 @@ const { runTickChild: runChild } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
 const { readOverflowLookup, record } = require("./dispatch-ledger.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
-const { findRunSince, readRun } = require("./headless-runs.js");
+const { findRunSince, readRunAsJob } = require("./headless-runs.js");
 const { launch: launchHeadless } = require("./headless-sessions.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { movePassMarkers } = require("./move-pass-markers.js");
@@ -36,7 +36,7 @@ const buildResumeIo = (log) => ({
 	authRefusal: (launch) => launchAuthRefusal({ bin: claudeBin(), ...launch }),
 	launchHeadless,
 	findHeadlessRun: findRunSince,
-	readHeadlessRun: readRun,
+	readRunAsJob,
 	runClaude,
 	readJobRecord,
 	findResumed,
