@@ -35,8 +35,8 @@
  * text plus every lib it `source`s or `require`s, transitively.
  *
  * WHAT IT CANNOT SEE: a call whose id is a VARIABLE (`rule_text "$id"`, the
- * shape at lib/rule-text.sh), and a lib behind a path this cannot resolve —
- * see §sourcedLibs.
+ * shape at lib/rule-text.sh), and a lib behind a path lib/guard-reach.js
+ * cannot resolve.
  *
  * A DECISION'S `skip` DOES NOT ENTER IT. A skip sits behind its own condition
  * on the command in front of the guard, so a ceiling must assume it does not
@@ -72,6 +72,14 @@ const {
 	manifestAt,
 	readManifest,
 } = require("./guard-cores.js");
+const { walkReach } = require("./guard-reach.js");
+const {
+	RULE_ARG_RE,
+	RULE_ID,
+	directAccessorCalls,
+	directRuleCounts,
+	emissionMatches,
+} = require("./rule-emission-calls.js");
 
 /*
  * CAP_FILE names hook-limits.sh, which ships beside this file, so it is reached
@@ -87,110 +95,6 @@ const EVENT = "PreToolUse";
 
 /** Where RULE_CAP is assigned, relative to the repo root. */
 const CAP_SOURCE = path.join("scripts", "lib", "hook-limits.sh");
-
-const RULE_ID = "(?:rule:)?[a-z0-9]+(?:-[a-z0-9]+)*";
-
-/**
- * The name each emission below opens on, by the regex that reads it. A
- * comment can split an emission so it only matches once the comment is
- * stripped (#3481), but never takes its name away, so namesAnEmission gates
- * on these alone.
- */
-const EMISSION_NAMES = {
-	inject: ["injectRules"],
-	shell: ["rule_text", "rule_or_path"],
-	nodeIdFirst: ["readRuleText", "readRuleTextOr", "ruleText"],
-	nodeIdSecond: ["ruleOrFallback"],
-};
-/**
- * The pre-emptive emission, a Node guard core's `{ injectRules: [<id>…] }`
- * decision, which lib/guard-entry.js latches and caps (#2784). Shared with
- * scripts/check-guard-registry.js so the two readings cannot drift. The ids
- * must be quoted literals in the array: one held in a constant is invisible.
- */
-const INJECT_RULES_RE = new RegExp(
-	`\\b${EMISSION_NAMES.inject.join("|")}:\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
-	"g",
-);
-
-/**
- * An injectRules key, never a `.injectRules` read; a shorthand key included.
- * Residual: a destructure (`{ injectRules } = d`) and a mention inside a
- * string literal match too, and so read as unread — the safe direction.
- */
-const INJECT_RULES_KEY_RE = /(?<![\w$.])injectRules(?=\s*[:,}])/g;
-/* INJECT_RULES_RE admits no empty array, which emits nothing and is no
- * unread injection either. */
-const LITERAL_INJECTION_RE = new RegExp(
-	`(?:${INJECT_RULES_RE.source}|injectRules:\\s*\\[\\s*\\])`,
-	"y",
-);
-
-/**
- * Where `text` first hands injectRules something other than a literal id
- * array — a variable, a spread, a shorthand key — whose ids no scan can read
- * (#3011), or undefined.
- * @param {string} text
- * @returns {number | undefined}
- */
-function firstUnreadInjection(text) {
-	return [...text.matchAll(INJECT_RULES_KEY_RE)]
-		.map((m) => m.index ?? 0)
-		.find((at) => {
-			LITERAL_INJECTION_RE.lastIndex = at;
-			return !LITERAL_INJECTION_RE.test(text);
-		});
-}
-
-/**
- * Every pre-emptive emission in `text`; group 1 holds the ids.
- * @param {string} text
- */
-const emissionMatches = (text) => [...text.matchAll(INJECT_RULES_RE)];
-
-/**
- * The bare ids in one emission's id run.
- *
- * ONE optional `rule:` comes off, because the latch bares one (mantahostels#2719).
- */
-const RULE_ARG_RE = /["']?(?:rule:)?([a-z0-9]+(?:-[a-z0-9]+)*)["']?/g;
-
-/**
- * The DIRECT accessor call — a shell hook's `rule_text <id>`, or
- * concision-backstop.sh's `rule_or_path <id>`, which wraps it with a logged
- * pointer fallback (#3439) — which splices the fragment into text the hook
- * composes itself.
- *
- * UNANCHORED: the call sits inside a condition rather than at the head of its
- * own statement. The cost is that a mention in a comment matches, which
- * over-reports the census.
- */
-const DIRECT_RULE_RE = new RegExp(
-	`\\b(?:${EMISSION_NAMES.shell.join("|")})\\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))`,
-	"g",
-);
-/**
- * The Node accessors' direct call, the id a quoted literal first, split across
- * lines as Biome formats it: `readRuleText`, `readRuleTextOr`, and `ruleText`,
- * a core's injected port onto readRuleText (lib/guard-entry.js) (#2905); and
- * lib/guard-verdict.js's `ruleOrFallback`, the id second after the core's
- * context (#3146).
- */
-const NODE_DIRECT_RULE_RE = new RegExp(
-	`\\b(?:(?:${EMISSION_NAMES.nodeIdFirst.join("|")})\\(|(?:${EMISSION_NAMES.nodeIdSecond.join("|")})\\(\\s*[\\w.]+\\s*,)\\s*["']([a-z0-9-]+)["']\\s*[),]`,
-	"g",
-);
-
-const EMISSION_NAME_RE = new RegExp(
-	`\\b(?:${Object.values(EMISSION_NAMES).flat().join("|")})\\b`,
-);
-
-/**
- * Whether `text` names any emission's opening name, comments included: one
- * naming none emits no rule.
- * @param {string} text
- */
-const namesAnEmission = (text) => EMISSION_NAME_RE.test(text);
 
 /**
  * The bound on a direct call: a Node core's `ctx.told("<id>")`, which asks
@@ -407,40 +311,6 @@ function gatedOffIds(text, root) {
 		for (const a of (m[3] ?? "").matchAll(RULE_ARG_RE)) if (a[1]) off.add(a[1]);
 	}
 	return off;
-}
-
-/**
- * Every DIRECT accessor call in one source, shell and Node spellings alike, as
- * the id it fetches and where the call starts. Shared with
- * scripts/check-guard-registry.js.
- *
- * @param {string} text
- * @returns {{ id: string, index: number }[]}
- */
-function directAccessorCalls(text) {
-	/** @type {{ id: string, index: number }[]} */
-	const calls = [];
-	for (const re of [DIRECT_RULE_RE, NODE_DIRECT_RULE_RE])
-		for (const m of text.matchAll(re)) {
-			const id = m[1] ?? m[2] ?? m[3];
-			if (id) calls.push({ id, index: m.index ?? 0 });
-		}
-	return calls;
-}
-
-/**
- * Every DIRECT accessor call in one guard's source, as id → how many CALL
- * SITES name it, in the order given.
- *
- * @param {string} text the guard's source
- * @returns {Map<string, number>}
- */
-function directRuleCounts(text) {
-	/** @type {Map<string, number>} */
-	const counts = new Map();
-	for (const { id } of directAccessorCalls(text))
-		counts.set(id, (counts.get(id) ?? 0) + 1);
-	return counts;
 }
 
 /** A Node binding's head: `const|let|var <name> =` or `function <name>(`. */
@@ -786,70 +656,6 @@ function sourceOf(sources, rel) {
 }
 
 /**
- * A `source` or `.` line's argument, at the head of its statement.
- *
- * ANCHORED: `source` and `.` are bare words, and the shellcheck directive
- * above every real one (`# shellcheck source=lib/rule-text.sh`) would
- * otherwise match as a second source line for the same lib. A conditional
- * `[ -f x ] && source x` is invisible.
- */
-const SOURCE_LINE_RE = /^[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
-
-/**
- * The shell expansion in front of a sourced path, taken to the LAST of them —
- * `$here/`, `${BASH_SOURCE[0]%/*}/` and `$(dirname "${BASH_SOURCE[0]}")/` are
- * the repo's three, guards using the first and libs the other two. Every one
- * ends `$`, `}` or `)`, then an optional word, then the slash, which is what
- * this matches rather than the expansions themselves.
- */
-const SOURCE_PREFIX_RE = /^.*[$})]\w*\//;
-
-/**
- * A Node file's relative `require`: a Node guard reaches its core, and the
- * core's ids, this way. Only scripts/lib is followed, here and in
- * check-guard-registry.js.
- */
-const REQUIRE_RE = /require\(\s*["'](\.[\w./-]+\.js)["']\s*\)/g;
-
-/**
- * The libs one file `source`s, as repo-relative paths, in the order given.
- *
- * RESOLVED AGAINST THE SOURCING FILE'S OWN DIRECTORY, which is what every
- * expansion above computes. Bash would resolve a BARE `source lib/x.sh` against
- * the caller's working directory instead.
- *
- * DROPPED, both silently: an absolute path, and one escaping the repo root.
- * A PATH STILL HOLDING A VARIABLE names no file and yields nothing here.
- *
- * @param {string} text the file's source
- * @param {string} rel the file's own repo-relative path
- * @returns {string[]}
- */
-function sourcedLibs(text, rel) {
-	const dir = path.posix.dirname(rel.split(path.sep).join("/"));
-	/** @type {string[]} */
-	const out = [];
-	for (const m of text.matchAll(SOURCE_LINE_RE)) {
-		const [tail = ""] = (m[1] ?? "")
-			.replace(SOURCE_PREFIX_RE, "")
-			.split(/["'\s]/, 1);
-		if (!/^[\w.-]+(?:\/[\w.-]+)*\.sh$/.test(tail)) continue;
-		const resolved = path.posix.normalize(path.posix.join(dir, tail));
-		if (resolved.startsWith("..")) continue;
-		if (!out.includes(resolved)) out.push(resolved);
-	}
-	if (isNodeGuard(rel))
-		for (const m of text.matchAll(REQUIRE_RE)) {
-			const resolved = path.posix.normalize(
-				path.posix.join(dir, requiredGroup(m, 1, REQUIRE_RE)),
-			);
-			if (resolved.startsWith("scripts/lib/") && !out.includes(resolved))
-				out.push(resolved);
-		}
-	return out;
-}
-
-/**
  * One guard's EFFECTIVE source: its own text, then every lib it sources,
  * transitively, joined by newlines.
  *
@@ -887,19 +693,21 @@ function readEffectiveSource(rel, text, readLib) {
  * @returns {Map<string, string>}
  */
 function readSourcedClosure(rel, text, readLib) {
-	const seen = new Set([rel]);
+	const reached = walkReach(
+		[rel],
+		(paths) => paths.map((p) => (p === rel ? text : readLib(p))),
+		{
+			follow: ["source", "require"],
+			keep: (edge, from) =>
+				edge.kind === "source" ||
+				(isNodeGuard(from) && edge.to.startsWith("scripts/lib/")),
+		},
+	);
+	reached.delete(rel);
 	/** @type {Map<string, string>} */
 	const libs = new Map();
-	const queue = sourcedLibs(text, rel);
-	while (queue.length > 0) {
-		const next = /** @type {string} */ (queue.shift());
-		if (seen.has(next)) continue;
-		seen.add(next);
-		const libText = readLib(next);
-		if (libText === null) continue;
-		libs.set(next, libText);
-		queue.push(...sourcedLibs(libText, next));
-	}
+	for (const [lib, libText] of reached)
+		if (libText !== null) libs.set(lib, libText);
 	return libs;
 }
 
@@ -1618,17 +1426,10 @@ function reachableAfterCall(options = {}) {
 }
 
 module.exports = {
-	REQUIRE_RE,
 	CAP_SOURCE,
 	EVENT,
 	registrationsOn,
-	directAccessorCalls,
-	emissionMatches,
-	namesAnEmission,
-	firstUnreadInjection,
-	RULE_ARG_RE,
 	WIRED_SCRIPT_RE,
-	directRuleCounts,
 	readRuleCap,
 	readHookPersistChars,
 	buildHookCommandLine,

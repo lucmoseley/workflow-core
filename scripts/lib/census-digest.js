@@ -47,17 +47,14 @@ const { caught } = require("./caught.js");
 const { readCommit } = require("./commit-sha.js");
 const { loadShfmt } = require("./formatters.js");
 const { NO_CEILING } = require("./git-ceiling.js");
-const { MANIFEST_REL, hostOf } = require("./guard-cores.js");
+const { MANIFEST_REL } = require("./guard-cores.js");
 const { hasLine } = require("./marker-line.js");
+const { edgesOf, walkReach, walkReachAll } = require("./guard-reach.js");
 const {
-	RULE_ARG_RE,
-	directRuleCounts,
-	emissionMatches,
 	firstUnreadInjection,
 	namesAnEmission,
-} = require("./rule-emission.js");
+} = require("./rule-emission-calls.js");
 const { bareCitationGrep } = require("./qualify-citations.js");
-const { requiredGroup } = require("./regex-group.js");
 const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 
@@ -89,31 +86,22 @@ const GIT_MAX_BUFFER = 8 * 1024 * 1024;
 
 /* The directory beside a Node guard its composed libs sit in. */
 const LIB_DIR = "lib";
-const LIB_FILE = "[\\w.-]+\\.js";
-/* A literal destructuring require of a lib in LIB_DIR, in codeOf's reprint:
- * group 1 the bindings, group 2 the file. */
-const LIB_REQUIRE_RE = new RegExp(
-	`\\{([^}]*)\\}\\s*=\\s*require\\(\\s*["']\\./${LIB_DIR}/(${LIB_FILE})["']\\s*\\)`,
-	"g",
-);
-/* Where LIB_REQUIRE_RE's path can lead, from any guard's directory. */
-const LIB_PATH_RE = new RegExp(`(?:^|/)${LIB_DIR}/${LIB_FILE}$`);
-const COMPOSED_BINDING_RE = /(?<![\w$])(?:decide|buildHostPorts)(?![\w$])/;
+/* The bindings a wrapper hands lib/guard-entry.js's run, which make the lib
+ * it requires them from a composed one. */
+const COMPOSED_BINDINGS = ["decide", "buildHostPorts"];
 /**
- * @typedef {{ requires: string[], ruleFiles: string[] }} LibFacts
  * @typedef {{ root: string, tree: Map<string, string> | null, disk: boolean,
  *   ceiling: import("./git-ceiling.js").GitCeiling }} Snapshot
  */
 
 /* Keyed by commit and by blob id, neither of which ever changes, so a pass
- * over every row lists each tree once and reads and scans each file once.
- * A lib's facts key on its directory too, its requires resolving from it. */
+ * over every row lists each tree once and reads and scans each file once. */
 /** @type {Map<string, Map<string, string>>} */
 const treeByCommit = new Map();
 /** @type {Map<string, Buffer>} */
 const bytesByBlob = new Map();
-/** @type {Map<string, LibFacts>} */
-const factsByBlobAndDir = new Map();
+/** @type {Map<string, string[]>} */
+const ruleFilesByBlob = new Map();
 /* A reprint keys on its extension too, which picks the printer. */
 /** @type {Map<string, string | Buffer>} */
 const codeByBlobAndExt = new Map();
@@ -250,46 +238,42 @@ function readAt(snap, rel) {
 }
 
 /**
- * `rel`'s relative requires, as paths from the root, and the rule files its
- * literal ids name, or null where `rel` is absent from `snap`. A non-literal
- * injectRules is no BROKEN here: rule-emission.js's own scans spell the key.
+ * The rule files the lib at `rel` names, read from its reprint, or none
+ * where it is absent or names no emission. A non-literal injectRules is no
+ * BROKEN here: rule-emission.js's own scans spell the key.
  *
  * @param {Snapshot} snap
  * @param {string} rel
- * @returns {LibFacts | null}
+ * @returns {string[]}
  */
-function readLibFacts(snap, rel) {
-	const dir = path.posix.dirname(rel);
+function libRuleFiles(snap, rel) {
 	const oid = snap.tree?.get(rel);
-	const key = oid === undefined ? undefined : `${oid}\0${dir}`;
-	const cached = key === undefined ? undefined : factsByBlobAndDir.get(key);
+	const cached = oid === undefined ? undefined : ruleFilesByBlob.get(oid);
 	if (cached !== undefined) return cached;
 	const bytes = readAt(snap, rel);
-	if (bytes === null) return null;
-	const text = bytes.toString("utf8");
-	/** @type {{ fileName: string }[]} */
-	const imported = loadTypescript().preProcessFile(
-		text,
-		true,
-		true,
-	).importedFiles;
-	const requires = imported
-		.map((f) => f.fileName)
-		.filter((name) => /^\.\.?\//.test(name))
-		.map((name) =>
-			path.posix.join(dir, path.posix.extname(name) ? name : `${name}.js`),
-		)
-		.filter((lib) => lib.endsWith(".js"));
+	if (bytes === null) return [];
 	/* Only the reprint's ids count, and a lib naming no emission has none. */
-	/** @type {string[]} */
-	let ruleFiles = [];
-	if (namesAnEmission(text)) {
-		const code = String(readCode(snap, rel));
-		ruleFiles = ruleFilesIn(code, emissionMatches(code));
-	}
-	const facts = { requires, ruleFiles };
-	if (key !== undefined) factsByBlobAndDir.set(key, facts);
-	return facts;
+	const files = namesAnEmission(bytes.toString("utf8"))
+		? ruleFilesIn(rel, String(readCode(snap, rel)))
+		: [];
+	if (oid !== undefined) ruleFilesByBlob.set(oid, files);
+	return files;
+}
+
+/** What a digest walks from a guard: its relative `.js` requires. */
+const REACH = {
+	follow: /** @type {const} */ (["require"]),
+	keep: (/** @type {import("./guard-reach.js").Edge} */ e) =>
+		e.to.endsWith(".js"),
+};
+
+/**
+ * Each path's text in `snap`, or null where absent.
+ * @param {Snapshot} snap
+ * @param {string[]} rels
+ */
+function textsAt(snap, rels) {
+	return rels.map((rel) => readAt(snap, rel)?.toString("utf8") ?? null);
 }
 
 /**
@@ -301,18 +285,19 @@ function readLibFacts(snap, rel) {
  * @returns {string[]}
  */
 function readDeeperRuleFiles(snap, starts) {
+	const reached = walkReach(
+		starts,
+		(paths) => {
+			prefetch(snap, paths);
+			return textsAt(snap, paths);
+		},
+		REACH,
+	);
 	/** @type {Set<string>} */
 	const files = new Set();
-	const seen = new Set(starts);
-	prefetch(snap, starts);
-	let level = unseenRequires(snap, starts, seen);
-	while (level.length > 0) {
-		prefetch(snap, level);
-		for (const rel of level)
-			for (const file of readLibFacts(snap, rel)?.ruleFiles ?? [])
-				files.add(file);
-		level = unseenRequires(snap, level, seen);
-	}
+	for (const rel of reached.keys())
+		if (!starts.includes(rel))
+			for (const file of libRuleFiles(snap, rel)) files.add(file);
 	return [...files].sort();
 }
 
@@ -325,65 +310,64 @@ function readDeeperRuleFiles(snap, starts) {
  */
 function prefetchReach(reads) {
 	prefetchAcross(reads.map(([snap, rels]) => [snap, [...rels, MANIFEST_REL]]));
-	const walks = reads.map(([snap, rels]) => {
-		const seen = new Set(rels);
-		const level = [...rels];
-		for (const rel of rels) {
-			const host = rel.endsWith(".js") ? readHost(snap, rel) : null;
-			if (host !== null && !seen.has(host)) {
-				seen.add(host);
-				level.push(host);
-			}
-		}
-		return { snap, seen, level, ruleFiles: new Set() };
-	});
-	let live = walks;
-	while (live.length > 0) {
-		prefetchAcross(live.map((w) => [w.snap, w.level]));
-		for (const w of live) {
-			for (const rel of w.level)
-				for (const file of readLibFacts(w.snap, rel)?.ruleFiles ?? [])
-					w.ruleFiles.add(file);
-			w.level = unseenRequires(w.snap, w.level, w.seen);
-		}
-		live = live.filter((w) => w.level.length > 0);
-	}
-	prefetchAcross(walks.map((w) => [w.snap, w.ruleFiles]));
+	const starts = reads.map(([snap, rels]) => [
+		...rels,
+		...rels.flatMap((rel) => hostsOf(snap, rel)),
+	]);
+	const reached = walkReachAll(
+		starts,
+		(levels) => {
+			prefetchAcross(levels.map((level, i) => [snapAt(reads, i), level]));
+			return levels.map((level, i) => textsAt(snapAt(reads, i), level));
+		},
+		REACH,
+	);
+	prefetchAcross(
+		reached.map((files, i) => {
+			const snap = snapAt(reads, i);
+			return [
+				snap,
+				[...files.keys()].flatMap((rel) => libRuleFiles(snap, rel)),
+			];
+		}),
+	);
 }
 
 /**
- * The libs `level` requires that `seen` lacks, each added to it.
- *
- * @param {Snapshot} snap
- * @param {string[]} level
- * @param {Set<string>} seen accumulator: every lib already reached
- * @returns {string[]}
+ * @param {[Snapshot, string[]][]} reads
+ * @param {number} i
+ * @returns {Snapshot}
  */
-function unseenRequires(snap, level, seen) {
-	/** @type {string[]} */
-	const next = [];
-	for (const rel of level)
-		for (const lib of readLibFacts(snap, rel)?.requires ?? [])
-			if (!seen.has(lib)) {
-				seen.add(lib);
-				next.push(lib);
-			}
-	return next;
+function snapAt(reads, i) {
+	return /** @type {[Snapshot, string[]]} */ (reads[i])[0];
 }
 
 /**
  * The host lib guard-cores.json binds the dispatched core at `rel` to in
- * `snap`, or null.
+ * `snap`, as a list of none or one.
  *
  * @param {Snapshot} snap
  * @param {string} rel
- * @returns {string | null}
+ * @returns {string[]}
  */
-function readHost(snap, rel) {
+function hostsOf(snap, rel) {
+	return edgesOf(rel, "", {
+		kinds: ["host"],
+		manifest: () => readManifestAt(snap),
+	}).map((e) => e.to);
+}
+
+/**
+ * The dispatch manifest in `snap`, or null where it has none.
+ *
+ * @param {Snapshot} snap
+ * @returns {import("./guard-cores.js").Manifest | null}
+ */
+function readManifestAt(snap) {
 	const bytes = readAt(snap, MANIFEST_REL);
 	if (bytes === null) return null;
 	try {
-		return hostOf(JSON.parse(bytes.toString("utf8")), rel);
+		return JSON.parse(bytes.toString("utf8"));
 	} catch (e) {
 		throw new DigestUnavailable(
 			`${MANIFEST_REL} will not read as a manifest (${caught(e).message}), so the host ports a core composes cannot be read.`,
@@ -497,7 +481,7 @@ function readCode(snap, rel) {
 function ruleFilesOf(rel, code) {
 	if (rel.endsWith(".js")) return jsRuleFilesOf(rel, String(code));
 	if (!rel.endsWith(".sh")) return [];
-	return ruleFilesIn(code.toString(), []);
+	return ruleFilesIn(rel, code.toString());
 }
 
 /**
@@ -513,21 +497,18 @@ function jsRuleFilesOf(rel, code) {
 		throw new DigestUnavailable(
 			`${rel}: \`${code.slice(unread).split("\n")[0]}\` hands injectRules no literal id array, so the rule files it prints from cannot be read — list the ids as quoted literals.`,
 		);
-	return ruleFilesIn(code, emissionMatches(code));
+	return ruleFilesIn(rel, code);
 }
 
 /**
- * The rule files `text`'s direct accessor calls and `emissions` name, sorted.
+ * The rule files the code of `rel` names, sorted.
  *
- * @param {string} text
- * @param {Iterable<RegExpMatchArray>} emissions each holding its ids in group 1
+ * @param {string} rel
+ * @param {string} code
  * @returns {string[]}
  */
-function ruleFilesIn(text, emissions) {
-	const ids = new Set(directRuleCounts(text).keys());
-	for (const m of emissions)
-		for (const a of (m[1] ?? "").matchAll(RULE_ARG_RE)) if (a[1]) ids.add(a[1]);
-	return [...ids].sort().map((id) => `${RULES_DIR}/${id}.txt`);
+function ruleFilesIn(rel, code) {
+	return edgesOf(rel, code, { kinds: ["rule-file"] }).map((e) => e.to);
 }
 
 /**
@@ -541,11 +522,14 @@ function ruleFilesIn(text, emissions) {
 function composedLibsOf(rel, code) {
 	const dir = libDirOf(rel);
 	if (dir === null) return [];
-	return [...String(code).matchAll(LIB_REQUIRE_RE)]
-		.filter((m) =>
-			COMPOSED_BINDING_RE.test(requiredGroup(m, 1, LIB_REQUIRE_RE)),
+	return edgesOf(rel, String(code), { kinds: ["require"] })
+		.filter(
+			(e) =>
+				path.posix.dirname(e.to) === dir &&
+				e.to.endsWith(".js") &&
+				COMPOSED_BINDINGS.some((b) => e.bindings?.includes(b)),
 		)
-		.map((m) => path.posix.join(dir, requiredGroup(m, 2, LIB_REQUIRE_RE)));
+		.map((e) => e.to);
 }
 
 /**
@@ -593,8 +577,7 @@ function readInputs(snap, rel) {
  * @returns {Map<string, string | Buffer | null>}
  */
 function readComposed(snap, rel, code, ruleFiles) {
-	const host = readHost(snap, rel);
-	const composed = [...composedLibsOf(rel, code), ...(host ? [host] : [])];
+	const composed = [...composedLibsOf(rel, code), ...hostsOf(snap, rel)];
 	prefetch(snap, composed);
 	/** @type {Map<string, string | Buffer | null>} */
 	const libs = new Map();
@@ -674,7 +657,7 @@ function guardsChangedAt(snapOf, rels) {
 	let readers;
 	return (file) => {
 		if (anchored.has(file)) return [file];
-		if (!file.startsWith(`${RULES_DIR}/`) && !LIB_PATH_RE.test(file)) return [];
+		if (!file.startsWith(`${RULES_DIR}/`) && !isLibFile(file)) return [];
 		readers ??= inputReaders(snapOf(), rels);
 		return readers.get(file) ?? [];
 	};
@@ -804,6 +787,17 @@ function readRowsExpiredByTicket(
 	return rels.filter(
 		(rel) =>
 			changed.has(rel) && digestAt(headSnap(), rel) !== guards[rel]?.digest,
+	);
+}
+
+/**
+ * Whether `file` is a `.js` in a lib/ directory, where a composed lib sits.
+ * @param {string} file
+ */
+function isLibFile(file) {
+	return (
+		file.endsWith(".js") &&
+		path.posix.basename(path.posix.dirname(file)) === LIB_DIR
 	);
 }
 

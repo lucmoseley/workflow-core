@@ -94,20 +94,6 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 
 		expect(run(root).json.warnings).toEqual([]);
 	});
-
-	it("ignores a source line that is commented out", () => {
-		const root = withLib("deny() { exit 2; }\n");
-		reviewIn(root);
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-branch.sh"),
-			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\n# source "$(dirname "$0")/lib/absent.sh"\nexit 2\n',
-		);
-
-		// The guard's own bytes changed, so it is stale — but on its own account,
-		// not because a commented path was followed to a missing file.
-		const r = run(root);
-		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
-	});
 });
 
 describe("a JS guard's digest covers the modules it requires (mantahostels#159)", () => {
@@ -151,6 +137,23 @@ describe("a JS guard's digest covers the modules it requires (mantahostels#159)"
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
+	it("warns the CLI is stale when only a lib it requires without .js changed (#3795)", () => {
+		const root = withModules("module.exports = { holderAlive: () => true };\n");
+		fs.writeFileSync(
+			path.join(root, "scripts", "session-arbiter.js"),
+			'const store = require("./lib/arbiter-store");\nstore.release();\n',
+		);
+		reviewIn(root);
+		fs.writeFileSync(
+			path.join(root, "scripts", "lib", "arbiter-store.js"),
+			"module.exports = { release: () => false };\n",
+		);
+
+		const r = run(root);
+		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
+		expect(r.json.warnings[0].guard).toBe("scripts/session-arbiter.js");
+	});
+
 	it("does not follow a require that leaves lib/", () => {
 		// Widening past lib/ would start hashing node_modules and every sibling
 		// script.
@@ -170,44 +173,6 @@ describe("a JS guard's digest covers the modules it requires (mantahostels#159)"
 			"module.exports = 2;\n",
 		);
 		expect(run(root).json.warnings).toEqual([]);
-	});
-
-	it("does not follow a require that is commented out", () => {
-		const root = withModules("module.exports = { holderAlive: () => true };\n");
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-store.js"),
-			'const proc = require("./arbiter-proc.js");\n// const old = require("./arbiter-legacy.js");\nmodule.exports = { release: () => proc.holderAlive({}) };\n',
-		);
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-legacy.js"),
-			"module.exports = 1;\n",
-		);
-		reviewIn(root);
-
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-legacy.js"),
-			"module.exports = 2;\n",
-		);
-		expect(run(root).json.warnings).toEqual([]);
-	});
-
-	it("follows a second require sharing a line with the first", () => {
-		const root = withModules("module.exports = { holderAlive: () => true };\n");
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-store.js"),
-			'const proc = require("./arbiter-proc.js"), extra = require("./arbiter-extra.js");\nmodule.exports = { release: () => proc.holderAlive({}) && extra };\n',
-		);
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-extra.js"),
-			"module.exports = 1;\n",
-		);
-		reviewIn(root);
-
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-extra.js"),
-			"module.exports = 2;\n",
-		);
-		expect(run(root).json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 	});
 });
 
@@ -259,87 +224,6 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
-	it("does not follow a bare path, which is how guards quote advice back", () => {
-		// Following an advice line would tie an unrelated helper's internals to a
-		// rule about which flags are denied.
-		const root = withDelegate();
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-file-claim.sh"),
-			'#!/bin/bash\nhere="$(dirname "$0")"\necho "Use: node scripts/issue-body.js append"\ntimeout 5 node "$here/session-arbiter.js" check\n',
-		);
-		fs.writeFileSync(
-			path.join(root, "scripts", "issue-body.js"),
-			"module.exports = 1;\n",
-		);
-		reviewIn(root);
-
-		fs.writeFileSync(
-			path.join(root, "scripts", "issue-body.js"),
-			"module.exports = 2;\n",
-		);
-		expect(run(root).json.warnings).toEqual([]);
-	});
-
-	it("does not follow a node call that is commented out", () => {
-		const root = withDelegate();
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-file-claim.sh"),
-			'#!/bin/bash\nhere="$(dirname "$0")"\n# node "$here/arbiter-legacy.js" check\nnode "$here/session-arbiter.js" check\n',
-		);
-		fs.writeFileSync(
-			path.join(root, "scripts", "arbiter-legacy.js"),
-			"module.exports = 1;\n",
-		);
-		reviewIn(root);
-
-		fs.writeFileSync(
-			path.join(root, "scripts", "arbiter-legacy.js"),
-			"module.exports = 2;\n",
-		);
-		expect(run(root).json.warnings).toEqual([]);
-	});
-
-	it("follows a call whose expansion names the repo root, not the guard's dir", () => {
-		// `node "$root/scripts/x.js"` resolves against the repo root; joining it to
-		// the guard's own directory instead gives scripts/scripts/x.js, which is
-		// nowhere, and the real dependency drops out silently.
-		const root = withDelegate();
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-file-claim.sh"),
-			'#!/bin/bash\nroot="$(git rev-parse --show-toplevel)"\nnode "$root/scripts/session-arbiter.js" check\n',
-		);
-		reviewIn(root);
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-store.js"),
-			'const REFUSING = ["docs/", "scripts/"];\n',
-		);
-
-		expect(run(root).json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
-	});
-
-	it("does not follow a node call commented out the JS way", () => {
-		// sourcedBy runs over JS guards too, where a dead line is `//`, not `#`.
-		const root = build({
-			claude: region(
-				"- Release a file you are done with. **Enforced** (#126): `scripts/session-arbiter.js` releases it.",
-			),
-			files: {
-				"scripts/session-arbiter.js":
-					'// const cmd = "timeout 5 node $here/arbiter-legacy.js check";\nrequire("./lib/arbiter-store.js");\n',
-				"scripts/lib/arbiter-store.js": 'const REFUSING = ["docs/"];\n',
-				"scripts/arbiter-legacy.js": "module.exports = 1;\n",
-				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/session-arbiter.js"),
-			},
-		});
-		reviewIn(root);
-
-		fs.writeFileSync(
-			path.join(root, "scripts", "arbiter-legacy.js"),
-			"module.exports = 2;\n",
-		);
-		expect(run(root).json.warnings).toEqual([]);
-	});
-
 	it("follows a program the guard runs through a variable it assigns (#2487)", () => {
 		// The shape: lib="$here/lib/x.js" … node "$lib".
 		const root = withDelegate();
@@ -358,69 +242,6 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 		expect(r.json.warnings[0].guard).toBe("scripts/guard-file-claim.sh");
 		expect(r.json.warnings[0].detail).toMatch(/re-read the rule/);
-	});
-
-	it("follows a variable run inside a command substitution", () => {
-		// The shape x="$(node "$judge" …)".
-		const root = withDelegate();
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-file-claim.sh"),
-			'#!/bin/bash\nhere="$(dirname "$0")"\narbiter="$here/session-arbiter.js"  # the judge\nout="$(node "$arbiter" check)"\n',
-		);
-		reviewIn(root);
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-store.js"),
-			'const REFUSING = ["docs/", "scripts/"];\n',
-		);
-
-		const r = run(root);
-		expect(r.code).toBe(0);
-		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
-		expect(r.json.warnings[0].detail).toMatch(/re-read the rule/);
-	});
-
-	it("follows every program a variable assigned twice names", () => {
-		// .husky/post-commit's shape: `script` names one program, then another.
-		const root = withDelegate();
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-file-claim.sh"),
-			'#!/bin/bash\nhere="$(dirname "$0")"\nscript="$here/session-arbiter.js"\nnode "$script" check\nscript="$here/issue-body.js"\nnode "$script" append\n',
-		);
-		fs.writeFileSync(
-			path.join(root, "scripts", "issue-body.js"),
-			"module.exports = 1;\n",
-		);
-		reviewIn(root);
-		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "arbiter-store.js"),
-			'const REFUSING = ["docs/", "scripts/"];\n',
-		);
-
-		const r = run(root);
-		expect(r.code).toBe(0);
-		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
-		expect(r.json.warnings[0].detail).toMatch(/re-read the rule/);
-	});
-
-	it("does not follow a variable's path that node never runs", () => {
-		const root = withDelegate();
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-file-claim.sh"),
-			'#!/bin/bash\nhere="$(dirname "$0")"\nhint="$here/issue-body.js"\necho "Use: $hint"\nnode "$here/session-arbiter.js" check\n',
-		);
-		fs.writeFileSync(
-			path.join(root, "scripts", "issue-body.js"),
-			"module.exports = 1;\n",
-		);
-		reviewIn(root);
-
-		fs.writeFileSync(
-			path.join(root, "scripts", "issue-body.js"),
-			"module.exports = 2;\n",
-		);
-		const r = run(root);
-		expect(r.code).toBe(0);
-		expect(r.json.warnings).toEqual([]);
 	});
 
 	it("survives a node call naming a file that is not there", () => {

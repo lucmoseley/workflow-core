@@ -810,6 +810,36 @@ describe("the behavioural verdicts", () => {
 			expect(run().out).toMatch(/GUARD-CHANGED\s+scripts\/lib\/core-two\.js/);
 		});
 
+		it("expires both real readRuleParagraph guards on a reworded founder-handover.txt (#4033)", () => {
+			const guards = [
+				"scripts/guard-automode-refusal.js",
+				"scripts/guard-paste-self-match.js",
+			];
+			for (const rel of guards)
+				write(rel, fs.readFileSync(path.join(__dirname, "..", rel), "utf8"));
+			write("docs/agents/rules/founder-handover.txt", "Hand over.\n");
+			write(
+				BASELINE,
+				JSON.stringify(
+					baseline({
+						guards: Object.fromEntries(
+							guards.map((rel) => [
+								rel,
+								{ digest: "", verdict: "at need", selfSufficient: "yes" },
+							]),
+						),
+					}),
+					null,
+					"\t",
+				),
+			);
+			run("--rebaseline", "--no-claim");
+			write("docs/agents/rules/founder-handover.txt", "Hand over, reworded.\n");
+			const out = run().out;
+			for (const rel of guards)
+				expect(out).toMatch(new RegExp(`GUARD-CHANGED\\s+${rel}`));
+		});
+
 		it("expires nothing on an edit to a rule file the core does not inject", () => {
 			anchorCore(
 				'// injectRules: ["other"]\nmodule.exports = () => ({ injectRules: ["two"] });\n',

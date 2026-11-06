@@ -1215,11 +1215,10 @@ const {
 	manifestAt,
 	readManifestRows,
 	modulePath,
-	readDispatchedCores,
+	readManifest,
 } = require("./lib/guard-cores.js");
+const { edgesOf } = require("./lib/guard-reach.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
-
-const DISPATCH_KIT = path.join("scripts", "lib", "guard-dispatch.js");
 
 /*
  * The hooks git will run, read from the directory rather than listed.
@@ -1827,49 +1826,24 @@ function gist(text) {
 
 // --- staleness anchors ------------------------------------------------------
 
-const {
-	parseNodeRuns,
-	parseNodeVars,
-	parseSourcedLibs,
-} = require("./lib/line-scan.js");
-
 /*
- * The third spelling (mantahostels#358): a shell guard that reaches its logic by RUNNING a
- * node program rather than sourcing it, shelling out for every decision the
- * rule describes.
- *
- * Only a SELF-RELATIVE spelling counts: the script path must be prefixed by a
- * `$`-expansion, as in `"$here/session-arbiter.js"`. A hook runs from an
- * arbitrary cwd, so a guard that genuinely delegates must locate its sibling
- * from its own path; a bare `node scripts/issue-body.js` only works from the
- * repo root, and following it would tie a helper's internals to rules about
- * something else. The known miss is a guard that hardcodes a root-relative path
- * and really does delegate; there is none today.
- *
- * The captured tail is resolved against the guard's own directory first and, if
- * nothing is there and the tail is under scripts/, against the repo root
- * — `node "$root/scripts/x.js"` names
- * the same file either way, and only the second reading finds it.
+ * A shell guard can reach its logic by RUNNING a node program rather than
+ * sourcing it (mantahostels#358). lib/guard-reach.js follows only a
+ * self-relative run, `node "$here/x.js"` or through a variable (#2487): a hook
+ * runs from an arbitrary cwd, so a guard that genuinely delegates must locate
+ * its sibling from its own path, and following a bare `node scripts/x.js`
+ * would tie a helper's internals to rules about something else.
  *
  * FAN-OUT: one edit to a shared lib warns on every registry entry reaching it,
  * by require or by running the CLI (mantahostels#358).
  */
-/*
- * The fourth spelling (#2487): the program's path assigned to a variable the
- * guard then runs, `lib="$here/lib/x.js"` and then `node "$lib"`. The
- * assignment must be self-relative as parseNodeRuns' path is, and only a
- * variable that `node` actually runs is followed, so a path assigned for some
- * other use stays out of the digest. A name assigned twice follows both paths,
- * as .husky/post-commit's `script` names two programs.
- */
-const VAR_PATH_RE =
-	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w./-]*\.js)"?[ \t]*(?:#[^\n]*)?$/gm;
 
 /**
  * A guard's dependencies, as paths relative to `root`: a shell guard's `source`
- * lines and a JS guard's relative `require`s.
+ * lines, a JS guard's relative `require`s, the programs it runs and the
+ * dispatch kit's cores, as lib/guard-reach.js reads them.
  *
- * Only lib/ is followed, in both languages. A guard pulls in its shared library
+ * Only a lib/ is followed of what is sourced or required. A guard pulls in its shared library
  * and nothing else here, and widening this to arbitrary paths would start
  * resolving `$PATH` lookups and command substitutions that no regex can settle.
  * @param {string} rel
@@ -1929,60 +1903,35 @@ const sourcedCache = new Map();
  * @param {string} base
  */
 function parseSourcedBy(rel, text, base) {
-	const dir = path.dirname(rel);
-	const shell = parseSourcedLibs(text).map((lib) =>
-		resolveSourced(base, dir, lib),
+	const edges = edgesOf(rel, text, {
+		kinds: ["source", "require", "node-run", "manifest-core"],
+		isFile: (p) => isTreeMember(base, p),
+		/* The manifest is the judged tree's and is hashed itself, so a commit
+		 * that changes only a manifest row moves the digest (#3124). */
+		manifest: () => readManifest(manifestAt(base)),
+	});
+	/* Only lib/ is followed of what a JS file requires, resolved first:
+	 * `session-arbiter.js` reaches its store as `./lib/arbiter-store.js` but
+	 * the store reaches the proc leaf as `./arbiter-proc.js`, already inside
+	 * lib/, so the specifier alone cannot say. A delegated program is a sibling
+	 * under scripts/. */
+	const kept = edges.filter((e) => {
+		if (e.kind === "require")
+			return e.to.startsWith("scripts/lib/") && e.to.endsWith(".js");
+		if (e.kind === "source") return e.to.split("/").includes("lib");
+		return e.kind !== "node-run" || e.to.startsWith("scripts/");
+	});
+	const deps = [...new Set(kept.map((e) => e.to))];
+	const linked = new Set(
+		kept.filter((e) => e.kind !== "node-run").map((e) => e.to),
 	);
-	// Resolve first, then keep only lib/: `session-arbiter.js` reaches its store
-	// as `./lib/arbiter-store.js` but the store reaches the proc leaf as
-	// `./arbiter-proc.js`, already inside lib/, so the specifier alone cannot say.
-	const js = [...text.matchAll(REQUIRE_RE)]
-		// A commented-out require is not a dependency. Only `//` is honoured, as
-		// parseSourcedLibs honours only `#`: a require inside a block comment
-		// still counts.
-		// The prefix is sliced back to the line start rather than captured by the
-		// pattern, because anchoring at `^` let only the first require on a line
-		// match — a second one on the same line dropped out of the digest silently.
-		.filter(
-			(m) =>
-				!text
-					.slice(text.lastIndexOf("\n", m.index) + 1, m.index)
-					.includes("//"),
-		)
-		.map((m) => path.join(dir, requiredGroup(m, 1, REQUIRE_RE)))
-		.filter((p) => p.startsWith(`scripts${path.sep}lib${path.sep}`));
-	// A delegated program is a sibling under scripts/, not under lib/.
-	// `//` is honoured here as well as `#`, because sourcedBy runs over JS
-	// guards too. The prefix comes back with each match rather than sliced off
-	// m.index as REQUIRE_RE's is: these matches open at a line start, so the text
-	// before one is always empty and the test would pass on everything.
-	/** @param {{prefix: string, value: string}[]} matches */
-	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
-	/** @type {Map<string, string[]>} */
-	const assigned = new Map();
-	for (const m of text.matchAll(VAR_PATH_RE)) {
-		const name = requiredGroup(m, 1, VAR_PATH_RE);
-		assigned.set(name, [
-			...(assigned.get(name) ?? []),
-			requiredGroup(m, 2, VAR_PATH_RE),
-		]);
-	}
-	const tails = [
-		...live(parseNodeRuns(text)).map((m) => m.value),
-		...live(parseNodeVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
-	];
-	const run = tails.map((tail) => resolveRun(base, dir, tail)).filter(keptRun);
-	/* The dispatcher's kit loads its cores by manifest path, which no require
-	 * names (#2786). The manifest is the judged tree's and is hashed itself,
-	 * so a commit that changes only a manifest row moves the digest (#3124). */
-	const cores =
-		rel === DISPATCH_KIT
-			? [MANIFEST_REL, ...readDispatchedCores(manifestAt(base))]
-			: [];
-	const linked = new Set([...shell, ...js, ...cores]);
 	return {
-		deps: [...shell, ...js, ...run, ...cores],
-		runs: new Set(run.filter((p) => !linked.has(p))),
+		deps,
+		runs: new Set(
+			kept
+				.filter((e) => e.kind === "node-run" && !linked.has(e.to))
+				.map((e) => e.to),
+		),
 	};
 }
 
@@ -2010,43 +1959,6 @@ function headerNamed(header) {
 	return header.flatMap((line) =>
 		[...line.matchAll(NAMED_SCRIPT_RE)].map((m) => m[0]),
 	);
-}
-
-/* `. "$root/scripts/lib/x.sh"` from a .husky/ hook: the parser keeps only the
- * `lib/x.sh` tail, so the guard's own directory gives .husky/lib/x.sh, which is
- * nowhere (#4456). Sibling first, so a hook-local lib of the same name would
- * shadow the shared one. */
-/**
- * @param {string} base
- * @param {string} dir
- * @param {string} lib a `lib/<name>.sh` tail
- */
-function resolveSourced(base, dir, lib) {
-	const sibling = path.join(dir, lib);
-	if (isTreeMember(base, sibling)) return sibling;
-	const shared = path.join("scripts", lib);
-	return isTreeMember(base, shared) ? shared : sibling;
-}
-
-/** @param {string} p a run target, as a path from the tree's root */
-function keptRun(p) {
-	return p.startsWith(`scripts${path.sep}`);
-}
-
-/* Neither reading is checked for existence beyond this: a path at neither place
- * is not a dependency, and digestOf tolerates one that vanishes later. The
- * root reading is probed only where keptRun would keep it: elsewhere the
- * probe could only drop the sibling, and in the core walk it lands in the plugin cache's root, outside what ships (#3144). */
-/**
- * @param {string} base the tree the two readings are checked in
- * @param {string} dir
- * @param {string} tail
- */
-function resolveRun(base, dir, tail) {
-	const sibling = path.join(dir, tail);
-	if (isTreeMember(base, sibling)) return sibling;
-	if (!keptRun(path.normalize(tail))) return sibling;
-	return isTreeMember(base, tail) ? tail : sibling;
 }
 
 /**
@@ -3093,17 +3005,16 @@ const isCitedId = (id) => id.length > 1 && CITED_ID_RE.test(id);
  * through lib/guard-entry.js at run time, so the accessor call there carries a
  * variable and is invisible to DIRECT_RULE_RE.
  *
- * EVERY ACCESSOR PATTERN LIVES IN scripts/lib/rule-emission.js (mantahostels#2003, #2905),
- * bash and Node spellings alike, which reads the same calls to price a
+ * EVERY ACCESSOR PATTERN LIVES IN scripts/lib/rule-emission-calls.js (mantahostels#2003, #2905),
+ * bash and Node spellings alike, which rule pricing reads the same calls through to price a
  * PreToolUse event. Two copies would let this gate and that one disagree about
  * which guard prints which fragment.
  */
 const {
 	directAccessorCalls,
 	emissionMatches,
-	REQUIRE_RE,
 	RULE_ARG_RE,
-} = require("./lib/rule-emission");
+} = require("./lib/rule-emission-calls.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { readMergeHeadLines } = require("./lib/merge-heads.js");
 

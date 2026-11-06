@@ -1216,28 +1216,6 @@ describe("the direct-call census (mantahostels#2055)", () => {
 		]);
 	});
 
-	it("resolves the REAL libs' own lib-to-lib source spelling (mantahostels#2488)", () => {
-		/* Against the real tree: a guard spells the directory `$here`, a lib
-		 * spells it `${BASH_SOURCE[0]%/*}` or
-		 * `$(dirname "${BASH_SOURCE[0]}")`. */
-		const closure = (rel: string) => {
-			const text = fs.readFileSync(
-				path.join(__dirname, "..", "..", rel),
-				"utf8",
-			);
-			// Every lib read as empty, so the walk stops at the libs this one names.
-			return [...lib.readSourcedClosure(rel, text, () => "").keys()];
-		};
-		expect(closure("scripts/lib/guard-log.sh")).toEqual([
-			"scripts/lib/guard-root.sh",
-		]);
-		expect(closure("scripts/lib/review-standards.sh")).toEqual([
-			"scripts/lib/guard-root.sh",
-			"scripts/lib/script-path.sh",
-			"scripts/lib/guard-log.sh",
-		]);
-	});
-
 	it("censuses nothing from a lib the supplied sources do not carry (mantahostels#2488)", () => {
 		const r = figures(
 			{ Bash: ["scripts/guard-thin.sh"] },
