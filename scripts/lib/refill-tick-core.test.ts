@@ -719,7 +719,7 @@ describe("the dry-run policy (#4212)", () => {
 			},
 		});
 		expect(calls).toContain("previewReap");
-		expect(calls.filter((port) => port in ACTS)).toEqual([]);
+		expect(calls.filter((port) => Object.hasOwn(ACTS, port))).toEqual([]);
 	});
 
 	it("releases no ended launch's hold on a paused dry run (#4356)", async () => {
@@ -728,10 +728,11 @@ describe("the dry-run policy (#4212)", () => {
 		expect(calls).not.toContain("releaseEndedHolds");
 	});
 
-	it("returns at its decision, reading no manager restart or lifted hold", async () => {
+	it("returns at its decision, reading no manager restart or lifted hold and settling nothing", async () => {
 		const { io, calls } = fakeIo(stateOf());
 		const r = await tickOf(io, control(), true);
 		expect("launches" in r.decision && r.decision.launches).toHaveLength(1);
+		expect(calls.filter((port) => Object.hasOwn(ACTS, port))).toEqual([]);
 		expect(calls).not.toContain("readManagerRestart");
 		expect(calls).not.toContain("readLiftedHolds");
 	});
