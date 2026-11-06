@@ -380,8 +380,10 @@ const BASE_PASS = 0;
 const BASE_GREEN_MS = 60 * 60 * 1000;
 /* Untraced, a first guess and stated as one: how long a no-run red stands,
  * and a hold on one waits to be retaken. Room for an Actions outage to
- * clear, and over twice the ~25 min a red path's no-run asks take, so none
- * lapses within the path that reads it. */
+ * clear, and many times one no-run ask's 3-6 min. Residual: a red path
+ * slowed past it, as by fault backoff or a lander restarted after a gap,
+ * asks its first verdict again, and batches may stack onto a head whose
+ * no-run red lapsed until it is reached again. */
 const NO_RUN_RETAKE_MS = 60 * 60 * 1000;
 
 /* Untraced, #4556's figures and stated as such: the window a run starts at,
@@ -1261,15 +1263,15 @@ function searchRedAction(b, s, main) {
  * The exit naming the hold, where it stands: `main` where it stopped, no
  * queue ref waiting that the batch did not take, and its retake not due.
  * @param {Batch} b
- * @param {QueueState} s
+ * @param {number} now
  * @param {string} main
  * @param {readonly QueueRef[]} waiting
  * @returns {QueueEnd|null}
  */
-function heldExit({ hold, members }, s, main, waiting) {
+function heldExit({ hold, members }, now, main, waiting) {
 	if (hold === null || hold.main !== main) return null;
 	const retakeAt = hold.kind === "base" ? hold.retakeAt : undefined;
-	if (retakeAt !== undefined && s.now >= retakeAt) return null;
+	if (retakeAt !== undefined && now >= retakeAt) return null;
 	if (
 		waiting.some(
 			(r) => !members.some((m) => m.name === r.name && m.sha === r.sha),
@@ -1351,7 +1353,7 @@ function fillAction(s, main, { line, search }, waiting) {
 		return null;
 	const onto = tail?.integration ?? main;
 	if (tail && ledgered(s, wholeRun(onto))?.kind === "red") return null;
-	if (search?.phase === "held" && heldExit(search, s, main, waiting))
+	if (search?.phase === "held" && heldExit(search, s.now, main, waiting))
 		return null;
 	const ahead = search?.phase === "requeued" ? search.ahead : [];
 	return takeBatch(waiting, onto, ahead, {
@@ -1448,7 +1450,7 @@ function idleAction(s, main, search, waiting) {
 			relaunch: main,
 		};
 	return (
-		(search?.phase === "held" && heldExit(search, s, main, waiting)) ||
+		(search?.phase === "held" && heldExit(search, s.now, main, waiting)) ||
 		exit("no queue ref the window can take")
 	);
 }

@@ -748,9 +748,7 @@ async function rerunVerdict(sha, files, on, named) {
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
 	if (run !== undefined) {
-		const unpushed = repushed(on, sha);
-		if (unpushed) return unpushed;
-		return newerVerdict(sha, on, listed);
+		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
 	}
 	const v = await newerVerdict(sha, on, listed);
 	if (v.kind !== "red" || !v.noRun) return v;
@@ -761,7 +759,7 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return repushed(on, sha) ?? newerVerdict(sha, on, again);
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
 }
 
 /**
@@ -791,7 +789,7 @@ function newerVerdict(sha, on, listed) {
  * @param {string} sha
  * @returns {Verdict|null}
  */
-function repushed({ reads, branch }, sha) {
+function repushFailure({ reads, branch }, sha) {
 	/** @type {boolean} */
 	let pushed;
 	try {

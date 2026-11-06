@@ -1925,6 +1925,7 @@ describe("the red path", () => {
 		});
 
 		expect(due.asked).toContain("m0");
+		expect(due.asked).toContain("merge(m0;a1)");
 		expect(kinds(due.actions)).not.toContain("hold");
 		expect(dropsOf(due.actions).map((d) => d.name)).toEqual(["a"]);
 	});

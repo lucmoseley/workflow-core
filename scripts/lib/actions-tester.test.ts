@@ -834,6 +834,7 @@ it("never reads the whole suite asked again off a run older than the branch's ne
 		run: 9,
 	});
 	expect(pushed.repushed).toEqual([]);
+	expect(stale.repushed).toEqual([`lander/iso-suite-base@${SHA}`]);
 });
 
 it("pushes the ref again once for the whole suite asked again where no run at the sha was ever listed, judging the run that push starts (#4572)", async () => {
