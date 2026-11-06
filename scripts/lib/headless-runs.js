@@ -194,8 +194,26 @@ function endResultOf(run) {
 	if (!last) return { outcome: "killed", ...base };
 	return { outcome: last.is_error ? "error" : "success", ...base };
 }
+/**
+ * The latest run of session `sessionId` launched at or after `since`, else
+ * null: the job a resume started, found after the resume was killed before
+ * it said (#4580).
+ * @param {string} sessionId
+ * @param {number} since ms
+ * @returns {{jobId: string, sessionId: string}|null}
+ * @throws where the store or a record cannot be read
+ */
+function findRunSince(sessionId, since) {
+	const found = readStoredRuns()
+		.filter((r) => r.sessionId === sessionId && r.launchedAt >= since)
+		.sort((a, b) => a.launchedAt - b.launchedAt)
+		.at(-1);
+	return found ? { jobId: found.jobId, sessionId: found.sessionId } : null;
+}
+
 module.exports = {
 	endResultOf,
+	findRunSince,
 	freshRunDir,
 	readLiveAgents,
 	readStoredRuns,

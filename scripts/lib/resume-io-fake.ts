@@ -25,6 +25,8 @@ export const JOB = SESSION.slice(0, 8);
 /** The session id a copy's job record names. */
 export const COPY_SESSION = "s-copy";
 export const KEY_VAR = "K2";
+/** The job a headless resume of SESSION runs under. */
+export const HEADLESS_JOB = "0e0e0e0e";
 export const ALLOWANCE_USD = 50;
 
 const ran = (stdout: string, stderr = ""): ChildRun => ({
@@ -56,13 +58,49 @@ const FIRST_LAUNCH: OverflowLaunch = {
 };
 
 export const ANSWERS = {
-	keySettings: {
-		settings: { settings: `{"apiKeyHelper":"${KEY_VAR}"}` },
-		unreadable: { why: `${KEY_VAR} is not set in /home/u/secrets.env` },
-	},
 	authRefusal: {
 		admitted: null,
 		refused: "an apiKeyHelper setting is in force (#2236)",
+	},
+	launchHeadless: {
+		launched: {
+			record: {
+				jobId: HEADLESS_JOB,
+				sessionId: SESSION,
+				pid: 4242,
+				procStart: "1",
+				bootId: "b",
+				pgid: 4242,
+				seat: "/home/u/.claude3",
+				keyVar: KEY_VAR,
+				cwd: "/home/u/repo",
+				log: "/r/.headless-runs/0e0e0e0e/out.jsonl",
+				stderr: "/r/.headless-runs/0e0e0e0e/stderr.log",
+				launchedAt: 1000,
+			},
+		},
+		unreadable: { why: `${KEY_VAR} is not set in /home/u/secrets.env` },
+	},
+	findHeadlessRun: {
+		none: null,
+		found: { jobId: HEADLESS_JOB, sessionId: SESSION },
+	},
+	readHeadlessRun: {
+		none: null,
+		run: {
+			jobId: HEADLESS_JOB,
+			sessionId: SESSION,
+			pid: 4242,
+			procStart: "1",
+			bootId: "b",
+			pgid: 4242,
+			seat: "/home/u/.claude3",
+			keyVar: KEY_VAR,
+			cwd: "/home/u/repo/.claude/worktrees/implement-7",
+			log: "/r/.headless-runs/0e0e0e0e/out.jsonl",
+			stderr: "/r/.headless-runs/0e0e0e0e/stderr.log",
+			launchedAt: 1000,
+		},
 	},
 	runClaude: {
 		copy: launched("copy"),
@@ -125,6 +163,9 @@ export const ANSWERS = {
 
 export const FAULTS = {
 	overflowLookup: { unreadable: "dispatched.jsonl would not read: EISDIR" },
+	readHeadlessRun: {
+		unreadable: "EISDIR: illegal operation on a directory, read",
+	},
 };
 
 type Answers = typeof ANSWERS;
@@ -155,8 +196,10 @@ export function fakeResumeIo(
 	const io: ResumeIo = {
 		log: (line) => lines.push(line),
 		env: () => env,
-		keySettings: served("keySettings"),
 		authRefusal: served("authRefusal"),
+		launchHeadless: served("launchHeadless"),
+		findHeadlessRun: served("findHeadlessRun"),
+		readHeadlessRun: served("readHeadlessRun"),
 		runClaude: served("runClaude"),
 		readJobRecord: served("readJobRecord"),
 		findResumed: served("findResumed"),

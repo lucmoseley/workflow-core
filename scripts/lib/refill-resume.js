@@ -2,7 +2,9 @@
  * refill-resume.js — the refill loop's resume of a stopped session (#2354 F6,
  * #2963, #3734, #3736, #4147, #4180): `claude --bg --resume`, the job it
  * started judged and confirmed, a copy handed what the session held, a move
- * onto another seat or onto an overflow key recorded. Every read, write and
+ * onto another seat or onto an overflow key recorded. A session on an
+ * overflow key resumes headless instead (lib/headless-sessions.js, #4580),
+ * since the key's credits cover `claude -p` and not a `--bg` job (#4578). Every read, write and
  * child process goes through the ResumeIo port, whose production adapter is
  * lib/resume-io.js's; lib/refill-blocks.js's acts call these through its
  * BlockIo.
@@ -32,9 +34,11 @@ const { OVERFLOW_PREFIX } = require("./session-name.js");
  * @typedef {{
  *   log: (line: string) => void,
  *   env: () => NodeJS.ProcessEnv,
- *   keySettings: (keyVar: string) => {settings: string}|{why: string},
- *   authRefusal: (launch: {env: NodeJS.ProcessEnv, cwd: string,
- *     settings?: string}) => string|null,
+ *   authRefusal: (launch: {env: NodeJS.ProcessEnv, cwd: string}) =>
+ *     string|null,
+ *   launchHeadless: typeof import("./headless-sessions.js").launch,
+ *   findHeadlessRun: typeof import("./headless-runs.js").findRunSince,
+ *   readHeadlessRun: typeof import("./headless-runs.js").runOf,
  *   runClaude: (args: string[], opts: {cwd: string, env: NodeJS.ProcessEnv}) =>
  *     ChildRun,
  *   readJobRecord: (seat: string, jobId: string) => unknown,
@@ -60,24 +64,6 @@ const { OVERFLOW_PREFIX } = require("./session-name.js");
  */
 function resumeSteps(io) {
 	const { log } = io;
-
-	/**
-	 * The environment and `--settings` a `--bg` launch of `l`'s session hands
-	 * its child: on an overflow seat, its key's helper and neither a key nor
-	 * this process's session id, as dispatch-sessions.sh launches it (#3701);
-	 * why not where the key cannot be read.
-	 * @param {{seat: string, keyVar?: string}} l
-	 * @returns {{env: NodeJS.ProcessEnv, settings?: string}|{why: string}}
-	 */
-	function buildSeatLaunch(l) {
-		const env = buildSeatEnv(io.env(), l.seat);
-		if (!l.keyVar) return { env };
-		const built = io.keySettings(l.keyVar);
-		if ("why" in built) return built;
-		delete env.ANTHROPIC_API_KEY;
-		delete env[l.keyVar];
-		return { env, settings: built.settings };
-	}
 
 	/**
 	 * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `root`; what it
@@ -368,11 +354,10 @@ function resumeSteps(io) {
 	 * its cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On
 	 * 2.1.310 it wakes a stopped job in place, else starts a copy under a new
 	 * job and session id, which carries the conversation on and takes the issue
-	 * claims (#2963, #2968). An overflow session's carries its key's
-	 * `--settings` (buildSeatLaunch), so it never bills the plan, and the flags
-	 * always start a copy (#3692 (d)). The resume counts where the launcher
-	 * named the job it started (lib/bg-resume.js) and that job's state.json
-	 * does not read failed; a later tick judges the resumed turn.
+	 * claims (#2963, #2968). The resume counts where the launcher named the
+	 * job it started (lib/bg-resume.js) and that job's state.json does not
+	 * read failed; a later tick judges the resumed turn. A session on an
+	 * overflow key resumes headless instead (resumeHeadless).
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
@@ -382,21 +367,58 @@ function resumeSteps(io) {
 	 * @returns {Resumed}
 	 */
 	function resumeStopped(l, prompt, { sessionId, cwd }, { move, name } = {}) {
-		const launch = buildSeatLaunch(l);
-		if ("why" in launch) return { failed: launch.why };
-		const { env, settings } = launch;
-		const refusal = io.authRefusal({ env, cwd, settings });
+		if (l.keyVar)
+			return resumeHeadless({ ...l, keyVar: l.keyVar }, prompt, {
+				sessionId,
+				cwd,
+				move,
+				name,
+			});
+		const env = buildSeatEnv(io.env(), l.seat);
+		const refusal = io.authRefusal({ env, cwd });
 		if (refusal) return { failed: refusal };
-		const keyArgs = settings === undefined ? [] : ["--settings", settings];
 		const nameArgs = name === undefined ? [] : ["-n", name];
 		const r = io.runClaude(
-			["--bg", "--resume", sessionId, ...nameArgs, ...keyArgs, prompt],
+			["--bg", "--resume", sessionId, ...nameArgs, prompt],
 			{
 				cwd,
 				env,
 			},
 		);
 		return settleStarted(l, r, { sessionId, cwd }, move);
+	}
+
+	/**
+	 * `claude -p --resume <session id> "<prompt>"` of `l`'s session on its
+	 * overflow key, through lib/headless-sessions.js, which hands it the key's
+	 * `--settings` under the seat's dir. The run keeps the session id under a
+	 * job of its own, so it holds the session's claims as a job woken in place
+	 * does; a move onto the key records that job as the key's launch, capped
+	 * at the allowance it moved with.
+	 * @param {{root: string, issues: number[], seat: string, keyVar: string}} l
+	 * @param {string} prompt
+	 * @param {{sessionId: string, cwd: string, move?: MoveTarget,
+	 *   name?: string}} run
+	 * @returns {Resumed}
+	 */
+	function resumeHeadless(l, prompt, { sessionId, cwd, move, name }) {
+		const r = io.launchHeadless({
+			keyVar: l.keyVar,
+			cwd,
+			prompt,
+			resume: sessionId,
+			...(name === undefined ? {} : { name }),
+			...(move?.allowanceUsd === undefined
+				? {}
+				: { budgetUsd: move.allowanceUsd }),
+		});
+		if ("why" in r) return { failed: r.why };
+		return recordWoken(
+			l,
+			{ sessionId, cwd },
+			{ jobId: r.record.jobId, sessionId },
+			move,
+		);
 	}
 
 	/**
@@ -407,7 +429,7 @@ function resumeSteps(io) {
 	 */
 	function readResumeTarget(l) {
 		const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
-			l.jobId ? io.readJobRecord(l.seat, l.jobId) : null
+			l.jobId ? readRunRecord(l, l.jobId) : null
 		);
 		return {
 			sessionId:
@@ -415,6 +437,24 @@ function resumeSteps(io) {
 				(typeof job?.sessionId === "string" ? job.sessionId : null),
 			cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
 		};
+	}
+
+	/**
+	 * Job `jobId`'s record: a headless run's on an overflow key, else the
+	 * `--bg` job's on `l`'s seat. Null where none reads: a headless record that
+	 * will not read is logged.
+	 * @param {{seat: string, keyVar?: string}} l
+	 * @param {string} jobId
+	 * @returns {unknown}
+	 */
+	function readRunRecord(l, jobId) {
+		if (!l.keyVar) return io.readJobRecord(l.seat, jobId);
+		try {
+			return io.readHeadlessRun(jobId);
+		} catch (e) {
+			log(`headless run ${jobId} unread: ${buildErrorText(e)}`);
+			return null;
+		}
 	}
 
 	/**
@@ -454,7 +494,8 @@ function resumeSteps(io) {
 	/**
 	 * lib/resumed-copy.js's findResumed for `l`'s seat, past `l`'s earlier
 	 * sessions: a copy found is handed what the session held (#4157, #4180);
-	 * why not, where the job store or a transcript will not read.
+	 * why not, where the job store or a transcript will not read. On an
+	 * overflow key, adoptHeadless.
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string,
 	 *   pastSessionIds?: string[]}} l
 	 * @param {{sessionId: string, cwd: string}} target
@@ -464,6 +505,7 @@ function resumeSteps(io) {
 	 * @returns {Adopted}
 	 */
 	function adoptResumed(l, target, since, move) {
+		if (l.keyVar) return adoptHeadless(l, target, since, move);
 		const found = io.findResumed(l.seat, target, since, l.pastSessionIds ?? []);
 		if (found === null || "unread" in found) return found;
 		const { jobId, sessionId } = found;
@@ -476,6 +518,27 @@ function resumeSteps(io) {
 				)
 			: recordWoken(l, target, { jobId, sessionId }, move);
 		/* A move's job that will not record is stopped, so it reads as no job. */
+		return r.failed === null ? r : { unread: r.failed };
+	}
+
+	/**
+	 * adoptResumed on an overflow key: the headless run of the session
+	 * launched since, from the run store.
+	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
+	 * @param {{sessionId: string, cwd: string}} target
+	 * @param {number} since
+	 * @param {MoveTarget} [move]
+	 * @returns {Adopted}
+	 */
+	function adoptHeadless(l, target, since, move) {
+		let run;
+		try {
+			run = io.findHeadlessRun(target.sessionId, since);
+		} catch (e) {
+			return { unread: buildErrorText(e) };
+		}
+		if (!run) return null;
+		const r = recordWoken(l, target, run, move);
 		return r.failed === null ? r : { unread: r.failed };
 	}
 

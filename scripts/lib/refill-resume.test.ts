@@ -11,13 +11,13 @@
  * starting, or run a move's job on a key unrecorded.
  */
 import { describe, expect, it } from "vitest";
-import { FAKE_COPY } from "./bg-resume-fake";
 import { resumeSteps } from "./refill-resume.js";
 import {
 	ANSWERS,
 	COPY_SESSION,
 	FAULTS,
 	fakeResumeIo,
+	HEADLESS_JOB,
 	JOB,
 	KEY_VAR,
 	type Picks,
@@ -112,67 +112,30 @@ describe("resumeStopped", () => {
 		expect(r.failed).toContain(`session s-other, not ${SESSION}`);
 	});
 
-	it("carries an overflow session's key to its copy: its settings, no key in its env, the ledger's mark and its marker (#4147, #3701)", () => {
-		const { steps, callsTo } = fakeIo(
-			{ overflowLookup: "launched" },
-			{
-				PATH: "/bin",
-				[KEY_VAR]: "sk-must-not-pass",
-				ANTHROPIC_API_KEY: "sk-must-not-pass",
-				CLAUDE_CODE_SESSION_ID: "s-loop",
-			},
-		);
+	it("resumes an overflow session headless on its key, never --bg, the run keeping the session and its claims (#4580)", () => {
+		const { steps, callsTo } = fakeIo({ overflowLookup: "launched" });
 		const r = steps.resumeStopped({ ...LAUNCH, keyVar: KEY_VAR }, PROMPT, IDS);
 		expect(r).toEqual({
 			failed: null,
-			jobId: FAKE_COPY,
-			sessionId: COPY_SESSION,
-			copy: true,
+			jobId: HEADLESS_JOB,
+			sessionId: SESSION,
+			copy: false,
 		});
-		const [[args, opts]] = callsTo("runClaude") as [
-			[string[], { env: NodeJS.ProcessEnv; cwd: string }],
-		];
-		expect(args).toEqual([
-			"--bg",
-			"--resume",
-			SESSION,
-			"--settings",
-			ANSWERS.keySettings.settings.settings,
-			PROMPT,
+		expect(callsTo("runClaude")).toEqual([]);
+		expect(callsTo("authRefusal")).toEqual([]);
+		expect(callsTo("launchHeadless")).toEqual([
+			[{ keyVar: KEY_VAR, cwd: ROOT, prompt: PROMPT, resume: SESSION }],
 		]);
-		expect(opts.env).toEqual({ PATH: "/bin", CLAUDE_CONFIG_DIR: SEAT });
-		expect(callsTo("recordLaunch")).toEqual([
-			[
-				expect.objectContaining({
-					issues: [],
-					jobId: FAKE_COPY,
-					overflow: {
-						keyVar: KEY_VAR,
-						allowanceUsd: 50,
-						sessionId: COPY_SESSION,
-						copyOf: SESSION,
-					},
-				}),
-			],
-		]);
-		expect(callsTo("moveParkedBy")).toEqual([
-			[
-				SESSION,
-				[7],
-				{
-					root: ROOT,
-					copySessionId: COPY_SESSION,
-					job: { seat: SEAT, keyVar: KEY_VAR, jobId: FAKE_COPY, cwd: ROOT },
-				},
-			],
-		]);
+		expect(callsTo("recordLaunch")).toEqual([]);
+		expect(callsTo("runArbiter")).toEqual([]);
+		expect(callsTo("moveParkedBy")).toEqual([]);
 	});
 
-	it("names a key whose settings will not build, launching nothing", () => {
-		const { steps, callsTo } = fakeIo({ keySettings: "unreadable" });
+	it("names a key the headless launch refuses, launching nothing else", () => {
+		const { steps, callsTo } = fakeIo({ launchHeadless: "unreadable" });
 		expect(
 			steps.resumeStopped({ ...LAUNCH, keyVar: KEY_VAR }, PROMPT, IDS),
-		).toEqual({ failed: ANSWERS.keySettings.unreadable.why });
+		).toEqual({ failed: ANSWERS.launchHeadless.unreadable.why });
 		expect(callsTo("runClaude")).toEqual([]);
 	});
 
@@ -228,36 +191,42 @@ describe("moveSession (#3734, #3736)", () => {
 			IDS,
 		);
 		expect(r.failed).toContain(FAULTS.overflowLookup.unreadable);
-		expect(callsTo("stop")).toContainEqual([SEAT, FAKE_COPY]);
+		expect(callsTo("stop")).toContainEqual([SEAT, HEADLESS_JOB]);
 		expect(callsTo("runArbiter")).toEqual([]);
 	});
 
-	/** The `-n` a move onto `target` passes, its transcript read as `name`. */
+	/** The name a move onto `target` gives, its transcript read as `name`: a
+	 * headless launch's on a key, a `--bg` launch's `-n` on a plan seat. */
 	const movedName = (
 		name: Picks["sessionName"],
 		target: object = keyTarget,
 	) => {
 		const { steps, callsTo, lines } = fakeIo({ sessionName: name });
 		steps.moveSession(job, target as never, PROMPT, IDS);
-		const [[args]] = callsTo("runClaude") as [[string[]]];
+		const [[headless] = []] = callsTo("launchHeadless") as [
+			[{ name?: string }]?,
+		];
+		const [[args] = [[]]] = callsTo("runClaude") as [[string[]]?];
 		const at = args.indexOf("-n");
+		const bgName = at < 0 ? null : args[at + 1];
 		return {
-			head: args.slice(0, 5),
-			name: at < 0 ? null : args[at + 1],
+			headless: headless ?? null,
+			name: headless ? (headless.name ?? null) : bgName,
 			read: callsTo("sessionName"),
 			lines,
 		};
 	};
 
-	it("names a plan session moved onto a key with the overflow prefix, the name its transcript gives after it (#4395)", () => {
+	it("resumes a plan session moved onto a key headless, named with the overflow prefix and the name its transcript gives, capped at the allowance it moved with (#4395, #4580)", () => {
 		expect(movedName("named")).toMatchObject({
-			head: [
-				"--bg",
-				"--resume",
-				SESSION,
-				"-n",
-				"Overflow · Implement 7: a title",
-			],
+			headless: {
+				keyVar: KEY_VAR,
+				cwd: ROOT,
+				prompt: PROMPT,
+				resume: SESSION,
+				name: "Overflow · Implement 7: a title",
+				budgetUsd: 40,
+			},
 			name: "Overflow · Implement 7: a title",
 			read: [[`${SEAT}/projects/-home-u-repo/${SESSION}.jsonl`]],
 			lines: expect.not.arrayContaining([
@@ -283,7 +252,7 @@ describe("moveSession (#3734, #3736)", () => {
 		expect(movedName("named", { seat: TARGET }).name).toBeNull();
 	});
 
-	it("stops the copy and hands it nothing where its ledger row will not write (#3730)", () => {
+	it("stops the job and hands it nothing where its ledger row will not write (#3730)", () => {
 		const { steps, callsTo } = fakeIo({ recordLaunch: "unwritable" });
 		const r = steps.moveSession(
 			job,
@@ -292,8 +261,55 @@ describe("moveSession (#3734, #3736)", () => {
 			IDS,
 		);
 		expect(r.failed).toContain("not recorded in the dispatch ledger");
-		expect(callsTo("stop")).toContainEqual([SEAT, FAKE_COPY]);
+		expect(callsTo("stop")).toContainEqual([SEAT, HEADLESS_JOB]);
 		expect(callsTo("runArbiter")).toEqual([]);
 		expect(callsTo("moveParkedBy")).toEqual([]);
+	});
+});
+
+describe("readResumeTarget on a key (#4580)", () => {
+	const keyed = { ...LAUNCH, keyVar: KEY_VAR, jobId: "0e0e0e0e" };
+
+	it("takes the cwd from the headless run's record, not a --bg job's", () => {
+		const { steps, callsTo } = fakeIo({ readHeadlessRun: "run" });
+		expect(steps.readResumeTarget(keyed as unknown as JobLaunch)).toEqual({
+			sessionId: SESSION,
+			cwd: ANSWERS.readHeadlessRun.run.cwd,
+		});
+		expect(callsTo("readJobRecord")).toEqual([]);
+	});
+
+	it("falls back to the checkout where the record will not read, logging why", () => {
+		const { steps, lines } = fakeIo({ readHeadlessRun: "unreadable" });
+		expect(steps.readResumeTarget(keyed as unknown as JobLaunch)).toEqual({
+			sessionId: null,
+			cwd: ROOT,
+		});
+		expect(lines).toEqual([
+			expect.stringMatching(
+				`^headless run 0e0e0e0e unread: .*${FAULTS.readHeadlessRun.unreadable}`,
+			),
+		]);
+	});
+});
+
+describe("adoptResumed on a key (#4580)", () => {
+	const keyed = { ...LAUNCH, keyVar: KEY_VAR };
+
+	it("adopts the headless run of the session launched since, from the run store", () => {
+		const { steps, callsTo } = fakeIo({ findHeadlessRun: "found" });
+		expect(steps.adoptResumed(keyed, IDS, 1000)).toEqual({
+			failed: null,
+			jobId: HEADLESS_JOB,
+			sessionId: SESSION,
+			copy: false,
+		});
+		expect(callsTo("findHeadlessRun")).toEqual([[SESSION, 1000]]);
+		expect(callsTo("findResumed")).toEqual([]);
+	});
+
+	it("finds no job where the store holds no run of it since", () => {
+		const { steps } = fakeIo({ findHeadlessRun: "none" });
+		expect(steps.adoptResumed(keyed, IDS, 1000)).toBeNull();
 	});
 });

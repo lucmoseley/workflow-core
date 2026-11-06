@@ -12,9 +12,10 @@ const { runTickChild: runChild } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
 const { readOverflowLookup, record } = require("./dispatch-ledger.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
+const { findRunSince, runOf } = require("./headless-runs.js");
+const { launch: launchHeadless } = require("./headless-sessions.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { movePassMarkers } = require("./move-pass-markers.js");
-const { buildKeySettings } = require("./overflow-key.js");
 const { moveParkedBy } = require("./parked.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { findResumed } = require("./resumed-copy.js");
@@ -32,8 +33,10 @@ const SCRIPTS = path.dirname(__dirname);
 const buildResumeIo = (log) => ({
 	log,
 	env: () => process.env,
-	keySettings: buildKeySettings,
 	authRefusal: (launch) => launchAuthRefusal({ bin: claudeBin(), ...launch }),
+	launchHeadless,
+	findHeadlessRun: findRunSince,
+	readHeadlessRun: runOf,
 	runClaude,
 	readJobRecord,
 	findResumed,

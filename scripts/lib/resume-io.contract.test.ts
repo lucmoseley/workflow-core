@@ -27,6 +27,7 @@ import {
 } from "./bg-resume-fake";
 import { buildBgBranch, writeClaudeStub } from "./claude-stub";
 import { ledgerPath } from "./dispatch-ledger.js";
+import { writeHeadlessRun } from "./headless-runs-testkit";
 import { jobDirPath, jobStatePath } from "./job-paths.js";
 import { markersDir, PASS_MARKER_PREFIXES } from "./marker-root.js";
 import { transcriptPath } from "./project-slug.js";
@@ -69,6 +70,7 @@ beforeEach(() => {
 		CLAUDE_CODE_SESSION_ID: "",
 		WFC_CLAUDE_BIN: bin,
 		WFC_SECRETS_FILE: path.join(dir, "secrets.env"),
+		WFC_REFILL_DIR: path.join(dir, "refill"),
 	});
 	delete process.env.ANTHROPIC_API_KEY;
 	lines.length = 0;
@@ -86,6 +88,25 @@ const seatEnv = (over: NodeJS.ProcessEnv = {}) => ({
 	CLAUDE_CONFIG_DIR: seat,
 	...over,
 });
+
+const refill = () => path.join(dir, "refill");
+
+/** A headless resume of SESSION on KEY_VAR, the seat file declaring the
+ * seat's dir both a plan seat and that key's overflow seat. The stub's
+ * `claude -p` exits at once. */
+function resumeHeadless() {
+	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, ".claude", "refill-seats"),
+		`${seat}\n${seat} api key=${KEY_VAR} grant=200 cycle-day=20\n`,
+	);
+	return io().launchHeadless({
+		keyVar: KEY_VAR,
+		cwd: root,
+		prompt: "carry on",
+		resume: SESSION,
+	});
+}
 
 /** The stub's `--bg` launch answering `kind`, run through the adapter. */
 function launchAs(kind: ResumeKind | null) {
@@ -184,11 +205,22 @@ const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
 /** An answer less its situation's values, keyed by port. */
 const SHAPES: Record<string, (v: unknown) => unknown> = {
-	keySettings: (v) => {
-		const r = v as { settings: string } | { why: string };
+	launchHeadless: (v) => {
+		const r = v as ReturnType<ResumeIo["launchHeadless"]>;
 		return "why" in r
 			? { why: typeof r.why }
-			: { settings: Object.keys(JSON.parse(r.settings)) };
+			: {
+					keys: Object.keys(r.record).sort(),
+					sessionId: r.record.sessionId === SESSION,
+				};
+	},
+	readHeadlessRun: (v) => {
+		const r = v as ReturnType<ResumeIo["readHeadlessRun"]>;
+		return r && { keys: Object.keys(r).sort(), cwd: typeof r.cwd };
+	},
+	findHeadlessRun: (v) => {
+		const r = v as ReturnType<ResumeIo["findHeadlessRun"]>;
+		return r && { jobId: typeof r.jobId, sessionId: r.sessionId === SESSION };
 	},
 	authRefusal: (v) => (v === null ? null : typeof v),
 	runClaude: (v) => ({
@@ -247,18 +279,39 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 };
 
 const SITUATIONS: Record<string, Record<string, () => unknown>> = {
-	keySettings: {
-		settings: () => {
+	launchHeadless: {
+		launched: () => {
 			fs.writeFileSync(
 				process.env.WFC_SECRETS_FILE as string,
 				`${KEY_VAR}=sk-test\n`,
-				{
-					mode: 0o600,
-				},
+				{ mode: 0o600 },
 			);
-			return io().keySettings(KEY_VAR);
+			return resumeHeadless();
 		},
-		unreadable: () => io().keySettings(KEY_VAR),
+		unreadable: () => resumeHeadless(),
+	},
+	readHeadlessRun: {
+		none: () => io().readHeadlessRun("0e0e0e0e"),
+		run: () => {
+			fs.writeFileSync(
+				process.env.WFC_SECRETS_FILE as string,
+				`${KEY_VAR}=sk-test\n`,
+				{ mode: 0o600 },
+			);
+			resumeHeadless();
+			const [jobId] = fs.readdirSync(path.join(refill(), ".headless-runs"));
+			return io().readHeadlessRun(String(jobId));
+		},
+	},
+	findHeadlessRun: {
+		none: () => io().findHeadlessRun(SESSION, 0),
+		found: () => {
+			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, {
+				live: false,
+				launchedAt: 2000,
+			});
+			return io().findHeadlessRun(SESSION, 1000);
+		},
 	},
 	authRefusal: {
 		admitted: () => io().authRefusal({ env: seatEnv(), cwd: root }),
@@ -404,6 +457,17 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		unreadable: () => {
 			fs.mkdirSync(ledgerPath(root), { recursive: true });
 			return io().overflowLookup(root);
+		},
+	},
+	readHeadlessRun: {
+		unreadable: () => {
+			fs.mkdirSync(
+				path.join(refill(), ".headless-runs", "0e0e0e0e", "run.json"),
+				{
+					recursive: true,
+				},
+			);
+			return io().readHeadlessRun("0e0e0e0e");
 		},
 	},
 };

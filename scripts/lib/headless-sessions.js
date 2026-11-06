@@ -7,8 +7,9 @@
  * LAUNCH: `claude -p` detached in its own process group, stdin on /dev/null,
  * cwd the target checkout, under the overflow seat's config dir (its plan
  * seat's, #3701) and a fresh CLAUDE_JOB_DIR, with headless-contract.md
- * appended to its system prompt, `--max-budget-usd` the caller's headroom,
- * and a name where the caller gives one. No `--model`: Opus is the default
+ * appended to its system prompt, and `--max-budget-usd` and a name where the
+ * caller gives them: a resume the refill loop makes of its own run gives no
+ * budget, the tick's allowance stop capping it as any overflow run (#3698). No `--model`: Opus is the default
  * (mantahostels#1093). `resume` continues a session headless on the same
  * seat and key.
  *
@@ -55,7 +56,7 @@ const CONTRACT = path.join(__dirname, "headless-contract.md");
  * Launch a headless run on an overflow seat. `resume`, a session id, continues
  * that session with `prompt` as its next turn: a parked run the refill loop
  * resumes, or the founder answering one that ended on a question (#3685).
- * @param {{keyVar: string, cwd: string, budgetUsd: number, prompt: string,
+ * @param {{keyVar: string, cwd: string, budgetUsd?: number, prompt: string,
  *   resume?: string, name?: string}} opts
  * @returns {{record: RunRecord}|{why: string}}
  */
@@ -94,8 +95,9 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 			"--output-format",
 			"stream-json",
 			"--verbose",
-			"--max-budget-usd",
-			String(budgetUsd),
+			...(budgetUsd === undefined
+				? []
+				: ["--max-budget-usd", String(budgetUsd)]),
 			"--settings",
 			settings,
 			...(name === undefined ? [] : ["-n", name]),
