@@ -189,4 +189,9 @@ function readCommittedFile(rev, file, opts) {
 	return text;
 }
 
-module.exports = { readObjectBatch, listTree, readFileAt, readCommittedFile };
+module.exports = {
+	readObjectBatch,
+	listTree,
+	readFileAt,
+	readCommittedFile,
+};

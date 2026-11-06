@@ -30,7 +30,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { readWorktreeDirt, readWorktreeFiling } from "./lib/orphan-filings.js";
-import { runInProcess } from "./lib/run-in-process.js";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 import { worktreeLabel } from "./lib/session-worktrees.js";
 import { buildDistinctFromHint } from "./lib/similar-titles.js";
 
@@ -105,7 +105,7 @@ function dirty(rel: string, hours: number, content = "edited\n") {
 /* GITHUB_ACTIONS off: check.js writes ::warning:: to stdout when it is set. */
 /* A hand run by default, which exits on a fault where the hook run (`notify`)
  * stays at 0. */
-const run = (
+const run = async (
 	args: string[] = [],
 	notify = false,
 	env: NodeJS.ProcessEnv = {},
@@ -117,7 +117,7 @@ const run = (
 		...args,
 		...(write ? ["--write"] : []),
 	];
-	const r = runInProcess(SCRIPT, argv, {
+	const r = await runInProcessAsync(SCRIPT, argv, {
 		env: {
 			...process.env,
 			...env,
@@ -131,36 +131,38 @@ const run = (
 };
 
 describe("check-orphaned-edits", () => {
-	it("says nothing at session start when there is no orphan", () => {
-		const r = run([], true);
+	it("says nothing at session start when there is no orphan", async () => {
+		const r = await run([], true);
 		expect(r.out).toBe("");
 		expect(r.status).toBe(0);
 		expect(readFilings()).toEqual([]);
 	});
 
-	it("files an orphan at session start but prints nothing, the report being npm run status's (#2038)", () => {
+	it("files an orphan at session start but prints nothing, the report being npm run status's (#2038)", async () => {
 		dirty("a.txt", 25);
-		const r = run([], true);
+		const r = await run([], true);
 		expect(r.out).toBe("");
 		expect(readFilings()).toHaveLength(1);
 	});
 
-	it("files nothing without --write, and says --write files it, taking no marker (#4449)", () => {
+	it("files nothing without --write, and says --write files it, taking no marker (#4449)", async () => {
 		dirty("a.txt", 25);
-		const r = run([], false, {}, false);
+		const r = await run([], false, {}, false);
 		expect(r.out).toContain("triage:  not filed: `--write` files it");
 		expect(readFilings()).toEqual([]);
-		expect(run().out).toContain("triage:  https://github.com/o/r/issues/7");
-		expect(run([], false, {}, false).out).toContain(
+		expect((await run()).out).toContain(
+			"triage:  https://github.com/o/r/issues/7",
+		);
+		expect((await run([], false, {}, false)).out).toContain(
 			"triage:  already filed: https://github.com/o/r/issues/7",
 		);
 	});
 
-	it("reports a file unchanged for 24 hours, and not one unchanged for less", () => {
+	it("reports a file unchanged for 24 hours, and not one unchanged for less", async () => {
 		dirty("a.txt", 25);
 		dirty("docs/b.md", 23);
 
-		const r = run();
+		const r = await run();
 
 		expect(r.out).toContain("ORPHANED-EDIT (1)");
 		expect(r.out).toContain("a.txt — unchanged 25h");
@@ -168,12 +170,12 @@ describe("check-orphaned-edits", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("names the path, its age, the last known writer, and the inspect, commit and revert commands", () => {
+	it("names the path, its age, the last known writer, and the inspect, commit and revert commands", async () => {
 		dirty("a.txt", 72);
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("gone-session"), "a.txt\n");
 
-		const r = run();
+		const r = await run();
 
 		expect(r.out).toContain("a.txt — unchanged 3d");
 		expect(r.out).toContain("last known writer: session gone-session");
@@ -187,13 +189,13 @@ describe("check-orphaned-edits", () => {
 		expect(r.out).toContain("triage:  https://github.com/o/r/issues/7");
 	});
 
-	it("says the writer is unknown where no ledger names the file", () => {
+	it("says the writer is unknown where no ledger names the file", async () => {
 		dirty("a.txt", 30);
-		expect(run().out).toContain("last known writer: unknown");
+		expect((await run()).out).toContain("last known writer: unknown");
 	});
 
 	describe("a live session's ownership excludes the file", () => {
-		it("by a live claim", () => {
+		it("by a live claim", async () => {
 			dirty("docs/b.md", 30);
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 			const rec = locks.newLock({
@@ -208,10 +210,10 @@ describe("check-orphaned-edits", () => {
 				JSON.stringify(rec),
 			);
 
-			expect(run().out).not.toContain("ORPHANED-EDIT");
+			expect((await run()).out).not.toContain("ORPHANED-EDIT");
 		});
 
-		it("by a live session's observation", () => {
+		it("by a live session's observation", async () => {
 			dirty("a.txt", 30);
 			fakeClaude("watcher");
 			const file = store.paths.observation("a.txt", "watcher");
@@ -221,44 +223,44 @@ describe("check-orphaned-edits", () => {
 				JSON.stringify({ path: "a.txt", sessionId: "watcher", obsId: "o1" }),
 			);
 
-			expect(run().out).not.toContain("ORPHANED-EDIT");
+			expect((await run()).out).not.toContain("ORPHANED-EDIT");
 		});
 
-		it("by a live session's write ledger", () => {
+		it("by a live session's write ledger", async () => {
 			dirty("a.txt", 30);
 			fakeClaude("writer");
 			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 			fs.writeFileSync(store.paths.ledger("writer"), "a.txt\n");
 
-			expect(run().out).not.toContain("ORPHANED-EDIT");
+			expect((await run()).out).not.toContain("ORPHANED-EDIT");
 		});
 
-		it("but not by the ledger of a session the oracle does not list", () => {
+		it("but not by the ledger of a session the oracle does not list", async () => {
 			dirty("a.txt", 30);
 			fakeClaude("someone-else");
 			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 			fs.writeFileSync(store.paths.ledger("writer"), "a.txt\n");
 
-			expect(run().out).toContain("ORPHANED-EDIT (1)");
+			expect((await run()).out).toContain("ORPHANED-EDIT (1)");
 		});
 	});
 
-	it("reports nothing where liveness cannot be read", () => {
+	it("reports nothing where liveness cannot be read", async () => {
 		dirty("a.txt", 30);
 		const bin = path.join(sb.dir, "bin", "claude");
 		fs.writeFileSync(bin, "#!/bin/sh\nexit 1\n");
 
-		const r = run(["--json"]);
+		const r = await run(["--json"]);
 		expect(JSON.parse(r.stdout).outcome).toBe("SKIP");
 		expect(readFilings()).toEqual([]);
 	});
 
 	describe("filing", () => {
-		it("files one takes:triage issue per path and blob, and nothing on a second run", () => {
+		it("files one takes:triage issue per path and blob, and nothing on a second run", async () => {
 			dirty("a.txt", 30);
 
-			run();
-			run();
+			await run();
+			await run();
 
 			const calls = readFilings();
 			expect(calls).toHaveLength(1);
@@ -267,142 +269,172 @@ describe("check-orphaned-edits", () => {
 			expect(argv).toContain("--standalone");
 			expect(argv.join(" ")).toContain("Orphaned edit: a.txt");
 			expect(body).toContain("git diff HEAD -- a.txt");
-			expect(run().out).toContain(
+			expect((await run()).out).toContain(
 				"triage:  already filed: https://github.com/o/r/issues/7",
 			);
 		});
 
-		it("files again when the same path holds a different blob", () => {
+		it("files again when the same path holds a different blob", async () => {
 			dirty("a.txt", 30, "first\n");
-			run();
+			await run();
 			dirty("a.txt", 30, "second\n");
-			run();
+			await run();
 
 			expect(readFilings()).toHaveLength(2);
 		});
 
-		it("files each orphaned path on its own", () => {
+		it("files each orphaned path on its own", async () => {
 			dirty("a.txt", 30);
 			dirty("docs/b.md", 30);
-			run();
+			await run();
 
 			expect(readFilings()).toHaveLength(2);
 		});
 
-		it("names the titles file-issue.js lists as distinct, and files", () => {
+		it("names the titles file-issue.js lists as distinct, and files", async () => {
 			dirty("a.txt", 30);
 			fakeFiler(
 				0,
 				`Nothing filed: #3 is not yet checked. Re-run with ${buildDistinctFromHint([3, 4])}`,
 			);
-			run();
+			await run();
 
 			const calls = readFilings();
 			expect(calls).toHaveLength(2);
 			expect(calls[1].argv.slice(-2)).toEqual(["--distinct-from", "3,4"]);
-			expect(run().out).toContain("already filed");
+			expect((await run()).out).toContain("already filed");
 		});
 
-		it("retries a filing that failed, rather than recording it", () => {
+		it("retries a filing that failed, rather than recording it", async () => {
 			dirty("a.txt", 30);
 			fakeFiler(1);
-			expect(run().out).toContain(
+			expect((await run()).out).toContain(
 				"filing failed, retried next run: gh: offline",
 			);
 			fakeFiler(0);
-			run();
+			await run();
 
 			expect(readFilings()).toHaveLength(2);
-			expect(run().out).toContain("already filed");
+			expect((await run()).out).toContain("already filed");
 		});
 	});
 
-	it("files at most two a run and the rest at the next, saying so", () => {
+	it("files at most two a run and the rest at the next, saying so", async () => {
 		dirty("a.txt", 30);
 		dirty("docs/b.md", 30);
 		dirty("c.txt", 30);
 
-		expect(run().out).toContain("this run's filing cap is spent");
+		expect((await run()).out).toContain("this run's filing cap is spent");
 		expect(readFilings()).toHaveLength(2);
-		run();
+		await run();
 		expect(readFilings()).toHaveLength(3);
 	});
 
-	it("leaves an interrupted filing alone rather than filing it again", () => {
+	it("starts no filing its ceiling would carry past the hook's timeout, filing it next run (#4542)", async () => {
 		dirty("a.txt", 30);
-		run();
+
+		expect(
+			(await run([], false, { WFC_ORPHAN_HOOK_TIMEOUT_MS: "21000" })).out,
+		).toContain("not filed yet: this run's time is spent");
+		expect(readFilings()).toEqual([]);
+
+		await run();
+		expect(readFilings()).toHaveLength(1);
+	});
+
+	it("budgets the timeout hooks/hooks.json gives its SessionStart run (#4542)", () => {
+		const hooks = fs.readFileSync(
+			path.join(__dirname, "..", "hooks", "hooks.json"),
+			"utf8",
+		);
+		const entry = JSON.parse(hooks)
+			.hooks.SessionStart.flatMap((g: { hooks: object[] }) => g.hooks)
+			.find((h: { command: string }) =>
+				h.command.includes("check-orphaned-edits.js"),
+			);
+		/* Read off the source: requiring the script would load lib/check.js's
+		 * process handlers into this worker. */
+		const budget = /const HOOK_TIMEOUT_MS = ([\d_]+);/.exec(
+			fs.readFileSync(SCRIPT, "utf8"),
+		)?.[1];
+		expect(entry.timeout * 1000).toBe(Number(budget?.replaceAll("_", "")));
+	});
+
+	it("leaves an interrupted filing alone rather than filing it again", async () => {
+		dirty("a.txt", 30);
+		await run();
 		// What a filer killed mid-create leaves: its marker, empty.
 		const dir = path.join(sb.repo, ".git", "orphaned-edits-filed");
 		for (const f of fs.readdirSync(dir))
 			fs.writeFileSync(path.join(dir, f), "");
 
-		expect(run().out).toContain("filing in progress or interrupted");
+		expect((await run()).out).toContain("filing in progress or interrupted");
 		expect(readFilings()).toHaveLength(1);
 	});
 
-	it("never retries a filing whose filer died before it could say", () => {
+	it("never retries a filing whose filer died before it could say", async () => {
 		dirty("a.txt", 30);
 		const bin = path.join(sb.dir, "bin", "dying-filer.js");
 		fs.writeFileSync(bin, 'process.kill(process.pid, "SIGKILL");\n');
 		process.env.WFC_ORPHAN_FILER = bin;
-		expect(run().out).toContain("filing interrupted, not retried");
+		expect((await run()).out).toContain("filing interrupted, not retried");
 
 		fakeFiler();
-		expect(run().out).toContain("filing in progress or interrupted");
+		expect((await run()).out).toContain("filing in progress or interrupted");
 		expect(readFilings()).toEqual([]);
 	});
 
-	it("refuses a negative --hours as a bad invocation", () => {
-		const r = run(["--hours", "-1"], false);
+	it("refuses a negative --hours as a bad invocation", async () => {
+		const r = await run(["--hours", "-1"], false);
 		expect(r.out).toContain("--hours must be a non-negative number");
 		expect(r.status).toBe(2);
 	});
 
 	describe("reports nothing where an ownership store will not read", () => {
 		/* chmod binds nobody as root, so these say nothing there. */
-		it.skipIf(AS_ROOT)("the lock store", () => {
+		it.skipIf(AS_ROOT)("the lock store", async () => {
 			dirty("a.txt", 30);
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 			fs.chmodSync(store.paths.locksDir(), 0o000);
 			try {
-				expect(JSON.parse(run(["--json"]).stdout).outcome).toBe("SKIP");
+				expect(JSON.parse((await run(["--json"])).stdout).outcome).toBe("SKIP");
 			} finally {
 				fs.chmodSync(store.paths.locksDir(), 0o755);
 			}
 			expect(readFilings()).toEqual([]);
 		});
 
-		it.skipIf(AS_ROOT)("the observation store", () => {
+		it.skipIf(AS_ROOT)("the observation store", async () => {
 			dirty("a.txt", 30);
 			fakeClaude("watcher");
 			fs.mkdirSync(store.paths.observationsDir(), { recursive: true });
 			fs.chmodSync(store.paths.observationsDir(), 0o000);
 			try {
-				expect(JSON.parse(run(["--json"]).stdout).outcome).toBe("SKIP");
+				expect(JSON.parse((await run(["--json"])).stdout).outcome).toBe("SKIP");
 			} finally {
 				fs.chmodSync(store.paths.observationsDir(), 0o755);
 			}
 			expect(readFilings()).toEqual([]);
 		});
 
-		it.skipIf(AS_ROOT)("a live session's write ledger", () => {
+		it.skipIf(AS_ROOT)("a live session's write ledger", async () => {
 			dirty("a.txt", 30);
 			fakeClaude("writer");
 			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 			fs.writeFileSync(store.paths.ledger("writer"), "docs/b.md\n");
 			fs.chmodSync(store.paths.ledger("writer"), 0o000);
 
-			expect(JSON.parse(run(["--json"]).stdout).outcome).toBe("SKIP");
+			expect(JSON.parse((await run(["--json"])).stdout).outcome).toBe("SKIP");
 			expect(readFilings()).toEqual([]);
 		});
 	});
 
-	it("never writes or reverts the orphaned file", () => {
+	it("never writes or reverts the orphaned file", async () => {
 		dirty("a.txt", 30, "precious weekend work\n");
 		const before = fs.statSync(path.join(sb.repo, "a.txt")).mtimeMs;
 
-		run();
-		run();
+		await run();
+		await run();
 
 		const file = path.join(sb.repo, "a.txt");
 		expect(fs.readFileSync(file, "utf8")).toBe("precious weekend work\n");
@@ -449,10 +481,10 @@ describe("a linked worktree's dirt", () => {
 		return fs.realpathSync(wt);
 	}
 
-	it("is an orphan under its owning session once that session is no longer listed", () => {
+	it("is an orphan under its owning session once that session is no longer listed", async () => {
 		const wt = worktreeOf("dead-owner-1", 30);
 
-		const r = run();
+		const r = await run();
 
 		expect(r.out).toContain("ORPHANED-EDIT (1)");
 		expect(r.out).toContain(".claude/worktrees/w1: a.txt — unchanged 30h");
@@ -498,12 +530,12 @@ describe("a linked worktree's dirt", () => {
 
 	const bodyOf = () => readFilings().map((f) => f.body);
 
-	it("files one issue for all of a dead worktree's files, and once more when any of them changes (#4439)", () => {
+	it("files one issue for all of a dead worktree's files, and once more when any of them changes (#4439)", async () => {
 		const wt = worktreeOf("dead-owner-5", 30);
 		dirtyIn(wt, "c.txt", 30, "worktree edit\n");
 
-		run();
-		run();
+		await run();
+		await run();
 
 		expect(readFilings()).toHaveLength(1);
 		const [filing] = readFilings();
@@ -517,8 +549,8 @@ describe("a linked worktree's dirt", () => {
 
 		dirtyIn(wt, "c.txt", 30, "edited again\n");
 		expect(reaperSees(wt)).toBeNull();
-		run();
-		run();
+		await run();
+		await run();
 
 		expect(readFilings()).toHaveLength(2);
 		expect(readFilings()[1]?.body).toContain(
@@ -527,11 +559,11 @@ describe("a linked worktree's dirt", () => {
 		expect(reaperSees(wt)).toBe("https://github.com/o/r/issues/7");
 	});
 
-	it("names removing the worktree where every change in it is already on origin/main (#4439)", () => {
+	it("names removing the worktree where every change in it is already on origin/main (#4439)", async () => {
 		landOnOrigin({ "a.txt": "worktree edit\n" });
 		const wt = worktreeOf("dead-owner-6", 30);
 
-		const r = run();
+		const r = await run();
 
 		const [body] = bodyOf();
 		expect(body).toContain("| `a.txt` | 30h |");
@@ -542,22 +574,22 @@ describe("a linked worktree's dirt", () => {
 		expect(r.out).toContain("on origin/main: yes, byte for byte");
 	});
 
-	it("reads a change landed and since superseded as landed by its lines (#4439)", () => {
+	it("reads a change landed and since superseded as landed by its lines (#4439)", async () => {
 		landOnOrigin({ "a.txt": "worktree edit\nlater line\n" });
 		worktreeOf("dead-owner-7", 30);
 
-		run();
+		await run();
 
 		const [body] = bodyOf();
 		expect(body).toContain("| yes, every changed line |");
 		expect(body).toContain("holds nothing unlanded");
 	});
 
-	it("keeps the land route where a change is not on origin/main (#4439)", () => {
+	it("keeps the land route where a change is not on origin/main (#4439)", async () => {
 		landOnOrigin({ "c.txt": "other\n" });
 		const wt = worktreeOf("dead-owner-8", 30);
 
-		run();
+		await run();
 
 		const [body] = bodyOf();
 		expect(body).toContain("| no |");
@@ -565,28 +597,28 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain(`git -C ${wt} diff HEAD`);
 	});
 
-	it("waits while another file in the worktree is under 24 hours, then files them together (#4439)", () => {
+	it("waits while another file in the worktree is under 24 hours, then files them together (#4439)", async () => {
 		const wt = worktreeOf("dead-owner-9", 30);
 		dirtyIn(wt, "c.txt", 1, "fresh\n");
 
-		expect(run().out).toContain(
+		expect((await run()).out).toContain(
 			"not filed yet: 1 other file(s) in its worktree changed within 24h",
 		);
 		expect(readFilings()).toEqual([]);
 
 		dirtyIn(wt, "c.txt", 30, "fresh\n");
-		run();
+		await run();
 
 		expect(readFilings()).toHaveLength(1);
 		expect(readFilings()[0]?.argv.join(" ")).toContain("2 file(s)");
 	});
 
-	it("keeps the land route where an untracked file in the worktree would go with it (#4439)", () => {
+	it("keeps the land route where an untracked file in the worktree would go with it (#4439)", async () => {
 		landOnOrigin({ "a.txt": "worktree edit\n" });
 		const wt = worktreeOf("dead-owner-10", 30);
 		fs.writeFileSync(path.join(wt, "new.txt"), "never added\n");
 
-		run();
+		await run();
 
 		const [body] = bodyOf();
 		expect(body).toContain("| yes, byte for byte |");
@@ -594,58 +626,117 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain("session-checkout.js land");
 	});
 
-	it("reads a change landed and since reworked as landed, by the version that made it (#4439)", () => {
+	it("reads a change landed and since reworked as landed, by the version that made it (#4439)", async () => {
 		landOnOrigin({ "a.txt": "seed\nX\nY\n" }, { "a.txt": "seed\nY\n" });
 		const wt = worktreeOf("dead-owner-11", 30);
 		dirtyIn(wt, "a.txt", 30, "seed\nX\n");
 
-		run();
+		await run();
 
 		expect(bodyOf()[0]).toContain("| yes, every changed line |");
 	});
 
-	it("does not read a line added twice as landed where landing added it once (#4439)", () => {
+	it("does not read a line added twice as landed where landing added it once (#4439)", async () => {
 		landOnOrigin({ "a.txt": "seed\nX\n", "c.txt": "moved\n" });
 		const wt = worktreeOf("dead-owner-12", 30);
 		dirtyIn(wt, "a.txt", 30, "seed\nX\nX\n");
 
-		run();
+		await run();
 
 		expect(bodyOf()[0]).toContain("| no |");
 	});
 
-	it("is owned while its session is listed live, though no claim or ledger names it", () => {
+	/** A `git` stand-in that logs each call's arguments, a line each, then runs git. */
+	function loggedGit() {
+		const log = path.join(sb.dir, "git-calls");
+		const bin = path.join(sb.dir, "bin", "git-logged");
+		fs.writeFileSync(
+			bin,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\nexec git "$@"\n`,
+		);
+		fs.chmodSync(bin, 0o755);
+		return {
+			env: { WFC_GIT: bin },
+			/** The calls that read landed history: versions listed, or blobs read. */
+			landedReads: () =>
+				(fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "")
+					.split("\n")
+					.filter((c) => /^(log --format= --raw|cat-file)/.test(c)),
+			reset: () => fs.rmSync(log, { force: true }),
+		};
+	}
+
+	it("reads every file's landed versions in a worktree through one cat-file batch (#4542)", async () => {
+		landOnOrigin({
+			"a.txt": "worktree edit\nlater line\n",
+			"c.txt": "c edit\nmore\n",
+		});
+		const wt = worktreeOf("dead-owner-13", 30);
+		dirtyIn(wt, "c.txt", 30, "c edit\n");
+		const git = loggedGit();
+
+		await run([], false, git.env);
+
+		expect(bodyOf()[0]).toContain("| `a.txt` | 30h | ");
+		expect(bodyOf()[0]?.match(/\| yes, every changed line \|/g)).toHaveLength(
+			2,
+		);
+		expect(git.landedReads().filter((c) => c.startsWith("cat-file"))).toEqual([
+			"cat-file --batch",
+		]);
+	});
+
+	it("reads no landed history for a worktree already filed (#4542)", async () => {
+		landOnOrigin({ "a.txt": "worktree edit\nlater line\n" });
+		worktreeOf("dead-owner-14", 30);
+		const git = loggedGit();
+		await run([], false, git.env);
+		expect(readFilings()).toHaveLength(1);
+		git.reset();
+
+		const r = await run([], false, git.env);
+
+		expect(r.out).toContain("triage:  already filed");
+		expect(r.out).toContain("on origin/main: unread");
+		expect(git.landedReads()).toEqual([]);
+		expect((await run([], false, git.env, false)).out).toContain(
+			"triage:  already filed",
+		);
+		expect(git.landedReads()).toEqual([]);
+	});
+
+	it("is owned while its session is listed live, though no claim or ledger names it", async () => {
 		worktreeOf("live-owner-1", 30);
 		fakeClaude("bystander", "live-owner-1");
 
-		expect(run().out).not.toContain("ORPHANED-EDIT");
+		expect((await run()).out).not.toContain("ORPHANED-EDIT");
 		expect(readFilings()).toEqual([]);
 	});
 
-	it("is owned by the ledger at the file's path in its tree where no session owns the worktree (#4397)", () => {
+	it("is owned by the ledger at the file's path in its tree where no session owns the worktree (#4397)", async () => {
 		const wt = worktreeOf(null, 30);
 		fakeClaude("bystander", "ledger-owner");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("ledger-owner"), `a.txt\t${wt}\n`);
 
-		expect(run().out).not.toContain("ORPHANED-EDIT");
+		expect((await run()).out).not.toContain("ORPHANED-EDIT");
 	});
 
-	it("is not owned by a live session's ledger at the same path in the main checkout (#4457)", () => {
+	it("is not owned by a live session's ledger at the same path in the main checkout (#4457)", async () => {
 		worktreeOf(null, 30);
 		fakeClaude("bystander", "main-writer");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("main-writer"), "a.txt\n");
 
-		expect(run().out).toContain("ORPHANED-EDIT");
+		expect((await run()).out).toContain("ORPHANED-EDIT");
 	});
 
-	it("is judged by the worktree's file, not the main checkout's", () => {
+	it("is judged by the worktree's file, not the main checkout's", async () => {
 		worktreeOf("dead-owner-2", 2);
 		dirty("a.txt", 30);
 		fakeClaude("bystander");
 
-		const r = run(["--json"]);
+		const r = await run(["--json"]);
 
 		const data = JSON.parse(r.stdout);
 		expect(
@@ -654,33 +745,33 @@ describe("a linked worktree's dirt", () => {
 		expect(data.young).toBe(1);
 	});
 
-	it("is owned by a live session's ledger though the worktree's owner has ended", () => {
+	it("is owned by a live session's ledger though the worktree's owner has ended", async () => {
 		const wt = worktreeOf("dead-owner-3", 30);
 		fakeClaude("bystander", "mover");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("mover"), `a.txt\t${wt}\n`);
 
-		expect(run().out).not.toContain("ORPHANED-EDIT");
+		expect((await run()).out).not.toContain("ORPHANED-EDIT");
 		expect(readFilings()).toEqual([]);
 	});
 
-	it("judges an old file in an unowned worktree outside the host root by its path there (#4397)", () => {
+	it("judges an old file in an unowned worktree outside the host root by its path there (#4397)", async () => {
 		const wt = worktreeOf(null, 30, path.join(sb.dir, "outside-wt"));
 		fakeClaude("bystander");
 
-		const data = JSON.parse(run(["--json"]).stdout);
+		const data = JSON.parse((await run(["--json"])).stdout);
 
 		expect(data.orphans.map((o: { worktree: string }) => o.worktree)).toEqual([
 			wt,
 		]);
 	});
 
-	it("names a registration whose directory has gone, and judges the rest", () => {
+	it("names a registration whose directory has gone, and judges the rest", async () => {
 		const wt = worktreeOf("dead-owner-4", 30);
 		fs.rmSync(wt, { recursive: true, force: true });
 		dirty("a.txt", 30);
 
-		const data = JSON.parse(run(["--json"]).stdout);
+		const data = JSON.parse((await run(["--json"])).stdout);
 
 		expect(data.orphanCount).toBe(1);
 		expect(data.unreadWorktrees).toEqual([wt]);
@@ -698,12 +789,12 @@ describe("a cut-over main checkout's dirt", () => {
 			WFC_MODULES: `${process.env.WFC_MODULES},landing`,
 		});
 
-	it("is an orphan on the first run, whatever its age, naming its ledger's last writer", () => {
+	it("is an orphan on the first run, whatever its age, naming its ledger's last writer", async () => {
 		dirty("a.txt", 0);
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("gone-writer"), "a.txt\n");
 
-		const r = landingOn();
+		const r = await landingOn();
 
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("ORPHANED-EDIT (1)");
@@ -712,13 +803,13 @@ describe("a cut-over main checkout's dirt", () => {
 		expect(readFilings()).toHaveLength(1);
 	});
 
-	it("is still owned by a live session's ledger", () => {
+	it("is still owned by a live session's ledger", async () => {
 		dirty("a.txt", 0);
 		fakeClaude("bystander", "live-writer");
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("live-writer"), "a.txt\n");
 
-		const r = landingOn();
+		const r = await landingOn();
 
 		expect(r.status).toBe(0);
 		expect(r.out).toContain(
@@ -726,13 +817,13 @@ describe("a cut-over main checkout's dirt", () => {
 		);
 	});
 
-	it("waits 24 hours while main still tracks landing, not yet cut over", () => {
+	it("waits 24 hours while main still tracks landing, not yet cut over", async () => {
 		dirty("a.txt", 0);
 		spawnSync("git", ["config", "branch.main.merge", "refs/heads/landing"], {
 			cwd: sb.repo,
 		});
 
-		const data = JSON.parse(landingOn(["--json"]).stdout);
+		const data = JSON.parse((await landingOn(["--json"])).stdout);
 
 		expect(data.mainCutOver).toBe(false);
 		expect(data.orphanCount).toBe(0);
@@ -751,8 +842,8 @@ describe("a cut-over main checkout's dirt", () => {
 			fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
 			return fs.realpathSync(wt);
 		}
-		const runFrom = (tree: string, args: string[] = ["--json"]) => {
-			const r = runInProcess(SCRIPT, [...args, "--write"], {
+		const runFrom = async (tree: string, args: string[] = ["--json"]) => {
+			const r = await runInProcessAsync(SCRIPT, [...args, "--write"], {
 				env: {
 					...process.env,
 					WFC_MODULES: `${process.env.WFC_MODULES},landing`,
@@ -766,33 +857,33 @@ describe("a cut-over main checkout's dirt", () => {
 			return { stdout: r.stdout, out: r.stdout + r.stderr };
 		};
 
-		it("judges the worktree's fresh dirt as that worktree's, filing nothing", () => {
-			const data = JSON.parse(runFrom(launchedIn()).stdout);
+		it("judges the worktree's fresh dirt as that worktree's, filing nothing", async () => {
+			const data = JSON.parse((await runFrom(launchedIn())).stdout);
 
 			expect(data.orphanCount).toBe(0);
 			expect(data.young).toBe(1);
 			expect(readFilings()).toEqual([]);
 		});
 
-		it("judges the main checkout's dirt against the main checkout's store", () => {
+		it("judges the main checkout's dirt against the main checkout's store", async () => {
 			const wt = launchedIn();
 			dirty("c.txt", 0);
 			fakeClaude("bystander", "live-writer");
 			fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 			fs.writeFileSync(store.paths.ledger("live-writer"), "c.txt\n");
 
-			const data = JSON.parse(runFrom(wt).stdout);
+			const data = JSON.parse((await runFrom(wt)).stdout);
 
 			expect(data.mainCutOver).toBe(true);
 			expect(data.orphanCount).toBe(0);
 			expect(readFilings()).toEqual([]);
 		});
 
-		it("still files the main checkout's unowned dirt, by its main-checkout path", () => {
+		it("still files the main checkout's unowned dirt, by its main-checkout path", async () => {
 			const wt = launchedIn();
 			dirty("c.txt", 0);
 
-			const { out } = runFrom(wt, []);
+			const { out } = await runFrom(wt, []);
 
 			expect(out).toContain("ORPHANED-EDIT (1)");
 			const filings = readFilings();
@@ -801,19 +892,19 @@ describe("a cut-over main checkout's dirt", () => {
 			expect(filings[0].body).not.toContain(".claude/worktrees/probe");
 		});
 
-		it("files the worktree's aged dirt under the worktree's name", () => {
+		it("files the worktree's aged dirt under the worktree's name", async () => {
 			const wt = launchedIn();
 			const at = new Date(Date.now() - 30 * HOUR);
 			fs.utimesSync(path.join(wt, "a.txt"), at, at);
 
-			const { out } = runFrom(wt, []);
+			const { out } = await runFrom(wt, []);
 
 			expect(out).toContain(".claude/worktrees/probe: a.txt");
 			expect(readFilings()).toHaveLength(1);
 		});
 	});
 
-	it("leaves a linked worktree's dirt to the 24-hour test", () => {
+	it("leaves a linked worktree's dirt to the 24-hour test", async () => {
 		const wt = path.join(sb.repo, ".claude", "worktrees", "w2");
 		fs.mkdirSync(path.dirname(wt), { recursive: true });
 		spawnSync("git", ["worktree", "add", "-q", "--detach", wt], {
@@ -821,7 +912,7 @@ describe("a cut-over main checkout's dirt", () => {
 		});
 		fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
 
-		const data = JSON.parse(landingOn(["--json"]).stdout);
+		const data = JSON.parse((await landingOn(["--json"])).stdout);
 
 		expect(data.mainCutOver).toBe(true);
 		expect(data.orphanCount).toBe(0);
