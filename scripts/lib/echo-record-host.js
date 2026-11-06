@@ -18,7 +18,7 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { sweepFiles, withDirLock } = require("./dir-lock.js");
 const { parseRecords, storeText } = require("./echo-chain.js");
-const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { scratchDir } = require("./guard-entry.js");
 
 /* Swept at a day, on this agent's first record only, since this runs on
@@ -59,11 +59,9 @@ function buildHostPorts(_root, log) {
 		 * Unlocked: the write is atomic, so a reader sees the whole old file or
 		 * the whole new one. */
 		readChain: (name) => {
-			try {
-				return fs.readFileSync(path.join(dir, name), "utf8");
-			} catch (e) {
-				return caught(e).code === "ENOENT" ? "" : null;
-			}
+			const got = readText(path.join(dir, name));
+			if (got.state === "read") return got.data;
+			return got.state === "absent" ? "" : null;
 		},
 		chain: (name, sig, next) => {
 			const file = path.join(dir, name);

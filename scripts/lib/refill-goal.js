@@ -20,6 +20,8 @@ const { buildNotice, isNotice } = require("./refill-notice.js");
  * @typedef {{repo: string|null, number: number}} AskedRef a ref as typed, `repo`
  *   null for a bare `#N`
  * @typedef {"issues"|"drain"|"unblock"|"topic"} GoalForm
+ * @typedef {{form: "issues", refs: AskedRef[]}|{form: "drain"|"unblock", ref: AskedRef}}
+ *   AskedGoal a typed goal: a walk names one ref
  * @typedef {object} Goal
  * @property {GoalForm} form
  * @property {string} text as typed
@@ -115,8 +117,7 @@ function qualifyRefs(asked, { roots, dropped }) {
 /**
  * A goal as typed: `drain <ref>`, `unblock <ref>`, or a list of refs.
  * @param {string} text
- * @returns {{form: "issues"|"drain"|"unblock", refs: AskedRef[]}|null} null
- *   where it is none of them
+ * @returns {AskedGoal|null} null where it is none of them
  */
 function parseGoalForm(text) {
 	const walk = text.trim().match(/^(drain|unblock)\s+(\S+)$/);
@@ -124,7 +125,8 @@ function parseGoalForm(text) {
 	if (refs === null) return null;
 	const form = walk?.[1];
 	if (form !== "drain" && form !== "unblock") return { form: "issues", refs };
-	return refs.length === 1 ? { form, refs } : null;
+	const [ref, ...more] = refs;
+	return ref && more.length === 0 ? { form, ref } : null;
 }
 
 /** @param {string} typed what `parseGoalForm` could not read */

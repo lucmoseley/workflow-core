@@ -4640,6 +4640,23 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 		});
 
+		it("bills every uncommitted path of a session's own worktree, the ledger aside (#3786)", () => {
+			const own = {
+				sessionId: "mine",
+				ledger: ledgerOf([]),
+				untracked: ["scratch.txt"],
+				ownTree: true,
+			};
+			expect(attributeDirty(["bash-written.ts"], own)).toEqual({
+				mine: ["bash-written.ts", "scratch.txt"],
+				theirs: [],
+				quoted: [],
+			});
+			expect(
+				attributeDirty(["bash-written.ts"], { ...own, sessionId: null }).mine,
+			).toEqual([]);
+		});
+
 		it("subtracts a path a live neighbour holds", () => {
 			const lock = {
 				sessionId: "other",
@@ -6112,18 +6129,35 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			 * edit, deletion and new file; a file it once wrote that a live
 			 * neighbour now holds; and an orphan nobody's ledger names.
 			 */
-			function dirtyCheckout() {
-				const dir = repoWithDeps();
+			function dirtyCheckout({ linked = false } = {}) {
+				const checkout = repoWithDeps();
 				const files = ["mine.txt", "gone.txt", "held.txt", "orphan.txt"];
-				for (const f of files) fs.writeFileSync(path.join(dir, f), headText);
-				gitIn(dir, ["add", ...files]);
-				gitIn(dir, ["commit", "-q", "-m", "four files"]);
+				for (const f of files)
+					fs.writeFileSync(path.join(checkout, f), headText);
+				gitIn(checkout, ["add", ...files]);
+				gitIn(checkout, ["commit", "-q", "-m", "four files"]);
+				const dir = linked ? linkedWorktreeOf(checkout) : checkout;
 				fs.writeFileSync(path.join(dir, "mine.txt"), "mine\n");
 				fs.rmSync(path.join(dir, "gone.txt"));
 				fs.writeFileSync(path.join(dir, "brand-new.test.ts"), "//\n");
 				fs.writeFileSync(path.join(dir, "held.txt"), "neighbour\n");
 				fs.writeFileSync(path.join(dir, "orphan.txt"), "orphan\n");
 				return dir;
+			}
+
+			/** A session's own worktree of `checkout` (#4229), its artefacts linked in. */
+			function linkedWorktreeOf(checkout: string) {
+				const wt = path.join(path.dirname(checkout), "session-wt");
+				gitIn(checkout, ["worktree", "add", "-q", "--detach", wt]);
+				fs.appendFileSync(
+					path.join(checkout, ".git", "info", "exclude"),
+					"node_modules\n.husky/_\n",
+				);
+				fs.symlinkSync(
+					path.join(checkout, "node_modules"),
+					path.join(wt, "node_modules"),
+				);
+				return wt;
 			}
 
 			/** The neighbour's claim sits in `dir`, the tree read (#4457). */
@@ -6226,6 +6260,48 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(err).toContain("2 uncommitted tracked file(s) not attributable");
 				expect(fs.readFileSync(path.join(dir, "held.txt"), "utf8")).toBe(
 					"neighbour\n",
+				);
+			});
+
+			it("carries every dirty file of a linked worktree, Bash-route writes the ledger never saw included (#3786)", async () => {
+				const wt = dirtyCheckout({ linked: true });
+				const { code, seen, err } = await runSeeing(wt, [], {
+					pid: 5402,
+					sessionId: "mine",
+				});
+				expect(code).toBe(0);
+				expect(seen.cwd).toBe(worktreeOf(wt, 5402));
+				expect(seen.status).toEqual([
+					"brand-new.test.ts",
+					"gone.txt",
+					"held.txt",
+					"mine.txt",
+					"orphan.txt",
+				]);
+				expect(seen.read("orphan.txt")).toBe("orphan\n");
+				expect(seen.read("held.txt")).toBe("neighbour\n");
+				expect(err).not.toContain("not attributable");
+			});
+
+			it("refuses a full run over a linked worktree's Bash-route writes, naming them (#3786)", async () => {
+				const { code, seen, err } = await runSeeing(
+					dirtyCheckout({ linked: true }),
+					["--full=coverage"],
+					{ pid: 5404, sessionId: "mine" },
+				);
+				expect(code).toBe(1);
+				expect(seen.cwd).toBe("");
+				expect(err).toContain("--isolated REFUSED: 5 file(s)");
+				expect(err).toContain("  orphan.txt\n");
+			});
+
+			it("names each dirty file it leaves out of a shared tree's overlay (#3786)", async () => {
+				const { err } = await runSeeing(dirtyCheckout(), [], {
+					pid: 5403,
+					sessionId: "mine",
+				});
+				expect(err).toContain(
+					"read at HEAD's version, not theirs: held.txt orphan.txt\n",
 				);
 			});
 

@@ -49,16 +49,15 @@ const REPAIR_STATES = new Set([
 
 /**
  * The command as written, unwrapped from the backticks the tracker's own
- * examples put round it — six of the eight live commands carry a pair.
+ * examples put round it.
  *
  * ANY SEGMENT THAT OPENS WITH A BACKTICK AND IS NOT EXACTLY ONE PAIR ROUND ONE
- * COMMAND COMES BACK AS A REPAIR, because there is no honest way to run one.
- * mantahostels#2065's segment trails prose past the closing backtick ("(see its header;
- * mantahostels#1985 landed it)"), and taking the backticked span alone would be a guess at
- * which part was meant — the silent mis-split mantahostels#1435 already accepted one of. A
- * segment carrying a second pair INSIDE the outer one is worse than a guess:
- * unwrapped and run, the inner pair becomes shell command substitution, so a
- * citation in prose executes.
+ * COMMAND COMES BACK AS A REPAIR, because there is no honest way to run one
+ * (mantahostels#2656): where prose trails past the closing backtick, taking the
+ * backticked span alone would be a guess at which part was meant. A segment
+ * carrying a second pair INSIDE the outer one is worse than a guess: unwrapped
+ * and run, the inner pair becomes shell command substitution, so a citation in
+ * prose executes.
  *
  * @param {string} raw
  * @returns {{ ok: true, command: string } | { ok: false, why: string }}

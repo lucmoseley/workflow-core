@@ -34,13 +34,13 @@ describe("a typed ref", () => {
 
 describe("a typed goal (#3866)", () => {
 	it("reads drain and unblock with one ref, else a list of refs", () => {
-		const ref = [{ repo: "core", number: 5 }];
-		expect(parseGoalForm("drain core#5")).toEqual({ form: "drain", refs: ref });
+		const ref = { repo: "core", number: 5 };
+		expect(parseGoalForm("drain core#5")).toEqual({ form: "drain", ref });
 		expect(parseGoalForm(" unblock   core#5 ")).toEqual({
 			form: "unblock",
-			refs: ref,
+			ref,
 		});
-		expect(parseGoalForm("core#5")).toEqual({ form: "issues", refs: ref });
+		expect(parseGoalForm("core#5")).toEqual({ form: "issues", refs: [ref] });
 	});
 
 	it.each(["drain", "unblock ", "drain #1,#2", "drain #1 #2", "soon", ""])(

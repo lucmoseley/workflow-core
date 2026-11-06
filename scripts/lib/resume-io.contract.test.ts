@@ -200,6 +200,15 @@ function thrownBy(act: () => unknown) {
 	}
 }
 
+function thrownMessage(act: () => unknown) {
+	try {
+		act();
+		return "threw nothing";
+	} catch (e) {
+		return (e as Error).message;
+	}
+}
+
 /* Named for the test selector (§X10): runArbiter runs it. */
 const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
@@ -214,9 +223,11 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 					sessionId: r.record.sessionId === SESSION,
 				};
 	},
-	readHeadlessRun: (v) => {
-		const r = v as ReturnType<ResumeIo["readHeadlessRun"]>;
-		return r && { keys: Object.keys(r).sort(), cwd: typeof r.cwd };
+	readRunAsJob: (v) => {
+		const r = v as ReturnType<ResumeIo["readRunAsJob"]>;
+		return (
+			r && { keys: Object.keys(r).sort(), state: r.state, cwd: typeof r.cwd }
+		);
 	},
 	findHeadlessRun: (v) => {
 		const r = v as ReturnType<ResumeIo["findHeadlessRun"]>;
@@ -290,17 +301,13 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		},
 		unreadable: () => resumeHeadless(),
 	},
-	readHeadlessRun: {
-		none: () => io().readHeadlessRun("0e0e0e0e"),
-		run: () => {
-			fs.writeFileSync(
-				process.env.WFC_SECRETS_FILE as string,
-				`${KEY_VAR}=sk-test\n`,
-				{ mode: 0o600 },
-			);
-			resumeHeadless();
-			const [jobId] = fs.readdirSync(path.join(refill(), ".headless-runs"));
-			return io().readHeadlessRun(String(jobId));
+	readRunAsJob: {
+		none: () => io().readRunAsJob("0e0e0e0e"),
+		working: () => {
+			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, {
+				log: path.join(dir, "out.jsonl"),
+			});
+			return io().readRunAsJob("0e0e0e0e");
 		},
 	},
 	findHeadlessRun: {
@@ -459,7 +466,7 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			return io().overflowLookup(root);
 		},
 	},
-	readHeadlessRun: {
+	readRunAsJob: {
 		unreadable: () => {
 			fs.mkdirSync(
 				path.join(refill(), ".headless-runs", "0e0e0e0e", "run.json"),
@@ -467,7 +474,13 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 					recursive: true,
 				},
 			);
-			return io().readHeadlessRun("0e0e0e0e");
+			return io().readRunAsJob("0e0e0e0e");
+		},
+		logUnreadable: () => {
+			const log = path.join(dir, "out.jsonl");
+			fs.mkdirSync(log);
+			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, { log });
+			return io().readRunAsJob("0e0e0e0e");
 		},
 	},
 };
@@ -503,6 +516,14 @@ describe("the fake answers as the adapter does", () => {
 			expect(shape(real)).toEqual(shape(faked));
 		},
 	);
+
+	it("names the run's log where that is what will not read", () => {
+		expect(
+			thrownMessage(
+				FAULT_SITUATIONS.readRunAsJob?.logUnreadable as () => unknown,
+			),
+		).toMatch(/^its log .*out\.jsonl: EISDIR/);
+	});
 
 	it.each(FAULT_CASES)(
 		"the %s port's %s fault is thrown as the adapter throws it",

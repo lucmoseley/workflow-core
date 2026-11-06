@@ -251,9 +251,9 @@ function parseGoalAsk(flags) {
 	if (flags["--goal"] !== undefined) {
 		const typed = String(flags["--goal"]);
 		const asked = parseGoalForm(typed);
-		return asked
-			? { ...asked, text: typed }
-			: buildNotice(buildGoalRefusal(typed));
+		if (asked === null) return buildNotice(buildGoalRefusal(typed));
+		const refs = asked.form === "issues" ? asked.refs : [asked.ref];
+		return { form: asked.form, refs, text: typed };
 	}
 	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;
