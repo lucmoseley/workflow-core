@@ -929,7 +929,7 @@ describe("parked (#2725)", () => {
 	const section = (body: string) =>
 		body.slice(body.indexOf("## Parked"), body.indexOf("## Idle efforts"));
 
-	it("lists every parked issue with its age in whole days, and one whose start will not read as age unknown", () => {
+	it("lists every parked issue with its age in whole days, under one as under a day, and one whose start will not read as age unknown", () => {
 		const body = render([
 			reading([
 				{ number: 40, title: "Parked overnight", appliedAt: at(9.5) },
@@ -944,7 +944,7 @@ describe("parked (#2725)", () => {
 			]),
 		]);
 		expect(section(body)).toContain(
-			"- acme/a#40 — `Parked overnight` — 0 days\n",
+			"- acme/a#40 — `Parked overnight` — under a day\n",
 		);
 		expect(section(body)).toContain("- acme/a#41 — `Parked a day` — 1 day\n");
 		expect(section(body)).toContain("- acme/a#42 — `Parked 2 days` — 2 days\n");
