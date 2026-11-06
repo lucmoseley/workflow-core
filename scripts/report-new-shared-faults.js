@@ -538,10 +538,10 @@ function noticeOf(sha, byProfile) {
 		"  This REPORTS and never blocks.",
 	);
 	for (const [profile, lines] of byProfile) {
-		const costed = NOTICES[profile];
-		if (costed === undefined)
+		const notice = NOTICES[profile];
+		if (notice === undefined)
 			throw new Error(`NOTICES has no row for profile ${profile}`);
-		const { why, cost, full } = costed;
+		const { why, cost, full } = notice;
 		out.push(`  ${profile} (${why}) — a red here ${cost}:`);
 		for (const line of lines) out.push(`    ${line}`);
 		out.push(`    In full, WARNs and context included: ${full}`);

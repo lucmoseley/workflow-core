@@ -88,7 +88,7 @@ report_unpushed() {
 report_unpushed
 
 # scripts/report-new-shared-faults.js re-runs the registered whole-repo
-# checkers (its CHECKERS table and check-doc-map.js) against this commit and against its first parent, and prints only the
+# checkers (scripts/lib/shared-fault-notices.js's table) against this commit and against its first parent, and prints only the
 # faults the first has and the second does not — the ones this commit added.
 # Silent on a clean non-merge commit with a parent.
 #

@@ -513,31 +513,6 @@ describe("the notice the session reads", () => {
 		expect(out.join("\n")).not.toContain("REPORTS and never blocks");
 	});
 
-	/* Adding a checker to the diff and adding it to the notice are one act, not
-	 * two (mantahostels#1750): a profile the diff knows but the notice does not
-	 * cost throws rather than print an `undefined` clause. doc-map's own line is
-	 * the pointer-fault case's. */
-	it("carries a cost line for every lib/fault-profiles.js profile it reads by --root", () => {
-		const { PROFILES } = require("./lib/fault-profiles.js") as {
-			PROFILES: Record<string, unknown>;
-		};
-		const { repo, child } = repoWithOneAddedFault("report-notice-every-");
-		const stub = writeStubChecker();
-		const profiles = Object.keys(PROFILES).filter((p) => p !== "doc-map");
-
-		const { code, out, err } = run(child, {
-			checkers: Object.fromEntries(profiles.map((p) => [p, stub])),
-			cwd: repo.root,
-		});
-
-		expect(err).toEqual([]);
-		expect(code).toBe(1);
-		for (const profile of profiles)
-			expect(out.join("\n")).toMatch(
-				new RegExp(`^  ${profile} \\(.+\\) — a red here .+:$`, "m"),
-			);
-	});
-
 	/* The route in must go somewhere the notice has not already been. Re-running
 	 * this script on the same sha reprints the same bytes, so `full` names the
 	 * checker itself. */

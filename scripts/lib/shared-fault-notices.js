@@ -6,8 +6,8 @@
  *
  * KEYED BY PROFILE NAME, ONE ROW PER PROFILE: report-new-shared-faults.test.ts
  * holds the keys equal to PROFILES and each `gate` equal to the hook's flag.
- * doc-map's checker takes no archived `--root` tree; the program reads it
- * through readDocMapEnvelope instead, and its row serves the notice text only.
+ * doc-map's checker takes no archived `--root` tree; the program runs its
+ * row's script through readDocMapEnvelope instead.
  *
  * `full` is the command that shows the reader MORE than the notice already
  * did — the checker itself, over the working tree, WARNs and context included.
@@ -22,7 +22,7 @@ const { scriptPath } = require("./script-path.js");
  * in the hook is an `against` gate in all but its flag. */
 const GATE_CLAUSE = {
 	against: "direction-gated in .husky/pre-commit",
-	index: "judged whole-tree on the index in .husky/pre-commit",
+	index: "judged on the index in .husky/pre-commit",
 };
 
 /** @type {Record<string, { script: string, gate: Gate, scope: string, cite?: string, cost: string }>} */
