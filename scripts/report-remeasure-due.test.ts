@@ -32,13 +32,15 @@ const OWN = "o/wfc";
 const CORPUS = [OWN, "o/fleet", "o/manta", "o/books"];
 
 /* The gh stub, served once per file (#2877): each call reads its fixture's
- * data.json, under the root REMEASURE_STUB names. */
+ * DATA_FILE, under the root GH_STUB_DIR names. */
+const DATA_FILE = "data.json";
+const ARGV_LOG = "gh-argv.log";
 const HANDLER = [
 	"const fs = require('node:fs');",
+	"const path = require('node:path');",
 	"const a = argv;",
-	"const root = env.REMEASURE_STUB;",
-	"fs.appendFileSync(root + '/gh-argv.log', JSON.stringify(a) + '\\n');",
-	"const d = JSON.parse(fs.readFileSync(root + '/data.json', 'utf8'));",
+	`fs.appendFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(ARGV_LOG)}), JSON.stringify(a) + '\\n');`,
+	`const d = JSON.parse(fs.readFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(DATA_FILE)}), 'utf8'));`,
 	"const field = (k) => a.find((x) => x.startsWith(k + '='))?.slice(k.length + 1);",
 	"const print = (v) => out(JSON.stringify(v));",
 	"if (a[0] === 'api' && a[1] === 'graphql') {",
@@ -135,7 +137,7 @@ function fixture(opts: {
 		}),
 	);
 	const issueBody = fakeIssueBody(root, opts.body);
-	const data = path.join(root, "data.json");
+	const data = path.join(root, DATA_FILE);
 	fs.writeFileSync(
 		data,
 		JSON.stringify({
@@ -158,7 +160,7 @@ function fixture(opts: {
 				...fields,
 			}),
 		);
-	const argvLog = path.join(root, "gh-argv.log");
+	const argvLog = path.join(root, ARGV_LOG);
 	const { gh } = stubGhScript(root, server.script);
 	return {
 		root,
@@ -187,7 +189,7 @@ function run(fx: ReturnType<typeof fixture>, env: Record<string, string> = {}) {
 		env: {
 			...process.env,
 			WFC_GH: fx.gh,
-			REMEASURE_STUB: fx.root,
+			GH_STUB_DIR: fx.root,
 			WFC_ISSUE_BODY: fx.issueBody.script,
 			WFC_NOW: NOW,
 			HOME: fx.root,
