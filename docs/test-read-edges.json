@@ -542,7 +542,6 @@
 			"scripts/guard-main-checkout-job.test.ts",
 			"scripts/lib/arbiter-markers.test.ts",
 			"scripts/lib/commit-form.test.ts",
-			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/hook-block.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
@@ -6437,6 +6436,7 @@
 		"scripts/fixtures/headless-run.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/headless-run.contract.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/session-breaches/recorded-05970a71.jsonl": [
@@ -19342,6 +19342,7 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/headless-run.contract.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
