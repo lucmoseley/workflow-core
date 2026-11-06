@@ -6,8 +6,7 @@
  * lib/claude-stub.ts's `buildBgBranch`, a removal's as a stub branch.
  *
  * Residual: no failed launch is recorded, since none is free — an unknown
- * flag and an untrusted directory both start a job (probed on 2.1.318) — so
- * `unrecorded`'s answers are written by hand.
+ * flag and an untrusted directory both start a job (probed on 2.1.318).
  */
 
 import fs from "node:fs";
@@ -41,15 +40,13 @@ export const recorded: {
 	),
 );
 
-/** Launches no recording shows: one that printed nothing, and one that
- * refused to start. */
-export const unrecorded = {
+/** Launches no recording shows. */
+export const UNRECORDED = {
 	silent: { status: 0, stdout: "", stderr: "" },
 	refused: { status: 1, stdout: "", stderr: "could not start\n" },
 };
 
-/** The recorded `kind` launch's answer, naming job `id`. */
-export function launchAnswer(id: string, kind: LaunchKind = "prompted") {
+export function buildRecordedAnswer(id: string, kind: LaunchKind = "prompted") {
 	const r = recorded.launches[kind];
 	return {
 		stdout: r.stdout.replaceAll(r.id, id),
@@ -64,7 +61,7 @@ export function writeLaunchAnswer(
 	id: string,
 	kind: LaunchKind = "prompted",
 ) {
-	const { stdout, stderr } = launchAnswer(id, kind);
+	const { stdout, stderr } = buildRecordedAnswer(id, kind);
 	const out = path.join(dir, "bg-launch.out");
 	const err = path.join(dir, "bg-launch.err");
 	fs.writeFileSync(out, stdout);
@@ -72,9 +69,8 @@ export function writeLaunchAnswer(
 	return { out, err };
 }
 
-/** A stub's lines answering a launch with `unrecorded[kind]`. */
-export function buildUnrecordedBranch(kind: keyof typeof unrecorded) {
-	const r = unrecorded[kind];
+/** A stub's lines answering any call with `r`. */
+export function buildAnswerBranch(r: Omit<Answer, "id">) {
 	return `printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
 }
 

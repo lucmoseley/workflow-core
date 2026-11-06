@@ -23,8 +23,9 @@ import { afterEach, beforeEach } from "vitest";
 import { writeProcRoot } from "./admission-testkit";
 import { buildAuthStatusBranch } from "./auth-status-fake";
 import {
-	buildUnrecordedBranch,
+	buildAnswerBranch,
 	type LaunchKind,
+	UNRECORDED,
 	writeLaunchAnswer,
 } from "./bg-launch-fake";
 import { buildBgBranch } from "./claude-stub";
@@ -88,7 +89,6 @@ export interface StubClaudeOptions {
 	/** Which launch answer of lib/bg-launch-fake.ts the stub prints, naming
 	 * job `jobId`; `silent` is its unrecorded launch that printed nothing. */
 	launch?: LaunchKind | "silent";
-	/** The job id the launch answer names. */
 	jobId?: string;
 	/** Where this stub records its argv — defaults to the shared `dir/argv`.
 	 * A case standing up TWO stubs gives one its own log, so `readArgvLines()` can
@@ -341,8 +341,8 @@ export function dispatchFixture(): DispatchFixture {
 		launch: LaunchKind | "silent",
 		jobId: string,
 	): string {
-		if (fails) return buildUnrecordedBranch("refused");
-		if (launch === "silent") return buildUnrecordedBranch("silent");
+		if (fails) return buildAnswerBranch(UNRECORDED.refused);
+		if (launch === "silent") return buildAnswerBranch(UNRECORDED.silent);
 		return buildBgBranch(writeLaunchAnswer(fx.dir, jobId, launch));
 	}
 

@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./lib/auth-status-fake";
-import { launchAnswer } from "./lib/bg-launch-fake";
+import { buildRecordedAnswer } from "./lib/bg-launch-fake";
 import {
 	agentsListing,
 	dispatchFixture,
@@ -151,7 +151,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toBe(
 			"Allowance OK: week 3%, session 12%.\n" +
 				"Advisor not checked: no /usage probe ran to report it.\n" +
-				`sonnet  ${launchAnswer(JOB, "positional").stdout.split("\n")[0]}\n`,
+				`sonnet  ${buildRecordedAnswer(JOB, "positional").stdout.split("\n")[0]}\n`,
 		);
 		expect(r.stderr).toBe("OK: no issue in this set is already dispatched\n");
 	});

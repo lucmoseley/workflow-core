@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	type Answer,
+	buildAnswerBranch,
 	buildLaunchNodeAnswer,
 	buildRmBranch,
 	type LaunchKind,
@@ -61,59 +61,64 @@ const readLaunchId = (stdout: string) =>
 		encoding: "utf8",
 	}).stdout.trim();
 
-const buildAnswering = (r: Answer) =>
-	`printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
-
-/* Each kind's prompt, after `--` or bare, and its name flag, if any. */
+/* Each kind's marking flag and, where its program fixes it, the flag's
+ * place; `positional` carries none. */
 const launchCases: {
 	kind: LaunchKind;
-	prompt: "--" | "bare" | "none";
-	name?: string;
+	flag?: string;
+	at?: number;
+	prompted: boolean;
 }[] = [
-	{ kind: "prompted", prompt: "--" },
-	{ kind: "idle", prompt: "none", name: "--name" },
-	{ kind: "positional", prompt: "bare" },
-	{ kind: "named", prompt: "bare", name: "-n" },
+	{ kind: "prompted", flag: "--", at: -2, prompted: true },
+	{ kind: "idle", flag: "--name", at: -2, prompted: false },
+	{ kind: "positional", prompted: true },
+	{ kind: "named", flag: "-n", prompted: true },
 ];
+const MARKS = ["--", "--name", "-n"];
+const PROMPT = recorded.launches.prompted.argv.at(-1);
 
-describe.each(launchCases)("the $kind launch", ({ kind, prompt, name }) => {
-	const r = recorded.launches[kind];
+describe.each(launchCases)(
+	"the $kind launch",
+	({ kind, flag, at, prompted }) => {
+		const r = recorded.launches[kind];
 
-	it("was recorded in its program's shape", () => {
-		expect(r.argv[0]).toBe("--bg");
-		expect(r.argv.includes("--")).toBe(prompt === "--");
-		expect(r.argv.at(-1)?.includes(" ")).toBe(prompt !== "none");
-		expect(r.argv.includes("-n") || r.argv.includes("--name")).toBe(!!name);
-		if (name) expect(r.argv).toContain(name);
-		expect(r.status).toBe(0);
-	});
+		it("was recorded in its program's shape", () => {
+			expect(r.argv[0]).toBe("--bg");
+			expect(r.argv.filter((a) => MARKS.includes(a))).toEqual(
+				flag ? [flag] : [],
+			);
+			if (at !== undefined) expect(r.argv.at(at)).toBe(flag);
+			expect(r.argv.at(-1) === PROMPT).toBe(prompted);
+			expect(r.status).toBe(0);
+		});
 
-	it(`reads ${recorded.harness}'s recorded answer`, () => {
-		const read = runOn(r.argv, [buildAnswering(r)]);
-		expect(read.failed).toBeNull();
-		expect(readLaunchId(read.stdout)).toBe(r.id);
-	});
+		it(`reads ${recorded.harness}'s recorded answer`, () => {
+			const read = runOn(r.argv, [buildAnswerBranch(r)]);
+			expect(read.failed).toBeNull();
+			expect(readLaunchId(read.stdout)).toBe(r.id);
+		});
 
-	it("reads the fake of it", () => {
-		const read = runOn(r.argv, [
-			buildBgBranch(writeLaunchAnswer(dir, FAKE_ID, kind)),
-		]);
-		expect(read.failed).toBeNull();
-		expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
-	});
+		it("reads the fake of it", () => {
+			const read = runOn(r.argv, [
+				buildBgBranch(writeLaunchAnswer(dir, FAKE_ID, kind)),
+			]);
+			expect(read.failed).toBeNull();
+			expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
+		});
 
-	it("reads the Node stub's fake of it", () => {
-		const bin = path.join(dir, "claude.js");
-		fs.writeFileSync(
-			bin,
-			`#!/usr/bin/env node\n${buildLaunchNodeAnswer(JSON.stringify(FAKE_ID), kind)}\n`,
-			{ mode: 0o755 },
-		);
-		const read = runOn(r.argv, [], bin);
-		expect(read.failed).toBeNull();
-		expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
-	});
-});
+		it("reads the Node stub's fake of it", () => {
+			const bin = path.join(dir, "claude.js");
+			fs.writeFileSync(
+				bin,
+				`#!/usr/bin/env node\n${buildLaunchNodeAnswer(JSON.stringify(FAKE_ID), kind)}\n`,
+				{ mode: 0o755 },
+			);
+			const read = runOn(r.argv, [], bin);
+			expect(read.failed).toBeNull();
+			expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
+		});
+	},
+);
 
 /* A name after the id may hold a hex run of its own. */
 it("reads the job id, not a hex run in the name after it", () => {
@@ -139,7 +144,9 @@ const removalCases: { kind: RmKind; ok: boolean }[] = [
 describe.each(removalCases)("the $kind removal", ({ kind, ok }) => {
 	it(`reads ${recorded.harness}'s recorded answer`, () => {
 		const r = recorded.removals[kind];
-		expect(runOn(["rm", r.id], [buildAnswering(r)]).failed === null).toBe(ok);
+		expect(runOn(["rm", r.id], [buildAnswerBranch(r)]).failed === null).toBe(
+			ok,
+		);
 	});
 
 	it("reads the fake of it", () => {
