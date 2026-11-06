@@ -202,12 +202,16 @@ function runVerdict(sha, reads, after) {
 	/* Every failed job red again at its in-job retry: the lander's own
 	 * re-run would only repeat it, and the files are the retry's alone, the
 	 * first run's failures it cleared dropped (#4545). A red naming no file
-	 * re-ran nothing there, so the lander's whole-suite re-run stays. */
-	const atRetry = failed.every((j) =>
-		(j.steps ?? []).some(
-			(s) => s.conclusion === "failure" && s.name === RETRY_STEP,
-		),
-	);
+	 * re-ran nothing there, so the lander's whole-suite re-run stays.
+	 * `Suite passed` fails beside any red shard and holds no retry step. */
+	const shards = failed.filter((j) => j.name !== SUITE_PASSED_JOB);
+	const atRetry =
+		shards.length > 0 &&
+		shards.every((j) =>
+			(j.steps ?? []).some(
+				(s) => s.conclusion === "failure" && s.name === RETRY_STEP,
+			),
+		);
 	const read = readFailed(sha, id, reads, atRetry);
 	const retried = atRetry && read.files.length > 0;
 	return {
