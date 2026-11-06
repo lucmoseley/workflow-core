@@ -64,7 +64,7 @@ function noticeOf(file, root, { changed, unformatted }) {
 
 /**
  * @param {string} written file_path, else notebook_path
- * @param {import("./guard-judge.js").CoreContext & WritePorts} ctx
+ * @param {import("./core-contract.js").CoreContext & WritePorts} ctx
  */
 function decide(written, ctx) {
 	/* file_path only, never notebook_path: no formatter has anything to say

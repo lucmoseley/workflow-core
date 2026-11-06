@@ -119,7 +119,7 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {(cwd: string, args: string[]) => string | null}
  *   ghLookup `gh args…` run in `cwd`: its stdout, or null where it could not
  *   run, timed out or exited non-zero
- * @typedef {import("./guard-judge.js").CoreContext & BranchPublishPorts}
+ * @typedef {import("./core-contract.js").CoreContext & BranchPublishPorts}
  *   BranchPublishContext
  * @typedef {{ reason: string, segment: string }} Refusal the reason before the
  *   splice, and the segment, masked
