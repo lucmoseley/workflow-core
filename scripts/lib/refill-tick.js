@@ -79,7 +79,7 @@ const {
 	readDeclaredSeats,
 	readOmittedDirs,
 } = require("./refill-seats.js");
-const { runOf } = require("./headless-runs.js");
+const { readRunAsJob, runOf } = require("./headless-runs.js");
 const {
 	buildCheckoutEnv,
 	discoverRepos,
@@ -601,12 +601,21 @@ function readTimelineOf(l) {
 }
 
 /**
- * `l`'s job record, its state.json parsed; null where it has no job or the
+ * `l`'s job record: on a key its headless run's (lib/headless-runs.js's
+ * readRunAsJob), else its state.json parsed; null where it has no job or the
  * record will not read.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat"|"jobId">} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat"|"jobId"|"keyVar">} l
  */
-const readJobRecordOf = (l) =>
-	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
+function readJobRecordOf(l) {
+	if (!l.jobId) return null;
+	if (!l.keyVar) return readJobRecord(l.seat, l.jobId);
+	try {
+		return readRunAsJob(l.jobId);
+	} catch (err) {
+		log(`headless record unread for job ${l.jobId}: ${buildErrorText(err)}`);
+		return null;
+	}
+}
 
 const resumeIo = buildResumeIo(log);
 const resume = resumeSteps(resumeIo);

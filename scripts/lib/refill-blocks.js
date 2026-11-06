@@ -906,7 +906,8 @@ function relaunchResume(l, act, { now, io }) {
  * from which it has the listing's grace. Where the job is a copy, `l` tracks
  * the copy's job and session id, its dispatch-ledger hold still the job
  * first launched (#2963), and `fromSessionId`, the session it resumed, kept
- * among its past ones for actsOf (#2969); a job woken in place keeps both.
+ * among its past ones for actsOf (#2969); a job woken in place keeps both,
+ * and a headless resume keeps its session under the new run's job id (#4580).
  * @param {JobLaunch} l
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} resumed
  * @param {number} now
@@ -914,7 +915,12 @@ function relaunchResume(l, act, { now, io }) {
  */
 function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
 	if (!copy)
-		return { ...l, ...(sessionId ? { sessionId } : {}), relaunchedAt: now };
+		return {
+			...l,
+			jobId,
+			...(sessionId ? { sessionId } : {}),
+			relaunchedAt: now,
+		};
 	const { sessionId: _, ...rest } = l;
 	const past = new Set([...(l.pastSessionIds ?? []), fromSessionId]);
 	return {

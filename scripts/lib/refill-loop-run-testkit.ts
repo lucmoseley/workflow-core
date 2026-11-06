@@ -122,6 +122,8 @@ const SANDBOX_FILES = [
 		/* Spawned by path, not required: lib/agent-liveness.js runs the listing
 		 * through it, which reads unread without it. */
 		"list-agents.js",
+		/* Read by path: a headless resume's appended contract (#4580). */
+		"headless-contract.md",
 		/* Spawned by path: the resume typed into a live session (#2705). */
 		"../pty_type.py",
 		/* Spawned by path: a copy's issue claims moved (#2963). */
@@ -385,7 +387,10 @@ export const writesWokenRecord = (jobFile: string, sessionId: string) => {
 /** `claude` for a resume of job `job`: `agents` lists `listing`, or fails
  * where it is null; `attach` records the line typed at it on a terminal
  * (lib/claude-attach-fake.ts); `--bg` prints the launcher's recorded
- * `resumeAs` response, a copy starting as FAKE_COPY (lib/bg-resume-fake.ts). */
+ * `resumeAs` response, a copy starting as FAKE_COPY (lib/bg-resume-fake.ts);
+ * `-p`, a headless resume onto a key, records its session, settings, name and
+ * budget, the appended contract left out, and runs on as a live run would.
+ * `onResume` runs on either. */
 export const fakeResumeClaude = (
 	job: string,
 	listing: Row[] | null,
@@ -400,6 +405,7 @@ export const fakeResumeClaude = (
 		buildAgentsBranch(listing),
 		buildStopBranch(at("calls")),
 		buildAttachBranch(at("calls")),
+		`if [ "$1" = "-p" ]; then line="$1 $2 $3"; while [ $# -gt 0 ]; do case "$1" in --settings|-n|--max-budget-usd) line="$line $1 $2"; shift;; esac; shift; done; echo "$line" >> "$calls"; ${onResume} exec sleep 60; fi`,
 		buildBgBranch({
 			out: at("bg-stdout"),
 			err: at("bg-stderr"),

@@ -69,7 +69,7 @@ describe("OVERFLOW_PREFIX", () => {
 		const read = (f: string) =>
 			fs.readFileSync(path.join(__dirname, f), "utf8");
 		expect(read("../dispatch-sessions.sh")).toContain(
-			`-n "${OVERFLOW_PREFIX}$prompt"`,
+			`--name "${OVERFLOW_PREFIX}$prompt"`,
 		);
 		expect(read("../name-issue-session.sh")).toContain(
 			`local prefix="${OVERFLOW_PREFIX}"`,

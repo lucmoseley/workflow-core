@@ -194,6 +194,36 @@ function endResultOf(run) {
 	if (!last) return { outcome: "killed", ...base };
 	return { outcome: last.is_error ? "error" : "success", ...base };
 }
+
+/* A run's job state, as a `--bg` job's state.json names it, by outcome. */
+const JOB_STATE_OF = /** @type {const} */ ({
+	running: "working",
+	success: "done",
+});
+
+/**
+ * Run `jobId` in the shape of a `--bg` job's state.json, which the refill
+ * loop's job readers take: `working` while it runs, `done` once it ended in
+ * success, else `failed` naming how it ended; null where none is stored.
+ * @param {string} jobId
+ * @returns {{state: string, sessionId: string, cwd: string,
+ *   detail?: string}|null}
+ * @throws where the record cannot be read
+ */
+function readRunAsJob(jobId) {
+	const run = runOf(jobId);
+	if (!run) return null;
+	const { outcome } = endResultOf(run);
+	const base = { sessionId: run.sessionId, cwd: run.cwd };
+	if (outcome === "running" || outcome === "success")
+		return { state: JOB_STATE_OF[outcome], ...base };
+	return {
+		state: "failed",
+		detail: `its headless run ended ${outcome}`,
+		...base,
+	};
+}
+
 /**
  * The latest run of session `sessionId` launched at or after `since`, else
  * null: the job a resume started, found after the resume was killed before
@@ -216,6 +246,7 @@ module.exports = {
 	findRunSince,
 	freshRunDir,
 	readLiveAgents,
+	readRunAsJob,
 	readStoredRuns,
 	runOf,
 	stop,

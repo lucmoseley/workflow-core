@@ -19248,6 +19248,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/headless-runs-testkit.ts": [

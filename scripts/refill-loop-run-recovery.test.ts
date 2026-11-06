@@ -2042,13 +2042,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			fs.writeFileSync(transcript(), `${JSON.stringify({ type: "user" })}\n`);
 			/* The resume's environment: its key and session id, set or unset. */
 			const envSeen = `echo "env key=\${K2-unset} api=\${ANTHROPIC_API_KEY-unset} session=\${CLAUDE_CODE_SESSION_ID-unset} dir=$CLAUDE_CONFIG_DIR" >> "$calls";`;
-			fakeResumeClaude(
-				Job,
-				[LISTED],
-				`${envSeen} ${writesCopyRecord(
-					JSON.stringify({ state: "working", sessionId: "s-copy" }),
-				)}`,
-			);
+			fakeResumeClaude(Job, [LISTED], envSeen);
 		};
 
 		it("resumes it on the key in one tick, recorded as that key's launch with its allowance", async () => {
@@ -2061,35 +2055,57 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(readLines(at("calls"))).toContain(
 				`env key=unset api=unset session=unset dir=${seat}`,
 			);
-			const resume = readLines(at("calls")).find((l) => l.startsWith("--bg"));
-			const [, name, settings] =
-				resume?.match(/^--bg --resume s-job7 -n (.+?) --settings (\{.*\}) /) ??
-				[];
+			const resume = readLines(at("calls")).find((l) => l.startsWith("-p"));
+			const [, budget, settings, name] =
+				resume?.match(
+					/^-p --resume s-job7 --max-budget-usd (\S+) --settings (\{.*\}) -n (.+)$/,
+				) ?? [];
 			expect(name).toBe("Overflow · /implement 7");
+			expect(Number(budget)).toBeGreaterThan(0);
 			expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
 				/overflow-key\.js'? '?K2/,
 			);
+			const { jobId } = launchState();
+			expect(jobId).toMatch(/^[0-9a-f]{8}$/);
 			expect(launchState()).toMatchObject({
 				seat,
 				keyVar: "K2",
-				jobId: FAKE_COPY,
 				reason: expect.stringMatching(/^moved from /),
 				finishedAt: null,
 				issues: [7],
 			});
-			const row = readOverflowLookup([repo])({ jobId: FAKE_COPY });
+			const row = readOverflowLookup([repo])({ jobId });
 			expect(row).toMatchObject({
 				keyVar: "K2",
-				sessionId: "s-copy",
-				allowanceUsd: expect.any(Number),
+				sessionId: "s-job7",
+				allowanceUsd: Number(budget),
 			});
-			expect(row?.allowanceUsd).toBeGreaterThan(0);
 			expect(
 				JSON.parse(readLines(ledgerPath(repo)).at(-1) ?? ""),
-			).toMatchObject({ issues: [], jobId: FAKE_COPY, kind: "overflow" });
+			).toMatchObject({ issues: [], jobId, kind: "overflow" });
 			const comments = readLines(at("gh-calls")).join("\n");
 			expect(comments).toContain(`to ${seat} on overflow key K2`);
 			expect(comments).toContain("its allowance there $");
+		});
+
+		it("settles a move whose headless run ended before the next tick, never moving it back (#4580)", async () => {
+			seedOverflow();
+			const result = JSON.stringify({
+				type: "result",
+				subtype: "success",
+				is_error: false,
+				total_cost_usd: 0.1,
+				result: "done",
+			});
+			fakeResumeClaude(Job, [LISTED], `echo ${shellQuote(result)}; exit 0;`);
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toContain("could not move");
+			expect(launchState()).toMatchObject({
+				keyVar: "K2",
+				jobId: expect.stringMatching(/^[0-9a-f]{8}$/),
+			});
+			expect(launchState().limitHeld).toBeUndefined();
 		});
 
 		it("records the overflow start on its first move onto a key, as a first overflow launch would (#4257)", async () => {
