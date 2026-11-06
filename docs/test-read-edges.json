@@ -42233,6 +42233,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/self-plugin-canary.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/self-plugin-canary.test.ts": [
@@ -43191,6 +43192,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/self-plugin-canary.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"self-plugin/.claude-plugin/marketplace.json": [

@@ -47,8 +47,10 @@ const commitIn = (
 	files: Record<string, string>,
 	message: string,
 ) => {
-	for (const [name, text] of Object.entries(files))
+	for (const [name, text] of Object.entries(files)) {
+		fs.mkdirSync(path.dirname(path.join(cwd, name)), { recursive: true });
 		fs.writeFileSync(path.join(cwd, name), text);
+	}
 	git(cwd, "add", "-A");
 	git(cwd, "commit", "-qm", message);
 	return git(cwd, "rev-parse", "HEAD");
@@ -781,6 +783,72 @@ it("leaves a merge a gate refused in progress, saying to fix the finding and com
 		"the merge of origin/main was refused, its output above — fix the finding and `git commit`",
 	);
 	expect(git(dir, "rev-parse", "MERGE_HEAD")).toBe(theirs);
+	expect(queueTip()).toBe("");
+});
+
+/* A self-plugin canary and its marker writer keyed on the markers dir `at`,
+ * as the real pair moved theirs at #4487: a land merging a move swaps the
+ * session's hooks under it. */
+const SESSION = "aaaaaaaa-1111-2222-3333-444444444444";
+const canaryPair = (at: string) => ({
+	"scripts/write-self-plugin-marker.sh": `sid=$(sed 's/.*"session_id":"\\([^"]*\\)".*/\\1/'); mkdir -p "$CLAUDE_PROJECT_DIR/${at}" && : > "$CLAUDE_PROJECT_DIR/${at}/$sid"\n`,
+	"scripts/self-plugin-canary.sh": `sid=$(sed 's/.*"session_id":"\\([^"]*\\)".*/\\1/'); [ -e "$CLAUDE_PROJECT_DIR/${at}/$sid" ] && exit 0; echo "Refused: no marker at ${at}" >&2; exit 2\n`,
+});
+const runHook = (dir: string, script: string, event: string) =>
+	spawnSync("bash", [path.join(dir, "scripts", script)], {
+		cwd: dir,
+		encoding: "utf8",
+		input: JSON.stringify({ session_id: SESSION, hook_event_name: event }),
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+	});
+const landAs = (dir: string) =>
+	runInProcess(SCRIPT, ["land"], {
+		cwd: dir,
+		env: { ...ENV(), CLAUDE_CODE_SESSION_ID: SESSION },
+	});
+
+it("keeps a session's pre-merge marker passing the merged canary where the merge moves the marker (#4565)", () => {
+	commitIn(main, canaryPair("old-markers"), "the canary before the move");
+	git(main, "pull", "-q", "--rebase", "origin", "main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	expect(
+		runHook(dir, "write-self-plugin-marker.sh", "SessionStart").status,
+	).toBe(0);
+	expect(runHook(dir, "self-plugin-canary.sh", "PreToolUse").status).toBe(0);
+	commitIn(dir, { "mine.txt": "m" }, "mine");
+	landOnOrigin(canaryPair("new-markers"));
+
+	const r = landAs(dir);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(
+		fs.readFileSync(path.join(dir, "scripts", "self-plugin-canary.sh"), "utf8"),
+	).toContain("new-markers");
+	expect(runHook(dir, "self-plugin-canary.sh", "PreToolUse").status).toBe(0);
+	expect(queueTip()).toBe(git(dir, "rev-parse", "HEAD"));
+});
+
+it("undoes a merge whose canary refuses the session even re-marked, pushing nothing (#4565)", () => {
+	commitIn(main, canaryPair("markers"), "the canary");
+	git(main, "pull", "-q", "--rebase", "origin", "main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	const mine = commitIn(dir, { "mine.txt": "m" }, "mine");
+	landOnOrigin({
+		"scripts/self-plugin-canary.sh": 'echo "Refused: broken" >&2; exit 2\n',
+	});
+
+	const r = landAs(dir);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		`with origin/main merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (Refused: broken), so the merge is undone, HEAD is back at ${mine} and nothing was pushed`,
+	);
+	expect(git(dir, "rev-parse", "HEAD")).toBe(mine);
+	expect(git(dir, "status", "--porcelain", "--untracked-files=no")).toBe("");
 	expect(queueTip()).toBe("");
 });
 

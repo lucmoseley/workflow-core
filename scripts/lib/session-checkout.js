@@ -135,6 +135,8 @@ const INSTALL_TIMEOUT_MS = 15 * 60_000;
 /* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
 const FETCH_TRIES = 3;
 const POLL_MS = 1000;
+/* The timeout the self-plugin's hooks file gives the canary and its writer. */
+const HOOK_TIMEOUT_MS = 10_000;
 
 /** A refusal the CLI prints as it stands. */
 class CheckoutError extends Error {}
@@ -700,6 +702,50 @@ function mergeMain(dir) {
 }
 
 /**
+ * Keeps the session running `land` able to call tools once `VERIFIED_REF` is
+ * merged into `dir` (#4565). Its hooks run from `dir`, so the merge swaps them
+ * under it: a canary that now reads its marker elsewhere, or will not run at
+ * all, refuses every later call, and only the founder's `git merge --abort`
+ * frees it. This call itself passed the pre-merge canary, which proves the
+ * self-plugin loaded, so the merged writer marks the session again and the
+ * merged canary must then pass. Where it still refuses, HEAD goes back to
+ * `before` and the land is refused.
+ *
+ * Only where `dir` carries the canary, as workflow-core itself does, and a
+ * session runs the land: the founder's own terminal has no session to keep.
+ * @param {string} dir the worktree, the merge committed
+ * @param {string} before HEAD before the merge
+ */
+function keepSessionPassing(dir, before) {
+	const session = process.env.CLAUDE_CODE_SESSION_ID;
+	const canary = path.join(dir, "scripts", "self-plugin-canary.sh");
+	if (!session || !fs.existsSync(canary)) return;
+	const hook = (/** @type {string} */ script, /** @type {object} */ input) =>
+		spawnSync("bash", [script], {
+			cwd: dir,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+			input: JSON.stringify({ session_id: session, ...input }),
+			encoding: "utf8",
+			timeout: HOOK_TIMEOUT_MS,
+		});
+	hook(path.join(dir, "scripts", "write-self-plugin-marker.sh"), {
+		hook_event_name: "SessionStart",
+		source: "resume",
+	});
+	const r = hook(canary, {
+		hook_event_name: "PreToolUse",
+		tool_name: "Bash",
+		tool_input: { command: "true" },
+	});
+	if (r.status === 0) return;
+	git(["reset", "-q", "--keep", before], dir);
+	const said = `${r.stderr ?? ""}`.trim().split("\n")[0] || `exit ${r.status}`;
+	throw new CheckoutError(
+		`with ${VERIFIED_REF} merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (${said}), so the merge is undone, HEAD is back at ${before} and nothing was pushed — ${VERIFIED_REF}'s canary or marker writer is broken: file it, and land once it is fixed`,
+	);
+}
+
+/**
  * The session worktree `dir`'s queue ref, refused where it is none.
  * @param {string} dir
  * @param {string} root
@@ -735,7 +781,11 @@ function land(cwd) {
 			lander: null,
 		};
 	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
-	if (merged) mergeMain(dir);
+	if (merged) {
+		const before = git(["rev-parse", "HEAD"], dir);
+		mergeMain(dir);
+		keepSessionPassing(dir, before);
+	}
 	const head = git(["rev-parse", "HEAD"], dir);
 	const push = pushQueueRef(dir, queue);
 	if (!push.ok && MOVED.test(push.output)) {
