@@ -448,7 +448,10 @@ function readCap(root, seat, members, usageText) {
 		},
 	);
 	const cap = parseCapFits(r.stdout);
-	if (cap.fits !== null || !r.failed) return cap;
+	/* An untrusted reading is allowance.js's exit 1, its payload capless
+	 * (#293 ruling 2, #4286). */
+	if (cap.fits !== null || !r.failed || (!cap.fault && r.status === 1))
+		return cap;
 	return { fits: null, why: `${cap.why} (${r.failed})`, fault: true };
 }
 
@@ -477,15 +480,12 @@ const capSizer =
 	};
 
 module.exports = {
-	capArgs,
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
-	parseCapFits,
 	readSeat,
 	readSeatReadings,
 	readSizedSeats,
-	seatReadingOf,
 	seatsDueRead,
 	seatTriedAfter,
 	sizeParkerSeats,

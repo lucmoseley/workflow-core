@@ -19,7 +19,7 @@ const { treeOr } = require("./tree-or.js");
 
 /**
  * @param {string} file the path the write names
- * @param {import("./guard-judge.js").CoreContext} ctx
+ * @param {import("./core-contract.js").CoreContext} ctx
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(file, ctx) {
