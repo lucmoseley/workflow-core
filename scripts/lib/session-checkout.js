@@ -88,7 +88,7 @@ const { MOVED_LINE } = require("./land-refusal.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
 const {
-	isNetworkFaultText,
+	isPushFaultText,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 } = require("./network-fault.js");
@@ -761,9 +761,6 @@ function land(cwd) {
 	};
 }
 
-/** git's own refusal lines, as against a hook's output, which may quote anything. */
-const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
-
 /**
  * The push of `HEAD` to the queue ref, retried with lib/network-fault.js's
  * backoff while git's own words name a fault it names, GitHub's own among
@@ -775,9 +772,7 @@ const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
 function pushQueueRef(dir, queue) {
 	for (let attempt = 1; ; attempt++) {
 		const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
-		const faulted =
-			!push.ok &&
-			isNetworkFaultText((push.output.match(GIT_LINE) ?? []).join("\n"));
+		const faulted = !push.ok && isPushFaultText(push.output);
 		if (!faulted || attempt >= REMOTE_TRIES) return { ...push, faulted };
 		const ms = remoteBackoffMs(attempt);
 		writeFd(

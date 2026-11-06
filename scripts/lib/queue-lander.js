@@ -70,7 +70,9 @@
  *   the run read closed at its start is compare-and-deleted, and its drop
  *   record entry marked reaped, so landing-status still names the ticket. An
  *   entry reaped longer ago than the queue log keeps its rows is pruned at a
- *   run's start.
+ *   run's start. A `dropped/*` ref no entry names, as a lost or torn record
+ *   leaves it, gets its entry back first, naming the fix ticket the tracker
+ *   holds under its title, or none, so a ticket is filed for it (#4498).
  * - **Queue log.** A take row for each member a batch takes, a land row for
  *   each member `main` moves past, and a drop row for each dropped member,
  *   through the injected `logQueue`. A batch `main` holds with its land rows
@@ -99,6 +101,7 @@ const {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	QUEUE_PREFIX,
+	droppedNameOf,
 	droppedRefsOf,
 } = require("./landing-refs.js");
 const { QUEUE_LOG_RETAIN_MS } = require("./queue-log.js");
@@ -193,12 +196,15 @@ class TransientFault extends Error {}
  *   readonly after: readonly string[]}} Collision the serial step `step`,
  *   merging it onto `main` after the members `after` landed, red twice on
  *   `files`, none where the red named none, each member having passed alone
- * @typedef {Unmerged | RedAlone | Collision} Cause
+ * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
+ *   a dropped ref no drop record entry named
+ * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
  * @property {string} sha
  * @property {string} ref the dropped ref holding it, after `refs/heads/`
- * @property {string} onto the `main` it was merged onto
+ * @property {string} onto the `main` it was merged onto, or, for an entry
+ *   written back for a ref none named, `main` when it was
  * @property {Cause} cause
  * @property {number|null} ticket its fix ticket, null until filed
  * @property {number} at when it was dropped, in ms
@@ -223,6 +229,8 @@ class TransientFault extends Error {}
  *   | {readonly kind: "defer-member", readonly name: string}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop}
+ *   | {readonly kind: "adopt-dropped-ref", readonly ref: string,
+ *     readonly sha: string, readonly onto: string}
  *   | {readonly kind: "delete-dropped-ref", readonly ref: string,
  *     readonly sha: string}
  *   | {readonly kind: "test-sha", readonly sha: string}
@@ -286,7 +294,7 @@ class TransientFault extends Error {}
  * @property {readonly string[]} kept members whose compare-and-delete this run
  *   found moved
  * @property {readonly string[]} unfiled dropped refs whose fix ticket this
- *   run could not file
+ *   run could not file or search for
  * @property {readonly string[]} baseFiled the base reds this run filed or
  *   refreshed the base-red ticket for, by baseKey
  * @property {number|null} baseTicket the base-red ticket this run last filed
@@ -929,6 +937,13 @@ function owedAction(s) {
 			!(d.ticket !== null && s.isClosed(d.ticket)),
 	);
 	if (cut) return { kind: "drop-member", drop: cut };
+	const orphan = s.dropped.find(
+		(r) =>
+			!s.unfiled.includes(r.ref) &&
+			!s.drops.some((d) => d.ref === r.ref && d.sha === r.sha),
+	);
+	if (orphan && s.main !== null)
+		return { kind: "adopt-dropped-ref", ...orphan, onto: s.main };
 	const owed = s.drops.find(
 		(d) => d.ticket === null && !s.unfiled.includes(d.ref),
 	);
@@ -999,12 +1014,17 @@ function nextQueueAction(s) {
  *   failure, a network fault or `main` moved under it among them
  * @property {(branch: string, sha: string) => boolean} deleteRef deletes the
  *   remote's `branch` only where it still holds `sha`, false where it moved
+ * @property {(sha: string, of: string) => boolean} isAncestor whether `sha`
+ *   is `of` or an ancestor of it
  * @property {(branch: string, sha: string) => void} createRef creates the
  *   remote's `branch` at `sha`, refused where it holds another sha
  * @typedef {object} QueueTracker
  * @property {(d: Drop) => string} fileDropTicket files the drop's fix ticket,
  *   returning the line naming it, as `#<n>`, and throwing a FilingRefusedError
  *   where the tracker refuses it for good
+ * @property {(name: string, sha: string) => number|null} findDropTicket the
+ *   fix ticket, open or closed, filed for `queue/<name>` dropped at `sha`,
+ *   null where the tracker holds none, throwing where it cannot be searched
  * @property {(sha: string, files: readonly string[]) => string} fileBaseRed
  *   files the one base-red ticket for `files` red at `main`'s `sha`, or
  *   refreshes the open one, returning the line naming it
@@ -1144,10 +1164,8 @@ function dropMember(deps, d, run) {
 function fileFixTicket(deps, d, run) {
 	const { say = () => undefined } = deps;
 	/** @param {string} why */
-	const unfiled = (why) => {
-		say(`fix ticket for ${d.ref} not filed, left for the next run: ${why}`);
-		return { ...run, unfiled: [...run.unfiled, d.ref] };
-	};
+	const unfiled = (why) =>
+		leaveUnfiled(deps, run, { ref: d.ref, undone: "filed", why });
 	let line;
 	try {
 		line = deps.tracker.fileDropTicket(d);
@@ -1170,6 +1188,68 @@ function fileFixTicket(deps, d, run) {
 }
 
 const FILED = /#(\d+)/;
+
+/**
+ * The run with `ref`'s fix ticket left for the next run, reported.
+ * @param {QueueLanderDeps} deps
+ * @param {QueueRun} run
+ * @param {{ref: string, undone: "filed" | "searched", why: string}} left
+ * @returns {QueueRun}
+ */
+function leaveUnfiled(deps, run, { ref, undone, why }) {
+	const { say = () => undefined } = deps;
+	say(`fix ticket for ${ref} not ${undone}, left for the next run: ${why}`);
+	return { ...run, unfiled: [...run.unfiled, ref] };
+}
+
+/**
+ * Writes back the drop record entry of a dropped ref none names, with the
+ * fix ticket the tracker holds for it, its state read so a closed one is
+ * reaped this run; with none, the next action files one, unless `main`
+ * already holds its sha, where the ref is deleted instead. A search that
+ * throws other than transiently is reported, and the ref left for the next
+ * run, so no second ticket is filed on a search that read nothing (#4498).
+ * @param {QueueLanderDeps} deps
+ * @param {Extract<QueueAction, {kind: "adopt-dropped-ref"}>} action
+ * @param {QueueRun} run
+ * @returns {QueueRun}
+ */
+function adoptDroppedRef(deps, { ref, sha, onto }, run) {
+	const name = droppedNameOf(ref, sha);
+	let ticket;
+	try {
+		ticket = deps.tracker.findDropTicket(name, sha);
+	} catch (err) {
+		if (isTransientFault(err)) throw err;
+		return leaveUnfiled(deps, run, {
+			ref,
+			undone: "searched",
+			why: parseRefusal(parseErrorText(err)),
+		});
+	}
+	if (ticket === null && deps.git.isAncestor(sha, onto)) {
+		deps.git.deleteRef(ref, sha);
+		return run;
+	}
+	deps.drops.write([
+		...deps.drops.read(),
+		{
+			name,
+			sha,
+			ref,
+			onto,
+			cause: { kind: "unrecorded", name },
+			ticket,
+			at: deps.now(),
+		},
+	]);
+	if (ticket === null) return run;
+	const closed = readClosed(deps, ticket, ref);
+	const { isClosed } = run;
+	return closed
+		? { ...run, isClosed: (n) => n === ticket || isClosed(n) }
+		: run;
+}
 
 /**
  * Keeps `v`, reached at `sha` on `files` on its `pass`, through `keep`, the
@@ -1415,6 +1495,8 @@ async function act(deps, action, run) {
 			return dropMember(deps, action.drop, run);
 		case "file-fix-ticket":
 			return fileFixTicket(deps, action.drop, run);
+		case "adopt-dropped-ref":
+			return adoptDroppedRef(deps, action, run);
 		case "test-sha":
 			return testSha(deps, action.sha, run);
 		case "fast-forward-main":
@@ -1589,20 +1671,36 @@ async function step(deps, run, log) {
  * @returns {(ticket: number) => boolean}
  */
 function readClosedTickets(deps) {
-	const { say = () => undefined } = deps;
 	/** @type {Set<number>} */
 	const closed = new Set();
-	for (const { ticket, ref, reapedAt } of deps.drops.read()) {
-		if (ticket === null || reapedAt !== undefined) continue;
-		try {
-			if (deps.tracker.stateOf(ticket) === "closed") closed.add(ticket);
-		} catch (err) {
-			say(
-				`#${ticket}'s state not read, ${ref} kept for a later run: ${parseRefusal(parseErrorText(err))}`,
-			);
-		}
-	}
+	for (const { ticket, ref, reapedAt } of deps.drops.read())
+		if (
+			ticket !== null &&
+			reapedAt === undefined &&
+			readClosed(deps, ticket, ref)
+		)
+			closed.add(ticket);
 	return (ticket) => closed.has(ticket);
+}
+
+/**
+ * Whether the ticket is closed; one that cannot be read reads as open and is
+ * reported (#4485).
+ * @param {QueueLanderDeps} deps
+ * @param {number} ticket
+ * @param {string} ref the dropped ref it reaps
+ * @returns {boolean}
+ */
+function readClosed(deps, ticket, ref) {
+	const { say = () => undefined } = deps;
+	try {
+		return deps.tracker.stateOf(ticket) === "closed";
+	} catch (err) {
+		say(
+			`#${ticket}'s state not read, ${ref} kept for a later run: ${parseRefusal(parseErrorText(err))}`,
+		);
+		return false;
+	}
 }
 
 /**
@@ -1687,6 +1785,8 @@ function buildQueueActionLine(a) {
 			return `drop-member queue/${a.drop.name}@${short(a.drop.sha)} as ${a.drop.ref}`;
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
+		case "adopt-dropped-ref":
+			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":
 			return `delete-landed-ref queue/${a.name}@${short(a.sha)}`;
 		case "delete-dropped-ref":

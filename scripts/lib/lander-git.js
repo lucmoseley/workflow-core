@@ -13,6 +13,9 @@ const { stripVTControlCharacters } = require("node:util");
 const { caught } = require("./caught.js");
 const {
 	isNetworkFault,
+	isPushFaultText,
+	PushRefused,
+	readGitLines,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 } = require("./network-fault.js");
@@ -29,15 +32,13 @@ const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
 /* Measured on #3913: the gate stack fits this up to load 42-56, if time scales
  * with load, which no run measured. */
 const GATED_COMMIT_TIMEOUT_MS = 600 * 1000;
-const GIT_REFUSAL = /^(?:error|fatal):.*|^ ! \[.*/m;
 
 /**
  * The line naming why a git call failed: git's own refusal where it printed
  * one, as a push's first line is the pre-push hook's, else the first line.
  * @param {string} text
  */
-const parseRefusal = (text) =>
-	GIT_REFUSAL.exec(text)?.[0] ?? parseFirstLine(text);
+const parseRefusal = (text) => readGitLines(text)[0] ?? parseFirstLine(text);
 
 /* A first guess, unmeasured: room for a gate's findings and the command it
  * names to settle them. */
@@ -244,7 +245,7 @@ const readConflictedFiles = (inTree) =>
 /**
  * A push from `root` to lib/landing-refs.js's remote. Its timeout is the
  * pre-push hook's run, which a retry would only repeat, so it throws as no
- * network fault.
+ * network fault; a refusal whose git lines name no fault throws PushRefused.
  * @param {string} root
  * @param {string[]} args the push's flags and refspecs
  * @param {NodeJS.ProcessEnv} [env]
@@ -259,7 +260,10 @@ function pushRemote(root, args, env = process.env) {
 			env,
 		});
 	} catch (err) {
-		if (caught(err).code !== "ETIMEDOUT") throw err;
+		const e = caught(err);
+		if (e.status !== undefined && !isPushFaultText(e.stderr ?? ""))
+			throw new PushRefused(e.message, { cause: err });
+		if (e.code !== "ETIMEDOUT") throw err;
 		throw new Error(
 			`git push ${args.join(" ")} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
 			{ cause: err },
