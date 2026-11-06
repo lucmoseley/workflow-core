@@ -12,6 +12,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { toolOf } = require("./guard-cores.js");
 const { markersDir } = require("./marker-root.js");
 const { moduleReader } = require("./workflow-core-config.js");
 const { segment } = require("./review-suffix.js");
@@ -150,7 +151,7 @@ function kitContext({ root, payload, log }, readers) {
 			input && typeof input === "object"
 				? /** @type {Record<string, unknown>} */ (input)
 				: {},
-		tool: typeof payload.tool_name === "string" ? payload.tool_name : undefined,
+		tool: toolOf(payload),
 		response: payload.tool_response,
 		key,
 		agent: agentId(payload),
