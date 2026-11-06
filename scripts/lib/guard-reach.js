@@ -4,16 +4,11 @@
  * rule pricing (lib/rule-emission.js), the census digest (lib/census-digest.js)
  * and the test-isolation check (check-guard-test-isolation.js).
  *
- * Two parts. parseEdges reads one file's text into typed edges; walkReach
- * closes over them level by level through a batch reader the caller supplies.
- * Each caller names the edge kinds it follows and which targets it keeps, and
- * hashes what it reaches its own way.
- *
  * A REGEX READER, NOT TYPESCRIPT'S: the registry check runs on every commit
- * and loading TypeScript costs 305 ms (measured 2026-11-04).
+ * and loading TypeScript would slow each one (#4233).
  *
  * Residuals: a `require(` whose call is split across lines is no edge, as
- * requires are read a line at a time (none in the tree); a require inside a
+ * requires are read a line at a time; a require inside a
  * template literal is one.
  */
 
@@ -64,14 +59,11 @@ const SOURCE_RE = /(?:^|[\s;&|(])(?:source|\.)[ \t]+([^;&|\n]+)/gm;
 /**
  * The shell expansion in front of a sourced path, to the LAST of them —
  * `$here/`, `${BASH_SOURCE[0]%/*}/` and `$(dirname "${BASH_SOURCE[0]}")/`.
- * Each ends `$`, `}` or `)`, then an optional word, then the slash.
  */
 const SOURCE_PREFIX_RE = /^.*[$})]\w*\//;
 
-/** A sourced path once its prefix is off. */
 const SOURCED_TAIL_RE = /^[\w.-]+(?:\/[\w.-]+)*\.sh$/;
 
-/** A relative require, either quote, with or without its extension. */
 const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
 
 /*
@@ -182,7 +174,7 @@ function sourcedTail(arg) {
 /**
  * Where a sourced `tail` can be, in the order tried: the sourcing file's own
  * directory, then the root for a `scripts/…` tail or scripts/ for a `lib/…`
- * one (`. "$root/scripts/lib/x.sh"` from .husky/, #4456).
+ * one (#4456).
  * @param {string} dir
  * @param {string} tail
  */
@@ -221,8 +213,7 @@ function parseRequires(dir, text) {
 }
 
 /**
- * Each relative require's specifier and where it opens, skipping one after a
- * `//` or on a `*` comment line. Line by line, so a require reads only its
+ * Each relative require's specifier and where it opens. Line by line, so a require reads only its
  * own line's lead: a lead sliced per match is quadratic on one long line.
  * @param {string} text
  * @returns {{ spec: string, at: number }[]}
@@ -271,7 +262,7 @@ function destructuredBefore(text, at) {
  * @returns {string[]}
  */
 function parseRuns(dir, text, isFile) {
-	/** A `//` before `node` makes a JS line dead, as a `#` does a shell one. */
+	/** A `//` before `node` makes a JS line dead. */
 	/** @param {{prefix: string, value: string}[]} matches */
 	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
 	/** @type {Map<string, string[]>} */

@@ -2,8 +2,7 @@
 /*
  * Tests for scripts/lib/guard-reach.js: the edges one file's text names, and
  * the closure walked over them. The four digests that read it test their own
- * policy over these edges, never the parsing (#4233): an edge missed here
- * leaves all four stale on the edit it names.
+ * policy over these edges, never the parsing (#4233).
  */
 
 import { spawnSync } from "node:child_process";
@@ -130,7 +129,7 @@ describe("source edges", () => {
 
 // A regex match is synchronous, so only a process timeout can stop a
 // backtracking one (#2188, #3383). Each text is 240k-660k characters: read
-// linearly it takes under 50 ms (measured 2026-11-06), read once per head it
+// linearly it takes under 50 ms, read once per head it
 // is some 10^10 steps, so 10 s leaves a loaded machine 200x headroom and a
 // quadratic read none.
 describe("a long line of heads that reach nothing", () => {
