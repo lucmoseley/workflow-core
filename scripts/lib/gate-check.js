@@ -54,10 +54,10 @@ const REPAIR_STATES = new Set([
  * ANY SEGMENT THAT OPENS WITH A BACKTICK AND IS NOT EXACTLY ONE PAIR ROUND ONE
  * COMMAND COMES BACK AS A REPAIR, because there is no honest way to run one
  * (mantahostels#2656): where prose trails past the closing backtick, taking the
- * backticked span alone would be a guess at which part was meant. A
- * segment carrying a second pair INSIDE the outer one is worse than a guess:
- * unwrapped and run, the inner pair becomes shell command substitution, so a
- * citation in prose executes.
+ * backticked span alone would be a guess at which part was meant. A segment
+ * carrying a second pair INSIDE the outer one is worse than a guess: unwrapped
+ * and run, the inner pair becomes shell command substitution, so a citation in
+ * prose executes.
  *
  * @param {string} raw
  * @returns {{ ok: true, command: string } | { ok: false, why: string }}
