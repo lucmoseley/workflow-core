@@ -77,6 +77,7 @@ const { recordOwnAct } = require("./lib/tracker-ops.js");
 const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
 const { caught } = require("./lib/caught.js");
+const { pidAlive } = require("./lib/arbiter-proc.js");
 const { addedCheckVerdict } = require("./lib/gate-check.js");
 
 /**
@@ -449,16 +450,6 @@ function lockPath(issue, repo) {
 	return path.join(dir, `${key}-${issue}.lock`);
 }
 
-/** @param {number} pid */
-const alive = (pid) => {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-};
-
 /** True when `file` has not been touched for `ms`, or cannot be stat'd. */
 /**
  * @param {string} file
@@ -578,7 +569,7 @@ function readLockHolder(file) {
 function isLockStale(file, holder) {
 	return holder === null
 		? olderThan(file, LOCK_STALE_MS)
-		: !alive(holder.pid) || Date.now() - holder.at > LOCK_STALE_MS;
+		: !pidAlive(holder.pid) || Date.now() - holder.at > LOCK_STALE_MS;
 }
 
 /**

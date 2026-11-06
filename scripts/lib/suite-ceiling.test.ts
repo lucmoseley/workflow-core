@@ -175,6 +175,15 @@ it("SIGKILLs every process but itself whose run's wrapper is gone, and none whos
 	);
 });
 
+it("leaves a run whose owner value cannot be a pid, which the kernel is never asked about (#4020)", () => {
+	const proc = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-proc-"));
+	dirs.push(proc);
+	writeEnviron(proc, 300, [`${OWNER_ENV}=99999999999`]);
+	const killed: number[] = [];
+	sweepOrphanedRuns({ proc, self: 0, kill: (pid: number) => killed.push(pid) });
+	expect(killed).toEqual([]);
+});
+
 it("asks the real process table, not the fixture's listing, whether an owner lives", () => {
 	const proc = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-proc-"));
 	dirs.push(proc);
