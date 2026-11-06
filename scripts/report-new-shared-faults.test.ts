@@ -570,6 +570,23 @@ describe("the notice the session reads", () => {
 		}
 	});
 
+	/* A profile with no checker row is never read by --root, so a commit's
+	 * fault in it goes unannounced (#4246). */
+	it("names a checker in its real table for every profile but doc-map", () => {
+		const { PROFILES } = require("./lib/fault-profiles.js") as {
+			PROFILES: Record<string, unknown>;
+		};
+		const { CHECKERS } = require("./lib/shared-fault-checkers.js") as {
+			CHECKERS: Record<string, string>;
+		};
+
+		expect(Object.keys(CHECKERS).sort()).toEqual(
+			Object.keys(PROFILES)
+				.filter((p) => p !== "doc-map")
+				.sort(),
+		);
+	});
+
 	/* Its own table, not a stub one: a checker it reads that the diff has no
 	 * profile for would throw after every commit. */
 	it("reads every checker in its real table as a profile the diff knows", () => {
