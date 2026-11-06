@@ -762,7 +762,7 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 		expect(readBytes("a.md").toString()).toBe("mine\na\ntheirs\n");
 	});
 
-	it("commits a new file intent-added to cut its diff, its empty index entry no staged copy (#3959)", () => {
+	it("commits a new file intent-added to cut its diff, reading its empty index entry as no staged copy (#3959)", () => {
 		write("new.md", "fresh\n");
 		git("add", "-N", "--", "new.md");
 		const patch = path.join(sb.dir, "new.patch");
