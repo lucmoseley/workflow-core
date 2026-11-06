@@ -74,12 +74,12 @@ describe("a review comment ticketing a finding with no exception", () => {
 	});
 });
 
-describe("comments it lets through", () => {
+describe("calls it lets through", () => {
 	it.each([
 		"TICKETED #4491, claimed by brisk-otter.",
 		"TICKETED #4491, needs its own design: the seat model is changing.",
 		"TICKETED #4491, exposed, not caused.",
-	])("a review whose TICKETED line reads %s", (finding) => {
+	])("passes a review whose TICKETED line reads %s", (finding) => {
 		expect(
 			check(`gh issue comment 2570 --body-file ${bodyFile(review(finding))}`)
 				.output,
@@ -95,24 +95,36 @@ describe("comments it lets through", () => {
 			"a Review findings record",
 			"**Review findings:** base abc1234, reviewed def5678, landed 0123abc\n- TICKETED #4491 the filter\n",
 		],
+		...[
+			"Nothing on this pass is TICKETED; every finding was FIXED.",
+			"Each finding is FIXED, TICKETED or DECLINED.",
+			"**Outstanding:** none — nothing TICKETED",
+			"- F2 was previously TICKETED #4100 and is now FIXED abc1234.",
+		].map((line) => [
+			`prose that tickets nothing: ${line}`,
+			`${line}\n\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9\n`,
+		]),
 		[
 			"a TICKETED line inside a fence",
 			"```\n4. TICKETED #4491.\n```\n\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9\n",
 		],
-	])("%s", (_, body) => {
+	])("passes %s", (_, body) => {
 		expect(
 			check(`gh issue comment 2570 --body-file ${bodyFile(body)}`).output,
 		).toBeNull();
 	});
 
-	it("any gh call but a comment", () => {
+	it("passes any gh call but a comment", () => {
 		expect(check("gh issue view 2570").output).toBeNull();
 	});
 
-	it("a body file that is missing, logged rather than judged", () => {
-		expect(
-			check(`gh issue comment 2570 --body-file ${path.join(dir, "gone.md")}`)
-				.output,
-		).toBeNull();
+	it("passes a missing body file unjudged and logs that it could not read it", () => {
+		const run = check(
+			`gh issue comment 2570 --body-file ${path.join(dir, "gone.md")}`,
+		);
+		expect(run.output).toBeNull();
+		expect(run.logs.join("\n")).toContain(
+			"review comment's TICKETED lines unchecked",
+		);
 	});
 });

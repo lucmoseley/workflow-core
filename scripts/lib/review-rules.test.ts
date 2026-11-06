@@ -444,7 +444,10 @@ describe("the fragments carry what the review needs", () => {
 		["review-deviations-write", "No departure, no comment."],
 		["review-deviations-write", "**waived:**"],
 		["review-finding-destination", "`**Outstanding:**`"],
-		["review-finding-destination", "`exposed, not caused`"],
+		[
+			"review-finding-destination",
+			(require("./ticketed-tags.js") as { TAGS: string }).TAGS,
+		],
 		["review-ultra-axis", "NEVER START ONE UNASKED."],
 	])("%s says %j", (id, clause) => {
 		expect(readRuleText(id)).toContain(clause);

@@ -637,7 +637,7 @@ describe("the rules that were already here", () => {
 			"Corner: it needs an unusual input or state; file it standalone, its body citing the spec",
 		);
 		expect(triage).toContain(
-			"Tidying: it changes no behaviour; file it standalone as one ticket per pass.",
+			"Tidying: it changes no behaviour; file it standalone, one ticket per pass.",
 		);
 		expect(triage).toContain(
 			"The first pass that files no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`",
@@ -658,10 +658,10 @@ describe("the rules that were already here", () => {
 			"each finding in the spec's own code is FIXED here",
 		);
 		expect(triage).toContain(
-			"and its line names which, as the `review-finding-destination` rule spells it, or the comment is refused",
+			"and its line names which, per the `review-finding-destination` rule, or is refused",
 		);
 		expect(triage).toContain(
-			"each TICKETED finding gets one class, which picks only where it is filed",
+			"each TICKETED finding gets a class, picking only where it is filed",
 		);
 	});
 

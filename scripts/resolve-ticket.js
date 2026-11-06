@@ -97,10 +97,7 @@ const issueBody = require("./issue-body.js");
 const { parseErrLine, gh } = require("./lib/gh.js");
 const outstandingLine = require("./lib/outstanding-line.js");
 const { unmetCriteria } = require("./lib/ticket-criteria.js");
-const {
-	buildTicketedRefusal,
-	untaggedTicketed,
-} = require("./lib/ticketed-tags.js");
+const { ticketedRefusal } = require("./lib/ticketed-tags.js");
 const { openChildrenRefusal } = require("./lib/open-children.js");
 const { isOpenChild, readSubIssues } = require("./lib/issue-tree.js");
 const {
@@ -238,9 +235,12 @@ function checkCommentOrFail(comment, notPlanned) {
 			"the comment has no **Bound:** line, or an empty one — say on that line what you read in full and what you only sampled or cited. Nothing written.",
 			2,
 		);
-	const untagged = untaggedTicketed(comment);
-	if (untagged.length > 0)
-		io.fail(`${buildTicketedRefusal(untagged)} Nothing written.`, 2);
+	const ticketed = ticketedRefusal(comment);
+	if (ticketed)
+		io.fail(
+			`the comment is a whole-spec review that tickets a finding naming no exception:\n${ticketed} Nothing written.`,
+			2,
+		);
 	if (notPlanned) return;
 	if (!hasLine(comment, "Values", "\\S"))
 		io.fail(

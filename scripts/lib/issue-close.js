@@ -659,25 +659,23 @@ ${ruleOrFallback(run.ctx, "ticket-criteria-unticked", "Tick each acceptance crit
 
 /**
  * Denies a close whose --comment is a whole-spec review ticketing a finding
- * without naming its exception (#4492). An unreadable --comment passes, as
- * the Outstanding rule logs it.
+ * without naming its exception (#4492). An unreadable --comment passes here;
+ * the Outstanding rule logs it on a completed close.
  * @param {Run} run
  * @param {Close} close
  */
 function judgeTicketedTags(run, close) {
 	if (close.commentHidden) return;
-	const {
-		buildTicketedRefusal,
-		untaggedTicketed,
-	} = require("./ticketed-tags.js");
-	const untagged = untaggedTicketed(close.comment);
-	if (untagged.length > 0)
+	/* Loaded only for a close: this core sits on every `gh` call. */
+	const { ticketedRefusal } = require("./ticketed-tags.js");
+	const refusal = ticketedRefusal(close.comment);
+	if (refusal)
 		deny(
 			run.ctx,
 			close.segment,
 			`This close posts a whole-spec review that tickets a finding naming no exception: @CMD@
 
-${buildTicketedRefusal(untagged)}`,
+${refusal}`,
 		);
 }
 

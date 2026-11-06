@@ -60,16 +60,14 @@ function decide(command, ctx) {
 					);
 					return;
 				}
-				const {
-					buildTicketedRefusal,
-					untaggedTicketed,
-				} = require("./ticketed-tags.js");
-				const untagged = untaggedTicketed(call.body.text);
-				if (untagged.length > 0)
+				/* Loaded only for a comment's body: this core sits on every `gh` call. */
+				const { ticketedRefusal } = require("./ticketed-tags.js");
+				const refusal = ticketedRefusal(call.body.text);
+				if (refusal)
 					deny(
 						ctx,
 						segment,
-						`This posts a whole-spec review that tickets a finding naming no exception: @CMD@\n\n${buildTicketedRefusal(untagged)}`,
+						`This posts a whole-spec review that tickets a finding naming no exception: @CMD@\n\n${refusal}`,
 					);
 			},
 			ctx,

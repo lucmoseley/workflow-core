@@ -1283,10 +1283,6 @@ describe("the open sub-issues it refuses to strand (#3637)", () => {
 	});
 });
 
-/*
- * #553: a close naming another repo was judged by THIS repo's issue of the
- * same number — a deny or an allow on the wrong issue.
- */
 describe("a whole-spec review's TICKETED lines (#4492)", () => {
 	const close = (finding: string, through = true) =>
 		`gh issue close 12 --comment "1. **Duplicated Code, ${finding}** Spelt out at 8 sites.\n**Outstanding:** none${through ? "\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9" : ""}"`;
@@ -1309,6 +1305,10 @@ describe("a whole-spec review's TICKETED lines (#4492)", () => {
 	});
 });
 
+/*
+ * #553: a close naming another repo was judged by THIS repo's issue of the
+ * same number — a deny or an allow on the wrong issue.
+ */
 describe("the repo a close names", () => {
 	it("asks GitHub for the issue on the repo the close names", () => {
 		for (const command of [

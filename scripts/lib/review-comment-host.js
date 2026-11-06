@@ -3,13 +3,13 @@
  * guard-review-comment core, lib/review-comment.js (#4492).
  */
 
-const fs = require("node:fs");
+const { readBodyFile } = require("./body-file.js");
 const os = require("node:os");
 
 /** @returns {import("./review-comment.js").ReviewCommentPorts} */
 const buildHostPorts = () => ({
 	home: os.homedir(),
-	readFile: (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined),
+	readFile: readBodyFile,
 });
 
 module.exports = { buildHostPorts };
