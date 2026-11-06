@@ -190,6 +190,29 @@ describe("the setup line", () => {
 		expectRefused(call(bash(SID), { CLAUDE_PROJECT_DIR: worktree }), main);
 	});
 
+	/* The marker sits under CLAUDE_PROJECT_DIR as handed, never gr_root's
+	 * main checkout: a session whose start wrote it under its worktree, then
+	 * merged the re-point in, was refused every call (#4487). */
+	it("lets a worktree session through on the marker its start wrote there", () => {
+		const main = checkout("main");
+		const worktree = path.join(repo, "main", ".claude", "worktrees", "wt");
+		spawnSync("git", ["-C", main, "worktree", "add", "-q", worktree], {
+			encoding: "utf8",
+		});
+		const marker = path.join(
+			worktree,
+			".claude",
+			"tmp",
+			"markers",
+			`.self-plugin-loaded-${SID}`,
+		);
+		fs.mkdirSync(path.dirname(marker), { recursive: true });
+		fs.writeFileSync(marker, "");
+		const r = call(bash(SID), { CLAUDE_PROJECT_DIR: worktree });
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+	});
+
 	it("pastes a path with a space and a quote as one argument", () => {
 		const main = checkout("the founder's checkout");
 		expectRefused(call(bash(SID), { CLAUDE_PROJECT_DIR: main }), main);

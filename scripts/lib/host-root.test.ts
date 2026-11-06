@@ -202,9 +202,9 @@ describe("the host seam", () => {
 			expect(readFromCommitHost(at.wt, at.elsewhere)).toBe("a\n");
 		});
 
-		it("keeps a CLAUDE_PROJECT_DIR that shares the common dir, the worktree itself included", () => {
+		it("keeps a CLAUDE_PROJECT_DIR that shares the common dir, a worktree re-pointed at its main checkout (#4487)", () => {
 			expect(readFromCommitHost(at.wt, at.shared)).toBe("a\n");
-			expect(readFromCommitHost(at.wt, at.wt)).toBe("worktree\n");
+			expect(readFromCommitHost(at.wt, at.wt)).toBe("a\n");
 		});
 
 		it("answers the top level of a plain checkout whose git directory sits elsewhere under the name .git", () => {

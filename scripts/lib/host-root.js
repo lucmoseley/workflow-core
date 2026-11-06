@@ -2,7 +2,8 @@
  * host-root.js — the one seam every script in the core uses to find the HOST
  * repository.
  *
- * THE CONTRACT, in order: `CLAUDE_PROJECT_DIR` where the harness sets it, else
+ * THE CONTRACT, in order: `CLAUDE_PROJECT_DIR` where the harness sets it — its
+ * main checkout where it names a linked worktree (#4487) — else
  * the main checkout owning the working directory, symlinks dereferenced either
  * way: in a linked worktree the parent of a git common dir called `.git`,
  * elsewhere the git top level. The Bash tool sets no `CLAUDE_PROJECT_DIR`, so a
@@ -15,9 +16,10 @@
  * the shared stores live: claims, markers, ledgers. `sessionTree()` is the
  * session's own tree, a linked worktree of it where the session runs in one:
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
- * The harness sets `CLAUDE_PROJECT_DIR` to the main checkout even for a session
- * in a linked worktree, so the host root never says which tree is the
- * session's; only the hook input's `cwd` does. A script that writes tracked
+ * The harness sets `CLAUDE_PROJECT_DIR` to the linked worktree a session was
+ * launched in (#4487, measured 6 Nov 2026), and the host root re-points that at
+ * its main checkout, so the host root never says which tree is the session's;
+ * only the hook input's `cwd` does. A script that writes tracked
  * files writes `worktreeRoot()`: through `hostRoot()` a worktree session's
  * write lands in the main checkout as an orphaned edit (#4438).
  *
@@ -41,6 +43,7 @@
  * shell half; change the two together.
  */
 
+const fs = require("node:fs");
 const path = require("node:path");
 const {
 	execGit,
@@ -110,6 +113,39 @@ function owningCheckout(cwd, timeoutMs) {
 }
 
 /**
+ * The main checkout of a declared root that is a linked worktree, else the
+ * root itself. Read from git's on-disk layout, never a fork: every hook pays
+ * this. A linked worktree's `.git` is a file naming its git dir, whose
+ * `commondir` names the common dir; `checkoutOfCommonDir()` takes it from
+ * there. A `.git` directory, none, or a submodule's git file all keep `dir`.
+ * @param {string} dir
+ * @returns {string}
+ */
+function declaredCheckout(dir) {
+	let gitDir;
+	try {
+		const m = /^gitdir: (.+)$/m.exec(
+			fs.readFileSync(path.join(dir, ".git"), "utf8"),
+		);
+		const named = m?.[1];
+		if (!named) return dir;
+		gitDir = path.resolve(dir, named.trim());
+	} catch {
+		return dir;
+	}
+	let common;
+	try {
+		common = path.resolve(
+			gitDir,
+			fs.readFileSync(path.join(gitDir, "commondir"), "utf8").trim(),
+		);
+	} catch {
+		return dir;
+	}
+	return checkoutOfCommonDir(deref(common)) ?? dir;
+}
+
+/**
  * The host repository's root.
  * @param {string} [cwd] the directory the git limb asks from
  * @param {{ timeoutMs?: number, onTimeout?: () => void }} [opts] the git
@@ -119,7 +155,7 @@ function owningCheckout(cwd, timeoutMs) {
  */
 function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 	const declared = process.env.CLAUDE_PROJECT_DIR;
-	if (declared) return deref(stripSlash(declared));
+	if (declared) return deref(declaredCheckout(stripSlash(declared)));
 	if (memo.key === cwd) return memo.value;
 	let value;
 	try {

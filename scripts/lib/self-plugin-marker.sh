@@ -31,7 +31,18 @@ spm_marker_path() {
     _spm_out="the hook input carried no session id"
     return 1
   }
-  markers="$(gr_markers_dir)"
+  # Under CLAUDE_PROJECT_DIR as the harness hands it, never gr_root's re-point
+  # of a linked worktree to its main checkout (#4487): the variable is fixed
+  # for the session's life, so a session that merges a newer gr_root mid-run
+  # still finds the marker its start wrote. A different root refuses every
+  # tool call.
+  if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+    markers="${CLAUDE_PROJECT_DIR%/}"
+    markers="$(gr_physical "${markers:-/}" || printf '%s' "${markers:-/}")/.claude/tmp/markers"
+    mkdir -p "$markers" 2>/dev/null
+  else
+    markers="$(gr_markers_dir)"
+  fi
   [[ -n "$markers" ]] || {
     _spm_out="the repo root did not resolve"
     return 1

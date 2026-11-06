@@ -1,7 +1,8 @@
 """host_root.py — the Python mirror of scripts/lib/host-root.js's seam: how a
 script in the core finds the HOST repository (#1).
 
-CLAUDE_PROJECT_DIR where the harness sets it, else the main checkout owning the
+CLAUDE_PROJECT_DIR where the harness sets it — its main checkout where it names
+a linked worktree (#4487) — else the main checkout owning the
 working directory — in a linked worktree the parent of a git common dir called
 `.git`, elsewhere the git top level (#4482) — symlinks dereferenced either way,
 failing open to the working directory.
@@ -28,7 +29,7 @@ def host_root(cwd: str | None = None) -> str:
         stripped = (
             declared[:-1] if len(declared) > 1 and declared.endswith("/") else declared
         )
-        return _deref(stripped)
+        return _deref(_declared_checkout(stripped))
     here = cwd or os.getcwd()
     try:
         top, common = (
@@ -55,6 +56,24 @@ def host_root(cwd: str | None = None) -> str:
     return _deref(
         os.path.dirname(common) if os.path.basename(common) == ".git" else top
     )
+
+
+def _declared_checkout(root: str) -> str:
+    """The main checkout of a declared root that is a linked worktree, else the
+    root: host-root.js's declaredCheckout(), read from git's on-disk layout
+    with no fork. A submodule's git file has no `commondir`, so keeps it."""
+    try:
+        line = (Path(root) / ".git").read_text().splitlines()[0]
+        if not line.startswith("gitdir: "):
+            return root
+        git_dir = Path(root) / line[len("gitdir: ") :].strip()
+        common = git_dir / (git_dir / "commondir").read_text().strip()
+    except (OSError, IndexError):
+        # No git file, or one naming no common dir: the root as declared, the
+        # same answer as before the re-point (#4487).
+        return root
+    resolved = _deref(os.path.normpath(common))
+    return os.path.dirname(resolved) if os.path.basename(resolved) == ".git" else root
 
 
 def _deref(path: str) -> str:

@@ -29,6 +29,8 @@ let tmp: string;
 let repo: string;
 let repoLink: string;
 let linked: string;
+let linkedLink: string;
+let gitFiled: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -57,6 +59,13 @@ beforeAll(() => {
 	repoLink = path.join(tmp, "repo-link");
 	fs.symlinkSync(repo, repoLink);
 	fs.mkdirSync(path.join(tmp, "nowhere"));
+	linkedLink = path.join(tmp, "linked-link");
+	fs.symlinkSync(linked, linkedLink);
+	/* A submodule's checkout: a git file whose git dir has no `commondir`. */
+	gitFiled = path.join(tmp, "gitfiled");
+	fs.mkdirSync(path.join(tmp, "gitfiled-git"), { recursive: true });
+	fs.mkdirSync(gitFiled);
+	fs.writeFileSync(path.join(gitFiled, ".git"), "gitdir: ../gitfiled-git\n");
 });
 
 afterAll(() => {
@@ -137,6 +146,28 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			() => path.join(repo, "file.txt"),
 		],
 		[
+			/* The harness hands a session launched in a worktree that worktree
+			 * (#4487); the shared stores are keyed on its main checkout. */
+			"a CLAUDE_PROJECT_DIR naming a linked worktree",
+			() => [linked, linked],
+			() => repo,
+		],
+		[
+			"a CLAUDE_PROJECT_DIR naming a linked worktree, from elsewhere",
+			() => [tmp, `${linked}/`],
+			() => repo,
+		],
+		[
+			"a symlinked CLAUDE_PROJECT_DIR naming a linked worktree",
+			() => [tmp, linkedLink],
+			() => repo,
+		],
+		[
+			"a CLAUDE_PROJECT_DIR whose git file names no common dir",
+			() => [tmp, gitFiled],
+			() => gitFiled,
+		],
+		[
 			/* The Bash tool sets no CLAUDE_PROJECT_DIR (#4482). */
 			"no CLAUDE_PROJECT_DIR, from a linked worktree",
 			() => [linked, undefined],
@@ -164,4 +195,26 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 		const got = readAnswers(cwd, declared);
 		expect(got).toEqual({ js: expected(), sh: expected(), py: expected() });
 	});
+});
+
+/* The split #4487 measured: a hook handed the worktree and a script run from
+ * the Bash tool, with no CLAUDE_PROJECT_DIR, filed claims in two stores. */
+it("a hook handed a linked worktree and a Bash-route script read one claim store", () => {
+	const stateDir = (declared: string | undefined) =>
+		spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`process.stdout.write(require(${JSON.stringify(path.join(LIB, "arbiter-core.js"))}).stateDir())`,
+			],
+			{
+				cwd: linked,
+				env: { ...envWith(declared), CLAUDE_CONFIG_DIR: path.join(tmp, "cfg") },
+				encoding: "utf8",
+			},
+		).stdout;
+	const hook = stateDir(linked);
+	expect(hook).toContain(path.join(tmp, "cfg"));
+	expect(hook).toBe(stateDir(undefined));
+	expect(hook).toBe(stateDir(repo));
 });
