@@ -52,7 +52,8 @@
  * merge nor the push carries a timeout of its own: every checker their hooks
  * run is bounded already (#4187). A push refused as no fast-forward is filed
  * as a `land` row in the divergence log (#4446), the push running here where
- * no Bash hook sees it.
+ * no Bash hook sees it. One failing on a network or remote fault is retried
+ * with backoff (#4497).
  *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
@@ -83,6 +84,11 @@ const { runStartLander } = require("./lander-start.js");
 const { MOVED_LINE } = require("./land-refusal.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
+const {
+	isNetworkFaultText,
+	REMOTE_TRIES,
+	remoteBackoffMs,
+} = require("./network-fault.js");
 const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
@@ -666,13 +672,17 @@ function land(cwd) {
 	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
 	if (merged) mergeMain(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
-	const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
+	const push = pushQueueRef(dir, queue);
 	if (!push.ok && MOVED.test(push.output)) {
 		recordMoved(root, dir, push.output);
 		throw new CheckoutError(
 			`${MOVED_LINE} — merge \`${REMOTE}/${queue}\` into HEAD, then land again`,
 		);
 	}
+	if (push.faulted)
+		throw new CheckoutError(
+			`the push to ${queue} met a remote fault on all ${REMOTE_TRIES} tries, its output above — nothing in the worktree causes it, so land again later`,
+		);
 	if (!push.ok)
 		throw new CheckoutError(
 			`the push to ${queue} was refused, its output above — fix the finding, then land again`,
@@ -685,6 +695,33 @@ function land(cwd) {
 		pushed: true,
 		lander: startLanderFor(root, dir),
 	};
+}
+
+/** git's own refusal lines, as against a hook's output, which may quote anything. */
+const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
+
+/**
+ * The push of `HEAD` to the queue ref, retried with lib/network-fault.js's
+ * backoff while git's own words name a fault it names, GitHub's own among
+ * them; `faulted` where the last try failed so.
+ * @param {string} dir
+ * @param {string} queue
+ * @returns {{ ok: boolean, output: string, faulted: boolean }}
+ */
+function pushQueueRef(dir, queue) {
+	for (let attempt = 1; ; attempt++) {
+		const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
+		const faulted =
+			!push.ok &&
+			isNetworkFaultText((push.output.match(GIT_LINE) ?? []).join("\n"));
+		if (!faulted || attempt >= REMOTE_TRIES) return { ...push, faulted };
+		const ms = remoteBackoffMs(attempt);
+		writeFd(
+			2,
+			`session checkout: the push to ${queue} met a remote fault, retrying in ${Math.round(ms / 1000)} s\n`,
+		);
+		sleepSync(ms);
+	}
 }
 
 /**
