@@ -35,7 +35,7 @@ import {
 	SCRIPT,
 } from "./lib/report-new-shared-faults-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { COSTS } from "./lib/shared-fault-costs";
+import { NOTICES } from "./lib/shared-fault-notices";
 
 const temps = registerTempCleanup();
 
@@ -513,31 +513,6 @@ describe("the notice the session reads", () => {
 		expect(out.join("\n")).not.toContain("REPORTS and never blocks");
 	});
 
-	/* Adding a checker to the diff and adding it to the notice are one act, not
-	 * two (mantahostels#1750): a profile the diff knows but the notice does not
-	 * cost throws rather than print an `undefined` clause. doc-map's own line is
-	 * the pointer-fault case's. */
-	it("carries a cost line for every lib/fault-profiles.js profile it reads by --root", () => {
-		const { PROFILES } = require("./lib/fault-profiles.js") as {
-			PROFILES: Record<string, unknown>;
-		};
-		const { repo, child } = repoWithOneAddedFault("report-notice-every-");
-		const stub = writeStubChecker();
-		const profiles = Object.keys(PROFILES).filter((p) => p !== "doc-map");
-
-		const { code, out, err } = run(child, {
-			checkers: Object.fromEntries(profiles.map((p) => [p, stub])),
-			cwd: repo.root,
-		});
-
-		expect(err).toEqual([]);
-		expect(code).toBe(1);
-		for (const profile of profiles)
-			expect(out.join("\n")).toMatch(
-				new RegExp(`^  ${profile} \\(.+\\) — a red here .+:$`, "m"),
-			);
-	});
-
 	/* The route in must go somewhere the notice has not already been. Re-running
 	 * this script on the same sha reprints the same bytes, so `full` names the
 	 * checker itself. */
@@ -570,23 +545,6 @@ describe("the notice the session reads", () => {
 		}
 	});
 
-	/* A profile with no checker row is never read by --root, so a commit's
-	 * fault in it goes unannounced (#4246). */
-	it("names a checker in its real table for every profile but doc-map", () => {
-		const { PROFILES } = require("./lib/fault-profiles.js") as {
-			PROFILES: Record<string, unknown>;
-		};
-		const { CHECKERS } = require("./lib/shared-fault-checkers.js") as {
-			CHECKERS: Record<string, string>;
-		};
-
-		expect(Object.keys(CHECKERS).sort()).toEqual(
-			Object.keys(PROFILES)
-				.filter((p) => p !== "doc-map")
-				.sort(),
-		);
-	});
-
 	/* Its own table, not a stub one: a checker it reads that the diff has no
 	 * profile for would throw after every commit. */
 	it("reads every checker in its real table as a profile the diff knows", () => {
@@ -611,41 +569,47 @@ describe("the notice the session reads", () => {
 });
 
 /**
- * A row's `why` states whether .husky/pre-commit runs its checker `--against`
- * (#4221). doc-map is direction-gated by its own staged-vs-HEAD block.
+ * The real notice table, not a stub one: a profile with no row goes
+ * unannounced (#4246), and a row's gate claim must be the flag the hook runs
+ * its checker with (#4221). doc-map's own staged-vs-HEAD block gates it, with
+ * no flag on its line.
  */
-describe("each COSTS row's direction-gate claim", () => {
-	const OwnDirectionGate = new Set(["doc-map"]);
+describe("lib/shared-fault-notices.js's NOTICES", () => {
+	const OwnGateBlock = new Set(["doc-map"]);
 	const hook = fs.readFileSync(
 		path.join(REPO_ROOT, ".husky", "pre-commit"),
 		"utf8",
 	);
-	const scriptOf = (full: string) => {
-		const m = /scripts\/([\w-]+\.js)/.exec(full);
-		if (!m?.[1]) throw new Error(`no checker script in ${full}`);
-		return m[1];
-	};
-	const cases = Object.entries(COSTS).map(([profile, { why, full }]) => {
-		const script = scriptOf(full);
+
+	it("has a row for exactly the profiles lib/fault-profiles.js declares", () => {
+		const { PROFILES } = require("./lib/fault-profiles.js") as {
+			PROFILES: Record<string, unknown>;
+		};
+		expect(Object.keys(NOTICES).sort()).toEqual(Object.keys(PROFILES).sort());
+	});
+
+	const cases = Object.entries(NOTICES).map(([profile, { script, gate }]) => {
+		const name = path.basename(script);
 		const runs = hook
 			.split("\n")
 			.filter(
-				(l) =>
-					!l.trimStart().startsWith("#") && l.includes(`scripts/${script}`),
+				(l) => !l.trimStart().startsWith("#") && l.includes(`scripts/${name}`),
 			);
-		return { profile, why, script, runs };
+		return { profile, gate, name, runs };
 	});
 
 	it.each(cases)(
-		"$profile's why names the direction gate the hook runs $script with",
-		({ profile, why, runs }) => {
+		"$profile's gate is the flag the hook runs $name with",
+		({ profile, gate, runs }) => {
 			expect(runs.length).toBeGreaterThan(0);
-			const claimsGate = why.includes("direction-gated");
-			if (OwnDirectionGate.has(profile)) {
-				expect(claimsGate).toBe(true);
+			if (OwnGateBlock.has(profile)) {
+				expect(gate).toBe("against");
 				return;
 			}
-			expect(runs.some((l) => l.includes("--against"))).toBe(claimsGate);
+			const flags = new Set(
+				runs.flatMap((l) => l.match(/--(against|index)\b/)?.[1] ?? []),
+			);
+			expect([...flags]).toEqual([gate]);
 		},
 	);
 });
