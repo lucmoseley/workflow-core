@@ -81,6 +81,10 @@ const buildFileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
 /** @param {import("./queue-lander.js").Drop} d */
 function buildDropEvidence({ onto, cause }) {
 	const alone = `merged alone onto \`main\` at ${onto}`;
+	if ("noRun" in cause && cause.noRun) {
+		const at = cause.kind === "red" ? cause.iso : cause.step;
+		return `${alone} as ${at}, no CI run fired for this tree, twice, where \`main\` passes: its workflow's push triggers likely miss the lander's \`lander/*\` refs`;
+	}
 	switch (cause.kind) {
 		case "conflict":
 			return `${alone}, it conflicts with \`main\` in:\n${buildFileList(cause.files)}`;
@@ -108,6 +112,8 @@ function buildDropAcceptance({ sha, name, cause }) {
 		case "unrecorded":
 			return `${short(sha)}'s change merges onto \`main\`, passes the whole suite there, and is pushed to ${queued} again.`;
 		default:
+			if ("noRun" in cause && cause.noRun)
+				return `${short(sha)}'s change, merged onto \`main\`, fires a CI run on the lander's refs that passes the whole suite, and is pushed to ${queued} again.`;
 			return `${short(sha)}'s change passes ${cause.files.length > 0 ? "each file above" : "the whole suite"} merged onto \`main\`, and is pushed to ${queued} again.`;
 	}
 }

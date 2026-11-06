@@ -912,6 +912,13 @@ describe("the adapters", () => {
 			files: ["a.ts"],
 			retried: true,
 		});
+		/* A tree no run fired for keeps the mark, or its drop's fix ticket
+		 * reads as a red naming no file (#4571). */
+		verdictLedger(verdicts).add("s4", [], {
+			kind: "red",
+			files: [],
+			noRun: true,
+		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		verdictLedger(verdicts).add("s1", ["a.ts"], { kind: "green" }, 2);
 		const noFile = {
@@ -956,6 +963,11 @@ describe("the adapters", () => {
 			kind: "red",
 			files: ["a.ts"],
 			retried: true,
+		});
+		expect(verdictLedger(verdicts).get("s4", [])).toEqual({
+			kind: "red",
+			files: [],
+			noRun: true,
 		});
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();

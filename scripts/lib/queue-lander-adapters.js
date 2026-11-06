@@ -516,6 +516,7 @@ function parseVerdict(v) {
 			...(isStringList(o.jobs) ? { jobs: o.jobs } : {}),
 			/* Retried in its own run, so the lander takes no re-run (#4545). */
 			...(o.retried === true ? { retried: true } : {}),
+			...(o.noRun === true ? { noRun: true } : {}),
 		};
 	return null;
 }

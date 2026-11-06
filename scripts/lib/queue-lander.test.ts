@@ -1822,6 +1822,39 @@ describe("the red path", () => {
 		expect(remote.main).toBe("merge(m0;a1)");
 	});
 
+	it("ends a batch whose push run never appears, dropping the member whose tree alone fires none and landing the rest (#4571)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const noRun: Verdict = { kind: "red", files: [], noRun: true };
+
+		const { end, actions } = await land(remote, disk, {
+			verdict: (sha) => (sha.includes("b1") ? noRun : Green),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.cause)).toEqual([
+			{ kind: "red", name: "b", files: [], iso: "merge(m0;b1)", noRun: true },
+		]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("holds a batch whose push run never appears where main fires none either, dropping no member (#4571)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+
+		const { end, actions } = await land(remote, disk, {
+			verdict: () => ({ kind: "red", files: [], noRun: true }),
+		});
+
+		expect(dropsOf(actions)).toEqual([]);
+		expect(kinds(actions)).toContain("hold");
+		expect(end.reason).toMatch(/^held: red only where main at m0 is too/);
+		expect(remote.main).toBe("m0");
+	});
+
 	it("holds a red naming no file whose every job main fails too, filing the base-red ticket for the whole suite", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },

@@ -5,9 +5,10 @@
  *
  * Green only on a finished, successful run whose every Vitest shard job and
  * whose `Suite passed` job passed, naming the run; red on a failed one, with
- * its failing jobs and the test files their logs name. A run that is
- * missing, in progress at the wait bound, ended any other way, or cannot be
- * read is no verdict, never green.
+ * its failing jobs and the test files their logs name. A push run that
+ * never appears is a red naming no file, marked `noRun`: the tree fires no
+ * run on the ref (#4571). A run in progress at the wait bound, ended any
+ * other way, or that cannot be read is no verdict, never green.
  *
  * A failed run where a job failed at a step that only readies the runner
  * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
@@ -404,20 +405,20 @@ const unreadable = (err) => ({
 });
 
 /**
+ * A push run still unlisted APPEAR_MS into the ask, the push before it, is a
+ * verdict about the tree, whose workflow fires no run on the ref: a red
+ * naming no file, so the lander's red path ends its batch (#4571).
  * @param {RunVerdict} v
- * @param {string} sha
- * @param {string} branch
  * @returns {Verdict}
  */
-function settle(v, sha, branch) {
+function settle(v) {
 	if (v.kind !== "pending") return v;
-	return {
-		kind: "unknown",
-		reason:
-			v.run === null
-				? `no ${SUITE_WORKFLOW} push run on ${branch} at ${sha.slice(0, 9)}`
-				: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
-	};
+	return v.run === null
+		? { kind: "red", files: [], noRun: true }
+		: {
+				kind: "unknown",
+				reason: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
+			};
 }
 
 /**
@@ -431,13 +432,13 @@ function settle(v, sha, branch) {
  * @returns {Promise<Verdict>}
  */
 async function suiteVerdict(sha, after, suite, reruns = 0) {
-	const { reads, branch } = suite;
+	const { reads } = suite;
 	const v = await pollRun(
 		() => runVerdict(sha, reads, after),
 		unreadable,
 		suite,
 	);
-	if (v.kind !== "runner") return settle(v, sha, branch);
+	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
 		return {
 			kind: "unknown",
