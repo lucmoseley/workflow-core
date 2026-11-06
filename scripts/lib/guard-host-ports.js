@@ -9,7 +9,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { gitOutcome, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { sharedReaders } = require("./kit-context.js");
 
@@ -66,12 +66,9 @@ function treePorts(root) {
 		git: (args, noMatch) =>
 			gitOutcome(args, noMatch, root, HOOK_GIT_TIMEOUT_MS),
 		readText: (rel) => {
-			try {
-				return fs.readFileSync(path.join(root, rel), "utf8");
-			} catch (e) {
-				if (caught(e).code === "ENOENT") return null;
-				throw e;
-			}
+			const got = readText(path.join(root, rel));
+			if (got.state === "unreadable") throw got.error;
+			return got.state === "read" ? got.data : null;
 		},
 		repoRel: (file) => repoRel(file, root),
 	};

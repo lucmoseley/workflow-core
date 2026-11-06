@@ -4,7 +4,7 @@
  * the Blocked-comment row's read of what the comment opens with.
  */
 
-const { readBodyFile } = require("./body-file.js");
+const { readBodyFile } = require("./file-read.js");
 
 function buildHostPorts() {
 	return { readFile: readBodyFile };

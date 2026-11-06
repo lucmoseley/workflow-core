@@ -8,7 +8,7 @@
  * unwritten.
  */
 
-const { readBodyFile } = require("./body-file.js");
+const { readBodyFile } = require("./file-read.js");
 const os = require("node:os");
 const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 

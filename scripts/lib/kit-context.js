@@ -11,7 +11,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { toolOf } = require("./guard-cores.js");
 const { markersDir } = require("./marker-root.js");
 const { moduleReader } = require("./workflow-core-config.js");
@@ -184,19 +184,14 @@ function kitContext({ root, payload, log }, readers) {
 		readLatch: (name) => {
 			const p = latch(name);
 			if (p === null) return null;
-			try {
-				return fs.readFileSync(p, "utf8");
-			} catch (e) {
-				/* Absent or unreadable alike read as never written, so the
-				 * core says or refuses again: a repeat is the safe side of a
-				 * latch (mantahostels#103 §6). */
-				if (caught(e).code !== "ENOENT")
-					log(
-						`latch ${name} unreadable — read as unwritten`,
-						caught(e).message,
-					);
-				return null;
-			}
+			const got = readText(p);
+			if (got.state === "read") return got.data;
+			/* Absent or unreadable alike read as never written, so the core
+			 * says or refuses again: a repeat is the safe side of a latch
+			 * (mantahostels#103 §6). */
+			if (got.state === "unreadable")
+				log(`latch ${name} unreadable — read as unwritten`, got.message);
+			return null;
 		},
 	};
 }
