@@ -58,8 +58,9 @@ function readText(file) {
 
 /**
  * @param {string} file
- * @returns {Ledger & {readShas: () => string[], remove: (sha: string) => void}}
- *   with every sha it holds, and `remove` rewriting it without `sha`'s lines
+ * @returns {Ledger & {readShas: () => string[], remove: (sha: string) => void,
+ *   greenAt: (sha: string) => number|null}} with every sha it holds, `remove`
+ *   rewriting it without `sha`'s lines, and `greenAt` when `sha` was added
  */
 function fileLedger(file) {
 	const readShas = () =>
@@ -69,6 +70,13 @@ function fileLedger(file) {
 	return {
 		readShas,
 		has: (sha) => readShas().includes(sha),
+		greenAt: (sha) => {
+			const line = (readText(file) ?? "")
+				.split("\n")
+				.find((l) => l.split(" ")[0] === sha);
+			const ms = Date.parse(line?.split(" ")[1] ?? "");
+			return Number.isNaN(ms) ? null : ms;
+		},
 		add: (sha) =>
 			fs.appendFileSync(file, `${sha} ${new Date().toISOString()}\n`),
 		remove: (sha) => {

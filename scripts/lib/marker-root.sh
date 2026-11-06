@@ -6,7 +6,8 @@
 #
 # `scripts/lib/marker-root.js` is the JS half; BYTE-IDENTICAL OUTPUT IS THE
 # CONSTRAINT, same as `guard-root.sh`/`host-root.js` (see guard-root.sh's
-# header) — change the two together.
+# header) — change the two together. gr_declared_markers_dir alone has no JS
+# twin.
 #
 # SOURCED, NEVER RUN.
 #
@@ -26,10 +27,33 @@ source "$_mr_here/guard-root.sh" 2>/dev/null
 unset _mr_here
 declare -F gr_root >/dev/null 2>&1 || gr_root() { :; }
 
+# gr_declared_markers_dir — gr_markers_dir's directory under CLAUDE_PROJECT_DIR
+# as the harness handed it, never gr_root's re-point of a linked worktree at
+# its main checkout (#4487): for a per-session marker written at start and read
+# for the session's life, which a mid-session merge of a newer gr_root must not
+# move. gr_markers_dir's where the variable is unset. Only the shell canary and
+# its writer read it.
+gr_declared_markers_dir() {
+  local root
+  [[ -n "${CLAUDE_PROJECT_DIR:-}" ]] || {
+    gr_markers_dir
+    return
+  }
+  root="${CLAUDE_PROJECT_DIR%/}"
+  root="${root:-/}"
+  root="$(gr_physical "$root" 2>/dev/null)" || root="${CLAUDE_PROJECT_DIR%/}"
+  _mr_dir "$root"
+}
+
 gr_markers_dir() {
   local root
   root="$(gr_root)"
   [[ -n "$root" ]] || return 0
-  mkdir -p "$root/.claude/tmp/markers" 2>/dev/null
-  printf '%s' "$root/.claude/tmp/markers"
+  _mr_dir "$root"
+}
+
+# _mr_dir <root> — creates and prints <root>'s markers directory.
+_mr_dir() {
+  mkdir -p "$1/.claude/tmp/markers" 2>/dev/null
+  printf '%s' "$1/.claude/tmp/markers"
 }

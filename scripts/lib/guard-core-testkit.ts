@@ -9,8 +9,8 @@
  * variables a command expands through and the environment a core reads.
  *
  * `worktree` is the split a session in its own worktree runs under (#4229):
- * `CLAUDE_PROJECT_DIR` names the main checkout, the root, while the hook's cwd
- * is a linked worktree of it.
+ * the root is the main checkout, whichever tree `CLAUDE_PROJECT_DIR` names
+ * (#4493), while the hook's cwd is a linked worktree of it.
  */
 
 import fs from "node:fs";
