@@ -66,8 +66,8 @@ const rootlessEnv = () => {
  * spawn, 28 Oct - 5 Nov 2026, with no margin, the rung holding
  * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB (median 1,412),
  * one `--shard` of the full suite and, in the last shard, the full pytest
- * run. Above the climb's whole-suite 2,248 MB (suite-queue.js `PEAK_MB`): 7
- * runs passed it, all on 4 Nov, so that one 28 Oct run is the low figure, its
+ * run. Above the climb's whole-suite peak (suite-queue.js `PEAK_MB`): 7 runs
+ * passed it, all on 4 Nov, so its one 28 Oct run is the low figure, its
  * re-measurement #4592's. Named: the highest of 341 runs of 1-6 files, 937 MB
  * (median 293). A named run past those 6 files is unmeasured and charged
  * whole. Residual: a spike between two samples is charged short. */
@@ -796,9 +796,9 @@ function localTester({
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";
 			const tally = { ran: 0, peakKb: 0, samples: 0 };
-			const charged = files.length > NAMED_MEASURED_FILES ? "whole" : kind;
+			const chargeKind = files.length > NAMED_MEASURED_FILES ? "whole" : kind;
 			const watched = watchMemoryShut(() =>
-				admit({ chargeMb: CHARGE_MB[charged] }),
+				admit({ chargeMb: CHARGE_MB[chargeKind] }),
 			);
 			const verdict = await runEach(groups, checkout, {
 				admit: watched.admit,
