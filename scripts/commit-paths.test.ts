@@ -762,6 +762,19 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 		expect(readBytes("a.md").toString()).toBe("mine\na\ntheirs\n");
 	});
 
+	it("commits a new file intent-added to cut its diff, its empty index entry no staged copy (#3959)", () => {
+		write("new.md", "fresh\n");
+		git("add", "-N", "--", "new.md");
+		const patch = path.join(sb.dir, "new.patch");
+		fs.writeFileSync(patch, git("diff", "--", "new.md"));
+		const r = run(["-m", "add new", "--patch", patch]);
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toMatch(/staged/);
+		expect(readCommitted()).toBe("add new\nA\tnew.md");
+		expect(git("show", "HEAD:new.md")).toBe("fresh\n");
+		expect(git("status", "--porcelain", "--", "new.md")).toBe("");
+	});
+
 	it("exits 4 where the commit landed but the index stayed locked, giving the reset to run, saying never to re-run, and still running post-commit", () => {
 		const hook = path.join(hooks, "commit-msg");
 		fs.writeFileSync(hook, "#!/bin/sh\ntouch .git/index.lock\n");
