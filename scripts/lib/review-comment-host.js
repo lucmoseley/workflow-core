@@ -3,7 +3,7 @@
  * guard-review-comment core, lib/review-comment.js (#4492).
  */
 
-const { readBodyFile } = require("./file-read.js");
+const { readBodyFile } = require("./body-file.js");
 const os = require("node:os");
 
 /** @returns {import("./review-comment.js").ReviewCommentPorts} */

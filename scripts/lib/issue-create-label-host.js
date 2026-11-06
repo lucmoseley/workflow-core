@@ -6,7 +6,7 @@
  * spent beside them.
  */
 
-const { readBodyFile } = require("./file-read.js");
+const { readBodyFile } = require("./body-file.js");
 const { gh } = require("./gh.js");
 
 const GH_TIMEOUT_MS = 3000;

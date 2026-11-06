@@ -3,6 +3,10 @@
  * file-read.js's three answers (#3902): absent on ENOENT alone, the contents,
  * or unreadable with the error. A directory stands in for an unreadable file,
  * as EISDIR reads the same under root and in CI.
+ *
+ * Break one and every guard host reading through it misreads a missing file
+ * as a fault, or a fault as a missing file: a latch re-fires, a body file
+ * reads as absent, a window counts nothing.
  */
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -10,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readBodyFile, readBytes, readText } = createRequire(__filename)(
+const { readBytes, readText } = createRequire(__filename)(
 	"./file-read.js",
 ) as typeof import("./file-read.js");
 
@@ -61,15 +65,5 @@ describe("readBytes", () => {
 
 	it("reads a missing file as absent", () => {
 		expect(readBytes(path.join(dir, "nope"))).toEqual({ state: "absent" });
-	});
-});
-
-describe("readBodyFile", () => {
-	it("returns the text, undefined where absent, and throws where unreadable", () => {
-		const file = path.join(dir, "body.md");
-		fs.writeFileSync(file, "body\n");
-		expect(readBodyFile(file)).toBe("body\n");
-		expect(readBodyFile(path.join(dir, "nope"))).toBeUndefined();
-		expect(() => readBodyFile(dir)).toThrow(/EISDIR/);
 	});
 });

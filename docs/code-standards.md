@@ -21,6 +21,7 @@ The core's own primitives, beside the base's table.
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
 | Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
+| Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §T3 | Standards axis criterion |
 
 ## Local rules
 
