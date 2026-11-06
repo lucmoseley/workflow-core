@@ -73,7 +73,12 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 	/** @type {NodeJS.ProcessEnv} */
 	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat.dir };
 	for (const v of overflowUnset(seat.keyVar)) delete env[v];
-	const refusal = launchAuthRefusal({ bin: claudeBin(), env, cwd, settings });
+	const refusal = launchAuthRefusal({
+		bin: claudeBin(env),
+		env,
+		cwd,
+		settings,
+	});
 	if (refusal) return { why: refusal };
 
 	const { jobId, dir } = freshRunDir();
@@ -87,7 +92,7 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 	const out = fs.openSync(log, "a");
 	const err = fs.openSync(stderr, "a");
 	const child = spawn(
-		claudeBin(),
+		claudeBin(env),
 		[
 			"-p",
 			resume ? "--resume" : "--session-id",
@@ -112,7 +117,7 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 	const pid = child.pid;
 	if (pid === undefined) {
 		fs.rmSync(dir, { recursive: true, force: true });
-		return { why: `could not spawn ${claudeBin()}` };
+		return { why: `could not spawn ${claudeBin(env)}` };
 	}
 	child.unref();
 

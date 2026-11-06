@@ -236,9 +236,10 @@ const RUN = {
 				? `session checkout: rebuilt ${made.dir} at its recorded sha\n`
 				: `session checkout: ${made.dir} is still there\n`,
 		);
-		const r = spawnSync(claudeBin(), ["attach", named], {
+		const env = buildSeatEnv(process.env, made.seat);
+		const r = spawnSync(claudeBin(env), ["attach", named], {
 			stdio: "inherit",
-			env: buildSeatEnv(process.env, made.seat),
+			env,
 		});
 		if (r.error) throw r.error;
 		return r.status ?? 1;
