@@ -75,8 +75,7 @@ if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
   exit 1
 fi
 
-# The queue lander's two gate sets (#4545), named by the one argument git
-# never passes. `--gates=merge` runs on each member's merge: the two gates that
+# The queue lander's two gate sets (#4545). `--gates=merge` runs on each member's merge: the two gates that
 # refuse members in practice, the guard-registry one also writing the anchor
 # carry only a merge can make (#4514). `--gates=batch` runs once over the whole
 # batch staged against `main`: every other gate, bar those the lander's Actions
@@ -124,7 +123,6 @@ if ! lander_batch && armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit "$?"
 fi
 
-# The rest of the stack is the batch's, run once over every member (#4545).
 if [ "$wfc_gates" = merge ]; then
   exit 0
 fi
@@ -389,7 +387,6 @@ fi
 # Whole-repo, because a site is judged against core-path constants other
 # scanned modules export; and on --against, so it judges this commit's bytes
 # rather than an untracked script in the working tree (#917).
-# 0.84 s on the live repo.
 if armed '^(scripts/|\.claude/|\.husky/)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root.js --against HEAD || exit "$?"
 fi

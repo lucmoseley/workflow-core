@@ -1,8 +1,7 @@
 name: Install node dependencies
 description: >-
   Restores node_modules from a cache keyed on the exact lockfile, runner and
-  Node major, else runs `npm ci --ignore-scripts` and saves what it installed
-  before any later step can write into it (#4545).
+  Node major, else runs `npm ci --ignore-scripts` and saves it (#4545).
 
 runs:
   using: composite
@@ -24,7 +23,7 @@ runs:
       run: npm ci --ignore-scripts
 
     # Saved here, not at the job's end, where a test's writes under
-    # node_modules (Vite's cache among them) would ride into the next run.
+    # node_modules would ride into the next run.
     - if: ${{ steps.restore.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:

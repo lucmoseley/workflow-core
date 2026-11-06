@@ -8,7 +8,7 @@
  *
  * ci.yml's "Retry failed files" step runs it on a `lander/batch` push after
  * a failed Vitest step. The re-run writes its own report beside the first,
- * which stays the uploaded one, so the flake stays on record. Its last line
+ * which stays the uploaded one. Its last line
  * names the files still failing, `STILL_FAILING` below: lib/actions-tester.js
  * takes the batch's failing files from that line alone, since `--log-failed`
  * also prints the first run's failures from the step that went on past them.
@@ -17,8 +17,7 @@
  * writes no file of the repo's (§N3).
  *
  * Exit codes: the re-run's own; 1 where the report is missing, will not parse
- * or marks no file failed, as the shard then failed with no test to re-run;
- * 2 on a command line it refuses.
+ * or marks no file failed; 2 on a command line it refuses.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -27,7 +26,6 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/* The line lib/actions-tester.js reads the batch's failing files from. */
 const STILL_FAILING = "retry-failed-files: still failing after one retry:";
 
 /**
@@ -71,7 +69,7 @@ function main(argv = process.argv.slice(2)) {
 	}
 	writeFd(
 		1,
-		`retry-failed-files: re-running ${first.files.length} failed file(s) once (#4545): ${first.files.join(", ")}\n`,
+		`retry-failed-files: re-running ${first.files.length} failed file(s) once: ${first.files.join(", ")}\n`,
 	);
 	const retryReport = report.replace(/(\.json)?$/, ".retry.json");
 	const r = spawnSync("npm", ["run", "test", "--", ...first.files], {
@@ -81,8 +79,7 @@ function main(argv = process.argv.slice(2)) {
 	});
 	const code = r.status ?? 1;
 	const again = readFailedFiles(retryReport, root);
-	/* An unread retry report leaves the first run's files standing, so no
-	 * failure the retry did not clear is lost (#4545). */
+	/* An unread retry report leaves the first run's files standing. */
 	let still = code === 0 ? [] : first.files;
 	if (code !== 0 && !("why" in again)) still = again.files;
 	writeFd(

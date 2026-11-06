@@ -116,8 +116,8 @@ const BROKEN_OBJECT =
  * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
  *   merge renders afresh rather than takes from either side
  * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester is
- *   the Actions run, which repeats the gates the batch's set leaves out
- *   (#4545); else the batch runs every gate
+ *   the Actions run, which repeats the gates the batch's set leaves out;
+ *   else the batch runs every gate
  * @returns {QueueGit}
  */
 function queueGit(
@@ -270,8 +270,7 @@ function queueGit(
 
 	/**
 	 * `members` merged in order onto `onto` in a throwaway worktree, then the
-	 * batch's gates run once over them all, staged against `onto` (#4545). A
-	 * refusal of the batch's gates names the last member.
+	 * batch's gates run once over them all, staged against `onto` (#4545).
 	 * @param {string} onto
 	 * @param {readonly Member[]} members
 	 * @returns {MergeResult}
@@ -346,8 +345,7 @@ function queueGit(
 			try {
 				fs.accessSync(hook, fs.constants.X_OK);
 			} catch {
-				/* Fails open as git does on a hook it cannot run, which commits
-				 * with none and prints a hint; this prints its own (#4545). */
+				/* Fails open as git does on a hook it cannot run (#4545). */
 				writeFd(
 					2,
 					`queue-lander: ${hook} is not executable, so no gate ran on this merge\n`,
@@ -825,7 +823,7 @@ function readDropFile(file) {
 
 /**
  * The drop record: every dropped ref, with its fix ticket, until the queue
- * log's retention after its reap. A row that is not a drop is skipped; an absent or torn record
+ * log's retention after its reap. An absent or torn record
  * reads as none, and the lander writes back the entry of each dropped ref it
  * named from the tracker.
  * @param {string} file
