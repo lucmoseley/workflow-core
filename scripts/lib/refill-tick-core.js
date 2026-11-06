@@ -784,9 +784,8 @@ function settleDecided(
 const doNothing = () => undefined;
 
 /**
- * Every act's answer on a dry run, which does none of them (#4356, #4323): the
- * input it was handed, nothing done, or what a read of the files shows. Typed
- * over every act, so a new one cannot reach a dry run live.
+ * Every act's answer on a dry run, which does none of them (#4356, #4323).
+ * Typed over every act, so a new one cannot reach a dry run live.
  * Residual: blockIo, a read, hands the block acts their writers; a dry path
  * that calls one through `seen.io` writes for real (#4569).
  * @param {TickReads} io
