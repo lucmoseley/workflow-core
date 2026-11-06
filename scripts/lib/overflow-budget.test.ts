@@ -382,6 +382,19 @@ describe("a credit refusal in a transcript", () => {
 		expect(budget()).toMatchObject({ exhausted: false });
 	});
 
+	it("is an API error naming billing_error in its text alone (#4580)", () => {
+		const id = recordLaunch("0000000c");
+		appendTranscript(id, {
+			...CREDIT_REFUSAL_ROW,
+			error: "unknown",
+			message: {
+				model: "<synthetic>",
+				content: [{ type: "text", text: "API Error: billing_error" }],
+			},
+		});
+		expect(budget()).toMatchObject({ exhausted: true });
+	});
+
 	it("is not a session quoting the words, or another API error", () => {
 		const id = recordLaunch("0000000c");
 		appendTranscript(

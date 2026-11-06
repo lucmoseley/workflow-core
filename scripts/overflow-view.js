@@ -103,14 +103,7 @@ function lineEvents(o) {
  * @returns {{kind: string, text: string}[]}
  */
 function readEvents(log) {
-	let read;
-	try {
-		read = readJsonl(log);
-	} catch {
-		/* A log not yet written reads as no events; --follow reads it again. */
-		return [];
-	}
-	return (read?.rows ?? []).flatMap((o) => lineEvents(o));
+	return (readJsonl(log)?.rows ?? []).flatMap((o) => lineEvents(o));
 }
 
 /** @param {{kind: string, text: string}[]} evs */
@@ -149,7 +142,7 @@ function board() {
 		runs = readStoredRuns();
 		liveRecords = readLiveAgents();
 	} catch (err) {
-		say(
+		warn(
 			`overflow sessions unreadable: ${err instanceof Error ? err.message : err}`,
 		);
 		return 1;
@@ -192,7 +185,7 @@ function readRunNamed(job) {
 function follow(job) {
 	const run = readRunNamed(job);
 	if (!run) {
-		say(`no run ${job}`);
+		warn(`no run ${job}`);
 		return 1;
 	}
 	let shown = 0;
@@ -216,7 +209,7 @@ function follow(job) {
 function answer(job, text) {
 	const run = readRunNamed(job);
 	if (!run) {
-		say(`no run ${job}`);
+		warn(`no run ${job}`);
 		return 1;
 	}
 	const runs = readStoredRuns();
@@ -245,7 +238,7 @@ function answer(job, text) {
 		resume: run.sessionId,
 	});
 	if ("why" in out) {
-		say(`not sent: ${out.why}`);
+		warn(`not sent: ${out.why}`);
 		return 1;
 	}
 	say(
@@ -265,7 +258,8 @@ const { values, positionals } = parseArgs({
 });
 let code;
 if (values.help) {
-	say(fs.readFileSync(__filename, "utf8").split("*/")[0] ?? "");
+	const text = fs.readFileSync(__filename, "utf8");
+	say(text.slice(0, text.indexOf("*/")));
 	code = 0;
 } else if (values.follow) code = follow(values.follow);
 else if (values.answer && positionals.length > 0)
