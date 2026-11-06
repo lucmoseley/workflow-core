@@ -169,7 +169,7 @@ const NPX_REMOVED = new Set(
  * @property {() => string} storesDir the host root's dependency-store
  *   directory, absolute
  * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts
- *   & Pick<import("./guard-judge.js").CoreContext, "tree">} NpmInstallContext
+ *   & Pick<import("./core-contract.js").CoreContext, "tree">} NpmInstallContext
  *   `tree` the session's, whose package.json and `node_modules` are read
  * @typedef {{ deny: string }} Verdict
  */

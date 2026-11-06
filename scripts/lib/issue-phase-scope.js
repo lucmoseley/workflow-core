@@ -89,7 +89,7 @@ const {
  * @property {(tree: string, rel: string) => string} readFile its text;
  *   throws where it cannot be read
  * @typedef {import("./kit-context.js").KitContext & PhasePorts
- *   & Pick<import("./guard-judge.js").CoreContext, "tree">} PhaseContext
+ *   & Pick<import("./core-contract.js").CoreContext, "tree">} PhaseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision

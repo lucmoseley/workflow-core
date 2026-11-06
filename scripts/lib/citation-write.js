@@ -31,7 +31,7 @@ const {
 const WHY_CHARS = 300;
 
 /**
- * @typedef {import("./guard-judge.js").CoreContext} CoreContext
+ * @typedef {import("./core-contract.js").CoreContext} CoreContext
  */
 
 /**

@@ -23,8 +23,8 @@
  * that cannot be read. `module`, `manual-render`, `pick-next-ranking` and
  * `retro-count` are skills' routes, `corpus` a hook's, below.
  *
- * The host root is `CLAUDE_PROJECT_DIR`, else the main checkout owning the
- * working directory, symlinks dereferenced — never this file's own location, which in a
+ * The host root is the main checkout owning `CLAUDE_PROJECT_DIR` (#4493), else
+ * the one owning the working directory, symlinks dereferenced — never this file's own location, which in a
  * plugin install is the plugin cache (mantahostels#3515 F4).
  */
 

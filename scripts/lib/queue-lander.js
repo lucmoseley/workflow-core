@@ -98,7 +98,8 @@
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
  *   files it ran and its pass, the rerun and the confirm being the second.
  *   A base check's verdict at `main` is kept on the batch record, never the
- *   ledger, so each batch asks it afresh (#4501). An unknown
+ *   ledger, so each batch asks it afresh (#4501), unless `main` went green
+ *   on the green ledger within `BASE_GREEN_MS` (#4564). An unknown
  *   verdict is no verdict: it lands and drops nothing and is never
  *   ledgered, so the next run asks again.
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
@@ -320,6 +321,8 @@ class TransientFault extends Error {}
  * @property {Pipeline} pipeline
  * @property {(sha: string) => boolean} isGreen whether the green ledger holds
  *   `sha`
+ * @property {(sha: string) => number|null} greenAt when the green ledger took
+ *   `sha`, in ms
  * @property {(sha: string) => string|null} refusalOf the remote's refusal of
  *   a push of `sha` to `main`, where the refused record holds one
  * @property {(sha: string, files: readonly string[], pass: number) =>
@@ -358,6 +361,10 @@ class TransientFault extends Error {}
 /* The pass of a base check: a run at `main` of its own, never the verdict
  * `main`'s sha reached as a batch. */
 const BASE_PASS = 0;
+/* How recently `main` went green for a red batch to read it green with no
+ * base check (#4564): #4501's age limit on a base verdict. A first guess,
+ * unmeasured. */
+const BASE_GREEN_MS = 60 * 60 * 1000;
 
 /* Untraced, #4556's figures and stated as such: the window a run starts at,
  * the deepest it grows to, and the one a red drops it to. */
@@ -701,9 +708,12 @@ function redOnMain(onMain, checked, v) {
  */
 function baseCheck(b, s, main, v) {
 	const files = [...v.files];
-	const onMain = b.bases.find(
-		(x) => x.sha === main && sameFiles(x.files, files),
-	)?.verdict;
+	const at = s.greenAt(main);
+	const onMain =
+		b.bases.find((x) => x.sha === main && sameFiles(x.files, files))?.verdict ??
+		(at !== null && s.now - at < BASE_GREEN_MS
+			? /** @type {Verdict} */ ({ kind: "green" })
+			: undefined);
 	if (onMain === undefined) {
 		const r = { sha: main, files, pass: BASE_PASS };
 		return {
@@ -1474,7 +1484,8 @@ function stepOrEnd(s) {
  * @typedef {object} QueueLanderDeps
  * @property {QueueGit} git
  * @property {QueueTester} tester
- * @property {Ledger & {remove: (sha: string) => void}} ledger the green
+ * @property {Ledger & {remove: (sha: string) => void,
+ *   greenAt: (sha: string) => number|null}} ledger the green
  *   ledger the pre-push gate on `main` reads
  * @property {VerdictLedger} verdicts
  * @property {RefusedRecord} refused
@@ -2260,6 +2271,7 @@ async function step(deps, run, log) {
 		drops: deps.drops.read(),
 		now: deps.now(),
 		isGreen: (sha) => deps.ledger.has(sha),
+		greenAt: (sha) => deps.ledger.greenAt(sha),
 		refusalOf: (sha) => deps.refused.refusalOf(sha),
 		verdictOf: (sha, files, pass) => deps.verdicts.get(sha, files, pass),
 		requiresRun: deps.tester.requiresRun === true,

@@ -62,7 +62,7 @@ const { treeOr } = require("./tree-or.js");
  *   will not read; and the host's
  *   `sensitivePaths`, throwing where its config will not read; and those at
  *   HEAD, undefined where HEAD's will not read
- * @typedef {import("./guard-judge.js").CoreContext & TierPorts} TierContext
+ * @typedef {import("./core-contract.js").CoreContext & TierPorts} TierContext
  */
 
 /** The paths listed per area are capped because the prelude is not: a long
@@ -75,7 +75,7 @@ const DECLARATION = ".claude/workflow-core.json";
 /**
  * @param {string} skill
  * @param {TierContext} ctx
- * @returns {import("./guard-judge.js").CoreDecision}
+ * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(skill, ctx) {
 	/* The names guard-review-rules matches, and for its reasons (#201). */
@@ -221,9 +221,8 @@ function tierDecision(prelude, notLive, globless) {
 
 /**
  * The tree whose paths are matched: the session's (#4242), where it is a
- * linked worktree of the root's repository, since the harness keeps
- * CLAUDE_PROJECT_DIR on the main checkout (#2386, spec #1612 §Detection
- * moments); else the root.
+ * linked worktree of the root's repository, since the root is its main
+ * checkout (#2386, #4493, spec #1612 §Detection moments); else the root.
  * @param {TierContext} ctx
  * @returns {string}
  */

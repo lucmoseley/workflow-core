@@ -464,7 +464,7 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 				root: repo(),
 				fs: fakeFs(),
 				out: quiet,
-				// A queue directory of its own: unset, `queueJoin`/`queueTurn` fall
+				// A queue directory of its own: unset, `queueSeat` and `readTurn` fall
 				// back to the real `os.tmpdir()` and queue for real behind whatever
 				// a genuine `--queue` run on this machine left there (mantahostels#2033).
 				queueDir: qdir(),
@@ -633,16 +633,16 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 	});
 
 	describe("inside a `queue-run.js --seat` seat (#2918)", () => {
-		const { queueJoin, queueSpawned } = require("./lib/suite-queue.js");
+		const { queueSeat } = require("./lib/suite-queue.js");
 		/** A spawned part seat held by pid 20, this process's parent. */
 		const seated = (extra: Record<string, unknown> = {}) => {
 			const queueDir = qdir();
-			const seat = queueJoin({
-				queueDir,
-				pid: 20,
-				weight: { resolvedFiles: 1, wholeSlot: false },
+			const held = queueSeat({
+				queue: { queueDir, pid: 20 },
+				join: { weight: { resolvedFiles: 1, wholeSlot: false } },
 			});
-			queueSpawned(seat);
+			held.spawned();
+			const seat = held.ticket;
 			return {
 				queueDir,
 				queueLog: path.join(queueDir, "exits.jsonl"),

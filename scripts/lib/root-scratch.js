@@ -81,7 +81,7 @@ const { shellQuote } = require("./sh-quote.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 
 /**
- * @typedef {import("./guard-judge.js").CoreContext} CoreContext
+ * @typedef {import("./core-contract.js").CoreContext} CoreContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {{ shown: string, name: string }} Stray the stray as written, which
  *   the refusal quotes, and the same target repo-root-relative, which its

@@ -80,6 +80,8 @@ const remoteOf = (
 /** The disk a restart keeps: the ledgers, records, queue log and tracker. */
 const freshDisk = () => ({
 	green: new Set<string>(),
+	/** When each green sha went green, in ms. */
+	greenAt: new Map<string, number>(),
 	verdicts: new Map<string, Verdict>(),
 	/** The refused record: each sha `main` refused, with its refusal. */
 	refused: new Map<string, string>(),
@@ -276,6 +278,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		},
 		ledger: {
 			has: (sha) => disk.green.has(sha),
+			greenAt: (sha) => disk.greenAt.get(sha) ?? null,
 			add: (sha) => {
 				disk.green.add(sha);
 			},
@@ -1412,6 +1415,35 @@ describe("the red path", () => {
 
 		const integration = "merge(m0;a1,b1)";
 		expect(asked.slice(0, 2)).toEqual([integration, "m0:scripts/x.test.ts"]);
+	});
+
+	it("reads main green, running no base check, where main went green within the hour (#4564)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		disk.green.add("m0");
+		disk.greenAt.set("m0", NOW - 10 * 60 * 1000);
+
+		const { asked } = await land(remote, disk, {
+			requiresRun: false,
+			verdict: (sha) => (sha === "m0" ? Green : red("scripts/x.test.ts")),
+		});
+
+		expect(asked).not.toContain("m0:scripts/x.test.ts");
+		expect(remote.iso.has("lander/iso-base")).toBe(false);
+	});
+
+	it("asks the base check where main went green over an hour ago (#4564)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		disk.green.add("m0");
+		disk.greenAt.set("m0", NOW - 2 * 60 * 60 * 1000);
+
+		const { asked } = await land(remote, disk, {
+			requiresRun: false,
+			verdict: (sha) => (sha === "m0" ? Green : red("scripts/x.test.ts")),
+		});
+
+		expect(asked).toContain("m0:scripts/x.test.ts");
 	});
 
 	it("lands a batch red only where main is red too on a tester main takes any green of, filing one base-red ticket for those files", async () => {

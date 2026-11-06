@@ -403,8 +403,15 @@ describe("the session's own worktree (#4229)", () => {
 			fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
 			registerSession({ home, repo: wt }, sid, process.pid);
 			expect(arbiterCli(["claim", doc], wt).status).toBe(0);
-			expect(endShipped()?.reason).toContain(
+			const reason = endShipped()?.reason ?? "";
+			expect(reason).toContain(
 				`holds 1 claim(s) on files with no uncommitted change: ${doc}.`,
+			);
+			/* The release run below is the one the block prints (#4518). */
+			expect(reason).toMatch(
+				new RegExp(
+					`\`node \\S*session-arbiter\\.js release-committed ${doc}\``,
+				),
 			);
 
 			const released = arbiterCli(["release-committed", doc], undefined);
