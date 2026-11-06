@@ -135,8 +135,8 @@ const MAX_FILED_PER_RUN = 2;
  * slowest measured. */
 const FILER_TIMEOUT_MS = 20_000;
 
-/* hooks/hooks.json's timeout for the SessionStart run, overridable so the
- * suite can spend it; and an untraced margin for the run's exit. */
+/* hooks/hooks.json's timeout for the SessionStart run, and an untraced
+ * margin for the run's exit. */
 const HOOK_TIMEOUT_MS = 60_000;
 const hookTimeoutMs = () =>
 	capMs("WFC_ORPHAN_HOOK_TIMEOUT_MS", HOOK_TIMEOUT_MS);
@@ -778,8 +778,7 @@ function buildFilings(orphans, { youngIn, hours }) {
 /**
  * Judge a worktree filing against `origin/main` where it stands, writing onto
  * `f` (an accumulator): each orphan's `landed`, and `unlanded`. Run only for a
- * filing about to be filed, as reading every landed version of a large file
- * costs seconds (#4542).
+ * filing about to be filed (#4542).
  * @param {Filing} f
  * @param {string} root
  */
@@ -987,9 +986,9 @@ function adoptMainCheckout() {
 	return main;
 }
 
-/* `git status` calls in flight across the linked worktrees: one at a time
- * took 2.7 s over 196 worktrees at load 12 (#4542). Four, half the cores, is
- * a guess that leaves the rest to the other SessionStart hooks. */
+/* `git status` calls in flight across the linked worktrees (#4542). Four,
+ * half the cores, is a guess that leaves the rest to the other SessionStart
+ * hooks. */
 const STATUS_CONCURRENCY = 4;
 
 /**

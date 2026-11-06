@@ -86,9 +86,8 @@ function readObjectBatch(
 }
 
 /**
- * A `git cat-file --batch` stdout parser fed chunk by chunk, holding only the
- * object in hand. `onObject` gets each body, null for a missing object, and
- * returns true to stop the parse.
+ * A `git cat-file --batch` stdout parser fed chunk by chunk. `onObject` gets
+ * each body, null for a missing object, and returns true to stop the parse.
  * @param {(body: Buffer|null) => boolean} onObject
  * @returns {(chunk: Buffer) => void} throws on a header it cannot read
  */
@@ -118,8 +117,7 @@ function batchParser(onObject) {
 		const header = buf.subarray(0, nl).toString("utf8");
 		cut(buf, nl + 1);
 		if (header.endsWith(" missing")) return null;
-		/* `<oid> <type> <size>`; anything else would put every later body on
-		 * the wrong object. */
+		/* `<oid> <type> <size>`. */
 		const bytes = /^[0-9a-f]+ \S+ (\d+)$/.exec(header)?.[1];
 		if (bytes === undefined)
 			throw new Error(`git cat-file answered "${header}"`);
@@ -156,8 +154,7 @@ function batchParser(onObject) {
 /**
  * For each group, whether its `test` holds for any of its blobs, all read
  * through one streaming `git cat-file --batch`. Unlike readObjectBatch it
- * holds one body at a time, so no buffer caps the total: a large file's every
- * landed version can run to hundreds of megabytes (#4542). A group stops
+ * holds one body at a time, so no buffer caps the total (#4542). A group stops
  * testing at its first match, and the batch is killed once every group has
  * one. A missing blob is skipped. Rejects where the batch fails or stops short.
  *
