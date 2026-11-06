@@ -627,6 +627,76 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(root)).toEqual(before);
 	});
 
+	describe("mid-merge, a closure file staged at a parent's blob (#4529)", () => {
+		const base = "deny() { exit 2; }\n\n\n\nwarn() { exit 0; }\n";
+		/* deny.sh changed on both sides, so the session claims its re-read;
+		 * extra.sh only on the side coming in. */
+		function midMerge(): string {
+			const root = committedRepo(
+				{
+					...TWO_GUARDS,
+					files: {
+						...TWO_GUARDS.files,
+						"scripts/guard-branch.sh":
+							'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nsource "$(dirname "$0")/lib/extra.sh"\nexit 2\n',
+						"scripts/lib/deny.sh": base,
+						"scripts/lib/extra.sh": "extra() { :; }\n",
+					},
+				},
+				(r) => reviewIn(r, [], { WFC_ANCHOR_LOCKS: "[]" }),
+			);
+			const git = (...args: string[]) =>
+				execFileSync("git", args, { cwd: root, encoding: "utf8" });
+			const write = (rel: string, body: string) =>
+				fs.writeFileSync(path.join(root, rel), body);
+			git("checkout", "-qb", "theirs");
+			write("scripts/lib/deny.sh", base.replace("exit 0", "exit 1"));
+			write("scripts/lib/extra.sh", "extra() { exit 1; }\n");
+			git("commit", "-qam", "theirs");
+			git("checkout", "-q", "-");
+			write("scripts/lib/deny.sh", base.replace("exit 2", "exit 3"));
+			git("commit", "-qam", "ours");
+			git("merge", "-q", "--no-commit", "--no-ff", "theirs");
+			return root;
+		}
+		const claimMerged = (root: string) =>
+			env(ownLocks(root, self, ["scripts/lib/extra.sh"]));
+
+		it("re-anchors the row to the merged index's digest, and the merge then commits", () => {
+			const root = midMerge();
+			const before = readAnchors(root)["scripts/guard-branch.sh"];
+			const out = reviewIn(
+				root,
+				["scripts/guard-branch.sh"],
+				claimMerged(root),
+			);
+			expect(out).toContain("anchored scripts/guard-branch.sh @");
+			expect(out).not.toContain("not claimed by this session");
+			expect(readAnchors(root)["scripts/guard-branch.sh"]).not.toBe(before);
+			execFileSync("git", ["add", ANCHORS], { cwd: root });
+			execFileSync("git", ["commit", "-q", "--no-edit"], { cwd: root });
+			expect(run(root).kinds).not.toContain("STALE-PROSE");
+		});
+
+		it("still refuses, by name, a closure file edited during the merge to match neither parent", () => {
+			const root = midMerge();
+			const before = readAnchors(root);
+			fs.writeFileSync(
+				path.join(root, "scripts/lib/extra.sh"),
+				"extra() { exit 4; }\n",
+			);
+			const out = reviewIn(
+				root,
+				["scripts/guard-branch.sh"],
+				claimMerged(root),
+			);
+			expect(out).toContain(
+				"scripts/lib/extra.sh is dirty and not claimed by this session",
+			);
+			expect(readAnchors(root)).toEqual(before);
+		});
+	});
+
 	it("reads a dead neighbour's claim aged past use as nobody's, not as a pass (#3339)", () => {
 		const root = twoGuards();
 		reviewIn(root);

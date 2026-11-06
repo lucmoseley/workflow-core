@@ -4091,11 +4091,142 @@ function refuseSoleWriter(read) {
  */
 function readUnclaimed(inputs, read, ours) {
 	const dirty = readDirtyInputs(inputs);
-	if (dirty.error === null) return unclaimedOf(dirty.paths, read, ours);
+	const merged =
+		dirty.error === null
+			? readParentStaged(dirty.paths)
+			: { paths: new Set(), error: null };
+	const error = dirty.error ?? merged.error;
+	if (error === null)
+		return unclaimedOf(
+			dirty.paths.filter((p) => !merged.paths.has(p)),
+			read,
+			ours,
+		);
 	printLine(
-		`not anchored — git would not say which digest inputs are dirty (${dirty.error}), so any anchor here could hash uncommitted bytes.`,
+		`not anchored — git would not say which digest inputs are dirty (${error}), so any anchor here could hash uncommitted bytes.`,
 	);
 	process.exit(1);
+}
+
+/**
+ * Mid-merge, the dirty paths staged whole at a merging parent's blob: their
+ * bytes are that committed tree's, so a hash of them reads no unattributed
+ * edit (#4529). HEAD is not asked, since a path at HEAD's blob is not dirty.
+ * A deletion counts where that parent lacks the path too.
+ *
+ * @param {string[]} dirty
+ * @returns {{ paths: Set<string>, error: string | null }}
+ */
+function readParentStaged(dirty) {
+	/** @type {Set<string>} */
+	const paths = new Set();
+	if (dirty.length === 0) return { paths, error: null };
+	const parents = readMergeHeads();
+	if (parents.error || parents.shas.length === 0)
+		return { paths, error: parents.error };
+	const staged = readStagedBlobs(dirty);
+	if (staged.error) return { paths, error: staged.error };
+	const { index, whole } = staged;
+	if (whole.length === 0) return { paths, error: null };
+	for (const sha of parents.shas) {
+		const tree = readTreeBlobs(sha, whole);
+		if (tree.error) return { paths, error: tree.error };
+		for (const p of whole) if (index.get(p) === tree.blobs.get(p)) paths.add(p);
+	}
+	return { paths, error: null };
+}
+
+/**
+ * Each path's stage-0 blob, and those of `dirty` staged whole: no unstaged
+ * edit, no conflict left, and in the index or gone from disk alike.
+ *
+ * @param {string[]} dirty
+ * @returns {{ index: Map<string, string>, whole: string[], error: string | null }}
+ */
+function readStagedBlobs(dirty) {
+	/** @type {Map<string, string>} */
+	const index = new Map();
+	const literal = ["--literal-pathspecs"];
+	const scope = ["--", ...dirty];
+	const staged = gitPaths([...literal, "ls-files", "--stage", "-z", ...scope]);
+	const unstaged = gitPaths([
+		...literal,
+		"diff",
+		"--name-only",
+		"-z",
+		...scope,
+	]);
+	const error = staged.error ?? unstaged.error;
+	if (error) return { index, whole: [], error };
+	const rest = new Set(unstaged.paths);
+	// "<mode> <blob> <stage>\t<path>"
+	for (const line of staged.paths) {
+		const m = /^\d+ ([0-9a-f]+) (\d)\t(.*)$/s.exec(line);
+		if (!m?.[1] || !m[3])
+			return { index, whole: [], error: `unparsed index line ${line}` };
+		if (m[2] === "0") index.set(m[3], m[1]);
+		else rest.add(m[3]);
+	}
+	const whole = dirty.filter(
+		(p) => !rest.has(p) && (index.has(p) || !fs.existsSync(path.join(root, p))),
+	);
+	return { index, whole, error: null };
+}
+
+/**
+ * The blob each of `paths` has in commit `sha`, none where it lacks the path.
+ *
+ * @param {string} sha
+ * @param {string[]} paths
+ * @returns {{ blobs: Map<string, string>, error: string | null }}
+ */
+function readTreeBlobs(sha, paths) {
+	/** @type {Map<string, string>} */
+	const blobs = new Map();
+	const tree = gitPaths([
+		"--literal-pathspecs",
+		"ls-tree",
+		"-z",
+		sha,
+		"--",
+		...paths,
+	]);
+	// "<mode> <type> <blob>\t<path>"
+	for (const line of tree.paths) {
+		const tab = line.indexOf("\t");
+		const blob = line.slice(0, tab).split(" ")[2];
+		if (blob) blobs.set(line.slice(tab + 1), blob);
+	}
+	return { blobs, error: tree.error };
+}
+
+/**
+ * The commits an unfinished merge is bringing in, none outside a merge.
+ *
+ * @returns {{ shas: string[], error: string | null }}
+ */
+function readMergeHeads() {
+	const r = spawnGitSync(
+		[
+			"-C",
+			root,
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-path",
+			"MERGE_HEAD",
+		],
+		{ encoding: "utf8" },
+	);
+	const failed = gitFailure(r);
+	if (failed) return { shas: [], error: failed };
+	const file = r.stdout.trim();
+	if (!fs.existsSync(file)) return { shas: [], error: null };
+	try {
+		const shas = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+		return { shas, error: null };
+	} catch (e) {
+		return { shas: [], error: caught(e).message };
+	}
 }
 
 /**
