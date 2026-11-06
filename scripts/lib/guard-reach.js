@@ -16,6 +16,7 @@ const path = require("node:path");
 const { MANIFEST_REL, coresOf, hostOf } = require("./guard-cores.js");
 const { parseNodeRuns, parseNodeVars } = require("./line-scan.js");
 const { requiredGroup } = require("./regex-group.js");
+const { shellOperands } = require("./shell-operands.js");
 const {
 	directRuleCounts,
 	emissionMatches,
@@ -27,7 +28,7 @@ const { RULES_DIR } = require("./rule-text.js");
 const DISPATCH_KIT = "scripts/lib/guard-dispatch.js";
 
 /**
- * @typedef {"source" | "require" | "node-run" | "manifest-core" | "host" | "rule-file"} EdgeKind
+ * @typedef {"source" | "require" | "node-run" | "launch" | "manifest-core" | "host" | "rule-file"} EdgeKind
  * @typedef {{ kind: EdgeKind, to: string, bindings?: string[] }} Edge `to` is
  *   a path from the repo root; `bindings` are the names a destructuring
  *   require binds
@@ -45,6 +46,7 @@ const ALL_KINDS = /** @type {EdgeKind[]} */ ([
 	"source",
 	"require",
 	"node-run",
+	"launch",
 	"manifest-core",
 	"host",
 	"rule-file",
@@ -75,6 +77,15 @@ const VAR_PATH_RE =
 	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w./-]*\.js)"?[ \t]*(?:#[^\n]*)?$/gm;
 
 /**
+ * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
+ * command position, a path to a `.js` or `.sh` file, through an optional
+ * `$var/`, `${var:-x}/` or `$(dirname "$0")/` prefix (captured) or a
+ * root-relative literal.
+ */
+const LAUNCH_RE =
+	/(?:(?:^|[\s;|&(`])(?:node|bash|sh|exec)[ \t]+|(?:^|[;|&(`]|\$\()[ \t]*)["']?(?<dirVar>(?:\$\{[A-Za-z_][A-Za-z0-9_]*(?:[:%#][^}"'\s]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*|\$\(dirname\s+"?\$(?:0|\{?BASH_SOURCE(?:\[0\])?\}?)"?\))\/)?(?<tail>(?:\.\/)?[A-Za-z0-9_./-]+\.(?:[mc]?js|sh))["']?(?=[\s;|&)`]|$)/gm;
+
+/**
  * The edges of the file at `rel` whose text is `text`, in the order read.
  *
  * - `source`: each shell `source` or `.` of a `.sh` path, resolved against
@@ -87,6 +98,12 @@ const VAR_PATH_RE =
  * - `node-run`: each program a shell guard runs self-relatively, `node
  *   "$here/x.js"` or through a variable (#2487), resolved against its own
  *   directory, then the root.
+ * - `launch`: each `.js` or `.sh` a shell file runs by `node`, `bash`, `sh`,
+ *   `exec` or in command position, self-relatively or from the root, sorted
+ *   (#4567). Wider than `node-run`, which the registry digest keeps to the
+ *   self-relative `node` runs, as a bare `node scripts/x.js` is how guards
+ *   quote advice back (mantahostels#358). Only a path `isFile` holds, other
+ *   than `rel` itself, is an edge.
  * - `manifest-core`: the dispatch kit's manifest and every core and host it
  *   binds.
  * - `host`: the host lib the manifest binds the core at `rel` to.
@@ -124,6 +141,7 @@ const READERS = {
 	source: ({ dir, text, isFile }) => parseSourced(dir, text, isFile),
 	require: ({ dir, text }) => parseRequires(dir, text),
 	"node-run": ({ dir, text, isFile }) => parseRuns(dir, text, isFile),
+	launch: ({ rel, dir, text, isFile }) => parseLaunches(rel, dir, text, isFile),
 	"manifest-core": ({ rel, manifest }) => {
 		const read = rel === DISPATCH_KIT ? manifest() : null;
 		return read ? [MANIFEST_REL, ...coresOf(read)] : [];
@@ -293,6 +311,38 @@ function parseRuns(dir, text, isFile) {
 			}),
 		),
 	];
+}
+
+/**
+ * Read over `shellOperands` with every quoted string kept: the lexer does not
+ * nest quotes, so `"$(x | node "$here/y.js")"` reads `" | node "` as one
+ * string. A `$var/`-prefixed path resolves against the file's own directory,
+ * then the root; a bare one against the root.
+ * @param {string} rel
+ * @param {string} dir
+ * @param {string} text
+ * @param {(rel: string) => boolean} isFile
+ * @returns {string[]}
+ */
+function parseLaunches(rel, dir, text, isFile) {
+	/** @type {Set<string>} */
+	const out = new Set();
+	for (const m of shellOperands(text, { keepQuoted: true }).matchAll(
+		LAUNCH_RE,
+	)) {
+		const tail = m.groups?.tail;
+		if (tail === undefined)
+			throw new Error(`LAUNCH_RE matched ${m[0]} with no tail group`);
+		const root = path.posix.join(".", tail);
+		const candidates = m.groups?.dirVar
+			? [path.posix.join(dir, tail), root]
+			: [root];
+		const hit = candidates.find(
+			(c) => !c.startsWith("..") && c !== rel && isFile(c),
+		);
+		if (hit) out.add(hit);
+	}
+	return [...out].sort();
 }
 
 /**

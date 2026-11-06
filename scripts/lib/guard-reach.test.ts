@@ -259,6 +259,91 @@ describe("node-run edges", () => {
 	});
 });
 
+describe("launch edges (#4567)", () => {
+	const launches = (body: string, ...tree: string[]) =>
+		targets(
+			"scripts/zz/run.sh",
+			`here="$(dirname "$0")"\n${body}\n`,
+			"launch",
+			{
+				isFile: inTree(...tree),
+			},
+		);
+
+	it("reads the spellings node-run declines: bash, sh, exec, command position, a .sh target and a root-relative path", () => {
+		expect(
+			launches(
+				[
+					"bash scripts/zz/a.sh",
+					'sh "$here/b.sh"',
+					'exec node "$here/c.js"',
+					'"$here/d.sh" --flag',
+					"node scripts/zz/e.js",
+				].join("\n"),
+				"scripts/zz/a.sh",
+				"scripts/zz/b.sh",
+				"scripts/zz/c.js",
+				"scripts/zz/d.sh",
+				"scripts/zz/e.js",
+			),
+		).toEqual([
+			"scripts/zz/a.sh",
+			"scripts/zz/b.sh",
+			"scripts/zz/c.js",
+			"scripts/zz/d.sh",
+			"scripts/zz/e.js",
+		]);
+	});
+
+	it("reads a defaulted expansion, a dirname prefix and a run inside a quoted substitution", () => {
+		expect(
+			launches(
+				[
+					`node "\${PLUGIN_ROOT:-.}/scripts/zz/fmt.js"`,
+					'node "$(dirname "$0")/auth.js"',
+					`out="$(printf '%s' "$x" | node "$here/piped.js" --json)"`,
+				].join("\n"),
+				"scripts/zz/fmt.js",
+				"scripts/zz/auth.js",
+				"scripts/zz/piped.js",
+			),
+		).toEqual([
+			"scripts/zz/auth.js",
+			"scripts/zz/fmt.js",
+			"scripts/zz/piped.js",
+		]);
+	});
+
+	it("resolves a prefixed path against its own directory first, a bare one against the root only", () => {
+		expect(
+			launches(
+				'node "$here/x.js"\nnode y.js',
+				"scripts/zz/x.js",
+				"x.js",
+				"scripts/zz/y.js",
+			),
+		).toEqual(["scripts/zz/x.js"]);
+	});
+
+	it("is no edge to a path outside the tree, to the file itself, or in a comment or heredoc", () => {
+		expect(
+			launches(
+				[
+					'node "$here/missing.js"',
+					'bash "$here/run.sh"',
+					'# node "$here/commented.js"',
+					"cat <<EOF",
+					'node "$here/heredoc.js"',
+					"EOF",
+				].join("\n"),
+				"scripts/zz/run.sh",
+				"scripts/zz/commented.js",
+				"scripts/zz/heredoc.js",
+			),
+		).toEqual([]);
+	});
+});
+
 describe("manifest-core and host edges", () => {
 	const manifest = {
 		PreToolUse: [

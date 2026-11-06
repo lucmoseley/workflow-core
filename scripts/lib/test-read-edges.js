@@ -83,9 +83,8 @@
  * resolving to no tracked file is returned as a warning, never dropped
  * silently.
  *
- * A SHELL SCRIPT'S LAUNCHES — the `.js` or `.sh` a read shell script runs
- * by `node`, `bash`, `sh`, `exec` or in command position, through a
- * `$here`/`$dir`-style prefix or a root-relative path — ARE attributed to
+ * A SHELL SCRIPT'S LAUNCHES — its `launch` edges in lib/guard-reach.js
+ * (#4567) — ARE attributed to
  * the test, with each launched script's own `require`s or `source`s one hop
  * (#4505). Where a test runs a shell script that launches a sibling by its
  * own directory, the tracked sibling runs, not a fixture's copy, so the
@@ -140,6 +139,8 @@ const path = require("node:path");
 const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const { closeOf, inertSpans, topLevelArgs } = require("./js-lex.js");
 const { blankComments } = require("./strip-comments.js");
+const { parseEdges } = require("./guard-reach.js");
+const { shellOperands } = require("./shell-operands.js");
 const { requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
@@ -1109,44 +1110,6 @@ function scriptDeps(file, source, tracked) {
 		);
 	}
 	return { deps, warnings };
-}
-
-/**
- * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
- * command position, a path to a `.js` or `.sh` file, through an optional
- * `$var/`, `${var:-x}/` or `$(dirname "$0")/` prefix (captured) or a
- * root-relative literal.
- */
-const LAUNCH =
-	/(?:(?:^|[\s;|&(`])(?:node|bash|sh|exec)[ \t]+|(?:^|[;|&(`]|\$\()[ \t]*)["']?(?<dirVar>(?:\$\{[A-Za-z_][A-Za-z0-9_]*(?:[:%#][^}"'\s]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*|\$\(dirname\s+"?\$(?:0|\{?BASH_SOURCE(?:\[0\])?\}?)"?\))\/)?(?<tail>(?:\.\/)?[A-Za-z0-9_./-]+\.(?:[mc]?js|sh))["']?(?=[\s;|&)`]|$)/gm;
-
-/**
- * The tracked scripts a shell script launches (#4505): a `$var/`-prefixed
- * path resolves against the script's own directory, then the root; a bare
- * one against the root. Read over `shellOperands` with every quoted string
- * kept: the lexer does not nest quotes, so `"$(x | node "$here/y.js")"`
- * reads `" | node "` as one string.
- * @param {string} file
- * @param {string} source
- * @param {Set<string>} tracked
- * @returns {string[]}
- */
-function shellLaunches(file, source, tracked) {
-	const dir = file.split("/").slice(0, -1);
-	const out = new Set();
-	for (const m of shellOperands(source, { keepQuoted: true }).matchAll(
-		LAUNCH,
-	)) {
-		const tail = m.groups?.tail;
-		if (tail === undefined)
-			throw new Error(`LAUNCH matched ${m[0]} with no tail group`);
-		const candidates = m.groups?.dirVar
-			? [resolveDirPath(dir, tail), resolveDirPath([], tail)]
-			: [resolveDirPath([], tail)];
-		const hit = candidates.find((c) => c && c !== file && tracked.has(c));
-		if (hit) out.add(hit);
-	}
-	return [...out].sort();
 }
 
 /** @param {string} s */
@@ -2211,107 +2174,6 @@ const readPatchTargets = (reads, tracked, read) =>
 const SHELL_PATH =
 	/(?:^|[\s="'(:<>|;])(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\/)?(?:\.\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]*[A-Za-z0-9_-]|[A-Za-z0-9_-]+\.[A-Za-z0-9]+)/g;
 
-/** A heredoc's opening, its delimiter captured. */
-const HEREDOC = /<<-?\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?/;
-
-/** @param {string} t */
-const blank = (t) => t.replace(/[^\n]/g, " ");
-
-/**
- * Where `shellOperands` stands between characters: inside a heredoc whose
- * delimiter it holds, or inside a quoted string, the text so far held back.
- * @typedef {{ heredoc: string | null, quote: string | null, quoted: string, keepQuoted: boolean }} ShellState
- */
-
-/**
- * One line's operands outside a heredoc, the state carried to the next line
- * updated.
- * @param {string} line
- * @param {ShellState} st
- * @returns {string}
- */
-function shellLineOperands(line, st) {
-	let out = "";
-	let i = 0;
-	while (i < line.length) {
-		const c = line.charAt(i);
-		if (st.quote) {
-			const run = quotedRun(line, i, st);
-			out += run.text;
-			i = run.end;
-		} else if (c === "#" && /^$|[\s;|&(]$/.test(line.charAt(i - 1))) {
-			return out + blank(line.slice(i));
-		} else {
-			if (c === "'" || c === '"') {
-				st.quote = c;
-				st.quoted = c;
-			} else out += c;
-			i++;
-		}
-	}
-	st.heredoc = st.quote ? null : (HEREDOC.exec(line)?.[1] ?? null);
-	return out;
-}
-
-/**
- * Reads on through an open quoted string from `i`, to its close or the end
- * of the line, holding it back in `st.quoted`.
- * @param {string} line
- * @param {number} i
- * @param {ShellState} st
- * @returns {{ text: string, end: number }}  the closed string's operand
- *   text, "" while it is still open, and where reading stopped
- */
-function quotedRun(line, i, st) {
-	for (let j = i; j < line.length; j++) {
-		const c = line.charAt(j);
-		const escaped = c === "\\" && st.quote === '"';
-		st.quoted += escaped ? c + line.charAt(j + 1) : c;
-		if (escaped) j++;
-		else if (c === st.quote) return { text: closeQuote(st), end: j + 1 };
-	}
-	return { text: "", end: line.length };
-}
-
-/**
- * A closed quoted string as an operand: kept whole, or blanked where it
- * holds a space and so is prose.
- * @param {ShellState} st
- * @returns {string}
- */
-function closeQuote(st) {
-	st.quote = null;
-	return !st.keepQuoted && /\s/.test(st.quoted) ? blank(st.quoted) : st.quoted;
-}
-
-/**
- * A shell script's text with what is not a path operand blanked, line breaks
- * kept: `#` comments, heredoc bodies, and any quoted string holding a space,
- * which is a message's prose — `"$root/docs/x.md"` holds none. A `#` opens a
- * comment only at a word's start outside quotes, so `$#` and `${#x}` stay.
- * @param {string} source
- * @param {{ keepQuoted?: boolean }} [opts]  keep a quoted string holding a
- *   space whole rather than blank it as prose
- * @returns {string}
- */
-function shellOperands(source, { keepQuoted = false } = {}) {
-	/** @type {ShellState} */
-	const st = { heredoc: null, quote: null, quoted: "", keepQuoted };
-	let out = "";
-	for (const [n, line] of source.split("\n").entries()) {
-		if (n > 0) {
-			if (st.quote) st.quoted += "\n";
-			else out += "\n";
-		}
-		if (st.heredoc === null) out += shellLineOperands(line, st);
-		else {
-			if (line.trim() === st.heredoc) st.heredoc = null;
-			out += blank(line);
-		}
-	}
-	return out + (st.quote ? blank(st.quoted) : "");
-}
-
 /**
  * Every tracked path a shell script names as an operand (`shellOperands`).
  * Lexical: a shell script naming a path almost always runs `cat`, `grep` or a
@@ -2460,7 +2322,10 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 		return fileReadsOf(p, read(p), tracked).filter((r) => !loaded.has(r));
 	});
 	const launchesOnce = once((p) =>
-		shellLaunches(p, read(p), tracked).flatMap((l) => [l, ...loadsOnce(l)]),
+		parseEdges(p, read(p), {
+			kinds: ["launch"],
+			isFile: (c) => tracked.has(c),
+		}).flatMap((e) => [e.to, ...loadsOnce(e.to)]),
 	);
 	/** @type {Record<string, Site[]>} */
 	const unseen = {};
