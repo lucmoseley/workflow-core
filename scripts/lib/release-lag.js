@@ -1,40 +1,37 @@
 /*
- * release-lag.js — the judging behind check-release-lag.js (#4448): which
- * label an adopter's pin counts under, and what a lag reading says. Pure;
- * the program reads git and the adopters' settings and hands them in.
+ * release-lag.js — the core of check-release-lag.js (#4448). Git is reached
+ * only through the port the program hands in; nothing here reads a file.
  */
+
+const { isTagRef } = require("./plugin-state.js");
+const { RENDERED_FROM } = require("./release-tags.js");
 
 /**
  * Warn once the newest release's source is more than this many days behind
- * `origin/main`. The two longest gaps between consecutive release sources
- * from v1.1.18 to v2.0.1 were ~6.3 days (v1.3.8 to v1.3.9, v2.0.0 to v2.0.1),
- * so it fires only on a lag the release habit has not produced before. Days,
- * not commits: the commits per release ran from 2 to 1,729 over the same
- * span, so a burst of commits inside seven days stays silent by design.
+ * `origin/main`. The longest gap between consecutive release sources from
+ * v1.1.18 to v2.0.1 was ~6.3 days, so it fires only on a lag the release
+ * habit has not produced before. Days, not commits: a burst of commits
+ * inside seven days stays silent by design.
  */
 const LAG_WARN_DAYS = 7;
 
-/** How a source is quoted in the reading: the width the tracker cites one at. */
-const SHORT_SHA = 9;
+/** scripts/spec-commits.js's width, so a source reads alike in both. */
+const SHORT_SHA = 12;
 
 const MAIN = "origin/main";
+const DAY_S = 86_400;
 
 /**
- * The label one adopter's pin counts under.
  * @param {{ref: string|null, source: {source?: string}|null}} pin
- * @param {(ref: string|null) => boolean} isTagRef
  */
-function labelPin({ ref, source }, isTagRef) {
+function labelPin({ ref, source }) {
 	if (source?.source === "directory") return "directory";
-	if (ref !== null && isTagRef(ref)) return ref;
+	if (isTagRef(ref)) return /** @type {string} */ (ref);
 	if (ref) return `untagged ref ${ref}`;
 	return "no pin";
 }
 
-/**
- * `Adopters per tag: v2.0.1 ×5.` from each adopter's label.
- * @param {string[]} labels
- */
+/** @param {string[]} labels */
 function formatAdopters(labels) {
 	if (labels.length === 0)
 		return "Adopters per tag: no adopter checkout found.";
@@ -48,14 +45,43 @@ function formatAdopters(labels) {
 }
 
 /**
+ * @typedef {{
+ *   message: (rev: string) => string,
+ *   hasCommit: (sha: string) => boolean,
+ *   count: (range: string) => number,
+ *   time: (rev: string) => number,
+ * }} GitPort `time` is the committer date in epoch seconds.
  * @typedef {{kind: "no-source"}
  *   | {kind: "source-absent", source: string}
  *   | {kind: "measured", source: string, commits: number, days: number}} Reading
- * @typedef {{state: "UNREAD"|"BEHIND"|"WITHIN", line: string}} Verdict
+ * @typedef {{state: "UNREAD"|"BEHIND"|"WITHIN", finding: string|null, line: string}} Verdict
  */
 
 /**
- * What the newest tag's lag reading says, with the adopters line appended.
+ * @param {GitPort} git
+ * @param {string} tag
+ * @param {string} tip `origin/main`'s commit
+ * @returns {Reading}
+ */
+function readLag(git, tag, tip) {
+	const source = RENDERED_FROM.exec(git.message(tag))?.[1];
+	if (!source) return { kind: "no-source" };
+	if (!git.hasCommit(source)) return { kind: "source-absent", source };
+	/* Committer dates need not rise along history (a skewed clock, a rebase),
+	 * so a tip dated before its ancestor reads 0, not a negative lag. */
+	const days = Math.max(
+		0,
+		Math.floor((git.time(tip) - git.time(source)) / DAY_S),
+	);
+	return {
+		kind: "measured",
+		source,
+		commits: git.count(`${source}..${tip}`),
+		days,
+	};
+}
+
+/**
  * @param {string} tag
  * @param {Reading} reading
  * @param {string} adopters formatAdopters' line
@@ -65,20 +91,31 @@ function judgeLag(tag, reading, adopters) {
 	if (reading.kind === "no-source")
 		return {
 			state: "UNREAD",
+			finding: "LAG-UNREAD",
 			line: `${tag}'s lag is unread: its message names no rendered-from source, so release-plugin.js did not cut it; the next release it cuts is read. ${adopters}`,
 		};
 	const short = reading.source.slice(0, SHORT_SHA);
 	if (reading.kind === "source-absent")
 		return {
 			state: "UNREAD",
+			finding: "LAG-UNREAD",
 			line: `${tag}'s lag is unread: its source ${short} is not in this clone; \`git fetch origin\` brings it. ${adopters}`,
 		};
 	const line = `${tag} (from ${short}) is ${reading.commits} commit(s) and ${reading.days} day(s) behind ${MAIN}. ${adopters}`;
-	if (reading.days <= LAG_WARN_DAYS) return { state: "WITHIN", line };
+	if (reading.days <= LAG_WARN_DAYS)
+		return { state: "WITHIN", finding: null, line };
 	return {
 		state: "BEHIND",
+		finding: "RELEASE-LAG",
 		line: `${line} Past the ${LAG_WARN_DAYS}-day threshold: no fix since reaches an adopter until a release is cut (\`node scripts/release-plugin.js\`).`,
 	};
 }
 
-module.exports = { LAG_WARN_DAYS, MAIN, formatAdopters, judgeLag, labelPin };
+module.exports = {
+	LAG_WARN_DAYS,
+	MAIN,
+	formatAdopters,
+	judgeLag,
+	labelPin,
+	readLag,
+};

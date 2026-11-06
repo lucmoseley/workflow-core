@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 /*
  * check-release-lag.js — how far the newest release tag lags `origin/main`,
- * and how many adopters pin each tag (#4448). On `npm run status` the reading
- * is a standing; at SessionStart (`--notify`) it prints only past the
- * threshold.
+ * and how many adopters pin each tag (#4448).
  *
  * THE LAG IS MEASURED FROM THE TAG'S SOURCE, never the tag: release-plugin.js
  * cuts each release as a root commit, so `git rev-list <tag>..origin/main`
@@ -11,20 +9,15 @@
  * message names (lib/release-tags.js's RENDERED_FROM). Days run from that
  * commit's committer date to `origin/main`'s, so an idle `main` ages nothing.
  *
- * LOCAL REFS ONLY, no fetch: a SessionStart hook pays for every network call.
- * A clone that has not fetched lately under-reads the lag.
+ * LOCAL REFS ONLY, no fetch. A clone that has not fetched lately under-reads
+ * the lag.
  *
  * ADOPTERS are lib/refill-repos.js's: each main checkout under `$HOME` with a
  * `.claude/workflow-core.json`, its pin read from `.claude/settings.json` as
  * lib/plugin-state.js reads it. A pin that is no tag counts under its own
  * label.
  *
- * SKIPS outside workflow-core itself: an adopter cuts no release. Also where
- * the clone has no release tag or no `origin/main`. A tag whose source this
- * clone lacks is WARN, since the lag is then unread.
- *
- * The judging is lib/release-lag.js's; this reads git and the adopters'
- * settings. WFC_REPO_ROOT and HOME inject the repo and the adopters' home.
+ * WFC_REPO_ROOT and HOME inject the repo and the adopters' home.
  *
  * IMPLICIT:  at every session start, reads the newest release tag's source, `origin/main` and each adopter checkout's pin, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, prints the lag and the adopters per tag; prints nothing otherwise.
  * JUSTIFIED: convenience — it only reports; nothing else says that no fix has reached an adopter.
@@ -37,12 +30,7 @@ const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
-const {
-	findPin,
-	isCoreHost,
-	isTagRef,
-	readJsonSafe,
-} = require("./lib/plugin-state.js");
+const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
 const {
 	LAG_WARN_DAYS,
@@ -50,11 +38,11 @@ const {
 	formatAdopters,
 	judgeLag,
 	labelPin,
+	readLag,
 } = require("./lib/release-lag.js");
-const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
+const { readReleaseTags } = require("./lib/release-tags.js");
 
 const PLUGIN = "workflow-core";
-const DAY_S = 86_400;
 
 /** @param {string} root @param {string[]} args */
 const git = (root, args) =>
@@ -73,6 +61,14 @@ function resolveCommit(root, ref) {
 	}
 }
 
+/** @param {string} root @returns {import("./lib/release-lag").GitPort} */
+const gitPort = (root) => ({
+	message: (rev) => git(root, ["log", "-1", "--format=%B", rev]),
+	hasCommit: (sha) => resolveCommit(root, sha) !== null,
+	count: (range) => Number(git(root, ["rev-list", "--count", range])),
+	time: (rev) => Number(git(root, ["log", "-1", "--format=%ct", rev])),
+});
+
 /** @param {string} home @returns {string[]} */
 function readAdopterLabels(home) {
 	return readAdopterCheckouts(home)
@@ -82,31 +78,8 @@ function readAdopterLabels(home) {
 				/** @type {import("./lib/plugin-state").AdopterSettings|null} */ (
 					readJsonSafe(path.join(root, ".claude", "settings.json"))
 				);
-			return labelPin(findPin(settings, PLUGIN), isTagRef);
+			return labelPin(findPin(settings, PLUGIN));
 		});
-}
-
-/**
- * @param {string} root
- * @param {string} tag
- * @param {string} tip
- * @returns {import("./lib/release-lag").Reading}
- */
-function readLag(root, tag, tip) {
-	const source = RENDERED_FROM.exec(
-		git(root, ["log", "-1", "--format=%B", tag]),
-	)?.[1];
-	if (!source) return { kind: "no-source" };
-	if (!resolveCommit(root, source)) return { kind: "source-absent", source };
-	const commits = Number(
-		git(root, ["rev-list", "--count", `${source}..${tip}`]),
-	);
-	/** @param {string} c */
-	const time = (c) => Number(git(root, ["log", "-1", "--format=%ct", c]));
-	/* Committer dates need not rise along history (a skewed clock, a rebase),
-	 * so a tip dated before its ancestor reads 0, not a negative lag. */
-	const days = Math.max(0, Math.floor((time(tip) - time(source)) / DAY_S));
-	return { kind: "measured", source, commits, days };
 }
 
 runCheck({
@@ -125,18 +98,17 @@ runCheck({
 		/** @type {import("./lib/release-lag").Reading} */
 		let reading;
 		try {
-			reading = readLag(root, tag, tip);
+			reading = readLag(gitPort(root), tag, tip);
 		} catch (e) {
 			ctx.broken(`git could not measure ${tag}: ${caught(e).message}`);
 		}
-		const { state, line } = judgeLag(
+		const { state, finding, line } = judgeLag(
 			tag,
 			reading,
 			formatAdopters(readAdopterLabels(homeDir())),
 		);
 		const data = { tag, ...reading, state, threshold: LAG_WARN_DAYS };
-		if (state === "WITHIN") return { okLine: line, data };
-		const finding = state === "BEHIND" ? "RELEASE-LAG" : "LAG-UNREAD";
+		if (finding === null) return { okLine: line, data };
 		/* lib/check.js records a finding but prints none of it. */
 		ctx.warn(finding, line);
 		ctx.say(`${finding} — ${line}`);

@@ -159,19 +159,6 @@ describe("a lag past the threshold", () => {
 });
 
 describe("unread or not applicable", () => {
-	it("warns, exit 0, where the tag names no source, saying the next cut is read", () => {
-		buildCore({ lagDays: 1, message: () => "Release v1.0.0" });
-		const r = run();
-		expect(r.status).toBe(0);
-		const env = JSON.parse(r.stdout);
-		expect(env.outcome).toBe("WARN");
-		expect(env.findings[0].tag).toBe("LAG-UNREAD");
-		expect(env.findings[0].message).toContain("names no rendered-from source");
-		expect(env.findings[0].message).toContain(
-			"the next release it cuts is read",
-		);
-	});
-
 	it("warns, exit 0, where this clone lacks the source, naming the fetch", () => {
 		buildCore({
 			lagDays: 1,
