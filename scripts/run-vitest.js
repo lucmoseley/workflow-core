@@ -166,6 +166,7 @@ const {
  * (mantahostels#2196). */
 const {
 	REFUSAL_NAMED_MAX,
+	isLinkedWorktree,
 	readTrackedStatus,
 	readUntrackedFiles,
 } = require("./lib/dirty-tree.js");
@@ -1609,6 +1610,7 @@ function sweepAndAttribute(
 		untracked: readUntrackedFiles(root, execFn) ?? [],
 		renames: status.renames,
 		tree: root,
+		ownTree: isLinkedWorktree(root, execFn),
 		...(withQuotes ? { committedAt: lastCommitAt(root, execFn) } : {}),
 	});
 }
@@ -1703,7 +1705,7 @@ function runIsolated(argv, options = {}) {
 	}
 	if (theirs.length > 0)
 		err.write(
-			`--isolated: ${String(theirs.length)} tracked file(s) are uncommitted and not attributable to this session — the frozen worktree carries HEAD's version of each, not theirs.\n`,
+			`--isolated: ${String(theirs.length)} tracked file(s) are uncommitted and not attributable to this session — the frozen worktree carries HEAD's version of each, not theirs: ${namedList(theirs)}\n`,
 		);
 
 	const made = openWorktree(options);
@@ -1763,7 +1765,8 @@ function runThenTeardown(run, teardown) {
  * dirty `package.json` neither widens the selection nor escalates
  * the run.
  *
- * A file of this session's that `mine` misses is read at HEAD's version: a
+ * In a shared tree, a file of this session's that `mine` misses is read at
+ * HEAD's version, named on `err`: a
  * Bash-route write (mantahostels#296) neither the code credit
  * (mantahostels#2778) nor the selection ledger's quoted paths (#1220) caught, a
  * path a live neighbour holds, everything where the ledger will not read, and a
@@ -1873,10 +1876,23 @@ function withOverlay(route, options, label, run) {
 		);
 	if (theirs.length > 0)
 		err.write(
-			`${label}: ${String(theirs.length)} uncommitted tracked file(s) not attributable to this session are read at HEAD's version, not theirs.\n`,
+			`${label}: ${String(theirs.length)} uncommitted tracked file(s) not attributable to this session are read at HEAD's version, not theirs: ${namedList(theirs)}\n`,
 		);
 	freshenOverlay(dir, root, options);
 	return run(dir, teardown);
+}
+
+/**
+ * The first `REFUSAL_NAMED_MAX` of `paths`, and a count of the rest.
+ *
+ * @param {string[]} paths
+ */
+function namedList(paths) {
+	const rest = paths.length - REFUSAL_NAMED_MAX;
+	return (
+		paths.slice(0, REFUSAL_NAMED_MAX).join(" ") +
+		(rest > 0 ? ` (and ${String(rest)} more)` : "")
+	);
 }
 
 /**
