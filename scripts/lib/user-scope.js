@@ -21,12 +21,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { REAL_PROC } = require("./proc-root.js");
+const {
+	MANAGER_TIMEOUT_MS,
+	systemctl,
+	systemdRun,
+} = require("./systemd-bins.js");
 const { writeFd } = require("./write-fd.js");
 
-const SYSTEMD_RUN = "systemd-run";
 const USER_SCOPE = ["--user", "--scope", "--quiet"];
-/* A guess: a user manager that has not answered in this long is read as none. */
-const SCOPE_PROBE_TIMEOUT_MS = 5000;
 
 /* The delegated decision on #3401. */
 const TASKS_MAX = 1024;
@@ -50,11 +52,11 @@ const FIND_EVERY_MS = 10;
  * @returns {string[]}
  */
 function probeUserScope() {
-	const { status } = spawnSync(SYSTEMD_RUN, [...USER_SCOPE, "--", "true"], {
+	const { status } = spawnSync(systemdRun(), [...USER_SCOPE, "--", "true"], {
 		stdio: "ignore",
-		timeout: SCOPE_PROBE_TIMEOUT_MS,
+		timeout: MANAGER_TIMEOUT_MS,
 	});
-	return status === 0 ? [SYSTEMD_RUN, ...USER_SCOPE, "--"] : [];
+	return status === 0 ? [systemdRun(), ...USER_SCOPE, "--"] : [];
 }
 
 /* The probe's answer, taken once per process by `spawnInRunScope`. */
@@ -132,7 +134,7 @@ function spawnInRunScope(command, args, options) {
 	const unit = `${UNIT_PREFIX}${String(process.pid)}-${String(started)}`;
 	const cap = tasksMax(env);
 	const child = spawn(
-		SYSTEMD_RUN,
+		systemdRun(),
 		[
 			...USER_SCOPE,
 			"--collect",
@@ -264,9 +266,9 @@ function armExitKill() {
  */
 function dirOfUnit(unit) {
 	const { stdout } = spawnSync(
-		"systemctl",
+		systemctl(),
 		["--user", "show", "-p", "ControlGroup", "--value", `${unit}.scope`],
-		{ encoding: "utf8", timeout: SCOPE_PROBE_TIMEOUT_MS },
+		{ encoding: "utf8", timeout: MANAGER_TIMEOUT_MS },
 	);
 	const cgroup = (stdout ?? "").trim();
 	return cgroup ? path.join(CGROUP_ROOT, cgroup) : null;
