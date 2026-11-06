@@ -16,7 +16,7 @@ const { caught } = require("./caught.js");
 /**
  * `ctx` with its treeClass port and any `tree` port watched, and whether a
  * throw is the repo or the session's tree not resolving — the fault that
- * stays open, for this file and for lib/guard-dispatch.js's fail-closed cores
+ * stays open, for this file and for lib/guard-judge.js's fail-closed cores
  * alike.
  * @template {{ treeClass: (dir: string) => string, tree?: () => unknown }} C
  * @param {C} ctx

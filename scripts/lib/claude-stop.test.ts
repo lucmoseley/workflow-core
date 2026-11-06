@@ -1,27 +1,34 @@
 // @vitest-environment node
 /*
- * lib/claude-stop.js is the one `claude stop` (#2697). Pinned against a fake
- * `claude` (WFC_CLAUDE_BIN) over three sandbox seats: each seat's `answer` file
- * says how its daemon answers a stop, and every stop it takes is logged with
- * the seat it ran on. Breaking it stops a job on a seat whose record names
- * another session, or reports a stop that failed on one seat as nothing to stop.
+ * lib/claude-stop.js is the one `claude stop` (#2697). Pinned against the
+ * shared `claude stop` fake (lib/agents-stop-fake.ts, held to the harness by
+ * agents-stop.contract.test.ts) at WFC_CLAUDE_BIN over three sandbox seats,
+ * each answering a stop as the test sets it. Breaking it stops a job on a
+ * seat whose record names another session, or reports a stop that failed on
+ * one seat as nothing to stop.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildStopBranch, recorded, type StopAnswer } from "./agents-stop-fake";
 import { stopOn, stopSession } from "./claude-stop.js";
-import { shellQuote } from "./sh-quote.js";
+import { writeClaudeStub } from "./claude-stub";
 
 let root: string;
 let seats: string[];
 
-/** @param answers  "ok", "nojob" or "busy" per seat, in seat order */
-function seatsAnswering(...answers: string[]) {
-	answers.forEach((a, i) => {
-		fs.writeFileSync(path.join(seats[i], "answer"), a);
-	});
+const at = (name: string) => path.join(root, name);
+
+/** Point WFC_CLAUDE_BIN at the fake, each seat answering as `answers` says
+ * in seat order, a seat past its end answering `ok`. */
+function seatsAnswering(...answers: StopAnswer[]) {
+	const bySeat = Object.fromEntries(answers.map((a, i) => [seats[i], a]));
+	writeClaudeStub(at("claude"), [
+		buildStopBranch(at("stops"), bySeat, at("env")),
+	]);
+	vi.stubEnv("WFC_CLAUDE_BIN", at("claude"));
 }
 
 function recordJob(i: number, id: string, sessionId: string) {
@@ -30,39 +37,31 @@ function recordJob(i: number, id: string, sessionId: string) {
 	fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify({ sessionId }));
 }
 
-const readStopsTaken = () => {
+const readLines = (name: string) => {
 	try {
-		return fs
-			.readFileSync(path.join(root, "stops"), "utf8")
-			.split("\n")
-			.filter(Boolean);
+		return fs.readFileSync(at(name), "utf8").split("\n").filter(Boolean);
 	} catch {
 		return [];
 	}
 };
 
+/** `<seat letter> <job id>` per stop taken, in order. */
+const readStopsTaken = () => {
+	const argvs = readLines("stops");
+	return readLines("env").map(
+		(line, i) =>
+			`${path.basename(line.split(" ")[0])} ${argvs[i].split(" ")[1]}`,
+	);
+};
+
+const buildNoJobLine = (id: string) =>
+	recorded.stops.noJob.stderr.trim().replaceAll(recorded.stops.noJob.id, id);
+
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-stop-"));
 	seats = ["a", "b", "c"].map((s) => path.join(root, s));
 	for (const s of seats) fs.mkdirSync(s);
-	const bin = path.join(root, "claude");
-	fs.writeFileSync(
-		bin,
-		[
-			"#!/bin/sh",
-			'd="$CLAUDE_CONFIG_DIR"',
-			`echo "$(basename "$d") $2" >> ${shellQuote(path.join(root, "stops"))}`,
-			`echo "\${CLAUDE_CODE_SESSION_ID:-none} \${CLAUDE_JOB_DIR:-none}" > ${shellQuote(path.join(root, "identity"))}`,
-			'case "$(cat "$d/answer" 2>/dev/null)" in',
-			'  nojob) echo "warning: retrying" >&2; echo "No job matching \'$2\'." >&2; exit 1 ;;',
-			'  busy) echo "daemon socket is busy" >&2; exit 1 ;;',
-			'  killed) echo "going down" >&2; kill -KILL $$ ;;',
-			"esac",
-			'echo "stopped $2"',
-		].join("\n"),
-		{ mode: 0o755 },
-	);
-	vi.stubEnv("WFC_CLAUDE_BIN", bin);
+	seatsAnswering();
 	vi.stubEnv("CLAUDE_CONFIG_DIR", seats[0]);
 	vi.stubEnv("WFC_CLAUDE_CONFIG_A", seats[0]);
 	vi.stubEnv("WFC_CLAUDE_CONFIG_B", seats[1]);
@@ -86,7 +85,7 @@ describe("stopSession", () => {
 	});
 
 	it("moves to the next seat on 'No job matching', and stops it there", () => {
-		seatsAnswering("nojob", "ok", "ok");
+		seatsAnswering("noJob", "ok", "ok");
 		expect(stopSession("aaaa1111", "s-1").ok).toBe(true);
 		expect(readStopsTaken()).toEqual(["a aaaa1111", "b aaaa1111"]);
 	});
@@ -104,11 +103,11 @@ describe("stopSession", () => {
 	});
 
 	it("fails naming every seat where no seat has the job", () => {
-		seatsAnswering("nojob", "nojob", "nojob");
+		seatsAnswering("noJob", "noJob", "noJob");
 		const r = stopSession("aaaa1111", "s-1");
 		expect(r.ok).toBe(false);
 		expect(!r.ok && r.why).toBe(
-			"exit 1: No job matching 'aaaa1111'. (on all 3 seats)",
+			`exit 1: ${buildNoJobLine("aaaa1111")} (on all 3 seats)`,
 		);
 	});
 
@@ -132,15 +131,16 @@ describe("stopOn", () => {
 	});
 
 	it("reads the daemon's reason off its last line, under any warning", () => {
-		seatsAnswering("nojob");
+		seatsAnswering("warnedNoJob");
 		expect(stopOn(seats[0], "aaaa1111")).toMatchObject({
 			ok: false,
-			said: "No job matching 'aaaa1111'.",
+			said: buildNoJobLine("aaaa1111"),
+			noJob: true,
 		});
 	});
 
 	it("reports a claude that cannot start as ENOENT", () => {
-		expect(stopOn(seats[0], "aaaa1111", path.join(root, "absent"))).toEqual({
+		expect(stopOn(seats[0], "aaaa1111", at("absent"))).toEqual({
 			ok: false,
 			why: "ENOENT",
 			said: null,
@@ -167,10 +167,8 @@ describe("stopOn", () => {
 
 	it("runs without the caller's session identity", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "caller-session");
-		vi.stubEnv("CLAUDE_JOB_DIR", path.join(root, "caller-job"));
+		vi.stubEnv("CLAUDE_JOB_DIR", at("caller-job"));
 		stopOn(seats[0], "aaaa1111");
-		expect(fs.readFileSync(path.join(root, "identity"), "utf8").trim()).toBe(
-			"none none",
-		);
+		expect(readLines("env")).toEqual([`${seats[0]} none none`]);
 	});
 });

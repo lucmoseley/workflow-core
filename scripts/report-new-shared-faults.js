@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Which faults of the CHECKERS table's checkers and check-doc-map.js a COMMIT
+ * Which faults of lib/shared-fault-notices.js's checkers a COMMIT
  * added relative to its parent (mantahostels#1823, mantahostels#1824) — the same
  * set-difference checker-new-faults.js already does for staged-vs-HEAD (mantahostels#1753),
  * generalised to two arbitrary commits.
@@ -34,7 +34,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
 const { PROFILES } = require("./lib/fault-profiles.js");
-const { COSTS } = require("./lib/shared-fault-costs.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
@@ -43,44 +42,19 @@ const { caught } = require("./lib/caught.js");
 const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
+const { NOTICES } = require("./lib/shared-fault-notices.js");
 
-/* Core content: every checker below ships beside this script, so each is named
- * from THIS DIRECTORY (#1) — a plugin install keeps them beside the caller. */
-const CORE_SCRIPTS = __dirname;
+/** Profile name -> the checker read over the archived `--root` trees: every
+ * notice row but doc-map's, which readDocMapEnvelope reads instead. */
+const CHECKERS = Object.fromEntries(
+	Object.entries(NOTICES)
+		.filter(([profile]) => profile !== "doc-map")
+		.map(([profile, { script }]) => [profile, script]),
+);
 
-/** Profile name -> the checker script that emits its --json envelope, for the
- * checkers that take --root. check-doc-map.js is not in this table: its
- * envelope is read by readDocMapEnvelope() below, on a different calling
- * convention (see the header comment). */
-const CHECKERS = {
-	"guard-registry": path.join(CORE_SCRIPTS, "check-guard-registry.js"),
-	"guard-test-isolation": path.join(
-		CORE_SCRIPTS,
-		"check-guard-test-isolation.js",
-	),
-	"host-root-test-isolation": path.join(
-		CORE_SCRIPTS,
-		"check-host-root-test-isolation.js",
-	),
-	"context-budget": path.join(CORE_SCRIPTS, "check-context-budget.js"),
-	"website-copy": path.join(CORE_SCRIPTS, "check-website-copy.js"),
-	"git-fixture-identity": path.join(
-		CORE_SCRIPTS,
-		"check-git-fixture-identity.js",
-	),
-	"host-root": path.join(CORE_SCRIPTS, "check-host-root.js"),
-	"skill-frontmatter": path.join(CORE_SCRIPTS, "check-skill-frontmatter.js"),
-	"jsonl-reads": path.join(CORE_SCRIPTS, "check-jsonl-reads.js"),
-	"gh-route": path.join(CORE_SCRIPTS, "check-gh-route.js"),
-	"arbiter-commands": path.join(CORE_SCRIPTS, "check-arbiter-commands.js"),
-	"clock-copies": path.join(CORE_SCRIPTS, "check-clock-copies.js"),
-	"report-programs": path.join(CORE_SCRIPTS, "check-report-programs.js"),
-	"precommit-exit": path.join(CORE_SCRIPTS, "check-precommit-exit.js"),
-	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
-	"test-spawn": path.join(CORE_SCRIPTS, "check-test-spawn.js"),
-};
-
-const CHECK_DOC_MAP = path.join(CORE_SCRIPTS, "check-doc-map.js");
+const docMapRow = NOTICES["doc-map"];
+if (docMapRow === undefined) throw new Error("NOTICES has no doc-map row");
+const CHECK_DOC_MAP = docMapRow.script;
 
 /* A JSON object of profile name -> checker script that replaces CHECKERS
  * whole, so report-new-shared-faults.test.ts can run the program against stub
@@ -564,10 +538,10 @@ function noticeOf(sha, byProfile) {
 		"  This REPORTS and never blocks.",
 	);
 	for (const [profile, lines] of byProfile) {
-		const costed = COSTS[profile];
-		if (costed === undefined)
-			throw new Error(`COSTS has no row for profile ${profile}`);
-		const { why, cost, full } = costed;
+		const notice = NOTICES[profile];
+		if (notice === undefined)
+			throw new Error(`NOTICES has no row for profile ${profile}`);
+		const { why, cost, full } = notice;
 		out.push(`  ${profile} (${why}) — a red here ${cost}:`);
 		for (const line of lines) out.push(`    ${line}`);
 		out.push(`    In full, WARNs and context included: ${full}`);

@@ -57,7 +57,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { scriptRuns, SHELL_NAMES, SHELLS } = require("./script-runs.js");
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext & {
+ * @typedef {import("./guard-judge.js").CoreContext & {
  *   readScript: (abs: string) => string | null,
  *   isTracked: (abs: string) => boolean | null,
  * }} ScratchGitContext the script's text, null where it is absent, unreadable
@@ -200,7 +200,7 @@ function firstUnguarded(lines, on) {
 /**
  * @param {string} command
  * @param {ScratchGitContext} ctx
- * @returns {import("./guard-dispatch.js").CoreDecision}
+ * @returns {import("./guard-judge.js").CoreDecision}
  */
 function decide(command, ctx) {
 	const runs = scriptRuns(command, ctx, { interpreters: SHELLS }).map(

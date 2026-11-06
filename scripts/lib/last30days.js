@@ -38,7 +38,7 @@ const ours = (skill) =>
 
 /**
  * @param {string} skill
- * @param {import("./guard-dispatch.js").CoreContext} ctx
+ * @param {import("./guard-judge.js").CoreContext} ctx
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(skill, ctx) {
