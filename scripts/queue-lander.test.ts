@@ -180,6 +180,58 @@ describe("a run", () => {
 		expect(calls().at(-1)).toBe("pre-commit");
 	});
 
+	it("gives the merges to `started` before the batch's gates where the Actions run repeats the rest, and never where it does not (#4573)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+		const calls = stubHooks(
+			["pre-commit"],
+			'case "$*" in --gates=batch) echo fixed > fix.txt && git add fix.txt ;; esac\n',
+		);
+		const started: { sha: string; before: string[] }[] = [];
+		const record = (at: string) => started.push({ sha: at, before: calls() });
+
+		const merged = queueGit(work, undefined, undefined, {
+			ciRepeats: true,
+		}).mergeMembers(seed, members, false, record);
+
+		expect(started).toHaveLength(1);
+		expect(started[0]?.before).toEqual([
+			"pre-commit --gates=merge",
+			"pre-commit --gates=merge",
+		]);
+		const sha = merged.kind === "merged" ? merged.sha : "";
+		git(work, "fetch", "-q", work, sha);
+		expect(git(work, "rev-parse", `${sha}^`)).toBe(started[0]?.sha);
+		queueGit(work).mergeMembers(seed, members, false, record);
+		expect(started).toHaveLength(1);
+	});
+
+	it("gives `started` only the whole batch's merges, not each member's re-merge after its gates refuse (#4573)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 1 },
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 2 },
+		];
+		stubHooks(
+			["pre-commit"],
+			'case "$*" in --gates=batch) [ -f b.txt ] && exit 1 ;; esac\n',
+		);
+		const started: string[] = [];
+
+		expect(
+			queueGit(work, undefined, undefined, { ciRepeats: true }).mergeMembers(
+				seed,
+				members,
+				false,
+				(sha) => started.push(sha),
+			),
+		).toMatchObject({ kind: "refused", name: "b" });
+		expect(started).toHaveLength(1);
+	});
+
 	it("names the member the batch's gates refuse alone, not the last one the refusal fell on (#4545)", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const members = [
@@ -901,6 +953,8 @@ describe("the adapters", () => {
 		const verdicts = path.join(markers(), "v.jsonl");
 		const batch = path.join(markers(), "b.json");
 		fs.mkdirSync(markers(), { recursive: true });
+		const LedgeredAt = "2026-11-06T12:00:00.000Z";
+		vi.stubEnv("WFC_NOW", LedgeredAt);
 		verdictLedger(verdicts).add("s1", ["b.ts", "a.ts"], {
 			kind: "red",
 			files: ["a.ts"],
@@ -944,6 +998,7 @@ describe("the adapters", () => {
 				main: "m0",
 				files: ["a.ts"],
 				ticket: 90,
+				retakeAt: 5,
 			},
 			bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
 		};
@@ -951,34 +1006,50 @@ describe("the adapters", () => {
 		const holding = (x: unknown) => ({ line: [], search: x, depth: 1 });
 		pipelineRecord(batch).write({ ...holding(b), search: b });
 
-		expect(verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])).toEqual({
+		expect(
+			verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])?.verdict,
+		).toEqual({
 			kind: "red",
 			files: ["a.ts"],
 		});
-		expect(verdictLedger(verdicts).get("s1", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s1", [])?.verdict).toEqual({
 			kind: "green",
 			run: 7,
 		});
-		expect(verdictLedger(verdicts).get("s3", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s3", [])?.verdict).toEqual({
 			kind: "red",
 			files: ["a.ts"],
 			retried: true,
 		});
-		expect(verdictLedger(verdicts).get("s4", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s4", [])?.verdict).toEqual({
 			kind: "red",
 			files: [],
 			noRun: true,
 		});
+		/* Its time read back, as a no-run red stands only so long, and a row
+		 * with none readable as the epoch (#4572). */
+		expect(verdictLedger(verdicts).get("s4", [])?.at).toBe(
+			Date.parse(LedgeredAt),
+		);
+		fs.appendFileSync(
+			verdicts,
+			`${JSON.stringify({ sha: "s5", files: [], verdict: { kind: "green" } })}\n`,
+		);
+		expect(verdictLedger(verdicts).get("s5", [])).toEqual({
+			verdict: { kind: "green" },
+			at: 0,
+		});
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();
-		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)).toEqual({
+		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)?.verdict).toEqual({
 			kind: "green",
 		});
-		expect(verdictLedger(verdicts).get("s1", [], 0)).toEqual(noFile);
+		expect(verdictLedger(verdicts).get("s1", [], 0)?.verdict).toEqual(noFile);
 		expect(pipelineRecord(batch).read()).toEqual(holding(b));
 		for (const torn of [
 			{ ...b, phase: "parked" },
 			{ ...b, hold: { kind: "refused", main: "m0" } },
+			{ ...b, hold: { ...b.hold, retakeAt: "soon" } },
 			{ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] },
 			{ ...b, slot: "1" },
 		]) {

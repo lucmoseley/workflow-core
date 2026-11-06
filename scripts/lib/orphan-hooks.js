@@ -36,6 +36,7 @@
  */
 
 const path = require("node:path");
+const { markersDir } = require("./marker-root.js");
 const { ageSeconds, readStartTicks } = require("./proc-table.js");
 
 /* Claude Code's timeout for a command hook that sets none: "Defaults: 600 for
@@ -50,6 +51,17 @@ const MARGIN_S = 60;
  * (docs/environment.md §4). */
 const ARGV_KEPT = 512;
 
+/* The kill log, one JSON line a kill, under a canonical checkout's markers. */
+const REAP_LOG = ".orphan-hook-reaps.jsonl";
+
+/* How much of an argv a report prints: two terminal lines at this repo's
+ * usual width, check-orphan-wait-loops.js's WINDOW. A guess. */
+const ARGV_SHOWN = 160;
+
+/** The kill log of the checkout at `canonical`.
+ * @param {string} canonical */
+const reapLogPath = (canonical) => path.join(markersDir(canonical), REAP_LOG);
+
 const INTERPRETER = /^(?:ba|da)?sh$|^node$/;
 const INIT = /^(?:init|systemd)$/;
 /* Where a hook command's own arguments stop. */
@@ -62,7 +74,9 @@ const COMMAND_END = /^(?:\|\||&&|;|\||[0-9]*>.*|<.*)$/;
  * @typedef {{ type?: string, command?: string, args?: unknown, timeout?: number }} Hook
  * @typedef {Record<string, Array<{ hooks?: Hook[] }>>} Hooks
  * @typedef {{ pid: number, pgid: number, scope: "group"|"tree", ageS: number,
- *   argv: string[], targets: Proc[] }} Reap
+ *   argv: string[], targets: Proc[],
+ *   session?: import("./ended-sessions.js").Session }} Reap `session`
+ *   where the reap is lib/ended-sessions.js's
  */
 
 /**
@@ -265,7 +279,8 @@ function planReaps(procs, orphans, mine) {
  * snapshot member still holds its start time is killed by pgid, taking any
  * member forked since; otherwise each target whose start time still matches
  * is killed on its own.
- * @param {Reap[]} reaps
+ * @template {Reap} R
+ * @param {R[]} reaps
  * @param {{ root: string, kill: (pid: number, signal: "SIGKILL") => void,
  *   log: (entry: Record<string, unknown> & { at: string }) => boolean }} io
  */
@@ -311,6 +326,7 @@ function killReaps(reaps, { root, kill, log }) {
 			})),
 			killed,
 			gone: r.targets.length - live.length,
+			...(r.session ? { session: r.session } : {}),
 			...(errors.length > 0 ? { errors } : {}),
 		});
 		return { ...r, killed, errors, logged };
@@ -318,8 +334,11 @@ function killReaps(reaps, { root, kill, log }) {
 }
 
 module.exports = {
+	ARGV_SHOWN,
 	findOrphanHooks,
 	isInit,
 	killReaps,
 	readRegistry,
+	reapLogPath,
+	subtree,
 };

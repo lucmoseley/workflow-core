@@ -79,6 +79,8 @@ const POOL_WIDTH = 4;
  * reads one comment page per ticket closed in its window, so it is among the
  * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
  * lag past its threshold: here every reading is a standing.
+ * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
+ * reaper, which kills.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -116,6 +118,7 @@ const CHECKS = [
 	["citation-ceiling", "check-citation-ceiling.js"],
 	["orphaned-edits", "check-orphaned-edits.js"],
 	["git-locks", "check-stale-git-locks.js"],
+	["orphan-reaps", "check-orphan-reaps.js"],
 	["husky-shim", "check-husky-shim.js"],
 	["primitives", "check-primitives.js"],
 	["output-style", "check-output-style.js"],

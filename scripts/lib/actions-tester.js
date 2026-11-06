@@ -19,7 +19,9 @@
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
  * one. Asked again, a failed run has its failed jobs rerun; any other run at
  * the sha is never read, its ref deleted and created again so a run starts
- * after the ask (#4524). Named files at a sha a
+ * after the ask (#4524). Where none at the sha is listed, as when its ref was
+ * pushed while Actions fired nothing, the ref is pushed again once before
+ * the tree is read as firing none (#4572). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
@@ -712,8 +714,10 @@ const heldBy = (reads, sha) =>
  * suite. Files at a sha no run covers are run alone. The whole suite is
  * never read off a run listed before the ask (#4524): any other run at
  * `sha` has the branch pushed again, and only a run newer than every one
- * the branch listed is judged. Residual: a run the lander's own push
- * started and GitHub listed by the ask is run twice.
+ * the branch listed is judged. Where no run at `sha` was listed and none
+ * newer appears, the branch is pushed again and waited on once more before
+ * a no-run red (#4572). Residual: a run the lander's own push started
+ * and GitHub listed by the ask is run twice.
  * @param {string} sha
  * @param {string[]} files
  * @param {{reads: Reads, branch: string} & Poll} on
@@ -721,7 +725,7 @@ const heldBy = (reads, sha) =>
  * @returns {Promise<Verdict>}
  */
 async function rerunVerdict(sha, files, on, named) {
-	const { reads, branch } = on;
+	const { reads } = on;
 	/** @type {Run[]} */
 	let listed;
 	try {
@@ -742,25 +746,32 @@ async function rerunVerdict(sha, files, on, named) {
 		return run === undefined
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
-	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
 	if (run !== undefined) {
-		/** @type {boolean} */
-		let pushed;
-		try {
-			pushed = reads.repush(branch, sha);
-		} catch (err) {
-			return {
-				kind: "unknown",
-				reason: `${branch} not pushed again at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
-				...(isNetworkFault(err) ? { transient: true } : {}),
-			};
-		}
-		if (!pushed)
-			return {
-				kind: "unknown",
-				reason: `${branch} moved off ${sha.slice(0, SHORT_SHA)} before it was pushed again`,
-			};
+		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
 	}
+	const v = await newerVerdict(sha, on, listed);
+	if (v.kind !== "red" || !v.noRun) return v;
+	/** @type {Run[]} */
+	let again;
+	try {
+		again = reads.runs();
+	} catch (err) {
+		return unreadable(err);
+	}
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
+}
+
+/**
+ * The whole suite at `sha` read off a run on `on`'s branch newer than every
+ * one in `listed`.
+ * @param {string} sha
+ * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {readonly Run[]} listed
+ * @returns {Promise<Verdict>}
+ */
+function newerVerdict(sha, on, listed) {
+	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
+	const { reads } = on;
 	return suiteVerdict(sha, 0, {
 		...on,
 		reads: {
@@ -768,6 +779,32 @@ async function rerunVerdict(sha, files, on, named) {
 			runs: () => reads.runs().filter((r) => r.databaseId > bound),
 		},
 	});
+}
+
+/**
+ * Deletes and creates `on`'s branch again at `sha`: null where it did, else the no verdict naming why not.
+ * @param {{reads: Reads, branch: string}} on
+ * @param {string} sha
+ * @returns {Verdict|null}
+ */
+function repushFailure({ reads, branch }, sha) {
+	/** @type {boolean} */
+	let pushed;
+	try {
+		pushed = reads.repush(branch, sha);
+	} catch (err) {
+		return {
+			kind: "unknown",
+			reason: `${branch} not pushed again at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
+			...(isNetworkFault(err) ? { transient: true } : {}),
+		};
+	}
+	return pushed
+		? null
+		: {
+				kind: "unknown",
+				reason: `${branch} moved off ${sha.slice(0, SHORT_SHA)} before it was pushed again`,
+			};
 }
 
 module.exports = { SUITE_WORKFLOW, queueTester };

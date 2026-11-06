@@ -217,7 +217,7 @@ function queueGit(
 				);
 				return { main: heads.get(mainRef) ?? null, queue, dropped };
 			}),
-		mergeMembers: (onto, members, fresh = false) =>
+		mergeMembers: (onto, members, fresh, started) =>
 			repairing(() => {
 				const [lone] = members;
 				if (
@@ -227,7 +227,7 @@ function queueGit(
 					isAncestor(root, onto, lone.sha)
 				)
 					return { kind: "merged", sha: lone.sha };
-				const whole = mergeGated(onto, members);
+				const whole = mergeGated(onto, members, started);
 				if (whole.kind !== "refused" || members.length === 1) return whole;
 				/* The batch's gates refused: the first member they refuse alone,
 				 * else the interaction, named by the last member (#4545). */
@@ -271,12 +271,14 @@ function queueGit(
 
 	/**
 	 * `members` merged in order onto `onto` in a throwaway worktree, then the
-	 * batch's gates run once over them all, staged against `onto` (#4545).
+	 * batch's gates run once over them all, staged against `onto` (#4545),
+	 * `started` given the merges first where `ciRepeats` (#4573).
 	 * @param {string} onto
 	 * @param {readonly Member[]} members
+	 * @param {(sha: string) => void} [started]
 	 * @returns {MergeResult}
 	 */
-	function mergeGated(onto, members) {
+	function mergeGated(onto, members, started) {
 		return withThrowawayTree(
 			root,
 			onto,
@@ -292,6 +294,7 @@ function queueGit(
 				const sha = inTree(["rev-parse", "HEAD"]).trim();
 				const last = members.at(-1);
 				if (sha === onto || !last) return { kind: "merged", sha };
+				if (ciRepeats) started?.(sha);
 				return batchPass({ onto, sha, last }, inTree, gates);
 			},
 		);
@@ -521,6 +524,13 @@ function parseVerdict(v) {
 	return null;
 }
 
+/**
+ * A ledger row's time in ms, the epoch where it has none readable, so a
+ * no-run red of unknown age is asked again rather than trusted (#4572).
+ * @param {unknown} at
+ */
+const parseLedgerTime = (at) => Date.parse(String(at)) || 0;
+
 /** @param {readonly string[]} files */
 const fileKey = (files) => [...files].sort().join("\n");
 
@@ -540,8 +550,8 @@ function verdictLedger(file) {
 			for (const row of rows.toReversed()) {
 				if (row.sha !== sha || !isStringList(row.files)) continue;
 				if (fileKey(row.files) !== key || (row.pass ?? 1) !== pass) continue;
-				const v = parseVerdict(row.verdict);
-				if (v) return v;
+				const verdict = parseVerdict(row.verdict);
+				if (verdict) return { verdict, at: parseLedgerTime(row.at) };
 			}
 			return null;
 		},
@@ -628,7 +638,9 @@ const isHold = (h) => {
 	if (typeof o?.main !== "string") return false;
 	if (o.kind === "base")
 		return (
-			isStringList(o.files) && (o.ticket === null || Number.isInteger(o.ticket))
+			isStringList(o.files) &&
+			(o.ticket === null || Number.isInteger(o.ticket)) &&
+			(o.retakeAt === undefined || Number.isFinite(o.retakeAt))
 		);
 	return (
 		o.kind === "refused" &&

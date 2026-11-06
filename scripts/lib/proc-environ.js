@@ -10,15 +10,15 @@ const path = require("node:path");
 const { procRoot } = require("./proc-root.js");
 
 /**
- * `key`'s value in `pid`'s environment: `{ ok: false }` where the environ
- * will not read — the process gone, or another user's — and `value: null`
- * where it reads but carries no `key`.
+ * Each of `keys`' values in `pid`'s environment: `{ ok: false }` where the
+ * environ will not read — the process gone, or another user's — and a `null`
+ * value for a key it reads without.
  * @param {number | string} pid
- * @param {string} key
+ * @param {string[]} keys
  * @param {string} [proc] the /proc to read, a test's stand-in
- * @returns {{ ok: false } | { ok: true, value: string | null }}
+ * @returns {{ ok: false } | { ok: true, values: Record<string, string | null> }}
  */
-function readEnvironVar(pid, key, proc = procRoot()) {
+function readEnvironVars(pid, keys, proc = procRoot()) {
 	let environ;
 	try {
 		environ = fs.readFileSync(path.join(proc, String(pid), "environ"), "utf8");
@@ -26,12 +26,26 @@ function readEnvironVar(pid, key, proc = procRoot()) {
 		/* Each caller says what an unreadable environ means to it. */
 		return { ok: false };
 	}
-	const prefix = `${key}=`;
-	const entry = environ.split("\0").find((e) => e.startsWith(prefix));
-	return {
-		ok: true,
-		value: entry === undefined ? null : entry.slice(prefix.length),
-	};
+	const entries = environ.split("\0");
+	/** @type {Record<string, string | null>} */
+	const values = {};
+	for (const key of keys) {
+		const entry = entries.find((e) => e.startsWith(`${key}=`));
+		values[key] = entry === undefined ? null : entry.slice(key.length + 1);
+	}
+	return { ok: true, values };
 }
 
-module.exports = { readEnvironVar };
+/**
+ * `key`'s value in `pid`'s environment, as readEnvironVars reads it.
+ * @param {number | string} pid
+ * @param {string} key
+ * @param {string} [proc] the /proc to read, a test's stand-in
+ * @returns {{ ok: false } | { ok: true, value: string | null }}
+ */
+function readEnvironVar(pid, key, proc = procRoot()) {
+	const read = readEnvironVars(pid, [key], proc);
+	return read.ok ? { ok: true, value: read.values[key] ?? null } : read;
+}
+
+module.exports = { readEnvironVar, readEnvironVars };

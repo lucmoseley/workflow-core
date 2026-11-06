@@ -28,6 +28,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { LANDER_SKIP } from "./precommit-gate-harness";
 import {
 	buildInfixTestName,
 	COLLECTED_TEST,
@@ -355,7 +356,7 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 		(checker, opening) => {
 			const arm = hook().match(
 				new RegExp(
-					String.raw`^if (?:! lander_batch && )?armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
+					String.raw`^if ${LANDER_SKIP}armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
 					"m",
 				),
 			)?.[1];
