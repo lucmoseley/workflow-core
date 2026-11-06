@@ -4,7 +4,7 @@
  */
 
 const { isTagRef } = require("./plugin-state.js");
-const { RENDERED_FROM } = require("./release-tags.js");
+const { scriptPath } = require("./script-path.js");
 
 /**
  * Warn once the newest release's source is more than this many days behind
@@ -46,11 +46,12 @@ function formatAdopters(labels) {
 
 /**
  * @typedef {{
- *   message: (rev: string) => string,
+ *   sourceOf: (tag: string) => string|null,
  *   hasCommit: (sha: string) => boolean,
  *   count: (range: string) => number,
  *   time: (rev: string) => number,
- * }} GitPort `time` is the committer date in epoch seconds.
+ * }} GitPort `sourceOf` is the commit a release's message names it rendered
+ *   from; `time` is a committer date in epoch seconds.
  * @typedef {{kind: "no-source"}
  *   | {kind: "source-absent", source: string}
  *   | {kind: "measured", source: string, commits: number, days: number}} Reading
@@ -64,7 +65,7 @@ function formatAdopters(labels) {
  * @returns {Reading}
  */
 function readLag(git, tag, tip) {
-	const source = RENDERED_FROM.exec(git.message(tag))?.[1];
+	const source = git.sourceOf(tag);
 	if (!source) return { kind: "no-source" };
 	if (!git.hasCommit(source)) return { kind: "source-absent", source };
 	/* Committer dates need not rise along history (a skewed clock, a rebase),
@@ -92,7 +93,7 @@ function judgeLag(tag, reading, adopters) {
 		return {
 			state: "UNREAD",
 			finding: "LAG-UNREAD",
-			line: `${tag}'s lag is unread: its message names no rendered-from source, so release-plugin.js did not cut it; the next release it cuts is read. ${adopters}`,
+			line: `${tag}'s lag is unread: its message names no rendered-from source, so ${scriptPath("release-plugin.js")} did not cut it; the next release it cuts is read. ${adopters}`,
 		};
 	const short = reading.source.slice(0, SHORT_SHA);
 	if (reading.kind === "source-absent")
@@ -107,7 +108,7 @@ function judgeLag(tag, reading, adopters) {
 	return {
 		state: "BEHIND",
 		finding: "RELEASE-LAG",
-		line: `${line} Past the ${LAG_WARN_DAYS}-day threshold: no fix since reaches an adopter until a release is cut (\`node scripts/release-plugin.js\`).`,
+		line: `${line} Past the ${LAG_WARN_DAYS}-day threshold: no fix since reaches an adopter until a release is cut (\`node ${scriptPath("release-plugin.js")}\`).`,
 	};
 }
 

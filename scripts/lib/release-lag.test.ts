@@ -53,7 +53,7 @@ const port = ({
 	known?: boolean;
 	tipAt?: number;
 } = {}) => ({
-	message: () => message,
+	sourceOf: () => /rendered from ([0-9a-f]{40})/.exec(message)?.[1] ?? null,
 	hasCommit: () => known,
 	count: (range: string) => (range === `${SOURCE}..tip` ? 42 : -1),
 	time: (rev: string) => (rev === "tip" ? tipAt : 0),

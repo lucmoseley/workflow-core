@@ -40,7 +40,6 @@ const {
 	labelPin,
 	readLag,
 } = require("./lib/release-lag.js");
-const { readReleaseTags } = require("./lib/release-tags.js");
 
 const PLUGIN = "workflow-core";
 
@@ -61,9 +60,15 @@ function resolveCommit(root, ref) {
 	}
 }
 
-/** @param {string} root @returns {import("./lib/release-lag").GitPort} */
-const gitPort = (root) => ({
-	message: (rev) => git(root, ["log", "-1", "--format=%B", rev]),
+/**
+ * @param {string} root
+ * @param {RegExp} renderedFrom
+ * @returns {import("./lib/release-lag").GitPort}
+ */
+const gitPort = (root, renderedFrom) => ({
+	sourceOf: (tag) =>
+		renderedFrom.exec(git(root, ["log", "-1", "--format=%B", tag]))?.[1] ??
+		null,
 	hasCommit: (sha) => resolveCommit(root, sha) !== null,
 	count: (range) => Number(git(root, ["rev-list", "--count", range])),
 	time: (rev) => Number(git(root, ["log", "-1", "--format=%ct", rev])),
@@ -90,6 +95,8 @@ runCheck({
 		const root = process.env.WFC_REPO_ROOT || hostRoot();
 		if (!isCoreHost(root))
 			ctx.skip("not workflow-core itself; an adopter cuts no release.");
+		/* Required past the check above: the release never ships it. */
+		const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
 		const tag = readReleaseTags(root).at(-1);
 		if (!tag) ctx.skip("no release tag in this clone.");
 		const tip = resolveCommit(root, MAIN);
@@ -98,7 +105,7 @@ runCheck({
 		/** @type {import("./lib/release-lag").Reading} */
 		let reading;
 		try {
-			reading = readLag(gitPort(root), tag, tip);
+			reading = readLag(gitPort(root, RENDERED_FROM), tag, tip);
 		} catch (e) {
 			ctx.broken(`git could not measure ${tag}: ${caught(e).message}`);
 		}
