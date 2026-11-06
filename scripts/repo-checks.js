@@ -104,7 +104,12 @@ const notify = require("./lib/notify-report");
 const { isCoreHost } = require("./lib/plugin-state");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { projectSlug } = require("./lib/project-slug");
-const { REPO_CHECKS } = require("./lib/repo-checks-registry");
+const {
+	FIRST_SINCE_DAYS,
+	carriedArgs,
+	carriedNext,
+} = require("./lib/repo-checks-carry");
+const { REPO_CHECKS, entryOf } = require("./lib/repo-checks-registry");
 const { coreRoot, scriptPath } = require("./lib/script-path");
 const { fromEnv: sessionFromEnv } = require("./lib/session-id");
 const {
@@ -130,8 +135,6 @@ const RESCAN = ".repo-checks-rescan.json";
 const ISSUE_SETS = ".repo-checks-issue.json";
 const ISSUE_TITLE = "Repo checks: standing findings";
 const ISSUE_LABEL = takesLabel("triage");
-/* Spec #1510's first window, the check's own default. */
-const FIRST_SINCE_DAYS = 30;
 const DAY_MS = 24 * 3_600_000;
 /* Spec #1510's chosen ceilings, §Cost and limits. */
 const CHECK_MS = 300_000;
@@ -142,24 +145,13 @@ const STDERR_LINE_MAX_CHARS = 300;
 
 /**
  * @typedef {import("./lib/repo-checks-registry").RepoCheck} RepoCheck
+ * @typedef {import("./lib/repo-checks-carry").Kept} Kept
  * @typedef {import("./lib/check").Outcome | "MISSING"} JobOutcome
  * @typedef {{ job: string, outcome: JobOutcome, count: number, keys: string[],
  *   summary: string, [k: string]: unknown }} Job
  * @typedef {{ root: string, file: string, core: boolean, modules: Set<string>,
  *   config: Record<string, unknown>, tracker: () => string | null }} Host
  */
-
-/**
- * The registry entry a job was built from. Every job is, so a miss is a bug.
- *
- * @param {string} id
- * @returns {RepoCheck}
- */
-function entryOf(id) {
-	const entry = REPO_CHECKS.find((e) => e.id === id);
-	if (!entry) throw new Error(`no registry entry "${id}"`);
-	return entry;
-}
 
 /**
  * A key's first field, the finding tag `settled` names.
@@ -415,14 +407,6 @@ const readLastStarts = (file) =>
 	readJsonObject(file, `windows restart at ${FIRST_SINCE_DAYS} days`) ?? {};
 
 /**
- * What one reading carries from the last: each `since` entry's last start and
- * each `rescan` entry's issue numbers, by id, and this reading's own start.
- *
- * @typedef {{ lastStarts: Record<string, unknown>,
- *   rescans: Record<string, unknown>, startMs: number }} Kept
- */
-
-/**
  * Each `rescan` entry's issue numbers from its last completed reading, by id.
  *
  * @param {string} file
@@ -430,58 +414,6 @@ const readLastStarts = (file) =>
  */
 const readRescans = (file) =>
 	readJsonObject(file, "nothing is re-scanned") ?? {};
-
-/**
- * The issue numbers a job's keys name: the `#N` field of each.
- *
- * @param {Job} job
- * @returns {number[]}
- */
-const issuesOf = (job) =>
-	[
-		...new Set(
-			keysOf(job).flatMap((k) => {
-				const m = /(?:^|\t)#(\d+)(?:\t|$)/.exec(k);
-				return m ? [Number(m[1])] : [];
-			}),
-		),
-	].sort((a, b) => a - b);
-
-/**
- * The window and re-scan arguments an entry takes at this reading.
- *
- * @param {RepoCheck} entry
- * @param {Kept} kept
- * @returns {string[]}
- */
-function carriedArgs(entry, { lastStarts, rescans, startMs }) {
-	const out = entry.since
-		? ["--since", String(sinceDays(lastStarts[entry.id], startMs))]
-		: [];
-	/* Issue numbers only: the check refuses anything else, and a BROKEN
-	 * reading never rewrites the list that broke it. */
-	const kept = entry.rescan ? rescans[entry.id] : undefined;
-	const issues = Array.isArray(kept)
-		? kept.filter((n) => Number.isInteger(n) && Number(n) > 0)
-		: [];
-	if (issues.length > 0) out.push("--rescan", issues.join(","));
-	return out;
-}
-
-/**
- * The `--since` days for a reading starting at `startMs`: whole days since
- * `last`, rounded up, plus spec #1510's one of overlap. Rounding up alone
- * would not do: the check takes its cutoff from its own clock, up to the
- * run's 30-minute ceiling after `startMs`.
- *
- * @param {unknown} last
- * @param {number} startMs
- */
-function sinceDays(last, startMs) {
-	const t = typeof last === "string" ? Date.parse(last) : Number.NaN;
-	if (Number.isNaN(t)) return FIRST_SINCE_DAYS;
-	return Math.max(0, Math.ceil((startMs - t) / DAY_MS)) + 1;
-}
 
 /**
  * Every entry in order, gated, launched or left MISSING.
@@ -524,32 +456,15 @@ function runAll(host, kept) {
 }
 
 /**
- * Move each `since` entry that completed to this reading's start, and each
- * `rescan` entry that completed to this reading's issues.
+ * Write what this reading leaves for the next, beside the stamp.
  *
  * @param {{ starts: string, rescans: string }} files
  * @param {Kept} kept
  * @param {Job[]} jobs
  */
-function writeCarried(files, { lastStarts, rescans, startMs }, jobs) {
-	/**
-	 * @param {"since" | "rescan"} field
-	 * @param {string} file
-	 * @param {Record<string, unknown>} last
-	 * @param {(j: Job) => unknown} carried
-	 */
-	const carry = (field, file, last, carried) => {
-		const completed = jobs.filter(
-			(j) => isCompleted(j.outcome) && entryOf(j.job)[field] === true,
-		);
-		if (completed.length === 0) return;
-		const next = { ...last };
-		for (const j of completed) next[j.job] = carried(j);
-		writeJson(file, next);
-	};
-	const start = new Date(startMs).toISOString();
-	carry("since", files.starts, lastStarts, () => start);
-	carry("rescan", files.rescans, rescans, issuesOf);
+function writeCarried(files, kept, jobs) {
+	for (const [name, value] of carriedNext(jobs, kept))
+		writeJson(files[name], value);
 }
 
 /**

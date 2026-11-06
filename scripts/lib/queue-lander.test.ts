@@ -84,6 +84,8 @@ const freshDisk = () => ({
 	/** Each ticket's state; the filed ones open. */
 	tickets: new Map<number, "open" | "closed">(),
 	filed: [] as Drop[],
+	/** Each fix ticket by the `<name>@<sha>` its title names. */
+	titled: new Map<string, number>(),
 	/** Each base-red filing, as `<main> <files>`. */
 	baseRed: [] as string[],
 });
@@ -116,6 +118,10 @@ interface Options {
 	refuse?: (sha: string) => string | undefined;
 	/** Throws in place of filing a fix ticket while it returns an error. */
 	fileFault?: () => Error | undefined;
+	/** Throws in place of the fix ticket search, while it returns an error. */
+	findFault?: () => Error | undefined;
+	/** The shas `main` holds, beyond `main` itself. */
+	onMain?: readonly string[];
 	acquired?: boolean;
 	/** The run's clock, in ms; NOW where absent. */
 	now?: number;
@@ -203,6 +209,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				remote.refs.delete(name);
 				return true;
 			},
+			isAncestor: (sha, of) => sha === of || (o.onMain ?? []).includes(sha),
 			createRef: (branch, sha) => {
 				call("createRef");
 				const held = remote.dropped.get(branch);
@@ -261,7 +268,13 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				disk.filed.push(d);
 				const n = 100 + disk.tickets.size;
 				disk.tickets.set(n, "open");
+				disk.titled.set(`${d.name}@${d.sha}`, n);
 				return `Filed #${n}: https://x/${n}`;
+			},
+			findDropTicket: (name, sha) => {
+				const err = o.findFault?.();
+				if (err) throw err;
+				return disk.titled.get(`${name}@${sha}`) ?? null;
 			},
 			fileBaseRed: (sha, files) => {
 				disk.baseRed.push(`${sha} ${files.join(",")}`);
@@ -1123,6 +1136,108 @@ describe("the reap", () => {
 			"exit",
 		]);
 		expect(remote.dropped.size).toBe(0);
+	});
+});
+
+describe("a dropped ref the drop record lost (#4498)", () => {
+	it("gets its entry back with the ticket titled for it, and is reaped once that ticket closes", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.titled.set("a@a1", 7);
+
+		const first = await land(remote, disk);
+
+		expect(kinds(first.actions)).toEqual(["adopt-dropped-ref", "exit"]);
+		expect(disk.drops).toEqual([
+			{
+				name: "a",
+				sha: "a1",
+				ref: "dropped/a",
+				onto: "m0",
+				cause: { kind: "unrecorded", name: "a" },
+				ticket: 7,
+				at: NOW,
+			},
+		]);
+		expect(remote.dropped.has("dropped/a")).toBe(true);
+
+		disk.tickets.set(7, "closed");
+		const second = await land(remote, disk);
+
+		expect(kinds(second.actions)).toEqual(["delete-dropped-ref", "exit"]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.filed).toEqual([]);
+	});
+
+	it("reaps it the same run where its ticket is already closed", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.tickets.set(7, "closed");
+		disk.titled.set("a@a1", 7);
+
+		const { actions } = await land(remote, disk);
+
+		expect(kinds(actions)).toEqual([
+			"adopt-dropped-ref",
+			"delete-dropped-ref",
+			"exit",
+		]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.drops.map((d) => [d.ref, d.ticket, d.reapedAt])).toEqual([
+			["dropped/a", 7, NOW],
+		]);
+	});
+
+	it("files a ticket for one the tracker holds none for, once across reruns that lose the record again", async () => {
+		const sha = "b".repeat(40);
+		const ref = `dropped/a-${sha.slice(0, 9)}`;
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1", [ref]: sha });
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.titled.set("a@a1", 7);
+
+		await land(remote, disk);
+		disk.drops = [];
+		await land(remote, disk);
+
+		expect(disk.filed.map((d) => [d.name, d.sha, d.ref, d.cause])).toEqual([
+			["a", sha, ref, { kind: "unrecorded", name: "a" }],
+		]);
+		expect(disk.drops.map((d) => [d.ref, d.ticket])).toEqual([
+			["dropped/a", 7],
+			[ref, 100 + 1],
+		]);
+	});
+
+	it("deletes one with no ticket whose sha main already holds, filing none", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+
+		const { end, actions } = await land(remote, disk, { onMain: ["a1"] });
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).toEqual(["adopt-dropped-ref", "exit"]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.drops).toEqual([]);
+		expect(disk.filed).toEqual([]);
+	});
+
+	it("files nothing where the tracker cannot be searched, leaving the ref for the next run", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+
+		const { end, actions, said } = await land(remote, disk, {
+			findFault: () => new Error("gh: search failed"),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).toEqual(["adopt-dropped-ref", "exit"]);
+		expect(said).toEqual([
+			"fix ticket for dropped/a not searched, left for the next run: gh: search failed",
+		]);
+		expect(disk.drops).toEqual([]);
+		expect(disk.filed).toEqual([]);
 	});
 });
 
