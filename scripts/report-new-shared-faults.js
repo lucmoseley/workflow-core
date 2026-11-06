@@ -39,6 +39,7 @@ const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
+const { pidAlive } = require("./lib/arbiter-proc.js");
 const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
@@ -142,16 +143,6 @@ function parseLeftover(/** @type {string} */ base) {
  * its pid now belongs to. The whole script runs in seconds, so no live run can
  * reach it. */
 const STALE_MS = 24 * 60 * 60 * 1000;
-
-function pidAlive(/** @type {number} */ pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (e) {
-		// EPERM is a live process owned by another user; ESRCH is a gone one.
-		return caught(e).code === "EPERM";
-	}
-}
 
 /** True where the run that made this leftover is gone. */
 function isStale(
