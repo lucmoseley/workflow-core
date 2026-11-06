@@ -15,8 +15,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { stubGhScript } from "./lib/gh-stub";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
@@ -30,6 +30,51 @@ const FLOOR = "2026-10-14";
 const NOW = "2026-11-20T09:00:00Z";
 const OWN = "o/wfc";
 const CORPUS = [OWN, "o/fleet", "o/manta", "o/books"];
+
+/* The gh stub, served once per file (#2877): each call reads its fixture's
+ * DATA_FILE, under the root GH_STUB_DIR names. */
+const DATA_FILE = "data.json";
+const ARGV_LOG = "gh-argv.log";
+const HANDLER = [
+	"const fs = require('node:fs');",
+	"const path = require('node:path');",
+	"const a = argv;",
+	`fs.appendFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(ARGV_LOG)}), JSON.stringify(a) + '\\n');`,
+	`const d = JSON.parse(fs.readFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(DATA_FILE)}), 'utf8'));`,
+	"const field = (k) => a.find((x) => x.startsWith(k + '='))?.slice(k.length + 1);",
+	"const print = (v) => out(JSON.stringify(v));",
+	"if (a[0] === 'api' && a[1] === 'graphql') {",
+	"  const q = field('q');",
+	"  const repo = /repo:(\\S+)/.exec(q)[1];",
+	"  const [, from, to] = /updated:(\\S+)\\.\\.(\\S+)/.exec(q);",
+	"  const days = (Date.parse(to) - Date.parse(from)) / 86400000;",
+	"  const search = (s) => print({ data: { search: s } });",
+	"  if (d.wideDays !== null && days > d.wideDays) search({ issueCount: 1001, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] });",
+	"  else {",
+	"    const all = (d.hits[repo] ?? []).filter((h) => h.updated >= from && h.updated <= to);",
+	"    const start = Number(field('after') ?? 0);",
+	"    const nodes = all.slice(start, start + 100).map((h) => ({ number: h.number, comments: { totalCount: h.comments.length, nodes: h.comments.slice(0, 100).map((body) => ({ body, createdAt: h.updated + 'T12:00:00Z' })) } }));",
+	"    search({ issueCount: all.length + (d.short ? 1 : 0), pageInfo: { hasNextPage: start + 100 < all.length, endCursor: String(start + 100) }, nodes });",
+	"  }",
+	"} else if (a[0] === 'api' && a[1].startsWith('search/commits?')) {",
+	"  if (d.commitsFail) { err('HTTP 502: Bad Gateway\\n'); exit(1); }",
+	"  const repo = / repo:(\\S+)/.exec(new URL(a[1], 'https://x/').searchParams.get('q'))[1];",
+	"  const items = (d.commits[repo] ?? []).map(({ sha, message }) => ({ sha, commit: { message } }));",
+	"  print([{ total_count: items.length + (d.commitsShort ? 1 : 0), items }]);",
+	"} else if (a[0] === 'api') {",
+	"  const [, repo, n] = /^repos\\/(.+)\\/issues\\/(\\d+)\\/comments$/.exec(a[1]);",
+	"  const hit = d.hits[repo].find((h) => h.number === Number(n));",
+	"  print([hit.comments.map((body) => ({ body, created_at: hit.updated + 'T12:00:00Z' }))]);",
+	"} else if (a[1] === 'list') print(d.issues);",
+	"else if (a[1] === 'view') out(fs.readFileSync(d.bodyFile, 'utf8'));",
+	"else if (a[1] === 'create' && d.createFails) { err('HTTP 403: Resource not accessible\\n'); exit(1); }",
+	"else if (a[1] === 'create') out('https://github.com/o/fleet/issues/999\\n');",
+].join("\n");
+let server: GhStubServer;
+beforeAll(async () => {
+	server = await serveGhStub(HANDLER);
+});
+afterAll(() => server.close());
 
 const temps: string[] = [];
 afterEach(() => {
@@ -91,7 +136,8 @@ function fixture(opts: {
 			corpus: CORPUS,
 		}),
 	);
-	const data = path.join(root, "data.json");
+	const issueBody = fakeIssueBody(root, opts.body);
+	const data = path.join(root, DATA_FILE);
 	fs.writeFileSync(
 		data,
 		JSON.stringify({
@@ -102,6 +148,8 @@ function fixture(opts: {
 			commits: opts.commits ?? {},
 			commitsFail: opts.commitsFail ?? false,
 			commitsShort: opts.commitsShort ?? false,
+			createFails: opts.createFails ?? false,
+			bodyFile: issueBody.bodyFile,
 		}),
 	);
 	const writeData = (fields: object) =>
@@ -112,47 +160,8 @@ function fixture(opts: {
 				...fields,
 			}),
 		);
-	const issueBody = fakeIssueBody(root, opts.body);
-	const argvLog = path.join(root, "gh-argv.log");
-	const { gh } = stubGhScript(
-		root,
-		[
-			"#!/usr/bin/env node",
-			"const fs = require('node:fs');",
-			"const a = process.argv.slice(2);",
-			`fs.appendFileSync(${JSON.stringify(argvLog)}, JSON.stringify(a) + '\\n');`,
-			`const d = JSON.parse(fs.readFileSync(${JSON.stringify(data)}, 'utf8'));`,
-			"const field = (k) => a.find((x) => x.startsWith(k + '='))?.slice(k.length + 1);",
-			"const out = (v) => process.stdout.write(JSON.stringify(v));",
-			"if (a[0] === 'api' && a[1] === 'graphql') {",
-			"  const q = field('q');",
-			"  const repo = /repo:(\\S+)/.exec(q)[1];",
-			"  const [, from, to] = /updated:(\\S+)\\.\\.(\\S+)/.exec(q);",
-			"  const days = (Date.parse(to) - Date.parse(from)) / 86400000;",
-			"  const search = (s) => out({ data: { search: s } });",
-			"  if (d.wideDays !== null && days > d.wideDays) search({ issueCount: 1001, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] });",
-			"  else {",
-			"    const all = (d.hits[repo] ?? []).filter((h) => h.updated >= from && h.updated <= to);",
-			"    const start = Number(field('after') ?? 0);",
-			"    const nodes = all.slice(start, start + 100).map((h) => ({ number: h.number, comments: { totalCount: h.comments.length, nodes: h.comments.slice(0, 100).map((body) => ({ body, createdAt: h.updated + 'T12:00:00Z' })) } }));",
-			"    search({ issueCount: all.length + (d.short ? 1 : 0), pageInfo: { hasNextPage: start + 100 < all.length, endCursor: String(start + 100) }, nodes });",
-			"  }",
-			"} else if (a[0] === 'api' && a[1].startsWith('search/commits?')) {",
-			"  if (d.commitsFail) { process.stderr.write('HTTP 502: Bad Gateway\\n'); process.exit(1); }",
-			"  const repo = / repo:(\\S+)/.exec(new URL(a[1], 'https://x/').searchParams.get('q'))[1];",
-			"  const items = (d.commits[repo] ?? []).map(({ sha, message }) => ({ sha, commit: { message } }));",
-			"  out([{ total_count: items.length + (d.commitsShort ? 1 : 0), items }]);",
-			"} else if (a[0] === 'api') {",
-			"  const [, repo, n] = /^repos\\/(.+)\\/issues\\/(\\d+)\\/comments$/.exec(a[1]);",
-			"  const hit = d.hits[repo].find((h) => h.number === Number(n));",
-			"  out([hit.comments.map((body) => ({ body, created_at: hit.updated + 'T12:00:00Z' }))]);",
-			"} else if (a[1] === 'list') out(d.issues);",
-			`else if (a[1] === 'view') process.stdout.write(fs.readFileSync(${JSON.stringify(issueBody.bodyFile)}, 'utf8'));`,
-			opts.createFails
-				? "else if (a[1] === 'create') { process.stderr.write('HTTP 403: Resource not accessible\\n'); process.exit(1); }"
-				: "else if (a[1] === 'create') process.stdout.write('https://github.com/o/fleet/issues/999\\n');",
-		].join("\n"),
-	);
+	const argvLog = path.join(root, ARGV_LOG);
+	const { gh } = stubGhScript(root, server.script);
 	return {
 		root,
 		gh,
@@ -180,6 +189,7 @@ function run(fx: ReturnType<typeof fixture>, env: Record<string, string> = {}) {
 		env: {
 			...process.env,
 			WFC_GH: fx.gh,
+			GH_STUB_DIR: fx.root,
 			WFC_ISSUE_BODY: fx.issueBody.script,
 			WFC_NOW: NOW,
 			HOME: fx.root,

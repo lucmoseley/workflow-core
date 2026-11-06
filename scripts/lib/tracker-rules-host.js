@@ -4,14 +4,10 @@
  * the Blocked-comment row's read of what the comment opens with.
  */
 
-const fs = require("node:fs");
+const { readBodyFile } = require("./body-file.js");
 
 function buildHostPorts() {
-	return {
-		/** @param {string} p @returns {string | undefined} */
-		readFile: (p) =>
-			fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined,
-	};
+	return { readFile: readBodyFile };
 }
 
 module.exports = { buildHostPorts };

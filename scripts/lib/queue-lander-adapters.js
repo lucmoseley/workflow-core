@@ -14,13 +14,15 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
-const { execGit, gitCommonDirOrThrow } = require("./git.js");
+const { execGit, gitCommonDirOrThrow, spawnGitSync } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
+const { PushRefused } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
+	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
@@ -62,7 +64,8 @@ const PHASES = [
 	"landed",
 ];
 /* git push's words for a ref the remote itself refused, as a ruleset or a
- * protected branch does: pushed again, it is refused again. */
+ * protected branch does: pushed again, it is refused again — save where the
+ * refusal is the remote's own fault, which lib/network-fault.js names. */
 const REMOTE_REJECTED = /^ ! \[remote rejected\].*/m;
 /* Git's words for a loose object a crash left empty or torn, naming its file
  * by its fan-out directory and name. */
@@ -82,6 +85,8 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").QueueRef} QueueRef
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
  * @typedef {import("./queue-lander.js").BatchRecord} BatchRecord
+ * @typedef {import("./queue-lander.js").BaseVerdict} BaseVerdict
+ * @typedef {import("./queue-lander.js").RefusedRecord} RefusedRecord
  * @typedef {import("./queue-lander.js").Drop} Drop
  * @typedef {import("./queue-lander.js").DropRecord} DropRecord
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
@@ -195,10 +200,15 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				);
 				return { main: heads.get(mainRef) ?? null, queue, dropped };
 			}),
-		mergeMembers: (onto, members) =>
+		mergeMembers: (onto, members, fresh = false) =>
 			repairing(() => {
 				const [lone] = members;
-				if (members.length === 1 && lone && isAncestor(root, onto, lone.sha))
+				if (
+					!fresh &&
+					members.length === 1 &&
+					lone &&
+					isAncestor(root, onto, lone.sha)
+				)
 					return { kind: "merged", sha: lone.sha };
 				return withThrowawayTree(
 					root,
@@ -240,9 +250,21 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				return null;
 			} catch (err) {
 				const refused = REMOTE_REJECTED.exec(String(caught(err).stderr ?? ""));
-				if (refused === null) throw err;
+				if (refused === null || !(err instanceof PushRefused)) throw err;
 				return refused[0].trim();
 			}
+		},
+		isAncestor(sha, of) {
+			/* --is-ancestor answers through its exit code alone: 0 on, 1 not. */
+			const r = spawnGitSync(["merge-base", "--is-ancestor", sha, of], {
+				cwd: root,
+				stdio: "ignore",
+				timeout: LANDER_GIT_TIMEOUT_MS,
+			});
+			if (r.status === 0 || r.status === 1) return r.status === 0;
+			throw new Error(
+				`git merge-base --is-ancestor ${short(sha)} ${short(of)} exited ${r.status ?? r.signal}`,
+			);
 		},
 		deleteRef(branch, sha) {
 			const ref = `refs/heads/${branch}`;
@@ -296,7 +318,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				: {
 						kind: "refused",
 						name: m.name,
-						reason: parseRefusal(parseErrorText(err)),
+						reason: parseRefusalTail(parseErrorText(err)),
 					};
 		}
 	}
@@ -366,6 +388,30 @@ function verdictLedger(file) {
 	};
 }
 
+/**
+ * The refused record: one JSON line per sha the remote refused on `main`,
+ * with its refusal.
+ * @param {string} file
+ * @returns {RefusedRecord}
+ */
+function refusedRecord(file) {
+	return {
+		refusalOf(sha) {
+			const rows = readJsonl(file)?.rows ?? [];
+			const row = rows.find(
+				(r) => r.sha === sha && typeof r.reason === "string",
+			);
+			return row ? String(row.reason) : null;
+		},
+		add(sha, reason) {
+			fs.appendFileSync(
+				file,
+				`${JSON.stringify({ at: new Date(now()).toISOString(), sha, reason })}\n`,
+			);
+		},
+	};
+}
+
 /** @param {unknown} v @returns {Record<string, unknown>|null} */
 const objectOf = (v) =>
 	v !== null && typeof v === "object"
@@ -418,6 +464,16 @@ const isHold = (h) => {
 	);
 };
 
+/** @param {unknown} x @returns {x is BaseVerdict} */
+const isBaseVerdict = (x) => {
+	const o = objectOf(x);
+	return (
+		typeof o?.sha === "string" &&
+		isStringList(o.files) &&
+		parseVerdict(o.verdict) !== null
+	);
+};
+
 /** @param {unknown} m @returns {m is Member} */
 const isMember = (m) => {
 	const o = /** @type {Record<string, unknown>|null} */ (
@@ -434,7 +490,8 @@ const isMember = (m) => {
  * Whether a batch record's red-path fields are each well formed.
  * @param {Record<string, unknown>} b
  * @returns {b is Record<string, unknown>
- *   & Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold">}
+ *   & Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold"
+ *   | "bases">}
  */
 const hasRedPath = (b) =>
 	isStringList(b.ahead) &&
@@ -442,7 +499,9 @@ const hasRedPath = (b) =>
 	Array.isArray(b.isolated) &&
 	b.isolated.every(isIsolated) &&
 	(b.serial === null || isSerial(b.serial)) &&
-	(b.hold === null || isHold(b.hold));
+	(b.hold === null || isHold(b.hold)) &&
+	Array.isArray(b.bases) &&
+	b.bases.every(isBaseVerdict);
 
 /**
  * A JSON record file: absent, torn where it will not parse, or its value.
@@ -498,6 +557,11 @@ function parseBatch(parsed) {
 		isolated: b.isolated,
 		serial: b.serial,
 		hold: b.hold,
+		bases: b.bases.map((x) => ({
+			sha: x.sha,
+			files: x.files,
+			verdict: /** @type {BaseVerdict["verdict"]} */ (parseVerdict(x.verdict)),
+		})),
 	};
 }
 
@@ -542,6 +606,8 @@ const isCause = (u) => {
 			return typeof o.reason === "string";
 		case "red":
 			return isStringList(o.files) && typeof o.iso === "string";
+		case "unrecorded":
+			return true;
 		case "collision":
 			return (
 				isStringList(o.files) &&
@@ -587,7 +653,8 @@ function readDropFile(file) {
 /**
  * The drop record: every dropped ref, with its fix ticket, until the queue
  * log's retention after its reap. A row that is not a drop is skipped; an absent or torn record
- * reads as none, and no run then reaps the refs it named.
+ * reads as none, and the lander writes back the entry of each dropped ref it
+ * named from the tracker.
  * @param {string} file
  * @returns {DropRecord}
  */
@@ -623,5 +690,6 @@ module.exports = {
 	queueLogger,
 	readBatchFile,
 	readDropFile,
+	refusedRecord,
 	verdictLedger,
 };

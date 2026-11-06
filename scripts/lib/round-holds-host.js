@@ -4,7 +4,7 @@
  * only for a round, as this core sits on every `gh` call.
  */
 
-const fs = require("node:fs");
+const { readBodyFile } = require("./body-file.js");
 const os = require("node:os");
 const { isMarkersWritable } = require("./refuse-once.js");
 
@@ -15,8 +15,7 @@ const { isMarkersWritable } = require("./refuse-once.js");
 function buildHostPorts(root) {
 	return {
 		home: os.homedir(),
-		readFile: (p) =>
-			fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined,
+		readFile: readBodyFile,
 		isLatchWritable: () => isMarkersWritable(root),
 		readHoldLines: () => {
 			const holds = require("./repo-holds.js");

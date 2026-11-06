@@ -5,7 +5,9 @@
  *
  * CUT fetches `main`, adds a worktree detached at `origin/main` under
  * `.claude/worktrees/<session-name>/` of the main checkout, and attaches its
- * dependencies.
+ * dependencies. A session that cuts one names itself its holder, in
+ * `HOLDER_RECORD` in the worktree's git directory, so a tree it hands to an
+ * in-process subagent, where no process's cwd lies, stands while it lives.
  *
  * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
  * worktree cut for it where the repository has the `landing` module, else the
@@ -52,7 +54,8 @@
  * merge nor the push carries a timeout of its own: every checker their hooks
  * run is bounded already (#4187). A push refused as no fast-forward is filed
  * as a `land` row in the divergence log (#4446), the push running here where
- * no Bash hook sees it.
+ * no Bash hook sees it. One failing on a network or remote fault is retried
+ * with backoff (#4497).
  *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
@@ -68,7 +71,8 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { pidAlive } = require("./arbiter-proc.js");
+const { readLiveOrLog, readSessionEntries } = require("./arbiter-core.js");
+const { holderAlive, pidAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
 const { readProcCwd } = require("./claude-sessions.js");
 const { deref } = require("./deref.js");
@@ -83,6 +87,11 @@ const { runStartLander } = require("./lander-start.js");
 const { MOVED_LINE } = require("./land-refusal.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
+const {
+	isPushFaultText,
+	REMOTE_TRIES,
+	remoteBackoffMs,
+} = require("./network-fault.js");
 const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
@@ -482,7 +491,8 @@ function attach(cwd, { noBuild = false } = {}) {
  * is removed.
  * @param {string} cwd anywhere in the repository
  * @param {string} name the session's name
- * @param {{ noBuild?: boolean }} [how]
+ * @param {{ noBuild?: boolean, holder?: string | null }} [how] `holder` the
+ *   id of the session the worktree is held for
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
 function cut(cwd, name, how = {}) {
@@ -501,20 +511,80 @@ function cut(cwd, name, how = {}) {
 }
 
 /**
- * Add a worktree at `dir` detached at `rev`, its dependencies attached; one
+ * The git directory of the worktree at `dir`.
+ * @param {string} dir
+ */
+function adminDirOf(dir) {
+	return git(["rev-parse", "--absolute-git-dir"], dir);
+}
+
+/**
+ * Name session `sessionId` the holder of the worktree whose git directory is
+ * `admin`, with the pid and start token of its live registry entry where one
+ * stands: a session id its process later trades for another, as `/clear`
+ * does, still holds through that process.
+ * @param {string} admin
+ * @param {string} sessionId
+ */
+function writeHolder(admin, sessionId) {
+	const own = (readSessionEntries("own") ?? []).find(
+		({ entry }) =>
+			entry.sessionId === sessionId &&
+			entry.pid &&
+			entry.procStart &&
+			readProcStartOf(entry.pid) === String(entry.procStart),
+	)?.entry;
+	fs.writeFileSync(
+		path.join(admin, HOLDER_RECORD),
+		`${JSON.stringify({ sessionId, pid: own?.pid ?? null, procStart: own?.procStart ?? null })}\n`,
+	);
+}
+
+/**
+ * Whether the worktree whose git directory is `admin` names a holder session
+ * `live` holds or whose recorded process still runs, or names one where `live`
+ * is null: an unread registry proves no session dead (#4496). Residual: while
+ * the registry stays unreadable, every held tree stands on every pass, the
+ * read failure logged. A record naming no session throws, so its tree stands,
+ * reported as one the pass could not reap.
+ * @param {string} admin
+ * @param {Set<string> | null} live
+ */
+function isHeldByLiveSession(admin, live) {
+	const file = path.join(admin, HOLDER_RECORD);
+	let record;
+	try {
+		record = JSON.parse(fs.readFileSync(file, "utf8"));
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return false;
+		throw new Error(`${file} will not parse: ${caught(err).message}`, {
+			cause: err,
+		});
+	}
+	if (typeof record?.sessionId !== "string")
+		throw new Error(`${file} names no holder session`);
+	return live === null || live.has(record.sessionId) || holderAlive(record);
+}
+
+/**
+ * Add a worktree at `dir` detached at `rev`, its holder named before its
+ * dependencies are attached, since a cold build can outlast `YOUNG_MS`; one
  * whose attach fails is removed.
  * @param {string} root the main checkout
  * @param {string} dir
  * @param {string} rev
- * @param {{ noBuild?: boolean }} [how] passed to the attach
+ * @param {{ noBuild?: boolean, holder?: string | null }} [how] `noBuild`
+ *   passed to the attach
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
 function addWorktree(root, dir, rev, how = {}) {
+	const { holder, ...build } = how;
 	fs.mkdirSync(path.dirname(dir), { recursive: true });
 	git(["worktree", "add", "--quiet", "--detach", dir, rev], root);
 	try {
+		if (holder) writeHolder(adminDirOf(dir), holder);
 		const head = git(["rev-parse", "HEAD"], dir);
-		const { store, built } = attach(dir, how);
+		const { store, built } = attach(dir, build);
 		return { dir, head, store, built };
 	} catch (err) {
 		try {
@@ -666,13 +736,17 @@ function land(cwd) {
 	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
 	if (merged) mergeMain(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
-	const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
+	const push = pushQueueRef(dir, queue);
 	if (!push.ok && MOVED.test(push.output)) {
 		recordMoved(root, dir, push.output);
 		throw new CheckoutError(
 			`${MOVED_LINE} — merge \`${REMOTE}/${queue}\` into HEAD, then land again`,
 		);
 	}
+	if (push.faulted)
+		throw new CheckoutError(
+			`the push to ${queue} met a remote fault on all ${REMOTE_TRIES} tries, its output above — nothing in the worktree causes it, so land again later`,
+		);
 	if (!push.ok)
 		throw new CheckoutError(
 			`the push to ${queue} was refused, its output above — fix the finding, then land again`,
@@ -685,6 +759,28 @@ function land(cwd) {
 		pushed: true,
 		lander: startLanderFor(root, dir),
 	};
+}
+
+/**
+ * The push of `HEAD` to the queue ref, retried with lib/network-fault.js's
+ * backoff while git's own words name a fault it names, GitHub's own among
+ * them; `faulted` where the last try failed so.
+ * @param {string} dir
+ * @param {string} queue
+ * @returns {{ ok: boolean, output: string, faulted: boolean }}
+ */
+function pushQueueRef(dir, queue) {
+	for (let attempt = 1; ; attempt++) {
+		const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
+		const faulted = !push.ok && isPushFaultText(push.output);
+		if (!faulted || attempt >= REMOTE_TRIES) return { ...push, faulted };
+		const ms = remoteBackoffMs(attempt);
+		writeFd(
+			2,
+			`session checkout: the push to ${queue} met a remote fault, retrying in ${Math.round(ms / 1000)} s\n`,
+		);
+		sleepSync(ms);
+	}
 }
 
 /**
@@ -810,8 +906,8 @@ function warm(cwd) {
  *   - a session worktree whose every `HEAD` commit is on a freshly fetched
  *     `origin/main` or its own queue ref, whose tree is clean, and whose session is neither live
  *     (a process's cwd lies in it), resumable (a job record whose cwd lies in
- *     it is in any state but `done` or `failed`) nor finished under `KEEP_MS`
- *     ago is removed, its path, `HEAD` sha, and each job's id and seat whose
+ *     it is in any state but `done` or `failed`), held (its `HOLDER_RECORD`
+ *     names a live session) nor finished under `KEEP_MS` ago is removed, its path, `HEAD` sha, and each job's id and seat whose
  *     cwd lies in it appended first to `REAPED_RECORD` in git's common
  *     directory;
  *   - one dirty or unlanded, of a dead and non-resumable session, is reported
@@ -836,6 +932,7 @@ const YOUNG_MS = 5 * 60_000;
  * tree. */
 const KEEP_MS = 3 * 24 * 60 * 60_000;
 const REAPED_RECORD = "wfc-reaped-worktrees.jsonl";
+const HOLDER_RECORD = "wfc-holder.json";
 const ISOLATED = /^isolated-/;
 const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
@@ -928,10 +1025,7 @@ function readWorktreeState(dir, now, root) {
 		["log", "-1", "--format=%ct %h %s"],
 		dir,
 	).split(" ");
-	const index = path.join(
-		git(["rev-parse", "--absolute-git-dir"], dir),
-		"index",
-	);
+	const index = path.join(adminDirOf(dir), "index");
 	const written = fs.statSync(index, { throwIfNoEntry: false })?.mtimeMs ?? 0;
 	return {
 		dir,
@@ -968,7 +1062,7 @@ function readWorktreesOrThrow(root) {
 function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 	const registered = readWorktreesOrThrow(root);
 	const jobs = readJobCwds();
-	const held = [
+	const occupied = [
 		...cwds,
 		...jobs
 			.filter(
@@ -980,6 +1074,7 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 			)
 			.map((j) => j.cwd),
 	];
+	const live = readLiveOrLog("session-checkout reap");
 	/** @type {string[]} */
 	const standing = [];
 	for (const dir of registered) {
@@ -988,14 +1083,17 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 			ISOLATED.test(path.basename(dir)) ||
 			!fs.existsSync(dir) ||
 			ageOf(dir, now) < YOUNG_MS ||
-			held.some((cwd) => worktreeHolding(cwd, [dir]))
+			occupied.some((cwd) => worktreeHolding(cwd, [dir]))
 		) {
 			standing.push(dir);
 			continue;
 		}
 		try {
-			const admin = git(["rev-parse", "--absolute-git-dir"], dir);
-			if (fs.existsSync(path.join(admin, "locked"))) {
+			const admin = adminDirOf(dir);
+			if (
+				fs.existsSync(path.join(admin, "locked")) ||
+				isHeldByLiveSession(admin, live)
+			) {
 				standing.push(dir);
 				continue;
 			}

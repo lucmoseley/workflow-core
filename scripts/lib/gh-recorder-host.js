@@ -8,7 +8,7 @@
  * unwritten.
  */
 
-const fs = require("node:fs");
+const { readBodyFile } = require("./body-file.js");
 const os = require("node:os");
 const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 
@@ -32,8 +32,7 @@ function buildHostPorts({ root, payload }) {
 		root,
 		home: os.homedir(),
 		originUrl: readOriginUrl,
-		readFile: (p) =>
-			fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined,
+		readFile: readBodyFile,
 		claimIssue: (n, sessionId) => {
 			issueClaims.claimIssue(n, { sessionId });
 		},

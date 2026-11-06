@@ -21,6 +21,8 @@ const {
 	landerLock,
 	queueLanderFiles,
 } = require("./lander-files.js");
+const { short } = require("./lander-git.js");
+const { readRunCode, readSupersededFiles } = require("./lander-code.js");
 const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
@@ -29,6 +31,7 @@ const {
 	dropRecord,
 	queueGit,
 	queueLogger,
+	refusedRecord,
 	verdictLedger,
 } = require("./queue-lander-adapters.js");
 const { buildQueueActionLine } = require("./queue-lander.js");
@@ -42,6 +45,9 @@ const { readConfig } = require("./workflow-core-config.js");
  * @property {Admit} [admit] the local tester's suite slot; absent, the
  *   machine's suite gate
  * @property {(line: string) => void} say
+ * @property {RunCode|null} [code] the code this run executes, as the caller
+ *   that relaunches on it read it; absent, read here
+ * @typedef {import("./lander-code.js").RunCode} RunCode
  */
 
 /**
@@ -57,17 +63,31 @@ const configuredTester = (root, admit) =>
 		: localTester({ root, admit });
 
 /**
- * After each move of `main`: the guard code's adoption and a levelling pass.
+ * After each move of `main` to `sha`: the guard code's adoption and a
+ * levelling pass, detached, as an `npm ci` in it may outlast the next
+ * landing. Whether `sha` changed the code this run loaded; a git fault
+ * reading that reads as no, reported.
  * @param {string} root
  * @param {(line: string) => void} say
- * @returns {void}
+ * @param {RunCode|null} code
+ * @param {string} sha
+ * @returns {boolean}
  */
-function afterMainMove(root, say) {
+function afterMainMove(root, say, code, sha) {
 	const adoption = adoptGuardCodeAt(root, { fetch: false });
 	if (adoption) say(adoptionLine(adoption));
 	startLevelling(root, (err) =>
 		say(`levelling not started: ${parseErrorText(err)}`),
 	);
+	if (code === null) return false;
+	try {
+		return readSupersededFiles(root, code, sha).length > 0;
+	} catch (err) {
+		say(
+			`whether ${short(sha)} changes this lander's own code went unread, so it runs on: ${parseErrorText(err)}`,
+		);
+		return false;
+	}
 }
 
 /**
@@ -88,7 +108,10 @@ function trackerOf(root) {
  * @param {LanderWiring} wiring
  * @returns {import("./queue-lander.js").QueueLanderDeps}
  */
-function buildLanderDeps(root, { tester, admit, say }) {
+function buildLanderDeps(
+	root,
+	{ tester, admit, say, code = readRunCode(root) },
+) {
 	const files = queueLanderFiles(root);
 	return {
 		git: queueGit(root),
@@ -98,6 +121,7 @@ function buildLanderDeps(root, { tester, admit, say }) {
 				: commandTester(tester, root),
 		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
+		refused: refusedRecord(files.refused),
 		record: batchRecord(files.batch),
 		drops: dropRecord(files.drops),
 		tracker: trackerOf(root),
@@ -106,7 +130,7 @@ function buildLanderDeps(root, { tester, admit, say }) {
 		beat: heartbeatWriter(files.heartbeat),
 		log: (action) =>
 			say(`${new Date(now()).toISOString()} ${buildQueueActionLine(action)}`),
-		mainMoved: () => afterMainMove(root, say),
+		mainMoved: (sha) => afterMainMove(root, say, code, sha),
 		now,
 		say,
 	};
