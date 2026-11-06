@@ -29,7 +29,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function git(args: string[], at = 0): string {
+const git = (args: string[], at = 0): string => {
 	const date = `@${T0 + at} +0000`;
 	return execFileSync("git", args, {
 		cwd: repo,
@@ -44,16 +44,14 @@ function git(args: string[], at = 0): string {
 			GIT_COMMITTER_EMAIL: "t@t",
 		},
 	}).trim();
-}
+};
 
-function commit(at: number): string {
+const commit = (at: number) =>
 	git(["commit", "-q", "--allow-empty", "-m", `c${at}`], at);
-	return git(["rev-parse", "HEAD"]);
-}
 
 /** A core clone: main's source at day 0, a release rendered from it, and
  * `ahead` more commits on origin/main, the last at `lagDays`. */
-function buildCore({
+const buildCore = ({
 	lagDays,
 	ahead = 3,
 	message,
@@ -61,7 +59,7 @@ function buildCore({
 	lagDays: number;
 	ahead?: number;
 	message?: (source: string) => string;
-}) {
+}) => {
 	git(["init", "-q", "-b", "main"]);
 	fs.mkdirSync(path.join(repo, ".claude-plugin"));
 	fs.writeFileSync(
@@ -89,9 +87,9 @@ function buildCore({
 	git(["tag", "v1.0.0"]);
 	git(["checkout", "-q", "main"]);
 	return source;
-}
+};
 
-function addAdopter(name: string, ref: string | null) {
+const addAdopter = (name: string, ref: string | null) => {
 	const root = path.join(home, name);
 	fs.mkdirSync(path.join(root, ".git"), { recursive: true });
 	fs.mkdirSync(path.join(root, ".claude"));
@@ -109,10 +107,10 @@ function addAdopter(name: string, ref: string | null) {
 		path.join(root, ".claude", "settings.json"),
 		JSON.stringify(settings),
 	);
-}
+};
 
-function run(args: string[] = ["--json"]) {
-	return runInProcess(SCRIPT, args, {
+const run = (args: string[] = ["--json"]) =>
+	runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			GITHUB_ACTIONS: "",
@@ -120,7 +118,6 @@ function run(args: string[] = ["--json"]) {
 			HOME: home,
 		},
 	});
-}
 
 describe("a lag within the threshold", () => {
 	it("is OK, counting commits and days from the tag's source", () => {
@@ -162,25 +159,53 @@ describe("a lag past the threshold", () => {
 });
 
 describe("unread or not applicable", () => {
-	it("warns where the tag names no source", () => {
+	it("warns, exit 0, where the tag names no source, saying the next cut is read", () => {
 		buildCore({ lagDays: 1, message: () => "Release v1.0.0" });
-		const env = JSON.parse(run().stdout);
+		const r = run();
+		expect(r.status).toBe(0);
+		const env = JSON.parse(r.stdout);
 		expect(env.outcome).toBe("WARN");
+		expect(env.findings[0].tag).toBe("LAG-UNREAD");
 		expect(env.findings[0].message).toContain("names no rendered-from source");
+		expect(env.findings[0].message).toContain(
+			"the next release it cuts is read",
+		);
 	});
 
-	it("SKIPs outside workflow-core itself", () => {
+	it("warns, exit 0, where this clone lacks the source, naming the fetch", () => {
+		buildCore({
+			lagDays: 1,
+			message: () => `Release v1.0.0, rendered from ${"a".repeat(40)}`,
+		});
+		const r = run();
+		expect(r.status).toBe(0);
+		const env = JSON.parse(r.stdout);
+		expect(env.outcome).toBe("WARN");
+		expect(env.findings[0].message).toContain("aaaaaaaaa is not in this clone");
+		expect(env.findings[0].message).toContain("`git fetch origin`");
+	});
+
+	it("SKIPs, exit 0, outside workflow-core itself", () => {
 		buildCore({ lagDays: 1 });
 		fs.writeFileSync(
 			path.join(repo, ".claude-plugin", "plugin.json"),
 			JSON.stringify({ name: "other" }),
 		);
-		expect(JSON.parse(run().stdout).outcome).toBe("SKIP");
+		const r = run();
+		expect(r.status).toBe(0);
+		const env = JSON.parse(r.stdout);
+		expect(env.outcome).toBe("SKIP");
+		expect(env.summary).toContain("an adopter cuts no release");
 	});
 
-	it("SKIPs with no origin/main", () => {
+	it("SKIPs, exit 0, with no origin/main, naming the fetch", () => {
 		buildCore({ lagDays: 1 });
 		git(["update-ref", "-d", "refs/remotes/origin/main"]);
-		expect(JSON.parse(run().stdout).outcome).toBe("SKIP");
+		const r = run();
+		expect(r.status).toBe(0);
+		const env = JSON.parse(r.stdout);
+		expect(env.outcome).toBe("SKIP");
+		expect(env.summary).toContain("no origin/main in this clone");
+		expect(env.summary).toContain("`git fetch origin`");
 	});
 });
