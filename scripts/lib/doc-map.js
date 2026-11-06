@@ -25,6 +25,7 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
+const { readMergeHeadLines } = require("./merge-heads.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
 const { brokenError } = require("./outcome-error.js");
 const { siblingTests } = require("./test-kind.js");
@@ -1220,46 +1221,6 @@ function readParentRevs() {
 		return sha;
 	});
 	return ["HEAD", ...new Set(sides)];
-}
-
-/**
- * The non-empty lines of `$GIT_DIR/MERGE_HEAD`, one per side, none where the
- * file is absent. BROKEN where git will not locate the file or it will not
- * read: only ENOENT is absence, so no failed read quietly becomes HEAD alone
- * (#3184).
- * @returns {string[]}
- */
-function readMergeHeadLines() {
-	let file;
-	try {
-		file = String(
-			execGit(["rev-parse", "--git-path", "MERGE_HEAD"], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			}),
-		).trim();
-	} catch (e) {
-		throw brokenError(
-			`git would not locate MERGE_HEAD: ${caught(e).message} — run \`git rev-parse --git-path MERGE_HEAD\` to see git's own error`,
-		);
-	}
-	if (!file)
-		throw brokenError(
-			"git rev-parse --git-path MERGE_HEAD printed no path — run it to see git's own answer",
-		);
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return [];
-		throw brokenError(
-			`could not read MERGE_HEAD at ${file}: ${caught(e).message}`,
-		);
-	}
-	return text
-		.split("\n")
-		.map((l) => l.trim())
-		.filter(Boolean);
 }
 
 /**
