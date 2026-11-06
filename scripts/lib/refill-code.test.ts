@@ -513,6 +513,31 @@ describe("the boot link (#3891)", () => {
 		expect(fs.readdirSync(codeDir)).toEqual([tip]);
 	});
 
+	it("keeps a worktree a live process runs from until it exits, pruning the rest (#4548)", async () => {
+		const held = path.join(codeDir, "held");
+		const idle = path.join(codeDir, "idle");
+		fs.mkdirSync(path.join(held, "scripts"), { recursive: true });
+		fs.mkdirSync(idle, { recursive: true });
+		const lander = path.join(held, "scripts", "queue-lander.js");
+		fs.writeFileSync(lander, "setInterval(() => {}, 1000);\n");
+		// spawn-kept: a lander an older image started, running beside the loop
+		const holder = spawn(process.execPath, [lander, "run"], {
+			stdio: "ignore",
+		});
+		try {
+			await startLoop();
+			await moreTicks(2);
+			expect(fs.existsSync(idle)).toBe(false);
+			expect(fs.existsSync(held)).toBe(true);
+			expect(
+				readLogLines().filter((l) => l.startsWith(`keeping ${held} `)),
+			).toEqual([`keeping ${held} while pid ${holder.pid} runs from it`]);
+		} finally {
+			holder.kill("SIGKILL");
+		}
+		await until(() => !fs.existsSync(held), "the held worktree's removal");
+	});
+
 	it("keeps the worktrees where it will not move, logging why", async () => {
 		const stale = path.join(codeDir, "stale");
 		fs.mkdirSync(stale, { recursive: true });
