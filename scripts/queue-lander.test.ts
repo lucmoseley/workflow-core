@@ -951,30 +951,34 @@ describe("the adapters", () => {
 		const holding = (x: unknown) => ({ line: [], search: x, depth: 1 });
 		pipelineRecord(batch).write({ ...holding(b), search: b });
 
-		expect(verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])).toEqual({
+		expect(
+			verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])?.verdict,
+		).toEqual({
 			kind: "red",
 			files: ["a.ts"],
 		});
-		expect(verdictLedger(verdicts).get("s1", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s1", [])?.verdict).toEqual({
 			kind: "green",
 			run: 7,
 		});
-		expect(verdictLedger(verdicts).get("s3", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s3", [])?.verdict).toEqual({
 			kind: "red",
 			files: ["a.ts"],
 			retried: true,
 		});
-		expect(verdictLedger(verdicts).get("s4", [])).toEqual({
+		expect(verdictLedger(verdicts).get("s4", [])?.verdict).toEqual({
 			kind: "red",
 			files: [],
 			noRun: true,
 		});
+		/* Its time read back, as a no-run red stands only so long (#4572). */
+		expect(verdictLedger(verdicts).get("s4", [])?.at).toBeGreaterThan(0);
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();
-		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)).toEqual({
+		expect(verdictLedger(verdicts).get("s1", ["a.ts"], 2)?.verdict).toEqual({
 			kind: "green",
 		});
-		expect(verdictLedger(verdicts).get("s1", [], 0)).toEqual(noFile);
+		expect(verdictLedger(verdicts).get("s1", [], 0)?.verdict).toEqual(noFile);
 		expect(pipelineRecord(batch).read()).toEqual(holding(b));
 		for (const torn of [
 			{ ...b, phase: "parked" },

@@ -83,6 +83,8 @@ const freshDisk = () => ({
 	/** When each green sha went green, in ms. */
 	greenAt: new Map<string, number>(),
 	verdicts: new Map<string, Verdict>(),
+	/** When each verdict was ledgered, in ms; NOW where absent. */
+	verdictAt: new Map<string, number>(),
 	/** The refused record: each sha `main` refused, with its refusal. */
 	refused: new Map<string, string>(),
 	pipeline: null as Pipeline | null,
@@ -287,10 +289,15 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		verdicts: {
-			get: (sha, files, pass = 1) =>
-				disk.verdicts.get(verdictKey(sha, files, pass)) ?? null,
+			get: (sha, files, pass = 1) => {
+				const key = verdictKey(sha, files, pass);
+				const verdict = disk.verdicts.get(key);
+				return verdict ? { verdict, at: disk.verdictAt.get(key) ?? NOW } : null;
+			},
 			add: (sha, files, v, pass = 1) => {
-				disk.verdicts.set(verdictKey(sha, files, pass), v);
+				const key = verdictKey(sha, files, pass);
+				disk.verdicts.set(key, v);
+				disk.verdictAt.set(key, o.now ?? NOW);
 			},
 		},
 		refused: {
@@ -1882,6 +1889,44 @@ describe("the red path", () => {
 		expect(kinds(actions)).toContain("hold");
 		expect(end.reason).toMatch(/^held: red only where main at m0 is too/);
 		expect(remote.main).toBe("m0");
+	});
+
+	it("retakes a batch held where main fired no run either once the bound passes, with no new ref, and lands it once Actions fires runs again (#4572)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const outage = () => ({ kind: "red", files: [], noRun: true }) as Verdict;
+		const Hour = 60 * 60 * 1000;
+
+		await land(remote, disk, { verdict: outage });
+		const early = await land(remote, disk, {
+			verdict: outage,
+			now: NOW + Hour / 2,
+		});
+		expect(early.asked).toEqual([]);
+		expect(early.end.reason).toMatch(/^held: .*as no run fired at main/);
+
+		const due = await land(remote, disk, { now: NOW + Hour });
+
+		expect(kinds(due.actions)).toContain("take-batch");
+		expect(due.asked).toContain("merge(m0;a1)");
+		expect(dropsOf(due.actions)).toEqual([]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("asks main afresh on retaking a no-run hold, never its outage verdict, dropping a member whose tree alone still fires none (#4572)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const noRun: Verdict = { kind: "red", files: [], noRun: true };
+
+		await land(remote, disk, { verdict: () => noRun });
+		const due = await land(remote, disk, {
+			verdict: (sha) => (sha.includes("a1") ? noRun : Green),
+			now: NOW + 60 * 60 * 1000,
+		});
+
+		expect(due.asked).toContain("m0");
+		expect(kinds(due.actions)).not.toContain("hold");
+		expect(dropsOf(due.actions).map((d) => d.name)).toEqual(["a"]);
 	});
 
 	it("holds a red naming no file whose every job main fails too, filing the base-red ticket for the whole suite", async () => {

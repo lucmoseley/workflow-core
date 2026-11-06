@@ -521,6 +521,12 @@ function parseVerdict(v) {
 	return null;
 }
 
+/**
+ * A ledger row's time in ms, the epoch where it has none readable.
+ * @param {unknown} at
+ */
+const timeOf = (at) => Date.parse(String(at)) || 0;
+
 /** @param {readonly string[]} files */
 const fileKey = (files) => [...files].sort().join("\n");
 
@@ -540,8 +546,8 @@ function verdictLedger(file) {
 			for (const row of rows.toReversed()) {
 				if (row.sha !== sha || !isStringList(row.files)) continue;
 				if (fileKey(row.files) !== key || (row.pass ?? 1) !== pass) continue;
-				const v = parseVerdict(row.verdict);
-				if (v) return v;
+				const verdict = parseVerdict(row.verdict);
+				if (verdict) return { verdict, at: timeOf(row.at) };
 			}
 			return null;
 		},
