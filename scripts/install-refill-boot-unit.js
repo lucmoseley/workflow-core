@@ -27,6 +27,7 @@ const { bootProgram } = require("./lib/refill-code.js");
 const { loopFiles } = require("./lib/refill-files.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { systemctl } = require("./lib/systemd-bins.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "refill-loop-boot.service";
@@ -110,16 +111,16 @@ function install() {
 	fs.writeFileSync(path.join(dir, WATCH_TIMER), readTemplate(WATCH_TIMER));
 
 	const user = os.userInfo().username;
-	const reload = runCommand("systemctl", ["--user", "daemon-reload"]);
+	const reload = runCommand(systemctl(), ["--user", "daemon-reload"]);
 	const enable = reload.error
 		? reload
-		: runCommand("systemctl", ["--user", "enable", UNIT]);
+		: runCommand(systemctl(), ["--user", "enable", UNIT]);
 	const watch = reload.error
 		? reload
-		: runCommand("systemctl", ["--user", "enable", "--now", WATCH_TIMER]);
+		: runCommand(systemctl(), ["--user", "enable", "--now", WATCH_TIMER]);
 	const linger = runCommand("loginctl", ["enable-linger", user]);
-	const enabled = runCommand("systemctl", ["--user", "is-enabled", UNIT]);
-	const watchEnabled = runCommand("systemctl", [
+	const enabled = runCommand(systemctl(), ["--user", "is-enabled", UNIT]);
+	const watchEnabled = runCommand(systemctl(), [
 		"--user",
 		"is-enabled",
 		WATCH_TIMER,

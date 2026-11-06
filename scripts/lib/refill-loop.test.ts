@@ -31,7 +31,6 @@ import {
 	landingRoots,
 	limitHoldsOf,
 	parseControl,
-	parseScope,
 	readActsSoFar,
 	reviewStep,
 	runningOf,
@@ -1634,14 +1633,22 @@ describe("the control file", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
 	});
 
+	const goalOf = (goal: unknown) =>
+		parseControl({
+			noProgressFrom: 5,
+			scope: { mode: "normal", repos: [], goal },
+		})?.scope.goal;
+
 	it("reads a goal as stored, a missing text and setAt defaulting (#3864)", () => {
 		const refs = [{ repo: "a", number: 1 }];
 		const goal = { form: "drain", text: "x", refs, setAt: 9 };
-		expect(parseScope({ mode: "normal", repos: [], goal }).goal).toEqual(goal);
-		expect(
-			parseScope({ mode: "normal", repos: [], goal: { form: "issues", refs } })
-				.goal,
-		).toEqual({ form: "issues", text: "", refs, setAt: 0 });
+		expect(goalOf(goal)).toEqual(goal);
+		expect(goalOf({ form: "issues", refs })).toEqual({
+			form: "issues",
+			text: "",
+			refs,
+			setAt: 0,
+		});
 	});
 
 	it("reads a garbled goal as none, so the loop runs bare (#3864)", () => {
@@ -1656,7 +1663,7 @@ describe("the control file", () => {
 				refs: [{ repo: "a", number: 1 }, { repo: "a" }],
 			},
 		])
-			expect(parseScope({ mode: "normal", repos: [], goal }).goal).toBeNull();
+			expect(goalOf(goal)).toBeNull();
 	});
 
 	it("reads a control with no noProgressFrom as none", () => {
