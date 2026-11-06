@@ -35,7 +35,7 @@ Researched: 2026-10-28
 ## Bunching at a threshold
 
 - A rule that treats values on one side of a cutoff differently (a notch) puts excess mass on the first value that passes and leaves missing mass below the cutoff. Estimate the excess against a counterfactual fitted to the distribution outside the bunching window, with total mass kept equal, not against the share before the rule. Kleven, Waseem, QJE 128(2) 2013 [named expert]; Kleven, "Bunching", Annual Review of Economics 8 (2016) [named expert]
-- Bunching proves a response to the cutoff, but not whether it is real or only a change in what is reported; that needs outcome evidence the reporter does not control. Saez found most EITC bunching among the self-employed, whose income is self-reported. Saez, AEJ: Economic Policy 2(3) 2010 [named expert]; Kleven 2016 [named expert]; Bernasconi et al., lab experiment, 2025 [named expert]
+- Bunching proves a response to the cutoff, but not whether it is real or only a change in what is reported; that needs outcome evidence the reporter does not control. Saez, AEJ: Economic Policy 2(3) 2010 [named expert]; Kleven 2016 [named expert]; Bernasconi et al., lab experiment, 2025 [named expert]
 
 ## Arms and controls
 
