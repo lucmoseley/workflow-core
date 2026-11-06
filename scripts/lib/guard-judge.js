@@ -79,8 +79,6 @@ const { treePorts } = require("./guard-host-ports.js");
  *   of the two its core reads.
  */
 
-const PRECEDENCE = /** @type {const} */ (["deny", "allow"]);
-
 /** What joins two reasons or two contexts, counted against the persist room. */
 const JOIN = "\n\n";
 
@@ -92,17 +90,16 @@ const JOIN = "\n\n";
 function merge(parts) {
 	/** @type {Output} */
 	const out = {};
-	const top = PRECEDENCE.find((p) =>
-		parts.some((x) => x.permissionDecision === p),
+	const reasons = parts.flatMap((x) =>
+		x.permissionDecision === "deny" && x.reason ? [x.reason] : [],
 	);
-	if (top) {
-		out.permissionDecision = top;
-		const reasons = parts
-			.filter((x) => x.permissionDecision === top && x.reason)
-			.map((x) => x.reason);
+	if (parts.some((x) => x.permissionDecision === "deny")) {
+		out.permissionDecision = "deny";
 		if (reasons.length > 0) out.permissionDecisionReason = reasons.join(JOIN);
+	} else if (parts.some((x) => x.permissionDecision === "allow")) {
+		out.permissionDecision = "allow";
 		const rewrite = parts.find((x) => x.updatedInput)?.updatedInput;
-		if (top === "allow" && rewrite) out.updatedInput = rewrite;
+		if (rewrite) out.updatedInput = rewrite;
 	}
 	const context = parts.flatMap((x) => (x.context ? [x.context] : []));
 	if (context.length > 0) out.additionalContext = context.join(JOIN);
