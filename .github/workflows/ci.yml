@@ -30,8 +30,8 @@ on:
 # REPOSITORY's default token, which is read-write on a repo nobody has narrowed
 # — and that default is unreadable from an agent session (the PAT answers 403 on
 # actions/permissions/workflow), so silence here could not even be checked.
-# contents: read is all the checkout needs, and no step here calls `gh` or the
-# API (mantahostels#1209).
+# contents: read is all the checkout needs (mantahostels#1209); the Vitest
+# job alone adds `actions: read`, to read the runs it plans by.
 permissions:
   contents: read
 
@@ -250,6 +250,9 @@ jobs:
     name: Vitest (${{ matrix.shard }}/${{ strategy.job-total }})
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -290,6 +293,16 @@ jobs:
           free -m
           nproc
 
+      # The per-file times this shard packs by: the newest green suite run's
+      # reports, read at this run's creation so every shard and every re-run
+      # of this run plans from the same run (#4574). Uploaded with the report
+      # below, where scheduled-checks.yml's verdict compares the shards'.
+      - name: Shard timings
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/suite-timings.js latest "$RUNNER_TEMP/shard-timings.csv" --before-run "$GITHUB_RUN_ID"
+
       # vitest run exits non-zero on any failing test and npm propagates that,
       # and a failing test fails the build. On a `lander/batch-<k>` push alone the
       # step goes on, and the retry step below re-runs its failed files once:
@@ -306,14 +319,14 @@ jobs:
       # flag this step tests everything or nothing depending on that file.
       #
       # WFC_VITEST_JSON adds scripts/vitest-json-reporter.ts's report, uploaded
-      # below: the per-file times docs/data/ci-shard-timings.csv is refreshed from, which
-      # vitest-shard-sequencer.ts packs the shards by (#2413).
+      # below: the per-file times a later run's shards pack by (#2413, #4574).
       - name: Vitest
         id: vitest
         if: ${{ !cancelled() }}
         continue-on-error: ${{ startsWith(github.ref_name, 'lander/batch-') }}
         env:
           WFC_VITEST_JSON: ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
+          WFC_SHARD_TIMINGS: ${{ runner.temp }}/shard-timings.csv
         run: npm run test -- --full=coverage --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       # Named in scripts/lib/actions-tester.js's RETRY_STEP, which reads a red
@@ -327,7 +340,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vitest-report-${{ matrix.shard }}
-          path: ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
+          path: |
+            ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
+            ${{ runner.temp }}/shard-timings.csv
           if-no-files-found: warn
           retention-days: 14
 

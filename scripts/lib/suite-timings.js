@@ -118,6 +118,41 @@ function readReports(source, root) {
 	return rows;
 }
 
+/* A run finished this close before the planning run was created may still
+ * list as running to one shard and as green to the next. Untraced: twice the
+ * gap observed between a run's completion and its listing as completed. */
+const SETTLE_MS = 120_000;
+
+/**
+ * @typedef {{ id: number, status: string, conclusion: string|null,
+ *   created_at: string, updated_at: string }} ListedRun
+ */
+
+/**
+ * The green runs a sharded run may take its timings from, newest first: those
+ * finished SETTLE_MS before `before`, the planning run's creation. Every shard
+ * of one run, and each re-run of it, shares that instant, so each picks the
+ * same run (#4574). A run re-run after it is read can still move: the shards'
+ * sources are compared once the suite is done (scheduled-checks.yml).
+ *
+ * @param {ListedRun[]} runs
+ * @param {number} before ms since the epoch
+ * @returns {number[]}
+ */
+function timingSources(runs, before) {
+	const cutoff = before - SETTLE_MS;
+	return runs
+		.filter(
+			(r) =>
+				r.status === "completed" &&
+				r.conclusion === "success" &&
+				Date.parse(r.created_at) < cutoff &&
+				Date.parse(r.updated_at) < cutoff,
+		)
+		.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+		.map((r) => r.id);
+}
+
 /**
  * Median and cumulative share of file-seconds at each slice.
  *
@@ -252,6 +287,8 @@ function parseMeta(pairs) {
 
 module.exports = {
 	CI_RECORD,
+	SETTLE_MS,
+	timingSources,
 	reportRoot,
 	rowsFrom,
 	readReports,

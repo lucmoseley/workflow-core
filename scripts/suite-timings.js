@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 /*
  * suite-timings.js — the CLI over scripts/lib/suite-timings.js. `extract`
- * turns one vitest JSON run into a tracked per-file dataset; `shares`
- * recomputes the percentile table from a dataset already committed.
+ * turns one vitest JSON run into a tracked per-file dataset; `latest` does it
+ * from the newest green suite run's reports, which each Vitest shard in CI
+ * plans by (#4574); `shares` recomputes the percentile table from a dataset
+ * already committed.
+ *
+ * `latest` WRITES THE COMMITTED RECORD'S COPY where it cannot read a run: no
+ * green run with reports, or GitHub failing twice. Every shard meeting the
+ * same failure so still plans as one; a shard meeting it alone plans apart,
+ * which the verdict job's comparison of the shards' `# run:` lines turns red.
  *
  * IT JOINS NO FAMILY (§G4, §N3, mantahostels#2039). It gates nothing, so it is no
  * `check-*` and owes none of that alphabet; it is not a hook, so it is no
@@ -12,9 +19,17 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
+const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { gh, ghJson, retryingOnceSync } = require("./lib/gh.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { codeRepoArgs } = require("./lib/workflow-core-config.js");
 const {
+	CI_RECORD,
+	timingSources,
 	readReports,
 	shares,
 	toCsv,
@@ -26,6 +41,7 @@ const { worktreeRoot } = require("./lib/host-root.js");
 
 const USAGE = `Usage:
   node scripts/suite-timings.js extract <vitest.json|dir> <out.csv> [key=value ...]
+  node scripts/suite-timings.js latest <out.csv> [--before-run <run-id>]
   node scripts/suite-timings.js shares <dataset.csv>
 
 Produce the JSON with:
@@ -34,10 +50,12 @@ A dir merges every *.json under it, as one sharded run's reports:
   gh run download <run-id> -R lucmoseley/workflow-core -p 'vitest-report-*' -D <dir>
 `;
 
+/** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
 	usage: USAGE,
 	commands: {
 		extract: { usage: USAGE, min: 2, max: Number.POSITIVE_INFINITY },
+		latest: { usage: USAGE, min: 1, flags: { "--before-run": "value" } },
 		shares: { usage: USAGE, min: 1 },
 	},
 };
@@ -58,6 +76,110 @@ const err = (s) => writeFd(2, `${s}\n`);
  * not that tree. */
 const ROOT = worktreeRoot();
 
+/* Candidates tried for reports, newest first. Untraced: a green run
+ * uploads its reports, so past the first few none is coming. */
+const SOURCES_TRIED = 5;
+/* What `gh run download` prints for a run whose reports are gone or never
+ * uploaded (#4292). */
+const NO_ARTEFACTS = /no valid artifacts found/i;
+
+/** @param {() => any} read */
+function readOrThrow(read) {
+	const r = retryingOnceSync(read);
+	if (!r.ok) throw new Error(r.error);
+	return r.out;
+}
+
+/**
+ * The newest green suite run finished before `beforeRun` was created, and its
+ * rows; null where none of the newest SOURCES_TRIED holds reports.
+ * @param {string|undefined} beforeRun
+ * @returns {{ run: number, sha: string, rows: ReturnType<typeof readReports> }|null}
+ */
+function latestRows(beforeRun) {
+	const repo = codeRepoArgs({ root: ROOT })[1] ?? process.env.GITHUB_REPOSITORY;
+	if (!repo) throw new Error("no codeRepo configured and no GITHUB_REPOSITORY");
+	const before =
+		beforeRun === undefined
+			? Date.now()
+			: Date.parse(
+					readOrThrow(() =>
+						ghJson(["api", `repos/${repo}/actions/runs/${beforeRun}`]),
+					).created_at,
+				);
+	if (!Number.isFinite(before))
+		throw new Error(`run ${beforeRun} has no creation time`);
+	const iso = new Date(before).toISOString().replace(/\.\d{3}Z$/, "Z");
+	/** @type {(import("./lib/suite-timings.js").ListedRun & { head_sha: string })[]} */
+	const runs = readOrThrow(
+		() =>
+			ghJson([
+				"api",
+				`repos/${repo}/actions/workflows/${SUITE_WORKFLOW}/runs?status=success&exclude_pull_requests=true&per_page=30&created=%3C${iso}`,
+			]).workflow_runs,
+	);
+	const sha = new Map(runs.map((r) => [r.id, r.head_sha]));
+	const work = fs.mkdtempSync(path.join(os.tmpdir(), "suite-timings-"));
+	try {
+		for (const run of timingSources(runs, before).slice(0, SOURCES_TRIED)) {
+			const dir = path.join(work, String(run));
+			try {
+				readOrThrow(() =>
+					gh([
+						"run",
+						"download",
+						String(run),
+						"-p",
+						"vitest-report-*",
+						"-D",
+						dir,
+					]),
+				);
+			} catch (e) {
+				if (NO_ARTEFACTS.test(caught(e).message)) continue;
+				throw e;
+			}
+			const rows = readReports(dir, ROOT);
+			if (rows.length > 0) return { run, sha: sha.get(run) ?? "", rows };
+		}
+		return null;
+	} finally {
+		fs.rmSync(work, { recursive: true, force: true });
+	}
+}
+
+/**
+ * @param {string} target
+ * @param {string|undefined} beforeRun
+ * @returns {number}
+ */
+function latest(target, beforeRun) {
+	let found;
+	try {
+		found = latestRows(beforeRun);
+	} catch (e) {
+		err(
+			`suite-timings: no run read (${caught(e).message.trim()}) — writing ${CI_RECORD} instead`,
+		);
+		found = null;
+	}
+	if (found === null) {
+		if (!fs.existsSync(path.join(ROOT, CI_RECORD))) {
+			err(`suite-timings: no ${CI_RECORD} to fall back on — wrote nothing`);
+			return 1;
+		}
+		fs.copyFileSync(path.join(ROOT, CI_RECORD), target);
+		out(`${CI_RECORD} → ${target}`);
+		return 0;
+	}
+	fs.writeFileSync(
+		target,
+		toCsv(found.rows, { run: found.run, sha: found.sha }),
+	);
+	out(`${found.rows.length} files from run ${found.run} → ${target}`);
+	return 0;
+}
+
 /**
  * @param {string[]} argv
  * @returns {number} exit code
@@ -66,7 +188,17 @@ function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, CLI);
 	/* A refusal exits 1, never cli-args' 2 (see the header). */
 	if (typeof parsed === "number") return parsed === 0 ? 0 : 1;
-	const { command, positionals } = parsed;
+	const { command, positionals, flags } = parsed;
+	if (command === "latest") {
+		const [target] = positionals;
+		if (target === undefined)
+			throw new Error("parseOrCode's min: 1 let a missing <out.csv> through");
+		const beforeRun = flags["--before-run"];
+		return latest(
+			target,
+			typeof beforeRun === "string" ? beforeRun : undefined,
+		);
+	}
 	if (command === "extract") {
 		const [source, target, ...pairs] = positionals;
 		if (source === undefined || target === undefined)

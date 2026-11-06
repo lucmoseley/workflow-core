@@ -2765,7 +2765,8 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"docs/data/ci-shard-timings.csv": [
-			"scripts/run-vitest.test.ts"
+			"scripts/run-vitest.test.ts",
+			"scripts/suite-timings.test.ts"
 		],
 		"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": [
 			"scripts/report-close-check-reading.test.ts"
@@ -16531,6 +16532,7 @@
 			"scripts/run-vitest.test.ts",
 			"scripts/spec-commits.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/suite-timings.test.ts",
 			"scripts/supervise-landing.test.ts",
 			"scripts/unpark-on-prompt.test.ts",
 			"scripts/wayfinder-frontier.test.ts"

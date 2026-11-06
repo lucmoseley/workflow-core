@@ -22,7 +22,9 @@ import {
 	parseMeta,
 	reportRoot,
 	rowsFrom,
+	SETTLE_MS,
 	shares,
+	timingSources,
 	toCsv,
 } from "./suite-timings";
 
@@ -225,5 +227,57 @@ describe("reading key=value metadata", () => {
 
 	it("names the first argument that is not a pair rather than skipping it", () => {
 		expect(parseMeta(["sha=abc", "nope"]).bad).toBe("nope");
+	});
+});
+
+describe("choosing the run a sharded run plans by (#4574)", () => {
+	const Before = Date.parse("2026-11-06T10:00:00Z");
+	const at = (msBefore: number) => new Date(Before - msBefore).toISOString();
+	const listed = (
+		id: number,
+		createdMsBefore: number,
+		doneMsBefore: number,
+		over: Partial<{ status: string; conclusion: string | null }> = {},
+	) => ({
+		id,
+		status: "completed",
+		conclusion: "success",
+		created_at: at(createdMsBefore),
+		updated_at: at(doneMsBefore),
+		...over,
+	});
+
+	it("takes green runs finished before the planning run, newest first", () => {
+		const runs = [
+			listed(1, 900_000, 700_000),
+			listed(3, 500_000, 300_000),
+			listed(2, 600_000, 400_000),
+		];
+		expect(timingSources(runs, Before)).toEqual([3, 2, 1]);
+	});
+
+	it("passes over a run that finished inside the settle window, or after the planning run began", () => {
+		const runs = [
+			listed(1, 900_000, 700_000),
+			listed(2, 300_000, SETTLE_MS - 1),
+			listed(3, 200_000, -60_000),
+		];
+		expect(timingSources(runs, Before)).toEqual([1]);
+	});
+
+	it("passes over a run not green or not finished", () => {
+		const runs = [
+			listed(1, 900_000, 700_000),
+			listed(2, 800_000, 600_000, { conclusion: "failure" }),
+			listed(3, 800_000, 600_000, { status: "in_progress", conclusion: null }),
+		];
+		expect(timingSources(runs, Before)).toEqual([1]);
+	});
+
+	it("answers the same whatever order the runs are listed in", () => {
+		const runs = [listed(1, 900_000, 700_000), listed(2, 600_000, 400_000)];
+		expect(timingSources([...runs].reverse(), Before)).toEqual(
+			timingSources(runs, Before),
+		);
 	});
 });

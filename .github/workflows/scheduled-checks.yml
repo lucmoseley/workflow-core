@@ -108,6 +108,7 @@ jobs:
     # workflow cannot hold MORE than its caller grants, so naming nothing here
     # would hand ci.yml whatever the repository's default token carries (mantahostels#1209).
     permissions:
+      actions: read
       contents: read
     uses: ./.github/workflows/ci.yml
 
@@ -159,6 +160,11 @@ jobs:
   # `always()` runs it whatever its needs did, a cancelled run included, where
   # it goes red. The repository limb skips it only on a fork or the tracker,
   # neither of which holds the ruleset.
+  #
+  # It also holds the suite red where its shards planned from different
+  # timings, as a timings run re-run between their reads leaves them: a file
+  # would then run twice or never (#4574). A download from this run needs no
+  # token scope.
   verdict:
     name: Suite passed
     needs: [suite, documents]
@@ -166,6 +172,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
+      - name: Shard reports
+        if: ${{ needs.suite.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vitest-report-*
+          path: reports
+
+      - name: Every shard planned from one run
+        if: ${{ needs.suite.result == 'success' }}
+        run: |
+          shards=$(find reports -mindepth 1 -maxdepth 1 -type d | wc -l)
+          planned=$(find reports -name shard-timings.csv | wc -l)
+          grep -H '^# run: ' reports/*/shard-timings.csv || true
+          records=$(sha256sum reports/*/shard-timings.csv | cut -d' ' -f1 | sort -u | wc -l)
+          echo "$planned of $shards shards wrote their timings; $records distinct"
+          [ "$shards" = "$planned" ] && [ "$records" = 1 ]
+
       - env:
           SUITE: ${{ needs.suite.result }}
           DOCUMENTS: ${{ needs.documents.result }}
