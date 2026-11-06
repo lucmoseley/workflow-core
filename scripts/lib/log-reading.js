@@ -547,6 +547,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 }
 
 module.exports = {
+	DAY_MS,
 	broken,
 	now,
 	verdict,
@@ -558,6 +559,7 @@ module.exports = {
 	readLogs,
 	buildRepoLines,
 	buildFiredLine,
+	founderReplies,
 	pairReplies,
 	POINT_FIGURES,
 	bandHalfWidth,
