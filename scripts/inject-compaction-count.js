@@ -134,6 +134,7 @@ function afterCompaction(payload, sid) {
  * @param {string} sid
  */
 function unitOf(sid) {
+	/** @type {number[]} */
 	let claimed = [];
 	try {
 		claimed = readClaimedIssues(sid);
