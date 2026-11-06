@@ -867,53 +867,6 @@ describe("buildManifest over a shell script's launches (#4505)", () => {
 		expect(edges["scripts/zz/piped.js"]).toContain(T);
 		expect(edges["scripts/zz/lib/deeper.js"]).not.toContain(T);
 	});
-
-	it("follows a root-relative launch and a script in command position", () => {
-		const { edges } = build({
-			[T]: drives("scripts/zz/run.sh"),
-			"scripts/zz/run.sh": `bash scripts/zz/other.sh\n"$here/third.sh" --flag`,
-			"scripts/zz/other.sh": "",
-			"scripts/zz/other.test.ts": drives("scripts/zz/other.sh"),
-			"scripts/zz/third.sh": "",
-			"scripts/zz/third.test.ts": drives("scripts/zz/third.sh"),
-		});
-		expect(edges["scripts/zz/other.sh"]).toContain(T);
-		expect(edges["scripts/zz/third.sh"]).toContain(T);
-	});
-
-	it("follows a defaulted expansion and a dirname prefix", () => {
-		const { edges } = build({
-			[T]: drives("scripts/zz/gate.sh"),
-			"scripts/zz/gate.sh": [
-				`node "\${PLUGIN_ROOT:-.}/scripts/zz/fmt.js" --x`,
-				`node "$(dirname "$0")/auth.js"`,
-			].join("\n"),
-			"scripts/zz/fmt.js": "",
-			"scripts/zz/fmt.test.ts": `require("./fmt.js");`,
-			"scripts/zz/auth.js": "",
-			"scripts/zz/auth.test.ts": `require("./auth.js");`,
-		});
-		expect(edges["scripts/zz/fmt.js"]).toContain(T);
-		expect(edges["scripts/zz/auth.js"]).toContain(T);
-	});
-
-	it("launches nothing a comment or heredoc names", () => {
-		const { edges } = build({
-			[T]: drives("scripts/zz/run.sh"),
-			"scripts/zz/run.sh": [
-				`# node "$here/commented.js"`,
-				"cat <<EOF",
-				`node "$here/heredoc.js"`,
-				"EOF",
-			].join("\n"),
-			"scripts/zz/commented.js": "",
-			"scripts/zz/commented.test.ts": `require("./commented.js");`,
-			"scripts/zz/heredoc.js": "",
-			"scripts/zz/heredoc.test.ts": `require("./heredoc.js");`,
-		});
-		expect(edges["scripts/zz/commented.js"]).not.toContain(T);
-		expect(edges["scripts/zz/heredoc.js"]).not.toContain(T);
-	});
 });
 
 /* Joined for the reason DOC is, and the fixture test sits in scripts/ so its

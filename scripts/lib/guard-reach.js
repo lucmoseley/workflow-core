@@ -1,8 +1,9 @@
 /*
- * guard-reach.js — which files a guard reaches, read once for every digest
- * that hashes them (#4233): the registry digest (check-guard-registry.js),
- * rule pricing (lib/rule-emission.js), the census digest (lib/census-digest.js)
- * and the test-isolation check (check-guard-test-isolation.js).
+ * guard-reach.js — which files a guard or script reaches, read once for every
+ * reader (#4233): the registry digest (check-guard-registry.js), rule pricing
+ * (lib/rule-emission.js), the census digest (lib/census-digest.js), the
+ * test-isolation check (check-guard-test-isolation.js) and test selection's
+ * launch hop (lib/test-read-edges.js, #4567).
  *
  * A REGEX READER, NOT TYPESCRIPT'S: the registry check runs on every commit
  * and loading TypeScript would slow each one (#4233).
@@ -330,9 +331,7 @@ function parseLaunches(rel, dir, text, isFile) {
 	for (const m of shellOperands(text, { keepQuoted: true }).matchAll(
 		LAUNCH_RE,
 	)) {
-		const tail = m.groups?.tail;
-		if (tail === undefined)
-			throw new Error(`LAUNCH_RE matched ${m[0]} with no tail group`);
+		const tail = requiredGroup(m, 2, LAUNCH_RE);
 		const root = path.posix.join(".", tail);
 		const candidates = m.groups?.dirVar
 			? [path.posix.join(dir, tail), root]
