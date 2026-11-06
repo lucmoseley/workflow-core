@@ -195,7 +195,6 @@ function readEndResult(run) {
 	return { outcome: last.is_error ? "error" : "success", ...base };
 }
 
-/* A run's job state, as a `--bg` job's state.json names it, by outcome. */
 const JOB_STATE_OF = /** @type {const} */ ({
 	running: "working",
 	success: "done",
