@@ -14,8 +14,7 @@
  * Every land runs with the `landing` module on and a live process holding the
  * lander's lock, so start-lander.js answers without starting a real lander.
  *
- * Every case cuts real worktrees off a real bare origin, seam 1's fixture
- * (#4229), so the file runs over the 10 s budget (base §X8 (5)).
+ * Every case cuts real worktrees off a real bare origin, so the file runs over the 10 s budget (base §X8 (5)).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -788,9 +787,8 @@ it("leaves a merge a gate refused in progress, saying to fix the finding and com
 	expect(queueTip()).toBe("");
 });
 
-/* A self-plugin canary and its marker writer keyed on the markers dir `at`,
- * as the real pair moved theirs at #4487: a land merging a move swaps the
- * session's hooks under it. */
+/* A self-plugin canary and its marker writer keyed on the markers dir `at`:
+ * a land merging a move swaps the session's hooks under it. */
 const SESSION = "aaaaaaaa-1111-2222-3333-444444444444";
 const canaryPair = (at: string) => ({
 	"scripts/write-self-plugin-marker.sh": `sid=$(sed 's/.*"session_id":"\\([^"]*\\)".*/\\1/'); mkdir -p "$CLAUDE_PROJECT_DIR/${at}" && : > "$CLAUDE_PROJECT_DIR/${at}/$sid"\n`,
@@ -850,7 +848,7 @@ it("undoes a merge whose canary refuses the session even re-marked, pushing noth
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
-		`with origin/main merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (Refused: broken), so the merge is undone, HEAD is back at ${mine}, and nothing was pushed — origin/main's canary or marker writer is broken: file it, and land once it is fixed`,
+		`with origin/main merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (Refused: broken), so the merge is undone, HEAD is back at ${mine} — origin/main's canary or marker writer is broken: file it, and land once it is fixed`,
 	);
 	expect(git(dir, "rev-parse", "HEAD")).toBe(mine);
 	expect(git(dir, "status", "--porcelain", "--untracked-files=no")).toBe("");
@@ -909,7 +907,7 @@ it("aborts a conflicted merge whose half-merged canary refuses the session, sayi
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
-		"the merge of origin/main, conflicting in both.txt, stopped in progress, and with it so this session's self-plugin canary refused its every tool call (Refused: broken), so the merge was aborted — merge and commit it from a terminal whose hooks do not run from this worktree, then land again",
+		"the merge of origin/main, conflicting in both.txt, stopped in progress, and its half-merged self-plugin canary refused this session (Refused: broken), so the merge was aborted — merge and commit it from a terminal whose hooks do not run from this worktree, then land again",
 	);
 	expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
 	expect(

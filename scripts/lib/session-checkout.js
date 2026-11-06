@@ -737,7 +737,9 @@ function canaryRefusal(dir, session) {
 		tool_input: { command: "true" },
 	});
 	if (r.status === 0) return null;
-	if (r.error || r.signal)
+	/* An exit status outranks r.error: a canary that refuses before reading
+	 * its stdin leaves an EPIPE beside its status. */
+	if (r.status === null)
 		return `it did not finish: ${r.error?.message ?? `killed by ${r.signal}`}`;
 	return `${r.stderr}`.trim().split("\n")[0] || `exit ${r.status}`;
 }
@@ -780,7 +782,7 @@ function mergeKeepingSession(dir, session) {
 		const conflicted = git(["diff", "--name-only", "--diff-filter=U"], dir);
 		gitShown(["merge", "--abort"], dir);
 		throw new CheckoutError(
-			`the merge of ${VERIFIED_REF}${conflicted ? `, conflicting in ${conflicted.split("\n").join(", ")},` : ""} stopped in progress, and with it so this session's self-plugin canary refused its every tool call (${said}), so the merge was aborted — merge and commit it from a terminal whose hooks do not run from this worktree, then land again`,
+			`the merge of ${VERIFIED_REF}${conflicted ? `, conflicting in ${conflicted.split("\n").join(", ")},` : ""} stopped in progress, and its half-merged self-plugin canary refused this session (${said}), so the merge was aborted — merge and commit it from a terminal whose hooks do not run from this worktree, then land again`,
 			{ cause: err },
 		);
 	}
@@ -796,7 +798,7 @@ function mergeKeepingSession(dir, session) {
 		? `so the merge is undone, HEAD is back at ${before}`
 		: `and undoing the merge failed, its output above — run \`git reset --keep ${before}\` from a terminal`;
 	throw new CheckoutError(
-		`with ${VERIFIED_REF} merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (${said}), ${undone}, and nothing was pushed — ${VERIFIED_REF}'s canary or marker writer is broken: file it, and land once it is fixed`,
+		`with ${VERIFIED_REF} merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (${said}), ${undone} — ${VERIFIED_REF}'s canary or marker writer is broken: file it, and land once it is fixed`,
 	);
 }
 
