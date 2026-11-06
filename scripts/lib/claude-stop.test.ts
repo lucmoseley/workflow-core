@@ -54,7 +54,7 @@ const readStopsTaken = () => {
 	);
 };
 
-const noJobLine = (id: string) =>
+const buildNoJobLine = (id: string) =>
 	recorded.stops.noJob.stderr.trim().replaceAll(recorded.stops.noJob.id, id);
 
 beforeEach(() => {
@@ -107,7 +107,7 @@ describe("stopSession", () => {
 		const r = stopSession("aaaa1111", "s-1");
 		expect(r.ok).toBe(false);
 		expect(!r.ok && r.why).toBe(
-			`exit 1: ${noJobLine("aaaa1111")} (on all 3 seats)`,
+			`exit 1: ${buildNoJobLine("aaaa1111")} (on all 3 seats)`,
 		);
 	});
 
@@ -131,10 +131,11 @@ describe("stopOn", () => {
 	});
 
 	it("reads the daemon's reason off its last line, under any warning", () => {
-		seatsAnswering("busy");
+		seatsAnswering("warnedNoJob");
 		expect(stopOn(seats[0], "aaaa1111")).toMatchObject({
 			ok: false,
-			said: "daemon socket is busy",
+			said: buildNoJobLine("aaaa1111"),
+			noJob: true,
 		});
 	});
 

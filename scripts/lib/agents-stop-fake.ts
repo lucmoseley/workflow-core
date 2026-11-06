@@ -81,20 +81,23 @@ export const buildPermissionRow = (id: string): Row =>
 export const buildAgentsBranch = (listing: Row[] | null) =>
 	`if [ "$1" = "agents" ]; then ${listing ? `printf '%s' ${shellQuote(JSON.stringify(listing))}; exit 0` : "exit 1"}; fi`;
 
-/** Stop failures no daemon gives on demand, so none is recorded: `busy`, a
- * failure other than "No job matching" under a warning line; `killed`, a
- * stop killed by a signal. */
-export type StopFault = "busy" | "killed";
-
-const faults: Record<StopFault, string> = {
-	busy: `printf 'warning: daemon slow to answer\\ndaemon socket is busy\\n' >&2; exit 1`,
+/* Stop answers no daemon gives on demand, so none is recorded: `busy`, a
+ * failure other than "No job matching"; `warnedNoJob`, the recorded noJob
+ * under a warning line; `killed`, a stop killed by a signal. */
+const noJob = recorded.stops.noJob;
+const FAULTS = {
+	busy: "echo 'daemon socket is busy' >&2; exit 1",
+	warnedNoJob: `echo 'warning: daemon slow to answer' >&2; printf '%s' ${buildJobIdWord(noJob.stderr, noJob.id)} >&2; exit ${noJob.status}`,
 	killed: "echo 'going down' >&2; kill -KILL $$",
 };
 
-export type StopAnswer = StopKind | StopFault;
+export type StopAnswer = StopKind | keyof typeof FAULTS;
 
-const answerAs = (answer: StopAnswer) => {
-	if (answer === "busy" || answer === "killed") return faults[answer];
+const isFault = (answer: StopAnswer): answer is keyof typeof FAULTS =>
+	answer in FAULTS;
+
+const buildAnswer = (answer: StopAnswer) => {
+	if (isFault(answer)) return FAULTS[answer];
 	const r = recorded.stops[answer];
 	return `printf '%s' ${buildJobIdWord(r.stdout, r.id)}; printf '%s' ${buildJobIdWord(r.stderr, r.id)} >&2; exit ${r.status}`;
 };
@@ -111,18 +114,19 @@ export function buildStopBranch(
 	answer: StopAnswer | Record<string, StopAnswer> = "ok",
 	envLog?: string,
 ) {
-	const bySeat = typeof answer === "string" ? {} : answer;
+	const [fallback, bySeat] =
+		typeof answer === "string" ? [answer, {}] : (["ok", answer] as const);
 	const seatCases = Object.entries(bySeat).map(
-		([seat, a]) => `${shellQuote(seat)}) ${answerAs(a)} ;;`,
+		([seat, a]) => `${shellQuote(seat)}) ${buildAnswer(a)} ;;`,
 	);
 	return [
 		'if [ "$1" = "stop" ]; then',
 		`echo "$*" >> ${shellQuote(log)}`,
 		envLog
-			? `echo "$CLAUDE_CONFIG_DIR \${CLAUDE_CODE_SESSION_ID:-none} \${CLAUDE_JOB_DIR:-none}" >> ${shellQuote(envLog)}`
+			? `echo "\${CLAUDE_CONFIG_DIR:-none} \${CLAUDE_CODE_SESSION_ID:-none} \${CLAUDE_JOB_DIR:-none}" >> ${shellQuote(envLog)}`
 			: "",
 		`case "$CLAUDE_CONFIG_DIR" in ${seatCases.join(" ")} esac`,
-		answerAs(typeof answer === "string" ? answer : "ok"),
+		buildAnswer(fallback),
 		"fi",
 	]
 		.filter(Boolean)
