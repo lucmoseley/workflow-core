@@ -339,7 +339,7 @@ describe("the adapters", () => {
 		expect(git(remote, "rev-parse", "main")).toBe(b);
 	});
 
-	it("throws on a push to main GitHub refused on its own internal fault, for the run to retry, rather than returning it as a refusal", () => {
+	it("throws on a push to main GitHub refused on its own internal fault, for the run to retry, rather than returning it as a refusal (#4497)", () => {
 		const a = commit("a");
 		const hook = path.join(work, ".git", "hooks", "pre-push");
 		fs.writeFileSync(
@@ -348,7 +348,9 @@ describe("the adapters", () => {
 			{ mode: 0o755 },
 		);
 
-		expect(() => queueGit(work).pushMain(a)).toThrow();
+		expect(() => queueGit(work).pushMain(a)).toThrow(
+			/fatal error in commit_refs_rules/,
+		);
 	});
 
 	it("creates a dropped ref, takes it made already at the same sha, refuses it at another, and lists it", () => {

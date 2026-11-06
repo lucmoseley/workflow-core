@@ -600,7 +600,7 @@ describe("faults", () => {
 		expect(disk.batch?.phase).toBe("merging");
 	});
 
-	it("retries a push GitHub refused on its own internal fault, landing on the try that follows", async () => {
+	it("retries a push GitHub refused on its own internal fault, landing on the try that follows (#4497)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
 		});

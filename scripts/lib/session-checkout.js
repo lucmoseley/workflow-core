@@ -80,12 +80,15 @@ const {
 	spawnGitSync,
 } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
-const { REMOTE_TRIES, remoteBackoffMs } = require("./lander-git.js");
 const { runStartLander } = require("./lander-start.js");
 const { MOVED_LINE } = require("./land-refusal.js");
 const { readJsonl } = require("./jsonl.js");
 const { mainCheckout } = require("./main-checkout.js");
-const { isNetworkFault } = require("./network-fault.js");
+const {
+	isNetworkFaultText,
+	REMOTE_TRIES,
+	remoteBackoffMs,
+} = require("./network-fault.js");
 const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
 const { pidLock } = require("./pid-lock.js");
 const { REAL_PROC } = require("./proc-root.js");
@@ -676,7 +679,7 @@ function land(cwd) {
 			`${MOVED_LINE} — merge \`${REMOTE}/${queue}\` into HEAD, then land again`,
 		);
 	}
-	if (!push.ok && isNetworkFault({ stderr: push.output }))
+	if (push.faulted)
 		throw new CheckoutError(
 			`the push to ${queue} met a remote fault on all ${REMOTE_TRIES} tries, its output above — nothing in the worktree causes it, so land again later`,
 		);
@@ -694,23 +697,24 @@ function land(cwd) {
 	};
 }
 
+/** git's own refusal lines, as against a hook's output, which may quote anything. */
+const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
+
 /**
- * The push of `HEAD` to the queue ref, retried with lib/lander-git.js's
- * backoff while it fails on a fault lib/network-fault.js names, GitHub's own
- * among them, so a fault no edit can fix never reads as a finding (#4497).
+ * The push of `HEAD` to the queue ref, retried with lib/network-fault.js's
+ * backoff while git's own words name a fault it names, GitHub's own among
+ * them; `faulted` where the last try failed so.
  * @param {string} dir
  * @param {string} queue
- * @returns {{ ok: boolean, output: string }}
+ * @returns {{ ok: boolean, output: string, faulted: boolean }}
  */
 function pushQueueRef(dir, queue) {
 	for (let attempt = 1; ; attempt++) {
 		const push = gitShown(["push", REMOTE, `HEAD:refs/heads/${queue}`], dir);
-		if (
-			push.ok ||
-			attempt >= REMOTE_TRIES ||
-			!isNetworkFault({ stderr: push.output })
-		)
-			return push;
+		const faulted =
+			!push.ok &&
+			isNetworkFaultText((push.output.match(GIT_LINE) ?? []).join("\n"));
+		if (!faulted || attempt >= REMOTE_TRIES) return { ...push, faulted };
 		const ms = remoteBackoffMs(attempt);
 		writeFd(
 			2,
