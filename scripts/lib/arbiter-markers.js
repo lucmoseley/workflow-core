@@ -47,11 +47,11 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
 // ---------------------------------------------------------------------------
 
 /**
- * The one family written under a linked worktree's own markers: the marker is
- * keyed on `CLAUDE_PROJECT_DIR` as handed, since re-keying it would refuse
- * every tool call of a session that merged the change mid-run (#4487). So the
- * sweep visits each registered worktree for it (#4531), and for nothing else:
- * a worktree's other files are not this family's.
+ * Keyed on `CLAUDE_PROJECT_DIR` as handed, a worktree session's own worktree,
+ * and never re-keyed: a session that merged a re-keying mid-run would be
+ * refused every tool call (#4487). So the sweep visits each registered
+ * worktree for it (#4531), and for it alone: #4487 keys the other families on
+ * the main checkout, so a worktree's other files are not this sweep's.
  */
 const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
 
@@ -85,8 +85,8 @@ const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
  * paths a session has written or been refused once on (#1167, #1728). `.compaction-trigger-` is
  * inject-compaction-count.js's hand-off from PreCompact to SessionStart (#1148).
  * `.self-plugin-loaded-` is write-self-plugin-marker.sh's proof, read by the
- * self-plugin canary, that the self-plugin loaded (#2438). It alone is also
- * written in a linked worktree's markers, see SELF_PLUGIN_PREFIX.
+ * self-plugin canary, that the self-plugin loaded (#2438). Swept in linked
+ * worktrees too, see SELF_PLUGIN_PREFIX.
  * `.parked-blocked-` is park-blocked.sh's record, read by the session-ceiling
  * guard.
  * lib/parked.js's `.parked-<sid>` shares the directory and has no
@@ -248,6 +248,11 @@ function buildResumeExpected(root) {
  * the backstop already chooses when attribution fails; the breadcrumb case is
  * weighed on mantahostels#1278.
  *
+ * The self-plugin marker pays most (#4531): swept from a running session, the
+ * canary refuses its every tool call until a clear or compact writes a new
+ * one. The clock stands for the same reason as below: the residual needs a
+ * session unregistered for a full day.
+ *
  * The rule latches pay MORE for that same residual, and it was not weighed when
  * the clock was chosen (mantahostels#1804). Sweeping an unregistered-but-running session's
  * latch un-latches the rule, so the next trigger re-injects text that session
@@ -261,8 +266,8 @@ function pruneMarkers() {
 	const root = core.repoRoot();
 	const isResumeExpected = buildResumeExpected(root);
 	const markers = markersDir(root);
-	// Three passes because the families are kept for different lengths of time
-	// and sweepAged takes one age. Each spares everything outside its own family,
+	// Separate passes because the families are kept for different lengths of
+	// time and sweepAged takes one age. Each spares everything outside its own family,
 	// so none can reach another's files. The third shares the first's age and the
 	// second's suffix matching — see RULE_LATCH_PREFIX for why it is not simply an
 	// entry in MARKER_PREFIXES. A fourth visits each linked worktree for the
@@ -270,7 +275,8 @@ function pruneMarkers() {
 	//
 	// All sweep `.claude/tmp/markers` rather than the repo root since F8
 	// (mantahostels#3515, #2) — root itself before that.
-	core.sweepAged(markers, MARKER_AGE_MS, (f) => {
+	/** @param {string} f */
+	const sparedMarker = (f) => {
 		const prefix = MARKER_PREFIXES.find((p) => f.startsWith(p));
 		if (!prefix) return true;
 		// The suffix is the raw session id — the backstop interpolates it
@@ -280,7 +286,8 @@ function pruneMarkers() {
 			live.has(id) ||
 			(PASS_MARKER_PREFIXES.includes(prefix) && isResumeExpected(id))
 		);
-	});
+	};
+	core.sweepAged(markers, MARKER_AGE_MS, sparedMarker);
 	/* Its own directory (mantahostels#3382), under the markers directory
 	 * rather than the repo root (F8). The prefix test stays: a
 	 * file in there under another name is not this family's to delete. */
@@ -291,12 +298,17 @@ function pruneMarkers() {
 		f.startsWith(RULE_LATCH_PREFIX) ? liveBreadcrumb(f, live) : true,
 	);
 	/* Joined, not markersDir(): that creates the directory, and a worktree
-	 * with none has nothing to sweep. Where git will not list them, none. */
-	for (const wt of readLinkedWorktrees(root) ?? [])
-		core.sweepAged(path.join(wt, MARKERS_REL), MARKER_AGE_MS, (f) =>
-			f.startsWith(SELF_PLUGIN_PREFIX)
-				? live.has(f.slice(SELF_PLUGIN_PREFIX.length))
-				: true,
+	 * with none has nothing to sweep. Where git will not list them, the
+	 * worktrees go unswept this run and the failure is logged (#4531): their
+	 * litter is bytes, and the main checkout's sweep above has run. */
+	const worktrees = readLinkedWorktrees(root);
+	if (worktrees === null)
+		core.logError("pruneMarkers", new Error("git worktree list failed"));
+	for (const wt of worktrees ?? [])
+		core.sweepAged(
+			path.join(wt, MARKERS_REL),
+			MARKER_AGE_MS,
+			(f) => !f.startsWith(SELF_PLUGIN_PREFIX) || sparedMarker(f),
 		);
 }
 

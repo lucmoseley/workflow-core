@@ -1,5 +1,9 @@
 /*
  * worktree-paths.js — the one reader of `git worktree list` in the scripts.
+ *
+ * A leaf requiring no arbiter family, so arbiter-markers.js can sweep the
+ * linked worktrees through it (#4531); session-worktrees.js requires
+ * arbiter-store, and a reader kept there would close a require cycle.
  */
 
 const { deref } = require("./deref.js");
