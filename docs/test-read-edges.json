@@ -8832,6 +8832,7 @@
 			"scripts/lib/persist-mode.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/push-check.test.ts",
 			"scripts/queue-lander.test.ts",

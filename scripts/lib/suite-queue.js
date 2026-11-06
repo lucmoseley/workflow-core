@@ -4,7 +4,7 @@
  * marker per waiter, the turn order and the gate poll. The walk over
  * `wfc-suite-queue-*.json` markers and the `(pid, start)` staleness rule for
  * one are shared with check-stale-suite-queue.js, which only reports a stale
- * marker where `queueTurn` sweeps it (mantahostels#2034).
+ * marker where `readTurn` sweeps it (mantahostels#2034).
  *
  * ONE DEFINITION, OF BOTH: the walk and the staleness rule, never restated by
  * a caller (mantahostels#2034).
@@ -62,7 +62,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
 /**
  * A queued launcher's options: `waitForGate`'s own, less the `admit` it wires
  * to its marker itself, and the queue's (#2742).
- * @typedef {Omit<Parameters<typeof waitForGate>[0], "admit"> & Parameters<typeof queueJoin>[0] & Parameters<typeof queueTurn>[0]} QueuedLaunchOptions
+ * @typedef {Omit<Parameters<typeof waitForGate>[0], "admit"> & Parameters<typeof queueJoin>[0] & Parameters<typeof readTurn>[0]} QueuedLaunchOptions
  */
 
 const QUEUE_PREFIX = "wfc-suite-queue-";
@@ -153,7 +153,7 @@ function isUnspawnedAdmission(record) {
 
 /**
  * The live unspawned admissions in `queueDir`'s peer queues (#3203). Sweeps
- * nothing, a peer queue's stale markers being its own `queueTurn`'s to remove.
+ * nothing, a peer queue's stale markers being its own `readTurn`'s to remove.
  *
  * A PEER DIRECTORY THAT WILL NOT READ CONTRIBUTES NONE, failing open as an
  * unreadable own queue does: the peer's gate still reads
@@ -572,7 +572,7 @@ function joinedBefore(a, b) {
  * whole suite and a `tsc` admitted on one poll never both launch. The pid
  * order holds across queues.
  *
- * FAILS OPEN, silently like `queueTurn`, where there is nothing to contest
+ * FAILS OPEN, silently like `readTurn`, where there is nothing to contest
  * with: no marker of its own (an unwritable queue, `queueJoin`'s "") or a
  * queue directory that will not read. Residual: a dropped stamp that will not
  * write leaves this waiter `admitted`, holding every turn until it launches.
@@ -648,7 +648,7 @@ function queueStamps(file, options = {}) {
 
 /**
  * The live markers `role` names, waiting or running. Sweeps nothing: a stale
- * marker is `queueTurn`'s to remove.
+ * marker is `readTurn`'s to remove.
  *
  * @param {string} role
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
@@ -736,7 +736,81 @@ function queueLeave(file, { queueFs = fs } = {}) {
 }
 
 /**
- * Whether this waiter is among the `slots` oldest still alive, and so may run.
+ * Whether this waiter's turn has come: it reads the queue's markers, sweeps
+ * the stale ones and asks `turnOf`. `passed` is how many older part-suites an
+ * open part-suite turn passed (#3115): 0 where it passed none, absent on any
+ * other turn or a closed one.
+ *
+ * FAILS OPEN, like every other part of this wait: a queue directory that cannot
+ * be read opens the turn rather than blocking the suite forever.
+ *
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive, slots?: number, clock?: () => number }} [options]
+ * @returns {{ open: boolean, passed?: number }}
+ */
+function readTurn({
+	queueDir = defaultQueueDir(),
+	queueFs = fs,
+	pid = process.pid,
+	alive = pidAlive,
+	slots = WHOLE_SUITE_MAX,
+	clock = Date.now,
+} = {}) {
+	const { markers, error } = readMarkers(queueDir, queueFs);
+	if (error) return { open: true };
+	/** @type {QueueRecord[]} */
+	const live = [];
+	for (const { file: full, record } of markers) {
+		/* Never liveness-check THIS waiter. `alive` is a probe that can be wrong —
+		 * a pid in another namespace, a hardened kernel — and a waiter that
+		 * mistakenly sweeps its own marker silently gives up its place and can
+		 * then be overtaken indefinitely. */
+		if (record.pid !== pid && isMarkerStale(record, { alive })) {
+			try {
+				queueFs.unlinkSync(full);
+			} catch {
+				/* a neighbour swept it first */
+			}
+			continue;
+		}
+		live.push(record);
+	}
+	const mine = live.find((r) => r.pid === pid) ?? {
+		pid,
+		at: Number.POSITIVE_INFINITY,
+	};
+	const { reasons, passed } = turnOf({
+		waiter: mine.part === true ? "part" : "whole",
+		ahead: live.filter((r) => joinedBefore(r, mine)),
+		admissionOpen:
+			live.some((r) => r.pid !== pid && isUnspawnedAdmission(r)) ||
+			readPeerAdmissions(queueDir, { queueFs, alive }).length > 0,
+		slots,
+		now: clock(),
+	});
+	return reasons.length > 0 ? { open: false } : { open: true, passed };
+}
+
+/**
+ * Why a turn is closed, in the gate's order: a whole suite or a part-suite
+ * held behind the waiters ahead of it, a `tsc` behind its own queue's, or
+ * another launch admitted and unspawned.
+ * @typedef {"fifo-whole" | "fifo-part" | "tsc-fifo" | "admitted"} TurnReason
+ */
+/**
+ * A turn's inputs, as a value: this waiter's class, the live waiters that
+ * joined ahead of it, whether another launch in this queue or a peer is
+ * admitted and unspawned, the slot count, and the reading's time.
+ * @typedef {{ waiter: "whole" | "part" | "tsc", ahead: Pick<QueueRecord, "at" | "part" | "spawned" | "memoryHeld">[], admissionOpen: boolean, slots: number, now: number }} TurnSnapshot
+ */
+
+/**
+ * Every reason `snapshot`'s turn is closed, in the gate's order, and on an open
+ * part-suite turn how many older part-suites it passed (#3115). No reasons is
+ * an open turn. `readTurn` and the queue-wait replay both ask it, so a change
+ * to the rule reaches both (#4260).
+ *
+ * `partPass` switches #3058's pass on: always in the gate, from its commit in
+ * the replay.
  *
  * `slots` IS WHOLE_SUITE_MAX: one whole suite at a time (#2680). A running
  * queued run holds its marker, so it keeps the slot until it finishes. An
@@ -774,74 +848,31 @@ function queueLeave(file, { queueFs = fs } = {}) {
  * memory freed since; and a drop that will not write leaves the stamp, letting
  * younger ones pass until the age bound.
  *
- * FAILS OPEN, like every other part of this wait: a queue directory that cannot
- * be read yields `true` rather than blocking the suite forever.
- *
- * @param {Parameters<typeof readTurn>[0]} [options]
+ * @param {TurnSnapshot} snapshot
+ * @param {{ partPass?: boolean, partPassAgeMs?: number }} [options]
+ * @returns {{ reasons: TurnReason[], passed?: number }}
  */
-function queueTurn(options = {}) {
-	return readTurn(options).open;
-}
-
-/**
- * `queueTurn`'s reading, with how many older part-suites an open part-suite
- * turn passed (#3115): 0 where it passed none, absent on a whole suite's turn
- * or a closed one.
- *
- * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive, slots?: number, clock?: () => number }} [options]
- * @returns {{ open: boolean, passed?: number }}
- */
-function readTurn({
-	queueDir = defaultQueueDir(),
-	queueFs = fs,
-	pid = process.pid,
-	alive = pidAlive,
-	slots = WHOLE_SUITE_MAX,
-	clock = Date.now,
-} = {}) {
-	const { markers, error } = readMarkers(queueDir, queueFs);
-	if (error) return { open: true };
-	/** @type {QueueRecord[]} */
-	const live = [];
-	for (const { file: full, record } of markers) {
-		/* Never liveness-check THIS waiter. `alive` is a probe that can be wrong —
-		 * a pid in another namespace, a hardened kernel — and a waiter that
-		 * mistakenly sweeps its own marker silently gives up its place and can
-		 * then be overtaken indefinitely. */
-		if (record.pid !== pid && isMarkerStale(record, { alive })) {
-			try {
-				queueFs.unlinkSync(full);
-			} catch {
-				/* a neighbour swept it first */
-			}
-			continue;
-		}
-		live.push(record);
-	}
-	const mine = live.find((r) => r.pid === pid) ?? {
-		pid,
-		at: Number.POSITIVE_INFINITY,
-	};
-	const ahead = live.filter((r) => joinedBefore(r, mine));
-	const spawned = (/** @type {{ spawned?: boolean }} */ r) =>
-		r.spawned === true;
-	if (live.some((r) => r.pid !== pid && isUnspawnedAdmission(r)))
-		return { open: false };
-	if (readPeerAdmissions(queueDir, { queueFs, alive }).length > 0)
-		return { open: false };
-	const isPassable = (/** @type {QueueRecord} */ r) =>
-		r.memoryHeld === true && clock() - r.at < PART_PASS_AGE_MS;
-	if (mine?.part === true) {
-		const waiting = ahead.filter((r) => r.part === true && !spawned(r));
-		return waiting.every(isPassable)
-			? { open: true, passed: waiting.length }
-			: { open: false };
-	}
-	return {
-		open:
-			ahead.filter((r) => r.part !== true).length < slots &&
-			ahead.every(spawned),
-	};
+function turnOf(
+	{ waiter, ahead, admissionOpen, slots, now },
+	{ partPass = true, partPassAgeMs = PART_PASS_AGE_MS } = {},
+) {
+	/** @type {TurnReason[]} */
+	const reasons = [];
+	/** @type {number | undefined} */
+	let passed;
+	if (waiter === "part") {
+		const waiting = ahead.filter((r) => r.part === true && r.spawned !== true);
+		const passable = (/** @type {TurnSnapshot["ahead"][number]} */ r) =>
+			partPass && r.memoryHeld === true && now - r.at < partPassAgeMs;
+		if (waiting.every(passable)) passed = waiting.length;
+		else reasons.push("fifo-part");
+	} else if (
+		ahead.filter((r) => r.part !== true).length >= slots ||
+		!ahead.every((r) => r.spawned === true)
+	)
+		reasons.push(waiter === "tsc" ? "tsc-fifo" : "fifo-whole");
+	if (admissionOpen) reasons.push("admitted");
+	return reasons.length > 0 ? { reasons } : { reasons, passed };
 }
 
 /**
@@ -1343,6 +1374,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 
 module.exports = {
 	PART_PASS_AGE_MS,
+	turnOf,
 	SEAT_ENV,
 	heldMarker,
 	heldSeat,
@@ -1350,13 +1382,6 @@ module.exports = {
 	readStartTimeOf,
 	isMarkerStale,
 	readMarkers,
-	queueJoin,
-	queueAdmit,
-	queueSpawned,
-	queueStamps,
-	queueLeave,
-	queueTurn,
-	passingTurn,
 	readLiveRoleMarkers,
 	readQueuesClimbMb,
 	gateDenies,
