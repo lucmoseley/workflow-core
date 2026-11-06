@@ -130,6 +130,7 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		`Revert "${subject(80)}"`,
 		`Reapply "${subject(80)}"`,
 		`Merge branch '${"x".repeat(80)}' into main`,
+		`Merge queue/${"x".repeat(80)} at a17f25518 into the batch`,
 		`fixup! ${subject(80)}`,
 		`squash! ${subject(80)}`,
 		`amend! ${subject(80)}`,
@@ -169,10 +170,12 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		},
 	);
 
-	it("measures a typed subject that opens on Merge but is no git merge form", () => {
-		const s = `Merge ${subject(73 - 6)}`;
-		expectRefused(viaM(s), s);
-	});
+	it.each([`Merge ${subject(73 - 6)}`, `Merge queue/${subject(73 - 12)}`])(
+		"measures a typed subject that opens on Merge but is no generated merge form, %s",
+		(s) => {
+			expectRefused(viaM(s), s);
+		},
+	);
 
 	it("measures the subject alone, not a long body line", () => {
 		expect(viaM(`${subject(40)}\n\n${"y".repeat(200)}\n`).status).toBe(0);

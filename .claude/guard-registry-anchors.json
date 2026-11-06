@@ -10,7 +10,7 @@
 	"scripts/audit-escape-lines.js": "a18a14e0f122aa28",
 	"scripts/check-ci-status.js": "421c7e65f3d47773",
 	"scripts/check-citation-tracker.js": "2346ba6796878815",
-	"scripts/check-commit-subject.sh": "c9d5b7c749d76a0a",
+	"scripts/check-commit-subject.sh": "6a311aa538fe3e2e",
 	"scripts/check-digest-version.js": "13e47877f0ed3f0e",
 	"scripts/check-doc-map.js": "6b22e8188f769ee8",
 	"scripts/check-gate-switches.js": "e4ebd13c8838f456",
