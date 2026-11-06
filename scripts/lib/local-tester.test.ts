@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LANDER_WORKTREE } from "./lander-worktree.js";
 import {
 	localTester,
 	parseFailingTests,
@@ -327,6 +328,28 @@ it("asks the Python runner for the whole suite (#3508)", async () => {
 	});
 	expect(await tester.verdict(routed)).toEqual({ kind: "green" });
 	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
+});
+
+it("rebuilds its worktree where it went during the gate wait, and still reaches a verdict (#4421)", async () => {
+	write("b.check.js", "throw new Error('no')");
+	const failing = commit("failing");
+	const { admit } = admitted();
+	const tester = localTester({
+		root: work,
+		admit: () => {
+			fs.rmSync(path.join(work, LANDER_WORKTREE), {
+				recursive: true,
+				force: true,
+			});
+			return admit();
+		},
+		exec: recordingExec().exec,
+	});
+	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(failing)).toMatchObject({
+		kind: "red",
+		files: ["b.check.js"],
+	});
 });
 
 it("holds one slot for the run and releases it, and never runs past a shut gate", async () => {
