@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { stripVTControlCharacters } = require("node:util");
-const { caught } = require("./caught.js");
+const { caught, parseErrorText } = require("./caught.js");
 const {
 	isNetworkFault,
 	isPushFaultText,
@@ -271,7 +271,52 @@ function pushRemote(root, args, env = process.env) {
 	}
 }
 
+/* git push's words for a compare-and-delete refused because the ref moved. */
+const STALE = /\(stale info\)/;
+const GONE = /remote ref does not exist/;
+
+/**
+ * Deletes the remote's `branch` only where it still holds `sha`: true where
+ * it is gone after, false where it moved.
+ * @param {string} root
+ * @param {string} branch
+ * @param {string} sha
+ * @returns {boolean}
+ */
+function deleteRemoteRef(root, branch, sha) {
+	const ref = `refs/heads/${branch}`;
+	try {
+		pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`]);
+		return true;
+	} catch (err) {
+		const refused = parseErrorText(err);
+		if (GONE.test(refused)) return true;
+		if (STALE.test(refused)) return false;
+		throw err;
+	}
+}
+
+/**
+ * Creates the remote's `branch` at `sha`, refused where it holds another sha.
+ * @param {string} root
+ * @param {string} branch
+ * @param {string} sha
+ */
+function createRemoteRef(root, branch, sha) {
+	const ref = `refs/heads/${branch}`;
+	try {
+		pushRemote(root, [`--force-with-lease=${ref}:`, `${sha}:${ref}`]);
+	} catch (err) {
+		/* Made already, as by a drop a crash repeats. */
+		if (!STALE.test(parseErrorText(err))) throw err;
+		const held = readGit(root, ["ls-remote", REMOTE, ref]).split("\t")[0];
+		if (held !== sha) throw err;
+	}
+}
+
 module.exports = {
+	createRemoteRef,
+	deleteRemoteRef,
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,

@@ -58,6 +58,7 @@ const reads = (
 ) => {
 	let n = 0;
 	const reran: number[] = [];
+	const repushed: string[] = [];
 	return {
 		runs: () => {
 			const next = listings[Math.min(n, listings.length - 1)];
@@ -72,8 +73,13 @@ const reads = (
 		rerun: (id: number) => {
 			reran.push(id);
 		},
+		repush: (branch: string, sha: string) => {
+			repushed.push(`${branch}@${sha}`);
+			return true;
+		},
 		calls: () => n,
 		reran,
+		repushed,
 	};
 };
 
@@ -403,6 +409,7 @@ const askNamed = (
 			...r.reads,
 			runs: () => [],
 			rerun: () => undefined,
+			repush: () => true,
 			isoRefs: () => iso,
 			runsOn: () => [],
 		},
@@ -735,6 +742,80 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 	expect(first.reran).toEqual([]);
 });
 
+it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {
+	const SuiteBase = "lander/iso-suite-base";
+	const atBase = () => [{ branch: SuiteBase, sha: SHA }];
+	const earlier = run(7, "success");
+	const fresh = queueReads([], {
+		iso: atBase,
+		runsOn: () =>
+			fresh.repushed.length === 0 ? [earlier] : [run(9, "success"), earlier],
+	});
+	expect(await queueOf(fresh).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 9,
+	});
+	expect(fresh.repushed).toEqual([`${SuiteBase}@${SHA}`]);
+	expect(fresh.reran).toEqual([]);
+
+	const none = queueReads([], { iso: atBase, runsOn: () => [earlier] });
+	expect(await queueOf(none).verdict(SHA, [], true)).toEqual({
+		kind: "unknown",
+		reason: `no scheduled-checks.yml push run on ${SuiteBase} at ${SHA.slice(0, 9)}`,
+	});
+	expect(none.repushed).toEqual([`${SuiteBase}@${SHA}`]);
+});
+
+it("never reads the whole suite asked again off a run older than the branch's newest at the ask, though none was at the sha (#4524)", async () => {
+	const atAsk = run(8, "success", { headSha: OTHER });
+	const listing = (after: Run) => {
+		let n = 0;
+		return queueReads([], {
+			iso: () => [{ branch: "lander/iso-suite-base", sha: SHA }],
+			runsOn: () => (n++ === 0 ? [atAsk] : [after, atAsk]),
+		});
+	};
+	const stale = listing(run(7, "success"));
+	expect(await queueOf(stale).verdict(SHA, [], true)).toMatchObject({
+		kind: "unknown",
+	});
+	const pushed = listing(run(9, "success"));
+	expect(await queueOf(pushed).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 9,
+	});
+	expect([...stale.repushed, ...pushed.repushed]).toEqual([]);
+});
+
+it("reads a ref moved, refused or cut off by the network on pushing it again as no verdict, transient only for the network (#4524)", async () => {
+	const SuiteBase = "lander/iso-suite-base";
+	const at = (repush: () => boolean) => {
+		const r = queueReads([], {
+			iso: () => [{ branch: SuiteBase, sha: SHA }],
+			runsOn: () => [run(7, "success")],
+		});
+		r.repush = repush;
+		return queueOf(r).verdict(SHA, [], true);
+	};
+	expect(await at(() => false)).toEqual({
+		kind: "unknown",
+		reason: `${SuiteBase} moved off ${SHA.slice(0, 9)} before it was pushed again`,
+	});
+	expect(
+		await at(() => {
+			throw new Error("pre-receive hook declined");
+		}),
+	).toEqual({
+		kind: "unknown",
+		reason: `${SuiteBase} not pushed again at ${SHA.slice(0, 9)}: pre-receive hook declined`,
+	});
+	expect(
+		await at(() => {
+			throw Object.assign(new Error("push"), { code: "ETIMEDOUT" });
+		}),
+	).toMatchObject({ kind: "unknown", transient: true });
+});
+
 it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
 	const files = ["scripts/lib/a.test.ts"];
 	const r = queueReads([() => [run(1, null)], () => [run(1, "success")]]);
@@ -854,4 +935,15 @@ if (argv[0] === "workflow") {
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
+	/* Asked again over the passed run 9, the ref is pushed again and no run
+	 * newer than 9 is listed. */
+	expect(await tester.verdict(iso, [], true)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(
+			/^no scheduled-checks\.yml push run on lander\/iso-suite-0/,
+		),
+	});
+	expect(
+		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
+	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
 });
