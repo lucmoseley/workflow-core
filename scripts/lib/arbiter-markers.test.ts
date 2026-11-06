@@ -463,7 +463,6 @@ describe("self-plugin marker sweep — a linked worktree's markers (#4531)", () 
 		expect(res.status, res.stderr).toBe(0);
 	};
 
-	/** One aged file under the worktree's markers. */
 	const aged = (name: string) => {
 		fs.mkdirSync(wtMarkers(), { recursive: true });
 		const full = path.join(wtMarkers(), name);

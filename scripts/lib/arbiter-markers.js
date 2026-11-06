@@ -85,8 +85,7 @@ const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
  * paths a session has written or been refused once on (#1167, #1728). `.compaction-trigger-` is
  * inject-compaction-count.js's hand-off from PreCompact to SessionStart (#1148).
  * `.self-plugin-loaded-` is write-self-plugin-marker.sh's proof, read by the
- * self-plugin canary, that the self-plugin loaded (#2438). Swept in linked
- * worktrees too, see SELF_PLUGIN_PREFIX.
+ * self-plugin canary, that the self-plugin loaded (#2438).
  * `.parked-blocked-` is park-blocked.sh's record, read by the session-ceiling
  * guard.
  * lib/parked.js's `.parked-<sid>` shares the directory and has no
@@ -250,8 +249,7 @@ function buildResumeExpected(root) {
  *
  * The self-plugin marker pays most (#4531): swept from a running session, the
  * canary refuses its every tool call until a clear or compact writes a new
- * one. The clock stands for the same reason as below: the residual needs a
- * session unregistered for a full day.
+ * one.
  *
  * The rule latches pay MORE for that same residual, and it was not weighed when
  * the clock was chosen (mantahostels#1804). Sweeping an unregistered-but-running session's
@@ -270,8 +268,7 @@ function pruneMarkers() {
 	// time and sweepAged takes one age. Each spares everything outside its own family,
 	// so none can reach another's files. The third shares the first's age and the
 	// second's suffix matching — see RULE_LATCH_PREFIX for why it is not simply an
-	// entry in MARKER_PREFIXES. A fourth visits each linked worktree for the
-	// self-plugin marker alone (SELF_PLUGIN_PREFIX).
+	// entry in MARKER_PREFIXES.
 	//
 	// All sweep `.claude/tmp/markers` rather than the repo root since F8
 	// (mantahostels#3515, #2) — root itself before that.
@@ -299,8 +296,7 @@ function pruneMarkers() {
 	);
 	/* Joined, not markersDir(): that creates the directory, and a worktree
 	 * with none has nothing to sweep. Where git will not list them, the
-	 * worktrees go unswept this run and the failure is logged (#4531): their
-	 * litter is bytes, and the main checkout's sweep above has run. */
+	 * worktrees go unswept this run and the failure is logged (#4531). */
 	const worktrees = readLinkedWorktrees(root);
 	if (worktrees === null)
 		core.logError("pruneMarkers", new Error("git worktree list failed"));
