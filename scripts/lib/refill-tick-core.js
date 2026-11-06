@@ -4,7 +4,7 @@
  * of its own. Every read, write and child process goes through the TickIo port,
  * whose adapter is lib/refill-tick.js: its reads (TickReads) and its acts
  * (TickActs). A dry run takes the same adapter's reads, each act swapped for
- * its dry answer (dryActsOf), and differs in the policy branches here: it
+ * its dry answer (buildDryActs), and differs in the policy branches here: it
  * previews over no control as over a stopped one, judges no listing by a
  * boot's kills, and stops at its decision.
  *
@@ -288,7 +288,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   dropSettledLifted: (settled: ReturnType<typeof blocks.queueLifted>["settled"]) => void,
  *   dropManagerRestart: (marker: NonNullable<Parameters<typeof withManagerRestart>[1]>) => void,
  *   appendTick: (record: ReturnType<typeof buildTickRecord>) => void,
- * }} TickActs  every write and child process; each has its dry answer in dryActsOf
+ * }} TickActs  every write and child process; each has its dry answer in buildDryActs
  * @typedef {TickReads & TickActs} TickIo
  */
 
@@ -784,17 +784,18 @@ function settleDecided(
 const doNothing = () => undefined;
 
 /**
- * Every act's answer on a dry run, which does none of them: the input it was
- * handed, nothing done, or what a read of the files shows. Typed over every
- * act, so a new one cannot reach a dry run live.
+ * Every act's answer on a dry run, which does none of them (#4356, #4323): the
+ * input it was handed, nothing done, or what a read of the files shows. Typed
+ * over every act, so a new one cannot reach a dry run live.
+ * Residual: blockIo, a read, hands the block acts their writers; a dry path
+ * that calls one through `seen.io` writes for real (#4569).
  * @param {TickReads} io
  * @returns {TickActs}
  */
-const dryActsOf = (io) => ({
-	changeControl: (change) => {
-		const fresh = io.readControl().control;
-		return { control: (fresh && change(fresh)) ?? fresh, wrote: null };
-	},
+const buildDryActs = (io) => ({
+	/* Unreached: settleUnderLock previews the change over the tick's own
+	 * control, which a fresh read would not carry. */
+	changeControl: () => ({ busy: "a dry run takes no lock" }),
 	reap: io.previewReap,
 	tendQuietBench: (control) => control,
 	adoptKilledLaunches: (state) => state,
@@ -866,7 +867,7 @@ const buildStandInControl = (io, dryRun, now) => ({
  */
 async function runTick(adapter, { dryRun, now, opening }) {
 	/** @type {TickIo} */
-	const io = dryRun ? { ...adapter, ...dryActsOf(adapter) } : adapter;
+	const io = dryRun ? { ...adapter, ...buildDryActs(adapter) } : adapter;
 	const { control: stored, damaged } = opening.control;
 	const { declared, typed } = opening;
 	const parsed = settleOptedOut(

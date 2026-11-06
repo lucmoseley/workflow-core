@@ -35,8 +35,46 @@ import { loopStateOf } from "./refill-state-testkit";
 import { runTick } from "./refill-tick-core.js";
 
 type TickIo = import("./refill-tick-core.js").TickIo;
+type TickActs = import("./refill-tick-core.js").TickActs;
 type LoopState = import("./refill-state.js").LoopState;
 type Control = import("./refill-loop.js").Control;
+
+/** Every act's name; tsc holds it to TickActs, so a new act joins the dry-run case. */
+const ACTS = {
+	changeControl: true,
+	reap: true,
+	tendQuietBench: true,
+	adoptKilledLaunches: true,
+	settleStartedResumes: true,
+	stopNeverStarted: true,
+	superviseLanding: true,
+	levelMain: true,
+	startWarmPass: true,
+	startReapPass: true,
+	runMachineChild: true,
+	tendHolds: true,
+	recordListedOverflowSessions: true,
+	stopOverAllowance: true,
+	sendHoldNotices: true,
+	unparkAnswered: true,
+	tendClosedParks: true,
+	actOnBlocks: true,
+	actOnIdle: true,
+	releaseAwayParks: true,
+	attachProbeParks: true,
+	actOnLimits: true,
+	releaseEndedHolds: true,
+	probeDueSeats: true,
+	startDueConsoleReads: true,
+	launchBatch: true,
+	resumeHeld: true,
+	writePause: true,
+	runReview: true,
+	updateState: true,
+	dropSettledLifted: true,
+	dropManagerRestart: true,
+	appendTick: true,
+} satisfies Record<keyof TickActs, true>;
 
 const SEAT = "/home/u/.claude3";
 
@@ -681,34 +719,7 @@ describe("the dry-run policy (#4212)", () => {
 			},
 		});
 		expect(calls).toContain("previewReap");
-		for (const port of [
-			"changeControl",
-			"reap",
-			"tendQuietBench",
-			"adoptKilledLaunches",
-			"settleStartedResumes",
-			"stopNeverStarted",
-			"superviseLanding",
-			"levelMain",
-			"startWarmPass",
-			"startReapPass",
-			"runMachineChild",
-			"tendHolds",
-			"recordListedOverflowSessions",
-			"stopOverAllowance",
-			"sendHoldNotices",
-			"unparkAnswered",
-			"tendClosedParks",
-			"actOnBlocks",
-			"actOnIdle",
-			"releaseAwayParks",
-			"attachProbeParks",
-			"releaseEndedHolds",
-			"actOnLimits",
-			"probeDueSeats",
-			"startDueConsoleReads",
-		])
-			expect(calls).not.toContain(port);
+		expect(calls.filter((port) => port in ACTS)).toEqual([]);
 	});
 
 	it("releases no ended launch's hold on a paused dry run (#4356)", async () => {
@@ -717,23 +728,12 @@ describe("the dry-run policy (#4212)", () => {
 		expect(calls).not.toContain("releaseEndedHolds");
 	});
 
-	it("returns at its decision, reading no manager restart and settling nothing", async () => {
+	it("returns at its decision, reading no manager restart or lifted hold", async () => {
 		const { io, calls } = fakeIo(stateOf());
 		const r = await tickOf(io, control(), true);
 		expect("launches" in r.decision && r.decision.launches).toHaveLength(1);
-		for (const port of [
-			"readManagerRestart",
-			"readLiftedHolds",
-			"launchBatch",
-			"resumeHeld",
-			"updateState",
-			"writePause",
-			"runReview",
-			"dropSettledLifted",
-			"dropManagerRestart",
-			"appendTick",
-		])
-			expect(calls).not.toContain(port);
+		expect(calls).not.toContain("readManagerRestart");
+		expect(calls).not.toContain("readLiftedHolds");
 	});
 });
 
