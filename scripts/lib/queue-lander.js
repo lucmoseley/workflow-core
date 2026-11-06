@@ -78,8 +78,7 @@
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
  *   files it ran and its pass, the rerun and the confirm being the second.
  *   A base check's verdict at `main` is kept on the batch record, never the
- *   ledger, so each batch asks it afresh (#4501): a failure that reached `main`
- *   since an earlier batch's check is never blamed on this one. An unknown
+ *   ledger, so each batch asks it afresh (#4501). An unknown
  *   verdict is no verdict: it lands and drops nothing and is never
  *   ledgered, so the next run asks again.
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
@@ -295,7 +294,7 @@ class TransientFault extends Error {}
  */
 
 /* The pass of a base check: a run at `main` of its own, never the verdict
- * `main`'s sha reached as a batch, its verdict kept on the batch record. */
+ * `main`'s sha reached as a batch. */
 const BASE_PASS = 0;
 
 /** @param {string} reason @returns {QueueEnd} */
@@ -566,8 +565,7 @@ function redOnMain(onMain, checked, v) {
 
 /**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
- * else what of it `main` shares. Only a verdict this batch asked is read. A
- * red naming no file is `main`'s where `main` fails every job it does.
+ * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does.
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -826,8 +824,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 }
 
 /**
- * Whether any of `members` is at a sha the remote refused on `main`, so its
- * merge is to be a new commit, never the member's own sha.
+ * Whether any of `members` is at a sha the remote refused on `main`.
  * @param {QueueState} s
  * @param {readonly Member[]} members
  */
@@ -836,7 +833,7 @@ const isRefused = (s, members) =>
 
 /**
  * The hold of a batch at `main` whose landing sha `sha` the remote refused,
- * else null: never pushed again.
+ * else null.
  * @param {QueueState} s
  * @param {string} main
  * @param {string} sha
@@ -1512,7 +1509,7 @@ async function actRed(deps, action, run) {
 /**
  * Pushes `main`'s `sha` to `lander/iso-base`, or iso-suite-base for the
  * whole suite, and asks its verdict on `files` afresh, kept on the batch
- * record so no later batch reads it.
+ * record.
  * @param {QueueLanderDeps} deps
  * @param {Extract<QueueAction, {kind: "check-base"}>} action
  * @param {QueueRun} run
@@ -1520,7 +1517,6 @@ async function actRed(deps, action, run) {
  */
 async function checkBase(deps, { sha, files }, run) {
 	deps.git.pushIso(isoBranch(files, "base"), sha);
-	/* `again`, so the tester runs it anew rather than reading a run it has. */
 	const v = await verdictAt(deps, sha, [...files], true);
 	return writeVerdict(deps, { sha, files, pass: BASE_PASS, v }, run, (got) => {
 		const b = batchOf(run);

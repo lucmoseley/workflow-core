@@ -378,7 +378,7 @@ function verdictLedger(file) {
 
 /**
  * The refused record: one JSON line per sha the remote refused on `main`,
- * with its refusal, kept for good, as no batch may push one again.
+ * with its refusal.
  * @param {string} file
  * @returns {RefusedRecord}
  */
