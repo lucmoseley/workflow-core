@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./lib/auth-status-fake";
+import { buildRecordedAnswer } from "./lib/bg-launch-fake";
 import {
 	agentsListing,
 	dispatchFixture,
@@ -22,6 +23,8 @@ import {
 } from "./lib/dispatch-sessions-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageBranch } from "./lib/usage-probe-fake";
+
+const JOB = "0b5e55ed";
 
 const fx = dispatchFixture();
 const { stubClaude, stubPath, launchArgv, readArgvLines, regWedged, run } = fx;
@@ -129,7 +132,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 	});
 
 	it("launches as before on a healthy bridge, saying nothing extra", () => {
-		stubClaude({});
+		stubClaude({ jobId: JOB });
 		// A fresh allowance cache, so the per-spawn re-read (#294) has nothing
 		// to warn about here — this case pins what the interop probe adds, not
 		// the allowance warning line, which has its own coverage above.
@@ -148,7 +151,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toBe(
 			"Allowance OK: week 3%, session 12%.\n" +
 				"Advisor not checked: no /usage probe ran to report it.\n" +
-				"sonnet  launched\n",
+				`sonnet  ${buildRecordedAnswer(JOB, "positional").stdout.split("\n")[0]}\n`,
 		);
 		expect(r.stderr).toBe("OK: no issue in this set is already dispatched\n");
 	});

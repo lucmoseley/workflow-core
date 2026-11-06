@@ -395,6 +395,14 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
+		/* Silent while the newest release lags `origin/main` by its threshold or
+		 * less; warns at every start past it (#4448). */
+		event: "SessionStart",
+		id: "scripts/check-release-lag.js --notify",
+		matcher: null,
+		covers: [],
+	},
+	{
 		/* Silent on a fast or unprobeable interop bridge; warns at every start
 		 * while two policy queries in a row are slow, logging evidence (#3564). */
 		event: "SessionStart",

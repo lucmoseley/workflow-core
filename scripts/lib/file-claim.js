@@ -124,7 +124,7 @@ const CLASSES = "docs/doc-map-classes.json";
 /**
  * @typedef {{ ok: true, stdout: string } | { ok: false, why: string,
  *   stdout: string }} ArbiterAnswer `why` is "timed out" or "exited <code>"
- * @typedef {import("./guard-dispatch.js").CoreContext & {
+ * @typedef {import("./guard-judge.js").CoreContext & {
  *   arbiterCheck: (args: string[], cwd: string) => ArbiterAnswer,
  * }} FileClaimContext
  * @typedef {import("./guard-entry.js").Decision} Decision

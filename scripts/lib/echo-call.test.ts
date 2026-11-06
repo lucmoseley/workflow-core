@@ -33,7 +33,7 @@ import { buildHostPorts } from "./echo-call-host.js";
 import chain from "./echo-chain.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
-import type { CoreDecision } from "./guard-dispatch.js";
+import type { CoreDecision } from "./guard-judge.js";
 import { kitContext } from "./kit-context.js";
 import { resolveScriptPaths } from "./script-path.js";
 

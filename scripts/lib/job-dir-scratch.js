@@ -93,7 +93,7 @@ const { ruleOrFallback } = require("./guard-verdict.js");
 const { treeOr } = require("./tree-or.js");
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
+ * @typedef {import("./guard-judge.js").CoreContext} CoreContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {{ flat: string, flatName: string, stray: string }} Found the
  *   offending targets as the caller wrote them: `flat` the first file straight

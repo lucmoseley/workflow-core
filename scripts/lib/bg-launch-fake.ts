@@ -12,11 +12,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildJobIdWord } from "./claude-stub";
+import { shellQuote } from "./sh-quote.js";
 
 /** `prompted`: `--bg <flags> -- <prompt>`, as guard-main-checkout-job.js
  * launches; `idle`: `--bg --agent claude --name <name>`, as start-session.sh
- * does. */
-export type LaunchKind = "prompted" | "idle";
+ * does; `positional`: `--bg <flags> <prompt>`, as dispatch-sessions.sh and
+ * run-arm-test.js do; `named`: `--bg <flags> -n <name> <prompt>`, as
+ * dispatch-sessions.sh's overflow launch. */
+export type LaunchKind = "prompted" | "idle" | "positional" | "named";
 export type RmKind = "ok" | "noJob";
 
 export interface Answer {
@@ -37,6 +40,20 @@ export const recorded: {
 	),
 );
 
+/** Launches no recording shows. */
+export const UNRECORDED = {
+	silent: { status: 0, stdout: "", stderr: "" },
+	refused: { status: 1, stdout: "", stderr: "could not start\n" },
+};
+
+export function buildRecordedAnswer(id: string, kind: LaunchKind = "prompted") {
+	const r = recorded.launches[kind];
+	return {
+		stdout: r.stdout.replaceAll(r.id, id),
+		stderr: r.stderr.replaceAll(r.id, id),
+	};
+}
+
 /** The recorded `kind` launch's answer naming job `id`, written into `dir`
  * as the `out` and `err` files `buildBgBranch` prints. */
 export function writeLaunchAnswer(
@@ -44,12 +61,29 @@ export function writeLaunchAnswer(
 	id: string,
 	kind: LaunchKind = "prompted",
 ) {
-	const r = recorded.launches[kind];
+	const { stdout, stderr } = buildRecordedAnswer(id, kind);
 	const out = path.join(dir, "bg-launch.out");
 	const err = path.join(dir, "bg-launch.err");
-	fs.writeFileSync(out, r.stdout.replaceAll(r.id, id));
-	fs.writeFileSync(err, r.stderr.replaceAll(r.id, id));
+	fs.writeFileSync(out, stdout);
+	fs.writeFileSync(err, stderr);
 	return { out, err };
+}
+
+/** A stub's lines answering any call with `r`. */
+export function buildAnswerBranch(r: Omit<Answer, "id">) {
+	return `printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
+}
+
+/** A Node stub's statements printing the recorded `kind` launch's answer
+ * naming the job the JavaScript expression `idExpr` evaluates to. */
+export function buildLaunchNodeAnswer(
+	idExpr: string,
+	kind: LaunchKind = "prompted",
+) {
+	const r = recorded.launches[kind];
+	const print = (stream: string, text: string) =>
+		`process.${stream}.write(${JSON.stringify(text)}.replaceAll(${JSON.stringify(r.id)},${idExpr}));`;
+	return `${print("stdout", r.stdout)}${print("stderr", r.stderr)}`;
 }
 
 /** The `rm` branch, removing job `$2`. */

@@ -81,9 +81,52 @@ export const buildPermissionRow = (id: string): Row =>
 export const buildAgentsBranch = (listing: Row[] | null) =>
 	`if [ "$1" = "agents" ]; then ${listing ? `printf '%s' ${shellQuote(JSON.stringify(listing))}; exit 0` : "exit 1"}; fi`;
 
-/** The `stop` branch: appends its argv to `log`, then answers as the
- * recording's `kind` stop, of job `$2`. */
-export function buildStopBranch(log: string, kind: StopKind = "ok") {
-	const r = recorded.stops[kind];
-	return `if [ "$1" = "stop" ]; then echo "$*" >> ${shellQuote(log)}; printf '%s' ${buildJobIdWord(r.stdout, r.id)}; printf '%s' ${buildJobIdWord(r.stderr, r.id)} >&2; exit ${r.status}; fi`;
+/* Stop answers no daemon gives on demand, so none is recorded. */
+const noJob = recorded.stops.noJob;
+const FAULTS = {
+	busy: "echo 'daemon socket is busy' >&2; exit 1",
+	warnedNoJob: `echo 'warning: daemon slow to answer' >&2; printf '%s' ${buildJobIdWord(noJob.stderr, noJob.id)} >&2; exit ${noJob.status}`,
+	killed: "echo 'going down' >&2; kill -KILL $$",
+};
+
+export type StopAnswer = StopKind | keyof typeof FAULTS;
+
+const isFault = (answer: StopAnswer): answer is keyof typeof FAULTS =>
+	answer in FAULTS;
+
+const buildAnswer = (answer: StopAnswer) => {
+	if (isFault(answer)) return FAULTS[answer];
+	const r = recorded.stops[answer];
+	return `printf '%s' ${buildJobIdWord(r.stdout, r.id)}; printf '%s' ${buildJobIdWord(r.stderr, r.id)} >&2; exit ${r.status}`;
+};
+
+/**
+ * The `stop` branch: appends its argv to `log` and, where `envLog` is given,
+ * the seat it ran on and the session identity it inherited
+ * (`<CLAUDE_CONFIG_DIR> <CLAUDE_CODE_SESSION_ID> <CLAUDE_JOB_DIR>`, `none` for
+ * an unset one), then answers job `$2`: as `answer`, or, where `answer` maps
+ * seats to answers, as its seat's, a seat it leaves out answering `ok`.
+ */
+export function buildStopBranch(
+	log: string,
+	answer: StopAnswer | Record<string, StopAnswer> = "ok",
+	envLog?: string,
+) {
+	const [fallback, bySeat] =
+		typeof answer === "string" ? [answer, {}] : (["ok", answer] as const);
+	const seatCases = Object.entries(bySeat).map(
+		([seat, a]) => `${shellQuote(seat)}) ${buildAnswer(a)} ;;`,
+	);
+	return [
+		'if [ "$1" = "stop" ]; then',
+		`echo "$*" >> ${shellQuote(log)}`,
+		envLog
+			? `echo "\${CLAUDE_CONFIG_DIR:-none} \${CLAUDE_CODE_SESSION_ID:-none} \${CLAUDE_JOB_DIR:-none}" >> ${shellQuote(envLog)}`
+			: "",
+		`case "$CLAUDE_CONFIG_DIR" in ${seatCases.join(" ")} esac`,
+		buildAnswer(fallback),
+		"fi",
+	]
+		.filter(Boolean)
+		.join("\n");
 }
