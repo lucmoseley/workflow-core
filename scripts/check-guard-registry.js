@@ -195,6 +195,7 @@ const { caught } = require("./lib/caught.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
+const { inTree, treeOf } = require("./lib/tree-members.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -1897,7 +1898,7 @@ function parsedSources(rel, text, base) {
 		text,
 		...parseSourcedBy(rel, text, base),
 		named: isGateStack(header)
-			? headerNamed(header).filter((p) => fs.existsSync(path.join(base, p)))
+			? headerNamed(header).filter((p) => inTree(base, p))
 			: null,
 	};
 	sourcedCache.set(key, parsed);
@@ -2014,9 +2015,9 @@ function headerNamed(header) {
  */
 function resolveSourced(base, dir, lib) {
 	const sibling = path.join(dir, lib);
-	if (fs.existsSync(path.join(base, sibling))) return sibling;
+	if (inTree(base, sibling)) return sibling;
 	const shared = path.join("scripts", lib);
-	return fs.existsSync(path.join(base, shared)) ? shared : sibling;
+	return inTree(base, shared) ? shared : sibling;
 }
 
 /** @param {string} p a run target, as a path from the tree's root */
@@ -2035,9 +2036,9 @@ function keptRun(p) {
  */
 function resolveRun(base, dir, tail) {
 	const sibling = path.join(dir, tail);
-	if (fs.existsSync(path.join(base, sibling))) return sibling;
+	if (inTree(base, sibling)) return sibling;
 	if (!keptRun(path.normalize(tail))) return sibling;
-	return fs.existsSync(path.join(base, tail)) ? tail : sibling;
+	return inTree(base, tail) ? tail : sibling;
 }
 
 /*
@@ -2068,8 +2069,14 @@ function digestOf(rel, seen = new Set(), inStack = false) {
 		const named = inStack ? null : gateStackNamed(rel, text);
 		const stack = inStack || named !== null;
 		// Sorted, so the digest does not move when the source lines are reordered.
-		for (const lib of sourcedBy(rel, text, root, !stack).sort())
-			hash.update(`\0${lib}\0${digestOf(lib, seen, stack) ?? ""}`);
+		/* A dependency outside the tree hashes as absent, whatever lies on disk
+		 * at its path (#4508). It stays an input, so a staged removal of it reads
+		 * as dirty. */
+		for (const lib of sourcedBy(rel, text, root, !stack).sort()) {
+			const there = inTree(root, lib);
+			if (!there) seen.add(lib);
+			hash.update(`\0${lib}\0${(there && digestOf(lib, seen, stack)) || ""}`);
+		}
 		for (const p of named ?? []) {
 			seen.add(p);
 			hash.update(`\0${p}\0`).update(fs.readFileSync(path.join(root, p)));
@@ -4163,6 +4170,7 @@ function buildReviewSummary(
 	const lines = [
 		`\n${written} path(s) re-anchored in ${ANCHORS}. ` +
 			"Re-anchoring asserts everything printed as anchored above was re-read against the file.",
+		...treeFailureLines(),
 	];
 	if (carried)
 		lines.push(
@@ -4705,6 +4713,16 @@ function parseReviewRequest(ctx, reviewAt) {
 	};
 }
 
+/** The line saying the digests read the disk, not the index; none where they read the index or the tree has none. */
+function treeFailureLines() {
+	const { failure } = treeOf(root);
+	return failure
+		? [
+				`Tree read FAILED OPEN — ${failure}. Digests resolve each guard's dependencies on disk, untracked and ignored files included (#4508).`,
+			]
+		: [];
+}
+
 /** The summary's last line: what the gitignore filter did to the walk. */
 function buildIgnoreLine() {
 	if (ignoreFailure)
@@ -4917,7 +4935,7 @@ runCheck({
 				`${triggerRefs.length} trigger(s) naming one.\n` +
 				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) or dispatcher core(s) run on a narrowed set, ` +
 				`${declaredIfUnreadable} unreadable emitter(s) skipped on the declared side (mantahostels#2234).\n` +
-				buildIgnoreLine(),
+				[buildIgnoreLine(), ...treeFailureLines()].join("\n"),
 		);
 
 		/*
