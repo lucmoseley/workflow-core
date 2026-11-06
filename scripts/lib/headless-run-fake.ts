@@ -4,8 +4,7 @@
  * installed harness's options as recorded (scripts/fixtures/headless-run.json,
  * re-recorded by `node scripts/record-headless-run.js`), refusing an unknown
  * flag in the binary's words; runs the apiKeyHelper its `--settings` names, as
- * the binary does; appends what it saw to a log; then holds or ends, ending
- * on the recorded `result` row re-keyed to its session. The contract,
+ * the binary does. The contract,
  * lib/headless-run.contract.test.ts, holds the fixture to the binary.
  */
 
@@ -27,7 +26,6 @@ export const recorded: {
 	),
 );
 
-/** The recorded `result` row with `over` laid on it. */
 export const buildResultRow = (over: Record<string, unknown> = {}) => ({
 	...recorded.result,
 	...over,
@@ -40,7 +38,6 @@ export const buildResultRow = (over: Record<string, unknown> = {}) => ({
  */
 export type HeadlessMode = "hold" | "stubborn" | "orphan" | "end";
 
-/** One run's record in the fake's log. */
 export interface HeadlessCall {
 	argv: string[];
 	flags: Record<string, string | true>;
@@ -59,7 +56,7 @@ export interface HeadlessCall {
  * and its grandchild once `log`'s directory is gone or `holdMs` passes,
  * checked each second (a guess): the launch detaches it, so no case's
  * teardown is its parent (#2678 (the leaked fakes)). `rows` are the stream
- * `end` prints, each `session_id` set to the run's session.
+ * `end` prints.
  */
 export function writeHeadlessFake(
 	file: string,
@@ -80,7 +77,7 @@ export function writeHeadlessFake(
 const fs = require("node:fs");
 const path = require("node:path");
 const { execSync, spawn } = require("node:child_process");
-const { parseArgv } = require(${JSON.stringify(path.join(__dirname, "headless-run-fake-argv.js"))});
+const { parseArgv } = require(${JSON.stringify(path.join(__dirname, "headless-argv-fake.js"))});
 const LOG = ${JSON.stringify(log)};
 const MODE = ${JSON.stringify(mode)};
 const HOLD_MS = ${holdMs};

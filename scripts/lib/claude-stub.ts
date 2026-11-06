@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { buildAuthStatusBranch } from "./auth-status-fake";
+import { LIVE_CALL_TIMEOUT_MS } from "./headless-options.js";
 import { shellQuote } from "./sh-quote.js";
 
 /** `text` as one sh word, every `id` in it spliced as "$2": a recorded
@@ -36,10 +37,6 @@ export function writeClaudeStub(
 	);
 	return bin;
 }
-
-/* A guess: a free `claude` call answers in well under a second, and a hang
- * should fail or skip. */
-export const LIVE_CALL_TIMEOUT_MS = 30_000;
 
 /** Why a contract's live `claude` case skips here, or undefined where it
  * runs (§G7.2). */

@@ -44,7 +44,7 @@ import { launchBatch } from "./lib/refill-batch.js";
 import { isTestKind } from "./lib/test-kind.js";
 
 const fx = dispatchFixture();
-const { stubClaude, baseEnv, readArgvLines, readHeadlessRuns } = fx;
+const { stubClaude, baseEnv, readArgvLines, readFakeCalls } = fx;
 
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const JOB = "0a0b0c0d";
@@ -159,10 +159,10 @@ const readStoredJobIds = () => {
 function readHeadlessLaunches(expected = readStoredJobIds().length) {
 	const pause = new Int32Array(new SharedArrayBuffer(4));
 	for (const end = Date.now() + 10_000; Date.now() < end; ) {
-		if (readHeadlessRuns().length >= expected) break;
+		if (readFakeCalls().length >= expected) break;
 		Atomics.wait(pause, 0, 0, 50);
 	}
-	return readHeadlessRuns();
+	return readFakeCalls();
 }
 const budgetsOf = (calls: HeadlessCall[]) =>
 	calls.map((c) => c.flags["--max-budget-usd"]);

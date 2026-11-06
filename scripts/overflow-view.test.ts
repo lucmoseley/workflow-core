@@ -52,7 +52,7 @@ let tmp: string;
 let refill: string;
 let seat: string;
 let fakeOut: string;
-const calls = () => path.join(fakeOut, "calls.jsonl");
+const callsLog = () => path.join(fakeOut, "calls.jsonl");
 const savedEnv = { ...process.env };
 
 const says = (text: string) =>
@@ -108,7 +108,7 @@ beforeEach(() => {
 	writeClaudeStub(path.join(tmp, "claude"), [
 		buildHeadlessBranch(
 			writeHeadlessFake(path.join(tmp, "claude-p"), {
-				log: calls(),
+				log: callsLog(),
 				mode: "end",
 			}),
 		),
@@ -335,10 +335,13 @@ describe("a reply", () => {
 		expect(t.frame().at(-2)).toMatch(
 			/^sent: \/implement 7 resumed as job [0-9a-f]{8}$/,
 		);
-		await vi.waitFor(() => expect(readHeadlessCalls(calls())).toHaveLength(1), {
-			timeout: 10_000,
-		});
-		const [seen] = readHeadlessCalls(calls());
+		await vi.waitFor(
+			() => expect(readHeadlessCalls(callsLog())).toHaveLength(1),
+			{
+				timeout: 10_000,
+			},
+		);
+		const [seen] = readHeadlessCalls(callsLog());
 		if (!seen) throw new Error("fake never ran");
 		expect(seen.argv[0]).toBe("-p");
 		expect(seen.flags["--resume"]).toBe(AWAITING.sid);
@@ -358,7 +361,7 @@ describe("a reply", () => {
 			why: "the key's budget does not fit a reply",
 		}));
 		expect(out).toEqual({ why: "the key's budget does not fit a reply" });
-		expect(readHeadlessCalls(calls())).toEqual([]);
+		expect(readHeadlessCalls(callsLog())).toEqual([]);
 	});
 });
 

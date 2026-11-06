@@ -1,5 +1,5 @@
 /*
- * headless-run-fake-argv.js — lib/headless-run-fake.ts's program's read of
+ * headless-argv-fake.js — lib/headless-run-fake.ts's program's read of
  * its argv against the recorded options, as the binary's parser reads it
  * (#4586): an unknown flag or a missing value refused in the binary's own
  * words, so a launch passing a flag the harness lacks fails its suite.
@@ -43,7 +43,7 @@ function parseValue(option, argv, i) {
 /**
  * `argv` against `options`: each option met, keyed by every name it has,
  * with its value (true where it takes none); the positionals; or the
- * binary's own error line for an unknown option or a missing value.
+ * binary's own error line.
  * @param {HelpOption[]} options
  * @param {string[]} argv
  * @returns {{flags: Map<string, string|true>, positionals: string[]}|{error: string}}

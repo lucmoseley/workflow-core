@@ -16,8 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readProcStartOf } from "./arbiter-proc.js";
-import { claudeLiveSkipReason, LIVE_CALL_TIMEOUT_MS } from "./claude-stub";
-import { parseHelpOptions } from "./headless-options.js";
+import { claudeLiveSkipReason } from "./claude-stub";
+import { LIVE_CALL_TIMEOUT_MS, parseHelpOptions } from "./headless-options.js";
 import {
 	buildResultRow,
 	readHeadlessCalls,
@@ -127,19 +127,20 @@ const refusals = [
 	},
 ];
 
-/* The installed `claude` side skips where claudeLiveSkipReason says (§G7.2).
- * Residual: off the founder's machine it skips, and the fixture goes
- * unchecked. */
+// Residual: off the founder's machine the live cases skip, and the fixture goes unchecked.
+const LIVE_SKIP = claudeLiveSkipReason();
+
 const binaries = [
-	{ name: "the fake", skip: undefined, bin: () => fakeBin() },
+	{ name: "the fake", skip: undefined, bin: () => fakeBin(), logs: true },
 	{
 		name: "the installed claude",
-		skip: claudeLiveSkipReason(),
+		skip: LIVE_SKIP,
 		bin: () => "claude",
+		logs: false,
 	},
 ];
 
-describe.each(binaries)("$name", ({ skip, bin }) => {
+describe.each(binaries)("$name", ({ skip, bin, logs }) => {
 	it.skipIf(skip).each(refusals)(
 		"refuses $what, in the binary's words, before any turn",
 		({ argv, stderr }) => {
@@ -150,17 +151,16 @@ describe.each(binaries)("$name", ({ skip, bin }) => {
 			});
 			expect(r.status).toBe(1);
 			expect(r.stderr).toBe(stderr);
-			expect(readHeadlessCalls(path.join(dir, "calls.jsonl"))).toEqual([]);
+			if (logs)
+				expect(readHeadlessCalls(path.join(dir, "calls.jsonl"))).toEqual([]);
 		},
 		LIVE_CALL_TIMEOUT_MS,
 	);
 });
 
-/*
- * The installed `claude`'s help, also free. A run's result row has no live
- * case: it spends a turn, so the recorder takes it.
- */
-it.skipIf(claudeLiveSkipReason())(
+/* A run's result row has no live case: it spends a turn, so the recorder
+ * takes it. */
+it.skipIf(LIVE_SKIP)(
 	"the installed claude still lists every recorded option, as recorded",
 	() => {
 		const help = spawnSync("claude", ["--help"], {

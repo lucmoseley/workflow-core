@@ -15,7 +15,7 @@ const OPTION_LINE =
 	/^ {2}(-[\w-]+(?:, -[\w-]+)*)(?: ([<[][^>\]]+[>\]]))?(?: {2,}|$)/;
 
 /**
- * @param {string} help `claude --help`'s stdout
+ * @param {string} help
  * @returns {HelpOption[]}
  */
 function parseHelpOptions(help) {
@@ -40,4 +40,8 @@ function parseHelpOptions(help) {
 	return options;
 }
 
-module.exports = { parseHelpOptions };
+/* A guess: a free `claude` call answers in well under a second, and a hang
+ * should fail or skip. */
+const LIVE_CALL_TIMEOUT_MS = 30_000;
+
+module.exports = { LIVE_CALL_TIMEOUT_MS, parseHelpOptions };
