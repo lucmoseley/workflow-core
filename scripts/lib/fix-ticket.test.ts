@@ -239,6 +239,38 @@ describe("dropTicketFiler", () => {
 		);
 	});
 
+	it("names a member, or a collision's step, whose tree fired no CI run (#4571)", () => {
+		const f = dropFiler(["Tidy"]);
+		const iso = "c".repeat(40);
+		const step = "d".repeat(40);
+
+		f.said({
+			cause: { kind: "red", name: "wt-1", files: [], iso, noRun: true },
+		});
+		f.said({
+			cause: {
+				kind: "collision",
+				name: "wt-1",
+				files: [],
+				step,
+				after: [],
+				noRun: true,
+			},
+		});
+
+		const [alone, collided] = f.files.map((x) => x.input);
+		expect(alone).toContain(
+			`onto \`main\` at ${M} as ${iso}, no CI run fired for this tree, twice`,
+		);
+		expect(collided).toContain("each member of its batch passed alone");
+		expect(collided).toContain(
+			`as ${step}, no CI run fired for this tree, twice`,
+		);
+		expect(alone).toContain(
+			"- [ ] aaaaaaaaa's change, merged onto `main`, fires a CI run on the lander's refs that passes the whole suite",
+		);
+	});
+
 	it("names a collision's step, the members landed before it and its failing files, or the whole suite where it named none", () => {
 		const f = dropFiler(["Tidy"]);
 		const step = "d".repeat(40);
