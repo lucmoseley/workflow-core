@@ -131,49 +131,34 @@ describe("check-file-ci-time.js", () => {
 		);
 	});
 
-	it("judges the last three sweeps on main while 30 lander runs are newer, listing each sweep branch by --branch", () => {
-		const reports = path.join(dir, "reports");
+	it("judges the last three sweeps on main while a full list of lander runs is newer, listing each sweep branch by --branch (#4559)", () => {
 		const sweeps = { "103": 340, "102": 61, "101": 89 };
-		for (const [id, seconds] of Object.entries(sweeps)) {
-			const shard = path.join(reports, id, "vitest-report-1");
-			fs.mkdirSync(shard, { recursive: true });
-			fs.writeFileSync(
-				path.join(shard, "vitest-1.json"),
-				JSON.stringify({
-					testResults: [
-						{
-							name: path.join(ROOT, SLOW),
-							duration: seconds * 1000,
-							status: "passed",
-							assertionResults: [],
-						},
-					],
-				}),
-			);
-		}
+		for (const [id, seconds] of Object.entries(sweeps))
+			writeSweep(id, { [SLOW]: seconds });
 		const log = path.join(dir, "gh.log");
-		const lander = Array.from({ length: 30 }, (_, i) => ({
-			databaseId: 200 + i,
-			headBranch: "lander/batch",
-		}));
 		const main = Object.keys(sweeps).map((id) => ({
 			databaseId: Number(id),
 			headBranch: "main",
 		}));
+		/* A handler, not stubGhRoutes: `run download` must write the reports
+		 * into its -D directory, which a route's printed answer cannot. The
+		 * lander rows fill whatever --limit asks, so an unfiltered list never
+		 * reaches a sweep however RUNS_LISTED moves. */
 		const stub = stubGhHandler(
 			dir,
 			`const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + "\\n");
 const at = (flag) => argv[argv.indexOf(flag) + 1];
 if (argv[0] === "run" && argv[1] === "list") {
-	const all = ${JSON.stringify([...lander, ...main])};
+	const limit = Number(at("--limit"));
+	const lander = Array.from({ length: limit }, (_, i) => ({ databaseId: 200 + i, headBranch: "lander/batch" }));
+	const all = [...lander, ...${JSON.stringify(main)}];
 	const branch = argv.includes("--branch") ? at("--branch") : null;
-	const rows = (branch ? all.filter((r) => r.headBranch === branch) : all).slice(0, Number(at("--limit")));
-	out(JSON.stringify(rows));
+	out(JSON.stringify((branch ? all.filter((r) => r.headBranch === branch) : all).slice(0, limit)));
 	exit(0);
 }
 if (argv[0] === "run" && argv[1] === "download") {
-	fs.cpSync(${JSON.stringify(reports)} + "/" + argv[2], at("-D"), { recursive: true });
+	fs.cpSync(${JSON.stringify(dir)} + "/" + argv[2], at("-D"), { recursive: true });
 	exit(0);
 }
 err("unrouted: " + argv.join(" "));

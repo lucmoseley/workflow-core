@@ -6,9 +6,10 @@
  * Usage:
  *   node check-file-ci-time.js [--reports <dir>] [--json]
  *
- * Reads each sweep's `vitest-report-*` artefacts (scheduled-checks.yml, kept 14 days). The
- * judging, and which sweeps and files it takes, is `scripts/lib/file-ci-time.js`;
- * the limit is FILE_LIMIT_MS in `scripts/lib/suite-ceiling.js`.
+ * Reads each sweep's `vitest-report-*` artefacts (scheduled-checks.yml, kept
+ * 14 days). The judging, and which sweeps and files it takes, is
+ * `scripts/lib/file-ci-time.js`; the limit is FILE_LIMIT_MS in
+ * `scripts/lib/suite-ceiling.js`.
  *
  * `--reports <dir>` judges sweeps already downloaded, one subdirectory per run
  * named by its run id, as `gh run download <id> -p 'vitest-report-*' -D <dir>/<id>`
@@ -80,7 +81,8 @@ function localSweeps(dir) {
  */
 function remoteSweeps(ctx) {
 	/* Listed per branch at the source: the lander's pushes run the same
-	 * workflow, and enough of them push every sweep out of a mixed window. */
+	 * workflow, and enough of them push every sweep out of a mixed window
+	 * (#4559). Either branch failing to list skips the whole check. */
 	/** @type {number[]} */
 	const ids = [];
 	for (const branch of SWEEP_BRANCHES) {
