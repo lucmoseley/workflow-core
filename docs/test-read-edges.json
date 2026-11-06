@@ -8936,6 +8936,7 @@
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/measure-spare-warm.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/park-blocked.test.ts",
 			"scripts/push-check.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",

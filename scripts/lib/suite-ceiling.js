@@ -27,6 +27,7 @@
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { pidAlive } = require("./arbiter-proc.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot, REAL_PROC } = require("./proc-root.js");
 
@@ -202,18 +203,6 @@ function killCarrying(
 /* Names the wrapper pid whose run a process belongs to. */
 const OWNER_ENV = "WFC_INFLIGHT_OWNER";
 
-/* Any error but ESRCH reads as present, unlike lib/arbiter-proc.js's
- * pidAlive: a doubtful owner's run is left, never killed. */
-/** @param {number} pid */
-function isPidPresent(pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (e) {
-		return caught(e).code !== "ESRCH";
-	}
-}
-
 /**
  * SIGKILLs every process but `self` whose OWNER_ENV names a pid that no
  * longer exists. The owner is asked by signal, never by `proc`'s listing, so
@@ -228,7 +217,7 @@ function isPidPresent(pid) {
 function sweepOrphanedRuns({
 	proc = procRoot(),
 	self = process.pid,
-	alive = isPidPresent,
+	alive = pidAlive,
 	kill = killPid,
 } = {}) {
 	const { killed, unkilled } = killWhere(

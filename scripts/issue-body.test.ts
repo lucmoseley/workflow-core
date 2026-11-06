@@ -898,6 +898,29 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 		expect(fs.readFileSync(lockFile(), "utf8")).toBe(held);
 	});
 
+	it("refuses a fresh lock whose holder it may not signal (EPERM)", () => {
+		// Another user's live process answers EPERM, not ESRCH.
+		const foreign = 4_194_303;
+		const realKill = process.kill;
+		const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+			if (pid === foreign && signal === 0) {
+				throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+			}
+			return realKill(pid, signal);
+		});
+		const held = JSON.stringify({ pid: foreign, at: Date.now() });
+		fs.writeFileSync(lockFile(), held);
+		try {
+			const r = appendUnder(0);
+			expect(r.stderr).toBe(
+				`issue-body: lock ${lockFile()} is still held by pid ${foreign} after 0ms; writing without it\n`,
+			);
+			expect(fs.readFileSync(lockFile(), "utf8")).toBe(held);
+		} finally {
+			kill.mockRestore();
+		}
+	});
+
 	it("takes a lock whose holder is gone", () => {
 		// A pid that exited: spawn one and let it finish.
 		const dead = execFileSync("bash", ["-c", 'echo -n "$$"'], {
