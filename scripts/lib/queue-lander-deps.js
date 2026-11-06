@@ -29,6 +29,7 @@ const {
 	dropRecord,
 	queueGit,
 	queueLogger,
+	refusedRecord,
 	verdictLedger,
 } = require("./queue-lander-adapters.js");
 const { buildQueueActionLine } = require("./queue-lander.js");
@@ -98,6 +99,7 @@ function buildLanderDeps(root, { tester, admit, say }) {
 				: commandTester(tester, root),
 		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
+		refused: refusedRecord(files.refused),
 		record: batchRecord(files.batch),
 		drops: dropRecord(files.drops),
 		tracker: trackerOf(root),

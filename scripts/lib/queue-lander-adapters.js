@@ -85,6 +85,8 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").QueueRef} QueueRef
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
  * @typedef {import("./queue-lander.js").BatchRecord} BatchRecord
+ * @typedef {import("./queue-lander.js").BaseVerdict} BaseVerdict
+ * @typedef {import("./queue-lander.js").RefusedRecord} RefusedRecord
  * @typedef {import("./queue-lander.js").Drop} Drop
  * @typedef {import("./queue-lander.js").DropRecord} DropRecord
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
@@ -198,10 +200,15 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				);
 				return { main: heads.get(mainRef) ?? null, queue, dropped };
 			}),
-		mergeMembers: (onto, members) =>
+		mergeMembers: (onto, members, fresh = false) =>
 			repairing(() => {
 				const [lone] = members;
-				if (members.length === 1 && lone && isAncestor(root, onto, lone.sha))
+				if (
+					!fresh &&
+					members.length === 1 &&
+					lone &&
+					isAncestor(root, onto, lone.sha)
+				)
 					return { kind: "merged", sha: lone.sha };
 				return withThrowawayTree(
 					root,
@@ -369,6 +376,30 @@ function verdictLedger(file) {
 	};
 }
 
+/**
+ * The refused record: one JSON line per sha the remote refused on `main`,
+ * with its refusal, kept for good, as no batch may push one again.
+ * @param {string} file
+ * @returns {RefusedRecord}
+ */
+function refusedRecord(file) {
+	return {
+		reasonOf(sha) {
+			const rows = readJsonl(file)?.rows ?? [];
+			const row = rows.find(
+				(r) => r.sha === sha && typeof r.reason === "string",
+			);
+			return row ? String(row.reason) : null;
+		},
+		add(sha, reason) {
+			fs.appendFileSync(
+				file,
+				`${JSON.stringify({ at: new Date(now()).toISOString(), sha, reason })}\n`,
+			);
+		},
+	};
+}
+
 /** @param {unknown} v @returns {Record<string, unknown>|null} */
 const objectOf = (v) =>
 	v !== null && typeof v === "object"
@@ -421,6 +452,16 @@ const isHold = (h) => {
 	);
 };
 
+/** @param {unknown} x @returns {x is BaseVerdict} */
+const isBaseVerdict = (x) => {
+	const o = objectOf(x);
+	return (
+		typeof o?.sha === "string" &&
+		isStringList(o.files) &&
+		parseVerdict(o.verdict) !== null
+	);
+};
+
 /** @param {unknown} m @returns {m is Member} */
 const isMember = (m) => {
 	const o = /** @type {Record<string, unknown>|null} */ (
@@ -437,7 +478,8 @@ const isMember = (m) => {
  * Whether a batch record's red-path fields are each well formed.
  * @param {Record<string, unknown>} b
  * @returns {b is Record<string, unknown>
- *   & Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold">}
+ *   & Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold"
+ *   | "bases">}
  */
 const hasRedPath = (b) =>
 	isStringList(b.ahead) &&
@@ -445,7 +487,9 @@ const hasRedPath = (b) =>
 	Array.isArray(b.isolated) &&
 	b.isolated.every(isIsolated) &&
 	(b.serial === null || isSerial(b.serial)) &&
-	(b.hold === null || isHold(b.hold));
+	(b.hold === null || isHold(b.hold)) &&
+	Array.isArray(b.bases) &&
+	b.bases.every(isBaseVerdict);
 
 /**
  * A JSON record file: absent, torn where it will not parse, or its value.
@@ -501,6 +545,11 @@ function parseBatch(parsed) {
 		isolated: b.isolated,
 		serial: b.serial,
 		hold: b.hold,
+		bases: b.bases.map((x) => ({
+			sha: x.sha,
+			files: x.files,
+			verdict: /** @type {BaseVerdict["verdict"]} */ (parseVerdict(x.verdict)),
+		})),
 	};
 }
 
@@ -626,5 +675,6 @@ module.exports = {
 	queueLogger,
 	readBatchFile,
 	readDropFile,
+	refusedRecord,
 	verdictLedger,
 };

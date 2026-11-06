@@ -17,8 +17,9 @@
  * dropped unconfirmed, the passers wait behind a newer ref, a
  * collision drops more or less than one member, or a restart repeats an
  * isolation run or merge; or a red only `main` shares lands where `main`
- * takes only a sha a CI run passed, a push `main` refused is pushed again or
- * stays green-ledgered, a base check takes `main`'s old verdict, a red
+ * takes only a sha a CI run passed, a sha `main` refused is pushed again by
+ * any batch or stays green-ledgered, a base check takes `main`'s old verdict
+ * or an earlier batch's base verdict, a red
  * naming no file skips its rerun, base check or isolation, or a serial step
  * drops its member on one red or on a red the collision did not fail.
  */
@@ -76,6 +77,8 @@ const remoteOf = (
 const freshDisk = () => ({
 	green: new Set<string>(),
 	verdicts: new Map<string, Verdict>(),
+	/** The refused record: each sha `main` refused, with its refusal. */
+	refused: new Map<string, string>(),
 	batch: null as Batch | null,
 	drops: [] as Drop[],
 	log: [] as string[],
@@ -105,7 +108,11 @@ interface Options {
 	/** Whether the tester runs isolation members at once. */
 	parallel?: boolean;
 	/** The merge's outcome; every member merged where absent. */
-	merge?: (onto: string, members: readonly Member[]) => MergeResult;
+	merge?: (
+		onto: string,
+		members: readonly Member[],
+		fresh?: boolean,
+	) => MergeResult;
 	/** Throws in place of a call, by its name, while it returns an error. */
 	fault?: (call: string) => Error | undefined;
 	/** Runs before a compare-and-delete reads the ref. */
@@ -121,12 +128,14 @@ interface Options {
 
 /**
  * The fake merge: each member in order onto `onto`, stopping at the first
- * refused or conflicting with `main` or an earlier member.
+ * refused or conflicting with `main` or an earlier member; a lone member on
+ * `main` is itself unless `fresh`.
  */
 function fakeMerge(
 	remote: Remote,
 	onto: string,
 	members: readonly Member[],
+	fresh = false,
 ): MergeResult {
 	for (const [k, m] of members.entries()) {
 		const r = remote.refs.get(m.name);
@@ -137,6 +146,7 @@ function fakeMerge(
 	}
 	const [lone] = members;
 	const isLone =
+		!fresh &&
 		members.length === 1 &&
 		lone !== undefined &&
 		remote.refs.get(lone.name)?.onMain === true;
@@ -154,6 +164,8 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	let inFlight = 0;
 	let peak = 0;
 	const said: string[] = [];
+	/** Each push to `main` tried, refused or not. */
+	const pushed: string[] = [];
 	const call = (name: string) => {
 		const err = o.fault?.(name);
 		if (err) throw err;
@@ -172,9 +184,12 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 					dropped: [...remote.dropped].map(([ref, sha]) => ({ ref, sha })),
 				};
 			},
-			mergeMembers: (onto, members) => {
+			mergeMembers: (onto, members, fresh) => {
 				call("mergeMembers");
-				return o.merge?.(onto, members) ?? fakeMerge(remote, onto, members);
+				return (
+					o.merge?.(onto, members, fresh) ??
+					fakeMerge(remote, onto, members, fresh)
+				);
 			},
 			pushBatch: () => call("pushBatch"),
 			pushIso: (branch, sha) => {
@@ -183,6 +198,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 			pushMain: (sha) => {
 				call("pushMain");
+				pushed.push(sha);
 				const refused = o.refuse?.(sha);
 				if (refused) return refused;
 				remote.main = sha;
@@ -240,6 +256,12 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				disk.verdicts.set(verdictKey(sha, files, pass), v);
 			},
 		},
+		refused: {
+			reasonOf: (sha) => disk.refused.get(sha) ?? null,
+			add: (sha, reason) => {
+				disk.refused.set(sha, reason);
+			},
+		},
 		record: {
 			read: () => disk.batch,
 			write: (b) => {
@@ -282,7 +304,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		now: () => o.now ?? NOW,
 	};
 	const end = await runQueueLander(deps);
-	return { end, actions, asked, said, peak };
+	return { end, actions, asked, said, peak, pushed };
 }
 
 const verdictKey = (sha: string, files: readonly string[], pass: number) =>
@@ -363,7 +385,12 @@ describe("the green path", () => {
 
 		const { actions } = await land(remote, disk);
 
-		expect(actions[0]).toEqual({ kind: "merge-members", onto: "m1", members });
+		expect(actions[0]).toEqual({
+			kind: "merge-members",
+			onto: "m1",
+			members,
+			fresh: false,
+		});
 		expect(remote.main).toBe(mergeSha("m1", members));
 	});
 });
@@ -1252,9 +1279,31 @@ describe("the red path", () => {
 
 		expect(asked).toContain("m0:scripts/x.test.ts");
 		expect(isoAtAsk).toEqual(["m0"]);
-		expect(
-			disk.verdicts.get(verdictKey("m0", ["scripts/x.test.ts"], 0)),
-		).toEqual(red("scripts/x.test.ts"));
+		expect(disk.batch?.bases).toContainEqual({
+			sha: "m0",
+			files: ["scripts/x.test.ts"],
+			verdict: red("scripts/x.test.ts"),
+		});
+	});
+
+	it("asks each red batch's base check afresh, so a failure main gained since an earlier batch's check is never blamed on this one", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const x = "scripts/x.test.ts";
+		/* x fails in every batch, and at main once the date turns. */
+		let turned = false;
+		const verdict = (sha: string) => (sha === "m0" && !turned ? Green : red(x));
+
+		const first = await land(remote, disk, { requiresRun: false, verdict });
+		turned = true;
+		remote.refs.set("c", { sha: "c1", pushedAt: 2 });
+		const second = await land(remote, disk, { requiresRun: false, verdict });
+
+		expect(dropsOf(first.actions).map((d) => d.name)).toEqual(["a"]);
+		expect(second.asked).toContain(`m0:${x}`);
+		expect(dropsOf(second.actions)).toEqual([]);
+		expect(disk.baseRed).toEqual([`m0 ${x}`]);
+		expect(remote.main).toBe("merge(m0;c1)");
 	});
 
 	it("drops the one culprit red alone twice, and lands the passers as the next batch ahead of a newer ref", async () => {
@@ -1396,6 +1445,7 @@ describe("the red path", () => {
 		disk.green.add("merge(m0;a1)");
 		disk.log = ["take a@a1", "take b@b1"];
 		disk.batch = {
+			...redPathAtRest(),
 			members: [
 				{ name: "a", sha: "a1", pushedAt: 1 },
 				{ name: "b", sha: "b1", pushedAt: 2 },
@@ -1665,6 +1715,42 @@ describe("a push main refuses", () => {
 		expect(kinds(actions)[0]).toBe("unledger");
 		expect(disk.green.has("a1")).toBe(false);
 		expect(end.reason).toMatch(/^held: the push of a1 to main was refused/);
+	});
+
+	it("merges a lone member main refused as a new commit once retaken, pushing its own sha never again", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		const disk = freshDisk();
+		const refuse = (sha: string) => (sha === "a1" ? Ruleset : undefined);
+
+		const first = await land(remote, disk, { refuse });
+		remote.main = "m1";
+		const retaken = await land(remote, disk, { refuse });
+
+		expect(first.pushed).toEqual(["a1"]);
+		expect(disk.refused.get("a1")).toBe(Ruleset);
+		expect(retaken.pushed).toEqual(["merge(m1;a1)"]);
+		expect(retaken.end).toEqual(NO_QUEUE);
+		expect(remote.main).toBe("merge(m1;a1)");
+	});
+
+	it("holds any batch whose landing sha main refused before, pushing it never again", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		disk.refused.set("merge(m0;a1,b1)", Ruleset);
+
+		const { end, pushed, actions } = await land(remote, disk);
+
+		expect(pushed).toEqual([]);
+		expect(kinds(actions)).toContain("hold");
+		expect(end.reason).toMatch(
+			/^held: the push of merge\(m0; to main was refused/,
+		);
+		expect(disk.green.has("merge(m0;a1,b1)")).toBe(false);
 	});
 
 	it("holds a serial step main refuses, the members before it landed", async () => {

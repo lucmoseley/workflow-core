@@ -34,6 +34,7 @@ function queueLanderFiles(root) {
 		pid: path.join(dir, ".lander.pid"),
 		heartbeat: path.join(dir, ".queue-lander-heartbeat.json"),
 		verdicts: path.join(dir, ".queue-lander-verdicts.jsonl"),
+		refused: path.join(dir, ".queue-lander-refused.jsonl"),
 		batch: path.join(dir, ".queue-lander-batch.json"),
 		drops: path.join(dir, ".queue-lander-drops.json"),
 	};
