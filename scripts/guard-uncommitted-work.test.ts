@@ -403,8 +403,15 @@ describe("the session's own worktree (#4229)", () => {
 			fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
 			registerSession({ home, repo: wt }, sid, process.pid);
 			expect(arbiterCli(["claim", doc], wt).status).toBe(0);
-			expect(endShipped()?.reason).toContain(
+			const reason = endShipped()?.reason ?? "";
+			expect(reason).toContain(
 				`holds 1 claim(s) on files with no uncommitted change: ${doc}.`,
+			);
+			/* The release run below is the one the block prints (#4518). */
+			expect(reason).toMatch(
+				new RegExp(
+					`\`node \\S*session-arbiter\\.js release-committed ${doc}\``,
+				),
 			);
 
 			const released = arbiterCli(["release-committed", doc], undefined);
@@ -422,77 +429,6 @@ describe("the session's own worktree (#4229)", () => {
 		expect(r.reason).toContain(
 			"holds 1 claim(s) on files with no uncommitted change: tracked.md.",
 		);
-	});
-});
-
-/*
- * A session launched in a linked worktree hands its hooks that worktree as
- * CLAUDE_PROJECT_DIR, while the Bash tool sets none; both must reach one claim
- * store, or the guard names a claim the release it prints cannot see (#4518).
- */
-describe("a session launched in a linked worktree (#4518)", () => {
-	const Arbiter = path.join(__dirname, "session-arbiter.js");
-	let wt: string;
-	beforeEach(() => {
-		wt = cutWorktree(root);
-		const home = path.join(root, ".claude-home");
-		fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
-		registerSession({ home, repo: wt }, sid, process.pid);
-	});
-
-	/** The arbiter CLI from the worktree, as the hook route or the Bash tool runs it. */
-	const arbiterCli = (args: string[], projectDir: string | undefined) => {
-		const env: NodeJS.ProcessEnv = {
-			...process.env,
-			CLAUDE_CODE_SESSION_ID: sid,
-			CLAUDE_CONFIG_DIR: path.join(root, ".claude-home"),
-		};
-		delete env.CLAUDE_PROJECT_DIR;
-		delete env.WFC_REPO_ROOT;
-		if (projectDir) env.CLAUDE_PROJECT_DIR = projectDir;
-		// spawn-kept: the defect is two processes resolving the store under two
-		// environments, and arbiter-core memoises its root for the process's life.
-		return execFileSync("node", [Arbiter, ...args], {
-			cwd: wt,
-			env,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-	};
-	const ending = () =>
-		readStopGuardBlock(GUARD, {
-			dir: root,
-			worktree: wt,
-			sid,
-			config: path.join(root, ".claude-home"),
-			env: { CLAUDE_PROJECT_DIR: wt },
-			payload: {
-				transcript_path: undefined,
-				last_assistant_message: "Done.\n\nresult: shipped",
-			},
-		});
-
-	it("clears the guard with the release it prints, after a committed docs/ edit", () => {
-		const doc = path.join(wt, "docs", "note.md");
-		fs.mkdirSync(path.dirname(doc), { recursive: true });
-		fs.writeFileSync(doc, "one\n");
-		arbiterCli(["claim", "docs/note.md"], wt);
-		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: wt, stdio: "ignore" });
-		git("add", "docs/note.md");
-		git("commit", "-qm", "note", "--no-verify");
-
-		const block = ending();
-		expect(block?.decision).toBe("block");
-		const printed =
-			/`node \S*session-arbiter\.js (release-committed [^`]+)`/.exec(
-				block?.reason ?? "",
-			);
-		expect(printed?.[1]).toBe("release-committed docs/note.md");
-
-		const out = arbiterCli(printed?.[1].split(" ") ?? [], undefined);
-		expect(out).toContain("Released docs/note.md");
-		expect(ending()).toBeNull();
 	});
 });
 
