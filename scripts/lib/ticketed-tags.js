@@ -15,6 +15,8 @@
  * whose tag sits on a continuation line is refused.
  */
 
+const { scriptPath } = require("./script-path.js");
+
 const REVIEWED_THROUGH = /\*\*Reviewed through:\*\*/;
 const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
 const HEADS = new RegExp(`${REVIEWED_THROUGH.source}|${TICKETED.source}`);
@@ -53,7 +55,7 @@ const buildTicketedRefusal = (lines) =>
 	[
 		`This whole-spec review comment tickets ${lines.length === 1 ? "a finding" : `${lines.length} findings`} without naming the exception that let it skip fix-first:`,
 		...lines.map((line) => `  ${line}`),
-		`Fix it here (FIXED <sha>), or add to that line the exception that applies: ${TAGS} (#4492, #4284). Rule: \`scripts/lib/rule-text.sh review-finding-destination\`.`,
+		`Fix it here (FIXED <sha>), or add to that line the exception that applies: ${TAGS} (#4492, #4284). Rule: \`${scriptPath("lib/rule-text.sh")} review-finding-destination\`.`,
 	].join("\n");
 
 module.exports = { buildTicketedRefusal, untaggedTicketed };
