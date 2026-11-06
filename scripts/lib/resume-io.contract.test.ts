@@ -214,9 +214,9 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 					sessionId: r.record.sessionId === SESSION,
 				};
 	},
-	readHeadlessRun: (v) => {
-		const r = v as ReturnType<ResumeIo["readHeadlessRun"]>;
-		return r && { keys: Object.keys(r).sort(), cwd: typeof r.cwd };
+	readRunAsJob: (v) => {
+		const r = v as ReturnType<ResumeIo["readRunAsJob"]>;
+		return r && { keys: Object.keys(r).sort(), state: r.state };
 	},
 	findHeadlessRun: (v) => {
 		const r = v as ReturnType<ResumeIo["findHeadlessRun"]>;
@@ -290,17 +290,13 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		},
 		unreadable: () => resumeHeadless(),
 	},
-	readHeadlessRun: {
-		none: () => io().readHeadlessRun("0e0e0e0e"),
-		run: () => {
-			fs.writeFileSync(
-				process.env.WFC_SECRETS_FILE as string,
-				`${KEY_VAR}=sk-test\n`,
-				{ mode: 0o600 },
-			);
-			resumeHeadless();
-			const [jobId] = fs.readdirSync(path.join(refill(), ".headless-runs"));
-			return io().readHeadlessRun(String(jobId));
+	readRunAsJob: {
+		none: () => io().readRunAsJob("0e0e0e0e"),
+		working: () => {
+			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, {
+				log: path.join(dir, "out.jsonl"),
+			});
+			return io().readRunAsJob("0e0e0e0e");
 		},
 	},
 	findHeadlessRun: {
@@ -459,7 +455,7 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			return io().overflowLookup(root);
 		},
 	},
-	readHeadlessRun: {
+	readRunAsJob: {
 		unreadable: () => {
 			fs.mkdirSync(
 				path.join(refill(), ".headless-runs", "0e0e0e0e", "run.json"),
@@ -467,7 +463,7 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 					recursive: true,
 				},
 			);
-			return io().readHeadlessRun("0e0e0e0e");
+			return io().readRunAsJob("0e0e0e0e");
 		},
 	},
 };

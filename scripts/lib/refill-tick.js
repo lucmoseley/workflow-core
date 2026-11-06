@@ -51,7 +51,7 @@ const {
 	hasTurnedSince,
 } = require("./block-cause.js");
 const { stopOn } = require("./claude-stop.js");
-const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
+const { jobDirPath, readJobCwd } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
 const { buildSeatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
@@ -79,7 +79,8 @@ const {
 	readDeclaredSeats,
 	readOmittedDirs,
 } = require("./refill-seats.js");
-const { readRunAsJob, readRun } = require("./headless-runs.js");
+const { readRun } = require("./headless-runs.js");
+const { launchRecordReader, readLogged } = require("./launch-record.js");
 const {
 	buildCheckoutEnv,
 	discoverRepos,
@@ -374,15 +375,8 @@ function launchBatch(batch) {
  * read, the first listing that shows the job then giving it.
  * @param {string} jobId
  */
-function readHeadlessSession(jobId) {
-	let record = null;
-	try {
-		record = readRun(jobId);
-	} catch (err) {
-		log(`headless record unread for job ${jobId}: ${buildErrorText(err)}`);
-	}
-	return record?.sessionId;
-}
+const readHeadlessSession = (jobId) =>
+	readLogged(log, `headless run ${jobId}`, () => readRun(jobId))?.sessionId;
 
 /**
  * The review runner's finished run, moved aside before it is read so a
@@ -600,25 +594,10 @@ function readTimelineOf(l) {
 	return parseJsonl(text).rows;
 }
 
-/**
- * `l`'s job record: on a key its headless run's (lib/headless-runs.js's
- * readRunAsJob), else its state.json parsed; null where it has no job or the
- * record will not read.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat"|"jobId"|"keyVar">} l
- */
-function readJobRecordOf(l) {
-	if (!l.jobId) return null;
-	if (!l.keyVar) return readJobRecord(l.seat, l.jobId);
-	try {
-		return readRunAsJob(l.jobId);
-	} catch (err) {
-		log(`headless record unread for job ${l.jobId}: ${buildErrorText(err)}`);
-		return null;
-	}
-}
-
 const resumeIo = buildResumeIo(log);
 const resume = resumeSteps(resumeIo);
+/** `l`'s job record, whichever route launched it (lib/launch-record.js). */
+const readJobRecordOf = launchRecordReader(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal

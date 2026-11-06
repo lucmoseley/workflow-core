@@ -20,6 +20,7 @@ const { buildSeatEnv } = require("./seat-claude.js");
 const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-blocks.js");
 const { OVERFLOW_PREFIX } = require("./session-name.js");
+const { launchRecordReader } = require("./launch-record.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -38,10 +39,11 @@ const { OVERFLOW_PREFIX } = require("./session-name.js");
  *     string|null,
  *   launchHeadless: typeof import("./headless-sessions.js").launch,
  *   findHeadlessRun: typeof import("./headless-runs.js").findRunSince,
- *   readHeadlessRun: typeof import("./headless-runs.js").readRun,
+ *   readRunAsJob: typeof import("./headless-runs.js").readRunAsJob,
  *   runClaude: (args: string[], opts: {cwd: string, env: NodeJS.ProcessEnv}) =>
  *     ChildRun,
- *   readJobRecord: (seat: string, jobId: string) => unknown,
+ *   readJobRecord: (seat: string, jobId: string) =>
+ *     import("./launch-record.js").LaunchRecord|null,
  *   findResumed: typeof import("./resumed-copy.js").findResumed,
  *   copyTranscript: typeof import("./seat-move.js").copyTranscript,
  *   hasJobRecord: (seat: string, jobId: string) => boolean,
@@ -64,6 +66,7 @@ const { OVERFLOW_PREFIX } = require("./session-name.js");
  */
 function resumeSteps(io) {
 	const { log } = io;
+	const readLaunchRecord = launchRecordReader(io);
 
 	/**
 	 * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `root`; what it
@@ -428,33 +431,13 @@ function resumeSteps(io) {
 	 * @returns {import("./refill-blocks.js").ResumeTarget}
 	 */
 	function readResumeTarget(l) {
-		const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
-			l.jobId ? readRunRecord(l, l.jobId) : null
-		);
+		const job = readLaunchRecord(l);
 		return {
 			sessionId:
 				l.sessionId ??
 				(typeof job?.sessionId === "string" ? job.sessionId : null),
 			cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
 		};
-	}
-
-	/**
-	 * Job `jobId`'s record: a headless run's on an overflow key, else the
-	 * `--bg` job's on `l`'s seat. Null where none reads: a headless record that
-	 * will not read is logged.
-	 * @param {{seat: string, keyVar?: string}} l
-	 * @param {string} jobId
-	 * @returns {unknown}
-	 */
-	function readRunRecord(l, jobId) {
-		if (!l.keyVar) return io.readJobRecord(l.seat, jobId);
-		try {
-			return io.readHeadlessRun(jobId);
-		} catch (e) {
-			log(`headless run ${jobId} unread: ${buildErrorText(e)}`);
-			return null;
-		}
 	}
 
 	/**

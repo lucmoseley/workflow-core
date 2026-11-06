@@ -86,22 +86,12 @@ export const ANSWERS = {
 		none: null,
 		found: { jobId: HEADLESS_JOB, sessionId: SESSION },
 	},
-	readHeadlessRun: {
+	readRunAsJob: {
 		none: null,
-		run: {
-			jobId: HEADLESS_JOB,
+		working: {
+			state: "working",
 			sessionId: SESSION,
-			pid: 4242,
-			procStart: "1",
-			bootId: "b",
-			pgid: 4242,
-			seat: "/home/u/.claude3",
-			keyVar: KEY_VAR,
 			cwd: "/home/u/repo/.claude/worktrees/implement-7",
-			prompt: "/implement 7",
-			log: "/r/.headless-runs/0e0e0e0e/out.jsonl",
-			stderr: "/r/.headless-runs/0e0e0e0e/stderr.log",
-			launchedAt: 1000,
 		},
 	},
 	runClaude: {
@@ -165,7 +155,7 @@ export const ANSWERS = {
 
 export const FAULTS = {
 	overflowLookup: { unreadable: "dispatched.jsonl would not read: EISDIR" },
-	readHeadlessRun: {
+	readRunAsJob: {
 		unreadable: "EISDIR: illegal operation on a directory, read",
 	},
 };
@@ -201,7 +191,7 @@ export function fakeResumeIo(
 		authRefusal: served("authRefusal"),
 		launchHeadless: served("launchHeadless"),
 		findHeadlessRun: served("findHeadlessRun"),
-		readHeadlessRun: served("readHeadlessRun"),
+		readRunAsJob: served("readRunAsJob"),
 		runClaude: served("runClaude"),
 		readJobRecord: served("readJobRecord"),
 		findResumed: served("findResumed"),
