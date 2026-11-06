@@ -211,9 +211,17 @@ function gitCommonDir(cwd, opts = {}) {
  * @returns {{ gitDir: string, common: string } | null}
  */
 function gitDirs(cwd) {
-	const [gitDir, common] = (gitOrNull(BOTH_DIRS_ARGS, { cwd }) ?? "").split(
-		"\n",
-	);
+	return parseGitDirs(gitOrNull(BOTH_DIRS_ARGS, { cwd }));
+}
+
+/**
+ * `BOTH_DIRS_ARGS`' stdout as gitDirs answers it, for a caller running git
+ * through its own exec seam.
+ * @param {string | null} out
+ * @returns {{ gitDir: string, common: string } | null}
+ */
+function parseGitDirs(out) {
+	const [gitDir, common] = (out ?? "").trim().split("\n");
 	return gitDir && common ? { gitDir, common } : null;
 }
 
@@ -361,6 +369,8 @@ module.exports = {
 	gitOrNull,
 	gitCommonDir,
 	gitDirs,
+	BOTH_DIRS_ARGS,
+	parseGitDirs,
 	gitCommonDirOrThrow,
 	revParseWithCommonDirOrThrow,
 	spawnGitSync,

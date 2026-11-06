@@ -26,6 +26,8 @@ const {
 	gitBinary,
 	gitSpawnOptions,
 	GIT_TIMEOUT_MS,
+	BOTH_DIRS_ARGS,
+	parseGitDirs,
 } = require("./git.js");
 
 /** @typedef {(file: string, args: string[], options: object) => string | Buffer} ExecFn */
@@ -211,7 +213,22 @@ function readUntrackedEntries(root) {
 	return paths.sort();
 }
 
+/**
+ * Whether `root` is a linked worktree, a session's own under #4229's model, so
+ * every uncommitted file in it is that session's work (#3786). False where git
+ * will not say, which keeps the ledger's attribution.
+ *
+ * @param {string} root
+ * @param {ExecFn} [execFn]
+ * @returns {boolean}
+ */
+function isLinkedWorktree(root, execFn = execProgram) {
+	const dirs = parseGitDirs(gitRead(BOTH_DIRS_ARGS, root, execFn));
+	return Boolean(dirs && dirs.gitDir !== dirs.common);
+}
+
 module.exports = {
+	isLinkedWorktree,
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
 	parseTrackedStatus,

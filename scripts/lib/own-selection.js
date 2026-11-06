@@ -100,13 +100,19 @@ const {
  * write, so its source — gone from the working tree — was nobody's. Where either
  * side is `mine`, the other is too; a deletion tied to nothing stays `theirs`.
  *
+ * A SESSION'S OWN WORKTREE HOLDS NO ONE ELSE'S DIRT (#3786). Given `ownTree`
+ * and a session id, every path in `dirty` and `untracked` is `mine`, whatever
+ * route wrote it — the Bash-route write the ledger misses included — and no
+ * live claim is subtracted.
+ *
  * @param {string[]} dirty tracked paths with modifications
  * @param {{ sessionId?: string|null, ledger?: Ledger, untracked?: string[],
  *   renames?: { path: string, source: string }[], tree?: string,
- *   committedAt?: (p: string) => number }} [options] `committedAt` answers a
- *   path's last commit in ms, 0 where it has none; `renames` are the staged
- *   ones, as `readTrackedStatus` reads them; `tree` is the tree `dirty` was
- *   read in, whose ledger lines and claims alone count (#4457)
+ *   committedAt?: (p: string) => number, ownTree?: boolean }} [options]
+ *   `committedAt` answers a path's last commit in ms, 0 where it has none;
+ *   `renames` are the staged ones, as `readTrackedStatus` reads them; `tree`
+ *   is the tree `dirty` was read in, whose ledger lines and claims alone count
+ *   (#4457); `ownTree` where that tree is a linked worktree
  * @returns {{ mine: string[], theirs: string[], quoted: string[] }}
  */
 function attributeDirty(
@@ -118,7 +124,37 @@ function attributeDirty(
 		renames = [],
 		tree = arbiterStore.treeRoot(),
 		committedAt,
+		ownTree = false,
 	} = {},
+) {
+	const byLedger = attributeByLedger(dirty, {
+		sessionId,
+		ledger,
+		untracked,
+		renames,
+		tree,
+		committedAt,
+	});
+	if (!ownTree || !sessionId) return byLedger;
+	return {
+		mine: [...new Set([...byLedger.mine, ...dirty, ...untracked])].sort(),
+		theirs: [],
+		quoted: byLedger.quoted,
+	};
+}
+
+/**
+ * `attributeDirty` in a tree neighbours share: the write ledger's answer.
+ *
+ * @param {string[]} dirty
+ * @param {{ sessionId: string|null|undefined, ledger: Ledger, untracked: string[],
+ *   renames: { path: string, source: string }[], tree: string,
+ *   committedAt: ((p: string) => number)|undefined }} options
+ * @returns {{ mine: string[], theirs: string[], quoted: string[] }}
+ */
+function attributeByLedger(
+	dirty,
+	{ sessionId, ledger, untracked, renames, tree, committedAt },
 ) {
 	/* THE WHOLE ARBITER READ IS GUARDED. A store this cannot read costs the
 	 * store and never the suite; unguarded, a throw out of a foreign module
