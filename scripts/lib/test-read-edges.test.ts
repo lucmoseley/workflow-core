@@ -881,6 +881,22 @@ describe("buildManifest over a shell script's launches (#4505)", () => {
 		expect(edges["scripts/zz/third.sh"]).toContain(T);
 	});
 
+	it("follows a defaulted expansion and a dirname prefix", () => {
+		const { edges } = build({
+			[T]: drives("scripts/zz/gate.sh"),
+			"scripts/zz/gate.sh": [
+				`node "\${PLUGIN_ROOT:-.}/scripts/zz/fmt.js" --x`,
+				`node "$(dirname "$0")/auth.js"`,
+			].join("\n"),
+			"scripts/zz/fmt.js": "",
+			"scripts/zz/fmt.test.ts": `require("./fmt.js");`,
+			"scripts/zz/auth.js": "",
+			"scripts/zz/auth.test.ts": `require("./auth.js");`,
+		});
+		expect(edges["scripts/zz/fmt.js"]).toContain(T);
+		expect(edges["scripts/zz/auth.js"]).toContain(T);
+	});
+
 	it("launches nothing a comment or heredoc names", () => {
 		const { edges } = build({
 			[T]: drives("scripts/zz/run.sh"),

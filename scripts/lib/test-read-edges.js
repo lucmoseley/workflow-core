@@ -1117,10 +1117,11 @@ function scriptDeps(file, source, tracked) {
 /**
  * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
  * command position, a path to a `.js` or `.sh` file, through an optional
- * `$var/` prefix (captured) or a root-relative literal.
+ * `$var/`, `${var:-x}/` or `$(dirname "$0")/` prefix (captured) or a
+ * root-relative literal.
  */
 const LAUNCH =
-	/(?:(?:^|[\s;|&(`])(?:node|bash|sh|exec)[ \t]+|(?:^|[;|&(`]|\$\()[ \t]*)["']?(?<dirVar>\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\/)?(?<tail>(?:\.\/)?[A-Za-z0-9_./-]+\.(?:[mc]?js|sh))["']?(?=[\s;|&)`]|$)/gm;
+	/(?:(?:^|[\s;|&(`])(?:node|bash|sh|exec)[ \t]+|(?:^|[;|&(`]|\$\()[ \t]*)["']?(?<dirVar>(?:\$\{[A-Za-z_][A-Za-z0-9_]*(?:[:%#][^}"'\s]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*|\$\(dirname\s+"?\$(?:0|\{?BASH_SOURCE(?:\[0\])?\}?)"?\))\/)?(?<tail>(?:\.\/)?[A-Za-z0-9_./-]+\.(?:[mc]?js|sh))["']?(?=[\s;|&)`]|$)/gm;
 
 /**
  * The tracked scripts a shell script launches (#4505): a `$var/`-prefixed
@@ -1137,7 +1138,9 @@ const LAUNCH =
 function shellLaunches(file, source, tracked) {
 	const dir = file.split("/").slice(0, -1);
 	const out = new Set();
-	for (const m of shellOperands(source, true).matchAll(LAUNCH)) {
+	for (const m of shellOperands(source, { keepQuoted: true }).matchAll(
+		LAUNCH,
+	)) {
 		const tail = m.groups?.tail;
 		if (tail === undefined)
 			throw new Error(`LAUNCH matched ${m[0]} with no tail group`);
@@ -2179,7 +2182,8 @@ function testReads(t, source, tracked, read) {
 
 /**
  * Adds what each shell script in `found` launches, one hop (#4505).
- * @param {Set<string>} found  a test's reads, edited in place
+ * @param {Set<string>} found  accumulator: a test's reads; each launched
+ *   script and its imports are added
  * @param {string} t  the test's path
  * @param {(p: string) => string[]} launches
  * @returns {void}
@@ -2221,8 +2225,8 @@ const blank = (t) => t.replace(/[^\n]/g, " ");
 /**
  * Where `shellOperands` stands between characters: inside a heredoc whose
  * delimiter it holds, or inside a quoted string, the text so far held back;
- * `prose` keeps a closed string whole even where it holds a space.
- * @typedef {{ heredoc: string | null, quote: string | null, quoted: string, prose: boolean }} ShellState
+ * `keepQuoted` is the caller's option, fixed for the scan.
+ * @typedef {{ heredoc: string | null, quote: string | null, quoted: string, keepQuoted: boolean }} ShellState
  */
 
 /**
@@ -2283,7 +2287,7 @@ function quotedRun(line, i, st) {
  */
 function closeQuote(st) {
 	st.quote = null;
-	return !st.prose && /\s/.test(st.quoted) ? blank(st.quoted) : st.quoted;
+	return !st.keepQuoted && /\s/.test(st.quoted) ? blank(st.quoted) : st.quoted;
 }
 
 /**
@@ -2292,12 +2296,13 @@ function closeQuote(st) {
  * which is a message's prose — `"$root/docs/x.md"` holds none. A `#` opens a
  * comment only at a word's start outside quotes, so `$#` and `${#x}` stay.
  * @param {string} source
- * @param {boolean} [prose]  keep quoted strings holding a space
+ * @param {{ keepQuoted?: boolean }} [opts]  keep a quoted string holding a
+ *   space whole rather than blank it as prose
  * @returns {string}
  */
-function shellOperands(source, prose = false) {
+function shellOperands(source, { keepQuoted = false } = {}) {
 	/** @type {ShellState} */
-	const st = { heredoc: null, quote: null, quoted: "", prose };
+	const st = { heredoc: null, quote: null, quoted: "", keepQuoted };
 	let out = "";
 	for (const [n, line] of source.split("\n").entries()) {
 		if (n > 0) {
@@ -2461,10 +2466,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 		return fileReadsOf(p, read(p), tracked).filter((r) => !loaded.has(r));
 	});
 	const launchesOnce = once((p) =>
-		shellLaunches(p, read(p), tracked).flatMap((l) => [
-			l,
-			...scriptDeps(l, read(l), tracked).deps,
-		]),
+		shellLaunches(p, read(p), tracked).flatMap((l) => [l, ...loadsOnce(l)]),
 	);
 	/** @type {Record<string, Site[]>} */
 	const unseen = {};
