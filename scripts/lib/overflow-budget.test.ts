@@ -17,14 +17,17 @@
  * Launches are rows in a fixture checkout's dispatch ledger; `claude` is a stub
  * printing a fixture listing.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildStopBranch, type StopKind } from "./agents-stop-fake";
+import { readProcStartOf } from "./arbiter-proc.js";
 import { writeClaudeStub } from "./claude-stub";
 import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
+import { writeHeadlessRun } from "./headless-runs-testkit";
 import { seatBudget, stopOverAllowance } from "./overflow-budget.js";
 import { runInProcess } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
@@ -811,6 +814,31 @@ describe("the per-session cap (#3698)", () => {
 			`stopped overflow session Overflow · job 0000a001 (0000a001) on ${seatDir}: spent $60.00 of its $50.00 allowance`,
 		]);
 		expect(readStops()).toEqual([`${seatDir} stop 0000a001`]);
+	});
+
+	it("stops a headless run past its allowance by its process group, never through claude stop (#4580)", () => {
+		/* A `sleep` in a group of its own, orphaned to init so its reaping is
+		 * not this process's. */
+		const pid = Number(
+			spawnSync("sh", ["-c", "setsid sleep 60 >/dev/null 2>&1 & echo $!"], {
+				encoding: "utf8",
+			}).stdout.trim(),
+		);
+		writeHeadlessRun(refill, "0000a005", sessionIdOf("0000a005"), {
+			pid,
+			pgid: pid,
+			procStart: readProcStartOf(pid),
+		});
+		appendTranscript(recordLaunch("0000a005"), buildModelTurn(15_000_000));
+		expect(
+			stopOverAllowance(declared(), [
+				{ ...listed("0000a005"), kind: "headless" },
+			]),
+		).toEqual([
+			`stopped overflow session Overflow · job 0000a005 (0000a005) on ${seatDir}: spent $60.00 of its $50.00 allowance`,
+		]);
+		expect(readStops()).toEqual([]);
+		expect(readProcStartOf(pid)).toBeNull();
 	});
 
 	it("keeps the stopped session: a stop, never a removal, and its transcript stays", () => {

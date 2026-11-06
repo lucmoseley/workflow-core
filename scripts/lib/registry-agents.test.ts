@@ -188,6 +188,11 @@ describe("buildDriftLines", () => {
 	});
 
 	it("compares background sessions alone", () => {
-		expect(buildDriftLines([bg({ kind: "interactive" })], [])).toEqual([]);
+		expect(
+			buildDriftLines(
+				[bg({ kind: "interactive" })],
+				[bg({ kind: "headless" })],
+			),
+		).toEqual([]);
 	});
 });

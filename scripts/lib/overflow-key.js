@@ -168,7 +168,19 @@ function buildKeySettings(keyVar) {
 	};
 }
 
-module.exports = { buildKeyHelper, buildKeySettings };
+/**
+ * The variables an overflow launch's child runs without: any key, which
+ * would outrank the helper, and the caller's session id, which would make the
+ * child claim to be the caller.
+ * @param {string} keyVar
+ */
+const overflowUnset = (keyVar) => [
+	"ANTHROPIC_API_KEY",
+	keyVar,
+	"CLAUDE_CODE_SESSION_ID",
+];
+
+module.exports = { buildKeyHelper, buildKeySettings, overflowUnset };
 
 if (require.main === module) {
 	/** @type {string[]} */

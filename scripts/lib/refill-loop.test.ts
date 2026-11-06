@@ -2206,6 +2206,12 @@ describe("a job that never started (#2467)", () => {
 		});
 	});
 
+	it("never stops a job whose session is a live headless run (#2608)", () => {
+		const headless = { sessionId: "s-ghost", pid: 4343, kind: "headless" };
+		const r = run(registry(live, headless), [job("a02186db", "s-ghost", 31)]);
+		expect(r.stopped).toEqual([]);
+	});
+
 	it("never judges a job on a seat with no registry to read", () => {
 		const r = run({ ...registry(live), seats: [] }, [
 			job("a02186db", "s-ghost", 31),

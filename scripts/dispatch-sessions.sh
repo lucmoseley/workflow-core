@@ -22,12 +22,14 @@
 # AN OVERFLOW SEAT (#2570) bills its key's API credits, not the plan's bars.
 # Under one, the `/usage` probe, the advisor check and the allowance cap are
 # skipped; the key's budget gate (lib/overflow-budget.js) sizes the set
-# instead. Each member launches as a plan member does, a `claude --bg` under
-# its plan seat's config dir, but handed the key through an `apiKeyHelper` in
-# `--settings` (lib/overflow-key.js), named `Overflow · <prompt>`, and with no
-# key or caller's session id in its environment (#3701). Its ledger row
-# records the key and its allowance, the headroom at launch, which the refill
-# tick stops it at (#3698). Only Opus launches there (#1920). WFC_SEAT_KEY,
+# instead. Each member launches headless, a `claude -p` through
+# lib/headless-sessions.js, since the key's credits cover `claude -p` and not
+# a `--bg` job (#4578): under its plan seat's config dir, handed the key
+# through an `apiKeyHelper` in `--settings` (lib/overflow-key.js), named
+# `Overflow · <prompt>`, capped at the key's headroom, and with no key or
+# caller's session id in its environment (#3701, #4580). Its ledger row
+# records the key, its allowance, the headroom at launch, which the refill
+# tick stops it at (#3698), and the session id the launcher printed. Only Opus launches there (#1920). WFC_SEAT_KEY,
 # the seat's key variable, is what asks for one: a dispatch without it is on
 # the plan seat (#3693).
 #
@@ -453,7 +455,7 @@ refuse_if_kernel_unhealthy
 # --- seat kind, overflow key, launch auth and burn mode ----------------------
 # One node start for four gates (lib/dispatch-gates.js, #4321): the seat this
 # runs under, from the one reader of `~/.claude/refill-seats`; an overflow
-# seat's `--settings`; that the launch bills its seat — the subscription, or an
+# seat's key, readable; that the launch bills its seat — the subscription, or an
 # overflow seat's declared key's helper alone (#2236) — judged in the
 # environment the launch hands its child; and whether burn mode's marker is set.
 seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
@@ -471,7 +473,6 @@ unset WFC_DISPATCH_NO_BUILD
 gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_key"})" || exit 2
 {
   read -r seat_kind burn_state
-  IFS= read -r key_settings
   read -ra key_unset
 } <<<"$gates"
 burn=0
@@ -502,14 +503,11 @@ if [[ $overflow -eq 1 ]]; then
   done
 fi
 
-# An overflow launch's child runs without the variables the gates name, under
-# the key's `--settings`.
+# An overflow launch runs without the variables the gates name.
 launch_env=()
-overflow_args=()
 if [[ $overflow -eq 1 ]]; then
   launch_env=(env)
   for v in "${key_unset[@]}"; do launch_env+=(-u "$v"); done
-  overflow_args=(--settings "$key_settings")
 fi
 
 # --- duplicate gate --------------------------------------------------------
@@ -897,19 +895,26 @@ while [[ $# -gt 0 ]]; do
       continue
     fi
   fi
-  args=(--bg)
-  # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
-  # launched with no model flag"): the configured default is
-  # `claude-opus-5-5[1m]`, and `--model opus` would silently drop the session
-  # to the 200k context window. Residual: on a machine whose default is
-  # something else, that is what the session gets. Any other spelling,
-  # `opus[1m]` included, passes verbatim.
-  [[ "$model" == "opus" ]] || args+=(--model "$model")
-  wants_advisor "$model" && args+=(--advisor "$ADVISOR_MODEL")
-  # The name name-issue-session.sh keeps the prefix of when it renames the job.
-  [[ $overflow -eq 1 ]] && args+=(-n "Overflow · $prompt" "${overflow_args[@]}")
-  launcher="claude"
-  launch_cmd=("${launch_env[@]}" "$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
+  if [[ $overflow -eq 1 ]]; then
+    # The launcher builds the key's `--settings`; its `--cwd` is the launch
+    # dir the subshell below enters. The name is the one
+    # name-issue-session.sh keeps the prefix of.
+    launcher="the headless launcher"
+    launch_cmd=("${launch_env[@]}" node "$here/lib/headless-sessions.js" launch
+      --key "$seat_key" --cwd . --budget "$headroom" --name "Overflow · $prompt" "$prompt")
+  else
+    args=(--bg)
+    # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
+    # launched with no model flag"): the configured default is
+    # `claude-opus-5-5[1m]`, and `--model opus` would silently drop the session
+    # to the 200k context window. Residual: on a machine whose default is
+    # something else, that is what the session gets. Any other spelling,
+    # `opus[1m]` included, passes verbatim.
+    [[ "$model" == "opus" ]] || args+=(--model "$model")
+    wants_advisor "$model" && args+=(--advisor "$ADVISOR_MODEL")
+    launcher="claude"
+    launch_cmd=("$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
+  fi
   if [[ $dry_run -eq 1 ]]; then
     printf 'would launch:'
     printf ' %q' "${launch_cmd[@]}"
@@ -976,12 +981,17 @@ while [[ $# -gt 0 ]]; do
     if [[ -n "$launch_out_file" ]]; then
       job_id="$(head -1 "$launch_out_file" 2>/dev/null | bg_launch_id)"
     fi
-    # The launch record that marks this session overflow (#3694): its key and
-    # the headroom it launched at. `--bg` prints no session id, so the refill
-    # tick adds it from the listing (lib/dispatch-ledger.js).
+    # The launch record that marks this session overflow (#3694): its key, the
+    # headroom it launched at, and the session id the launcher printed, so a
+    # run that ends before any listing shows it still has its acts read.
     overflow_record=()
     if [[ $overflow -eq 1 ]]; then
-      overflow_record=(--overflow-key "$seat_key" --allowance-usd "$headroom")
+      session_id=""
+      if [[ -n "$launch_out_file" ]]; then
+        session_id="$(sed -n 's/^session //p' "$launch_out_file")"
+      fi
+      overflow_record=(--overflow-key "$seat_key" --allowance-usd "$headroom"
+        --session-id "$session_id")
     fi
     # Residual: the issue list is every integer in the prompt, so a prompt
     # carrying a non-issue number records a phantom issue and refuses an

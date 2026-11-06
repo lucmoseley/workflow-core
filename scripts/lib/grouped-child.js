@@ -8,8 +8,15 @@
  */
 
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const { caught } = require("./caught.js");
+const { REAL_PROC } = require("./proc-root.js");
+const { FIELD, readStatFields } = require("./proc-stat.js");
 
+/* Untraced: short against a grace, long enough not to spin. */
+const GRACE_POLL_MS = 100;
+/* A guess, as process-fixture.ts's: the kernel's reaping runs on its own clock. */
+const KILL_SETTLE_MS = 5000;
 const NO_END = {
 	code: null,
 	signal: null,
@@ -39,6 +46,66 @@ function killGroup(pgid, signal) {
 	} catch (e) {
 		return caught(e).code === "ESRCH" ? null : caught(e).message;
 	}
+}
+
+/**
+ * Whether any member of the group still runs. A zombie is no member: one this
+ * process spawned stays a zombie while a synchronous wait keeps it unreaped,
+ * yet still answers a signal to its group.
+ * @param {number} pgid
+ */
+function isGroupAlive(pgid) {
+	try {
+		process.kill(-pgid, 0);
+	} catch (e) {
+		if (caught(e).code !== "EPERM") return false;
+	}
+	return fs.readdirSync(REAL_PROC).some((pid) => {
+		if (!/^\d+$/.test(pid)) return false;
+		const fields = readStatFields(pid, REAL_PROC);
+		return (
+			Number(fields?.[FIELD.pgrp]) === pgid &&
+			!["Z", "X"].includes(String(fields?.[FIELD.state]))
+		);
+	});
+}
+
+/**
+ * Blocks this thread while it polls, as `claude stop` blocks its caller.
+ * @param {number} pgid
+ * @param {number} ms
+ * @returns {boolean} whether the group went within `ms`
+ */
+function groupGoneWithin(pgid, ms) {
+	const pause = new Int32Array(new SharedArrayBuffer(4));
+	for (const end = performance.now() + ms; performance.now() < end; ) {
+		if (!isGroupAlive(pgid)) return true;
+		Atomics.wait(pause, 0, 0, GRACE_POLL_MS);
+	}
+	return !isGroupAlive(pgid);
+}
+
+/**
+ * SIGTERM to a group, then SIGKILL to what outlives `graceMs`, returning once
+ * the group has gone. Synchronous: it blocks for up to `graceMs` and the
+ * kill's settling.
+ * @param {number} pgid
+ * @param {number} graceMs
+ * @returns {{killed: boolean, unkilled: string|null}} `killed` where the
+ *   grace ran out; `unkilled` why the group is still running, else null
+ */
+function endGroup(pgid, graceMs) {
+	const unsignalled = killGroup(pgid, "SIGTERM");
+	if (unsignalled) return { killed: false, unkilled: unsignalled };
+	if (groupGoneWithin(pgid, graceMs)) return { killed: false, unkilled: null };
+	const unkilled = killGroup(pgid, "SIGKILL");
+	if (unkilled) return { killed: true, unkilled };
+	return {
+		killed: true,
+		unkilled: groupGoneWithin(pgid, KILL_SETTLE_MS)
+			? null
+			: `it still answers ${KILL_SETTLE_MS / 1000} s after SIGKILL`,
+	};
 }
 
 /**
@@ -150,4 +217,4 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer, input }) {
 	});
 }
 
-module.exports = { killGroup, runGrouped };
+module.exports = { endGroup, isGroupAlive, killGroup, runGrouped };

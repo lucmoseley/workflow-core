@@ -28,6 +28,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
+import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -250,6 +251,23 @@ describe("re-claiming", () => {
 		expect(again.status).toBe(0);
 		expect(again.stdout).toContain("Already held by this session");
 		expect(readRecords()).toEqual([ME]);
+	});
+});
+
+describe("inside a headless overflow run (#2608)", () => {
+	it("finds itself in the listing the oracle cannot give, and claims", () => {
+		setUp();
+		const refill = path.join(sb.dir, "refill");
+		writeHeadlessRun(refill, "0123abcd", "sess-headless", { cwd: sb.repo });
+		const r = runInProcess(SCRIPT, ["530"], {
+			env: {
+				...envFor("sess-headless", ["sess-other"]),
+				WFC_REFILL_DIR: refill,
+			},
+		});
+		expect(r.stderr).not.toContain("session liveness could not be read");
+		expect(r.status).toBe(0);
+		expect(readRecords()).toEqual(["sess-headless"]);
 	});
 });
 

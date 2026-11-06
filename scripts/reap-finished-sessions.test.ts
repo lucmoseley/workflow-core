@@ -447,6 +447,21 @@ describe("gate 1: finished", () => {
 	});
 });
 
+describe("a headless overflow run (#2608)", () => {
+	it("is never stopped, since `claude stop` cannot reach it", () => {
+		for (const state of ["working", "done"]) {
+			const h = reapWith({
+				listed: {
+					faults: [],
+					seats: ["/s"],
+					agents: [agent({ kind: "headless", state })],
+				},
+			});
+			expect(h.stopped).toEqual([]);
+		}
+	});
+});
+
 describe("plan", () => {
 	it("reaps a finished, unclaimed session that is past the grace window", () => {
 		const p = run({});

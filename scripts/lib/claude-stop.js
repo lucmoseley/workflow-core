@@ -6,12 +6,17 @@
  * `claude stop` and the job record are scoped to CLAUDE_CONFIG_DIR, so a job is
  * addressed on a seat. A caller that knows the seat calls stopOn; one that knows
  * only the job and its session calls stopSession, which finds the seat (#1571).
+ *
+ * A HEADLESS OVERFLOW RUN (lib/headless-runs.js) has no daemon job, so both
+ * stop it by its process group instead, wherever its job id is in the run
+ * store (#4580).
  */
 
 const fs = require("node:fs");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
+const headless = require("./headless-runs.js");
 const { readJobRecord, shortJobId } = require("./job-paths.js");
 const { buildSeatEnv, runClaude } = require("./seat-claude.js");
 
@@ -94,6 +99,8 @@ function readSeatsFor(jobId, sessionId) {
  * @returns {StopOutcome}
  */
 function stopSession(id, sessionId) {
+	const run = stopHeadless(id);
+	if (run) return run;
 	const seats = readSeatsFor(id, sessionId);
 	/** @type {Extract<StopOutcome, {ok: false}>|undefined} */
 	let firstRefusal;
@@ -125,6 +132,8 @@ function stopSession(id, sessionId) {
  * @returns {StopOutcome}
  */
 function stopOn(seat, id, bin = claudeBin()) {
+	const run = stopHeadless(id);
+	if (run) return run;
 	const r = runClaude(["stop", id], {
 		env: buildSeatEnv(process.env, seat),
 		timeout: STOP_TIMEOUT_MS,
@@ -150,6 +159,32 @@ function stopOn(seat, id, bin = claudeBin()) {
 		timedOut: errCode === "ETIMEDOUT",
 		noJob: /No job matching/.test(said ?? ""),
 	};
+}
+
+/**
+ * The stop of headless run `id`, or null where the run store holds no run by
+ * that id. One no longer running is noJob, as a daemon holding no such job.
+ * @param {string} id
+ * @returns {StopOutcome|null}
+ */
+function stopHeadless(id) {
+	let outcome;
+	try {
+		outcome = headless.stop(id);
+	} catch (e) {
+		const why = `headless run ${id}: ${caught(e).message}`;
+		return { ok: false, why, said: null, timedOut: false, noJob: false };
+	}
+	if (outcome === "unknown") return null;
+	if (outcome === "not running")
+		return {
+			ok: false,
+			why: `headless run ${id} is not running`,
+			said: null,
+			timedOut: false,
+			noJob: true,
+		};
+	return { ok: true, said: `headless run ${id} ${outcome}` };
 }
 
 module.exports = {

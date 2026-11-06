@@ -60,8 +60,16 @@ const { writeFd } = require("./write-fd.js");
  * keeps out a session merely quoting the words. */
 const CREDIT_REFUSAL = /credit balance is too low/i;
 
+/* The listing kinds an overflow launch runs as: a `--bg` job, or a headless
+ * run (lib/headless-runs.js, #4580), which lib/claude-stop.js also stops. */
+const LAUNCHED_KINDS = new Set(["background", "headless"]);
+
 /* The scripts a ledger's lock holder runs; any other's lock reads as stale. */
-const BUDGET_READERS = ["overflow-budget.js", "refill-loop.js"];
+const BUDGET_READERS = [
+	"overflow-budget.js",
+	"overflow-view.js",
+	"refill-loop.js",
+];
 
 /** @param {OverflowSeat} seat */
 const ledgerFile = (seat) =>
@@ -469,8 +477,8 @@ const settleChainsOnce = (ledger) =>
 	ledger.map((e) => ({ ...e, costUsd: chainShareOf(e) }));
 
 /**
- * The key's listed background sessions whose chain's spend has reached the
- * allowance their launch recorded. An `ended` one is past it but no longer
+ * The key's listed background sessions and headless runs whose chain's spend
+ * has reached the allowance their launch recorded. An `ended` one is past it but no longer
  * running: capped without a stop.
  * @param {OverflowSeat} seat
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
@@ -485,7 +493,10 @@ function readOverAllowance(seat, agents, lookup) {
 		),
 	);
 	return agents.flatMap((a) => {
-		if (a.kind !== "background" || capped.has(chainRootOf(lookup, a.sessionId)))
+		if (
+			!LAUNCHED_KINDS.has(a.kind ?? "") ||
+			capped.has(chainRootOf(lookup, a.sessionId))
+		)
 			return [];
 		const launch = lookup({ jobId: a.id, sessionId: a.sessionId });
 		const spentUsd = spent.get(a.sessionId);

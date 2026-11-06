@@ -13,7 +13,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./auth-status-fake";
-import { buildKeyHelper } from "./overflow-key.js";
 import { runInProcess } from "./run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "dispatch-gates.js");
@@ -56,8 +55,7 @@ const gates = (identity: string[], extra: Record<string, string> = {}) =>
 		},
 		cwd: home,
 	});
-const overflowLines = () =>
-	`${JSON.stringify({ apiKeyHelper: buildKeyHelper("K", secrets) })}\nANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n`;
+const overflowLines = () => "ANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n";
 
 describe("the seat kind", () => {
 	it("refuses a call naming no config dir, or an option", () => {

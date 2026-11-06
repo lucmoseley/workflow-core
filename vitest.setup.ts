@@ -106,7 +106,8 @@ afterAll(() => fs.rmSync(testHostDir, { recursive: true, force: true }));
 
 /*
  * NO TEST READS OR WRITES THE MACHINE'S REFILL FILES: the loop's
- * ledgers, markers and budget records would join every case that reads them.
+ * ledgers, markers and budget records, and the live headless runs every
+ * liveness read lists (#2608), would join every case that reads them.
  * An override, as above, and for the same reason.
  */
 const testRefillDir = fs.mkdtempSync(

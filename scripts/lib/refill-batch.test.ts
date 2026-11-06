@@ -86,6 +86,7 @@ const seededIo = (
 	env: {},
 	run: () => ({ failed: null, out: "" }),
 	entriesOf: () => entries,
+	sessionOf: () => undefined,
 	now: () => NOW,
 });
 
@@ -273,6 +274,7 @@ done
 				};
 			},
 			entriesOf: (root) => readRecentEntries(root, 1).entries,
+			sessionOf: () => undefined,
 			now: Date.now,
 		};
 		for (const batch of batchesOf(launches)) {
@@ -682,6 +684,7 @@ describe("the members of a batch a kill cut off (#4180)", () => {
 			{ at: NOW, batch },
 			{
 				entriesOf: () => entries,
+				sessionOf: () => undefined,
 				readActsBefore: () => ({ file: 1 }),
 				recordLaunch: (e) => {
 					recorded.push(e);

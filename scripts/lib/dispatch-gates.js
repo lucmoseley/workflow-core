@@ -7,9 +7,9 @@
  *
  * Prints `<seat kind> <burn>` — `plan` or `overflow` (lib/refill-seats.js),
  * then `on` where burn mode's marker exists (lib/burn-mode.js) — and, on an
- * overflow seat, two more lines: the `--settings` JSON its launch passes
- * (lib/overflow-key.js), and the variables its child's environment drops, so
- * the key reaches it through that helper alone. Exits 0. Exits 2 printing `REFUSED:` and why where
+ * overflow seat, one more line: the variables its launch's environment drops,
+ * so the key reaches the child through lib/overflow-key.js's helper alone,
+ * which lib/headless-sessions.js passes in `--settings`. Exits 0. Exits 2 printing `REFUSED:` and why where
  * the seat file refuses the seat, the overflow key cannot be read, or the
  * launch would bill other than its seat (lib/launch-auth.js), judged in the
  * environment the launch hands its child.
@@ -24,17 +24,10 @@ const { markerPath } = require("./burn-mode.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const { buildKeySettings } = require("./overflow-key.js");
+const { buildKeySettings, overflowUnset } = require("./overflow-key.js");
 const { readDeclaredSeats, seatOfLaunch } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
-
-/** @param {string} keyVar */
-const overflowUnset = (keyVar) => [
-	"ANTHROPIC_API_KEY",
-	keyVar,
-	"CLAUDE_CODE_SESSION_ID",
-];
 
 /**
  * Fails open (#4321): burn mode only remaps a model.
@@ -136,9 +129,5 @@ if (require.main === module) {
 		process.exit(2);
 	}
 	writeFd(1, `${outcome.kind} ${readBurnMode()}\n`);
-	if (outcome.overflow)
-		writeFd(
-			1,
-			`${outcome.overflow.settings}\n${outcome.overflow.unset.join(" ")}\n`,
-		);
+	if (outcome.overflow) writeFd(1, `${outcome.overflow.unset.join(" ")}\n`);
 }

@@ -115,6 +115,18 @@ const readHolders = () =>
 		.readIssueClaims(N)
 		.map((e: { record: { sessionId: string } }) => e.record.sessionId);
 
+describe("takeover: a headless overflow holder (#2608)", () => {
+	it("refuses by name with exit 2, sends no `claude stop` and adopts nothing", async () => {
+		frozenHolder();
+		lists([holderRow({ kind: "headless", id: "0123abcd" })]);
+		const r = await takeover();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("headless-sessions.js stop 0123abcd");
+		expect(stopped()).toBe(false);
+		expect(readHolders()).toEqual([SID]);
+	});
+});
+
 describe("takeover: the success path", () => {
 	it("snapshots, stops, confirms, claims and comments, in that order", async () => {
 		frozenHolder();
