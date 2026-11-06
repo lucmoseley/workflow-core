@@ -38,6 +38,17 @@ const remoteBackoffMs = (attempt) =>
  */
 const isNetworkFaultText = (text) => NETWORK.test(text);
 
+/** git's own refusal lines, as against a hook's output, which may quote anything. */
+const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
+
+/**
+ * Whether a failed push's output names a network or remote fault in git's own
+ * lines, never in its pre-push hook's (#4497).
+ * @param {string} output
+ */
+const isPushFaultText = (output) =>
+	isNetworkFaultText((output.match(GIT_LINE) ?? []).join("\n"));
+
 /**
  * @param {unknown} err
  * @returns {boolean}
@@ -49,7 +60,7 @@ function isNetworkFault(err) {
 
 module.exports = {
 	isNetworkFault,
-	isNetworkFaultText,
+	isPushFaultText,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 };

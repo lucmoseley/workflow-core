@@ -16,13 +16,13 @@ const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
 const { execGit, gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
-const { isNetworkFault } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
 	parseRefusalTail,
+	PushRefused,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
@@ -243,7 +243,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				return null;
 			} catch (err) {
 				const refused = REMOTE_REJECTED.exec(String(caught(err).stderr ?? ""));
-				if (refused === null || isNetworkFault(err)) throw err;
+				if (refused === null || !(err instanceof PushRefused)) throw err;
 				return refused[0].trim();
 			}
 		},

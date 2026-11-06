@@ -53,6 +53,7 @@ landerSandbox();
 // Required, not imported: an ESM import of lib/queue-lander.js would load a
 // second copy of TransientFault, which queueGit's throw is not.
 const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
+const { PushRefused } = createRequire(__filename)("./lib/lander-git.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
@@ -404,6 +405,25 @@ describe("the adapters", () => {
 		expect(() => queueGit(work).pushMain(a)).toThrow(
 			/fatal error in commit_refs_rules/,
 		);
+	});
+
+	it("throws a push whose hook quoted a network fault as a refusal, never a fault to retry (#4513)", () => {
+		const a = commit("a");
+		fs.writeFileSync(
+			path.join(work, ".git", "hooks", "pre-push"),
+			"#!/bin/sh\necho 'test said: Connection reset' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+
+		let thrown: unknown;
+		try {
+			queueGit(work).pushBatch(a);
+		} catch (err) {
+			thrown = err;
+		}
+
+		expect(thrown).toBeInstanceOf(PushRefused);
+		expect((thrown as { stderr: string }).stderr).toContain("Connection reset");
 	});
 
 	it("creates a dropped ref, takes it made already at the same sha, refuses it at another, and lists it", () => {

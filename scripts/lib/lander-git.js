@@ -13,6 +13,7 @@ const { stripVTControlCharacters } = require("node:util");
 const { caught } = require("./caught.js");
 const {
 	isNetworkFault,
+	isPushFaultText,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 } = require("./network-fault.js");
@@ -242,9 +243,27 @@ const readConflictedFiles = (inTree) =>
 		.filter(Boolean);
 
 /**
+ * A push git refused, its hook's output in `stderr` with git's own: a retry
+ * would only repeat it, even where the hook quotes a network fault (#4513).
+ */
+class PushRefused extends Error {
+	/**
+	 * @param {string} message
+	 * @param {{ cause: unknown }} options `cause` the failed push
+	 */
+	constructor(message, options) {
+		super(message, options);
+		const e = caught(options.cause);
+		this.status = e.status;
+		this.stderr = e.stderr;
+		this.stdout = e.stdout;
+	}
+}
+
+/**
  * A push from `root` to lib/landing-refs.js's remote. Its timeout is the
  * pre-push hook's run, which a retry would only repeat, so it throws as no
- * network fault.
+ * network fault; a refusal whose git lines name no fault throws PushRefused.
  * @param {string} root
  * @param {string[]} args the push's flags and refspecs
  * @param {NodeJS.ProcessEnv} [env]
@@ -259,7 +278,10 @@ function pushRemote(root, args, env = process.env) {
 			env,
 		});
 	} catch (err) {
-		if (caught(err).code !== "ETIMEDOUT") throw err;
+		const e = caught(err);
+		if (e.status !== undefined && !isPushFaultText(e.stderr ?? ""))
+			throw new PushRefused(e.message, { cause: err });
+		if (e.code !== "ETIMEDOUT") throw err;
 		throw new Error(
 			`git push ${args.join(" ")} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
 			{ cause: err },
@@ -273,6 +295,7 @@ module.exports = {
 	isAncestor,
 	parseRefusal,
 	parseRefusalTail,
+	PushRefused,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
