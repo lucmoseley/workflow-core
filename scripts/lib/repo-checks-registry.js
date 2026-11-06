@@ -1,7 +1,8 @@
 /*
  * repo-checks-registry.js — every state check and reporter the daily
  * repo-checks run launches, and the gate each passes first (#1548, spec #1510
- * §The list and its gates). Data only: adding a check is one entry.
+ * §The list and its gates), and `entryOf`, the one lookup by id, which
+ * throws on an id it lacks. Adding a check is one entry.
  *
  * LISTED IN RUN ORDER: the tree checks first, then the reporters, then the
  * tracker checks, with clobbered bodies last.
