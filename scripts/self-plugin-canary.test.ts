@@ -292,22 +292,23 @@ describe("with lib/script-path.sh not loading (#3798)", () => {
 	}
 
 	it.each([
-		["absent", null, "main"],
-		["absent", null, "the founder's checkout"],
-		["empty", "", "main"],
-		["a syntax error", "if\n", "main"],
-	])(
-		"prints a pasteable setup line, with it %s, for %s %s",
-		(_, quoter, name) => {
-			const main = checkout(name);
-			const r = run(canaryWithQuoter(quoter), JSON.stringify(bash(SID)), {
-				CLAUDE_PROJECT_DIR: main,
-			});
-			expectRefused(r, main);
-			expect(r.stderr).toMatch(/^Refused: /);
-			expect(r.stderr).toContain("lib/script-path.sh did not load");
-		},
-	);
+		["where script-path.sh is absent", null, "main"],
+		[
+			"where script-path.sh is absent, for a checkout whose path holds a quote",
+			null,
+			"the founder's checkout",
+		],
+		["where script-path.sh is empty", "", "main"],
+		["where script-path.sh is a syntax error", "if\n", "main"],
+	])("prints a pasteable setup line %s", (_, quoter, name) => {
+		const main = checkout(name);
+		const r = run(canaryWithQuoter(quoter), JSON.stringify(bash(SID)), {
+			CLAUDE_PROJECT_DIR: main,
+		});
+		expectRefused(r, main);
+		expect(r.stderr).toMatch(/^Refused: /);
+		expect(r.stderr).toContain("lib/script-path.sh did not load");
+	});
 });
 
 describe("the marker", () => {

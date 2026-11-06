@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { withIgnoreBlock } from "../../../../scripts/lib/adopter-skeleton.js";
+import { commandPath } from "../../../../scripts/lib/command-path-testkit";
 import { LINK_READ_FAKE } from "../../../../scripts/lib/gh-fake";
 import {
 	type GhStubServer,
@@ -372,9 +373,7 @@ export function sandbox({
 	const stub = stubGhScript(sb, ghServer.script);
 	let searchPath = process.env.PATH ?? "";
 	if (failBashN) {
-		const realBash = execFileSync("sh", ["-c", "command -v bash"], {
-			encoding: "utf8",
-		}).trim();
+		const realBash = commandPath("bash");
 		fs.mkdirSync(path.join(sb, "bash-bin"));
 		fs.writeFileSync(
 			path.join(sb, "bash-bin/bash"),
