@@ -56,6 +56,7 @@ const { ghJson } = require("./lib/gh.js");
 const { execGit, spawnGitSync } = require("./lib/git.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { caught } = require("./lib/caught.js");
+const { readText } = require("./lib/file-read.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
@@ -530,10 +531,12 @@ function acceptance(task, root) {
 
 	for (const { file, pattern, why } of task.docChecks) {
 		const p = path.join(repo, file);
-		const text = fs.existsSync(p) ? fs.readFileSync(p, "utf8") : "";
-		const ok = new RegExp(pattern).test(text);
+		const got = readText(p);
+		const ok = got.state === "read" && new RegExp(pattern).test(got.data);
 		let detail = "";
-		if (!text) detail = "file absent";
+		if (got.state === "absent") detail = "file absent";
+		else if (got.state === "unreadable")
+			detail = `file unreadable: ${got.message}`;
 		else if (!ok) detail = why ?? "";
 		results.push({
 			check: `${file} matches /${pattern}/`,

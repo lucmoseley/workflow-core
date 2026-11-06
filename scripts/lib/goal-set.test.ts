@@ -86,7 +86,7 @@ describe("resolveGoal (#4382)", () => {
 	it("ranks nothing for a checkout gone from the machine, and says so", () => {
 		expect(
 			resolveGoal(
-				{ form: "drain", refs: [{ repo: "ghost", number: 5 }] },
+				{ form: "drain", ref: { repo: "ghost", number: 5 } },
 				map,
 				graph,
 				ownCheckout,
@@ -100,7 +100,7 @@ describe("resolveGoal (#4382)", () => {
 		for (const repo of [null, "r"])
 			expect(
 				resolveGoal(
-					{ form: "drain", refs: [{ repo, number: 1 }] },
+					{ form: "drain", ref: { repo, number: 1 } },
 					map,
 					graph,
 					ownCheckout,
@@ -111,7 +111,7 @@ describe("resolveGoal (#4382)", () => {
 	it("refuses an unblock in another repo, naming it, and ranks an issue list here", () => {
 		expect(
 			resolveGoal(
-				{ form: "unblock", refs: [{ repo: "manta", number: 40 }] },
+				{ form: "unblock", ref: { repo: "manta", number: 40 } },
 				map,
 				graph,
 				ownCheckout,

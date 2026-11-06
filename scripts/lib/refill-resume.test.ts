@@ -271,25 +271,20 @@ describe("readResumeTarget on a key (#4580)", () => {
 	const keyed = { ...LAUNCH, keyVar: KEY_VAR, jobId: "0e0e0e0e" };
 
 	it("takes the cwd from the headless run's record, not a --bg job's", () => {
-		const { steps, callsTo } = fakeIo({ readHeadlessRun: "run" });
+		const { steps, callsTo } = fakeIo({ readRunAsJob: "working" });
 		expect(steps.readResumeTarget(keyed as unknown as JobLaunch)).toEqual({
 			sessionId: SESSION,
-			cwd: ANSWERS.readHeadlessRun.run.cwd,
+			cwd: ANSWERS.readRunAsJob.working.cwd,
 		});
 		expect(callsTo("readJobRecord")).toEqual([]);
 	});
 
-	it("falls back to the checkout where the record will not read, logging why", () => {
-		const { steps, lines } = fakeIo({ readHeadlessRun: "unreadable" });
+	it("falls back to the checkout where the record will not read", () => {
+		const { steps } = fakeIo({ readRunAsJob: "unreadable" });
 		expect(steps.readResumeTarget(keyed as unknown as JobLaunch)).toEqual({
 			sessionId: null,
 			cwd: ROOT,
 		});
-		expect(lines).toEqual([
-			expect.stringMatching(
-				`^headless run 0e0e0e0e unread: .*${FAULTS.readHeadlessRun.unreadable}`,
-			),
-		]);
 	});
 });
 

@@ -105,15 +105,17 @@ const PART_WORKER_MB = 175;
 const PART_FILE_MB = 3;
 
 /**
- * The peak a marker in queue `name` is charged against: a part-suite's by the
- * test files it resolved to, any other's its queue's. A part marker with no
- * file count, a run not counted at admission, takes its queue's.
+ * The peak a marker in queue `name` is charged against: one carrying its own
+ * measured charge, a lander's (#3973), that; a part-suite's by the test files
+ * it resolved to; any other's its queue's. A part marker with no file count, a
+ * run not counted at admission, takes its queue's.
  *
  * @param {string} name
- * @param {Pick<QueueRecord, "part" | "files">} record
+ * @param {Pick<QueueRecord, "part" | "files" | "chargeMb">} record
  * @returns {number}
  */
 function peakMbOf(name, record) {
+	if (Number.isFinite(record.chargeMb)) return Number(record.chargeMb);
 	const queuePeak = PEAK_MB[name] ?? 0;
 	const { part, files } = record;
 	if (name !== QUEUE_NAME || part !== true || files === undefined)

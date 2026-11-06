@@ -1079,20 +1079,12 @@ const FIND_EXPRESSION_OPENERS = ["(", "\\(", "!", "\\!", ","];
  */
 function findStarts(words, spans) {
 	const texts = words.map((w) => literal(w, spans).text);
-	/** @type {string[]} */
-	const starts = [];
-	for (
-		let i = skipFindOptions(texts), w = texts[i];
-		w !== undefined;
-		w = texts[++i]
-	) {
-		const word = words[i];
-		if (word === undefined)
-			throw new Error(`findStarts: no word ${i} beside its text`);
-		if (w.startsWith("-") || FIND_EXPRESSION_OPENERS.includes(w)) break;
-		starts.push(word);
-	}
-	return starts;
+	const from = skipFindOptions(texts);
+	const end = texts.findIndex(
+		(w, i) =>
+			i >= from && (w.startsWith("-") || FIND_EXPRESSION_OPENERS.includes(w)),
+	);
+	return words.slice(from, end === -1 ? undefined : end);
 }
 
 /**

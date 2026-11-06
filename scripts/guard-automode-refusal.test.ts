@@ -130,6 +130,21 @@ describe("a turn carrying a refusal", () => {
 		expect(r.reason).toContain("§Auto mode's permission classifier");
 	});
 
+	it("carries #3922's clause: a refused file write remade through Write or Edit is the same act", () => {
+		transcript([
+			prompt(),
+			buildBashCall("git push", "toolu_A"),
+			refused("toolu_A"),
+		]);
+
+		const r = run();
+
+		expect(r.reason).toContain(
+			"a refused file write remade through Write or Edit",
+		);
+		expect(r.reason).toContain("once you have said what the objection was");
+	});
+
 	it("knows the refusal by its sentence alone, untagged and as text blocks", () => {
 		transcript([
 			prompt(),

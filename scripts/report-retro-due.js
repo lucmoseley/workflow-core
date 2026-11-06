@@ -34,6 +34,7 @@ const {
 	unreachableRemedy,
 } = require("./lib/gh");
 const { readConfig, retroFault } = require("./lib/workflow-core-config");
+const { buildStandaloneLine } = require("./lib/standalone-line.js");
 
 const TITLE = "Weekly retro due";
 const LABEL = takesLabel("implement");
@@ -121,7 +122,9 @@ function body(newest, weeklyCount) {
 		"Launch the session on plain Opus (`docs/effort-guide.md` §Which model to launch",
 		"each session on, `/implement`).",
 		"",
-		"Standalone: a daily-run reporter's standing condition, under no spec (#948 §Trigger).",
+		buildStandaloneLine(
+			"a daily-run reporter's standing condition, under no spec (#948 §Trigger).",
+		),
 	].join("\n");
 }
 

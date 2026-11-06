@@ -27,7 +27,7 @@ import { admitted } from "./suite-slot-fake";
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
 /* A whole suite's lander charge (#3323). */
-const WHOLE = { chargeMb: 1150 };
+const WHOLE = { chargeMb: 2630 };
 
 let tmp: string;
 let work: string;
@@ -525,13 +525,13 @@ it("shows session admission the held slot as a lander (#2416)", async () => {
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
 	expect(readLiveLanders({ queueDir: tmp })).toEqual([
-		{ pid: process.pid, chargeMb: 1150 },
+		{ pid: process.pid, chargeMb: 2630 },
 	]);
 	if (slot.ok) slot.release();
 	expect(readLiveLanders({ queueDir: tmp })).toEqual([]);
 });
 
-it("charges a whole suite 1,150 MB and a named-file rerun 600 on the marker (#3323)", async () => {
+it("charges a whole suite 2,630 MB, a named-file rerun 940 and one past six files whole on the marker (#3323, #3973)", async () => {
 	const charged: unknown[] = [];
 	const tester = localTester({
 		root: work,
@@ -549,10 +549,14 @@ it("charges a whole suite 1,150 MB and a named-file rerun 600 on the marker (#33
 	});
 	await tester.verdict(passing);
 	await tester.verdict(passing, ["a.check.js"]);
-	expect(charged).toEqual([1150, 600]);
+	await tester.verdict(
+		passing,
+		Array.from({ length: 7 }, (_, i) => `${i}.check.js`),
+	);
+	expect(charged).toEqual([2630, 940, 2630]);
 });
 
-it("opens the gate's memory rung at 2,250 MB for a whole suite and 1,700 for a named-file rerun (#3323)", async () => {
+it("opens the gate's memory rung at 3,750 MB for a whole suite and 2,050 for a named-file rerun (#3323, #3973)", async () => {
 	const at = (mb: number, chargeMb: number) =>
 		suiteSlot({
 			chargeMb,
@@ -566,16 +570,16 @@ it("opens the gate's memory rung at 2,250 MB for a whole suite and 1,700 for a n
 		if (slot.ok) slot.release();
 		return slot.ok;
 	};
-	expect(await at(2249, 1150)).toMatchObject({
+	expect(await at(3749, 2630)).toMatchObject({
 		ok: false,
-		reason: expect.stringContaining("2249 MB available against 2250 MB"),
+		reason: expect.stringContaining("3749 MB available against 3750 MB"),
 	});
-	expect(release(await at(2250, 1150))).toBe(true);
-	expect(await at(1699, 600)).toMatchObject({
+	expect(release(await at(3750, 2630))).toBe(true);
+	expect(await at(2049, 940)).toMatchObject({
 		ok: false,
-		reason: expect.stringContaining("against 1700 MB"),
+		reason: expect.stringContaining("against 2050 MB"),
 	});
-	expect(release(await at(1700, 600))).toBe(true);
+	expect(release(await at(2050, 940))).toBe(true);
 });
 
 it("appends each run's kind, file count and tree-PSS peak to the lander run record (#3323)", async () => {

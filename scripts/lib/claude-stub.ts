@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { buildAuthStatusBranch } from "./auth-status-fake";
+import { LIVE_CALL_TIMEOUT_MS } from "./headless-options.js";
 import { shellQuote } from "./sh-quote.js";
 
 /** `text` as one sh word, every `id` in it spliced as "$2": a recorded
@@ -44,8 +45,7 @@ export function claudeLiveSkipReason(): string | undefined {
 		return "CI: the live claude case runs on the founder's machine only";
 	const { status } = spawnSync("claude", ["--version"], {
 		stdio: "ignore",
-		// A guess: it answers in well under a second, and a hang should skip.
-		timeout: 30_000,
+		timeout: LIVE_CALL_TIMEOUT_MS,
 	});
 	return status === 0 ? undefined : "no claude on PATH";
 }
