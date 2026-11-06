@@ -2,6 +2,9 @@
 /*
  * Over lib/dirty-tree-async.js: the async read names what the sync one does,
  * and null where git will not answer (#4542). A throwaway repo per test.
+ *
+ * WHAT BREAKS IF THESE GO WRONG: check-orphaned-edits.js misses a dirty
+ * worktree, so its edits are lost unfiled, or files a clean one as orphaned.
  */
 
 import { execFileSync } from "node:child_process";

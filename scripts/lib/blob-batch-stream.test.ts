@@ -1,26 +1,33 @@
+// @vitest-environment node
 /*
- * Over lib/landed-edit.js's streaming batch: groups of blobs tested through
- * one `git cat-file --batch`, against a throwaway object store (#4542).
+ * Over lib/blob-batch-stream.js: groups of blobs tested through one
+ * `git cat-file --batch`, against a throwaway object store (#4542).
+ *
+ * WHAT BREAKS IF THESE GO WRONG: check-orphaned-edits.js reads a landed edit
+ * as unlanded, so an orphan already on main is filed as lost work; or a body
+ * split across chunks is misread, so a lost edit is taken as landed.
  */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { initGitRepo, mkScratchDir } from "./git-fixture";
 
 describe("matchBlobGroups — groups of blobs tested through one streaming batch (#4542)", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const lib: any = createRequire(__filename)("./landed-edit.js");
+	const lib: any = createRequire(__filename)("./blob-batch-stream.js");
 
 	let root: string;
 	/** Blob ids by name: two small, one far over a pipe's chunk. */
 	const ids: Record<string, string> = {};
 	const big = `${"x".repeat(199)}\n`.repeat(2000);
 	beforeAll(() => {
-		root = fs.mkdtempSync(path.join(os.tmpdir(), "check-lib-batch-"));
-		execFileSync("git", ["init", "-q", "."], { cwd: root });
+		const scratch = mkScratchDir("blob-batch-stream-");
+		fs.mkdirSync(path.join(scratch, "no-hooks"));
+		root = path.join(scratch, "repo");
+		initGitRepo(root, path.join(scratch, "no-hooks"));
 		for (const [name, text] of Object.entries({
 			one: "one\n",
 			two: "two\n",
@@ -33,7 +40,7 @@ describe("matchBlobGroups — groups of blobs tested through one streaming batch
 			}).trim();
 	});
 	afterAll(() => {
-		fs.rmSync(root, { recursive: true, force: true });
+		fs.rmSync(path.dirname(root), { recursive: true, force: true });
 	});
 
 	const is = (text: string) => (body: Buffer) => body.toString() === text;
