@@ -93,8 +93,9 @@ function narrowedAreas(before, after) {
  * carry the declaration itself, those `after` narrows from `before`, sorted
  * and once each. An `after` that will not parse declares nothing, so a broken
  * copy reads as dropping every area (#3905); where the paths do not carry it,
- * or `before` declares nothing to drop, the hold cannot judge it: exit 2. Exit 3: the areas printed, and the
- * `after` copy's fault on stderr for the refusal to name.
+ * or `before` declares nothing to drop, the hold cannot judge it: exit 2.
+ * Exit 3: the areas printed, and the `after` copy's fault on stderr for the
+ * refusal to name.
  * @param {string} before
  * @param {string} after
  * @param {string[]} paths

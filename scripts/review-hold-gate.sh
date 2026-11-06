@@ -234,7 +234,8 @@ unmatched() {
 head_root="$(root_of HEAD)" || unmatched
 staged_root="$(root_of '')" || unmatched
 # Exit 3: a staged copy that will not parse declares nothing, so the areas
-# include every one it drops from HEAD's; its fault is on stderr.
+# include every one it drops from HEAD's; its fault is on stderr. Any other
+# failure, node's own crash included, is this gate's fault: fail open.
 staged_read=1
 areas_out="$(node "$here/lib/sensitive-paths.js" --held "$head_root" "$staged_root" \
   <"$held" 2>"$work/fault")" || case "$?" in
