@@ -42,16 +42,16 @@
 	"scripts/clear-rule-latch.sh": "c542e643321c65df",
 	"scripts/commit-paths.js": "6003412cea89cd16",
 	"scripts/concision-backstop.sh": "a2c1f58b7cc61e69",
-	"scripts/cutover-main-checkout.js": "7c7b144f9b8dcdfa",
+	"scripts/cutover-main-checkout.js": "9d6f6640a17c68a6",
 	"scripts/guard-automode-refusal.js": "526e520d47ac025e",
-	"scripts/guard-dispatch.js": "149b968208552a39",
+	"scripts/guard-dispatch.js": "8a529198b5fd14b1",
 	"scripts/guard-exhausted-map.js": "b104dc2af0c16f18",
 	"scripts/guard-failed-call-rules.js": "e53d077a1f5d186e",
 	"scripts/guard-inventory.js": "56cdb36a60180b17",
 	"scripts/guard-jev-advisory.js": "595e93c97e3ca1b3",
 	"scripts/guard-lost-deny.js": "dcf739f864291d44",
 	"scripts/guard-lost-verdict.js": "d111656cd19653b4",
-	"scripts/guard-main-checkout-job.js": "3659fb83a8a406e2",
+	"scripts/guard-main-checkout-job.js": "446cd75f8f324ef8",
 	"scripts/guard-paste-self-match.js": "9f14a8c6eebac4ba",
 	"scripts/guard-priced-options.js": "adad3a2970b153b0",
 	"scripts/guard-selection-sum.js": "cc986e171c09f4bd",
@@ -94,5 +94,5 @@
 	"scripts/vitest-pass-reporter.ts": "b6e6264ff7e32abb",
 	"scripts/vitest-tree-watch.ts": "7978d0a64434fe2c",
 	"scripts/watch-artefact.js": "fbc1c2f11dd666d0",
-	"scripts/write-self-plugin-marker.sh": "a93c6575c6288a4b"
+	"scripts/write-self-plugin-marker.sh": "6eff69d09877445c"
 }
