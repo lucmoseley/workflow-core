@@ -8,19 +8,19 @@
  *
  * WHAT IT IS FOR (mantahostels#2034 — the fourth item its own fix left open). `queueJoin`
  * (scripts/lib/suite-queue.js) writes a marker per waiting `--queue` suite and
- * run-vitest.js removes it on resolution or on SIGTERM/SIGINT/SIGHUP; `queueTurn` sweeps a
+ * run-vitest.js removes it on resolution or on SIGTERM/SIGINT/SIGHUP; `readTurn` sweeps a
  * stale one opportunistically, but only when another `--queue` run next
  * walks the directory. Between two such runs a marker from a SIGKILLed
  * waiter, or one written by a process that then crashed outright, sits
  * unreported.
  *
  * ONE STALENESS RULE, NOT TWO. `lib/suite-queue.js`'s `isMarkerStale` is the
- * same test `queueTurn` sweeps with — restating it here is exactly how the
+ * same test `readTurn` sweeps with — restating it here is exactly how the
  * original defect got in (mantahostels#2034's own postmortem), so this script imports it
  * rather than re-deriving "the pid is gone, or it's been reused" on its own.
  *
- * REPORT-ONLY, DELIBERATELY (unlike `queueTurn`, which already sweeps). This
- * sweep never unlinks a marker: `queueTurn` is the one place a stale marker is
+ * REPORT-ONLY, DELIBERATELY (unlike `readTurn`, which already sweeps). This
+ * sweep never unlinks a marker: `readTurn` is the one place a stale marker is
  * actually cleared, on its own next walk, and duplicating that here buys
  * nothing while adding a second place that could delete a live waiter's place
  * in the queue on a wrong verdict.
@@ -28,14 +28,14 @@
  * A TORN MARKER IS SILENCE, NOT A FINDING. `queueJoin` writes with a bare
  * `writeFileSync`, no temp-and-rename, so a marker read mid-write can be
  * truncated or fail to parse — a fact about timing, not about a leak.
- * `queueTurn` already treats that the same way (a bare `continue`), and so
+ * `readTurn` already treats that the same way (a bare `continue`), and so
  * does this sweep, matching it rather than raising an UNREADABLE-style
  * finding a healthy machine would trip on every run.
  *
  * `lib/suite-queue.js`'s `readMarkers` is the WALK, not just the predicate —
  * an earlier draft of this sweep re-derived the walk locally and it promptly
- * disagreed with `queueTurn` on which markers even counted (a marker with no
- * numeric `at` was reported stale here with advice `queueTurn` would not
+ * disagreed with `readTurn` on which markers even counted (a marker with no
+ * numeric `at` was reported stale here with advice `readTurn` would not
  * honour). Sharing the walk closes that the same way `isMarkerStale` closes
  * the staleness question.
  *

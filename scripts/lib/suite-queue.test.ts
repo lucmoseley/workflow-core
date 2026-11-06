@@ -2,7 +2,7 @@
 /*
  * `npm run test -- --queue`'s wait: the turn order between waiters, the gate
  * poll, and the `(pid, start)` staleness rule and marker walk shared between
- * `queueTurn` (which sweeps a stale marker on sight) and
+ * `readTurn` (which sweeps a stale marker on sight) and
  * check-stale-suite-queue.js (which only reports one). Neither caller tests the
  * rule itself, so a staleness case broken here fails nowhere else
  * (mantahostels#2034).
@@ -13,7 +13,9 @@
  * Liveness and start time are injected as plain functions, so pid reuse can be
  * staged without a real reused pid; of the staleness cases only `readStartTimeOf`
  * reads a real process.
- * The ordering cases write real markers into a temp directory of their own.
+ * The turn's rule is pure (`turnOf`), so its cases pass values; `readTurn`'s
+ * cases write real markers into a temp directory of their own and read them
+ * through a seat.
  * That a KILLED waiter drops its marker is the seat's signal handler, its
  * signals emitted on an injected emitter; run-vitest.js's real process tests
  * the exit it takes on a real one.
@@ -36,14 +38,8 @@ const {
 	isMarkerStale,
 	readMarkers,
 	readStartTimeOf,
-	queueJoin,
-	queueLeave,
-	queueAdmit,
-	queueSpawned,
-	queueStamps,
-	queueTurn,
-	passingTurn,
 	PART_PASS_AGE_MS,
+	turnOf,
 	readLiveRoleMarkers,
 	readQueuesClimbMb,
 	gateDenies,
@@ -54,6 +50,7 @@ const {
 	armSeatSignals,
 } = require("./suite-queue.js");
 const { yieldToWhole } = require("./cpu-yield.js");
+const { pidAlive } = require("./arbiter-proc.js");
 const { readLiveLanders } = require("./local-tester.js");
 const { SUITE_MAX, WHOLE_SUITE_MAX } = require("./admission.js");
 const { resolvedFileCount, weighFiles } = require("./suite-bounded.js") as {
@@ -95,6 +92,51 @@ function qdir() {
 	dirs.push(d);
 	return d;
 }
+
+/** `pid`'s seat in `queueDir`, its marker joined at `at`. */
+const joined = (queueDir: string, pid: number, at: number, join: object = {}) =>
+	queueSeat({
+		queue: { queueDir, pid, clock: () => at, alive: () => true },
+		join,
+	});
+
+/** A seat's stamps where it joins no marker: what its wait charges and admits. */
+const seatStamps = (queue: object) => queueSeat({ queue, join: false }).stamps;
+
+/**
+ * One poll of `pid`'s turn on an open gate, by a seat that joins no marker of
+ * its own, so the read writes, stamps and removes none: its exit line's
+ * reason and fields.
+ */
+async function polled(
+	queue: {
+		queueDir?: string;
+		pid?: number;
+		clock?: () => number;
+		alive?: (pid: number) => boolean;
+		slots?: number;
+	} = {},
+	wait: object = {},
+) {
+	const exits: object[] = [];
+	await queueSeat({
+		queue: { alive: () => true, ...queue },
+		join: false,
+		logExit: (reason: string, _ms: number, extra: object) =>
+			exits.push({ reason, ...extra }),
+	}).wait({
+		gate: () => null,
+		timeoutMs: 0,
+		sleepFn: () => Promise.resolve(),
+		out: { write: () => true },
+		...wait,
+	});
+	return exits[0];
+}
+
+/** Whether `pid`'s turn is open, read as `polled` reads it. */
+const turnOpen = async (queue: Parameters<typeof polled>[0] = {}) =>
+	((await polled(queue)) as { reason: string }).reason === "opened";
 
 describe("isMarkerStale", () => {
 	it("is stale when the pid is not alive", () => {
@@ -190,7 +232,7 @@ describe("readMarkers", () => {
 		expect(markers).toEqual([]);
 	});
 
-	/* queueTurn orders on a numeric `at`, so the walk it shares with
+	/* readTurn orders on a numeric `at`, so the walk it shares with
 	 * check-stale-suite-queue.js skips a marker without one: one answer to
 	 * "does this marker count at all", not just to "is it stale"
 	 * (mantahostels#2034). */
@@ -237,12 +279,13 @@ describe("the queue directory every default reads (#2889)", () => {
 	});
 
 	/* A reader restating the temp root reads none of this queue. */
-	it("is one directory under the temp root, which the root's listing never reaches", () => {
+	it("is one directory under the temp root, which the root's listing never reaches", async () => {
 		const root = qdir();
 		process.env.TMPDIR = root;
-		const file = queueJoin({ role: "lander" });
-		queueSpawned(file);
-		const swept = queueJoin({ pid: 2 ** 30 });
+		const lander = queueSeat({ join: { role: "lander" } });
+		const file = lander.ticket;
+		lander.spawned();
+		const swept = queueSeat({ queue: { pid: 2 ** 30 } }).ticket;
 
 		expect(fs.readdirSync(root)).toEqual(["wfc-suite-queue"]);
 		expect(path.dirname(file)).toBe(path.join(root, "wfc-suite-queue"));
@@ -252,8 +295,8 @@ describe("the queue directory every default reads (#2889)", () => {
 		expect(readLiveLanders().map((l: { pid: number }) => l.pid)).toEqual([
 			process.pid,
 		]);
-		expect(queueAdmit(file)).toBe("admitted");
-		expect(queueTurn()).toBe(true);
+		expect(lander.stamps.admit()).toBe("admitted");
+		expect(await turnOpen({ alive: pidAlive })).toBe(true);
 		expect(fs.existsSync(swept)).toBe(false);
 		const priority = { getPriority: () => 0, setPriority: vi.fn() };
 		expect(
@@ -269,7 +312,7 @@ describe("the queue directory every default reads (#2889)", () => {
 			),
 		).toBe(true);
 
-		const stale = queueJoin({ pid: 2 ** 30 });
+		const stale = queueSeat({ queue: { pid: 2 ** 30 } }).ticket;
 		const r = runInProcess(
 			path.join(__dirname, "..", "check-stale-suite-queue.js"),
 			[],
@@ -284,9 +327,9 @@ describe("the queue directory every default reads (#2889)", () => {
 describe("readLiveRoleMarkers (#2416)", () => {
 	it("names the live markers of one role with their charge, sweeping none", () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, role: "lander", chargeMb: 600 });
-		queueJoin({ queueDir, pid: 22, role: "lander" });
-		queueJoin({ queueDir, pid: 33 });
+		joined(queueDir, 11, 11, { role: "lander", chargeMb: 600 });
+		joined(queueDir, 22, 22, { role: "lander" });
+		joined(queueDir, 33, 33);
 		expect(
 			readLiveRoleMarkers("lander", {
 				queueDir,
@@ -302,9 +345,9 @@ describe("heldSeat, a mutation loop's one seat (#2918)", () => {
 	const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 1);
 	const seat = (weight = PART, spawned = true) => {
 		const queueDir = qdir();
-		const file = queueJoin({ queueDir, pid: 20, weight });
-		if (spawned) queueSpawned(file);
-		return file;
+		const held = joined(queueDir, 20, 20, { weight });
+		if (spawned) held.spawned();
+		return held.ticket;
 	};
 	const read = (file: string, extra: object = {}) =>
 		heldSeat({
@@ -344,296 +387,273 @@ describe("heldSeat, a mutation loop's one seat (#2918)", () => {
 
 	it("walks the real process tree", () => {
 		const queueDir = qdir();
-		const file = queueJoin({ queueDir, pid: process.ppid, weight: PART });
-		queueSpawned(file);
+		const held = queueSeat({
+			queue: { queueDir, pid: process.ppid },
+			join: { weight: PART },
+		});
+		held.spawned();
+		const file = held.ticket;
 		expect(heldSeat({ env: { [SEAT_ENV]: file } })).toBe(file);
 	});
 });
 
-describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)", () => {
+describe("turnOf, the turn's rule (#4260)", () => {
+	interface Ahead {
+		at: number;
+		part?: boolean;
+		spawned?: boolean;
+		memoryHeld?: boolean;
+	}
+	const turn = (
+		{
+			waiter = "whole" as "whole" | "part" | "tsc",
+			ahead = [] as Ahead[],
+			admissionOpen = false,
+			slots = WHOLE_SUITE_MAX,
+			now = 1000,
+		} = {},
+		options?: { partPass?: boolean },
+	) => turnOf({ waiter, ahead, admissionOpen, slots, now }, options);
+	const reasons = (...args: Parameters<typeof turn>) => turn(...args).reasons;
+	const wholeAhead = { at: 0 };
+	const partAhead = { at: 0, part: true };
+
+	it("opens where nobody waits ahead", () => {
+		expect(turn()).toEqual({ reasons: [] });
+		expect("passed" in turn()).toBe(false);
+		expect(turn({ waiter: "tsc" })).toEqual({ reasons: [] });
+	});
+
+	describe("a whole suite", () => {
+		it("waits behind a waiter ahead of it that has not spawned, at any slot count", () => {
+			expect(reasons({ ahead: [wholeAhead] })).toEqual(["fifo-whole"]);
+			expect(reasons({ ahead: [partAhead] })).toEqual(["fifo-whole"]);
+			/* The gate counts `ps`, so two waiters admitted before either is
+			 * visible would both read the same free slot (#601). */
+			expect(reasons({ ahead: [wholeAhead], slots: 2 })).toEqual([
+				"fifo-whole",
+			]);
+		});
+
+		// #2680's cap: one whole suite at a time.
+		it("waits while a whole suite ahead of it runs, the slots full", () => {
+			const running = { ...wholeAhead, spawned: true };
+			expect(reasons({ ahead: [running] })).toEqual(["fifo-whole"]);
+			expect(reasons({ ahead: [running], slots: 2 })).toEqual([]);
+		});
+
+		it("takes no slot from part-suites running ahead of it (#2558)", () => {
+			const ahead = Array.from({ length: SUITE_MAX }, (_, i) => ({
+				at: i,
+				part: true,
+				spawned: true,
+			}));
+			expect(reasons({ ahead })).toEqual([]);
+		});
+
+		it("never passes an older part-suite the memory rung holds (#3058)", () => {
+			expect(reasons({ ahead: [{ ...partAhead, memoryHeld: true }] })).toEqual([
+				"fifo-whole",
+			]);
+		});
+	});
+
+	describe("a part-suite, which takes no slot (#2558)", () => {
+		it("runs past an older whole suite the gate still holds unspawned (#2578)", () => {
+			expect(turn({ waiter: "part", ahead: [wholeAhead] })).toEqual({
+				reasons: [],
+				passed: 0,
+			});
+		});
+
+		it("runs beside whole suites holding every slot", () => {
+			const ahead = Array.from({ length: WHOLE_SUITE_MAX + 1 }, (_, i) => ({
+				at: i,
+				spawned: i < WHOLE_SUITE_MAX,
+			}));
+			expect(turn({ waiter: "part", ahead })).toEqual({
+				reasons: [],
+				passed: 0,
+			});
+		});
+
+		it("waits for a part-suite ahead of it to spawn", () => {
+			expect(reasons({ waiter: "part", ahead: [partAhead] })).toEqual([
+				"fifo-part",
+			]);
+			expect(
+				reasons({ waiter: "part", ahead: [{ ...partAhead, spawned: true }] }),
+			).toEqual([]);
+		});
+
+		describe("passing an older part-suite the memory rung holds (#3058)", () => {
+			const held = { ...partAhead, memoryHeld: true };
+
+			it("passes it until its wait reaches the age bound", () => {
+				expect(
+					turn({ waiter: "part", ahead: [held], now: PART_PASS_AGE_MS - 1 }),
+				).toEqual({ reasons: [], passed: 1 });
+				expect(
+					reasons({ waiter: "part", ahead: [held], now: PART_PASS_AGE_MS }),
+				).toEqual(["fifo-part"]);
+			});
+
+			it("never passes one held only on its turn", () => {
+				expect(reasons({ waiter: "part", ahead: [partAhead] })).toEqual([
+					"fifo-part",
+				]);
+			});
+
+			it("counts the memory-held waiters it passed, never a spawned one (#3115)", () => {
+				const ahead = [held, { at: 500, part: true, spawned: true }];
+				expect(turn({ waiter: "part", ahead, now: 2000 }).passed).toBe(1);
+			});
+
+			it("passes none with the switch off", () => {
+				expect(
+					reasons({ waiter: "part", ahead: [held] }, { partPass: false }),
+				).toEqual(["fifo-part"]);
+			});
+		});
+	});
+
+	it("holds a `tsc` behind its own queue's older waiter, named as its own limb (#3163)", () => {
+		expect(reasons({ waiter: "tsc", ahead: [wholeAhead] })).toEqual([
+			"tsc-fifo",
+		]);
+	});
+
+	/* An admitted launch is not yet in `ps`, so every other waiter, ahead or
+	 * behind, waits it out (#601). */
+	it("closes every class while another launch is admitted unspawned, after its fifo", () => {
+		for (const waiter of ["whole", "part", "tsc"] as const)
+			expect(turn({ waiter, admissionOpen: true })).toEqual({
+				reasons: ["admitted"],
+			});
+		expect(
+			reasons({ waiter: "part", ahead: [partAhead], admissionOpen: true }),
+		).toEqual(["fifo-part", "admitted"]);
+	});
+});
+
+describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 	/** Everything alive except the pids named. */
 	const deadOnly =
 		(...dead: number[]) =>
 		(pid: number) =>
 			!dead.includes(pid);
 
-	it("says yes when nobody else is queued", () => {
+	it("says no while an older waiter is still alive, and yes to the older", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		expect(queueTurn({ queueDir, pid: 11, alive: () => true })).toBe(true);
+		joined(queueDir, 11, 100);
+		joined(queueDir, 22, 200);
+		expect(await turnOpen({ queueDir, pid: 22 })).toBe(false);
+		expect(await turnOpen({ queueDir, pid: 11 })).toBe(true);
 	});
 
-	it("says no while an older waiter is still alive", () => {
+	it("holds a whole suite while a queued one ahead of it runs, and opens once it leaves", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		queueJoin({ queueDir, pid: 22, clock: () => 200 });
-		expect(queueTurn({ queueDir, pid: 22, alive: () => true, slots: 1 })).toBe(
-			false,
+		const ahead = joined(queueDir, 11, 100);
+		joined(queueDir, 22, 200);
+		ahead.spawned();
+		expect(await turnOpen({ queueDir, pid: 22 })).toBe(false);
+		ahead.leave();
+		expect(await turnOpen({ queueDir, pid: 22 })).toBe(true);
+	});
+
+	it("reads the slot count it is given", async () => {
+		const queueDir = qdir();
+		joined(queueDir, 11, 100).spawned();
+		joined(queueDir, 22, 200);
+		expect(await turnOpen({ queueDir, pid: 22 })).toBe(false);
+		expect(await turnOpen({ queueDir, pid: 22, slots: 2 })).toBe(true);
+	});
+
+	it.each([
+		["a part-suite behind an admitted whole suite", 11, 99],
+		["a whole suite ahead of an admitted part-suite", 99, 11],
+	])("holds %s until it spawns", async (_, launcher, waiter) => {
+		const queueDir = qdir();
+		const seats = new Map(
+			[11, 99].map((pid) => [
+				pid,
+				joined(queueDir, pid, pid, pid === 99 ? { weight: PART } : {}),
+			]),
 		);
-		expect(queueTurn({ queueDir, pid: 11, alive: () => true, slots: 1 })).toBe(
-			true,
-		);
+		const seat = seats.get(launcher);
+		expect(seat?.stamps.admit()).toBe("admitted");
+		expect(await turnOpen({ queueDir, pid: waiter })).toBe(false);
+		seat?.spawned();
+		expect(await turnOpen({ queueDir, pid: waiter })).toBe(true);
 	});
 
-	// #2680's cap: one whole suite at a time.
-	it("holds a whole suite while a queued one ahead of it runs, and opens once it leaves", () => {
-		const queueDir = qdir();
-		const ahead = queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		queueJoin({ queueDir, pid: 22, clock: () => 200 });
-		queueSpawned(ahead);
-		expect(queueTurn({ queueDir, pid: 22, alive: () => true })).toBe(false);
-		queueLeave(ahead);
-		expect(queueTurn({ queueDir, pid: 22, alive: () => true })).toBe(true);
-	});
+	describe("the memory-held stamp an older part-suite's seat writes (#3058)", () => {
+		const twoPartWaiters = (queueDir: string) => {
+			const older = joined(queueDir, 11, 0, { weight: PART });
+			joined(queueDir, 99, 1000, { weight: PART });
+			return older;
+		};
 
-	/* The gate counts `ps`, so two waiters admitted before either is visible
-	 * would both read the same free slot. Two slots, so the spawn alone opens
-	 * the turn. */
-	it("holds a waiter while one ahead of it has not spawned yet", () => {
-		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		queueJoin({ queueDir, pid: 22, clock: () => 200 });
-		const turn = () =>
-			queueTurn({ queueDir, pid: 22, alive: () => true, slots: 2 });
-		expect(turn()).toBe(false);
-		queueSpawned(path.join(queueDir, "wfc-suite-queue-11.json"));
-		expect(turn()).toBe(true);
-	});
-
-	describe("a part-suite, which takes no slot (#2558)", () => {
-		const marker = (queueDir: string, pid: number) =>
-			path.join(queueDir, `wfc-suite-queue-${pid}.json`);
-
-		it("runs beside whole suites holding every slot", () => {
+		it("lets a younger part-suite pass it, its exit line counting the pass (#3115)", async () => {
 			const queueDir = qdir();
-			const whole = Array.from(
-				{ length: WHOLE_SUITE_MAX + 1 },
-				(_, i) => 11 + i,
-			);
-			for (const pid of whole) queueJoin({ queueDir, pid, clock: () => pid });
-			for (const pid of whole.slice(0, WHOLE_SUITE_MAX))
-				queueSpawned(marker(queueDir, pid));
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight: PART });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
-		});
-
-		it("runs past an older whole suite the gate still holds unspawned (#2578)", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11 });
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight: PART });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
-			expect(queueTurn({ queueDir, pid: 11, alive: () => true })).toBe(true);
-		});
-
-		it("still waits for a part-suite ahead of it to spawn", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11, weight: PART });
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight: PART });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(false);
-			queueSpawned(marker(queueDir, 11));
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
-		});
-
-		describe("passing an older part-suite the memory rung holds (#3058)", () => {
-			const twoPartWaiters = (queueDir: string) => {
-				queueJoin({ queueDir, pid: 11, clock: () => 0, weight: PART });
-				queueJoin({ queueDir, pid: 99, clock: () => 1000, weight: PART });
-				return (now: number) =>
-					queueTurn({ queueDir, pid: 99, alive: () => true, clock: () => now });
-			};
-
-			it("gives the younger its turn", () => {
-				const queueDir = qdir();
-				const turn = twoPartWaiters(queueDir);
-				queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-				expect(turn(PART_PASS_AGE_MS - 1)).toBe(true);
-			});
-
-			it("stops passing once the older waiter's wait reaches the age bound", () => {
-				const queueDir = qdir();
-				const turn = twoPartWaiters(queueDir);
-				queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-				expect(turn(PART_PASS_AGE_MS)).toBe(false);
-			});
-
-			it("never passes an older waiter held only on its turn", () => {
-				const queueDir = qdir();
-				const turn = twoPartWaiters(queueDir);
-				expect(turn(1000)).toBe(false);
-				queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-				queueStamps(marker(queueDir, 11)).onMemoryHeld(false);
-				expect(turn(1000)).toBe(false);
-			});
-
-			it("drops the stamp its waiter's onMemoryHeld wrote", () => {
-				const queueDir = qdir();
-				const file = queueJoin({
-					queueDir,
-					pid: 11,
-					clock: () => 0,
-					weight: PART,
-				});
-				const { onMemoryHeld } = queueStamps(file, { queueDir, pid: 11 });
-				const readMemoryHeld = () =>
-					JSON.parse(fs.readFileSync(file, "utf8")).memoryHeld;
-				onMemoryHeld(true);
-				expect(readMemoryHeld()).toBe(true);
-				onMemoryHeld(false);
-				expect(readMemoryHeld()).toBeUndefined();
-			});
-
-			describe("the count its exit line carries (#3115)", () => {
-				const opened = (options: object) => {
-					const { turn, exitFields } = passingTurn({
-						alive: () => true,
-						...options,
-					});
-					return { open: turn(), fields: exitFields("opened") };
-				};
-
-				it("counts the memory-held waiters it passed, never a spawned one", () => {
-					const queueDir = qdir();
-					queueJoin({ queueDir, pid: 11, clock: () => 0, weight: PART });
-					queueJoin({ queueDir, pid: 22, clock: () => 500, weight: PART });
-					queueJoin({ queueDir, pid: 99, clock: () => 1000, weight: PART });
-					queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-					queueSpawned(marker(queueDir, 22));
-					expect(opened({ queueDir, pid: 99, clock: () => 2000 })).toEqual({
-						open: true,
-						fields: { passed: 1 },
-					});
-				});
-
-				it("carries 0 where the turn opened passing none", () => {
-					const queueDir = qdir();
-					queueJoin({ queueDir, pid: 99, clock: () => 0, weight: PART });
-					expect(opened({ queueDir, pid: 99 })).toEqual({
-						open: true,
-						fields: { passed: 0 },
-					});
-				});
-
-				it("carries nothing for a whole suite", () => {
-					const queueDir = qdir();
-					queueJoin({ queueDir, pid: 33, clock: () => 0 });
-					expect(opened({ queueDir, pid: 33 })).toEqual({
-						open: true,
-						fields: {},
-					});
-				});
-
-				it("carries nothing once a later read closes", () => {
-					const queueDir = qdir();
-					twoPartWaiters(queueDir);
-					queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-					const { turn, exitFields } = passingTurn({
-						queueDir,
-						pid: 99,
-						alive: () => true,
-						clock: () => 2000,
-					});
-					expect(turn()).toBe(true);
-					queueStamps(marker(queueDir, 11)).onMemoryHeld(false);
-					expect(turn()).toBe(false);
-					expect(exitFields("opened")).toEqual({});
-				});
-
-				it("carries nothing on an exit other than opened, the count it read being stale there", () => {
-					const queueDir = qdir();
-					twoPartWaiters(queueDir);
-					queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-					const { turn, exitFields } = passingTurn({
-						queueDir,
-						pid: 99,
-						alive: () => true,
-						clock: () => 2000,
-					});
-					expect(turn()).toBe(true);
-					expect(exitFields("refused", { limb: "memory" })).toEqual({
-						limb: "memory",
-					});
-				});
-			});
-
-			it("never lets a whole suite pass it", () => {
-				const queueDir = qdir();
-				queueJoin({ queueDir, pid: 11, clock: () => 0, weight: PART });
-				queueJoin({ queueDir, pid: 99, clock: () => 1000 });
-				queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-				expect(
-					queueTurn({
-						queueDir,
-						pid: 99,
-						alive: () => true,
-						clock: () => 2000,
-					}),
-				).toBe(false);
+			twoPartWaiters(queueDir).stamps.onMemoryHeld(true);
+			expect(await polled({ queueDir, pid: 99, clock: () => 2000 })).toEqual({
+				reason: "opened",
+				passed: 1,
 			});
 		});
 
-		it("keeps whole suites in FIFO order while a part-suite backfills past them", () => {
+		it("carries 0 where the turn opened passing none, and nothing for a whole suite", async () => {
 			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11 });
-			queueJoin({ queueDir, pid: 22, clock: () => 22 });
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight: PART });
-			const turn = (pid: number) =>
-				queueTurn({ queueDir, pid, alive: () => true });
-			expect(turn(99)).toBe(true);
-			queueSpawned(marker(queueDir, 99));
-			expect([11, 22].map(turn)).toEqual([true, false]);
-			queueSpawned(marker(queueDir, 11));
-			expect(turn(22)).toBe(false);
-			queueLeave(marker(queueDir, 11));
-			expect(turn(22)).toBe(true);
-		});
-
-		it("holds a whole suite behind an unspawned part-suite ahead of it", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11, weight: PART });
-			queueJoin({ queueDir, pid: 99, clock: () => 99 });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(false);
-			queueSpawned(marker(queueDir, 11));
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
-		});
-
-		/* An admitted launch is not yet in `ps`, so every other waiter, ahead or
-		 * behind, waits it out (#601). */
-		it.each([
-			["a part-suite behind an admitted whole suite", 11, 99],
-			["a whole suite ahead of an admitted part-suite", 99, 11],
-		])("holds %s until it spawns", (_, launcher, waiter) => {
-			const queueDir = qdir();
-			for (const pid of [11, 99])
-				queueJoin({
-					queueDir,
-					pid,
-					clock: () => pid,
-					...(pid === 99 ? { weight: PART } : {}),
-				});
-			queueAdmit(marker(queueDir, launcher), {
-				queueDir,
-				pid: launcher,
-				alive: () => true,
+			joined(queueDir, 99, 0, { weight: PART });
+			expect(await polled({ queueDir, pid: 99 })).toEqual({
+				reason: "opened",
+				passed: 0,
 			});
-			expect(queueTurn({ queueDir, pid: waiter, alive: () => true })).toBe(
+			const wholeDir = qdir();
+			joined(wholeDir, 33, 1000);
+			expect(await polled({ queueDir: wholeDir, pid: 33 })).toEqual({
+				reason: "opened",
+			});
+		});
+
+		/* An admission yielded on the same poll, so the next poll reads the
+		 * gate denying and never the turn: the pass it counted is stale. */
+		it("carries nothing on an exit other than opened", async () => {
+			const queueDir = qdir();
+			twoPartWaiters(queueDir).stamps.onMemoryHeld(true);
+			const gates = [null, { limb: "memory" as const }];
+			expect(
+				await polled(
+					{ queueDir, pid: 99, clock: () => 2000 },
+					{ gate: () => gates.shift() ?? null, admit: () => "behind" },
+				),
+			).toEqual({ reason: "refused", limb: "memory" });
+		});
+
+		it("drops the stamp once the rung frees it, closing the turn again", async () => {
+			const queueDir = qdir();
+			const older = twoPartWaiters(queueDir);
+			const readMemoryHeld = () =>
+				JSON.parse(fs.readFileSync(older.ticket, "utf8")).memoryHeld;
+			older.stamps.onMemoryHeld(true);
+			expect(readMemoryHeld()).toBe(true);
+			older.stamps.onMemoryHeld(false);
+			expect(readMemoryHeld()).toBeUndefined();
+			expect(await turnOpen({ queueDir, pid: 99, clock: () => 2000 })).toBe(
 				false,
 			);
-			queueSpawned(marker(queueDir, launcher));
-			expect(queueTurn({ queueDir, pid: waiter, alive: () => true })).toBe(
-				true,
-			);
 		});
+	});
 
-		it("takes no slot from a whole suite behind it", () => {
+	describe("a part-suite by the weight its seat joined with (#2931)", () => {
+		/** A whole suite 11 running, and 99 joined behind it at `weight`. */
+		const besideRunning = (weight?: object) => {
 			const queueDir = qdir();
-			const parts = Array.from({ length: SUITE_MAX }, (_, i) => 11 + i);
-			for (const pid of parts) {
-				queueJoin({ queueDir, pid, clock: () => pid, weight: PART });
-				queueSpawned(marker(queueDir, pid));
-			}
-			queueJoin({ queueDir, pid: 99, clock: () => 99 });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
-		});
+			joined(queueDir, 11, 11).spawned();
+			joined(queueDir, 99, 99, weight ? { weight } : {});
+			return turnOpen({ queueDir, pid: 99 });
+		};
 
 		/* The line is WHOLE_SLOT_BOUND, never the whole suite's worker count. */
 		it.each([
@@ -642,145 +662,121 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 			[WHOLE_SLOT_BOUND, "waits", false],
 			[485, "waits", false],
 		])(
-			"beside a running whole suite, a run resolving to %i files' turn %s (#2931)",
-			(n, _verb, turn) => {
-				const queueDir = qdir();
-				queueJoin({ queueDir, pid: 11, clock: () => 11 });
-				queueSpawned(marker(queueDir, 11));
-				queueJoin({ queueDir, pid: 99, clock: () => 99, weight: weighed(n) });
-				expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(turn);
+			"beside a running whole suite, a run resolving to %i files' turn %s",
+			async (n, _verb, open) => {
+				expect(await besideRunning(weighed(n))).toBe(open);
 			},
 		);
 
-		it("seats a `--changed` run resolving below the bound beside a held slot (#2931)", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11 });
-			queueSpawned(marker(queueDir, 11));
+		it("seats a `--changed` run resolving below the bound beside a held slot", async () => {
 			/* `--changed`'s plan selected 40 files; its argv names none. */
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight: weighed(40) });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
+			expect(await besideRunning(weighed(40))).toBe(true);
 		});
 
-		it("never seats a full run of a 50-file repo on the slot (#2931)", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11 });
-			queueSpawned(marker(queueDir, 11));
+		it("never seats a full run of a 50-file repo on the slot", async () => {
 			const suite = Array.from({ length: 50 }, (_, i) => `t${i}.test.ts`);
 			const weight = weighed(resolvedFileCount([], () => suite));
 			expect(weight).toEqual({ resolvedFiles: 50, wholeSlot: false });
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
+			expect(await besideRunning(weight)).toBe(true);
 		});
 
-		it("seats a touched run beside a held slot, a 200-file named run among them (#2935)", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11 });
-			queueSpawned(marker(queueDir, 11));
-			queueJoin({ queueDir, pid: 99, clock: () => 99, weight: TOUCHED_200 });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(true);
+		it("seats a touched run beside a held slot, a 200-file named run among them (#2935)", async () => {
+			expect(await besideRunning(TOUCHED_200)).toBe(true);
 		});
 
-		it("joins a waiter with no carried weight whole", () => {
-			const queueDir = qdir();
-			queueJoin({ queueDir, pid: 11, clock: () => 11 });
-			queueSpawned(marker(queueDir, 11));
-			queueJoin({ queueDir, pid: 99, clock: () => 99 });
-			expect(queueTurn({ queueDir, pid: 99, alive: () => true })).toBe(false);
+		it("joins a waiter with no carried weight whole", async () => {
+			expect(await besideRunning()).toBe(false);
 		});
 	});
 
-	it("steps over a dead waiter's marker, and sweeps it", () => {
+	it("steps over a dead waiter's marker, and sweeps it", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		queueJoin({ queueDir, pid: 22, clock: () => 200 });
-		expect(
-			queueTurn({ queueDir, pid: 22, alive: deadOnly(11), slots: 1 }),
-		).toBe(true);
+		joined(queueDir, 11, 100);
+		joined(queueDir, 22, 200);
+		expect(await turnOpen({ queueDir, pid: 22, alive: deadOnly(11) })).toBe(
+			true,
+		);
 		expect(fs.readdirSync(queueDir)).toEqual(["wfc-suite-queue-22.json"]);
 	});
 
 	/* Markers are read in directory order, which is lexicographic, so
 	 * `…-100.json` is read before `…-9.json`, and without the tie-break the
 	 * first one read wins (mantahostels#2024). */
-	it("breaks a tied timestamp on pid, so both waiters agree", () => {
+	it("breaks a tied timestamp on pid, so both waiters agree", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 100, clock: () => 100 });
-		queueJoin({ queueDir, pid: 9, clock: () => 100 });
-		expect(queueTurn({ queueDir, pid: 9, alive: () => true, slots: 1 })).toBe(
-			true,
-		);
-		expect(queueTurn({ queueDir, pid: 100, alive: () => true, slots: 1 })).toBe(
-			false,
-		);
+		joined(queueDir, 100, 100);
+		joined(queueDir, 9, 100);
+		expect(await turnOpen({ queueDir, pid: 9 })).toBe(true);
+		expect(await turnOpen({ queueDir, pid: 100 })).toBe(false);
 	});
 
-	it("ignores a marker that is not JSON rather than throwing", () => {
+	it("ignores a marker that is not JSON rather than throwing", async () => {
 		const queueDir = qdir();
 		fs.writeFileSync(
 			path.join(queueDir, "wfc-suite-queue-99.json"),
 			"not json",
 		);
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		expect(queueTurn({ queueDir, pid: 11, alive: () => true })).toBe(true);
+		joined(queueDir, 11, 100);
+		expect(await turnOpen({ queueDir, pid: 11 })).toBe(true);
 	});
 
-	it("fails open when the queue directory cannot be read", () => {
-		expect(queueTurn({ queueDir: "/no/such/queue/dir", pid: 11 })).toBe(true);
+	it("fails open when the queue directory cannot be read", async () => {
+		expect(await turnOpen({ queueDir: "/no/such/queue/dir", pid: 11 })).toBe(
+			true,
+		);
 	});
 
 	it("leaving removes only this waiter's marker", () => {
 		const queueDir = qdir();
-		const mine = queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		queueJoin({ queueDir, pid: 22, clock: () => 200 });
-		queueLeave(mine);
+		const mine = joined(queueDir, 11, 100);
+		joined(queueDir, 22, 200);
+		mine.leave();
 		expect(fs.readdirSync(queueDir)).toEqual(["wfc-suite-queue-22.json"]);
 	});
 
-	it("does not sweep its own marker even if the liveness probe says dead", () => {
+	it("does not sweep its own marker even if the liveness probe says dead", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
-		expect(queueTurn({ queueDir, pid: 11, alive: () => false })).toBe(true);
+		joined(queueDir, 11, 100);
+		expect(await turnOpen({ queueDir, pid: 11, alive: () => false })).toBe(
+			true,
+		);
 		expect(fs.readdirSync(queueDir)).toEqual(["wfc-suite-queue-11.json"]);
 	});
 
 	/* A leaked marker whose pid is later reused by an unrelated process
 	 * (mantahostels#2034). */
-	it("treats a reused pid as stale, even though it is alive", () => {
+	it("treats a reused pid as stale, even though it is alive", async () => {
 		const queueDir = qdir();
-		const mine = queueJoin({ queueDir, pid: 11, clock: () => 100 });
+		const mine = joined(queueDir, 11, 100);
 		// A marker claiming a start time that the live process does not have.
 		fs.writeFileSync(
 			path.join(queueDir, "wfc-suite-queue-12.json"),
 			JSON.stringify({ pid: 12, at: 50, start: 999_999_999 }),
 		);
-		expect(queueTurn({ queueDir, pid: 11, alive: () => true, slots: 1 })).toBe(
-			true,
-		);
-		expect(fs.readdirSync(queueDir)).toEqual([path.basename(mine)]);
+		expect(await turnOpen({ queueDir, pid: 11 })).toBe(true);
+		expect(fs.readdirSync(queueDir)).toEqual([path.basename(mine.ticket)]);
 	});
 
 	/* Markers written before mantahostels#2034 carry no start time, and procfs may not be
 	 * readable at all. Neither may be read as "stale" — that would sweep live
 	 * waiters. */
-	it("falls back to liveness alone when a marker carries no start time", () => {
+	it("falls back to liveness alone when a marker carries no start time", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
+		joined(queueDir, 11, 100);
 		fs.writeFileSync(
 			path.join(queueDir, "wfc-suite-queue-12.json"),
 			JSON.stringify({ pid: 12, at: 50 }),
 		);
-		expect(queueTurn({ queueDir, pid: 11, alive: () => true, slots: 1 })).toBe(
-			false,
-		);
+		expect(await turnOpen({ queueDir, pid: 11 })).toBe(false);
 		expect(fs.readdirSync(queueDir)).toHaveLength(2);
 	});
 
-	/* A start of 0 is what queueJoin writes when procfs cannot be read. Without
-	 * the `> 0` guard the comparison runs against a real start time, never
-	 * matches, and every such waiter is swept as stale. */
-	it("falls back to liveness when a marker records a start time of 0", () => {
+	/* A start of 0 is what a seat's join writes when procfs cannot be read.
+	 * Without the `> 0` guard the comparison runs against a real start time,
+	 * never matches, and every such waiter is swept as stale. */
+	it("falls back to liveness when a marker records a start time of 0", async () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 100 });
+		joined(queueDir, 11, 100);
 		/* THIS process's pid, so `readStartTimeOf` returns a real, non-zero tick
 		 * count. A pid with no readable /proc entry returns 0 on both sides of
 		 * the comparison (mantahostels#2034). */
@@ -788,9 +784,7 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 			path.join(queueDir, `wfc-suite-queue-${process.pid}.json`),
 			JSON.stringify({ pid: process.pid, at: 50, start: 0 }),
 		);
-		expect(queueTurn({ queueDir, pid: 11, alive: () => true, slots: 1 })).toBe(
-			false,
-		);
+		expect(await turnOpen({ queueDir, pid: 11 })).toBe(false);
 		expect(fs.readdirSync(queueDir)).toHaveLength(2);
 	});
 
@@ -810,113 +804,101 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 });
 
 describe("two launches whose turns came true on one poll (#2622)", () => {
-	const file = (queueDir: string, pid: number) =>
-		path.join(queueDir, `wfc-suite-queue-${pid}.json`);
-	const admitted = (queueDir: string, pid: number) =>
-		JSON.parse(fs.readFileSync(file(queueDir, pid), "utf8")).admitted === true;
+	type Seat = ReturnType<typeof queueSeat>;
 	const alive = () => true;
-	/** Stamp `pid` admitted as its own `queueAdmit` would, before its re-read. */
-	const stamp = (queueDir: string, pid: number) => {
-		const record = JSON.parse(fs.readFileSync(file(queueDir, pid), "utf8"));
+	const admitted = (seat: Seat) =>
+		JSON.parse(fs.readFileSync(seat.ticket, "utf8")).admitted === true;
+	/** Stamp `seat` admitted as its own admission would, before its re-read. */
+	const stamp = (seat: Seat) => {
+		const record = JSON.parse(fs.readFileSync(seat.ticket, "utf8"));
 		fs.writeFileSync(
-			file(queueDir, pid),
+			seat.ticket,
 			JSON.stringify({ ...record, admitted: true }),
 		);
 	};
 
-	/** Two joined waiters, 11 ahead of 22. */
-	const pair = () => {
+	/** Two joined seats, 11 ahead of 22, 22 joining with `join22`. `hooked`'s
+	 * queue fs runs `between` before every directory read: inside its
+	 * admission, between its stamp and its re-read. */
+	const pair = (hooked?: number, between?: () => void, join22: object = {}) => {
 		const queueDir = qdir();
-		for (const pid of [11, 22]) queueJoin({ queueDir, pid, clock: () => pid });
-		return queueDir;
+		const onReread = {
+			...fs,
+			readdirSync: (dir: string) => {
+				between?.();
+				return fs.readdirSync(dir);
+			},
+		};
+		const seat = (pid: number, join: object = {}) =>
+			queueSeat({
+				queue: {
+					queueDir,
+					pid,
+					clock: () => pid,
+					alive,
+					...(pid === hooked ? { queueFs: onReread } : {}),
+				},
+				join,
+			});
+		return { 11: seat(11), 22: seat(22, join22) };
 	};
 
-	/** A queue fs that runs `between` before every directory read: inside
-	 * `queueAdmit`, between its stamp and its re-read. */
-	const onReread = (between: () => void) => ({
-		...fs,
-		readdirSync: (dir: string) => {
-			between();
-			return fs.readdirSync(dir);
-		},
-	});
-
 	it("yields where the other stamped and re-read in between, so one launches", () => {
-		const queueDir = pair();
 		let other = "";
-		const queueFs = onReread(() => {
-			other ||= queueAdmit(file(queueDir, 22), { queueDir, pid: 22, alive });
+		const seats = pair(11, () => {
+			other ||= seats[22].stamps.admit();
 		});
-		const mine = queueAdmit(file(queueDir, 11), {
-			queueDir,
-			queueFs,
-			pid: 11,
-			alive,
-		});
+		const mine = seats[11].stamps.admit();
 		expect([mine, other]).toEqual(["admitted", "behind"]);
-		expect([admitted(queueDir, 11), admitted(queueDir, 22)]).toEqual([
-			true,
-			false,
-		]);
+		expect([admitted(seats[11]), admitted(seats[22])]).toEqual([true, false]);
 	});
 
 	it.each([
 		["the older", 11, 22, "ahead"],
 		["the younger", 22, 11, "behind"],
-	])(
+	] as const)(
 		"yields as %s where both stamped before either re-read",
 		(_, pid, rival, how) => {
-			const queueDir = pair();
-			const queueFs = onReread(() => stamp(queueDir, rival));
-			expect(
-				queueAdmit(file(queueDir, pid), { queueDir, queueFs, pid, alive }),
-			).toBe(how);
-			expect(admitted(queueDir, pid)).toBe(false);
-			expect(
-				queueAdmit(file(queueDir, rival), { queueDir, pid: rival, alive }),
-			).toBe("admitted");
+			const seats = pair(pid, () => stamp(seats[rival]));
+			expect(seats[pid].stamps.admit()).toBe(how);
+			expect(admitted(seats[pid])).toBe(false);
+			expect(seats[rival].stamps.admit()).toBe("admitted");
 		},
 	);
 
 	it("ignores a rival already spawned", () => {
-		const queueDir = pair();
-		stamp(queueDir, 22);
-		queueSpawned(file(queueDir, 22));
-		expect(queueAdmit(file(queueDir, 11), { queueDir, pid: 11, alive })).toBe(
-			"admitted",
-		);
+		const seats = pair();
+		stamp(seats[22]);
+		seats[22].spawned();
+		expect(seats[11].stamps.admit()).toBe("admitted");
 	});
 
 	/* A whole suite and the part-suite backfilling behind it, freed on one
 	 * poll, with a load hold between each turn and its launch: the re-read
-	 * after the hold settles it, so `queueAdmit`'s contest (pinned above) is
+	 * after the hold settles it, so the admission's contest (pinned above) is
 	 * never reached. A launch spawns once its rival next sleeps. */
 	it("never launches both unspawned", async () => {
-		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, clock: () => 11 });
-		queueJoin({ queueDir, pid: 22, clock: () => 22, weight: PART });
-		const launched: number[] = [];
+		const seats = pair(undefined, undefined, { weight: PART });
+		const launched: (11 | 22)[] = [];
 		const beside: boolean[] = [];
-		const wait = (pid: number) =>
-			waitForGate({
-				gate: () => null,
-				turn: () => queueTurn({ queueDir, pid, alive }),
-				hold: () => Promise.resolve(true),
-				admit: () => queueAdmit(file(queueDir, pid), { queueDir, pid, alive }),
-				sleepFn: () => {
-					for (const done of launched) queueSpawned(file(queueDir, done));
-					return Promise.resolve();
-				},
-				out: { write: () => true },
-			}).then((outcome: string) => {
-				const rival = pid === 11 ? 22 : 11;
-				const record = JSON.parse(
-					fs.readFileSync(file(queueDir, rival), "utf8"),
-				);
-				beside.push(record.admitted === true && record.spawned !== true);
-				launched.push(pid);
-				expect(outcome).toBe("run");
-			});
+		const wait = (pid: 11 | 22) =>
+			seats[pid]
+				.wait({
+					gate: () => null,
+					hold: () => Promise.resolve(true),
+					sleepFn: () => {
+						for (const done of launched) seats[done].spawned();
+						return Promise.resolve();
+					},
+					out: { write: () => true },
+				})
+				.then((outcome: string) => {
+					const rival = seats[pid === 11 ? 22 : 11];
+					const record = JSON.parse(fs.readFileSync(rival.ticket, "utf8"));
+					beside.push(record.admitted === true && record.spawned !== true);
+					launched.push(pid);
+					expect(outcome).toBe("run");
+				});
 		await Promise.all([wait(11), wait(22)]);
 		expect(launched).toHaveLength(2);
 		expect(beside).toEqual([false, false]);
@@ -924,32 +906,50 @@ describe("two launches whose turns came true on one poll (#2622)", () => {
 });
 
 describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
+	type Seat = ReturnType<typeof queueSeat>;
 	const alive = () => true;
 	interface Waiter {
 		pid: number;
 		queueDir: string;
-		file: string;
+		seat: Seat;
 	}
 	/** The suite queue and the type-check slot's, siblings as under the
 	 * temp root, with a whole suite 11 waiting in one and a `tsc` 22 in the
-	 * other. */
-	const queues = () => {
+	 * other. `hooked`'s queue fs runs `between` before every directory read. */
+	const queues = (hooked?: "suite" | "tsc", between?: () => void) => {
 		const root = qdir();
-		const waiter = (name: string, pid: number): Waiter => {
+		const onReread = {
+			...fs,
+			readdirSync: (dir: string) => {
+				between?.();
+				return fs.readdirSync(dir);
+			},
+		};
+		const waiter = (
+			key: "suite" | "tsc",
+			name: string,
+			pid: number,
+		): Waiter => {
 			const queueDir = path.join(root, name);
-			const file = queueJoin({ queueDir, pid, clock: () => pid });
-			return { pid, queueDir, file };
+			const seat = queueSeat({
+				queue: {
+					queueDir,
+					pid,
+					clock: () => pid,
+					alive,
+					...(key === hooked ? { queueFs: onReread } : {}),
+				},
+			});
+			return { pid, queueDir, seat };
 		};
 		return {
-			suite: waiter("wfc-suite-queue", 11),
-			tsc: waiter("wfc-tsc-queue", 22),
+			suite: waiter("suite", "wfc-suite-queue", 11),
+			tsc: waiter("tsc", "wfc-tsc-queue", 22),
 		};
 	};
-	const stamped = (w: Waiter) => JSON.parse(fs.readFileSync(w.file, "utf8"));
-	const admit = (w: Waiter, queueFs: typeof fs = fs) =>
-		queueAdmit(w.file, { queueDir: w.queueDir, queueFs, pid: w.pid, alive });
-	const turn = (w: Waiter) =>
-		queueTurn({ queueDir: w.queueDir, pid: w.pid, alive });
+	const stamped = (w: Waiter) =>
+		JSON.parse(fs.readFileSync(w.seat.ticket, "utf8"));
+	const turn = (w: Waiter) => turnOpen({ queueDir: w.queueDir, pid: w.pid });
 
 	it.each([
 		["the suite", "suite", "tsc", "ahead"],
@@ -957,43 +957,34 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 	] as const)(
 		"yields as %s where both stamped before either re-read",
 		(_, mine, theirs, how) => {
-			const waiters = queues();
-			const rival = waiters[theirs];
-			const queueFs = {
-				...fs,
-				readdirSync: (dir: string) => {
-					fs.writeFileSync(
-						rival.file,
-						JSON.stringify({ ...stamped(rival), admitted: true }),
-					);
-					return fs.readdirSync(dir);
-				},
-			} as typeof fs;
-			expect(admit(waiters[mine], queueFs)).toBe(how);
+			const waiters = queues(mine, () => {
+				const rival = waiters[theirs];
+				fs.writeFileSync(
+					rival.seat.ticket,
+					JSON.stringify({ ...stamped(rival), admitted: true }),
+				);
+			});
+			expect(waiters[mine].seat.stamps.admit()).toBe(how);
 			expect(stamped(waiters[mine]).admitted).toBeUndefined();
-			expect(admit(rival)).toBe("admitted");
+			expect(waiters[theirs].seat.stamps.admit()).toBe("admitted");
 		},
 	);
 
-	it("closes the other queue's turn until the admitted launch spawns", () => {
+	it("closes the other queue's turn until the admitted launch spawns", async () => {
 		const { suite, tsc } = queues();
-		expect(admit(tsc)).toBe("admitted");
-		expect(turn(suite)).toBe(false);
-		queueSpawned(tsc.file);
-		expect(turn(suite)).toBe(true);
+		expect(tsc.seat.stamps.admit()).toBe("admitted");
+		expect(await turn(suite)).toBe(false);
+		tsc.seat.spawned();
+		expect(await turn(suite)).toBe(true);
 	});
 
-	it("reads no peer for a queue directory of another name", () => {
+	it("reads no peer for a queue directory of another name", async () => {
 		const { tsc } = queues();
 		const queueDir = qdir();
-		const other = {
-			pid: 33,
-			queueDir,
-			file: queueJoin({ queueDir, pid: 33, clock: () => 33 }),
-		};
-		admit(tsc);
-		expect(turn(other)).toBe(true);
-		expect(admit(other)).toBe("admitted");
+		const other = { pid: 33, queueDir, seat: joined(queueDir, 33, 33) };
+		tsc.seat.stamps.admit();
+		expect(await turn(other)).toBe(true);
+		expect(other.seat.stamps.admit()).toBe("admitted");
 	});
 
 	/* Both gates open on one poll, each wait with its own load hold: one
@@ -1004,22 +995,22 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		const launched: Waiter[] = [];
 		const beside: boolean[] = [];
 		const wait = (w: Waiter, rival: Waiter) =>
-			waitForGate({
-				gate: () => null,
-				turn: () => turn(w),
-				hold: () => Promise.resolve(true),
-				admit: () => admit(w),
-				sleepFn: () => {
-					for (const done of launched) queueSpawned(done.file);
-					return Promise.resolve();
-				},
-				out: { write: () => true },
-			}).then((outcome: string) => {
-				const record = stamped(rival);
-				beside.push(record.admitted === true && record.spawned !== true);
-				launched.push(w);
-				expect(outcome).toBe("run");
-			});
+			w.seat
+				.wait({
+					gate: () => null,
+					hold: () => Promise.resolve(true),
+					sleepFn: () => {
+						for (const done of launched) done.seat.spawned();
+						return Promise.resolve();
+					},
+					out: { write: () => true },
+				})
+				.then((outcome: string) => {
+					const record = stamped(rival);
+					beside.push(record.admitted === true && record.spawned !== true);
+					launched.push(w);
+					expect(outcome).toBe("run");
+				});
 		await Promise.all([wait(suite, tsc), wait(tsc, suite)]);
 		expect(launched).toHaveLength(2);
 		expect(beside).toEqual([false, false]);
@@ -1072,9 +1063,9 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	};
 	/** A launch `pid` in `queueDir`, admitted and spawned. */
 	const spawnedIn = (queueDir: string, pid: number) => {
-		const file = queueJoin({ queueDir, pid, clock: () => 0 });
-		queueSpawned(file);
-		return file;
+		const seat = joined(queueDir, pid, 0);
+		seat.spawned();
+		return seat;
 	};
 	/** What `queueDir`'s waiter reads its peers have yet to draw, each
 	 * peer's tree reading `mb`. */
@@ -1083,7 +1074,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		mb: number,
 		live: (pid: number) => boolean = alive,
 	) =>
-		queueStamps("", {
+		seatStamps({
 			queueDir,
 			alive: live,
 			ps: noRunners,
@@ -1108,14 +1099,11 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		pid: number,
 		resolvedFiles: number | null,
 	) => {
-		const file = queueJoin({
-			queueDir,
-			pid,
-			clock: () => 0,
+		const seat = joined(queueDir, pid, 0, {
 			weight: { resolvedFiles, wholeSlot: false },
 		});
-		queueSpawned(file);
-		return file;
+		seat.spawned();
+		return seat;
 	};
 
 	it("charges a part-suite its own peak by its workers and files (#3806)", () => {
@@ -1147,7 +1135,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			const outcome = await waitForGate({
 				pollMs: 1,
 				timeoutMs: 0,
-				...queueStamps("", {
+				...seatStamps({
 					queueDir: tscDir,
 					alive,
 					ps: noRunners,
@@ -1162,7 +1150,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		};
 		const small = [partIn(suiteDir, 11, 2), partIn(suiteDir, 12, 2)];
 		expect((await waitOnce()).outcome).toBe("run");
-		for (const file of small) queueLeave(file);
+		for (const seat of small) seat.leave();
 		spawnedIn(suiteDir, 13);
 		const beside = await waitOnce();
 		expect(beside.outcome).toBe("refused");
@@ -1171,7 +1159,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 
 	it("charges none for a launch unspawned or stale, nor for its own queue's", () => {
 		const { suiteDir, tscDir } = queues();
-		queueJoin({ queueDir: tscDir, pid: 22, clock: () => 0 });
+		joined(tscDir, 22, 0);
 		expect(climbOf(suiteDir, 400)).toBe(0);
 		spawnedIn(tscDir, 22);
 		expect(climbOf(tscDir, 400)).toBe(0);
@@ -1192,17 +1180,18 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	it("holds a suite admitted just after a `tsc` spawns until that `tsc`'s remaining climb fits", async () => {
 		const { suiteDir, tscDir } = queues();
 		spawnedIn(tscDir, 22);
-		const suite = queueJoin({ queueDir: suiteDir, pid: 11, clock: () => 0 });
 		const m = climbingTsc();
-		const outcome = await waitForGate({
-			gateRead: m.gateRead,
-			...queueStamps(suite, {
+		const outcome = await queueSeat({
+			queue: {
 				queueDir: suiteDir,
 				pid: 11,
+				clock: () => 0,
 				alive,
 				ps: noRunners,
 				treePssKb: m.treePssKb,
-			}),
+			},
+		}).wait({
+			gateRead: m.gateRead,
 			sleepFn: m.sleepFn,
 			out: { write: () => true },
 		});
@@ -1239,20 +1228,21 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			treePssKb: () => 400 * 1024,
 		});
 		const climbOn = (queueDir: string, m: ReturnType<typeof machine>) =>
-			queueStamps("", { queueDir, ...m }).climbMb();
+			seatStamps({ queueDir, ...m }).climbMb();
 
 		it("holds a queued suite while a `tsc` the guard admitted is still climbing", async () => {
 			const { suiteDir } = queues();
-			const suite = queueJoin({ queueDir: suiteDir, pid: 11, clock: () => 0 });
 			const m = climbingTsc();
-			const outcome = await waitForGate({
-				gateRead: m.gateRead,
-				...queueStamps(suite, {
+			const outcome = await queueSeat({
+				queue: {
 					queueDir: suiteDir,
 					pid: 11,
+					clock: () => 0,
 					...machine({ 22: Tsc }),
 					treePssKb: m.treePssKb,
-				}),
+				},
+			}).wait({
+				gateRead: m.gateRead,
 				sleepFn: m.sleepFn,
 				out: { write: () => true },
 			});
@@ -1267,7 +1257,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 				writePsStub(path.dirname(suiteDir), [`22 ${Tsc}`, `23 sh -c ${Tsc}`]),
 			);
 			const { ps: _fake, ...real } = machine({});
-			expect(queueStamps("", { queueDir: suiteDir, ...real }).climbMb()).toBe(
+			expect(seatStamps({ queueDir: suiteDir, ...real }).climbMb()).toBe(
 				TSC_PEAK_MB - 400,
 			);
 		});
@@ -1282,7 +1272,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 					return fs.readdirSync(dir);
 				}) as typeof fs.readdirSync,
 			};
-			const climb = queueStamps("", {
+			const climb = seatStamps({
 				queueDir: suiteDir,
 				queueFs: refusing,
 				...machine({ 22: Tsc }),
@@ -1365,7 +1355,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		it("charges none on a `ps` that will not run, naming it", () => {
 			const { suiteDir } = queues();
 			const unread: string[] = [];
-			const climb = queueStamps("", {
+			const climb = seatStamps({
 				queueDir: suiteDir,
 				alive,
 				ps: () => ({ ok: false as const, error: "ps listed nothing" }),
@@ -1704,7 +1694,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 	});
 
 	it("keeps the highest charge for a killed wait's exit line (#3806)", async () => {
-		const stamps = queueStamps("", { queueDir: qdir() });
+		const stamps = seatStamps({ queueDir: qdir() });
 		expect(stamps.killedHold()).toEqual({});
 		let polls = 0;
 		const limbs = [Climb(1900), Climb(1400), null];

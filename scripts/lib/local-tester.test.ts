@@ -21,7 +21,7 @@ import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
-import { queueJoin } from "./suite-queue.js";
+import { queueSeat } from "./suite-queue.js";
 import { admitted } from "./suite-slot-fake";
 
 /** A part-suite's carried weight (#2931). */
@@ -477,11 +477,13 @@ it("yields to a waiter whose turn came true on the same poll, launching only onc
 		if (dir === tmp) {
 			reads += 1;
 			if (reads === 1)
-				queueJoin({
-					queueDir: tmp,
-					pid: process.ppid,
-					weight: PART_WEIGHT,
-					clock: () => Date.now() + 1,
+				queueSeat({
+					queue: {
+						queueDir: tmp,
+						pid: process.ppid,
+						clock: () => Date.now() + 1,
+					},
+					join: { weight: PART_WEIGHT },
 				});
 			if (reads === 2) {
 				stamp({ admitted: true });
