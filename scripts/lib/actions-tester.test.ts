@@ -768,7 +768,6 @@ it("pushes the ref again for the whole suite asked again over a run at the sha t
 
 it("never reads the whole suite asked again off a run older than the branch's newest at the ask, though none was at the sha (#4524)", async () => {
 	const atAsk = run(8, "success", { headSha: OTHER });
-	/** Runs on the ref: `atAsk` alone at the ask, then `after` beside it. */
 	const listing = (after: Run) => {
 		let n = 0;
 		return queueReads([], {

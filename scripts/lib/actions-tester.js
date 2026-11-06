@@ -107,7 +107,7 @@ const RUNNER_RERUNS = 2;
  *   failed jobs
  * @property {(to: string, sha: string) => boolean} repush deletes the
  *   remote's branch `to` where it holds `sha` or is gone, then creates it
- *   at `sha`, so its push starts a new run; false where it moved
+ *   at `sha`; false where it moved
  * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
  *   | {kind: "runner", run: number, attempt: number, reason: string}} SuiteRunVerdict
