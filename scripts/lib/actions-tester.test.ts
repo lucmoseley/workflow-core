@@ -902,7 +902,7 @@ it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-*,
 		"utf8",
 	);
 	expect(workflow).toContain(
-		'  push:\n    branches: ["lander/batch-*", "lander/iso-suite-*"]\n',
+		'  push:\n    branches: ["lander/batch*", "lander/iso-suite-*"]\n',
 	);
 });
 
