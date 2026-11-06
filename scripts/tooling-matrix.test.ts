@@ -741,7 +741,7 @@ describe("§W — which gate runs it in CI", () => {
 			expect(ci, step).toContain(step);
 		}
 		// Paired negative: ci.yml carries no push trigger of its own —
-		// scheduled-checks.yml's `lander/batch` push calls it (#4458) — so a CI file
+		// scheduled-checks.yml's `lander/batch-*` push calls it (#4458) — so a CI file
 		// that simply listed every conceivable trigger would fail here rather than
 		// pass the presence checks above.
 		expect(ci).not.toMatch(/^on:\s*\n\s*push:/m);

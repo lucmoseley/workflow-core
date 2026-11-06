@@ -115,7 +115,7 @@ describe("a run", () => {
 			git(remote, "rev-list", "--first-parent", `${seed}..${main}`).split("\n"),
 		).toHaveLength(2);
 		expect(remoteHeads()).not.toContain("refs/heads/queue/");
-		expect(git(remote, "rev-parse", "lander/batch")).toBe(main);
+		expect(git(remote, "rev-parse", "lander/batch-0")).toBe(main);
 		expect(
 			fs.readFileSync(path.join(markers(), ".landing-green-ledger"), "utf8"),
 		).toContain(main);
@@ -259,13 +259,20 @@ describe("a run", () => {
 		const a = pushQueue("a", moved);
 		fs.mkdirSync(markers(), { recursive: true });
 		batchRecord(path.join(markers(), ".queue-lander-batch.json")).write({
-			members: [{ name: "a", sha: a, pushedAt: 1 }],
-			deferred: [],
-			dropped: [],
-			onto: seed,
-			integration: a,
-			phase: "testing",
-			...redPathAtRest(),
+			line: [
+				{
+					slot: 0,
+					members: [{ name: "a", sha: a, pushedAt: 1 }],
+					deferred: [],
+					dropped: [],
+					onto: seed,
+					integration: a,
+					phase: "testing",
+					...redPathAtRest(),
+				},
+			],
+			search: null,
+			depth: 2,
 		});
 
 		const r = await runLander(stubTester(0));
@@ -531,10 +538,11 @@ describe("a run", () => {
 			[main, [], undefined],
 			[main, ["scripts/x.test.ts"], 2],
 		]);
-		const batch = JSON.parse(
+		/* Red, the batch left the line as the search, which keeps it. */
+		const { search } = JSON.parse(
 			fs.readFileSync(path.join(markers(), ".queue-lander-batch.json"), "utf8"),
 		);
-		expect(batch.bases).toEqual([
+		expect(search.bases).toEqual([
 			{
 				sha: seed,
 				files: ["scripts/x.test.ts"],
@@ -622,7 +630,7 @@ describe("the adapters", () => {
 
 		let thrown: unknown;
 		try {
-			queueGit(work).pushBatch(a);
+			queueGit(work).pushBatch(0, a);
 		} catch (err) {
 			thrown = err;
 		}
@@ -913,6 +921,7 @@ describe("the adapters", () => {
 		};
 		verdictLedger(verdicts).add("s1", [], noFile, 0);
 		const b = {
+			slot: 1,
 			members: [{ name: "a", sha: "s0", pushedAt: 1 }],
 			deferred: ["b"],
 			dropped: [],
@@ -931,7 +940,9 @@ describe("the adapters", () => {
 			},
 			bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
 		};
-		batchRecord(batch).write(b);
+		/** The pipeline with `b`, or `x` in its place, as its search. */
+		const holding = (x: unknown) => ({ line: [], search: x, depth: 1 });
+		batchRecord(batch).write({ ...holding(b), search: b });
 
 		expect(verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])).toEqual({
 			kind: "red",
@@ -952,20 +963,21 @@ describe("the adapters", () => {
 			kind: "green",
 		});
 		expect(verdictLedger(verdicts).get("s1", [], 0)).toEqual(noFile);
-		expect(batchRecord(batch).read()).toEqual(b);
-		fs.writeFileSync(batch, JSON.stringify({ ...b, phase: "parked" }));
+		expect(batchRecord(batch).read()).toEqual(holding(b));
+		for (const torn of [
+			{ ...b, phase: "parked" },
+			{ ...b, hold: { kind: "refused", main: "m0" } },
+			{ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] },
+			{ ...b, slot: "1" },
+		]) {
+			fs.writeFileSync(batch, JSON.stringify(holding(torn)));
+			expect(batchRecord(batch).read()).toBeNull();
+		}
+		fs.writeFileSync(batch, JSON.stringify({ line: [b], search: null }));
 		expect(batchRecord(batch).read()).toBeNull();
-		fs.writeFileSync(
-			batch,
-			JSON.stringify({ ...b, hold: { kind: "refused", main: "m0" } }),
-		);
+		fs.writeFileSync(batch, JSON.stringify(b));
 		expect(batchRecord(batch).read()).toBeNull();
-		fs.writeFileSync(batch, '{"members": [');
-		expect(batchRecord(batch).read()).toBeNull();
-		fs.writeFileSync(
-			batch,
-			JSON.stringify({ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] }),
-		);
+		fs.writeFileSync(batch, '{"line": [');
 		expect(batchRecord(batch).read()).toBeNull();
 
 		const refused = refusedRecord(path.join(markers(), "r.jsonl"));

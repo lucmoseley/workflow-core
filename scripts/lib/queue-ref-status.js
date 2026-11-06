@@ -3,12 +3,12 @@
  * `queue/<name>` the remote shows, or the queue log or the drop record names
  * since the session's worktree was made, read as one of
  *
- *   - queued: the ref waits and the live batch does not hold it at the sha
- *     it holds now;
- *   - testing: the live batch holds it at its snapshot sha, which `main`
+ *   - queued: the ref waits and no batch in flight holds it at the sha it
+ *     holds now;
+ *   - testing: a batch in flight holds it at its snapshot sha, which `main`
  *     does not yet hold;
  *   - landed: a land row names it, or `main` holds its snapshot sha, with the
- *     `main` sha it reached, off the batch record, else the oldest
+ *     `main` sha it reached, off the pipeline record, else the oldest
  *     green-ledger sha on `main`'s first-parent path from it;
  *   - dropped: a drop row or the drop record names it, with its fix ticket
  *     off the drop record and the dropped ref holding it, or that ref reaped.
@@ -29,6 +29,7 @@ const {
 	queueRefOf,
 } = require("./landing-refs.js");
 const { readBatchFile, readDropFile } = require("./queue-lander-adapters.js");
+const { batchesOf } = require("./queue-lander.js");
 
 /**
  * @template T
@@ -36,6 +37,7 @@ const { readBatchFile, readDropFile } = require("./queue-lander-adapters.js");
  */
 /**
  * @typedef {import("./queue-lander.js").Batch} Batch
+ * @typedef {import("./queue-lander.js").Pipeline} Pipeline
  * @typedef {import("./queue-lander.js").Drop} Drop
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-log.js").LoggedRow} LoggedRow
@@ -45,7 +47,7 @@ const { readBatchFile, readDropFile } = require("./queue-lander-adapters.js");
  * @property {number} since when the session's worktree was made, in ms
  * @property {{sha: string}|null} waiting the remote's `queue/<name>`
  * @property {readonly LoggedRow[]} rows the queue log's, oldest first
- * @property {RecordRead<Batch>} batch
+ * @property {RecordRead<Pipeline>} batch the pipeline record
  * @property {RecordRead<readonly Drop[]>} drops
  * @property {readonly DroppedRef[]} dropped the remote's `dropped/*` refs
  * @property {string|null} main the remote's `main`
@@ -75,16 +77,26 @@ const memberOf = (b, name) =>
 		: b.members.find((m) => m.name === name);
 
 /**
+ * The pipeline's batch holding `name`, among those landed where `landed`,
+ * else those in flight.
+ * @param {Pipeline} p
+ * @param {string} name
+ * @param {boolean} landed
+ */
+const holderOf = (p, name, landed) =>
+	batchesOf(p).find(
+		(b) => (b.phase === "landed") === landed && memberOf(b, name),
+	);
+
+/**
  * @param {RefReading} r
  * @param {string} sha
  * @returns {RefState}
  */
 function landedState(r, sha) {
-	const b = r.batch.kind === "read" ? r.batch.value : null;
-	const main =
-		b?.phase === "landed" && memberOf(b, r.name)?.sha === sha
-			? b.integration
-			: null;
+	const b =
+		r.batch.kind === "read" ? holderOf(r.batch.value, r.name, true) : null;
+	const main = b && memberOf(b, r.name)?.sha === sha ? b.integration : null;
 	return {
 		state: "landed",
 		name: r.name,
@@ -141,9 +153,9 @@ function waitingState(r, sha, mine) {
 		return mine.findLast((x) => x.sha === sha)?.event === "take"
 			? { state: "unread", name, sha, why: "absent" }
 			: { state: "queued", name, sha, snapshot: null };
-	const b = r.batch.value;
-	const m = b.phase === "landed" ? undefined : memberOf(b, name);
-	if (m?.sha !== sha)
+	const b = holderOf(r.batch.value, name, false);
+	const m = b && memberOf(b, name);
+	if (!b || m?.sha !== sha)
 		return { state: "queued", name, sha, snapshot: m?.sha ?? null };
 	/* Between the lander's push to `main` and its record-landed step. */
 	const held = r.mainHolds(sha);

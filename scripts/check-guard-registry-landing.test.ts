@@ -587,7 +587,7 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 	});
 
 	it.each([
-		"refs/heads/lander/batch",
+		"refs/heads/lander/batch-0",
 		"refs/heads/dropped/wt-a",
 		"refs/heads/queue",
 	])("leaves a push to %s unjudged", (ref) => {

@@ -246,7 +246,7 @@ jobs:
       # remedy is the one release-plugin.js refuses. #264 holds that.
       #
       # A PUSH RUN JUDGES THE PIN, NEVER THE TAG (#4002). A bump reaches `main`
-      # only through a `lander/batch` push run going green, and release-plugin.js
+      # only through a `lander/batch-<k>` push run going green, and release-plugin.js
       # cuts its tag only from a commit `main` holds, so gating that run on the
       # tag drops the bump's batch for good. A push run is scheduled-checks.yml's,
       # whose event a called workflow reads. A sweep reads `main` and judges the

@@ -2,15 +2,16 @@
 /*
  * queue-lander.js — one queue lander run: while any
  * `queue/<name>` ref waits on the remote, take them all as one batch, merge
- * them onto `main`, test the integration commit and move `main` to it on
- * green; on red, isolate the members and drop each culprit
+ * them onto `main` or onto a batch still under test, test the integration
+ * commit and move `main` to it on green, in queue order; on red, isolate the
+ * members and drop each culprit
  * (lib/queue-lander.js), over the wiring lib/queue-lander-deps.js builds.
  *
  *   node scripts/queue-lander.js run [--tester <command>]
  *
  * The tester is the one `landingTester` in .claude/workflow-core.json names:
  * the Actions one (lib/actions-tester.js's queueTester), reading the suite
- * run a push to `lander/batch` starts, or else the local one
+ * run a push to a `lander/batch-<k>` ref starts, or else the local one
  * (lib/local-tester.js). `--tester` swaps in a command: `<command> <sha>
  * [<file>…]`, run in the checkout, exits 0 green, 1 red with each non-empty
  * stdout line a failing file, any other exit no verdict. After each move of
@@ -18,7 +19,7 @@
  * its guards load (lib/guard-code.js, #4227), and starts a levelling pass
  * over the main checkout (scripts/level-main.js, #4248), detached, since an
  * `npm ci` in it may outlast the next landing. Where a move changed the code
- * this run loaded, the run ends once its batch is done; then, its lock
+ * this run loaded, the run ends once its batches are done; then, its lock
  * released, it levels the checkout until it carries the new code, asking
  * again while another pass holds the levelling lock, and starts a fresh
  * lander (scripts/start-lander.js) on it (#4521).

@@ -15,14 +15,16 @@
  * failing so is no verdict, never a red to isolate.
  *
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
- * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`. Asked
- * again, a failed run has its failed jobs rerun; any other run at the sha
- * is never read, its ref deleted and created again so a run starts after
- * the ask (#4524). Named files at a sha a
+ * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
+ * one. Asked again, a failed run has its failed jobs rerun; any other run at
+ * the sha is never read, its ref deleted and created again so a run starts
+ * after the ask (#4524). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
- * check, are run alone by named-rerun.yml. At any other sha a `lander/batch`
- * run covers they are read off that run, a failed one rerunning its failed
- * jobs; elsewhere they go to named-rerun.yml too, under its daily cap.
+ * check, are run alone by named-rerun.yml. At any other sha a
+ * `lander/batch-<k>` run covers they are read off that run, a failed one
+ * rerunning its failed jobs; elsewhere they go to named-rerun.yml too, under
+ * its daily cap. Its `cancel` cancels the newest unfinished run at a sha on
+ * a batch ref, one the lander no longer wants (#4556).
  */
 
 const { execFileSync } = require("node:child_process");
@@ -37,8 +39,9 @@ const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
 const { STILL_FAILING } = require("../retry-failed-files.js");
 const {
-	LANDER_BATCH_BRANCH,
+	LANDER_BATCH_PREFIX,
 	LANDER_ISO_PREFIX,
+	LANDER_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	REMOTE,
 	VERIFIED_BRANCH,
@@ -50,7 +53,7 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
-/* scheduled-checks.yml carries the `lander/batch` push trigger, as it calls
+/* scheduled-checks.yml carries the `lander/batch-*` push trigger, as it calls
  * every job `main`'s sweep judges by. */
 const SUITE_WORKFLOW = "scheduled-checks.yml";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
@@ -121,11 +124,13 @@ const RUNNER_RERUNS = 2;
  *   namedRuns: () => NamedRun[],
  *   dispatch: (inputs: {sha: string, files: string[], nonce: string}) => void,
  * }} NamedReads
- * @typedef {Reads & Pick<NamedReads, "namedRuns" | "dispatch"> & {
- *   isoRefs: () => {branch: string, sha: string}[],
+ * @typedef {Omit<Reads, "runs"> & Pick<NamedReads, "namedRuns" | "dispatch">
+ *   & {
+ *   landerRefs: () => {branch: string, sha: string}[],
  *   runsOn: (branch: string) => Run[],
- * }} QueueReads `runs` on `lander/batch`; `isoRefs` the remote's
- *   `lander/iso-*` refs and their heads; `runsOn` the push runs on `branch`
+ *   cancel: (run: number) => void,
+ * }} QueueReads `landerRefs` the remote's `lander/*` refs and their heads;
+ *   `runsOn` the push runs on `branch`
  */
 
 /**
@@ -314,12 +319,10 @@ const listRuns = (branch, limit, filter = []) =>
 /**
  * The live reads, over `gh` routed to the code repo and git in `root`.
  * @param {string} root
- * @param {string} branch whose push runs `runs` lists
- * @returns {Reads}
+ * @returns {Omit<Reads, "runs">}
  */
-function liveReads(root, branch) {
+function liveReads(root) {
 	return {
-		runs: () => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
 		jobsOf: (run) =>
 			JSON.parse(gh(["run", "view", String(run), "--json", "jobs"])).jobs,
 		failedLogOf: (run) => gh(["run", "view", String(run), "--log-failed"]),
@@ -493,11 +496,10 @@ function readDispatchesToday(file, nowMs) {
 
 /**
  * @param {string} root
- * @param {string} branch
- * @returns {Reads & NamedReads}
+ * @returns {Omit<Reads, "runs"> & NamedReads}
  */
-const liveNamedReads = (root, branch) => ({
-	...liveReads(root, branch),
+const liveNamedReads = (root) => ({
+	...liveReads(root),
 	namedRuns: () =>
 		ghJson([
 			"run",
@@ -587,11 +589,11 @@ async function namedVerdict(
  * @returns {QueueReads}
  */
 const liveQueueReads = (root) => ({
-	...liveNamedReads(root, LANDER_BATCH_BRANCH),
-	isoRefs: () =>
+	...liveNamedReads(root),
+	landerRefs: () =>
 		execFileSync(
 			gitBinary(),
-			["ls-remote", REMOTE, `refs/heads/${LANDER_ISO_PREFIX}*`],
+			["ls-remote", REMOTE, `refs/heads/${LANDER_PREFIX}*`],
 			{ ...gitSpawnOptions(), cwd: root, encoding: "utf8" },
 		)
 			.split("\n")
@@ -601,6 +603,9 @@ const liveQueueReads = (root) => ({
 				return { branch: ref.replace(/^refs\/heads\//, ""), sha };
 			}),
 	runsOn: (branch) => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
+	cancel: (run) => {
+		gh(["run", "cancel", String(run)]);
+	},
 });
 
 /**
@@ -621,7 +626,7 @@ function queueTester({
 	wait = sleep,
 	now = Date.now,
 }) {
-	const suite = { reads, branch: LANDER_BATCH_BRANCH, wait, now };
+	const poll = { wait, now };
 	const named = {
 		record: path.join(markersDir(root), NAMED_RECORD),
 		reads,
@@ -635,43 +640,62 @@ function queueTester({
 			/** @type {string[]} */
 			let held;
 			try {
-				held = reads
-					.isoRefs()
-					.filter((r) => r.sha === sha)
-					.map((r) => r.branch);
+				held = heldBy(reads, sha);
 			} catch (err) {
 				return {
 					kind: "unknown",
-					reason: `${LANDER_ISO_PREFIX}* refs unread: ${parseErrorText(err)}`,
+					reason: `${LANDER_PREFIX}* refs unread: ${parseErrorText(err)}`,
 					transient: true,
 				};
 			}
-			if (files.length > 0 && held.length > 0)
+			if (files.length > 0 && held.some((b) => b.startsWith(LANDER_ISO_PREFIX)))
 				return namedVerdict(named, sha, files, true);
-			const on = files.length > 0 ? suite : suiteOn(suite, held);
+			const branch = suiteBranch(held, files);
+			if (branch === undefined)
+				return files.length > 0
+					? namedVerdict(named, sha, files, false)
+					: {
+							kind: "unknown",
+							reason: `no ${LANDER_BATCH_PREFIX}* or ${LANDER_ISO_SUITE_PREFIX}* ref holds ${sha.slice(0, SHORT_SHA)}`,
+						};
+			const on = {
+				...poll,
+				branch,
+				reads: { ...reads, runs: () => reads.runsOn(branch) },
+			};
 			if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
 			return rerunVerdict(sha, files, on, named);
+		},
+		cancel(sha, branch) {
+			const run = newestRun(sha, reads.runsOn(branch));
+			if (run && !run.conclusion) reads.cancel(run.databaseId);
 		},
 	};
 }
 
 /**
- * The suite's reads on the `lander/iso-suite-*` ref of `held`, else on
- * `lander/batch`.
- * @param {{reads: QueueReads, branch: string} & Poll} suite
- * @param {readonly string[]} held the iso refs holding the sha
- * @returns {{reads: Reads, branch: string} & Poll}
+ * The ref whose push runs judge a sha the `lander/*` refs `held` hold: for
+ * the whole suite an iso-suite one, else a batch one.
+ * @param {readonly string[]} held
+ * @param {readonly string[]} files
  */
-function suiteOn(suite, held) {
-	const branch = held.find((b) => b.startsWith(LANDER_ISO_SUITE_PREFIX));
-	if (branch === undefined) return suite;
-	const { reads } = suite;
-	return {
-		...suite,
-		branch,
-		reads: { ...reads, runs: () => reads.runsOn(branch) },
-	};
-}
+const suiteBranch = (held, files) =>
+	(files.length > 0
+		? undefined
+		: held.find((b) => b.startsWith(LANDER_ISO_SUITE_PREFIX))) ??
+	held.find((b) => b.startsWith(LANDER_BATCH_PREFIX));
+
+/**
+ * The `lander/*` refs holding `sha`.
+ * @param {QueueReads} reads
+ * @param {string} sha
+ * @returns {string[]}
+ */
+const heldBy = (reads, sha) =>
+	reads
+		.landerRefs()
+		.filter((r) => r.sha === sha)
+		.map((r) => r.branch);
 
 /**
  * The verdict at `sha` asked again on `on`'s branch, the newest run at `sha`
