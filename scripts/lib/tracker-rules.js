@@ -88,7 +88,7 @@ const { trimEndRun } = require("./trim-run.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
 /**
- * @typedef {import("./guard-judge.js").CoreContext & {
+ * @typedef {import("./core-contract.js").CoreContext & {
  *   readFile: (path: string) => string | undefined,
  * }} TrackerContext `readFile` is a body file's text, undefined where it is
  *   absent; it throws where the file cannot be read

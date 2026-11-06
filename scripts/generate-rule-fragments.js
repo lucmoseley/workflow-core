@@ -26,8 +26,8 @@
  * paragraph whole, which an own-line pair would split.
  *
  * THE MANIFEST records, per id, the document and the trigger that makes the
- * rule bind. Nothing reads that field yet. The trigger is never inferred from
- * the anchor: an anchored id with no TRIGGERS row refuses.
+ * rule bind. The trigger is never inferred from the anchor: an anchored id
+ * with no TRIGGERS row refuses.
  *
  * --sources prints the documents scanned, one a line, so `.husky/pre-commit`
  * arms `--check` on this list rather than a copy of it (#3118).
@@ -277,7 +277,7 @@ function openSpan(open, id, m, at) {
 		throw new Error(
 			`${at}: "${id}" is not a rule id — ids are lowercase kebab-case`,
 		);
-	return { id, from: (m.index ?? 0) + m[0].length };
+	return { id, from: m.index + m[0].length };
 }
 
 /**

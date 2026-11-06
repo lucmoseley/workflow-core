@@ -45,19 +45,9 @@ const { corePath, isDispatchedOn } = require("./guard-cores.js");
 const { treePorts } = require("./guard-host-ports.js");
 
 /**
- * @typedef {import("./kit-context.js").KitContext} KitContext
- * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./guard-entry.js").Latch} Latch
- * @typedef {import("./guard-cores.js").CoreRow} CoreRow
- * @typedef {(NonNullable<Decision> & { updatedInput?: Record<string, unknown> }) | null} CoreDecision
- *   a guard decision, a context under the persist room; either beside a
- *   context may carry the tool input the call runs with instead, allowed
- *   (vendor §PreToolUse decision control)
- * @typedef {CoreRow & { field: string | string[], noun: string, top?: boolean,
- *   decide: (subject: string, ctx: CoreContext) => CoreDecision }} LoadedCore
- * @typedef {CoreRow & { loadFault: string }} UnloadedCore a row whose module
- *   threw on require, carrying what to say when the row comes to run
- * @typedef {LoadedCore | UnloadedCore} Core
+ * @typedef {import("./core-contract.js").CoreDecision} CoreDecision
+ * @typedef {import("./core-contract.js").Core} Core
  * @typedef {"deny" | "allow"} Permission
  * @typedef {{ permissionDecision: "deny", reason: string, context?: undefined,
  *   updatedInput?: undefined } | { permissionDecision?: "allow",
@@ -67,17 +57,8 @@ const { treePorts } = require("./guard-host-ports.js");
  *   updatedInput?: Record<string, unknown> }} Output the merged hook output,
  *   hookEventName aside
  * @typedef {import("./guard-host-ports.js").TreePorts} TreePorts
- * @typedef {import("./guard-host-ports.js").CorePorts} CorePorts
  * @typedef {import("./guard-host-ports.js").Adapters} Adapters
- * @typedef {KitContext & CorePorts & { session: string,
- *   tree: () => TreePorts }} CoreContext
- *   `session` is the payload's session id, "" where it carries none. `tree`
- *   is the session's tree (lib/host-root.js `sessionTree`): what a core reads
- *   for `git status`, `HEAD`, the index or working files, which in a linked
- *   worktree is that worktree and never the host. Resolved on first call; it
- *   throws where git names no top level, a repo fault the core is allowed on,
- *   logged (#4242). Each row's `tree` in lib/guard-cores.json records which
- *   of the two its core reads.
+ * @typedef {import("./core-contract.js").CoreContext} CoreContext
  */
 
 /** What joins two reasons or two contexts, counted against the persist room. */

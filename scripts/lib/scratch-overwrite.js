@@ -47,7 +47,7 @@ const { SCRATCH_DIR } = require("./scratch-dir.js");
  *   add: (target: string) => boolean }} ScratchRecord one session's record:
  *   whether it holds a path, null where it cannot be read; and an append,
  *   false where it cannot be written
- * @typedef {import("./guard-judge.js").CoreContext & {
+ * @typedef {import("./core-contract.js").CoreContext & {
  *   scratchRecord: (sid: string) => ScratchRecord | null,
  * }} ScratchContext `scratchRecord` is null where the repo root's markers
  *   directory cannot be resolved
