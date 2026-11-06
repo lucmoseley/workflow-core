@@ -469,16 +469,16 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 			"deletes the queue ref `queue/q1`",
 		],
 		[
-			"git push origin HEAD:lander/batch",
-			"pushes to `lander/batch`, which only the lander writes",
+			"git push origin HEAD:lander/batch-0",
+			"pushes to `lander/batch-0`, which only the lander writes",
 		],
 		[
 			"git push -f origin HEAD:lander/iso-1",
 			"pushes to `lander/iso-1`, which only the lander writes",
 		],
 		[
-			"git push origin --delete lander/batch",
-			"deletes `lander/batch`, which only the lander writes",
+			"git push origin --delete lander/batch-0",
+			"deletes `lander/batch-0`, which only the lander writes",
 		],
 		[
 			"git push origin HEAD:dropped/q1",
@@ -502,7 +502,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 			expect(why).toContain("start-session.sh <session-name>`");
 			expect(why).not.toContain("Your session's queue ref");
 		}
-		expect(denial("git push origin HEAD:lander/batch")).toContain(
+		expect(denial("git push origin HEAD:lander/batch-0")).toContain(
 			"start-session.sh <session-name>`",
 		);
 	});
@@ -516,8 +516,8 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 					"This pushes to the queue ref `queue/q1` from outside a worktree",
 				],
 				[
-					`git -C ${own} push origin HEAD:lander/batch`,
-					"pushes to `lander/batch`, which only the lander writes",
+					`git -C ${own} push origin HEAD:lander/batch-0`,
+					"pushes to `lander/batch-0`, which only the lander writes",
 				],
 				[
 					`git -C ${own} push origin --delete queue/q1`,
@@ -796,9 +796,9 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			"This deletes `landing` on the remote: git push origin :landing\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nNever force-push or delete `landing` or a queue ref; the rule could not be read from docs/agents/rules/landing-rewind.txt. Read that file before doing anything else.",
 		],
 		[
-			"git push origin HEAD:lander/batch",
+			"git push origin HEAD:lander/batch-0",
 			"landing",
-			"This pushes to `lander/batch`, which only the lander writes: git push origin HEAD:lander/batch\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Read that file before doing anything else.",
+			"This pushes to `lander/batch-0`, which only the lander writes: git push origin HEAD:lander/batch-0\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Read that file before doing anything else.",
 		],
 		[
 			"gh pr merge dependabot/x",

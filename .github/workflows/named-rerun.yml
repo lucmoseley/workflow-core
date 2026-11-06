@@ -1,6 +1,6 @@
 name: Named rerun
 
-# The queue lander's verdict on named test files no `lander/batch` run covers,
+# The queue lander's verdict on named test files no `lander/batch-<k>` run covers,
 # an isolation commit's and `main`'s base check among them (#3764, #4458).
 # `queueTester` (scripts/lib/actions-tester.js) fires it and finds its run by
 # this title, as a dispatch's own head sha is the ref's, never the sha under
