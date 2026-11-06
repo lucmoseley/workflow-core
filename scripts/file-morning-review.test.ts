@@ -306,7 +306,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(readCreated()).toHaveLength(0);
 	});
 
-	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, not one urgent 6 days, and writes no label (#2693)", () => {
+	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, one with no labeled event at most its creation's age, not one urgent 6 days nor one whose timeline will not read, and writes no label (#2693, #3760)", () => {
 		seed([]);
 		const labelled = (hours: number) => [
 			{ event: "labeled", label: { name: "urgent" }, created_at: ago(hours) },
@@ -314,13 +314,34 @@ describe("file-morning-review.js (#2011)", () => {
 		fs.writeFileSync(
 			stub("urgent.json"),
 			JSON.stringify([
-				{ number: 50, title: "Stuck for a week" },
-				{ number: 51, title: "Fresh enough" },
+				{ number: 50, title: "Stuck for a week", createdAt: ago(9 * 24) },
+				{ number: 51, title: "Fresh enough", createdAt: ago(9 * 24) },
+				{
+					number: 52,
+					title: "Labelled off the timeline",
+					createdAt: ago(50 * 24),
+				},
+				{
+					number: 53,
+					title: "Timeline will not read",
+					createdAt: ago(50 * 24),
+				},
 			]),
 		);
 		fs.writeFileSync(
 			stub("timelines.json"),
-			JSON.stringify({ 50: labelled(8 * 24), 51: labelled(6 * 24) }),
+			JSON.stringify({
+				50: labelled(8 * 24),
+				51: labelled(6 * 24),
+				52: [
+					{
+						event: "labeled",
+						label: { name: "wayfinder:map" },
+						created_at: ago(50 * 24),
+					},
+				],
+				53: "fail",
+			}),
 		);
 		fs.mkdirSync(path.join(wfc(), ".claude", "tmp", "markers", ".pick-next"));
 		fs.writeFileSync(
@@ -347,17 +368,25 @@ describe("file-morning-review.js (#2011)", () => {
 			"- acme/wfc#50 — `Stuck for a week` — 8 days — `parked — an away-mode refill loop skips it; a normal-mode one resumes it ahead of new work, oldest park first (pick-next, 2026-10-24T06:00:00Z)`",
 		);
 		expect(section).not.toContain("#51");
+		expect(section).toContain(
+			"- acme/wfc#52 — `Labelled off the timeline` — at most 50 days — pick-next does not say why\n",
+		);
+		expect(section).not.toContain("#53");
+		expect(r.stdout).toMatch(
+			/\*\*Not read, so missing below:\*\*\n(- .*\n)*- acme\/wfc: `#53's urgent age: /,
+		);
 		const calls = fs.readFileSync(stub("calls.log"), "utf8");
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/urgent/);
 	});
 
-	it("lists every open parked issue with its age, one whose label start will not read as age unknown, and writes no label (#2725)", () => {
+	it("lists every open parked issue with its age, one whose label start will not read as age unknown, one labelled after the window's end as under a day, and writes no label (#2725, #3802)", () => {
 		seed([]);
 		fs.writeFileSync(
 			stub("parked.json"),
 			JSON.stringify([
 				{ number: 60, title: "Waits on a round" },
 				{ number: 61, title: "Labelled off the timeline" },
+				{ number: 62, title: "Parked during the filing" },
 			]),
 		);
 		fs.writeFileSync(
@@ -371,6 +400,10 @@ describe("file-morning-review.js (#2011)", () => {
 					},
 				],
 				61: [],
+				/* After the window's end, as a label applied mid-filing reads. */
+				62: [
+					{ event: "labeled", label: { name: "parked" }, created_at: ago(-1) },
+				],
 			}),
 		);
 		const r = run(["--dry-run"]);
@@ -382,6 +415,9 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(section).toContain("- acme/wfc#60 — `Waits on a round` — 3 days\n");
 		expect(section).toContain(
 			"- acme/wfc#61 — `Labelled off the timeline` — age unknown: `no 'labeled' event on the timeline`\n",
+		);
+		expect(section).toContain(
+			"- acme/wfc#62 — `Parked during the filing` — under a day\n",
 		);
 		const calls = fs.readFileSync(stub("calls.log"), "utf8");
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/parked/);

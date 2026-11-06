@@ -604,8 +604,9 @@ function readWslCurrency() {
 /**
  * One checkout's open `urgent` issues, each with when its timeline last
  * records the label applied and why pick-next's last run there left it
- * unlaunched (#2693). An issue whose application date will not read is
- * unread, never dropped or taken as fresh.
+ * unlaunched (#2693). One whose timeline records no application is aged from
+ * its creation, a bound (#3760); one whose timeline will not read is unread,
+ * never dropped or taken as fresh.
  * @param {string} root
  * @param {string} repo
  * @param {Reads} reads
@@ -620,15 +621,16 @@ function readUrgent(root, repo, reads) {
 		why === null ? [] : [{ repo, why: `pick-next's last run: ${why}` }];
 	const listed = readOpenLabelled(repo, URGENT_LABEL);
 	if ("why" in listed) return { read, unread: [...unread, listed] };
-	for (const { number, title } of listed.open) {
+	for (const { number, title, createdAt } of listed.open) {
 		const age = readLabelAgeOn(repo, number, URGENT_LABEL, reads);
-		if (age.unknown)
+		if (age.unknown && !age.unrecorded)
 			unread.push({ repo, why: `#${number}'s urgent age: ${age.error}` });
 		else
 			read.push({
 				number,
 				title,
-				appliedAt: age.appliedAt,
+				appliedAt: age.unknown ? createdAt : age.appliedAt,
+				bound: age.unknown === true,
 				why: whyNotLaunched(snapshot, number),
 			});
 	}
@@ -659,7 +661,7 @@ function readParked(repo, reads) {
  * One tracker's open issues carrying `label`, or why they did not read.
  * @param {string} repo
  * @param {string} label
- * @returns {{open: {number: number, title: string}[]} | Unread}
+ * @returns {{open: {number: number, title: string, createdAt: string}[]} | Unread}
  */
 function readOpenLabelled(repo, label) {
 	try {
@@ -672,7 +674,7 @@ function readOpenLabelled(repo, label) {
 				"--label",
 				label,
 				"--json",
-				"number,title",
+				"number,title,createdAt",
 			]),
 		};
 	} catch (e) {

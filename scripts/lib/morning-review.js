@@ -163,9 +163,10 @@ function parseOneWayDoor(comments) {
  * @typedef {{number: number, title: string, url: string, closedAt: string,
  *   comments: {body: string}[]}} ClosedIssue
  * @typedef {{number: number, title: string}} OpenIssue
- * @typedef {{number: number, title: string, appliedAt: string,
+ * @typedef {{number: number, title: string, appliedAt: string, bound: boolean,
  *   why: string | null}} UrgentIssue an open issue carrying `urgent`, when the
- *   label was last applied, and why pick-next left it unlaunched, where it says
+ *   label was last applied, or, `bound`, the issue's creation where its timeline
+ *   records no application, and why pick-next left it unlaunched, where it says
  * @typedef {{number: number, title: string} & ({appliedAt: string}
  *   | {appliedAt: null, ageError: string})} ParkedIssue an open issue carrying
  *   `parked`, and when the label was last applied, or why that did not read
@@ -271,7 +272,10 @@ const issueSearch = (q) =>
 const commentLink = (n, url, noun = "comment") => `[#${n} ${noun}](${url})`;
 
 /** @param {number} ms @returns {string} whole days, as pick-next's PARKED prints them */
+/* Under a day takes in a label applied after `hi`, during the filing's reads
+ * (#3802). */
 const wholeDays = (ms) => {
+	if (ms < DAY_MS) return "under a day";
 	const days = Math.floor(ms / DAY_MS);
 	return `${days} ${days === 1 ? "day" : "days"}`;
 };
@@ -661,7 +665,7 @@ function renderReview({
 			const age = hi - Date.parse(i.appliedAt);
 			return age > STUCK_URGENT_DAYS * DAY_MS
 				? [
-						`- ${repo}#${i.number} — ${quoted(i.title)} — ${Math.floor(age / DAY_MS)} days — ${i.why === null ? "pick-next does not say why" : quoted(i.why)}`,
+						`- ${repo}#${i.number} — ${quoted(i.title)} — ${i.bound ? "at most " : ""}${wholeDays(age)} — ${i.why === null ? "pick-next does not say why" : quoted(i.why)}`,
 					]
 				: [];
 		}),
