@@ -51,8 +51,8 @@ Researched: 2026-10-21
 - Make the CI checks required on the protected branch and do not let admins bypass them. GitHub "Required status checks" and "Do not allow bypassing the above settings"; OpenSSF Scorecard "Branch-Protection" (risk High) and "CI-Tests" [standard or field body]
 - Test the merge result, not only the branch, so that main never breaks: "Require branches to be up to date" (strict) or a merge queue / merge train. Google SWE ch. 23 (repository can change while presubmit runs) [named expert]; GitHub merge queue docs ("ensuring the branch is never broken by incompatible changes"); GitLab merge trains docs, each one vendor's product [unverified]
 - Fix a broken mainline build at once; it is the team's first task. Fowler "Continuous Integration" (Fix Broken Builds Immediately); DORA "Continuous integration" (pitfall: not fixing broken builds); Google SWE ch. 23 [named expert]
-- A check either fails the build or does not show. Do not emit warnings. Google SWE ch. 20 ("We either enable a compiler check as an error ... or don't show it") [named expert]; ESLint `--max-warnings` makes warnings fail, one adopter [unverified]
-- Before you turn on a new blocking check, clean up all existing instances, so that the check does not break the build for code that was already there. Google SWE ch. 20 [named expert]
+- A check either fails the build or does not show. Google SWE ch. 20 ("We either enable a compiler check as an error ... or don't show it") [named expert]; ESLint `--max-warnings` makes warnings fail, one adopter [unverified]
+- Before you turn on a new blocking check, clean up all existing instances. Google SWE ch. 20 [named expert]
 - A blocking check must be actionable and have almost no false positives: Google targets under 10% effective false positives for review-time analysis and none for build-breaking checks, and gives a suggested fix. Google SWE ch. 20 (Tricorder criteria; compiler integration) [named expert]
 - Simple metadata checks on a change belong in presubmit (for example, the commit message must not say "DO NOT SUBMIT"). Google keeps a named bypass for large-scale changes (`CLEANUP=` in the description). Google SWE ch. 20 "Presubmit checks" [named expert]
 
@@ -79,6 +79,16 @@ Researched: 2026-10-21
 - A warning with no reviewer to see it is ignored: Google found developers ignore warnings, so a check is a build error or a code-review finding, never a log warning; blocking is kept for checks with near-zero false positives. Sadowski et al., "Lessons from Building Static Analysis Tools at Google", CACM 61(4) 2018; SWE at Google ch. 20 [named expert]
 - The same check can be soft at review time and hard at the commit gate: Chromium's presubmit API warns on upload and errors on commit (`input_api.is_committing`). Chromium "Presubmit Scripts" [standard or field body]
 - Doc freshness metadata (owner plus reviewed date) is the periodic exception: it emails a reminder after a period such as three months and blocks nothing. SWE at Google ch. 10 [named expert]
+
+## Derived data and attestations under a merge queue
+
+- The integrator makes only the merge (or rebase, squash) commit and adds no content of its own. Hoare, "not rocket science" (2014) [named expert]; bors-ng README, GitHub merge queue, GitLab merge trains, Zuul docs, each for its own product [standard or field body]
+- The author does not rebase when trunk moves. The author acts only on a real conflict or a failure; Renovate `rebaseWhen=auto` rebases only on a conflict. Renovate docs; Tide docs; Uber, "Keeping Master Green at Scale", EuroSys 2019 [named expert]
+- Derived data computable from the commit is not committed. It is built or checked at build time. A stored hash is kept only for content outside the commit, such as an external dependency. SWE at Google ch. 17 and 18 [named expert]; protobuf smoke README ("the strongly recommended pattern") [named expert]; Bazel remote caching, Nix store-path spec [standard or field body]
+- Where a derived file is committed, the tool regenerates it and CI only verifies it. The author never hand-merges it: npm, Yarn and pnpm auto-merge a conflicted lockfile on install; Cargo says to take trunk's side and re-run. npm, Yarn, pnpm and Cargo docs [standard or field body]
+- One file every writer edits is split into a fragment per change, aggregated later. towncrier README; GitLab, "How we solved GitLab's CHANGELOG conflict crisis" (2018) [named expert]
+- A committed value that records a review, such as a snapshot or an approval, is an attestation, not derived data. It stays stored. Jest snapshot docs [standard or field body]
+- An attestation survives an integration that does not change what was reviewed. Gerrit copies a vote to a new patch set on `changekind:TRIVIAL_REBASE`, a rebase that "did not require git to perform any conflict resolution". GitHub dismisses an approval "if the merge base introduces new changes". Gerrit config-labels docs; GitHub protected-branches docs, each for its own product [standard or field body]. No source carries this to a digest over many files, so it sets no default for one [unverified]
 
 ## Static-analysis findings ruled false
 

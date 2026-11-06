@@ -10,7 +10,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { isNetworkFault } = require("./network-fault.js");
+const {
+	isNetworkFault,
+	REMOTE_TRIES,
+	remoteBackoffMs,
+} = require("./network-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { REMOTE } = require("./landing-refs.js");
 const { execGit } = require("./git.js");
@@ -56,12 +60,6 @@ function stderrIfThrown(call) {
 		return readThrownText(err);
 	}
 }
-/* Untraced: five tries over about a minute, outlasting a DNS or connection
- * blip (#2673); the backoff is exponential and randomised, as the Google SRE
- * book's "Addressing Cascading Failures" chapter sets for a retrying client. */
-const REMOTE_TRIES = 5;
-const REMOTE_BACKOFF_MS = 4 * 1000;
-
 /** Untraced: 9 hex digits, two past git's default abbreviation, unique in any history this size.
  * @param {string} sha */
 const short = (sha) => sha.slice(0, 9);
@@ -81,9 +79,7 @@ async function remote({ wait = pause }, call, isFault = isNetworkFault) {
 			return await call();
 		} catch (err) {
 			if (attempt >= REMOTE_TRIES || !isFault(err)) throw err;
-			await wait(
-				REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random()),
-			);
+			await wait(remoteBackoffMs(attempt));
 		}
 	}
 }
