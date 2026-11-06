@@ -719,10 +719,8 @@ function sharesWhole(onMain, v) {
 
 /**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
- * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does,
- * or, where no run fired, where none fired at `main` either. A tree that
- * fired no run takes no green off the green ledger: an outage that fires
- * none on its members would fire none at `main` either (#4571).
+ * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does.
+ * A tree that fired no run takes no green off the green ledger (#4571).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -816,7 +814,6 @@ function redAction(b, s, main, { sha, whole }) {
 }
 
 /**
- * A drop cause's mark that no CI run fired for its tree, where `v` says so.
  * @param {Extract<Verdict, {kind: "red"}>} v
  * @returns {{noRun?: true}}
  */

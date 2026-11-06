@@ -78,9 +78,8 @@ const citedByAny = (subjects) =>
 /** @param {readonly string[]} files */
 const buildFileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
 
-/* The tree fired no run at all: the likeliest cause, never proven. */
 const NO_RUN =
-	"fired no CI run, twice: no CI run fired for this tree, where `main` passes, so its workflow's push triggers likely miss the lander's `lander/*` refs";
+	"no CI run fired for this tree, twice, where `main` passes, so its workflow's push triggers likely miss the lander's `lander/*` refs";
 
 /** @param {import("./queue-lander.js").Drop} d */
 function buildDropEvidence({ onto, cause }) {
@@ -91,7 +90,7 @@ function buildDropEvidence({ onto, cause }) {
 		case "refused":
 			return `${alone}, its merge was refused, the refusal ending:\n\n${quoteBlock(cause.reason)}`;
 		case "red":
-			return `${alone} as ${cause.iso}, it ${cause.noRun ? NO_RUN : `failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`}`;
+			return `${alone} as ${cause.iso}, ${cause.noRun ? NO_RUN : `it failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`}`;
 		case "unrecorded":
 			return `why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${onto}`;
 		case "collision": {
@@ -100,7 +99,7 @@ function buildDropEvidence({ onto, cause }) {
 				cause.files.length > 0
 					? `failed twice:\n${buildFileList(cause.files)}`
 					: "failed the whole suite twice, naming no file";
-			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.noRun ? NO_RUN : failed}`;
+			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, ${cause.noRun ? NO_RUN : `it ${failed}`}`;
 		}
 	}
 }
