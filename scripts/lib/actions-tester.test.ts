@@ -184,7 +184,13 @@ it("marks a red retried where every failed job failed at its in-job retry, namin
 	const retriedLog = `${FAILED_LOG}
 Full suite / Vitest (1/2)\tRetry failed files\t2026-10-27T08:31:00.0Z retry-failed-files: still failing after one retry: scripts/test_b.py`;
 	const verdictWith = (job: Job, log = retriedLog, present?: string[]) => {
-		const r = reads([() => [run(1, "failure")]], [job, SUITE_PASSED], present);
+		/* A failed shard fails `Suite passed`, at a step of its own. */
+		const summary: Job = {
+			name: "Suite passed",
+			conclusion: "failure",
+			steps: [{ name: "Run echo", conclusion: "failure" }],
+		};
+		const r = reads([() => [run(1, "failure")]], [job, summary], present);
 		r.failedLogOf = () => log;
 		return verdictOf(r);
 	};
@@ -902,7 +908,7 @@ it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-*,
 		"utf8",
 	);
 	expect(workflow).toContain(
-		'  push:\n    branches: ["lander/batch-*", "lander/iso-suite-*"]\n',
+		'  push:\n    branches: ["lander/batch*", "lander/iso-suite-*"]\n',
 	);
 });
 

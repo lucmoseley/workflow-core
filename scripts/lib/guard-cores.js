@@ -156,9 +156,19 @@ function readDispatchRows(event) {
  * @returns {string[]}
  */
 function readDispatchedCores(file = MANIFEST) {
+	return coresOf(readManifest(file));
+}
+
+/**
+ * readDispatchedCores over a manifest already read.
+ * @param {Manifest} manifest
+ * @returns {string[]}
+ */
+function coresOf(manifest) {
 	return [
 		...new Set(
-			readManifestRows(file)
+			Object.values(manifest)
+				.flat()
 				.flatMap((r) => [r.core, ...(r.host ? [r.host] : [])])
 				.map(modulePath),
 		),
@@ -206,6 +216,7 @@ module.exports = {
 	MANIFEST,
 	MANIFEST_REL,
 	corePath,
+	coresOf,
 	denyingCoresOn,
 	hostOf,
 	readDispatchedCores,

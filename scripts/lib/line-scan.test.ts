@@ -2,7 +2,7 @@
 /*
  * lib/line-scan.js's contract: each parser finds exactly the matches of the
  * regex it stands in for (#3383), and does so in linear time. The parsers
- * feed check-guard-registry.js's dependency digest, so a parser that found
+ * feed lib/guard-reach.js's node-run edges, so a parser that found
  * one path more or less would move a guard's digest, or miss the lib edit
  * the digest is there to warn about.
  */
@@ -14,9 +14,8 @@ interface Match {
 	prefix: string;
 	value: string;
 }
-const { parseNodeRuns, parseNodeVars, parseSourcedLibs, segmentTailMatches } =
+const { parseNodeRuns, parseNodeVars, segmentTailMatches } =
 	require("./line-scan.js") as {
-		parseSourcedLibs: (text: string) => string[];
 		parseNodeRuns: (text: string) => Match[];
 		parseNodeVars: (text: string) => Match[];
 		segmentTailMatches: (
@@ -27,8 +26,6 @@ const { parseNodeRuns, parseNodeVars, parseSourcedLibs, segmentTailMatches } =
 		) => { index: number; head: RegExpExecArray; tail: RegExpExecArray }[];
 	};
 
-const SOURCE_RE =
-	/^[^#\n]*?(?:^|\s)(?:source|\.)\s+[^\n]*?(lib\/[\w.-]+\.sh)/gm;
 const NODE_RUN_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$[^\n]*?\/([\w-][\w./-]*\.js)/gm;
 const NODE_VAR_RE =
@@ -70,23 +67,7 @@ const PLANTED = [
 	// line start at once: the prefix stops before the break.
 	"a\rnode $x/y.js",
 	"a\u2028node $v",
-	// A name that runs on past its `.sh`, which the lib-path prefilter must pass.
-	"source lib/a.sh.x",
 ];
-
-describe("parseSourcedLibs", () => {
-	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseSourcedLibs(text)).toEqual(
-			[...text.matchAll(SOURCE_RE)].map((m) => m[1]),
-		);
-	});
-
-	it("takes the longest name ending in .sh, the first on the line", () => {
-		expect(parseSourcedLibs("source $d/lib/a.sh.sh lib/b.sh")).toEqual([
-			"lib/a.sh.sh",
-		]);
-	});
-});
 
 describe("parseNodeRuns", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
@@ -151,8 +132,6 @@ describe("every parser against its regex over generated texts", () => {
 	it("finds exactly the oracle's matches on each", () => {
 		const off = texts.filter(
 			(t) =>
-				JSON.stringify(parseSourcedLibs(t)) !==
-					JSON.stringify([...t.matchAll(SOURCE_RE)].map((m) => m[1])) ||
 				JSON.stringify(parseNodeRuns(t)) !==
 					JSON.stringify(groups(NODE_RUN_RE, t)) ||
 				JSON.stringify(parseNodeVars(t)) !==
@@ -189,7 +168,6 @@ describe("segmentTailMatches", () => {
 // not end the prefix, so each one is a fresh start.
 describe("a long line of heads that reach nothing", () => {
 	it.each([
-		["parseSourcedLibs", "source ".repeat(80_000)],
 		["parseNodeRuns", 'node "$/a '.repeat(55_000)],
 		["parseNodeVars", "node $-\r".repeat(30_000)],
 	])("%s reads it in linear time", (name, text) => {

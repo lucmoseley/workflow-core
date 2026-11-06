@@ -104,7 +104,6 @@ const {
 } = require("./refill-files.js");
 const { readJson } = require("./refill-json.js");
 const {
-	killSettled,
 	launchRecorded,
 	ledgerJobOf,
 	readState,
@@ -854,42 +853,6 @@ const blockIo = (served) => ({
 });
 
 /**
- * `actOnLimits`, then the ledger holds it ended released.
- * @param {import("./refill-loop.js").LoopLaunch[]} before the launches as the last tick left them
- * @param {Parameters<typeof blocks.actOnLimits>[0]} judged
- * @param {Parameters<typeof blocks.actOnLimits>[1]} mode
- * @param {Parameters<typeof blocks.actOnLimits>[2]} seen
- */
-function actOnLimitsAndRelease(before, judged, mode, seen) {
-	const acted = blocks.actOnLimits(judged, mode, seen);
-	blocks.releaseEndedHolds(before, acted.launches, seen.io);
-	return acted;
-}
-
-/**
- * `state` with what a kill before the last tick's own write left out of it
- * settled (#4180): its cut-off batch's launches adopted, then each resume left
- * with no outcome (lib/refill-blocks.js's settleStartedResumes), ahead of any
- * judging of the launches. Written at once where either changed it, so a stamp
- * later this tick lands on what was settled; what was written is returned, so
- * the tick reads on from the file (#4232).
- * @param {import("./refill-state.js").LoopState} read
- * @param {string[]} served
- */
-function settleKilled(read, served) {
-	const adopted = adoptKilledLaunches(read, served);
-	const { launches, settled } = blocks.settleStartedResumes(
-		adopted.launches,
-		blockIo(served),
-	);
-	if (adopted === read && !settled) return read;
-	return updateState(
-		killSettled({ launches, launchCount: adopted.launchCount }, read),
-		log,
-	);
-}
-
-/**
  * What of each lifted hold the written state now carries, dropped.
  * @param {ReturnType<typeof blocks.queueLifted>["settled"]} settled
  */
@@ -929,13 +892,15 @@ function recordListedOverflowSessions(agents) {
 }
 
 /**
- * The quiet bench route's step; the control as it was on a step that failed,
- * which is logged, the next tick deciding it again.
+ * The quiet bench route's step over the checkouts `control` serves; the
+ * control as it was on a step that failed, which is logged, the next tick
+ * deciding it again.
  * @param {import("./refill-loop.js").Control} control
- * @param {{lastTypedAt: number|null, served: string[], now: number}} tick
+ * @param {{lastTypedAt: number|null, now: number}} tick
  */
-function stepQuietBench(control, { lastTypedAt, served, now }) {
+function stepQuietBench(control, { lastTypedAt, now }) {
 	try {
+		const served = servedRoots(control.scope).roots;
 		return tendQuietBench({ control, lastTypedAt, served, now, log });
 	} catch (e) {
 		/* Fails open, as a failed read inside a tick does (#3852). */
@@ -962,12 +927,15 @@ const productionIo = {
 	readConfiguredSeats,
 	readIncluded,
 	servedRoots,
-	reap: reapFinished,
+	previewReap: () => reapFinished(true),
+	reap: () => reapFinished(false),
 	tendQuietBench: stepQuietBench,
 	readManagerRestart: () => readManagerRestart(log),
 	readCurrentBootId,
 	readState: () => readState(log),
-	settleKilled,
+	adoptKilledLaunches,
+	settleStartedResumes: (launches, served) =>
+		blocks.settleStartedResumes(launches, blockIo(served)),
 	readRegistry: readRegistryAgents,
 	stopNeverStarted,
 	hasConfig,
@@ -998,7 +966,7 @@ const productionIo = {
 	readLiftedHolds: (roots) => readLiftedHolds(roots, log),
 	releaseEndedHolds: blocks.releaseEndedHolds,
 	readFreeSlots,
-	actOnLimits: actOnLimitsAndRelease,
+	actOnLimits: blocks.actOnLimits,
 	readSeats,
 	probeDueSeats,
 	seatBudget,

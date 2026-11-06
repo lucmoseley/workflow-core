@@ -75,7 +75,7 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 # queue lander's tester (#4458).
 on:
   push:
-    branches: ["lander/batch-*", "lander/iso-suite-*"]
+    branches: ["lander/batch*", "lander/iso-suite-*"]
   schedule:
     # MINUTE 0, AND MOVING IT IS NOT THE ONE-LINE CHANGE IT LOOKS LIKE (mantahostels#2204).
     # GitHub names the top of the hour as its high-load window and moving off it

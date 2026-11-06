@@ -133,8 +133,17 @@ function readDirtyTracked(root, execFn = execProgram) {
  *   null where git could not answer
  */
 function readTrackedStatus(root, execFn = execProgram) {
-	const out = gitRead(["status", "--porcelain", "-z", "-uno"], root, execFn);
-	if (out === null) return null;
+	const out = gitRead(TRACKED_STATUS, root, execFn);
+	return out === null ? null : parseTrackedStatus(out);
+}
+
+const TRACKED_STATUS = ["status", "--porcelain", "-z", "-uno"];
+
+/**
+ * @param {string} out raw `git status --porcelain -z -uno` stdout
+ * @returns {{ dirty: string[], renames: { path: string, source: string }[] }}
+ */
+function parseTrackedStatus(out) {
 	/** @type {string[]} */
 	const paths = [];
 	/** @type {{ path: string, source: string }[]} */
@@ -205,6 +214,8 @@ function readUntrackedEntries(root) {
 module.exports = {
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
+	parseTrackedStatus,
+	TRACKED_STATUS,
 	gitRead,
 	readTrackedStatus,
 	readUntrackedEntries,

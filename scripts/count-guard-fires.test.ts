@@ -69,7 +69,10 @@ const registeredKeys = [
  */
 const { needleDrift } = require("./lib/needle-corpus.js");
 const { readManifest } = require("./lib/guard-cores.js");
-const { emissionMatches, RULE_ARG_RE } = require("./lib/rule-emission.js");
+const {
+	emissionMatches,
+	RULE_ARG_RE,
+} = require("./lib/rule-emission-calls.js");
 
 describe("the guard set is derived from the core's registration", () => {
 	it("gives every registered hook an entry, so a new hook cannot arrive uncounted", () => {
