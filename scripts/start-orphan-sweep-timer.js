@@ -24,6 +24,8 @@
  *
  * WFC_SYSTEMD_RUN and WFC_SYSTEMCTL name stand-in binaries for a test.
  *
+ * Joins no §N3 family: a launcher, not a checker or a guard.
+ *
  * Exit codes: 0 where the timer runs or no user manager answers; 1 where a
  * systemd call failed.
  */
@@ -41,6 +43,11 @@ const SWEEP = "reap-orphan-hooks.js";
 /* Untraced: a spinning worker costs up to one core for this long before a
  * sweep finds it, against a sweep's ~0.3 s of CPU each firing. */
 const PERIOD = "5min";
+/* systemd's default of 1 min would let a firing slip a fifth of PERIOD; 30 s
+ * is a guess, refill-loop-watch.timer's figure. */
+const ACCURACY = "30s";
+/* A guess: below the sessions' default 0, so a sweep yields to their work. */
+const NICE = 10;
 
 const systemdRun = () => process.env.WFC_SYSTEMD_RUN || "systemd-run";
 const systemctl = () => process.env.WFC_SYSTEMCTL || "systemctl";
@@ -55,8 +62,18 @@ function sweepScript() {
 }
 
 /**
- * The script path the running timer's service names, or null where none is
- * active or its ExecStart names none.
+ * The sweep script an ExecStart value names, or "" where it names none.
+ * @param {string} exec `systemctl show -p ExecStart --value`'s text
+ */
+const scriptInExecStart = (exec) =>
+	new RegExp(`argv\\[\\]=\\S+ (\\S+/${SWEEP.replace(".", "\\.")})`).exec(
+		exec,
+	)?.[1] ?? "";
+
+/**
+ * The script path the running timer's service names: null where no timer is
+ * active, and "" where its ExecStart names no sweep script, which main reads
+ * as gone and replaces.
  */
 function runningScript() {
 	const active = runCommand(systemctl(), ["--user", "is-active", TIMER_UNIT]);
@@ -69,11 +86,7 @@ function runningScript() {
 		"ExecStart",
 		"--value",
 	]).out;
-	return (
-		new RegExp(`argv\\[\\]=\\S+ (\\S+/${SWEEP.replace(".", "\\.")})`).exec(
-			exec,
-		)?.[1] ?? ""
-	);
+	return scriptInExecStart(exec);
 }
 
 function main() {
@@ -94,11 +107,11 @@ function main() {
 		"--description=Kill processes whose Claude session has ended (#4342)",
 		`--on-active=${PERIOD}`,
 		`--on-unit-inactive=${PERIOD}`,
-		"--timer-property=AccuracySec=30s",
+		`--timer-property=AccuracySec=${ACCURACY}`,
 		"--setenv=WFC_NOTIFY_PERSIST=1",
 		`--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`,
 		`--working-directory=${root}`,
-		"--property=Nice=10",
+		`--property=Nice=${NICE}`,
 		"--",
 		process.execPath,
 		script,
@@ -118,4 +131,6 @@ function main() {
 	return 1;
 }
 
-process.exitCode = main();
+if (require.main === module) process.exitCode = main();
+
+module.exports = { scriptInExecStart };

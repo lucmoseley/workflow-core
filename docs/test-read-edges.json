@@ -20311,6 +20311,7 @@
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
+			"scripts/start-orphan-sweep-timer.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts",
 			"vitest.setup.test.ts"
@@ -32879,6 +32880,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
+			"scripts/start-orphan-sweep-timer.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/run-cost-report.js": [
@@ -39968,6 +39970,7 @@
 			"scripts/run-pytest.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-start-sweeps.test.ts",
+			"scripts/start-orphan-sweep-timer.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",

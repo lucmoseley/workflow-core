@@ -134,7 +134,7 @@ describe("reap-orphan-hooks", () => {
 		expect(res.status).toBe(0);
 		expect(res.stdout).toContain("ORPHAN-SESSION (1)");
 		expect(res.stdout).toContain(
-			"session sess-ended (leader pid 99999999), tree of 1: node forks.js",
+			"session sess-ended (leader pid 99999999) ended, tree of 1: node forks.js",
 		);
 		expect(res.stdout).toContain("nothing was killed or logged");
 	});

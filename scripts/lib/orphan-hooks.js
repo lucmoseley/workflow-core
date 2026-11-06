@@ -36,6 +36,7 @@
  */
 
 const path = require("node:path");
+const { markersDir } = require("./marker-root.js");
 const { ageSeconds, readStartTicks } = require("./proc-table.js");
 
 /* Claude Code's timeout for a command hook that sets none: "Defaults: 600 for
@@ -50,6 +51,17 @@ const MARGIN_S = 60;
  * (docs/environment.md §4). */
 const ARGV_KEPT = 512;
 
+/* The kill log, one JSON line a kill, under a canonical checkout's markers. */
+const REAP_LOG = ".orphan-hook-reaps.jsonl";
+
+/* How much of an argv a report prints: two terminal lines at this repo's
+ * usual width, check-orphan-wait-loops.js's WINDOW. A guess. */
+const ARGV_SHOWN = 160;
+
+/** The kill log of the checkout at `canonical`.
+ * @param {string} canonical */
+const reapLogPath = (canonical) => path.join(markersDir(canonical), REAP_LOG);
+
 const INTERPRETER = /^(?:ba|da)?sh$|^node$/;
 const INIT = /^(?:init|systemd)$/;
 /* Where a hook command's own arguments stop. */
@@ -63,8 +75,8 @@ const COMMAND_END = /^(?:\|\||&&|;|\||[0-9]*>.*|<.*)$/;
  * @typedef {Record<string, Array<{ hooks?: Hook[] }>>} Hooks
  * @typedef {{ pid: number, pgid: number, scope: "group"|"tree", ageS: number,
  *   argv: string[], targets: Proc[],
- *   session?: { id: string, leader: number } }} Reap `session` where the
- *   reap is lib/ended-sessions.js's
+ *   session?: import("./ended-sessions.js").Session }} Reap `session`
+ *   where the reap is lib/ended-sessions.js's
  */
 
 /**
@@ -322,9 +334,11 @@ function killReaps(reaps, { root, kill, log }) {
 }
 
 module.exports = {
+	ARGV_SHOWN,
 	findOrphanHooks,
 	isInit,
 	killReaps,
 	readRegistry,
+	reapLogPath,
 	subtree,
 };

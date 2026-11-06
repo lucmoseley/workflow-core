@@ -4,6 +4,8 @@
  * log (#4342): it names each kill of the last week with its argv and, for a
  * dead session's process, the session; leaves an older one out; and is
  * all-clear where no log exists yet.
+ *
+ * Loosen a case and an overnight kill reaches no surface the founder reads.
  */
 
 import { spawnSync } from "node:child_process";

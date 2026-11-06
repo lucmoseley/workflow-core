@@ -16,18 +16,15 @@
  * checkout's markers and writes nothing. No log yet is all-clear.
  */
 
-const path = require("node:path");
-const { runCheck } = require("./lib/check");
+const { now, runCheck } = require("./lib/check");
+const { describeSession } = require("./lib/ended-sessions.js");
 const { readJsonl } = require("./lib/jsonl.js");
-const { markersDir } = require("./lib/marker-root.js");
+const { ARGV_SHOWN, reapLogPath } = require("./lib/orphan-hooks.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 
-const REAP_LOG = ".orphan-hook-reaps.jsonl";
 /* Untraced: a week spans a weekend away from the machine. */
 const WINDOW_DAYS = 7;
-/* reap-orphan-hooks.js's ARGV_SHOWN. */
-const ARGV_SHOWN = 160;
 
 runCheck({
 	name: "orphan-reaps",
@@ -35,16 +32,18 @@ runCheck({
 	run(ctx) {
 		const canonical =
 			repoRoot() ?? ctx.skip("git names no canonical checkout.");
-		const log = path.join(markersDir(canonical), REAP_LOG);
-		const since = Date.now() - WINDOW_DAYS * DAY_MS;
+		const log = reapLogPath(canonical);
+		const since = now() - WINDOW_DAYS * DAY_MS;
 		const rows = (readJsonl(log)?.rows ?? []).filter(
 			(r) => typeof r.at === "string" && Date.parse(r.at) >= since,
 		);
 		for (const r of rows) {
 			const session =
-				/** @type {{ id?: string, leader?: number } | undefined} */ (r.session);
+				/** @type {import("./lib/ended-sessions.js").Session | undefined} */ (
+					r.session
+				);
 			const what = session
-				? `outlived session ${session.id} (leader pid ${session.leader})`
+				? `outlived ${describeSession(session)}`
 				: "a hook run past its timeout";
 			const killed = Array.isArray(r.killed) ? r.killed.length : 0;
 			const argv = String(r.argv ?? "").slice(0, ARGV_SHOWN);

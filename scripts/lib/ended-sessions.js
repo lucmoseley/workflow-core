@@ -37,8 +37,9 @@ const LEADER_ENV = "CLAUDE_PID";
 
 /**
  * @typedef {import("./proc-table.js").Proc} Proc
- * @typedef {import("./orphan-hooks.js").Reap & {
- *   session: { id: string, leader: number } }} SessionReap
+ * @typedef {{ id: string, leader: number }} Session a session's id, and its
+ *   leader's pid
+ * @typedef {import("./orphan-hooks.js").Reap & { session: Session }} SessionReap
  */
 
 /**
@@ -125,7 +126,7 @@ function findEndedSessions(procs, { root, bootAgo, mine, skip = new Set() }) {
  * @param {(pid: number) => boolean} spared
  */
 function matchEnded(procs, root, spared) {
-	/** @type {Array<{ proc: Proc, session: { id: string, leader: number } }>} */
+	/** @type {Array<{ proc: Proc, session: Session }>} */
 	const ended = [];
 	for (const p of procs.values()) {
 		if (spared(p.pid) || isClaude(p.argv)) continue;
@@ -138,14 +139,8 @@ function matchEnded(procs, root, spared) {
 }
 
 /** The session a report names: its id, and its leader's pid.
- * @param {{ id: string, leader: number }} session */
+ * @param {Session} session */
 const describeSession = (session) =>
 	`session ${session.id} (leader pid ${session.leader})`;
 
-module.exports = {
-	describeSession,
-	findEndedSessions,
-	isClaude,
-	LEADER_ENV,
-	SESSION_ENV,
-};
+module.exports = { describeSession, findEndedSessions };
