@@ -73,8 +73,9 @@ const reads = (
 		rerun: (id: number) => {
 			reran.push(id);
 		},
-		repush: (branch: string, _sha: string) => {
-			repushed.push(branch);
+		repush: (branch: string, sha: string) => {
+			repushed.push(`${branch}@${sha}`);
+			return true;
 		},
 		calls: () => n,
 		reran,
@@ -408,7 +409,7 @@ const askNamed = (
 			...r.reads,
 			runs: () => [],
 			rerun: () => undefined,
-			repush: () => undefined,
+			repush: () => true,
 			isoRefs: () => iso,
 			runsOn: () => [],
 		},
@@ -754,7 +755,7 @@ it("pushes the ref again for the whole suite asked again over a run at the sha t
 		kind: "green",
 		run: 9,
 	});
-	expect(fresh.repushed).toEqual([SuiteBase]);
+	expect(fresh.repushed).toEqual([`${SuiteBase}@${SHA}`]);
 	expect(fresh.reran).toEqual([]);
 
 	const none = queueReads([], { iso: atBase, runsOn: () => [earlier] });
@@ -762,16 +763,58 @@ it("pushes the ref again for the whole suite asked again over a run at the sha t
 		kind: "unknown",
 		reason: `no scheduled-checks.yml push run on ${SuiteBase} at ${SHA.slice(0, 9)}`,
 	});
-	expect(none.repushed).toEqual([SuiteBase]);
+	expect(none.repushed).toEqual([`${SuiteBase}@${SHA}`]);
+});
 
-	const refused = queueReads([], { iso: atBase, runsOn: () => [earlier] });
-	refused.repush = () => {
-		throw new Error("stale info");
+it("never reads the whole suite asked again off a run older than the branch's newest at the ask, though none was at the sha (#4524)", async () => {
+	const atAsk = run(8, "success", { headSha: OTHER });
+	/** Runs on the ref: `atAsk` alone at the ask, then `after` beside it. */
+	const listing = (after: Run) => {
+		let n = 0;
+		return queueReads([], {
+			iso: () => [{ branch: "lander/iso-suite-base", sha: SHA }],
+			runsOn: () => (n++ === 0 ? [atAsk] : [after, atAsk]),
+		});
 	};
-	expect(await queueOf(refused).verdict(SHA, [], true)).toEqual({
+	const stale = listing(run(7, "success"));
+	expect(await queueOf(stale).verdict(SHA, [], true)).toMatchObject({
 		kind: "unknown",
-		reason: `${SuiteBase} not pushed again at ${SHA.slice(0, 9)}: stale info`,
 	});
+	const pushed = listing(run(9, "success"));
+	expect(await queueOf(pushed).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 9,
+	});
+	expect([...stale.repushed, ...pushed.repushed]).toEqual([]);
+});
+
+it("reads a ref moved, refused or cut off by the network on pushing it again as no verdict, transient only for the network (#4524)", async () => {
+	const SuiteBase = "lander/iso-suite-base";
+	const at = (repush: () => boolean) => {
+		const r = queueReads([], {
+			iso: () => [{ branch: SuiteBase, sha: SHA }],
+			runsOn: () => [run(7, "success")],
+		});
+		r.repush = repush;
+		return queueOf(r).verdict(SHA, [], true);
+	};
+	expect(await at(() => false)).toEqual({
+		kind: "unknown",
+		reason: `${SuiteBase} moved off ${SHA.slice(0, 9)} before it was pushed again`,
+	});
+	expect(
+		await at(() => {
+			throw new Error("pre-receive hook declined");
+		}),
+	).toEqual({
+		kind: "unknown",
+		reason: `${SuiteBase} not pushed again at ${SHA.slice(0, 9)}: pre-receive hook declined`,
+	});
+	expect(
+		await at(() => {
+			throw Object.assign(new Error("push"), { code: "ETIMEDOUT" });
+		}),
+	).toMatchObject({ kind: "unknown", transient: true });
 });
 
 it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
