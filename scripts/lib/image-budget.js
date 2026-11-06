@@ -123,7 +123,7 @@ Do not judge, compare against or describe any of them from memory. Re-reading on
 
 /**
  * @param {string} filePath
- * @param {import("./guard-judge.js").CoreContext & { imageStore: ImageStore }} ctx
+ * @param {import("./core-contract.js").CoreContext & { imageStore: ImageStore }} ctx
  */
 function decide(filePath, ctx) {
 	if (ctx.env.WFC_NO_IMAGE_BUDGET === "1") return null;

@@ -4,8 +4,6 @@
  * disk as `gh run download` leaves them. The judging arithmetic is
  * scripts/lib/file-ci-time.test.ts's.
  *
- * The gh route is crossed once, through WFC_GH, on a failing gh.
- *
  * A PLAIN TEMP DIR, NOT A TEMP GIT REPO: the script reads JSON files and asks
  * git nothing of the temp dir.
  */
@@ -14,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GH_FAILING_SCRIPT } from "./lib/gh-stub";
+import { GH_FAILING_SCRIPT, stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-file-ci-time.js");
@@ -128,6 +126,58 @@ describe("check-file-ci-time.js", () => {
 		expect(`${r.stdout}${r.stderr}`).toContain(
 			"SKIP: GitHub unreachable listing scheduled-checks.yml runs",
 		);
+	});
+
+	it("judges the last three sweeps on main while a full list of lander runs is newer, listing each sweep branch by --branch (#4559)", () => {
+		const sweeps = { "103": 340, "102": 61, "101": 89 };
+		for (const [id, seconds] of Object.entries(sweeps))
+			writeSweep(id, { [SLOW]: seconds });
+		const log = path.join(dir, "gh.log");
+		const main = Object.keys(sweeps).map((id) => ({
+			databaseId: Number(id),
+			headBranch: "main",
+		}));
+		/* A handler, not stubGhRoutes: `run download` must write the reports
+		 * into its -D directory, which a route's printed answer cannot. The
+		 * lander rows fill whatever --limit asks, so an unfiltered list never
+		 * reaches a sweep however RUNS_LISTED moves. */
+		const stub = stubGhHandler(
+			dir,
+			`const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + "\\n");
+const at = (flag) => argv[argv.indexOf(flag) + 1];
+if (argv[0] === "run" && argv[1] === "list") {
+	const limit = Number(at("--limit"));
+	const lander = Array.from({ length: limit }, (_, i) => ({ databaseId: 200 + i, headBranch: "lander/batch" }));
+	const all = [...lander, ...${JSON.stringify(main)}];
+	const branch = argv.includes("--branch") ? at("--branch") : null;
+	out(JSON.stringify((branch ? all.filter((r) => r.headBranch === branch) : all).slice(0, limit)));
+	exit(0);
+}
+if (argv[0] === "run" && argv[1] === "download") {
+	fs.cpSync(${JSON.stringify(dir)} + "/" + argv[2], at("-D"), { recursive: true });
+	exit(0);
+}
+err("unrouted: " + argv.join(" "));
+exit(1);`,
+		);
+		const r = runInProcess(SCRIPT, [], {
+			env: { ...process.env, ...stub.env },
+		});
+		expect(r.status).toBe(0);
+		expect(`${r.stdout}${r.stderr}`).toContain(
+			`89 s  ${SLOW} — 340 s (run 103), 61 s (run 102), 89 s (run 101)`,
+		);
+		const lists = fs
+			.readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l) as string[])
+			.filter((a) => a[1] === "list");
+		expect(lists.map((a) => a[a.indexOf("--branch") + 1]).sort()).toEqual([
+			"landing",
+			"main",
+		]);
 	});
 
 	it("is BROKEN on a bad invocation", () => {

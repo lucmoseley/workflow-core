@@ -57,7 +57,7 @@ An error may be a file saved while it ran. Re-run \`${command}\` on a still tree
 
 /**
  * @param {string} _command
- * @param {import("./guard-judge.js").CoreContext & { takeRed: TakeRed }} ctx
+ * @param {import("./core-contract.js").CoreContext & { takeRed: TakeRed }} ctx
  */
 function decide(_command, ctx) {
 	if (!ctx.session || ctx.agent) return null;

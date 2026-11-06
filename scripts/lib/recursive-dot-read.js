@@ -136,7 +136,7 @@ const { treeOr } = require("./tree-or.js");
  * @typedef {object} DotReadPorts
  * @property {(p: string) => string} realpath `p` resolved physical, no
  *   component required to exist, as `realpath -m`
- * @typedef {import("./guard-judge.js").CoreContext & DotReadPorts}
+ * @typedef {import("./core-contract.js").CoreContext & DotReadPorts}
  *   DotReadContext
  */
 
@@ -193,7 +193,7 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
 /**
  * @param {string} raw
  * @param {DotReadContext} ctx
- * @returns {import("./guard-judge.js").CoreDecision}
+ * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(raw, ctx) {
 	/* Cheap pre-test before any of the machinery below: a command naming no
@@ -252,7 +252,7 @@ function decide(raw, ctx) {
  * no rewrite can be built.
  * @param {Scene} scene
  * @param {string} mode
- * @returns {import("./guard-judge.js").CoreDecision}
+ * @returns {import("./core-contract.js").CoreDecision}
  */
 function rewrite({ raw, root, tree, showsPrompt, ctx, judgement }, mode) {
 	/* A search fires only where the shell stands at the tree's root. */

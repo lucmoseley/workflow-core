@@ -67,7 +67,7 @@ const { trimEndRun } = require("./trim-run.js");
  * }} WordingPorts the rule store, throwing where it cannot give the
  *   fragment; the host's corpus, throwing on a config that will not read;
  *   and a plugin skill file's text, null where it is unreadable
- * @typedef {import("./guard-judge.js").CoreContext & WordingPorts} SkillContext
+ * @typedef {import("./core-contract.js").CoreContext & WordingPorts} SkillContext
  * @typedef {WordingPorts} PromptContext
  * @typedef {{ label: string, families: string[], skill?: string,
  *   skillPrefix?: string, quietOn?: string,

@@ -143,7 +143,7 @@ const { endRun, trimEndRun } = require("./trim-run.js");
  * @property {(script: string, tree: string) => boolean} isWrapperScript
  *   whether the npm script of the tree at `tree`, the session's (#4242), runs
  *   run-vitest.js; yes where it cannot be read
- * @typedef {import("./guard-judge.js").CoreContext & BackgroundPorts} Ctx
+ * @typedef {import("./core-contract.js").CoreContext & BackgroundPorts} Ctx
  */
 
 /** `[[:space:]]` within one line. */

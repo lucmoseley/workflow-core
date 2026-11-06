@@ -66,7 +66,7 @@ const LAUNCH_PORTS = { runners: () => [], isWrapperScript: () => true };
  *   whether the run is an unasked re-run of `tree`, the session's; latches
  *   and logs a refusal itself
  * @typedef {import("./kit-context.js").KitContext & UnaskedPorts & { session: string }
- *   & Pick<import("./guard-judge.js").CoreContext, "tree">} UnaskedContext
+ *   & Pick<import("./core-contract.js").CoreContext, "tree">} UnaskedContext
  *   `session` the payload's, "" where it carries none; `tree` the session's,
  *   whose HEAD and own work are judged (#4242)
  */
