@@ -42,6 +42,7 @@ import {
 	dropRecord,
 	queueGit,
 	queueLogger,
+	refusedRecord,
 	verdictLedger,
 } from "./lib/queue-lander-adapters.js";
 import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
@@ -318,7 +319,7 @@ describe("a run", () => {
 		);
 	});
 
-	it("lands a batch red only where main is red too, filing the base-red ticket and ledgering each run by its pass", async () => {
+	it("lands a batch red only where main is red too, filing the base-red ticket, ledgering the batch's runs by their pass and keeping the base check on the batch record", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		pushQueue("a", seed);
 		pushQueue("b", seed);
@@ -350,7 +351,16 @@ describe("a run", () => {
 		expect(rows.map((row) => [row.sha, row.files, row.pass])).toEqual([
 			[main, [], undefined],
 			[main, ["scripts/x.test.ts"], 2],
-			[seed, ["scripts/x.test.ts"], 0],
+		]);
+		const batch = JSON.parse(
+			fs.readFileSync(path.join(markers(), ".queue-lander-batch.json"), "utf8"),
+		);
+		expect(batch.bases).toEqual([
+			{
+				sha: seed,
+				files: ["scripts/x.test.ts"],
+				verdict: { kind: "red", files: ["scripts/x.test.ts"] },
+			},
 		]);
 	});
 });
@@ -453,6 +463,23 @@ describe("the adapters", () => {
 		expect(() => g.createRef("dropped/a", seed)).toThrow(/stale info/);
 		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
 		expect(g.refs().dropped).toEqual([{ ref: "dropped/a", sha: a }]);
+	});
+
+	it("merges a lone member descending from main as a new commit where asked fresh, never its own sha", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed);
+		const g = queueGit(work);
+		g.refs();
+		const member = { name: "a", sha: a, pushedAt: 1 };
+
+		expect(g.mergeMembers(seed, [member])).toEqual({ kind: "merged", sha: a });
+		const fresh = g.mergeMembers(seed, [member], true);
+
+		expect(fresh.kind).toBe("merged");
+		const sha = fresh.kind === "merged" ? fresh.sha : "";
+		expect(sha).not.toBe(a);
+		expect(git(work, "rev-parse", `${sha}^2`)).toBe(a);
+		expect(git(work, "rev-parse", `${sha}^1`)).toBe(seed);
 	});
 
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {
@@ -589,6 +616,7 @@ describe("the adapters", () => {
 				files: ["a.ts"],
 				ticket: 90,
 			},
+			bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
 		};
 		batchRecord(batch).write(b);
 
@@ -616,6 +644,18 @@ describe("the adapters", () => {
 		expect(batchRecord(batch).read()).toBeNull();
 		fs.writeFileSync(batch, '{"members": [');
 		expect(batchRecord(batch).read()).toBeNull();
+		fs.writeFileSync(
+			batch,
+			JSON.stringify({ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] }),
+		);
+		expect(batchRecord(batch).read()).toBeNull();
+
+		const refused = refusedRecord(path.join(markers(), "r.jsonl"));
+		refused.add("s1", "GH013: rule violations");
+		expect(refusedRecord(path.join(markers(), "r.jsonl")).refusalOf("s1")).toBe(
+			"GH013: rule violations",
+		);
+		expect(refused.refusalOf("s2")).toBeNull();
 
 		const drops = path.join(markers(), "d.json");
 		const d = {
