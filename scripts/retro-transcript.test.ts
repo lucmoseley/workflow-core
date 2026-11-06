@@ -470,6 +470,28 @@ describe("token masking (#1031)", () => {
 		},
 	);
 
+	it.each([
+		["its later line", "# ijklmnopq", "ijklmnopq"],
+		["it joined", "# ijklmnopq", "abcdefgh\nijklmnopq"],
+		["it joined, its indent kept", "#  ijklmnopq", "abcdefgh\n  ijklmnopq"],
+		["it joined, a toggle's `# ` off", "#  ijklmnopq", "abcdefgh\n ijklmnopq"],
+		["it joined, every space off", "#  ijklmnopq", "abcdefgh\nijklmnopq"],
+		["it joined, indented", "  # ijklmnopq", "abcdefgh\n  ijklmnopq"],
+	])(
+		"masks a value commented out line by line: %s (#3999)",
+		(_n, later, logged) => {
+			fs.writeFileSync(
+				path.join(repo, "secrets.env"),
+				`# K="abcdefgh\n${later}"\n`,
+			);
+			const r = run([sessionLog([toolResult(`held (${logged}) end`)])]);
+			expect(r.status).toBe(0);
+			expect(readTranscript(r.stdout).join("\n")).toContain(
+				"held ([REDACTED:stored]) end",
+			);
+		},
+	);
+
 	it("masks a stored value an object's JSON text escapes (#3908)", () => {
 		const value = 'abcd"madeupvalue';
 		fs.writeFileSync(path.join(repo, "secrets.env"), `K='${value}'\n`);
