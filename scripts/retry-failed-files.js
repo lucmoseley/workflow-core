@@ -6,7 +6,7 @@
  *
  *   node scripts/retry-failed-files.js <report.json>
  *
- * ci.yml's "Retry failed files" step runs it on a `lander/batch` push after
+ * ci.yml's "Retry failed files" step runs it on a `lander/batch-<k>` push after
  * a failed Vitest step. The re-run writes its own report beside the first,
  * which stays the uploaded one. Its last line
  * names the files still failing, `STILL_FAILING` below: lib/actions-tester.js

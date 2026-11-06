@@ -94,14 +94,15 @@ const clock = (start = 0) => {
 	};
 };
 
-/** The whole suite at SHA, read off its push run on `lander/batch`. */
+/** The whole suite at SHA, read off its push run on `lander/batch-0`. */
 const verdictOf = (r: ReturnType<typeof reads>) =>
 	queueTester({
 		root: "/",
 		reads: {
 			...r,
-			isoRefs: () => [],
-			runsOn: () => [],
+			landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }],
+			runsOn: () => r.runs(),
+			cancel: () => undefined,
 			namedRuns: () => [],
 			dispatch: () => undefined,
 		},
@@ -183,7 +184,13 @@ it("marks a red retried where every failed job failed at its in-job retry, namin
 	const retriedLog = `${FAILED_LOG}
 Full suite / Vitest (1/2)\tRetry failed files\t2026-10-27T08:31:00.0Z retry-failed-files: still failing after one retry: scripts/test_b.py`;
 	const verdictWith = (job: Job, log = retriedLog, present?: string[]) => {
-		const r = reads([() => [run(1, "failure")]], [job, SUITE_PASSED], present);
+		/* A failed shard fails `Suite passed`, at a step of its own. */
+		const summary: Job = {
+			name: "Suite passed",
+			conclusion: "failure",
+			steps: [{ name: "Run echo", conclusion: "failure" }],
+		};
+		const r = reads([() => [run(1, "failure")]], [job, summary], present);
 		r.failedLogOf = () => log;
 		return verdictOf(r);
 	};
@@ -345,13 +352,14 @@ it("reads a failed run through gh and the tree through git", async () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
 	git("init", "-q");
-	/* Its own origin, so the isolation refs read through git ls-remote. */
+	/* Its own origin, so the lander refs read through git ls-remote. */
 	git("remote", "add", "origin", tmp);
 	fs.mkdirSync(path.join(tmp, "scripts", "lib"), { recursive: true });
 	fs.writeFileSync(path.join(tmp, "scripts", "lib", "a.test.ts"), "");
 	git("add", ".");
 	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
 	const sha = git("rev-parse", "HEAD");
+	git("update-ref", "refs/heads/lander/batch-0", sha);
 	const answers = {
 		list: JSON.stringify([run(7, "failure", { headSha: sha })]),
 		jobs: JSON.stringify({
@@ -438,11 +446,11 @@ const askNamed = (
 		root,
 		reads: {
 			...r.reads,
-			runs: () => [],
 			rerun: () => undefined,
 			repush: () => true,
-			isoRefs: () => iso,
+			landerRefs: () => iso,
 			runsOn: () => [],
+			cancel: () => undefined,
 		},
 		wait: time.wait,
 		now: time.now,
@@ -560,7 +568,7 @@ it("finds its run by the title named-rerun.yml gives it, and reads the job it na
 	expect(workflow).toContain("    name: Named files\n");
 });
 
-/* The queue lander's tester (#4458): whole runs read on `lander/batch` or
+/* The queue lander's tester (#4458): whole runs read on `lander/batch-<k>` or
  * a `lander/iso-suite-*` ref, named files dispatched to named-rerun.yml. */
 const NAMED_OK: Job = { name: "Named files", conclusion: "success" };
 const ISO = "c".repeat(40);
@@ -581,11 +589,17 @@ const queueReads = (
 		NAMED_OK,
 	]);
 	const dispatched: { sha: string; files: string[]; nonce: string }[] = [];
+	const cancelled: number[] = [];
 	return {
 		...r,
 		dispatched,
-		isoRefs: iso,
-		runsOn,
+		cancelled,
+		landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }, ...iso()],
+		runsOn: (branch: string) =>
+			branch === "lander/batch-0" ? r.runs() : runsOn(branch),
+		cancel: (id: number) => {
+			cancelled.push(id);
+		},
 		dispatch: (d: { sha: string; files: string[]; nonce: string }) => {
 			dispatched.push(d);
 		},
@@ -614,7 +628,7 @@ const wallClock = () => {
 const queueOf = (r: ReturnType<typeof queueReads>, root = namedRoot()) =>
 	queueTester({ root, reads: r, ...wallClock() });
 
-it("reads the whole suite at a sha off its push run on lander/batch, a file list empty or absent (#4458)", async () => {
+it("reads the whole suite at a sha off its push run on the lander/batch-<k> ref holding it, a file list empty or absent (#4458, #4556)", async () => {
 	const r = queueReads([() => [run(1, "success")]]);
 	const tester = queueOf(r);
 	expect(await tester.verdict(SHA)).toEqual({ kind: "green", run: 1 });
@@ -623,10 +637,10 @@ it("reads the whole suite at a sha off its push run on lander/batch, a file list
 	expect(r.dispatched).toEqual([]);
 });
 
-it("reads a batch run missing on lander/batch, or a listing it cannot read, as unknown (#4458)", async () => {
+it("reads a batch run missing on lander/batch-<k>, or a listing it cannot read, as unknown (#4458)", async () => {
 	expect(await queueOf(queueReads([() => []])).verdict(SHA)).toEqual({
 		kind: "unknown",
-		reason: `no scheduled-checks.yml push run on lander/batch at ${SHA.slice(0, 9)}`,
+		reason: `no scheduled-checks.yml push run on lander/batch-0 at ${SHA.slice(0, 9)}`,
 	});
 	expect(await queueOf(queueReads([])).verdict(SHA)).toMatchObject({
 		kind: "unknown",
@@ -715,7 +729,7 @@ it("reads a named run never listed as unknown, and isolation refs it cannot read
 	});
 	expect(await queueOf(r).verdict(ISO, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "unknown",
-		reason: "lander/iso-* refs unread: ls-remote failed",
+		reason: "lander/* refs unread: ls-remote failed",
 		transient: true,
 	});
 	expect(r.dispatched).toEqual([]);
@@ -885,7 +899,7 @@ it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", asy
 	expect(failed.dispatched).toEqual([]);
 });
 
-it("fires the suite workflow on a push to lander/batch and lander/iso-suite-*, and none to landing (#4458, #4485)", () => {
+it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-*, and none to landing (#4458, #4485, #4556)", () => {
 	const workflow = fs.readFileSync(
 		path.join(
 			import.meta.dirname,
@@ -894,11 +908,11 @@ it("fires the suite workflow on a push to lander/batch and lander/iso-suite-*, a
 		"utf8",
 	);
 	expect(workflow).toContain(
-		'  push:\n    branches: [lander/batch, "lander/iso-suite-*"]\n',
+		'  push:\n    branches: ["lander/batch*", "lander/iso-suite-*"]\n',
 	);
 });
 
-it("reads lander/batch and lander/iso-suite-* runs through gh and the isolation refs through git ls-remote (#4458)", async () => {
+it("reads lander/batch-<k> and lander/iso-suite-* runs through gh, the lander refs through git ls-remote, and cancels a run through gh (#4458, #4556)", async () => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-"));
 	const remote = path.join(tmp, "remote.git");
 	const work = path.join(tmp, "work");
@@ -921,9 +935,27 @@ it("reads lander/batch and lander/iso-suite-* runs through gh and the isolation 
 	const iso = git(work, "rev-parse", "HEAD");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-1");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-suite-0");
+	git(
+		work,
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"b",
+	);
+	const batch = git(work, "rev-parse", "HEAD");
+	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/batch-1");
+	const cancelFile = path.join(tmp, "cancelled");
 	const nonceFile = path.join(tmp, "nonce");
 	const answers = {
-		list: [run(3, "success")],
+		list: [
+			{ ...run(3, "success"), headSha: batch },
+			{ ...run(4, null), headSha: OTHER },
+		],
 		suite: [{ ...run(9, "success"), headSha: iso }],
 		jobs: { jobs: [...shards("success"), SUITE_PASSED, NAMED_OK] },
 	};
@@ -934,7 +966,9 @@ const fs = require("node:fs");
 const a = ${JSON.stringify(answers)};
 const argv = process.argv.slice(2);
 const out = (v) => process.stdout.write(JSON.stringify(v));
-if (argv[0] === "workflow") {
+if (argv[0] === "run" && argv[1] === "cancel") {
+	fs.writeFileSync(${JSON.stringify(cancelFile)}, argv[2]);
+} else if (argv[0] === "workflow") {
 	fs.writeFileSync(${JSON.stringify(nonceFile)}, argv.find((x) => x.startsWith("nonce=")).slice(6));
 } else if (argv[1] === "list" && argv.includes("named-rerun.yml")) {
 	out([{ databaseId: 8, conclusion: "success",
@@ -942,7 +976,7 @@ if (argv[0] === "workflow") {
 } else if (argv[1] === "list") {
 	const branch = argv[argv.indexOf("--branch") + 1];
 	if (branch === "lander/iso-suite-0") out(a.suite);
-	else if (branch !== "lander/batch") process.exit(1);
+	else if (branch !== "lander/batch-1") process.exit(1);
 	else out(a.list);
 } else out(a.jobs);
 `,
@@ -953,12 +987,12 @@ if (argv[0] === "workflow") {
 		`${JSON.stringify({ at: new Date().toISOString() })}\n`.repeat(12),
 	);
 	const tester = queueTester({ root: work, ...wallClock() });
-	expect(await tester.verdict(SHA)).toEqual({ kind: "green", run: 3 });
+	expect(await tester.verdict(batch)).toEqual({ kind: "green", run: 3 });
 	expect(await tester.verdict(iso)).toEqual({ kind: "green", run: 9 });
 	expect(await tester.verdict(iso, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
 	});
-	expect(await tester.verdict(SHA, ["scripts/lib/a.test.ts"])).toEqual({
+	expect(await tester.verdict(batch, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
 		run: 3,
 	});
@@ -977,4 +1011,30 @@ if (argv[0] === "workflow") {
 	expect(
 		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
 	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
+	tester.cancel?.(OTHER, "lander/batch-1");
+	expect(fs.readFileSync(cancelFile, "utf8")).toBe("4");
+});
+
+it("cancels only the newest unfinished run at a sha on its batch ref (#4556)", () => {
+	const r = queueReads([
+		() => [
+			run(1, "success"),
+			run(2, null),
+			{ ...run(3, null), headSha: OTHER },
+		],
+	]);
+	const tester = queueOf(r);
+	tester.cancel?.(SHA, "lander/batch-0");
+	expect(r.cancelled).toEqual([2]);
+	const done = queueReads([() => [run(1, "failure")]]);
+	queueOf(done).cancel?.(SHA, "lander/batch-0");
+	expect(done.cancelled).toEqual([]);
+});
+
+it("reads a whole suite at a sha no lander/batch-* or iso-suite ref holds as unknown (#4556)", async () => {
+	const r = queueReads([() => [run(1, "success")]]);
+	expect(await queueOf(r).verdict(OTHER)).toEqual({
+		kind: "unknown",
+		reason: `no lander/batch-* or lander/iso-suite-* ref holds ${OTHER.slice(0, 9)}`,
+	});
 });

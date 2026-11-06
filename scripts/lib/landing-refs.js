@@ -33,11 +33,16 @@ const VERIFIED_REF = `${REMOTE}/${VERIFIED_BRANCH}`;
 const LANDING_BRANCH = "landing";
 const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
 /* The queue lander's own refs (#4458), which it alone writes and may force:
- * the integration commit under test, and each sha it runs alone, an
+ * each batch's integration commit under test, and each sha it runs alone, an
  * isolation commit or `main`'s base check; the suite runs on a push to an
  * iso-suite one (scheduled-checks.yml). */
 const LANDER_PREFIX = "lander/";
-const LANDER_BATCH_BRANCH = `${LANDER_PREFIX}batch`;
+const LANDER_BATCH_PREFIX = `${LANDER_PREFIX}batch-`;
+/**
+ * The ref a batch in flight is pushed to, one per pipeline slot (#4556).
+ * @param {number} slot
+ */
+const batchBranch = (slot) => `${LANDER_BATCH_PREFIX}${slot}`;
 const LANDER_ISO_PREFIX = `${LANDER_PREFIX}iso-`;
 const LANDER_ISO_SUITE_PREFIX = `${LANDER_ISO_PREFIX}suite-`;
 /* A session's queue ref (#4458), `queue/<worktree name>`, which it pushes
@@ -225,7 +230,8 @@ module.exports = {
 	DROPPED_PREFIX,
 	droppedNameOf,
 	droppedRefsOf,
-	LANDER_BATCH_BRANCH,
+	LANDER_BATCH_PREFIX,
+	batchBranch,
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	LANDER_PREFIX,

@@ -72,10 +72,10 @@ const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 const { inertSpans } = require("./lib/js-lex.js");
-const { blankComments } = require("./lib/strip-comments.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { parseEdges } = require("./lib/guard-reach.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
@@ -125,10 +125,11 @@ function hasFailOpenLogging(root, rel, cache, seen = new Set()) {
 	const scan = { root, cache, seen };
 	const answer = rel.endsWith(".js")
 		? ENTRY_LOGGERS.includes(rel) ||
-			(path.posix.dirname(rel) === "scripts" && hasLogErrorCall(text)) ||
-			hasLoggingDependency(path.posix.dirname(rel), text, REQUIRED, scan)
-		: /^[^\S\n\r\u2028\u2029]*source\s+(?!\s).*guard-log\.sh/m.test(text) ||
-			hasLoggingDependency("scripts", text, SOURCED, scan);
+			(path.posix.dirname(rel) === "scripts" && hasLogErrorCall(rel, text)) ||
+			hasLoggingDependency(rel, text, "require", scan)
+		: parseEdges(rel, text, { kinds: ["source"] }).some((e) =>
+				e.to.endsWith("/guard-log.sh"),
+			) || hasLoggingDependency(rel, text, "source", scan);
 	cache.set(rel, answer);
 	return answer;
 }
@@ -140,44 +141,39 @@ const ENTRY_LOGGERS = [
 	"scripts/lib/fail-open-logger.js",
 ];
 
-/** A require of the arbiter libs that export logError. */
-const LOG_ERROR_HOST =
-	/\brequire\(\s*"\.\/lib\/arbiter-(?:core|store)(?:\.js)?"\s*\)/;
+/** The arbiter libs that export logError. */
+const LOG_ERROR_HOSTS = new Set([
+	"scripts/lib/arbiter-core.js",
+	"scripts/lib/arbiter-store.js",
+]);
 
 /** Whether `text` requires an arbiter lib and calls logError outside a
  * comment or string. */
-const hasLogErrorCall = (/** @type {string} */ text) => {
+const hasLogErrorCall = (
+	/** @type {string} */ rel,
+	/** @type {string} */ text,
+) => {
 	const inert = inertSpans(text);
 	const calls = [...text.matchAll(/\blogError\s*\(/g)];
 	return (
-		LOG_ERROR_HOST.test(blankComments(text)) &&
-		calls.some((m) => !isInert(inert, m.index))
+		parseEdges(rel, text, { kinds: ["require"] }).some((e) =>
+			LOG_ERROR_HOSTS.has(e.to),
+		) && calls.some((m) => !isInert(inert, m.index))
 	);
 };
 
-/** A relative require, its group 1 the path. */
-const REQUIRED = /\brequire\(\s*"(\.{1,2}\/[\w./-]+)"\s*\)/g;
-/** A lib sourced off the guard's own directory, its group 1 the path. Leading
- * blanks stop at a line break, where `^` re-anchors anyway (#3383). */
-const SOURCED =
-	/^[^\S\n\r\u2028\u2029]*source\s+"?\$\{?here\}?"?\/([\w./-]+\.sh)/gm;
-
 /**
- * Whether a file `pattern` names in `text`, resolved against `dir`, logs its
- * fail-opens (hasFailOpenLogging). An extensionless path is a require, so
- * `.js` is added.
- * @param {string} dir
+ * Whether a file `rel` reaches along a `kind` edge logs its fail-opens
+ * (hasFailOpenLogging).
+ * @param {string} rel
  * @param {string} text
- * @param {RegExp} pattern its group 1 the path, relative to `dir`
+ * @param {"require" | "source"} kind
  * @param {{ root: string, cache: Map<string, boolean>, seen: Set<string> }} scan
  *   accumulator: `cache` and `seen` are hasFailOpenLogging's, filled as it goes
  */
-function hasLoggingDependency(dir, text, pattern, { root, cache, seen }) {
-	for (const m of text.matchAll(pattern)) {
-		let rel = path.posix.join(dir, requiredGroup(m, 1, pattern));
-		if (!/\.\w+$/.test(rel)) rel = `${rel}.js`;
-		if (hasFailOpenLogging(root, rel, cache, seen)) return true;
-	}
+function hasLoggingDependency(rel, text, kind, { root, cache, seen }) {
+	for (const { to } of parseEdges(rel, text, { kinds: [kind] }))
+		if (hasFailOpenLogging(root, to, cache, seen)) return true;
 	return false;
 }
 

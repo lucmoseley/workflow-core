@@ -35,8 +35,8 @@ const {
 } = require("./lander-git.js");
 const {
 	DROPPED_PREFIX,
-	LANDER_BATCH_BRANCH,
 	QUEUE_HEADS,
+	batchBranch,
 	QUEUE_REFSPEC,
 	REMOTE,
 	trackingRefspec,
@@ -77,6 +77,7 @@ const BROKEN_OBJECT =
 /**
  * @typedef {import("./queue-lander.js").Verdict} Verdict
  * @typedef {import("./queue-lander.js").Batch} Batch
+ * @typedef {import("./queue-lander.js").Pipeline} Pipeline
  * @typedef {import("./queue-lander.js").Blame} Blame
  * @typedef {import("./queue-lander.js").Isolated} Isolated
  * @typedef {import("./queue-lander.js").Serial} Serial
@@ -86,7 +87,7 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").QueueGit} QueueGit
  * @typedef {import("./queue-lander.js").QueueRef} QueueRef
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
- * @typedef {import("./queue-lander.js").BatchRecord} BatchRecord
+ * @typedef {import("./queue-lander.js").PipelineRecord} PipelineRecord
  * @typedef {import("./queue-lander.js").BaseVerdict} BaseVerdict
  * @typedef {import("./queue-lander.js").RefusedRecord} RefusedRecord
  * @typedef {import("./queue-lander.js").Drop} Drop
@@ -236,8 +237,8 @@ function queueGit(
 				}
 				return whole;
 			}),
-		pushBatch(sha) {
-			pushRemote(root, ["--force", `${sha}:refs/heads/${LANDER_BATCH_BRANCH}`]);
+		pushBatch(slot, sha) {
+			pushRemote(root, ["--force", `${sha}:refs/heads/${batchBranch(slot)}`]);
 		},
 		pushIso(branch, sha) {
 			pushRemote(root, ["--force", `${sha}:refs/heads/${branch}`]);
@@ -705,6 +706,7 @@ function parseBatch(parsed) {
 	);
 	if (
 		!b ||
+		!Number.isInteger(b.slot) ||
 		!Array.isArray(b.members) ||
 		!b.members.every(isMember) ||
 		typeof b.onto !== "string" ||
@@ -717,6 +719,7 @@ function parseBatch(parsed) {
 	)
 		return null;
 	return {
+		slot: /** @type {number} */ (b.slot),
 		members: b.members,
 		deferred: b.deferred,
 		dropped: b.dropped,
@@ -737,31 +740,50 @@ function parseBatch(parsed) {
 }
 
 /**
- * The batch record's file: absent, torn where it is no batch, or the batch.
- * @param {string} file
- * @returns {RecordRead<Batch>}
+ * @param {unknown} parsed
+ * @returns {Pipeline|null}
  */
-function readBatchFile(file) {
-	const r = readRecordFile(file);
-	if (r.kind !== "read") return r;
-	const batch = parseBatch(r.value);
-	return batch ? { kind: "read", value: batch } : { kind: "torn" };
+function parsePipeline(parsed) {
+	const p = objectOf(parsed);
+	if (!p || !Array.isArray(p.line) || !Number.isInteger(p.depth)) return null;
+	const line = p.line.map(parseBatch);
+	const search = p.search === null ? null : parseBatch(p.search);
+	if (line.some((b) => b === null) || (p.search !== null && search === null))
+		return null;
+	return {
+		line: /** @type {Batch[]} */ (line),
+		search,
+		depth: /** @type {number} */ (p.depth),
+	};
 }
 
 /**
- * The batch record: the batch a run is landing, so the next run resumes it.
- * A record that is absent or not a batch reads as none.
+ * The pipeline record's file: absent, torn where it is no pipeline, or the
+ * pipeline.
  * @param {string} file
- * @returns {BatchRecord}
+ * @returns {RecordRead<Pipeline>}
  */
-function batchRecord(file) {
+function readPipelineFile(file) {
+	const r = readRecordFile(file);
+	if (r.kind !== "read") return r;
+	const pipeline = parsePipeline(r.value);
+	return pipeline ? { kind: "read", value: pipeline } : { kind: "torn" };
+}
+
+/**
+ * The pipeline record: the batches a run is landing, so the next run
+ * resumes them. A record that is absent or no pipeline reads as none.
+ * @param {string} file
+ * @returns {PipelineRecord}
+ */
+function pipelineRecord(file) {
 	return {
 		read() {
-			const r = readBatchFile(file);
+			const r = readPipelineFile(file);
 			return r.kind === "read" ? r.value : null;
 		},
-		write(b) {
-			writeFileAtomic(file, `${JSON.stringify(b)}\n`);
+		write(p) {
+			writeFileAtomic(file, `${JSON.stringify(p)}\n`);
 		},
 	};
 }
@@ -855,11 +877,11 @@ const queueLogger = (root) => (event, m) => {
 };
 
 module.exports = {
-	batchRecord,
+	pipelineRecord,
 	dropRecord,
 	queueGit,
 	queueLogger,
-	readBatchFile,
+	readPipelineFile,
 	readDropFile,
 	refusedRecord,
 	verdictLedger,

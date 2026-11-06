@@ -7,14 +7,11 @@
  *
  * Two engines: lineHeadMatches for a lazy line prefix ending at a keyword,
  * and segmentTailMatches for a head followed by a scan to the segment's end.
- * The three parsers are the shell-guard spellings check-guard-registry.js
- * follows to a guard's dependencies.
+ * The two parsers are the node-run spellings lib/guard-reach.js follows to a
+ * guard's dependencies.
  */
 
-const SOURCE = "source";
 const NODE = "node";
-const LIB = "lib/";
-const SH = ".sh";
 const JS = ".js";
 
 /** Where `^` matches under the `m` flag: the start, or after a line break. */
@@ -131,59 +128,6 @@ function lineHeadMatches(text, boundary, heads, tailAt) {
 		lineStart = hit.found.end;
 	}
 	return out;
-}
-
-/** Whether `text` holds a `lib/<name>.sh` anywhere, as every match of
- * parseSourcedLibs does: most texts hold none.
- * Each `lib/` opens a name run the next `/` ends, so no run
- * is read twice. */
-function hasLibPath(/** @type {string} */ text) {
-	for (let at = text.indexOf(LIB); at >= 0; at = text.indexOf(LIB, at + 1)) {
-		let end = at + LIB.length;
-		while (end < text.length && /[\w.-]/.test(text[end] ?? "")) end++;
-		const name = text.slice(at + LIB.length, end);
-		if (name.lastIndexOf(SH) > 0) return true;
-	}
-	return false;
-}
-
-/**
- * The libs a shell text sources: on each line, before any `#`, a `source` or
- * `.` that opens the line or follows a blank, then a blank, then the first
- * `lib/<name>.sh` later on that line, where `<name>` is the longest run of
- * `[\w.-]` characters ending in `.sh`. The same paths as
- * `/^[^#\n]*?(?:^|\s)(?:source|\.)\s+[^\n]*?(lib\/[\w.-]+\.sh)/gm`'s group 1.
- * @param {string} text
- * @returns {string[]} each `lib/….sh` path, in order
- */
-function parseSourcedLibs(text) {
-	if (!hasLibPath(text)) return [];
-	const sh = lastMarkInRun(text, /[\w.-]/, SH);
-	/** @param {number} libStart */
-	const libEnd = (libStart) => {
-		const nameStart = libStart + LIB.length;
-		const lastSh = sh[nameStart + 1] ?? -1;
-		return text.startsWith(LIB, libStart) &&
-			/[\w.-]/.test(text[nameStart] ?? "") &&
-			lastSh >= 0
-			? lastSh + SH.length
-			: -1;
-	};
-	const nextLib = nextOnLine(text, libEnd);
-	/** @param {number} at */
-	const keywordEnd = (at) => {
-		if (text.startsWith(SOURCE, at)) return at + SOURCE.length;
-		return text[at] === "." ? at + 1 : -1;
-	};
-	return lineHeadMatches(text, /\s/, [SOURCE, "."], (tailStart) => {
-		const end = keywordEnd(tailStart);
-		if (end < 0) return null;
-		const argStart = blankEnd(text, end);
-		const libStart = argStart > end ? (nextLib[argStart] ?? -1) : -1;
-		if (libStart < 0) return null;
-		const pathEnd = libEnd(libStart);
-		return { end: pathEnd, value: text.slice(libStart, pathEnd) };
-	}).map((m) => m.value);
 }
 
 /** Past the `node\s+"?\$` at `at`, or -1 where it is not there. */
@@ -319,7 +263,6 @@ function nextStop(
 }
 
 module.exports = {
-	parseSourcedLibs,
 	parseNodeRuns,
 	parseNodeVars,
 	segmentTailMatches,

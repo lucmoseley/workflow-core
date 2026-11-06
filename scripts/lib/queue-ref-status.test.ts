@@ -66,7 +66,8 @@ const row = (min: number, event: QueueEvent, sha: string, ref = REF) => ({
 	sha,
 });
 
-const batch = (over: Record<string, unknown> = {}) => ({
+const aBatch = (over: Record<string, unknown> = {}) => ({
+	slot: 0,
 	members: [{ name: "alpha", sha: member, pushedAt: 1 }],
 	deferred: [],
 	dropped: [],
@@ -75,6 +76,13 @@ const batch = (over: Record<string, unknown> = {}) => ({
 	phase: "merging",
 	...redPathAtRest(),
 	...over,
+});
+
+/** The pipeline record holding one batch, the line's head. */
+const batch = (over: Record<string, unknown> = {}) => ({
+	line: [aBatch(over)],
+	search: null,
+	depth: 2,
 });
 
 interface Fixture {
@@ -173,6 +181,24 @@ describe("a waiting ref", () => {
 			}),
 		).toEqual([
 			`queued: queue/alpha at ${short(later)} — moved past its snapshot ${short(member)} in the batch under test, so it waits for the next batch`,
+		]);
+	});
+
+	it("reads as testing in a batch behind the head, and landed off a landed one beside it (#4556)", () => {
+		const behind = {
+			line: [
+				aBatch({
+					members: [{ name: "beta", sha: later, pushedAt: 3 }],
+					phase: "testing",
+					integration: merged,
+				}),
+				aBatch({ slot: 1, phase: "testing", integration: later }),
+			],
+			search: null,
+			depth: 2,
+		};
+		expect(lines({ waiting: member, batch: behind })).toEqual([
+			`testing: queue/alpha at ${short(member)} — in the lander's batch under test`,
 		]);
 	});
 

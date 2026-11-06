@@ -2,8 +2,9 @@ name: CI
 
 # NO TRIGGER OF ITS OWN BUT DISPATCH (mantahostels#906, mantahostels#910).
 # .github/workflows/scheduled-checks.yml calls this file four times a day
-# (mantahostels#3490) and on every push to `lander/batch`, where the queue
-# lander reads that run as its tester (#4458).
+# (mantahostels#3490) and on every push to a `lander/batch-<k>` ref, one per
+# batch the queue lander has in flight, where it reads that run as its tester
+# (#4458, #4556).
 #
 # It CALLS rather than holds the schedule because GitHub's idle auto-disable
 # takes down a whole workflow FILE, `workflow_dispatch` included (mantahostels#909) — so a
@@ -12,8 +13,9 @@ name: CI
 # `schedule` still reads `schedule`.
 #
 # No `concurrency` / `cancel-in-progress` block. Do not add one: a group keeps
-# one pending run and cancels the rest, so a `lander/batch` tip pushed between two
-# others would go untested and the lander would read no verdict at it.
+# one pending run and cancels the rest, so a `lander/batch-<k>` tip pushed between
+# two others would go untested and the lander would read no verdict at it. The
+# lander cancels a run it no longer wants itself (#4556).
 #
 # Run the suite by hand with `gh workflow run ci.yml` — ANY SESSION may: this
 # repo's PAT holds `Actions: Read and write` (mantahostels#1069). It spends a
@@ -289,7 +291,7 @@ jobs:
           nproc
 
       # vitest run exits non-zero on any failing test and npm propagates that,
-      # and a failing test fails the build. On a `lander/batch` push alone the
+      # and a failing test fails the build. On a `lander/batch-<k>` push alone the
       # step goes on, and the retry step below re-runs its failed files once:
       # the lander's own re-run in this job, not a second run (#4545).
       # Isolation runs (`lander/iso-*`) fail on the first red.
@@ -309,7 +311,7 @@ jobs:
       - name: Vitest
         id: vitest
         if: ${{ !cancelled() }}
-        continue-on-error: ${{ github.ref_name == 'lander/batch' }}
+        continue-on-error: ${{ startsWith(github.ref_name, 'lander/batch-') }}
         env:
           WFC_VITEST_JSON: ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
         run: npm run test -- --full=coverage --shard=${{ matrix.shard }}/${{ strategy.job-total }}
@@ -317,7 +319,7 @@ jobs:
       # Named in scripts/lib/actions-tester.js's RETRY_STEP, which reads a red
       # here as retried already and its failing files off the step's last line.
       - name: Retry failed files
-        if: ${{ !cancelled() && steps.vitest.outcome == 'failure' && github.ref_name == 'lander/batch' }}
+        if: ${{ !cancelled() && steps.vitest.outcome == 'failure' && startsWith(github.ref_name, 'lander/batch-') }}
         run: node scripts/retry-failed-files.js "$RUNNER_TEMP/vitest-${{ matrix.shard }}.json"
 
       - name: Upload Vitest report
