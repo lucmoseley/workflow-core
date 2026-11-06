@@ -447,3 +447,73 @@ describe("rule-latch sweep — the .rule-injected- family (mantahostels#1804)", 
 		expect(fs.existsSync(f)).toBe(true);
 	});
 });
+
+describe("self-plugin marker sweep — a linked worktree's markers (#4531)", () => {
+	/* The marker is written under CLAUDE_PROJECT_DIR as handed (#4487), so a
+	 * worktree session's lands in that worktree, not the main checkout. */
+	const wt = () => path.join(sb.repo, ".claude", "worktrees", "s1");
+	const wtMarkers = () => path.join(wt(), ".claude", "tmp", "markers");
+
+	const git = (...args: string[]) => {
+		const res = spawnSync(
+			"git",
+			["-c", "user.name=t", "-c", "user.email=t@t", ...args],
+			{ cwd: sb.repo, encoding: "utf8" },
+		);
+		expect(res.status, res.stderr).toBe(0);
+	};
+
+	/** One aged file under the worktree's markers. */
+	const aged = (name: string) => {
+		fs.mkdirSync(wtMarkers(), { recursive: true });
+		const full = path.join(wtMarkers(), name);
+		fs.writeFileSync(full, "");
+		const when = new Date(Date.now() - AGED_MS);
+		fs.utimesSync(full, when, when);
+		return full;
+	};
+
+	const withWorktree = () => {
+		git("init", "-q");
+		git("commit", "-q", "--allow-empty", "-m", "base");
+		git("worktree", "add", "-q", "--detach", wt());
+	};
+
+	it("sweeps a finished session's aged marker in a worktree", () => {
+		withWorktree();
+		const f = aged(".self-plugin-loaded-bob");
+		finished(sb, "bob");
+
+		markersMod.pruneMarkers();
+
+		expect(fs.existsSync(f)).toBe(false);
+	});
+
+	it("keeps a live session's aged marker in a worktree", () => {
+		withWorktree();
+		const f = aged(".self-plugin-loaded-alice");
+		live(sb, "alice");
+
+		markersMod.pruneMarkers();
+
+		expect(fs.existsSync(f)).toBe(true);
+	});
+
+	it("leaves a worktree's other aged markers alone", () => {
+		withWorktree();
+		const f = aged(".concision-base-bob");
+		finished(sb, "bob");
+
+		markersMod.pruneMarkers();
+
+		expect(fs.existsSync(f)).toBe(true);
+	});
+
+	it("creates no markers directory in a worktree that has none", () => {
+		withWorktree();
+
+		markersMod.pruneMarkers();
+
+		expect(fs.existsSync(wtMarkers())).toBe(false);
+	});
+});

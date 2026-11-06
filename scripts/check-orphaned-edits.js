@@ -89,11 +89,8 @@ const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { deref } = require("./lib/deref.js");
-const {
-	readLinkedWorktrees,
-	worktreeLabel,
-	worktreeOwners,
-} = require("./lib/session-worktrees.js");
+const { worktreeLabel, worktreeOwners } = require("./lib/session-worktrees.js");
+const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
 const { landedAs, readUnlandedCommits } = require("./lib/landed-edit.js");
 const {
