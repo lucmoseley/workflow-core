@@ -898,8 +898,10 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 		expect(fs.readFileSync(lockFile(), "utf8")).toBe(held);
 	});
 
-	it("refuses a fresh lock whose holder it may not signal (EPERM)", () => {
-		// Another user's live process answers EPERM, not ESRCH.
+	it("refuses a fresh lock whose holder it may not signal (EPERM) (#4020)", () => {
+		// Another user's live process answers EPERM, not ESRCH. The real seam,
+		// pid 1, answers EPERM only to a non-root runner, so the spy forces it.
+		// Any pid but this one's serves: the spy answers it, never the kernel.
 		const foreign = 4_194_303;
 		const realKill = process.kill;
 		const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
