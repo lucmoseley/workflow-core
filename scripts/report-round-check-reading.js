@@ -2,9 +2,9 @@
 /*
  * report-round-check-reading.js — the reading of the under-researched-round
  * check: whether sending a not-close round back once, when fewer than
- * MIN_CALLS tool calls ran since the founder last spoke (#1684, built at
- * #1710), has cut how often he sends rounds back for research or challenges
- * their premise. Built at #1711 from spec #1701, on #1691's rulings.
+ * MIN_CALLS tool calls ran since the founder last spoke (#1684), has cut how
+ * often he sends rounds back for research or challenges their premise (spec
+ * #1701, on #1691's rulings).
  *
  * EACH REPO AGAINST ITS OWN BASELINE, NEVER POOLED BLIND (#1691's captured
  * fact), because the below-10 send-back rate runs from 14% (workflow-core)
@@ -16,9 +16,8 @@
  * it prints the figures so far and files nothing. Once a reading's issue
  * exists, open or closed, it never files again (lib/log-reading.js's
  * `buildFiler`), and the next reading is the one read. The first is due as
- * POINT_FIGURES places it; the second, which #3978 Q1 (A) ruled and #3995
- * built, at the SECOND_TARGETth refused-then-answered round classed (a)–(c)
- * or still to class, so classing (d)–(f) can move it later.
+ * POINT_FIGURES places it; the second (#3978 Q1 (A)) at the SECOND_TARGETth
+ * refused-then-answered round classed (a)–(c) or still to class.
  *
  * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh:
  * the logs and transcripts are machine-local. A plain run walks them at most
@@ -54,8 +53,7 @@
  * rounds he then answered: in one session, between two of the founder's
  * messages, refused questions none of which a passing send then carried —
  * every pass `resent: false`, or no pass before his next message. A raw
- * count: some are no real stop (a recorded answer, a test session, a reworded
- * hand-over), so each is listed for the taking session to read by hand.
+ * count, each case listed to read by hand.
  *
  * A REPO IS KEPT OUT OF A POOL, and named, where the baseline has no rows for
  * its side of the MIN_CALLS line, or the window holds fewer than MIN_REPO_ROUNDS
@@ -121,7 +119,6 @@ const TITLE =
 
 const BASELINE = "docs/data/round-sendbacks-2026-10-14/rounds.json";
 
-/* The first reading's classes, as #3978 ruled on them. */
 const CLASSED = "docs/data/round-check-reading-2026-11-02/classes.json";
 
 /* #3978 Q1 (A)'s 130, its rounding of the 131 rated rounds that tell 6.9%
@@ -320,7 +317,6 @@ function roundsOf(answered, classes) {
  */
 
 /**
- * Whether a log line is a pass, within a stretch, of a question refused in it.
  * @param {RoundEvent} e
  * @param {{ session: string, refusedAt: Map<string, number>, upTo: number }} s
  */
@@ -339,8 +335,7 @@ function isPassIn(e, s) {
 /**
  * The refused rounds in the window none of whose questions reached the
  * founder, and how many refused rounds there were: one round per session per
- * stretch between two of his messages, so a question refused again counts
- * once.
+ * stretch between two of his messages.
  *
  * A session whose transcript will not read is left out, and counted: with no
  * messages of his to bound a stretch, any refusal in it would read stopped.
@@ -408,7 +403,6 @@ function stoppedRounds(events, transcripts, { at, repos }) {
 }
 
 /**
- * The stopped-round count, a day, set beside line 1.
  * @param {ReturnType<typeof stoppedRounds>} counted
  * @param {number} days the window's length
  * @returns {string}
@@ -551,7 +545,6 @@ function repoPool(rounds, { base, repos }, side) {
 	};
 }
 
-/* Each reading's step 1: classing the listed replies (#1691, #1682). */
 const CLASS_STEP =
 	'1. Class each listed reply with the six send-back classes (#1682): (a) answered; (b) asked for more checks or research; (c) challenged or overturned a premise; (d) asked for a clarification only; (e) other (admin, `/compact`, "resume", information, a new topic); (f) rejected or rewrote a draft on taste, with no premise disputed. A reply that answers some blocks and sends one back is (b) or (c), and a critique naming a wrong fact or rule is (c), not (f). Write them to a JSON file under `.claude/tmp/` as `{"<session>@<reply time>": "<class>"}`, and run `node scripts/report-round-check-reading.js --dry-run --classes <file>` for the decided lines, r and the flip.';
 
@@ -578,8 +571,7 @@ const buildReadingBody = (intro, steps) => (reading) =>
  *     { point: Point, sentence: string } | null,
  *   thin: (rounds: Round[], pooled: Round[]) => string | null,
  *   skewed: boolean }} Reading
- *   `place` is null while no repo is live; `thin` reads the window's rounds and line 1's pool of them;
- *   `skewed` prints the baseline's skew beside the rates set against it
+ *   `place` is null while no repo is live
  */
 
 /** @param {Round[]} rounds */
@@ -659,10 +651,10 @@ const READINGS = [
 			record: ".round-check-reading-2-filed",
 			script: "node scripts/report-round-check-reading.js",
 			buildIssueBody: buildReadingBody(
-				`The second reading of the under-researched-round check, filed once by \`scripts/report-round-check-reading.js\` at ${SECOND_TARGET} rated refused-then-answered rounds (ruled at #3978 Q1 (A), built at #3995; the first reading is #3978). Closing this issue never re-files it.`,
+				`The second reading of the under-researched-round check, filed once by \`scripts/report-round-check-reading.js\` at ${SECOND_TARGET} rated refused-then-answered rounds (ruled at #3978 Q1 (A); the first reading is #3978). Closing this issue never re-files it.`,
 				[
 					`${CLASS_STEP} Where replies classed (d)–(f) leave fewer than ${SECOND_TARGET} rated, the re-run's point moves later: class the replies it then lists too.`,
-					"2. Read each listed stopped round from the session's next message, and say which are real stops (the session decided or withdrew the question itself, or went on without asking) and which are not (recording an answer, a test session, a reworded hand-over). Judge a sample of the real ones, saying how many: was the session right to decide it itself? That is what separates keeping the refusal from dropping it (#3995).",
+					"2. Read each listed stopped round from the session's next message, and say which are real stops (the session decided or withdrew the question itself, or went on without asking) and which are not (recording an answer, a test session, a reworded hand-over). Judge a sample of the real ones, saying how many: was the session right to decide it itself?",
 					"3. Put line 1 back to the founder as a fresh question, whatever it reads (#3978 Q1 (A)), with the stopped rounds a day and step 2's findings beside it, and the baseline's skew beside every rate set against a baseline. Put each ruling another fired line names back as a fresh question too, and the flip where it reads PUT (#1691).",
 				],
 			),
@@ -698,7 +690,6 @@ const READINGS = [
 	},
 ];
 
-/* Beside every rate the second reading sets against a baseline (#3995). */
 const SKEW_LINE =
 	"Every baseline below is skewed: rounds reaching the founder fell 72% between the baseline fortnight and the first reading (#3978), when the refusal and the written rule shipped together, so a rate set against one is confounded by which rounds still reach him.";
 

@@ -96,7 +96,6 @@ const writeBaseline = (data: unknown) => {
 	);
 };
 
-/** The committed classes the reporter starts from. */
 const writeClassed = (data: unknown) => {
 	fs.mkdirSync(path.join(roots["workflow-core"], CLASSED), { recursive: true });
 	fs.writeFileSync(
@@ -780,7 +779,7 @@ describe("filing the reading", () => {
 		expect(fs.existsSync(filedRecord())).toBe(false);
 	});
 
-	it("never files a second time once it has filed, reading the second reading instead, before whose point it calls gh not at all", () => {
+	it("never files a second time, reading the second reading instead", () => {
 		healthy();
 		expect(file().status).toBe(0);
 		fs.rmSync(argvLog);
@@ -848,7 +847,6 @@ describe("filing the reading", () => {
 });
 
 describe("the second reading (#3995)", () => {
-	/** Mark the first reading filed, so the second is the one read. */
 	const firstFiled = () => {
 		const record = path.join(roots["workflow-core"], MARKERS_REL, FILED);
 		fs.mkdirSync(path.dirname(record), { recursive: true });
@@ -999,7 +997,7 @@ describe("stopped rounds (#3995)", () => {
 		);
 	});
 
-	it("counts a pass after his next message as no send, since the round never reached him before he spoke", () => {
+	it("counts a pass after his next message as no send", () => {
 		healthy();
 		const t = T0 + 2 * DAY;
 		refusal("late", t);
