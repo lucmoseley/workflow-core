@@ -56,6 +56,12 @@ describe("dropTicketFiler", () => {
 			},
 			openUnits: (parent) => units[String(parent)] ?? [],
 			similar: () => listed,
+			readTicketsTitled: (prefix) =>
+				new Map(
+					listed
+						.filter((c) => c.title.startsWith(prefix))
+						.map((c) => [c.title, c.number]),
+				),
 			fileIssue: (args, input) => {
 				files.push({ args, input });
 				if (refuseParent !== null && args.includes("--parent"))
@@ -80,11 +86,48 @@ describe("dropTicketFiler", () => {
 		return {
 			said: (d: Partial<Drop> = {}) =>
 				tracker.fileDropTicket({ ...DROP, ...d }),
+			found: () => tracker.findDropTicket(DROP.name, DROP.sha),
 			files,
 			ranges,
 			reopened,
 		};
 	}
+
+	it("finds the lowest-numbered ticket whose title starts with the drop's prefix, and none where only a near title does", () => {
+		const titled = (number: number, title: string) => ({ number, title });
+		const near = [
+			titled(5, "Fix queue/wt-10 at aaaaaaaaa, dropped by the queue lander: x"),
+			titled(6, "Fix queue/wt-1 at bbbbbbbbb, dropped by the queue lander: x"),
+		];
+
+		expect(dropFiler([], {}, near).found()).toBeNull();
+		expect(
+			dropFiler([], {}, [
+				...near,
+				titled(
+					8,
+					"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: y",
+				),
+				titled(
+					7,
+					"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: x",
+				),
+			]).found(),
+		).toBe(7);
+	});
+
+	it("files an unrecorded drop's ticket saying why is unknown", () => {
+		const f = dropFiler(["Add the widget"]);
+
+		f.said({ cause: { kind: "unrecorded", name: "wt-1" } });
+
+		expect(f.files[0].input).toContain(
+			`why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${M}`,
+		);
+		expect(f.files[0].input).toContain(
+			"aaaaaaaaa's change merges onto `main`, passes the whole suite there, and is pushed to `queue/wt-1` again.",
+		);
+	});
 
 	it("reopens a closed cited ticket before filing under it", () => {
 		const f = dropFiler(["Add the widget (#12)"], { 12: "closed" });
@@ -158,13 +201,21 @@ describe("dropTicketFiler", () => {
 	it("files standalone where no commit cites a ticket, naming a merge's refusal as its evidence", () => {
 		const f = dropFiler(["Tidy"]);
 
-		f.said({ cause: { kind: "refused", name: "wt-1", reason: "rule:x" } });
+		f.said({
+			cause: {
+				kind: "refused",
+				name: "wt-1",
+				reason: "FAIL: rule:x\nrun: fix ```x```",
+			},
+		});
 
 		const [{ args, input }] = f.files;
 		expect(flag(args, "--standalone")).toBe(
 			"No commit on queue/wt-1 cites a ticket of this repo.",
 		);
-		expect(input).toContain("its merge was refused: `rule:x`");
+		expect(input).toContain(
+			"its merge was refused, the refusal ending:\n\n```text\nFAIL: rule:x\nrun: fix '''x'''\n```\n",
+		);
 	});
 
 	it("names a member red alone twice by its isolation commit, its failing files and their pass on main, or the whole suite where it named none", () => {

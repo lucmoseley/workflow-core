@@ -11,7 +11,8 @@
  * is read again unrepaired, a live queue lander's lock is taken by a
  * second one or its launcher, a verdict, batch or drop written to disk is lost to the
  * next run, or a ref conflicting with `main` stops the queue, goes unkept
- * under `dropped/<name>` or unticketed; or a red batch's culprit is not
+ * under `dropped/<name>` or unticketed, or one a merge gate refuses is
+ * ticketed with the gate's first line in place of its findings; or a red batch's culprit is not
  * isolated on `lander/iso-<k>` and dropped with its evidence, a collision is
  * not settled by serial landing, or a failure `main` shares holds the batch
  * on a local tester or goes without its base-red ticket, or a push `main`
@@ -41,6 +42,7 @@ import {
 	dropRecord,
 	queueGit,
 	queueLogger,
+	refusedRecord,
 	verdictLedger,
 } from "./lib/queue-lander-adapters.js";
 import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
@@ -49,9 +51,10 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 landerSandbox();
 
-// Required, not imported: an ESM import of lib/queue-lander.js would load a
-// second copy of TransientFault, which queueGit's throw is not.
+// Required, not imported: an ESM import would load a second copy of
+// TransientFault or PushRefused, which queueGit's throw is not.
 const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
+const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
@@ -264,7 +267,59 @@ describe("a run", () => {
 		]);
 	});
 
-	it("lands a batch red only where main is red too, filing the base-red ticket and ledgering each run by its pass", async () => {
+	it("drops a ref whose merge a gate refuses with the gate's findings, not its first line, and lands the other", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const hook = path.join(git(work, "rev-parse", "--git-common-dir"), "hooks");
+		fs.mkdirSync(path.resolve(work, hook), { recursive: true });
+		fs.writeFileSync(
+			path.resolve(work, hook, "pre-merge-commit"),
+			[
+				"#!/bin/sh",
+				"[ -e gated.txt ] || exit 0",
+				"echo 'OK: a linked worktree' >&2",
+				"printf '\\033[31mSTALE-PROSE\\033[0m gated.txt\\n' >&2",
+				"echo 'run: re-anchor gated.txt' >&2",
+				"exit 1",
+				"",
+			].join("\n"),
+			{ mode: 0o755 },
+		);
+		const a = pushQueue("a", seed, () =>
+			fs.writeFileSync(path.join(work, "gated.txt"), "a\n"),
+		);
+		const b = pushQueue("b", seed);
+		const { gh, readStore } = stubTracker();
+
+		const r = await runLander(stubTester(0), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
+		expect(
+			git(
+				remote,
+				"merge-base",
+				"--is-ancestor",
+				b,
+				git(remote, "rev-parse", "main"),
+			),
+		).toBe("");
+		const [drop] = dropRecord(
+			path.join(markers(), ".queue-lander-drops.json"),
+		).read();
+		expect(drop.cause).toEqual({
+			kind: "refused",
+			name: "a",
+			reason: expect.stringMatching(
+				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt\n/,
+			),
+		});
+		const [ticket] = readStore();
+		expect(ticket.body).toContain(
+			"its merge was refused, the refusal ending:\n\n```text\nOK: a linked worktree\nSTALE-PROSE gated.txt\nrun: re-anchor gated.txt\n",
+		);
+	});
+
+	it("lands a batch red only where main is red too, filing the base-red ticket, ledgering the batch's runs by their pass and keeping the base check on the batch record", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		pushQueue("a", seed);
 		pushQueue("b", seed);
@@ -296,7 +351,16 @@ describe("a run", () => {
 		expect(rows.map((row) => [row.sha, row.files, row.pass])).toEqual([
 			[main, [], undefined],
 			[main, ["scripts/x.test.ts"], 2],
-			[seed, ["scripts/x.test.ts"], 0],
+		]);
+		const batch = JSON.parse(
+			fs.readFileSync(path.join(markers(), ".queue-lander-batch.json"), "utf8"),
+		);
+		expect(batch.bases).toEqual([
+			{
+				sha: seed,
+				files: ["scripts/x.test.ts"],
+				verdict: { kind: "red", files: ["scripts/x.test.ts"] },
+			},
 		]);
 	});
 });
@@ -339,6 +403,55 @@ describe("the adapters", () => {
 		expect(git(remote, "rev-parse", "main")).toBe(b);
 	});
 
+	it("throws on a push to main GitHub refused on its own internal fault, for the run to retry, rather than returning it as a refusal (#4497)", () => {
+		const a = commit("a");
+		const hook = path.join(work, ".git", "hooks", "pre-push");
+		fs.writeFileSync(
+			hook,
+			"#!/bin/sh\necho ' ! [remote rejected] HEAD -> main (fatal error in commit_refs_rules)' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+
+		expect(() => queueGit(work).pushMain(a)).toThrow(
+			/fatal error in commit_refs_rules/,
+		);
+	});
+
+	it("returns the remote's refusal of a push to main though its pre-push hook quoted a network fault (#4513)", () => {
+		const a = commit("a");
+		fs.writeFileSync(
+			path.join(work, ".git", "hooks", "pre-push"),
+			"#!/bin/sh\necho 'test said: Connection reset' >&2\n",
+			{ mode: 0o755 },
+		);
+		fs.writeFileSync(
+			path.join(remote, "hooks", "pre-receive"),
+			"#!/bin/sh\necho 'GH013: rule violations' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+
+		expect(queueGit(work).pushMain(a)).toMatch(/^! \[remote rejected\] .*main/);
+	});
+
+	it("throws a push whose hook quoted a network fault as a refusal, never a fault to retry (#4513)", () => {
+		const a = commit("a");
+		fs.writeFileSync(
+			path.join(work, ".git", "hooks", "pre-push"),
+			"#!/bin/sh\necho 'test said: Connection reset' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+
+		let thrown: unknown;
+		try {
+			queueGit(work).pushBatch(a);
+		} catch (err) {
+			thrown = err;
+		}
+
+		expect(thrown).toBeInstanceOf(PushRefused);
+		expect((thrown as { stderr: string }).stderr).toContain("Connection reset");
+	});
+
 	it("creates a dropped ref, takes it made already at the same sha, refuses it at another, and lists it", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const a = commit("a");
@@ -350,6 +463,23 @@ describe("the adapters", () => {
 		expect(() => g.createRef("dropped/a", seed)).toThrow(/stale info/);
 		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
 		expect(g.refs().dropped).toEqual([{ ref: "dropped/a", sha: a }]);
+	});
+
+	it("merges a lone member descending from main as a new commit where asked fresh, never its own sha", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed);
+		const g = queueGit(work);
+		g.refs();
+		const member = { name: "a", sha: a, pushedAt: 1 };
+
+		expect(g.mergeMembers(seed, [member])).toEqual({ kind: "merged", sha: a });
+		const fresh = g.mergeMembers(seed, [member], true);
+
+		expect(fresh.kind).toBe("merged");
+		const sha = fresh.kind === "merged" ? fresh.sha : "";
+		expect(sha).not.toBe(a);
+		expect(git(work, "rev-parse", `${sha}^2`)).toBe(a);
+		expect(git(work, "rev-parse", `${sha}^1`)).toBe(seed);
 	});
 
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {
@@ -486,6 +616,7 @@ describe("the adapters", () => {
 				files: ["a.ts"],
 				ticket: 90,
 			},
+			bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
 		};
 		batchRecord(batch).write(b);
 
@@ -513,6 +644,18 @@ describe("the adapters", () => {
 		expect(batchRecord(batch).read()).toBeNull();
 		fs.writeFileSync(batch, '{"members": [');
 		expect(batchRecord(batch).read()).toBeNull();
+		fs.writeFileSync(
+			batch,
+			JSON.stringify({ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] }),
+		);
+		expect(batchRecord(batch).read()).toBeNull();
+
+		const refused = refusedRecord(path.join(markers(), "r.jsonl"));
+		refused.add("s1", "GH013: rule violations");
+		expect(refusedRecord(path.join(markers(), "r.jsonl")).refusalOf("s1")).toBe(
+			"GH013: rule violations",
+		);
+		expect(refused.refusalOf("s2")).toBeNull();
 
 		const drops = path.join(markers(), "d.json");
 		const d = {

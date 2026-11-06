@@ -3,14 +3,22 @@
  * adapters (lib/queue-lander-adapters.js) and the readers of its refs and
  * ledger (lib/queue-ref-status.js, lib/landing-stall.js): the remote's heads,
  * ancestry, a throwaway worktree, a push, the line naming why git refused,
- * and a remote call's retries.
+ * what a gate refusing a merge said, and a remote call's retries.
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { caught } = require("./caught.js");
-const { isNetworkFault } = require("./network-fault.js");
+const { stripVTControlCharacters } = require("node:util");
+const { caught, parseErrorText } = require("./caught.js");
+const {
+	isNetworkFault,
+	isPushFaultText,
+	PushRefused,
+	readGitLines,
+	REMOTE_TRIES,
+	remoteBackoffMs,
+} = require("./network-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { REMOTE } = require("./landing-refs.js");
 const { execGit } = require("./git.js");
@@ -24,15 +32,31 @@ const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
 /* Measured on #3913: the gate stack fits this up to load 42-56, if time scales
  * with load, which no run measured. */
 const GATED_COMMIT_TIMEOUT_MS = 600 * 1000;
-const GIT_REFUSAL = /^(?:error|fatal):.*|^ ! \[.*/m;
 
 /**
  * The line naming why a git call failed: git's own refusal where it printed
  * one, as a push's first line is the pre-push hook's, else the first line.
  * @param {string} text
  */
-const parseRefusal = (text) =>
-	GIT_REFUSAL.exec(text)?.[0] ?? parseFirstLine(text);
+const parseRefusal = (text) => readGitLines(text)[0] ?? parseFirstLine(text);
+
+/* A first guess, unmeasured: room for a gate's findings and the command it
+ * names to settle them. */
+const REFUSAL_TAIL_LINES = 40;
+
+/**
+ * What a gate refusing a merge said: the last REFUSAL_TAIL_LINES non-blank
+ * lines, colour stripped. A hook prints its passing checks first and its
+ * findings last, so its first line can be an `OK:`.
+ * @param {string} text
+ */
+const parseRefusalTail = (text) =>
+	stripVTControlCharacters(text)
+		.split("\n")
+		.map((l) => l.trimEnd())
+		.filter((l) => l !== "")
+		.slice(-REFUSAL_TAIL_LINES)
+		.join("\n");
 
 /**
  * What a failed call printed to stderr, else its error's message.
@@ -56,12 +80,6 @@ function stderrIfThrown(call) {
 		return readThrownText(err);
 	}
 }
-/* Untraced: five tries over about a minute, outlasting a DNS or connection
- * blip (#2673); the backoff is exponential and randomised, as the Google SRE
- * book's "Addressing Cascading Failures" chapter sets for a retrying client. */
-const REMOTE_TRIES = 5;
-const REMOTE_BACKOFF_MS = 4 * 1000;
-
 /** Untraced: 9 hex digits, two past git's default abbreviation, unique in any history this size.
  * @param {string} sha */
 const short = (sha) => sha.slice(0, 9);
@@ -81,9 +99,7 @@ async function remote({ wait = pause }, call, isFault = isNetworkFault) {
 			return await call();
 		} catch (err) {
 			if (attempt >= REMOTE_TRIES || !isFault(err)) throw err;
-			await wait(
-				REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random()),
-			);
+			await wait(remoteBackoffMs(attempt));
 		}
 	}
 }
@@ -229,7 +245,7 @@ const readConflictedFiles = (inTree) =>
 /**
  * A push from `root` to lib/landing-refs.js's remote. Its timeout is the
  * pre-push hook's run, which a retry would only repeat, so it throws as no
- * network fault.
+ * network fault; a refusal whose git lines name no fault throws PushRefused.
  * @param {string} root
  * @param {string[]} args the push's flags and refspecs
  * @param {NodeJS.ProcessEnv} [env]
@@ -244,7 +260,10 @@ function pushRemote(root, args, env = process.env) {
 			env,
 		});
 	} catch (err) {
-		if (caught(err).code !== "ETIMEDOUT") throw err;
+		const e = caught(err);
+		if (e.status !== undefined && !isPushFaultText(e.stderr ?? ""))
+			throw new PushRefused(e.message, { cause: err });
+		if (e.code !== "ETIMEDOUT") throw err;
 		throw new Error(
 			`git push ${args.join(" ")} timed out after ${PUSH_TIMEOUT_MS / 60_000} min`,
 			{ cause: err },
@@ -252,11 +271,57 @@ function pushRemote(root, args, env = process.env) {
 	}
 }
 
+/* git push's words for a compare-and-delete refused because the ref moved. */
+const STALE = /\(stale info\)/;
+const GONE = /remote ref does not exist/;
+
+/**
+ * Deletes the remote's `branch` only where it still holds `sha`: true where
+ * it is gone after, false where it moved.
+ * @param {string} root
+ * @param {string} branch
+ * @param {string} sha
+ * @returns {boolean}
+ */
+function deleteRemoteRef(root, branch, sha) {
+	const ref = `refs/heads/${branch}`;
+	try {
+		pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`]);
+		return true;
+	} catch (err) {
+		const refused = parseErrorText(err);
+		if (GONE.test(refused)) return true;
+		if (STALE.test(refused)) return false;
+		throw err;
+	}
+}
+
+/**
+ * Creates the remote's `branch` at `sha`, refused where it holds another sha.
+ * @param {string} root
+ * @param {string} branch
+ * @param {string} sha
+ */
+function createRemoteRef(root, branch, sha) {
+	const ref = `refs/heads/${branch}`;
+	try {
+		pushRemote(root, [`--force-with-lease=${ref}:`, `${sha}:${ref}`]);
+	} catch (err) {
+		/* Made already, as by a drop a crash repeats. */
+		if (!STALE.test(parseErrorText(err))) throw err;
+		const held = readGit(root, ["ls-remote", REMOTE, ref]).split("\t")[0];
+		if (held !== sha) throw err;
+	}
+}
+
 module.exports = {
+	createRemoteRef,
+	deleteRemoteRef,
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
+	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,

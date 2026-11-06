@@ -15,8 +15,10 @@
  * failing so is no verdict, never a red to isolate.
  *
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
- * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`; asked
- * again, the run's failed jobs are rerun. Named files at a sha a
+ * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`. Asked
+ * again, a failed run has its failed jobs rerun; any other run at the sha
+ * is never read, its ref deleted and created again so a run starts after
+ * the ask (#4524). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
  * check, are run alone by named-rerun.yml. At any other sha a `lander/batch`
  * run covers they are read off that run, a failed one rerunning its failed
@@ -26,7 +28,8 @@
 const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const path = require("node:path");
-const { gitBinary, gitSpawnOptions } = require("./git.js");
+const { SHORT_SHA, gitBinary, gitSpawnOptions } = require("./git.js");
+const { createRemoteRef, deleteRemoteRef } = require("./lander-git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
@@ -102,6 +105,9 @@ const RUNNER_RERUNS = 2;
  *   `files` the tree at `sha` holds
  * @property {(run: number) => void} rerun starts a new attempt of the run's
  *   failed jobs
+ * @property {(to: string, sha: string) => boolean} repush deletes the
+ *   remote's branch `to` where it holds `sha` or is gone, then creates it
+ *   at `sha`; false where it moved
  * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
  *   | {kind: "runner", run: number, attempt: number, reason: string}} SuiteRunVerdict
@@ -120,12 +126,11 @@ const RUNNER_RERUNS = 2;
 
 /**
  * @param {string} sha
- * @param {Reads} reads
+ * @param {readonly Run[]} runs
  * @returns {Run|undefined}
  */
-const newestRun = (sha, reads) =>
-	reads
-		.runs()
+const newestRun = (sha, runs) =>
+	runs
 		.filter((r) => r.headSha === sha)
 		.sort((a, b) => b.databaseId - a.databaseId)[0];
 
@@ -164,7 +169,7 @@ function greenGap(jobs) {
  * @returns {SuiteRunVerdict}
  */
 function runVerdict(sha, reads, after) {
-	const run = newestRun(sha, reads);
+	const run = newestRun(sha, reads.runs());
 	if (run === undefined) return { kind: "pending", run: null };
 	/* A run has finished when it has a conclusion, never when `status` says
 	 * so (ci-verdict.js). */
@@ -292,6 +297,11 @@ function liveReads(root, branch) {
 		},
 		rerun: (run) => {
 			gh(["run", "rerun", String(run), "--failed"]);
+		},
+		repush: (to, sha) => {
+			if (!deleteRemoteRef(root, to, sha)) return false;
+			createRemoteRef(root, to, sha);
+			return true;
 		},
 	};
 }
@@ -624,9 +634,13 @@ function suiteOn(suite, held) {
 }
 
 /**
- * The verdict at `sha` asked again of the newest suite run on `on`'s branch,
- * its failed jobs rerun first: on `files`, which it judges too, else the
- * whole suite. Files at a sha no run covers are run alone.
+ * The verdict at `sha` asked again on `on`'s branch, the newest run at `sha`
+ * rerun where it failed: on `files`, which it judges too, else the whole
+ * suite. Files at a sha no run covers are run alone. The whole suite is
+ * never read off a run listed before the ask (#4524): any other run at
+ * `sha` has the branch pushed again, and only a run newer than every one
+ * the branch listed is judged. Residual: a run the lander's own push
+ * started and GitHub listed by the ask is run twice.
  * @param {string} sha
  * @param {string[]} files
  * @param {{reads: Reads, branch: string} & Poll} on
@@ -634,17 +648,53 @@ function suiteOn(suite, held) {
  * @returns {Promise<Verdict>}
  */
 async function rerunVerdict(sha, files, on, named) {
-	/** @type {Run|undefined} */
-	let run;
+	const { reads, branch } = on;
+	/** @type {Run[]} */
+	let listed;
 	try {
-		run = newestRun(sha, on.reads);
-		if (run?.conclusion === "failure") on.reads.rerun(run.databaseId);
+		listed = reads.runs();
 	} catch (err) {
 		return unreadable(err);
 	}
-	if (run === undefined && files.length > 0)
-		return namedVerdict(named, sha, files, false);
-	return suiteVerdict(sha, run?.conclusion === "failure" ? run.attempt : 0, on);
+	const run = newestRun(sha, listed);
+	if (run?.conclusion === "failure") {
+		try {
+			reads.rerun(run.databaseId);
+		} catch (err) {
+			return unreadable(err);
+		}
+		return suiteVerdict(sha, run.attempt, on);
+	}
+	if (files.length > 0)
+		return run === undefined
+			? namedVerdict(named, sha, files, false)
+			: suiteVerdict(sha, 0, on);
+	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
+	if (run !== undefined) {
+		/** @type {boolean} */
+		let pushed;
+		try {
+			pushed = reads.repush(branch, sha);
+		} catch (err) {
+			return {
+				kind: "unknown",
+				reason: `${branch} not pushed again at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
+				...(isNetworkFault(err) ? { transient: true } : {}),
+			};
+		}
+		if (!pushed)
+			return {
+				kind: "unknown",
+				reason: `${branch} moved off ${sha.slice(0, SHORT_SHA)} before it was pushed again`,
+			};
+	}
+	return suiteVerdict(sha, 0, {
+		...on,
+		reads: {
+			...reads,
+			runs: () => reads.runs().filter((r) => r.databaseId > bound),
+		},
+	});
 }
 
 module.exports = { SUITE_WORKFLOW, queueTester };

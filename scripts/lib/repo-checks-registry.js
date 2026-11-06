@@ -1,7 +1,8 @@
 /*
  * repo-checks-registry.js — every state check and reporter the daily
  * repo-checks run launches, and the gate each passes first (#1548, spec #1510
- * §The list and its gates). Data only: adding a check is one entry.
+ * §The list and its gates), and `entryOf`, the one lookup by id, which
+ * throws on an id it lacks. Adding a check is one entry.
  *
  * LISTED IN RUN ORDER: the tree checks first, then the reporters, then the
  * tracker checks, with clobbered bodies last.
@@ -234,4 +235,16 @@ const REPO_CHECKS = [
 	},
 ];
 
-module.exports = { REPO_CHECKS };
+/**
+ * The registry entry a job was built from. Every job is, so a miss is a bug.
+ *
+ * @param {string} id
+ * @returns {RepoCheck}
+ */
+function entryOf(id) {
+	const entry = REPO_CHECKS.find((e) => e.id === id);
+	if (!entry) throw new Error(`no registry entry "${id}"`);
+	return entry;
+}
+
+module.exports = { REPO_CHECKS, entryOf };

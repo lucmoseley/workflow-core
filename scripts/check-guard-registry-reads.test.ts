@@ -13,11 +13,14 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	ANCHORS,
 	asRoot,
 	build,
+	committedRepo,
 	type Fixture,
 	hooksWiring,
 	type Result,
@@ -27,6 +30,7 @@ import {
 	reviewIn,
 	run,
 	SELF_PLUGIN_HOOKS,
+	temps,
 } from "./lib/guard-registry-testkit";
 
 afterEach(removeTemps);
@@ -523,9 +527,6 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 
 describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	/*
-	 * `.claude/tmp/` is where docs/agents/guard-registry.md §Subagent dispatch sends every review
-	 * and concision artefact.
-	 *
 	 * A real git repository, because the filter asks `git check-ignore`. Only
 	 * the case that needs a tracked file sets `commit`.
 	 */
@@ -614,6 +615,7 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		expect(r.kinds).toContain("ORPHAN-TRIGGER");
 		expect(r.code).toBe(1);
 		expect(r.report).toContain("Gitignore filter FAILED OPEN");
+		expect(r.report).toContain("Tree read FAILED OPEN");
 	});
 
 	it("scans a tracked file that matches an ignore pattern", () => {
@@ -826,4 +828,104 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 			}
 		},
 	);
+});
+
+describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
+	/* Every probe the closure makes: a hook-local lib shadowing the shared one,
+	 * a sibling shadowing a run target, a require of a lib not in the tree, and
+	 * a scripts/ path a gate stack's header names that no commit carries. */
+	const shadows = [
+		".husky/lib/gate.sh",
+		".husky/scripts/check-valid.js",
+		"scripts/lib/absent.js",
+		"scripts/not-yet.js",
+	];
+	const rows = [".husky/pre-commit", "scripts/check-valid.js"];
+	const commitWithWorktree = () => {
+		const root = committedRepo({
+			claude: region(
+				"- Roadmap commits stay valid. **Enforced** (#9): `scripts/check-valid.js` in `.husky/pre-commit` refuses an invalid one.",
+			),
+			files: {
+				".husky/pre-commit": [
+					"#!/usr/bin/env sh",
+					"# IMPLICIT:  runs every gate below and refuses the commit on a red.",
+					"# JUSTIFIED: fail-safe — the last local moment before work is shared.",
+					"# RUNS:      gates — scripts/not-yet.js joins them later.",
+					"# DEFEAT:    none.",
+					"#",
+					'. "$ROOT"/scripts/lib/gate.sh',
+					'node "$ROOT"/scripts/check-valid.js || exit "$?"',
+					"",
+				].join("\n"),
+				"scripts/lib/gate.sh": "gate() { :; }\n",
+				"scripts/check-valid.js": 'require("./lib/absent.js");\n',
+				".gitignore": ".husky/lib/\n",
+				[ANCHORS]: JSON.stringify(
+					Object.fromEntries(rows.map((g) => [g, "0"])),
+				),
+			},
+		});
+		const other = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
+		temps.push(other);
+		execFileSync("git", ["worktree", "add", "-q", "--detach", other], {
+			cwd: root,
+		});
+		return { root, other };
+	};
+	const plant = (tree: string) => {
+		for (const rel of shadows) {
+			fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true });
+			fs.writeFileSync(path.join(tree, rel), "planted\n");
+		}
+	};
+	const digests = (tree: string) => {
+		const r = run(tree);
+		expect(r.kinds).toEqual([]);
+		expect(r.code).toBe(0);
+		expect(r.report).toContain("Re-read each rule above against its guard");
+		return Object.fromEntries(
+			r.json.warnings
+				.filter((w) => w.kind === "STALE-PROSE")
+				.map((w) => [w.guard, /now ([0-9a-f]{16})/.exec(w.detail)?.[1]]),
+		);
+	};
+
+	it("gives every row one digest in two worktrees, one carrying untracked and ignored shadows", () => {
+		const { root, other } = commitWithWorktree();
+		plant(other);
+		const clean = digests(root);
+
+		expect(Object.keys(clean).sort()).toEqual(rows);
+		expect(digests(other)).toEqual(clean);
+	});
+
+	it("writes one set of anchors from --review in both worktrees", () => {
+		const { root, other } = commitWithWorktree();
+		plant(other);
+		reviewIn(root);
+		reviewIn(other);
+
+		expect(readAnchors(other)).toEqual(readAnchors(root));
+	});
+
+	it("re-anchors nothing where git cannot read the index", () => {
+		const { root } = commitWithWorktree();
+		const before = readAnchors(root);
+		expect(() => reviewIn(root, [], { PATH: "" })).toThrow(
+			/--review re-anchors nothing: git rev-parse failed/,
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("takes a shadow into the closure once it is in the index", () => {
+		const { root, other } = commitWithWorktree();
+		const clean = digests(root);
+		fs.writeFileSync(path.join(other, "scripts", "lib", "absent.js"), "1\n");
+		execFileSync("git", ["add", "scripts/lib/absent.js"], { cwd: other });
+
+		expect(digests(other)["scripts/check-valid.js"]).not.toBe(
+			clean["scripts/check-valid.js"],
+		);
+	});
 });
