@@ -180,6 +180,58 @@ describe("a run", () => {
 		expect(calls().at(-1)).toBe("pre-commit");
 	});
 
+	it("gives the merges to `started` before the batch's gates where the Actions run repeats the rest, and never where it does not (#4573)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+		const calls = stubHooks(
+			["pre-commit"],
+			'case "$*" in --gates=batch) echo fixed > fix.txt && git add fix.txt ;; esac\n',
+		);
+		const started: { sha: string; before: string[] }[] = [];
+		const record = (at: string) => started.push({ sha: at, before: calls() });
+
+		const merged = queueGit(work, undefined, undefined, {
+			ciRepeats: true,
+		}).mergeMembers(seed, members, false, record);
+
+		expect(started).toHaveLength(1);
+		expect(started[0]?.before).toEqual([
+			"pre-commit --gates=merge",
+			"pre-commit --gates=merge",
+		]);
+		const sha = merged.kind === "merged" ? merged.sha : "";
+		git(work, "fetch", "-q", work, sha);
+		expect(git(work, "rev-parse", `${sha}^`)).toBe(started[0]?.sha);
+		queueGit(work).mergeMembers(seed, members, false, record);
+		expect(started).toHaveLength(1);
+	});
+
+	it("gives `started` only the whole batch's merges, not each member's re-merge after its gates refuse (#4573)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 1 },
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 2 },
+		];
+		stubHooks(
+			["pre-commit"],
+			'case "$*" in --gates=batch) [ -f b.txt ] && exit 1 ;; esac\n',
+		);
+		const started: string[] = [];
+
+		expect(
+			queueGit(work, undefined, undefined, { ciRepeats: true }).mergeMembers(
+				seed,
+				members,
+				false,
+				(sha) => started.push(sha),
+			),
+		).toMatchObject({ kind: "refused", name: "b" });
+		expect(started).toHaveLength(1);
+	});
+
 	it("names the member the batch's gates refuse alone, not the last one the refusal fell on (#4545)", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const members = [

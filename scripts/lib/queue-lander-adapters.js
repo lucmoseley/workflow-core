@@ -217,7 +217,7 @@ function queueGit(
 				);
 				return { main: heads.get(mainRef) ?? null, queue, dropped };
 			}),
-		mergeMembers: (onto, members, fresh = false) =>
+		mergeMembers: (onto, members, fresh, started) =>
 			repairing(() => {
 				const [lone] = members;
 				if (
@@ -227,7 +227,7 @@ function queueGit(
 					isAncestor(root, onto, lone.sha)
 				)
 					return { kind: "merged", sha: lone.sha };
-				const whole = mergeGated(onto, members);
+				const whole = mergeGated(onto, members, started);
 				if (whole.kind !== "refused" || members.length === 1) return whole;
 				/* The batch's gates refused: the first member they refuse alone,
 				 * else the interaction, named by the last member (#4545). */
@@ -271,12 +271,14 @@ function queueGit(
 
 	/**
 	 * `members` merged in order onto `onto` in a throwaway worktree, then the
-	 * batch's gates run once over them all, staged against `onto` (#4545).
+	 * batch's gates run once over them all, staged against `onto` (#4545),
+	 * `started` given the merges first where `ciRepeats` (#4573).
 	 * @param {string} onto
 	 * @param {readonly Member[]} members
+	 * @param {(sha: string) => void} [started]
 	 * @returns {MergeResult}
 	 */
-	function mergeGated(onto, members) {
+	function mergeGated(onto, members, started) {
 		return withThrowawayTree(
 			root,
 			onto,
@@ -292,6 +294,7 @@ function queueGit(
 				const sha = inTree(["rev-parse", "HEAD"]).trim();
 				const last = members.at(-1);
 				if (sha === onto || !last) return { kind: "merged", sha };
+				if (ciRepeats) started?.(sha);
 				return batchPass({ onto, sha, last }, inTree, gates);
 			},
 		);

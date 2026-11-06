@@ -33,7 +33,10 @@
  * - **Merge.** Members merge onto `main` in that order, each a two-parent
  *   merge with the registry merge driver. A lone member that descends from
  *   `main` is the integration commit, with no merge, the adapter's
- *   `mergeMembers` telling.
+ *   `mergeMembers` telling. Where the tester's run repeats the gates the
+ *   batch's pass skips, the merges are pushed to the batch's ref before that
+ *   pass, so the run starts alongside it, and cancelled where the pass
+ *   refuses or commits edits (#4573).
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
  *   a commit gate refused, it is dropped: its batch leaves it out and
@@ -1431,11 +1434,13 @@ function stepOrEnd(s) {
 /**
  * @typedef {object} QueueGit
  * @property {() => QueueRefs} refs
- * @property {(onto: string, members: readonly Member[], fresh?: boolean) =>
- *   MergeResult} mergeMembers each member merged in order onto `onto`, in
- *   the lander's own worktree; a lone member descending from `onto` is
- *   itself the integration commit, unless `fresh`, where it is merged as a
- *   new commit
+ * @property {(onto: string, members: readonly Member[], fresh?: boolean,
+ *   started?: (sha: string) => void) => MergeResult} mergeMembers each member
+ *   merged in order onto `onto`, in the lander's own worktree; a lone member
+ *   descending from `onto` is itself the integration commit, unless `fresh`,
+ *   where it is merged as a new commit. Where the tester's run repeats the
+ *   gates the batch's pass leaves out, `started` is given the members'
+ *   merges before that pass runs, so their run starts alongside it (#4573)
  * @property {(slot: number, sha: string) => void} pushBatch `sha` to the
  *   lander's `lander/batch-<slot>` ref, forced, so a tester reading that
  *   ref's runs sees it
@@ -1988,14 +1993,33 @@ async function act(deps, action, run) {
 	const { git, record } = deps;
 	switch (action.kind) {
 		case "merge-members": {
-			const was = batchOf(run).integration;
-			if (was !== null)
-				cancelAsk(deps, run, { sha: was, slot: batchOf(run).slot });
+			const { integration: was, slot } = batchOf(run);
+			if (was !== null) cancelAsk(deps, run, { sha: was, slot });
+			/** @type {string|null} */
+			let started = null;
+			/* A failed early push leaves the push to test-sha, as before it. */
 			const merged = git.mergeMembers(
 				action.onto,
 				action.members,
 				action.fresh,
+				(sha) => {
+					try {
+						git.pushBatch(slot, sha);
+						started = sha;
+					} catch (err) {
+						deps.say?.(
+							`${short(sha)} not pushed before its gate pass: ${parseRefusal(parseErrorText(err))}`,
+						);
+					}
+				},
 			);
+			/* The run the merges started before the batch's gates, unwanted
+			 * where the gates refused or committed edits on top (#4573). */
+			if (
+				started !== null &&
+				(merged.kind !== "merged" || merged.sha !== started)
+			)
+				cancelAsk(deps, run, { sha: started, slot });
 			if (merged.kind !== "merged")
 				return { ...run, unmerged: { onto: action.onto, result: merged } };
 			/** @type {Batch} */
