@@ -10,11 +10,12 @@
  * because an over-admission freezes the machine. `admissionFrom` keeps
  * pick-next's lenient behaviour, so a full run degrades rather than dying.
  *
- * Both verdicts read one calculation, `admissionFigures` (#4263), and differ
- * only in that fallback and their wording. Its CPU limb (#830, #834, #2141):
- * load1 at or above `lib/cpu-sample.js`'s ceiling holds every slot, and the
- * session ceiling caps them. It fails open on an unreadable load or `ps`,
- * where the memory limb fails closed.
+ * Both verdicts read one calculation, `admission-figures.js`'s
+ * `admissionFigures` (#4263), and differ only in that fallback and their
+ * wording. Its CPU limb (#830, #834, #2141): load1 at or above
+ * `lib/cpu-sample.js`'s ceiling holds every slot, and the session ceiling caps
+ * them. It fails open on an unreadable load or `ps`, where the memory limb
+ * fails closed.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -59,6 +60,7 @@ const {
 	PS_BIN,
 } = require("./suite-ladder.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
+const { DRAW_Z, admissionFigures } = require("./admission-figures.js");
 
 /**
  * @typedef {import("./cpu-sample.js").LoadReading} LoadReading
@@ -142,13 +144,6 @@ const readCpuSlots = () => {
 };
 
 /**
- * @param {number} slots
- * @param {CpuSlots} cpu
- */
-const cpuCapped = (slots, cpu) =>
-	cpu.slots === null ? slots : Math.min(slots, cpu.slots);
-
-/**
  * @param {CpuSlots} cpu
  */
 const buildSessionCeilingText = (cpu) =>
@@ -221,11 +216,6 @@ const NO_LIVE_DRAW = {
 	noProcess: 0,
 	problems: [],
 };
-/* The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
- * scripts/sample_session_memory.py, whose aggregate check models this p95:
- * move both, or neither. */
-const DRAW_Z = 1.645;
-
 /**
  * One repo's session draw: its declared `sessionMeanMb` and `sessionSigmaMb`,
  * each falling back to DEFAULT_SESSION_DRAW's on its own, with `problem`
@@ -303,28 +293,6 @@ function readDeclaredSessionFloor() {
 }
 
 /**
- * The session floor's slots: those `sessionFloor` wants past the `working`
- * sessions, each granted only while `effectiveMb` still holds one more
- * session's mean above earlyoom's line and the margin, the machine's hard
- * limit (CLAUDE.md §Machine limits).
- *
- * Priced at the mean, not the p95 aggregate the draw slots use, and against
- * memory the lander's suite reserve (#2416) is NOT taken from: a floor slot
- * may admit into the lander's hold. The residual risk is a floor slot's
- * session plus a lander's suite eating into the margin above earlyoom's line,
- * which the founder's floor accepts until #2495.
- * @param {number} sessionFloor
- * @param {number} working the sessions in a working state, the caller included
- * @param {number} effectiveMb free memory less the spare pool's reserve
- * @param {SessionDraw} host
- */
-function sessionFloorSlotsOf(sessionFloor, working, effectiveMb, host) {
-	const wanted = Math.max(0, sessionFloor - working);
-	const room = Math.floor(sessionBudgetMb(effectiveMb, 0, 0) / host.meanMb);
-	return Math.max(0, Math.min(wanted, room));
-}
-
-/**
  * The session floor as the ADMISSION blocks print it, or null where none is
  * declared and none went unread.
  * @param {SessionFloor} floor
@@ -338,46 +306,6 @@ function buildSessionFloorLine(floor, verdict) {
 	const hold = verdict.swapHold;
 	if (!hold.held) return head;
 	return `${head}, held while ${swapHoldText(hold)}, under ${SWAP_HOLD_FREE_FRACTION * 100}% and ${SWAP_HOLD_AVAILABLE_MB} MB (#2690)`;
-}
-
-/**
- * Whether the always-admit-one guarantee holds: nothing of ours running and
- * memory admitting none. A zero count no listing vouched for never unlocks it
- * (#2180).
- * @param {FloorProcs} procs
- * @param {number} byMemory
- */
-function isGuaranteed(procs, byMemory) {
-	return procs.sessions === 0 && !procs.unvouched && byMemory < 1;
-}
-
-/**
- * The session floor's figures both verdicts report: the working sessions,
- * this run's own counted, the floor slots, none while `swapHold` binds
- * (#2690), and whether they lift `priced`, the slots the p95 pricing and the
- * guarantee give.
- * @param {{ sessionFloor: number, procs: FloorProcs, effectiveMb: number, host: SessionDraw, priced: number, swapHold: SwapHold }} input
- * @returns {SessionFloorFigures}
- */
-function sessionFloorFigures({
-	sessionFloor,
-	procs,
-	effectiveMb,
-	host,
-	priced,
-	swapHold,
-}) {
-	const sessionFloorWorking = procs.working + (procs.self ? 1 : 0);
-	const sessionFloorSlots = swapHold.held
-		? 0
-		: sessionFloorSlotsOf(sessionFloor, sessionFloorWorking, effectiveMb, host);
-	return {
-		sessionFloor,
-		sessionFloorWorking,
-		sessionFloorSlots,
-		sessionFloorLifted: sessionFloorSlots > priced,
-		swapHold,
-	};
 }
 
 /**
@@ -503,59 +431,6 @@ function liveDraw({ ids, pids, terminal, cwds }, { pairs, pssKbOf, children }) {
 	}
 	draw.pssMb = Math.floor(heldKb / 1024);
 	return draw;
-}
-
-/**
- * What the live sessions and `k` more still need at the aggregate's p95, less
- * what the live ones already hold. Negative
- * where the live sessions already hold more than that.
- * @param {LiveDraw} live
- * @param {SessionDraw} host
- * @param {number} k
- */
-function drawNeedFor(live, host, k) {
-	return Math.ceil(
-		live.meanMb +
-			k * host.meanMb +
-			DRAW_Z * Math.sqrt(live.varianceMb2 + k * host.sigmaMb ** 2) -
-			live.pssMb,
-	);
-}
-
-/**
- * What admits sessions, from `baseMb`, memory less the pool reserve.
- * @param {number} baseMb
- * @param {number} landerMb
- * @param {number} reclaimMb
- */
-function sessionBudgetMb(baseMb, landerMb, reclaimMb) {
-	return baseMb - landerMb - EARLYOOM_FLOOR_MB - DRAW_MARGIN_MB + reclaimMb;
-}
-
-/**
- * `drawNeedFor` plus the spare pairs the 2nd to k-th of k launches warm, each
- * `launchMb`: the budget already reserves the 1st's (#2511).
- * @param {LiveDraw} live
- * @param {SessionDraw} host
- * @param {number} k
- * @param {number} launchMb
- */
-function launchNeedFor(live, host, k, launchMb) {
-	return drawNeedFor(live, host, k) + Math.max(0, k - 1) * launchMb;
-}
-
-/**
- * How many more of this host's sessions `budgetMb` admits on the aggregate
- * draw: the largest k whose need fits, 0 where none does.
- * @param {number} budgetMb
- * @param {LiveDraw} live
- * @param {SessionDraw} host
- * @param {number} launchMb see `launchNeedFor`
- */
-function drawSlots(budgetMb, live, host, launchMb) {
-	let k = 0;
-	while (launchNeedFor(live, host, k + 1, launchMb) <= budgetMb) k++;
-	return k;
 }
 
 /** @param {LiveDraw} live */
@@ -1522,9 +1397,10 @@ function liveSessions(listed) {
 
 /**
  * The readings both verdicts take beside memory and the session count, each
- * defaulting to no adjustment for a caller that hasn't read it. `launchMb`,
- * the pending pairs `overhead` reserves for one launch, is charged again for
- * each slot past the first (#2511, #2568); `live` is the live sessions' draw,
+ * defaulting to no adjustment for a caller that hasn't read it
+ * (`fullReadings`). `launchMb`, the pending pairs `overhead` reserves for one
+ * launch, is charged again for each slot past the first (#2511, #2568);
+ * `live` is the live sessions' draw,
  * from `liveDraw`, and `host` this host's session draw, from
  * `readSessionDraw` (#2221); `landerMb`, from `landerHeldMb`, is held back for
  * the lander's suite; `sessionFloor`, from `readDeclaredSessionFloor`, lifts
@@ -1536,94 +1412,33 @@ function liveSessions(listed) {
  */
 
 /**
- * Every admission figure, the one calculation both verdicts read (#4263).
- *
- * `overhead` FAILS OPEN to no reservation where it cannot be read: it refines
- * the memory/session gate, which already fails closed. `reclaimable` FAILS
- * CLOSED to no credit: crediting memory that never materialises is the
- * over-admission this gate exists to prevent. An unread session count yields
- * no floor and no guarantee; unread memory yields no figures, only its error.
- *
- * `byMemory` is the p95 pricing alone; `liftedSlots` lifts it to the floor,
- * and `memorySlots` lifts the guarantee's slot too. `liftedCapped` and
- * `slots` are those two under the CPU cap and the load hold.
- * @param {MbResult} mem
- * @param {LenientProcs | LiveSessionsResult} procs
- * @param {AdmissionReadings} [readings]
+ * `readings` with each one left unread filled in as no adjustment.
+ * @param {AdmissionReadings} readings
+ * @returns {import("./admission-figures.js").FigureReadings}
  */
-function admissionFigures(
-	mem,
-	procs,
-	{
-		overhead = { ok: true, mb: 0 },
-		reclaimable = { ok: true, mb: 0 },
-		live = NO_LIVE_DRAW,
-		host = UNDECLARED_DRAW,
-		load = LOAD_UNREAD,
-		cpu = CPU_UNREAD,
-		landerMb = 0,
-		sessionFloor = 0,
-		swapHold = NO_SWAP_HOLD,
-		launchMb = 0,
-	} = {},
-) {
-	const inputs = { live, host, load, cpu, landerMb, launchMb };
-	/** @type {SessionFloorFigures} */
-	const noFloor = {
-		sessionFloor,
-		sessionFloorWorking: 0,
-		sessionFloorSlots: 0,
-		sessionFloorLifted: false,
-		swapHold,
-	};
-	if (!mem.ok)
-		return {
-			...inputs,
-			memRead: /** @type {const} */ (false),
-			error: mem.error,
-			floor: noFloor,
-		};
-	const reservedMb = overhead.ok ? overhead.mb : 0;
-	const effectiveMb = Math.max(0, mem.mb - reservedMb);
-	const reclaimedMb = reclaimable.ok ? reclaimable.mb : 0;
-	/* The floor and margin come off what admits sessions and nothing else:
-	 * the suite ladder carries earlyoom's line in its own rungs. */
-	const budgetMb = sessionBudgetMb(effectiveMb, landerMb, reclaimedMb);
-	const byMemory = drawSlots(budgetMb, live, host, launchMb);
-	const guaranteed = procs.ok && isGuaranteed(procs, byMemory);
-	const priced = guaranteed ? 1 : byMemory;
-	const floor = procs.ok
-		? sessionFloorFigures({
-				sessionFloor,
-				procs,
-				effectiveMb,
-				host,
-				priced,
-				swapHold,
-			})
-		: noFloor;
-	const liftedSlots = Math.max(byMemory, floor.sessionFloorSlots);
-	const memorySlots = Math.max(priced, floor.sessionFloorSlots);
-	const held = (/** @type {number} */ n) =>
-		load.overloaded ? 0 : cpuCapped(n, cpu);
+function fullReadings({
+	overhead = { ok: true, mb: 0 },
+	reclaimable = { ok: true, mb: 0 },
+	live = NO_LIVE_DRAW,
+	host = UNDECLARED_DRAW,
+	load = LOAD_UNREAD,
+	cpu = CPU_UNREAD,
+	landerMb = 0,
+	sessionFloor = 0,
+	swapHold = NO_SWAP_HOLD,
+	launchMb = 0,
+}) {
 	return {
-		...inputs,
-		memRead: /** @type {const} */ (true),
-		availableMb: mem.mb,
-		reservedMb,
-		effectiveMb,
-		reclaimedMb,
-		budgetMb,
-		drawNeedMb: drawNeedFor(live, host, 0),
-		byMemory,
-		needAtMb: launchNeedFor(live, host, byMemory, launchMb),
-		nextNeedMb: launchNeedFor(live, host, byMemory + 1, launchMb),
-		guaranteed,
-		floor,
-		liftedSlots,
-		liftedCapped: held(liftedSlots),
-		memorySlots,
-		slots: held(memorySlots),
+		overhead,
+		reclaimable,
+		live,
+		host,
+		load,
+		cpu,
+		landerMb,
+		sessionFloor,
+		swapHold,
+		launchMb,
 	};
 }
 
@@ -1657,7 +1472,7 @@ function lenientNotes(reserved, credited, landerMb) {
  * @param {AdmissionReadings} [readings]
  */
 function admissionFrom(mem, procs, readings = {}) {
-	const f = admissionFigures(mem, procs, readings);
+	const f = admissionFigures(mem, procs, fullReadings(readings));
 	const { floor, load, cpu, landerMb } = f;
 	const { reservedNote, creditedNote } = lenientNotes(
 		f.memRead ? f.reservedMb : 0,
@@ -1670,8 +1485,7 @@ function admissionFrom(mem, procs, readings = {}) {
 	 * the same way a human reads the reservedNote in `reason` (mantahostels#1295). */
 	const shared = {
 		reservedMb: f.memRead ? f.reservedMb : null,
-		reservedError:
-			readings.overhead?.ok === false ? readings.overhead.error : null,
+		reservedError: f.reservedError,
 		budgetMb: f.memRead ? f.budgetMb : null,
 		drawNeedMb: f.memRead ? f.drawNeedMb : null,
 		...floor,
@@ -1861,12 +1675,11 @@ function buildStrictReason(load, cpu, memorySlots, memoryReason) {
  * }}
  */
 function strictAdmission(mem, procs, readings = {}) {
-	const f = admissionFigures(mem, procs, readings);
+	const f = admissionFigures(mem, procs, fullReadings(readings));
 	if (!f.memRead) return { ok: false, error: `memory unreadable: ${f.error}` };
 	if (!procs.ok)
 		return { ok: false, error: `session count unreadable: ${procs.error}` };
 	const { floor, load, cpu, landerMb, launchMb, reservedMb, reclaimedMb } = f;
-	const reclaimable = readings.reclaimable ?? { ok: true, mb: 0 };
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
 	}${buildLanderNote(landerMb)}${HELD_NOTE}`;
@@ -1903,7 +1716,7 @@ function strictAdmission(mem, procs, readings = {}) {
 		...floor,
 		/* Each error field keeps a failed read visible: a broken reap plan is
 		 * not nothing-to-reclaim, and a failed ps scan is not zero claude processes. */
-		reclaimableError: reclaimable.ok ? null : reclaimable.error,
+		reclaimableError: f.reclaimableError,
 		sessions: procs.sessions,
 		processes: procs.processes,
 		processesError: procs.processesError,
@@ -2072,7 +1885,6 @@ module.exports = {
 	reclaimableMb,
 	readRunningVitestSuites,
 	admissionFrom,
-	admissionFigures,
 	readCpuSlots,
 	buildSessionCeilingText,
 };

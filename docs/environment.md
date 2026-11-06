@@ -172,7 +172,7 @@ A **session** is counted from its `bg-pty-host` — the pseudo-terminal host pro
 
 ### Session admission — the aggregate draw at p95, never a fixed count
 
-Owned by `scripts/lib/admission.js` (`DEFAULT_SESSION_DRAW`, `drawSlots()`, `admissionFrom()`, `strictAdmission()`), which `scripts/pick-next.js` and `scripts/admission.js` — the dispatch-time re-read — share (mantahostels#1144). **How many sessions may run is read per run, not fixed**, and **at least one is always admitted when nothing of ours is running** (Bazel's local resource tracker rule). Ruled at #2221 (the ticket that replaced the per-slot price with the aggregate draw). k more sessions are admitted while
+Owned by `scripts/lib/admission.js` (`DEFAULT_SESSION_DRAW`, `admissionFrom()`, `strictAdmission()`) over `scripts/lib/admission-figures.js` (`drawSlots()`, `admissionFigures()`), which `scripts/pick-next.js` and `scripts/admission.js` — the dispatch-time re-read — share (mantahostels#1144). **How many sessions may run is read per run, not fixed**, and **at least one is always admitted when nothing of ours is running** (Bazel's local resource tracker rule). Ruled at #2221 (the ticket that replaced the per-slot price with the aggregate draw). k more sessions are admitted while
 
 `Σμ + k·μ + 1.645·√(Σσ² + k·σ²) − the live sessions' current PSS + (k − 1) · pending pair ≤ MemAvailable − pool reserve − lander reserve − 794 − 300 + reclaim credit`
 

@@ -20,7 +20,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	admissionFigures,
 	admissionFrom,
 	buildMemoryBreakdownLines,
 	buildSessionFloorLine,
@@ -384,6 +383,25 @@ describe("the session floor (#2501)", () => {
 			sessionFloor: "8",
 		});
 		expect(json.sessionFloorSlots).toBe(0);
+		expect(json.slots).toBe(0);
+		expect(status).toBe(1);
+	});
+
+	it("is capped by the CPU ceiling", () => {
+		const { json, status } = run({
+			...three,
+			psLines: ["900 1000 claude bg-pty-host --session x0"],
+			sessionCeiling: "3",
+		});
+		expect(json.sessionFloorSlots).toBe(3);
+		expect(json.memorySlots).toBe(3);
+		expect(json.slots).toBe(2);
+		expect(status).toBe(0);
+	});
+
+	it("is held at 0 by an overload", () => {
+		const { json, status } = run({ ...three, load: 6 * os.cpus().length });
+		expect(json.sessionFloorSlots).toBe(3);
 		expect(json.slots).toBe(0);
 		expect(status).toBe(1);
 	});
@@ -1701,180 +1719,6 @@ describe("the CPU limb (#830)", () => {
 	});
 });
 
-/*
- * The one calculation both verdicts read (#4263): each rule once, on its
- * figures. A 3700 MB budget fits 4 at 3058, not 5 at 3736; a 1300 MB budget
- * fits 1 at p95 (929, not 1666) and 2 at the 600 MB mean.
- */
-describe("admissionFigures, both verdicts' one calculation (#4263)", () => {
-	const host = { meanMb: 600, sigmaMb: 200, declared: true };
-	const roomy = { ok: true as const, mb: 4000 + FLOOR };
-	const tight = { ok: true as const, mb: 1300 + HELD };
-	const one = { ok: true as const, sessions: 1, working: 0 };
-	const none = { ok: true as const, sessions: 0, working: 0 };
-	const over = { overloaded: true, load1: 60, ceiling: 48 };
-	const capped = {
-		ceiling: 3,
-		sessions: 2,
-		idleSpares: 0,
-		slots: 1,
-		full: false,
-		unknown: null,
-	};
-	const read = (f: ReturnType<typeof admissionFigures>) => {
-		if (!f.memRead) throw new Error("memory unread");
-		return f;
-	};
-
-	describe("the CPU limb (#830, #834)", () => {
-		it("holds every slot over the load ceiling, the guarantee included, keeping the memory figures", () => {
-			const f = read(admissionFigures(roomy, one, { host, load: over }));
-			expect(f.byMemory).toBe(4);
-			expect(f.memorySlots).toBe(4);
-			expect(f.slots).toBe(0);
-			expect(f.liftedCapped).toBe(0);
-			const alone = read(
-				admissionFigures({ ok: true, mb: 100 }, none, { host, load: over }),
-			);
-			expect(alone.guaranteed).toBe(true);
-			expect(alone.memorySlots).toBe(1);
-			expect(alone.slots).toBe(0);
-		});
-
-		it("caps the slots at the session ceiling, the guarantee included (#2141)", () => {
-			const f = read(admissionFigures(roomy, one, { host, cpu: capped }));
-			expect(f.slots).toBe(1);
-			expect(f.liftedCapped).toBe(1);
-			const full = { ...capped, sessions: 3, slots: 0, full: true };
-			const alone = read(
-				admissionFigures({ ok: true, mb: 100 }, none, { host, cpu: full }),
-			);
-			expect(alone.slots).toBe(0);
-		});
-
-		it("changes nothing where the load and ps are unread", () => {
-			const f = read(admissionFigures(roomy, one, { host }));
-			expect(f.slots).toBe(4);
-			expect(f.liftedCapped).toBe(4);
-		});
-	});
-
-	describe("the session floor (#2501, #2507)", () => {
-		const working = { ok: true as const, sessions: 3, working: 2, self: true };
-
-		it("lifts the slots toward the floor, counting working sessions and this one", () => {
-			const f = read(
-				admissionFigures(tight, working, { host, sessionFloor: 6 }),
-			);
-			expect(f.byMemory).toBe(1);
-			expect(f.floor).toMatchObject({
-				sessionFloorWorking: 3,
-				sessionFloorSlots: 2,
-				sessionFloorLifted: true,
-			});
-			expect(f.liftedSlots).toBe(2);
-			expect(f.slots).toBe(2);
-		});
-
-		it("never lowers the p95 slots, and grants none where none is declared", () => {
-			const met = read(
-				admissionFigures(tight, working, { host, sessionFloor: 3 }),
-			);
-			expect(met.slots).toBe(1);
-			expect(met.floor.sessionFloorLifted).toBe(false);
-			expect(
-				read(admissionFigures(tight, working, { host })).floor
-					.sessionFloorSlots,
-			).toBe(0);
-		});
-
-		it("names no lift where the always-admit-one guarantee already gives the slot", () => {
-			const alone = { ok: true as const, sessions: 0, working: 0, self: true };
-			const f = read(
-				admissionFigures({ ok: true, mb: 700 + HELD }, alone, {
-					host,
-					sessionFloor: 2,
-				}),
-			);
-			expect(f.guaranteed).toBe(true);
-			expect(f.floor.sessionFloorSlots).toBe(1);
-			expect(f.floor.sessionFloorLifted).toBe(false);
-			expect(f.liftedSlots).toBe(1);
-		});
-
-		it("is capped by the CPU, and held at 0 by an overload", () => {
-			const cpu = read(
-				admissionFigures(tight, working, {
-					host,
-					cpu: capped,
-					sessionFloor: 6,
-				}),
-			);
-			expect(cpu.memorySlots).toBe(2);
-			expect(cpu.slots).toBe(1);
-			const load = read(
-				admissionFigures(tight, working, { host, load: over, sessionFloor: 6 }),
-			);
-			expect(load.floor.sessionFloorSlots).toBe(2);
-			expect(load.slots).toBe(0);
-		});
-
-		it("grants no floor slot while the swap hold binds, keeping the p95 slot (#2690)", () => {
-			const swapHold = {
-				held: true as const,
-				swapFreeMb: 245,
-				swapTotalMb: 2048,
-				availableMb: 1300 + HELD,
-			};
-			const f = read(
-				admissionFigures(tight, working, { host, sessionFloor: 6, swapHold }),
-			);
-			expect(f.slots).toBe(1);
-			expect(f.floor.sessionFloorSlots).toBe(0);
-			expect(f.floor.swapHold).toEqual(swapHold);
-		});
-
-		it("grants no floor and no guarantee where the session count is unread", () => {
-			const f = read(
-				admissionFigures(
-					{ ok: true, mb: 100 },
-					{ ok: false, error: "x" },
-					{
-						host,
-						sessionFloor: 6,
-					},
-				),
-			);
-			expect(f.guaranteed).toBe(false);
-			expect(f.floor.sessionFloorSlots).toBe(0);
-			expect(f.slots).toBe(0);
-		});
-
-		it("yields no figures where memory is unread", () => {
-			const f = admissionFigures({ ok: false, error: "x" }, working, {
-				host,
-				sessionFloor: 6,
-			});
-			expect(f.memRead).toBe(false);
-			expect(f.floor.sessionFloorSlots).toBe(0);
-		});
-	});
-
-	describe("the per-slot pending pair (#2511, #2568)", () => {
-		it("charges each slot past the first its own pair", () => {
-			// 4 at 3058 plus 3 pairs is 3808, 3 at 2370 plus 2 is 2870
-			const f = read(admissionFigures(roomy, one, { host, launchMb: 250 }));
-			expect(f.byMemory).toBe(3);
-			expect(f.needAtMb).toBe(2370 + 2 * 250);
-			expect(f.nextNeedMb).toBe(3058 + 3 * 250);
-		});
-
-		it("charges nothing without a launch price", () => {
-			expect(read(admissionFigures(roomy, one, { host })).byMemory).toBe(4);
-		});
-	});
-});
-
 /* pick-next's verdict over those figures: its fallback and its wording. */
 describe("admissionFrom's own fallback and wording", () => {
 	const host = { meanMb: 600, sigmaMb: 200, declared: true };
@@ -1962,6 +1806,19 @@ describe("admissionFrom's own fallback and wording", () => {
 		const met = admissionFrom(tight, working, { host, sessionFloor: 3 });
 		expect(met.freeSlots).toBe(1);
 		expect(met.reason).toMatch(/^1 free slot on the live sessions' draw/);
+	});
+
+	it("clamps memory less a reserve larger than it at 0, as the strict verdict does", () => {
+		const a = admissionFrom({ ok: true, mb: 500 }, one, {
+			host,
+			overhead: { ok: true, mb: 800 },
+		});
+		expect(a.budgetMb).toBe(-HELD);
+		expect(a.reason).toMatch(
+			new RegExp(
+				`^-${HELD} MB available after reserving 800 MB for the spare pool`,
+			),
+		);
 	});
 
 	it("reports freeSlots before the guarantee, which admits on its own branch", () => {
