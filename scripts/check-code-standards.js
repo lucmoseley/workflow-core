@@ -81,6 +81,7 @@
  */
 
 const crypto = require("node:crypto");
+const { writeFd } = require("./lib/write-fd.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage, baselineOf } = require("./lib/check");
@@ -1168,25 +1169,27 @@ function reanchor(doc, targets, pins, tracked) {
 		if (!spot) continue;
 		const lines = readLines(spot.rel);
 		if (lines === null) {
-			console.log(`skipped ${key} — cannot read ${spot.rel}`);
+			writeFd(1, `skipped ${key} — cannot read ${spot.rel}\n`);
 			continue;
 		}
 		next[key] = hunkDigest(lines, spot.from, spot.to);
-		console.log(
-			`anchored ${key} @ ${next[key]}  (cited at ${doc}:${spot.docLine})`,
+		writeFd(
+			1,
+			`anchored ${key} @ ${next[key]}  (cited at ${doc}:${spot.docLine})\n`,
 		);
 	}
 
 	if (targets.length === 0)
 		for (const key of Object.keys(anchors).sort())
-			if (!(key in next)) console.log(`dropped ${key} — no bare pin cites it`);
+			if (!(key in next)) writeFd(1, `dropped ${key} — no bare pin cites it\n`);
 
 	saveAnchors(anchorsFile, next);
 	for (const t of unmatched)
-		console.log(`skipped ${t} — no bare pin matches it`);
-	console.log(
+		writeFd(1, `skipped ${t} — no bare pin matches it\n`);
+	writeFd(
+		1,
 		`\n${Object.keys(next).length} bare pin(s) anchored in ${anchorsFile}. ` +
-			"Re-anchoring asserts the cited lines were re-read against the rule citing them.",
+			"Re-anchoring asserts the cited lines were re-read against the rule citing them.\n",
 	);
 	process.exit(0);
 }

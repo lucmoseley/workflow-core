@@ -144,13 +144,14 @@ function buildVerdictLine(v) {
  * @param {{since: string|undefined, until: string|undefined}} opts
  */
 function printDaily(dispatches, opts) {
-	console.log("\nBy day (UTC):");
+	writeFd(1, "\nBy day (UTC):\n");
 	for (const d of groupByDay(dispatches, {
 		since: opts.since,
 		until: opts.until,
 	})) {
-		console.log(
-			`  ${d.day}  ${pct(d.rate).padStart(6)}  (${d.compliant}/${d.total})`,
+		writeFd(
+			1,
+			`  ${d.day}  ${pct(d.rate).padStart(6)}  (${d.compliant}/${d.total})\n`,
 		);
 	}
 }
@@ -180,20 +181,21 @@ function main() {
 	const s = summarise(dispatches, { since: opts.since, until: opts.until });
 	const v = verdict(s.rate);
 
-	console.log(`Corpus: ${files.length} transcripts in ${dirs.join(", ")}`);
-	if (refused.length > 0) console.log(`  (not read: ${refused.join("; ")})`);
-	if (unreadable) console.log(`  (${unreadable} unreadable, excluded)`);
-	console.log(
-		`Dispatches found (all time, deduplicated): ${dispatches.length}`,
+	writeFd(1, `Corpus: ${files.length} transcripts in ${dirs.join(", ")}\n`);
+	if (refused.length > 0) writeFd(1, `  (not read: ${refused.join("; ")})\n`);
+	if (unreadable) writeFd(1, `  (${unreadable} unreadable, excluded)\n`);
+	writeFd(
+		1,
+		`Dispatches found (all time, deduplicated): ${dispatches.length}\n`,
 	);
-	console.log(`Window: ${windowLabel(opts)}`);
-	console.log("");
-	console.log(`Compliance: ${pct(s.rate)} (${s.compliant}/${s.total})`);
-	console.log(buildVerdictLine(v));
+	writeFd(1, `Window: ${windowLabel(opts)}\n`);
+	writeFd(1, "\n");
+	writeFd(1, `Compliance: ${pct(s.rate)} (${s.compliant}/${s.total})\n`);
+	writeFd(1, `${buildVerdictLine(v)}\n`);
 
-	console.log("\nReference points:");
+	writeFd(1, "\nReference points:\n");
 	for (const [label, figure] of REFERENCES)
-		console.log(`  ${label}: ${figure}`);
+		writeFd(1, `  ${label}: ${figure}\n`);
 
 	if (opts.daily) printDaily(dispatches, opts);
 }

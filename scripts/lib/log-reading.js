@@ -486,10 +486,13 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 		writeFd(1, `${reading}\n`);
 		if (!reached) return;
 		if (dryRun) {
-			console.log(
-				filed
-					? `\nDry run: the reading is filed as ${filed}.`
-					: `\nDry run: the reading point is reached, so a plain run files this as "${title}".`,
+			writeFd(
+				1,
+				`${
+					filed
+						? `\nDry run: the reading is filed as ${filed}.`
+						: `\nDry run: the reading point is reached, so a plain run files this as "${title}".`
+				}\n`,
 			);
 			return;
 		}
@@ -507,7 +510,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 				`the reading would not file — ${errMessage(e)}\nNothing is recorded as filed, so the next session start tries again; run \`${script}\` to retry now.`,
 			);
 		}
-		console.log(`\n${outcome}`);
+		writeFd(1, `\n${outcome}\n`);
 	}
 
 	/**
@@ -540,7 +543,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 		} catch (e) {
 			return broken(`the daily gate would not read — ${errMessage(e)}`);
 		}
-		if (!gate.ran) console.log(buildSkipLine(gate, "a day"));
+		if (!gate.ran) writeFd(1, `${buildSkipLine(gate, "a day")}\n`);
 	}
 
 	return { readFiledAs, publish, readDaily };

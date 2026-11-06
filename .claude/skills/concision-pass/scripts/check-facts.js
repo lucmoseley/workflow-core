@@ -124,8 +124,9 @@ function main() {
 	const verbose = args.includes("--verbose");
 	const [beforePath, afterPath] = args.filter((a) => !a.startsWith("--"));
 	if (!beforePath || !afterPath) {
-		console.error(
-			"usage: check-facts.js <before-file> <after-file> [--verbose]",
+		writeFd(
+			2,
+			"usage: check-facts.js <before-file> <after-file> [--verbose]\n",
 		);
 		process.exit(1);
 	}
@@ -146,7 +147,7 @@ function main() {
 	const pct = beforeWords
 		? Math.round(((beforeWords - afterWords) / beforeWords) * 100)
 		: 0;
-	console.log(`words: ${beforeWords} -> ${afterWords} (${pct}% cut)`);
+	writeFd(1, `words: ${beforeWords} -> ${afterWords} (${pct}% cut)\n`);
 
 	/** @typedef {{tok: string, kind: string, was: number, now: number}} Token */
 	/** @param {Token} a @param {Token} b */
@@ -155,28 +156,30 @@ function main() {
 
 	/** @param {Token[]} list @param {string} heading */
 	const report = (list, heading) => {
-		console.log(`\n${heading}\n`);
+		writeFd(1, `\n${heading}\n\n`);
 		for (const { tok, kind, was, now } of [...list].sort(byKind))
-			console.log(`  [${kind}] ${tok}  (${was} -> ${now})`);
+			writeFd(1, `  [${kind}] ${tok}  (${was} -> ${now})\n`);
 	};
 
 	if (thinned.length > 0) {
 		if (verbose)
 			report(thinned, `${thinned.length} token(s) mentioned fewer times:`);
 		else
-			console.log(
-				`${thinned.length} token(s) survive but are mentioned fewer times — repetition cut, as intended (--verbose to list).`,
+			writeFd(
+				1,
+				`${thinned.length} token(s) survive but are mentioned fewer times — repetition cut, as intended (--verbose to list).\n`,
 			);
 	}
 
 	if (gone.length === 0) {
-		console.log("OK — every fact-shaped token survived the cut.");
+		writeFd(1, "OK — every fact-shaped token survived the cut.\n");
 		process.exit(0);
 	}
 
 	report(gone, `${gone.length} token(s) GONE ENTIRELY — account for each:`);
-	console.log(
-		"\nEach is an intended cut or a lost fact. Say which, for each. A figure\nrespelled in words (4 -> 'four') is safe; a figure simply absent is not.",
+	writeFd(
+		1,
+		"\nEach is an intended cut or a lost fact. Say which, for each. A figure\nrespelled in words (4 -> 'four') is safe; a figure simply absent is not.\n",
 	);
 	process.exit(2);
 }

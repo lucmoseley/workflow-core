@@ -86,6 +86,7 @@
  */
 
 const { execFile } = require("node:child_process");
+const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 
 const notify = require("./lib/notify-report.js");
@@ -263,12 +264,13 @@ async function main() {
 	const faulted = rows.filter((r) => r.faults.length);
 
 	if (opts.json) {
-		console.log(
-			JSON.stringify(
+		writeFd(
+			1,
+			`${JSON.stringify(
 				{ base: notify.base(), wired: readWiredRoster(), rows },
 				null,
 				2,
-			),
+			)}\n`,
 		);
 	} else printTable(producers, rows, faulted, opts.control);
 	/* Set rather than called: `process.exit` truncates a `--json` document
@@ -288,8 +290,9 @@ function selectProducers(only) {
 	if (only && producers.length !== only.size) {
 		const known = PRODUCERS.map((p) => p.key);
 		const unknown = [...only].filter((k) => !known.includes(k));
-		console.error(
-			`no such producer: ${unknown.join(", ")}. Known: ${known.join(", ")}`,
+		writeFd(
+			2,
+			`no such producer: ${unknown.join(", ")}. Known: ${known.join(", ")}\n`,
 		);
 		return null;
 	}
@@ -300,8 +303,9 @@ function selectProducers(only) {
 	 * the OK line having verified nothing, the same failure `--only` is
 	 * guarded against above. */
 	if (producers.length === 0) {
-		console.error(
-			"self-plugin/hooks/hooks.json wires no persisting producer — nothing to verify.",
+		writeFd(
+			2,
+			"self-plugin/hooks/hooks.json wires no persisting producer — nothing to verify.\n",
 		);
 		return null;
 	}
@@ -371,27 +375,31 @@ function judgeProducer(p, { persistRuns, controlRuns, reports, open, window }) {
  * @param {boolean} control
  */
 function printTable(producers, rows, faulted, control) {
-	console.log(
-		`persist-and-replay verification — ${producers.length} producer(s)`,
+	writeFd(
+		1,
+		`persist-and-replay verification — ${producers.length} producer(s)\n`,
 	);
-	console.log(`reports under ${notify.base()}`);
-	console.log(`${buildWiredLine(producers)}\n`);
-	console.log(
-		"  key                       outcome  bytes  persist  control  match",
+	writeFd(1, `reports under ${notify.base()}\n`);
+	writeFd(1, `${buildWiredLine(producers)}\n\n`);
+	writeFd(
+		1,
+		"  key                       outcome  bytes  persist  control  match\n",
 	);
 	for (const r of rows)
-		console.log(
-			`  ${r.key.padEnd(24)}  ${String(r.outcome ?? "-").padEnd(7)}  ${String(r.bytes).padStart(5)}  ${`${r.persistMs}ms`.padStart(7)}  ${`${r.controlMs ?? "-"}ms`.padStart(7)}  ${r.match}`,
+		writeFd(
+			1,
+			`  ${r.key.padEnd(24)}  ${String(r.outcome ?? "-").padEnd(7)}  ${String(r.bytes).padStart(5)}  ${`${r.persistMs}ms`.padStart(7)}  ${`${r.controlMs ?? "-"}ms`.padStart(7)}  ${r.match}\n`,
 		);
 	for (const r of rows) {
 		if (r.diff)
-			console.log(
-				`\n▸ ${r.key} differs between the two phases:\n--- persisted\n${r.diff.persisted}\n--- live\n${r.diff.control}`,
+			writeFd(
+				1,
+				`\n▸ ${r.key} differs between the two phases:\n--- persisted\n${r.diff.persisted}\n--- live\n${r.diff.control}\n`,
 			);
 	}
 	for (const r of faulted)
-		for (const f of r.faults) console.log(`\nFAULT ${r.key}: ${f}`);
-	console.log(buildVerdictLine(faulted.length, control));
+		for (const f of r.faults) writeFd(1, `\nFAULT ${r.key}: ${f}\n`);
+	writeFd(1, `${buildVerdictLine(faulted.length, control)}\n`);
 }
 
 /** @param {number} faultedCount @param {boolean} control */
@@ -407,7 +415,7 @@ module.exports = { main };
 
 if (require.main === module) {
 	main().catch((e) => {
-		console.error(e?.message ?? String(e));
+		writeFd(2, `${e?.message ?? String(e)}\n`);
 		process.exit(2);
 	});
 }
