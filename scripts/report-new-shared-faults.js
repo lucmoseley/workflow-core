@@ -78,6 +78,7 @@ const CHECKERS = {
 	"precommit-exit": path.join(CORE_SCRIPTS, "check-precommit-exit.js"),
 	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
 	"test-spawn": path.join(CORE_SCRIPTS, "check-test-spawn.js"),
+	registrations: path.join(CORE_SCRIPTS, "check-registrations.js"),
 };
 
 const CHECK_DOC_MAP = path.join(CORE_SCRIPTS, "check-doc-map.js");
@@ -676,5 +677,7 @@ function main() {
 	if (err.length > 0) writeFd(2, `${err.join("\n")}\n`);
 	process.exit(code);
 }
+
+module.exports = { CHECKERS };
 
 if (require.main === module) main();
