@@ -256,7 +256,9 @@ class TransientFault extends Error {}
  *   | {readonly kind: "record-landed", readonly sha: string}
  *   | {readonly kind: "delete-landed-ref", readonly name: string,
  *     readonly sha: string}
- *   | {readonly kind: "exit", readonly reason: string}} QueueAction
+ *   | {readonly kind: "exit", readonly reason: string,
+ *     readonly relaunch?: true}} QueueAction `relaunch` where a fresh run
+ *   on the new code takes the queue on
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
  * @typedef {"rerun-files" | "check-base" | "file-base-red" | "hold"
  *   | "start-isolation" | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
@@ -299,6 +301,8 @@ class TransientFault extends Error {}
  *   refreshed the base-red ticket for, by baseKey
  * @property {number|null} baseTicket the base-red ticket this run last filed
  *   or refreshed, null where none or it would not file
+ * @property {boolean} [superseded] whether a move of `main` this run made
+ *   changed the code it runs, now on disk for a fresh run
  */
 
 /* The pass of a base check: a run at `main` of its own, never the verdict
@@ -989,6 +993,13 @@ function nextQueueAction(s) {
 		(r) => !merged.some((m) => m.name === r.name && m.sha === r.sha),
 	);
 	if (waiting.length === 0) return exit("no queue ref waits");
+	if (s.superseded)
+		return {
+			...exit(
+				"main changed this lander's own code; a fresh run takes the queue",
+			),
+			relaunch: true,
+		};
 	const held = batch && heldExit(batch, main, waiting);
 	if (held) return held;
 	const ahead = batch?.phase === "requeued" ? batch.ahead : [];
@@ -1065,12 +1076,15 @@ function nextQueueAction(s) {
  * @property {(ms: number) => Promise<void>} [wait] the backoff between tries
  *   of a faulted call
  * @property {(action: QueueAction) => void} [log]
- * @property {() => void} [mainMoved] after each move of `main`
+ * @property {(sha: string) => boolean} [mainMoved] after each move of `main`
+ *   to `sha`: true where that changed the code this run loaded and the
+ *   checkout now carries it
  * @property {() => number} now the clock, in ms
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed or left unfiled, or one whose state was not read
  * @typedef {Pick<QueueState, "batch" | "unread" | "unmerged" | "alone"
- *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket">} QueueRun
+ *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
+ *   | "superseded">} QueueRun
  *   what a run carries between actions
  */
 
@@ -1422,8 +1436,7 @@ function moveMain(deps, sha, run, landed) {
 		return run;
 	}
 	const next = landed(run);
-	deps.mainMoved?.();
-	return next;
+	return deps.mainMoved?.(sha) === true ? { ...next, superseded: true } : next;
 }
 
 /**

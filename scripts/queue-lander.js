@@ -17,7 +17,9 @@
  * `main` it adopts the new tip as the code this repo's guard hooks run, where
  * its guards load (lib/guard-code.js, #4227), and starts a levelling pass
  * over the main checkout (scripts/level-main.js, #4248), detached, since an
- * `npm ci` in it may outlast the next landing.
+ * `npm ci` in it may outlast the next landing. Where a move changed the code
+ * this run loaded, it waits for that pass, ends before its next batch and
+ * starts a fresh lander (scripts/start-lander.js) on the new code (#4521).
  *
  * It moves `main` only past its green ledger, which the
  * pre-push gate on `main` reads. A dropped member's fix ticket, and the one
@@ -34,6 +36,8 @@
  * command line it refuses.
  */
 
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { buildLanderDeps } = require("./lib/queue-lander-deps.js");
@@ -83,8 +87,32 @@ async function main(argv = process.argv.slice(2)) {
 	const opened = openLanderRun(argv);
 	if (typeof opened === "number") return opened;
 	const { root, tester } = opened;
-	await runQueueLander(buildLanderDeps(root, { tester, say }));
+	const end = await runQueueLander(buildLanderDeps(root, { tester, say }));
+	if (end.relaunch) relaunch(root, tester);
 	return 0;
+}
+
+/**
+ * A fresh lander on the code the checkout now carries, started as any push
+ * starts one, once this run's lock is released. Its output joins this run's.
+ * @param {string} root
+ * @param {string|undefined} tester
+ */
+function relaunch(root, tester) {
+	const r = spawnSync(
+		process.execPath,
+		[
+			path.join(__dirname, "start-lander.js"),
+			"--launched-by",
+			"the queue lander, its own code changed on main",
+			...(tester === undefined ? [] : ["--tester", tester]),
+		],
+		{ cwd: root, stdio: "inherit" },
+	);
+	if (r.status !== 0)
+		say(
+			`the fresh lander did not start (${r.error?.message ?? `exit ${r.status}`}); the next push or refill tick starts one`,
+		);
 }
 
 if (require.main === module)

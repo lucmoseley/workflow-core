@@ -11,7 +11,8 @@
  * that conflicts with another is dropped or one that conflicts with `main`
  * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, a
  * crash mid-drop lands the member or a crash after the push loses its land
- * rows, or a dropped ref outlives its closed ticket; or a flake or a failure
+ * rows, a dropped ref outlives its closed ticket, or a run whose landing
+ * changed its own code takes another batch on it; or a flake or a failure
  * `main` shares starts an isolation or drops a member, one on another
  * signature than `main`'s is read as `main`'s, a member red alone once is
  * dropped unconfirmed, the passers wait behind a newer ref, a
@@ -132,6 +133,8 @@ interface Options {
 	acquired?: boolean;
 	/** The run's clock, in ms; NOW where absent. */
 	now?: number;
+	/** Whether a move of `main` to `sha` changed this run's own code. */
+	mainMoved?: (sha: string, remote: Remote) => boolean;
 }
 
 /**
@@ -317,6 +320,9 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		log: (a) => actions.push(a),
 		say: (line) => said.push(line),
 		now: () => o.now ?? NOW,
+		...(o.mainMoved && {
+			mainMoved: (sha: string) => o.mainMoved?.(sha, remote) ?? false,
+		}),
 	};
 	const end = await runQueueLander(deps);
 	return { end, actions, asked, said, peak, pushed };
@@ -461,6 +467,52 @@ describe("a push during a run", () => {
 		expect(taken(actions)).toEqual([["a@a1"], ["a@a2"]]);
 		expect(remote.main).toBe("merge(a1;a2)");
 		expect(remote.refs.size).toBe(0);
+	});
+});
+
+describe("a landing that changes the lander's own code", () => {
+	it("settles its batch, then ends for a fresh run before taking the ref pushed meanwhile", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const moved: string[] = [];
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			verdict: (_, r) => {
+				r.refs.set("b", { sha: "b1", pushedAt: 2 });
+				return { kind: "green", run: 1 };
+			},
+			mainMoved: (sha) => {
+				moved.push(sha);
+				return true;
+			},
+		});
+
+		expect(end).toEqual({
+			kind: "exit",
+			reason:
+				"main changed this lander's own code; a fresh run takes the queue",
+			relaunch: true,
+		});
+		expect(moved).toEqual(["merge(m0;a1)"]);
+		expect(taken(actions)).toEqual([["a@a1"]]);
+		expect(kinds(actions)).toContain("delete-landed-ref");
+		expect(remote.refs.has("b")).toBe(true);
+	});
+
+	it("takes the next batch where the move changed none of its code", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		let pushed = false;
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			verdict: (_, r) => {
+				if (!pushed) r.refs.set("b", { sha: "b1", pushedAt: 2 });
+				pushed = true;
+				return { kind: "green", run: 1 };
+			},
+			mainMoved: () => false,
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(taken(actions)).toEqual([["a@a1"], ["b@b1"]]);
 	});
 });
 
