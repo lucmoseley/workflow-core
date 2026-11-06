@@ -122,7 +122,7 @@ function parseReplyRefs(reply, names) {
 const askClaude = (prompt, { env, signal }) =>
 	new Promise((resolve) => {
 		const child = execFile(
-			claudeBin(),
+			claudeBin(env),
 			CLAUDE_ARGV,
 			{ cwd: "/", env, signal, timeout: RESOLVE_TIMEOUT_MS },
 			(err, stdout, stderr) => {

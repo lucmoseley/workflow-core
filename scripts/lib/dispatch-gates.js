@@ -82,7 +82,7 @@ function gateOutcome(dir, keyVar) {
 		for (const name of overflow.unset) delete env[name];
 	}
 	const auth = launchAuthRefusal({
-		bin: claudeBin(),
+		bin: claudeBin(env),
 		env,
 		cwd: process.cwd(),
 		settings: overflow?.settings,

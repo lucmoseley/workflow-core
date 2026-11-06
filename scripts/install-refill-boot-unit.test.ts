@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * The boot unit's installer (#3878) against fake systemctl and loginctl on
- * PATH, its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
+ * The boot unit's installer (#3878) against a fake systemctl at WFC_SYSTEMCTL
+ * (#3970) and a fake loginctl on PATH, its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
  * can believe the loop returns at boot with the unit disabled or linger off,
  * a unit can run the loop without the installer's seat and PATH, can start from
  * a working copy mid-edit, or a failed boot can leave the loop's log silent. And
@@ -15,6 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import { writeSystemctl } from "./lib/systemctl-fake";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture.js";
 
 const SCRIPT = path.resolve(__dirname, "install-refill-boot-unit.js");
@@ -38,8 +39,19 @@ function writeFake(name: string, body: string) {
 	);
 }
 
+let systemctl: string;
+
+const writeUnitStates = (boot: string, timer = "enabled") => {
+	systemctl = writeSystemctl(dir, {
+		units: {
+			"refill-loop-boot.service": { enabled: boot },
+			"refill-loop-watch.timer": { enabled: timer },
+		},
+	});
+};
+
 function writeFakes({ enabled = "enabled", linger = "yes" } = {}) {
-	writeFake("systemctl", `case "$*" in *is-enabled*) echo ${enabled};; esac`);
+	writeUnitStates(enabled);
 	writeFake(
 		"loginctl",
 		`case "$*" in show-user*) echo Linger=${linger};; esac`,
@@ -48,6 +60,7 @@ function writeFakes({ enabled = "enabled", linger = "yes" } = {}) {
 
 const buildInstallEnv = (env: NodeJS.ProcessEnv = {}) => ({
 	PATH: `${at("bin")}:/usr/bin:/bin`,
+	WFC_SYSTEMCTL: systemctl,
 	HOME: dir,
 	XDG_CONFIG_HOME: at("config"),
 	SHELL: "/bin/bash",
@@ -145,10 +158,7 @@ describe("install-refill-boot-unit", () => {
 	});
 
 	it("fails where the watch timer reads back disabled", () => {
-		writeFake(
-			"systemctl",
-			'case "$*" in *is-enabled*timer*) echo disabled;; *is-enabled*) echo enabled;; esac',
-		);
+		writeUnitStates("enabled", "disabled");
 		const r = install();
 		expect(r.status).toBe(1);
 		expect(r.stdout).toContain("refill-loop-watch.timer is-enabled: disabled");

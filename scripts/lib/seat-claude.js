@@ -35,7 +35,7 @@ function buildSeatEnv(env, seat, over = {}) {
  */
 function runClaude(
 	args,
-	{ cwd, env, timeout = CHILD_TIMEOUT_MS, bin = claudeBin() },
+	{ cwd, env, timeout = CHILD_TIMEOUT_MS, bin = claudeBin(env) },
 ) {
 	const r = spawnRaw(bin, args, {
 		cwd,

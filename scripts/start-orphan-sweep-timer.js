@@ -34,6 +34,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot, sessionTree } = require("./lib/host-root.js");
 const { runCommand } = require("./lib/run-command.js");
+const { systemctl, systemdRun } = require("./lib/systemd-bins.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "wfc-orphan-sweep";
@@ -48,9 +49,6 @@ const PERIOD = "5min";
 const ACCURACY = "30s";
 /* A guess: below the sessions' default 0, so a sweep yields to their work. */
 const NICE = 10;
-
-const systemdRun = () => process.env.WFC_SYSTEMD_RUN || "systemd-run";
-const systemctl = () => process.env.WFC_SYSTEMCTL || "systemctl";
 
 /** The sweep script the timer should run. */
 function sweepScript() {
