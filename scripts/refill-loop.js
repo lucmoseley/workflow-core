@@ -140,6 +140,7 @@ const {
 const { readCurrentBootId, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
+const { systemctl } = require("./lib/systemd-bins.js");
 const {
 	readControlChecked,
 	readControlFile,
@@ -492,7 +493,7 @@ function watch() {
 		...bootPorts(() => undefined),
 		launchHolder: launchLock.holder,
 		restartBootUnit: () =>
-			runCommand("systemctl", [
+			runCommand(systemctl(), [
 				"--user",
 				"restart",
 				"refill-loop-boot.service",

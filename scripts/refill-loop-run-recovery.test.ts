@@ -105,6 +105,11 @@ import {
 import { parseHoldId, probedCheckout } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import {
+	type SystemctlAnswers,
+	systemctlCalls,
+	writeSystemctl,
+} from "./lib/systemctl-fake";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
 refillSandbox();
@@ -493,32 +498,23 @@ describe("boot-resume after a restart (#3878)", () => {
 	});
 
 	describe("watch, the timer's look for a dead loop (#4139)", () => {
-		const watch = (systemctlBody = "") => {
-			fs.mkdirSync(at("watch-bin"), { recursive: true });
-			fs.writeFileSync(
-				at("watch-bin/systemctl"),
-				`#!/bin/sh\necho "$*" >> ${shellQuote(at("systemctl-calls"))}\n${systemctlBody}\n`,
-				{ mode: 0o755 },
-			);
-			return runInProcessAsync(
-				path.join(scripts, "refill-loop.js"),
-				["watch"],
-				{
-					cwd: dir,
-					env: loopEnv({
-						PATH: `${at("watch-bin")}:${process.env.PATH}`,
-					}),
-				},
-			);
-		};
-		const readCalls = () => readLines(at("systemctl-calls"));
+		const watch = (answers: SystemctlAnswers = {}) =>
+			runInProcessAsync(path.join(scripts, "refill-loop.js"), ["watch"], {
+				cwd: dir,
+				env: loopEnv({
+					WFC_SYSTEMCTL: writeSystemctl(at("watch-bin"), answers),
+				}),
+			});
+		const readCalls = () => systemctlCalls(at("watch-bin"));
 
 		it("restarts the boot unit past a dead loop's pidfile, so boot-resume decides", async () => {
 			writeControl();
 			const holder = spawnHolder();
 			await exited(holder);
 			expect((await watch()).status).toBe(0);
-			expect(readCalls()).toEqual(["--user restart refill-loop-boot.service"]);
+			expect(readCalls()).toEqual([
+				"systemctl --user restart refill-loop-boot.service",
+			]);
 			expect(fs.existsSync(at("ticks"))).toBe(false);
 		});
 
@@ -536,7 +532,9 @@ describe("boot-resume after a restart (#3878)", () => {
 
 		it("exits 1, naming the restart, where it fails, for the unit's ExecStopPost", async () => {
 			writeControl();
-			const r = await watch("echo denied >&2; exit 1");
+			const r = await watch({
+				fails: { restart: { exit: 1, says: "denied" } },
+			});
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain("--user restart refill-loop-boot.service");
 			expect(r.stderr).toContain("denied");
