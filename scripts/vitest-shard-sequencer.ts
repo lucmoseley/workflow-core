@@ -29,7 +29,6 @@ const {
 } = require("./lib/shard-plan.js");
 const { CI_RECORD: DATASET, parseCsv } = require("./lib/suite-timings.js");
 
-/** The CSV this run plans by. */
 const source = (): string => process.env.WFC_SHARD_TIMINGS || DATASET;
 
 /** The specs `paths` name, in that order; each path came from `byPath`. */

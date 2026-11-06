@@ -80,8 +80,7 @@ const ROOT = worktreeRoot();
 /* Candidates tried for reports, newest first. Untraced: a green run
  * uploads its reports, so past the first few none is coming. */
 const SOURCES_TRIED = 5;
-/* Runs listed. The newest of them all but always holds reports; see
- * SOURCES_TRIED. */
+/* Runs listed. */
 const RUNS_LISTED = 30;
 
 /**
