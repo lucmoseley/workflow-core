@@ -421,6 +421,45 @@ describe("refusals, all before any write", () => {
 		untouched();
 	});
 
+	describe("a whole-spec review's TICKETED lines (#4492)", () => {
+		const review = (finding: string) =>
+			`## Whole-spec review\n\n1. **Duplicated Code, ${finding}** The filter is spelt out at 8 sites.\n2. **§N7, FIXED \`a3ffe7ad6\`.** Moved.\n\n${TRAILER}none\n**Door:** two-way — revert a3ffe7ad6.\n**Outstanding:** #600 (the filter).\n\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9\n`;
+
+		it("refuses a TICKETED line naming no exception, quoting it and the three tags, and writes nothing", () => {
+			setUp();
+			const r = run(DECISION, review("TICKETED #600."));
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(
+				"1. **Duplicated Code, TICKETED #600.** The filter is spelt out at 8 sites.",
+			);
+			for (const tag of [
+				"`claimed by <session name>`",
+				"`needs its own design: <reason>`",
+				"`exposed, not caused`",
+			])
+				expect(r.stderr).toContain(tag);
+			untouched();
+		});
+
+		it.each([
+			"TICKETED #600, claimed by brisk-otter.",
+			"TICKETED #600, needs its own design: the seat model is changing.",
+			"TICKETED #600, exposed, not caused.",
+		])("passes a TICKETED line tagged %s", (finding) => {
+			setUp();
+			expect(run(DECISION, review(finding)).status).toBe(0);
+		});
+
+		it("leaves an untagged TICKETED line alone where the comment carries no Reviewed through line", () => {
+			setUp();
+			const r = run(
+				DECISION,
+				`Done.\n\n- **Removal leftover, TICKETED #600.**\n\n${TRAILER}none\n**Outstanding:** #600 (the leftover).\n`,
+			);
+			expect(r.status).toBe(0);
+		});
+	});
+
 	it("refuses a comment with no Outstanding line, leaving the issue and its claim untouched", () => {
 		setUp();
 		const r = run(DECISION, `Done.\n\n${TRAILER}none\n`);

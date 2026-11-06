@@ -214,6 +214,15 @@
 			"if": ["Bash(gh *)"]
 		},
 		{
+			"name": "guard-review-comment",
+			"core": "review-comment.js",
+			"tools": "Bash",
+			"failure": "open",
+			"tree": "host",
+			"host": "review-comment-host.js",
+			"if": ["Bash(gh *)"]
+		},
+		{
 			"name": "guard-rm-unchecked",
 			"core": "unchecked-rm.js",
 			"tools": "Bash",
