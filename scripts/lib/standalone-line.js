@@ -1,7 +1,7 @@
 /*
- * standalone-line.js — whether an issue body records why it has no parent, as
- * the `Standalone:` line `file-issue.js --standalone` writes (#1027), and that
- * line. Shared so the line the filers write and the line the orphan check
+ * standalone-line.js — whether an issue body carries the `Standalone:` line
+ * recording why it has no parent (#1027), and the builder every filer writes
+ * it with. Shared so the line the filers write and the line the orphan check
  * accepts cannot drift apart (#1615).
  *
  * Residual: a line inside a quote or code fence counts.
