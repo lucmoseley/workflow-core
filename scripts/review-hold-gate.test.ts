@@ -23,7 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
-import { mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
 import { reviewSuffix } from "./lib/review-suffix";
 import { runInProcess } from "./lib/run-in-process";
@@ -266,11 +266,10 @@ const expectRefused = (
 	expect(commitCount()).toBe(commits);
 };
 
-beforeEach(() => {
-	scratch = mkScratchDir("review-hold-gate-");
-	repo = path.join(scratch, "repo");
+/** The seeded repo and its hooks directory, built once and copied per case. */
+const fixture = defineTemplate((root) => {
+	repo = path.join(root, "repo");
 	fs.mkdirSync(repo);
-	hooks = path.join(scratch, "hooks");
 	git("init", "-q", "-b", "main");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
@@ -297,12 +296,19 @@ beforeEach(() => {
 	write(PLAIN, "old\n");
 	git("add", "-A");
 	git("commit", "-qm", "seed");
-	fs.mkdirSync(hooks, { recursive: true });
+	fs.mkdirSync(path.join(root, "hooks"));
 	fs.writeFileSync(
-		path.join(hooks, "pre-commit"),
+		path.join(root, "hooks", "pre-commit"),
 		`#!/bin/sh\nexec bash ${shellQuote(GATE)}\n`,
 		{ mode: 0o755 },
 	);
+});
+
+beforeEach(() => {
+	scratch = mkScratchDir("review-hold-gate-");
+	fixture.instantiate(scratch);
+	repo = path.join(scratch, "repo");
+	hooks = path.join(scratch, "hooks");
 });
 
 afterEach(() => {
