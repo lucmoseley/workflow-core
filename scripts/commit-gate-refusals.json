@@ -222,6 +222,10 @@
 			"lines": ["report-program breach(es)"]
 		},
 		{
+			"id": "program-output",
+			"lines": ["write(s) past writeFd"]
+		},
+		{
 			"id": "primitives",
 			"lines": ["primitives table fault(s)"]
 		},

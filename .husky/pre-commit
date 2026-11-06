@@ -532,11 +532,16 @@ if armed '^scripts/.+\.[cm]?js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js --index || exit "$?"
 fi
 
-# A report-* program writing past writeFd or filing past createIssue, judging
-# the whole tree (#3454). Only a report-* holds either breach, so only staging
-# one arms it.
+# A report-* program filing past createIssue, judging the whole tree (#3454).
+# Only a report-* holds the breach, so only staging one arms it.
 if armed '^scripts/report-[^/]+\.[cm]?js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js --index || exit "$?"
+fi
+
+# A program ending in process.exit writing past writeFd, judging the whole
+# tree (§N6, #4018).
+if armed '^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-program-output.js --index || exit "$?"
 fi
 
 # A checker line here or in .husky/pre-commit.local exiting 1 on its failure,

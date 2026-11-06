@@ -107,12 +107,13 @@ const spyStderr = () => {
 	vi.spyOn(fs, "writeSync").mockImplementation(((
 		fd: number,
 		data: Buffer,
-		offset = 0,
+		offset?: number | null,
 		...rest: number[]
 	) => {
 		if (fd !== 2) return real(fd, data, offset, ...rest);
-		write(data.subarray(offset).toString());
-		return data.length - offset;
+		const from = offset ?? 0;
+		write(data.subarray(from).toString());
+		return data.length - from;
 	}) as typeof fs.writeSync);
 	return write;
 };

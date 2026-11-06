@@ -266,6 +266,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"arbiter-commands": ["scripts/check-arbiter-commands.js"],
 	"clock-copies": ["scripts/check-clock-copies.js"],
 	"report-programs": ["scripts/check-report-programs.js"],
+	"program-output": ["scripts/check-program-output.js"],
 	primitives: ["scripts/check-primitives.js"],
 	"test-spawn": ["scripts/check-test-spawn.js"],
 	"precommit-exit": ["scripts/check-precommit-exit.js"],

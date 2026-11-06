@@ -135,9 +135,16 @@ const ROWS = {
 	"report-programs": {
 		script: "check-report-programs.js",
 		gate: "index",
-		scope: "every report-* program's output and issue filing",
+		scope: "every report-* program's issue filing",
 		cite: "(#3454)",
-		cost: "refuses every other session's commit staging a report-* until that program writes through writeFd and files through createIssue",
+		cost: "refuses every other session's commit staging a report-* until that program files through createIssue",
+	},
+	"program-output": {
+		script: "check-program-output.js",
+		gate: "index",
+		scope: "every write past writeFd in a program ending in process.exit",
+		cite: "(#4018)",
+		cost: "refuses every other session's commit staging a scripts/ or skill program until that write goes through writeFd",
 	},
 	"precommit-exit": {
 		script: "check-precommit-exit.js",
