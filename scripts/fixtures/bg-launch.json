@@ -27,6 +27,20 @@
 			"status": 0,
 			"stdout": "backgrounded · 5e551d1e · a-recorded-launch (idle — send a prompt to start)\n  claude agents             list sessions\n  claude attach 5e551d1e    open in this terminal\n  claude logs 5e551d1e      show recent output\n  claude stop 5e551d1e      stop this session\n",
 			"stderr": ""
+		},
+		"named": {
+			"argv": [
+				"--bg",
+				"--model",
+				"haiku",
+				"-n",
+				"Overflow · a-recorded-launch",
+				"Reply with the single word ok. Use no tools."
+			],
+			"id": "5e55a3ed",
+			"status": 0,
+			"stdout": "backgrounded · 5e55a3ed · Overflow · a-recorded-launch\n  claude agents             list sessions\n  claude attach 5e55a3ed    open in this terminal\n  claude logs 5e55a3ed      show recent output\n  claude stop 5e55a3ed      stop this session\n",
+			"stderr": ""
 		}
 	},
 	"removals": {

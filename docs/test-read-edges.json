@@ -6358,10 +6358,12 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/bg-launch.json": [
+			"scripts/dispatch-sessions-bridge.test.ts",
 			"scripts/guard-main-checkout-job.test.ts",
 			"scripts/lib/bg-launch.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/run-arm-test.test.ts",
 			"scripts/start-session.test.ts"
 		],
 		"scripts/fixtures/bg-resume.json": [
@@ -9759,6 +9761,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/launch.test.ts",
 			"scripts/lib/bg-launch.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",

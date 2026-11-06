@@ -3,14 +3,15 @@
  * Holds the readers of a fresh `claude --bg <flags> -- <prompt>` and of
  * `claude rm <id>` (#4343) — lib/seat-claude.js's verdict, which
  * guard-main-checkout-job.js acts on, and lib/bg-launch-id.sh's job id, which
- * start-session.sh attaches to — to one case list, run against the installed
+ * start-session.sh attaches to and dispatch-sessions.sh records — to one case list, run against the installed
  * harness's recorded answers (scripts/fixtures/bg-launch.json, re-recorded by
  * `node scripts/record-claude-responses.js`), against lib/bg-launch-fake.ts,
- * which those two programs' suites' `claude` stubs print, and, on the
+ * which those programs' and run-arm-test.js's suites' `claude` stubs print, and, on the
  * founder's machine, against the real `claude` where a call is free. Breaking
  * it costs the relaunch out of the main checkout: an answer the guard
- * misreads leaves two jobs on one prompt, or the original unremoved, and an
- * id start-session.sh misreads attaches to no job.
+ * misreads leaves two jobs on one prompt, or the original unremoved, an id
+ * start-session.sh misreads attaches to no job, and one dispatch-sessions.sh
+ * misreads records a launch pick-next.js cannot find alive.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -19,6 +20,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type Answer,
+	buildLaunchNodeAnswer,
 	buildRmBranch,
 	type LaunchKind,
 	type RmKind,
@@ -62,18 +64,20 @@ const readLaunchId = (stdout: string) =>
 const buildAnswering = (r: Answer) =>
 	`printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
 
-const launchCases: { kind: LaunchKind; prompted: boolean }[] = [
-	{ kind: "prompted", prompted: true },
-	{ kind: "idle", prompted: false },
+/* Each kind's marking flag and where its program puts it: before the prompt,
+ * before the name, or before a name the prompt follows. */
+const launchCases: { kind: LaunchKind; flag: string; at: number }[] = [
+	{ kind: "prompted", flag: "--", at: -2 },
+	{ kind: "idle", flag: "--name", at: -2 },
+	{ kind: "named", flag: "-n", at: -3 },
 ];
 
-describe.each(launchCases)("the $kind launch", ({ kind, prompted }) => {
+describe.each(launchCases)("the $kind launch", ({ kind, flag, at }) => {
 	const r = recorded.launches[kind];
 
 	it("was recorded in its program's shape", () => {
 		expect(r.argv[0]).toBe("--bg");
-		expect(r.argv.at(-2) === "--").toBe(prompted);
-		expect(r.argv.includes("--name")).toBe(!prompted);
+		expect(r.argv.at(at)).toBe(flag);
 		expect(r.status).toBe(0);
 	});
 
@@ -90,6 +94,25 @@ describe.each(launchCases)("the $kind launch", ({ kind, prompted }) => {
 		expect(read.failed).toBeNull();
 		expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
 	});
+
+	it("reads the Node stub's fake of it", () => {
+		const bin = path.join(dir, "claude.js");
+		fs.writeFileSync(
+			bin,
+			`#!/usr/bin/env node\n${buildLaunchNodeAnswer(JSON.stringify(FAKE_ID), kind)}\n`,
+			{ mode: 0o755 },
+		);
+		const read = runOn(r.argv, [], bin);
+		expect(read.failed).toBeNull();
+		expect(readLaunchId(read.stdout)).toBe(FAKE_ID);
+	});
+});
+
+/* A name after the id may hold a hex run of its own. */
+it("reads the job id, not a hex run in the name after it", () => {
+	expect(
+		readLaunchId(`backgrounded · ${FAKE_ID} · Overflow · /wayfinder deadbeef`),
+	).toBe(FAKE_ID);
 });
 
 /* A launch on a terminal colours its id. */

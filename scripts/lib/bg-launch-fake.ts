@@ -14,9 +14,11 @@ import path from "node:path";
 import { buildJobIdWord } from "./claude-stub";
 
 /** `prompted`: `--bg <flags> -- <prompt>`, as guard-main-checkout-job.js
- * launches; `idle`: `--bg --agent claude --name <name>`, as start-session.sh
- * does. */
-export type LaunchKind = "prompted" | "idle";
+ * launches, and as dispatch-sessions.sh and run-arm-test.js launch unnamed;
+ * `idle`: `--bg --agent claude --name <name>`, as start-session.sh does;
+ * `named`: `--bg <flags> -n <name> <prompt>`, as dispatch-sessions.sh's
+ * overflow launch. */
+export type LaunchKind = "prompted" | "idle" | "named";
 export type RmKind = "ok" | "noJob";
 
 export interface Answer {
@@ -50,6 +52,18 @@ export function writeLaunchAnswer(
 	fs.writeFileSync(out, r.stdout.replaceAll(r.id, id));
 	fs.writeFileSync(err, r.stderr.replaceAll(r.id, id));
 	return { out, err };
+}
+
+/** A Node stub's statements printing the recorded `kind` launch's answer
+ * naming the job the JavaScript expression `idExpr` evaluates to. */
+export function buildLaunchNodeAnswer(
+	idExpr: string,
+	kind: LaunchKind = "prompted",
+) {
+	const r = recorded.launches[kind];
+	const print = (stream: string, text: string) =>
+		`process.${stream}.write(${JSON.stringify(text)}.replaceAll(${JSON.stringify(r.id)},${idExpr}));`;
+	return `${print("stdout", r.stdout)}${print("stderr", r.stderr)}`;
 }
 
 /** The `rm` branch, removing job `$2`. */

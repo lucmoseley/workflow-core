@@ -44,30 +44,14 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 	/* mantahostels#3488: the launched job's own id, not the launcher's — the field
 	 * pick-next.js reads to say whether the launch is still alive. */
 	it("records the job id claude --bg printed as the ledger's jobId", () => {
-		stubClaude({ launchOutput: "efbb4e5e" });
+		stubClaude({ jobId: "efbb4e5e" });
 		run(["opus", "/implement 341"]);
 		const rec = JSON.parse(fs.readFileSync(ledger(), "utf8").trim());
 		expect(rec.jobId).toBe("efbb4e5e");
 	});
 
-	/* #27: the real line is not a bare id — `claude --bg` prints
-	 * `backgrounded·<ESC>[36m<id><ESC>[39m`. */
-	it("strips the colour codes and prefix real claude --bg output carries", () => {
-		stubClaude({ launchOutput: "backgrounded·[36m7fb75db3[39m" });
-		run(["opus", "/implement 341"]);
-		const rec = JSON.parse(fs.readFileSync(ledger(), "utf8").trim());
-		expect(rec.jobId).toBe("7fb75db3");
-	});
-
-	it("records the last of two id-shaped runs on the line", () => {
-		stubClaude({ launchOutput: "0123abcd then 89abcdef" });
-		run(["opus", "/implement 341"]);
-		const rec = JSON.parse(fs.readFileSync(ledger(), "utf8").trim());
-		expect(rec.jobId).toBe("89abcdef");
-	});
-
 	it("records jobId: null where the launch printed nothing on its first line", () => {
-		stubClaude({ launchOutput: "" });
+		stubClaude({ launch: "silent" });
 		run(["opus", "/implement 341"]);
 		const rec = JSON.parse(fs.readFileSync(ledger(), "utf8").trim());
 		expect(rec.jobId).toBeNull();

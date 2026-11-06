@@ -22,6 +22,8 @@ import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { writeProcRoot } from "./admission-testkit";
 import { buildAuthStatusBranch } from "./auth-status-fake";
+import { type LaunchKind, writeLaunchAnswer } from "./bg-launch-fake";
+import { buildBgBranch } from "./claude-stub";
 import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fake";
@@ -79,11 +81,12 @@ export interface StubClaudeOptions {
 	 * running" rather than as unparseable. A case driving either with real
 	 * sessions passes a JSON array here. */
 	agentsJson?: string;
-	/** The launch's own stdout first line — real `claude --bg` prints the job
-	 * id here (`claude --help`'s own words, mantahostels#3488). Defaults to a plain
-	 * "launched" for every case that does not care what the line says; a case
-	 * asserting the ledger's `jobId` passes a short-id-shaped string. */
-	launchOutput?: string;
+	/** Which recorded launch answer the stub prints (lib/bg-launch-fake.ts),
+	 * naming job `jobId`; `silent` prints nothing, a launch no recording
+	 * shows. */
+	launch?: LaunchKind | "silent";
+	/** The job id the launch answer names. */
+	jobId?: string;
 	/** Where this stub records its argv — defaults to the shared `dir/argv`.
 	 * A case standing up TWO stubs gives one its own log, so `readArgvLines()` can
 	 * say which of them a call actually reached rather than reading a union of
@@ -285,7 +288,8 @@ export function dispatchFixture(): DispatchFixture {
 			launchFails = false,
 			at = stubPath(),
 			agentsJson = agentsListing(),
-			launchOutput = "launched",
+			launch = "prompted",
+			jobId = "0b5e55ed",
 			argvLog = path.join(fx.dir, "argv"),
 			envLog,
 			probeRefreshes,
@@ -321,14 +325,22 @@ export function dispatchFixture(): DispatchFixture {
 			`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(agentsJson)}; exit 0; fi`,
 			envLog ? `env >> ${shellQuote(envLog)}` : "",
 			`pwd >> ${shellQuote(path.join(fx.dir, "launch-cwds"))}`,
-			launchFails
-				? "printf 'could not start\\n' >&2\nexit 1"
-				: `printf '%s\\n' ${shellQuote(launchOutput)}`,
+			launchAnswer(launchFails, launch, jobId),
 		]
 			.filter(Boolean)
 			.join("\n");
 		fs.writeFileSync(at, script);
 		fs.chmodSync(at, 0o755);
+	}
+
+	function launchAnswer(
+		fails: boolean,
+		launch: LaunchKind | "silent",
+		jobId: string,
+	): string {
+		if (fails) return "printf 'could not start\\n' >&2\nexit 1";
+		if (launch === "silent") return "exit 0";
+		return buildBgBranch(writeLaunchAnswer(fx.dir, jobId, launch));
 	}
 
 	function stubPath(): string {
