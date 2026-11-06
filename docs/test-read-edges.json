@@ -6438,7 +6438,8 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/headless-run.contract.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
-			"scripts/npm-run-hints-scan.test.ts"
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/overflow-view.test.ts"
 		],
 		"scripts/fixtures/session-breaches/recorded-05970a71.jsonl": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -19348,6 +19349,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/overflow-view.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"

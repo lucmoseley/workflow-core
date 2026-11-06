@@ -10,6 +10,7 @@
  * Loosen one and the founder misses a run waiting on him, answers a session
  * still working, or a reply leaks the key into the session's environment.
  */
+
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -18,6 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { buildAuthStatusNodeBranch } from "./lib/auth-status-fake";
+import { buildResultRow } from "./lib/headless-run-fake";
 import type { RunRecord } from "./lib/headless-runs.js";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { readHeadroom, sendReply, stopRun } from "./lib/overflow-actions.js";
@@ -70,11 +72,7 @@ const tool = (name: string, command: string) =>
 		type: "assistant",
 		message: { content: [{ type: "tool_use", name, input: { command } }] },
 	});
-const result = JSON.stringify({
-	type: "result",
-	subtype: "success",
-	is_error: false,
-});
+const result = JSON.stringify(buildResultRow());
 
 function writeRun(
 	{ job, sid }: { job: string; sid: string },
