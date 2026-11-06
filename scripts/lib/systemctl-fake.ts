@@ -23,8 +23,7 @@ export interface SystemctlAnswers {
 	/** A verb that fails, with its exit code and stderr. */
 	fails?: Record<string, { exit: number; says?: string }>;
 	/** The cgroup root a unit's ControlGroup property sits under, as
-	 * WFC_CGROUP_ROOT: `kill` empties that cgroup's `cgroup.procs`, as the
-	 * killed processes leaving it would. */
+	 * WFC_CGROUP_ROOT: `kill` empties that cgroup's `cgroup.procs`. */
 	cgroupRoot?: string;
 }
 

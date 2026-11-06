@@ -11,8 +11,8 @@
  * 2): `show`, `is-enabled` and `is-active` are free reads, and a `restart` of a
  * unit that does not exist changes nothing.
  *
- * Red on the real side after a systemd upgrade: run the case's command by
- * hand, then fix the fake or its caller's reader.
+ * Red on the real side after a systemd upgrade: fix the fake or its
+ * caller's reader.
  */
 
 import { spawnSync } from "node:child_process";
@@ -35,7 +35,6 @@ const run = (bin: string, args: string[]) => {
 	return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr.trim() };
 };
 
-/** The user units `list` names, first first. */
 function realUnits(list: string[]): string[] {
 	const r = run(systemctl(), ["--user", ...list, "--no-legend", "--plain"]);
 	return r.status === 0
@@ -46,7 +45,6 @@ function realUnits(list: string[]): string[] {
 		: [];
 }
 
-/** The first active user service with an ExecStart record, or null. */
 function realExecUnit(active: string[]): string | null {
 	return (
 		active.find((unit) =>
@@ -75,7 +73,6 @@ function realSkip(scope: string[], manager: string): string | null {
 	}
 }
 
-/** The real user manager's units, or why there are none to ask. */
 function readRealUnits(): Units | string {
 	const skip = realSkip(["--user"], "user");
 	if (skip) return skip;
@@ -138,9 +135,7 @@ interface Units {
 
 interface Side {
 	bin: string;
-	/** The user manager's units, or why the side has none to ask. */
 	units: () => Units | string;
-	/** Null where the system manager answers, else why it does not. */
 	systemSkip: () => string | null;
 }
 
