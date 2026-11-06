@@ -80,6 +80,16 @@ Researched: 2026-10-21
 - The same check can be soft at review time and hard at the commit gate: Chromium's presubmit API warns on upload and errors on commit (`input_api.is_committing`). Chromium "Presubmit Scripts" [standard or field body]
 - Doc freshness metadata (owner plus reviewed date) is the periodic exception: it emails a reminder after a period such as three months and blocks nothing. SWE at Google ch. 10 [named expert]
 
+## Derived data and attestations under a merge queue
+
+- The integrator tests the merge result and lands exactly that. It makes only the merge (or rebase, squash) commit and adds no content of its own. Hoare, "not rocket science" (2014) [named expert]; bors-ng README, GitHub merge queue, GitLab merge trains, Zuul docs, each for its own product [standard or field body]
+- The author does not rebase when trunk moves. The queue re-tests, and the author acts only on a real conflict or a failure. Renovate `rebaseWhen=auto` rebases only on a conflict, "because the merge queue already tests PRs against the head of the base branch". Renovate docs; Tide docs; Uber, "Keeping Master Green at Scale", EuroSys 2019 [named expert]
+- Derived data computable from the commit is not committed. It is built or checked at build time: Google keeps generated files out of the codebase, and Blaze and Nix key outputs on a hash of their inputs. A stored hash is kept only for content outside the commit, such as an external dependency. SWE at Google ch. 17 and 18 [named expert]; protobuf smoke README ("the strongly recommended pattern") [named expert]; Bazel remote caching, Nix store-path spec [standard or field body]
+- Where a derived file is committed, the tool regenerates it and CI only verifies it. The author never hand-merges it: npm, Yarn and pnpm auto-merge a conflicted lockfile on install; Cargo says to take trunk's side and re-run. npm, Yarn, pnpm and Cargo docs [standard or field body]
+- One file every writer edits is split into a fragment per change, aggregated later. towncrier README; GitLab, "How we solved GitLab's CHANGELOG conflict crisis" (2018) [named expert]
+- A committed value that records a review, such as a snapshot or an approval, is an attestation, not derived data. It stays stored. Jest snapshot docs [standard or field body]
+- An attestation survives an integration that does not change what was reviewed. Gerrit copies a vote to a new patch set on `changekind:TRIVIAL_REBASE`, a rebase that "did not require git to perform any conflict resolution". GitHub dismisses an approval "if the merge base introduces new changes". Gerrit config-labels docs; GitHub protected-branches docs, each for its own product [standard or field body]. No source carries this to a digest over many files, so it sets no default for one [unverified]
+
 ## Static-analysis findings ruled false
 
 - Turn a check off where its effective false-positive rate passes 10%, until it is fixed; an effective false positive is a finding developers take no positive action on. Sadowski et al., "Lessons from Building Static Analysis Tools at Google", CACM 61(4) 2018; Sadowski et al., "Tricorder", ICSE 2015 (< 10% at code review) [named expert]
