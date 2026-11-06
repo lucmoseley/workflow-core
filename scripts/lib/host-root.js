@@ -11,9 +11,10 @@
  * so a hook's claim and a hand-run `release` meet in one store only because
  * both limbs map to the main checkout (#4482, #4493). A declared directory
  * whose `.git` is not a file is kept without asking git: a main checkout, or
- * no checkout root at all. RESIDUAL: a declared subdirectory of a linked
- * worktree is such a directory, kept as declared where the working-directory
- * limb would map it; the harness declares only a checkout's root.
+ * no checkout root at all. RESIDUAL: a declared subdirectory of any checkout
+ * is such a directory, kept as declared where the working-directory limb
+ * would map it to the main checkout; the harness declares only a checkout's
+ * root.
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
  *
