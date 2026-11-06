@@ -184,6 +184,7 @@ describe("the session's directory (#4245)", () => {
 		run(["sonnet", "/implement 342"], {
 			WFC_REPO_ROOT: fx.dir,
 			CLAUDE_PROJECT_DIR: fx.dir,
+			WFC_DISPATCH_ROOT: fx.dir,
 		});
 		const env = fs.readFileSync(envLog, "utf8");
 		expect(env).toContain("WFC_CLAUDE_BIN=");

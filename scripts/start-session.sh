@@ -56,7 +56,11 @@ dir="$(node "$here/session-checkout.js" cut "$name")" || exit 1
 cd "$dir" || exit 1
 # The roots the cut read are not the job's: a daemon this launch starts would
 # hand them to every later job in any repository (#4595).
-read -ra roots <<<"$(node "$here/lib/inherited-roots.js")"
+roots="$(node "$here/lib/inherited-roots.js")" || {
+  printf 'start session: the root variables to clear would not read; %s stays cut for a retry.\n' "$dir" >&2
+  exit 1
+}
+read -ra roots <<<"$roots"
 unset "${roots[@]}"
 launched="$("${WFC_CLAUDE_BIN:-claude}" --bg --agent claude --name "$name" "$@")" || {
   # claude-route-exempt: only text

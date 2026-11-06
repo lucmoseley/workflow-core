@@ -15,6 +15,8 @@
  * its hooks, as a job of a cleanly started daemon does.
  */
 
+const { writeFd } = require("./write-fd.js");
+
 const ROOT_VARS = Object.freeze([
 	"WFC_REPO_ROOT",
 	"CLAUDE_PROJECT_DIR",
@@ -29,6 +31,6 @@ function forgetRoots(env) {
 	for (const v of ROOT_VARS) delete env[v];
 }
 
-if (require.main === module) process.stdout.write(`${ROOT_VARS.join(" ")}\n`);
+if (require.main === module) writeFd(1, `${ROOT_VARS.join(" ")}\n`);
 
 module.exports = { ROOT_VARS, forgetRoots };
