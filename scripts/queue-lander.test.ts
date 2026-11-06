@@ -616,10 +616,10 @@ describe("the adapters", () => {
 
 		const refused = refusedRecord(path.join(markers(), "r.jsonl"));
 		refused.add("s1", "GH013: rule violations");
-		expect(refusedRecord(path.join(markers(), "r.jsonl")).reasonOf("s1")).toBe(
+		expect(refusedRecord(path.join(markers(), "r.jsonl")).refusalOf("s1")).toBe(
 			"GH013: rule violations",
 		);
-		expect(refused.reasonOf("s2")).toBeNull();
+		expect(refused.refusalOf("s2")).toBeNull();
 
 		const drops = path.join(markers(), "d.json");
 		const d = {

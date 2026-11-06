@@ -384,7 +384,7 @@ function verdictLedger(file) {
  */
 function refusedRecord(file) {
 	return {
-		reasonOf(sha) {
+		refusalOf(sha) {
 			const rows = readJsonl(file)?.rows ?? [];
 			const row = rows.find(
 				(r) => r.sha === sha && typeof r.reason === "string",

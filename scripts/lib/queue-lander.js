@@ -56,11 +56,13 @@
  *   runs at `main` and alone on `lander/iso-suite-*` refs, whose pushes the
  *   suite runs on; `main` shares it where `main` fails every job it does.
  * - **Refused.** A push to `main` the remote refuses, as its ruleset does, is
- *   final for that sha: it is written to the refused record, the batch is
- *   held naming it, and it leaves the green ledger, so the pre-push gate
- *   passes no later push of it. No batch lands a refused sha: a member whose
- *   own sha was refused is merged as a new commit even where it descends
- *   from `main`, and a merge that makes a refused sha again is held.
+ *   final for that sha (#4501): it is written to the refused record, leaves
+ *   the green ledger, so the pre-push gate passes no later push of it, and
+ *   the batch is held naming it. No batch lands a refused sha: a member
+ *   whose own sha was refused is merged as a new commit even where it
+ *   descends from `main`, and a merge that makes a refused sha again is
+ *   held. Residual: the refused record keeps every row for good, one per
+ *   refusal, which no run prunes.
  * - **Restart.** Each decision is written to the batch record, which keeps
  *   the phase, the isolation merges and the serial steps, before the act it
  *   governs, so a rerun after a crash converges on it.
@@ -76,7 +78,7 @@
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
  *   files it ran and its pass, the rerun and the confirm being the second.
  *   A base check's verdict at `main` is kept on the batch record, never the
- *   ledger, so each batch asks it afresh: a failure that reached `main`
+ *   ledger, so each batch asks it afresh (#4501): a failure that reached `main`
  *   since an earlier batch's check is never blamed on this one. An unknown
  *   verdict is no verdict: it lands and drops nothing and is never
  *   ledgered, so the next run asks again.
@@ -934,13 +936,14 @@ function owedAction(s) {
 		(d) => d.ticket === null && !s.unfiled.includes(d.ref),
 	);
 	if (owed) return { kind: "file-fix-ticket", drop: owed };
-	const hold = s.batch?.hold;
 	/* Off the green ledger, so the pre-push gate passes no later push of a sha
-	 * the remote refused; first the batch is held, so a crash between the two
-	 * leaves it ledgered, never pushed again, as the refused record holds it. */
-	if (hold?.kind === "refused" && s.isGreen(hold.sha))
-		return { kind: "unledger", sha: hold.sha };
-	return null;
+	 * the remote refused, before the batch merges again past it. */
+	const b = s.batch;
+	const hold = b?.hold?.kind === "refused" ? b.hold.sha : null;
+	const pushed = [b?.integration, b?.serial?.step?.sha, hold].find(
+		(sha) => sha && s.isGreen(sha) && s.refusalOf(sha) !== null,
+	);
+	return pushed ? { kind: "unledger", sha: pushed } : null;
 }
 
 /**
@@ -1021,7 +1024,7 @@ function nextQueueAction(s) {
  *   pass?: number) => void} add
  * @typedef {object} RefusedRecord every sha the remote refused on `main`,
  *   kept for good, as no batch may push one again
- * @property {(sha: string) => string|null} reasonOf the refusal of `sha`,
+ * @property {(sha: string) => string|null} refusalOf the refusal of `sha`,
  *   null where none
  * @property {(sha: string, reason: string) => void} add
  * @typedef {object} BatchRecord
@@ -1517,6 +1520,7 @@ async function actRed(deps, action, run) {
  */
 async function checkBase(deps, { sha, files }, run) {
 	deps.git.pushIso(isoBranch(files, "base"), sha);
+	/* `again`, so the tester runs it anew rather than reading a run it has. */
 	const v = await verdictAt(deps, sha, [...files], true);
 	return writeVerdict(deps, { sha, files, pass: BASE_PASS, v }, run, (got) => {
 		const b = batchOf(run);
@@ -1573,7 +1577,7 @@ async function step(deps, run, log) {
 		drops: deps.drops.read(),
 		now: deps.now(),
 		isGreen: (sha) => deps.ledger.has(sha),
-		refusalOf: (sha) => deps.refused.reasonOf(sha),
+		refusalOf: (sha) => deps.refused.refusalOf(sha),
 		verdictOf: (sha, files, pass) => deps.verdicts.get(sha, files, pass),
 		requiresRun: deps.tester.requiresRun === true,
 	});

@@ -257,7 +257,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		refused: {
-			reasonOf: (sha) => disk.refused.get(sha) ?? null,
+			refusalOf: (sha) => disk.refused.get(sha) ?? null,
 			add: (sha, reason) => {
 				disk.refused.set(sha, reason);
 			},
@@ -1286,7 +1286,7 @@ describe("the red path", () => {
 		});
 	});
 
-	it("asks each red batch's base check afresh, so a failure main gained since an earlier batch's check is never blamed on this one", async () => {
+	it("asks each red batch's base check afresh, so a failure main gained since an earlier batch's check is never blamed on this one (#4501)", async () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const disk = freshDisk();
 		const x = "scripts/x.test.ts";
@@ -1691,12 +1691,13 @@ describe("a push main refuses", () => {
 		expect(remote.refs.size).toBe(1);
 	});
 
-	it("takes a refused sha off the green ledger before anything else, a crash between the two included", async () => {
-		const remote = remoteOf("m0", {
+	it("takes a refused sha off the green ledger before anything else, where a crash left its batch unheld and main moved since (#4501)", async () => {
+		const remote = remoteOf("m1", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
 		});
 		const disk = freshDisk();
 		disk.green.add("a1");
+		disk.refused.set("a1", Ruleset);
 		disk.batch = {
 			...redPathAtRest(),
 			members: [{ name: "a", sha: "a1", pushedAt: 1 }],
@@ -1704,20 +1705,40 @@ describe("a push main refuses", () => {
 			dropped: [],
 			onto: "m0",
 			integration: "a1",
-			phase: "held",
-			hold: { kind: "refused", main: "m0", sha: "a1", reason: Ruleset },
+			phase: "testing",
 		};
 
-		const { end, actions } = await land(remote, disk, {
-			refuse: () => Ruleset,
-		});
+		const { end, actions, pushed } = await land(remote, disk);
 
 		expect(kinds(actions)[0]).toBe("unledger");
 		expect(disk.green.has("a1")).toBe(false);
-		expect(end.reason).toMatch(/^held: the push of a1 to main was refused/);
+		expect(pushed).toEqual(["merge(m1;a1)"]);
+		expect(end).toEqual(NO_QUEUE);
 	});
 
-	it("merges a lone member main refused as a new commit once retaken, pushing its own sha never again", async () => {
+	it("lands a serial step whose member main refused before as a new commit, never its own sha (#4501)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2, onMain: true },
+		});
+		const disk = freshDisk();
+		disk.refused.set("b1", Ruleset);
+
+		const { actions, pushed } = await land(remote, disk, {
+			verdict: (sha) =>
+				sha === "merge(m0;a1,b1)"
+					? { kind: "red", files: ["y.ts"] }
+					: { kind: "green", run: 1 },
+		});
+
+		expect(actions).toContainEqual(
+			expect.objectContaining({ kind: "serial-land-step", fresh: true }),
+		);
+		expect(pushed).not.toContain("b1");
+		expect(remote.main).toBe("merge(merge(m0;a1);b1)");
+	});
+
+	it("merges a lone member main refused as a new commit once retaken, pushing its own sha never again (#4501, the 5 Nov ea01c223e case)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
 		});
@@ -1735,7 +1756,7 @@ describe("a push main refuses", () => {
 		expect(remote.main).toBe("merge(m1;a1)");
 	});
 
-	it("holds any batch whose landing sha main refused before, pushing it never again", async () => {
+	it("holds any batch whose landing sha main refused before, pushing it never again (#4501)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
