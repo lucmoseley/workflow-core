@@ -35,6 +35,7 @@ const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
+const { STILL_FAILING } = require("../retry-failed-files.js");
 const {
 	LANDER_BATCH_BRANCH,
 	LANDER_ISO_PREFIX,
@@ -91,7 +92,6 @@ const RUNNER_STEPS = new Set([
 /* ci.yml's step re-running a lander batch's failed files once, and the line
  * it ends on naming those still failing (retry-failed-files.js, #4545). */
 const RETRY_STEP = "Retry failed files";
-const STILL_FAILING = "retry-failed-files: still failing after one retry:";
 /* New attempts of a run whose runner failed to ready, before no verdict. A
  * first guess, and stated as one. */
 const RUNNER_RERUNS = 2;
