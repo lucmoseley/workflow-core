@@ -138,6 +138,26 @@ it("starts a job in a worktree cut at origin/main, named for the session, and at
 	);
 });
 
+it("starts and attaches with none of the shell's root variables, so a daemon the launch starts cannot hand them on (#4595)", () => {
+	const seen = path.join(tmp, "roots-seen");
+	writeClaudeStub(
+		stubs.claude,
+		[
+			`printf '%s|%s|%s\\n' "\${WFC_REPO_ROOT-unset}" "\${CLAUDE_PROJECT_DIR-unset}" "\${WFC_DISPATCH_ROOT-unset}" >> ${shellQuote(seen)}`,
+			buildBgBranch(writeLaunchAnswer(tmp, JOB_ID, "idle")),
+		],
+		7,
+	);
+	const r = run(["brisk-otter"], {
+		WFC_REPO_ROOT: main,
+		WFC_DISPATCH_ROOT: main,
+	});
+	expect(r.status, r.stderr).toBe(7);
+	expect(fs.readFileSync(seen, "utf8")).toBe(
+		"unset|unset|unset\nunset|unset|unset\n",
+	);
+});
+
 it("names the session hand-<UTC timestamp> where the first argument is a flag", () => {
 	const r = run(["--model", "opus"]);
 

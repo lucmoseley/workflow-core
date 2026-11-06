@@ -49,6 +49,7 @@ const { spawn } = require("node:child_process");
 const { configDirs } = require("./lib/arbiter-store");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
+const { forgetRoots } = require("./lib/inherited-roots.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { readParentOf } = require("./lib/proc-stat.js");
@@ -336,7 +337,9 @@ const PROBE_PROMPT = "Reply with the single word ok. Do nothing else.";
 
 function launchProbe(/** @type {string} */ prompt) {
 	const bin = claudeBin();
-	const child = spawn(bin, ["--bg", prompt], { stdio: "ignore" });
+	const env = { ...process.env };
+	forgetRoots(env);
+	const child = spawn(bin, ["--bg", prompt], { stdio: "ignore", env });
 	child.unref();
 	return bin;
 }
