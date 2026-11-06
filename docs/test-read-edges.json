@@ -19934,6 +19934,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",
 			"scripts/lib/guard-entry.test.ts",
+			"scripts/lib/guard-log.test.ts",
 			"scripts/lib/headroom-read.test.ts",
 			"scripts/lib/hook-escape.test.ts",
 			"scripts/lib/host-root.test.ts",
