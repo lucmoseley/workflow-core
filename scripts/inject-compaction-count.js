@@ -129,18 +129,22 @@ function afterCompaction(payload, sid) {
 
 /**
  * The issue this session's claim holds, and its build state file where one
- * exists — the re-read the advice names.
+ * exists — the re-read the advice names. Of several claims, the newest with a
+ * state file is the build unit, else the newest (#4562).
  * @param {string} sid
  */
 function unitOf(sid) {
-	let issue = null;
+	let claimed = [];
 	try {
-		issue = readClaimedIssues(sid)[0] ?? null;
+		claimed = readClaimedIssues(sid);
 	} catch (err) {
 		logFailOpen("issue claims unreadable", err);
 	}
-	const file = issue === null ? null : buildStateFile(issue);
-	return { issue, stateFile: file && fs.existsSync(file) ? file : null };
+	for (const issue of claimed) {
+		const file = buildStateFile(issue);
+		if (fs.existsSync(file)) return { issue, stateFile: file };
+	}
+	return { issue: claimed[0] ?? null, stateFile: null };
 }
 
 /** @param {string} raw */

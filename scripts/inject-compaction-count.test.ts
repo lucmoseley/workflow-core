@@ -254,6 +254,17 @@ describe("what to do next, by count and build state file (#4410)", () => {
 		},
 	);
 
+	it("names the claimed issue that has a state file over a newer claim without one", () => {
+		claim(77);
+		writeStateFile(77);
+		const t = Date.now();
+		while (Date.now() <= t + 1);
+		claim(78);
+		expect(toldAt(1)).toContain(
+			`Re-read the build state file ${stateFile(77)}, issue #77,`,
+		);
+	});
+
 	it("names the issue generically where the session holds no claim", () => {
 		expect(toldAt(1)).toContain("Re-read the issue you are working, and");
 	});
