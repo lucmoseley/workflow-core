@@ -400,7 +400,7 @@ describe("file-morning-review.js (#2011)", () => {
 					},
 				],
 				61: [],
-				/* After the window's end, as a label applied mid-filing reads. */
+				/* After the window's end. */
 				62: [
 					{ event: "labeled", label: { name: "parked" }, created_at: ago(-1) },
 				],
