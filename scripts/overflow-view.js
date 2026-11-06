@@ -23,6 +23,7 @@
 const fs = require("node:fs");
 const { parseArgs } = require("node:util");
 const { readJsonl } = require("./lib/jsonl.js");
+const { writeFd } = require("./lib/write-fd.js");
 
 const { readLiveAgents, readStoredRuns } = require("./lib/headless-runs.js");
 const { launch } = require("./lib/headless-sessions.js");
@@ -33,6 +34,11 @@ const {
 	findOverflowSeat,
 	readDeclaredSeats,
 } = require("./lib/refill-seats.js");
+
+/** @param {string} s */
+const say = (s) => writeFd(1, `${s}\n`);
+/** @param {string} s */
+const warn = (s) => writeFd(2, `${s}\n`);
 
 /* Ended runs older than this are not offered as waiting. Untraced. */
 const WAITING_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -113,7 +119,7 @@ const lastSaid = (evs) => evs.findLast((e) => e.kind === "says")?.text ?? "";
 /** @returns {Map<string, string>} job id to the loop's prompt */
 function readLoopPrompts() {
 	const prompts = new Map();
-	const { launches } = readState((/** @type {string} */ m) => console.error(m));
+	const { launches } = readState((/** @type {string} */ m) => warn(m));
 	for (const l of launches) if (l.jobId) prompts.set(l.jobId, l.prompt ?? "");
 	return prompts;
 }
@@ -143,7 +149,7 @@ function board() {
 		runs = readStoredRuns();
 		liveRecords = readLiveAgents();
 	} catch (err) {
-		console.log(
+		say(
 			`overflow sessions unreadable: ${err instanceof Error ? err.message : err}`,
 		);
 		return 1;
@@ -156,24 +162,24 @@ function board() {
 
 	for (const seat of readDeclaredSeats().seats)
 		if (seat.kind === "overflow")
-			console.log(buildBudgetLine(seat, seatBudget(seat, hostRoot())));
+			say(buildBudgetLine(seat, seatBudget(seat, hostRoot())));
 
 	const waiting = needsInputRuns(runs, live, now);
-	console.log(`\nNEEDS INPUT: ${waiting.length}`);
+	say(`\nNEEDS INPUT: ${waiting.length}`);
 	for (const r of waiting)
-		console.log(
+		say(
 			`\n${r.jobId}  ended ${age(now - r.launchedAt)} after start  ${title(r.jobId)}\n  ${clip(lastSaid(readEvents(r.log)), 600)}\n  answer: node scripts/overflow-view.js --answer ${r.jobId} "<your answer>"`,
 		);
 
-	console.log(`\nRUNNING: ${liveRecords.length}`);
+	say(`\nRUNNING: ${liveRecords.length}`);
 	for (const r of liveRecords) {
 		const run = runs.find((x) => x.jobId === r.id);
 		const last = run ? readEvents(run.log).at(-1) : undefined;
-		console.log(
+		say(
 			`\n${r.id}  ${age(now - r.startedAt)}  ${title(r.id)}\n  last: ${last ? `${last.kind}: ${clip(last.text, 110)}` : "(nothing yet)"}`,
 		);
 	}
-	console.log("\nfollow one: node scripts/overflow-view.js --follow <job>");
+	say("\nfollow one: node scripts/overflow-view.js --follow <job>");
 	return 0;
 }
 
@@ -186,22 +192,23 @@ function readRunNamed(job) {
 function follow(job) {
 	const run = readRunNamed(job);
 	if (!run) {
-		console.log(`no run ${job}`);
+		say(`no run ${job}`);
 		return 1;
 	}
 	let shown = 0;
+	/** Shows what arrived; true once the run has ended. */
 	const tick = () => {
 		const evs = readEvents(run.log);
 		for (const e of evs.slice(shown))
-			console.log(
-				`[${e.kind}] ${e.kind === "says" ? e.text : clip(e.text, 300)}`,
-			);
+			say(`[${e.kind}] ${e.kind === "says" ? e.text : clip(e.text, 300)}`);
 		shown = evs.length;
-		if (evs.at(-1)?.kind === "end") process.exit(0);
+		return evs.at(-1)?.kind === "end";
 	};
-	tick();
+	if (tick()) return 0;
 	/* Untraced: a run's messages a few seconds late read fine on a terminal. */
-	setInterval(tick, 3000);
+	const timer = setInterval(() => {
+		if (tick()) clearInterval(timer);
+	}, 3000);
 	return null;
 }
 
@@ -209,13 +216,13 @@ function follow(job) {
 function answer(job, text) {
 	const run = readRunNamed(job);
 	if (!run) {
-		console.log(`no run ${job}`);
+		say(`no run ${job}`);
 		return 1;
 	}
 	const runs = readStoredRuns();
 	const live = new Set(readLiveAgents().map((r) => r.id));
 	if (!needsInputRuns(runs, live).some((r) => r.jobId === job)) {
-		console.error(
+		warn(
 			`not sent: ${job} is not a run waiting on you (still running, already answered, or not ended on needs input:)`,
 		);
 		return 1;
@@ -225,7 +232,7 @@ function answer(job, text) {
 	const seat = findOverflowSeat(readDeclaredSeats(), run.keyVar);
 	const budget = seat ? seatBudget(seat, hostRoot()) : null;
 	if (!budget || "why" in budget || budget.exhausted || budget.fit === 0) {
-		console.error(
+		warn(
 			`not sent: the key's budget does not fit an answer (${budget && "why" in budget ? budget.why : "no headroom"})`,
 		);
 		return 1;
@@ -238,10 +245,10 @@ function answer(job, text) {
 		resume: run.sessionId,
 	});
 	if ("why" in out) {
-		console.log(`not sent: ${out.why}`);
+		say(`not sent: ${out.why}`);
 		return 1;
 	}
-	console.log(
+	say(
 		`answer sent: session ${run.sessionId} resumed as job ${out.record.jobId}\nfollow it: node scripts/overflow-view.js --follow ${out.record.jobId}`,
 	);
 	return 0;
@@ -258,7 +265,7 @@ const { values, positionals } = parseArgs({
 });
 let code;
 if (values.help) {
-	console.log(fs.readFileSync(__filename, "utf8").split("*/")[0]);
+	say(fs.readFileSync(__filename, "utf8").split("*/")[0] ?? "");
 	code = 0;
 } else if (values.follow) code = follow(values.follow);
 else if (values.answer && positionals.length > 0)
