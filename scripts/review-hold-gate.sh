@@ -219,42 +219,31 @@ case "$route" in
 esac
 [[ -s "$held" ]] || pass_unheld
 
-# areas_under <rev> — the areas the declaration at <rev> (`HEAD`, or empty for
-# the index) holds the staged paths under, one per line. An absent copy
-# declares nothing.
-root_of() { printf '%s' "$work/root$1"; }
-areas_under() {
-  local root
-  root="$(root_of "$1")"
+# root_of <rev> — a root holding the declaration at <rev> (`HEAD`, or empty for
+# the index). An absent copy declares nothing.
+root_of() {
+  local root="$work/root$1"
   mkdir -p "$root/.claude" || return 1
   git show "$1:.claude/workflow-core.json" >"$root/.claude/workflow-core.json" 2>/dev/null ||
     rm -f "$root/.claude/workflow-core.json"
-  CLAUDE_PROJECT_DIR="$root" node "$here/lib/sensitive-paths.js" --stdin --names \
-    <"$held" 2>"$work/fault"
+  printf '%s' "$root"
 }
 unmatched() {
-  unchecked "could not match the staged paths against sensitivePaths" "$(head -c "${GL_DETAIL_MAX:-300}" "$1")"
+  unchecked "could not match the staged paths against sensitivePaths" "$(head -c "${GL_DETAIL_MAX:-300}" "$work/fault" 2>/dev/null)"
 }
-areas_out="$(areas_under HEAD)" || unmatched "$work/fault"
+head_root="$(root_of HEAD)" || unmatched
+staged_root="$(root_of '')" || unmatched
+# Exit 3: a staged copy that will not parse declares nothing, so the areas
+# include every one it drops from HEAD's; its fault is on stderr.
 staged_read=1
-staged_areas="$(areas_under '')" || staged_read=""
-staged_fault="$(cat "$work/fault")"
-
-# A staged copy that will not parse declares nothing, so it narrows every area
-# HEAD declares; with none there to drop, it stays this gate's own fault.
-narrowed=""
-if tr '\0' '\n' <"$held" | grep -qxF .claude/workflow-core.json; then
-  narrowed="$(node "$here/lib/sensitive-paths.js" --narrowed "$(root_of HEAD)" "$(root_of '')" 2>"$work/narrow-fault")" ||
-    unmatched "$work/narrow-fault"
-fi
-if [[ -z "$staged_read" && -z "$narrowed" ]]; then
-  printf '%s' "$staged_fault" >"$work/fault"
-  unmatched "$work/fault"
-fi
-
-areas_out="$(printf '%s\n%s\n%s\n' "$areas_out" "$staged_areas" "$narrowed" | sed '/^$/d')"
+areas_out="$(node "$here/lib/sensitive-paths.js" --held "$head_root" "$staged_root" \
+  <"$held" 2>"$work/fault")" || case "$?" in
+  3) staged_read="" ;;
+  *) unmatched ;;
+esac
 [[ -n "$areas_out" ]] || pass_unheld
-mapfile -t areas < <(printf '%s\n' "$areas_out" | sort -u)
+mapfile -t areas <<<"$areas_out"
+staged_fault="$(cat "$work/fault")"
 
 # shellcheck source=scripts/lib/marker-root.sh
 source "$here/lib/marker-root.sh" 2>/dev/null ||
