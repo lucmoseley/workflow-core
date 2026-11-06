@@ -73,45 +73,59 @@ function openDescendants(issues, target, ownRepo) {
 function resolveGoal(ask, issues, graph, repoOf) {
 	if (ask === null) return null;
 	const { ownRepo } = graph;
-	const refs = [];
-	for (const { repo: name, number } of ask.refs) {
+	/**
+	 * The ref's issue, or nothing ranked where its checkout is gone.
+	 * @param {import("./refill-goal.js").AskedRef} asked
+	 * @returns {IssueRef|ResolvedGoal}
+	 */
+	const locate = ({ repo: name, number }) => {
 		const repo = repoOf({ repo: name, number }, ownRepo);
-		if (repo === undefined)
-			return {
-				members: [],
-				ranked: [],
-				notice: `--goal names ${name}#${number}: no checkout named ${name}`,
-			};
-		refs.push({ repo, number });
-	}
+		return repo === undefined
+			? {
+					members: [],
+					ranked: [],
+					notice: `--goal names ${name}#${number}: no checkout named ${name}`,
+				}
+			: { repo, number };
+	};
+	/** @param {IssueRef} ref @returns {ResolvedGoal} */
+	const refuse = (ref) => ({
+		refusal: `--goal names ${refLabel(ref, ownRepo)}, another repo's: run it there`,
+	});
 	/** @param {I} i */
 	const memberOf = (i) => ({
 		repo: ownRepo,
 		number: i.number,
 		title: i.title,
 	});
-	const [first] = refs;
-	if (ask.form === "drain" && first) {
-		const members = openDescendants(issues, first, ownRepo).map(memberOf);
-		return { members, ranked: members.map((m) => m.number), notice: null };
-	}
-	const elsewhere = refs.find((r) => isInOtherRepo(r, ownRepo));
-	if (elsewhere)
-		return {
-			refusal: `--goal names ${refLabel(elsewhere, ownRepo)}, another repo's: run it there`,
-		};
-	const ranked = refs.map((r) => r.number);
-	if (ask.form === "unblock" && first) {
+	if (ask.form !== "issues") {
+		const ref = locate(ask.ref);
+		if (!("number" in ref)) return ref;
+		if (ask.form === "drain") {
+			const members = openDescendants(issues, ref, ownRepo).map(memberOf);
+			return { members, ranked: members.map((m) => m.number), notice: null };
+		}
+		if (isInOtherRepo(ref, ownRepo)) return refuse(ref);
 		const titles = new Map(issues.map((i) => [i.number, i.title]));
-		const members = holdersOf(graph, refKey(first)).map(
-			({ served, ref, info }) => ({
-				repo: ref.repo,
-				number: ref.number,
-				title: (served ? titles.get(ref.number) : info?.title) ?? null,
+		const members = holdersOf(graph, refKey(ref)).map(
+			({ served, ref: holder, info }) => ({
+				repo: holder.repo,
+				number: holder.number,
+				title: (served ? titles.get(holder.number) : info?.title) ?? null,
 			}),
 		);
-		return { members, ranked, notice: null };
+		return { members, ranked: [ref.number], notice: null };
 	}
+	/** @type {IssueRef[]} */
+	const refs = [];
+	for (const asked of ask.refs) {
+		const ref = locate(asked);
+		if (!("number" in ref)) return ref;
+		refs.push(ref);
+	}
+	const elsewhere = refs.find((r) => isInOtherRepo(r, ownRepo));
+	if (elsewhere) return refuse(elsewhere);
+	const ranked = refs.map((r) => r.number);
 	return {
 		members: issues.filter((i) => ranked.includes(i.number)).map(memberOf),
 		ranked,
