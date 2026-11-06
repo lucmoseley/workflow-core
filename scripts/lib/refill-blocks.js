@@ -153,16 +153,11 @@ const PARKED_STATE = "blocked";
  */
 
 /**
- * The program's I/O for the acts on blocked and resumed-idle launches: its
- * reads (BlockReads) and its acts (BlockActs), every write and child process.
- * Each act returns why it failed, or null once done, unless said otherwise.
+ * The program's reads for the acts on blocked and resumed-idle launches. A
+ * port that writes or spawns goes in BlockActs, where a dry tick answers it.
  * @typedef {object} BlockReads
  * @property {(l: JobLaunch) => ResumeTarget} resumeTargetOf  read before
  *   its stop, which may rewrite the job record
- * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
- *   since: number, move?: MoveTarget) => Adopted} adoptResumed  the job a
- *   resume of its session on `l`'s seat started from `since`, `move` the
- *   target of a move onto that seat
  * @property {() => string|null} admitResume  the dispatcher's per-member
  *   memory, load and session-ceiling re-read: null where it admits one more
  *   session, else why not
@@ -192,7 +187,13 @@ const PARKED_STATE = "blocked";
  */
 
 /**
+ * The program's writes and child processes for those acts. Each returns why it
+ * failed, or null once done, unless said otherwise.
  * @typedef {object} BlockActs
+ * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
+ *   since: number, move?: MoveTarget) => Adopted} adoptResumed  the job a
+ *   resume of its session on `l`'s seat started from `since`, `move` the
+ *   target of a move onto that seat
  * @property {(seat: string, jobId: string) =>
  *   import("./claude-stop.js").StopOutcome} stop  `claude stop` on a seat's
  *   job (lib/claude-stop.js's stopOn)

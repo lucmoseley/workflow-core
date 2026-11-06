@@ -82,6 +82,7 @@ const BLOCK_ACTS = {
 	stop: true,
 	type: true,
 	resumeStopped: true,
+	adoptResumed: true,
 	writeLaunch: true,
 	stagger: true,
 	moveSession: true,
@@ -747,17 +748,30 @@ describe("the dry-run policy (#4212)", () => {
 		expect(calls.filter((port) => Object.hasOwn(ACTS, port))).toEqual([]);
 	});
 
-	it("calls no block act through the tick's BlockIo (#4569)", async () => {
-		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
-		await runTick(io, {
-			dryRun: true,
-			now: NOW,
-			opening: {
-				...opening(awayControl()),
-				typed: { at: NOW - MIN, seat: null },
+	it("calls no block act through the tick's BlockIo, which a live tick reaches (#4569)", async () => {
+		const throughSeen: Partial<TickIo> = {
+			actOnBlocks: (listed, _mode, seen) => {
+				seen.io.release({ jobId: "j", root: WFC });
+				return listed;
 			},
-		});
-		expect(calls.filter((port) => port.startsWith("blockIo."))).toEqual([]);
+		};
+		const tick = async (dryRun: boolean) => {
+			const { io, calls } = fakeIo(
+				stateOf({ launches: [record()] }),
+				throughSeen,
+			);
+			await runTick(io, {
+				dryRun,
+				now: NOW,
+				opening: {
+					...opening(awayControl()),
+					typed: { at: NOW - MIN, seat: null },
+				},
+			});
+			return calls.filter((port) => port.startsWith("blockIo."));
+		};
+		expect(await tick(false)).toContain("blockIo.release");
+		expect(await tick(true)).toEqual([]);
 	});
 
 	it("releases no ended launch's hold on a paused dry run (#4356)", async () => {

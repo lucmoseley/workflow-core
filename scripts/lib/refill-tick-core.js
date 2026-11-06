@@ -836,7 +836,7 @@ const buildDryActs = (io) => ({
 	appendTick: doNothing,
 });
 
-const DRY = "a dry run acts on nothing";
+const DRY_RUN_WHY = "a dry run acts on nothing";
 
 /**
  * Every block act's answer on a dry run: each one not done (#4569). Typed over
@@ -846,29 +846,28 @@ const DRY = "a dry run acts on nothing";
 const DRY_BLOCK_ACTS = {
 	stop: () => ({
 		ok: false,
-		why: DRY,
+		why: DRY_RUN_WHY,
 		said: null,
 		timedOut: false,
 		noJob: false,
 	}),
-	type: () => DRY,
-	resumeStopped: () => ({ failed: DRY }),
+	type: () => DRY_RUN_WHY,
+	resumeStopped: () => ({ failed: DRY_RUN_WHY }),
+	adoptResumed: () => ({ unread: DRY_RUN_WHY }),
 	writeLaunch: doNothing,
 	stagger: doNothing,
-	moveSession: () => ({ failed: DRY }),
-	removeJobRecord: () => DRY,
+	moveSession: () => ({ failed: DRY_RUN_WHY }),
+	removeJobRecord: () => DRY_RUN_WHY,
 	writeLedgerHold: () => false,
-	labelParked: (l) => l.issues.map((n) => ({ n, why: DRY })),
-	recordParked: () => DRY,
-	unparkSession: () => DRY,
+	labelParked: (l) => l.issues.map((n) => ({ n, why: DRY_RUN_WHY })),
+	recordParked: () => DRY_RUN_WHY,
+	unparkSession: () => DRY_RUN_WHY,
 	comment: doNothing,
-	postHandOff: () => ({ failed: DRY, out: "" }),
+	postHandOff: () => ({ failed: DRY_RUN_WHY, out: "" }),
 	release: () => false,
 };
 
 /**
- * The adapter a dry run goes through: its reads, with every act, the block
- * acts `blockIo` hands out among them, swapped for its dry answer.
  * @param {TickIo} adapter
  * @returns {TickIo}
  */
