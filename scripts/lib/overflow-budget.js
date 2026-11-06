@@ -59,6 +59,10 @@ const { writeFd } = require("./write-fd.js");
  * `isApiErrorMessage` with `error: "billing_error"`, the text below. The flag
  * keeps out a session merely quoting the words. */
 const CREDIT_REFUSAL = /credit balance is too low/i;
+/* The `entrypoint` an interactive session's transcript rows carry, a `--bg`
+ * job's included; a `claude -p` run's carry `sdk-cli` (2.1.319, measured
+ * 2026-11-06). */
+const INTERACTIVE_ENTRYPOINT = "cli";
 
 /* The listing kinds an overflow launch runs as: a `--bg` job, or a headless
  * run (lib/headless-runs.js, #4580), which lib/claude-stop.js also stops. */
@@ -123,9 +127,22 @@ function readTranscriptStat(mainFile) {
 }
 
 /**
+ * Whether an API error row is a credit refusal of the key: never one from an
+ * interactive session (readFileCreditRefusal).
+ * @param {Record<string, unknown>} row
+ * @param {{content?: unknown}} message
+ */
+const isKeyRefusal = (row, message) =>
+	row.entrypoint !== INTERACTIVE_ENTRYPOINT &&
+	(row.error === "billing_error" ||
+		CREDIT_REFUSAL.test(JSON.stringify(message.content ?? "")));
+
+/**
  * When a transcript's latest answer from the API was a credit refusal, or null
  * for none: a model turn since means the key had credit after it, and a
- * synthetic line is no answer.
+ * synthetic line is no answer. A refusal in an interactive session, a `--bg`
+ * job among them, is none: a plan's API credits never cover that route
+ * (#4578), so its refusal says nothing of what the key has left.
  * @param {string} file
  * @returns {{at: number}|null} `at` is NaN for a refusal that carries no timestamp
  */
@@ -138,10 +155,7 @@ function readFileCreditRefusal(file) {
 			row.message ?? {}
 		);
 		if (row.isApiErrorMessage === true) {
-			if (
-				row.error === "billing_error" ||
-				CREDIT_REFUSAL.test(JSON.stringify(message.content ?? ""))
-			)
+			if (isKeyRefusal(row, message))
 				refused = { at: Date.parse(String(row.timestamp)) };
 		} else if (message.model !== "<synthetic>") refused = null;
 	}

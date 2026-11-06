@@ -147,9 +147,10 @@ const buildModelTurn = (inputTokens: number, requestId = "r1") => ({
 	},
 });
 
-/* As Claude Code 2.1.312 wrote it (#3692's probes). */
+/* As Claude Code 2.1.312 wrote it (#3692's probes), in a `claude -p` run. */
 const CREDIT_REFUSAL_ROW = {
 	type: "assistant",
+	entrypoint: "sdk-cli",
 	isApiErrorMessage: true,
 	error: "billing_error",
 	message: {
@@ -369,6 +370,16 @@ describe("a credit refusal in a transcript", () => {
 		const id = recordLaunch("0000000c");
 		appendTranscript(id, { ...CREDIT_REFUSAL_ROW, error: undefined });
 		expect(budget()).toMatchObject({ exhausted: true });
+	});
+
+	it("is not an interactive session's refusal, a --bg job's among them, which the key's credits never cover (#4578)", () => {
+		const id = recordLaunch("0000000c");
+		appendTranscript(id, {
+			...CREDIT_REFUSAL_ROW,
+			entrypoint: "cli",
+			sessionKind: "bg",
+		});
+		expect(budget()).toMatchObject({ exhausted: false });
 	});
 
 	it("is not a session quoting the words, or another API error", () => {
