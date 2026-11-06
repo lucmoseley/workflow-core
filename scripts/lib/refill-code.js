@@ -31,7 +31,9 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isUnder } = require("./is-under.js");
+const { readProcCwd } = require("./claude-sessions.js");
 const { procRoot } = require("./proc-root.js");
+const { readProcTable } = require("./proc-table.js");
 const {
 	PROGRAM,
 	PROGRAM_NAME,
@@ -200,63 +202,58 @@ function readRunningCode(pid, codeDir) {
 }
 
 /**
- * Each of `dirs` a live process other than this one runs from, mapped to its
+ * Each of `stale` a live process other than this one runs from, mapped to its
  * pid: its cwd, or a path its command line names resolved against that cwd,
- * sits in it under either spelling `spell` gives. A process that will not
- * read holds none.
- * @param {string[]} dirs
- * @param {(dir: string) => string[]} spell
- * @returns {Map<string, number>}
+ * sits in it, spelt through the real code directory or through `codeDir`.
+ * Null where /proc will not be read, which keeps them all (#4548).
+ * Residual: a process holding a tree only through a module it loaded or a
+ * file it holds open, with neither its cwd nor an argument there (`node -e
+ * "require(…)"`), holds none; so does one whose cwd will not read, another
+ * user's.
+ * @param {string[]} stale real paths, each a child of the code directory
+ * @param {string} codeDir
+ * @returns {Map<string, number>|null}
  */
-function readHeldDirs(dirs, spell) {
+function readHeldDirs(stale, codeDir) {
+	const table = readProcTable(procRoot());
+	if (table === null || (table.listed > 0 && table.unreadable === table.listed))
+		return null;
 	/** @type {Map<string, number>} */
 	const held = new Map();
-	if (dirs.length === 0) return held;
-	const proc = procRoot();
-	let pids;
-	try {
-		pids = fs.readdirSync(proc).filter((e) => /^\d+$/.test(e));
-	} catch {
-		return held;
-	}
-	for (const pid of pids) {
-		if (Number(pid) === process.pid) continue;
-		let cwd;
-		let argv;
-		try {
-			cwd = fs.readlinkSync(path.join(proc, pid, "cwd"));
-			argv = fs
-				.readFileSync(path.join(proc, pid, "cmdline"), "utf8")
-				.split("\0")
-				.filter(Boolean);
-		} catch {
-			// Gone mid-scan, or another user's: it runs from none of the loop's.
-			continue;
-		}
+	for (const { pid, argv } of table.procs.values()) {
+		if (pid === process.pid) continue;
+		const cwd = readProcCwd(String(pid));
+		if (cwd === null) continue;
 		const paths = [cwd, ...argv.map((a) => path.resolve(cwd, a))];
-		for (const dir of dirs)
-			if (!held.has(dir) && paths.some((p) => isUnder(p, spell(dir), path.sep)))
-				held.set(dir, Number(pid));
+		for (const dir of stale) {
+			const spellings = [dir, path.join(codeDir, path.basename(dir))];
+			if (!held.has(dir) && paths.some((p) => isUnder(p, spellings, path.sep)))
+				held.set(dir, pid);
+		}
 	}
 	return held;
 }
 
 /**
  * Remove every worktree in the code directory but `root` and those a live
- * process runs from, logging each of those once into `kept`; true where
- * none was kept.
+ * process runs from, logging each of those once; true where none was kept.
  * @param {{root: string, codeDir: string, realCodeDir: string,
- *   kept: Set<string>, log: (line: string) => void}} o
+ *   kept: Set<string>, log: (line: string) => void}} o `kept` accumulator:
+ *   the directories already logged as kept
  */
 function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
 	const stale = fs
 		.readdirSync(realCodeDir)
 		.map((name) => path.join(realCodeDir, name))
 		.filter((dir) => dir !== root);
-	const held = readHeldDirs(stale, (dir) => [
-		dir,
-		path.join(codeDir, path.basename(dir)),
-	]);
+	if (stale.length === 0) return true;
+	const held = readHeldDirs(stale, codeDir);
+	if (held === null) {
+		if (!kept.has(realCodeDir))
+			log(`keeping every worktree in ${realCodeDir}: /proc will not read`);
+		kept.add(realCodeDir);
+		return false;
+	}
 	for (const dir of stale) {
 		const pid = held.get(dir);
 		if (pid === undefined) removeWorktree(root, dir);
