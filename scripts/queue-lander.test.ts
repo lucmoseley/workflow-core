@@ -121,10 +121,11 @@ describe("a run", () => {
 		).toContain(main);
 	});
 
-	it("runs the merge gate set on each member's merge and the batch set once, and no post-commit hook (#4545)", async () => {
-		const seed = git(work, "rev-parse", "HEAD");
-		pushQueue("a", seed);
-		pushQueue("b", seed);
+	/**
+	 * Stub hooks in the work repo's hooks directory, each logging its
+	 * arguments; `preCommit` runs after pre-commit's log line.
+	 */
+	const stubHooks = (names: string[], preCommit = "") => {
 		const hooks = path.resolve(
 			work,
 			git(work, "rev-parse", "--git-common-dir"),
@@ -132,18 +133,30 @@ describe("a run", () => {
 		);
 		const log = path.join(hooks, "calls.log");
 		fs.mkdirSync(hooks, { recursive: true });
-		for (const hook of ["pre-commit", "commit-msg", "post-commit"])
+		for (const hook of names)
 			fs.writeFileSync(
 				path.join(hooks, hook),
-				`#!/bin/sh\necho "${hook} $*" >> '${log}'\n`,
+				`#!/bin/sh\necho "${hook} $*" >> '${log}'\n${hook === "pre-commit" ? preCommit : ""}`,
 				{ mode: 0o755 },
 			);
+		return () => fs.readFileSync(log, "utf8").trim().split("\n");
+	};
+
+	/* Pre-commit's body on the batch pass alone, called with no argument. */
+	const onBatchPass = (body: string) =>
+		`case "$*" in --gates=*) ;; *) ${body} ;; esac\n`;
+
+	it("runs the merge gate set on each member's merge and the batch set once, and no post-commit hook (#4545)", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		pushQueue("a", seed);
+		pushQueue("b", seed);
+		const calls = stubHooks(["pre-commit", "commit-msg", "post-commit"]);
 
 		const r = await runLander(stubTester(0));
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain("exit no queue ref waits");
-		expect(fs.readFileSync(log, "utf8").trim().split("\n")).toEqual([
+		expect(calls()).toEqual([
 			"pre-commit --gates=merge",
 			"pre-commit --gates=merge",
 			"pre-commit",
@@ -156,28 +169,54 @@ describe("a run", () => {
 			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
 			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
 		];
-		const hooks = path.resolve(
-			work,
-			git(work, "rev-parse", "--git-common-dir"),
-			"hooks",
-		);
-		const log = path.join(hooks, "calls.log");
-		fs.mkdirSync(hooks, { recursive: true });
-		fs.writeFileSync(
-			path.join(hooks, "pre-commit"),
-			`#!/bin/sh\necho "pre-commit $*" >> '${log}'\n`,
-			{ mode: 0o755 },
-		);
-		const lastCall = () =>
-			fs.readFileSync(log, "utf8").trim().split("\n").at(-1);
+		const calls = stubHooks(["pre-commit"]);
 
 		queueGit(work, undefined, undefined, { ciRepeats: true }).mergeMembers(
 			seed,
 			members,
 		);
-		expect(lastCall()).toBe("pre-commit --gates=batch");
+		expect(calls().at(-1)).toBe("pre-commit --gates=batch");
 		queueGit(work).mergeMembers(seed, members);
-		expect(lastCall()).toBe("pre-commit");
+		expect(calls().at(-1)).toBe("pre-commit");
+	});
+
+	it("names the member the batch's gates refuse alone, not the last one the refusal fell on (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 1 },
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 2 },
+		];
+		stubHooks(["pre-commit"], onBatchPass("[ -f b.txt ] && exit 1"));
+
+		expect(queueGit(work).mergeMembers(seed, members)).toMatchObject({
+			kind: "refused",
+			name: "b",
+		});
+	});
+
+	it("commits what the batch's gates stage on top of the merges, as a member's commit took its hook's edits (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+		stubHooks(
+			["pre-commit"],
+			onBatchPass("echo fixed > fix.txt && git add fix.txt"),
+		);
+
+		const merged = queueGit(work).mergeMembers(seed, members);
+
+		expect(merged.kind).toBe("merged");
+		const sha = merged.kind === "merged" ? merged.sha : "";
+		git(work, "fetch", "-q", work, sha);
+		expect(git(work, "log", "-1", "--format=%s", sha)).toBe(
+			"Take the batch's gate fixes",
+		);
+		expect(git(work, "show", `${sha}:fix.txt`)).toBe("fixed");
+		expect(git(work, "log", "-1", "--format=%s", `${sha}^`)).toMatch(
+			/^Merge queue\/b /,
+		);
 	});
 
 	it("lands a lone queue ref that descends from main as pushed, with no merge commit", async () => {
@@ -858,6 +897,13 @@ describe("the adapters", () => {
 			kind: "red",
 			files: ["a.ts"],
 		});
+		/* A red its own run retried keeps the mark, or the lander re-runs it
+		 * a second time (#4545). */
+		verdictLedger(verdicts).add("s3", [], {
+			kind: "red",
+			files: ["a.ts"],
+			retried: true,
+		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		verdictLedger(verdicts).add("s1", ["a.ts"], { kind: "green" }, 2);
 		const noFile = {
@@ -894,6 +940,11 @@ describe("the adapters", () => {
 		expect(verdictLedger(verdicts).get("s1", [])).toEqual({
 			kind: "green",
 			run: 7,
+		});
+		expect(verdictLedger(verdicts).get("s3", [])).toEqual({
+			kind: "red",
+			files: ["a.ts"],
+			retried: true,
 		});
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();

@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 /*
  * retry-failed-files.js — re-runs, once, the test files a Vitest JSON report
- * marks failed, so a lander run's flake costs one more step in the same
+ * marks failed, so a lander batch's flake costs one more step in the same
  * Actions job rather than a second run (#4545).
  *
  *   node scripts/retry-failed-files.js <report.json>
  *
- * ci.yml's "Retry failed files" step runs it on a `lander/*` push after a
- * failed Vitest step. A file the re-run passes is the green the lander's own
- * re-run would give; one it fails again the lander reads off this step's log,
- * and takes no re-run of its own (lib/actions-tester.js's `retried`).
+ * ci.yml's "Retry failed files" step runs it on a `lander/batch` push after
+ * a failed Vitest step. The re-run writes its own report beside the first,
+ * which stays the uploaded one, so the flake stays on record. Its last line
+ * names the files still failing, `STILL_FAILING` below: lib/actions-tester.js
+ * takes the batch's failing files from that line alone, since `--log-failed`
+ * also prints the first run's failures from the step that went on past them.
+ *
+ * In no family: it gates nothing itself, its exit being the re-run's, and
+ * writes no file of the repo's (§N3).
  *
  * Exit codes: the re-run's own; 1 where the report is missing, will not parse
  * or marks no file failed, as the shard then failed with no test to re-run;
@@ -22,28 +27,31 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+/* The line lib/actions-tester.js reads the batch's failing files from. */
+const STILL_FAILING = "retry-failed-files: still failing after one retry:";
+
 /**
- * The repo-relative files `report` marks failed, else why none.
- * @param {string} report a Vitest JSON report's text
+ * The repo-relative files the report at `file` marks failed, else why none.
+ * @param {string} file
  * @param {string} root
  * @returns {{files: string[]} | {why: string}}
  */
-function failedFiles(report, root) {
+function readFailedFiles(file, root) {
+	if (!fs.existsSync(file)) return { why: `no report at ${file}` };
 	/** @type {{testResults?: {name?: unknown, status?: unknown}[]}} */
 	let parsed;
 	try {
-		parsed = JSON.parse(report);
+		parsed = JSON.parse(fs.readFileSync(file, "utf8"));
 	} catch {
-		return { why: "the report does not parse" };
+		return { why: `the report at ${file} does not parse` };
 	}
-	const files = (parsed.testResults ?? []).flatMap((r) =>
-		r.status === "failed" && typeof r.name === "string"
-			? [path.relative(root, r.name)]
-			: [],
-	);
-	return files.length > 0
-		? { files }
-		: { why: "the report marks no file failed" };
+	return {
+		files: (parsed.testResults ?? []).flatMap((r) =>
+			r.status === "failed" && typeof r.name === "string"
+				? [path.relative(root, r.name)]
+				: [],
+		),
+	};
 }
 
 /** @param {string[]} [argv] @returns {number} */
@@ -55,25 +63,35 @@ function main(argv = process.argv.slice(2)) {
 	if (typeof parsed === "number") return parsed;
 	const [report = ""] = parsed.positionals;
 	const root = process.cwd();
-	const read = fs.existsSync(report)
-		? failedFiles(fs.readFileSync(report, "utf8"), root)
-		: { why: `no report at ${report}` };
-	if ("why" in read) {
-		writeFd(2, `retry-failed-files: ${read.why}: nothing to re-run.\n`);
+	const first = readFailedFiles(report, root);
+	if ("why" in first || first.files.length === 0) {
+		const why = "why" in first ? first.why : "the report marks no file failed";
+		writeFd(2, `retry-failed-files: ${why}: nothing to re-run.\n`);
 		return 1;
 	}
 	writeFd(
 		1,
-		`retry-failed-files: re-running ${read.files.length} failed file(s) once (#4545): ${read.files.join(", ")}\n`,
+		`retry-failed-files: re-running ${first.files.length} failed file(s) once (#4545): ${first.files.join(", ")}\n`,
 	);
-	const r = spawnSync("npm", ["run", "test", "--", ...read.files], {
+	const retryReport = report.replace(/(\.json)?$/, ".retry.json");
+	const r = spawnSync("npm", ["run", "test", "--", ...first.files], {
 		cwd: root,
 		stdio: "inherit",
-		env: { ...process.env, WFC_VITEST_JSON: "" },
+		env: { ...process.env, WFC_VITEST_JSON: retryReport },
 	});
-	return r.status ?? 1;
+	const code = r.status ?? 1;
+	const again = readFailedFiles(retryReport, root);
+	/* An unread retry report leaves the first run's files standing, so no
+	 * failure the retry did not clear is lost (#4545). */
+	let still = code === 0 ? [] : first.files;
+	if (code !== 0 && !("why" in again)) still = again.files;
+	writeFd(
+		1,
+		`${STILL_FAILING} ${still.length > 0 ? still.join(", ") : "none"}\n`,
+	);
+	return code;
 }
 
 if (require.main === module) process.exit(main());
 
-module.exports = { failedFiles, main };
+module.exports = { main, STILL_FAILING };

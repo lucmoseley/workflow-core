@@ -6,6 +6,11 @@
  * every gate. The parse, the two merge gates, the merge set's exit and two
  * later gates — guard-test-isolation, which Actions repeats, and host-root,
  * which it does not — are cut from the real hook and run over stub checkers.
+ * A last case maps every gate the batch set skips to the step of a workflow
+ * a lander push runs that repeats it, read off the real files.
+ *
+ * Loosen it and a lander batch can reach main with a check no hook and no
+ * Actions job ran on it.
  */
 
 import { spawnSync } from "node:child_process";
@@ -88,4 +93,54 @@ describe("the pre-commit gate sets", () => {
 	it("runs every gate on an argument it does not know", () => {
 		expect(run("--gates=all")).toEqual({ code: 0, ran: CHECKERS });
 	});
+});
+
+/* Each gate the batch set skips, by the checker its block runs first, and
+ * the text naming the step that repeats it in a workflow a lander push runs;
+ * null where the merge set runs it on every member instead. */
+const REPEATED_BY: Record<string, string | null> = {
+	"scripts/check-guard-registry.js": null,
+	"scripts/generate-test-read-edges.js": null,
+	"scripts/biome-staged.js": "biome ci .",
+	"scripts/check-roadmap-valid.js": "check-roadmap-valid.js",
+	"scripts/check-digest-version.js": "check-digest-version.js",
+	"scripts/gen-roadmap-digest.js": "gen-roadmap-digest.js",
+	"scripts/check-guard-test-isolation.js": "check-guard-test-isolation.js",
+	"scripts/check-git-fixture-identity.js": "check-git-fixture-identity.js",
+	"scripts/check-website-copy.js": "npm run check:copy",
+	"scripts/check-skill-frontmatter.js": "check-skill-frontmatter.js",
+	"scripts/check-workflow-permissions.js": "check-workflow-permissions.js",
+	tsc: "npm run typecheck",
+	eslint: "npm run check:eslint",
+	shellcheck: "npm run check:sh",
+	actionlint: "npm run check:actions",
+	ruff: "npm run check:py",
+	"scripts/check-swallowed-errors.js": "check-swallowed-errors.js",
+	"scripts/lib/formatters.js": "npm run check:sh:format",
+	"scripts/lib/test-gate.js": "npm run test --",
+};
+
+it("skips on the batch only gates a workflow on a lander push repeats, or the merge set runs (#4545)", () => {
+	const hook = fs.readFileSync(".husky/pre-commit", "utf8");
+	const workflows = [
+		fs.readFileSync(".github/workflows/ci.yml", "utf8"),
+		fs.readFileSync(".github/workflows/roadmap-digest.yml", "utf8"),
+	].join("\n");
+	const skipped = hook
+		.split(/^(?=if ! lander_batch )/m)
+		.slice(1)
+		.map((block) => {
+			const body = block.slice(0, block.search(/^fi$/m));
+			/* A gate whose command the host declares looks it up first. */
+			const named = [
+				...body.matchAll(
+					/scripts\/[a-z0-9/_.-]+\.(?:js|py|sh)|\b(?:tsc|eslint|shellcheck|actionlint|ruff)\b/g,
+				),
+			].map((m) => m[0]);
+			const Lookup = "scripts/lib/workflow-core-config.js";
+			return named.find((n) => n !== Lookup) ?? named[0] ?? body;
+		});
+	expect(skipped.sort()).toEqual(Object.keys(REPEATED_BY).sort());
+	for (const [gate, step] of Object.entries(REPEATED_BY))
+		if (step !== null) expect(workflows, gate).toContain(step);
 });

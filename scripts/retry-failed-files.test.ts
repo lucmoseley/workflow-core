@@ -1,48 +1,115 @@
 // @vitest-environment node
 /*
- * retry-failed-files.js's reading of a Vitest JSON report (#4545): the files
- * it marks failed, repo-relative, or why it names none to re-run.
+ * retry-failed-files.js end to end (#4545): it re-runs once the files a
+ * Vitest report marks failed and names, last, the files still failing,
+ * which lib/actions-tester.js takes as the batch's failing files.
+ *
+ * Each case runs the program in a throwaway directory whose `npm test` is a
+ * stub that fails the files `STUB_FAIL` names and writes its own report, so
+ * no real suite runs. Loosen it and a flake the retry cleared can still be
+ * blamed on a batch member, or a real failure it did not clear can be read
+ * as cleared, and the lander lands a red tree.
  */
 
-import { describe, expect, it } from "vitest";
-import { failedFiles, main } from "./retry-failed-files.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
-describe("failedFiles", () => {
-	it("names each file the report marks failed, relative to the root", () => {
-		const report = JSON.stringify({
-			testResults: [
-				{ name: "/r/scripts/a.test.ts", status: "failed" },
-				{ name: "/r/scripts/b.test.ts", status: "passed" },
-				{ name: "/r/scripts/c.test.ts", status: "failed" },
-			],
-		});
-		expect(failedFiles(report, "/r")).toEqual({
-			files: ["scripts/a.test.ts", "scripts/c.test.ts"],
-		});
-	});
+const SCRIPT = path.join(__dirname, "retry-failed-files.js");
 
-	it("names none where every file passed, as a shard red for another reason", () => {
-		const report = JSON.stringify({
-			testResults: [{ name: "/r/a.test.ts", status: "passed" }],
-		});
-		expect(failedFiles(report, "/r")).toEqual({
-			why: "the report marks no file failed",
-		});
-	});
-
-	it("names none where the report does not parse", () => {
-		expect(failedFiles("{", "/r")).toEqual({
-			why: "the report does not parse",
-		});
-	});
+let dir: string | null = null;
+afterEach(() => {
+	if (dir) fs.rmSync(dir, { recursive: true, force: true });
+	dir = null;
 });
 
-describe("main", () => {
-	it("exits 1 where no report exists, re-running nothing", () => {
-		expect(main(["/nonexistent/report.json"])).toBe(1);
+const STUB = `const fs = require("node:fs");
+const path = require("node:path");
+const files = process.argv.slice(2);
+const failing = (process.env.STUB_FAIL ?? "").split(",").filter(Boolean);
+fs.appendFileSync("ran.log", files.join(" ") + "\\n");
+const out = process.env.WFC_VITEST_JSON;
+if (out) fs.writeFileSync(out, JSON.stringify({ testResults: files.map((f) => ({
+	name: path.resolve(f), status: failing.includes(f) ? "failed" : "passed" })) }));
+process.exit(files.some((f) => failing.includes(f)) ? 1 : 0);
+`;
+
+/** A directory whose first report marks `failed` failed. */
+function repo(failed: string[]): { root: string; report: string } {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "retry-failed-"));
+	dir = root;
+	fs.writeFileSync(
+		path.join(root, "package.json"),
+		JSON.stringify({ scripts: { test: "node stub.js" } }),
+	);
+	fs.writeFileSync(path.join(root, "stub.js"), STUB);
+	const report = path.join(root, "vitest-1.json");
+	fs.writeFileSync(
+		report,
+		JSON.stringify({
+			testResults: [
+				...failed.map((f) => ({ name: path.join(root, f), status: "failed" })),
+				{ name: path.join(root, "ok.test.ts"), status: "passed" },
+			],
+		}),
+	);
+	return { root, report };
+}
+
+const run = (root: string, report: string, stubFail = "") =>
+	runInProcess(SCRIPT, [report], {
+		cwd: root,
+		env: { ...process.env, STUB_FAIL: stubFail, WFC_VITEST_JSON: "" },
 	});
 
-	it("refuses a missing report argument", () => {
-		expect(main([])).toBe(2);
-	});
+it("re-runs only the failed files once, exiting 0 and naming none still failing where they pass", () => {
+	const { root, report } = repo(["a.test.ts", "b.test.ts"]);
+	const r = run(root, report);
+	expect(r.status).toBe(0);
+	expect(fs.readFileSync(path.join(root, "ran.log"), "utf8")).toBe(
+		"a.test.ts b.test.ts\n",
+	);
+	expect(r.stdout).toContain(
+		"retry-failed-files: still failing after one retry: none",
+	);
+});
+
+it("names only the files the retry failed again, exiting with the re-run's code", () => {
+	const { root, report } = repo(["a.test.ts", "b.test.ts"]);
+	const r = run(root, report, "b.test.ts");
+	expect(r.status).toBe(1);
+	expect(r.stdout).toContain(
+		"retry-failed-files: still failing after one retry: b.test.ts",
+	);
+	expect(JSON.parse(fs.readFileSync(report, "utf8")).testResults).toHaveLength(
+		3,
+	);
+});
+
+it("re-runs nothing where the report marks no file failed, saying so", () => {
+	const { root, report } = repo([]);
+	const r = run(root, report);
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		"the report marks no file failed: nothing to re-run",
+	);
+	expect(fs.existsSync(path.join(root, "ran.log"))).toBe(false);
+});
+
+it("re-runs nothing where no report exists, naming the path", () => {
+	const { root } = repo([]);
+	const r = run(root, path.join(root, "absent.json"));
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(`no report at ${path.join(root, "absent.json")}`);
+});
+
+it("refuses a missing report argument, printing its usage", () => {
+	const { root } = repo([]);
+	const r = runInProcess(SCRIPT, [], { cwd: root });
+	expect(r.status).toBe(2);
+	expect(r.stderr).toContain(
+		"usage: node scripts/retry-failed-files.js <report.json>",
+	);
 });

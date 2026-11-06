@@ -17,6 +17,7 @@ const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
 const { execGit, gitCommonDirOrThrow, spawnGitSync } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
+const { writeFd } = require("./write-fd.js");
 const { PushRefused } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
@@ -109,7 +110,9 @@ const BROKEN_OBJECT =
  * over them all (#4545). A call that meets a broken loose object removes that object's file
  * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
- * @param {number} [mergeTimeoutMs] each member's merge, its gates included
+ * @param {number} [mergeTimeoutMs] each member's merge, its gates included,
+ *   and the batch's one gate pass: each at most one commit's whole gate
+ *   stack, which #3913's figure was measured on
  * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
  *   merge renders afresh rather than takes from either side
  * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester is
@@ -288,16 +291,43 @@ function queueGit(
 				}
 				const sha = inTree(["rev-parse", "HEAD"]).trim();
 				const last = members.at(-1);
-				if (sha !== onto && last) {
-					inTree(["reset", "--quiet", "--soft", onto]);
-					const failed = mergeFailure(last, inTree, () =>
-						gates(ciRepeats ? "batch" : "all"),
-					);
-					if (failed) return failed;
-				}
-				return { kind: "merged", sha };
+				if (sha === onto || !last) return { kind: "merged", sha };
+				return batchPass({ onto, sha, last }, inTree, gates);
 			},
 		);
+	}
+
+	/**
+	 * The batch's one gate pass over every member's merge `sha` staged against
+	 * `onto`, then back on `sha`, committing what the gates staged, as a
+	 * member's own commit took its hook's edits (#4545). A refusal names
+	 * `last`.
+	 * @param {{onto: string, sha: string, last: Member}} batch
+	 * @param {(args: string[], timeout?: number) => string} inTree
+	 * @param {(set: "batch" | "all") => void} gates
+	 * @returns {MergeResult}
+	 */
+	function batchPass({ onto, sha, last }, inTree, gates) {
+		inTree(["reset", "--quiet", "--soft", onto]);
+		const failed = mergeFailure(last, inTree, () =>
+			gates(ciRepeats ? "batch" : "all"),
+		);
+		if (failed) return failed;
+		inTree(["reset", "--quiet", "--soft", sha]);
+		if (inTree(["diff", "--cached", "--name-only"]).trim() === "")
+			return { kind: "merged", sha };
+		inTree(
+			[
+				"-c",
+				"core.hooksPath=/dev/null",
+				"commit",
+				"--quiet",
+				"-m",
+				"Take the batch's gate fixes",
+			],
+			mergeTimeoutMs,
+		);
+		return { kind: "merged", sha: inTree(["rev-parse", "HEAD"]).trim() };
 	}
 
 	/**
@@ -316,6 +346,12 @@ function queueGit(
 			try {
 				fs.accessSync(hook, fs.constants.X_OK);
 			} catch {
+				/* Fails open as git does on a hook it cannot run, which commits
+				 * with none and prints a hint; this prints its own (#4545). */
+				writeFd(
+					2,
+					`queue-lander: ${hook} is not executable, so no gate ran on this merge\n`,
+				);
 				return;
 			}
 			execFileSync(hook, set === "all" ? [] : [`--gates=${set}`], {
@@ -475,9 +511,13 @@ function parseVerdict(v) {
 			? { kind: "green", run: o.run }
 			: { kind: "green" };
 	if (o?.kind === "red" && isStringList(o.files))
-		return isStringList(o.jobs)
-			? { kind: "red", files: o.files, jobs: o.jobs }
-			: { kind: "red", files: o.files };
+		return {
+			kind: "red",
+			files: o.files,
+			...(isStringList(o.jobs) ? { jobs: o.jobs } : {}),
+			/* Retried in its own run, so the lander takes no re-run (#4545). */
+			...(o.retried === true ? { retried: true } : {}),
+		};
 	return null;
 }
 

@@ -81,8 +81,6 @@ const NAMED_RUN_LIST_LIMIT = 50;
  * under `!cancelled()`, so a download outage at one still runs the tests, on
  * a runner missing its tools. "Install dependencies" is not one: a broken
  * lockfile is the code's fault. */
-/* ci.yml's step re-running a lander run's failed files once (#4545). */
-const RETRY_STEP = "Retry failed files";
 const RUNNER_STEPS = new Set([
 	"Set up job",
 	"Run actions/checkout@v4",
@@ -90,6 +88,10 @@ const RUNNER_STEPS = new Set([
 	"Install test tools",
 	"Full history",
 ]);
+/* ci.yml's step re-running a lander batch's failed files once, and the line
+ * it ends on naming those still failing (retry-failed-files.js, #4545). */
+const RETRY_STEP = "Retry failed files";
+const STILL_FAILING = "retry-failed-files: still failing after one retry:";
 /* New attempts of a run whose runner failed to ready, before no verdict. A
  * first guess, and stated as one. */
 const RUNNER_RERUNS = 2;
@@ -198,16 +200,16 @@ function runVerdict(sha, reads, after) {
 		};
 	const jobs = failed.map((j) => j.name);
 	/* Every failed job red again at its in-job retry: the lander's own
-	 * re-run would only repeat it (#4545). A red naming no file re-ran
-	 * nothing there, so the lander's whole-suite re-run stays. */
-	const read = readFailed(sha, id, reads);
-	const retried =
-		read.files.length > 0 &&
-		failed.every((j) =>
-			(j.steps ?? []).some(
-				(s) => s.conclusion === "failure" && s.name === RETRY_STEP,
-			),
-		);
+	 * re-run would only repeat it, and the files are the retry's alone, the
+	 * first run's failures it cleared dropped (#4545). A red naming no file
+	 * re-ran nothing there, so the lander's whole-suite re-run stays. */
+	const atRetry = failed.every((j) =>
+		(j.steps ?? []).some(
+			(s) => s.conclusion === "failure" && s.name === RETRY_STEP,
+		),
+	);
+	const read = readFailed(sha, id, reads, atRetry);
+	const retried = atRetry && read.files.length > 0;
 	return {
 		kind: "red",
 		...read,
@@ -238,13 +240,33 @@ function runnerFault(failed) {
  * @param {string} sha
  * @param {number} run
  * @param {Pick<Reads, "failedLogOf" | "presentAt">} reads
+ * @param {boolean} [atRetry] every failed job failed at its retry step, so
+ *   the files are those its last lines name still failing
  * @returns {{files: string[], failures?: import("./queue-lander.js").Failure[]}}
  */
-function readFailed(sha, run, reads) {
+function readFailed(sha, run, reads, atRetry = false) {
 	const log = stripLogPrefix(reads.failedLogOf(run));
-	const files = reads.presentAt(sha, parseFailingFiles(log));
+	const files = reads.presentAt(
+		sha,
+		atRetry ? parseStillFailing(log) : parseFailingFiles(log),
+	);
 	const failures = parseFailingTests(log).filter((t) => files.includes(t.file));
 	return { files, ...(failures.length > 0 ? { failures } : {}) };
+}
+
+/**
+ * The files each retry step's last line names still failing, across shards.
+ * @param {string} log
+ * @returns {string[]}
+ */
+function parseStillFailing(log) {
+	const files = log.split("\n").flatMap((line) => {
+		const at = line.indexOf(STILL_FAILING);
+		if (at === -1) return [];
+		const named = line.slice(at + STILL_FAILING.length).trim();
+		return named === "none" ? [] : named.split(", ");
+	});
+	return [...new Set(files)];
 }
 
 /**
