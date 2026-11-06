@@ -24,11 +24,12 @@ const path = require("node:path");
 const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { gh, ghJson, retryingOnceSync } = require("./lib/gh.js");
+const { ghJson, retryingOnceSync } = require("./lib/gh.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { codeRepoArgs } = require("./lib/workflow-core-config.js");
+const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	CI_RECORD,
+	downloadReports,
 	timingSources,
 	readReports,
 	shares,
@@ -79,11 +80,15 @@ const ROOT = worktreeRoot();
 /* Candidates tried for reports, newest first. Untraced: a green run
  * uploads its reports, so past the first few none is coming. */
 const SOURCES_TRIED = 5;
-/* What `gh run download` prints for a run whose reports are gone or never
- * uploaded (#4292). */
-const NO_ARTEFACTS = /no valid artifacts found/i;
+/* Runs listed. The newest of them all but always holds reports; see
+ * SOURCES_TRIED. */
+const RUNS_LISTED = 30;
 
-/** @param {() => any} read */
+/**
+ * @template T
+ * @param {() => T} read
+ * @returns {T}
+ */
 function readOrThrow(read) {
 	const r = retryingOnceSync(read);
 	if (!r.ok) throw new Error(r.error);
@@ -97,7 +102,8 @@ function readOrThrow(read) {
  * @returns {{ run: number, sha: string, rows: ReturnType<typeof readReports> }|null}
  */
 function latestRows(beforeRun) {
-	const repo = codeRepoArgs({ root: ROOT })[1] ?? process.env.GITHUB_REPOSITORY;
+	const repo =
+		resolveKey("codeRepo", { root: ROOT }) || process.env.GITHUB_REPOSITORY;
 	if (!repo) throw new Error("no codeRepo configured and no GITHUB_REPOSITORY");
 	const before =
 		beforeRun === undefined
@@ -115,7 +121,7 @@ function latestRows(beforeRun) {
 		() =>
 			ghJson([
 				"api",
-				`repos/${repo}/actions/workflows/${SUITE_WORKFLOW}/runs?status=success&exclude_pull_requests=true&per_page=30&created=%3C${iso}`,
+				`repos/${repo}/actions/workflows/${SUITE_WORKFLOW}/runs?status=success&exclude_pull_requests=true&per_page=${RUNS_LISTED}&created=%3C${iso}`,
 			]).workflow_runs,
 	);
 	const sha = new Map(runs.map((r) => [r.id, r.head_sha]));
@@ -123,22 +129,7 @@ function latestRows(beforeRun) {
 	try {
 		for (const run of timingSources(runs, before).slice(0, SOURCES_TRIED)) {
 			const dir = path.join(work, String(run));
-			try {
-				readOrThrow(() =>
-					gh([
-						"run",
-						"download",
-						String(run),
-						"-p",
-						"vitest-report-*",
-						"-D",
-						dir,
-					]),
-				);
-			} catch (e) {
-				if (NO_ARTEFACTS.test(caught(e).message)) continue;
-				throw e;
-			}
+			if (!readOrThrow(() => downloadReports(String(run), dir))) continue;
 			const rows = readReports(dir, ROOT);
 			if (rows.length > 0) return { run, sha: sha.get(run) ?? "", rows };
 		}
@@ -147,6 +138,9 @@ function latestRows(beforeRun) {
 		fs.rmSync(work, { recursive: true, force: true });
 	}
 }
+
+/* Under Actions, a fallback shows on the run's summary, not in its log alone. */
+const annotation = process.env.GITHUB_ACTIONS ? "::warning::" : "";
 
 /**
  * @param {string} target
@@ -159,11 +153,12 @@ function latest(target, beforeRun) {
 		found = latestRows(beforeRun);
 	} catch (e) {
 		err(
-			`suite-timings: no run read (${caught(e).message.trim()}) — writing ${CI_RECORD} instead`,
+			`${annotation}suite-timings: no run read (${caught(e).message.trim()}) — writing ${CI_RECORD} instead`,
 		);
 		found = null;
 	}
 	if (found === null) {
+		err(`${annotation}suite-timings: this shard plans by ${CI_RECORD}`);
 		if (!fs.existsSync(path.join(ROOT, CI_RECORD))) {
 			err(`suite-timings: no ${CI_RECORD} to fall back on — wrote nothing`);
 			return 1;

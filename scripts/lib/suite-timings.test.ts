@@ -22,7 +22,6 @@ import {
 	parseMeta,
 	reportRoot,
 	rowsFrom,
-	SETTLE_MS,
 	shares,
 	timingSources,
 	toCsv,
@@ -259,7 +258,8 @@ describe("choosing the run a sharded run plans by (#4574)", () => {
 	it("passes over a run that finished inside the settle window, or after the planning run began", () => {
 		const runs = [
 			listed(1, 900_000, 700_000),
-			listed(2, 300_000, SETTLE_MS - 1),
+			/* Just inside SETTLE_MS's 120 s. */
+			listed(2, 300_000, 119_999),
 			listed(3, 200_000, -60_000),
 		];
 		expect(timingSources(runs, Before)).toEqual([1]);

@@ -280,7 +280,9 @@ exit(1);`,
 			{ "1": [["package.json", 9000]] },
 		);
 		const target = join(dir, "out.csv");
-		expect(latest(gh, target).status).toBe(0);
+		const r = latest(gh, target);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("1 files from run 1 → ");
 		expect(readFileSync(target, "utf8")).toContain("# run: 1\n");
 	});
 

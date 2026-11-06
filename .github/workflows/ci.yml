@@ -294,9 +294,10 @@ jobs:
           nproc
 
       # The per-file times this shard packs by: the newest green suite run's
-      # reports, read at this run's creation so every shard and every re-run
-      # of this run plans from the same run (#4574). Uploaded with the report
-      # below, where scheduled-checks.yml's verdict compares the shards'.
+      # reports, chosen by this run's creation so every shard plans from the
+      # same run (#4574). Uploaded with the report below, where
+      # scheduled-checks.yml's verdict compares the shards'; a hand-run of
+      # this file has no verdict job, so nothing compares them there.
       - name: Shard timings
         if: ${{ !cancelled() }}
         env:

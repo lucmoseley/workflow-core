@@ -83,7 +83,7 @@ export default class ShardSequencer extends BaseSequencer {
 		 * which packs no better than vitest's own split. */
 		if (untimed * 2 > byPath.size)
 			process.stderr.write(
-				`shard timings name ${byPath.size - untimed} of ${byPath.size} test files — refresh ${source()}\n`,
+				`shard timings name ${byPath.size - untimed} of ${byPath.size} test files — refresh ${DATASET}\n`,
 			);
 		return specsAt(
 			byPath,
