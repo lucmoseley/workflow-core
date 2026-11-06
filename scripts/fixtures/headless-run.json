@@ -1,0 +1,532 @@
+{
+	"recordedBy": "node scripts/record-headless-run.js",
+	"harness": "2.1.319 (Claude Code)",
+	"options": [
+		{
+			"names": [
+				"--add-dir"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--agent"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--agents"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--allow-dangerously-skip-permissions"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--allowedTools",
+				"--allowed-tools"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--append-system-prompt"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--autocompact"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--ax-screen-reader"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--bg",
+				"--background"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--bare"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--betas"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--brief"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--chrome"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--cloud"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"-c",
+				"--continue"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--dangerously-skip-permissions"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"-d",
+				"--debug"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"--debug-file"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--desktop"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--disable-slash-commands"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--disallowedTools",
+				"--disallowed-tools"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--effort"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--environment"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--exclude-dynamic-system-prompt-sections"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--fallback-model"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--file"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--fork-session"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--forward-subagent-text"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--from-pr"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"-h",
+				"--help"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--ide"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--include-hook-events"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--include-partial-messages"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--input-format"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--json-schema"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--max-budget-usd"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--mcp-config"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--model"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"-n",
+				"--name"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--no-chrome"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--no-session-persistence"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--output-format"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--permission-mode"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--permission-prompts"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--plugin-dir"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--plugin-url"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"-p",
+				"--print"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--prompt-suggestions"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"--remote-control"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"--remote-control-session-name-prefix"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--replay-user-messages"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--restricted"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"-r",
+				"--resume"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"--safe-mode"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--session-id"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--setting-sources"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--settings"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--strict-mcp-config"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--system-prompt"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--system-prompt-snapshot"
+			],
+			"value": "required"
+		},
+		{
+			"names": [
+				"--teleport"
+			],
+			"value": "optional"
+		},
+		{
+			"names": [
+				"--tmux"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"--tools"
+			],
+			"value": "variadic"
+		},
+		{
+			"names": [
+				"--verbose"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"-v",
+				"--version"
+			],
+			"value": "none"
+		},
+		{
+			"names": [
+				"-w",
+				"--worktree"
+			],
+			"value": "optional"
+		}
+	],
+	"result": {
+		"duration_api_ms": 2001,
+		"stop_reason": "end_turn",
+		"session_id": "5e551011-0000-4000-8000-000000000000",
+		"total_cost_usd": 0.037461,
+		"usage": {
+			"input_tokens": 2,
+			"cache_creation_input_tokens": 7166,
+			"cache_read_input_tokens": 6715,
+			"output_tokens": 14,
+			"output_tokens_details": {
+				"thinking_tokens": 0
+			},
+			"server_tool_use": {
+				"web_search_requests": 0,
+				"web_fetch_requests": 0
+			},
+			"service_tier": "standard",
+			"cache_creation": {
+				"ephemeral_1h_input_tokens": 0,
+				"ephemeral_5m_input_tokens": 7166
+			},
+			"inference_geo": "global",
+			"iterations": [
+				{
+					"input_tokens": 2,
+					"output_tokens": 14,
+					"cache_read_input_tokens": 6715,
+					"cache_creation_input_tokens": 7166,
+					"cache_creation": {
+						"ephemeral_5m_input_tokens": 7166,
+						"ephemeral_1h_input_tokens": 0
+					},
+					"type": "message"
+				}
+			],
+			"speed": "standard",
+			"fallback_credit": null
+		},
+		"modelUsage": {
+			"claude-opus-5-5": {
+				"inputTokens": 2,
+				"outputTokens": 14,
+				"cacheReadInputTokens": 6715,
+				"cacheCreationInputTokens": 7166,
+				"webSearchRequests": 0,
+				"costUSD": 0.037461,
+				"contextWindow": 1000000,
+				"maxOutputTokens": 128000,
+				"thinkingTokens": 0,
+				"cacheCreationEphemeral5mInputTokens": 7166,
+				"cacheCreationEphemeral1hInputTokens": 0,
+				"canonicalModel": "claude-opus-5-5",
+				"provider": "firstParty",
+				"costBasis": "list"
+			}
+		},
+		"permission_denials": [],
+		"terminal_reason": "completed",
+		"fast_mode_state": "off",
+		"fast_mode_disabled_reason": "sdk_opt_in_required",
+		"subagent_stats": {
+			"spawned": 0,
+			"requested": {
+				"background": 0,
+				"foreground": 0,
+				"unset": 0
+			},
+			"started_in_background": 0,
+			"max_depth": 0,
+			"spawned_by_subagents": 0,
+			"completed": 0,
+			"failed": 0,
+			"killed": {
+				"parent": 0,
+				"user": 0,
+				"system": 0
+			},
+			"refused": {
+				"depth_limit": 0,
+				"concurrency_limit": 0,
+				"budget": 0
+			},
+			"by_type": {}
+		},
+		"safety_stops": 0,
+		"is_error": false,
+		"num_turns": 1,
+		"subtype": "success",
+		"api_error_status": null,
+		"result": "ok\n\nresult: replied ok as asked",
+		"ttft_ms": 2122,
+		"type": "result",
+		"duration_ms": 2393,
+		"uuid": "0e5017ed-0000-4000-8000-000000000000",
+		"ttft_stream_ms": 2018,
+		"time_to_request_ms": 167,
+		"first_content_frame_ms": 2018,
+		"queued_turn_count": 0,
+		"result_index": 0,
+		"model_usage_since_last_result": {
+			"claude-opus-5-5": {
+				"inputTokens": 2,
+				"outputTokens": 14,
+				"cacheReadInputTokens": 6715,
+				"cacheCreationInputTokens": 7166,
+				"webSearchRequests": 0,
+				"costUSD": 0.037461,
+				"contextWindow": 1000000,
+				"maxOutputTokens": 128000,
+				"thinkingTokens": 0,
+				"cacheCreationEphemeral5mInputTokens": 7166,
+				"cacheCreationEphemeral1hInputTokens": 0,
+				"canonicalModel": "claude-opus-5-5",
+				"provider": "firstParty",
+				"costBasis": "list"
+			}
+		}
+	}
+}

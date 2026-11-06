@@ -1,0 +1,148 @@
+// @vitest-environment node
+/*
+ * Holds a headless `claude -p` run's two faces (#4586) — the options it takes,
+ * which lib/headless-sessions.js's launch passes, and its `result` row, which
+ * lib/headless-runs.js's readEndResult reads — to the installed harness's
+ * recording (scripts/fixtures/headless-run.json, re-recorded by
+ * `node scripts/record-headless-run.js`), to lib/headless-run-fake.ts, which
+ * every suite's `claude` stub execs for `-p`, and, on the founder's machine,
+ * to the real `claude` where a call is free: its `--help` and its refusal of
+ * an unknown flag. Breaking it lets a renamed flag or result field pass every
+ * suite, and an overflow run launch refused or bill as a success it was not.
+ */
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readProcStartOf } from "./arbiter-proc.js";
+import { claudeLiveSkipReason } from "./claude-stub";
+import { parseHelpOptions } from "./headless-options.js";
+import {
+	buildResultRow,
+	readHeadlessCalls,
+	recorded,
+	writeHeadlessFake,
+} from "./headless-run-fake";
+import { readEndResult } from "./headless-runs.js";
+
+const SESSION = "0f0e0d0c-0000-4000-8000-000000000000";
+const UNKNOWN = "--max-budget";
+const ARGV = ["-p", "--session-id", SESSION, "/implement 7"];
+
+let dir: string;
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "headless-run-"));
+});
+
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+const runFake = (argv: string[]) =>
+	spawnSync(
+		writeHeadlessFake(path.join(dir, "claude"), {
+			log: path.join(dir, "calls.jsonl"),
+			mode: "end",
+		}),
+		argv,
+		{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+	);
+
+/** An ended run whose stream is `stdout`, as readEndResult reads it. */
+function endedRun(stdout: string) {
+	const pid = spawnSync("true").pid;
+	const log = path.join(dir, "out.jsonl");
+	const stderr = path.join(dir, "stderr.log");
+	fs.writeFileSync(log, stdout);
+	fs.writeFileSync(stderr, "");
+	return {
+		jobId: "0badf00d",
+		sessionId: SESSION,
+		pid,
+		procStart: readProcStartOf(pid),
+		bootId: null,
+		pgid: pid,
+		seat: dir,
+		keyVar: "K",
+		cwd: dir,
+		prompt: "/implement 7",
+		log,
+		stderr,
+		launchedAt: 1,
+	};
+}
+
+describe("the result row", () => {
+	it(`carries, in ${recorded.harness}'s recording, every field readEndResult reads`, () => {
+		const row = recorded.result;
+		expect(row.type).toBe("result");
+		expect(row.is_error).toBe(false);
+		expect(typeof row.result).toBe("string");
+		expect(row.result_index).toBe(0);
+		expect(row.total_cost_usd).toBeGreaterThan(0);
+		expect(typeof row.session_id).toBe("string");
+	});
+
+	it("reads as the recorded run's success at its cost", () => {
+		expect(
+			readEndResult(endedRun(`${JSON.stringify(recorded.result)}\n`)),
+		).toEqual({
+			outcome: "success",
+			costUsd: recorded.result.total_cost_usd,
+			sessionId: SESSION,
+		});
+	});
+
+	it("reads the fake's end the same, re-keyed to its session", () => {
+		const r = runFake(ARGV);
+		expect(r.status).toBe(0);
+		expect(JSON.parse(r.stdout)).toEqual(
+			buildResultRow({ session_id: SESSION }),
+		);
+		expect(readEndResult(endedRun(r.stdout))).toEqual({
+			outcome: "success",
+			costUsd: recorded.result.total_cost_usd,
+			sessionId: SESSION,
+		});
+	});
+});
+
+describe("the options", () => {
+	it("the fake refuses a flag the recording lacks, as the binary does", () => {
+		const r = runFake(["-p", UNKNOWN, "3", "x"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(`error: unknown option '${UNKNOWN}'\n`);
+		expect(readHeadlessCalls(path.join(dir, "calls.jsonl"))).toEqual([]);
+	});
+
+	it("the fake refuses a value-taking flag given none", () => {
+		const r = runFake(["-p", "--session-id"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("argument missing");
+	});
+});
+
+/*
+ * The free calls, against the installed `claude` (§G7.2): its help and its
+ * refusal of an unknown flag, which comes before any turn. A run's result
+ * row has no live case: it spends a turn, so the recorder takes it.
+ */
+// Residual: off the founder's machine these skip, and the fixture goes unchecked.
+describe.skipIf(claudeLiveSkipReason())("the installed claude", () => {
+	it("still lists every recorded option, taking a value as recorded", () => {
+		const help = spawnSync("claude", ["--help"], { encoding: "utf8" });
+		expect(parseHelpOptions(help.stdout)).toEqual(
+			expect.arrayContaining(recorded.options),
+		);
+	}, 30_000);
+
+	it("refuses an unknown flag in the fake's words", () => {
+		const r = spawnSync("claude", ["-p", UNKNOWN, "3", "x"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: 30_000,
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(`error: unknown option '${UNKNOWN}'\n`);
+	}, 30_000);
+});
