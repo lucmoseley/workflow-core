@@ -34,6 +34,7 @@ import {
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
+import { commandPath } from "./lib/command-path";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
@@ -152,10 +153,7 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 			const refusal = refusalOf(bin, stubVar);
 
 			it("resolves the bare name to the tracked belt", () => {
-				const r = spawnSync("sh", ["-c", `command -v ${bin}`], {
-					encoding: "utf8",
-				});
-				expect(r.stdout.trim()).toBe(belt);
+				expect(commandPath(bin)).toBe(belt);
 			});
 
 			it("refuses a literal spawn and a child shell's own call, and answers none of the stub", () => {

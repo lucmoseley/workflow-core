@@ -10,10 +10,10 @@
  * stderr.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { commandPath } from "./command-path";
 import { shellQuote } from "./sh-quote.js";
 
 /**
@@ -54,9 +54,7 @@ let realGit: string | undefined;
 
 /** The git on PATH, resolved once, which every unmatched call reaches. */
 export const resolveRealGit = (): string => {
-	realGit ??= execFileSync("sh", ["-c", "command -v git"], {
-		encoding: "utf8",
-	}).trim();
+	realGit ??= commandPath("git");
 	return realGit;
 };
 

@@ -8,9 +8,9 @@
  * the stub's reading of ruff's CLI.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { commandPath } from "./command-path";
 
 /**
  * The stub's body, after its `ARGS` path. `argc=` goes first, so an invocation
@@ -81,9 +81,7 @@ export function writeHostConfig(root: string, body: object | string): void {
 /** The machine's ruff, or "" — CI's node job has none. */
 export const REAL_RUFF = (() => {
 	try {
-		return execFileSync("sh", ["-c", "command -v ruff"], {
-			encoding: "utf8",
-		}).trim();
+		return commandPath("ruff");
 	} catch {
 		return "";
 	}

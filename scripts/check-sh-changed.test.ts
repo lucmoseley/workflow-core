@@ -13,10 +13,11 @@
  * green, or its flags drift from `check:sh`'s.
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { commandPath } from "./lib/command-path";
 import {
 	gateTmpdir,
 	newRepo,
@@ -32,10 +33,7 @@ const ARGS_FILE = "shellcheck-args.txt";
 const HAS_SHELLCHECK =
 	spawnSync("shellcheck", ["--version"], { stdio: "ignore" }).status === 0;
 
-const readCommandPath = (cmd: string) =>
-	execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
-		encoding: "utf8",
-	}).trim();
+const readCommandPath = (cmd: string) => commandPath(cmd);
 
 function fixture() {
 	const { root, git } = newRepo("check-sh-changed-", temps);

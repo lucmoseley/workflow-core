@@ -66,7 +66,9 @@ describe("sp_shell_word", () => {
 	it.each(["~/x", "a=~/x", "HEAD~1", "PATH=a:~/b"])(
 		"quotes %s as its twin shellQuote does",
 		(word) => {
-			expect(bash(`sp_shell_word '${word}'`, {})).toBe(shellQuote(word));
+			expect(bash(`sp_shell_word ${shellQuote(word)}`, {})).toBe(
+				shellQuote(word),
+			);
 		},
 	);
 });

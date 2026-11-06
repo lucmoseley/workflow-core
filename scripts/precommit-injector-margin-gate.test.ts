@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { commandPath } from "./lib/command-path";
 import {
 	armingPattern,
 	cutGateFragment,
@@ -375,9 +376,7 @@ describe("check-injector-margin.sh", () => {
 		const shim = fs.mkdtempSync(path.join(os.tmpdir(), "no-jq-path-"));
 		temps.push(shim);
 		for (const bin of ["bash", "git", "mktemp", "sed", "cat", "grep", "rm"]) {
-			const real = execFileSync("sh", ["-c", `command -v ${shellQuote(bin)}`], {
-				encoding: "utf8",
-			}).trim();
+			const real = commandPath(bin);
 			fs.symlinkSync(real, path.join(shim, bin));
 		}
 
