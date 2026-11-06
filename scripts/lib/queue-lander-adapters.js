@@ -20,6 +20,8 @@ const { PushRefused } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
+	createRemoteRef,
+	deleteRemoteRef,
 	isAncestor,
 	parseRefusal,
 	parseRefusalTail,
@@ -51,9 +53,6 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
  * for a batch a run resumes, which waits hours, never weeks. */
 const VERDICT_RETAIN_MS = 14 * DAY_MS;
 const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
-/* git push's words for a compare-and-delete refused because the ref moved. */
-const STALE = /\(stale info\)/;
-const GONE = /remote ref does not exist/;
 const PHASES = [
 	"merging",
 	"testing",
@@ -272,29 +271,8 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				`git merge-base --is-ancestor ${short(sha)} ${short(of)} exited ${r.status ?? r.signal}`,
 			);
 		},
-		deleteRef(branch, sha) {
-			const ref = `refs/heads/${branch}`;
-			try {
-				pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`]);
-				return true;
-			} catch (err) {
-				const refused = parseErrorText(err);
-				if (GONE.test(refused)) return true;
-				if (STALE.test(refused)) return false;
-				throw err;
-			}
-		},
-		createRef(branch, sha) {
-			const ref = `refs/heads/${branch}`;
-			try {
-				pushRemote(root, [`--force-with-lease=${ref}:`, `${sha}:${ref}`]);
-			} catch (err) {
-				/* Made already, as by a drop a crash repeats. */
-				if (!STALE.test(parseErrorText(err))) throw err;
-				const held = git(["ls-remote", REMOTE, ref]).split("\t")[0];
-				if (held !== sha) throw err;
-			}
-		},
+		deleteRef: (branch, sha) => deleteRemoteRef(root, branch, sha),
+		createRef: (branch, sha) => createRemoteRef(root, branch, sha),
 	};
 
 	/**
