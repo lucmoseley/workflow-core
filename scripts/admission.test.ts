@@ -13,6 +13,10 @@
  * /pick-next §5 and scripts/dispatch-sessions.sh re-read this count before
  * every launch: loosen a case and a session can be admitted past the
  * machine's 10 GB cap, which freezes the machine, or a free slot held shut.
+ *
+ * Over the 10 s run-cost budget by its 117 program runs, each a spawn of
+ * admission.js against a fresh fake machine; the arithmetic's own cases run
+ * in process in lib/admission-figures.test.ts (#4263).
  */
 
 import fs from "node:fs";

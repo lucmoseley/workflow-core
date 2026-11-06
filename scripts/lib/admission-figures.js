@@ -71,8 +71,9 @@ const NO_LIVE_DRAW = {
 const NO_SWAP_HOLD = { held: false };
 
 /**
- * The readings beside memory and the session count, each defaulting to no
- * adjustment for a caller that hasn't read it. `launchMb`, the pending pairs
+ * The readings beside memory and the session count, each read by
+ * `admission.js`'s named reader and defaulting to no adjustment for a caller
+ * that hasn't read it. `launchMb`, the pending pairs
  * `overhead` reserves for one launch, is charged again for each slot past the
  * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
