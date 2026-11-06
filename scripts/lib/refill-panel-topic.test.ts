@@ -75,6 +75,12 @@ describe("resolveTopic", () => {
 		expect(prompt).toContain("wc#5 Speed the suite");
 	});
 
+	it("launches the binary its env names, whatever process.env holds (#3991)", async () => {
+		stubClaude(["echo 'wc#5'"]);
+		vi.stubEnv("WFC_CLAUDE_BIN", path.join(dir, "absent"));
+		expect(await resolveIn()).toMatchObject({ issues: [{ number: 5 }] });
+	});
+
 	it("drops numbers outside the ticked repos' open issues", async () => {
 		stubClaude(["echo 'wc#5, wc#99, other#7'"]);
 		expect(await resolveIn()).toEqual({
