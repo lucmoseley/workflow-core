@@ -4,18 +4,18 @@
  * ONE FILE PER ISSUE, in the main checkout's `.claude/tmp/build-state/`, so a
  * successor session in another worktree finds it by the issue number alone,
  * without its predecessor's session id.
- * Rooted on `hookStoreRoot()`, so the hook and a session's own Bash call in a
- * linked worktree name one file.
+ * Rooted on `hook-block.js`'s `repoRoot()`, so the hook and a session's own
+ * Bash call in a linked worktree name one file.
  */
 
 const path = require("node:path");
-const { hookStoreRoot } = require("./hook-store-root.js");
+const { repoRoot } = require("./hook-block.js");
 
 const BUILD_STATE_REL = path.join(".claude", "tmp", "build-state");
 
 /** @param {number} issue */
 function buildStateFile(issue) {
-	return path.join(hookStoreRoot(), BUILD_STATE_REL, `${issue}.json`);
+	return path.join(repoRoot(), BUILD_STATE_REL, `${issue}.json`);
 }
 
 /**

@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * Pins `worktreeRoot()` (#2940): a test run launched inside a linked worktree
- * reads that worktree's files, though the harness points `CLAUDE_PROJECT_DIR`
- * at the shared tree. Pins `resolveCommitHost()` too (#3830): a script answers the
+ * reads that worktree's files, though `CLAUDE_PROJECT_DIR` may name the shared
+ * tree. Pins `resolveCommitHost()` too (#3830): a script answers the
  * host `hook-root.sh` hands a hook, whatever its shell inherited. Pins
  * `sessionTree()` (#4234): a hook input's cwd in a linked worktree names that
  * worktree, though the hook itself runs in the shared tree. The seam's cases read `a.md` through the resolved root,
@@ -107,6 +107,10 @@ describe("the host seam", () => {
 		expect(readFrom(at.elsewhere, at.shared)).toBe("a\n");
 	});
 
+	it("reads the worktree when CLAUDE_PROJECT_DIR names that worktree (#4493)", () => {
+		expect(readFrom(at.wt, at.wt)).toBe("worktree\n");
+	});
+
 	it("reads the worktree with CLAUDE_PROJECT_DIR unset", () => {
 		expect(readFrom(at.wt, undefined)).toBe("worktree\n");
 	});
@@ -131,6 +135,28 @@ describe("the host seam", () => {
 				undefined,
 			),
 		).toBe("a\n");
+	});
+
+	describe("hostRoot, one store for a worktree session's hooks and Bash (#4493)", () => {
+		const readFromHost = (cwd: string, projectDir: string | undefined) =>
+			readThrough(
+				`require(${JSON.stringify(SEAM)}).hostRoot()`,
+				cwd,
+				projectDir,
+			);
+
+		it("answers the main checkout for a CLAUDE_PROJECT_DIR naming a linked worktree", () => {
+			expect(readFromHost(at.wt, at.wt)).toBe("a\n");
+		});
+
+		it("answers the same main checkout with CLAUDE_PROJECT_DIR unset, from that worktree", () => {
+			expect(readFromHost(at.wt, undefined)).toBe("a\n");
+		});
+
+		it("keeps a CLAUDE_PROJECT_DIR naming an unrelated main checkout", () => {
+			fs.writeFileSync(path.join(at.elsewhere, "a.md"), "elsewhere\n");
+			expect(readFromHost(at.wt, at.elsewhere)).toBe("elsewhere\n");
+		});
 	});
 
 	describe("sessionTree, the tree a hook input's cwd names (#4234)", () => {
@@ -202,9 +228,9 @@ describe("the host seam", () => {
 			expect(readFromCommitHost(at.wt, at.elsewhere)).toBe("a\n");
 		});
 
-		it("keeps a CLAUDE_PROJECT_DIR that shares the common dir, the worktree itself included", () => {
+		it("answers the main checkout for a CLAUDE_PROJECT_DIR sharing the common dir, the worktree itself included (#4493)", () => {
 			expect(readFromCommitHost(at.wt, at.shared)).toBe("a\n");
-			expect(readFromCommitHost(at.wt, at.wt)).toBe("worktree\n");
+			expect(readFromCommitHost(at.wt, at.wt)).toBe("a\n");
 		});
 
 		it("answers the top level of a plain checkout whose git directory sits elsewhere under the name .git", () => {

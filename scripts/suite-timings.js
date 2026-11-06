@@ -22,7 +22,7 @@ const {
 	formatShares,
 	parseMeta,
 } = require("./lib/suite-timings.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 
 const USAGE = `Usage:
   node scripts/suite-timings.js extract <vitest.json|dir> <out.csv> [key=value ...]
@@ -52,10 +52,11 @@ const out = (s) => writeFd(1, `${s}\n`);
 /** @param {string} s */
 const err = (s) => writeFd(2, `${s}\n`);
 
-/* The vitest report's file names are host-repo paths, so they are relativised
- * against the host root (#1), never `__dirname` — a plugin install's own
- * checkout is not the tree the suite ran over. */
-const ROOT = hostRoot();
+/* The vitest report's file names are paths in the tree the suite ran over, so
+ * they are relativised against it (#1, #4493): a linked worktree's own, where
+ * the run was in one. Never `__dirname` — a plugin install's own checkout is
+ * not that tree. */
+const ROOT = worktreeRoot();
 
 /**
  * @param {string[]} argv

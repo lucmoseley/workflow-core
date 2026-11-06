@@ -1113,7 +1113,7 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 		expect(told()).not.toContain(Rule);
 	});
 
-	it("credits a code write against the host root's claims and ledger, not a store keyed to the worktree (#4274)", () => {
+	it("credits a code write against the host root's claims and ledger (#4274)", () => {
 		const write = (rel: string) =>
 			runCore(
 				NAME,
@@ -1124,17 +1124,12 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 				),
 				{ root: at.main, worktree: at.worktree },
 			);
-		/* A neighbour's claim on a.js filed under the worktree's own store, and
-		 * one on b.js under the host root's. */
-		storeAt(at.worktree);
-		store.acquire("scripts/a.js", live(split, "theirs"));
+		/* A neighbour's claim on b.js under the host root's store. */
 		storeAt(at.main);
 		store.acquire("scripts/b.js", live(split, "theirs"));
 		write("scripts/a.js");
 		write("scripts/b.js");
 		expect(store.readWritesBy("mine")).toEqual(["scripts/a.js"]);
-		storeAt(at.worktree);
-		expect(store.readWritesBy("mine") ?? []).toEqual([]);
 	});
 
 	/* Cut where the checkout module cuts one, the host's store spells the

@@ -117,7 +117,7 @@ function buildLanderDeps(
 		tester === undefined &&
 		readConfig({ root, quiet: true }).landingTester === "actions";
 	return {
-		git: queueGit(root, undefined, { ciRepeats }),
+		git: queueGit(root, undefined, undefined, { ciRepeats }),
 		tester:
 			tester === undefined
 				? configuredTester(root, admit)

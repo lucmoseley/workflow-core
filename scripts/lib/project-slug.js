@@ -73,9 +73,9 @@ const UNRESOLVED_ROOT_SLUG = "unresolved-root";
  *
  * FROM THE SEAM, not `__dirname` (#1). The checkout this file is in is the
  * PLUGIN CACHE in a plugin install, so a script-relative slug named a transcript
- * directory the harness never writes to. `hostRoot()` still answers with a
- * worktree's own path, and costs a `git rev-parse` only where
- * CLAUDE_PROJECT_DIR is unset — memoised per cwd, so once per process.
+ * directory the harness never writes to. `hostRoot()` answers the main
+ * checkout owning a worktree, at most one memoised `git rev-parse` per
+ * process.
  *
  * @returns {string}
  */

@@ -29,7 +29,9 @@
 # EXEMPT: git-generated subjects, which wrap a subject nobody typed —
 # `Revert "…"`, `Reapply "…"`, git's `Merge branch|branches|tag|commit|
 # remote-tracking branch|pull request …` forms, `fixup! …`, `squash! …` and
-# `amend! …` (docs/practice/ci-and-repo-quality-gates.md). `Revert`/`Reapply`
+# `amend! …` (docs/practice/ci-and-repo-quality-gates.md), and the queue
+# lander's `Merge queue/<branch> … into the batch`, whose branch name has no
+# length bound (#4547). `Revert`/`Reapply`
 # must end on git's closing `"` (#3357). Residual: a typed `Revert "a" b "c"`
 # still ends on one, and no glob tells it from git's nested
 # `Revert "Revert "x""`.
@@ -62,7 +64,7 @@ subject="$(printf '%s\n' "$lines" | awk '
 ')"
 
 case "$subject" in
-  'Revert "'*'"' | 'Reapply "'*'"' | 'Merge branch '* | 'Merge branches '* | 'Merge tag '* | 'Merge commit '* | 'Merge remote-tracking branch '* | 'Merge pull request '* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+  'Revert "'*'"' | 'Reapply "'*'"' | 'Merge branch '* | 'Merge branches '* | 'Merge tag '* | 'Merge commit '* | 'Merge remote-tracking branch '* | 'Merge pull request '* | 'Merge queue/'*' into the batch' | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
 esac
 
 length="$(printf '%s' "$subject" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')"

@@ -62,8 +62,8 @@ const writeGivenReport = (files: [string, number][]) => {
 	return path;
 };
 
-/* The script relativises against its host, so the host is this checkout the
- * reports are named under (#3334). */
+/* The script relativises against the tree it runs in, so that is this
+ * checkout the reports are named under (#3334). */
 const run = (...args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		cwd: REPO,

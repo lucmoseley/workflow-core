@@ -48,6 +48,7 @@ const {
 	readNewestEvent,
 } = require("./queue-log.js");
 const { TransientFault } = require("./queue-lander.js");
+const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 
 /* Untraced, a first guess and stated as one: a verdict is read again only
@@ -91,6 +92,7 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").DropRecord} DropRecord
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
+ * @typedef {import("./regenerated-files.js").Regenerated} Regenerated
  */
 
 /**
@@ -108,6 +110,8 @@ const BROKEN_OBJECT =
  * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
  * @param {number} [mergeTimeoutMs] each member's merge, its gates included
+ * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
+ *   merge renders afresh rather than takes from either side
  * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester is
  *   the Actions run, which repeats the gates the batch's set leaves out
  *   (#4545); else the batch runs every gate
@@ -116,6 +120,7 @@ const BROKEN_OBJECT =
 function queueGit(
 	root,
 	mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
+	regenerated = REGENERATED_FILES,
 	{ ciRepeats = false } = {},
 ) {
 	const fetchSpecs = [
@@ -261,8 +266,7 @@ function queueGit(
 	};
 
 	/**
-	 * `members` merged in order onto `onto` in a throwaway worktree, each
-	 * merge running the merge's gates and committed with no hook, then the
+	 * `members` merged in order onto `onto` in a throwaway worktree, then the
 	 * batch's gates run once over them all, staged against `onto` (#4545). A
 	 * refusal of the batch's gates names the last member.
 	 * @param {string} onto
@@ -275,49 +279,11 @@ function queueGit(
 			onto,
 			{ program: "queue-lander", use: "merge" },
 			(dir, inTree) => {
-				const hook = path.resolve(
-					dir,
-					inTree(["rev-parse", "--git-path", "hooks/pre-commit"]).trim(),
-				);
-				/** The pre-commit hook git would run, on the gate set `set`, or
-				 * every gate on `all`; none where git would run none.
-				 * @param {"merge" | "batch" | "all"} set */
-				const gates = (set) => {
-					try {
-						fs.accessSync(hook, fs.constants.X_OK);
-					} catch {
-						return;
-					}
-					execFileSync(hook, set === "all" ? [] : [`--gates=${set}`], {
-						cwd: dir,
-						encoding: "utf8",
-						stdio: ["ignore", "pipe", "pipe"],
-						timeout: mergeTimeoutMs,
-					});
-				};
+				const gates = hookGates(dir, inTree);
 				for (const m of members) {
-					/* `--no-commit`, the merge's gates, then the commit: the
-					 * gates' index, the anchors a merge carries among them
-					 * (#4514), is what it takes. */
-					const failed = mergeFailure(m, inTree, () => {
-						inTree(
-							[
-								"merge",
-								"--no-ff",
-								"--no-commit",
-								"-m",
-								`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
-								m.sha,
-							],
-							mergeTimeoutMs,
-						);
-						if (!isMerging(inTree)) return;
-						gates("merge");
-						inTree(
-							["-c", "core.hooksPath=/dev/null", "commit", "--no-edit"],
-							mergeTimeoutMs,
-						);
-					});
+					const failed = mergeFailure(m, inTree, () =>
+						mergeMember(m, dir, inTree, gates),
+					);
 					if (failed) return failed;
 				}
 				const sha = inTree(["rev-parse", "HEAD"]).trim();
@@ -332,6 +298,98 @@ function queueGit(
 				return { kind: "merged", sha };
 			},
 		);
+	}
+
+	/**
+	 * The pre-commit hook git would run in `dir`, on a gate set: `merge`,
+	 * `batch`, or every gate on `all`; none where git would run none.
+	 * @param {string} dir
+	 * @param {(args: string[]) => string} inTree
+	 * @returns {(set: "merge" | "batch" | "all") => void}
+	 */
+	function hookGates(dir, inTree) {
+		const hook = path.resolve(
+			dir,
+			inTree(["rev-parse", "--git-path", "hooks/pre-commit"]).trim(),
+		);
+		return (set) => {
+			try {
+				fs.accessSync(hook, fs.constants.X_OK);
+			} catch {
+				return;
+			}
+			execFileSync(hook, set === "all" ? [] : [`--gates=${set}`], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: mergeTimeoutMs,
+			});
+		};
+	}
+
+	/**
+	 * `--no-commit`, the merge's gates, then a commit no hook runs on: the
+	 * gates' index, the anchors a merge carries among them (#4514), is what
+	 * it takes. A conflict in regenerated
+	 * files alone, each changed on both sides, is no refusal; one deleted on a
+	 * side is, since a render would undo the deletion.
+	 * @param {Member} m
+	 * @param {string} dir
+	 * @param {(args: string[], timeout?: number) => string} inTree
+	 * @param {(set: "merge") => void} gates
+	 */
+	function mergeMember(m, dir, inTree, gates) {
+		try {
+			inTree(
+				[
+					"merge",
+					"--no-ff",
+					"--no-commit",
+					"-m",
+					`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
+					m.sha,
+				],
+				mergeTimeoutMs,
+			);
+		} catch (err) {
+			const files = readConflictedFiles(inTree);
+			const settles = (/** @type {string} */ f) =>
+				regenerated.has(f) && changedOnBothSides(inTree, f);
+			if (files.length === 0 || !files.every(settles)) throw err;
+			for (const f of files) inTree(["checkout", "--ours", "--", f]);
+		}
+		if (!isMerging(inTree)) return;
+		regenerate(dir, inTree);
+		gates("merge");
+		inTree(
+			["-c", "core.hooksPath=/dev/null", "commit", "--no-edit"],
+			mergeTimeoutMs,
+		);
+	}
+
+	/**
+	 * Stages each regenerated file the merge in `dir` holds as its generator
+	 * writes it there: two sides' copies merged as text, or merged cleanly, can
+	 * still disagree with the tree they describe. The generator is the copy the
+	 * commit gate runs, `WFC_PLUGIN_ROOT`'s else the merged tree's own, so the
+	 * gate passes what it writes; one that fails is a refusal carrying its
+	 * output.
+	 * @param {string} dir
+	 * @param {(args: string[]) => string} inTree
+	 */
+	function regenerate(dir, inTree) {
+		const pluginRoot = process.env.WFC_PLUGIN_ROOT || dir;
+		for (const [file, { generator }] of regenerated) {
+			/* Absent: the merge deleted it, and a deletion stands. */
+			if (!fs.existsSync(path.join(dir, file))) continue;
+			execFileSync(process.execPath, [path.join(pluginRoot, generator)], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: mergeTimeoutMs,
+			});
+			inTree(["add", "--", file]);
+		}
 	}
 
 	/**
@@ -381,6 +439,22 @@ const isMerging = (inTree) => {
 		if (caught(err).status === 1) return false;
 		throw err;
 	}
+};
+
+/**
+ * Whether the merge in the tree `inTree` runs git in left `file` conflicted
+ * with both sides' copies present, neither side deleting it.
+ * @param {(args: string[]) => string} inTree
+ * @param {string} file
+ */
+const changedOnBothSides = (inTree, file) => {
+	const stages = new Set(
+		inTree(["ls-files", "-u", "--", file])
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => l.split(/\s+/)[2]),
+	);
+	return stages.has("2") && stages.has("3");
 };
 
 /** @param {unknown} list @returns {list is string[]} */
