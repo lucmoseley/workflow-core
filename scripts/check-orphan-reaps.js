@@ -7,14 +7,12 @@
  *
  * Usage:  node scripts/check-orphan-reaps.js [--json]
  *
- * WHY A LOG READER. The reaper kills at session start and from its user timer
- * with no session open; this names both runs' kills whichever session asks.
- * Running the reaper itself here would kill from a read-only surface.
+ * WHY A LOG READER: running the reaper itself here would kill from a
+ * read-only surface.
  *
  * READ-ONLY: it reads `.orphan-hook-reaps.jsonl` under the canonical
  * checkout's markers and the machine's session-kill log
- * (lib/ended-sessions.js's sessionReapLog), and writes nothing. No log yet is
- * all-clear.
+ * (lib/ended-sessions.js's sessionReapLog). No log yet is all-clear.
  */
 
 const { now, runCheck } = require("./lib/check");

@@ -79,7 +79,7 @@ const POOL_WIDTH = 4;
  * reads one comment page per ticket closed in its window, so it is among the
  * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
  * lag past its threshold: here every reading is a standing.
- * `orphan-reaps` (#4342) reads the reaper's kill log rather than running the
+ * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
  * reaper, which kills.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the

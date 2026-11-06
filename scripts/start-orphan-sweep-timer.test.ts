@@ -5,7 +5,7 @@
  * reaper's timer where none runs, leaves one running a live script alone,
  * replaces one whose script is gone or older than its own, and stays green
  * where no user manager
- * answers. Each stand-in logs its argv, one call a line. A live case holds
+ * answers. A live case holds
  * the stand-in's ExecStart shape to the real `systemctl`'s.
  *
  * Loosen a case and the sweep never runs with every session closed, or a

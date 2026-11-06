@@ -2,8 +2,6 @@
  * ended-sessions.js — which processes outlived the Claude session that started
  * them, and the tree each kill takes (#4342): the judgement for
  * reap-orphan-hooks.js's ORPHAN-SESSION part, with /proc's root handed in.
- * It backs up the per-session scope (#4341), whose session can die without
- * its watcher, and covers every launch route #4333 found uncontained.
  *
  * A PROCESS IS A SESSION'S by its environ: `CLAUDE_CODE_SESSION_ID` names the
  * session and `CLAUDE_PID` its leader, the daemon spare every hook and tool
@@ -28,9 +26,7 @@
  * lib/orphan-hooks.js's killReaps sends each SIGKILL, re-reading start times
  * first.
  *
- * EACH KILL IS LOGGED MACHINE-WIDE, in sessionReapLog(): one timer sweeps for
- * every repo on the machine, so no one checkout's markers would reach the
- * rest. WFC_SESSION_REAP_LOG names another file, for a test.
+ * EACH KILL IS LOGGED MACHINE-WIDE, in sessionReapLog(). WFC_SESSION_REAP_LOG names another file, for a test.
  */
 
 const os = require("node:os");
@@ -164,8 +160,7 @@ function matchEnded(procs, root, spared) {
 	return ended;
 }
 
-/** The session a report names: its id, and its leader's pid.
- * @param {Session} session */
+/** @param {Session} session */
 const describeSession = (session) =>
 	`session ${session.id} (leader pid ${session.leader})`;
 

@@ -2,8 +2,7 @@
 /*
  * start-orphan-sweep-timer.js — make sure a user timer runs
  * reap-orphan-hooks.js every few minutes, so its sweeps run with no session
- * open (#4342): on 2026-11-04 every session had closed while their vitest
- * workers spun on. session-start-sweeps.sh launches it detached at every
+ * open (#4342). session-start-sweeps.sh launches it detached at every
  * session start.
  *
  * A TRANSIENT TIMER, started through systemd-run, so nothing is written to the
@@ -21,8 +20,7 @@
  * linked worktree, which a prune would delete; else this file's sibling.
  *
  * Its working directory is the host root, so the run logs where a session
- * start in the main checkout reads; the reaper's session start names the
- * timer's kills from its machine log.
+ * start in the main checkout reads.
  *
  * WFC_SYSTEMD_RUN and WFC_SYSTEMCTL name stand-in binaries for a test.
  *

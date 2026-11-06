@@ -18,13 +18,11 @@
  * Those kills are named in the session, never logged.
  *
  * AND EVERY PROCESS WHOSE CLAUDE SESSION HAS ENDED (#4342), reparented to an
- * init: the judgement is lib/ended-sessions.js's. Each kill is logged to the
- * machine's own log, its line naming the session, and named in the session.
+ * init: the judgement is lib/ended-sessions.js's.
  *
  * IT ALSO RUNS WITH NO SESSION OPEN, every few minutes, from a user timer
  * (start-orphan-sweep-timer.js). A session start's run names the logged
- * kills no start in its checkout has named yet, stamping them under its
- * markers. check-orphan-reaps.js shows both logs' kills on `npm run status`.
+ * kills no start in its checkout has named yet.
  *
  * THE REGISTRY IS THE RUNNING HOOKS — the self-plugin's at the core, the
  * plugin's plus the host's settings at an adopter (lib/core-hooks.js) — read
@@ -145,7 +143,7 @@ function unseenSessionKills(canonical, log) {
 	try {
 		since = fs.readFileSync(stamp, "utf8").trim();
 	} catch {
-		/* No start here has named one yet: every logged kill is unseen. */
+		/* none yet */
 	}
 	const rows = (readJsonl(log)?.rows ?? []).filter(
 		(r) => typeof r.at === "string" && r.at > since,
@@ -155,7 +153,7 @@ function unseenSessionKills(canonical, log) {
 
 /**
  * Name the timer's kills since this checkout's last session start, then
- * stamp them named, so the next start names only newer ones.
+ * stamp them named.
  * @param {import("./lib/check").Ctx} ctx
  * @param {{ rows: Record<string, unknown>[], stamp: string }} unseen
  */
