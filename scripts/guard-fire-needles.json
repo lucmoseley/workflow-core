@@ -1632,6 +1632,20 @@
 				}
 			]
 		},
+		"check-release-lag.js --notify": {
+			"needles": [
+				{
+					"id": "release-lag",
+					"kind": "notice",
+					"text": "-day threshold: no fix since reaches an adopter"
+				},
+				{
+					"id": "release-lag-unread",
+					"kind": "notice",
+					"text": "'s lag is unread: "
+				}
+			]
+		},
 		"check-idle-efforts.js --notify": {
 			"needles": [
 				{

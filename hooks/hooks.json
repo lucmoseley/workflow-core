@@ -322,6 +322,11 @@
 					},
 					{
 						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-release-lag.js --notify || true",
+						"timeout": 20
+					},
+					{
+						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-interop-latency.js --notify || true",
 						"timeout": 60
 					},
