@@ -15,7 +15,8 @@
  *
  * THE KEY reaches the child only through lib/overflow-key.js's
  * `apiKeyHelper` in `--settings`, so no Bash call or hook in the session sees
- * it (#2604 (b)); the child runs without the variables overflowUnset names.
+ * it (#2604 (b)); the child runs without the variables overflowUnset names,
+ * nor the launcher's root (lib/inherited-roots.js).
  * A key that will not read, or any launch lib/launch-auth.js refuses,
  * refuses the launch by name before anything spawns.
  *
@@ -42,6 +43,7 @@ const {
 	readRun,
 	stop,
 } = require("./headless-runs.js");
+const { forgetRoots } = require("./inherited-roots.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { buildKeySettings, overflowUnset } = require("./overflow-key.js");
 const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
@@ -73,6 +75,7 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 	/** @type {NodeJS.ProcessEnv} */
 	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat.dir };
 	for (const v of overflowUnset(seat.keyVar)) delete env[v];
+	forgetRoots(env);
 	const bin = claudeBin(env);
 	const refusal = launchAuthRefusal({ bin, env, cwd, settings });
 	if (refusal) return { why: refusal };

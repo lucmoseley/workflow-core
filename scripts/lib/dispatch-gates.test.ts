@@ -55,7 +55,10 @@ const gates = (identity: string[], extra: Record<string, string> = {}) =>
 		},
 		cwd: home,
 	});
-const overflowLines = () => "ANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n";
+const ROOTS = "WFC_REPO_ROOT CLAUDE_PROJECT_DIR WFC_DISPATCH_ROOT";
+const overflowLines = () =>
+	`${ROOTS} ANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n`;
+const planLines = (burn = "off") => `plan ${burn}\n${ROOTS}\n`;
 
 describe("the seat kind", () => {
 	it("refuses a call naming no config dir, or an option", () => {
@@ -72,14 +75,14 @@ describe("the seat kind", () => {
 		expect(overflow.stdout).toBe(`overflow off\n${overflowLines()}`);
 		const plan = gates([seat()]);
 		expect(plan.status).toBe(0);
-		expect(plan.stdout).toBe("plan off\n");
+		expect(plan.stdout).toBe(planLines());
 	});
 
 	it("takes an undeclared dir as a plan seat", () => {
 		seats("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
 		const r = gates([path.join(home, ".claude")]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("plan off\n");
+		expect(r.stdout).toBe(planLines());
 	});
 
 	it("refuses a malformed seat file, naming the line", () => {
@@ -111,7 +114,7 @@ describe("the seat kind", () => {
 		it("prints each kind", () => {
 			const plan = gates([seat()]);
 			expect(plan.status).toBe(0);
-			expect(plan.stdout).toBe("plan off\n");
+			expect(plan.stdout).toBe(planLines());
 			const overflow = gates([seat(), "K"]);
 			expect(overflow.status).toBe(0);
 			expect(overflow.stdout).toBe(`overflow off\n${overflowLines()}`);
@@ -194,12 +197,12 @@ describe("launch auth (#2236)", () => {
 describe("burn mode", () => {
 	it("reads on while its marker exists", () => {
 		fs.writeFileSync(marker(), "");
-		expect(gates([path.join(home, ".claude")]).stdout).toBe("plan on\n");
+		expect(gates([path.join(home, ".claude")]).stdout).toBe(planLines("on"));
 	});
 
 	it("reads off where the marker is not a regular file", () => {
 		fs.mkdirSync(marker());
-		expect(gates([path.join(home, ".claude")]).stdout).toBe("plan off\n");
+		expect(gates([path.join(home, ".claude")]).stdout).toBe(planLines());
 	});
 
 	it("reads off, warning, where the marker's path will not resolve", () => {
@@ -210,7 +213,7 @@ describe("burn mode", () => {
 			HOME: "not-absolute",
 		});
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("plan off\n");
+		expect(r.stdout).toBe(planLines());
 		expect(r.stderr).toContain("WARNING: burn-mode marker path unresolved");
 	});
 });

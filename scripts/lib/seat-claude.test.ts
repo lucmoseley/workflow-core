@@ -30,6 +30,9 @@ beforeEach(() => {
 	caller = {
 		PATH: String(process.env.PATH),
 		WFC_CLAUDE_BIN: bin,
+		WFC_REPO_ROOT: "/caller-root",
+		CLAUDE_PROJECT_DIR: "/caller-root",
+		WFC_DISPATCH_ROOT: "/caller-root",
 		CLAUDE_CODE_SESSION_ID: "s-caller",
 		CLAUDE_JOB_DIR: "/seat/jobs/caller",
 		CLAUDE_CONFIG_DIR: "/other-seat",
@@ -59,4 +62,12 @@ it("strips the VT codes from what a failed call printed", () => {
 	expect(r.failed).toBe("exit 1");
 	expect(r.stderr).toBe("no job");
 	expect(r.out).not.toContain("\u001b");
+});
+
+it("forgets the caller's root, which a daemon the call starts would hand every later job (#4595)", () => {
+	const env = buildSeatEnv(caller, "/seat");
+	expect(env.WFC_REPO_ROOT).toBeUndefined();
+	expect(env.CLAUDE_PROJECT_DIR).toBeUndefined();
+	expect(env.WFC_DISPATCH_ROOT).toBeUndefined();
+	expect(env.PATH).toBe(caller.PATH);
 });

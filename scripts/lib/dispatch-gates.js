@@ -6,8 +6,9 @@
  *   node scripts/lib/dispatch-gates.js -- <config dir> [<key var>]
  *
  * Prints `<seat kind> <burn>` — `plan` or `overflow` (lib/refill-seats.js),
- * then `on` where burn mode's marker exists (lib/burn-mode.js) — and, on an
- * overflow seat, one more line: the variables its launch's environment drops,
+ * then `on` where burn mode's marker exists (lib/burn-mode.js) — and a
+ * second line: the variables every launch's environment drops. Those are the
+ * launcher's root (lib/inherited-roots.js) and, on an overflow seat, any key,
  * so the key reaches the child through lib/overflow-key.js's helper alone,
  * which lib/headless-sessions.js passes in `--settings`. Exits 0. Exits 2 printing `REFUSED:` and why where
  * the seat file refuses the seat, the overflow key cannot be read, or the
@@ -23,6 +24,7 @@ const { parseArgs } = require("node:util");
 const { markerPath } = require("./burn-mode.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
+const { ROOT_VARS } = require("./inherited-roots.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { buildKeySettings, overflowUnset } = require("./overflow-key.js");
 const { readDeclaredSeats, seatOfLaunch } = require("./refill-seats.js");
@@ -129,5 +131,6 @@ if (require.main === module) {
 		process.exit(2);
 	}
 	writeFd(1, `${outcome.kind} ${readBurnMode()}\n`);
-	if (outcome.overflow) writeFd(1, `${outcome.overflow.unset.join(" ")}\n`);
+	const unset = [...ROOT_VARS, ...(outcome.overflow?.unset ?? [])];
+	writeFd(1, `${unset.join(" ")}\n`);
 }
