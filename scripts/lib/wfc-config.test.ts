@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { commandPath } from "./command-path-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.resolve(__dirname, "wfc-config.sh");
@@ -686,14 +687,7 @@ describe("degraded reads", () => {
 		const bin = path.join(dir, "bin");
 		fs.mkdirSync(bin);
 		for (const tool of ["git", "dirname", "basename"]) {
-			const found = spawnSync(
-				"bash",
-				["-c", `command -v ${shellQuote(tool)}`],
-				{
-					encoding: "utf8",
-				},
-			).stdout.trim();
-			if (found) fs.symlinkSync(found, path.join(bin, tool));
+			fs.symlinkSync(commandPath(tool), path.join(bin, tool));
 		}
 		const r = sh('wfc_module_on roadmap; echo "$?"', { PATH: bin });
 		expect(r.stdout).toBe("1\n");

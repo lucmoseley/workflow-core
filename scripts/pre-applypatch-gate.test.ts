@@ -23,6 +23,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { commandPath } from "./lib/command-path-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
@@ -244,12 +245,7 @@ function pathWithoutGitleaks(): string {
 		throw new Error(`${gitBin} holds both git and gitleaks`);
 	const bashBin = mkScratchDir("pre-applypatch-bash-");
 	temps.push(bashBin);
-	fs.symlinkSync(
-		execFileSync("sh", ["-c", "command -v bash"], {
-			encoding: "utf8",
-		}).trim(),
-		path.join(bashBin, "bash"),
-	);
+	fs.symlinkSync(commandPath("bash"), path.join(bashBin, "bash"));
 	return [guardBin, bashBin, gitBin].join(path.delimiter);
 }
 

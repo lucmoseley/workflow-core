@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { commandPath } from "./command-path-testkit";
 import {
 	registerTempCleanup,
 	stagedRepo,
@@ -596,9 +597,7 @@ if tool_gate no-such-linter "fetch it from the release page."; then echo RUN; fi
 		const bin = fs.mkdtempSync(path.join(os.tmpdir(), "no-shellcheck-"));
 		temps.push(bin);
 		for (const cmd of ["sh", "node", ...LIB_COMMANDS]) {
-			const abs = execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
-				encoding: "utf8",
-			}).trim();
+			const abs = commandPath(cmd);
 			fs.symlinkSync(abs, path.join(bin, cmd));
 		}
 		return { ...process.env, PATH: bin, WFC_PLUGIN_ROOT: ROOT };

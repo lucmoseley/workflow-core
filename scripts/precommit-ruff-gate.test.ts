@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { commandPath } from "./lib/command-path-testkit";
 import { RUFF_INSTALL } from "./lib/formatters.js";
 import {
 	cutGateFragment,
@@ -41,7 +42,6 @@ import {
 	readStubCalls,
 	writeRuffStub,
 } from "./lib/ruff-testkit";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -78,9 +78,7 @@ const NEEDED = ["sh", "node", ...LIB_COMMANDS];
  */
 function linkNeeded(bin: string): void {
 	for (const cmd of NEEDED) {
-		const abs = execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
-			encoding: "utf8",
-		}).trim();
+		const abs = commandPath(cmd);
 		fs.symlinkSync(abs, path.join(bin, cmd));
 	}
 }

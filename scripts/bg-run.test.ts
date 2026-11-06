@@ -18,7 +18,7 @@
  * run can put them on different shards (#2413).
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -59,6 +59,7 @@ import {
 	WIDE_MISSING,
 	waitFor,
 } from "./lib/bg-run-testkit";
+import { commandPath } from "./lib/command-path-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const { waitForGate } = require("./lib/suite-queue.js");
@@ -452,9 +453,7 @@ describe("a relaunch whose old directory is written mid-delete (#1355)", () => {
 		expect(run(["run", "relaunched", "true"]).status).toBe(0);
 		const bin = join(root, "bin");
 		mkdirSync(bin);
-		const realRm = execFileSync("sh", ["-c", "command -v rm"], {
-			encoding: "utf8",
-		}).trim();
+		const realRm = commandPath("rm");
 		writeFileSync(
 			join(bin, "rm"),
 			`#!/usr/bin/env bash
