@@ -22,7 +22,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	build,
 	hooksWiring,
@@ -565,92 +565,127 @@ describe("the adapters", () => {
 
 	describe("a generated-only file (#4541)", () => {
 		const genFile = "gen.list";
-		const txts = (dir: string) =>
-			git(dir, "ls-files", "*.txt").split("\n").filter(Boolean).sort();
-		const lists = new Map([
-			[
-				genFile,
-				{ generator: "list", render: (d: string) => `${txts(d).join("\n")}\n` },
-			],
-		]);
-		const counts = new Map([
-			[
-				genFile,
-				{ generator: "count", render: (d: string) => `${txts(d).length}\n` },
-			],
-		]);
-		/** A queue ref adding `<name>.txt`, its genFile as `gen` renders it on that tree. */
-		const pushGenerated = (
-			name: string,
-			from: string,
-			gen: Map<string, { render: (d: string) => string }>,
-		) =>
-			pushQueue(name, from, () => {
-				fs.writeFileSync(path.join(work, `${name}.txt`), name);
-				git(work, "add", "-A");
-				fs.writeFileSync(
-					path.join(work, genFile),
-					gen.get(genFile)?.render(work) ?? "",
-				);
-			});
-		const seeded = (gen: Map<string, { render: (d: string) => string }>) => {
-			fs.writeFileSync(
-				path.join(work, genFile),
-				gen.get(genFile)?.render(work) ?? "",
-			);
+		const generated = new Map([[genFile, { generator: "gen.js" }]]);
+		const txtsAt = (sha: string) =>
+			git(work, "ls-tree", "-r", "--name-only", sha)
+				.split("\n")
+				.filter((f) => f.endsWith(".txt"));
+		/** gen.js bodies writing genFile from the index's `.txt` files: their names, or their count. */
+		const tracked = `require("node:child_process").execFileSync("git", ["ls-files", "*.txt"], { encoding: "utf8" }).split("\\n").filter(Boolean).sort()`;
+		const listing = `require("node:fs").writeFileSync("${genFile}", ${tracked}.join("\\n") + "\\n");`;
+		const counting = `require("node:fs").writeFileSync("${genFile}", ${tracked}.length + "\\n");`;
+		const runGen = () =>
+			expect(
+				runInProcess(path.join(work, "gen.js"), [], { cwd: work }).status,
+			).toBe(0);
+		/** A commit holding gen.js as `body` and genFile as it writes. */
+		const seeded = (body: string) => {
+			fs.writeFileSync(path.join(work, "gen.js"), body);
+			fs.writeFileSync(path.join(work, "seed-gen.txt"), "seed-gen");
+			git(work, "add", "-A");
+			runGen();
 			return commit("seed-gen");
 		};
+		/** A queue ref adding `<name>.txt` and `extra`'s writes, genFile as gen.js then writes it. */
+		const pushGenerated = (name: string, from: string, extra?: () => void) =>
+			pushQueue(name, from, () => {
+				extra?.();
+				fs.writeFileSync(path.join(work, `${name}.txt`), name);
+				git(work, "add", "-A");
+				runGen();
+			});
+		const clash = (body: string) => () =>
+			fs.writeFileSync(path.join(work, "clash.md"), body);
 		const members = (a: string, b: string) => [
 			{ name: "a", sha: a, pushedAt: 1 },
 			{ name: "b", sha: b, pushedAt: 2 },
 		];
 		const genAt = (sha: string) =>
 			`${git(work, "show", `${sha}:${genFile}`)}\n`;
-
-		it("lands a merge whose text-merged copy is clean but stale, as rendered on the merged tree", () => {
-			const seed = seeded(counts);
-			const a = pushGenerated("a", seed, counts);
-			const b = pushGenerated("b", seed, counts);
-			expect(genAt(a)).toBe(genAt(b));
-			const g = queueGit(work, undefined, counts);
+		const merge = (seed: string, a: string, b: string) => {
+			const g = queueGit(work, undefined, generated);
 			g.refs();
-
-			const r = g.mergeMembers(seed, members(a, b));
-
+			return g.mergeMembers(seed, members(a, b));
+		};
+		const landed = (r: ReturnType<typeof merge>) => {
 			expect(r.kind).toBe("merged");
-			const sha = r.kind === "merged" ? r.sha : "";
+			return r.kind === "merged" ? r.sha : "";
+		};
+
+		beforeEach(() => {
+			vi.stubEnv("WFC_PLUGIN_ROOT", "");
+		});
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("lands a merge whose text-merged copy is clean but stale", () => {
+			const seed = seeded(counting);
+			const a = pushGenerated("a", seed);
+			const b = pushGenerated("b", seed);
+			expect(genAt(a)).toBe(genAt(b));
+
+			const sha = landed(merge(seed, a, b));
+
 			expect(genAt(sha)).toBe(`${Number(genAt(a)) + 1}\n`);
 		});
 
-		it("lands a merge whose only conflict is the generated file, as rendered on the merged tree", () => {
-			const seed = seeded(lists);
-			const a = pushGenerated("a", seed, lists);
-			const b = pushGenerated("b", seed, lists);
-			const g = queueGit(work, undefined, lists);
-			g.refs();
+		it("lands a merge whose only conflict is the generated file", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed);
+			const b = pushGenerated("b", seed);
 
-			const r = g.mergeMembers(seed, members(a, b));
+			const sha = landed(merge(seed, a, b));
 
-			expect(r.kind).toBe("merged");
-			const sha = r.kind === "merged" ? r.sha : "";
-			expect(genAt(sha)).toBe(
-				`${txts(work).concat("a.txt").sort().join("\n")}\n`,
+			expect(genAt(sha)).toBe(`${txtsAt(sha).sort().join("\n")}\n`);
+			expect(txtsAt(sha)).toEqual(expect.arrayContaining(["a.txt", "b.txt"]));
+		});
+
+		it("renders with the merged tree's generator, a member's change to it included", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed, () =>
+				fs.writeFileSync(path.join(work, "gen.js"), counting),
 			);
+			const b = pushGenerated("b", seed);
+
+			const sha = landed(merge(seed, a, b));
+
+			expect(genAt(sha)).toBe(`${txtsAt(sha).length}\n`);
 		});
 
 		it("still drops a merge conflicting in any other file, naming that file", () => {
-			const seed = seeded(lists);
-			const clash = (body: string) => () =>
-				fs.writeFileSync(path.join(work, "clash.md"), body);
+			const seed = seeded(listing);
 			const a = pushQueue("a", seed, clash("one"));
 			const b = pushQueue("b", seed, clash("two"));
-			const g = queueGit(work, undefined, lists);
-			g.refs();
 
-			expect(g.mergeMembers(seed, members(a, b))).toEqual({
+			expect(merge(seed, a, b)).toEqual({
 				kind: "conflict",
 				name: "b",
 				files: ["clash.md"],
+			});
+		});
+
+		it("drops a merge conflicting in the generated file and another, naming both", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed, clash("one"));
+			const b = pushGenerated("b", seed, clash("two"));
+
+			expect(merge(seed, a, b)).toEqual({
+				kind: "conflict",
+				name: "b",
+				files: ["clash.md", genFile],
+			});
+		});
+
+		it("drops a merge whose member deleted the generated file, rather than render it back", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed);
+			const b = pushQueue("b", seed, () => fs.rmSync(path.join(work, genFile)));
+
+			expect(merge(seed, a, b)).toEqual({
+				kind: "conflict",
+				name: "b",
+				files: [genFile],
 			});
 		});
 	});

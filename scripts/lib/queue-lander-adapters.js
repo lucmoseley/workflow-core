@@ -9,6 +9,7 @@
  * no push time.
  */
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -268,11 +269,11 @@ function queueGit(
 	};
 
 	/**
-	 * Merges `m` into the worktree `dir` and commits it. `--no-commit`, then
-	 * `git commit`: git writes a merge's tree before pre-merge-commit runs, so
-	 * only pre-commit's index reaches the commit, the anchors a merge carries
-	 * among them (#4514). A conflict in regenerated files alone is no refusal:
-	 * they are rendered afresh before the commit.
+	 * `--no-commit`, then `git commit`: git writes a merge's tree before
+	 * pre-merge-commit runs, so only pre-commit's index reaches the commit, the
+	 * anchors a merge carries among them (#4514). A conflict in regenerated
+	 * files alone, each changed on both sides, is no refusal; one deleted on a
+	 * side is, since a render would undo the deletion.
 	 * @param {Member} m
 	 * @param {string} dir
 	 * @param {(args: string[], timeout?: number) => string} inTree
@@ -292,8 +293,9 @@ function queueGit(
 			);
 		} catch (err) {
 			const files = readConflictedFiles(inTree);
-			if (files.length === 0 || !files.every((f) => regenerated.has(f)))
-				throw err;
+			const settles = (/** @type {string} */ f) =>
+				regenerated.has(f) && changedOnBothSides(inTree, f);
+			if (files.length === 0 || !files.every(settles)) throw err;
 			for (const f of files) inTree(["checkout", "--ours", "--", f]);
 		}
 		if (!isMerging(inTree)) return;
@@ -303,17 +305,25 @@ function queueGit(
 
 	/**
 	 * Stages each regenerated file the merge in `dir` holds as its generator
-	 * renders it on the merged index: two sides' copies merged as text, or
-	 * merged cleanly, can still disagree with the tree they describe.
+	 * writes it there: two sides' copies merged as text, or merged cleanly, can
+	 * still disagree with the tree they describe. The generator is the copy the
+	 * commit gate runs, `WFC_PLUGIN_ROOT`'s else the merged tree's own, so the
+	 * gate passes what it writes; one that fails is a refusal carrying its
+	 * output.
 	 * @param {string} dir
 	 * @param {(args: string[]) => string} inTree
 	 */
 	function regenerate(dir, inTree) {
-		for (const [file, { render }] of regenerated) {
-			const at = path.join(dir, file);
-			if (!fs.existsSync(at)) continue;
-			inTree(["add", "--", file]);
-			fs.writeFileSync(at, render(dir));
+		const pluginRoot = process.env.WFC_PLUGIN_ROOT || dir;
+		for (const [file, { generator }] of regenerated) {
+			/* Absent: the merge deleted it, and a deletion stands. */
+			if (!fs.existsSync(path.join(dir, file))) continue;
+			execFileSync(process.execPath, [path.join(pluginRoot, generator)], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: mergeTimeoutMs,
+			});
 			inTree(["add", "--", file]);
 		}
 	}
@@ -365,6 +375,22 @@ const isMerging = (inTree) => {
 		if (caught(err).status === 1) return false;
 		throw err;
 	}
+};
+
+/**
+ * Whether the merge in the tree `inTree` runs git in left `file` conflicted
+ * with both sides' copies present, neither side deleting it.
+ * @param {(args: string[]) => string} inTree
+ * @param {string} file
+ */
+const changedOnBothSides = (inTree, file) => {
+	const stages = new Set(
+		inTree(["ls-files", "-u", "--", file])
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => l.split(/\s+/)[2]),
+	);
+	return stages.has("2") && stages.has("3");
 };
 
 /** @param {unknown} list @returns {list is string[]} */
