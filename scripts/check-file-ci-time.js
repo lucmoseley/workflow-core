@@ -82,7 +82,7 @@ function localSweeps(dir) {
 function remoteSweeps(ctx) {
 	/* Listed per branch at the source: the lander's pushes run the same
 	 * workflow, and enough of them push every sweep out of a mixed window
-	 * (#4559). Either branch failing to list skips the whole check. */
+	 * (#4559). Any branch failing to list skips the whole check. */
 	/** @type {number[]} */
 	const ids = [];
 	for (const branch of SWEEP_BRANCHES) {

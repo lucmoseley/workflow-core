@@ -4,9 +4,6 @@
  * disk as `gh run download` leaves them. The judging arithmetic is
  * scripts/lib/file-ci-time.test.ts's.
  *
- * The gh route is crossed through WFC_GH: once on a failing gh, and once on a
- * stub serving a busy lander's run list and the sweeps' reports.
- *
  * A PLAIN TEMP DIR, NOT A TEMP GIT REPO: the script reads JSON files and asks
  * git nothing of the temp dir.
  */
