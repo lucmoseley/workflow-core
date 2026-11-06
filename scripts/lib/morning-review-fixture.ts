@@ -38,7 +38,7 @@ const CREATE_FAILED = path.join(
 /**
  * The handler `serveGhStub` runs per call: `gh` over one tracker's review issues (`reviews.json`), closes
  * (`closed.json`), and open `urgent` and `parked` issues (`urgent.json`,
- * `parked.json`) with their timelines (`timelines.json`), the idle alarm's
+ * `parked.json`) with their timelines (`timelines.json`, `"fail"` failing a read), the idle alarm's
  * GraphQL read of its open issues (`idle.json`'s nodes), logging every call
  * to `calls.log`. A review's create appends to `reviews.json`, so a second
  * run sees the first's issue, and fails where `fail-review-create` exists; a
@@ -68,7 +68,11 @@ const sayPage = (kind, items) => say(kind, [items]);
 fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
 const timeline = (a[1] ?? "").split("/");
 if (a[0] === "api" && a[1] === "graphql") say("idleIssuesPage", [{ data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: read("idle.json") } } } }]);
-if (a[0] === "api" && timeline[5] === "timeline") sayPage("timelinePage", read("timelines.json")[timeline[4]] ?? []);
+if (a[0] === "api" && timeline[5] === "timeline") {
+	const events = read("timelines.json")[timeline[4]] ?? [];
+	if (events === "fail") { ${ghAnswerHandler(NOT_FOUND)} }
+	sayPage("timelinePage", events);
+}
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") sayRows(read("urgent.json"));
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") sayRows(read("parked.json"));
 if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) sayPage("labelsPage", [{ name: "takes:wayfinder" }, { name: "takes:implement" }]);
