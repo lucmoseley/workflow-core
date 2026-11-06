@@ -22,7 +22,7 @@ const PROGRAM = /\.(?:c|m)?js$/;
  *   that text with each comment blanked to spaces, its newlines kept
  * @typedef {{
  *   tag: string,
- *   sites: (program: Program) => Site[],
+ *   sites: (program: Program, rel: string) => Site[],
  *   message: (rel: string, site: Site) => string,
  * }} Breach
  */
@@ -63,15 +63,23 @@ function parseMatchSites({ code }, re) {
 }
 
 /**
- * Every non-test program under `dir` that `include` takes, as paths
- * relative to it with `/` separators, sorted.
- * @param {string} dir
+ * Every non-test program under each of `dirs` that `include` takes, as paths
+ * relative to `root` with `/` separators, sorted.
+ * @param {string} root
+ * @param {string[]} dirs  relative to `root`; one that is missing holds none
  * @param {(rel: string) => boolean} include
  */
-function readPrograms(dir, include) {
-	return fs
-		.readdirSync(dir, { recursive: true, encoding: "utf8" })
-		.map((rel) => rel.split(path.sep).join("/"))
+function readPrograms(root, dirs, include) {
+	return dirs
+		.filter((dir) => fs.existsSync(path.join(root, dir)))
+		.flatMap((dir) =>
+			fs
+				.readdirSync(path.join(root, dir), {
+					recursive: true,
+					encoding: "utf8",
+				})
+				.map((rel) => `${dir}/${rel.split(path.sep).join("/")}`),
+		)
 		.filter(
 			(rel) =>
 				PROGRAM.test(rel) &&
@@ -92,7 +100,7 @@ function failSites(ctx, rel, program, breaches) {
 	for (const { tag, sites, message } of breaches) {
 		/** @type {Map<string, number>} */
 		const seen = new Map();
-		for (const site of sites(program)) {
+		for (const site of sites(program, rel)) {
 			const n = (seen.get(site.text) ?? 0) + 1;
 			seen.set(site.text, n);
 			ctx.fail(tag, message(rel, site), {
@@ -105,12 +113,13 @@ function failSites(ctx, rel, program, breaches) {
 }
 
 /**
- * Run one heresy check over the tree at `--root`, or the host root.
- * `include` takes a path relative to scripts/; `skip` names the primitive's
- * own home, repo-relative. Where `summary` is given, any finding prints two
+ * Run one heresy check over `dirs` in the tree at `--root`, or the host root.
+ * `include` takes a repo-relative path; `skip` names the primitive's own home,
+ * repo-relative. Where `summary` is given, any finding prints two
  * lines: the count, its `phrase` and each site, then its `fix`.
  * @param {{
  *   name: string,
+ *   dirs?: string[],
  *   include?: (rel: string) => boolean,
  *   skip?: string[],
  *   breaches: Breach[],
@@ -120,6 +129,7 @@ function failSites(ctx, rel, program, breaches) {
  */
 function runHeresyCheck({
 	name: checkName,
+	dirs = ["scripts"],
 	include = () => true,
 	skip = [],
 	breaches,
@@ -133,18 +143,16 @@ function runHeresyCheck({
 		against: {
 			profile: checkName,
 			materialise: "blobs",
-			pathspecs: () => ["scripts"],
+			pathspecs: () => dirs,
 		},
 		run(/** @type {Ctx} */ ctx) {
 			const root = path.resolve(ctx.value("--root") ?? hostRoot());
-			const dir = path.join(root, "scripts");
-			/* No scripts/ is zero programs, not SKIP: a SKIP on the HEAD side of
+			/* A missing dir is zero programs, not SKIP: a SKIP on the HEAD side of
 			 * --against is BROKEN, which would refuse the first program ever added. */
-			const names = fs.existsSync(dir) ? readPrograms(dir, include) : [];
-			for (const name of names) {
-				const rel = `scripts/${name}`;
+			const names = readPrograms(root, dirs, include);
+			for (const rel of names) {
 				if (skip.includes(rel)) continue;
-				const source = fs.readFileSync(path.join(dir, name), "utf8");
+				const source = fs.readFileSync(path.join(root, rel), "utf8");
 				failSites(ctx, rel, { source, code: blankComments(source) }, breaches);
 			}
 			if (summary && ctx.findings.length > 0)

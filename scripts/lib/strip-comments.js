@@ -264,4 +264,22 @@ function blankComments(source) {
 	return out + source.slice(from);
 }
 
-module.exports = { blankComments, scanJs, stripComments };
+/**
+ * `source` with every stretch that is not code — comments, strings, templates
+ * and regex literals — blanked to spaces, its line breaks kept. A template's
+ * `${…}` is blanked with it.
+ * @param {string} source
+ */
+function blankInert(source) {
+	let out = "";
+	let from = 0;
+	for (const [start, end] of scanJs(source).inert) {
+		out +=
+			source.slice(from, start) +
+			source.slice(start, end).replace(/[^\n]/g, " ");
+		from = end;
+	}
+	return out + source.slice(from);
+}
+
+module.exports = { blankComments, blankInert, scanJs, stripComments };
