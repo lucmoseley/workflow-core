@@ -205,7 +205,7 @@ function readRunningCode(pid, codeDir) {
  * Each of `stale` a live process other than this one runs from, mapped to its
  * pid: its cwd, or a path its command line names resolved against that cwd,
  * sits in it, spelt through the real code directory or through `codeDir`.
- * Null where /proc will not be read, which keeps them all (#4548).
+ * Null where /proc will not be read, which keeps them all.
  * Residual: a process holding a tree only through a module it loaded or a
  * file it holds open, with neither its cwd nor an argument there (`node -e
  * "require(…)"`), holds none; so does one whose cwd will not read, another
