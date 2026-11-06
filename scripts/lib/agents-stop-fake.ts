@@ -81,9 +81,7 @@ export const buildPermissionRow = (id: string): Row =>
 export const buildAgentsBranch = (listing: Row[] | null) =>
 	`if [ "$1" = "agents" ]; then ${listing ? `printf '%s' ${shellQuote(JSON.stringify(listing))}; exit 0` : "exit 1"}; fi`;
 
-/* Stop answers no daemon gives on demand, so none is recorded: `busy`, a
- * failure other than "No job matching"; `warnedNoJob`, the recorded noJob
- * under a warning line; `killed`, a stop killed by a signal. */
+/* Stop answers no daemon gives on demand, so none is recorded. */
 const noJob = recorded.stops.noJob;
 const FAULTS = {
 	busy: "echo 'daemon socket is busy' >&2; exit 1",
