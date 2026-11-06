@@ -22,6 +22,7 @@ const {
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
+	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
@@ -298,7 +299,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				: {
 						kind: "refused",
 						name: m.name,
-						reason: parseRefusal(parseErrorText(err)),
+						reason: parseRefusalTail(parseErrorText(err)),
 					};
 		}
 	}

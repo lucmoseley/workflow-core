@@ -158,13 +158,21 @@ describe("dropTicketFiler", () => {
 	it("files standalone where no commit cites a ticket, naming a merge's refusal as its evidence", () => {
 		const f = dropFiler(["Tidy"]);
 
-		f.said({ cause: { kind: "refused", name: "wt-1", reason: "rule:x" } });
+		f.said({
+			cause: {
+				kind: "refused",
+				name: "wt-1",
+				reason: "FAIL: rule:x\nrun: fix ```x```",
+			},
+		});
 
 		const [{ args, input }] = f.files;
 		expect(flag(args, "--standalone")).toBe(
 			"No commit on queue/wt-1 cites a ticket of this repo.",
 		);
-		expect(input).toContain("its merge was refused: `rule:x`");
+		expect(input).toContain(
+			"its merge was refused, the refusal ending:\n\n```text\nFAIL: rule:x\nrun: fix '''x'''\n```\n",
+		);
 	});
 
 	it("names a member red alone twice by its isolation commit, its failing files and their pass on main, or the whole suite where it named none", () => {
