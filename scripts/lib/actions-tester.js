@@ -62,7 +62,8 @@ const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
 /* The aggregate job #2414's ruleset on `main` requires. */
 const SUITE_PASSED_JOB = "Suite passed";
 /* Untraced: GitHub lists a push run within seconds; the rest is room for a
- * slow queue. */
+ * slow queue. Past it a run never listed is a red that can drop a member
+ * (#4571), so it decides a drop, not only a wait. */
 const APPEAR_MS = 3 * 60 * 1000;
 /* Untraced: a sharded run is held under 3 min once its jobs start (#2413);
  * the rest is room for runners to queue. */
@@ -408,6 +409,9 @@ const unreadable = (err) => ({
  * A push run still unlisted APPEAR_MS into the ask, the push before it, is a
  * verdict about the tree, whose workflow fires no run on the ref: a red
  * naming no file, so the lander's red path ends its batch (#4571).
+ * Residual: a listing GitHub delays past APPEAR_MS on both the ask and its
+ * rerun, but not on `main`'s base check, drops a member on a false red,
+ * which the verdict ledger keeps.
  * @param {RunVerdict} v
  * @returns {Verdict}
  */

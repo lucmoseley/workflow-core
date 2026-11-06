@@ -78,25 +78,29 @@ const citedByAny = (subjects) =>
 /** @param {readonly string[]} files */
 const buildFileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
 
+/* The tree fired no run at all: the likeliest cause, never proven. */
+const NO_RUN =
+	"fired no CI run, twice: no CI run fired for this tree, where `main` passes, so its workflow's push triggers likely miss the lander's `lander/*` refs";
+
 /** @param {import("./queue-lander.js").Drop} d */
 function buildDropEvidence({ onto, cause }) {
 	const alone = `merged alone onto \`main\` at ${onto}`;
-	if ("noRun" in cause && cause.noRun) {
-		const at = cause.kind === "red" ? cause.iso : cause.step;
-		return `${alone} as ${at}, no CI run fired for this tree, twice, where \`main\` passes: its workflow's push triggers likely miss the lander's \`lander/*\` refs`;
-	}
 	switch (cause.kind) {
 		case "conflict":
 			return `${alone}, it conflicts with \`main\` in:\n${buildFileList(cause.files)}`;
 		case "refused":
 			return `${alone}, its merge was refused, the refusal ending:\n\n${quoteBlock(cause.reason)}`;
 		case "red":
-			return `${alone} as ${cause.iso}, it failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`;
+			return `${alone} as ${cause.iso}, it ${cause.noRun ? NO_RUN : `failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`}`;
 		case "unrecorded":
 			return `why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${onto}`;
 		case "collision": {
 			const after = cause.after.map((n) => `\`${QUEUE_PREFIX}${n}\``);
-			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.files.length > 0 ? `failed twice:\n${buildFileList(cause.files)}` : "failed the whole suite twice, naming no file"}`;
+			const failed =
+				cause.files.length > 0
+					? `failed twice:\n${buildFileList(cause.files)}`
+					: "failed the whole suite twice, naming no file";
+			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, it ${cause.noRun ? NO_RUN : failed}`;
 		}
 	}
 }
@@ -112,9 +116,9 @@ function buildDropAcceptance({ sha, name, cause }) {
 		case "unrecorded":
 			return `${short(sha)}'s change merges onto \`main\`, passes the whole suite there, and is pushed to ${queued} again.`;
 		default:
-			if ("noRun" in cause && cause.noRun)
-				return `${short(sha)}'s change, merged onto \`main\`, fires a CI run on the lander's refs that passes the whole suite, and is pushed to ${queued} again.`;
-			return `${short(sha)}'s change passes ${cause.files.length > 0 ? "each file above" : "the whole suite"} merged onto \`main\`, and is pushed to ${queued} again.`;
+			return cause.noRun
+				? `${short(sha)}'s change, merged onto \`main\`, fires a CI run on the lander's refs that passes the whole suite, and is pushed to ${queued} again.`
+				: `${short(sha)}'s change passes ${cause.files.length > 0 ? "each file above" : "the whole suite"} merged onto \`main\`, and is pushed to ${queued} again.`;
 	}
 }
 

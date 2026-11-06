@@ -1841,6 +1841,35 @@ describe("the red path", () => {
 		expect(remote.main).toBe("merge(m0;a1)");
 	});
 
+	it("drops a member whose tree fires no run though main went green within the hour, asking main afresh (#4571)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		disk.greenAt.set("m0", NOW - 10 * 60 * 1000);
+		const noRun: Verdict = { kind: "red", files: [], noRun: true };
+
+		const { actions, asked } = await land(remote, disk, {
+			verdict: (sha) => (sha.includes("a1") ? noRun : Green),
+		});
+
+		expect(asked).toContain("m0");
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["a"]);
+	});
+
+	it("isolates a no-run red where main is red on a run of its own, rather than holding (#4571)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const lint: Verdict = { kind: "red", files: [], jobs: ["Lint and types"] };
+
+		const { actions } = await land(remote, disk, {
+			verdict: (sha) =>
+				sha.includes("a1") ? { kind: "red", files: [], noRun: true } : lint,
+		});
+
+		expect(kinds(actions)).not.toContain("hold");
+		expect(kinds(actions)).toContain("start-isolation");
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["a"]);
+	});
+
 	it("holds a batch whose push run never appears where main fires none either, dropping no member (#4571)", async () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const disk = freshDisk();

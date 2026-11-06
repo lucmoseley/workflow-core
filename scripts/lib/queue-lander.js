@@ -705,8 +705,24 @@ function redOnMain(onMain, checked, v) {
 }
 
 /**
+ * Whether `main`'s verdict `onMain` shares `v`, a red naming no file: no run
+ * fired at either, or `main` failed every job `v` did.
+ * @param {Verdict} onMain
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ */
+function sharesWhole(onMain, v) {
+	if (onMain.kind !== "red") return false;
+	if (v.noRun) return onMain.noRun === true;
+	const jobs = onMain.jobs ?? [];
+	return (v.jobs ?? []).every((j) => jobs.includes(j));
+}
+
+/**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
- * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does.
+ * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does,
+ * or, where no run fired, where none fired at `main` either. A tree that
+ * fired no run takes no green off the green ledger: an outage that fires
+ * none on its members would fire none at `main` either (#4571).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -718,7 +734,7 @@ function baseCheck(b, s, main, v) {
 	const at = s.greenAt(main);
 	const onMain =
 		b.bases.find((x) => x.sha === main && sameFiles(x.files, files))?.verdict ??
-		(at !== null && s.now - at < BASE_GREEN_MS
+		(!v.noRun && at !== null && s.now - at < BASE_GREEN_MS
 			? /** @type {Verdict} */ ({ kind: "green" })
 			: undefined);
 	if (onMain === undefined) {
@@ -729,12 +745,10 @@ function baseCheck(b, s, main, v) {
 				askOrWait(s, r, { kind: "check-base", sha: main, files }),
 		};
 	}
-	if (files.length === 0) {
-		const jobs = onMain.kind === "red" ? (onMain.jobs ?? []) : null;
-		const baseOnly =
-			jobs !== null && (v.jobs ?? []).every((j) => jobs.includes(j));
-		return { read: { base: [], left: [], baseOnly } };
-	}
+	if (files.length === 0)
+		return {
+			read: { base: [], left: [], baseOnly: sharesWhole(onMain, v) },
+		};
 	const base = redOnMain(onMain, files, v);
 	const left = files.filter((f) => !base.includes(f));
 	return { read: { base, left, baseOnly: left.length === 0 } };

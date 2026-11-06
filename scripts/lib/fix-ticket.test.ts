@@ -260,9 +260,11 @@ describe("dropTicketFiler", () => {
 
 		const [alone, collided] = f.files.map((x) => x.input);
 		expect(alone).toContain(
-			`onto \`main\` at ${M} as ${iso}, no CI run fired for this tree, twice`,
+			`onto \`main\` at ${M} as ${iso}, it fired no CI run, twice`,
 		);
-		expect(collided).toContain(`as ${step}, no CI run fired for this tree`);
+		expect(collided).toContain("each member of its batch passed alone");
+		expect(collided).toContain(`as ${step}, it fired no CI run, twice`);
+		expect(alone).toContain("no CI run fired for this tree");
 		expect(alone).toContain(
 			"- [ ] aaaaaaaaa's change, merged onto `main`, fires a CI run on the lander's refs that passes the whole suite",
 		);
