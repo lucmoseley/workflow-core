@@ -14,8 +14,10 @@
  *     `claude stop`'s answers to that job and to an id no daemon holds, which
  *     lib/claude-stop.js reads (#2988);
  *   - scripts/fixtures/bg-launch.json: the answers of a fresh `claude --bg
- *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, and
- *     of a promptless named one, which start-session.sh reads, and `claude
+ *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, of a
+ *     promptless named one, which start-session.sh reads, and of a named one
+ *     whose prompt follows its flags, as dispatch-sessions.sh's overflow
+ *     launch, and `claude
  *     rm`'s answers to a live job and to an id no daemon
  *     holds, which guard-main-checkout-job.js reads (#4343);
  *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a
@@ -37,8 +39,9 @@
  * It launches one throwaway Haiku session and resumes it
  * while it works, then again once stopped, then once more with its job
  * directory deleted, launches a second told to ask one question and a third
- * told to run one command it must ask leave for, removes that third with
- * `claude rm`, and stops every other job it started, so it spends up to seven short turns. The command never
+ * told to run one command it must ask leave for, and a fourth under a name,
+ * removes that third with
+ * `claude rm`, and stops every other job it started, so it spends up to eight short turns. The command never
  * runs: the prompt is never answered. The `/usage` probe spends no turn, but
  * first waits up to two minutes for the seat's cache to age into a refresh.
  *
@@ -118,6 +121,7 @@ const SYNTHETIC = {
 	copyId: "5e55c0b1",
 	removedId: "5e55de1e",
 	idleId: "5e551d1e",
+	namedId: "5e55a3ed",
 };
 
 /** @param {Row} row */
@@ -207,6 +211,7 @@ const untilState = async (id, done, fails) =>
 	);
 
 const IDLE_NAME = "a-recorded-launch";
+const NAMED_NAME = "Overflow · a-recorded-launch";
 
 /**
  * `claude --bg --model haiku [...flags] -- <prompt>`, and the job id it
@@ -463,6 +468,15 @@ async function main() {
 			throw new Error(
 				`could not remove ${idle.id}: ${idleRemoved.stderr.trim()}`,
 			);
+		const named = launchArgv([
+			"--bg",
+			"--model",
+			"haiku",
+			"-n",
+			NAMED_NAME,
+			PROMPT,
+		]);
+		started.push(named.id);
 		const removed = claude(["rm", permissionJob]);
 		if (removed.status !== 0)
 			throw new Error(
@@ -521,6 +535,13 @@ async function main() {
 					status: idle.status,
 					stdout: idle.stdout.replaceAll(idle.id, SYNTHETIC.idleId),
 					stderr: idle.stderr.replaceAll(idle.id, SYNTHETIC.idleId),
+				},
+				named: {
+					argv: named.argv,
+					id: SYNTHETIC.namedId,
+					status: named.status,
+					stdout: named.stdout.replaceAll(named.id, SYNTHETIC.namedId),
+					stderr: named.stderr.replaceAll(named.id, SYNTHETIC.namedId),
 				},
 			},
 			removals: {
