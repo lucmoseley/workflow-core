@@ -17,7 +17,8 @@
  * scripts/lib/headless-run.contract.test.ts`.
  *
  * In no family (§N3): it writes a fixture, but spends a turn to do it, so it
- * is no `generate-*` a gate may run.
+ * is no `generate-*` a gate may run. No suite runs it, for the same turn: the
+ * contract holds what it writes.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -36,6 +37,11 @@ const FIXTURE = path.join(__dirname, "fixtures", "headless-run.json");
 const PROMPT = "Reply with the single word ok. Use no tools.";
 /* A guess: one short turn ends in well under a minute. */
 const WAIT_MS = 180_000;
+/* A guess: `--help` answers in well under a second, and a hang should fail. */
+const HELP_TIMEOUT_MS = 30_000;
+/* Far over one short turn's $0.04 (2026-11-06), so the budget never stops
+ * the turn it records. */
+const BUDGET_USD = 1;
 /* What the fixture carries in place of the run's own ids. */
 const SYNTHETIC = {
 	session_id: "5e551011-0000-4000-8000-000000000000",
@@ -43,7 +49,7 @@ const SYNTHETIC = {
 };
 
 /** @param {string|undefined} key */
-function overflowKey(key) {
+function readOverflowKey(key) {
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) throw new Error(list.errors.join("\n"));
 	const seat = list.seats
@@ -59,7 +65,7 @@ function overflowKey(key) {
 function readOptions() {
 	const help = spawnSync(claudeBin(), ["--help"], {
 		encoding: "utf8",
-		timeout: 30_000,
+		timeout: HELP_TIMEOUT_MS,
 	});
 	if (help.status !== 0)
 		throw new Error(`claude --help exited ${help.status}: ${help.stderr}`);
@@ -78,7 +84,7 @@ async function recordResult(keyVar) {
 	const launched = launch({
 		keyVar,
 		cwd,
-		budgetUsd: 1,
+		budgetUsd: BUDGET_USD,
 		prompt: PROMPT,
 		name: "a-recorded-headless-run",
 	});
@@ -121,7 +127,7 @@ async function main() {
 		encoding: "utf8",
 	}).stdout.trim();
 	const options = readOptions();
-	const result = await recordResult(overflowKey(key));
+	const result = await recordResult(readOverflowKey(key));
 	fs.writeFileSync(
 		FIXTURE,
 		`${JSON.stringify(

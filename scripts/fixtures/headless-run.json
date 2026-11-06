@@ -6,420 +6,486 @@
 			"names": [
 				"--add-dir"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--add-dir <directories...>"
 		},
 		{
 			"names": [
 				"--agent"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--agent <agent>"
 		},
 		{
 			"names": [
 				"--agents"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--agents <json-or-file>"
 		},
 		{
 			"names": [
 				"--allow-dangerously-skip-permissions"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--allow-dangerously-skip-permissions"
 		},
 		{
 			"names": [
 				"--allowedTools",
 				"--allowed-tools"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--allowedTools, --allowed-tools <tools...>"
 		},
 		{
 			"names": [
 				"--append-system-prompt"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--append-system-prompt <prompt>"
 		},
 		{
 			"names": [
 				"--autocompact"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--autocompact <auto|tokens>"
 		},
 		{
 			"names": [
 				"--ax-screen-reader"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--ax-screen-reader"
 		},
 		{
 			"names": [
 				"--bg",
 				"--background"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--bg, --background"
 		},
 		{
 			"names": [
 				"--bare"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--bare"
 		},
 		{
 			"names": [
 				"--betas"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--betas <betas...>"
 		},
 		{
 			"names": [
 				"--brief"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--brief"
 		},
 		{
 			"names": [
 				"--chrome"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--chrome"
 		},
 		{
 			"names": [
 				"--cloud"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "--cloud [description|session_id|url]"
 		},
 		{
 			"names": [
 				"-c",
 				"--continue"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "-c, --continue"
 		},
 		{
 			"names": [
 				"--dangerously-skip-permissions"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--dangerously-skip-permissions"
 		},
 		{
 			"names": [
 				"-d",
 				"--debug"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "-d, --debug [filter]"
 		},
 		{
 			"names": [
 				"--debug-file"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--debug-file <path>"
 		},
 		{
 			"names": [
 				"--desktop"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--desktop"
 		},
 		{
 			"names": [
 				"--disable-slash-commands"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--disable-slash-commands"
 		},
 		{
 			"names": [
 				"--disallowedTools",
 				"--disallowed-tools"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--disallowedTools, --disallowed-tools <tools...>"
 		},
 		{
 			"names": [
 				"--effort"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--effort <level>"
 		},
 		{
 			"names": [
 				"--environment"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--environment <environment_id>"
 		},
 		{
 			"names": [
 				"--exclude-dynamic-system-prompt-sections"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--exclude-dynamic-system-prompt-sections"
 		},
 		{
 			"names": [
 				"--fallback-model"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--fallback-model <model>"
 		},
 		{
 			"names": [
 				"--file"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--file <specs...>"
 		},
 		{
 			"names": [
 				"--fork-session"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--fork-session"
 		},
 		{
 			"names": [
 				"--forward-subagent-text"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--forward-subagent-text"
 		},
 		{
 			"names": [
 				"--from-pr"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "--from-pr [value]"
 		},
 		{
 			"names": [
 				"-h",
 				"--help"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "-h, --help"
 		},
 		{
 			"names": [
 				"--ide"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--ide"
 		},
 		{
 			"names": [
 				"--include-hook-events"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--include-hook-events"
 		},
 		{
 			"names": [
 				"--include-partial-messages"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--include-partial-messages"
 		},
 		{
 			"names": [
 				"--input-format"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--input-format <format>"
 		},
 		{
 			"names": [
 				"--json-schema"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--json-schema <schema>"
 		},
 		{
 			"names": [
 				"--max-budget-usd"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--max-budget-usd <amount>"
 		},
 		{
 			"names": [
 				"--mcp-config"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--mcp-config <configs...>"
 		},
 		{
 			"names": [
 				"--model"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--model <model>"
 		},
 		{
 			"names": [
 				"-n",
 				"--name"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "-n, --name <name>"
 		},
 		{
 			"names": [
 				"--no-chrome"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--no-chrome"
 		},
 		{
 			"names": [
 				"--no-session-persistence"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--no-session-persistence"
 		},
 		{
 			"names": [
 				"--output-format"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--output-format <format>"
 		},
 		{
 			"names": [
 				"--permission-mode"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--permission-mode <mode>"
 		},
 		{
 			"names": [
 				"--permission-prompts"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--permission-prompts <target>"
 		},
 		{
 			"names": [
 				"--plugin-dir"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--plugin-dir <path>"
 		},
 		{
 			"names": [
 				"--plugin-url"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--plugin-url <url>"
 		},
 		{
 			"names": [
 				"-p",
 				"--print"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "-p, --print"
 		},
 		{
 			"names": [
 				"--prompt-suggestions"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "--prompt-suggestions [value]"
 		},
 		{
 			"names": [
 				"--remote-control"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "--remote-control [name]"
 		},
 		{
 			"names": [
 				"--remote-control-session-name-prefix"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--remote-control-session-name-prefix <prefix>"
 		},
 		{
 			"names": [
 				"--replay-user-messages"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--replay-user-messages"
 		},
 		{
 			"names": [
 				"--restricted"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--restricted"
 		},
 		{
 			"names": [
 				"-r",
 				"--resume"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "-r, --resume [value]"
 		},
 		{
 			"names": [
 				"--safe-mode"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--safe-mode"
 		},
 		{
 			"names": [
 				"--session-id"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--session-id <uuid>"
 		},
 		{
 			"names": [
 				"--setting-sources"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--setting-sources <sources>"
 		},
 		{
 			"names": [
 				"--settings"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--settings <file-or-json>"
 		},
 		{
 			"names": [
 				"--strict-mcp-config"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--strict-mcp-config"
 		},
 		{
 			"names": [
 				"--system-prompt"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--system-prompt <prompt>"
 		},
 		{
 			"names": [
 				"--system-prompt-snapshot"
 			],
-			"value": "required"
+			"value": "required",
+			"flags": "--system-prompt-snapshot <on|off>"
 		},
 		{
 			"names": [
 				"--teleport"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "--teleport [session]"
 		},
 		{
 			"names": [
 				"--tmux"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--tmux"
 		},
 		{
 			"names": [
 				"--tools"
 			],
-			"value": "variadic"
+			"value": "variadic",
+			"flags": "--tools <tools...>"
 		},
 		{
 			"names": [
 				"--verbose"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "--verbose"
 		},
 		{
 			"names": [
 				"-v",
 				"--version"
 			],
-			"value": "none"
+			"value": "none",
+			"flags": "-v, --version"
 		},
 		{
 			"names": [
 				"-w",
 				"--worktree"
 			],
-			"value": "optional"
+			"value": "optional",
+			"flags": "-w, --worktree [name]"
 		}
 	],
 	"result": {
-		"duration_api_ms": 2001,
+		"duration_api_ms": 1260,
 		"stop_reason": "end_turn",
 		"session_id": "5e551011-0000-4000-8000-000000000000",
-		"total_cost_usd": 0.037461,
+		"total_cost_usd": 0.036331,
 		"usage": {
 			"input_tokens": 2,
-			"cache_creation_input_tokens": 7166,
+			"cache_creation_input_tokens": 6952,
 			"cache_read_input_tokens": 6715,
-			"output_tokens": 14,
+			"output_tokens": 11,
 			"output_tokens_details": {
 				"thinking_tokens": 0
 			},
@@ -430,17 +496,17 @@
 			"service_tier": "standard",
 			"cache_creation": {
 				"ephemeral_1h_input_tokens": 0,
-				"ephemeral_5m_input_tokens": 7166
+				"ephemeral_5m_input_tokens": 6952
 			},
 			"inference_geo": "global",
 			"iterations": [
 				{
 					"input_tokens": 2,
-					"output_tokens": 14,
+					"output_tokens": 11,
 					"cache_read_input_tokens": 6715,
-					"cache_creation_input_tokens": 7166,
+					"cache_creation_input_tokens": 6952,
 					"cache_creation": {
-						"ephemeral_5m_input_tokens": 7166,
+						"ephemeral_5m_input_tokens": 6952,
 						"ephemeral_1h_input_tokens": 0
 					},
 					"type": "message"
@@ -452,15 +518,15 @@
 		"modelUsage": {
 			"claude-opus-5-5": {
 				"inputTokens": 2,
-				"outputTokens": 14,
+				"outputTokens": 11,
 				"cacheReadInputTokens": 6715,
-				"cacheCreationInputTokens": 7166,
+				"cacheCreationInputTokens": 6952,
 				"webSearchRequests": 0,
-				"costUSD": 0.037461,
+				"costUSD": 0.036331,
 				"contextWindow": 1000000,
 				"maxOutputTokens": 128000,
 				"thinkingTokens": 0,
-				"cacheCreationEphemeral5mInputTokens": 7166,
+				"cacheCreationEphemeral5mInputTokens": 6952,
 				"cacheCreationEphemeral1hInputTokens": 0,
 				"canonicalModel": "claude-opus-5-5",
 				"provider": "firstParty",
@@ -500,28 +566,28 @@
 		"num_turns": 1,
 		"subtype": "success",
 		"api_error_status": null,
-		"result": "ok\n\nresult: replied ok as asked",
-		"ttft_ms": 2122,
+		"result": "ok\n\nresult: replied ok",
+		"ttft_ms": 1498,
 		"type": "result",
-		"duration_ms": 2393,
+		"duration_ms": 1647,
 		"uuid": "0e5017ed-0000-4000-8000-000000000000",
-		"ttft_stream_ms": 2018,
-		"time_to_request_ms": 167,
-		"first_content_frame_ms": 2018,
+		"ttft_stream_ms": 1058,
+		"time_to_request_ms": 261,
+		"first_content_frame_ms": 1058,
 		"queued_turn_count": 0,
 		"result_index": 0,
 		"model_usage_since_last_result": {
 			"claude-opus-5-5": {
 				"inputTokens": 2,
-				"outputTokens": 14,
+				"outputTokens": 11,
 				"cacheReadInputTokens": 6715,
-				"cacheCreationInputTokens": 7166,
+				"cacheCreationInputTokens": 6952,
 				"webSearchRequests": 0,
-				"costUSD": 0.037461,
+				"costUSD": 0.036331,
 				"contextWindow": 1000000,
 				"maxOutputTokens": 128000,
 				"thinkingTokens": 0,
-				"cacheCreationEphemeral5mInputTokens": 7166,
+				"cacheCreationEphemeral5mInputTokens": 6952,
 				"cacheCreationEphemeral1hInputTokens": 0,
 				"canonicalModel": "claude-opus-5-5",
 				"provider": "firstParty",

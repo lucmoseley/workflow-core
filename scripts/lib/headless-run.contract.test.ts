@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readProcStartOf } from "./arbiter-proc.js";
-import { claudeLiveSkipReason } from "./claude-stub";
+import { claudeLiveSkipReason, LIVE_CALL_TIMEOUT_MS } from "./claude-stub";
 import { parseHelpOptions } from "./headless-options.js";
 import {
 	buildResultRow,
@@ -27,7 +27,7 @@ import {
 import { readEndResult } from "./headless-runs.js";
 
 const SESSION = "0f0e0d0c-0000-4000-8000-000000000000";
-const UNKNOWN = "--max-budget";
+const UNKNOWN = "--wfc-contract-no-such-flag";
 const ARGV = ["-p", "--session-id", SESSION, "/implement 7"];
 
 let dir: string;
@@ -38,15 +38,17 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+const fakeBin = () =>
+	writeHeadlessFake(path.join(dir, "claude"), {
+		log: path.join(dir, "calls.jsonl"),
+		mode: "end",
+	});
+
 const runFake = (argv: string[]) =>
-	spawnSync(
-		writeHeadlessFake(path.join(dir, "claude"), {
-			log: path.join(dir, "calls.jsonl"),
-			mode: "end",
-		}),
-		argv,
-		{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-	);
+	spawnSync(fakeBin(), argv, {
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	});
 
 /** An ended run whose stream is `stdout`, as readEndResult reads it. */
 function endedRun(stdout: string) {
@@ -107,42 +109,67 @@ describe("the result row", () => {
 	});
 });
 
-describe("the options", () => {
-	it("the fake refuses a flag the recording lacks, as the binary does", () => {
-		const r = runFake(["-p", UNKNOWN, "3", "x"]);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toBe(`error: unknown option '${UNKNOWN}'\n`);
-		expect(readHeadlessCalls(path.join(dir, "calls.jsonl"))).toEqual([]);
-	});
+const SESSION_ID_FLAGS = recorded.options.find((o) =>
+	o.names.includes("--session-id"),
+)?.flags;
 
-	it("the fake refuses a value-taking flag given none", () => {
-		const r = runFake(["-p", "--session-id"]);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("argument missing");
-	});
+/* The refusals the binary makes before any turn, so free to run live. */
+const refusals = [
+	{
+		what: "a flag the recording lacks",
+		argv: ["-p", UNKNOWN, "3", "x"],
+		stderr: `error: unknown option '${UNKNOWN}'\n`,
+	},
+	{
+		what: "a value-taking flag given none",
+		argv: ["-p", "--session-id"],
+		stderr: `error: option '${SESSION_ID_FLAGS}' argument missing\n`,
+	},
+];
+
+/* The installed `claude` side skips where claudeLiveSkipReason says (§G7.2).
+ * Residual: off the founder's machine it skips, and the fixture goes
+ * unchecked. */
+const binaries = [
+	{ name: "the fake", skip: undefined, bin: () => fakeBin() },
+	{
+		name: "the installed claude",
+		skip: claudeLiveSkipReason(),
+		bin: () => "claude",
+	},
+];
+
+describe.each(binaries)("$name", ({ skip, bin }) => {
+	it.skipIf(skip).each(refusals)(
+		"refuses $what, in the binary's words, before any turn",
+		({ argv, stderr }) => {
+			const r = spawnSync(bin(), argv, {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: LIVE_CALL_TIMEOUT_MS,
+			});
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(stderr);
+			expect(readHeadlessCalls(path.join(dir, "calls.jsonl"))).toEqual([]);
+		},
+		LIVE_CALL_TIMEOUT_MS,
+	);
 });
 
 /*
- * The free calls, against the installed `claude` (§G7.2): its help and its
- * refusal of an unknown flag, which comes before any turn. A run's result
- * row has no live case: it spends a turn, so the recorder takes it.
+ * The installed `claude`'s help, also free. A run's result row has no live
+ * case: it spends a turn, so the recorder takes it.
  */
-// Residual: off the founder's machine these skip, and the fixture goes unchecked.
-describe.skipIf(claudeLiveSkipReason())("the installed claude", () => {
-	it("still lists every recorded option, taking a value as recorded", () => {
-		const help = spawnSync("claude", ["--help"], { encoding: "utf8" });
+it.skipIf(claudeLiveSkipReason())(
+	"the installed claude still lists every recorded option, as recorded",
+	() => {
+		const help = spawnSync("claude", ["--help"], {
+			encoding: "utf8",
+			timeout: LIVE_CALL_TIMEOUT_MS,
+		});
 		expect(parseHelpOptions(help.stdout)).toEqual(
 			expect.arrayContaining(recorded.options),
 		);
-	}, 30_000);
-
-	it("refuses an unknown flag in the fake's words", () => {
-		const r = spawnSync("claude", ["-p", UNKNOWN, "3", "x"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: 30_000,
-		});
-		expect(r.status).toBe(1);
-		expect(r.stderr).toBe(`error: unknown option '${UNKNOWN}'\n`);
-	}, 30_000);
-});
+	},
+	LIVE_CALL_TIMEOUT_MS,
+);

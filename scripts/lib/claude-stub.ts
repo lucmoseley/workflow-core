@@ -37,6 +37,10 @@ export function writeClaudeStub(
 	return bin;
 }
 
+/* A guess: a free `claude` call answers in well under a second, and a hang
+ * should fail or skip. */
+export const LIVE_CALL_TIMEOUT_MS = 30_000;
+
 /** Why a contract's live `claude` case skips here, or undefined where it
  * runs (§G7.2). */
 export function claudeLiveSkipReason(): string | undefined {
@@ -44,8 +48,7 @@ export function claudeLiveSkipReason(): string | undefined {
 		return "CI: the live claude case runs on the founder's machine only";
 	const { status } = spawnSync("claude", ["--version"], {
 		stdio: "ignore",
-		// A guess: it answers in well under a second, and a hang should skip.
-		timeout: 30_000,
+		timeout: LIVE_CALL_TIMEOUT_MS,
 	});
 	return status === 0 ? undefined : "no claude on PATH";
 }

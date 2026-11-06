@@ -67,6 +67,7 @@ export function writeHeadlessFake(
 		log,
 		mode = "hold",
 		rows = [buildResultRow()],
+		/* Past one case and its hooks, so a fake never dies mid-case. */
 		holdMs = 2 * TEST_TIMEOUT_MS,
 	}: {
 		log: string;
@@ -79,12 +80,12 @@ export function writeHeadlessFake(
 const fs = require("node:fs");
 const path = require("node:path");
 const { execSync, spawn } = require("node:child_process");
-const { readArgv } = require(${JSON.stringify(path.join(__dirname, "headless-options.js"))});
+const { parseArgv } = require(${JSON.stringify(path.join(__dirname, "headless-run-fake-argv.js"))});
 const LOG = ${JSON.stringify(log)};
 const MODE = ${JSON.stringify(mode)};
 const HOLD_MS = ${holdMs};
 const argv = process.argv.slice(2);
-const read = readArgv(${JSON.stringify(recorded.options)}, argv);
+const read = parseArgv(${JSON.stringify(recorded.options)}, argv);
 if ("error" in read) {
 	process.stderr.write(read.error + "\\n");
 	process.exit(1);

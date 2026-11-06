@@ -17,8 +17,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
-import { buildAuthStatusNodeBranch } from "./lib/auth-status-fake";
-import { buildResultRow } from "./lib/headless-run-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
+import {
+	buildHeadlessBranch,
+	buildResultRow,
+	readHeadlessCalls,
+	writeHeadlessFake,
+} from "./lib/headless-run-fake";
 import type { RunRecord } from "./lib/headless-runs.js";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { readHeadroom, sendReply, stopRun } from "./lib/overflow-actions.js";
@@ -43,22 +48,11 @@ const WORKING = {
 };
 const DONE = { job: "0000000c", sid: "cccccccc-0000-4000-8000-000000000000" };
 
-const FAKE = `#!/usr/bin/env node
-${buildAuthStatusNodeBranch()}
-const fs = require("node:fs");
-const path = require("node:path");
-const { execSync } = require("node:child_process");
-const argv = process.argv.slice(2);
-const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
-const helped = execSync(settings.apiKeyHelper, { encoding: "utf8" }).trim();
-fs.writeFileSync(path.join(process.env.FAKE_OUT, "seen.json"),
-	JSON.stringify({ argv, env: process.env, helped }));
-`;
-
 let tmp: string;
 let refill: string;
 let seat: string;
 let fakeOut: string;
+const calls = () => path.join(fakeOut, "calls.jsonl");
 const savedEnv = { ...process.env };
 
 const says = (text: string) =>
@@ -111,13 +105,19 @@ beforeEach(() => {
 		`${seat}\n~/.claude2 api key=${KEY_VAR} grant=200 cycle-day=20\n`,
 	);
 	fs.writeFileSync(secrets, `${KEY_VAR}=${KEY}\n`);
-	fs.writeFileSync(path.join(tmp, "claude"), FAKE, { mode: 0o755 });
+	writeClaudeStub(path.join(tmp, "claude"), [
+		buildHeadlessBranch(
+			writeHeadlessFake(path.join(tmp, "claude-p"), {
+				log: calls(),
+				mode: "end",
+			}),
+		),
+	]);
 	Object.assign(process.env, {
 		HOME: home,
 		WFC_REFILL_DIR: refill,
 		WFC_CLAUDE_BIN: path.join(tmp, "claude"),
 		WFC_SECRETS_FILE: secrets,
-		FAKE_OUT: fakeOut,
 		/* In the parent too, so the child's lacking it proves the unset. */
 		[KEY_VAR]: KEY,
 	});
@@ -335,18 +335,19 @@ describe("a reply", () => {
 		expect(t.frame().at(-2)).toMatch(
 			/^sent: \/implement 7 resumed as job [0-9a-f]{8}$/,
 		);
-		const seenFile = path.join(fakeOut, "seen.json");
-		await vi.waitFor(() => expect(fs.existsSync(seenFile)).toBe(true), {
+		await vi.waitFor(() => expect(readHeadlessCalls(calls())).toHaveLength(1), {
 			timeout: 10_000,
 		});
-		const seen = JSON.parse(fs.readFileSync(seenFile, "utf8"));
-		const flag = (name: string) => seen.argv[seen.argv.indexOf(name) + 1];
+		const [seen] = readHeadlessCalls(calls());
+		if (!seen) throw new Error("fake never ran");
 		expect(seen.argv[0]).toBe("-p");
-		expect(flag("--resume")).toBe(AWAITING.sid);
-		expect(flag("--output-format")).toBe("stream-json");
-		expect(flag("--max-budget-usd")).toBe("5");
-		expect(seen.argv.at(-1)).toBe("blue");
-		expect(JSON.parse(flag("--settings")).apiKeyHelper).toBeTruthy();
+		expect(seen.flags["--resume"]).toBe(AWAITING.sid);
+		expect(seen.flags["--output-format"]).toBe("stream-json");
+		expect(seen.flags["--max-budget-usd"]).toBe("5");
+		expect(seen.prompt).toBe("blue");
+		expect(
+			JSON.parse(String(seen.flags["--settings"])).apiKeyHelper,
+		).toBeTruthy();
 		expect(seen.helped).toBe(KEY);
 		expect(seen.env.CLAUDE_CONFIG_DIR).toBe(seat);
 		expect(Object.values(seen.env)).not.toContain(KEY);
@@ -357,7 +358,7 @@ describe("a reply", () => {
 			why: "the key's budget does not fit a reply",
 		}));
 		expect(out).toEqual({ why: "the key's budget does not fit a reply" });
-		expect(fs.existsSync(path.join(fakeOut, "seen.json"))).toBe(false);
+		expect(readHeadlessCalls(calls())).toEqual([]);
 	});
 });
 

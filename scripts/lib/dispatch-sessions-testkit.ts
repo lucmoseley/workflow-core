@@ -140,7 +140,7 @@ export interface DispatchFixture {
 	launchCwds: () => string[];
 	readArgvLines: (f?: string) => string[];
 	/** Each headless `-p` run the stub's fake logged, in order. */
-	headlessCalls: () => HeadlessCall[];
+	readHeadlessRuns: () => HeadlessCall[];
 	/** A reg.exe that never answers, so the interop probe reads the bridge as
 	 * wedged. */
 	regWedged: () => string;
@@ -225,7 +225,7 @@ export function dispatchFixture(): DispatchFixture {
 		launchArgv,
 		launchCwds,
 		readArgvLines,
-		headlessCalls,
+		readHeadlessRuns,
 		regWedged,
 		schedClock,
 		run,
@@ -435,7 +435,7 @@ export function dispatchFixture(): DispatchFixture {
 		return path.join(fx.dir, "headless.jsonl");
 	}
 
-	function headlessCalls(): HeadlessCall[] {
+	function readHeadlessRuns(): HeadlessCall[] {
 		return readHeadlessCalls(headlessLog());
 	}
 
