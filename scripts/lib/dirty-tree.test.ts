@@ -88,18 +88,6 @@ describe("readDirtyTracked", () => {
 	});
 });
 
-describe("readDirtyTrackedAsync (#4542)", () => {
-	it("names what readDirtyTracked names, a rename's both paths included", async () => {
-		git(["mv", "a.txt", "b.txt"]);
-		write("scratch.tmp", "x\n");
-		expect(await tree.readDirtyTrackedAsync(dir)).toEqual(["a.txt", "b.txt"]);
-	});
-
-	it("answers null where git will not answer, never an empty set", async () => {
-		expect(await tree.readDirtyTrackedAsync(tmp("not-a-repo-"))).toBeNull();
-	});
-});
-
 describe("readUntrackedFiles", () => {
 	it("names an untracked file that `readDirtyTracked`'s -uno drops", () => {
 		write("new.ts", "x\n");

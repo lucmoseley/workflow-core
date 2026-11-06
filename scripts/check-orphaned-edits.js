@@ -84,11 +84,8 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
-const {
-	readDirtyTracked,
-	readDirtyTrackedAsync,
-	gitRead,
-} = require("./lib/dirty-tree.js");
+const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
+const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
 const { mapLimit } = require("./lib/gh.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
