@@ -59,9 +59,11 @@ const commitIn = (
 const DRIVER = path.resolve(__dirname, "merge-registry-anchors.js");
 
 /* A sandboxed config dir: a land a neighbour beats files a divergence row
- * there, never in the founder's live log. */
+ * there, never in the founder's live log. No session id: the suite's own
+ * session is no land's (#4565). */
 const ENV = () => ({
 	...process.env,
+	CLAUDE_CODE_SESSION_ID: undefined,
 	CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
 	CLAUDE_PROJECT_DIR: main,
 	WFC_NPM: npmStub,
@@ -807,7 +809,7 @@ const landAs = (dir: string) =>
 		env: { ...ENV(), CLAUDE_CODE_SESSION_ID: SESSION },
 	});
 
-it("keeps a session's pre-merge marker passing the merged canary where the merge moves the marker (#4565)", () => {
+it("re-marks a session the pre-merge canary passed, so the merged canary passes it where the merge moves the marker (#4565)", () => {
 	commitIn(main, canaryPair("old-markers"), "the canary before the move");
 	git(main, "pull", "-q", "--rebase", "origin", "main");
 	git(main, "push", "-q", "origin", "HEAD:main");
@@ -836,6 +838,9 @@ it("undoes a merge whose canary refuses the session even re-marked, pushing noth
 	git(main, "push", "-q", "origin", "HEAD:main");
 	expect(run(main, "cut", "one").status).toBe(0);
 	const dir = worktree("one");
+	expect(
+		runHook(dir, "write-self-plugin-marker.sh", "SessionStart").status,
+	).toBe(0);
 	const mine = commitIn(dir, { "mine.txt": "m" }, "mine");
 	landOnOrigin({
 		"scripts/self-plugin-canary.sh": 'echo "Refused: broken" >&2; exit 2\n',
@@ -845,11 +850,95 @@ it("undoes a merge whose canary refuses the session even re-marked, pushing noth
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
-		`with origin/main merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (Refused: broken), so the merge is undone, HEAD is back at ${mine} and nothing was pushed`,
+		`with origin/main merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (Refused: broken), so the merge is undone, HEAD is back at ${mine}, and nothing was pushed — origin/main's canary or marker writer is broken: file it, and land once it is fixed`,
 	);
 	expect(git(dir, "rev-parse", "HEAD")).toBe(mine);
 	expect(git(dir, "status", "--porcelain", "--untracked-files=no")).toBe("");
 	expect(queueTip()).toBe("");
+});
+
+it("checks no canary from the founder's terminal, with no session id, and lands unmarked (#4565)", () => {
+	commitIn(main, canaryPair("markers"), "the canary");
+	git(main, "pull", "-q", "--rebase", "origin", "main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	commitIn(dir, { "mine.txt": "m" }, "mine");
+	landOnOrigin({
+		"scripts/self-plugin-canary.sh": 'echo "Refused: broken" >&2; exit 2\n',
+	});
+
+	const r = run(dir, "land");
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(fs.existsSync(path.join(dir, "markers"))).toBe(false);
+	expect(queueTip()).toBe(git(dir, "rev-parse", "HEAD"));
+});
+
+it("re-marks no session the pre-merge canary refuses, and checks nothing after the merge (#4565)", () => {
+	commitIn(main, canaryPair("markers"), "the canary");
+	git(main, "pull", "-q", "--rebase", "origin", "main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	commitIn(dir, { "mine.txt": "m" }, "mine");
+	landOnOrigin(canaryPair("new-markers"));
+
+	const r = landAs(dir);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(fs.existsSync(path.join(dir, "new-markers"))).toBe(false);
+});
+
+it("aborts a conflicted merge whose half-merged canary refuses the session, saying so (#4565)", () => {
+	commitIn(main, canaryPair("markers"), "the canary");
+	git(main, "pull", "-q", "--rebase", "origin", "main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	expect(
+		runHook(dir, "write-self-plugin-marker.sh", "SessionStart").status,
+	).toBe(0);
+	const mine = commitIn(dir, { "both.txt": "mine" }, "mine");
+	landOnOrigin({
+		"both.txt": "theirs",
+		"scripts/self-plugin-canary.sh": 'echo "Refused: broken" >&2; exit 2\n',
+	});
+
+	const r = landAs(dir);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		"the merge of origin/main, conflicting in both.txt, stopped in progress, and with it so this session's self-plugin canary refused its every tool call (Refused: broken), so the merge was aborted — merge and commit it from a terminal whose hooks do not run from this worktree, then land again",
+	);
+	expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
+	expect(
+		spawnSync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD"], {
+			cwd: dir,
+		}).status,
+	).not.toBe(0);
+	expect(git(dir, "rev-parse", "HEAD")).toBe(mine);
+	expect(queueTip()).toBe("");
+});
+
+it("leaves a conflicted merge in progress where its half-merged canary still passes the session (#4565)", () => {
+	commitIn(main, canaryPair("markers"), "the canary");
+	git(main, "pull", "-q", "--rebase", "origin", "main");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	expect(
+		runHook(dir, "write-self-plugin-marker.sh", "SessionStart").status,
+	).toBe(0);
+	commitIn(dir, { "both.txt": "mine" }, "mine");
+	const theirs = landOnOrigin({ "both.txt": "theirs" });
+
+	const r = landAs(dir);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain("merging origin/main conflicts in both.txt");
+	expect(r.stderr).not.toContain("so the merge was aborted");
+	expect(git(dir, "rev-parse", "MERGE_HEAD")).toBe(theirs);
 });
 
 it("retries a push GitHub refused on its own internal fault, never calling it a finding, and lands (#4497)", () => {
