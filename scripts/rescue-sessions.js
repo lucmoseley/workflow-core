@@ -1972,7 +1972,7 @@ function readUnrecordedCwd(transcript, row) {
 function readTranscriptCwd(transcript) {
 	const { gitTopLevel } = require("./lib/host-root.js");
 	const { projectSlug } = require("./lib/project-slug.js");
-	const { readLinkedWorktrees } = require("./lib/session-worktrees.js");
+	const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 	const last = readTranscriptRecords(transcript).findLast(
 		(r) => typeof r?.cwd === "string" && r.cwd && fs.existsSync(r.cwd),
 	)?.cwd;

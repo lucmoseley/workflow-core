@@ -99,10 +99,10 @@ const { buildCutCommand } = require("./cutover.js");
 const { scriptPath } = require("./script-path.js");
 const {
 	readJobCwds,
-	readLinkedWorktrees,
 	worktreeHolding,
 	worktreeLabel,
 } = require("./session-worktrees.js");
+const { readLinkedWorktrees } = require("./worktree-paths.js");
 const { sleepSync } = require("./sleep-sync.js");
 const {
 	ownQueueRef,
