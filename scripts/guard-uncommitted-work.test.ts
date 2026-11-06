@@ -26,7 +26,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
-import { AS_ROOT } from "./lib/arbiter-testkit";
+import { AS_ROOT, registerSession } from "./lib/arbiter-testkit";
 import { cutWorktree } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -38,6 +38,7 @@ const { REFUSAL_NAMED_MAX } = require_("./lib/dirty-tree.js");
 const arbiter = require_("./lib/arbiter-store.js");
 
 const GUARD = path.join(__dirname, "guard-uncommitted-work.js");
+const ARBITER = path.join(__dirname, "session-arbiter.js");
 
 let root: string;
 let sid: string;
@@ -356,6 +357,62 @@ describe("the session's own worktree (#4229)", () => {
 		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
 		claim("tracked.md", "some-other-session", wt);
 		expect(runIn().blocked).toBe(false);
+	});
+
+	/* A session launched in a linked worktree: its hooks are handed
+	 * CLAUDE_PROJECT_DIR naming the worktree, its Bash tool none. The claim a
+	 * hook takes and the release run by hand must meet in one store (#4493). */
+	describe("hooks handed the worktree as CLAUDE_PROJECT_DIR (#4493)", () => {
+		const arbiterCli = (args: string[], projectDir: string | undefined) => {
+			const { CLAUDE_PROJECT_DIR: _p, WFC_REPO_ROOT: _r, ...env } = process.env;
+			return runInProcess(ARBITER, args, {
+				cwd: wt,
+				env: {
+					...env,
+					CLAUDE_CONFIG_DIR: path.join(root, ".claude-home"),
+					CLAUDE_CODE_SESSION_ID: sid,
+					...(projectDir ? { CLAUDE_PROJECT_DIR: projectDir } : {}),
+				},
+			});
+		};
+		const endShipped = () =>
+			readStopGuardBlock(GUARD, {
+				dir: root,
+				worktree: wt,
+				sid,
+				config: path.join(root, ".claude-home"),
+				/* Unset, so the guard's own root is the seam's answer. */
+				env: { CLAUDE_PROJECT_DIR: wt, WFC_REPO_ROOT: undefined },
+				payload: {
+					transcript_path: undefined,
+					last_assistant_message: "Done.\n\nresult: shipped",
+				},
+			});
+
+		/* A watched path, so the arbiter claims it. */
+		const doc = "docs/notes.md";
+
+		it("names a committed file's claim, which the hand-run release then clears", () => {
+			fs.mkdirSync(path.join(wt, "docs"));
+			fs.writeFileSync(path.join(wt, doc), "notes\n");
+			execFileSync("git", ["add", doc], { cwd: wt });
+			execFileSync("git", ["commit", "-qm", "notes"], { cwd: wt });
+			const home = path.join(root, ".claude-home");
+			fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
+			registerSession({ home, repo: wt }, sid, process.pid);
+			expect(arbiterCli(["claim", doc], wt).status).toBe(0);
+			expect(endShipped()?.reason).toContain(
+				`holds 1 claim(s) on files with no uncommitted change: ${doc}.`,
+			);
+
+			const released = arbiterCli(["release-committed", doc], undefined);
+			expect(released.stdout).toContain(`Released ${doc}`);
+			expect(endShipped()).toBeNull();
+		});
+
+		it("passes a session whose files are committed and which holds no claim", () => {
+			expect(endShipped()).toBeNull();
+		});
 	});
 
 	it("does not call a claimed file clean while it is dirty in the worktree", () => {

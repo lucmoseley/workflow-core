@@ -35,8 +35,8 @@ const MAX_BLOCKS = 3;
  * `WFC_REPO_ROOT` is first because it is the test-injection point: reverse the
  * order and the real `CLAUDE_PROJECT_DIR` of the session running the suite
  * wins, minting every test's counters in the main checkout. `hostRoot()` (#1)
- * supplies the rest — `CLAUDE_PROJECT_DIR` where the harness sets it, else the
- * main checkout — so this function does not read `CLAUDE_PROJECT_DIR` itself.
+ * supplies the rest — the main checkout owning `CLAUDE_PROJECT_DIR` or the
+ * working directory — so this function does not read `CLAUDE_PROJECT_DIR` itself.
  * @returns {string}
  */
 function repoRoot() {
