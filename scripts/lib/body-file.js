@@ -5,10 +5,13 @@
  * host reads a body file alike (#4492).
  */
 
-const fs = require("node:fs");
+const { readText } = require("./file-read.js");
 
 /** @param {string} p */
-const readBodyFile = (p) =>
-	fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined;
+function readBodyFile(p) {
+	const got = readText(p);
+	if (got.state === "unreadable") throw got.error;
+	return got.state === "read" ? got.data : undefined;
+}
 
 module.exports = { readBodyFile };
