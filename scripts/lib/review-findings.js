@@ -115,14 +115,16 @@ function readFence(line) {
 }
 
 /**
- * `body` with every mention of the record forms blanked, length kept: a fenced
- * block, a quoted line, and a backtick or double-quote span holding a form's
- * head. A sha or path backticked in a real record is no mention. Every reading
- * of a comment goes through this one rule.
+ * `body` with every mention of a form blanked, length kept: a fenced block, a
+ * quoted line, and a backtick or double-quote span holding the form's head —
+ * the record forms' by default. A sha or path backticked in a real record is
+ * no mention. Every reading of a review comment goes through this one rule,
+ * lib/ticketed-tags.js's included.
  *
  * @param {string} body
+ * @param {RegExp} [head] a non-global pattern for the form's head
  */
-function maskMentions(body) {
+function maskMentions(body, head = FORM_HEAD) {
 	/** @type {string | null} */
 	let fence = null;
 	return body
@@ -139,7 +141,7 @@ function maskMentions(body) {
 			}
 			if (QUOTE_LINE.test(line)) return blanked(line);
 			return line.replace(QUOTED_SPAN, (span) =>
-				FORM_HEAD.test(span) ? blanked(span) : span,
+				head.test(span) ? blanked(span) : span,
 			);
 		})
 		.join("\n");
@@ -559,6 +561,7 @@ module.exports = {
 	HEX_RUN,
 	isSameReview,
 	isSameSha,
+	maskMentions,
 	parseIssue,
 	pathListOf,
 	readTicketComments,

@@ -1283,6 +1283,28 @@ describe("the open sub-issues it refuses to strand (#3637)", () => {
 	});
 });
 
+describe("a whole-spec review's TICKETED lines (#4492)", () => {
+	const close = (finding: string, through = true) =>
+		`gh issue close 12 --comment "1. **Duplicated Code, ${finding}** Spelt out at 8 sites.\n**Outstanding:** none${through ? "\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9" : ""}"`;
+
+	it("refuses a TICKETED line naming no exception, quoting it", () => {
+		const reason = readDenyReason(close("TICKETED #4491."));
+		expect(reason).toContain("tickets a finding naming no exception");
+		expect(reason).toContain("1. **Duplicated Code, TICKETED #4491.**");
+		expect(reason).toContain("`exposed, not caused`");
+	});
+
+	it("allows the same line tagged with its exception", () => {
+		expect(
+			verdict(close("TICKETED #4491, needs its own design: seat model.")),
+		).toBe("allow");
+	});
+
+	it("allows an untagged TICKETED line where no Reviewed through line marks a review", () => {
+		expect(verdict(close("TICKETED #4491.", false))).toBe("allow");
+	});
+});
+
 /*
  * #553: a close naming another repo was judged by THIS repo's issue of the
  * same number — a deny or an allow on the wrong issue.

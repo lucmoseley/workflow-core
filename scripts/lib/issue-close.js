@@ -262,6 +262,7 @@ function judge(run, cmd) {
 
 	/* mantahostels#220 runs FIRST. */
 	if (!notPlanned && !elsewhere(run, close)) judgeCard(run, close);
+	judgeTicketedTags(run, close);
 	judgeChildren(run, close, notPlanned);
 	if (notPlanned) return;
 	const criteriaRead = judgeCriteria(run, close);
@@ -654,6 +655,28 @@ Re-run the close once each is ticked or waived — or, abandoning the issue, wit
 
 ${ruleOrFallback(run.ctx, "ticket-criteria-unticked", "Tick each acceptance criterion this session verified, or annotate it **waived:** <why>, before closing")}`,
 	);
+}
+
+/**
+ * Denies a close whose --comment is a whole-spec review ticketing a finding
+ * without naming its exception (#4492). An unreadable --comment passes here;
+ * the Outstanding rule logs it on a completed close.
+ * @param {Run} run
+ * @param {Close} close
+ */
+function judgeTicketedTags(run, close) {
+	if (close.commentHidden) return;
+	/* Loaded only for a close: this core sits on every `gh` call. */
+	const { ticketedRefusal } = require("./ticketed-tags.js");
+	const refusal = ticketedRefusal(close.comment);
+	if (refusal)
+		deny(
+			run.ctx,
+			close.segment,
+			`This close posts a whole-spec review that tickets a finding naming no exception: @CMD@
+
+${refusal}`,
+		);
 }
 
 /**
