@@ -3,14 +3,19 @@
  * adapters (lib/queue-lander-adapters.js) and the readers of its refs and
  * ledger (lib/queue-ref-status.js, lib/landing-stall.js): the remote's heads,
  * ancestry, a throwaway worktree, a push, the line naming why git refused,
- * and a remote call's retries.
+ * what a gate refusing a merge said, and a remote call's retries.
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { stripVTControlCharacters } = require("node:util");
 const { caught } = require("./caught.js");
-const { isNetworkFault } = require("./network-fault.js");
+const {
+	isNetworkFault,
+	REMOTE_TRIES,
+	remoteBackoffMs,
+} = require("./network-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { REMOTE } = require("./landing-refs.js");
 const { execGit } = require("./git.js");
@@ -34,6 +39,24 @@ const GIT_REFUSAL = /^(?:error|fatal):.*|^ ! \[.*/m;
 const parseRefusal = (text) =>
 	GIT_REFUSAL.exec(text)?.[0] ?? parseFirstLine(text);
 
+/* A first guess, unmeasured: room for a gate's findings and the command it
+ * names to settle them. */
+const REFUSAL_TAIL_LINES = 40;
+
+/**
+ * What a gate refusing a merge said: the last REFUSAL_TAIL_LINES non-blank
+ * lines, colour stripped. A hook prints its passing checks first and its
+ * findings last, so its first line can be an `OK:`.
+ * @param {string} text
+ */
+const parseRefusalTail = (text) =>
+	stripVTControlCharacters(text)
+		.split("\n")
+		.map((l) => l.trimEnd())
+		.filter((l) => l !== "")
+		.slice(-REFUSAL_TAIL_LINES)
+		.join("\n");
+
 /**
  * What a failed call printed to stderr, else its error's message.
  * @param {unknown} err
@@ -56,12 +79,6 @@ function stderrIfThrown(call) {
 		return readThrownText(err);
 	}
 }
-/* Untraced: five tries over about a minute, outlasting a DNS or connection
- * blip (#2673); the backoff is exponential and randomised, as the Google SRE
- * book's "Addressing Cascading Failures" chapter sets for a retrying client. */
-const REMOTE_TRIES = 5;
-const REMOTE_BACKOFF_MS = 4 * 1000;
-
 /** Untraced: 9 hex digits, two past git's default abbreviation, unique in any history this size.
  * @param {string} sha */
 const short = (sha) => sha.slice(0, 9);
@@ -81,9 +98,7 @@ async function remote({ wait = pause }, call, isFault = isNetworkFault) {
 			return await call();
 		} catch (err) {
 			if (attempt >= REMOTE_TRIES || !isFault(err)) throw err;
-			await wait(
-				REMOTE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random()),
-			);
+			await wait(remoteBackoffMs(attempt));
 		}
 	}
 }
@@ -257,6 +272,7 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
+	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
