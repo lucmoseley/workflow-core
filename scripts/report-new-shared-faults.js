@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Which faults of the CHECKERS table's checkers and check-doc-map.js a COMMIT
+ * Which faults of lib/shared-fault-notices.js's checkers a COMMIT
  * added relative to its parent (mantahostels#1823, mantahostels#1824) — the same
  * set-difference checker-new-faults.js already does for staged-vs-HEAD (mantahostels#1753),
  * generalised to two arbitrary commits.
@@ -34,7 +34,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
 const { PROFILES } = require("./lib/fault-profiles.js");
-const { COSTS } = require("./lib/shared-fault-costs.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
@@ -43,13 +42,19 @@ const { caught } = require("./lib/caught.js");
 const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
-const { CHECKERS } = require("./lib/shared-fault-checkers.js");
+const { NOTICES } = require("./lib/shared-fault-notices.js");
 
-/* Core content: check-doc-map.js ships beside this script, so it is named
- * from THIS DIRECTORY (#1) — a plugin install keeps it beside the caller. */
-const CORE_SCRIPTS = __dirname;
+/** Profile name -> the checker read over the archived `--root` trees: every
+ * notice row but doc-map's, which readDocMapEnvelope reads instead. */
+const CHECKERS = Object.fromEntries(
+	Object.entries(NOTICES)
+		.filter(([profile]) => profile !== "doc-map")
+		.map(([profile, { script }]) => [profile, script]),
+);
 
-const CHECK_DOC_MAP = path.join(CORE_SCRIPTS, "check-doc-map.js");
+const docMapRow = NOTICES["doc-map"];
+if (docMapRow === undefined) throw new Error("NOTICES has no doc-map row");
+const CHECK_DOC_MAP = docMapRow.script;
 
 /* A JSON object of profile name -> checker script that replaces CHECKERS
  * whole, so report-new-shared-faults.test.ts can run the program against stub
@@ -533,9 +538,9 @@ function noticeOf(sha, byProfile) {
 		"  This REPORTS and never blocks.",
 	);
 	for (const [profile, lines] of byProfile) {
-		const costed = COSTS[profile];
+		const costed = NOTICES[profile];
 		if (costed === undefined)
-			throw new Error(`COSTS has no row for profile ${profile}`);
+			throw new Error(`NOTICES has no row for profile ${profile}`);
 		const { why, cost, full } = costed;
 		out.push(`  ${profile} (${why}) — a red here ${cost}:`);
 		for (const line of lines) out.push(`    ${line}`);
