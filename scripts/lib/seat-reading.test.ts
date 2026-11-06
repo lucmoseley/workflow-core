@@ -17,7 +17,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { capSet, readAllowance } from "./allowance";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
-import { MIN, NOW, seat } from "./refill-loop-fixture";
+import { MIN, NOW, row, seat } from "./refill-loop-fixture";
 import { seatIdOf } from "./refill-seats.js";
 import {
 	capSizer,
@@ -677,7 +677,7 @@ describe("the cap's launch count (#2278)", () => {
 			line: "fault: cap on SEAT unsized: allowance.js printed no JSON (exit 2)",
 		},
 		{
-			name: "no cap, the reading untrusted",
+			name: "no cap, the reading untrusted, its exit 1 no fault (#4286)",
 			stdout: "{}",
 			status: 1,
 			line: "cap on SEAT unsized: no trustworthy allowance reading",
@@ -739,7 +739,7 @@ describe("the cap's launch count (#2278)", () => {
 		 * allowance.js would print for them; over 97% the running sessions
 		 * are projected 3 points of the week, past 100%. */
 		const sizedOn = (weeks: Record<string, number>) => {
-			stubAllowance(
+			const argvOf = stubAllowance(
 				dir,
 				Object.fromEntries(
 					Object.entries(weeks).map(([name, week]) => [
@@ -770,6 +770,8 @@ describe("the cap's launch count (#2278)", () => {
 				typedSeat: null,
 			});
 			expect(noted).toEqual([]);
+			for (const argv of argvOf())
+				expect(argv[argv.indexOf("--cap") + 1]).toBe("2");
 			return seats;
 		};
 		const tick = (seats: ReturnType<typeof sizedOn>) =>
@@ -778,21 +780,7 @@ describe("the cap's launch count (#2278)", () => {
 				mode: "away" as const,
 				noProgressFrom: NOW - 4 * 60 * MIN,
 				stopRequested: false,
-				frontier: [1, 2, 3].map((number) => ({
-					root: "wfc",
-					number,
-					bug: false,
-					urgent: false,
-					goal: false,
-					stallDays: 0,
-					asksQuestions: false,
-					depth: 0,
-					closes: 0,
-					reach: 0,
-					collision: "comment-only",
-					takes: ["implement"],
-					labels: ["takes:implement"],
-				})),
+				frontier: [1, 2, 3].map((number) => row("wfc", number)),
 				retroBundles: [],
 				running: [],
 				freeSlots: 2,

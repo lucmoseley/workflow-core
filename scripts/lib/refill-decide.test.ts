@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { row } from "./refill-loop-fixture";
 
 const {
 	FULL,
@@ -29,25 +30,6 @@ const PRESENT_WINDOW_MS = 30 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 /** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
-
-const row = (
-	root: string,
-	number: number,
-	takes = "implement",
-	over: Record<string, unknown> = {},
-) => ({
-	root,
-	number,
-	urgent: false,
-	goal: false,
-	stallDays: 0,
-	asksQuestions: false,
-	reach: 0,
-	collision: "comment-only",
-	takes: [takes],
-	labels: [`takes:${takes}`],
-	...over,
-});
 
 const seat = (
 	name: string,
