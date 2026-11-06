@@ -2787,6 +2787,9 @@
 			"scripts/check-cleared-trackers.test.ts",
 			"scripts/report-retro-due.test.ts"
 		],
+		"docs/data/round-check-reading-2026-11-02/classes.json": [
+			"scripts/report-round-check-reading.test.ts"
+		],
 		"docs/data/round-sendbacks-2026-10-14/rounds.json": [
 			"scripts/report-round-check-reading.test.ts"
 		],

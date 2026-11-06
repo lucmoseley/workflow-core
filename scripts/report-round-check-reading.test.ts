@@ -29,7 +29,17 @@ const SCRIPT = path.join(__dirname, "report-round-check-reading.js");
 /* Restated so a rename fails here rather than passing unseen. */
 const TITLE =
 	"Round-check reading: has sending under-researched rounds back once cut the founder's send-backs?";
+const SECOND_TITLE =
+	"Round-check second reading, at 130 rated rounds: keep the refusal of under-researched rounds, or drop it?";
 const FILED = ".round-check-reading-filed";
+const SECOND_FILED = ".round-check-reading-2-filed";
+const CLASSED = "docs/data/round-check-reading-2026-11-02";
+/* Spelt whole, so the read-graph pass sees this test read it. */
+const REAL_CLASSED = path.join(
+	__dirname,
+	"..",
+	"docs/data/round-check-reading-2026-11-02/classes.json",
+);
 const DATA = "docs/data/round-sendbacks-2026-10-14";
 /* Spelt whole, not off DATA, so the read-graph pass sees this test read it. */
 const REAL_BASELINE = path.join(
@@ -86,6 +96,15 @@ const writeBaseline = (data: unknown) => {
 	);
 };
 
+/** The committed classes the reporter starts from. */
+const writeClassed = (data: unknown) => {
+	fs.mkdirSync(path.join(roots["workflow-core"], CLASSED), { recursive: true });
+	fs.writeFileSync(
+		path.join(roots["workflow-core"], CLASSED, "classes.json"),
+		JSON.stringify(data),
+	);
+};
+
 beforeEach(() => {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "round-reading-"));
 	seats = seatDirs(home);
@@ -103,6 +122,7 @@ beforeEach(() => {
 		execFileSync("git", ["init", "-q", r]);
 	}
 	writeBaseline(FIXTURE_BASELINE);
+	writeClassed({});
 	fs.mkdirSync(path.join(roots["workflow-core"], ".claude-plugin"));
 	fs.writeFileSync(
 		path.join(roots["workflow-core"], ".claude-plugin", "plugin.json"),
@@ -760,14 +780,46 @@ describe("filing the reading", () => {
 		expect(fs.existsSync(filedRecord())).toBe(false);
 	});
 
-	it("never files a second time, and calls gh not at all, once it has filed", () => {
+	it("never files a second time once it has filed, reading the second reading instead, before whose point it calls gh not at all", () => {
 		healthy();
 		expect(file().status).toBe(0);
 		fs.rmSync(argvLog);
 		const r = file(T0 + 9 * DAY);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(
-			/filed as https:\/\/github\.com\/o\/r\/issues\/999; nothing to do/,
+		expect(r.stdout).toMatch(/^Round-check second reading/);
+		expect(r.stdout).toMatch(/Not reached/);
+		expect(ghCalls()).toBe("");
+		expect(fs.readFileSync(filedRecord(), "utf8")).toBe(
+			"https://github.com/o/r/issues/999",
+		);
+	});
+
+	it("files the second reading once, as its own takes:wayfinder issue, at its point", () => {
+		fs.mkdirSync(path.dirname(filedRecord()), { recursive: true });
+		fs.writeFileSync(filedRecord(), "#7");
+		rounds("workflow-core", "wc-many", 130, { kind: "refused" });
+		const r = file(T0 + 7 * DAY);
+		expect(r.status, r.stderr).toBe(0);
+		const calls = ghCalls();
+		expect(calls).toContain(
+			`issue create --title ${SECOND_TITLE} --label takes:wayfinder --body`,
+		);
+		expect(calls).toMatch(/the first reading is #3978/);
+		expect(calls).toMatch(/Read each listed stopped round/);
+		expect(calls).toMatch(/Put line 1 back to the founder/);
+		expect(calls).toMatch(/Every baseline below is skewed/);
+		const secondRecord = path.join(
+			roots["workflow-core"],
+			MARKERS_REL,
+			SECOND_FILED,
+		);
+		expect(fs.readFileSync(secondRecord, "utf8")).toBe(
+			"https://github.com/o/r/issues/999",
+		);
+		fs.rmSync(argvLog);
+		const again = file(T0 + 9 * DAY);
+		expect(again.stdout).toMatch(
+			/readings are filed as #7 and https:\/\/github\.com\/o\/r\/issues\/999; nothing to do/,
 		);
 		expect(ghCalls()).toBe("");
 	});
@@ -793,4 +845,147 @@ describe("filing the reading", () => {
 		expect(r.stdout).toContain(`a plain run files this as "${TITLE}"`);
 		expect(ghCalls()).toBe("");
 	});
+});
+
+describe("the second reading (#3995)", () => {
+	/** Mark the first reading filed, so the second is the one read. */
+	const firstFiled = () => {
+		const record = path.join(roots["workflow-core"], MARKERS_REL, FILED);
+		fs.mkdirSync(path.dirname(record), { recursive: true });
+		fs.writeFileSync(record, "#7");
+	};
+
+	it("is due at the 130th refused-then-answered round classed (a)–(c) or still to class, and says how many so far before it", () => {
+		firstFiled();
+		rounds("workflow-core", "wc-many", 129, {
+			kind: "refused",
+			texts: ["why this?"],
+		});
+		const before = read(T0 + 7 * DAY);
+		expect(before).toMatch(/^Round-check second reading/);
+		expect(before).toMatch(
+			/Reading point: the 130th refused-then-answered round classed \(a\)–\(c\) or still to class \(#3978 Q1 \(A\)\); 129 so far\./,
+		);
+		expect(before).toMatch(
+			/THIN: 128 refused-then-answered round\(s\) classed/,
+		);
+		rounds("workflow-core", "wc-last", 1, {
+			kind: "refused",
+			start: T0 + 6 * DAY,
+		});
+		const at = read(T0 + 7 * DAY);
+		expect(at).toContain(
+			`Reading point: ${iso(T0 + 6 * DAY + 60_000)
+				.slice(0, 16)
+				.replace("T", " ")} — the 130th`,
+		);
+		expect(at).toMatch(/Reached: /);
+	});
+
+	it("moves its point later for a round classed (d)–(f), and the committed classes count as --classes would, which wins over them", () => {
+		firstFiled();
+		const keys = rounds("workflow-core", "wc-many", 130, {
+			kind: "refused",
+			texts: ["why this?"],
+		});
+		expect(read(T0 + 7 * DAY)).toMatch(/Reached: /);
+		writeClassed({ [keys[0]]: "d" });
+		expect(read(T0 + 7 * DAY)).toMatch(/129 so far/);
+		const over = read(T0 + 7 * DAY, { [keys[0]]: "a" });
+		expect(over).toMatch(/Reached: /);
+		expect(over).not.toMatch(
+			/class\(es\) in --classes match no answered round/,
+		);
+	});
+
+	it("sets the baseline's skew beside the rates the first reading printed without it", () => {
+		healthy();
+		expect(read()).not.toMatch(/Every baseline below is skewed/);
+		firstFiled();
+		expect(read()).toMatch(
+			/Every baseline below is skewed: rounds reaching the founder fell 72%[^\n]*\n\n1\. Refusal not working/,
+		);
+	});
+});
+
+describe("stopped rounds (#3995)", () => {
+	const refusal = (id: string, at: number, round = "1") =>
+		log("workflow-core", at, id, {
+			kind: "refused",
+			round,
+			callsBefore: 4,
+			slot: 1,
+		});
+	const pass = (id: string, at: number, resent: boolean, round = "1") =>
+		log("workflow-core", at, id, {
+			kind: "passed-after-refusal",
+			round,
+			callsBefore: 4,
+			slot: 1,
+			sinceRefusal: 3,
+			tools: ["Read", "Read", "Read"],
+			resent,
+		});
+	const stoppedLine = (out: string) =>
+		out.match(/ {3}Stopped, which this line cannot see: .*/)?.[0] ?? "";
+
+	it("counts a refused round whose questions every passing send left out, or that no send carried before his next message, and lists each", () => {
+		healthy();
+		const t = T0 + 2 * DAY;
+		refusal("left-out", t);
+		pass("left-out", t + 60_000, false);
+		session("workflow-core", "left-out", [{ at: t + HOUR, text: "go on" }]);
+		refusal("never-sent", t);
+		session("workflow-core", "never-sent", [{ at: t + HOUR, text: "hello" }]);
+		const out = read(T0 + 9 * DAY);
+		expect(stoppedLine(out)).toMatch(
+			/2 of 42 \(5%\) refused rounds sent the founder none of their questions — 0\.29 a day over 7\.0 days\./,
+		);
+		expect(out).toContain(
+			`  - left-out@${iso(t)} workflow-core, question(s) 1: left out of the next send`,
+		);
+		expect(out).toContain(
+			`  - never-sent@${iso(t)} workflow-core, question(s) 1: no send before his next message`,
+		);
+	});
+
+	it("does not count a round one of whose questions was re-sent, and counts a question refused again before his reply once", () => {
+		healthy();
+		const t = T0 + 2 * DAY;
+		refusal("partial", t, "1");
+		refusal("partial", t, "2");
+		pass("partial", t + 60_000, false, "1");
+		pass("partial", t + 60_000, true, "2");
+		refusal("twice", t);
+		refusal("twice", t + 60_000);
+		pass("twice", t + 120_000, false);
+		session("workflow-core", "partial", [{ at: t + HOUR, text: "ok" }]);
+		session("workflow-core", "twice", [{ at: t + HOUR, text: "ok" }]);
+		const out = read(T0 + 9 * DAY);
+		expect(stoppedLine(out)).toMatch(
+			/^ {3}Stopped, which this line cannot see: 1 of 42 /,
+		);
+		expect(out).toContain(`  - twice@${iso(t)} workflow-core`);
+		expect(out).not.toMatch(/ {2}- partial@\S+ workflow-core, question/);
+	});
+
+	it("counts a pass after his next message as no send, since the round never reached him before he spoke", () => {
+		healthy();
+		const t = T0 + 2 * DAY;
+		refusal("late", t);
+		pass("late", t + 2 * HOUR, true);
+		session("workflow-core", "late", [{ at: t + HOUR, text: "status?" }]);
+		expect(read(T0 + 9 * DAY)).toContain(
+			`  - late@${iso(t)} workflow-core, question(s) 1: no send before his next message`,
+		);
+	});
+});
+
+it("keeps the committed classes as valid JSON classing each key (a)–(f)", () => {
+	const data = JSON.parse(fs.readFileSync(REAL_CLASSED, "utf8"));
+	expect(Object.keys(data).length).toBe(83);
+	for (const [key, cls] of Object.entries(data)) {
+		expect(key).toMatch(/^[0-9a-f-]{36}@\d{4}-\d\d-\d\dT[\d:.]+Z$/);
+		expect(["a", "b", "c", "d", "e", "f"]).toContain(cls);
+	}
 });

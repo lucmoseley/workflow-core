@@ -558,6 +558,7 @@ module.exports = {
 	readLogs,
 	buildRepoLines,
 	buildFiredLine,
+	founderReplies,
 	pairReplies,
 	POINT_FIGURES,
 	bandHalfWidth,
