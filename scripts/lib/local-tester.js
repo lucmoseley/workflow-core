@@ -60,12 +60,18 @@ const rootlessEnv = () => {
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
 /* What admission holds back for a lander, by the kind of run it holds
- * (#3323): its tester's own tree peak, never a machine-wide MemAvailable dip
- * (#2508). Whole: 923 MB PSS for one full run (#2410) + 223 MB, the max less
- * the median of eight reruns of one file set (#2496) = 1,146, rounded up to
- * 1,150. Named: 552 MB, the highest rerun peak (#2496), + ~10%, set at 600 by
- * #3323. The lander run record is what a re-size reads. */
-const CHARGE_MB = { whole: 1150, named: 600 };
+ * (#3323), and what the queues' climb charges its marker (#3973): its
+ * tester's own tree peak, never a machine-wide MemAvailable dip (#2508). Off
+ * the lander run record, each run's tree PSS sampled every 2 s from its
+ * spawn, 28 Oct - 5 Nov 2026, with no margin, the rung holding
+ * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB. Above the climb's
+ * whole-suite peak (suite-queue.js `PEAK_MB`): 4 runs passed it, all red on
+ * 4 Nov, the highest on any other day 1,820 MB, so its one 28 Oct run is the
+ * low figure, its re-measurement #4592's. Named: the highest of 341 runs of
+ * 1-6 files, 937 MB. A named run past those 6 files is unmeasured and charged
+ * whole. Residual: a spike between two samples is charged short. */
+const CHARGE_MB = { whole: 2630, named: 940 };
+const NAMED_MEASURED_FILES = 6;
 /* The queue marker's role, which session admission reads (#2416). */
 const LANDER_ROLE = "lander";
 /* Untraced: room for `npm ci` over a slow link. */
@@ -789,8 +795,9 @@ function localTester({
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";
 			const tally = { ran: 0, peakKb: 0, samples: 0 };
+			const chargeKind = files.length > NAMED_MEASURED_FILES ? "whole" : kind;
 			const watched = watchMemoryShut(() =>
-				admit({ chargeMb: CHARGE_MB[kind] }),
+				admit({ chargeMb: CHARGE_MB[chargeKind] }),
 			);
 			const verdict = await runEach(groups, checkout, {
 				admit: watched.admit,

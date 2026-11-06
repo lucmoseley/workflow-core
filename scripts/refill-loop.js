@@ -140,6 +140,7 @@ const {
 const { readCurrentBootId, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
+const { systemctl } = require("./lib/systemd-bins.js");
 const {
 	readControlChecked,
 	readControlFile,
@@ -251,9 +252,9 @@ function parseGoalAsk(flags) {
 	if (flags["--goal"] !== undefined) {
 		const typed = String(flags["--goal"]);
 		const asked = parseGoalForm(typed);
-		return asked
-			? { ...asked, text: typed }
-			: buildNotice(buildGoalRefusal(typed));
+		if (asked === null) return buildNotice(buildGoalRefusal(typed));
+		const refs = asked.form === "issues" ? asked.refs : [asked.ref];
+		return { form: asked.form, refs, text: typed };
 	}
 	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;
@@ -492,7 +493,7 @@ function watch() {
 		...bootPorts(() => undefined),
 		launchHolder: launchLock.holder,
 		restartBootUnit: () =>
-			runCommand("systemctl", [
+			runCommand(systemctl(), [
 				"--user",
 				"restart",
 				"refill-loop-boot.service",

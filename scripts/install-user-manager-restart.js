@@ -20,6 +20,7 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { systemctl } = require("./lib/systemd-bins.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: sudo "$(command -v node)" ${scriptPath("install-user-manager-restart.js")}`;
@@ -80,8 +81,8 @@ function install(root, uid) {
 		writeRootFile(root, `etc/systemd/system/${unit}.d/restart.conf`, DROP_IN),
 		writeRootFile(root, "etc/systemd/user.conf.d/oom.conf", MANAGER_CONF),
 	];
-	const reload = runCommand("systemctl", ["daemon-reload"]);
-	const read = runCommand("systemctl", [
+	const reload = runCommand(systemctl(), ["daemon-reload"]);
+	const read = runCommand(systemctl(), [
 		"show",
 		unit,
 		"--property=Restart,OOMScoreAdjust,StartLimitIntervalUSec",

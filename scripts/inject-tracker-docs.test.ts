@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { commandPath } from "./lib/command-path-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
@@ -655,10 +656,7 @@ describe("the rules that were already here", () => {
 			triage.indexOf("On a first pass a TICKETED one"),
 		);
 		expect(triage).toContain(
-			"each finding in the spec's own code is FIXED here",
-		);
-		expect(triage).toContain(
-			"and its line names which, per the `review-finding-destination` rule, or is refused",
+			"the `review-finding-destination` rule /code-review hands you says which findings are FIXED here and which TICKETED, and what a TICKETED line names",
 		);
 		expect(triage).toContain(
 			"each TICKETED finding gets a class, picking only where it is filed",
@@ -1469,9 +1467,7 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 			// emit reserves AFTER the text exists, so a jq that fails on the wrapper object leaves the session
 			// with nothing and the next firing free to inject. A reservation taken
 			// before the payload is known would suppress that firing instead.
-			const realJq = execFileSync("bash", ["-c", "command -v jq"], {
-				encoding: "utf8",
-			}).trim();
+			const realJq = commandPath("jq");
 			const bin = fs.mkdtempSync(path.join(SCRATCH, "badjq-"));
 			fs.writeFileSync(
 				path.join(bin, "jq"),

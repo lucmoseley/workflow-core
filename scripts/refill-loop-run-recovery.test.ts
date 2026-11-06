@@ -82,6 +82,7 @@ import {
 	oneTick,
 	polled,
 	readGhActs,
+	readHeadlessResumes,
 	readHeldIssues,
 	readLines,
 	readLoopState,
@@ -105,6 +106,11 @@ import {
 import { parseHoldId, probedCheckout } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import {
+	type SystemctlAnswers,
+	systemctlCalls,
+	writeSystemctl,
+} from "./lib/systemctl-fake";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
 refillSandbox();
@@ -493,32 +499,23 @@ describe("boot-resume after a restart (#3878)", () => {
 	});
 
 	describe("watch, the timer's look for a dead loop (#4139)", () => {
-		const watch = (systemctlBody = "") => {
-			fs.mkdirSync(at("watch-bin"), { recursive: true });
-			fs.writeFileSync(
-				at("watch-bin/systemctl"),
-				`#!/bin/sh\necho "$*" >> ${shellQuote(at("systemctl-calls"))}\n${systemctlBody}\n`,
-				{ mode: 0o755 },
-			);
-			return runInProcessAsync(
-				path.join(scripts, "refill-loop.js"),
-				["watch"],
-				{
-					cwd: dir,
-					env: loopEnv({
-						PATH: `${at("watch-bin")}:${process.env.PATH}`,
-					}),
-				},
-			);
-		};
-		const readCalls = () => readLines(at("systemctl-calls"));
+		const watch = (answers: SystemctlAnswers = {}) =>
+			runInProcessAsync(path.join(scripts, "refill-loop.js"), ["watch"], {
+				cwd: dir,
+				env: loopEnv({
+					WFC_SYSTEMCTL: writeSystemctl(at("watch-bin"), answers),
+				}),
+			});
+		const readCalls = () => systemctlCalls(at("watch-bin"));
 
 		it("restarts the boot unit past a dead loop's pidfile, so boot-resume decides", async () => {
 			writeControl();
 			const holder = spawnHolder();
 			await exited(holder);
 			expect((await watch()).status).toBe(0);
-			expect(readCalls()).toEqual(["--user restart refill-loop-boot.service"]);
+			expect(readCalls()).toEqual([
+				"systemctl --user restart refill-loop-boot.service",
+			]);
 			expect(fs.existsSync(at("ticks"))).toBe(false);
 		});
 
@@ -536,7 +533,9 @@ describe("boot-resume after a restart (#3878)", () => {
 
 		it("exits 1, naming the restart, where it fails, for the unit's ExecStopPost", async () => {
 			writeControl();
-			const r = await watch("echo denied >&2; exit 1");
+			const r = await watch({
+				fails: { restart: { exit: 1, says: "denied" } },
+			});
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain("--user restart refill-loop-boot.service");
 			expect(r.stderr).toContain("denied");
@@ -1475,12 +1474,9 @@ describe("the launches a restart killed (#3880)", () => {
 				record,
 				JSON.stringify({ state: "stopped", sessionId: "s-job7", cwd: repo }),
 			);
-			fakeResumeClaude(
-				"job7",
-				[LISTED],
-				writesWokenRecord(record, "s-job7"),
-				"woke",
-			);
+			fakeResumeClaude("job7", [LISTED], writesWokenRecord(record, "s-job7"), {
+				resumeAs: "woke",
+			});
 
 			const later = await tickWith(1, () =>
 				readCalls().includes(buildResumeArgs("job7")),
@@ -1889,7 +1885,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			Job,
 			[LISTED],
 			`echo "dir $CLAUDE_CONFIG_DIR" >> "$calls"; ${writesWokenRecord(jobFile(), "s-job7")}`,
-			"woke",
+			{ resumeAs: "woke" },
 		);
 		const r = await oneTick(Run, 1);
 		expect(r.status).toBe(0);
@@ -2055,16 +2051,16 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(readLines(at("calls"))).toContain(
 				`env key=unset api=unset session=unset dir=${seat}`,
 			);
-			const resume = readLines(at("calls")).find((l) => l.startsWith("-p"));
-			const [, budget, settings, name] =
-				resume?.match(
-					/^-p --resume s-job7 --max-budget-usd (\S+) --settings (\{.*\}) -n (.+)$/,
-				) ?? [];
-			expect(name).toBe("Overflow · /implement 7");
+			const [resume, ...more] = readHeadlessResumes();
+			expect(more).toEqual([]);
+			expect(resume?.sessionId).toBe("s-job7");
+			expect(resume?.flags["--resume"]).toBe("s-job7");
+			expect(resume?.flags["--name"]).toBe("Overflow · /implement 7");
+			const budget = resume?.flags["--max-budget-usd"];
 			expect(Number(budget)).toBeGreaterThan(0);
-			expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
-				/overflow-key\.js'? '?K2/,
-			);
+			expect(
+				JSON.parse(String(resume?.flags["--settings"])).apiKeyHelper,
+			).toMatch(/overflow-key\.js'? '?K2/);
 			const { jobId } = launchState();
 			expect(jobId).toMatch(/^[0-9a-f]{8}$/);
 			expect(launchState()).toMatchObject({
@@ -2090,14 +2086,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 
 		it("settles a move whose headless run ended before the next tick, never moving it back (#4580)", async () => {
 			seedOverflow();
-			const result = JSON.stringify({
-				type: "result",
-				subtype: "success",
-				is_error: false,
-				total_cost_usd: 0.1,
-				result: "done",
-			});
-			fakeResumeClaude(Job, [LISTED], `echo ${shellQuote(result)}; exit 0;`);
+			fakeResumeClaude(Job, [LISTED], "", { headless: "end" });
 			const r = await oneTick(Run, 1);
 			expect(r.status).toBe(0);
 			expect(r.stdout).not.toContain("could not move");
@@ -2132,7 +2121,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 	it("writes a dispatch-ledger hold past the run, and its stop names the session and seat (#3785)", async () => {
 		seed();
 		weekAt(100);
-		fakeResumeClaude(Job, [LISTED], "", "woke");
+		fakeResumeClaude(Job, [LISTED], "", { resumeAs: "woke" });
 		await oneTick(Run, 1);
 		const { ledgerHeldUntil } = launchState().limitHeld;
 		const heldUntil = new Date(ledgerHeldUntil).toISOString();
@@ -2157,12 +2146,9 @@ describe("a session held on its seat's limit (#3735)", () => {
 		state.launches[0].limitHeld.ledgerHeldUntil = Date.now() + 60 * 60 * 1000;
 		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
 		weekAt(10);
-		fakeResumeClaude(
-			Job,
-			[LISTED],
-			writesWokenRecord(jobFile(), "s-job7"),
-			"woke",
-		);
+		fakeResumeClaude(Job, [LISTED], writesWokenRecord(jobFile(), "s-job7"), {
+			resumeAs: "woke",
+		});
 		await oneTick(Run, 1);
 		const rows = readLines(ledgerPath(repo)).map((l) => JSON.parse(l));
 		expect(rows).toEqual([

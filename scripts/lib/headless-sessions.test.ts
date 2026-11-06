@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins lib/headless-sessions.js through its CLI, as the dispatcher drives it,
- * with a fake `claude` through WFC_CLAUDE_BIN and a fixture secrets file
+ * with lib/headless-run-fake.ts's `-p` fake, held to the binary by its
+ * contract, through WFC_CLAUDE_BIN and a fixture secrets file
  * through WFC_SECRETS_FILE: the launch's job id, flags and child environment,
  * the key's route through the apiKeyHelper alone, the refusals by name, the
  * listing's liveness, the group stop, and the end-result reading.
@@ -17,66 +18,25 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readProcStartOf } from "./arbiter-proc.js";
 import {
 	ADMITTED_AUTH,
-	buildAuthStatusNodeBranch,
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./auth-status-fake";
+import { writeClaudeStub } from "./claude-stub";
+import {
+	buildHeadlessBranch,
+	buildResultRow,
+	type HeadlessMode,
+	readHeadlessCalls,
+	writeHeadlessFake,
+} from "./headless-run-fake";
 import { readEndResult, stop } from "./headless-runs.js";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { launch as launchRun } from "./headless-sessions.js";
 import { runInProcessAsync } from "./run-in-process.js";
-import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const SCRIPT = path.join(__dirname, "headless-sessions.js");
 const KEY = "sk-fake-overflow-0123456789";
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
-
-/* The fake records its argv and environment, runs the apiKeyHelper it was
- * handed the way `claude` does, then behaves per FAKE_MODE: `sleep` holds a
- * grandchild in its group, `stubborn` also ignores SIGTERM, `orphan` leaves
- * the grandchild behind and exits, `events` prints FAKE_EVENTS and exits.
- *
- * A run killed before teardown never stops its fake, which the launch has
- * detached (#2678 (the leaked fakes)). So the fake ends itself and its
- * grandchild once FAKE_OUT is gone or FAKE_DEADLINE_MS passes, checked
- * each second (a guess). Never a parent-death check: the launch CLI exits
- * at once, so every fake is reparented to init while its case runs. */
-const FAKE = `#!/usr/bin/env node
-${buildAuthStatusNodeBranch()}
-const fs = require("node:fs");
-const path = require("node:path");
-const { execSync, spawn } = require("node:child_process");
-const out = process.env.FAKE_OUT;
-const argv = process.argv.slice(2);
-const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
-const helped = execSync(settings.apiKeyHelper, { encoding: "utf8" }).trim();
-const mode = process.env.FAKE_MODE;
-const deadlineMs = Number(process.env.FAKE_DEADLINE_MS);
-let grandchild = null;
-if (mode !== "events") {
-	grandchild = spawn("sleep", [String(Math.ceil(deadlineMs / 1000))], { stdio: "ignore", detached: false }).pid;
-	if (mode === "stubborn") process.on("SIGTERM", () => {});
-}
-fs.writeFileSync(path.join(out, "seen.json"), JSON.stringify({
-	argv, env: process.env, cwd: process.cwd(), helped, grandchild,
-	stdin: fs.readlinkSync("/proc/self/fd/0"),
-}));
-if (mode === "events") {
-	process.stdout.write(fs.readFileSync(process.env.FAKE_EVENTS, "utf8"));
-	process.exit(0);
-}
-if (mode === "orphan") process.exit(0);
-const end = Date.now() + deadlineMs;
-setInterval(() => {
-	if (Date.now() < end && fs.existsSync(out)) return;
-	try {
-		process.kill(grandchild, "SIGKILL");
-	} catch {
-		/* already gone */
-	}
-	process.exit(0);
-}, 1000);
-`;
 
 let tmp: string;
 let home: string;
@@ -110,7 +70,10 @@ beforeEach(() => {
 		`${path.join(home, ".claude2")}\n~/.claude2 api key=${KEY_VAR} grant=200 cycle-day=20\n`,
 	);
 	fs.writeFileSync(secrets, `OTHER=1\n${KEY_VAR}=${KEY}\n`);
-	fs.writeFileSync(path.join(tmp, "claude"), FAKE, { mode: 0o755 });
+	writeClaudeStub(path.join(tmp, "claude"), [
+		buildHeadlessBranch(path.join(tmp, "claude-p")),
+	]);
+	fakeMode("hold");
 	process.env.WFC_REFILL_DIR = refill;
 });
 
@@ -139,10 +102,6 @@ const env = (extra: Record<string, string> = {}) => ({
 	WFC_REFILL_DIR: refill,
 	WFC_CLAUDE_BIN: path.join(tmp, "claude"),
 	WFC_SECRETS_FILE: secrets,
-	FAKE_OUT: fakeOut,
-	FAKE_MODE: "sleep",
-	/* Past one case and its hooks, so a fake never dies mid-case. */
-	FAKE_DEADLINE_MS: String(2 * TEST_TIMEOUT_MS),
 	...extra,
 });
 
@@ -164,20 +123,16 @@ const launch = (extra: Record<string, string> = {}, key = KEY_VAR) =>
 		extra,
 	);
 
-function readSeenOrNull(): {
-	argv: string[];
-	env: Record<string, string>;
-	cwd: string;
-	helped: string;
-	grandchild: number | null;
-	stdin: string;
-} | null {
-	try {
-		return JSON.parse(fs.readFileSync(path.join(fakeOut, "seen.json"), "utf8"));
-	} catch {
-		return null;
-	}
-}
+/** The `-p` fake every launch here execs (lib/headless-run-fake.ts), in
+ * `mode`, its runs logged under fakeOut. */
+const fakeMode = (mode: HeadlessMode) =>
+	writeHeadlessFake(path.join(tmp, "claude-p"), {
+		log: path.join(fakeOut, "calls.jsonl"),
+		mode,
+	});
+
+const readSeenOrNull = () =>
+	readHeadlessCalls(path.join(fakeOut, "calls.jsonl")).at(-1) ?? null;
 
 /* A wait on a real process, not a timing assertion: the ceiling and the poll
  * are guesses, generous against a loaded machine. */
@@ -398,8 +353,8 @@ describe("list and stop", () => {
 	});
 
 	it("stops a group whose leader has exited, ending the task it left behind", async () => {
-		const jobId =
-			(await launch({ FAKE_MODE: "orphan" })).stdout.split("\n")[0] ?? "";
+		fakeMode("orphan");
+		const jobId = (await launch()).stdout.split("\n")[0] ?? "";
 		await until(() => readSeenOrNull() !== null);
 		const grandchild = readSeenOrNull()?.grandchild ?? 0;
 		await until(async () => (await listed()).length === 0);
@@ -409,12 +364,8 @@ describe("list and stop", () => {
 	});
 
 	it("drops an ended run", async () => {
-		const events = path.join(tmp, "events.jsonl");
-		fs.writeFileSync(
-			events,
-			`${JSON.stringify({ type: "result", is_error: false, total_cost_usd: 0.5 })}\n`,
-		);
-		await launch({ FAKE_MODE: "events", FAKE_EVENTS: events });
+		fakeMode("end");
+		await launch();
 		await until(() => readSeenOrNull() !== null);
 		await until(async () => (await listed()).length === 0);
 	});
@@ -443,8 +394,8 @@ describe("list and stop", () => {
 	/* Crosses the real clock: the escalation is a signal to a real process
 	 * group, so the grace is shortened, never asserted as elapsed time. */
 	it("kills a group that ignores SIGTERM once the grace period passes", async () => {
-		const jobId =
-			(await launch({ FAKE_MODE: "stubborn" })).stdout.split("\n")[0] ?? "";
+		fakeMode("stubborn");
+		const jobId = (await launch()).stdout.split("\n")[0] ?? "";
 		await until(() => readSeenOrNull() !== null);
 		expect(await stop(jobId, { graceMs: 300 })).toBe("killed");
 		await until(() => !isAlive(readSeenOrNull()?.grandchild ?? 0));
@@ -484,21 +435,9 @@ describe("end result", () => {
 			readEndResult(
 				runWith([
 					{ type: "system", subtype: "init" },
-					{
-						type: "result",
-						subtype: "success",
-						is_error: false,
-						result_index: 0,
-						total_cost_usd: 0.4,
-					},
+					buildResultRow({ result_index: 0, total_cost_usd: 0.4 }),
 					{ type: "system", subtype: "task_notification" },
-					{
-						type: "result",
-						subtype: "success",
-						is_error: false,
-						result_index: 1,
-						total_cost_usd: 1.25,
-					},
+					buildResultRow({ result_index: 1, total_cost_usd: 1.25 }),
 				]),
 			),
 		).toEqual({ outcome: "success", costUsd: 1.25, sessionId: "sess" });
@@ -508,13 +447,11 @@ describe("end result", () => {
 		expect(
 			readEndResult(
 				runWith([
-					{
-						type: "result",
-						subtype: "success",
+					buildResultRow({
 						is_error: true,
 						result: "Credit balance is too low",
 						total_cost_usd: 0,
-					},
+					}),
 				]),
 			).outcome,
 		).toBe("key-exhausted");
@@ -536,11 +473,7 @@ describe("end result", () => {
 	it("reads a live pid as running, whatever results it has emitted", () => {
 		expect(
 			readEndResult(
-				runWith(
-					[{ type: "result", is_error: false, total_cost_usd: 0.3 }],
-					"",
-					process.pid,
-				),
+				runWith([buildResultRow({ total_cost_usd: 0.3 })], "", process.pid),
 			).outcome,
 		).toBe("running");
 	});

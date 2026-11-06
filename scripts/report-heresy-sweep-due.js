@@ -28,6 +28,7 @@ const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
 const { takesLabel } = require("./lib/takes-label");
 const { gitCommonDirOrThrow } = require("./lib/git.js");
+const { buildStandaloneLine } = require("./lib/standalone-line.js");
 
 const LABEL = takesLabel("implement");
 const STAMP = ".heresy-sweep-read";
@@ -73,7 +74,7 @@ function body(verdict) {
 		"",
 		`The next sweep falls due ${SWEEP_DAYS} days after this issue closes.`,
 		"",
-		"Standalone: the heresy sweep's standing condition (#3365).",
+		buildStandaloneLine("the heresy sweep's standing condition (#3365)."),
 	].join("\n");
 }
 
