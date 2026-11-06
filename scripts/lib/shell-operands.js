@@ -1,8 +1,6 @@
 /*
  * shell-operands.js — a shell script's text with what is not a path operand
- * blanked, for the readers that scan it for paths: test selection's shell
- * reads (lib/test-read-edges.js) and the launch edges of lib/guard-reach.js
- * (#4567).
+ * blanked, for a reader scanning it for paths (#4567).
  */
 
 /** A heredoc's opening, its delimiter captured. */
