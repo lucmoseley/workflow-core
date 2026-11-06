@@ -202,11 +202,10 @@ function killCarrying(
 
 /* Names the wrapper pid whose run a process belongs to. */
 const OWNER_ENV = "WFC_INFLIGHT_OWNER";
-/* Linux's PID_MAX_LIMIT on 64-bit (include/linux/threads.h): no pid reaches
- * it. Below it, kill(pid, 0) fails only with ESRCH or EPERM, so pidAlive's
- * answer is the kernel's; above it Node throws, which pidAlive reads as dead
- * (#4020). */
-const PID_MAX_LIMIT = 4_194_304;
+/* The largest pid Node's process.kill passes to the kernel (an int32). Up to
+ * it, kill(pid, 0) fails only with ESRCH or EPERM, so pidAlive's answer is the
+ * kernel's; past it Node throws, which pidAlive reads as dead (#4020). */
+const KILL_PID_MAX = 2_147_483_647;
 
 /**
  * SIGKILLs every process but `self` whose OWNER_ENV names a pid that no
@@ -230,7 +229,7 @@ function sweepOrphanedRuns({
 		OWNER_ENV,
 		(owner) =>
 			/^\d+$/.test(owner) &&
-			Number(owner) < PID_MAX_LIMIT &&
+			Number(owner) <= KILL_PID_MAX &&
 			!alive(Number(owner)),
 		{ proc, self, kill },
 	);
