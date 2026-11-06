@@ -212,9 +212,9 @@ const {
  * runs at the top of run() before any scan reads it (mantahostels#1833).
  *
  * The working directory's worktree, not `hostRoot()`, in every mode (#3386):
- * the harness sets CLAUDE_PROJECT_DIR to the main checkout, so a run inside a
- * linked worktree would judge the main checkout's bytes, and --review would
- * write its anchors there.
+ * `hostRoot()` names the main checkout (#4493), so a run inside a linked
+ * worktree would judge the main checkout's bytes, and --review would write its
+ * anchors there.
  */
 let root = worktreeRoot();
 

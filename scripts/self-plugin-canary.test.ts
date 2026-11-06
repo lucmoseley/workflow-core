@@ -180,14 +180,51 @@ describe("the setup line", () => {
 		);
 	});
 
-	it("names the main checkout from a worktree session (#2461)", () => {
-		const main = checkout("main");
+	function worktreeOf(main: string) {
 		const worktree = path.join(repo, "main", ".claude", "worktrees", "wt");
 		spawnSync("git", ["-C", main, "worktree", "add", "-q", worktree], {
 			encoding: "utf8",
 		});
 		expect(fs.existsSync(path.join(worktree, ".git"))).toBe(true);
+		return worktree;
+	}
+
+	it("names the main checkout from a worktree session (#2461)", () => {
+		const main = checkout("main");
+		const worktree = worktreeOf(main);
 		expectRefused(call(bash(SID), { CLAUDE_PROJECT_DIR: worktree }), main);
+	});
+
+	/* The marker sits under CLAUDE_PROJECT_DIR as handed, never gr_root's
+	 * main checkout: a session whose start wrote it under its worktree, then
+	 * merged the re-point in, was refused every call. */
+	it("lets a worktree session through on the marker its start wrote there (#4487)", () => {
+		const worktree = worktreeOf(checkout("main"));
+		const env = { CLAUDE_PROJECT_DIR: worktree };
+		const start = run(
+			WRITER,
+			JSON.stringify({
+				session_id: SID,
+				hook_event_name: "SessionStart",
+				source: "startup",
+			}),
+			env,
+		);
+		expect(start.status).toBe(0);
+		expect(
+			fs.existsSync(
+				path.join(
+					worktree,
+					".claude",
+					"tmp",
+					"markers",
+					`.self-plugin-loaded-${SID}`,
+				),
+			),
+		).toBe(true);
+		const r = call(bash(SID), env);
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
 	});
 
 	it("pastes a path with a space and a quote as one argument", () => {
