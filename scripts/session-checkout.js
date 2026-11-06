@@ -4,7 +4,8 @@
  * worktree (#4229); the lifecycle itself is lib/session-checkout.js.
  *
  *   node scripts/session-checkout.js cut <session-name>
- *     prints the new worktree's path on stdout
+ *     prints the new worktree's path on stdout; the reaper leaves it while
+ *     the session that cut it lives
  *   node scripts/session-checkout.js launch-dir [--no-build] [--into <worktree>] <prompt>
  *     prints the directory a session launched on <prompt> starts in: a
  *     worktree cut for it, or the main checkout where `landing` is off;
@@ -60,6 +61,7 @@ const {
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { REMOTE, VERIFIED_REF } = require("./lib/landing-refs.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { fromEnv } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
@@ -167,7 +169,7 @@ const WARMED = {
 const RUN = {
 	cut: (named) => {
 		if (named === undefined) throw new Error("cut names no session");
-		writeFd(1, `${cut(process.cwd(), named).dir}\n`);
+		writeFd(1, `${cut(process.cwd(), named, { holder: fromEnv() }).dir}\n`);
 	},
 	"launch-dir": (named, flags) => {
 		if (named === undefined) throw new Error("launch-dir names no prompt");
