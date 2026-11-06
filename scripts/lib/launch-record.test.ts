@@ -63,5 +63,16 @@ describe("buildLaunchRecordReader (#4587)", () => {
 		const { read, callsTo } = reader();
 		expect(read({ seat: SEAT, keyVar: KEY_VAR, jobId: null })).toBeNull();
 		expect(callsTo("readRunAsJob")).toEqual([]);
+		expect(callsTo("readJobRecord")).toEqual([]);
+	});
+
+	it("logs which file would not read, the run's log included", () => {
+		const { read, lines } = reader({ readRunAsJob: "logUnreadable" });
+		expect(
+			read({ seat: SEAT, keyVar: KEY_VAR, jobId: HEADLESS_JOB }),
+		).toBeNull();
+		expect(lines).toEqual([
+			expect.stringContaining(FAULTS.readRunAsJob.logUnreadable),
+		]);
 	});
 });

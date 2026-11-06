@@ -200,6 +200,15 @@ function thrownBy(act: () => unknown) {
 	}
 }
 
+function thrownMessage(act: () => unknown) {
+	try {
+		act();
+		return "threw nothing";
+	} catch (e) {
+		return (e as Error).message;
+	}
+}
+
 /* Named for the test selector (§X10): runArbiter runs it. */
 const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
@@ -507,6 +516,14 @@ describe("the fake answers as the adapter does", () => {
 			expect(shape(real)).toEqual(shape(faked));
 		},
 	);
+
+	it("names the run's log where that is what will not read", () => {
+		expect(
+			thrownMessage(
+				FAULT_SITUATIONS.readRunAsJob?.logUnreadable as () => unknown,
+			),
+		).toMatch(/^its log .*out\.jsonl: EISDIR/);
+	});
 
 	it.each(FAULT_CASES)(
 		"the %s port's %s fault is thrown as the adapter throws it",
