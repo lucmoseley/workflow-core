@@ -31,6 +31,7 @@ let repoLink: string;
 let linked: string;
 let linkedLink: string;
 let gitFiled: string;
+let relLink: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -66,6 +67,18 @@ beforeAll(() => {
 	fs.mkdirSync(path.join(tmp, "gitfiled-git"), { recursive: true });
 	fs.mkdirSync(gitFiled);
 	fs.writeFileSync(path.join(gitFiled, ".git"), "gitdir: ../gitfiled-git\n");
+	/* A relative git file, as `git worktree add --relative-paths` writes one,
+	 * reached through a symlink in another directory: resolved from the link's
+	 * spelling it names no git dir. CRLF, as a Windows-side editor leaves it. */
+	const rel = path.join(tmp, "rel");
+	execFileSync("git", ["worktree", "add", "-q", rel], { cwd: repo });
+	fs.writeFileSync(
+		path.join(rel, ".git"),
+		`gitdir: ${path.relative(rel, path.join(repo, ".git", "worktrees", "rel"))}\r\n`,
+	);
+	fs.mkdirSync(path.join(tmp, "links"));
+	relLink = path.join(tmp, "links", "rel");
+	fs.symlinkSync(rel, relLink);
 });
 
 afterAll(() => {
@@ -160,6 +173,11 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 		[
 			"a symlinked CLAUDE_PROJECT_DIR naming a linked worktree",
 			() => [tmp, linkedLink],
+			() => repo,
+		],
+		[
+			"a symlinked CLAUDE_PROJECT_DIR naming a worktree whose git file is relative, with CRLF",
+			() => [tmp, relLink],
 			() => repo,
 		],
 		[

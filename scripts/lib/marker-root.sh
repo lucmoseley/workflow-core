@@ -26,6 +26,25 @@ source "$_mr_here/guard-root.sh" 2>/dev/null
 unset _mr_here
 declare -F gr_root >/dev/null 2>&1 || gr_root() { :; }
 
+# gr_declared_markers_dir — gr_markers_dir's directory under CLAUDE_PROJECT_DIR
+# as the harness handed it, never gr_root's re-point of a linked worktree at
+# its main checkout (#4487): for a per-session marker written at start and read
+# for the session's life, which a mid-session merge of a newer gr_root must not
+# move. gr_markers_dir's where the variable is unset. No JS twin: only the
+# shell canary and its writer read it.
+gr_declared_markers_dir() {
+  local root
+  [[ -n "${CLAUDE_PROJECT_DIR:-}" ]] || {
+    gr_markers_dir
+    return
+  }
+  root="${CLAUDE_PROJECT_DIR%/}"
+  root="${root:-/}"
+  root="$(gr_physical "$root" 2>/dev/null)" || root="${CLAUDE_PROJECT_DIR%/}"
+  mkdir -p "$root/.claude/tmp/markers" 2>/dev/null
+  printf '%s' "$root/.claude/tmp/markers"
+}
+
 gr_markers_dir() {
   local root
   root="$(gr_root)"

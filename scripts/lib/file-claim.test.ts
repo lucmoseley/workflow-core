@@ -1621,11 +1621,11 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	/*
 	 * The claim store is the arbiter's, on the host: the real host port spawns
 	 * it, and it finds its store by the hook process's CLAUDE_PROJECT_DIR, which
-	 * the harness keeps on the main checkout. runCore's env reaches the core
+	 * the host root maps to the main checkout (#4487). runCore's env reaches the core
 	 * alone, so the process is pointed at the store each step reads.
 	 */
-	const aliceHoldsIn = (root: string) => {
-		storeAt(root);
+	const aliceHolds = () => {
+		storeAt(at.main);
 		store.acquire("docs/plain.md", live(split, "alice"));
 	};
 	const writeFrom = (tree: string, session: string, rel = "docs/plain.md") => {
@@ -1639,7 +1639,7 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	};
 
 	it("warns of the file a session holds in the host's claim store, keyed by its path in the tree (#4397)", () => {
-		aliceHoldsIn(at.main);
+		aliceHolds();
 		const warned = writeFrom(at.worktree, "bob").output;
 		expect(warned?.permissionDecision).toBeUndefined();
 		expect(warned?.additionalContext).toContain("also held by session alice");

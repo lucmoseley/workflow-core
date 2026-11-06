@@ -118,16 +118,22 @@ function owningCheckout(cwd, timeoutMs) {
  * this. A linked worktree's `.git` is a file naming its git dir, whose
  * `commondir` names the common dir; `checkoutOfCommonDir()` takes it from
  * there. A `.git` directory, none, or a submodule's git file all keep `dir`.
+ * `dir` comes dereferenced, so a relative git dir resolves from the real
+ * directory, as git resolves it. The first line alone is read, as the bash
+ * and Python halves read it.
  * @param {string} dir
  * @returns {string}
  */
 function declaredCheckout(dir) {
 	let gitDir;
 	try {
-		const m = /^gitdir: (.+)$/m.exec(
-			fs.readFileSync(path.join(dir, ".git"), "utf8"),
-		);
-		const named = m?.[1];
+		const first = fs
+			.readFileSync(path.join(dir, ".git"), "utf8")
+			.split("\n")[0]
+			?.replace(/\r$/, "");
+		const named = first?.startsWith("gitdir: ")
+			? first.slice("gitdir: ".length)
+			: "";
 		if (!named) return dir;
 		gitDir = path.resolve(dir, named.trim());
 	} catch {
@@ -155,7 +161,7 @@ function declaredCheckout(dir) {
  */
 function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 	const declared = process.env.CLAUDE_PROJECT_DIR;
-	if (declared) return deref(declaredCheckout(stripSlash(declared)));
+	if (declared) return deref(declaredCheckout(deref(stripSlash(declared))));
 	if (memo.key === cwd) return memo.value;
 	let value;
 	try {

@@ -199,6 +199,7 @@ describe("the setup line", () => {
 		spawnSync("git", ["-C", main, "worktree", "add", "-q", worktree], {
 			encoding: "utf8",
 		});
+		expect(fs.existsSync(path.join(worktree, ".git"))).toBe(true);
 		const marker = path.join(
 			worktree,
 			".claude",

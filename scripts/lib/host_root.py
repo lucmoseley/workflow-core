@@ -29,7 +29,7 @@ def host_root(cwd: str | None = None) -> str:
         stripped = (
             declared[:-1] if len(declared) > 1 and declared.endswith("/") else declared
         )
-        return _deref(_declared_checkout(stripped))
+        return _deref(_declared_checkout(_deref(stripped)))
     here = cwd or os.getcwd()
     try:
         top, common = (
@@ -61,7 +61,8 @@ def host_root(cwd: str | None = None) -> str:
 def _declared_checkout(root: str) -> str:
     """The main checkout of a declared root that is a linked worktree, else the
     root: host-root.js's declaredCheckout(), read from git's on-disk layout
-    with no fork. A submodule's git file has no `commondir`, so keeps it."""
+    with no fork, from the dereferenced root. A submodule's git file has no
+    `commondir`, so keeps it."""
     try:
         line = (Path(root) / ".git").read_text().splitlines()[0]
         if not line.startswith("gitdir: "):
@@ -69,8 +70,8 @@ def _declared_checkout(root: str) -> str:
         git_dir = Path(root) / line[len("gitdir: ") :].strip()
         common = git_dir / (git_dir / "commondir").read_text().strip()
     except (OSError, IndexError):
-        # No git file, or one naming no common dir: the root as declared, the
-        # same answer as before the re-point (#4487).
+        # No git file, or one naming no common dir: no linked worktree to
+        # re-point, so the declared root is the host (#4487).
         return root
     resolved = _deref(os.path.normpath(common))
     return os.path.dirname(resolved) if os.path.basename(resolved) == ".git" else root

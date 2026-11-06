@@ -27,9 +27,8 @@ const { deref, realKey } = require("./deref.js");
 const WORKTREES_DIR = path.join(".claude", "worktrees");
 
 /**
- * The checkout whose slug this repo's transcripts key on: the main checkout,
- * even where a `CLAUDE_PROJECT_DIR` naming a linked worktree makes that
- * worktree the host root (#4236). Where git names no common dir the host root stands, and only its
+ * The checkout whose slug this repo's transcripts key on: the main checkout
+ * (#4236), which `hostRoot()` also names for a declared linked worktree (#4487). Where git names no common dir the host root stands, and only its
  * slug is read.
  *
  * @returns {string}

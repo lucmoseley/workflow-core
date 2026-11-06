@@ -9,12 +9,13 @@ source "$_spm_here/marker-root.sh" 2>/dev/null
 unset _spm_here
 
 # spm_marker_path <out-var> — reads the hook payload on stdin and sets
-# <out-var> to `.self-plugin-loaded-<session id>` under gr_markers_dir, the id
+# <out-var> to `.self-plugin-loaded-<session id>` under gr_declared_markers_dir
+# (marker-root.sh says why), the id
 # sanitised to `[A-Za-z0-9_-]`. On failure sets it to the cause and returns 1.
 spm_marker_path() {
   local -n _spm_out="$1"
   local sid markers
-  declare -F gr_markers_dir >/dev/null 2>&1 || {
+  declare -F gr_declared_markers_dir >/dev/null 2>&1 || {
     _spm_out="lib/marker-root.sh did not load"
     return 1
   }
@@ -31,18 +32,7 @@ spm_marker_path() {
     _spm_out="the hook input carried no session id"
     return 1
   }
-  # Under CLAUDE_PROJECT_DIR as the harness hands it, never gr_root's re-point
-  # of a linked worktree to its main checkout (#4487): the variable is fixed
-  # for the session's life, so a session that merges a newer gr_root mid-run
-  # still finds the marker its start wrote. A different root refuses every
-  # tool call.
-  if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
-    markers="${CLAUDE_PROJECT_DIR%/}"
-    markers="$(gr_physical "${markers:-/}" || printf '%s' "${markers:-/}")/.claude/tmp/markers"
-    mkdir -p "$markers" 2>/dev/null
-  else
-    markers="$(gr_markers_dir)"
-  fi
+  markers="$(gr_declared_markers_dir)"
   [[ -n "$markers" ]] || {
     _spm_out="the repo root did not resolve"
     return 1

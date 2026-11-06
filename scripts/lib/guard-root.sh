@@ -2,7 +2,7 @@
 # The repo root, in the one spelling every guard uses (mantahostels#1905), and
 # the Claude Code config dir beside it (#2095).
 #
-# SOURCED, NEVER RUN. Three functions, no state, no dependencies.
+# SOURCED, NEVER RUN. Four functions, no state, no dependencies.
 #
 # WHY ITS OWN FILE, rather than a function in guard-log.sh: that is a call
 # site, so a helper there is unreachable from something below it, and a hook
@@ -72,12 +72,14 @@ gr_root() {
 gr_declared_checkout() {
   local _gr_dir="${!1}" _gr_line="" _gr_git _gr_common
   IFS= read -r _gr_line <"$_gr_dir/.git" || [[ -n "$_gr_line" ]] || return 0
+  _gr_line="${_gr_line%$'\r'}"
   [[ "$_gr_line" == "gitdir: "* ]] || return 0
   _gr_git="${_gr_line#gitdir: }"
   [[ "$_gr_git" == /* ]] || _gr_git="$_gr_dir/$_gr_git"
   [[ -f "$_gr_git/commondir" ]] || return 0
   _gr_line=""
   IFS= read -r _gr_line <"$_gr_git/commondir" || [[ -n "$_gr_line" ]] || return 0
+  _gr_line="${_gr_line%$'\r'}"
   if [[ "$_gr_line" == /* ]]; then _gr_common="$_gr_line"; else _gr_common="$_gr_git/$_gr_line"; fi
   _gr_common="$(gr_physical "$_gr_common")" || return 0
   [[ "${_gr_common##*/}" == .git ]] || return 0
