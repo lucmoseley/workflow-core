@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./lib/auth-status-fake";
-import { writeLaunchAnswer } from "./lib/bg-launch-fake";
+import { launchAnswer } from "./lib/bg-launch-fake";
 import {
 	agentsListing,
 	dispatchFixture,
@@ -25,9 +25,6 @@ import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageBranch } from "./lib/usage-probe-fake";
 
 const JOB = "0b5e55ed";
-/** The launch answer's first line, all dispatch-sessions.sh echoes of it. */
-const firstLine = (file: string) =>
-	fs.readFileSync(file, "utf8").split("\n")[0];
 
 const fx = dispatchFixture();
 const { stubClaude, stubPath, launchArgv, readArgvLines, regWedged, run } = fx;
@@ -154,7 +151,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toBe(
 			"Allowance OK: week 3%, session 12%.\n" +
 				"Advisor not checked: no /usage probe ran to report it.\n" +
-				`sonnet  ${firstLine(writeLaunchAnswer(fx.dir, JOB).out)}\n`,
+				`sonnet  ${launchAnswer(JOB, "positional").stdout.split("\n")[0]}\n`,
 		);
 		expect(r.stderr).toBe("OK: no issue in this set is already dispatched\n");
 	});

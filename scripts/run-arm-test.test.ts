@@ -33,7 +33,7 @@ const { projectSlug } = require("./lib/project-slug.js");
 const STUB_VERSION = "2.1.304";
 
 /** A Node stub's expression for a fresh 8-hex job id. */
-const FRESH_ID = `Math.random().toString(16).slice(2,10).padEnd(8,"0")`;
+const FRESH_ID_EXPR = `Math.random().toString(16).slice(2,10).padEnd(8,"0")`;
 
 /**
  * A `claude` stub: `agents` prints `agents`, `auth status` says signed in,
@@ -50,7 +50,7 @@ const claudeStub = (
 	);
 	fs.writeFileSync(
 		file,
-		`#!/usr/bin/env node\nconst a=process.argv.slice(2);if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}if(a[0]==="agents"){console.log(${JSON.stringify(listed)});process.exit(0)}${buildAuthStatusNodeBranch()}require("fs").appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:a,cwd:process.cwd(),cfg:process.env.CLAUDE_CONFIG_DIR,path:process.env.PATH})+"\\n");${buildLaunchNodeAnswer(FRESH_ID)}\n`,
+		`#!/usr/bin/env node\nconst a=process.argv.slice(2);if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}if(a[0]==="agents"){console.log(${JSON.stringify(listed)});process.exit(0)}${buildAuthStatusNodeBranch()}require("fs").appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:a,cwd:process.cwd(),cfg:process.env.CLAUDE_CONFIG_DIR,path:process.env.PATH})+"\\n");${buildLaunchNodeAnswer(FRESH_ID_EXPR, "positional")}\n`,
 	);
 	fs.chmodSync(file, 0o755);
 	return file;
@@ -369,7 +369,7 @@ const read=(f)=>fs.existsSync(f)?fs.readFileSync(f,"utf8").trim().split("\\n").f
 if(a[0]==="agents"){const st=process.env.WFC_STUB_STATE||"done";const extra=(process.env.WFC_STUB_EXTRA||"").split(",").filter(Boolean);fs.appendFileSync(${JSON.stringify(listings)},"x");const n=fs.readFileSync(${JSON.stringify(listings)},"utf8").length;const lim=Number(process.env.WFC_STUB_EXTRA_LISTINGS||Infinity);const ex=n<=lim?"working":"done";console.log(JSON.stringify([...read(${JSON.stringify(jobs)}).map(id=>({id,kind:"background",state:st})),...extra.map(id=>({id,kind:"background",state:ex}))]));process.exit(0)}
 if(a[0]==="stop"){fs.appendFileSync(${JSON.stringify(stops)},a[1]+"\\n");process.exit(0)}
 ${onLaunch}
-const id=${FRESH_ID};fs.appendFileSync(${JSON.stringify(jobs)},id+"\\n");${buildLaunchNodeAnswer("id")}
+const id=${FRESH_ID_EXPR};fs.appendFileSync(${JSON.stringify(jobs)},id+"\\n");${buildLaunchNodeAnswer("id", "positional")}
 `,
 		);
 		fs.chmodSync(file, 0o755);

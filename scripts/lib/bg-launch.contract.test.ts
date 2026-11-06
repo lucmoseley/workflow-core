@@ -64,20 +64,27 @@ const readLaunchId = (stdout: string) =>
 const buildAnswering = (r: Answer) =>
 	`printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
 
-/* Each kind's marking flag and where its program puts it: before the prompt,
- * before the name, or before a name the prompt follows. */
-const launchCases: { kind: LaunchKind; flag: string; at: number }[] = [
-	{ kind: "prompted", flag: "--", at: -2 },
-	{ kind: "idle", flag: "--name", at: -2 },
-	{ kind: "named", flag: "-n", at: -3 },
+/* Each kind's prompt, after `--` or bare, and its name flag, if any. */
+const launchCases: {
+	kind: LaunchKind;
+	prompt: "--" | "bare" | "none";
+	name?: string;
+}[] = [
+	{ kind: "prompted", prompt: "--" },
+	{ kind: "idle", prompt: "none", name: "--name" },
+	{ kind: "positional", prompt: "bare" },
+	{ kind: "named", prompt: "bare", name: "-n" },
 ];
 
-describe.each(launchCases)("the $kind launch", ({ kind, flag, at }) => {
+describe.each(launchCases)("the $kind launch", ({ kind, prompt, name }) => {
 	const r = recorded.launches[kind];
 
 	it("was recorded in its program's shape", () => {
 		expect(r.argv[0]).toBe("--bg");
-		expect(r.argv.at(at)).toBe(flag);
+		expect(r.argv.includes("--")).toBe(prompt === "--");
+		expect(r.argv.at(-1)?.includes(" ")).toBe(prompt !== "none");
+		expect(r.argv.includes("-n") || r.argv.includes("--name")).toBe(!!name);
+		if (name) expect(r.argv).toContain(name);
 		expect(r.status).toBe(0);
 	});
 

@@ -6,19 +6,21 @@
  * lib/claude-stub.ts's `buildBgBranch`, a removal's as a stub branch.
  *
  * Residual: no failed launch is recorded, since none is free — an unknown
- * flag and an untrusted directory both start a job (probed on 2.1.318).
+ * flag and an untrusted directory both start a job (probed on 2.1.318) — so
+ * `unrecorded`'s answers are written by hand.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { buildJobIdWord } from "./claude-stub";
+import { shellQuote } from "./sh-quote.js";
 
 /** `prompted`: `--bg <flags> -- <prompt>`, as guard-main-checkout-job.js
- * launches, and as dispatch-sessions.sh and run-arm-test.js launch unnamed;
- * `idle`: `--bg --agent claude --name <name>`, as start-session.sh does;
- * `named`: `--bg <flags> -n <name> <prompt>`, as dispatch-sessions.sh's
- * overflow launch. */
-export type LaunchKind = "prompted" | "idle" | "named";
+ * launches; `idle`: `--bg --agent claude --name <name>`, as start-session.sh
+ * does; `positional`: `--bg <flags> <prompt>`, as dispatch-sessions.sh and
+ * run-arm-test.js do; `named`: `--bg <flags> -n <name> <prompt>`, as
+ * dispatch-sessions.sh's overflow launch. */
+export type LaunchKind = "prompted" | "idle" | "positional" | "named";
 export type RmKind = "ok" | "noJob";
 
 export interface Answer {
@@ -39,6 +41,22 @@ export const recorded: {
 	),
 );
 
+/** Launches no recording shows: one that printed nothing, and one that
+ * refused to start. */
+export const unrecorded = {
+	silent: { status: 0, stdout: "", stderr: "" },
+	refused: { status: 1, stdout: "", stderr: "could not start\n" },
+};
+
+/** The recorded `kind` launch's answer, naming job `id`. */
+export function launchAnswer(id: string, kind: LaunchKind = "prompted") {
+	const r = recorded.launches[kind];
+	return {
+		stdout: r.stdout.replaceAll(r.id, id),
+		stderr: r.stderr.replaceAll(r.id, id),
+	};
+}
+
 /** The recorded `kind` launch's answer naming job `id`, written into `dir`
  * as the `out` and `err` files `buildBgBranch` prints. */
 export function writeLaunchAnswer(
@@ -46,12 +64,18 @@ export function writeLaunchAnswer(
 	id: string,
 	kind: LaunchKind = "prompted",
 ) {
-	const r = recorded.launches[kind];
+	const { stdout, stderr } = launchAnswer(id, kind);
 	const out = path.join(dir, "bg-launch.out");
 	const err = path.join(dir, "bg-launch.err");
-	fs.writeFileSync(out, r.stdout.replaceAll(r.id, id));
-	fs.writeFileSync(err, r.stderr.replaceAll(r.id, id));
+	fs.writeFileSync(out, stdout);
+	fs.writeFileSync(err, stderr);
 	return { out, err };
+}
+
+/** A stub's lines answering a launch with `unrecorded[kind]`. */
+export function buildUnrecordedBranch(kind: keyof typeof unrecorded) {
+	const r = unrecorded[kind];
+	return `printf '%s' ${shellQuote(r.stdout)}; printf '%s' ${shellQuote(r.stderr)} >&2; exit ${r.status}`;
 }
 
 /** A Node stub's statements printing the recorded `kind` launch's answer

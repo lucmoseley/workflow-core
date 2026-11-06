@@ -39,9 +39,9 @@
  * It launches one throwaway Haiku session and resumes it
  * while it works, then again once stopped, then once more with its job
  * directory deleted, launches a second told to ask one question and a third
- * told to run one command it must ask leave for, and a fourth under a name,
- * removes that third with
- * `claude rm`, and stops every other job it started, so it spends up to eight short turns. The command never
+ * told to run one command it must ask leave for, a fourth and a fifth after their flags, the fifth under a
+ * name, removes that third with
+ * `claude rm`, and stops every other job it started, so it spends up to nine short turns. The command never
  * runs: the prompt is never answered. The `/usage` probe spends no turn, but
  * first waits up to two minutes for the seat's cache to age into a refresh.
  *
@@ -122,6 +122,7 @@ const SYNTHETIC = {
 	removedId: "5e55de1e",
 	idleId: "5e551d1e",
 	namedId: "5e55a3ed",
+	positionalId: "5e55b05e",
 };
 
 /** @param {Row} row */
@@ -468,6 +469,8 @@ async function main() {
 			throw new Error(
 				`could not remove ${idle.id}: ${idleRemoved.stderr.trim()}`,
 			);
+		const positional = launchArgv(["--bg", "--model", "haiku", PROMPT]);
+		started.push(positional.id);
 		const named = launchArgv([
 			"--bg",
 			"--model",
@@ -535,6 +538,19 @@ async function main() {
 					status: idle.status,
 					stdout: idle.stdout.replaceAll(idle.id, SYNTHETIC.idleId),
 					stderr: idle.stderr.replaceAll(idle.id, SYNTHETIC.idleId),
+				},
+				positional: {
+					argv: positional.argv,
+					id: SYNTHETIC.positionalId,
+					status: positional.status,
+					stdout: positional.stdout.replaceAll(
+						positional.id,
+						SYNTHETIC.positionalId,
+					),
+					stderr: positional.stderr.replaceAll(
+						positional.id,
+						SYNTHETIC.positionalId,
+					),
 				},
 				named: {
 					argv: named.argv,

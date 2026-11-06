@@ -22,7 +22,11 @@ import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { writeProcRoot } from "./admission-testkit";
 import { buildAuthStatusBranch } from "./auth-status-fake";
-import { type LaunchKind, writeLaunchAnswer } from "./bg-launch-fake";
+import {
+	buildUnrecordedBranch,
+	type LaunchKind,
+	writeLaunchAnswer,
+} from "./bg-launch-fake";
 import { buildBgBranch } from "./claude-stub";
 import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
@@ -81,9 +85,8 @@ export interface StubClaudeOptions {
 	 * running" rather than as unparseable. A case driving either with real
 	 * sessions passes a JSON array here. */
 	agentsJson?: string;
-	/** Which recorded launch answer the stub prints (lib/bg-launch-fake.ts),
-	 * naming job `jobId`; `silent` prints nothing, a launch no recording
-	 * shows. */
+	/** Which launch answer of lib/bg-launch-fake.ts the stub prints, naming
+	 * job `jobId`; `silent` is its unrecorded launch that printed nothing. */
 	launch?: LaunchKind | "silent";
 	/** The job id the launch answer names. */
 	jobId?: string;
@@ -288,7 +291,7 @@ export function dispatchFixture(): DispatchFixture {
 			launchFails = false,
 			at = stubPath(),
 			agentsJson = agentsListing(),
-			launch = "prompted",
+			launch = "positional",
 			jobId = "0b5e55ed",
 			argvLog = path.join(fx.dir, "argv"),
 			envLog,
@@ -325,7 +328,7 @@ export function dispatchFixture(): DispatchFixture {
 			`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(agentsJson)}; exit 0; fi`,
 			envLog ? `env >> ${shellQuote(envLog)}` : "",
 			`pwd >> ${shellQuote(path.join(fx.dir, "launch-cwds"))}`,
-			launchAnswer(launchFails, launch, jobId),
+			buildLaunchAnswer(launchFails, launch, jobId),
 		]
 			.filter(Boolean)
 			.join("\n");
@@ -333,13 +336,13 @@ export function dispatchFixture(): DispatchFixture {
 		fs.chmodSync(at, 0o755);
 	}
 
-	function launchAnswer(
+	function buildLaunchAnswer(
 		fails: boolean,
 		launch: LaunchKind | "silent",
 		jobId: string,
 	): string {
-		if (fails) return "printf 'could not start\\n' >&2\nexit 1";
-		if (launch === "silent") return "exit 0";
+		if (fails) return buildUnrecordedBranch("refused");
+		if (launch === "silent") return buildUnrecordedBranch("silent");
 		return buildBgBranch(writeLaunchAnswer(fx.dir, jobId, launch));
 	}
 
