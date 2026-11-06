@@ -36919,6 +36919,7 @@
 			"scripts/run-vitest.test.ts",
 			"scripts/self-plugin-canary.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-checkout-reap.test.ts",
 			"scripts/vitest-tree-watch.test.ts",
 			"scripts/wayfinder-frontier.test.ts"
 		],

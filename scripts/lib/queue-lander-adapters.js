@@ -16,6 +16,7 @@ const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
 const { execGit, gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
+const { isNetworkFault } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
@@ -62,7 +63,8 @@ const PHASES = [
 	"landed",
 ];
 /* git push's words for a ref the remote itself refused, as a ruleset or a
- * protected branch does: pushed again, it is refused again. */
+ * protected branch does: pushed again, it is refused again — save where the
+ * refusal is the remote's own fault, which lib/network-fault.js names. */
 const REMOTE_REJECTED = /^ ! \[remote rejected\].*/m;
 /* Git's words for a loose object a crash left empty or torn, naming its file
  * by its fan-out directory and name. */
@@ -240,7 +242,7 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				return null;
 			} catch (err) {
 				const refused = REMOTE_REJECTED.exec(String(caught(err).stderr ?? ""));
-				if (refused === null) throw err;
+				if (refused === null || isNetworkFault(err)) throw err;
 				return refused[0].trim();
 			}
 		},
