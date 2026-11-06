@@ -605,8 +605,9 @@ function readWslCurrency() {
  * One checkout's open `urgent` issues, each with when its timeline last
  * records the label applied and why pick-next's last run there left it
  * unlaunched (#2693). One whose timeline records no application is aged from
- * its creation, a bound (#3760); one whose timeline will not read is unread,
- * never dropped or taken as fresh.
+ * its creation, an upper bound (#3760); one whose timeline will not read is
+ * unread, never dropped or taken as fresh. Residual: an old issue made urgent
+ * yesterday by a route the timeline does not record lists as stuck.
  * @param {string} root
  * @param {string} repo
  * @param {Reads} reads
@@ -623,16 +624,20 @@ function readUrgent(root, repo, reads) {
 	if ("why" in listed) return { read, unread: [...unread, listed] };
 	for (const { number, title, createdAt } of listed.open) {
 		const age = readLabelAgeOn(repo, number, URGENT_LABEL, reads);
-		if (age.unknown && !age.unrecorded)
-			unread.push({ repo, why: `#${number}'s urgent age: ${age.error}` });
-		else
+		const unlaunched = { number, title, why: whyNotLaunched(snapshot, number) };
+		if (!age.unknown)
 			read.push({
-				number,
-				title,
-				appliedAt: age.unknown ? createdAt : age.appliedAt,
-				bound: age.unknown === true,
-				why: whyNotLaunched(snapshot, number),
+				...unlaunched,
+				appliedAt: age.appliedAt,
+				agedFromCreation: false,
 			});
+		else if (age.unrecorded)
+			read.push({
+				...unlaunched,
+				appliedAt: createdAt,
+				agedFromCreation: true,
+			});
+		else unread.push({ repo, why: `#${number}'s urgent age: ${age.error}` });
 	}
 	return { read, unread };
 }

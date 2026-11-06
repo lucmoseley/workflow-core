@@ -306,7 +306,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(readCreated()).toHaveLength(0);
 	});
 
-	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, one with no labeled event at most its creation's age, not one urgent 6 days nor one whose timeline will not read, and writes no label (#2693, #3760)", () => {
+	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, one with no labeled event at its creation's age, marked at most, not one urgent 6 days nor one whose timeline will not read, and writes no label (#2693, #3760)", () => {
 		seed([]);
 		const labelled = (hours: number) => [
 			{ event: "labeled", label: { name: "urgent" }, created_at: ago(hours) },

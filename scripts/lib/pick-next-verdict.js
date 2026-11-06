@@ -194,7 +194,7 @@ function tiersOf(own, held) {
  * worst case is a stall keeping the rank it has today and printing `?`.
  * @param {{ok: boolean, events?: any[], error?: any}} timeline
  * @param {number} now ms since the epoch
- * @returns {{unknown: true, error: any, ageDays?: undefined, appliedAt?: undefined, appliedBy?: undefined, stalled?: undefined}
+ * @returns {{unknown: true, unrecorded: boolean, error: any, ageDays?: undefined, appliedAt?: undefined, appliedBy?: undefined, stalled?: undefined}
  *   | {unknown?: false, error?: undefined, ageDays: number, appliedAt: string, appliedBy: string, stalled: boolean}}
  */
 function waitFrom(timeline, now) {
