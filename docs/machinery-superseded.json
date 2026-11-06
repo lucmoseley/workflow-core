@@ -2441,5 +2441,17 @@
 				"scanned": true
 			}
 		]
+	},
+	"lander-whole-charge": {
+		"needles": [
+			{
+				"needle": "1,150 MB",
+				"scanned": true
+			},
+			{
+				"needle": "1150 MB",
+				"scanned": true
+			}
+		]
 	}
 }
