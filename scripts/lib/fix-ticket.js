@@ -12,7 +12,8 @@
 const { citedIssues } = require("./cited-issues.js");
 const { parseFiledLine } = require("./filed-line.js");
 const { FilingRefusedError } = require("./filing-refused.js");
-const { gh, ghJson, parseErrLine } = require("./gh.js");
+const { gh, parseErrLine } = require("./gh.js");
+const { readTicketsByPrefix } = require("./incident-tickets.js");
 const { spawnGitSync } = require("./git.js");
 const { parseFirstLine } = require("./first-line.js");
 const { short } = require("./lander-git.js");
@@ -147,12 +148,12 @@ Tip commit: ${quoteSubject(subject)}
 /**
  * @typedef {FilerDeps & {subjectsOf: (base: string,
  *   tip: string) => string[], openUnits: (parent: number|null) => number[],
- *   titled: (phrase: string) => {number: number, title: string}[]}}
+ *   readTicketsTitled: (prefix: string) => Map<string, number>}}
  *   DropFilerDeps `subjectsOf` the subjects of the commits on `tip` and not
  *   on `base`, newest first; `openUnits` the tickets rule:size-line weighs a
  *   new one under `parent` against: its sub-issues and this session's
- *   filings; `titled` the issues, open and closed, the tracker's search finds
- *   `phrase` in the title of
+ *   filings; `readTicketsTitled` the issues, open and closed, whose titles
+ *   start with `prefix`, by title
  */
 
 /**
@@ -167,13 +168,10 @@ Tip commit: ${quoteSubject(subject)}
 function dropTicketFiler(deps) {
 	return {
 		findDropTicket(name, sha) {
-			const prefix = dropTicketPrefix(name, sha);
-			const [first] = deps
-				.titled(prefix)
-				.filter((c) => c.title.startsWith(prefix))
-				.map((c) => c.number)
-				.sort((a, b) => a - b);
-			return first ?? null;
+			const found = [
+				...deps.readTicketsTitled(dropTicketPrefix(name, sha)).values(),
+			];
+			return found.length > 0 ? Math.min(...found) : null;
 		},
 		fileDropTicket(d) {
 			const subjects = deps.subjectsOf(d.onto, d.sha);
@@ -319,22 +317,11 @@ function liveFilerDeps(root) {
 		 * must not be filed a second time. */
 		similar: (title) => similarTitles(repo(), title).found,
 		/* Search, not the cached title corpus, which can miss a ticket closed
-		 * within its refresh hour (closed-title-cache.js). */
-		titled: (phrase) =>
-			ghJson([
-				"issue",
-				"list",
-				"--repo",
-				repo(),
-				"--state",
-				"all",
-				"--search",
-				`"${phrase}" in:title`,
-				"--json",
-				"number,title",
-				"--limit",
-				"20",
-			]),
+		 * within its refresh hour (closed-title-cache.js). An open ticket the
+		 * search has yet to index is still found by `similar`'s live read
+		 * before a second is filed. */
+		readTicketsTitled: (prefix) =>
+			readTicketsByPrefix(repo(), "drop fix tickets", prefix),
 		fileIssue: liveQueueDeps(root).fileIssue,
 		openUnits: (parent) => [
 			...(parent === null

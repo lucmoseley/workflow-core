@@ -118,6 +118,8 @@ interface Options {
 	fileFault?: () => Error | undefined;
 	/** Throws in place of the fix ticket search, while it returns an error. */
 	findFault?: () => Error | undefined;
+	/** The shas `main` holds, beyond `main` itself. */
+	onMain?: readonly string[];
 	acquired?: boolean;
 	/** The run's clock, in ms; NOW where absent. */
 	now?: number;
@@ -205,6 +207,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				remote.refs.delete(name);
 				return true;
 			},
+			isAncestor: (sha, of) => sha === of || (o.onMain ?? []).includes(sha),
 			createRef: (branch, sha) => {
 				call("createRef");
 				const held = remote.dropped.get(branch);
@@ -1088,7 +1091,7 @@ describe("the reap", () => {
 	});
 });
 
-describe("a dropped ref the drop record lost", () => {
+describe("a dropped ref the drop record lost (#4498)", () => {
 	it("gets its entry back with the ticket titled for it, and is reaped once that ticket closes", async () => {
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
 		const disk = freshDisk();
@@ -1157,6 +1160,19 @@ describe("a dropped ref the drop record lost", () => {
 			["dropped/a", 7],
 			[ref, 100 + 1],
 		]);
+	});
+
+	it("deletes one with no ticket whose sha main already holds, filing none", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+
+		const { end, actions } = await land(remote, disk, { onMain: ["a1"] });
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).toEqual(["adopt-dropped-ref", "exit"]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.drops).toEqual([]);
+		expect(disk.filed).toEqual([]);
 	});
 
 	it("files nothing where the tracker cannot be searched, leaving the ref for the next run", async () => {

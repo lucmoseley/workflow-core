@@ -92,8 +92,11 @@ function ownQueueRef(tree, root) {
  */
 function droppedRefsOf(name, sha) {
 	const plain = `${DROPPED_PREFIX}${name}`;
-	return [plain, `${plain}-${sha.slice(0, 9)}`];
+	return [plain, `${plain}${keyedSuffix(sha)}`];
 }
+
+/** @param {string} sha */
+const keyedSuffix = (sha) => `-${sha.slice(0, 9)}`;
 
 /**
  * The queue ref name a dropped ref holding `sha` was dropped from: the
@@ -104,7 +107,7 @@ function droppedRefsOf(name, sha) {
  */
 function droppedNameOf(ref, sha) {
 	const name = ref.slice(DROPPED_PREFIX.length);
-	const keyed = `-${sha.slice(0, 9)}`;
+	const keyed = keyedSuffix(sha);
 	return name.endsWith(keyed) ? name.slice(0, -keyed.length) : name;
 }
 

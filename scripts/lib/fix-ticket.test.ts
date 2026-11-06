@@ -56,7 +56,12 @@ describe("dropTicketFiler", () => {
 			},
 			openUnits: (parent) => units[String(parent)] ?? [],
 			similar: () => listed,
-			titled: () => listed,
+			readTicketsTitled: (prefix) =>
+				new Map(
+					listed
+						.filter((c) => c.title.startsWith(prefix))
+						.map((c) => [c.title, c.number]),
+				),
 			fileIssue: (args, input) => {
 				files.push({ args, input });
 				if (refuseParent !== null && args.includes("--parent"))
@@ -88,7 +93,7 @@ describe("dropTicketFiler", () => {
 		};
 	}
 
-	it("finds the lowest-numbered ticket titled for the drop, and none where only a near title is searched up", () => {
+	it("finds the lowest-numbered ticket whose title starts with the drop's prefix, and none where only a near title does", () => {
 		const titled = (number: number, title: string) => ({ number, title });
 		const near = [
 			titled(5, "Fix queue/wt-10 at aaaaaaaaa, dropped by the queue lander: x"),

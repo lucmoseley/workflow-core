@@ -191,7 +191,8 @@ class TransientFault extends Error {}
  * @property {string} name after `queue/`
  * @property {string} sha
  * @property {string} ref the dropped ref holding it, after `refs/heads/`
- * @property {string} onto the `main` it was merged onto
+ * @property {string} onto the `main` it was merged onto, or, for an entry
+ *   written back for a ref none named, `main` when it was
  * @property {Cause} cause
  * @property {number|null} ticket its fix ticket, null until filed
  * @property {number} at when it was dropped, in ms
@@ -940,6 +941,8 @@ function nextQueueAction(s) {
  *   failure, a network fault or `main` moved under it among them
  * @property {(branch: string, sha: string) => boolean} deleteRef deletes the
  *   remote's `branch` only where it still holds `sha`, false where it moved
+ * @property {(sha: string, of: string) => boolean} isAncestor whether `sha`
+ *   is `of` or an ancestor of it
  * @property {(branch: string, sha: string) => void} createRef creates the
  *   remote's `branch` at `sha`, refused where it holds another sha
  * @typedef {object} QueueTracker
@@ -1082,10 +1085,8 @@ function dropMember(deps, d, run) {
 function fileFixTicket(deps, d, run) {
 	const { say = () => undefined } = deps;
 	/** @param {string} why */
-	const unfiled = (why) => {
-		say(`fix ticket for ${d.ref} not filed, left for the next run: ${why}`);
-		return { ...run, unfiled: [...run.unfiled, d.ref] };
-	};
+	const unfiled = (why) =>
+		leaveUnfiled(deps, run, { ref: d.ref, undone: "filed", why });
 	let line;
 	try {
 		line = deps.tracker.fileDropTicket(d);
@@ -1110,9 +1111,23 @@ function fileFixTicket(deps, d, run) {
 const FILED = /#(\d+)/;
 
 /**
+ * The run with `ref`'s fix ticket left for the next run, reported.
+ * @param {QueueLanderDeps} deps
+ * @param {QueueRun} run
+ * @param {{ref: string, undone: "filed" | "searched", why: string}} left
+ * @returns {QueueRun}
+ */
+function leaveUnfiled(deps, run, { ref, undone, why }) {
+	const { say = () => undefined } = deps;
+	say(`fix ticket for ${ref} not ${undone}, left for the next run: ${why}`);
+	return { ...run, unfiled: [...run.unfiled, ref] };
+}
+
+/**
  * Writes back the drop record entry of a dropped ref none names, with the
  * fix ticket the tracker holds for it, its state read so a closed one is
- * reaped this run; with none, the next action files one. A search that
+ * reaped this run; with none, the next action files one, unless `main`
+ * already holds its sha, where the ref is deleted instead. A search that
  * throws other than transiently is reported, and the ref left for the next
  * run, so no second ticket is filed on a search that read nothing (#4498).
  * @param {QueueLanderDeps} deps
@@ -1121,17 +1136,21 @@ const FILED = /#(\d+)/;
  * @returns {QueueRun}
  */
 function adoptDroppedRef(deps, { ref, sha, onto }, run) {
-	const { say = () => undefined } = deps;
 	const name = droppedNameOf(ref, sha);
 	let ticket;
 	try {
 		ticket = deps.tracker.findDropTicket(name, sha);
 	} catch (err) {
 		if (isTransientFault(err)) throw err;
-		say(
-			`fix ticket for ${ref} not searched, left for the next run: ${parseRefusal(parseErrorText(err))}`,
-		);
-		return { ...run, unfiled: [...run.unfiled, ref] };
+		return leaveUnfiled(deps, run, {
+			ref,
+			undone: "searched",
+			why: parseRefusal(parseErrorText(err)),
+		});
+	}
+	if (ticket === null && deps.git.isAncestor(sha, onto)) {
+		deps.git.deleteRef(ref, sha);
+		return run;
 	}
 	deps.drops.write([
 		...deps.drops.read(),
@@ -1583,7 +1602,7 @@ function readClosedTickets(deps) {
 
 /**
  * Whether the ticket is closed; one that cannot be read reads as open and is
- * reported.
+ * reported (#4485).
  * @param {QueueLanderDeps} deps
  * @param {number} ticket
  * @param {string} ref the dropped ref it reaps
