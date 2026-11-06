@@ -108,7 +108,6 @@ function buildDropAcceptance({ sha, name, cause }) {
 }
 
 /**
- * The title every fix ticket for `queue/<name>` dropped at `sha` starts with.
  * @param {string} name
  * @param {string} sha
  */

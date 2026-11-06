@@ -185,7 +185,7 @@ class TransientFault extends Error {}
  *   merging it onto `main` after the members `after` landed, red twice on
  *   `files`, none where the red named none, each member having passed alone
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
- *   a dropped ref no drop record entry named, its cause lost with the entry
+ *   a dropped ref no drop record entry named
  * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
