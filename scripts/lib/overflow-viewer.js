@@ -1,9 +1,6 @@
 /*
  * overflow-viewer.js — the founder's terminal view of the overflow seats'
- * headless runs (#4583), laid out as `claude agents` lays out plan sessions:
- * a row per session in three sections, a session's thread followed live, and
- * a reply line. A plan's included API credits cover `claude -p` alone, never a
- * `--bg` job (#4578), so these runs never reach the agents view.
+ * headless runs (#4583), laid out as `claude agents` lays out plan sessions.
  *
  * A SESSION is every run in lib/headless-runs.js's store sharing a session id:
  * a resume, the founder's reply or the loop's, is a new run of the same
@@ -12,8 +9,7 @@
  *   awaiting input  ended, its last assistant text ending on `needs input:`;
  *   completed       any other ended run.
  *
- * Node built-ins only: raw-mode stdin read by lib/refill-panel-input.js, ANSI
- * out on the alternate screen, handed back on every exit a process can catch.
+ * Node built-ins only: raw-mode stdin read by lib/refill-panel-input.js.
  */
 
 const { readLiveAgents, readStoredRuns } = require("./headless-runs.js");
@@ -71,7 +67,6 @@ const STATE_WORDS = {
 	working: "working",
 	completed: "completed",
 };
-/* The state column fits its longest word. */
 const STATE_WIDTH = Math.max(
 	...Object.values(STATE_WORDS).map((w) => w.length),
 );
@@ -108,7 +103,6 @@ const toolSummary = (input) =>
 	);
 
 /**
- * The readable events of one stream-json line.
  * @param {Record<string, any>} o
  * @returns {RunEvent[]}
  */
@@ -133,7 +127,6 @@ function lineEvents(o) {
 }
 
 /**
- * A run's readable events: text, tool calls, its end.
  * @param {string} log
  * @returns {RunEvent[]}
  */
@@ -198,7 +191,6 @@ function buildSessions(runs, live, eventsOf, now) {
 }
 
 /**
- * The store's sessions now.
  * @returns {Session[]}
  * @throws where the store or a record cannot be read
  */
@@ -208,7 +200,6 @@ function readSessions() {
 }
 
 /**
- * A session's thread: each run's prompt, then what it did.
  * @param {Session} session
  * @returns {RunEvent[]}
  */
@@ -220,7 +211,6 @@ function readThread(session) {
 }
 
 /**
- * The list's lines: each section's title, then its rows.
  * @param {Session[]} sessions
  * @param {string|null} selected session id
  * @param {number} columns
@@ -280,7 +270,6 @@ function wrap(text, width) {
 }
 
 /**
- * A thread's lines, oldest first.
  * @param {RunEvent[]} events
  * @param {number} columns
  * @returns {string[]}
@@ -519,8 +508,7 @@ function createViewer(io) {
 }
 
 /**
- * Runs the view until the process exits, through `proc.exit`. Returns its
- * close, which stops the poll and hands the terminal back.
+ * Runs the view until the process exits, through `proc.exit`.
  * @param {{stdin: Pick<import("node:tty").ReadStream, "setRawMode"|"resume"|"setEncoding"|"on">,
  *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns"|"rows">,
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},

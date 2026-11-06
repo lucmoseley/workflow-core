@@ -42,8 +42,6 @@ const WORKING = {
 };
 const DONE = { job: "0000000c", sid: "cccccccc-0000-4000-8000-000000000000" };
 
-/* Records its argv, environment and what the apiKeyHelper it was handed
- * printed, then exits, as a run that ends at once. */
 const FAKE = `#!/usr/bin/env node
 ${buildAuthStatusNodeBranch()}
 const fs = require("node:fs");
@@ -151,8 +149,7 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/* A terminal of scripted stdin, its frames, and a process whose exit is a
- * spy; `close` stops the view's poll. */
+/* `close` stops the view's poll. */
 function openTerminal(over: Partial<Parameters<typeof openViewer>[0]> = {}) {
 	const stdin = Object.assign(new EventEmitter(), {
 		setRawMode: vi.fn(),
@@ -385,8 +382,7 @@ describe("the seat gate", () => {
 });
 
 describe("a stop", () => {
-	/* Crosses the real stop routing on a real process group: a `sleep` is the
-	 * run, so the stop's signal reaches nothing else. */
+	/* A `sleep` is the run, so the stop's signal reaches nothing else. */
 	it("ends the run's process group through the stop routing", async () => {
 		const child = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
 		const pid = child.pid as number;

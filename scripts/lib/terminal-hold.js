@@ -1,8 +1,7 @@
 /*
  * terminal-hold.js — a full-screen program's hold on its terminal (#3873,
  * #4583): raw mode and the program's screen modes on opening, handed back on
- * every exit a process can catch. lib/refill-panel-terminal.js and
- * lib/overflow-viewer.js both open through it.
+ * every exit a process can catch.
  */
 
 /* How long a lone escape byte waits for the rest of a sequence before it reads as

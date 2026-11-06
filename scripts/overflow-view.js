@@ -26,7 +26,6 @@ const {
 } = require("./lib/overflow-viewer.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/* A pipe has no width, so nothing is clipped. */
 const PIPE_COLUMNS = Number.POSITIVE_INFINITY;
 
 /** @param {string[]} argv */
