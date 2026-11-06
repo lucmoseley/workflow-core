@@ -21,9 +21,10 @@
  *
  * THE MASKER READS MORE THAN THAT (#3917): readStoredSecrets also takes a line
  * as dotenv's parser does, a dotted or hyphened name or `NAME: value`, and a
- * quoted value across breaks; and a commented-out `NAME=value`, though no
- * `# NAME: value`, as a comment's `Updated: 2026-11-02` is prose it would mask
- * everywhere. Nothing else reads or writes by this reading.
+ * quoted value across breaks, commented out line by line or not; and a
+ * commented-out `NAME=value`, though no `# NAME: value`, as a comment's
+ * `Updated: 2026-11-02` is prose it would mask everywhere. Nothing else reads
+ * or writes by this reading.
  *
  * A RETURNED VALUE IS A SECRET: a caller puts it in no log line or message.
  */
@@ -221,32 +222,68 @@ function parseDotenvRaw(line) {
 	return m ? requiredGroup(m, 1, DOTENV_LINE) : null;
 }
 
+/* A line's indent, then its comment marks and the spaces between them. */
+const COMMENT_MARKS = /^(\s*)#(?:[\s#]*#)?/;
+
+/* What commenting out added to a later line, as the value's line was
+ * commented out too (#3999), each with what replaces it: the marks alone and
+ * those and one space, as an editor's toggle writes `# `, each keeping the
+ * line's indent; or the marks and every space around them. */
+const COMMENT_OPENINGS = [
+	{ opening: COMMENT_MARKS, kept: "$1" },
+	{ opening: /^(\s*)#(?:[\s#]*#)? /, kept: "$1" },
+	{ opening: /^\s*#[\s#]*/, kept: "" },
+];
+
 /**
  * A value's parts as a masker reads it: whole, as dotenv hands on its breaks
- * too, a CR as it normalises one, and part by part.
+ * too, a CR as it normalises one, and part by part. A value commented out
+ * line by line is read again with each of COMMENT_OPENINGS off each later
+ * part.
  * @param {Part[]} parts
+ * @param {boolean} commented whether a comment mark opens the value's line
  * @returns {string[]}
  */
-function readingsOfSplitValue(parts) {
-	const whole = parts.map(({ lead, text }) => `${lead}${text}`).join("");
-	return [
-		whole,
-		whole.replace(/\r\n?/g, "\n"),
-		...parts.map(({ text }) => text),
-	].map(stripReadingEdge);
+function readingsOfSplitValue(parts, commented) {
+	/** @param {Part[]} held */
+	const readings = (held) => {
+		const whole = held.map(({ lead, text }) => `${lead}${text}`).join("");
+		return [
+			whole,
+			whole.replace(/\r\n?/g, "\n"),
+			...held.map(({ text }) => text),
+		];
+	};
+	const uncommented = commented
+		? COMMENT_OPENINGS.flatMap(({ opening, kept }) =>
+				readings(
+					parts.map((part, at) =>
+						at === 0
+							? part
+							: { ...part, text: part.text.replace(opening, kept) },
+					),
+				),
+			)
+		: [];
+	return [...readings(parts), ...uncommented].map(stripReadingEdge);
 }
 
 /**
- * The quote a part opens and leaves open, with what follows it.
+ * The quote a part opens and leaves open, with what follows it, and whether a
+ * comment mark opens the part.
  * @param {string} text
- * @returns {{ quote: string, opened: string } | null}
+ * @returns {{ quote: string, opened: string, commented: boolean } | null}
  */
 function parseOpener(text) {
 	const trimmed = parseDotenvRaw(text)?.trimStart();
 	const quote = trimmed?.charAt(0);
 	if (!trimmed || !quote || !QUOTES.includes(quote)) return null;
 	if (findQuotes(trimmed, quote, 1).closing !== -1) return null;
-	return { quote, opened: trimmed.slice(1) };
+	return {
+		quote,
+		opened: trimmed.slice(1),
+		commented: COMMENT_MARKS.test(text),
+	};
 }
 
 /**
@@ -258,7 +295,7 @@ function parseOpener(text) {
  * @returns {string[]}
  */
 function parseSplitValues(parts) {
-	/** @type {Map<string, { parts: Part[], fallback: { count: number, last: Part } | null }>} */
+	/** @type {Map<string, { parts: Part[], commented: boolean, fallback: { count: number, last: Part } | null }>} */
 	const open = new Map();
 	const values = [];
 	for (const { lead, text } of parts) {
@@ -266,7 +303,7 @@ function parseSplitValues(parts) {
 			const { closing, lastEscaped } = findQuotes(text, quote, 0);
 			if (closing !== -1) {
 				value.parts.push({ lead, text: text.slice(0, closing) });
-				values.push(readingsOfSplitValue(value.parts));
+				values.push(readingsOfSplitValue(value.parts, value.commented));
 				open.delete(quote);
 				continue;
 			}
@@ -282,14 +319,18 @@ function parseSplitValues(parts) {
 		if (opener) {
 			open.set(opener.quote, {
 				parts: [{ lead: "", text: opener.opened }],
+				commented: opener.commented,
 				fallback: null,
 			});
 		}
 	}
-	for (const { parts: held, fallback } of open.values()) {
+	for (const { parts: held, commented, fallback } of open.values()) {
 		if (fallback) {
 			values.push(
-				readingsOfSplitValue([...held.slice(0, fallback.count), fallback.last]),
+				readingsOfSplitValue(
+					[...held.slice(0, fallback.count), fallback.last],
+					commented,
+				),
 			);
 		}
 	}
