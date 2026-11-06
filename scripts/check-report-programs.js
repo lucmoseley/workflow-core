@@ -18,10 +18,11 @@
  * DEFEAT:    --warn caps findings below the gating line; a create through `gh api` on the issues endpoint.
  */
 
-const { parseMatchSites, runHeresyCheck } = require("./lib/heresy-scan.js");
-
-/* Directly under scripts/: `[^/]+` keeps a subdirectory's file out. */
-const REPORT = /^scripts\/report-[^/]+$/;
+const {
+	REPORT_PROGRAM,
+	parseMatchSites,
+	runHeresyCheck,
+} = require("./lib/heresy-scan.js");
 const ISSUE_CREATE = /(["'`])issue\1\s*,\s*(["'`])create\2|\bissue\s+create\b/g;
 
 const CREATE_FIX =
@@ -29,7 +30,7 @@ const CREATE_FIX =
 
 runHeresyCheck({
 	name: "report-programs",
-	include: (rel) => REPORT.test(rel),
+	include: (rel) => REPORT_PROGRAM.test(rel),
 	breaches: [
 		{
 			tag: "REPORT-ISSUE-CREATE",

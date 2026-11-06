@@ -15,6 +15,9 @@ const { isJsTestFile } = require("./test-kind.js");
 const { runCheck } = require("./check");
 
 const PROGRAM = /\.(?:c|m)?js$/;
+/* A `report-*` program: directly under scripts/, `[^/]+` keeping a
+ * subdirectory's file out. */
+const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 
 /**
  * @typedef {{ line: number, text: string }} Site
@@ -50,16 +53,25 @@ function parseLineSites({ source, code }, matches, optOut) {
 }
 
 /**
- * Each match of the global `re` in the blanked code, its text collapsed.
+ * Each match of the global `re` in the blanked code, its text collapsed, but
+ * one whose line or the line above carries `optOut` in the raw text.
  * @param {Program} program
  * @param {RegExp} re
+ * @param {RegExp} [optOut]
  * @returns {Site[]}
  */
-function parseMatchSites({ code }, re) {
-	return [...code.matchAll(re)].map((m) => ({
-		line: code.slice(0, m.index).split("\n").length,
-		text: m[0].replace(/\s+/g, " "),
-	}));
+function parseMatchSites({ source, code }, re, optOut) {
+	const raw = source.split("\n");
+	return [...code.matchAll(re)]
+		.map((m) => ({
+			line: code.slice(0, m.index).split("\n").length,
+			text: m[0].replace(/\s+/g, " "),
+		}))
+		.filter(
+			({ line }) =>
+				!optOut ||
+				!raw.slice(Math.max(0, line - 2), line).some((l) => optOut.test(l)),
+		);
 }
 
 /**
@@ -168,4 +180,9 @@ function runHeresyCheck({
 	});
 }
 
-module.exports = { parseLineSites, parseMatchSites, runHeresyCheck };
+module.exports = {
+	REPORT_PROGRAM,
+	parseLineSites,
+	parseMatchSites,
+	runHeresyCheck,
+};

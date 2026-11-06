@@ -74,37 +74,63 @@ describe("check-program-output", () => {
 			);
 	});
 
-	it("FAILs a report-* with no process.exit, and one marked console-kept", () => {
+	it("FAILs a report-* with no process.exit, one marked console-kept, a bare alias in a .cjs and a write in a template's placeholder", () => {
 		program("scripts/report-a.js", 'console.log("x");\n');
+		program("scripts/report-c.cjs", "const w = process.stdout.write;\n");
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
+		program("scripts/report-d.js", "const s = `${console.log(1)}`;\n");
 		program(
 			"scripts/report-b.js",
 			'// console-kept: terminal only\nconsole.log("x");\n',
 		);
 		const r = run();
 		expect(r.status).toBe(1);
-		expect(r.out).toContain("FAIL: 2 write(s) past writeFd");
+		expect(r.out).toContain("FAIL: 4 write(s) past writeFd");
 		expect(r.out).toContain("scripts/report-a.js:1 writes past writeFd");
+		expect(r.out).toContain(
+			"scripts/report-c.cjs:1 writes past writeFd before process.exit (`process.stdout.write`)",
+		);
+		expect(r.out).toContain("scripts/report-d.js:1 writes past writeFd");
 		expect(r.out).toContain("scripts/report-b.js:2 writes past writeFd");
 	});
 
-	it("passes writeFd, a console-kept site, tests, test support, and a program that never exits", () => {
+	const passes = (scanned: number) => {
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			`OK: ${scanned} program(s), none ending in process.exit writing past writeFd.`,
+		);
+	};
+
+	it("passes a program writing through writeFd", () => {
 		program(
 			"scripts/clean.js",
 			`const { writeFd } = require("./lib/write-fd.js");\nwriteFd(1, "x\\n");\n${EXIT}`,
 		);
+		passes(1);
+	});
+
+	it("passes a site marked console-kept, on its line or the line above", () => {
 		program(
 			"scripts/kept.js",
 			`// console-kept: only a human runs --watch, at a terminal\nconsole.log("x");\nconsole.error("y"); // console-kept: same path\n${EXIT}`,
 		);
-		program("scripts/clean.test.js", `console.log("x");\n${EXIT}`);
-		program("scripts/clean.test.ts", `console.log("x");\n${EXIT}`);
-		program("scripts/lib/gh-stub.js", `console.log("x");\n${EXIT}`);
+		passes(1);
+	});
+
+	it.each([
+		["a test file", "scripts/clean.test.js"],
+		["a TS test file", "scripts/clean.test.ts"],
+		["test support", "scripts/lib/gh-stub.js"],
+		["a template", "scripts/templates/t.js"],
+	])("leaves %s out of the population", (_, rel) => {
+		program(rel, `console.log("x");\n${EXIT}`);
+		passes(0);
+	});
+
+	it("passes a program that never calls process.exit", () => {
 		program("scripts/no-exit.js", 'console.log("x");\n');
-		const r = run();
-		expect(r.status).toBe(0);
-		expect(r.out).toContain(
-			"OK: 3 program(s), none ending in process.exit writing past writeFd.",
-		);
+		passes(1);
 	});
 
 	it("reads neither a write nor an exit inside a comment or a string", () => {
