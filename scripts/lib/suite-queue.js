@@ -737,12 +737,11 @@ function queueLeave(file, { queueFs = fs } = {}) {
 
 /**
  * Whether this waiter's turn has come: it reads the queue's markers, sweeps
- * the stale ones and asks `turnOf`. `passed` is how many older part-suites an
- * open part-suite turn passed (#3115): 0 where it passed none, absent on any
- * other turn or a closed one.
+ * the stale ones and asks `turnOf`. `passed` is 0 where an open part-suite
+ * turn passed none, absent on any other turn or a closed one.
  *
  * FAILS OPEN, like every other part of this wait: a queue directory that cannot
- * be read opens the turn rather than blocking the suite forever.
+ * be read opens the turn.
  *
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive, slots?: number, clock?: () => number }} [options]
  * @returns {{ open: boolean, passed?: number }}
@@ -791,7 +790,7 @@ function readTurn({
 }
 
 /**
- * Why a turn is closed, in the gate's order: a whole suite or a part-suite
+ * Why a turn is closed: a whole suite or a part-suite
  * held behind the waiters ahead of it, a `tsc` behind its own queue's, or
  * another launch admitted and unspawned.
  * @typedef {"fifo-whole" | "fifo-part" | "tsc-fifo" | "admitted"} TurnReason
@@ -799,14 +798,13 @@ function readTurn({
 /**
  * A turn's inputs, as a value: this waiter's class, the live waiters that
  * joined ahead of it, whether another launch in this queue or a peer is
- * admitted and unspawned, the slot count, and the reading's time.
+ * admitted and unspawned.
  * @typedef {{ waiter: "whole" | "part" | "tsc", ahead: Pick<QueueRecord, "at" | "part" | "spawned" | "memoryHeld">[], admissionOpen: boolean, slots: number, now: number }} TurnSnapshot
  */
 
 /**
  * Every reason `snapshot`'s turn is closed, in the gate's order, and on an open
- * part-suite turn how many older part-suites it passed (#3115). No reasons is
- * an open turn. `readTurn` and the queue-wait replay both ask it, so a change
+ * part-suite turn how many older part-suites it passed (#3115). `readTurn` and the queue-wait replay both ask it, so a change
  * to the rule reaches both (#4260).
  *
  * `partPass` switches #3058's pass on: always in the gate, from its commit in
