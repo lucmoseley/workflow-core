@@ -14,7 +14,7 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
-const { execGit, gitCommonDirOrThrow } = require("./git.js");
+const { execGit, gitCommonDirOrThrow, spawnGitSync } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const { isNetworkFault } = require("./network-fault.js");
 const {
@@ -246,6 +246,18 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 				if (refused === null || isNetworkFault(err)) throw err;
 				return refused[0].trim();
 			}
+		},
+		isAncestor(sha, of) {
+			/* --is-ancestor answers through its exit code alone: 0 on, 1 not. */
+			const r = spawnGitSync(["merge-base", "--is-ancestor", sha, of], {
+				cwd: root,
+				stdio: "ignore",
+				timeout: LANDER_GIT_TIMEOUT_MS,
+			});
+			if (r.status === 0 || r.status === 1) return r.status === 0;
+			throw new Error(
+				`git merge-base --is-ancestor ${short(sha)} ${short(of)} exited ${r.status ?? r.signal}`,
+			);
 		},
 		deleteRef(branch, sha) {
 			const ref = `refs/heads/${branch}`;
@@ -545,6 +557,8 @@ const isCause = (u) => {
 			return typeof o.reason === "string";
 		case "red":
 			return isStringList(o.files) && typeof o.iso === "string";
+		case "unrecorded":
+			return true;
 		case "collision":
 			return (
 				isStringList(o.files) &&
@@ -590,7 +604,8 @@ function readDropFile(file) {
 /**
  * The drop record: every dropped ref, with its fix ticket, until the queue
  * log's retention after its reap. A row that is not a drop is skipped; an absent or torn record
- * reads as none, and no run then reaps the refs it named.
+ * reads as none, and the lander writes back the entry of each dropped ref it
+ * named from the tracker.
  * @param {string} file
  * @returns {DropRecord}
  */
