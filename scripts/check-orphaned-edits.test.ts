@@ -342,6 +342,24 @@ describe("check-orphaned-edits", () => {
 		expect(readFilings()).toHaveLength(1);
 	});
 
+	it("budgets the timeout hooks/hooks.json gives its SessionStart run (#4542)", () => {
+		const hooks = fs.readFileSync(
+			path.join(__dirname, "..", "hooks", "hooks.json"),
+			"utf8",
+		);
+		const entry = JSON.parse(hooks)
+			.hooks.SessionStart.flatMap((g: { hooks: object[] }) => g.hooks)
+			.find((h: { command: string }) =>
+				h.command.includes("check-orphaned-edits.js"),
+			);
+		/* Read off the source: requiring the script would load lib/check.js's
+		 * process handlers into this worker. */
+		const budget = /const HOOK_TIMEOUT_MS = ([\d_]+);/.exec(
+			fs.readFileSync(SCRIPT, "utf8"),
+		)?.[1];
+		expect(entry.timeout * 1000).toBe(Number(budget?.replaceAll("_", "")));
+	});
+
 	it("leaves an interrupted filing alone rather than filing it again", async () => {
 		dirty("a.txt", 30);
 		await run();

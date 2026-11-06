@@ -3022,6 +3022,7 @@
 		"hooks/hooks.json": [
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-host-root.test.ts",
+			"scripts/check-orphaned-edits.test.ts",
 			"scripts/clear-rule-latch.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",

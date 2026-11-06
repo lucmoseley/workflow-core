@@ -104,8 +104,9 @@ function batchParser(onObject) {
 		chunks = [buf];
 		return buf;
 	};
+	/* A copy, not a view, so the body ahead of the tail is freed (#4542). */
 	const cut = (/** @type {Buffer} */ buf, /** @type {number} */ n) => {
-		chunks = [buf.subarray(n)];
+		chunks = [Buffer.from(buf.subarray(n))];
 		held -= n;
 	};
 	/** The next header's body size, null for a missing object, or undefined
@@ -117,10 +118,12 @@ function batchParser(onObject) {
 		const header = buf.subarray(0, nl).toString("utf8");
 		cut(buf, nl + 1);
 		if (header.endsWith(" missing")) return null;
-		const n = Number(header.split(" ").at(-1));
-		if (!Number.isInteger(n))
+		/* `<oid> <type> <size>`; anything else would put every later body on
+		 * the wrong object. */
+		const bytes = /^[0-9a-f]+ \S+ (\d+)$/.exec(header)?.[1];
+		if (bytes === undefined)
 			throw new Error(`git cat-file answered "${header}"`);
-		return n;
+		return Number(bytes);
 	};
 	/** The next object's body, null for a missing one, or undefined where it
 	 * is not all in hand. */
@@ -139,6 +142,7 @@ function batchParser(onObject) {
 		return body;
 	};
 	return (chunk) => {
+		if (stopped) return;
 		chunks.push(chunk);
 		held += chunk.length;
 		while (held > 0 && !stopped) {
@@ -162,7 +166,11 @@ function batchParser(onObject) {
  * @returns {Promise<boolean[]>}
  */
 function matchBlobGroups(groups, { cwd, timeout } = {}) {
+	/* A group with no blobs is settled unmatched, so it never holds off the
+	 * kill. */
 	const found = groups.map(() => false);
+	const settledAll = () =>
+		found.every((hit, i) => hit || !groups[i]?.blobs.length);
 	/* Which group each blob of the batch, in order, belongs to. */
 	const owner = groups.flatMap((g, i) => g.blobs.map(() => i));
 	if (owner.length === 0) return Promise.resolve(found);
@@ -185,7 +193,7 @@ function matchBlobGroups(groups, { cwd, timeout } = {}) {
 		const push = batchParser((body) => {
 			const i = /** @type {number} */ (owner[answered++]);
 			if (body !== null && !found[i] && groups[i]?.test(body)) found[i] = true;
-			return found.every(Boolean);
+			return settledAll();
 		});
 		child.stdout.on("data", (/** @type {Buffer} */ chunk) => {
 			try {
@@ -193,10 +201,10 @@ function matchBlobGroups(groups, { cwd, timeout } = {}) {
 			} catch (e) {
 				settle(() => reject(e));
 			}
-			if (found.every(Boolean)) settle(() => resolve(found));
+			if (settledAll()) settle(() => resolve(found));
 		});
 		child.stdin.on("error", () => {
-			/* A kill once every group matched leaves ids unwritten: EPIPE. */
+			/* A kill once every group matched leaves ids unwritten: EPIPE (#4542). */
 		});
 		child.on("error", (e) => settle(() => reject(e)));
 		child.on("close", (code) =>

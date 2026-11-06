@@ -137,7 +137,9 @@ const FILER_TIMEOUT_MS = 20_000;
 
 /* hooks/hooks.json's timeout for the SessionStart run, overridable so the
  * suite can spend it; and an untraced margin for the run's exit. */
-const hookTimeoutMs = () => capMs("WFC_ORPHAN_HOOK_TIMEOUT_MS", 60_000);
+const HOOK_TIMEOUT_MS = 60_000;
+const hookTimeoutMs = () =>
+	capMs("WFC_ORPHAN_HOOK_TIMEOUT_MS", HOOK_TIMEOUT_MS);
 const EXIT_MARGIN_MS = 2000;
 
 /* A filing starts only while its whole ceiling fits before the hook is
@@ -263,10 +265,7 @@ async function readUnfiledOrphans(filings, root) {
 	/** @type {Orphan[]} */
 	const out = [];
 	for (const f of filings) {
-		const marker = dir === null ? null : path.join(dir, markerName(f));
-		let filed = f.held;
-		if (filed === null && marker !== null && fs.existsSync(marker))
-			filed = readFiledStatus(marker);
+		let filed = whyUnfileable(f, dir);
 		if (filed === null) {
 			await judgeLanded(f, root);
 			filed = "not filed: `--write` files it";
@@ -777,8 +776,8 @@ function buildFilings(orphans, { youngIn, hours }) {
 }
 
 /**
- * Judge a worktree filing against `origin/main` where it stands: how each
- * orphan's change reached it, and `HEAD`'s commits off it. Run only for a
+ * Judge a worktree filing against `origin/main` where it stands, writing onto
+ * `f` (an accumulator): each orphan's `landed`, and `unlanded`. Run only for a
  * filing about to be filed, as reading every landed version of a large file
  * costs seconds (#4542).
  * @param {Filing} f
@@ -803,23 +802,20 @@ async function judgeLanded(f, root) {
 }
 
 /**
- * Take the marker for `f`, or say why it cannot be filed.
+ * Why `f` is not filed, as printed: held, a blob unread, no marker directory,
+ * or an existing marker's filing. Null where it can be filed.
  * @param {Filing} f
  * @param {string|null} dir
- * @returns {{taken: string} | {taken: null, filed: string}}
+ * @returns {string|null}
  */
-function takeFilingMarker(f, dir) {
-	if (f.held !== null) return { taken: null, filed: f.held };
+function whyUnfileable(f, dir) {
+	if (f.held !== null) return f.held;
 	if (f.orphans.some((o) => o.blob === "unknown"))
-		return { taken: null, filed: "not filed: its blob could not be read" };
+		return "not filed: its blob could not be read";
 	if (dir === null)
-		return {
-			taken: null,
-			filed:
-				"not filed: no marker directory in the git common dir, so a filing could repeat",
-		};
-	const { taken, status } = takeFiling(dir, f);
-	return taken === null ? { taken, filed: status } : { taken };
+		return "not filed: no marker directory in the git common dir, so a filing could repeat";
+	const marker = path.join(dir, markerName(f));
+	return fs.existsSync(marker) ? readFiledStatus(marker) : null;
 }
 
 /**
@@ -838,14 +834,9 @@ const buildMarkerRecord = (f, ref, now) =>
  * @param {Filing} f
  * @param {string} taken
  * @param {{root: string, now: number}} opts
- * @returns {Promise<string>} the outcome, for each orphan's `filed`
+ * @returns {string} the outcome, for each orphan's `filed`
  */
-async function fileUnderMarker(f, taken, { root, now }) {
-	await judgeLanded(f, root);
-	if (!hasFilingTime()) {
-		fs.rmSync(taken, { force: true });
-		return "not filed yet: this run's time is spent";
-	}
+function fileUnderMarker(f, taken, { root, now }) {
 	const supersedes =
 		f.worktree === null
 			? null
@@ -885,19 +876,29 @@ async function fileOrphans(filings, { root, now }) {
 		for (const o of f.orphans) triaged.push({ ...o, filed });
 	};
 	for (const f of filings) {
-		const marker = takeFilingMarker(f, dir);
-		if (marker.taken === null) {
-			record(f, marker.filed);
+		const why = whyUnfileable(f, dir);
+		if (why !== null || dir === null) {
+			record(f, why ?? "");
 			continue;
 		}
-		const { taken } = marker;
 		if (ran >= MAX_FILED_PER_RUN) {
-			fs.rmSync(taken, { force: true });
 			record(f, "not filed yet: this run's filing cap is spent");
 			continue;
 		}
+		/* Judged before its marker is taken, so a run killed mid-read leaves
+		 * none, and the next run files it. */
+		if (hasFilingTime()) await judgeLanded(f, root);
+		if (!hasFilingTime()) {
+			record(f, "not filed yet: this run's time is spent");
+			continue;
+		}
+		const { taken, status } = takeFiling(dir, f);
+		if (taken === null) {
+			record(f, status);
+			continue;
+		}
 		ran++;
-		record(f, await fileUnderMarker(f, taken, { root, now }));
+		record(f, fileUnderMarker(f, taken, { root, now }));
 	}
 	return { filings: ran, orphans: triaged };
 }

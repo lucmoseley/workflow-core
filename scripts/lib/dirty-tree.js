@@ -153,6 +153,8 @@ async function readDirtyTrackedAsync(root) {
 		});
 		return parseTrackedStatus(stdout).dirty;
 	} catch {
+		/* As readDirtyTracked: a tree git will not read is null, which the
+		 * caller names as unread (#4542). */
 		return null;
 	}
 }

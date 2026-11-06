@@ -15,6 +15,7 @@ const path = require("node:path");
 const { gitRead } = require("./dirty-tree.js");
 const { GIT_TIMEOUT_MS } = require("./git.js");
 const { matchBlobGroups } = require("./git-objects.js");
+const { logError } = require("./arbiter-core");
 
 /** @param {string} text */
 function countLines(text) {
@@ -114,8 +115,8 @@ async function readLanded(tree, files, ref) {
 	const out = files.map(() => null);
 	/** @type {{blobs: string[], test: (body: Buffer) => boolean}[]} */
 	const groups = [];
-	/** @type {number[]} */
-	const at = [];
+	/** @type {number[]} each group's index in `files` */
+	const fileAt = [];
 	files.forEach(({ rel, blob }, i) => {
 		const blobs = readLandedBlobs(tree, rel, ref);
 		if (blobs.includes(blob)) {
@@ -133,14 +134,17 @@ async function readLanded(tree, files, ref) {
 					countLines(body.toString("utf8")),
 				),
 		});
-		at.push(i);
+		fileAt.push(i);
 	});
 	const found = await matchBlobGroups(groups, {
 		cwd: tree,
 		timeout: GIT_TIMEOUT_MS,
-	}).catch(() => groups.map(() => false));
+	}).catch((e) => {
+		logError("landed-edit", e);
+		return groups.map(() => false);
+	});
 	found.forEach((hit, g) => {
-		if (hit) out[/** @type {number} */ (at[g])] = "lines";
+		if (hit) out[/** @type {number} */ (fileAt[g])] = "lines";
 	});
 	return out;
 }
