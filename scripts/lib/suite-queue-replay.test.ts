@@ -10,7 +10,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PART_PASS_AGE_MS } from "./suite-queue";
+import { WHOLE_SUITE_MAX } from "./suite-ladder";
+import { PART_PASS_AGE_MS, turnOf } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
 
 const MIN = 60_000;
@@ -129,7 +130,7 @@ describe("the passes the waiters recorded (#3115)", () => {
 		});
 		expect(r.memoryHeldPart).toEqual([600]);
 		expect(render(r, window())).toContain(
-			"1 opened part waits the memory limb held at some tick, wait p50 600 s, p90 600 s",
+			`1 opened part waits the memory limb held at some tick, wait p50 600 s, p90 600 s, max 600 s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
 		);
 	});
 
@@ -172,21 +173,6 @@ describe("the limbs, in the gate's order", () => {
 		expect(held(5000)).toBe(0);
 	});
 
-	it("holds a part waiter behind an older part waiter, and a whole one behind any older waiter", () => {
-		const r = replayOf({
-			waiters: [
-				{ from: 0, to: 10, slotFree: true },
-				{ from: 5, to: 10, slotFree: true },
-				{ from: 6, to: 10, kind: "bare", slotFree: false },
-			],
-		});
-		expect(hoursOf(r.limbClass)).toEqual({
-			"open / part": 600,
-			"fifo-part / part": 300,
-			"fifo-whole / whole": 240,
-		});
-	});
-
 	it("holds a waiter while another is admitted but not yet spawned", () => {
 		const r = replayOf({
 			waiters: [
@@ -220,19 +206,6 @@ describe("the limbs, in the gate's order", () => {
 		expect(hoursOf(r.limbAlso)).toEqual({
 			"memory / fifo-part": (10 * MIN - PART_PASS_AGE_MS) / 1000,
 			"memory / load": 900,
-		});
-	});
-
-	it("lets a part waiter pass an older one the memory rung holds, until that one is PART_PASS_AGE_MS old (#3058)", () => {
-		const r = replayOf({
-			waiters: [
-				{ from: 0, to: 10, slotFree: true },
-				{ from: 5, to: 10, slotFree: true },
-			],
-			mem: blocks(0, 10, 9000),
-		});
-		expect(hoursOf(r.limbAlso)).toEqual({
-			"memory / fifo-part": (10 * MIN - PART_PASS_AGE_MS) / 1000,
 		});
 	});
 });
@@ -301,23 +274,76 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		});
 		expect(hoursOf(r.limb)).toEqual({ climb: 300 });
 	});
+});
 
-	it("queues behind an older `tsc` waiter alone, and holds no suite waiter's turn", () => {
-		const r = replayOf({
-			waiters: [
-				{ from: 0, to: 10, kind: "tsc" },
-				{ from: 2, to: 10, kind: "tsc" },
-				{ from: 4, to: 10, slotFree: true },
-				{ from: 6, to: 10, kind: "bare", slotFree: false },
-			],
-		});
-		expect(hoursOf(r.limbClass)).toEqual({
-			"open / tsc": 600,
-			"tsc-fifo / tsc": 480,
-			"open / part": 360,
-			"fifo-whole / whole": 240,
-		});
-	});
+/* Each pair of waits is staged in the logs and the younger's limbs read back
+ * per tick; what they should be is asked of `turnOf` itself, so a change to the
+ * gate's turn reaches the replay with no edit here (#4260). The older wait's
+ * exit line charges a 9,000 MB climb, which its rung cannot clear: the
+ * `memoryHeld` stamp the gate would read. */
+describe("the turn limbs, the gate's own turnOf (#4260)", () => {
+	const Class = {
+		part: { slotFree: true },
+		whole: { kind: "bare", slotFree: false },
+		tsc: { kind: "tsc" },
+	} as const;
+	type Cls = keyof typeof Class;
+	const pairs = (["part", "whole", "tsc"] as Cls[]).flatMap((older) =>
+		(["part", "whole", "tsc"] as Cls[]).flatMap((younger) =>
+			[true, false].map((held) => [older, younger, held] as const),
+		),
+	);
+	it.each(pairs)(
+		"holds a %s wait's younger %s neighbour as turnOf says, and never the older on it (rung-held: %s)",
+		(older, younger, held) => {
+			const r = replayOf({
+				waiters: [
+					{
+						from: 0,
+						to: 10,
+						...Class[older],
+						...(held ? { climbMb: 9000 } : {}),
+					},
+					{ from: 2, to: 10, ...Class[younger] },
+				],
+				mem: blocks(0, 10, 1000),
+			});
+			const sameQueue = (older === "tsc") === (younger === "tsc");
+			const expected = new Map<string, number>();
+			for (let t = T0 + 2 * MIN; t < T0 + 10 * MIN; t += 10_000) {
+				const { reasons } = turnOf(
+					{
+						waiter: younger,
+						ahead: sameQueue
+							? [
+									{
+										at: T0,
+										part: older === "part",
+										spawned: false,
+										memoryHeld: held,
+									},
+								]
+							: [],
+						admissionOpen: false,
+						slots: WHOLE_SUITE_MAX,
+						now: t,
+					},
+					{ partPass: true },
+				);
+				const limb = reasons[0] ?? "open";
+				expected.set(limb, (expected.get(limb) ?? 0) + 10);
+			}
+			const limbsOf = (session: string) =>
+				Object.fromEntries(
+					r.sessions.find((s) => s.session === session)?.limbs ?? [],
+				);
+			if (!held) expect(limbsOf("s-0")).toEqual({ open: 600 });
+			const mine = r.sessions.find((s) => s.session === "s-1");
+			expect(Object.fromEntries(mine?.limbs ?? [])).toEqual(
+				Object.fromEntries(expected),
+			);
+		},
+	);
 });
 
 describe("matching a wait to its run", () => {

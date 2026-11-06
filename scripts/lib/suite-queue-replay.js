@@ -22,6 +22,8 @@
  * In either class, directly after the memory limb and ahead of the fifos:
  *   climb       MemAvailable clears the rung, but not less the climb the wait's
  *               exit line says held it (#3416, #3806)
+ * The fifos and `admitted` are the gate's own turn, `turnOf` in
+ * lib/suite-queue.js, asked of each tick's waits (#4260).
  * Every later limb holding the same waiter-tick is tallied too, since one
  * cleared may leave the next binding
  * (docs/practice/capacity-planning-and-admission.md).
@@ -44,7 +46,7 @@ const { requiredGroup } = require("./regex-group");
 const { docPath } = require("./script-path.js");
 const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
 const { WHOLE_SUITE_MAX, suiteRungMb } = require("./suite-ladder");
-const { PART_PASS_AGE_MS } = require("./suite-queue");
+const { PART_PASS_AGE_MS, turnOf } = require("./suite-queue");
 const { TSC_MAX, TSC_RUNG_MB, isTscRunner } = require("./tsc-slot");
 
 /* #2909's tick; the figures #3047 reports are at it. */
@@ -581,19 +583,40 @@ const isRungHeld = (e, tick, w) =>
 	isMemoryHeld(e, tick, w) || isClimbHeld(e, tick, w);
 
 /**
- * Whether a younger part waiter passes the older part waiter `o`: from
- * #3058's commit, one the memory rung holds and that joined under
- * PART_PASS_AGE_MS ago, as the gate's turn reads it.
- * @param {Waiter} o
+ * The gate's own turn for `e` at this tick (`turnOf`, #4260), from a snapshot
+ * of the waits the logs show: the older waiters in its queue, none yet
+ * spawned, each stamped `memoryHeld` where its rung holds it; and another
+ * waiter between its `opened` exit and its spawn. #3058's pass is on from
+ * its commit.
+ * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
  */
-function passes(o, tick, w) {
-	return (
-		tick.t >= PART_PASS_FROM &&
-		tick.t - o.st < PART_PASS_AGE_MS &&
-		isRungHeld(o, tick, w)
+function turnReasonsOf(e, tick, w) {
+	const tsc = e.kind === "tsc";
+	/* Each queue's turn reads its own directory alone (#3163). */
+	const ahead = tick.waiting
+		.filter((o) => o !== e && o.st < e.st && (o.kind === "tsc") === tsc)
+		.map((o) => ({
+			at: o.st,
+			part: !tsc && !o.whole,
+			spawned: false,
+			memoryHeld: isRungHeld(o, tick, w),
+		}));
+	const suite = e.whole ? "whole" : "part";
+	const admissionOpen = tick.admitting.some(
+		(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
 	);
+	return turnOf(
+		{
+			waiter: tsc ? "tsc" : suite,
+			ahead,
+			admissionOpen,
+			slots: WHOLE_SUITE_MAX,
+			now: tick.t,
+		},
+		{ partPass: tick.t >= PART_PASS_FROM },
+	).reasons;
 }
 
 /**
@@ -604,35 +627,24 @@ function passes(o, tick, w) {
  * @param {Window} w
  */
 function limbsOf(e, tick, w) {
-	const tsc = e.kind === "tsc";
-	/* Each queue's turn reads its own directory alone (#3163). */
-	const older = tick.waiting.filter(
-		(o) => o !== e && o.st < e.st && (o.kind === "tsc") === tsc,
-	);
 	const memory = isMemoryHeld(e, tick, w);
 	const climb = isClimbHeld(e, tick, w);
-	const admitted = tick.admitting.some(
-		(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
-	);
 	/** @type {Record<string, boolean>} */
-	const held = tsc
-		? {
-				"tsc-count": (tick.mem?.tsc ?? 0) >= TSC_MAX,
-				"tsc-memory": memory,
-				climb,
-				"tsc-fifo": older.length > 0,
-				admitted,
-			}
-		: {
-				count: e.whole && tick.whole.length >= WHOLE_SUITE_MAX,
-				memory,
-				climb,
-				"fifo-whole": e.whole && older.length > 0,
-				"fifo-part":
-					!e.whole && older.some((o) => !o.whole && !passes(o, tick, w)),
-				admitted,
-				load: w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
-			};
+	const held =
+		e.kind === "tsc"
+			? {
+					"tsc-count": (tick.mem?.tsc ?? 0) >= TSC_MAX,
+					"tsc-memory": memory,
+					climb,
+				}
+			: {
+					count: e.whole && tick.whole.length >= WHOLE_SUITE_MAX,
+					memory,
+					climb,
+					load:
+						w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
+				};
+	for (const reason of turnReasonsOf(e, tick, w)) held[reason] = true;
 	const limbs = LIMBS.filter((l) => held[l]);
 	return limbs.length > 0 ? limbs : ["open"];
 }
@@ -844,7 +856,7 @@ function render(r, w) {
 			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
 			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
 		"",
-		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s.`,
+		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
 		"",
 		"## Whole slot",
 		"",
