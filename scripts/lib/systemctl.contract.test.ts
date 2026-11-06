@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { scriptInExecStart } from "../start-orphan-sweep-timer.js";
 import { writeSystemctl } from "./systemctl-fake";
 import { systemctl } from "./systemd-bins.js";
 
@@ -34,22 +35,67 @@ const run = (bin: string, args: string[]) => {
 	return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr.trim() };
 };
 
-/** The first user unit `list` names, or null where it names none. */
-function realUnit(list: string[]): string | null {
+/** The user units `list` names, first first. */
+function realUnits(list: string[]): string[] {
 	const r = run(systemctl(), ["--user", ...list, "--no-legend", "--plain"]);
-	return r.status === 0 ? r.stdout.split(/\s+/)[0] || null : null;
+	return r.status === 0
+		? r.stdout
+				.split("\n")
+				.map((l) => l.trim().split(/\s+/)[0] ?? "")
+				.filter(Boolean)
+		: [];
 }
 
-/** Null where `scope`'s manager answers, else why the real side skips. */
-function realSkip(scope: string[]): string | null {
+/** The first active user service with an ExecStart record, or null. */
+function realExecUnit(active: string[]): string | null {
+	return (
+		active.find((unit) =>
+			run(systemctl(), [
+				"--user",
+				"show",
+				unit,
+				"-p",
+				"ExecStart",
+				"--value",
+			]).stdout.includes("argv[]="),
+		) ?? null
+	);
+}
+
+/** Null where the manager `scope` reaches answers, else why the real side
+ * skips. */
+function realSkip(scope: string[], manager: string): string | null {
 	if (process.env.CI) return "CI: the live manager is the founder's machine's";
 	try {
 		return run(systemctl(), [...scope, "show-environment"]).status === 0
 			? null
-			: `no ${scope.length > 0 ? "user" : "system"} manager answers`;
+			: `no ${manager} manager answers`;
 	} catch (e) {
 		return `no systemctl here: ${(e as Error).message}`;
 	}
+}
+
+/** The real user manager's units, or why there are none to ask. */
+function readRealUnits(): Units | string {
+	const skip = realSkip(["--user"], "user");
+	if (skip) return skip;
+	const active = realUnits(["list-units", "--type=service", "--state=active"]);
+	return {
+		enabled: realUnits(["list-unit-files", "--state=enabled"])[0] ?? null,
+		disabled: realUnits(["list-unit-files", "--state=disabled"])[0] ?? null,
+		active: active[0] ?? null,
+		exec: realExecUnit(active),
+	};
+}
+
+/** `read`'s answer, read at its first call: the real side's reads take a
+ * spawn each, and every case asks. */
+function once<T>(read: () => T): () => T {
+	let value: { v: T } | undefined;
+	return () => {
+		value ??= { v: read() };
+		return value.v;
+	};
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "systemctl-contract-"));
@@ -68,7 +114,11 @@ const fake = writeSystemctl(dir, {
 		"a.service": {
 			enabled: "enabled",
 			active: "active",
-			properties: { ControlGroup: FAKE_CGROUP },
+			properties: {
+				ControlGroup: FAKE_CGROUP,
+				ExecStart:
+					"{ path=/usr/bin/node ; argv[]=/usr/bin/node /y/scripts/reap-orphan-hooks.js --notify ; ignore_errors=no }",
+			},
 		},
 		"b.timer": { enabled: "disabled" },
 	},
@@ -78,10 +128,12 @@ const fake = writeSystemctl(dir, {
 });
 
 interface Units {
-	/** A unit enabled, one disabled and one active, where the side has one. */
+	/** A unit enabled, one disabled, one active and one with an ExecStart
+	 * record, where the side has one. */
 	enabled: string | null;
 	disabled: string | null;
 	active: string | null;
+	exec: string | null;
 }
 
 interface Side {
@@ -101,6 +153,7 @@ const SIDES: [string, Side][] = [
 				enabled: "a.service",
 				disabled: "b.timer",
 				active: "a.service",
+				exec: "a.service",
 			}),
 			systemSkip: () => null,
 		},
@@ -109,19 +162,14 @@ const SIDES: [string, Side][] = [
 		"the real systemctl",
 		{
 			bin: systemctl(),
-			units: () =>
-				realSkip(["--user"]) ?? {
-					enabled: realUnit(["list-unit-files", "--state=enabled"]),
-					disabled: realUnit(["list-unit-files", "--state=disabled"]),
-					active: realUnit(["list-units", "--type=service", "--state=active"]),
-				},
-			systemSkip: () => realSkip([]),
+			units: once(readRealUnits),
+			systemSkip: once(() => realSkip([], "system")),
 		},
 	],
 ];
 
 describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
-	const get = (skip: (why: string) => never): Units => {
+	const userUnits = (skip: (why: string) => never): Units => {
 		const u = units();
 		return typeof u === "string" ? skip(u) : u;
 	};
@@ -143,7 +191,7 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	it("show -p --value prints the bare value, and nothing for an unknown unit", ({
 		skip,
 	}) => {
-		const { active } = get(skip);
+		const { active } = userUnits(skip);
 		if (!active) return skip("no active user unit here");
 		const value = (unit: string) =>
 			run(bin, ["--user", "show", "-p", "ControlGroup", "--value", unit]);
@@ -154,7 +202,7 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	});
 
 	it("is-enabled prints enabled, exiting 0", ({ skip }) => {
-		const { enabled } = get(skip);
+		const { enabled } = userUnits(skip);
 		if (!enabled) return skip("no enabled user unit here");
 		expect(run(bin, ["--user", "is-enabled", enabled])).toMatchObject({
 			status: 0,
@@ -163,7 +211,7 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	});
 
 	it("is-enabled prints disabled, exiting 1", ({ skip }) => {
-		const { disabled } = get(skip);
+		const { disabled } = userUnits(skip);
 		if (!disabled) return skip("no disabled user unit here");
 		expect(run(bin, ["--user", "is-enabled", disabled])).toMatchObject({
 			status: 1,
@@ -174,7 +222,7 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	it("is-enabled prints not-found for an unknown unit, exiting 4", ({
 		skip,
 	}) => {
-		get(skip);
+		userUnits(skip);
 		expect(run(bin, ["--user", "is-enabled", UNKNOWN])).toMatchObject({
 			status: 4,
 			stdout: "not-found",
@@ -184,7 +232,7 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	it("is-active prints active, exiting 0, and --quiet prints nothing", ({
 		skip,
 	}) => {
-		const { active } = get(skip);
+		const { active } = userUnits(skip);
 		if (!active) return skip("no active user unit here");
 		expect(run(bin, ["--user", "is-active", active])).toMatchObject({
 			status: 0,
@@ -199,7 +247,7 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	it("is-active prints inactive for an unknown unit, exiting non-zero", ({
 		skip,
 	}) => {
-		get(skip);
+		userUnits(skip);
 		const r = run(bin, ["--user", "is-active", UNKNOWN]);
 		expect(r.stdout).toBe("inactive");
 		expect(r.status).not.toBe(0);
@@ -208,10 +256,32 @@ describe.each(SIDES)("%s", (_name, { bin, units, systemSkip }) => {
 	it("a failed restart exits non-zero, saying why on stderr alone", ({
 		skip,
 	}) => {
-		get(skip);
+		userUnits(skip);
 		const r = run(bin, ["--user", "restart", UNKNOWN]);
 		expect(r.status).not.toBe(0);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toContain(UNKNOWN);
+	});
+
+	it("show -p ExecStart --value prints the record start-orphan-sweep-timer.js reads", ({
+		skip,
+	}) => {
+		const { exec } = userUnits(skip);
+		if (!exec) return skip("no user service with an ExecStart here");
+		const record = run(bin, [
+			"--user",
+			"show",
+			exec,
+			"-p",
+			"ExecStart",
+			"--value",
+		]).stdout;
+		const argv0 = /argv\[\]=(\S+) /.exec(record)?.[1] ?? "";
+		expect(argv0).not.toBe("");
+		const planted = record.replace(
+			/argv\[\]=[^;]*;/,
+			`argv[]=${argv0} /x/scripts/reap-orphan-hooks.js ;`,
+		);
+		expect(scriptInExecStart(planted)).toBe("/x/scripts/reap-orphan-hooks.js");
 	});
 });

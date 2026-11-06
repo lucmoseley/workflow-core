@@ -30,7 +30,8 @@ function tmp(prefix: string) {
 }
 
 /** Stubs that log their argv, one call a line; `refuse` fails a busctl call
- * whose words hold it, `active` answers `is-active` yes. An attach moves its
+ * whose words hold it, `active` answers `is-active` yes for session 500's watcher
+ * (wfc-session-500-19640000-watch.service). An attach moves its
  * pids out of `/non-systemd` in the fake /proc, as the manager would. */
 function fakeTools(procRoot: string, { refuse = "", active = false } = {}) {
 	const dir = tmp("session-scope-bin-");

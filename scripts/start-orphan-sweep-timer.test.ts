@@ -4,54 +4,19 @@
  * stand-in `systemd-run` at WFC_SYSTEMCTL and WFC_SYSTEMD_RUN (#4342, #3970):
  * it starts the reaper's timer where none runs, leaves one running a live
  * script alone, replaces one whose script is gone or older than its own, and
- * stays green where no user manager answers. A live case holds the ExecStart
- * shape the cases feed the fake to the real `systemctl`'s.
+ * stays green where no user manager answers. The ExecStart record the cases
+ * feed the fake is held to the real one by lib/systemctl.contract.test.ts.
  *
  * Loosen a case and the sweep never runs with every session closed, or a
  * timer naming a pruned worktree's script fails at every firing unreplaced.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 import { writeSystemctl } from "./lib/systemctl-fake";
-
-const { scriptInExecStart } = require("./start-orphan-sweep-timer.js") as {
-	scriptInExecStart: (exec: string) => string;
-};
-
-/** A loaded user service's ExecStart as the real systemctl prints it, or
- * null where no user manager answers. Read-only, a free call. */
-function liveExecStart(): string | null {
-	const list = spawnSync(
-		"systemctl",
-		[
-			"--user",
-			"list-units",
-			"--type=service",
-			"--state=active",
-			"--no-legend",
-			"--plain",
-		],
-		{ encoding: "utf8", timeout: 5000 },
-	);
-	if (list.status !== 0) return null;
-	for (const line of list.stdout.split("\n")) {
-		const unit = line.trim().split(/\s+/)[0];
-		if (!unit) continue;
-		const show = spawnSync(
-			"systemctl",
-			["--user", "show", unit, "-p", "ExecStart", "--value"],
-			{ encoding: "utf8", timeout: 5000 },
-		);
-		if (show.stdout.includes("argv[]=")) return show.stdout.trim();
-	}
-	return null;
-}
-const LIVE = liveExecStart();
 
 const SCRIPT = path.join(__dirname, "start-orphan-sweep-timer.js");
 
@@ -96,22 +61,6 @@ const logged = () =>
 	fs.existsSync(calls) ? fs.readFileSync(calls, "utf8").trim().split("\n") : [];
 
 describe("start-orphan-sweep-timer", () => {
-	it.runIf(LIVE !== null)(
-		"reads the real systemctl's ExecStart shape, the one the stand-ins print",
-		() => {
-			const live = LIVE ?? "";
-			const argv = /argv\[\]=(\S+) /.exec(live)?.[1] ?? "";
-			expect(argv).not.toBe("");
-			const planted = live.replace(
-				/argv\[\]=\S+ \S+/,
-				`argv[]=${argv} /x/scripts/reap-orphan-hooks.js`,
-			);
-			expect(scriptInExecStart(planted)).toBe(
-				"/x/scripts/reap-orphan-hooks.js",
-			);
-		},
-	);
-
 	it("starts the reaper's timer where none runs, from the host root", () => {
 		const res = run({
 			WFC_SYSTEMCTL: systemctl(false),

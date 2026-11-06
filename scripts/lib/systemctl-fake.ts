@@ -150,7 +150,9 @@ exit 0
 
 /**
  * A systemctl in `dir`, appending each call's `systemctl <args>` to
- * `dir/calls`. A verb neither failed nor modelled prints nothing and exits 0.
+ * `dir/calls`. A verb neither failed nor modelled prints nothing and exits 0,
+ * as does `show` for a property it was not given, `-p` attached to its name
+ * (`-pName`) included.
  * Its path, for WFC_SYSTEMCTL.
  */
 export function writeSystemctl(
