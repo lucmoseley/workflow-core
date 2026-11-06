@@ -63,6 +63,11 @@
  * report (#4410). One the comment already carries is kept, and no other kind
  * gets one.
  *
+ * A comment carrying `**Reviewed through:**` — a whole-spec review — is
+ * refused where a line marks a finding TICKETED without naming its exception,
+ * through lib/ticketed-tags.js, which the guard-issue-close and
+ * guard-review-comment cores read too (#4492). Any reason is judged.
+ *
  * A comment owes a `**Practice:**` line, the Leading practice declaration
  * (#2325, spec #2258). **Enforced** here for a non-empty line only; its
  * form is unchecked.
@@ -92,6 +97,10 @@ const issueBody = require("./issue-body.js");
 const { parseErrLine, gh } = require("./lib/gh.js");
 const outstandingLine = require("./lib/outstanding-line.js");
 const { unmetCriteria } = require("./lib/ticket-criteria.js");
+const {
+	buildTicketedRefusal,
+	untaggedTicketed,
+} = require("./lib/ticketed-tags.js");
 const { openChildrenRefusal } = require("./lib/open-children.js");
 const { isOpenChild, readSubIssues } = require("./lib/issue-tree.js");
 const {
@@ -229,6 +238,9 @@ function checkCommentOrFail(comment, notPlanned) {
 			"the comment has no **Bound:** line, or an empty one — say on that line what you read in full and what you only sampled or cited. Nothing written.",
 			2,
 		);
+	const untagged = untaggedTicketed(comment);
+	if (untagged.length > 0)
+		io.fail(`${buildTicketedRefusal(untagged)} Nothing written.`, 2);
 	if (notPlanned) return;
 	if (!hasLine(comment, "Values", "\\S"))
 		io.fail(

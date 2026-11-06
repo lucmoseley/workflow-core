@@ -83,13 +83,13 @@ A hand `gh issue close` on a card's own issue is **denied** by the `guard-issue-
 
 <!-- rule:close-outstanding-line:end -->
 
-The findings that feed that line come from `/code-review`: every finding is **fixed** (name the commit), **ticketed** (name the open issue), or **declined** (say why). **Fix first** (#4284): `docs/agents/rules/review-finding-destination.txt`, which `/code-review` is handed, says which findings are fixed in the session that found them and which are ticketed.
+The findings that feed that line come from `/code-review`: every finding is **fixed** (name the commit), **ticketed** (name the open issue), or **declined** (say why). **Fix first** (#4284): `docs/agents/rules/review-finding-destination.txt`, which `/code-review` is handed, says which findings are fixed in the session that found them and which are ticketed. A whole-spec review's TICKETED line names its exception — `claimed by <session name>`, `needs its own design: <reason>` or `exposed, not caused` — or the comment is refused (#4492).
 
-**Only a live fault keeps a spec in re-review** (#3811). From a whole-spec review's second pass on, and on a fix ticket's own `/code-review` at any pass, each finding left unfixed gets one class:
+**Only a live fault keeps a spec in re-review** (#3811). From a whole-spec review's second pass on, and on a fix ticket's own `/code-review` at any pass, each finding ticketed on one of those exceptions gets one class, which picks where it is filed, never whether it is fixed:
 
 - **Live** names a route ordinary use reaches and the wrong behaviour on it. It is filed under the spec, which re-arms the review.
 - **Corner** needs an unusual input or state. It is filed standalone, its body citing the spec.
-- **Tidying** changes no behaviour. It is filed standalone as one ticket per pass or fix ticket, or declined with a reason.
+- **Tidying** changes no behaviour. It is filed standalone as one ticket per pass or fix ticket.
 
 From the second pass on, the first that files no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`. No pass count stops a spec; at a fifth or later pass the triage comment also says whether to redesign rather than patch.
 

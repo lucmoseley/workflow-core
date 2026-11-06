@@ -622,9 +622,8 @@ describe("the rules that were already here", () => {
 	it("files /triage's first-pass findings under an open spec and re-reviews from Reviewed through (#897)", () => {
 		const triage = inject("/triage 849");
 		expect(triage).toContain(
-			"On a first pass each is FIXED, TICKETED or DECLINED",
+			"On a first pass a TICKETED one is filed under the spec while it is open",
 		);
-		expect(triage).toContain("filed under the spec while it is open");
 		expect(triage).toContain("**Reviewed through:**");
 		expect(triage).toContain("node scripts/spec-commits.js <n> --since <sha>");
 	});
@@ -638,7 +637,7 @@ describe("the rules that were already here", () => {
 			"Corner: it needs an unusual input or state; file it standalone, its body citing the spec",
 		);
 		expect(triage).toContain(
-			"Tidying: it changes no behaviour; file it standalone as one ticket per pass, or decline it with a reason",
+			"Tidying: it changes no behaviour; file it standalone as one ticket per pass.",
 		);
 		expect(triage).toContain(
 			"The first pass that files no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`",
@@ -650,13 +649,19 @@ describe("the rules that were already here", () => {
 		expect(inject("/implement 186")).not.toContain("Corner: it needs");
 	});
 
-	it("tells a whole-spec review to fix first, classing only what it leaves unfixed (#4284)", () => {
+	it("tells a whole-spec review to fix first, classing only what it tickets on a named exception (#4284, #4492)", () => {
 		const triage = inject("/triage 849");
-		expect(triage).toContain(
-			"On any pass, fix first: a finding is FIXED here unless the `review-finding-destination` rule /code-review is handed names a reason not to",
+		expect(triage.indexOf("Fix first, on every pass")).toBeLessThan(
+			triage.indexOf("On a first pass a TICKETED one"),
 		);
 		expect(triage).toContain(
-			"From the second pass on, each finding left unfixed gets one class",
+			"each finding in the spec's own code is FIXED here",
+		);
+		expect(triage).toContain(
+			"and its line names which, as the `review-finding-destination` rule spells it, or the comment is refused",
+		);
+		expect(triage).toContain(
+			"each TICKETED finding gets one class, which picks only where it is filed",
 		);
 	});
 

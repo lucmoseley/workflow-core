@@ -962,6 +962,12 @@
 					"text": "This close does not say what is still outstanding"
 				},
 				{
+					"id": "close-ticketed-untagged",
+					"core": "guard-issue-close",
+					"kind": "deny",
+					"text": "This close posts a whole-spec review that tickets a finding naming no exception"
+				},
+				{
 					"id": "no-takes",
 					"core": "guard-issue-create-label",
 					"kind": "deny",
@@ -1118,6 +1124,12 @@
 					"core": "guard-round-holds",
 					"kind": "deny",
 					"text": "Refused once: this posts a question round to the founder"
+				},
+				{
+					"id": "review-comment-ticketed",
+					"core": "guard-review-comment",
+					"kind": "deny",
+					"text": "This posts a whole-spec review that tickets a finding naming no exception"
 				},
 				{
 					"id": "no-ignore-scripts",

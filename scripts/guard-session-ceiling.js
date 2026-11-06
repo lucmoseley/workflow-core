@@ -245,7 +245,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
 			reason: [
 				`Standing context is ${n(tokens)} tokens — past the ${n(WIND_UP)} WIND-UP NOTICE in docs/effort-guide.md, and a floor, being one turn stale.`,
 				"",
-				`This is not a stop. Finish the unit of work in flight — one build-unit ticket, however many compactions finishing it takes short of the ${COMPACTION_BACKSTOP}th, where the compaction hook's hand-off governs, or one bundle member — even if a compaction fires while you do, and start no new one. Commit. If the issue you were working is still open, comment its state on it and leave it open. The next unit goes to a fresh session.`,
+				`This is not a stop. Finish the unit of work in flight — one build-unit ticket, however many compactions finishing it takes short of the ${COMPACTION_BACKSTOP}th, where the compaction hook's hand-off governs, or one bundle member — even if a compaction fires while you do, and start no new one. A review's fix-here findings are part of that unit: ticketing one does not finish it (#4492). Commit. If the issue you were working is still open, comment its state on it and leave it open. The next unit goes to a fresh session.`,
 				"",
 				closing,
 				"",

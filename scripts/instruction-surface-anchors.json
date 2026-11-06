@@ -367,7 +367,7 @@
 			"source": "#2073, #3066, #3565"
 		},
 		"scripts/guard-session-ceiling.js": {
-			"digest": "b4c47ff275d82438",
+			"digest": "67182aa058c703ab",
 			"verdict": "at need (wind-up band on a session-ending `result:` turn; `waiting:` passes unblocked, per #919, and so, below the tripwire, does a `result:` ending whose inventory guard-inventory.js passes with no launch of its own out). Fed at landing 2c6d99fe3 under #3157: at 210,000 tokens a `result:` Stop blocked (3,488 B) and every later one again (1,739 B), one carrying stop_hook_active passing; `waiting:` at 210,000 and `result:` at 150,000 passed, 0 B; at 310,000 a `waiting:` Stop met the tripwire (3,575 B). Re-fed at e833983fa under #4419 by its suite (guard-session-ceiling.test.ts, all passing): the bands and figures are as above; the wind-up text names the unit as one build-unit ticket, however many compactions finishing it takes, or one bundle member. Byte counts above are from 2c6d99fe3 and were not re-taken.",
 			"selfSufficient": "yes on the first block (full rule inline); pointer-plus-summary on repeats — the summary paragraph still carries the act and the format; fed at #3157 with an empty rule store: the inventory step keeps its summary and the rule's place takes the fallback template line naming docs/agents/rules/founder-deliverable.txt (2,035 B)",
 			"source": "#1810, #3157, #4419"

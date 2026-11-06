@@ -503,6 +503,9 @@ describe("no hand-off in any band (#1178 Q1 (A) and Q4 (B))", () => {
 			"one build-unit ticket, however many compactions finishing it takes short of the 10th, where the compaction hook's hand-off governs",
 		);
 		expect(windUp).toContain("start no new one");
+		expect(windUp).toContain(
+			"A review's fix-here findings are part of that unit: ticketing one does not finish it",
+		);
 		expect(windUp).toContain("The next unit goes to a fresh session");
 		expect(windUp).toContain("the cheap move is to finish and end");
 		turns(PAST_TURN_BAND);
