@@ -108,8 +108,7 @@
  *   no file, marked `noRun`, which takes the red path above, so a batch
  *   whose run never starts ends, and a member whose tree alone fires none is
  *   dropped, its fix ticket saying so. A no-run red stands NO_RUN_RETAKE_MS
- *   from when it was ledgered, then is asked again, so a retaken hold reads
- *   no verdict the outage left (#4572).
+ *   from when it was ledgered, then is asked again (#4572).
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
  *   fault, a broken git object, a merge timing out, a tester's `transient` no
  *   verdict, as its suite slot staying shut) is retried with backoff and the

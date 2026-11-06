@@ -716,8 +716,7 @@ const heldBy = (reads, sha) =>
  * `sha` has the branch pushed again, and only a run newer than every one
  * the branch listed is judged. Where no run at `sha` was listed and none
  * newer appears, the branch is pushed again and waited on once more before
- * a no-run red, so a ref pushed during an Actions outage fires a run once
- * Actions recovers (#4572). Residual: a run the lander's own push started
+ * a no-run red (#4572). Residual: a run the lander's own push started
  * and GitHub listed by the ask is run twice.
  * @param {string} sha
  * @param {string[]} files
@@ -783,8 +782,7 @@ function newerVerdict(sha, on, listed) {
 }
 
 /**
- * Deletes and creates `on`'s branch again at `sha`, so its push starts a
- * run: null where it did, else the no verdict naming why not.
+ * Deletes and creates `on`'s branch again at `sha`: null where it did, else the no verdict naming why not.
  * @param {{reads: Reads, branch: string}} on
  * @param {string} sha
  * @returns {Verdict|null}
