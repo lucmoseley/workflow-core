@@ -65,6 +65,23 @@ describe("a review comment ticketing a finding with no exception", () => {
 			expect(reason).toContain(tag);
 	});
 
+	it.each([
+		"TICKETED on #4491.",
+		"TICKETED in owner/repo#4491.",
+		"**TICKETED** #4491.",
+		"TICKETED (#4491).",
+		"TICKETED — #4491.",
+		"TICKETED → #4491.",
+		"TICKETED https://github.com/o/r/issues/4491.",
+		"was TICKETED #4491 this pass.",
+	])("is denied where the line reads %s (#4492)", (finding) => {
+		expect(
+			denyOf(
+				check(`gh issue comment 2570 --body-file ${bodyFile(review(finding))}`),
+			),
+		).toContain("naming no exception");
+	});
+
 	it("is denied from an inline --body", () => {
 		const body =
 			"4. **Duplicated Code, TICKETED #4491.**\n\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9";
@@ -101,7 +118,7 @@ describe("calls it lets through", () => {
 			"**Outstanding:** none — nothing TICKETED",
 			"- F2 was previously TICKETED #4100 and is now FIXED abc1234.",
 		].map((line) => [
-			`prose that tickets nothing: ${line}`,
+			`prose that tickets nothing (#4492): ${line}`,
 			`${line}\n\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9\n`,
 		]),
 		[

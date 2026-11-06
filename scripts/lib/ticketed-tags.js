@@ -1,9 +1,7 @@
 /*
  * ticketed-tags.js — whether a whole-spec review comment names, on each line
  * marking a finding TICKETED, the exception that let it skip fix-first (#4492,
- * #4284). resolve-ticket.js, the guard-issue-close core and the
- * guard-review-comment core read a comment through this one reader, so the
- * three routes a review comment takes cannot disagree.
+ * #4284).
  *
  * A review comment is one carrying `**Reviewed through:**`. A TICKETED line is
  * one holding the upper-case word and the issue it went to; it passes where it
@@ -13,7 +11,8 @@
  * lib/review-findings.js masks a record's mentions.
  *
  * Residual: it reads the tag, never whether the exception is true; a finding
- * whose tag sits on a continuation line is refused.
+ * whose tag sits on a continuation line is refused; a backticked `TICKETED`
+ * reads as a mention and passes.
  */
 
 const { maskMentions } = require("./review-findings.js");
@@ -22,17 +21,18 @@ const { scriptPath } = require("./script-path.js");
 const REVIEWED_THROUGH = /\*\*Reviewed through:\*\*/;
 const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
 /* A finding ticketed here: the word then the issue it went to, as in
- * `TICKETED #4491`, `TICKETED on #4491` or `TICKETED in owner/repo#7`, and
- * not one an earlier pass ticketed (#4492's review). */
+ * `TICKETED #4491`, `**TICKETED** (#4491)`, `TICKETED on #4491`,
+ * `TICKETED → owner/repo#7` or an issue URL, and not one an earlier pass
+ * ticketed. */
 const TICKETING =
-	/(?<!(?:previously|already|earlier|was|were)\s+)(?<![A-Za-z])TICKETED[\s,:]*(?:(?:on|in|as|under|to)\s+)?(?:[\w.-]+\/[\w.-]+)?#\d/;
+	/(?<!(?:previously|already|earlier)\s+)(?<![A-Za-z])TICKETED[\s,:;*_`(\u2014\u2013\u2192>-]*(?:(?:on|in|as|under|to)\s+)?(?:[\w.-]+\/[\w.-]+#\d|#\d|https?:\/\/\S+\/issues\/\d)/;
 const HEADS = new RegExp(`${REVIEWED_THROUGH.source}|${TICKETED.source}`);
 const TAG =
 	/\bclaimed by\s+\S|\bneeds its own design:\s*\S|\bexposed, not caused\b/i;
 
 /* The fragment `docs/agents/rules/review-finding-destination.txt` spells
- * these tags too, so the refusal and the rule cannot drift:
- * review-rules.test.ts pins the fragment to this copy (§G11). */
+ * these tags too: review-rules.test.ts pins the fragment to the refusal's
+ * copy (§G11). */
 const TAGS =
 	"`claimed by <session name>`, `needs its own design: <reason>` or `exposed, not caused`";
 
@@ -72,8 +72,8 @@ function ticketedRefusal(comment) {
 	if (lines.length === 0) return null;
 	return [
 		...lines.map((line) => `  ${line}`),
-		`Fix ${lines.length === 1 ? "it" : "each"} here (FIXED <sha>), or add to the line the exception that let it skip fix-first: ${TAGS} (#4492, #4284). Rule: \`${scriptPath("lib/rule-text.sh")} review-finding-destination\`.`,
+		`Fix ${lines.length === 1 ? "it" : "each"} here (FIXED <sha>), or add to the line the exception that let it skip fix-first: ${TAGS}. Rule: \`${scriptPath("lib/rule-text.sh")} review-finding-destination\`.`,
 	].join("\n");
 }
 
-module.exports = { TAGS, ticketedRefusal };
+module.exports = { ticketedRefusal };

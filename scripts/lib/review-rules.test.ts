@@ -446,7 +446,13 @@ describe("the fragments carry what the review needs", () => {
 		["review-finding-destination", "`**Outstanding:**`"],
 		[
 			"review-finding-destination",
-			(require("./ticketed-tags.js") as { TAGS: string }).TAGS,
+			/skip fix-first: (.*)\. Rule:/.exec(
+				(
+					require("./ticketed-tags.js") as {
+						ticketedRefusal: (c: string) => string;
+					}
+				).ticketedRefusal("TICKETED #1\n**Reviewed through:** a1b2c3d"),
+			)?.[1],
 		],
 		["review-ultra-axis", "NEVER START ONE UNASKED."],
 	])("%s says %j", (id, clause) => {

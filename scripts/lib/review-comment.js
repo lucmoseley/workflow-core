@@ -2,12 +2,9 @@
  * review-comment.js — a PreToolUse dispatcher core (#4492): it denies a
  * `gh issue comment` posting a whole-spec review — a body carrying
  * `**Reviewed through:**` — where a line marks a finding TICKETED without
- * naming the exception that let it skip fix-first (#4284). A first pass that
- * files a live finding retags its spec and never closes, so this is the route
- * a check at close cannot see. resolve-ticket.js and the guard-issue-close
- * core hold the close routes, through the same lib/ticketed-tags.js.
+ * naming the exception that let it skip fix-first (#4284).
  *
- * A CORE: it does no I/O. A body file arrives through the readFile port.
+ * A CORE: it does no I/O.
  *
  * LIMITS
  *  - A body it cannot read (`$(cat …)`, a missing file, a file the same call
