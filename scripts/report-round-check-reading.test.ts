@@ -898,6 +898,18 @@ describe("the second reading (#3995)", () => {
 		);
 	});
 
+	it("counts toward its point only repos line 1 would pool, each needing 10 refused rounds", () => {
+		firstFiled();
+		rounds("workflow-core", "wc-many", 129, { kind: "refused" });
+		rounds("mantahostels", "m-few", 9, { kind: "refused" });
+		expect(read(T0 + 7 * DAY)).toMatch(/; 129 so far\./);
+		rounds("mantahostels", "m-tenth", 1, {
+			kind: "refused",
+			start: T0 + 6 * DAY,
+		});
+		expect(read(T0 + 7 * DAY)).toMatch(/Reached: /);
+	});
+
 	it("sets the baseline's skew beside the rates the first reading printed without it", () => {
 		healthy();
 		expect(read()).not.toMatch(/Every baseline below is skewed/);
@@ -939,7 +951,7 @@ describe("stopped rounds (#3995)", () => {
 		session("workflow-core", "never-sent", [{ at: t + HOUR, text: "hello" }]);
 		const out = read(T0 + 9 * DAY);
 		expect(stoppedLine(out)).toMatch(
-			/2 of 42 \(5%\) refused rounds sent the founder none of their questions — 0\.29 a day over 7\.0 days\./,
+			/2 of 42 \(5%\) refused rounds in the pooled repos sent the founder none of their questions — 0\.29 a day over 7\.0 days\./,
 		);
 		expect(out).toContain(
 			`  - left-out@${iso(t)} workflow-core, question(s) 1: left out of the next send`,
@@ -967,6 +979,24 @@ describe("stopped rounds (#3995)", () => {
 		);
 		expect(out).toContain(`  - twice@${iso(t)} workflow-core`);
 		expect(out).not.toMatch(/ {2}- partial@\S+ workflow-core, question/);
+	});
+
+	it("leaves out, and counts, a session whose transcript will not read, and a repo line 1 does not pool", () => {
+		healthy();
+		const t = T0 + 2 * DAY;
+		refusal("no-transcript", t);
+		log("mantahostels", t, "m-stop", {
+			kind: "refused",
+			round: "1",
+			callsBefore: 4,
+			slot: 1,
+		});
+		session("mantahostels", "m-stop", [{ at: t + HOUR, text: "hi" }]);
+		const line = stoppedLine(read(T0 + 9 * DAY));
+		expect(line).toMatch(/: 0 of 40 \(0%\) refused rounds in the pooled repos/);
+		expect(line).toMatch(
+			/1 session\(s\) whose transcript will not read are left out\.$/,
+		);
 	});
 
 	it("counts a pass after his next message as no send, since the round never reached him before he spoke", () => {

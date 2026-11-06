@@ -84,6 +84,7 @@ const { errMessage } = require("./lib/check");
 const {
 	broken,
 	buildFiler,
+	DAY_MS,
 	buildFiredLine,
 	founderReplies,
 	isOverLine,
@@ -118,19 +119,16 @@ const USAGE =
 const TITLE =
 	"Round-check reading: has sending under-researched rounds back once cut the founder's send-backs?";
 
-const SECOND_TITLE =
-	"Round-check second reading, at 130 rated rounds: keep the refusal of under-researched rounds, or drop it?";
-
 const BASELINE = "docs/data/round-sendbacks-2026-10-14/rounds.json";
 
 /* The first reading's classes, as #3978 ruled on them. */
 const CLASSED = "docs/data/round-check-reading-2026-11-02/classes.json";
 
-/* #3995: the rated rounds that tell 6.9% from 13.7% at 80% power, one-sided,
- * alpha 0.05, normal approximation (131). */
+/* #3978 Q1 (A)'s 130, its rounding of the 131 rated rounds that tell 6.9%
+ * from 13.7% at 80% power, one-sided, alpha 0.05, normal approximation. */
 const SECOND_TARGET = 130;
 
-const DAY_MS = 86_400_000;
+const SECOND_TITLE = `Round-check second reading, at ${SECOND_TARGET} rated rounds: keep the refusal of under-researched rounds, or drop it?`;
 
 /* Untraced (#1701's Values): a repo with fewer answered rounds of a kind in
  * the window stays out of that kind's pool. */
@@ -322,35 +320,65 @@ function roundsOf(answered, classes) {
  */
 
 /**
+ * Whether a log line is a pass, within a stretch, of a question refused in it.
+ * @param {RoundEvent} e
+ * @param {{ session: string, refusedAt: Map<string, number>, upTo: number }} s
+ */
+function isPassIn(e, s) {
+	const t = Date.parse(e.at);
+	const refusedAt = s.refusedAt.get(e.round);
+	return (
+		e.session === s.session &&
+		e.kind === "passed-after-refusal" &&
+		refusedAt !== undefined &&
+		t > refusedAt &&
+		t < s.upTo
+	);
+}
+
+/**
  * The refused rounds in the window none of whose questions reached the
  * founder, and how many refused rounds there were: one round per session per
  * stretch between two of his messages, so a question refused again counts
  * once.
  *
+ * A session whose transcript will not read is left out, and counted: with no
+ * messages of his to bound a stretch, any refusal in it would read stopped.
+ *
  * @param {RoundEvent[]} events every log line, so a pass after the cutoff
  *   still settles a refusal before it
  * @param {Map<string, string>} transcripts session id → transcript
- * @param {import("./lib/log-reading").ReadingAt} at
- * @returns {{ stopped: Stopped[], refused: number }}
+ * @param {{ at: import("./lib/log-reading").ReadingAt, repos: string[] }} scope
+ *   the window, and line 1's pooled repos
+ * @returns {{ stopped: Stopped[], refused: number, unread: number }}
  */
-function stoppedRounds(events, transcripts, at) {
+function stoppedRounds(events, transcripts, { at, repos }) {
 	/** @type {Map<string, { session: string, at: string, repo: string,
 	 *   refusedAt: Map<string, number>, upTo: number }>} */
 	const byStretch = new Map();
-	/** @type {Map<string, number[]>} */
+	/** @type {Map<string, number[] | null>} */
 	const spoke = new Map();
-	for (const e of events) {
-		if (!e.kind.startsWith("refused") || !isRead(at, e.at)) continue;
-		if (!spoke.has(e.session))
+	/** His messages' times in a session, null where its transcript will not read. */
+	const timesOf = (/** @type {string} */ id) => {
+		if (!spoke.has(id))
 			spoke.set(
-				e.session,
-				(founderReplies(transcripts.get(e.session)) ?? []).map((r) =>
-					Date.parse(r.at),
-				),
+				id,
+				founderReplies(transcripts.get(id))?.map((r) => Date.parse(r.at)) ??
+					null,
 			);
+		return spoke.get(id);
+	};
+	const refusals = events.filter(
+		(e) =>
+			e.kind.startsWith("refused") &&
+			isRead(at, e.at) &&
+			repos.includes(e.repo),
+	);
+	for (const e of refusals) {
+		const times = timesOf(e.session);
+		if (!times) continue;
 		const t = Date.parse(e.at);
-		const upTo =
-			spoke.get(e.session)?.find((s) => s > t) ?? Number.POSITIVE_INFINITY;
+		const upTo = times.find((s) => s > t) ?? Number.POSITIVE_INFINITY;
 		const key = `${e.session} ${upTo}`;
 		const stretch = byStretch.get(key) ?? {
 			session: e.session,
@@ -365,17 +393,7 @@ function stoppedRounds(events, transcripts, at) {
 	/** @type {Stopped[]} */
 	const stopped = [];
 	for (const s of byStretch.values()) {
-		const passes = events.filter((e) => {
-			const t = Date.parse(e.at);
-			const refusedAt = s.refusedAt.get(e.round);
-			return (
-				e.session === s.session &&
-				e.kind === "passed-after-refusal" &&
-				refusedAt !== undefined &&
-				t > refusedAt &&
-				t < s.upTo
-			);
-		});
+		const passes = events.filter((e) => isPassIn(e, s));
 		if (passes.some((e) => e.resent !== false)) continue;
 		stopped.push({
 			session: s.session,
@@ -385,7 +403,8 @@ function stoppedRounds(events, transcripts, at) {
 			sent: passes.length > 0,
 		});
 	}
-	return { stopped, refused: byStretch.size };
+	const unread = [...spoke.values()].filter((v) => v === null).length;
+	return { stopped, refused: byStretch.size, unread };
 }
 
 /**
@@ -394,8 +413,8 @@ function stoppedRounds(events, transcripts, at) {
  * @param {number} days the window's length
  * @returns {string}
  */
-const buildStoppedLine = ({ stopped, refused }, days) =>
-	`   Stopped, which this line cannot see: ${ratio(stopped.length, refused)} refused rounds sent the founder none of their questions — ${(stopped.length / days).toFixed(2)} a day over ${days.toFixed(1)} days. A raw count, each listed below to read by hand.`;
+const buildStoppedLine = ({ stopped, refused, unread }, days) =>
+	`   Stopped, which this line cannot see: ${ratio(stopped.length, refused)} refused rounds in the pooled repos sent the founder none of their questions — ${(stopped.length / days).toFixed(2)} a day over ${days.toFixed(1)} days. A raw count, each listed below to read by hand.${unread ? ` ${unread} session(s) whose transcript will not read are left out.` : ""}`;
 
 /**
  * @param {Stopped[]} stopped
@@ -541,7 +560,7 @@ const CLASS_STEP =
  * @param {string[]} steps
  * @returns {(reading: string) => string}
  */
-const issueBody = (intro, steps) => (reading) =>
+const buildReadingBody = (intro, steps) => (reading) =>
 	[
 		intro,
 		"",
@@ -557,9 +576,9 @@ const issueBody = (intro, steps) => (reading) =>
  * @typedef {{ heading: string, filer: ReturnType<typeof buildFiler>,
  *   place: (live: Map<string, number>, rounds: Round[], base: Baseline) =>
  *     { point: Point, sentence: string } | null,
- *   thin: (rounds: Round[], base: Baseline) => string | null,
+ *   thin: (rounds: Round[], pooled: Round[]) => string | null,
  *   skewed: boolean }} Reading
- *   `place` is null while no repo is live; `thin` reads the window's rounds;
+ *   `place` is null while no repo is live; `thin` reads the window's rounds and line 1's pool of them;
  *   `skewed` prints the baseline's skew beside the rates set against it
  */
 
@@ -570,17 +589,30 @@ const refusedTimes = (rounds) =>
 		.map((r) => Date.parse(r.reply.at))
 		.sort((a, b) => a - b);
 
+/** @param {Round} r classed (a)–(c) or not yet classed */
+const isRatedOrOpen = (r) =>
+	r.cls === null || r.cls === "a" || SENT_BACK.has(r.cls);
+
 /**
- * A refused-then-answered round the second reading counts toward its point:
- * in a repo with baseline rows below MIN_CALLS, classed (a)–(c) or not yet
- * classed.
- * @param {Round} r
+ * The refused-then-answered rounds the second reading counts toward its
+ * point: in repos line 1 would pool over every round so far, classed (a)–(c)
+ * or not yet classed.
+ * @param {Round[]} rounds
  * @param {Baseline} base
  */
-const isTowardSecond = (r, base) =>
-	r.kind === "refused" &&
-	Boolean(base.byRepo.get(r.repo)?.below.rated) &&
-	(r.cls === null || r.cls === "a" || SENT_BACK.has(r.cls));
+function towardSecond(rounds, base) {
+	const refused = rounds.filter((r) => r.kind === "refused");
+	const pooled = new Set(
+		[...base.byRepo]
+			.filter(
+				([repo, b]) =>
+					b.below.rated > 0 &&
+					refused.filter((r) => r.repo === repo).length >= MIN_REPO_ROUNDS,
+			)
+			.map(([repo]) => repo),
+	);
+	return refused.filter((r) => pooled.has(r.repo) && isRatedOrOpen(r));
+}
 
 /** @type {Reading[]} */
 const READINGS = [
@@ -592,7 +624,7 @@ const READINGS = [
 			/* Named outside every marker sweep family, as the round-check log is. */
 			record: ".round-check-reading-filed",
 			script: "node scripts/report-round-check-reading.js",
-			buildIssueBody: issueBody(
+			buildIssueBody: buildReadingBody(
 				"The reading of the under-researched-round check, filed once by `scripts/report-round-check-reading.js` at its reading point (spec #1701; rulings #1684 and #1691). Closing this issue never re-files it.",
 				[
 					CLASS_STEP,
@@ -626,7 +658,7 @@ const READINGS = [
 			label: takesLabel("wayfinder"),
 			record: ".round-check-reading-2-filed",
 			script: "node scripts/report-round-check-reading.js",
-			buildIssueBody: issueBody(
+			buildIssueBody: buildReadingBody(
 				`The second reading of the under-researched-round check, filed once by \`scripts/report-round-check-reading.js\` at ${SECOND_TARGET} rated refused-then-answered rounds (ruled at #3978 Q1 (A), built at #3995; the first reading is #3978). Closing this issue never re-files it.`,
 				[
 					`${CLASS_STEP} Where replies classed (d)–(f) leave fewer than ${SECOND_TARGET} rated, the re-run's point moves later: class the replies it then lists too.`,
@@ -638,7 +670,7 @@ const READINGS = [
 		place: (live, rounds, base) => {
 			const first = Math.min(...live.values());
 			if (!Number.isFinite(first)) return null;
-			const times = refusedTimes(rounds.filter((r) => isTowardSecond(r, base)));
+			const times = refusedTimes(towardSecond(rounds, base));
 			const target = times[SECOND_TARGET - 1];
 			const what = `the ${SECOND_TARGET}th refused-then-answered round classed (a)–(c) or still to class (#3978 Q1 (A))`;
 			if (target === undefined)
@@ -656,8 +688,8 @@ const READINGS = [
 				sentence: `Reading point: ${minute(target)} — ${what}; classing one of them (d)–(f) moves it later.`,
 			};
 		},
-		thin: (rounds, base) => {
-			const { rated } = rateOf(rounds.filter((r) => isTowardSecond(r, base)));
+		thin: (_rounds, pooled) => {
+			const { rated } = rateOf(pooled);
 			return rated < SECOND_TARGET
 				? `THIN: ${rated} refused-then-answered round(s) classed (a)–(c), under the ${SECOND_TARGET} that tell half the baseline from the baseline at 80% power.`
 				: null;
@@ -922,6 +954,7 @@ function main() {
 		);
 		return;
 	}
+	/* Both filed, a dry run still reads the last (#3995). */
 	const { reading, filed } =
 		due ?? /** @type {(typeof filings)[number]} */ (filings.at(-1));
 	const nowMs = now();
@@ -1008,6 +1041,7 @@ function readAndPublish({ reading, nowMs, dryRun, filed, seats, classesFile }) {
 	const atOrAbove = repoPool(ofKind("unrefused"), { base, repos }, "atOrAbove");
 	const capRounds = ofKind("cap");
 	const listed = [...below.pooled, ...atOrAbove.pooled, ...capRounds];
+	/* --classes alone: the committed classes key earlier readings' rounds. */
 	const stray = [...given.keys()].filter(
 		(k) => !rounds.some((r) => r.key === k),
 	).length;
@@ -1015,7 +1049,7 @@ function readAndPublish({ reading, nowMs, dryRun, filed, seats, classesFile }) {
 	out.push(
 		"",
 		...buildCaveatLines(
-			reading.thin(rounds, base),
+			reading.thin(rounds, below.pooled),
 			unreadHeads,
 			unreadSessions,
 			stray,
@@ -1023,7 +1057,10 @@ function readAndPublish({ reading, nowMs, dryRun, filed, seats, classesFile }) {
 	);
 	if (reading.skewed) out.push(SKEW_LINE, "");
 	const notWorking = buildNotWorkingLine(below);
-	const stopped = stoppedRounds(events, transcripts, at);
+	const stopped = stoppedRounds(events, transcripts, {
+		at,
+		repos: below.kept,
+	});
 	notWorking.text.push(
 		buildStoppedLine(stopped, (at.cutoff - placed.point.clock) / DAY_MS),
 	);

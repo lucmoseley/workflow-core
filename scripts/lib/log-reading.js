@@ -547,6 +547,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 }
 
 module.exports = {
+	DAY_MS,
 	broken,
 	now,
 	verdict,
