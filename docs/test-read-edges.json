@@ -12572,7 +12572,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
-		"scripts/lib/command-path.ts": [
+		"scripts/lib/command-path-testkit.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",

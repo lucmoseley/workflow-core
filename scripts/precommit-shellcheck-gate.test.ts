@@ -19,7 +19,7 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { commandPath } from "./lib/command-path";
+import { commandPath } from "./lib/command-path-testkit";
 import {
 	cutGateFragment,
 	gateTmpdir,

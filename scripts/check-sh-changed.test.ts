@@ -17,7 +17,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { commandPath } from "./lib/command-path";
+import { commandPath } from "./lib/command-path-testkit";
 import {
 	gateTmpdir,
 	newRepo,
@@ -32,8 +32,6 @@ const ARGS_FILE = "shellcheck-args.txt";
 
 const HAS_SHELLCHECK =
 	spawnSync("shellcheck", ["--version"], { stdio: "ignore" }).status === 0;
-
-const readCommandPath = (cmd: string) => commandPath(cmd);
 
 function fixture() {
 	const { root, git } = newRepo("check-sh-changed-", temps);
@@ -62,7 +60,7 @@ function stub(root: string, bin: string, code = 0) {
 }
 
 function run(root: string, searchPath: string) {
-	const r = spawnSync(readCommandPath("bash"), [SCRIPT], {
+	const r = spawnSync(commandPath("bash"), [SCRIPT], {
 		cwd: root,
 		encoding: "utf8",
 		env: { ...process.env, PATH: searchPath, TMPDIR: gateTmpdir(root) },
@@ -167,7 +165,7 @@ it("waits on the shellcheck lock a neighbour holds, and says so (#2627)", async 
 	const lock = path.join(gateTmpdir(root), "wfc-shellcheck.lock");
 	const held = holdLock(lock);
 	try {
-		const child = spawn(readCommandPath("bash"), [SCRIPT], {
+		const child = spawn(commandPath("bash"), [SCRIPT], {
 			cwd: root,
 			env: {
 				...process.env,
@@ -208,7 +206,7 @@ describe("when nothing is checked", () => {
 		// Built up rather than subtracted from PATH: ~/.local/bin holds both
 		// shellcheck and tools the script needs (precommit-actionlint-gate.test.ts).
 		for (const cmd of ["git", "sort", "dirname", "node"]) {
-			fs.symlinkSync(readCommandPath(cmd), path.join(bin, cmd));
+			fs.symlinkSync(commandPath(cmd), path.join(bin, cmd));
 		}
 		fs.appendFileSync(path.join(root, "scripts", "a.sh"), "echo more\n");
 		const r = run(root, bin);

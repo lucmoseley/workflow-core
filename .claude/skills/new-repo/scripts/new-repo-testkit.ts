@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { withIgnoreBlock } from "../../../../scripts/lib/adopter-skeleton.js";
-import { commandPath } from "../../../../scripts/lib/command-path";
+import { commandPath } from "../../../../scripts/lib/command-path-testkit";
 import { LINK_READ_FAKE } from "../../../../scripts/lib/gh-fake";
 import {
 	type GhStubServer,

@@ -59,7 +59,7 @@ import {
 	WIDE_MISSING,
 	waitFor,
 } from "./lib/bg-run-testkit";
-import { commandPath } from "./lib/command-path";
+import { commandPath } from "./lib/command-path-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const { waitForGate } = require("./lib/suite-queue.js");

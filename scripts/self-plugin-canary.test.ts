@@ -292,14 +292,14 @@ describe("with lib/script-path.sh not loading (#3798)", () => {
 	}
 
 	it.each([
-		["where it is absent", null, "main"],
+		["where script-path.sh is absent", null, "main"],
 		[
-			"where it is absent, for a checkout whose path holds a quote",
+			"where script-path.sh is absent, for a checkout whose path holds a quote",
 			null,
 			"the founder's checkout",
 		],
-		["where it is empty", "", "main"],
-		["where it is a syntax error", "if\n", "main"],
+		["where script-path.sh is empty", "", "main"],
+		["where script-path.sh is a syntax error", "if\n", "main"],
 	])("prints a pasteable setup line %s", (_, quoter, name) => {
 		const main = checkout(name);
 		const r = run(canaryWithQuoter(quoter), JSON.stringify(bash(SID)), {

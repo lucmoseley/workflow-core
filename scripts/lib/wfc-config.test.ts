@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { commandPath } from "./command-path";
+import { commandPath } from "./command-path-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.resolve(__dirname, "wfc-config.sh");

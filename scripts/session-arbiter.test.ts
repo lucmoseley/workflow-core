@@ -34,7 +34,7 @@ import {
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
-import { commandPath } from "./lib/command-path";
+import { commandPath } from "./lib/command-path-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";

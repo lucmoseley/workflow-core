@@ -1,6 +1,6 @@
 /*
- * command-path.ts — where `sh` finds a command on the inherited PATH, the one
- * `command -v` lookup a test or testkit makes (#3977).
+ * command-path-testkit.ts — where `sh` finds a command on the inherited
+ * PATH, the one `command -v` lookup a test or testkit makes (#3977).
  */
 
 import { execFileSync } from "node:child_process";

@@ -10,7 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { commandPath } from "./command-path";
+import { commandPath } from "./command-path-testkit";
 
 /**
  * The stub's body, after its `ARGS` path. `argc=` goes first, so an invocation
