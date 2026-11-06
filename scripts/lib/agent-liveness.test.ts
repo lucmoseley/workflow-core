@@ -500,6 +500,47 @@ describe("headless runs (#2608)", () => {
 		expect([...liveness.sweepSessionIds().ids]).toContain("h");
 	});
 
+	it("lists a run once, though the oracle derives an interactive row from its transcript (#4588)", () => {
+		fakeClaude(
+			JSON.stringify([
+				{ pid: 100, sessionId: "a", state: "working", kind: "session" },
+				{ pid: 101, sessionId: "h", state: "working", kind: "interactive" },
+			]),
+		);
+		headlessRun("0123abcd", "h");
+		expect(liveness.listedAgents().agents).toEqual([
+			expect.objectContaining({ sessionId: "a" }),
+			expect.objectContaining({ sessionId: "h", kind: "headless" }),
+		]);
+	});
+
+	it("drops a live oracle row sharing a run's pid under another session id, never a dead one (#4588)", () => {
+		// writeHeadlessRun records this process as the run's pid.
+		fakeClaude(
+			JSON.stringify([
+				{ pid: 100, sessionId: "a", state: "working", kind: "session" },
+				{
+					pid: process.pid,
+					sessionId: "x",
+					state: "working",
+					kind: "interactive",
+				},
+				{
+					pid: process.pid,
+					sessionId: "old",
+					state: "failed",
+					kind: "background",
+				},
+			]),
+		);
+		headlessRun("0123abcd", "h");
+		expect(
+			liveness
+				.listedAgents()
+				.agents.map((a: { sessionId: string }) => a.sessionId),
+		).toEqual(["a", "old", "h"]);
+	});
+
 	it("lists no ended run, a reused pid included", () => {
 		fakeClaude(listing("a"));
 		headlessRun("0123abcd", "h", false);
