@@ -180,8 +180,10 @@ fi
 # `sh -e` rather than a `.` source, and the status passed through rather than
 # collapsed to 1 — both for the reasons `.husky/pre-merge-commit` records.
 # `git` itself discards the exit code and reports 1.
+# WFC_INDEX_FROZEN: git read this commit's index before this hook ran, so a gate
+# staging a fix here would not reach the commit (#4514).
 status=0
-sh -e "$here/pre-commit" || status=$?
+WFC_INDEX_FROZEN=1 sh -e "$here/pre-commit" || status=$?
 # pre-commit stamps its own success, and leaving that stamp would let this run
 # stand down a later `--no-verify` commit.
 rm -f "$stamp"
