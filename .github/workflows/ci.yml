@@ -288,8 +288,10 @@ jobs:
           free -m
           nproc
 
-      # vitest run exits non-zero on any failing test and npm propagates that.
-      # No continue-on-error, no `|| true` — a failing test fails the build.
+      # vitest run exits non-zero on any failing test and npm propagates that,
+      # and a failing test fails the build. On a `lander/*` push alone the
+      # step goes on, and the retry step below re-runs its failed files once:
+      # the lander's own re-run in this job, not a second run (#4545).
       #
       # `--full` IS LOAD-BEARING: bare `npm run test` narrows to the diff
       # against merge-base(HEAD, <the pushed ref>) (mantahostels#3208, #2408). On a CI
@@ -304,10 +306,18 @@ jobs:
       # below: the per-file times docs/data/ci-shard-timings.csv is refreshed from, which
       # vitest-shard-sequencer.ts packs the shards by (#2413).
       - name: Vitest
+        id: vitest
         if: ${{ !cancelled() }}
+        continue-on-error: ${{ startsWith(github.ref_name, 'lander/') }}
         env:
           WFC_VITEST_JSON: ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
         run: npm run test -- --full=coverage --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+      # Named in scripts/lib/actions-tester.js's RETRY_STEP, which reads a red
+      # here as retried already.
+      - name: Retry failed files
+        if: ${{ !cancelled() && steps.vitest.outcome == 'failure' && startsWith(github.ref_name, 'lander/') }}
+        run: node scripts/retry-failed-files.js "$RUNNER_TEMP/vitest-${{ matrix.shard }}.json"
 
       - name: Upload Vitest report
         if: ${{ !cancelled() }}

@@ -81,6 +81,8 @@ const NAMED_RUN_LIST_LIMIT = 50;
  * under `!cancelled()`, so a download outage at one still runs the tests, on
  * a runner missing its tools. "Install dependencies" is not one: a broken
  * lockfile is the code's fault. */
+/* ci.yml's step re-running a lander run's failed files once (#4545). */
+const RETRY_STEP = "Retry failed files";
 const RUNNER_STEPS = new Set([
 	"Set up job",
 	"Run actions/checkout@v4",
@@ -195,7 +197,23 @@ function runVerdict(sha, reads, after) {
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
 	const jobs = failed.map((j) => j.name);
-	return { kind: "red", ...readFailed(sha, id, reads), jobs };
+	/* Every failed job red again at its in-job retry: the lander's own
+	 * re-run would only repeat it (#4545). A red naming no file re-ran
+	 * nothing there, so the lander's whole-suite re-run stays. */
+	const read = readFailed(sha, id, reads);
+	const retried =
+		read.files.length > 0 &&
+		failed.every((j) =>
+			(j.steps ?? []).some(
+				(s) => s.conclusion === "failure" && s.name === RETRY_STEP,
+			),
+		);
+	return {
+		kind: "red",
+		...read,
+		jobs,
+		...(retried ? { retried } : {}),
+	};
 }
 
 /**

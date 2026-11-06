@@ -1359,6 +1359,22 @@ describe("the red path", () => {
 		expect(remote.iso.size).toBe(0);
 	});
 
+	it("takes no rerun of a red its own run retried, going straight to the base check (#4545)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+
+		const { asked } = await land(remote, freshDisk(), {
+			requiresRun: false,
+			verdict: (sha) =>
+				sha === "m0" ? Green : { ...red("scripts/x.test.ts"), retried: true },
+		});
+
+		const integration = "merge(m0;a1,b1)";
+		expect(asked.slice(0, 2)).toEqual([integration, "m0:scripts/x.test.ts"]);
+	});
+
 	it("lands a batch red only where main is red too on a tester main takes any green of, filing one base-red ticket for those files", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },

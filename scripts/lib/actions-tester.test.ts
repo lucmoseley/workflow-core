@@ -169,6 +169,30 @@ it("reads a failed run as red, naming its failing jobs and the tree's failing fi
 	});
 });
 
+it("marks a red retried where every failed job failed at its in-job retry, and not where one failed before it or it named no file (#4545)", async () => {
+	const retry = (step: string): Job => ({
+		name: "Full suite / Vitest (1/2)",
+		conclusion: "failure",
+		steps: [
+			{ name: "Vitest", conclusion: "success" },
+			{ name: step, conclusion: "failure" },
+		],
+	});
+	const verdictWith = (job: Job) =>
+		verdictOf(reads([() => [run(1, "failure")]], [job, SUITE_PASSED]));
+	expect(await verdictWith(retry("Retry failed files"))).toMatchObject({
+		kind: "red",
+		retried: true,
+	});
+	expect(await verdictWith(retry("Vitest"))).not.toHaveProperty("retried");
+	const noFile = reads(
+		[() => [run(1, "failure")]],
+		[retry("Retry failed files"), SUITE_PASSED],
+		[],
+	);
+	expect(await verdictOf(noFile)).not.toHaveProperty("retried");
+});
+
 it("names a failing file from a log whose colour codes gh printed as literal caret text (#3529)", async () => {
 	/* Verbatim from run 40759126911's `--log-failed`, shard 8/8. */
 	const log =

@@ -86,7 +86,7 @@
 	"scripts/run-vitest.js": "44cf5dd1826d201b",
 	"scripts/self-plugin-canary.sh": "b779d59b4560857b",
 	"scripts/session-arbiter.js": "394b0971b684e03c",
-	"scripts/session-start-sweeps.sh": "d0a5dc0752872829",
+	"scripts/session-start-sweeps.sh": "616f5df1b0f068ed",
 	"scripts/start-lander-on-push.js": "0607f62aa571002b",
 	"scripts/unpark-on-prompt.js": "ffcdfc781c0a5e75",
 	"scripts/vitest-inflight-reporter.ts": "53519b88796797fb",
