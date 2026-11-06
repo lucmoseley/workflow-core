@@ -330,6 +330,18 @@ describe("check-orphaned-edits", () => {
 		expect(readFilings()).toHaveLength(3);
 	});
 
+	it("starts no filing its ceiling would carry past the hook's timeout, filing it next run (#4542)", async () => {
+		dirty("a.txt", 30);
+
+		expect(
+			(await run([], false, { WFC_ORPHAN_HOOK_TIMEOUT_MS: "21000" })).out,
+		).toContain("not filed yet: this run's time is spent");
+		expect(readFilings()).toEqual([]);
+
+		await run();
+		expect(readFilings()).toHaveLength(1);
+	});
+
 	it("leaves an interrupted filing alone rather than filing it again", async () => {
 		dirty("a.txt", 30);
 		await run();

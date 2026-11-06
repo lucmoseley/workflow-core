@@ -22,6 +22,7 @@
  */
 
 const {
+	execGitAsync,
 	execProgram,
 	gitBinary,
 	gitSpawnOptions,
@@ -133,8 +134,34 @@ function readDirtyTracked(root, execFn = execProgram) {
  *   null where git could not answer
  */
 function readTrackedStatus(root, execFn = execProgram) {
-	const out = gitRead(["status", "--porcelain", "-z", "-uno"], root, execFn);
-	if (out === null) return null;
+	const out = gitRead(TRACKED_STATUS, root, execFn);
+	return out === null ? null : parseTrackedStatus(out);
+}
+
+const TRACKED_STATUS = ["status", "--porcelain", "-z", "-uno"];
+
+/**
+ * readDirtyTracked off the event loop, so a caller can read many trees at once.
+ * @param {string} root
+ * @returns {Promise<string[]|null>} null where git could not answer
+ */
+async function readDirtyTrackedAsync(root) {
+	try {
+		const { stdout } = await execGitAsync(TRACKED_STATUS, {
+			cwd: root,
+			timeout: GIT_TIMEOUT_MS,
+		});
+		return parseTrackedStatus(stdout).dirty;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * @param {string} out raw `git status --porcelain -z -uno` stdout
+ * @returns {{ dirty: string[], renames: { path: string, source: string }[] }}
+ */
+function parseTrackedStatus(out) {
 	/** @type {string[]} */
 	const paths = [];
 	/** @type {{ path: string, source: string }[]} */
@@ -205,6 +232,7 @@ function readUntrackedEntries(root) {
 module.exports = {
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
+	readDirtyTrackedAsync,
 	gitRead,
 	readTrackedStatus,
 	readUntrackedEntries,

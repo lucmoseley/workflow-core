@@ -51,7 +51,8 @@
  * (`docs/code-standards-base.md` §N3, where filing is `report-*`'s): #813 rules one
  * checker that reports and files, and filing never moves its outcome off WARN.
  *
- * WFC_ORPHAN_FILER replaces `file-issue.js` — the test seam.
+ * WFC_ORPHAN_FILER replaces `file-issue.js`, and WFC_ORPHAN_HOOK_TIMEOUT_MS
+ * the hook's 60-second timeout — the test seams.
  *
  * EVERY REGISTERED WORKTREE IS WALKED (#4244). Dirt in a linked worktree
  * belongs to the session that owns it (lib/session-worktrees.js): an orphan
@@ -83,7 +84,12 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
-const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
+const {
+	readDirtyTracked,
+	readDirtyTrackedAsync,
+	gitRead,
+} = require("./lib/dirty-tree.js");
+const { mapLimit } = require("./lib/gh.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -101,7 +107,11 @@ const {
 	readWorktreeFiling,
 	stateTag,
 } = require("./lib/orphan-filings.js");
-const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
+const {
+	capMs,
+	isListedLive,
+	sweepSessionIds,
+} = require("./lib/agent-liveness");
 const proc = require("./lib/arbiter-proc");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
@@ -115,13 +125,26 @@ const ORPHAN_LABEL = takesLabel("triage");
 /* The threshold #794's rulings set. */
 const ORPHAN_AFTER_HOURS = 24;
 
-/* How many new filings one run makes, each a few `gh` calls inside a
- * SessionStart hook's timeout. A guess, not a measurement; the rest are filed
- * at the next run. */
+/* How many new filings one run makes; the rest are filed at the next run.
+ * Measured (#4542), at load 12–25: the reads before filing 3–15 s, a large
+ * file's landed history 6 s, one filing 11–16 s (consecutive issues one run
+ * filed, 5 Nov). Two can overrun the hook, which hasFilingTime guards. */
 const MAX_FILED_PER_RUN = 2;
 
-/* Two filings at this ceiling stay inside the hook's 60-second timeout. */
-const FILER_TIMEOUT_MS = 25_000;
+/* One filing's ceiling, its --distinct-from retry included, over the 16 s
+ * slowest measured. */
+const FILER_TIMEOUT_MS = 20_000;
+
+/* hooks/hooks.json's timeout for the SessionStart run, overridable so the
+ * suite can spend it; and an untraced margin for the run's exit. */
+const hookTimeoutMs = () => capMs("WFC_ORPHAN_HOOK_TIMEOUT_MS", 60_000);
+const EXIT_MARGIN_MS = 2000;
+
+/* A filing starts only while its whole ceiling fits before the hook is
+ * killed: one cut off mid-create may have filed, so it is never retried. */
+const hasFilingTime = () =>
+	hookTimeoutMs() - EXIT_MARGIN_MS - process.uptime() * 1000 >=
+	FILER_TIMEOUT_MS;
 
 /* Hex digits of a blob id a title or table shows: enough to tell a reader's
  * issues apart; the marker, not the title, prevents a refile. */
@@ -499,12 +522,13 @@ function fileOne(f, root, supersedes) {
 		"--body-file",
 		"-",
 	];
+	const deadline = Date.now() + FILER_TIMEOUT_MS;
 	const spawnFiler = (/** @type {string[]} */ a) =>
 		spawnSync(process.execPath, a, {
 			cwd: root,
 			input: body,
 			encoding: "utf8",
-			timeout: FILER_TIMEOUT_MS,
+			timeout: Math.max(1, deadline - Date.now()),
 		});
 	let res = spawnFiler(args);
 	/* The marker, per path and blob, is this filer's duplicate check, so it
@@ -818,6 +842,10 @@ const buildMarkerRecord = (f, ref, now) =>
  */
 async function fileUnderMarker(f, taken, { root, now }) {
 	await judgeLanded(f, root);
+	if (!hasFilingTime()) {
+		fs.rmSync(taken, { force: true });
+		return "not filed yet: this run's time is spent";
+	}
 	const supersedes =
 		f.worktree === null
 			? null
@@ -958,13 +986,21 @@ function adoptMainCheckout() {
 	return main;
 }
 
+/* `git status` calls in flight across the linked worktrees: one at a time
+ * took 2.7 s over 196 worktrees at load 12 (#4542). Four, half the cores, is
+ * a guess that leaves the rest to the other SessionStart hooks. */
+const STATUS_CONCURRENCY = 4;
+
 /**
  * Every linked worktree's dirt, sorted by age, with what could not be read.
  * @param {string} root
  * @param {{hours: number, now: number}} opts
  */
-function readLinkedDirt(root, { hours, now }) {
+async function readLinkedDirt(root, { hours, now }) {
 	const linked = readLinkedWorktrees(root);
+	const dirt = await mapLimit(linked ?? [], STATUS_CONCURRENCY, (wt) =>
+		readDirtyTrackedAsync(wt),
+	);
 	/** @type {ReturnType<typeof sortByAge>[]} */
 	const sorted = [];
 	let total = 0;
@@ -974,8 +1010,8 @@ function readLinkedDirt(root, { hours, now }) {
 	const unread = [];
 	/** @type {Map<string, number>} */
 	const youngIn = new Map();
-	for (const wt of linked ?? []) {
-		const wtDirty = readDirtyTracked(wt);
+	for (const [i, wt] of (linked ?? []).entries()) {
+		const wtDirty = dirt[i] ?? null;
 		if (wtDirty === null) unread.push(wt);
 		if (!wtDirty || wtDirty.length === 0) continue;
 		total += wtDirty.length;
@@ -1005,7 +1041,7 @@ async function run(ctx) {
 		gitReader(root, GIT_TIMEOUT_MS),
 	);
 	const checkout = { root, worktree: null };
-	const { linked, unread, youngIn, ...walked } = readLinkedDirt(root, {
+	const { linked, unread, youngIn, ...walked } = await readLinkedDirt(root, {
 		hours,
 		now,
 	});
