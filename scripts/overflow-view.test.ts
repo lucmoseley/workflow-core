@@ -10,7 +10,6 @@
  * Loosen one and the founder misses a run waiting on him, answers a session
  * still working, or a reply leaks the key into the session's environment.
  */
-
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
