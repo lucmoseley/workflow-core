@@ -12,8 +12,6 @@ A log's bound comes from what the log is for, so no single writer can choose it.
 - **Pruned to an archive:** `test-pass-marker.js` moves pruned lines into `<store>.archive.jsonl`.
 - **Unbounded on purpose:** `check-self-throttling.js` keeps its oldest readings because they are the ones it exists for. `delegated-decision.js` dedupes against the whole ledger. The verdict logs (`escape-audit.js`, `jev-trial.js`) and the overflow `capped` set are records that are read in full.
 
-`appendRetained` prunes by age, so it would delete the records in that last group. The one line all the appenders share, `fs.appendFileSync(file, JSON.stringify(row) + "\n")`, is too small to be worth a helper.
-
-At triage the largest unbounded log was `delegated-decisions.jsonl` at 0.7 MB. The large files on disk were already bounded by their own policies.
+`appendRetained` prunes by age, so it would delete the records in that last group.
 
 Revisit only if an unbounded log is measured growing fast enough to matter: give that log its own bound in its own file.
