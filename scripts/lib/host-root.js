@@ -10,8 +10,10 @@
  * hooks `CLAUDE_PROJECT_DIR` naming that worktree, and the Bash tool sets none,
  * so a hook's claim and a hand-run `release` meet in one store only because
  * both limbs map to the main checkout (#4482, #4493). A declared directory
- * whose `.git` is not a file is a main checkout or no checkout at all, and is
- * kept without asking git.
+ * whose `.git` is not a file is kept without asking git: a main checkout, or
+ * no checkout root at all. RESIDUAL: a declared subdirectory of a linked
+ * worktree is such a directory, kept as declared where the working-directory
+ * limb would map it; the harness declares only a checkout's root.
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
  *
@@ -147,8 +149,7 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 /**
  * The main checkout owning a declared `CLAUDE_PROJECT_DIR`, or that directory
  * itself: where its `.git` is no file, so no linked worktree, and where git
- * will not answer, which fails open to it silently, as `hostRoot()`'s git limb
- * does and for the same reason.
+ * will not answer.
  * @param {string} dir dereferenced, trailing slash stripped
  * @param {number} [timeoutMs]
  * @param {() => void} [onTimeout]
@@ -168,6 +169,9 @@ function declaredHost(dir, timeoutMs, onTimeout) {
 			value = owningCheckout(dir, timeoutMs);
 		} catch (e) {
 			if (caught(e).code === "ETIMEDOUT") onTimeout?.();
+			/* Fails open to the declared directory (mantahostels#103 §6),
+			 * silently: the error log's own directory is derived from this, so a
+			 * report from here would recurse. */
 			return dir;
 		}
 	}

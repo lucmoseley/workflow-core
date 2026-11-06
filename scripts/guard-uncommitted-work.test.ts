@@ -381,7 +381,7 @@ describe("the session's own worktree (#4229)", () => {
 				worktree: wt,
 				sid,
 				config: path.join(root, ".claude-home"),
-				/* Unset, so the guard's own root is the seam's answer. */
+				/* WFC_REPO_ROOT unset, so the guard's own root is the seam's answer. */
 				env: { CLAUDE_PROJECT_DIR: wt, WFC_REPO_ROOT: undefined },
 				payload: {
 					transcript_path: undefined,
@@ -392,6 +392,8 @@ describe("the session's own worktree (#4229)", () => {
 		/* A watched path, so the arbiter claims it. */
 		const doc = "docs/notes.md";
 
+		/* The issue's own case: once released, committed work holding no claim
+		 * is not blocked. */
 		it("names a committed file's claim, which the hand-run release then clears", () => {
 			fs.mkdirSync(path.join(wt, "docs"));
 			fs.writeFileSync(path.join(wt, doc), "notes\n");
@@ -407,10 +409,6 @@ describe("the session's own worktree (#4229)", () => {
 
 			const released = arbiterCli(["release-committed", doc], undefined);
 			expect(released.stdout).toContain(`Released ${doc}`);
-			expect(endShipped()).toBeNull();
-		});
-
-		it("passes a session whose files are committed and which holds no claim", () => {
 			expect(endShipped()).toBeNull();
 		});
 	});

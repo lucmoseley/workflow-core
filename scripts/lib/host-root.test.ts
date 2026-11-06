@@ -107,6 +107,10 @@ describe("the host seam", () => {
 		expect(readFrom(at.elsewhere, at.shared)).toBe("a\n");
 	});
 
+	it("reads the worktree when CLAUDE_PROJECT_DIR names that worktree (#4493)", () => {
+		expect(readFrom(at.wt, at.wt)).toBe("worktree\n");
+	});
+
 	it("reads the worktree with CLAUDE_PROJECT_DIR unset", () => {
 		expect(readFrom(at.wt, undefined)).toBe("worktree\n");
 	});
