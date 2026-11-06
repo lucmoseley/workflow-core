@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins the admission arithmetic both of admission.js's verdicts read (#4263):
- * each rule once, on its figures.
+ * each rule once, on its figures. Loosen a case and a session can be admitted
+ * past the machine's 10 GB cap, which freezes it, or a free slot held shut.
  *
  * A 3700 MB budget fits 4 at 3058, not 5 at 3736; a 1300 MB budget fits 1 at
  * p95 (929, not 1666) and 2 at the 600 MB mean.
@@ -13,43 +14,15 @@ import { admissionFigures } from "./admission-figures";
 const FLOOR = 794;
 const HELD = FLOOR + 300;
 
-type Readings = Parameters<typeof admissionFigures>[2];
+type Readings = NonNullable<Parameters<typeof admissionFigures>[2]>;
 type Procs = Parameters<typeof admissionFigures>[1];
 type Mem = Parameters<typeof admissionFigures>[0];
 
 const host = { meanMb: 600, sigmaMb: 200, declared: true };
-/* Every reading unread, each no adjustment, as admission.js fills them. */
-const UNREAD: Readings = {
-	overhead: { ok: true, mb: 0 },
-	reclaimable: { ok: true, mb: 0 },
-	live: {
-		sessions: 0,
-		meanMb: 0,
-		varianceMb2: 0,
-		pssMb: 0,
-		unread: 0,
-		noProcess: 0,
-		problems: [],
-	},
-	host,
-	load: { overloaded: false, load1: null, ceiling: null },
-	cpu: {
-		ceiling: null,
-		sessions: null,
-		idleSpares: null,
-		slots: null,
-		full: false,
-		unknown: "not read",
-	},
-	landerMb: 0,
-	sessionFloor: 0,
-	swapHold: { held: false },
-	launchMb: 0,
-};
-const figures = (mem: Mem, procs: Procs, readings: Partial<Readings> = {}) =>
-	admissionFigures(mem, procs, { ...UNREAD, ...readings });
+const figures = (mem: Mem, procs: Procs, readings: Readings = {}) =>
+	admissionFigures(mem, procs, { host, ...readings });
 /* The figures of a memory reading, which every case but one takes. */
-const measured = (mem: Mem, procs: Procs, readings?: Partial<Readings>) => {
+const measured = (mem: Mem, procs: Procs, readings?: Readings) => {
 	const f = figures(mem, procs, readings);
 	if (!f.memRead) throw new Error("memory unread");
 	return f;

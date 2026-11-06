@@ -1808,7 +1808,7 @@ describe("admissionFrom's own fallback and wording", () => {
 		expect(met.reason).toMatch(/^1 free slot on the live sessions' draw/);
 	});
 
-	it("clamps memory less a reserve larger than it at 0, as the strict verdict does", () => {
+	it("clamps memory less a reserve larger than it at 0", () => {
 		const a = admissionFrom({ ok: true, mb: 500 }, one, {
 			host,
 			overhead: { ok: true, mb: 800 },

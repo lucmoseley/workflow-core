@@ -1,6 +1,7 @@
 /*
  * admission-figures.js — the admission arithmetic: from the machine's
- * readings to the slots they admit (#4263).
+ * readings to the slots they admit (#4263). Pure, so its suite reaches every
+ * branch in process; `admission.js` does the reading.
  */
 
 const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
@@ -12,11 +13,76 @@ const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
  * @typedef {import("./admission.js").SessionDraw} SessionDraw
  * @typedef {import("./admission.js").LiveDraw} LiveDraw
  * @typedef {import("./admission.js").SwapHold} SwapHold
- * @typedef {import("./admission.js").SessionFloorFigures} SessionFloorFigures
- * @typedef {import("./admission.js").FloorProcs} FloorProcs
- * @typedef {import("./admission.js").LenientProcs} LenientProcs
+ * @typedef {{ sessionFloor: number, sessionFloorWorking: number, sessionFloorSlots: number, sessionFloorLifted: boolean, swapHold: SwapHold }} SessionFloorFigures
+ * @typedef {{ sessions: number, working: number, self?: boolean, unvouched?: boolean }} FloorProcs
+ * @typedef {(FloorProcs & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {import("./admission.js").LiveSessionsResult} LiveSessionsResult
- * @typedef {{ overhead: MbResult, reclaimable: MbResult, live: LiveDraw, host: SessionDraw, load: LoadReading, cpu: CpuSlots, landerMb: number, sessionFloor: number, swapHold: SwapHold, launchMb: number }} FigureReadings
+ */
+
+/* The default for a caller that has not read the load: no hold. */
+/** @type {LoadReading} */
+const LOAD_UNREAD = { overloaded: false, load1: null, ceiling: null };
+
+/** @type {CpuSlots} */
+const CPU_UNREAD = {
+	ceiling: null,
+	sessions: null,
+	idleSpares: null,
+	slots: null,
+	full: false,
+	unknown: "not read",
+};
+
+/*
+ * THE AGGREGATE DRAW (#2221). Admission prices the live sessions together, not
+ * as N copies of one session's p90: sessions do not peak together, so the
+ * sum's tail grows with √N. One session's draw is its pair (the session
+ * process and its `bg-pty-host`) plus every process it starts, measured as a
+ * mean and a standard deviation (`docs/environment.md` §5). k more sessions are
+ * admitted while
+ *
+ *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
+ *     ≤ free − pool reserve − earlyoom floor − margin + reclaim credit
+ *
+ * Σ runs over the live sessions, each at its own repo's draw; the bare μ and σ
+ * are this host's, whose sessions are the ones admitted. Current PSS counts
+ * descendants too, the unit μ is measured in, so the suites μ's sample saw
+ * are charged at the rate it saw them. Nothing more is held for suites: the
+ * suite gate queues a suite until its ladder rung is free (#2305).
+ *
+ * An undeclared repo is charged DEFAULT_SESSION_DRAW: the pooled draw across
+ * every repo #2231's 45-minute sample saw working.
+ */
+/** @type {{ meanMb: number, sigmaMb: number }} */
+const DEFAULT_SESSION_DRAW = { meanMb: 587, sigmaMb: 304 };
+/** @type {SessionDraw} */
+const UNDECLARED_DRAW = { ...DEFAULT_SESSION_DRAW, declared: false };
+/** @type {LiveDraw} */
+const NO_LIVE_DRAW = {
+	sessions: 0,
+	meanMb: 0,
+	varianceMb2: 0,
+	pssMb: 0,
+	unread: 0,
+	noProcess: 0,
+	problems: [],
+};
+/** @type {SwapHold} */
+const NO_SWAP_HOLD = { held: false };
+
+/**
+ * The readings beside memory and the session count, each defaulting to no
+ * adjustment for a caller that hasn't read it. `launchMb`, the pending pairs
+ * `overhead` reserves for one launch, is charged again for each slot past the
+ * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
+ * and `host` this host's session draw, from `readSessionDraw` (#2221);
+ * `landerMb`, from `landerHeldMb`, is held back for the lander's suite;
+ * `sessionFloor`, from `readDeclaredSessionFloor`, lifts the memory slots to
+ * `sessionFloorSlotsOf`'s, none while `swapHold`, from `swapHoldOf`, binds
+ * (#2501, #2690); `load` comes from `overloadReading`, and an overload holds
+ * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
+ * always-admit-one guarantee included in both.
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, sessionFloor?: number, swapHold?: SwapHold, launchMb?: number }} AdmissionReadings
  */
 
 /* The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
@@ -158,23 +224,23 @@ function sessionFloorFigures({
  * `slots` are those two under the CPU cap and the load hold.
  * @param {MbResult} mem
  * @param {LenientProcs | LiveSessionsResult} procs
- * @param {FigureReadings} readings
+ * @param {AdmissionReadings} [readings]
  */
 function admissionFigures(
 	mem,
 	procs,
 	{
-		overhead,
-		reclaimable,
-		live,
-		host,
-		load,
-		cpu,
-		landerMb,
-		sessionFloor,
-		swapHold,
-		launchMb,
-	},
+		overhead = { ok: true, mb: 0 },
+		reclaimable = { ok: true, mb: 0 },
+		live = NO_LIVE_DRAW,
+		host = UNDECLARED_DRAW,
+		load = LOAD_UNREAD,
+		cpu = CPU_UNREAD,
+		landerMb = 0,
+		sessionFloor = 0,
+		swapHold = NO_SWAP_HOLD,
+		launchMb = 0,
+	} = {},
 ) {
 	const inputs = {
 		live,
@@ -245,4 +311,11 @@ function admissionFigures(
 	};
 }
 
-module.exports = { DRAW_Z, admissionFigures };
+module.exports = {
+	DEFAULT_SESSION_DRAW,
+	DRAW_Z,
+	NO_LIVE_DRAW,
+	NO_SWAP_HOLD,
+	UNDECLARED_DRAW,
+	admissionFigures,
+};

@@ -60,15 +60,18 @@ const {
 	PS_BIN,
 } = require("./suite-ladder.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
-const { DRAW_Z, admissionFigures } = require("./admission-figures.js");
+const {
+	DEFAULT_SESSION_DRAW,
+	DRAW_Z,
+	NO_LIVE_DRAW,
+	NO_SWAP_HOLD,
+	UNDECLARED_DRAW,
+	admissionFigures,
+} = require("./admission-figures.js");
 
 /**
  * @typedef {import("./cpu-sample.js").LoadReading} LoadReading
  */
-
-/* The default for a caller that has not read the load: no hold. */
-/** @type {LoadReading} */
-const LOAD_UNREAD = { overloaded: false, load1: null, ceiling: null };
 
 /**
  * `full` is the verdict, as `overloaded` is the load limb's; `slots` is null,
@@ -77,16 +80,6 @@ const LOAD_UNREAD = { overloaded: false, load1: null, ceiling: null };
  * spare's host, shown beside it and never taken off it (#2502).
  * @typedef {{ ceiling: number | null, sessions: number | null, idleSpares: number | null, slots: number | null, full: boolean, unknown: string | null }} CpuSlots
  */
-
-/** @type {CpuSlots} */
-const CPU_UNREAD = {
-	ceiling: null,
-	sessions: null,
-	idleSpares: null,
-	slots: null,
-	full: false,
-	unknown: "not read",
-};
 
 /**
  * The CPU limb's slot count (#2141): the session ceiling less the machine's
@@ -162,14 +155,13 @@ function cpuSlotsRow(cpu) {
 /**
  * @typedef {import("./meminfo.js").MbResult} MbResult
  * @typedef {import("./claude-sessions.js").SparePair} SparePair
+ * @typedef {import("./admission-figures.js").SessionFloorFigures} SessionFloorFigures
+ * @typedef {import("./admission-figures.js").LenientProcs} LenientProcs
  * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null, drift: string[] }) | { ok: false, error: string }} SpareOverhead
  * @typedef {({ ok: true, mb: number, perPairMb: number, pendingMb: number }) | { ok: false, error: string }} PoolReserve
  * @typedef {{ ok: true, sessions: number, working: number, self?: boolean, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ sessions: number, problem?: string }} SessionFloor
  * @typedef {{ held: false } | { held: true, swapFreeMb: number, swapTotalMb: number, availableMb: number }} SwapHold
- * @typedef {{ sessionFloor: number, sessionFloorWorking: number, sessionFloorSlots: number, sessionFloorLifted: boolean, swapHold: SwapHold }} SessionFloorFigures
- * @typedef {{ sessions: number, working: number, self?: boolean, unvouched?: boolean }} FloorProcs
- * @typedef {(FloorProcs & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
@@ -182,40 +174,6 @@ const REAP_SCRIPT = () =>
 	process.env.WFC_REAP_SCRIPT ||
 	nodePath.join(__dirname, "..", "reap-finished-sessions.js");
 
-/*
- * THE AGGREGATE DRAW (#2221). Admission prices the live sessions together, not
- * as N copies of one session's p90: sessions do not peak together, so the
- * sum's tail grows with √N. One session's draw is its pair (the session
- * process and its `bg-pty-host`) plus every process it starts, measured as a
- * mean and a standard deviation (`docs/environment.md` §5). k more sessions are
- * admitted while
- *
- *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
- *     ≤ free − pool reserve − earlyoom floor − margin + reclaim credit
- *
- * Σ runs over the live sessions, each at its own repo's draw; the bare μ and σ
- * are this host's, whose sessions are the ones admitted. Current PSS counts
- * descendants too, the unit μ is measured in, so the suites μ's sample saw
- * are charged at the rate it saw them. Nothing more is held for suites: the
- * suite gate queues a suite until its ladder rung is free (#2305).
- *
- * An undeclared repo is charged DEFAULT_SESSION_DRAW: the pooled draw across
- * every repo #2231's 45-minute sample saw working.
- */
-/** @type {{ meanMb: number, sigmaMb: number }} */
-const DEFAULT_SESSION_DRAW = { meanMb: 587, sigmaMb: 304 };
-/** @type {SessionDraw} */
-const UNDECLARED_DRAW = { ...DEFAULT_SESSION_DRAW, declared: false };
-/** @type {LiveDraw} */
-const NO_LIVE_DRAW = {
-	sessions: 0,
-	meanMb: 0,
-	varianceMb2: 0,
-	pssMb: 0,
-	unread: 0,
-	noProcess: 0,
-	problems: [],
-};
 /**
  * One repo's session draw: its declared `sessionMeanMb` and `sessionSigmaMb`,
  * each falling back to DEFAULT_SESSION_DRAW's on its own, with `problem`
@@ -453,7 +411,7 @@ function buildLiveDrawLine(live) {
 }
 
 /**
- * The pending pairs `launchNeedFor` adds to k slots' need: none at one slot or
+ * The pending pairs `admission-figures.js`'s `launchNeedFor` adds to k slots' need: none at one slot or
  * without a launch price.
  * @param {number} k
  * @param {number} launchMb
@@ -749,8 +707,6 @@ const SWAP_HOLD_AVAILABLE_MB =
 			Math.ceil(DRAW_Z * DEFAULT_SESSION_DRAW.sigmaMb)) /
 			100,
 	) * 100;
-/** @type {SwapHold} */
-const NO_SWAP_HOLD = { held: false };
 
 /**
  * Whether the swap hold binds: both lines crossed at once. No swap, or a
@@ -1396,53 +1352,6 @@ function liveSessions(listed) {
 }
 
 /**
- * The readings both verdicts take beside memory and the session count, each
- * defaulting to no adjustment for a caller that hasn't read it
- * (`fullReadings`). `launchMb`, the pending pairs `overhead` reserves for one
- * launch, is charged again for each slot past the first (#2511, #2568);
- * `live` is the live sessions' draw,
- * from `liveDraw`, and `host` this host's session draw, from
- * `readSessionDraw` (#2221); `landerMb`, from `landerHeldMb`, is held back for
- * the lander's suite; `sessionFloor`, from `readDeclaredSessionFloor`, lifts
- * the memory slots to `sessionFloorSlotsOf`'s, none while `swapHold`, from
- * `swapHoldOf`, binds (#2501, #2690); `load` comes from `overloadReading`,
- * and an overload holds every slot; `cpu`, from `cpuSlots`, caps them (#830,
- * #2141), the always-admit-one guarantee included in both.
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, sessionFloor?: number, swapHold?: SwapHold, launchMb?: number }} AdmissionReadings
- */
-
-/**
- * `readings` with each one left unread filled in as no adjustment.
- * @param {AdmissionReadings} readings
- * @returns {import("./admission-figures.js").FigureReadings}
- */
-function fullReadings({
-	overhead = { ok: true, mb: 0 },
-	reclaimable = { ok: true, mb: 0 },
-	live = NO_LIVE_DRAW,
-	host = UNDECLARED_DRAW,
-	load = LOAD_UNREAD,
-	cpu = CPU_UNREAD,
-	landerMb = 0,
-	sessionFloor = 0,
-	swapHold = NO_SWAP_HOLD,
-	launchMb = 0,
-}) {
-	return {
-		overhead,
-		reclaimable,
-		live,
-		host,
-		load,
-		cpu,
-		landerMb,
-		sessionFloor,
-		swapHold,
-		launchMb,
-	};
-}
-
-/**
  * `admissionFrom`'s reserve and credit clauses.
  * @param {number} reserved
  * @param {number} credited
@@ -1469,10 +1378,10 @@ function lenientNotes(reserved, credited, landerMb) {
  * branch.
  * @param {MbResult} mem
  * @param {LenientProcs} procs
- * @param {AdmissionReadings} [readings]
+ * @param {import("./admission-figures.js").AdmissionReadings} [readings]
  */
 function admissionFrom(mem, procs, readings = {}) {
-	const f = admissionFigures(mem, procs, fullReadings(readings));
+	const f = admissionFigures(mem, procs, readings);
 	const { floor, load, cpu, landerMb } = f;
 	const { reservedNote, creditedNote } = lenientNotes(
 		f.memRead ? f.reservedMb : 0,
@@ -1641,7 +1550,7 @@ function buildStrictReason(load, cpu, memorySlots, memoryReason) {
  * `cpuIsSoleHold` says memory would admit and only the CPU limb holds.
  * @param {MbResult} mem
  * @param {LiveSessionsResult} procs
- * @param {AdmissionReadings} [readings]
+ * @param {import("./admission-figures.js").AdmissionReadings} [readings]
  * @returns {{ ok: false, error: string } | {
  *   ok: true,
  *   availableMb: number,
@@ -1675,7 +1584,7 @@ function buildStrictReason(load, cpu, memorySlots, memoryReason) {
  * }}
  */
 function strictAdmission(mem, procs, readings = {}) {
-	const f = admissionFigures(mem, procs, fullReadings(readings));
+	const f = admissionFigures(mem, procs, readings);
 	if (!f.memRead) return { ok: false, error: `memory unreadable: ${f.error}` };
 	if (!procs.ok)
 		return { ok: false, error: `session count unreadable: ${procs.error}` };
