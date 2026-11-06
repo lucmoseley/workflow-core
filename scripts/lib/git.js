@@ -22,15 +22,30 @@ const { promisify } = require("node:util");
 
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const {
-	consultMemo,
-	dropKeptReads,
-	stdoutOrThrow,
-} = require("./git-read-memo.js");
+const { consultMemo, dropKeptReads } = require("./git-read-memo.js");
 const { spawnTimeout } = require("./hook-deadline.js");
 const { writeFd } = require("./write-fd.js");
 
 const pExecFile = promisify(execFile);
+
+/**
+ * What execFileSync does with a finished spawn: its stdout, or the error it
+ * throws, carrying the same fields.
+ * @param {import("node:child_process").SpawnSyncReturns<string | Buffer>} r
+ * @param {readonly string[]} argv the program and its arguments
+ * @returns {string | Buffer}
+ */
+function stdoutOrThrow(r, argv) {
+	if (r.error) throw Object.assign(new Error(r.error.message), r.error, r);
+	if (r.status !== 0) {
+		const said = r.stderr?.length ? `\n${r.stderr.toString()}` : "";
+		throw Object.assign(
+			new Error(`Command failed: ${argv.join(" ")}${said}`),
+			r,
+		);
+	}
+	return r.stdout;
+}
 
 const gitBinary = () => process.env.WFC_GIT || "git";
 

@@ -13,6 +13,10 @@
  * /pick-next §5 and scripts/dispatch-sessions.sh re-read this count before
  * every launch: loosen a case and a session can be admitted past the
  * machine's 10 GB cap, which freezes the machine, or a free slot held shut.
+ *
+ * Over the 10 s run-cost budget by its 117 program runs, each a spawn of
+ * admission.js against a fresh fake machine; the arithmetic's own cases run
+ * in process in lib/admission-figures.test.ts (#4263).
  */
 
 import fs from "node:fs";
@@ -1719,160 +1723,117 @@ describe("the CPU limb (#830)", () => {
 	});
 });
 
-/* pick-next's admission verdict carries the same limb (#834). */
-describe("admissionFrom's CPU limb (#834)", () => {
-	const mem = { ok: true as const, mb: 4000 + FLOOR };
-	const procs = { ok: true as const, sessions: 1, working: 0 };
-	const over = { overloaded: true, load1: 60, ceiling: 48 };
+/* pick-next's verdict over those figures: its fallback and its wording. */
+describe("admissionFrom's own fallback and wording", () => {
 	const host = { meanMb: 600, sigmaMb: 200, declared: true };
+	const roomy = { ok: true as const, mb: 4000 + FLOOR };
+	const tight = { ok: true as const, mb: 1300 + HELD };
+	const one = { ok: true as const, sessions: 1, working: 0 };
+	const working = { ok: true as const, sessions: 3, working: 2, self: true };
+	const over = { overloaded: true, load1: 60, ceiling: 48 };
+	const capped = {
+		ceiling: 3,
+		sessions: 2,
+		idleSpares: 0,
+		slots: 1,
+		full: false,
+		unknown: null,
+	};
 
-	it("holds every slot over the ceiling", () => {
-		const a = admissionFrom(mem, procs, { host, load: over });
+	it("admits on unread memory, naming the headroom unmeasured, its slots unknown", () => {
+		const a = admissionFrom({ ok: false, error: "x" }, working, {
+			host,
+			sessionFloor: 6,
+		});
+		expect(a.freeSlots).toBeNull();
+		expect(a.sessionFloorSlots).toBe(0);
+		expect(a.admit).toBe(true);
+		expect(a.reason).toMatch(/^headroom unmeasured/);
+	});
+
+	it("names the load over the ceiling, holding even unread memory and the guarantee", () => {
+		const a = admissionFrom(roomy, one, { host, load: over });
 		expect(a.freeSlots).toBe(0);
 		expect(a.admit).toBe(false);
 		expect(a.reason).toMatch(/load1 60 is at or above the 48 ceiling/);
-	});
-
-	it("overrides the always-admit-one guarantee", () => {
-		const a = admissionFrom(
-			mem,
-			{ ok: true, sessions: 0, working: 0 },
-			{ host, load: over },
-		);
-		expect(a.admit).toBe(false);
-	});
-
-	it("leaves an unread memory figure unknown rather than zero", () => {
-		const a = admissionFrom({ ok: false, error: "x" }, procs, {
+		expect(
+			admissionFrom(
+				roomy,
+				{ ok: true, sessions: 0, working: 0 },
+				{ host, load: over },
+			).admit,
+		).toBe(false);
+		const unread = admissionFrom({ ok: false, error: "x" }, one, {
 			host,
 			load: over,
 		});
-		expect(a.freeSlots).toBeNull();
-		expect(a.admit).toBe(false);
+		expect(unread.freeSlots).toBeNull();
+		expect(unread.admit).toBe(false);
 	});
 
-	it("caps the slots at the session ceiling, the guarantee included (#2141)", () => {
-		const cpu = {
-			ceiling: 3,
-			sessions: 2,
-			idleSpares: 0,
-			slots: 1,
-			full: false,
-			unknown: null,
-		};
-		const a = admissionFrom(mem, procs, { host, cpu });
+	it("names the CPU cap, and the full ceiling", () => {
+		const a = admissionFrom(roomy, one, { host, cpu: capped });
 		expect(a.freeSlots).toBe(1);
 		expect(a.reason).toMatch(/; capped by the CPU: 2 session\(s\) running/);
-		const full = { ...cpu, sessions: 3, slots: 0, full: true };
+		const full = { ...capped, sessions: 3, slots: 0, full: true };
 		const held = admissionFrom(
-			mem,
+			roomy,
 			{ ok: true, sessions: 0, working: 0 },
 			{ host, cpu: full },
 		);
 		expect(held.freeSlots).toBe(0);
 		expect(held.admit).toBe(false);
 		expect(held.reason).toMatch(/3-session CPU ceiling \(#2141\)/);
+		expect(
+			admissionFrom(tight, working, { host, cpu: capped, sessionFloor: 6 })
+				.reason,
+		).toMatch(/; capped by the CPU: /);
 	});
 
-	it("is unchanged where the load is not read", () => {
-		// a 3700 MB budget fits 4 at 3058, not 5 at 3736
-		expect(admissionFrom(mem, procs, { host }).freeSlots).toBe(4);
-	});
-});
-
-/* pick-next's admission verdict charges the per-slot pair as the strict one does (#2568). */
-describe("admissionFrom's per-slot pending pair (#2568)", () => {
-	const mem = { ok: true as const, mb: 4000 + FLOOR };
-	const procs = { ok: true as const, sessions: 1, working: 0 };
-	const host = { meanMb: 600, sigmaMb: 200, declared: true };
-
-	it("charges each slot past the first its own pair", () => {
-		// a 3700 MB budget: 4 at 3058 plus 3 pairs is 3808, 3 at 2370 plus 2 is 2870
-		const a = admissionFrom(mem, procs, { host, launchMb: 250 });
+	it("names the pending pairs past the first slot, and none without a launch price", () => {
+		const a = admissionFrom(roomy, one, { host, launchMb: 250 });
 		expect(a.freeSlots).toBe(3);
 		expect(a.reason).toMatch(
 			/^3 free slots on the live sessions' draw at p95 and 2 more spare pair\(s\) at 250 MB/,
 		);
-	});
-
-	it("charges nothing without a launch price", () => {
-		const a = admissionFrom(mem, procs, { host });
-		expect(a.freeSlots).toBe(4);
-		expect(a.reason).not.toMatch(/spare pair/);
-	});
-});
-
-/* pick-next's admission verdict applies the session floor as the strict one does (#2507). */
-describe("admissionFrom's session floor (#2507)", () => {
-	// a 1300 MB budget: 1 slot at p95 (929, not 1666), 2 at the 600 MB mean
-	const mem = { ok: true as const, mb: 1300 + HELD };
-	const procs = { ok: true as const, sessions: 3, working: 2, self: true };
-	const host = { meanMb: 600, sigmaMb: 200, declared: true };
-
-	it("lifts the free slots toward the floor, counting working sessions and this one", () => {
-		const a = admissionFrom(mem, procs, { host, sessionFloor: 6 });
-		expect(a.freeSlots).toBe(2);
-		expect(a.sessionFloorWorking).toBe(3);
-		expect(a.sessionFloorSlots).toBe(2);
-		expect(a.sessionFloorLifted).toBe(true);
-		expect(a.reason).toMatch(
-			/^2 free slots, FLOOR: 2 slot\(s\) toward the 6 working sessions ~\/\.claude\/session-floor keeps \(#2501\), 3 working, over the p95 pricing/,
+		expect(admissionFrom(roomy, one, { host }).reason).not.toMatch(
+			/spare pair/,
 		);
 	});
 
-	it("never lowers the p95 slots, and is silent where none is declared", () => {
-		const met = admissionFrom(mem, procs, { host, sessionFloor: 3 });
+	it("names a floor lift, and the p95 slot where the floor is met", () => {
+		const a = admissionFrom(tight, working, { host, sessionFloor: 6 });
+		expect(a.freeSlots).toBe(2);
+		expect(a.reason).toMatch(
+			/^2 free slots, FLOOR: 2 slot\(s\) toward the 6 working sessions ~\/\.claude\/session-floor keeps \(#2501\), 3 working, over the p95 pricing/,
+		);
+		const met = admissionFrom(tight, working, { host, sessionFloor: 3 });
 		expect(met.freeSlots).toBe(1);
-		expect(met.sessionFloorLifted).toBe(false);
 		expect(met.reason).toMatch(/^1 free slot on the live sessions' draw/);
-		expect(admissionFrom(mem, procs, { host }).sessionFloorSlots).toBe(0);
 	});
 
-	it("names no lift where the always-admit-one guarantee already gives the slot", () => {
-		const alone = { ok: true as const, sessions: 0, working: 0, self: true };
-		const a = admissionFrom({ ok: true, mb: 700 + HELD }, alone, {
+	it("clamps memory less a reserve larger than it at 0", () => {
+		const a = admissionFrom({ ok: true, mb: 500 }, one, {
 			host,
-			sessionFloor: 2,
+			overhead: { ok: true, mb: 800 },
 		});
-		expect(a.sessionFloorSlots).toBe(1);
-		expect(a.sessionFloorLifted).toBe(false);
+		expect(a.budgetMb).toBe(-HELD);
+		expect(a.reason).toMatch(
+			new RegExp(
+				`^-${HELD} MB available after reserving 800 MB for the spare pool`,
+			),
+		);
 	});
 
-	it("is capped by the CPU like any slot", () => {
-		const cpu = {
-			ceiling: 3,
-			sessions: 2,
-			idleSpares: 0,
-			slots: 1,
-			full: false,
-			unknown: null,
-		};
-		const a = admissionFrom(mem, procs, { host, cpu, sessionFloor: 6 });
-		expect(a.freeSlots).toBe(1);
-		expect(a.reason).toMatch(/; capped by the CPU: /);
-	});
-
-	it("grants nothing where memory is unread", () => {
-		const a = admissionFrom({ ok: false, error: "x" }, procs, {
-			host,
-			sessionFloor: 6,
-		});
-		expect(a.freeSlots).toBeNull();
-		expect(a.sessionFloorSlots).toBe(0);
-	});
-
-	it("grants no floor slot while the swap hold binds, keeping the p95 slot (#2690)", () => {
-		const swapHold = {
-			held: true as const,
-			swapFreeMb: 245,
-			swapTotalMb: 2048,
-			availableMb: 1300 + HELD,
-		};
-		const a = admissionFrom(mem, procs, { host, sessionFloor: 6, swapHold });
-		expect(a.freeSlots).toBe(1);
-		expect(a.sessionFloorSlots).toBe(0);
-		expect(a.sessionFloorLifted).toBe(false);
-		expect(a.swapHold).toEqual(swapHold);
+	it("reports freeSlots before the guarantee, which admits on its own branch", () => {
+		const a = admissionFrom(
+			{ ok: true, mb: 100 },
+			{ ok: true, sessions: 0, working: 0 },
+			{ host },
+		);
+		expect(a.freeSlots).toBe(0);
+		expect(a.admit).toBe(true);
+		expect(a.reason).toMatch(/^no session is running, so one is admitted/);
 	});
 });
 
