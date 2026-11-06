@@ -115,6 +115,7 @@ const {
 } = require("./landing-refs.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
+const { LANDER_WORKTREE } = require("./lander-worktree.js");
 const WORKTREES = path.join(".claude", "worktrees");
 const STORES = path.join(WORKTREES, ".dep-stores");
 const LOCKFILE = "package-lock.json";
@@ -847,12 +848,16 @@ function launchDir(cwd, prompt, how = {}) {
 
 /**
  * `dir` sits where a cut puts a session's worktree, directly under `root`'s
- * worktrees folder.
+ * worktrees folder, and is not the queue lander's own tree.
  * @param {string} root the main checkout
  * @param {string} dir
  */
 function isSessionWorktreeDir(root, dir) {
-	return path.dirname(path.resolve(dir)) === path.join(root, WORKTREES);
+	const at = path.resolve(dir);
+	return (
+		path.dirname(at) === path.join(root, WORKTREES) &&
+		at !== path.join(root, LANDER_WORKTREE)
+	);
 }
 
 /**
@@ -919,7 +924,8 @@ function warm(cwd) {
  *   - a dependency store no registered worktree links is removed, and so is a
  *     dead build's lock and staging directory.
  * Left alone: a locked worktree (the harness's agent trees), the suite's
- * `isolated-*` trees, which lib/isolated-worktree.js sweeps, a live build's
+ * `isolated-*` trees, which lib/isolated-worktree.js sweeps, the queue
+ * lander's own tree, which it checks out again in each suite slot, a live build's
  * lock, staging and store, and anything changed within `YOUNG_MS` — a cut
  * registers its directory, and a build renames its store into place, moments
  * before the link that names it.
@@ -1054,12 +1060,11 @@ function readWorktreesOrThrow(root) {
 /**
  * The session worktrees in `base`, judged by REAP's rules.
  * @param {string} root
- * @param {string} base the worktrees folder
  * @param {Pass} pass
  * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
  * @returns {string[]} every registered worktree still standing
  */
-function reapWorktrees(root, base, { cwds, now, record, common }, out) {
+function reapWorktrees(root, { cwds, now, record, common }, out) {
 	const registered = readWorktreesOrThrow(root);
 	const jobs = readJobCwds();
 	const occupied = [
@@ -1079,7 +1084,7 @@ function reapWorktrees(root, base, { cwds, now, record, common }, out) {
 	const standing = [];
 	for (const dir of registered) {
 		if (
-			path.dirname(dir) !== base ||
+			!isSessionWorktreeDir(root, dir) ||
 			ISOLATED.test(path.basename(dir)) ||
 			!fs.existsSync(dir) ||
 			ageOf(dir, now) < YOUNG_MS ||
@@ -1357,7 +1362,7 @@ function reap(cwd) {
 			common,
 		};
 		const standing = judged
-			? reapWorktrees(root, base, pass, out)
+			? reapWorktrees(root, pass, out)
 			: readWorktreesOrThrow(root);
 		reapStrays(base, standing, pass, out);
 		const storesDir = path.join(root, STORES);

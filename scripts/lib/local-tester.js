@@ -5,8 +5,8 @@
  * tree, so no session's unsaved edit is ever tested (mantahostels#908's
  * reason).
  *
- * Each group of runs holds one suite slot from the install to its last
- * command; a sharded whole run takes one slot per shard. A slot still shut at
+ * Each group of runs holds one suite slot from a fresh checkout and install to
+ * its last command; a sharded whole run takes one slot per shard. A slot still shut at
  * the queue's wait bound is a transient no verdict, which asking again later
  * can turn to one: the tester never runs unadmitted.
  *
@@ -36,6 +36,7 @@ const {
 	readLiveRoleMarkers,
 	queueSeat,
 } = require("./suite-queue.js");
+const { LANDER_WORKTREE } = require("./lander-worktree.js");
 const { readConfig } = require("./workflow-core-config.js");
 
 /**
@@ -552,6 +553,8 @@ function readRunsAt(dir, pytest, files) {
 /**
  * @typedef {object} SlotRuns
  * @property {() => Promise<Admission>} admit one suite slot
+ * @property {() => void} refresh the tree checked out at the sha again,
+ *   rebuilt where it went during the slot wait (#4421)
  * @property {Exec} exec
  * @property {(pid: number) => number} treePss
  * @property {{ran: number, peakKb: number, samples: number}} tally
@@ -560,8 +563,29 @@ function readRunsAt(dir, pytest, files) {
  */
 
 /**
+ * `dir` checked out afresh by `refresh` and installed, inside a held slot.
+ * @param {string} dir
+ * @param {() => void} refresh
+ * @param {Exec} exec
+ * @returns {string|null} why it could not be readied, or null
+ */
+function prepare(dir, refresh, exec) {
+	try {
+		refresh();
+	} catch (err) {
+		return `checkout failed: ${whyFailed(err)}`;
+	}
+	try {
+		install(dir, exec);
+	} catch (err) {
+		return `install failed: ${whyFailed(err)}`;
+	}
+	return null;
+}
+
+/**
  * Each group of runs in `dir`, in turn, each in a suite slot of its own
- * taken by `admit`, installing in it first: green where every run exits 0,
+ * taken by `admit`, checking out and installing in it first: green where every run exits 0,
  * red with the files they name where one fails naming some, and no verdict
  * at the first step that reaches none.
  * @param {Run[][]} groups
@@ -569,7 +593,7 @@ function readRunsAt(dir, pytest, files) {
  * @param {SlotRuns} slotRuns
  * @returns {Promise<Verdict>}
  */
-async function runEach(groups, dir, { admit, exec, treePss, tally }) {
+async function runEach(groups, dir, { admit, refresh, exec, treePss, tally }) {
 	/** @type {Set<string>} */
 	const failing = new Set();
 	/** @type {import("./queue-lander.js").Failure[]} */
@@ -588,14 +612,8 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 		if (!slot.ok)
 			return { kind: "unknown", reason: slot.reason, transient: true };
 		try {
-			try {
-				install(dir, exec);
-			} catch (err) {
-				return {
-					kind: "unknown",
-					reason: `install failed: ${whyFailed(err)}`,
-				};
-			}
+			const unready = prepare(dir, refresh, exec);
+			if (unready !== null) return { kind: "unknown", reason: unready };
 			const why = await runInSlot(runs, dir, {
 				spawned: slot.spawned,
 				treePss,
@@ -755,7 +773,7 @@ function localTester({
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
 	treePss = readTreePssKb,
 }) {
-	const dir = path.join(root, ".claude", "worktrees", "lander");
+	const dir = path.join(root, LANDER_WORKTREE);
 	return {
 		async verdict(sha, files = []) {
 			const groups = checkedOutRuns({ root, dir, sha, exec }, pytest, files);
@@ -768,6 +786,7 @@ function localTester({
 			);
 			const verdict = await runEach(groups, dir, {
 				admit: watched.admit,
+				refresh: () => checkOut(root, dir, sha, exec),
 				exec,
 				treePss,
 				tally,
