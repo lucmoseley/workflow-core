@@ -23,6 +23,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
+const { CREDIT_REFUSAL } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { stopOn } = require("./claude-stop.js");
@@ -56,9 +57,8 @@ const { writeFd } = require("./write-fd.js");
  */
 
 /* The API's refusal for credit, as the harness writes it into a transcript:
- * `isApiErrorMessage` with `error: "billing_error"`, the text below. The flag
- * keeps out a session merely quoting the words. */
-const CREDIT_REFUSAL = /credit balance is too low/i;
+ * `isApiErrorMessage` with `error: "billing_error"`, or lib/headless-runs.js's
+ * CREDIT_REFUSAL text. The flag keeps out a session merely quoting the words. */
 /* The `entrypoint` an interactive session's transcript rows carry, a `--bg`
  * job's included; a `claude -p` run's carry `sdk-cli` (2.1.319, measured
  * 2026-11-06). */

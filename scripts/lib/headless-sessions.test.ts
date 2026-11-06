@@ -21,7 +21,7 @@ import {
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./auth-status-fake";
-import { endResultOf, stop } from "./headless-runs.js";
+import { readEndResult, stop } from "./headless-runs.js";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { launch as launchRun } from "./headless-sessions.js";
 import { runInProcessAsync } from "./run-in-process.js";
@@ -480,7 +480,7 @@ describe("end result", () => {
 
 	it("takes outcome and cost from the last of several results", () => {
 		expect(
-			endResultOf(
+			readEndResult(
 				runWith([
 					{ type: "system", subtype: "init" },
 					{
@@ -505,7 +505,7 @@ describe("end result", () => {
 
 	it("reads a credit-balance refusal as key-exhausted", () => {
 		expect(
-			endResultOf(
+			readEndResult(
 				runWith([
 					{
 						type: "result",
@@ -518,23 +518,23 @@ describe("end result", () => {
 			).outcome,
 		).toBe("key-exhausted");
 		expect(
-			endResultOf(runWith([], "Error: Credit balance is too low\n")).outcome,
+			readEndResult(runWith([], "Error: Credit balance is too low\n")).outcome,
 		).toBe("key-exhausted");
 	});
 
 	it("reads no result and a dead pid as a killed run", () => {
-		expect(endResultOf(runWith([{ type: "system", subtype: "init" }]))).toEqual(
-			{
-				outcome: "killed",
-				costUsd: null,
-				sessionId: "sess",
-			},
-		);
+		expect(
+			readEndResult(runWith([{ type: "system", subtype: "init" }])),
+		).toEqual({
+			outcome: "killed",
+			costUsd: null,
+			sessionId: "sess",
+		});
 	});
 
 	it("reads a live pid as running, whatever results it has emitted", () => {
 		expect(
-			endResultOf(
+			readEndResult(
 				runWith(
 					[{ type: "result", is_error: false, total_cost_usd: 0.3 }],
 					"",

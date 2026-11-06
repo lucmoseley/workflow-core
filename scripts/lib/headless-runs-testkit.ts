@@ -1,6 +1,6 @@
 /*
  * headless-runs-testkit.ts — a headless run's `run.json` written straight into
- * a refill dir's store (lib/headless-sessions.js), for a suite that needs a
+ * a refill dir's store (lib/headless-runs.js), for a suite that needs a
  * run listed live or ended without launching one (#2608).
  */
 

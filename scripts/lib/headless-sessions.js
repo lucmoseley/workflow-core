@@ -36,10 +36,10 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const {
-	endResultOf,
+	readEndResult,
 	freshRunDir,
 	readLiveAgents,
-	runOf,
+	readRun,
 	stop,
 } = require("./headless-runs.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
@@ -199,12 +199,12 @@ function launchCommand(args) {
 
 /** @param {string} jobId */
 function resultCommand(jobId) {
-	const run = runOf(jobId);
+	const run = readRun(jobId);
 	if (!run) {
 		writeFd(2, `no headless run ${jobId}\n`);
 		return 1;
 	}
-	writeFd(1, `${JSON.stringify(endResultOf(run))}\n`);
+	writeFd(1, `${JSON.stringify(readEndResult(run))}\n`);
 	return 0;
 }
 

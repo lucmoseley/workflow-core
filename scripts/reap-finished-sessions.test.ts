@@ -448,7 +448,7 @@ describe("gate 1: finished", () => {
 });
 
 describe("a headless overflow run (#2608)", () => {
-	it("is never stopped, since `claude stop` cannot reach it", () => {
+	it("is never stopped: a `claude -p` run ends on its own", () => {
 		for (const state of ["working", "done"]) {
 			const h = reapWith({
 				listed: {

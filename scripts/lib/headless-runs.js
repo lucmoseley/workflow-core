@@ -35,7 +35,7 @@ const STOP_GRACE_MS = 10_000;
 const JOB_ID_BYTES = 4;
 const JOB_ID = /^[0-9a-f]{8}$/;
 /* Anthropic's refusal once an organisation's credits are spent (#2551). */
-const KEY_EXHAUSTED = /credit balance is too low|billing_error/i;
+const CREDIT_REFUSAL = /credit balance is too low|billing_error/i;
 
 /**
  * @typedef {object} RunRecord
@@ -96,7 +96,7 @@ function readStoredRuns() {
 		if (caught(err).code === "ENOENT") return [];
 		throw err;
 	}
-	return names.flatMap((name) => runOf(name) ?? []);
+	return names.flatMap((name) => readRun(name) ?? []);
 }
 
 /** @param {RunRecord} r */
@@ -128,7 +128,7 @@ function readLiveAgents() {
  * @returns {RunRecord|null}
  * @throws where the record cannot be read
  */
-function runOf(jobId) {
+function readRun(jobId) {
 	if (!JOB_ID.test(jobId)) return null;
 	try {
 		return JSON.parse(
@@ -148,7 +148,7 @@ function runOf(jobId) {
  * @returns {"unknown"|"not running"|"stopped"|"killed"}
  */
 function stop(jobId, { graceMs = STOP_GRACE_MS } = {}) {
-	const run = runOf(jobId);
+	const run = readRun(jobId);
 	if (!run) return "unknown";
 	/* A background task can outlive its leader in the group (#2604 (a)). A
 	 * pgid with members left is never reused, so signalling it is safe. */
@@ -165,7 +165,7 @@ function stop(jobId, { graceMs = STOP_GRACE_MS } = {}) {
  * @param {RunRecord} run
  * @returns {EndResult}
  */
-function endResultOf(run) {
+function readEndResult(run) {
 	const results = (readJsonl(run.log)?.rows ?? []).filter(
 		(e) => e.type === "result",
 	);
@@ -189,7 +189,7 @@ function endResultOf(run) {
 	const failed = last?.is_error
 		? `${last.result ?? ""} ${last.error ?? ""}`
 		: "";
-	if (KEY_EXHAUSTED.test(`${failed} ${stderr}`))
+	if (CREDIT_REFUSAL.test(`${failed} ${stderr}`))
 		return { outcome: "key-exhausted", ...base };
 	if (!last) return { outcome: "killed", ...base };
 	return { outcome: last.is_error ? "error" : "success", ...base };
@@ -211,9 +211,9 @@ const JOB_STATE_OF = /** @type {const} */ ({
  * @throws where the record cannot be read
  */
 function readRunAsJob(jobId) {
-	const run = runOf(jobId);
+	const run = readRun(jobId);
 	if (!run) return null;
-	const { outcome } = endResultOf(run);
+	const { outcome } = readEndResult(run);
 	const base = { sessionId: run.sessionId, cwd: run.cwd };
 	if (outcome === "running" || outcome === "success")
 		return { state: JOB_STATE_OF[outcome], ...base };
@@ -242,12 +242,13 @@ function findRunSince(sessionId, since) {
 }
 
 module.exports = {
-	endResultOf,
+	CREDIT_REFUSAL,
+	readEndResult,
 	findRunSince,
 	freshRunDir,
 	readLiveAgents,
 	readRunAsJob,
 	readStoredRuns,
-	runOf,
+	readRun,
 	stop,
 };

@@ -38,7 +38,7 @@ const { OVERFLOW_PREFIX } = require("./session-name.js");
  *     string|null,
  *   launchHeadless: typeof import("./headless-sessions.js").launch,
  *   findHeadlessRun: typeof import("./headless-runs.js").findRunSince,
- *   readHeadlessRun: typeof import("./headless-runs.js").runOf,
+ *   readHeadlessRun: typeof import("./headless-runs.js").readRun,
  *   runClaude: (args: string[], opts: {cwd: string, env: NodeJS.ProcessEnv}) =>
  *     ChildRun,
  *   readJobRecord: (seat: string, jobId: string) => unknown,

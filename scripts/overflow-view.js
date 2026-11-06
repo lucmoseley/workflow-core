@@ -51,6 +51,8 @@ const clip = (s, n) => {
 	return one.length > n ? `${one.slice(0, n - 1)}…` : one;
 };
 
+/* `any` in these three: a stream-json row is the CLI's undocumented shape,
+ * read by optional fields alone. */
 /**
  * @param {Record<string, any>} input
  * @returns {string}
@@ -94,11 +96,12 @@ function lineEvents(o) {
  * @param {string} log
  * @returns {{kind: string, text: string}[]}
  */
-function events(log) {
+function readEvents(log) {
 	let read;
 	try {
 		read = readJsonl(log);
 	} catch {
+		/* A log not yet written reads as no events; --follow reads it again. */
 		return [];
 	}
 	return (read?.rows ?? []).flatMap((o) => lineEvents(o));
@@ -108,7 +111,7 @@ function events(log) {
 const lastSaid = (evs) => evs.findLast((e) => e.kind === "says")?.text ?? "";
 
 /** @returns {Map<string, string>} job id to the loop's prompt */
-function loopPrompts() {
+function readLoopPrompts() {
 	const prompts = new Map();
 	const { launches } = readState((/** @type {string} */ m) => console.error(m));
 	for (const l of launches) if (l.jobId) prompts.set(l.jobId, l.prompt ?? "");
@@ -128,7 +131,7 @@ function needsInputRuns(runs, live, now = Date.now()) {
 		const later = runs.some(
 			(o) => o.sessionId === r.sessionId && o.launchedAt > r.launchedAt,
 		);
-		const lines = lastSaid(events(r.log)).trim().split("\n");
+		const lines = lastSaid(readEvents(r.log)).trim().split("\n");
 		return !later && /^needs input:/i.test(lines.at(-1)?.trim() ?? "");
 	});
 }
@@ -145,7 +148,7 @@ function board() {
 		);
 		return 1;
 	}
-	const prompts = loopPrompts();
+	const prompts = readLoopPrompts();
 	const live = new Set(liveRecords.map((r) => r.id));
 	const now = Date.now();
 	const title = (/** @type {string} */ job) =>
@@ -159,13 +162,13 @@ function board() {
 	console.log(`\nNEEDS INPUT: ${waiting.length}`);
 	for (const r of waiting)
 		console.log(
-			`\n${r.jobId}  ended ${age(now - r.launchedAt)} after start  ${title(r.jobId)}\n  ${clip(lastSaid(events(r.log)), 600)}\n  answer: node scripts/overflow-view.js --answer ${r.jobId} "<your answer>"`,
+			`\n${r.jobId}  ended ${age(now - r.launchedAt)} after start  ${title(r.jobId)}\n  ${clip(lastSaid(readEvents(r.log)), 600)}\n  answer: node scripts/overflow-view.js --answer ${r.jobId} "<your answer>"`,
 		);
 
 	console.log(`\nRUNNING: ${liveRecords.length}`);
 	for (const r of liveRecords) {
 		const run = runs.find((x) => x.jobId === r.id);
-		const last = run ? events(run.log).at(-1) : undefined;
+		const last = run ? readEvents(run.log).at(-1) : undefined;
 		console.log(
 			`\n${r.id}  ${age(now - r.startedAt)}  ${title(r.id)}\n  last: ${last ? `${last.kind}: ${clip(last.text, 110)}` : "(nothing yet)"}`,
 		);
@@ -175,20 +178,20 @@ function board() {
 }
 
 /** @param {string} job */
-function runNamed(job) {
+function readRunNamed(job) {
 	return readStoredRuns().find((r) => r.jobId === job);
 }
 
 /** @param {string} job */
 function follow(job) {
-	const run = runNamed(job);
+	const run = readRunNamed(job);
 	if (!run) {
 		console.log(`no run ${job}`);
 		return 1;
 	}
 	let shown = 0;
 	const tick = () => {
-		const evs = events(run.log);
+		const evs = readEvents(run.log);
 		for (const e of evs.slice(shown))
 			console.log(
 				`[${e.kind}] ${e.kind === "says" ? e.text : clip(e.text, 300)}`,
@@ -197,13 +200,14 @@ function follow(job) {
 		if (evs.at(-1)?.kind === "end") process.exit(0);
 	};
 	tick();
+	/* Untraced: a run's messages a few seconds late read fine on a terminal. */
 	setInterval(tick, 3000);
 	return null;
 }
 
 /** @param {string} job @param {string} text */
 function answer(job, text) {
-	const run = runNamed(job);
+	const run = readRunNamed(job);
 	if (!run) {
 		console.log(`no run ${job}`);
 		return 1;

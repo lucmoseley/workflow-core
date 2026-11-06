@@ -1745,7 +1745,7 @@ async function cmdTakeover(args) {
 	const { who, after } = v;
 	writeFd(1, buildVerdictText(v));
 	if (v.verdict === "GHOST") return stopGhost(io, who, v.ghost, ceiling);
-	/* Out of scope (#2570), and `claude stop` cannot reach one (#2608). */
+	/* Out of scope (#2570): a headless run cannot take a typed prompt. */
 	if (after.holder?.row.kind === "headless")
 		io.fail(
 			`${who.sessionId} is a headless overflow run, which takeover does not handle. Stop it with node scripts/lib/headless-sessions.js stop ${after.holder.row.id}. Nothing written.`,

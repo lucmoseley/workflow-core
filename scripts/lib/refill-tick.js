@@ -79,7 +79,7 @@ const {
 	readDeclaredSeats,
 	readOmittedDirs,
 } = require("./refill-seats.js");
-const { readRunAsJob, runOf } = require("./headless-runs.js");
+const { readRunAsJob, readRun } = require("./headless-runs.js");
 const {
 	buildCheckoutEnv,
 	discoverRepos,
@@ -377,7 +377,7 @@ function launchBatch(batch) {
 function readHeadlessSession(jobId) {
 	let record = null;
 	try {
-		record = runOf(jobId);
+		record = readRun(jobId);
 	} catch (err) {
 		log(`headless record unread for job ${jobId}: ${buildErrorText(err)}`);
 	}

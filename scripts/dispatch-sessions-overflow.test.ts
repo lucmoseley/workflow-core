@@ -38,7 +38,7 @@ import {
 	SCRIPT,
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
-import { runOf } from "./lib/headless-runs.js";
+import { readRun } from "./lib/headless-runs.js";
 import { launchBatch } from "./lib/refill-batch.js";
 import { isTestKind } from "./lib/test-kind.js";
 
@@ -141,7 +141,7 @@ function storedRun(jobId: string) {
 	const was = process.env.WFC_REFILL_DIR;
 	process.env.WFC_REFILL_DIR = refill();
 	try {
-		return runOf(jobId);
+		return readRun(jobId);
 	} finally {
 		if (was === undefined) delete process.env.WFC_REFILL_DIR;
 		else process.env.WFC_REFILL_DIR = was;

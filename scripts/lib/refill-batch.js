@@ -187,7 +187,7 @@ const limitParksOf = (l) =>
  *   run: (call: ReturnType<typeof dispatchCall>) => {failed: string|null, out: string},
  *   entriesOf: (root: string) => import("./dispatch-ledger.js").DispatchRecord[],
  *   sessionOf: (jobId: string) => string|undefined, now: () => number}} io
- *   `sessionOf` is lib/headless-sessions.js's record of the job, undefined
+ *   `sessionOf` is lib/headless-runs.js's record of the job, undefined
  *   for any other; `now` is read once, before the call
  * @returns {BatchOutcome & {tried: import("./refill-decide.js").Launch[],
  *   failed: string|null, out: string}}
