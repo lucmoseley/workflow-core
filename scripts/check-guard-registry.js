@@ -4292,6 +4292,7 @@ const buildReviewLine = (guard) =>
 function settleStale(ctx, added, sides) {
 	const stale = added.map(staleOf).filter((w) => w !== null);
 	const { rev: tip, head: pushed } = againstRevs(ctx);
+	/* A push judges a queue ref's own tree against main's tip. */
 	const carry =
 		stale.length > 0 && !pushed ? carryMerge(ctx, stale, sides) : null;
 	const carried = new Set(carry?.carried ?? []);
@@ -4300,6 +4301,7 @@ function settleStale(ctx, added, sides) {
 	const { refuse, remedy } = settleOwed(
 		ctx,
 		added.filter((f) => !isCarried(f)),
+		stale.filter((w) => !carried.has(w.guard)),
 		{ tip, pushed },
 	);
 	const data = { carried: [...carried] };
@@ -4365,11 +4367,11 @@ function carryMerge(ctx, stale, sides) {
  *
  * @param {Ctx} ctx
  * @param {FaultItem[]} added
+ * @param {StaleWarning[]} stale the stale rows among `added`
  * @param {{ tip: string, pushed: string | undefined }} revs
  * @returns {{ refuse: FaultItem[], remedy: string[] }}
  */
-function settleOwed(ctx, added, { tip, pushed }) {
-	const stale = added.map(staleOf).filter((w) => w !== null);
+function settleOwed(ctx, added, stale, { tip, pushed }) {
 	if (stale.length === 0) return { refuse: added, remedy: [] };
 
 	const { hashedBy, inputs } = readDigestInputs(stale.map((w) => w.guard));

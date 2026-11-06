@@ -313,15 +313,17 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 
 /**
  * Whether the tree `inTree` runs git in has a merge in progress: none follows
- * a merge of a sha it already holds.
+ * a merge of a sha it already holds. Any fault but `--verify`'s exit 1 for an
+ * absent ref throws, for mergeFailure to judge.
  * @param {(args: string[]) => string} inTree
  */
 const isMerging = (inTree) => {
 	try {
 		inTree(["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
 		return true;
-	} catch {
-		return false;
+	} catch (err) {
+		if (caught(err).status === 1) return false;
+		throw err;
 	}
 };
 

@@ -4,9 +4,8 @@
  * (#4514): stale on the merged index, fresh on both parents, and no file of
  * its closure changed on both sides since the merge base.
  *
- * Loosen it and a merge whose sides changed one library each is refused for a
- * re-anchor nobody owes, or a row whose library both sides changed, or that
- * one parent left stale, lands fresh with no reader having seen it.
+ * spawn-kept: the merge cases commit through real git hooks, since only git
+ * shows which index reaches a merge commit's tree.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -155,6 +154,23 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(fresh()).toBe(true);
 	});
 
+	it("stages nothing under a hook whose index git has already read, as prepare-commit-msg's under --no-verify, and still refuses", () => {
+		const { root, git, change } = mergeRepo();
+		change("main", { [LIB_A]: lines("a() { exit 1; }") });
+		change("side", { [LIB_B]: lines("b() { exit 1; }") });
+		git("merge", "--no-ff", "--no-commit", "side");
+		const staged = git("show", `:${ANCHORS}`);
+
+		const r = run(root, ["--against", "HEAD"], {
+			env: { ...env(root), WFC_INDEX_FROZEN: "1" },
+		});
+
+		expect(r.code).toBe(1);
+		expect(r.report).toContain(`carries ${GUARD} across the merge`);
+		expect(r.report).toContain("git commit --no-edit");
+		expect(git("show", `:${ANCHORS}`)).toBe(staged);
+	});
+
 	it("refuses a merge where both sides changed the same library, though git merges it cleanly, naming the row and the file", () => {
 		const { root, git, tryGit, change, hooks } = mergeRepo();
 		const [first, ...rest] = LIB_A_BODY;
@@ -176,6 +192,23 @@ describe("a merge carries a row whose sides changed different files of its closu
 		);
 		expect(r.stderr).toContain(`STALE-PROSE  ${GUARD}`);
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(before);
+	});
+
+	it("never carries a row whose library the merge commit itself changes, matching neither parent", () => {
+		const { root, git, tryGit, change, hooks } = mergeRepo();
+		change("main", { [LIB_A]: lines("a() { exit 1; }") });
+		change("side", { [LIB_B]: lines("b() { exit 1; }") });
+		hooks();
+
+		git("merge", "--no-ff", "--no-commit", "side");
+		fs.writeFileSync(path.join(root, LIB_B), lines("b() { exit 3; }"));
+		git("add", LIB_B);
+		const r = tryGit("commit", "--no-edit");
+
+		expect(r.status).not.toBe(0);
+		expect(r.stderr).toContain(
+			`not carried ${GUARD} — the merge itself changed ${LIB_B}`,
+		);
 	});
 
 	it("never carries a row the merged-in side left stale", () => {
@@ -204,7 +237,43 @@ describe("a merge carries a row whose sides changed different files of its closu
 		git("merge", "--no-ff", "--no-commit", "side");
 		const r = run(root, ["--against", "HEAD"], { env: env(root) });
 
+		expect(r.code).toBe(0);
 		expect(r.json).toHaveProperty("carried", []);
+		expect(r.report).not.toContain(`carried ${GUARD}`);
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(theirs);
+	});
+
+	it("never carries a row HEAD does not carry at all, a guard the merged-in side added", () => {
+		const { root, git, change } = mergeRepo();
+		const added = "scripts/guard-solo.sh";
+		change("main", { [LIB_B]: lines("b() { exit 1; }") });
+		git("checkout", "-q", "side");
+		fs.writeFileSync(
+			path.join(root, added),
+			lines("#!/bin/sh", 'source "$(dirname "$0")/lib/b.sh"', "exit 2"),
+		);
+		fs.appendFileSync(
+			path.join(root, "CLAUDE.md"),
+			region(
+				"- Solos hold. **Enforced** (#4514): `scripts/guard-solo.sh` denies it.",
+			),
+		);
+		fs.writeFileSync(
+			path.join(root, SELF_PLUGIN_HOOKS),
+			hooksWiring(GUARD, added),
+		);
+		reviewIn(root, [added], ownClaims(root));
+		git("add", "-A");
+		git("commit", "-qm", "side adds a guard");
+		git("checkout", "-q", "main");
+
+		git("merge", "--no-ff", "--no-commit", "side");
+		const r = run(root, ["--against", "HEAD"], { env: env(root) });
+
+		expect(r.code).toBe(1);
+		expect(r.report).toContain(
+			`not carried ${added} — it is not fresh on HEAD`,
+		);
+		expect(r.json).toHaveProperty("carried", []);
 	});
 });

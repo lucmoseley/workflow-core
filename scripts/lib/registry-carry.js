@@ -7,9 +7,9 @@
  * author re-read the row's prose against their own change, and no file holds
  * two changes that one reader never saw together. Both-sides-changed is judged
  * per file, by blob id at the base and at each parent. A clean textual merge of
- * one file is two changes all the same. Every other stale row is refused as before.
+ * one file is two changes all the same. Every other stale row is refused.
  *
- * Every git failure carries nothing, so a row it reached is refused as it was.
+ * Every git failure carries nothing.
  */
 
 const fs = require("node:fs");
@@ -25,14 +25,21 @@ const CARRIED_KINDS = new Set(["UNANCHORED", "STALE-PROSE"]);
 const GITHEAD_ENV = /^GITHEAD_([0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * @typedef {{ theirs: string[], lands: boolean }} Merge `lands`: the index is
- *   the merge commit's tree, as under the `git commit` that finishes a merge.
- *   `git merge` writes its tree before pre-merge-commit runs, so an index edit
- *   made there never reaches the commit (git 2.43, probed on #4514).
+ * @typedef {{ theirs: string[], lands: boolean }} Merge `lands`: an index edit
+ *   reaches the merge commit, as under pre-commit. `git merge` writes its tree
+ *   before pre-merge-commit runs, and `git commit` reads its index before
+ *   prepare-commit-msg does (git 2.43): both hooks set
+ *   WFC_INDEX_FROZEN.
  * @typedef {{ guard: string, digest: string }} Carried
  * @typedef {{ guard: string, why: string }} Kept
  * @typedef {{ kind: string, guard: string, digest?: string, hashes?: string[] }} Row
+ * @typedef {Row & { digest: string, hashes: string[] }} Candidate a row of a
+ *   kind a merge carries, its digest and closure read
  */
+
+/** @param {Row} w @returns {w is Candidate} */
+const isCandidate = (w) =>
+	CARRIED_KINDS.has(w.kind) && Boolean(w.digest) && Array.isArray(w.hashes);
 
 /**
  * @param {string} root
@@ -73,7 +80,7 @@ function readMerge(root, env = process.env) {
 				.split("\n")
 				.map((l) => l.trim())
 				.filter(Boolean);
-			return { theirs, lands: true };
+			return { theirs, lands: env.WFC_INDEX_FROZEN !== "1" };
 		}
 	}
 	const theirs = Object.keys(env).flatMap((k) => {
@@ -84,22 +91,21 @@ function readMerge(root, env = process.env) {
 }
 
 /**
- * The paths among `inputs` whose blob at `rev` differs from `base`'s.
+ * The paths among `inputs` whose blob differs between the two sides `git diff`
+ * takes: two revs, or `--cached` and a rev for the index against it.
  *
  * @param {string} root
- * @param {string} base
- * @param {string} rev
+ * @param {[string, string]} sides
  * @param {string[]} inputs
  */
-function changedSince(root, base, rev, inputs) {
+function changedSince(root, sides, inputs) {
 	const r = git(root, [
 		"--literal-pathspecs",
 		"diff",
 		"--no-renames",
 		"--name-only",
 		"-z",
-		base,
-		rev,
+		...sides,
 		"--",
 		...inputs,
 	]);
@@ -110,27 +116,37 @@ function changedSince(root, base, rev, inputs) {
 }
 
 /**
- * The rows no file of whose closure both sides changed since `base`; each
- * other one goes to `kept`. A string where git could not answer.
+ * `rows` less each one a file of whose closure both sides changed since
+ * `base`, which goes to `kept`. A string where git could not answer.
  *
  * @param {string} root
  * @param {{ base: string, theirs: string }} revs
- * @param {Row[]} rows
- * @param {Kept[]} kept
- * @returns {Row[] | string}
+ * @param {Candidate[]} rows
+ * @param {Kept[]} kept accumulator: each row dropped, with why
+ * @returns {Candidate[] | string}
  */
-function keepBothChanged(root, { base, theirs }, rows, kept) {
-	const inputs = [...new Set(rows.flatMap((w) => w.hashes ?? []))];
-	const ours = changedSince(root, base, "HEAD", inputs);
-	const them = changedSince(root, base, theirs, inputs);
-	const failed = ours.error ?? them.error;
+function dropBothChanged(root, { base, theirs }, rows, kept) {
+	const inputs = [...new Set(rows.flatMap((w) => w.hashes))];
+	const ours = changedSince(root, [base, "HEAD"], inputs);
+	const them = changedSince(root, [base, theirs], inputs);
+	/* An index matching neither parent is the merge commit's own change, which nobody read. */
+	const notOurs = changedSince(root, ["--cached", "HEAD"], inputs);
+	const notTheirs = changedSince(root, ["--cached", theirs], inputs);
+	const failed = ours.error ?? them.error ?? notOurs.error ?? notTheirs.error;
 	if (failed) return `git diff failed (${failed})`;
 	return rows.filter((w) => {
-		const both = (w.hashes ?? []).filter(
-			(p) => ours.paths.has(p) && them.paths.has(p),
+		const both = w.hashes.filter((p) => ours.paths.has(p) && them.paths.has(p));
+		const own = w.hashes.filter(
+			(p) => notOurs.paths.has(p) && notTheirs.paths.has(p),
 		);
-		if (both.length === 0) return true;
-		kept.push({ guard: w.guard, why: `both sides changed ${both.join(", ")}` });
+		if (both.length === 0 && own.length === 0) return true;
+		kept.push({
+			guard: w.guard,
+			why:
+				both.length > 0
+					? `both sides changed ${both.join(", ")}`
+					: `the merge itself changed ${own.join(", ")}`,
+		});
 		return false;
 	});
 }
@@ -167,15 +183,14 @@ function judgeCarry(root, merge, stale, { oursFresh, readTheirsFresh }) {
 
 	/** @type {Kept[]} */
 	const kept = [];
-	const rows = stale.filter((w) => {
-		if (!CARRIED_KINDS.has(w.kind) || !w.digest || !w.hashes) return false;
+	const rows = stale.filter(isCandidate).filter((w) => {
 		if (oursFresh.has(w.guard)) return true;
 		kept.push({ guard: w.guard, why: "it is not fresh on HEAD" });
 		return false;
 	});
 	if (rows.length === 0) return { carried: [], kept, none: null };
 
-	const survivors = keepBothChanged(root, { base, theirs }, rows, kept);
+	const survivors = dropBothChanged(root, { base, theirs }, rows, kept);
 	if (typeof survivors === "string") return nothing(survivors);
 	if (survivors.length === 0) return { carried: [], kept, none: null };
 
@@ -185,7 +200,7 @@ function judgeCarry(root, merge, stale, { oursFresh, readTheirsFresh }) {
 	const carried = [];
 	for (const w of survivors)
 		if (theirsFresh.has(w.guard))
-			carried.push({ guard: w.guard, digest: w.digest ?? "" });
+			carried.push({ guard: w.guard, digest: w.digest });
 		else kept.push({ guard: w.guard, why: `it is not fresh on ${theirs}` });
 	return { carried, kept, none: null };
 }

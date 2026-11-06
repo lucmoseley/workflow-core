@@ -389,7 +389,7 @@ describe("a run", () => {
 			kind: "refused",
 			name: "a",
 			reason: expect.stringMatching(
-				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt/,
+				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt$/,
 			),
 		});
 		const [ticket] = readStore();
