@@ -62,7 +62,7 @@ const isPushFaultText = (output) =>
 class PushRefused extends Error {
 	/**
 	 * @param {string} message
-	 * @param {{ cause: unknown }} options `cause` the failed push
+	 * @param {{ cause: unknown }} options
 	 */
 	constructor(message, options) {
 		super(message, options);
