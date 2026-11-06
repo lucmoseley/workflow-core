@@ -33,7 +33,8 @@ const SCRIPTS = path.dirname(__dirname);
 const buildResumeIo = (log) => ({
 	log,
 	env: () => process.env,
-	authRefusal: (launch) => launchAuthRefusal({ bin: claudeBin(), ...launch }),
+	authRefusal: (launch) =>
+		launchAuthRefusal({ bin: claudeBin(launch.env), ...launch }),
 	launchHeadless,
 	findHeadlessRun: findRunSince,
 	readRunAsJob,

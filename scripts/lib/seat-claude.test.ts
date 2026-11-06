@@ -2,9 +2,10 @@
 /*
  * lib/seat-claude.js (#4344): the seat env the relaunch guard and the refill
  * loop's resume hand `claude`, and runClaude's VT-stripped verdict. `claude`
- * is lib/claude-stub.ts's bash stub at WFC_CLAUDE_BIN in a temp dir, echoing
- * the env it was given in colour. Broken, a relaunched or resumed job runs on
- * the caller's seat or under its session id.
+ * is lib/claude-stub.ts's bash stub at the given env's WFC_CLAUDE_BIN in a temp
+ * dir, echoing the env it was given in colour; process.env's points nowhere
+ * (#3991). Broken, a relaunched or resumed job runs on the caller's seat or
+ * under its session id, or runs a binary its env never named.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -15,6 +16,7 @@ import { buildSeatEnv, runClaude } from "./seat-claude.js";
 
 let tmp: string;
 let saved: string | undefined;
+let caller: NodeJS.ProcessEnv;
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "seat-claude-"));
@@ -24,7 +26,14 @@ beforeEach(() => {
 		"exit 0",
 	]);
 	saved = process.env.WFC_CLAUDE_BIN;
-	process.env.WFC_CLAUDE_BIN = bin;
+	process.env.WFC_CLAUDE_BIN = path.join(tmp, "absent");
+	caller = {
+		PATH: String(process.env.PATH),
+		WFC_CLAUDE_BIN: bin,
+		CLAUDE_CODE_SESSION_ID: "s-caller",
+		CLAUDE_JOB_DIR: "/seat/jobs/caller",
+		CLAUDE_CONFIG_DIR: "/other-seat",
+	};
 });
 
 afterEach(() => {
@@ -32,13 +41,6 @@ afterEach(() => {
 	else process.env.WFC_CLAUDE_BIN = saved;
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
-
-const caller = {
-	PATH: String(process.env.PATH),
-	CLAUDE_CODE_SESSION_ID: "s-caller",
-	CLAUDE_JOB_DIR: "/seat/jobs/caller",
-	CLAUDE_CONFIG_DIR: "/other-seat",
-};
 
 it("runs claude on the seat, with the provider laid on and the caller's session forgotten", () => {
 	const r = runClaude(["rm", "1a2b3c4d"], {

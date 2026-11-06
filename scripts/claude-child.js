@@ -152,8 +152,8 @@ function main() {
 		};
 	}
 
-	const bin = claudeBin();
 	const env = buildSeatEnv(process.env, seat);
+	const bin = claudeBin(env);
 	const cached =
 		command === "usage"
 			? ` Read the cached bars instead: node scripts/allowance.js --config-dir ${seat}`
