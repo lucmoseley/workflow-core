@@ -20,9 +20,8 @@
  * ROOT pass too turns every tempdir fixture beside one into a false root edge.
  *
  * A test's own comments are scanned too: a quoted path in one reads as an
- * edge, over-inclusion of the cheap kind. A helper's and a script's are not:
- * citing a document in a shared helper's comment is the house idiom, and
- * scanning them measured costly, not cheap (#2074, #2093). The root anchor
+ * edge. A helper's and a script's are not: citing a document in a shared
+ * helper's comment is the house idiom (#2074, #2093). The root anchor
  * is what keeps tempdir fixtures out: a test writing its own `doc-map.md`
  * into os.tmpdir() names the literal but no anchor.
  *
@@ -40,8 +39,7 @@
  * nested target instead of naming it in one string — spreads one path across
  * arguments each resolved alone by the passes above. `COMPOSED_CALL` joins
  * the further arguments with "/" into one candidate and routes it to the
- * pass its own anchor owns (mantahostels#2441, which measures its over-inclusion
- * cost).
+ * pass its own anchor owns (mantahostels#2441).
  *
  * A DIRECTORY-CLASS CALL — the same anchor-plus-literals shape as
  * `COMPOSED_CALL`, but the FINAL argument is a template literal interpolating
@@ -56,8 +54,8 @@
  * `const` declarations and `path.join` to an anchor, or a `git ls-files`
  * argument list's literal pathspecs, a helper parameter's call-site literals
  * included — attributes what the listing returns (#1770). A readdir is one
- * level, narrowed by a `.filter` regex or string test chained onto it — the
- * rule #1770 measured and chose. A pathspec is matched as git matches it, `:!` excludes
+ * level, narrowed by a `.filter` regex or string test chained onto it
+ * (#1770). A pathspec is matched as git matches it, `:!` excludes
  * applied.
  *
  * A RULE ID — `readRuleText(id)` builds `docs/agents/rules/<id>.txt` itself, so no
@@ -80,8 +78,7 @@
  * (#1113, #1118). A file that nothing else selects — no direct read, no
  * own-module test, no test reaching it through static ESM imports — keeps the
  * closure's NEAREST readers only, the tests at its shallowest depth (#1126).
- * Changing the closure's seed or this test of "nothing else" moves the
- * fallback set. A `source` line written through a directory variable
+ * A `source` line written through a directory variable
  * resolves against the sourcing file's own directory, then the repo root; one
  * resolving to no tracked file is returned as a warning, never dropped
  * silently.
@@ -92,7 +89,7 @@
  * the test, with each launched script's own `require`s or `source`s one hop
  * (#4505). Where a test runs a shell script that launches a sibling by its
  * own directory, the tracked sibling runs, not a fixture's copy, so the
- * break #2093 measured absent is real here. Not recursed past that hop.
+ * break #2093 measured absent is real here.
  *
  * A SPAWNED SCRIPT'S OWN READS — what `fileReadsOf` finds in its code — join
  * the closure at the script's depth under the same nearest-reader fallback
@@ -1128,8 +1125,7 @@ const LAUNCH =
  * path resolves against the script's own directory, then the root; a bare
  * one against the root. Read over `shellOperands` with every quoted string
  * kept: the lexer does not nest quotes, so `"$(x | node "$here/y.js")"`
- * reads `" | node "` as one string. A comment or heredoc naming a script
- * launches nothing; a message's prose may, the cheap over-inclusion.
+ * reads `" | node "` as one string.
  * @param {string} file
  * @param {string} source
  * @param {Set<string>} tracked
@@ -2182,8 +2178,7 @@ function testReads(t, source, tracked, read) {
 
 /**
  * Adds what each shell script in `found` launches, one hop (#4505).
- * @param {Set<string>} found  accumulator: a test's reads; each launched
- *   script and its imports are added
+ * @param {Set<string>} found  accumulator: a test's reads
  * @param {string} t  the test's path
  * @param {(p: string) => string[]} launches
  * @returns {void}
@@ -2224,8 +2219,7 @@ const blank = (t) => t.replace(/[^\n]/g, " ");
 
 /**
  * Where `shellOperands` stands between characters: inside a heredoc whose
- * delimiter it holds, or inside a quoted string, the text so far held back;
- * `keepQuoted` is the caller's option, fixed for the scan.
+ * delimiter it holds, or inside a quoted string, the text so far held back.
  * @typedef {{ heredoc: string | null, quote: string | null, quoted: string, keepQuoted: boolean }} ShellState
  */
 
