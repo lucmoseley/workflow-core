@@ -101,7 +101,11 @@
  *   ledger, so each batch asks it afresh (#4501), unless `main` went green
  *   on the green ledger within `BASE_GREEN_MS` (#4564). An unknown
  *   verdict is no verdict: it lands and drops nothing and is never
- *   ledgered, so the next run asks again.
+ *   ledgered, so the next run asks again. A tree no CI run fired for is a
+ *   verdict, never an unknown (#4571): the tester reads it as a red naming
+ *   no file, marked `noRun`, which takes the red path above, so a batch
+ *   whose run never starts ends, and a member whose tree alone fires none is
+ *   dropped, its fix ticket saying so.
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
  *   fault, a broken git object, a merge timing out, a tester's `transient` no
  *   verdict, as its suite slot staying shut) is retried with backoff and the
@@ -141,10 +145,11 @@ class TransientFault extends Error {}
  *   of one failure
  * @typedef {{kind: "green", run?: number}
  *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
- *      retried?: boolean}
+ *      retried?: boolean, noRun?: true}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
  *   CI run that passed it and `jobs` the failing CI jobs, where the tester
- *   read a CI run; `failures` where it named the failing tests; `transient`
+ *   read a CI run; `failures` where it named the failing tests; `noRun`
+ *   where no CI run fired for the tree at all, naming no file; `transient`
  *   where asking again shortly can reach a verdict, as when its suite slot
  *   stayed shut
  * @typedef {{verdict: (sha: string, files?: string[], again?: boolean) =>
@@ -221,14 +226,16 @@ class TransientFault extends Error {}
  *   readonly dropped: readonly DroppedRef[]}} QueueRefs the remote's `main`,
  *   queue refs and dropped refs, each queue commit present locally
  * @typedef {{readonly kind: "red", readonly name: string,
- *   readonly files: readonly string[], readonly iso: string}} RedAlone red
- *   on `files` twice, none where the red named none, merged alone onto
- *   `main` as `iso`, where `main` passed them
+ *   readonly files: readonly string[], readonly iso: string,
+ *   readonly noRun?: true}} RedAlone red on `files` twice, none where the
+ *   red named none, merged alone onto `main` as `iso`, where `main` passed
+ *   them; `noRun` where no CI run fired for that tree
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
- *   readonly after: readonly string[]}} Collision the serial step `step`,
- *   merging it onto `main` after the members `after` landed, red twice on
- *   `files`, none where the red named none, each member having passed alone
+ *   readonly after: readonly string[], readonly noRun?: true}} Collision
+ *   the serial step `step`, merging it onto `main` after the members `after`
+ *   landed, red twice on `files`, none where the red named none, each member
+ *   having passed alone; `noRun` where no CI run fired for that tree
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
  *   a dropped ref no drop record entry named
  * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
@@ -698,8 +705,22 @@ function redOnMain(onMain, checked, v) {
 }
 
 /**
+ * Whether `main`'s verdict `onMain` shares `v`, a red naming no file: no run
+ * fired at either, or `main` failed every job `v` did.
+ * @param {Verdict} onMain
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ */
+function sharesWhole(onMain, v) {
+	if (onMain.kind !== "red") return false;
+	if (v.noRun) return onMain.noRun === true;
+	const jobs = onMain.jobs ?? [];
+	return (v.jobs ?? []).every((j) => jobs.includes(j));
+}
+
+/**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
  * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does.
+ * A tree that fired no run takes no green off the green ledger (#4571).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -711,7 +732,7 @@ function baseCheck(b, s, main, v) {
 	const at = s.greenAt(main);
 	const onMain =
 		b.bases.find((x) => x.sha === main && sameFiles(x.files, files))?.verdict ??
-		(at !== null && s.now - at < BASE_GREEN_MS
+		(!v.noRun && at !== null && s.now - at < BASE_GREEN_MS
 			? /** @type {Verdict} */ ({ kind: "green" })
 			: undefined);
 	if (onMain === undefined) {
@@ -722,12 +743,10 @@ function baseCheck(b, s, main, v) {
 				askOrWait(s, r, { kind: "check-base", sha: main, files }),
 		};
 	}
-	if (files.length === 0) {
-		const jobs = onMain.kind === "red" ? (onMain.jobs ?? []) : null;
-		const baseOnly =
-			jobs !== null && (v.jobs ?? []).every((j) => jobs.includes(j));
-		return { read: { base: [], left: [], baseOnly } };
-	}
+	if (files.length === 0)
+		return {
+			read: { base: [], left: [], baseOnly: sharesWhole(onMain, v) },
+		};
 	const base = redOnMain(onMain, files, v);
 	const left = files.filter((f) => !base.includes(f));
 	return { read: { base, left, baseOnly: left.length === 0 } };
@@ -793,6 +812,12 @@ function redAction(b, s, main, { sha, whole }) {
 	const members = included(b).map((m) => m.name);
 	return { kind: "start-isolation", blame: { files: left, base, members } };
 }
+
+/**
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ * @returns {{noRun?: true}}
+ */
+const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
 
 /**
  * The `lander/iso-*` ref a run alone on `files` is pushed to, `k` its
@@ -867,7 +892,13 @@ function isolationAction(b, s, blame) {
 		return dropAction(
 			m,
 			onto,
-			{ kind: "red", name: m.name, files, iso: i.iso },
+			{
+				kind: "red",
+				name: m.name,
+				files,
+				iso: i.iso,
+				...noRunOf(v),
+			},
 			s,
 		);
 	}
@@ -949,6 +980,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 				files: v.files,
 				step: sha,
 				after: landed,
+				...noRunOf(v),
 			},
 			s,
 		);
