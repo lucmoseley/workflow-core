@@ -58,6 +58,7 @@ const reads = (
 ) => {
 	let n = 0;
 	const reran: number[] = [];
+	const repushed: string[] = [];
 	return {
 		runs: () => {
 			const next = listings[Math.min(n, listings.length - 1)];
@@ -72,8 +73,12 @@ const reads = (
 		rerun: (id: number) => {
 			reran.push(id);
 		},
+		repush: (branch: string, _sha: string) => {
+			repushed.push(branch);
+		},
 		calls: () => n,
 		reran,
+		repushed,
 	};
 };
 
@@ -403,6 +408,7 @@ const askNamed = (
 			...r.reads,
 			runs: () => [],
 			rerun: () => undefined,
+			repush: () => undefined,
 			isoRefs: () => iso,
 			runsOn: () => [],
 		},
@@ -735,6 +741,39 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 	expect(first.reran).toEqual([]);
 });
 
+it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {
+	const SuiteBase = "lander/iso-suite-base";
+	const atBase = () => [{ branch: SuiteBase, sha: SHA }];
+	const earlier = run(7, "success");
+	const fresh = queueReads([], {
+		iso: atBase,
+		runsOn: () =>
+			fresh.repushed.length === 0 ? [earlier] : [run(9, "success"), earlier],
+	});
+	expect(await queueOf(fresh).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 9,
+	});
+	expect(fresh.repushed).toEqual([SuiteBase]);
+	expect(fresh.reran).toEqual([]);
+
+	const none = queueReads([], { iso: atBase, runsOn: () => [earlier] });
+	expect(await queueOf(none).verdict(SHA, [], true)).toEqual({
+		kind: "unknown",
+		reason: `no scheduled-checks.yml push run on ${SuiteBase} at ${SHA.slice(0, 9)}`,
+	});
+	expect(none.repushed).toEqual([SuiteBase]);
+
+	const refused = queueReads([], { iso: atBase, runsOn: () => [earlier] });
+	refused.repush = () => {
+		throw new Error("stale info");
+	};
+	expect(await queueOf(refused).verdict(SHA, [], true)).toEqual({
+		kind: "unknown",
+		reason: `${SuiteBase} not pushed again at ${SHA.slice(0, 9)}: stale info`,
+	});
+});
+
 it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
 	const files = ["scripts/lib/a.test.ts"];
 	const r = queueReads([() => [run(1, null)], () => [run(1, "success")]]);
@@ -854,4 +893,15 @@ if (argv[0] === "workflow") {
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
+	/* Asked again over the passed run 9, the ref is pushed again and no run
+	 * newer than 9 is listed. */
+	expect(await tester.verdict(iso, [], true)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(
+			/^no scheduled-checks\.yml push run on lander\/iso-suite-0/,
+		),
+	});
+	expect(
+		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
+	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
 });

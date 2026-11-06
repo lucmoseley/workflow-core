@@ -15,8 +15,10 @@
  * failing so is no verdict, never a red to isolate.
  *
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
- * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`; asked
- * again, the run's failed jobs are rerun. Named files at a sha a
+ * the `lander/iso-suite-<k>` ref holding it, else on `lander/batch`. Asked
+ * again, a failed run has its failed jobs rerun; any other run at the sha
+ * is never read, its ref deleted and pushed again to start a run that
+ * began after the ask. Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
  * check, are run alone by named-rerun.yml. At any other sha a `lander/batch`
  * run covers they are read off that run, a failed one rerunning its failed
@@ -27,6 +29,7 @@ const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { gitBinary, gitSpawnOptions } = require("./git.js");
+const { pushRemote } = require("./lander-git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
@@ -102,6 +105,9 @@ const RUNNER_RERUNS = 2;
  *   `files` the tree at `sha` holds
  * @property {(run: number) => void} rerun starts a new attempt of the run's
  *   failed jobs
+ * @property {(branch: string, sha: string) => void} repush deletes the
+ *   remote's `branch` where it holds `sha`, then creates it at `sha`, so its
+ *   push starts a new run
  * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
  *   | {kind: "runner", run: number, attempt: number, reason: string}} SuiteRunVerdict
@@ -292,6 +298,11 @@ function liveReads(root, branch) {
 		},
 		rerun: (run) => {
 			gh(["run", "rerun", String(run), "--failed"]);
+		},
+		repush: (to, sha) => {
+			const ref = `refs/heads/${to}`;
+			pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`]);
+			pushRemote(root, [`${sha}:${ref}`]);
 		},
 	};
 }
@@ -624,9 +635,11 @@ function suiteOn(suite, held) {
 }
 
 /**
- * The verdict at `sha` asked again of the newest suite run on `on`'s branch,
- * its failed jobs rerun first: on `files`, which it judges too, else the
- * whole suite. Files at a sha no run covers are run alone.
+ * The verdict at `sha` asked again on `on`'s branch, never off a run that
+ * began before the ask: the newest run at `sha` rerun where it failed, on
+ * `files`, which it judges too, else the whole suite. For the whole suite,
+ * any other run at `sha` has the branch pushed again and only a newer run
+ * judged. Files at a sha no run covers are run alone.
  * @param {string} sha
  * @param {string[]} files
  * @param {{reads: Reads, branch: string} & Poll} on
@@ -642,9 +655,29 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	if (run === undefined && files.length > 0)
-		return namedVerdict(named, sha, files, false);
-	return suiteVerdict(sha, run?.conclusion === "failure" ? run.attempt : 0, on);
+	if (run?.conclusion === "failure") return suiteVerdict(sha, run.attempt, on);
+	if (run === undefined)
+		return files.length > 0
+			? namedVerdict(named, sha, files, false)
+			: suiteVerdict(sha, 0, on);
+	if (files.length > 0) return suiteVerdict(sha, 0, on);
+	const { databaseId } = run;
+	try {
+		on.reads.repush(on.branch, sha);
+	} catch (err) {
+		return {
+			kind: "unknown",
+			reason: `${on.branch} not pushed again at ${sha.slice(0, 9)}: ${parseErrorText(err)}`,
+		};
+	}
+	const { reads } = on;
+	return suiteVerdict(sha, 0, {
+		...on,
+		reads: {
+			...reads,
+			runs: () => reads.runs().filter((r) => r.databaseId > databaseId),
+		},
+	});
 }
 
 module.exports = { SUITE_WORKFLOW, queueTester };
