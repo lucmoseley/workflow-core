@@ -38,19 +38,19 @@ import {
 	SCRIPT,
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
+import type { HeadlessCall } from "./lib/headless-run-fake";
 import { readRun } from "./lib/headless-runs.js";
 import { launchBatch } from "./lib/refill-batch.js";
 import { isTestKind } from "./lib/test-kind.js";
 
 const fx = dispatchFixture();
-const { stubClaude, baseEnv, readArgvLines } = fx;
+const { stubClaude, baseEnv, readArgvLines, headlessCalls } = fx;
 
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const JOB = "0a0b0c0d";
 const seat = () => path.join(fx.dir, ".claude2");
 const secrets = () =>
 	path.join(fx.dir, "config", "workflow-core", "secrets.env");
-const envLog = () => path.join(fx.dir, "env");
 
 /* A $10-mean cost table sets every figure the cases assert: written where
  * the budget gate reads it, in the fixture checkout the dispatcher runs in,
@@ -86,10 +86,10 @@ function overflowEnv(
 	};
 }
 
-/* The stub prints the recorded named launch to a `--bg` call, and records
- * every call's argv and environment. */
+/* The stub prints the recorded named launch to a `--bg` call, and runs a
+ * `-p` one as lib/headless-run-fake.ts's fake, which logs each run. */
 function stub(opts: Parameters<typeof stubClaude>[0] = {}) {
-	stubClaude({ launch: "named", jobId: JOB, envLog: envLog(), ...opts });
+	stubClaude({ launch: "named", jobId: JOB, ...opts });
 }
 
 const prompts = ["/implement 341", "/implement 353", "/wayfinder 1114"];
@@ -153,64 +153,27 @@ const readStoredJobIds = () => {
 	return fs.existsSync(store) ? fs.readdirSync(store).sort() : [];
 };
 
-/* A wait on the detached child the launcher spawned, which records its argv
+/* A wait on the detached child the launcher spawned, which logs its run
  * after the launcher has returned. The ceiling is a guess, generous against
  * a loaded machine. */
 function readHeadlessLaunches(expected = readStoredJobIds().length) {
-	const lines = () => readArgvLines().filter((l) => l.startsWith("-p "));
 	const pause = new Int32Array(new SharedArrayBuffer(4));
 	for (const end = Date.now() + 10_000; Date.now() < end; ) {
-		if (lines().length >= expected) break;
+		if (headlessCalls().length >= expected) break;
 		Atomics.wait(pause, 0, 0, 50);
 	}
-	return lines();
+	return headlessCalls();
 }
-const budgetsOf = (lines: string[]) =>
-	lines.map((l) => l.match(/--max-budget-usd (\S+)/)?.[1]);
+const budgetsOf = (calls: HeadlessCall[]) =>
+	calls.map((c) => c.flags["--max-budget-usd"]);
 const readBgLaunches = () =>
 	readArgvLines().filter((l) => l.startsWith("--bg"));
 const readAnyLaunches = () => [...readBgLaunches(), ...readStoredJobIds()];
 
-/* Each `-p` launch stays running through `body`, on the real /proc its
- * liveness reads, so the budget holds it, as between one real member and the
- * next. `sleep` outlasts any dispatch here, and is killed at the end. */
-function withRunningLaunches<T>(body: () => T): T {
-	const at = fx.stubPath();
-	fs.renameSync(at, `${at}-inner`);
-	fs.writeFileSync(
-		at,
-		`#!/bin/bash\n"$0-inner" "$@"\ns=$?\n[[ "$1" == "-p" ]] && sleep 120\nexit $s\n`,
-		{ mode: 0o755 },
-	);
-	try {
-		return body();
-	} finally {
-		for (const job of readStoredJobIds()) {
-			const run = storedRun(job);
-			if (run) {
-				try {
-					process.kill(-run.pgid, "SIGKILL");
-				} catch {
-					/* already gone */
-				}
-			}
-		}
-	}
-}
 const readAllowances = () =>
 	readRecentEntries(fx.dir, 1).entries.map(
 		(e) => (e as { allowanceUsd?: number }).allowanceUsd,
 	);
-/** The environment of a set's one launch, as the stub dumped it. */
-const readLaunchEnv = () =>
-	new Map(
-		fs
-			.readFileSync(envLog(), "utf8")
-			.split("\n")
-			.filter((l) => l.includes("="))
-			.map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
-	);
-
 /* One of the refill loop's code worktrees under `env`'s refill dir: a copy
  * of these scripts, as a symlink would resolve out of it. */
 function loopCodeTip(env: Record<string, string>) {
@@ -224,9 +187,8 @@ function loopCodeTip(env: Record<string, string>) {
 	};
 }
 
-const helperOf = (launch: string | undefined) =>
-	JSON.parse(String(launch?.match(/--settings (\{.*\}) -n /)?.[1]))
-		.apiKeyHelper;
+const helperOf = (launch: HeadlessCall | undefined) =>
+	JSON.parse(String(launch?.flags["--settings"])).apiKeyHelper;
 
 function expectHelperPrintsKey(helper: string) {
 	// spawn-kept: the subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
@@ -278,17 +240,17 @@ describe("an overflow seat (#2610)", () => {
 		expect(more).toEqual([]);
 		expect(readBgLaunches()).toEqual([]);
 		const helper = helperOf(launch);
-		expect(launch).toContain(" -n Overflow · /implement 341 ");
-		expect(budgetsOf([String(launch)])).toEqual(["200"]);
+		expect(launch?.flags["--name"]).toBe("Overflow · /implement 341");
+		expect(launch?.flags["--max-budget-usd"]).toBe("200");
 		expect(helper).toMatch(
 			/\/lib\/overflow-key\.js'? '?WFC_TEST_OVERFLOW_KEY'? /,
 		);
 		expect(helper).toContain(secrets());
-		const env = readLaunchEnv();
-		expect(env.get("CLAUDE_CONFIG_DIR")).toBe(seat());
-		expect(env.has(KEY_VAR)).toBe(false);
-		expect(env.has("ANTHROPIC_API_KEY")).toBe(false);
-		expect(env.has("CLAUDE_CODE_SESSION_ID")).toBe(false);
+		const env = launch?.env ?? {};
+		expect(env.CLAUDE_CONFIG_DIR).toBe(seat());
+		expect(env).not.toHaveProperty(KEY_VAR);
+		expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
+		expect(env).not.toHaveProperty("CLAUDE_CODE_SESSION_ID");
 		expect(r.launched.map((l) => l.jobId)).toEqual(readStoredJobIds());
 	});
 
@@ -378,10 +340,8 @@ describe("an overflow seat (#2610)", () => {
 	});
 
 	it("cuts the set to the budget's fit in the CAPPED shape, each launch's allowance and budget the headroom left", () => {
-		stub();
-		const r = withRunningLaunches(() =>
-			dispatch(3, { ...overflowEnv(25), WFC_PROC: "/proc" }),
-		);
+		stub({ headless: "hold" });
+		const r = dispatch(3, { ...overflowEnv(25), WFC_PROC: "/proc" });
 		const capped = `CAPPED: launching 2 of 3 on the overflow budget of ${seat()} (headroom $25.00, $10.00 a session).`;
 		expect(r.out).toContain(capped);
 		expect(r.launched.map((l) => l.prompt)).toEqual(prompts.slice(0, 2));
@@ -585,10 +545,8 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 	const readLookup = () => readOverflowLookup([fx.dir]);
 
 	it("records each member's key, its own allowance and its launch-time session id, and the reader answers by job id", () => {
-		stub();
-		withRunningLaunches(() =>
-			dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" }),
-		);
+		stub({ headless: "hold" });
+		dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
 		const rows = readRecentEntries(fx.dir, 1).entries;
 		const [first, second] = rows.map((e) => String(e.jobId));
 		const row = (jobId: string, allowanceUsd: number) => ({

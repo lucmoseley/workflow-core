@@ -6434,6 +6434,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/headless-run.json": [
+			"scripts/dispatch-sessions-overflow.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/headless-run.contract.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
@@ -19338,6 +19339,7 @@
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-overflow.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
