@@ -10,12 +10,14 @@
  * RUN AS A SCRIPT it prints the match as JSON for the host's config, or with
  * `--names` the matched areas' names one per line, exit 0; a config warning
  * reaches stderr and never changes the exit. Exit 2 is a
- * config that will not read, or bad usage. `--narrowed <before> <after>` prints
- * the areas the second root's config narrows from the first's, one per line.
+ * config that will not read, or bad usage. `--held <before> <after>` prints
+ * every area the pre-commit hold reads off two roots' configs at once, so the
+ * hold starts node once a commit (#4512): exit 0, or 3 with the after copy's
+ * fault on stderr; exit 2 where it cannot judge.
  */
 
 const { readFdAll } = require("./read-fd.js");
-const { readConfig } = require("./workflow-core-config.js");
+const { CONFIG_PATH, readConfig } = require("./workflow-core-config.js");
 const { globMatches } = require("./pathspec-glob.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
@@ -86,12 +88,19 @@ function narrowedAreas(before, after) {
 }
 
 /**
- * `--narrowed`: an `after` that will not parse declares nothing, so a broken
- * copy reads as dropping every area.
+ * `--held`: the areas the pre-commit hold holds `paths` under — those
+ * `before`'s declaration matches, those `after`'s does, and, where `paths`
+ * carry the declaration itself, those `after` narrows from `before`, sorted
+ * and once each. An `after` that will not parse declares nothing, so a broken
+ * copy reads as dropping every area (#3905); where the paths do not carry it,
+ * or `before` declares nothing to drop, the hold cannot judge it: exit 2.
+ * Exit 3: the areas printed, and the `after` copy's fault on stderr for the
+ * refusal to name.
  * @param {string} before
  * @param {string} after
+ * @param {string[]} paths
  */
-function printNarrowed(before, after) {
+function printHeld(before, after, paths) {
 	let was;
 	try {
 		was = readConfig({ root: before, quiet: true }).sensitivePaths;
@@ -99,28 +108,52 @@ function printNarrowed(before, after) {
 		writeFd(2, `BROKEN: ${caught(e).message}\n`);
 		process.exit(2);
 	}
+	/** @type {SensitivePath[] | undefined} */
 	let now;
+	let fault = "";
 	try {
 		now = readConfig({ root: after, quiet: true }).sensitivePaths;
-	} catch {
-		// #3905: the unparsable copy is itself the narrowing this reports.
-		now = undefined;
+	} catch (e) {
+		fault = `BROKEN: ${caught(e).message}\n`;
 	}
+	const narrowed = paths.includes(CONFIG_PATH) ? narrowedAreas(was, now) : [];
+	if (fault && narrowed.length === 0) {
+		writeFd(2, fault);
+		process.exit(2);
+	}
+	const names = new Set([
+		...matchSensitivePaths(was, paths).matched.map((a) => a.name),
+		...matchSensitivePaths(now, paths).matched.map((a) => a.name),
+		...narrowed,
+	]);
 	writeFd(
 		1,
-		narrowedAreas(was, now)
+		[...names]
+			.sort()
 			.map((n) => `${n}\n`)
 			.join(""),
 	);
+	if (fault) {
+		writeFd(2, fault);
+		process.exit(3);
+	}
 }
+
+/** @param {number} fd */
+const readPaths = (fd) =>
+	readFdAll(fd)
+		.toString("utf8")
+		.split(/[\n\0]/)
+		.filter((l) => l !== "");
 
 const USAGE =
 	"usage: node sensitive-paths.js [--stdin] [--names] [<path>...]\n" +
-	"       node sensitive-paths.js --narrowed <before root> <after root>\n" +
+	"       node sensitive-paths.js --held <before root> <after root>\n" +
 	"  The declared sensitive paths the given repo-relative paths touch, as JSON.\n" +
 	"  --stdin  read further paths from stdin, one per line or NUL-separated;\n" +
 	"           git quotes an unusual name, so pipe `git diff --name-only -z`\n" +
-	"  --names  print only the names of the areas whose globs matched, one per line\n";
+	"  --names  print only the names of the areas whose globs matched, one per line\n" +
+	"  --held   the areas the pre-commit hold holds stdin's paths under, one per line\n";
 
 if (require.main === module) {
 	const { parseOrExit } = require("./cli-args.js");
@@ -129,27 +162,21 @@ if (require.main === module) {
 		flags: {
 			"--stdin": "boolean",
 			"--names": "boolean",
-			"--narrowed": "boolean",
+			"--held": "boolean",
 		},
 		max: Number.POSITIVE_INFINITY,
 	});
-	if (flags["--narrowed"]) {
+	if (flags["--held"]) {
 		const [before, after] = positionals;
 		if (before === undefined || after === undefined) {
 			writeFd(2, USAGE);
 			process.exit(2);
 		}
-		printNarrowed(before, after);
+		printHeld(before, after, readPaths(0));
 		process.exit(0);
 	}
 	const paths = [...positionals];
-	if (flags["--stdin"])
-		paths.push(
-			...readFdAll(0)
-				.toString("utf8")
-				.split(/[\n\0]/)
-				.filter((l) => l !== ""),
-		);
+	if (flags["--stdin"]) paths.push(...readPaths(0));
 	let config;
 	try {
 		config = readConfig();
