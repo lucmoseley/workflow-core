@@ -4,8 +4,8 @@
  * commit, and moves `main` to it on a green verdict at that exact sha.
  *
  * One pure state machine, `nextQueueAction`, chooses each action from the
- * remote's refs, the green and verdict ledgers, the batch record and what this
- * run has met; `runQueueLander` acts on it through injected git and tester
+ * remote's refs, the green and verdict ledgers, the pipeline record and what
+ * this run has met; `runQueueLander` acts on it through injected git and tester
  * until it exits. The library does no I/O: lib/queue-lander-adapters.js holds
  * the production git and files.
  *
@@ -36,7 +36,7 @@
  *   `mergeMembers` telling.
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
- *   a commit gate refused, it is dropped: the batch record leaves it out and
+ *   a commit gate refused, it is dropped: its batch leaves it out and
  *   the drop record holds it, then `dropped/<name>` is created at its
  *   snapshot and `queue/<name>` is compare-and-deleted against it, a moved
  *   one kept queued. A drop record row whose dropped ref is missing is
@@ -97,7 +97,7 @@
  *   unrecorded, as a crash after the push leaves it, logs them on restart.
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
  *   files it ran and its pass, the rerun and the confirm being the second.
- *   A base check's verdict at `main` is kept on the batch record, never the
+ *   A base check's verdict at `main` is kept on its batch, never the
  *   ledger, so each batch asks it afresh (#4501), unless `main` went green
  *   on the green ledger within `BASE_GREEN_MS` (#4564). An unknown
  *   verdict is no verdict: it lands and drops nothing and is never
