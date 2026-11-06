@@ -6263,12 +6263,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				);
 			});
 
-			/*
-			 * In a session's own linked worktree (#4229) the ledger misses a
-			 * Bash-route write, and the run read HEAD's copy beside the
-			 * session's new test, saying only a count (#3786). There, every dirty
-			 * file is the session's, so the overlay carries each one.
-			 */
 			it("carries every dirty file of a linked worktree, Bash-route writes the ledger never saw included (#3786)", async () => {
 				const wt = dirtyCheckout({ linked: true });
 				const { code, seen, err } = await runSeeing(wt, [], {
