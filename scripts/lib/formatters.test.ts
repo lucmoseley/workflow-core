@@ -178,7 +178,7 @@ describe("the shell file set (#1828)", () => {
 			/node "\$lib\/formatters\.js" shell-files\)/,
 		);
 		const hook = read(".husky/pre-commit");
-		expect(hook).toContain("if armed_shell; then");
+		expect(hook).toContain("if ! lander_batch && armed_shell; then");
 		expect(hook).toContain('armed "\\.py\\$|$GATE_SHELL_CANDIDATE"');
 	});
 });

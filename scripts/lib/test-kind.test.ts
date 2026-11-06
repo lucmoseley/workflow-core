@@ -355,7 +355,7 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 		(checker, opening) => {
 			const arm = hook().match(
 				new RegExp(
-					String.raw`^if armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
+					String.raw`^if (?:! lander_batch && )?armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
 					"m",
 				),
 			)?.[1];

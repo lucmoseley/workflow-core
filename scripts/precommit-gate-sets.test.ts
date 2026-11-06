@@ -85,7 +85,7 @@ describe("the pre-commit gate sets", () => {
 		});
 	});
 
-	it("refuses an argument it does not know", () => {
-		expect(run("--gates=all")).toEqual({ code: 2, ran: [] });
+	it("runs every gate on an argument it does not know", () => {
+		expect(run("--gates=all")).toEqual({ code: 0, ran: CHECKERS });
 	});
 });

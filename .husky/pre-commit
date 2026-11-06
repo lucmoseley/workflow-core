@@ -83,12 +83,7 @@ fi
 # run repeats before `main` moves, each marked `lander_batch` below.
 wfc_gates=all
 case "${1-}" in
-  "") ;;
   --gates=merge | --gates=batch) wfc_gates="${1#--gates=}" ;;
-  *)
-    echo "pre-commit: unknown argument '$1': git passes none, the queue lander --gates=merge or --gates=batch (#4545)." >&2
-    exit 2
-    ;;
 esac
 
 # Every parallel-safety rule in CLAUDE.md's guard-registry region must state a
