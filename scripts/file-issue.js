@@ -61,7 +61,10 @@ const path = require("node:path");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { buildDistinctFromHint } = require("./lib/similar-titles.js");
-const { hasStandaloneLine } = require("./lib/standalone-line.js");
+const {
+	buildStandaloneLine,
+	hasStandaloneLine,
+} = require("./lib/standalone-line.js");
 const { readRuleText } = require("./lib/rule-text.js");
 const {
 	IMPLEMENT_LABEL,
@@ -270,7 +273,7 @@ function main() {
 	const filedBody =
 		opts.standalone === undefined || hasOwnStandalone
 			? body
-			: `${body.trimEnd()}\n\nStandalone: ${opts.standalone.trim()}\n`;
+			: `${body.trimEnd()}\n\n${buildStandaloneLine(opts.standalone.trim())}\n`;
 	const { n, url } = create({
 		repo,
 		title: /** @type {string} */ (opts.title),
