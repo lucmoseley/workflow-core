@@ -4,8 +4,8 @@
  * from lib/guard-judge.js's judging, so the judging can move without
  * touching the cores (#4543).
  *
- * Types only: this module exports nothing at runtime. The ports beyond the
- * kit's are lib/guard-host-ports.js's, beside the adapters that fill them.
+ * The ports beyond the kit's are lib/guard-host-ports.js's, beside the
+ * adapters that fill them.
  */
 
 /**
