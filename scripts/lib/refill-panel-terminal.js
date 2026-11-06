@@ -8,6 +8,12 @@
 
 const { buildFrame, findHoverRow, createPanel } = require("./refill-panel.js");
 const { ESC, createInputReader } = require("./refill-panel-input.js");
+const {
+	DEFAULT_COLUMNS,
+	DEFAULT_ROWS,
+	ESCAPE_WAIT_MS,
+	holdTerminal,
+} = require("./terminal-hold.js");
 
 /* Primary device attributes, then the character cell's size in pixels. */
 const ASK_CAPABILITIES = `${ESC}[c${ESC}[16t`;
@@ -22,15 +28,6 @@ const CLEAR = `${ESC}[2J`;
  * founder looks, and each poll is one short Node process. */
 const POLL_MS = 3000;
 const WATCH_MS = 1000;
-/* A stream that reports no width, a terminal's traditional one. */
-const DEFAULT_COLUMNS = 80;
-const DEFAULT_ROWS = 24;
-/* How long a lone escape byte waits for the rest of a sequence before it reads as
- * the Esc key. Untraced, a first guess: a terminal writes a sequence whole, so
- * this need only outlast a split read. */
-const ESCAPE_WAIT_MS = 50;
-/* 128 plus the signal's number, the shell's convention. */
-const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 
 /**
  * Runs the panel until the process exits, through `proc.exit`.
@@ -57,35 +54,14 @@ function openPanel({
 	now,
 	reportCrash,
 }) {
-	let restored = false;
-	const restore = () => {
-		if (restored) return;
-		restored = true;
-		for (const step of [
-			() => stdin.setRawMode(false),
-			() => stdout.write(SCREEN_OFF),
-		]) {
-			try {
-				step();
-			} catch {
-				// #3873: the terminal is gone, so nothing is left to restore and the exit must go on.
-			}
-		}
-	};
-	/** @param {unknown} err */
-	const crash = (err) => {
-		restore();
-		reportCrash(err);
-		proc.exit(1);
-	};
-	proc.on("exit", restore);
-	proc.on("uncaughtException", crash);
-	proc.on("unhandledRejection", crash);
-	for (const [signal, code] of Object.entries(SIGNAL_EXITS))
-		proc.on(signal, () => {
-			restore();
-			proc.exit(code);
-		});
+	const { crash, isRestored } = holdTerminal({
+		stdin,
+		stdout,
+		proc,
+		screenOn: SCREEN_ON,
+		screenOff: SCREEN_OFF,
+		reportCrash,
+	});
 
 	const height = () => stdout.rows ?? DEFAULT_ROWS;
 	const columns = () => stdout.columns ?? DEFAULT_COLUMNS;
@@ -119,7 +95,7 @@ function openPanel({
 		draw();
 	};
 	const draw = () => {
-		if (!restored)
+		if (!isRestored())
 			stdout.write(
 				buildFrame(panel.buildViewRows(), columns(), height(), {
 					images: imagesFit,
@@ -156,10 +132,6 @@ function openPanel({
 		if (wheel !== 0) panel.scrollBy(wheel);
 	};
 
-	stdin.setRawMode(true);
-	stdin.setEncoding("utf8");
-	stdin.resume();
-	stdout.write(SCREEN_ON);
 	draw();
 
 	stdin.on("data", (/** @type {string} */ chunk) => {

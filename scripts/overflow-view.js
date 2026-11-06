@@ -6,10 +6,8 @@
  *
  * A headless session cannot wait for input: one that asks the founder
  * something ends on a `needs input:` line. A reply resumes the session with
- * it as the next turn, on the same overflow seat and key, through
- * lib/headless-sessions.js, which hands the key to the child through the
- * `apiKeyHelper` alone. A stop goes through lib/claude-stop.js, as the refill
- * loop's does.
+ * it as the next turn, on the same overflow seat and key; a stop goes
+ * through the refill loop's stop routing (lib/overflow-actions.js).
  *
  * Usage:
  *   node scripts/overflow-view.js     on a terminal, the view; piped, its list once
@@ -20,68 +18,16 @@
 const fs = require("node:fs");
 const { parseArgs } = require("node:util");
 const { caught } = require("./lib/caught.js");
-const { stopOn } = require("./lib/claude-stop.js");
-const { launch } = require("./lib/headless-sessions.js");
-const { hostRoot } = require("./lib/host-root.js");
-const { seatBudget } = require("./lib/overflow-budget.js");
+const { sendReply, stopRun } = require("./lib/overflow-actions.js");
 const {
 	buildListLines,
 	openViewer,
 	readSessions,
 } = require("./lib/overflow-viewer.js");
-const {
-	findOverflowSeat,
-	readDeclaredSeats,
-} = require("./lib/refill-seats.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/** @typedef {import("./lib/headless-runs.js").RunRecord} RunRecord */
-
-/* A reply's spend ceiling, as `--max-budget-usd`. Untraced. */
-const REPLY_BUDGET_USD = 15;
-
-/**
- * The key's headroom for one more run, gated as the dispatcher gates a launch
- * (scripts/dispatch-sessions.sh): nothing past it.
- * @param {string} keyVar
- * @returns {{usd: number}|{why: string}}
- */
-function readHeadroom(keyVar) {
-	const seat = findOverflowSeat(readDeclaredSeats(), keyVar);
-	if (!seat)
-		return { why: `${keyVar} is not an overflow seat's key in the seat file` };
-	const budget = seatBudget(seat, hostRoot());
-	if ("why" in budget) return budget;
-	if (budget.exhausted || budget.fit === 0)
-		return { why: "the key's budget does not fit a reply" };
-	return { usd: budget.headroomUsd };
-}
-
-/**
- * Resume `run`'s session headless with `text` as its next turn.
- * @param {RunRecord} run
- * @param {string} text
- * @param {(keyVar: string) => {usd: number}|{why: string}} [headroomOf]
- * @returns {{jobId: string}|{why: string}}
- */
-function sendReply(run, text, headroomOf = readHeadroom) {
-	const headroom = headroomOf(run.keyVar);
-	if ("why" in headroom) return headroom;
-	const out = launch({
-		keyVar: run.keyVar,
-		cwd: run.cwd,
-		budgetUsd: Math.min(REPLY_BUDGET_USD, headroom.usd),
-		prompt: text,
-		resume: run.sessionId,
-	});
-	return "why" in out ? out : { jobId: out.record.jobId };
-}
-
-/**
- * @param {RunRecord} run
- * @returns {{ok: true, said: string}|{ok: false, why: string}}
- */
-const stopRun = (run) => stopOn(run.seat, run.jobId);
+/* A pipe has no width, so nothing is clipped. */
+const PIPE_COLUMNS = Number.POSITIVE_INFINITY;
 
 /** @param {string[]} argv */
 function main(argv) {
@@ -98,7 +44,7 @@ function main(argv) {
 		return 0;
 	}
 	if (!process.stdin.isTTY || !process.stdout.isTTY) {
-		const { lines } = buildListLines(readSessions(), null, 200, false);
+		const { lines } = buildListLines(readSessions(), null, PIPE_COLUMNS, false);
 		writeFd(1, `${lines.join("\n")}\n`);
 		return 0;
 	}
@@ -114,7 +60,7 @@ function main(argv) {
 	return null;
 }
 
-module.exports = { main, sendReply };
+module.exports = { main };
 
 if (require.main === module) {
 	try {

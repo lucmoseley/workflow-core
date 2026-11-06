@@ -3,23 +3,26 @@
  * Pins the overflow view (#4583) on a fixture run store holding a session in
  * each state: the three sections, each key driven through scripted stdin, a
  * reply resuming the session under a fake `claude` with the key reaching it
- * through the apiKeyHelper alone, and the list following a state change
- * without a restart.
+ * through the apiKeyHelper alone and refused off the run's seat, a stop
+ * through the real stop routing, and the list and an open thread following
+ * the store without a restart.
  *
  * Loosen one and the founder misses a run waiting on him, answers a session
  * still working, or a reply leaks the key into the session's environment.
  */
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { buildAuthStatusNodeBranch } from "./lib/auth-status-fake";
 import type { RunRecord } from "./lib/headless-runs.js";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
+import { readHeadroom, sendReply, stopRun } from "./lib/overflow-actions.js";
 import { openViewer } from "./lib/overflow-viewer.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-import { sendReply } from "./overflow-view.js";
 
 const SCRIPT = path.join(__dirname, "overflow-view.js");
 const KEY = "sk-fake-overflow-0123456789";
@@ -78,7 +81,11 @@ const result = JSON.stringify({
 function writeRun(
 	{ job, sid }: { job: string; sid: string },
 	lines: string[],
-	{ live, prompt }: { live: boolean; prompt: string },
+	{
+		live,
+		prompt,
+		launchedAt = Date.now(),
+	}: { live: boolean; prompt: string; launchedAt?: number },
 ) {
 	const dir = path.join(refill, ".headless-runs", job);
 	fs.mkdirSync(dir, { recursive: true });
@@ -91,7 +98,7 @@ function writeRun(
 		stderr: path.join(dir, "stderr.log"),
 		seat,
 		keyVar: KEY_VAR,
-		launchedAt: Date.now(),
+		launchedAt,
 	});
 }
 
@@ -241,6 +248,26 @@ describe("the list", () => {
 	});
 });
 
+describe("the window", () => {
+	it("keeps a session awaiting input however old, and drops an old completed one", () => {
+		const old = Date.now() - 72 * 60 * 60 * 1000;
+		writeRun(AWAITING, [says("needs input: still waiting")], {
+			live: false,
+			prompt: "/implement 7",
+			launchedAt: old,
+		});
+		writeRun(DONE, [says("result: shipped")], {
+			live: false,
+			prompt: "/implement 9",
+			launchedAt: old,
+		});
+		const t = openTerminal();
+		t.close();
+		expect(t.frame()).toContain("AWAITING INPUT · 1");
+		expect(t.frame()).toContain("COMPLETED · 0");
+	});
+});
+
 describe("the keys", () => {
 	it("Enter opens the selected session's thread, and Left goes back", () => {
 		const t = openTerminal();
@@ -252,6 +279,14 @@ describe("the keys", () => {
 		t.type(LEFT);
 		t.close();
 		expect(t.frame()[0]).toBe("Overflow sessions · 3");
+	});
+
+	it("an open thread follows its log as it grows", async () => {
+		const t = openTerminal({ pollMs: 20 });
+		t.type(DOWN, ENTER);
+		fs.appendFileSync(runOf(WORKING).log, `${says("suite green")}\n`);
+		await vi.waitFor(() => expect(t.frame()).toContain("suite green"));
+		t.close();
 	});
 
 	it("Space opens a reply line, and Enter sends it to the session's latest run", () => {
@@ -329,5 +364,57 @@ describe("a reply", () => {
 		}));
 		expect(out).toEqual({ why: "the key's budget does not fit a reply" });
 		expect(fs.existsSync(path.join(fakeOut, "seen.json"))).toBe(false);
+	});
+});
+
+describe("the seat gate", () => {
+	it("refuses a key the seat file does not name", () => {
+		expect(
+			readHeadroom({ ...runOf(AWAITING), keyVar: "WFC_NO_SUCH_KEY" }),
+		).toEqual({
+			why: "WFC_NO_SUCH_KEY is not an overflow seat's key in the seat file",
+		});
+	});
+
+	it("refuses a key the seat file now gives another seat", () => {
+		const elsewhere = path.join(tmp, "home", ".claude3");
+		expect(readHeadroom({ ...runOf(AWAITING), seat: elsewhere })).toEqual({
+			why: `${KEY_VAR} is now ${seat}'s key, and the session is on ${elsewhere}`,
+		});
+	});
+});
+
+describe("a stop", () => {
+	/* Crosses the real stop routing on a real process group: a `sleep` is the
+	 * run, so the stop's signal reaches nothing else. */
+	it("ends the run's process group through the stop routing", async () => {
+		const child = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
+		const pid = child.pid as number;
+		const exited = new Promise((r) => child.on("exit", r));
+		writeRun(WORKING, [says("working")], {
+			live: true,
+			prompt: "/implement 8",
+		});
+		const dir = path.join(refill, ".headless-runs", WORKING.job);
+		const record = {
+			...runOf(WORKING),
+			pid,
+			pgid: pid,
+			procStart: readProcStartOf(pid),
+		};
+		fs.writeFileSync(path.join(dir, "run.json"), JSON.stringify(record));
+		try {
+			expect(stopRun(record)).toEqual({
+				ok: true,
+				said: `headless run ${WORKING.job} stopped`,
+			});
+			await exited;
+		} finally {
+			try {
+				process.kill(-pid, "SIGKILL");
+			} catch {
+				/* already gone */
+			}
+		}
 	});
 });

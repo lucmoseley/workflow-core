@@ -19,6 +19,12 @@
 const { readLiveAgents, readStoredRuns } = require("./headless-runs.js");
 const { readJsonl } = require("./jsonl.js");
 const { ESC, createInputReader } = require("./refill-panel-input.js");
+const {
+	DEFAULT_COLUMNS,
+	DEFAULT_ROWS,
+	ESCAPE_WAIT_MS,
+	holdTerminal,
+} = require("./terminal-hold.js");
 
 /** @typedef {import("./headless-runs.js").RunRecord} RunRecord */
 /** @typedef {import("./refill-panel-input.js").Key} Key */
@@ -35,18 +41,14 @@ const { ESC, createInputReader } = require("./refill-panel-input.js");
  * @typedef {{kind: string, text: string}} RunEvent
  */
 
-/* A session whose latest run started longer ago than this, and has ended, is
- * not shown. Untraced. */
+/* A completed session whose latest run started longer ago than this is not
+ * shown; one awaiting input always is. Untraced. */
 const ENDED_WINDOW_MS = 48 * 60 * 60 * 1000;
 /* Untraced: a run's messages a few seconds late read fine on a terminal. */
 const POLL_MS = 3000;
-/* How long a lone escape byte waits for the rest of a sequence; as
- * lib/refill-panel-terminal.js's. */
-const ESCAPE_WAIT_MS = 50;
-const DEFAULT_COLUMNS = 80;
-const DEFAULT_ROWS = 24;
-/* 128 plus the signal's number, the shell's convention. */
-const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+/* A session's name where a status line quotes it, leaving the line room for
+ * what happened. Untraced, a first guess. */
+const NAME_IN_STATUS = 40;
 /* Bracketed paste on, so a pasted reply's newlines never send it. */
 const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?2004h`;
 const SCREEN_OFF = `${ESC}[?2004l${ESC}[?25h${ESC}[?1049l`;
@@ -69,6 +71,12 @@ const STATE_WORDS = {
 	working: "working",
 	completed: "completed",
 };
+/* The state column fits its longest word. */
+const STATE_WIDTH = Math.max(
+	...Object.values(STATE_WORDS).map((w) => w.length),
+);
+/* A row's mark and its space, then two spaces before each later column. */
+const ROW_GUTTERS = 6;
 const HINTS = {
 	list: "↑↓ select · Enter open · Space reply · x stop · q quit",
 	thread: "← back · ↑↓ scroll · End follow · Space reply · x stop · q quit",
@@ -137,7 +145,7 @@ function readEvents(log) {
 const lastSaid = (evs) => evs.findLast((e) => e.kind === "says")?.text ?? "";
 
 /** @param {string} said */
-const asksFounder = (said) =>
+const isAskingFounder = (said) =>
 	/^needs input:/i.test(said.trim().split("\n").at(-1)?.trim() ?? "");
 
 /**
@@ -149,27 +157,33 @@ const asksFounder = (said) =>
  * @returns {Session[]}
  */
 function buildSessions(runs, live, eventsOf, now) {
-	/** @type {Map<string, RunRecord[]>} */
+	/** @type {Map<string, {runs: RunRecord[], first: RunRecord, latest: RunRecord}>} */
 	const bySession = new Map();
-	for (const r of [...runs].sort((a, b) => a.launchedAt - b.launchedAt))
-		bySession.set(r.sessionId, [...(bySession.get(r.sessionId) ?? []), r]);
+	for (const r of [...runs].sort((x, y) => x.launchedAt - y.launchedAt)) {
+		const group = bySession.get(r.sessionId);
+		if (group) {
+			group.runs.push(r);
+			group.latest = r;
+		} else bySession.set(r.sessionId, { runs: [r], first: r, latest: r });
+	}
 	/** @type {Session[]} */
 	const sessions = [];
-	for (const [sessionId, own] of bySession) {
-		const latest = /** @type {RunRecord} */ (own.at(-1));
+	for (const [sessionId, { runs: own, first, latest }] of bySession) {
 		const working = live.has(latest.jobId);
-		if (!working && now - latest.launchedAt > ENDED_WINDOW_MS) continue;
 		const said = lastSaid(eventsOf(latest.log));
+		const asking = !working && isAskingFounder(said);
+		if (!working && !asking && now - latest.launchedAt > ENDED_WINDOW_MS)
+			continue;
 		/* A resume that has said nothing yet shows what the session said last. */
 		const last =
 			said || lastSaid(own.slice(0, -1).flatMap((r) => eventsOf(r.log)));
 		/** @type {SessionState} */
 		let state = "completed";
 		if (working) state = "working";
-		else if (asksFounder(said)) state = "awaiting";
+		else if (asking) state = "awaiting";
 		sessions.push({
 			sessionId,
-			name: own[0]?.prompt || own[0]?.jobId || sessionId,
+			name: first.prompt || first.jobId,
 			state,
 			last,
 			runs: own,
@@ -214,9 +228,16 @@ function readThread(session) {
  * @returns {{lines: string[], selectedLine: number}}
  */
 function buildListLines(sessions, selected, columns, styled) {
-	const nameWidth = Math.max(12, Math.min(40, Math.floor(columns * 0.3)));
-	const stateWidth = 14;
-	const lastWidth = Math.max(0, columns - nameWidth - stateWidth - 6);
+	/* Untraced: 30% of the width, at least a job id and at most a status
+	 * line's quote of it. */
+	const nameWidth = Math.max(
+		12,
+		Math.min(NAME_IN_STATUS, Math.floor(columns * 0.3)),
+	);
+	const lastWidth = Math.max(
+		0,
+		columns - nameWidth - STATE_WIDTH - ROW_GUTTERS,
+	);
 	/** @type {string[]} */
 	const lines = [];
 	let selectedLine = -1;
@@ -227,7 +248,7 @@ function buildListLines(sessions, selected, columns, styled) {
 		for (const s of own) {
 			const mark = s.sessionId === selected ? ">" : " ";
 			const row =
-				`${mark} ${pad(s.name, nameWidth)}  ${pad(STATE_WORDS[s.state], stateWidth)}  ${clip(s.last, lastWidth)}`.slice(
+				`${mark} ${pad(s.name, nameWidth)}  ${pad(STATE_WORDS[s.state], STATE_WIDTH)}  ${clip(s.last, lastWidth)}`.slice(
 					0,
 					columns,
 				);
@@ -307,6 +328,8 @@ function createViewer(io) {
 		try {
 			sessions = io.readSessions();
 		} catch (err) {
+			/* #4583: a store read failing mid-write must not close the view; the
+			 * last list stays up, the fault named, until a poll reads again. */
 			notice = `overflow sessions unreadable: ${err instanceof Error ? err.message : err}`;
 		}
 		if (!current()) {
@@ -338,7 +361,7 @@ function createViewer(io) {
 		const s = current();
 		if (!s) return;
 		if (s.state === "working")
-			notice = `${clip(s.name, 40)}: still working, reply once it ends`;
+			notice = `${clip(s.name, NAME_IN_STATUS)}: still working, reply once it ends`;
 		else draft = "";
 	};
 
@@ -351,13 +374,13 @@ function createViewer(io) {
 			notice = "not sent: the session is working again";
 			return;
 		}
-		notice = `sending to ${clip(s.name, 40)}…`;
+		notice = `sending to ${clip(s.name, NAME_IN_STATUS)}…`;
 		io.onChange();
 		const out = io.reply(s.latest, text);
 		notice =
 			"why" in out
 				? `not sent: ${out.why}`
-				: `sent: ${clip(s.name, 40)} resumed as job ${out.jobId}`;
+				: `sent: ${clip(s.name, NAME_IN_STATUS)} resumed as job ${out.jobId}`;
 		refresh();
 	};
 
@@ -365,7 +388,7 @@ function createViewer(io) {
 		const s = current();
 		if (!s) return;
 		if (s.state === "working") confirming = true;
-		else notice = `${clip(s.name, 40)} is not running`;
+		else notice = `${clip(s.name, NAME_IN_STATUS)} is not running`;
 	};
 
 	/** @param {Key} key */
@@ -376,7 +399,7 @@ function createViewer(io) {
 			notice = "kept running";
 			return;
 		}
-		notice = `stopping ${clip(s.name, 40)}…`;
+		notice = `stopping ${clip(s.name, NAME_IN_STATUS)}…`;
 		io.onChange();
 		const out = io.stop(s.latest);
 		notice = out.ok ? out.said : `not stopped: ${out.why}`;
@@ -449,7 +472,7 @@ function createViewer(io) {
 	 */
 	const buildLines = (columns, rows) => {
 		const s = current();
-		const name = clip(s?.name ?? "", 40);
+		const name = clip(s?.name ?? "", NAME_IN_STATUS);
 		let status = notice;
 		if (confirming)
 			status = `Stop ${name}? y stop it · any other key keeps it running`;
@@ -492,10 +515,6 @@ function createViewer(io) {
 		refresh,
 		pressKey,
 		buildLines,
-		/** The view's state, for a test. */
-		get mode() {
-			return mode;
-		},
 	};
 }
 
@@ -505,8 +524,6 @@ function createViewer(io) {
  * @param {{stdin: Pick<import("node:tty").ReadStream, "setRawMode"|"resume"|"setEncoding"|"on">,
  *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns"|"rows">,
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},
- *   readSessions?: () => Session[],
- *   readThread?: (s: Session) => RunEvent[],
  *   reply: (run: RunRecord, text: string) => {jobId: string}|{why: string},
  *   stop: (run: RunRecord) => {ok: true, said: string}|{ok: false, why: string},
  *   reportCrash: (err: unknown) => void, pollMs?: number}} io
@@ -516,8 +533,6 @@ function openViewer({
 	stdin,
 	stdout,
 	proc,
-	readSessions: readNow = readSessions,
-	readThread: readOne = readThread,
 	reply,
 	stop,
 	reportCrash,
@@ -525,38 +540,21 @@ function openViewer({
 }) {
 	/** @type {NodeJS.Timeout[]} */
 	const timers = [];
-	let restored = false;
+	const { restore, crash, isRestored } = holdTerminal({
+		stdin,
+		stdout,
+		proc,
+		screenOn: SCREEN_ON,
+		screenOff: SCREEN_OFF,
+		reportCrash,
+	});
 	const close = () => {
 		for (const t of timers) clearTimeout(t);
-		if (restored) return;
-		restored = true;
-		for (const step of [
-			() => stdin.setRawMode(false),
-			() => stdout.write(SCREEN_OFF),
-		]) {
-			try {
-				step();
-			} catch {
-				// The terminal is gone, so nothing is left to restore and the exit must go on.
-			}
-		}
+		restore();
 	};
-	/** @param {unknown} err */
-	const crash = (err) => {
-		close();
-		reportCrash(err);
-		proc.exit(1);
-	};
-	proc.on("exit", close);
-	proc.on("uncaughtException", crash);
-	for (const [signal, code] of Object.entries(SIGNAL_EXITS))
-		proc.on(signal, () => {
-			close();
-			proc.exit(code);
-		});
 
 	const draw = () => {
-		if (restored) return;
+		if (isRestored()) return;
 		const lines = viewer.buildLines(
 			stdout.columns ?? DEFAULT_COLUMNS,
 			stdout.rows ?? DEFAULT_ROWS,
@@ -566,8 +564,8 @@ function openViewer({
 		);
 	};
 	const viewer = createViewer({
-		readSessions: readNow,
-		readThread: readOne,
+		readSessions,
+		readThread,
 		reply,
 		stop,
 		quit: () => proc.exit(0),
@@ -582,11 +580,6 @@ function openViewer({
 			crash(err);
 		}
 	};
-
-	stdin.setRawMode(true);
-	stdin.setEncoding("utf8");
-	stdin.resume();
-	stdout.write(SCREEN_ON);
 	viewer.refresh();
 	draw();
 
@@ -622,11 +615,4 @@ function openViewer({
 	return close;
 }
 
-module.exports = {
-	buildListLines,
-	buildSessions,
-	createViewer,
-	openViewer,
-	readSessions,
-	readThread,
-};
+module.exports = { buildListLines, openViewer, readSessions };
