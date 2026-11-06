@@ -10,9 +10,7 @@
  * these to its own checkout for the scripts it starts. A `claude` handed them
  * keeps them: a `claude -p` session's hooks and Bash read them ahead of its
  * working directory, and a `claude` that starts the background daemon gives
- * them to every job the daemon later runs, in any repository. So the session
- * finds its root from its working directory and what the harness sets for
- * its hooks, as a job of a cleanly started daemon does.
+ * them to every job the daemon later runs, in any repository.
  */
 
 const { writeFd } = require("./write-fd.js");
