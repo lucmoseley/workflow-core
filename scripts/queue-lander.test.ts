@@ -11,7 +11,8 @@
  * is read again unrepaired, a live queue lander's lock is taken by a
  * second one or its launcher, a verdict, batch or drop written to disk is lost to the
  * next run, or a ref conflicting with `main` stops the queue, goes unkept
- * under `dropped/<name>` or unticketed; or a red batch's culprit is not
+ * under `dropped/<name>` or unticketed, or one a merge gate refuses is
+ * ticketed with the gate's first line in place of its findings; or a red batch's culprit is not
  * isolated on `lander/iso-<k>` and dropped with its evidence, a collision is
  * not settled by serial landing, or a failure `main` shares holds the batch
  * on a local tester or goes without its base-red ticket, or a push `main`
@@ -262,6 +263,58 @@ describe("a run", () => {
 			"drop queue/a",
 			"land queue/b",
 		]);
+	});
+
+	it("drops a ref whose merge a gate refuses with the gate's findings, not its first line, and lands the other", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const hook = path.join(git(work, "rev-parse", "--git-common-dir"), "hooks");
+		fs.mkdirSync(path.resolve(work, hook), { recursive: true });
+		fs.writeFileSync(
+			path.resolve(work, hook, "pre-merge-commit"),
+			[
+				"#!/bin/sh",
+				"[ -e gated.txt ] || exit 0",
+				"echo 'OK: a linked worktree' >&2",
+				"printf '\\033[31mSTALE-PROSE\\033[0m gated.txt\\n' >&2",
+				"echo 'run: re-anchor gated.txt' >&2",
+				"exit 1",
+				"",
+			].join("\n"),
+			{ mode: 0o755 },
+		);
+		const a = pushQueue("a", seed, () =>
+			fs.writeFileSync(path.join(work, "gated.txt"), "a\n"),
+		);
+		const b = pushQueue("b", seed);
+		const { gh, readStore } = stubTracker();
+
+		const r = await runLander(stubTester(0), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
+		expect(
+			git(
+				remote,
+				"merge-base",
+				"--is-ancestor",
+				b,
+				git(remote, "rev-parse", "main"),
+			),
+		).toBe("");
+		const [drop] = dropRecord(
+			path.join(markers(), ".queue-lander-drops.json"),
+		).read();
+		expect(drop.cause).toEqual({
+			kind: "refused",
+			name: "a",
+			reason: expect.stringMatching(
+				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt\n/,
+			),
+		});
+		const [ticket] = readStore();
+		expect(ticket.body).toContain(
+			"its merge was refused, the refusal ending:\n\n```text\nOK: a linked worktree\nSTALE-PROSE gated.txt\nrun: re-anchor gated.txt\n",
+		);
 	});
 
 	it("lands a batch red only where main is red too, filing the base-red ticket and ledgering each run by its pass", async () => {

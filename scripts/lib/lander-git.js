@@ -3,12 +3,13 @@
  * adapters (lib/queue-lander-adapters.js) and the readers of its refs and
  * ledger (lib/queue-ref-status.js, lib/landing-stall.js): the remote's heads,
  * ancestry, a throwaway worktree, a push, the line naming why git refused,
- * and a remote call's retries.
+ * what a gate refusing a merge said, and a remote call's retries.
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { stripVTControlCharacters } = require("node:util");
 const { caught } = require("./caught.js");
 const {
 	isNetworkFault,
@@ -37,6 +38,24 @@ const GIT_REFUSAL = /^(?:error|fatal):.*|^ ! \[.*/m;
  */
 const parseRefusal = (text) =>
 	GIT_REFUSAL.exec(text)?.[0] ?? parseFirstLine(text);
+
+/* A first guess, unmeasured: room for a gate's findings and the command it
+ * names to settle them. */
+const REFUSAL_TAIL_LINES = 40;
+
+/**
+ * What a gate refusing a merge said: the last REFUSAL_TAIL_LINES non-blank
+ * lines, colour stripped. A hook prints its passing checks first and its
+ * findings last, so its first line can be an `OK:`.
+ * @param {string} text
+ */
+const parseRefusalTail = (text) =>
+	stripVTControlCharacters(text)
+		.split("\n")
+		.map((l) => l.trimEnd())
+		.filter((l) => l !== "")
+		.slice(-REFUSAL_TAIL_LINES)
+		.join("\n");
 
 /**
  * What a failed call printed to stderr, else its error's message.
@@ -253,6 +272,7 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
+	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,
