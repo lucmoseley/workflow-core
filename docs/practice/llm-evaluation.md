@@ -32,6 +32,11 @@ Researched: 2026-10-28
 - The aggregate any-of-k curve follows a power law because per-item success probabilities are heavy-tailed; fit that distribution to project past the measured k. Schaeffer et al., ICML 2025 [named expert]
 - To estimate the defects no reviewer found, use a capture–recapture model with per-defect heterogeneity (Mh, jackknife); estimates are unstable with three or fewer reviewers. Briand, El Emam, Freimut, ISERN-98-11 (1998) [named expert]
 
+## Bunching at a threshold
+
+- A rule that treats values on one side of a cutoff differently (a notch) puts excess mass on the first value that passes and leaves missing mass below the cutoff. Estimate the excess against a counterfactual fitted to the distribution outside the bunching window, with total mass kept equal, not against the share before the rule. Kleven, Waseem, QJE 128(2) 2013 [named expert]; Kleven, "Bunching", Annual Review of Economics 8 (2016) [named expert]
+- Bunching proves a response to the cutoff, but not whether it is real or only a change in what is reported; that needs outcome evidence the reporter does not control. Saez, AEJ: Economic Policy 2(3) 2010 [named expert]; Kleven 2016 [named expert]; Bernasconi et al., lab experiment, 2025 [named expert]
+
 ## Arms and controls
 
 - Compare a variant with its control at the same team size or budget, with one factor changed. Laitenberger, El Emam, Harbich, IEEE TSE 2001 [named expert]; Naik et al., DIV-SE, arXiv 2310.07088 [named expert]
