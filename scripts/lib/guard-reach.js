@@ -4,13 +4,17 @@
  * rule pricing (lib/rule-emission.js), the census digest (lib/census-digest.js)
  * and the test-isolation check (check-guard-test-isolation.js).
  *
- * Two parts. edgesOf reads one file's text into typed edges; walkReach
+ * Two parts. parseEdges reads one file's text into typed edges; walkReach
  * closes over them level by level through a batch reader the caller supplies.
  * Each caller names the edge kinds it follows and which targets it keeps, and
  * hashes what it reaches its own way.
  *
  * A REGEX READER, NOT TYPESCRIPT'S: the registry check runs on every commit
  * and loading TypeScript costs 305 ms (measured 2026-11-04).
+ *
+ * Residuals: a `require(` whose call is split across lines is no edge, as
+ * requires are read a line at a time (none in the tree); a require inside a
+ * template literal is one.
  */
 
 const path = require("node:path");
@@ -103,7 +107,7 @@ const VAR_PATH_RE =
  * @param {ReadOpts} [opts]
  * @returns {Edge[]}
  */
-function edgesOf(rel, text, opts = {}) {
+function parseEdges(rel, text, opts = {}) {
 	const ctx = {
 		rel,
 		dir: path.posix.dirname(rel),
@@ -125,9 +129,9 @@ function edgesOf(rel, text, opts = {}) {
  * @type {Record<EdgeKind, (ctx: ReadCtx) => (string | { to: string, bindings?: string[] })[]>}
  */
 const READERS = {
-	source: ({ dir, text, isFile }) => sourcedOf(dir, text, isFile),
-	require: ({ dir, text }) => requiresOf(dir, text),
-	"node-run": ({ dir, text, isFile }) => runsOf(dir, text, isFile),
+	source: ({ dir, text, isFile }) => parseSourced(dir, text, isFile),
+	require: ({ dir, text }) => parseRequires(dir, text),
+	"node-run": ({ dir, text, isFile }) => parseRuns(dir, text, isFile),
 	"manifest-core": ({ rel, manifest }) => {
 		const read = rel === DISPATCH_KIT ? manifest() : null;
 		return read ? [MANIFEST_REL, ...coresOf(read)] : [];
@@ -137,7 +141,7 @@ const READERS = {
 		const host = read && hostOf(read, rel);
 		return host ? [host] : [];
 	},
-	"rule-file": ({ text }) => ruleFilesOf(text),
+	"rule-file": ({ text }) => parseRuleFiles(text),
 };
 
 /**
@@ -146,7 +150,7 @@ const READERS = {
  * @param {(rel: string) => boolean} isFile
  * @returns {string[]}
  */
-function sourcedOf(dir, text, isFile) {
+function parseSourced(dir, text, isFile) {
 	/** @type {string[]} */
 	const out = [];
 	for (const line of shellCodeLines(text))
@@ -178,7 +182,7 @@ function sourcedTail(arg) {
 /**
  * Where a sourced `tail` can be, in the order tried: the sourcing file's own
  * directory, then the root for a `scripts/…` tail or scripts/ for a `lib/…`
- * one (`. "$root/scripts/lib/x.sh"` from .husky/).
+ * one (`. "$root/scripts/lib/x.sh"` from .husky/, #4456).
  * @param {string} dir
  * @param {string} tail
  */
@@ -207,7 +211,7 @@ function shellCodeLines(text) {
  * @param {string} text
  * @returns {{ to: string, bindings?: string[] }[]}
  */
-function requiresOf(dir, text) {
+function parseRequires(dir, text) {
 	return liveRequires(text).map(({ spec, at }) => {
 		const joined = path.posix.join(dir, spec);
 		const to = path.posix.extname(joined) ? joined : `${joined}.js`;
@@ -266,7 +270,7 @@ function destructuredBefore(text, at) {
  * @param {(rel: string) => boolean} isFile
  * @returns {string[]}
  */
-function runsOf(dir, text, isFile) {
+function parseRuns(dir, text, isFile) {
 	/** A `//` before `node` makes a JS line dead, as a `#` does a shell one. */
 	/** @param {{prefix: string, value: string}[]} matches */
 	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
@@ -284,7 +288,8 @@ function runsOf(dir, text, isFile) {
 		...live(parseNodeVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
 	];
 	/* The root reading is offered only for a scripts/ tail, the one a run
-	 * from the root can name: elsewhere it could only displace the sibling. */
+	 * from the root can name: elsewhere it could only displace the sibling,
+	 * and in the core walk it would probe the plugin cache's root (#3144). */
 	return [
 		...new Set(
 			tails.map((tail) => {
@@ -304,7 +309,7 @@ function runsOf(dir, text, isFile) {
  * @param {string} text
  * @returns {string[]}
  */
-function ruleFilesOf(text) {
+function parseRuleFiles(text) {
 	const ids = new Set(directRuleCounts(text).keys());
 	for (const m of emissionMatches(text))
 		for (const a of (m[1] ?? "").matchAll(RULE_ARG_RE)) if (a[1]) ids.add(a[1]);
@@ -322,9 +327,11 @@ function pick(candidates, isFile) {
 
 /**
  * @typedef {object} WalkPolicy
- * @property {Iterable<EdgeKind>} follow the kinds walked through
+ * @property {readonly EdgeKind[]} follow the kinds walked through
  * @property {(edge: Edge, from: string) => boolean} [keep] which edges to
  *   walk, all by default
+ * @property {Omit<ReadOpts, "kinds">} [read] the tree and manifest each
+ *   file's edges resolve against
  */
 
 /**
@@ -370,7 +377,10 @@ function nextLevel(level, seen, policy) {
 	for (const rel of level) {
 		const text = seen.get(rel);
 		if (text == null) continue;
-		const edges = edgesOf(rel, text, { kinds: policy.follow });
+		const edges = parseEdges(rel, text, {
+			...policy.read,
+			kinds: policy.follow,
+		});
 		for (const edge of edges)
 			if (!seen.has(edge.to) && keep(edge, rel)) next.add(edge.to);
 	}
@@ -395,7 +405,7 @@ function walkReach(starts, read, policy) {
 }
 
 module.exports = {
-	edgesOf,
+	parseEdges,
 	walkReach,
 	walkReachAll,
 };

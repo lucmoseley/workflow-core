@@ -4,7 +4,8 @@
  * ids each names. Rule pricing (lib/rule-emission.js), the registry
  * (check-guard-registry.js) and the dependency graph (lib/guard-reach.js)
  * read emissions through this one table, so they cannot disagree about
- * which guard prints which fragment.
+ * which guard prints which fragment. Split out of rule-emission.js so the
+ * graph and rule pricing need no import cycle (#4233).
  */
 
 const RULE_ID = "(?:rule:)?[a-z0-9]+(?:-[a-z0-9]+)*";
@@ -151,15 +152,11 @@ function directRuleCounts(text) {
 }
 
 module.exports = {
-	DIRECT_RULE_RE,
 	directAccessorCalls,
 	directRuleCounts,
-	EMISSION_NAMES,
 	emissionMatches,
 	firstUnreadInjection,
-	INJECT_RULES_RE,
 	namesAnEmission,
-	NODE_DIRECT_RULE_RE,
 	RULE_ARG_RE,
 	RULE_ID,
 };

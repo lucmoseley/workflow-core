@@ -1217,7 +1217,7 @@ const {
 	modulePath,
 	readManifest,
 } = require("./lib/guard-cores.js");
-const { edgesOf } = require("./lib/guard-reach.js");
+const { parseEdges, walkReach } = require("./lib/guard-reach.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 
 /*
@@ -1903,24 +1903,10 @@ const sourcedCache = new Map();
  * @param {string} base
  */
 function parseSourcedBy(rel, text, base) {
-	const edges = edgesOf(rel, text, {
-		kinds: ["source", "require", "node-run", "manifest-core"],
-		isFile: (p) => isTreeMember(base, p),
-		/* The manifest is the judged tree's and is hashed itself, so a commit
-		 * that changes only a manifest row moves the digest (#3124). */
-		manifest: () => readManifest(manifestAt(base)),
-	});
-	/* Only lib/ is followed of what a JS file requires, resolved first:
-	 * `session-arbiter.js` reaches its store as `./lib/arbiter-store.js` but
-	 * the store reaches the proc leaf as `./arbiter-proc.js`, already inside
-	 * lib/, so the specifier alone cannot say. A delegated program is a sibling
-	 * under scripts/. */
-	const kept = edges.filter((e) => {
-		if (e.kind === "require")
-			return e.to.startsWith("scripts/lib/") && e.to.endsWith(".js");
-		if (e.kind === "source") return e.to.split("/").includes("lib");
-		return e.kind !== "node-run" || e.to.startsWith("scripts/");
-	});
+	const kept = parseEdges(rel, text, {
+		...readOptsIn(base),
+		kinds: DEP_KINDS,
+	}).filter(isDep);
 	const deps = [...new Set(kept.map((e) => e.to))];
 	const linked = new Set(
 		kept.filter((e) => e.kind !== "node-run").map((e) => e.to),
@@ -1933,6 +1919,42 @@ function parseSourcedBy(rel, text, base) {
 				.map((e) => e.to),
 		),
 	};
+}
+
+/** The edge kinds a digest follows. */
+const DEP_KINDS = /** @type {import("./lib/guard-reach.js").EdgeKind[]} */ ([
+	"source",
+	"require",
+	"node-run",
+	"manifest-core",
+]);
+
+/**
+ * How a guard's edges resolve in the tree at `base`. The manifest is the
+ * judged tree's and is hashed itself, so a commit that changes only a
+ * manifest row moves the digest (#3124).
+ * @param {string} base
+ */
+function readOptsIn(base) {
+	return {
+		isFile: (/** @type {string} */ p) => isTreeMember(base, p),
+		manifest: () => readManifest(manifestAt(base)),
+	};
+}
+
+/**
+ * Whether a digest follows `edge`. Only a lib/ is followed of what is sourced
+ * or required, resolved first: `session-arbiter.js` reaches its store as
+ * `./lib/arbiter-store.js` but the store reaches the proc leaf as
+ * `./arbiter-proc.js`, already inside lib/, so the specifier alone cannot
+ * say. A delegated program is a sibling under scripts/.
+ * @param {import("./lib/guard-reach.js").Edge} edge
+ */
+function isDep(edge) {
+	if (edge.kind === "require")
+		return edge.to.startsWith("scripts/lib/") && edge.to.endsWith(".js");
+	if (edge.kind === "source") return edge.to.split("/").includes("lib");
+	return edge.kind !== "node-run" || edge.to.startsWith("scripts/");
 }
 
 /*
@@ -3228,20 +3250,13 @@ function emitRuleCalls(text) {
  * @returns {Set<string>}
  */
 function liveFiles(texts, wiring, base = root) {
-	const live = new Set([...texts.keys()].filter((rel) => wiring.includes(rel)));
-	const queue = [...live];
-	while (queue.length > 0) {
-		const rel = queue.shift();
-		if (!rel) continue;
-		const text = texts.get(rel);
-		if (text === undefined) continue;
-		for (const dep of sourcedBy(rel, text, base))
-			if (!live.has(dep)) {
-				live.add(dep);
-				queue.push(dep);
-			}
-	}
-	return live;
+	const wired = [...texts.keys()].filter((rel) => wiring.includes(rel));
+	const reached = walkReach(
+		wired,
+		(paths) => paths.map((p) => texts.get(p) ?? null),
+		{ follow: DEP_KINDS, keep: isDep, read: readOptsIn(base) },
+	);
+	return new Set(reached.keys());
 }
 
 /**

@@ -2,7 +2,8 @@
 /*
  * Tests for scripts/lib/guard-reach.js: the edges one file's text names, and
  * the closure walked over them. The four digests that read it test their own
- * policy over these edges, never the parsing.
+ * policy over these edges, never the parsing (#4233): an edge missed here
+ * leaves all four stale on the edit it names.
  */
 
 import { spawnSync } from "node:child_process";
@@ -10,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const { edgesOf, walkReach, walkReachAll } = require("./guard-reach.js");
+const { parseEdges, walkReach, walkReachAll } = require("./guard-reach.js");
 
 interface Edge {
 	kind: string;
@@ -27,7 +28,7 @@ const targets = (
 	kind: string,
 	opts: Record<string, unknown> = {},
 ): string[] =>
-	edgesOf(rel, text, { ...opts, kinds: [kind] }).map((e: Edge) => e.to);
+	parseEdges(rel, text, { ...opts, kinds: [kind] }).map((e: Edge) => e.to);
 
 const inTree = (...paths: string[]) => {
 	const tree = new Set(paths);
@@ -128,7 +129,10 @@ describe("source edges", () => {
 });
 
 // A regex match is synchronous, so only a process timeout can stop a
-// backtracking one (#2188, #3383): a linear read is well under one.
+// backtracking one (#2188, #3383). Each text is 240k-660k characters: read
+// linearly it takes under 50 ms (measured 2026-11-06), read once per head it
+// is some 10^10 steps, so 10 s leaves a loaded machine 200x headroom and a
+// quadratic read none.
 describe("a long line of heads that reach nothing", () => {
 	it.each([
 		["source", "source ".repeat(80_000)],
@@ -140,7 +144,7 @@ describe("a long line of heads that reach nothing", () => {
 			process.execPath,
 			[
 				"-e",
-				`const { edgesOf } = require(${JSON.stringify(require.resolve("./guard-reach.js"))}); edgesOf("scripts/x.sh", require("node:fs").readFileSync(0, "utf8"), { kinds: [process.argv[1]] });`,
+				`const { parseEdges } = require(${JSON.stringify(require.resolve("./guard-reach.js"))}); parseEdges("scripts/x.sh", require("node:fs").readFileSync(0, "utf8"), { kinds: [process.argv[1]] });`,
 				kind,
 			],
 			{ input: text, timeout: 10_000 },
@@ -183,7 +187,7 @@ describe("require edges", () => {
 	});
 
 	it("names what a destructuring require binds", () => {
-		const edges = edgesOf(
+		const edges = parseEdges(
 			"scripts/guard-x.js",
 			'const { decide, other: alias } = require("./lib/core");\nconst whole = require("./lib/kit.js");\n',
 			{ kinds: ["require"] },
@@ -369,6 +373,26 @@ describe("walkReach", () => {
 				follow: ["source"],
 			}).keys(),
 		]).toEqual(["scripts/guard.js"]);
+	});
+
+	it("resolves each file's edges against the tree and manifest it is given", () => {
+		const reached = walkReach(
+			["scripts/lib/guard-dispatch.js"],
+			(paths: string[]) => paths.map(() => ""),
+			{
+				follow: ["manifest-core"],
+				read: {
+					manifest: () => ({
+						PreToolUse: [{ name: "a", core: "guard-a-core.js" }],
+					}),
+				},
+			},
+		);
+		expect([...reached.keys()]).toEqual([
+			"scripts/lib/guard-dispatch.js",
+			"scripts/lib/guard-cores.json",
+			"scripts/lib/guard-a-core.js",
+		]);
 	});
 
 	it("reads each level of several walks in one batch (#3411)", () => {

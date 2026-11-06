@@ -72,11 +72,10 @@ const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 const { inertSpans } = require("./lib/js-lex.js");
-const { blankComments } = require("./lib/strip-comments.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
-const { edgesOf } = require("./lib/guard-reach.js");
+const { parseEdges } = require("./lib/guard-reach.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
@@ -126,9 +125,9 @@ function hasFailOpenLogging(root, rel, cache, seen = new Set()) {
 	const scan = { root, cache, seen };
 	const answer = rel.endsWith(".js")
 		? ENTRY_LOGGERS.includes(rel) ||
-			(path.posix.dirname(rel) === "scripts" && hasLogErrorCall(text)) ||
+			(path.posix.dirname(rel) === "scripts" && hasLogErrorCall(rel, text)) ||
 			hasLoggingDependency(rel, text, "require", scan)
-		: edgesOf(rel, text, { kinds: ["source"] }).some((e) =>
+		: parseEdges(rel, text, { kinds: ["source"] }).some((e) =>
 				e.to.endsWith("/guard-log.sh"),
 			) || hasLoggingDependency(rel, text, "source", scan);
 	cache.set(rel, answer);
@@ -142,18 +141,24 @@ const ENTRY_LOGGERS = [
 	"scripts/lib/fail-open-logger.js",
 ];
 
-/** A require of the arbiter libs that export logError. */
-const LOG_ERROR_HOST =
-	/\brequire\(\s*"\.\/lib\/arbiter-(?:core|store)(?:\.js)?"\s*\)/;
+/** The arbiter libs that export logError. */
+const LOG_ERROR_HOSTS = new Set([
+	"scripts/lib/arbiter-core.js",
+	"scripts/lib/arbiter-store.js",
+]);
 
 /** Whether `text` requires an arbiter lib and calls logError outside a
  * comment or string. */
-const hasLogErrorCall = (/** @type {string} */ text) => {
+const hasLogErrorCall = (
+	/** @type {string} */ rel,
+	/** @type {string} */ text,
+) => {
 	const inert = inertSpans(text);
 	const calls = [...text.matchAll(/\blogError\s*\(/g)];
 	return (
-		LOG_ERROR_HOST.test(blankComments(text)) &&
-		calls.some((m) => !isInert(inert, m.index))
+		parseEdges(rel, text, { kinds: ["require"] }).some((e) =>
+			LOG_ERROR_HOSTS.has(e.to),
+		) && calls.some((m) => !isInert(inert, m.index))
 	);
 };
 
@@ -167,7 +172,7 @@ const hasLogErrorCall = (/** @type {string} */ text) => {
  *   accumulator: `cache` and `seen` are hasFailOpenLogging's, filled as it goes
  */
 function hasLoggingDependency(rel, text, kind, { root, cache, seen }) {
-	for (const { to } of edgesOf(rel, text, { kinds: [kind] }))
+	for (const { to } of parseEdges(rel, text, { kinds: [kind] }))
 		if (hasFailOpenLogging(root, to, cache, seen)) return true;
 	return false;
 }

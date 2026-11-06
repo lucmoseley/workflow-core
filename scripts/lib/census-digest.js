@@ -49,7 +49,7 @@ const { loadShfmt } = require("./formatters.js");
 const { NO_CEILING } = require("./git-ceiling.js");
 const { MANIFEST_REL } = require("./guard-cores.js");
 const { hasLine } = require("./marker-line.js");
-const { edgesOf, walkReach, walkReachAll } = require("./guard-reach.js");
+const { parseEdges, walkReach, walkReachAll } = require("./guard-reach.js");
 const {
 	firstUnreadInjection,
 	namesAnEmission,
@@ -246,7 +246,7 @@ function readAt(snap, rel) {
  * @param {string} rel
  * @returns {string[]}
  */
-function libRuleFiles(snap, rel) {
+function readLibRuleFiles(snap, rel) {
 	const oid = snap.tree?.get(rel);
 	const cached = oid === undefined ? undefined : ruleFilesByBlob.get(oid);
 	if (cached !== undefined) return cached;
@@ -272,7 +272,7 @@ const REACH = {
  * @param {Snapshot} snap
  * @param {string[]} rels
  */
-function textsAt(snap, rels) {
+function readTexts(snap, rels) {
 	return rels.map((rel) => readAt(snap, rel)?.toString("utf8") ?? null);
 }
 
@@ -289,7 +289,7 @@ function readDeeperRuleFiles(snap, starts) {
 		starts,
 		(paths) => {
 			prefetch(snap, paths);
-			return textsAt(snap, paths);
+			return readTexts(snap, paths);
 		},
 		REACH,
 	);
@@ -297,7 +297,7 @@ function readDeeperRuleFiles(snap, starts) {
 	const files = new Set();
 	for (const rel of reached.keys())
 		if (!starts.includes(rel))
-			for (const file of libRuleFiles(snap, rel)) files.add(file);
+			for (const file of readLibRuleFiles(snap, rel)) files.add(file);
 	return [...files].sort();
 }
 
@@ -312,13 +312,13 @@ function prefetchReach(reads) {
 	prefetchAcross(reads.map(([snap, rels]) => [snap, [...rels, MANIFEST_REL]]));
 	const starts = reads.map(([snap, rels]) => [
 		...rels,
-		...rels.flatMap((rel) => hostsOf(snap, rel)),
+		...rels.flatMap((rel) => readHosts(snap, rel)),
 	]);
 	const reached = walkReachAll(
 		starts,
 		(levels) => {
 			prefetchAcross(levels.map((level, i) => [snapAt(reads, i), level]));
-			return levels.map((level, i) => textsAt(snapAt(reads, i), level));
+			return levels.map((level, i) => readTexts(snapAt(reads, i), level));
 		},
 		REACH,
 	);
@@ -327,7 +327,7 @@ function prefetchReach(reads) {
 			const snap = snapAt(reads, i);
 			return [
 				snap,
-				[...files.keys()].flatMap((rel) => libRuleFiles(snap, rel)),
+				[...files.keys()].flatMap((rel) => readLibRuleFiles(snap, rel)),
 			];
 		}),
 	);
@@ -350,8 +350,8 @@ function snapAt(reads, i) {
  * @param {string} rel
  * @returns {string[]}
  */
-function hostsOf(snap, rel) {
-	return edgesOf(rel, "", {
+function readHosts(snap, rel) {
+	return parseEdges(rel, "", {
 		kinds: ["host"],
 		manifest: () => readManifestAt(snap),
 	}).map((e) => e.to);
@@ -508,7 +508,7 @@ function jsRuleFilesOf(rel, code) {
  * @returns {string[]}
  */
 function ruleFilesIn(rel, code) {
-	return edgesOf(rel, code, { kinds: ["rule-file"] }).map((e) => e.to);
+	return parseEdges(rel, code, { kinds: ["rule-file"] }).map((e) => e.to);
 }
 
 /**
@@ -522,7 +522,7 @@ function ruleFilesIn(rel, code) {
 function composedLibsOf(rel, code) {
 	const dir = libDirOf(rel);
 	if (dir === null) return [];
-	return edgesOf(rel, String(code), { kinds: ["require"] })
+	return parseEdges(rel, String(code), { kinds: ["require"] })
 		.filter(
 			(e) =>
 				path.posix.dirname(e.to) === dir &&
@@ -577,7 +577,7 @@ function readInputs(snap, rel) {
  * @returns {Map<string, string | Buffer | null>}
  */
 function readComposed(snap, rel, code, ruleFiles) {
-	const composed = [...composedLibsOf(rel, code), ...hostsOf(snap, rel)];
+	const composed = [...composedLibsOf(rel, code), ...readHosts(snap, rel)];
 	prefetch(snap, composed);
 	/** @type {Map<string, string | Buffer | null>} */
 	const libs = new Map();
