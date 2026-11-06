@@ -7,8 +7,8 @@
 # compact gets a marker under the new one.
 #
 # The marker path is lib/self-plugin-marker.sh's, under `.claude/tmp/markers/`
-# resolved from CLAUDE_PROJECT_DIR. arbiter-markers.js's MARKER_PREFIXES
-# sweeps it by age.
+# resolved from CLAUDE_PROJECT_DIR, a linked worktree's own where the session
+# runs in one. arbiter-markers.js's pruneMarkers sweeps it by age in either.
 #
 # Never rendered into the adopters' hooks/hooks.json (lib/core-hooks.js's
 # MARKER_WRITER): nothing there reads it.

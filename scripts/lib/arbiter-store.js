@@ -45,8 +45,8 @@
  * `exports.<name> = <name>` per name, rather than replacing it. The namespace
  * takes the family's own name, suffixed `Mod` only where a local of that name
  * already exists in the requiring file. arbiter-proc.js, project-slug.js,
- * hook-record.js, priced-options-limbs.js, resume-expected.js and
- * scratch-dir.js are exempt and ARE destructured: each is a leaf outside this
+ * hook-record.js, priced-options-limbs.js, resume-expected.js,
+ * worktree-paths.js (#4531) and scratch-dir.js are exempt and ARE destructured: each is a leaf outside this
  * set and no cycle can reach any of them.
  * hook-record.js joined at mantahostels#3382, which moved the breadcrumbs off
  * the repo root — arbiter-markers.js asks it where they are rather than keeping
