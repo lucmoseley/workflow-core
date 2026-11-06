@@ -153,43 +153,21 @@ const PARKED_STATE = "blocked";
  */
 
 /**
- * The program's I/O for the acts on blocked and resumed-idle launches. Each
- * returns why it failed, or null once done, unless said otherwise.
- * @typedef {object} BlockIo
- * @property {(seat: string, jobId: string) =>
- *   import("./claude-stop.js").StopOutcome} stop  `claude stop` on a seat's
- *   job (lib/claude-stop.js's stopOn)
- * @property {(l: JobLaunch, prompt: string) => string|null} type  type
- *   `prompt` into the live session
+ * The program's I/O for the acts on blocked and resumed-idle launches: its
+ * reads (BlockReads) and its acts (BlockActs), every write and child process.
+ * Each act returns why it failed, or null once done, unless said otherwise.
+ * @typedef {object} BlockReads
  * @property {(l: JobLaunch) => ResumeTarget} resumeTargetOf  read before
  *   its stop, which may rewrite the job record
- * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
- *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
- *   --resume` of the stopped job
  * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
  *   since: number, move?: MoveTarget) => Adopted} adoptResumed  the job a
  *   resume of its session on `l`'s seat started from `since`, `move` the
  *   target of a move onto that seat
- * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
- *   `l` in place of the launch it was: a resume's stamp before its stop, and its
- *   outcome after (#4180)
  * @property {() => string|null} admitResume  the dispatcher's per-member
  *   memory, load and session-ceiling re-read: null where it admits one more
  *   session, else why not
- * @property {() => void} stagger  the dispatcher's pause between one launch
- *   and the next member's re-read
- * @property {(l: JobLaunch, target: MoveTarget, prompt: string, ids: ResumeTarget &
- *   {sessionId: string}) => Resumed} moveSession  the stopped session carried
- *   to `target` and resumed there, on an overflow seat recorded as a launch on
- *   its key with its allowance
- * @property {(seat: string, sessionId: string, cwd: string) => string|null}
- *   removeJobRecord  `claude rm` of any job record for it on `seat`, which
- *   keeps transcripts
  * @property {(l: JobLaunch) => {state?: unknown, detail?: unknown}|null}
  *   jobStateOf  its job's state.json, null unread
- * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold  a
- *   dispatch-ledger row on its issues, held past the window to `until` where
- *   given; whether it was written
  * @property {(l: JobLaunch) => unknown[]|null} readTimeline  its job's
  *   timeline rows, null unread
  * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
@@ -198,12 +176,6 @@ const PARKED_STATE = "blocked";
  *   lib/block-cause.js's hasTurnedSince on its transcript, false unread
  * @property {(l: JobLaunch, at: number) => boolean|null} hasRepliedSince
  *   lib/block-cause.js's hasRepliedSince on its transcript, null unread
- * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
- *   each of its issues the `parked` label would not go on, with why
- * @property {(sessionId: string, numbers: number[], record: ParkRecord) =>
- *   string|null} recordParked  add `numbers` to the session's `.parked-`
- *   marker in `record.root` (lib/parked.js), with the rest of `record`; null,
- *   else why not, which may carry a stack
  * @property {(seat: string, jobId: string) => string|null} readJobCwd  the cwd
  *   job `jobId`'s record on `seat` names, null where it names none
  * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null}
@@ -213,6 +185,43 @@ const PARKED_STATE = "blocked";
  *   transcript, null where none is found
  * @property {(file: string, who: string) => Record<string, unknown>[]|null}
  *   readMainChain  that transcript's main-chain rows, null where it will not read
+ * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
+ *   progress fields, logged
+ * @property {ReadActsBefore} readActsBefore
+ * @property {(line: string) => void} log
+ */
+
+/**
+ * @typedef {object} BlockActs
+ * @property {(seat: string, jobId: string) =>
+ *   import("./claude-stop.js").StopOutcome} stop  `claude stop` on a seat's
+ *   job (lib/claude-stop.js's stopOn)
+ * @property {(l: JobLaunch, prompt: string) => string|null} type  type
+ *   `prompt` into the live session
+ * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
+ *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
+ *   --resume` of the stopped job
+ * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
+ *   `l` in place of the launch it was: a resume's stamp before its stop, and its
+ *   outcome after (#4180)
+ * @property {() => void} stagger  the dispatcher's pause between one launch
+ *   and the next member's re-read
+ * @property {(l: JobLaunch, target: MoveTarget, prompt: string, ids: ResumeTarget &
+ *   {sessionId: string}) => Resumed} moveSession  the stopped session carried
+ *   to `target` and resumed there, on an overflow seat recorded as a launch on
+ *   its key with its allowance
+ * @property {(seat: string, sessionId: string, cwd: string) => string|null}
+ *   removeJobRecord  `claude rm` of any job record for it on `seat`, which
+ *   keeps transcripts
+ * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold  a
+ *   dispatch-ledger row on its issues, held past the window to `until` where
+ *   given; whether it was written
+ * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
+ *   each of its issues the `parked` label would not go on, with why
+ * @property {(sessionId: string, numbers: number[], record: ParkRecord) =>
+ *   string|null} recordParked  add `numbers` to the session's `.parked-`
+ *   marker in `record.root` (lib/parked.js), with the rest of `record`; null,
+ *   else why not, which may carry a stack
  * @property {(root: string, sessionId: string, issues: number[]) => string|null} unparkSession
  *   take the `parked` label and marker off its issues, as its session has gone back
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
@@ -221,11 +230,9 @@ const PARKED_STATE = "blocked";
  *   postHandOff  `rescue-sessions.js` run with `args` in `root`'s checkout
  * @property {(ledger: {jobId: string, root: string}) => boolean} release  the
  *   dispatch-ledger hold of job `jobId`; whether it went
- * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
- *   progress fields, logged
- * @property {ReadActsBefore} readActsBefore
- * @property {(line: string) => void} log
  */
+
+/** @typedef {BlockReads & BlockActs} BlockIo */
 
 /**
  * The dispatch-ledger row `l` holds its issues by: a copy's is its first

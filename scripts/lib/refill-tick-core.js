@@ -4,7 +4,7 @@
  * of its own. Every read, write and child process goes through the TickIo port,
  * whose adapter is lib/refill-tick.js: its reads (TickReads) and its acts
  * (TickActs). A dry run takes the same adapter's reads, each act swapped for
- * its dry answer (buildDryActs), and differs in the policy branches here: it
+ * its dry answer (buildDryIo), and differs in the policy branches here: it
  * previews over no control as over a stopped one, judges no listing by a
  * boot's kills, and stops at its decision.
  *
@@ -198,6 +198,7 @@ function stopNeverStarted(registry, jobs, stop) {
  * The reads, writes and child processes a tick runs through.
  * @typedef {ReturnType<typeof import("./refill-seats.js").readDeclaredSeats>} DeclaredSeats
  * @typedef {import("./refill-blocks.js").BlockIo} BlockIo
+ * @typedef {import("./refill-blocks.js").BlockActs} BlockActs
  * @typedef {import("./refill-blocks.js").Tick} Seen
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {import("./registry-agents.js").RegistryListing} RegistryListing
@@ -786,8 +787,6 @@ const doNothing = () => undefined;
 /**
  * Every act's answer on a dry run, which does none of them (#4356, #4323).
  * Typed over every act, so a new one cannot reach a dry run live.
- * Residual: blockIo, a read, hands the block acts their writers; a dry path
- * that calls one through `seen.io` writes for real (#4569).
  * @param {TickReads} io
  * @returns {TickActs}
  */
@@ -837,6 +836,48 @@ const buildDryActs = (io) => ({
 	appendTick: doNothing,
 });
 
+const DRY = "a dry run acts on nothing";
+
+/**
+ * Every block act's answer on a dry run: each one not done (#4569). Typed over
+ * every block act, so a new one cannot reach a dry `seen.io` live.
+ * @type {BlockActs}
+ */
+const DRY_BLOCK_ACTS = {
+	stop: () => ({
+		ok: false,
+		why: DRY,
+		said: null,
+		timedOut: false,
+		noJob: false,
+	}),
+	type: () => DRY,
+	resumeStopped: () => ({ failed: DRY }),
+	writeLaunch: doNothing,
+	stagger: doNothing,
+	moveSession: () => ({ failed: DRY }),
+	removeJobRecord: () => DRY,
+	writeLedgerHold: () => false,
+	labelParked: (l) => l.issues.map((n) => ({ n, why: DRY })),
+	recordParked: () => DRY,
+	unparkSession: () => DRY,
+	comment: doNothing,
+	postHandOff: () => ({ failed: DRY, out: "" }),
+	release: () => false,
+};
+
+/**
+ * The adapter a dry run goes through: its reads, with every act, the block
+ * acts `blockIo` hands out among them, swapped for its dry answer.
+ * @param {TickIo} adapter
+ * @returns {TickIo}
+ */
+const buildDryIo = (adapter) => ({
+	...adapter,
+	...buildDryActs(adapter),
+	blockIo: (served) => ({ ...adapter.blockIo(served), ...DRY_BLOCK_ACTS }),
+});
+
 /**
  * The control a tick with no sound control file goes on: a loop nobody
  * started, which a real tick stops, and with no set written a dry run previews
@@ -866,7 +907,7 @@ const buildStandInControl = (io, dryRun, now) => ({
  */
 async function runTick(adapter, { dryRun, now, opening }) {
 	/** @type {TickIo} */
-	const io = dryRun ? { ...adapter, ...buildDryActs(adapter) } : adapter;
+	const io = dryRun ? buildDryIo(adapter) : adapter;
 	const { control: stored, damaged } = opening.control;
 	const { declared, typed } = opening;
 	const parsed = settleOptedOut(
