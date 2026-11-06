@@ -75,9 +75,9 @@ if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
   exit 1
 fi
 
-# The queue lander's two gate sets (#4545). `--gates=merge` runs on each member's merge: the two gates that
-# refuse members in practice, the guard-registry one also writing the anchor
-# carry only a merge can make (#4514). `--gates=batch` runs once over the whole
+# The queue lander's two gate sets (#4545). `--gates=merge` runs on each member's merge: the guard-registry
+# gate, which refuses members in practice and writes the anchor carry only a
+# merge can make (#4514). `--gates=batch` runs once over the whole
 # batch staged against `main`: every other gate, bar those the lander's Actions
 # run repeats before `main` moves, each marked `lander_batch` below.
 wfc_gates=all
@@ -118,8 +118,10 @@ fi
 # unrun behind a filtered green indistinguishable from a real one (mantahostels#2031).
 #
 # Conditioned on test files and on the manifest itself. Deliberately NOT on
-# docs/: adding a document changes no edge until a test reads it.
-if ! lander_batch && armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
+# docs/: adding a document changes no edge until a test reads it. Neither
+# lander set runs it: each lander merge has just written the manifest with
+# this generator (lib/regenerated-files.js, #4573).
+if ! lander_set && armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit "$?"
 fi
 

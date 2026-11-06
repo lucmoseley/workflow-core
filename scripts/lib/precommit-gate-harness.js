@@ -43,10 +43,13 @@ const HOOK = fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8");
  * A gate's opening line: `if armed …` (#1504), the shell gate's
  * `if armed_shell` (#1828), or the raw `if git diff --cached …` an adopter's
  * own gate may still spell, each after the `! lander_batch &&` of a gate the
- * lander's Actions run repeats (#4545).
+ * lander's Actions run repeats (#4545) or the `! lander_set &&` of one no
+ * lander set runs (#4573).
  */
-const GATE_HEAD =
-	/^if (! lander_batch && )?(armed |armed_shell;|git diff --cached)/;
+const LANDER_SKIP = "(?:! lander_(?:batch|set) && )?";
+const GATE_HEAD = new RegExp(
+	`^if ${LANDER_SKIP}(armed |armed_shell;|git diff --cached)`,
+);
 
 /**
  * The `if armed … fi` block containing `anchor`, verbatim.
@@ -329,6 +332,7 @@ module.exports = {
 	expectFixtureSupplies,
 	gateHead,
 	gateTmpdir,
+	LANDER_SKIP,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,

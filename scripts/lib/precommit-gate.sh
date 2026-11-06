@@ -507,3 +507,7 @@ gate_direction() {
 # `--gates=batch` that .husky/pre-commit parses into wfc_gates: each gate the
 # lander's Actions run repeats tests it and stands down.
 lander_batch() { [ "${wfc_gates:-all}" = batch ]; }
+
+# Whether the hook runs either lander gate set, `--gates=merge` or
+# `--gates=batch` (#4573).
+lander_set() { [ "${wfc_gates:-all}" != all ]; }
