@@ -469,7 +469,7 @@
 			"source": "#3177, #3441, #3522, #3762, #3915, #3998, #4008, #4009, #4250, #4399, #4485"
 		},
 		"scripts/lib/push-rules.js": {
-			"digest": "abaff5df628d0a4f",
+			"digest": "0e9efa9691ed9a94",
 			"verdict": "at need — first push of the session, before it runs; the rules once per session only, push-cadence skipped where the commit-form guard already handed it this session (#2285). Its review warn fires on the first push carrying unreviewed code, again on an escalated change, and again for each marker written after a warn that is rejected, naming why. Wrapper spellings (`timeout`, `env`, `sh -c`) never fire, as declared. Run as a core of scripts/guard-dispatch.js since #3226; re-fed through it under #3268 on `git push origin main:landing` (the landing module on): 1,666 B whole hook stdout, the same session's second push silent, `--dry-run` and the wrapped spellings silent; with git answering in 8 s the git-dir read was cut and the push passed silent at 3.2 s, logged. The review warn was not re-fed. Re-fed under #4250 on `git push origin HEAD:landing`: 1,546 B, the recipe ending in `node scripts/session-checkout.js land`.",
 			"selfSufficient": "yes — with the landing module on, the recipe (test, typecheck, check, the edited file's checker, `node scripts/session-checkout.js land`, then `node scripts/landing-status.js` once) and that the lander, not the push, runs the full suite are inline; check:ci is said to read `main` (re-fed under #3268).",
 			"source": "#1998"
