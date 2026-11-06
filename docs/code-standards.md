@@ -21,6 +21,7 @@ The core's own primitives, beside the base's table.
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
 | Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
+| Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
 
 ## Local rules
 
@@ -29,6 +30,12 @@ The core's own primitives, beside the base's table.
 **Every code kind.** Code that writes a word into a command a shell will read quotes it with `shellQuote` or, in bash, `sp_shell_word`. Its own regex, escape or hand-written quotes are the breach (#3609).
 
 Outside it: an expansion in a shell script, which is §S1; quoting for anything other than a shell, such as `scripts/install-refill-boot-unit.js`'s systemd `Environment=` line; `scripts/self-plugin-canary.sh`'s marked copy, which prints when `script-path.sh` cannot load (#3798); and `scripts/run-pinned-guards.js`'s marked copy, which must load when no repo lib does (#4227).
+
+### §LG2 · A file that may be absent is read through the one reader — **judgement**
+
+**Every code kind.** A read of a file that may be absent goes through `readText` or `readBytes` in `scripts/lib/file-read.js`, and maps its absent, read and unreadable answers onto the caller's own values. A hand-written ENOENT catch, or an `existsSync` test before the read, is the breach (#3902).
+
+Outside it: a catch that guards more than the one read, such as a rename then a read, a `readdir`, a `readlink`, or a JSON parse inside the same `try`.
 
 ---
 

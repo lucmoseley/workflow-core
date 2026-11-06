@@ -7,7 +7,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { markersDir } = require("./marker-root.js");
 
 /**
@@ -30,11 +30,10 @@ function buildHostPorts(root) {
 				// the core allows on it, logged (mantahostels#103 §6).
 				path: record,
 				has: (target) => {
-					try {
-						return fs.readFileSync(record, "utf8").split("\n").includes(target);
-					} catch (e) {
-						return caught(e).code === "ENOENT" ? false : null;
-					}
+					const got = readText(record);
+					if (got.state === "read")
+						return got.data.split("\n").includes(target);
+					return got.state === "absent" ? false : null;
 				},
 				add: (target) => {
 					try {

@@ -8,7 +8,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { makeDir } = require("./guard-entry.js");
 
@@ -28,11 +28,9 @@ function buildHostPorts() {
 		 * @param {string} file
 		 */
 		readWindow: (file) => {
-			try {
-				return fs.readFileSync(file, "utf8");
-			} catch (e) {
-				return caught(e).code === "ENOENT" ? "" : null;
-			}
+			const got = readText(file);
+			if (got.state === "read") return got.data;
+			return got.state === "absent" ? "" : null;
 		},
 		makeDir,
 		/**
