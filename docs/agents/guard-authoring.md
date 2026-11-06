@@ -125,7 +125,9 @@ bodies are 70–670 lines of bespoke judgement.
    sentence names the guard. It is generated, never typed:
    `node scripts/check-guard-registry.js --review scripts/guard-<name>.sh`.
    A later commit that changes the guard, or a file its digest hashes, is told
-   at post-commit to re-read and re-anchor it (`--touched-by`, #2375).
+   at post-commit to re-read and re-anchor it (`--touched-by`, #2375). A merge
+   whose two sides changed different files of that digest carries the entry
+   itself (#4514).
    A file that runs a stack of independent gates, as `.husky/pre-commit` does,
    puts `RUNS: gates — <why>` in its header, so its digest hashes what it
    sources and requires and the bytes of each `scripts/` file its header names,

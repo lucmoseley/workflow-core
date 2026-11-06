@@ -41,10 +41,8 @@ const { isListedLive } = require("./agent-liveness.js");
 const { paths, recordTree, subjectPath } = require("./arbiter-store");
 const { deref } = require("./deref.js");
 const { gitOrNull } = require("./git.js");
-const {
-	readLinkedWorktrees,
-	worktreeOwners,
-} = require("./session-worktrees.js");
+const { worktreeOwners } = require("./session-worktrees.js");
+const { readLinkedWorktrees } = require("./worktree-paths.js");
 
 /*
  * How long a claim must stand after its holder stops being listed before the
