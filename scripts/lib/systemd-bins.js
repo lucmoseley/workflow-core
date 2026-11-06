@@ -2,7 +2,7 @@
  * systemd-bins.js — the systemd user-manager binaries, each injected at one
  * named var (§N7): WFC_SYSTEMD_RUN, WFC_SYSTEMCTL and WFC_BUSCTL, each an
  * executable, its bare name where unset. Read at each call, so a test sets
- * the var to a stub. Also the one wait on any of them.
+ * the var to a stub.
  *
  * A leaf: it depends on nothing.
  */

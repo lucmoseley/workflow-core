@@ -6,7 +6,7 @@
  * A session's processes all sit in WSL's root-owned `/non-systemd`, so a
  * descendant that outlives the session (a vitest fork worker whose main a
  * `spawnSync` timeout killed, a `setsid` child) is reparented to `/init` and
- * runs on unseen (#4333, the 2026-11-04 incident). Every process forked inside
+ * runs on unseen (#4333). Every process forked inside
  * a cgroup is born in it and cannot leave a delegated one, `setsid` and double
  * forks included, and `cgroup.kill` ends them all (#4334, probes P5, P6).
  *
@@ -17,10 +17,9 @@
  * session found then: the leader's descendants, and every process whose
  * environ carries `CLAUDE_PID=<leader>`, which reaches the detached jobs of
  * this same hook phase that have already been reparented to `/init`. Pass
- * follows pass until none finds a process left behind, as one forked from an
- * unmoved process mid-pass is born outside. A session born inside another's
- * scope (a nested `claude`, or a spare of a daemon a session started) moves
- * to a scope of its own the same way.
+ * follows pass until none finds a process left behind (lib's attachAll). A
+ * session born inside another's scope (a nested `claude`, or a spare of a
+ * daemon a session started) moves to a scope of its own the same way.
  *
  * ITS OWN SLICE. The scope sits in `wfc-sessions.slice`, not `app.slice`,
  * so CFS weighs every session together against the lander's scope as one
@@ -31,11 +30,10 @@
  * probed on #4341), and `/clear` fires SessionEnd while the process lives on.
  * So the kill keys on the leader's exit, not on a hook: a watcher, started as
  * a transient user service and so outside the scope, polls the leader's pid
- * and start time and, once they no longer match a live process, moves any
- * Claude daemon, pty host or spare out, sends SIGTERM to what is left, waits,
- * and writes `cgroup.kill` (lib/session-scope.js's WATCH). The watcher is inline shell, not a file, because the worktree
- * that holds this script is often removed as its session ends, and a shell
- * loop holds some 4 MB where a node one would hold forty.
+ * and start time and, once they no longer match a live process, kills the
+ * scope (lib/session-scope.js's WATCH, which says what it keeps). The watcher
+ * is inline shell, not a file, because the worktree that holds this script is
+ * often removed as its session ends.
  *
  * WHAT LEAVES THE SCOPE: only a command started under the user manager, which
  * `systemd-run --user` does — the lander's scope (#2956) and each test run's
@@ -153,7 +151,6 @@ const done = (line) => ({ ok: true, line });
 /** @param {string} line */
 const fault = (line) => ({ ok: false, line });
 
-/* What a fault line tells its reader to do. */
 const UNCONTAINED =
 	"this session runs uncontained, its leftovers left to the session-end sweep (#4342)";
 
@@ -250,7 +247,5 @@ function adopt(env) {
 if (require.main === module) {
 	const { ok, line } = adopt(process.env);
 	writeFd(2, `session-scope: ${line}\n`);
-	/* An uncontained session looks like a contained one: the fault log is
-	 * what tells them apart, at the next session start. */
 	if (!ok) logError("session-scope.js", line);
 }

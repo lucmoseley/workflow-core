@@ -3,8 +3,6 @@
  * (#4341), its caller: which processes move with a session, how a refused
  * attach is retried, and the watcher script that kills the scope. No I/O:
  * each read and call arrives as a port.
- *
- * Depends on nothing but lib/claude-argv0.js.
  */
 
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -76,7 +74,7 @@ function membersOf({ procs, leader, home, self, readCgroup, readClaudePid }) {
 /**
  * Attach `pids` through `call`; the count attached. One call refuses the lot
  * where any pid has exited since it was read, as a short-lived hook child
- * often has (probed on #4341: "No such process"), so a refused batch is
+ * often has (#4341), so a refused batch is
  * retried a pid at a time.
  * @param {number[]} pids @param {(pids: number[]) => boolean} call
  */
