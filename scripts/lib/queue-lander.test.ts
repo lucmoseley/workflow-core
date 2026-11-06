@@ -133,8 +133,9 @@ interface Options {
 	acquired?: boolean;
 	/** The run's clock, in ms; NOW where absent. */
 	now?: number;
-	/** Whether a move of `main` to `sha` changed this run's own code. */
-	mainMoved?: (sha: string, remote: Remote) => boolean;
+	/** Whether a move of `main` to `sha` changed this run's own code; absent,
+	 * the run is handed no `mainMoved` at all. */
+	mainMoved?: (sha: string) => boolean;
 }
 
 /**
@@ -320,9 +321,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		log: (a) => actions.push(a),
 		say: (line) => said.push(line),
 		now: () => o.now ?? NOW,
-		...(o.mainMoved && {
-			mainMoved: (sha: string) => o.mainMoved?.(sha, remote) ?? false,
-		}),
+		...(o.mainMoved && { mainMoved: o.mainMoved }),
 	};
 	const end = await runQueueLander(deps);
 	return { end, actions, asked, said, peak, pushed };
@@ -470,7 +469,7 @@ describe("a push during a run", () => {
 	});
 });
 
-describe("a landing that changes the lander's own code", () => {
+describe("a landing that changes the lander's own code (#4521)", () => {
 	it("settles its batch, then ends for a fresh run before taking the ref pushed meanwhile", async () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const moved: string[] = [];
@@ -490,7 +489,7 @@ describe("a landing that changes the lander's own code", () => {
 			kind: "exit",
 			reason:
 				"main changed this lander's own code; a fresh run takes the queue",
-			relaunch: true,
+			relaunch: "merge(m0;a1)",
 		});
 		expect(moved).toEqual(["merge(m0;a1)"]);
 		expect(taken(actions)).toEqual([["a@a1"]]);

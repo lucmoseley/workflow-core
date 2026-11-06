@@ -9,7 +9,6 @@
  * own suite slot handed in as `admit`.
  */
 
-const path = require("node:path");
 const { queueTester } = require("./actions-tester.js");
 const { baseRedFiler } = require("./base-red-issue.js");
 const { parseErrorText } = require("./caught.js");
@@ -22,9 +21,9 @@ const {
 	landerLock,
 	queueLanderFiles,
 } = require("./lander-files.js");
-const { execGit } = require("./git.js");
 const { short } = require("./lander-git.js");
-const { levelNow, startLevelling } = require("./level-main.js");
+const { readRunCode, readSupersededFiles } = require("./lander-code.js");
+const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const {
@@ -46,8 +45,9 @@ const { readConfig } = require("./workflow-core-config.js");
  * @property {Admit} [admit] the local tester's suite slot; absent, the
  *   machine's suite gate
  * @property {(line: string) => void} say
- * @property {RunCode} [code] the code this run executes; absent, this
- *   module's own checkout
+ * @property {RunCode|null} [code] the code this run executes, as the caller
+ *   that relaunches on it read it; absent, read here
+ * @typedef {import("./lander-code.js").RunCode} RunCode
  */
 
 /**
@@ -63,91 +63,31 @@ const configuredTester = (root, admit) =>
 		: localTester({ root, admit });
 
 /**
- * The code a run executes, where it is the landed checkout's own: that
- * checkout's HEAD at the run's start, and the files it has loaded so far,
- * relative to it. `sha` is null where the run executes other code, as a
- * plugin cache's, which no landing changes.
- * @typedef {{sha: string|null, loaded: () => string[]}} RunCode
- */
-
-/**
- * @param {string} root the checkout the run lands
- * @returns {RunCode}
- */
-function readRunCode(root) {
-	const inside = (/** @type {string} */ f) =>
-		f.startsWith(`${root}${path.sep}`);
-	return {
-		sha: inside(__filename)
-			? execGit(["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
-			: null,
-		loaded: () =>
-			Object.keys(require.cache)
-				.filter(inside)
-				.map((f) => path.relative(root, f)),
-	};
-}
-
-/**
- * The files this run loaded that `sha` changes.
- * @param {string} root
- * @param {RunCode} code
- * @param {string} sha
- * @returns {string[]}
- */
-function readSupersededFiles(root, code, sha) {
-	if (code.sha === null) return [];
-	const changed = new Set(
-		execGit(["diff", "--name-only", code.sha, sha], {
-			cwd: root,
-			encoding: "utf8",
-		})
-			.split("\n")
-			.filter(Boolean),
-	);
-	return code.loaded().filter((f) => changed.has(f));
-}
-
-/**
- * Whether `root`'s working tree holds each of `files` as `sha` does.
- * @param {string} root
- * @param {string} sha
- * @param {readonly string[]} files
- */
-const carriesFiles = (root, sha, files) =>
-	execGit(["diff", "--name-only", sha, "--", ...files], {
-		cwd: root,
-		encoding: "utf8",
-	}).trim() === "";
-
-/**
  * After each move of `main` to `sha`: the guard code's adoption and a
- * levelling pass. Where `sha` changed the code this run loaded, the pass is
- * waited for, and true is returned once the checkout carries those files;
- * else it runs detached, as an `npm ci` in it may outlast the next landing.
+ * levelling pass, detached, as an `npm ci` in it may outlast the next
+ * landing. Whether `sha` changed the code this run loaded; a git fault
+ * reading that reads as no, reported.
  * @param {string} root
  * @param {(line: string) => void} say
- * @param {RunCode} code
+ * @param {RunCode|null} code
  * @param {string} sha
  * @returns {boolean}
  */
 function afterMainMove(root, say, code, sha) {
 	const adoption = adoptGuardCodeAt(root, { fetch: false });
 	if (adoption) say(adoptionLine(adoption));
-	const files = readSupersededFiles(root, code, sha);
-	if (files.length === 0) {
-		startLevelling(root, (err) =>
-			say(`levelling not started: ${parseErrorText(err)}`),
+	startLevelling(root, (err) =>
+		say(`levelling not started: ${parseErrorText(err)}`),
+	);
+	if (code === null) return false;
+	try {
+		return readSupersededFiles(root, code, sha).length > 0;
+	} catch (err) {
+		say(
+			`whether ${short(sha)} changes this lander's own code went unread, so it runs on: ${parseErrorText(err)}`,
 		);
 		return false;
 	}
-	const failed = levelNow(root);
-	const carried = carriesFiles(root, sha, files);
-	if (!carried)
-		say(
-			`${short(sha)} changes this lander's own code, which the checkout does not carry yet; it runs on${failed ? `: ${failed}` : ""}`,
-		);
-	return carried;
 }
 
 /**
@@ -196,9 +136,4 @@ function buildLanderDeps(
 	};
 }
 
-module.exports = {
-	buildLanderDeps,
-	carriesFiles,
-	readRunCode,
-	readSupersededFiles,
-};
+module.exports = { buildLanderDeps };

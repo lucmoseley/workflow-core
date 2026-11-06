@@ -257,8 +257,8 @@ class TransientFault extends Error {}
  *   | {readonly kind: "delete-landed-ref", readonly name: string,
  *     readonly sha: string}
  *   | {readonly kind: "exit", readonly reason: string,
- *     readonly relaunch?: true}} QueueAction `relaunch` where a fresh run
- *   on the new code takes the queue on
+ *     readonly relaunch?: string}} QueueAction `relaunch`, the `main` a
+ *   fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
  * @typedef {"rerun-files" | "check-base" | "file-base-red" | "hold"
  *   | "start-isolation" | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
@@ -302,7 +302,9 @@ class TransientFault extends Error {}
  * @property {number|null} baseTicket the base-red ticket this run last filed
  *   or refreshed, null where none or it would not file
  * @property {boolean} [superseded] whether a move of `main` this run made
- *   changed the code it runs, now on disk for a fresh run
+ *   changed the code it runs. The run ends on it only once its batch is
+ *   done: what a batch in flight holds in memory — its isolated, unfiled and
+ *   kept members — is lost to a fresh run.
  */
 
 /* The pass of a base check: a run at `main` of its own, never the verdict
@@ -998,7 +1000,7 @@ function nextQueueAction(s) {
 			...exit(
 				"main changed this lander's own code; a fresh run takes the queue",
 			),
-			relaunch: true,
+			relaunch: main,
 		};
 	const held = batch && heldExit(batch, main, waiting);
 	if (held) return held;

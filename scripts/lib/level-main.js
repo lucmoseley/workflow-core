@@ -44,7 +44,7 @@ const {
 const { isCutOver } = require("./cutover.js");
 const { LANDING_REF, QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
-const { startDetachedIn } = require("./refill-repos.js");
+const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
@@ -489,14 +489,16 @@ const levelScript = () =>
 const LEVEL_NOW_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
- * One levelling pass, waited for: where the lander must run on what `main`
- * now holds. What it printed where it failed, else null.
+ * One levelling pass, waited for, in the environment the detached one gets:
+ * where a fresh lander must start on what `main` now holds. What it printed
+ * where it failed or another pass held the lock, else null.
  * @param {string} root
  * @returns {string|null}
  */
 function levelNow(root) {
 	const r = spawnSync(process.execPath, [levelScript(), "--quiet"], {
 		cwd: root,
+		env: buildCheckoutEnv(root),
 		encoding: "utf8",
 		timeout: LEVEL_NOW_TIMEOUT_MS,
 	});
