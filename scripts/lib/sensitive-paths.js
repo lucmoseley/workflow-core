@@ -12,11 +12,12 @@
  * reaches stderr and never changes the exit. Exit 2 is a
  * config that will not read, or bad usage. `--held <before> <after>` prints
  * every area the pre-commit hold reads off two roots' configs at once, so the
- * hold starts node once a commit (#4512).
+ * hold starts node once a commit (#4512): exit 0, or 3 with the after copy's
+ * fault on stderr; exit 2 where it cannot judge.
  */
 
 const { readFdAll } = require("./read-fd.js");
-const { readConfig } = require("./workflow-core-config.js");
+const { CONFIG_PATH, readConfig } = require("./workflow-core-config.js");
 const { globMatches } = require("./pathspec-glob.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
@@ -86,15 +87,13 @@ function narrowedAreas(before, after) {
 		.map((a) => a.name);
 }
 
-const CONFIG_FILE = ".claude/workflow-core.json";
-
 /**
  * `--held`: the areas the pre-commit hold holds `paths` under — those
  * `before`'s declaration matches, those `after`'s does, and, where `paths`
  * carry the declaration itself, those `after` narrows from `before`, sorted
  * and once each. An `after` that will not parse declares nothing, so a broken
- * copy reads as dropping every area (#3905); with nothing dropped, the hold
- * cannot judge it, so that is exit 2 too. Exit 3: the areas printed, and the
+ * copy reads as dropping every area (#3905); where the paths do not carry it,
+ * or `before` declares nothing to drop, the hold cannot judge it: exit 2. Exit 3: the areas printed, and the
  * `after` copy's fault on stderr for the refusal to name.
  * @param {string} before
  * @param {string} after
@@ -116,7 +115,7 @@ function printHeld(before, after, paths) {
 	} catch (e) {
 		fault = `BROKEN: ${caught(e).message}\n`;
 	}
-	const narrowed = paths.includes(CONFIG_FILE) ? narrowedAreas(was, now) : [];
+	const narrowed = paths.includes(CONFIG_PATH) ? narrowedAreas(was, now) : [];
 	if (fault && narrowed.length === 0) {
 		writeFd(2, fault);
 		process.exit(2);

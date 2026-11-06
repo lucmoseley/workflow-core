@@ -268,6 +268,7 @@ const expectRefused = (
 
 /** The seeded repo and its hooks directory, built once and copied per case. */
 const fixture = defineTemplate((root) => {
+	// Points git() and write() at the template; beforeEach points them back.
 	repo = path.join(root, "repo");
 	fs.mkdirSync(repo);
 	git("init", "-q", "-b", "main");

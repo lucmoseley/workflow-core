@@ -280,8 +280,20 @@ describe("sensitive-paths --held (#3905, #4512)", () => {
 		expect(r.stderr).toMatch(/^BROKEN: .*workflow-core\.json/);
 	});
 
-	it("exits 2 where the after copy will not parse and drops nothing", () => {
+	it("names an area only the before copy matches, the declaration unstaged", () => {
+		const after = declaring([area("a", ["y"])]);
+		expect(names([area("a", ["x"])], after, ["x"])).toEqual(["a"]);
+	});
+
+	it("exits 2 where the after copy will not parse and the paths do not carry it", () => {
 		const r = held([area("a", ["x"])], "{ not json", ["x"]);
+		expect(r.status).toBe(2);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toContain("BROKEN");
+	});
+
+	it("exits 2 where the after copy will not parse and the before copy declares nothing", () => {
+		const r = held(undefined, "{ not json");
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toContain("BROKEN");
