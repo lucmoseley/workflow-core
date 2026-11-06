@@ -469,6 +469,13 @@ describe("a listed session", () => {
 		});
 	});
 
+	it("is held once where it runs headless and the oracle also lists its transcript (#4588)", () => {
+		const id = recordLaunch("0000000d");
+		writeHeadlessRun(refill, "0000000d", id);
+		writeListing([{ sessionId: id, state: "working", kind: "interactive" }]);
+		expect(budget()).toMatchObject({ running: 1, reservedUsd: 4 });
+	});
+
 	it("is not this key's where the launch record does not say so", () => {
 		writeListing([{ id: "0000000d", sessionId: sessionIdOf("0000000d") }]);
 		expect(budget()).toMatchObject({ running: 0, reservedUsd: 0 });
