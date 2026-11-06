@@ -109,8 +109,6 @@ describe("repo-checks-carry: the re-scan list", () => {
 		).toEqual([null, "8,12", "8,12", "8,12"]);
 	});
 
-	/* A bad value would make the check refuse its arguments, and a BROKEN
-	 * reading never rewrites the list that broke it. */
 	it("passes only the issue numbers in a damaged re-scan list", () => {
 		expect(
 			carriedArgs(CLOBBERS, {

@@ -19,9 +19,6 @@ const DAY_MS = 24 * 3_600_000;
  */
 
 /**
- * What one reading carries from the last: each `since` entry's last start and
- * each `rescan` entry's issue numbers, by id, and this reading's own start.
- *
  * @typedef {{ lastStarts: Record<string, unknown>,
  *   rescans: Record<string, unknown>, startMs: number }} Kept
  */
@@ -58,8 +55,6 @@ function sinceDays(last, startMs) {
 }
 
 /**
- * The window and re-scan arguments an entry takes at this reading.
- *
  * @param {RepoCheck} entry
  * @param {Kept} kept
  * @returns {string[]}
@@ -79,10 +74,9 @@ function carriedArgs(entry, { lastStarts, rescans, startMs }) {
 }
 
 /**
- * What this reading leaves for the next: each `since` entry that completed
- * moved to this reading's start, each `rescan` entry that completed to this
- * reading's issues, as one pair per file to write. A file none of whose
- * entries completed has no pair, so the runner leaves it as it was.
+ * What this reading leaves for the next, one pair per file to write. A file
+ * none of whose entries completed has no pair, so the runner leaves it as it
+ * was.
  *
  * @param {CarriedJob[]} jobs
  * @param {Kept} kept
