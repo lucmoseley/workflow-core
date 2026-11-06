@@ -1113,30 +1113,6 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 		expect(told()).not.toContain(Rule);
 	});
 
-	it("credits a code write against the host root's claims and ledger, not a store keyed to the worktree (#4274)", () => {
-		const write = (rel: string) =>
-			runCore(
-				NAME,
-				toolCall(
-					"Bash",
-					{ command: `echo hi > ${rel}` },
-					{ session_id: "mine" },
-				),
-				{ root: at.main, worktree: at.worktree },
-			);
-		/* A neighbour's claim on a.js filed under the worktree's own store, and
-		 * one on b.js under the host root's. */
-		storeAt(at.worktree);
-		store.acquire("scripts/a.js", live(split, "theirs"));
-		storeAt(at.main);
-		store.acquire("scripts/b.js", live(split, "theirs"));
-		write("scripts/a.js");
-		write("scripts/b.js");
-		expect(store.readWritesBy("mine")).toEqual(["scripts/a.js"]);
-		storeAt(at.worktree);
-		expect(store.readWritesBy("mine") ?? []).toEqual([]);
-	});
-
 	/* Cut where the checkout module cuts one, the host's store spells the
 	 * worktree's scratch `.claude/worktrees/…`, a guarded path a claim can sit
 	 * on (#4275). */

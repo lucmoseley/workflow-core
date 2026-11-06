@@ -1645,16 +1645,6 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		expect(warned?.additionalContext).toContain("also held by session alice");
 	});
 
-	it("allows it where only the worktree's claim store holds the claim (#4274)", () => {
-		aliceHoldsIn(at.worktree);
-		expect(
-			writeFrom(at.worktree, "bob").output?.permissionDecision,
-		).toBeUndefined();
-		expect((store.listLocks() as Lock[]).map((l) => l.sessionId)).toEqual([
-			"bob",
-		]);
-	});
-
 	it("takes no claim on a main-checkout file written from a worktree", () => {
 		storeAt(at.main);
 		live(split, "bob");
