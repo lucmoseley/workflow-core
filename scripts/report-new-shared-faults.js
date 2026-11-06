@@ -43,43 +43,11 @@ const { caught } = require("./lib/caught.js");
 const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
+const { CHECKERS } = require("./lib/shared-fault-checkers.js");
 
-/* Core content: every checker below ships beside this script, so each is named
- * from THIS DIRECTORY (#1) — a plugin install keeps them beside the caller. */
+/* Core content: check-doc-map.js ships beside this script, so it is named
+ * from THIS DIRECTORY (#1) — a plugin install keeps it beside the caller. */
 const CORE_SCRIPTS = __dirname;
-
-/** Profile name -> the checker script that emits its --json envelope, for the
- * checkers that take --root. check-doc-map.js is not in this table: its
- * envelope is read by readDocMapEnvelope() below, on a different calling
- * convention (see the header comment). */
-const CHECKERS = {
-	"guard-registry": path.join(CORE_SCRIPTS, "check-guard-registry.js"),
-	"guard-test-isolation": path.join(
-		CORE_SCRIPTS,
-		"check-guard-test-isolation.js",
-	),
-	"host-root-test-isolation": path.join(
-		CORE_SCRIPTS,
-		"check-host-root-test-isolation.js",
-	),
-	"context-budget": path.join(CORE_SCRIPTS, "check-context-budget.js"),
-	"website-copy": path.join(CORE_SCRIPTS, "check-website-copy.js"),
-	"git-fixture-identity": path.join(
-		CORE_SCRIPTS,
-		"check-git-fixture-identity.js",
-	),
-	"host-root": path.join(CORE_SCRIPTS, "check-host-root.js"),
-	"skill-frontmatter": path.join(CORE_SCRIPTS, "check-skill-frontmatter.js"),
-	"jsonl-reads": path.join(CORE_SCRIPTS, "check-jsonl-reads.js"),
-	"gh-route": path.join(CORE_SCRIPTS, "check-gh-route.js"),
-	"arbiter-commands": path.join(CORE_SCRIPTS, "check-arbiter-commands.js"),
-	"clock-copies": path.join(CORE_SCRIPTS, "check-clock-copies.js"),
-	"report-programs": path.join(CORE_SCRIPTS, "check-report-programs.js"),
-	"precommit-exit": path.join(CORE_SCRIPTS, "check-precommit-exit.js"),
-	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
-	"test-spawn": path.join(CORE_SCRIPTS, "check-test-spawn.js"),
-	registrations: path.join(CORE_SCRIPTS, "check-registrations.js"),
-};
 
 const CHECK_DOC_MAP = path.join(CORE_SCRIPTS, "check-doc-map.js");
 
@@ -677,7 +645,5 @@ function main() {
 	if (err.length > 0) writeFd(2, `${err.join("\n")}\n`);
 	process.exit(code);
 }
-
-module.exports = { CHECKERS };
 
 if (require.main === module) main();

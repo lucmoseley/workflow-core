@@ -3866,7 +3866,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -3995,7 +3994,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4030,7 +4028,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4159,7 +4156,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-injector-margin-gate.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-context-budget.test.ts": [
@@ -4244,7 +4240,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-doc-map.test.ts": [
@@ -4369,7 +4364,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4405,7 +4399,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-git-fixture-identity.test.ts": [
@@ -4518,7 +4511,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-guard-test-isolation.test.ts": [
@@ -4587,7 +4579,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-host-root-test-isolation.test.ts": [
@@ -4605,7 +4596,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-host-root.test.ts": [
@@ -4808,7 +4798,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5073,7 +5062,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5128,7 +5116,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5164,7 +5151,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5396,7 +5382,6 @@
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-skill-frontmatter.test.ts": [
@@ -5623,7 +5608,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5748,7 +5732,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-website-copy.test.ts": [
@@ -10760,7 +10743,6 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/check.declared-flags.test.ts": [
@@ -15325,7 +15307,6 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/fix-ticket.js": [
@@ -19095,7 +19076,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -32226,7 +32206,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/shared-fault-costs.js": [
+		"scripts/lib/shared-fault-checkers.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -32247,6 +32227,28 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/shared-fault-costs.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/shell-const-testkit.ts": [
@@ -32674,7 +32676,6 @@
 			"scripts/lib/spawn-all.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/spawn-all.test.ts": [

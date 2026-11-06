@@ -576,7 +576,7 @@ describe("the notice the session reads", () => {
 		const { PROFILES } = require("./lib/fault-profiles.js") as {
 			PROFILES: Record<string, unknown>;
 		};
-		const { CHECKERS } = require("./report-new-shared-faults.js") as {
+		const { CHECKERS } = require("./lib/shared-fault-checkers.js") as {
 			CHECKERS: Record<string, string>;
 		};
 
