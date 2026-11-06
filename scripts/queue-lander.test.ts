@@ -563,6 +563,98 @@ describe("the adapters", () => {
 		expect(git(work, "rev-parse", `${sha}^1`)).toBe(seed);
 	});
 
+	describe("a generated-only file (#4541)", () => {
+		const genFile = "gen.list";
+		const txts = (dir: string) =>
+			git(dir, "ls-files", "*.txt").split("\n").filter(Boolean).sort();
+		const lists = new Map([
+			[
+				genFile,
+				{ generator: "list", render: (d: string) => `${txts(d).join("\n")}\n` },
+			],
+		]);
+		const counts = new Map([
+			[
+				genFile,
+				{ generator: "count", render: (d: string) => `${txts(d).length}\n` },
+			],
+		]);
+		/** A queue ref adding `<name>.txt`, its genFile as `gen` renders it on that tree. */
+		const pushGenerated = (
+			name: string,
+			from: string,
+			gen: Map<string, { render: (d: string) => string }>,
+		) =>
+			pushQueue(name, from, () => {
+				fs.writeFileSync(path.join(work, `${name}.txt`), name);
+				git(work, "add", "-A");
+				fs.writeFileSync(
+					path.join(work, genFile),
+					gen.get(genFile)?.render(work) ?? "",
+				);
+			});
+		const seeded = (gen: Map<string, { render: (d: string) => string }>) => {
+			fs.writeFileSync(
+				path.join(work, genFile),
+				gen.get(genFile)?.render(work) ?? "",
+			);
+			return commit("seed-gen");
+		};
+		const members = (a: string, b: string) => [
+			{ name: "a", sha: a, pushedAt: 1 },
+			{ name: "b", sha: b, pushedAt: 2 },
+		];
+		const genAt = (sha: string) =>
+			`${git(work, "show", `${sha}:${genFile}`)}\n`;
+
+		it("lands a merge whose text-merged copy is clean but stale, as rendered on the merged tree", () => {
+			const seed = seeded(counts);
+			const a = pushGenerated("a", seed, counts);
+			const b = pushGenerated("b", seed, counts);
+			expect(genAt(a)).toBe(genAt(b));
+			const g = queueGit(work, undefined, counts);
+			g.refs();
+
+			const r = g.mergeMembers(seed, members(a, b));
+
+			expect(r.kind).toBe("merged");
+			const sha = r.kind === "merged" ? r.sha : "";
+			expect(genAt(sha)).toBe(`${Number(genAt(a)) + 1}\n`);
+		});
+
+		it("lands a merge whose only conflict is the generated file, as rendered on the merged tree", () => {
+			const seed = seeded(lists);
+			const a = pushGenerated("a", seed, lists);
+			const b = pushGenerated("b", seed, lists);
+			const g = queueGit(work, undefined, lists);
+			g.refs();
+
+			const r = g.mergeMembers(seed, members(a, b));
+
+			expect(r.kind).toBe("merged");
+			const sha = r.kind === "merged" ? r.sha : "";
+			expect(genAt(sha)).toBe(
+				`${txts(work).concat("a.txt").sort().join("\n")}\n`,
+			);
+		});
+
+		it("still drops a merge conflicting in any other file, naming that file", () => {
+			const seed = seeded(lists);
+			const clash = (body: string) => () =>
+				fs.writeFileSync(path.join(work, "clash.md"), body);
+			const a = pushQueue("a", seed, clash("one"));
+			const b = pushQueue("b", seed, clash("two"));
+			const g = queueGit(work, undefined, lists);
+			g.refs();
+
+			expect(g.mergeMembers(seed, members(a, b))).toEqual({
+				kind: "conflict",
+				name: "b",
+				files: ["clash.md"],
+			});
+		});
+	});
+
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const a = pushQueue("a", seed);
