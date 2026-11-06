@@ -3,8 +3,8 @@
  *
  * `WFC_REPO_ROOT` first, as `lib/hook-block.js` reads it, else the main
  * checkout holding the host root, else the host root, so a script reading what
- * a hook wrote starts here. `hostRoot()` already re-points a declared linked
- * worktree at its main checkout (#4487); #4486 folds this helper into it.
+ * a hook wrote starts here. The main-checkout limb repeats `hostRoot()`'s own
+ * re-point of a declared linked worktree (#4487) and is left to #4486.
  */
 
 const { hostRoot } = require("./host-root.js");

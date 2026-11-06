@@ -17,7 +17,7 @@
  * session's own tree, a linked worktree of it where the session runs in one:
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
  * The harness sets `CLAUDE_PROJECT_DIR` to the linked worktree a session was
- * launched in (#4487, measured 6 Nov 2026), and the host root re-points that at
+ * launched in (#4487), and the host root re-points that at
  * its main checkout, so the host root never says which tree is the session's;
  * only the hook input's `cwd` does. A script that writes tracked
  * files writes `worktreeRoot()`: through `hostRoot()` a worktree session's
@@ -113,38 +113,40 @@ function owningCheckout(cwd, timeoutMs) {
 }
 
 /**
+ * A file's first line, a trailing CR dropped and nothing else trimmed: the
+ * parse rule all three halves share.
+ * @param {string} file
+ * @returns {string}
+ */
+const firstLine = (file) =>
+	(fs.readFileSync(file, "utf8").split("\n")[0] ?? "").replace(/\r$/, "");
+
+/**
  * The main checkout of a declared root that is a linked worktree, else the
  * root itself. Read from git's on-disk layout, never a fork: every hook pays
  * this. A linked worktree's `.git` is a file naming its git dir, whose
  * `commondir` names the common dir; `checkoutOfCommonDir()` takes it from
  * there. A `.git` directory, none, or a submodule's git file all keep `dir`.
  * `dir` comes dereferenced, so a relative git dir resolves from the real
- * directory, as git resolves it. The first line alone is read, as the bash
- * and Python halves read it.
+ * directory, and so does the git dir before `commondir` is joined to it.
  * @param {string} dir
  * @returns {string}
  */
 function declaredCheckout(dir) {
 	let gitDir;
 	try {
-		const first = fs
-			.readFileSync(path.join(dir, ".git"), "utf8")
-			.split("\n")[0]
-			?.replace(/\r$/, "");
-		const named = first?.startsWith("gitdir: ")
+		const first = firstLine(path.join(dir, ".git"));
+		const named = first.startsWith("gitdir: ")
 			? first.slice("gitdir: ".length)
 			: "";
 		if (!named) return dir;
-		gitDir = path.resolve(dir, named.trim());
+		gitDir = deref(path.resolve(dir, named));
 	} catch {
 		return dir;
 	}
 	let common;
 	try {
-		common = path.resolve(
-			gitDir,
-			fs.readFileSync(path.join(gitDir, "commondir"), "utf8").trim(),
-		);
+		common = path.resolve(gitDir, firstLine(path.join(gitDir, "commondir")));
 	} catch {
 		return dir;
 	}

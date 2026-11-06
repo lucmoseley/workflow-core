@@ -10,7 +10,7 @@
 # gr_config_dir is the one exception: guard-log.sh keeps a copy, since its
 # detached fail-open log still needs a real config dir (#2095).
 #
-# BYTE-IDENTICAL OUTPUT IS THE CONSTRAINT, twice over. lib/guard-entry.js
+# BYTE-IDENTICAL OUTPUT IS THE CONSTRAINT. lib/guard-entry.js
 # writes a latch path clear-rule-latch.sh globs for, and gl_log derives the error-log directory
 # arbiter-core.js's stateDir() must agree with — so `scripts/lib/host-root.js`,
 # the JS half of this seam, strips the same trailing slash and dereferences the

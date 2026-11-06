@@ -58,18 +58,26 @@ def host_root(cwd: str | None = None) -> str:
     )
 
 
+def _first_line(file: Path) -> str:
+    """host-root.js's firstLine(): the first line, a trailing CR dropped and
+    nothing else trimmed."""
+    with open(file, newline="") as f:
+        line = f.read().split("\n")[0]
+    return line[:-1] if line.endswith("\r") else line
+
+
 def _declared_checkout(root: str) -> str:
     """The main checkout of a declared root that is a linked worktree, else the
     root: host-root.js's declaredCheckout(), read from git's on-disk layout
     with no fork, from the dereferenced root. A submodule's git file has no
     `commondir`, so keeps it."""
     try:
-        line = (Path(root) / ".git").read_text().splitlines()[0]
+        line = _first_line(Path(root) / ".git")
         if not line.startswith("gitdir: "):
             return root
-        git_dir = Path(root) / line[len("gitdir: ") :].strip()
-        common = git_dir / (git_dir / "commondir").read_text().strip()
-    except (OSError, IndexError):
+        git_dir = _deref(str(Path(root) / line[len("gitdir: ") :]))
+        common = os.path.join(git_dir, _first_line(Path(git_dir) / "commondir"))
+    except OSError:
         # No git file, or one naming no common dir: no linked worktree to
         # re-point, so the declared root is the host (#4487).
         return root

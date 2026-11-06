@@ -13,8 +13,7 @@
  *
  * Loosen a case and a divergence lands unseen: the guards' fail-open records
  * go to a project directory check-guard-errors.js never reads, so every
- * guard that failed open looks as if it never had. This test, red in CI, is
- * what catches it.
+ * guard that failed open looks as if it never had.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,6 +31,7 @@ let linked: string;
 let linkedLink: string;
 let gitFiled: string;
 let relLink: string;
+let spaced: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -79,6 +79,13 @@ beforeAll(() => {
 	fs.mkdirSync(path.join(tmp, "links"));
 	relLink = path.join(tmp, "links", "rel");
 	fs.symlinkSync(rel, relLink);
+	/* Whitespace past the path is part of it: no half trims it. */
+	spaced = path.join(tmp, "spaced");
+	execFileSync("git", ["worktree", "add", "-q", spaced], { cwd: repo });
+	fs.writeFileSync(
+		path.join(spaced, ".git"),
+		`gitdir: ${path.join(repo, ".git", "worktrees", "spaced")} \n`,
+	);
 });
 
 afterAll(() => {
@@ -181,6 +188,11 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			() => repo,
 		],
 		[
+			"a CLAUDE_PROJECT_DIR whose git file names its git dir with a trailing space",
+			() => [tmp, spaced],
+			() => spaced,
+		],
+		[
 			"a CLAUDE_PROJECT_DIR whose git file names no common dir",
 			() => [tmp, gitFiled],
 			() => gitFiled,
@@ -215,8 +227,6 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 	});
 });
 
-/* The split #4487 measured: a hook handed the worktree and a script run from
- * the Bash tool, with no CLAUDE_PROJECT_DIR, filed claims in two stores. */
 it("a hook handed a linked worktree and a Bash-route script read one claim store", () => {
 	const stateDir = (declared: string | undefined) =>
 		spawnSync(
