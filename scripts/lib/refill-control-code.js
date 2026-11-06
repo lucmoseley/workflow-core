@@ -40,8 +40,8 @@ const isGone = (err) => caught(err).code === "ENOENT";
 
 /**
  * `file` named through the boot link where it sits in one of the loop's code
- * worktrees, which the loop removes once it adopts a newer tip; null where it
- * sits in none.
+ * worktrees, which the loop removes once it adopts a newer tip and nothing
+ * runs from it; null where it sits in none.
  * @param {string} file a real path
  */
 function throughBootLink(file) {
