@@ -26,6 +26,7 @@ const {
 	gitBinary,
 	gitSpawnOptions,
 	GIT_TIMEOUT_MS,
+	BOTH_DIRS_ARGS,
 } = require("./git.js");
 
 /** @typedef {(file: string, args: string[], options: object) => string | Buffer} ExecFn */
@@ -221,13 +222,7 @@ function readUntrackedEntries(root) {
  * @returns {boolean}
  */
 function readLinkedWorktree(root, execFn = execProgram) {
-	const [gitDir, common] = (
-		gitRead(
-			["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
-			root,
-			execFn,
-		) ?? ""
-	)
+	const [gitDir, common] = (gitRead(BOTH_DIRS_ARGS, root, execFn) ?? "")
 		.trim()
 		.split("\n");
 	return Boolean(gitDir && common && gitDir !== common);

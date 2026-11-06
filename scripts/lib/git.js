@@ -361,6 +361,7 @@ module.exports = {
 	gitOrNull,
 	gitCommonDir,
 	gitDirs,
+	BOTH_DIRS_ARGS,
 	gitCommonDirOrThrow,
 	revParseWithCommonDirOrThrow,
 	spawnGitSync,
