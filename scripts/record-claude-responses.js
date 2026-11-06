@@ -14,9 +14,11 @@
  *     `claude stop`'s answers to that job and to an id no daemon holds, which
  *     lib/claude-stop.js reads (#2988);
  *   - scripts/fixtures/bg-launch.json: the answers of a fresh `claude --bg
- *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, and
- *     of a promptless named one, which start-session.sh reads, and `claude
- *     rm`'s answers to a live job and to an id no daemon
+ *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, of a
+ *     promptless named one, which start-session.sh reads, of one whose prompt
+ *     follows its flags, as dispatch-sessions.sh and run-arm-test.js launch,
+ *     and of a named one of those, dispatch-sessions.sh's overflow launch,
+ *     and `claude rm`'s answers to a live job and to an id no daemon
  *     holds, which guard-main-checkout-job.js reads (#4343);
  *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a
  *     terminal, and pty_type.py's, which the refill loop's typed resume
@@ -37,8 +39,9 @@
  * It launches one throwaway Haiku session and resumes it
  * while it works, then again once stopped, then once more with its job
  * directory deleted, launches a second told to ask one question and a third
- * told to run one command it must ask leave for, removes that third with
- * `claude rm`, and stops every other job it started, so it spends up to seven short turns. The command never
+ * told to run one command it must ask leave for, then a fourth and a fifth
+ * with the prompt after their flags, the fifth named, removes that third with
+ * `claude rm`, and stops every other job it started, so it spends up to nine short turns. The command never
  * runs: the prompt is never answered. The `/usage` probe spends no turn, but
  * first waits up to two minutes for the seat's cache to age into a refresh.
  *
@@ -118,6 +121,8 @@ const SYNTHETIC = {
 	copyId: "5e55c0b1",
 	removedId: "5e55de1e",
 	idleId: "5e551d1e",
+	namedId: "5e55a3ed",
+	positionalId: "5e55b05e",
 };
 
 /** @param {Row} row */
@@ -207,6 +212,7 @@ const untilState = async (id, done, fails) =>
 	);
 
 const IDLE_NAME = "a-recorded-launch";
+const NAMED_NAME = "Overflow · a-recorded-launch";
 
 /**
  * `claude --bg --model haiku [...flags] -- <prompt>`, and the job id it
@@ -216,6 +222,20 @@ const IDLE_NAME = "a-recorded-launch";
  */
 const launch = (prompt, flags = []) =>
 	launchArgv(["--bg", "--model", "haiku", ...flags, "--", prompt]);
+
+/**
+ * `launched`'s record, its job id swapped for `id`: that launch's line names
+ * no session.
+ * @param {ReturnType<typeof launchArgv>} launched
+ * @param {string} id
+ */
+const syntheticLaunch = (launched, id) => ({
+	argv: launched.argv,
+	id,
+	status: launched.status,
+	stdout: launched.stdout.replaceAll(launched.id, id),
+	stderr: launched.stderr.replaceAll(launched.id, id),
+});
 
 /**
  * `claude <argv>`, a launch, and the job id it started.
@@ -463,6 +483,17 @@ async function main() {
 			throw new Error(
 				`could not remove ${idle.id}: ${idleRemoved.stderr.trim()}`,
 			);
+		const positional = launchArgv(["--bg", "--model", "haiku", PROMPT]);
+		started.push(positional.id);
+		const named = launchArgv([
+			"--bg",
+			"--model",
+			"haiku",
+			"-n",
+			NAMED_NAME,
+			PROMPT,
+		]);
+		started.push(named.id);
 		const removed = claude(["rm", permissionJob]);
 		if (removed.status !== 0)
 			throw new Error(
@@ -514,14 +545,9 @@ async function main() {
 					stdout: syntheticText(launched.stdout),
 					stderr: syntheticText(launched.stderr),
 				},
-				/* The id alone: its line's name is IDLE_NAME, no session's. */
-				idle: {
-					argv: idle.argv,
-					id: SYNTHETIC.idleId,
-					status: idle.status,
-					stdout: idle.stdout.replaceAll(idle.id, SYNTHETIC.idleId),
-					stderr: idle.stderr.replaceAll(idle.id, SYNTHETIC.idleId),
-				},
+				idle: syntheticLaunch(idle, SYNTHETIC.idleId),
+				positional: syntheticLaunch(positional, SYNTHETIC.positionalId),
+				named: syntheticLaunch(named, SYNTHETIC.namedId),
 			},
 			removals: {
 				ok: {
