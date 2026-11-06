@@ -14,6 +14,7 @@
  * (mantahostels#1795), which binds a require added here.
  */
 
+const path = require("node:path");
 const core = require("./arbiter-core.js");
 /* A leaf outside the arbiter families, exempt from the split rule's cycle
  * discipline and named as such in arbiter-store.js. Required rather than having
@@ -24,7 +25,11 @@ const hookRecord = require("./hook-record.js");
 /* The marker directory itself — .claude/tmp/markers rather than the repo root,
  * since F8 (mantahostels#3515, #2). Required for the same reason
  * hookRecord is: one place to miss, not two. */
-const { markersDir, PASS_MARKER_PREFIXES } = require("./marker-root.js");
+const {
+	MARKERS_REL,
+	markersDir,
+	PASS_MARKER_PREFIXES,
+} = require("./marker-root.js");
 /* guard-priced-options.js's markers, read off its limb table rather than
  * copied: a limb added there is swept here with no second edit (#1474). A
  * data-only leaf, so destructured like hook-record.js. */
@@ -32,6 +37,7 @@ const {
 	PREFIXES: pricedOptionsPrefixes,
 } = require("./priced-options-limbs.js");
 const { readSessionsResumeExpected } = require("./resume-expected.js");
+const { readLinkedWorktrees } = require("./worktree-paths.js");
 
 // ---------------------------------------------------------------------------
 // The hook markers — under .claude/tmp/markers (F8, mantahostels#3515, issue #2),
@@ -39,6 +45,15 @@ const { readSessionsResumeExpected } = require("./resume-expected.js");
 //
 // Not the `.said-` markers: those live in locks/ and are sweepDebris's.
 // ---------------------------------------------------------------------------
+
+/**
+ * Keyed on `CLAUDE_PROJECT_DIR` as handed, a worktree session's own worktree,
+ * and never re-keyed: a session that merged a re-keying mid-run would be
+ * refused every tool call (#4487). So the sweep visits each registered
+ * worktree for it (#4531), and for it alone: #4487 keys the other families on
+ * the main checkout, so a worktree's other files are not this sweep's.
+ */
+const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
 
 /**
  * Session-suffixed marker files whose whole suffix is the raw session id, kept
@@ -97,7 +112,7 @@ const MARKER_PREFIXES = [
 	".session-ceiling-compactions-",
 	".scratch-written-",
 	".compaction-trigger-",
-	".self-plugin-loaded-",
+	SELF_PLUGIN_PREFIX,
 	".lost-deny-nagged-",
 	".lost-deny-seen-",
 	".automode-refusal-nagged-",
@@ -232,6 +247,10 @@ function buildResumeExpected(root) {
  * the backstop already chooses when attribution fails; the breadcrumb case is
  * weighed on mantahostels#1278.
  *
+ * The self-plugin marker pays most (#4531): swept from a running session, the
+ * canary refuses its every tool call until a clear or compact writes a new
+ * one.
+ *
  * The rule latches pay MORE for that same residual, and it was not weighed when
  * the clock was chosen (mantahostels#1804). Sweeping an unregistered-but-running session's
  * latch un-latches the rule, so the next trigger re-injects text that session
@@ -245,15 +264,16 @@ function pruneMarkers() {
 	const root = core.repoRoot();
 	const isResumeExpected = buildResumeExpected(root);
 	const markers = markersDir(root);
-	// Three passes because the families are kept for different lengths of time
-	// and sweepAged takes one age. Each spares everything outside its own family,
+	// Separate passes because the families are kept for different lengths of
+	// time and sweepAged takes one age. Each spares everything outside its own family,
 	// so none can reach another's files. The third shares the first's age and the
 	// second's suffix matching — see RULE_LATCH_PREFIX for why it is not simply an
 	// entry in MARKER_PREFIXES.
 	//
-	// All three sweep `.claude/tmp/markers` rather than the repo root since F8
+	// All sweep `.claude/tmp/markers` rather than the repo root since F8
 	// (mantahostels#3515, #2) — root itself before that.
-	core.sweepAged(markers, MARKER_AGE_MS, (f) => {
+	/** @param {string} f */
+	const sparedMarker = (f) => {
 		const prefix = MARKER_PREFIXES.find((p) => f.startsWith(p));
 		if (!prefix) return true;
 		// The suffix is the raw session id — the backstop interpolates it
@@ -263,7 +283,8 @@ function pruneMarkers() {
 			live.has(id) ||
 			(PASS_MARKER_PREFIXES.includes(prefix) && isResumeExpected(id))
 		);
-	});
+	};
+	core.sweepAged(markers, MARKER_AGE_MS, sparedMarker);
 	/* Its own directory (mantahostels#3382), under the markers directory
 	 * rather than the repo root (F8). The prefix test stays: a
 	 * file in there under another name is not this family's to delete. */
@@ -273,6 +294,18 @@ function pruneMarkers() {
 	core.sweepAged(markers, MARKER_AGE_MS, (f) =>
 		f.startsWith(RULE_LATCH_PREFIX) ? liveBreadcrumb(f, live) : true,
 	);
+	/* Joined, not markersDir(): that creates the directory, and a worktree
+	 * with none has nothing to sweep. Where git will not list them, the
+	 * worktrees go unswept this run and the failure is logged (#4531). */
+	const worktrees = readLinkedWorktrees(root);
+	if (worktrees === null)
+		core.logError("pruneMarkers", new Error("git worktree list failed"));
+	for (const wt of worktrees ?? [])
+		core.sweepAged(
+			path.join(wt, MARKERS_REL),
+			MARKER_AGE_MS,
+			(f) => !f.startsWith(SELF_PLUGIN_PREFIX) || sparedMarker(f),
+		);
 }
 
 module.exports = {
