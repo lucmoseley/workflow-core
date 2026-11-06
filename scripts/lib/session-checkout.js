@@ -848,7 +848,9 @@ function launchDir(cwd, prompt, how = {}) {
 
 /**
  * `dir` sits where a cut puts a session's worktree, directly under `root`'s
- * worktrees folder, and is not the queue lander's own tree.
+ * worktrees folder, and is not the queue lander's own tree (#4421): that tree
+ * is never reaped, the lander rebuilding it itself, and no session launches
+ * into it.
  * @param {string} root the main checkout
  * @param {string} dir
  */

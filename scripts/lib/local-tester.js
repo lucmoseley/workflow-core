@@ -551,11 +551,13 @@ function readRunsAt(dir, pytest, files) {
 }
 
 /**
+ * @typedef {{root: string, dir: string, sha: string, exec: Exec}} Checkout
+ *   the lander's tree `dir` of the main checkout `root`, to be at `sha`
+ */
+
+/**
  * @typedef {object} SlotRuns
  * @property {() => Promise<Admission>} admit one suite slot
- * @property {() => void} refresh the tree checked out at the sha again,
- *   rebuilt where it went during the slot wait (#4421)
- * @property {Exec} exec
  * @property {(pid: number) => number} treePss
  * @property {{ran: number, peakKb: number, samples: number}} tally
  *   accumulator: the runs spawned, their highest tree peak and the reads it
@@ -563,37 +565,46 @@ function readRunsAt(dir, pytest, files) {
  */
 
 /**
- * `dir` checked out afresh by `refresh` and installed, inside a held slot.
- * @param {string} dir
- * @param {() => void} refresh
- * @param {Exec} exec
- * @returns {string|null} why it could not be readied, or null
+ * @param {Checkout} checkout
+ * @returns {string|null} why the checkout failed, or null
  */
-function prepare(dir, refresh, exec) {
+function checkOutOrWhy({ root, dir, sha, exec }) {
 	try {
-		refresh();
+		checkOut(root, dir, sha, exec);
+		return null;
 	} catch (err) {
 		return `checkout failed: ${whyFailed(err)}`;
 	}
-	try {
-		install(dir, exec);
-	} catch (err) {
-		return `install failed: ${whyFailed(err)}`;
-	}
-	return null;
 }
 
 /**
- * Each group of runs in `dir`, in turn, each in a suite slot of its own
- * taken by `admit`, checking out and installing in it first: green where every run exits 0,
- * red with the files they name where one fails naming some, and no verdict
- * at the first step that reaches none.
+ * The tree checked out again, rebuilt where it went during the slot wait
+ * (#4421), and installed.
+ * @param {Checkout} checkout
+ * @returns {string|null} why it could not be readied, or null
+ */
+function checkOutAndInstall(checkout) {
+	const why = checkOutOrWhy(checkout);
+	if (why !== null) return why;
+	try {
+		install(checkout.dir, checkout.exec);
+		return null;
+	} catch (err) {
+		return `install failed: ${whyFailed(err)}`;
+	}
+}
+
+/**
+ * Each group of runs at the checkout, in turn, each in a suite slot of its
+ * own taken by `admit`, checking out and installing in it first: green where
+ * every run exits 0, red with the files they name where one fails naming
+ * some, and no verdict at the first step that reaches none.
  * @param {Run[][]} groups
- * @param {string} dir
+ * @param {Checkout} checkout
  * @param {SlotRuns} slotRuns
  * @returns {Promise<Verdict>}
  */
-async function runEach(groups, dir, { admit, refresh, exec, treePss, tally }) {
+async function runEach(groups, checkout, { admit, treePss, tally }) {
 	/** @type {Set<string>} */
 	const failing = new Set();
 	/** @type {import("./queue-lander.js").Failure[]} */
@@ -612,9 +623,9 @@ async function runEach(groups, dir, { admit, refresh, exec, treePss, tally }) {
 		if (!slot.ok)
 			return { kind: "unknown", reason: slot.reason, transient: true };
 		try {
-			const unready = prepare(dir, refresh, exec);
+			const unready = checkOutAndInstall(checkout);
 			if (unready !== null) return { kind: "unknown", reason: unready };
-			const why = await runInSlot(runs, dir, {
+			const why = await runInSlot(runs, checkout.dir, {
 				spawned: slot.spawned,
 				treePss,
 				tally,
@@ -730,18 +741,13 @@ function recordHolders(root, sha, ps) {
 }
 
 /**
- * @param {{root: string, dir: string, sha: string, exec: Exec}} checkout
+ * @param {Checkout} checkout
  * @param {string} pytest
  * @param {string[]} files
  * @returns {Run[][] | string} the groups, or why none can be had
  */
-function checkedOutRuns({ root, dir, sha, exec }, pytest, files) {
-	try {
-		checkOut(root, dir, sha, exec);
-	} catch (err) {
-		return `checkout failed: ${whyFailed(err)}`;
-	}
-	return readRunsAt(dir, pytest, files);
+function checkedOutRuns(checkout, pytest, files) {
+	return checkOutOrWhy(checkout) ?? readRunsAt(checkout.dir, pytest, files);
 }
 
 /**
@@ -776,7 +782,9 @@ function localTester({
 	const dir = path.join(root, LANDER_WORKTREE);
 	return {
 		async verdict(sha, files = []) {
-			const groups = checkedOutRuns({ root, dir, sha, exec }, pytest, files);
+			/** @type {Checkout} */
+			const checkout = { root, dir, sha, exec };
+			const groups = checkedOutRuns(checkout, pytest, files);
 			if (typeof groups === "string")
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";
@@ -784,10 +792,8 @@ function localTester({
 			const watched = watchMemoryShut(() =>
 				admit({ chargeMb: CHARGE_MB[kind] }),
 			);
-			const verdict = await runEach(groups, dir, {
+			const verdict = await runEach(groups, checkout, {
 				admit: watched.admit,
-				refresh: () => checkOut(root, dir, sha, exec),
-				exec,
 				treePss,
 				tally,
 			});
