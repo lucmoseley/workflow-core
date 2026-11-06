@@ -6,14 +6,14 @@
  * spent beside them.
  */
 
-const fs = require("node:fs");
+const { readBodyFile } = require("./body-file.js");
 const { gh } = require("./gh.js");
 
 const GH_TIMEOUT_MS = 3000;
 
 /** @returns {import("./issue-create-label.js").LabelPorts} */
 const buildHostPorts = () => ({
-	readFile: (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined),
+	readFile: readBodyFile,
 	gh: (args, cwd) => gh(args, { cwd, timeout: GH_TIMEOUT_MS }),
 });
 

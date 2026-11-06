@@ -56,8 +56,13 @@
  *   runs at `main` and alone on `lander/iso-suite-*` refs, whose pushes the
  *   suite runs on; `main` shares it where `main` fails every job it does.
  * - **Refused.** A push to `main` the remote refuses, as its ruleset does, is
- *   final: the batch is held naming it, and its sha leaves the green ledger,
- *   so the pre-push gate passes no later push of it.
+ *   final for that sha (#4501): it is written to the refused record, leaves
+ *   the green ledger, so the pre-push gate passes no later push of it, and
+ *   the batch is held naming it. No batch lands a refused sha: a member
+ *   whose own sha was refused is merged as a new commit even where it
+ *   descends from `main`, and a merge that makes a refused sha again is
+ *   held. Residual: the refused record keeps every row for good, one per
+ *   refusal, which no run prunes.
  * - **Restart.** Each decision is written to the batch record, which keeps
  *   the phase, the isolation merges and the serial steps, before the act it
  *   governs, so a rerun after a crash converges on it.
@@ -65,15 +70,19 @@
  *   the run read closed at its start is compare-and-deleted, and its drop
  *   record entry marked reaped, so landing-status still names the ticket. An
  *   entry reaped longer ago than the queue log keeps its rows is pruned at a
- *   run's start.
+ *   run's start. A `dropped/*` ref no entry names, as a lost or torn record
+ *   leaves it, gets its entry back first, naming the fix ticket the tracker
+ *   holds under its title, or none, so a ticket is filed for it (#4498).
  * - **Queue log.** A take row for each member a batch takes, a land row for
  *   each member `main` moves past, and a drop row for each dropped member,
  *   through the injected `logQueue`. A batch `main` holds with its land rows
  *   unrecorded, as a crash after the push leaves it, logs them on restart.
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
- *   files it ran and its pass, the rerun and the confirm being the second
- *   and a base check at `main` its own. An unknown verdict is no verdict: it lands and
- *   drops nothing and is never ledgered, so the next run asks again.
+ *   files it ran and its pass, the rerun and the confirm being the second.
+ *   A base check's verdict at `main` is kept on the batch record, never the
+ *   ledger, so each batch asks it afresh (#4501). An unknown
+ *   verdict is no verdict: it lands and drops nothing and is never
+ *   ledgered, so the next run asks again.
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
  *   fault, a broken git object, a merge timing out, a tester's `transient` no
  *   verdict, as its suite slot staying shut) is retried with backoff and the
@@ -92,6 +101,7 @@ const {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	QUEUE_PREFIX,
+	droppedNameOf,
 	droppedRefsOf,
 } = require("./landing-refs.js");
 const { QUEUE_LOG_RETAIN_MS } = require("./queue-log.js");
@@ -167,6 +177,11 @@ class TransientFault extends Error {}
  * @property {readonly Isolated[]} isolated
  * @property {Serial|null} serial
  * @property {Hold|null} hold
+ * @property {readonly BaseVerdict[]} bases the base checks this batch asked
+ * @typedef {{readonly sha: string, readonly files: readonly string[],
+ *   readonly verdict: Exclude<Verdict, {kind: "unknown"}>}} BaseVerdict a
+ *   base check's verdict at `main`'s `sha` on `files`, none for the whole
+ *   suite
  * @typedef {{readonly ref: string, readonly sha: string}} DroppedRef a
  *   `dropped/*` ref on the remote, `ref` after `refs/heads/`
  * @typedef {{readonly main: string|null, readonly queue: readonly QueueRef[],
@@ -181,12 +196,15 @@ class TransientFault extends Error {}
  *   readonly after: readonly string[]}} Collision the serial step `step`,
  *   merging it onto `main` after the members `after` landed, red twice on
  *   `files`, none where the red named none, each member having passed alone
- * @typedef {Unmerged | RedAlone | Collision} Cause
+ * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
+ *   a dropped ref no drop record entry named
+ * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
  * @property {string} sha
  * @property {string} ref the dropped ref holding it, after `refs/heads/`
- * @property {string} onto the `main` it was merged onto
+ * @property {string} onto the `main` it was merged onto, or, for an entry
+ *   written back for a ref none named, `main` when it was
  * @property {Cause} cause
  * @property {number|null} ticket its fix ticket, null until filed
  * @property {number} at when it was dropped, in ms
@@ -205,12 +223,14 @@ class TransientFault extends Error {}
  *   asked
  * @typedef {{readonly kind: "take-batch", readonly batch: Batch}
  *   | {readonly kind: "merge-members", readonly onto: string,
- *     readonly members: readonly Member[]}
+ *     readonly members: readonly Member[], readonly fresh: boolean}
  *   | {readonly kind: "merge-alone", readonly onto: string,
  *     readonly member: Member}
  *   | {readonly kind: "defer-member", readonly name: string}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop}
+ *   | {readonly kind: "adopt-dropped-ref", readonly ref: string,
+ *     readonly sha: string, readonly onto: string}
  *   | {readonly kind: "delete-dropped-ref", readonly ref: string,
  *     readonly sha: string}
  *   | {readonly kind: "test-sha", readonly sha: string}
@@ -223,8 +243,10 @@ class TransientFault extends Error {}
  *   | {readonly kind: "unledger", readonly sha: string}
  *   | {readonly kind: "start-isolation" | "start-serial",
  *     readonly blame: Blame}
- *   | {readonly kind: "merge-iso" | "serial-land-step",
- *     readonly onto: string, readonly member: Member}
+ *   | {readonly kind: "merge-iso", readonly onto: string,
+ *     readonly member: Member}
+ *   | {readonly kind: "serial-land-step", readonly onto: string,
+ *     readonly member: Member, readonly fresh: boolean}
  *   | {readonly kind: "isolate-members" | "confirm-members",
  *     readonly files: readonly string[], readonly runs: readonly IsoRun[]}
  *   | {readonly kind: "rebatch-passers", readonly ahead: readonly string[]}
@@ -234,7 +256,9 @@ class TransientFault extends Error {}
  *   | {readonly kind: "record-landed", readonly sha: string}
  *   | {readonly kind: "delete-landed-ref", readonly name: string,
  *     readonly sha: string}
- *   | {readonly kind: "exit", readonly reason: string}} QueueAction
+ *   | {readonly kind: "exit", readonly reason: string,
+ *     readonly relaunch?: string}} QueueAction `relaunch`, the `main` a
+ *   fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
  * @typedef {"rerun-files" | "check-base" | "file-base-red" | "hold"
  *   | "start-isolation" | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
@@ -252,6 +276,8 @@ class TransientFault extends Error {}
  * @property {Batch|null} batch the batch record
  * @property {(sha: string) => boolean} isGreen whether the green ledger holds
  *   `sha`
+ * @property {(sha: string) => string|null} refusalOf the remote's refusal of
+ *   a push of `sha` to `main`, where the refused record holds one
  * @property {(sha: string, files: readonly string[], pass: number) =>
  *   Verdict|null} verdictOf the verdict ledgered at `sha` on `files`, empty
  *   for the whole suite, on its `pass`
@@ -270,11 +296,15 @@ class TransientFault extends Error {}
  * @property {readonly string[]} kept members whose compare-and-delete this run
  *   found moved
  * @property {readonly string[]} unfiled dropped refs whose fix ticket this
- *   run could not file
+ *   run could not file or search for
  * @property {readonly string[]} baseFiled the base reds this run filed or
  *   refreshed the base-red ticket for, by baseKey
  * @property {number|null} baseTicket the base-red ticket this run last filed
  *   or refreshed, null where none or it would not file
+ * @property {boolean} [superseded] whether a move of `main` this run made
+ *   changed the code it runs. The run ends on it only once its batch is
+ *   done: what a batch in flight holds in memory — its isolated, unfiled and
+ *   kept members — is lost to a fresh run.
  */
 
 /* The pass of a base check: a run at `main` of its own, never the verdict
@@ -351,10 +381,17 @@ function takeBatch(queue, main, ahead) {
 /**
  * A batch's red-path fields before any red: a fresh object per call, so no
  * two batches share its lists.
- * @returns {Pick<Batch, "ahead"|"blame"|"isolated"|"serial"|"hold">}
+ * @returns {Pick<Batch, "ahead"|"blame"|"isolated"|"serial"|"hold"|"bases">}
  */
 function redPathAtRest() {
-	return { ahead: [], blame: null, isolated: [], serial: null, hold: null };
+	return {
+		ahead: [],
+		blame: null,
+		isolated: [],
+		serial: null,
+		hold: null,
+		bases: [],
+	};
 }
 
 /**
@@ -542,22 +579,26 @@ function redOnMain(onMain, checked, v) {
 
 /**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
- * else what of it `main` shares. A red naming no file is `main`'s where
- * `main` fails every job it does.
+ * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does.
+ * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
  * @param {Extract<Verdict, {kind: "red"}>} v
  * @returns {{action: QueueAction} | {read: BaseRead}}
  */
-function baseCheck(s, main, v) {
+function baseCheck(b, s, main, v) {
 	const files = [...v.files];
-	const there = verdictOr(
-		s,
-		{ sha: main, files, pass: BASE_PASS },
-		{ kind: "check-base", sha: main, files },
-	);
-	if ("action" in there) return there;
-	const onMain = there.v;
+	const onMain = b.bases.find(
+		(x) => x.sha === main && sameFiles(x.files, files),
+	)?.verdict;
+	if (onMain === undefined)
+		return {
+			action: unreadExit(s, { sha: main, files, pass: BASE_PASS }) ?? {
+				kind: "check-base",
+				sha: main,
+				files,
+			},
+		};
 	if (files.length === 0) {
 		const jobs = onMain.kind === "red" ? (onMain.jobs ?? []) : null;
 		const baseOnly =
@@ -618,7 +659,7 @@ function redAction(b, s, main, { sha, whole }) {
 	if ("action" in again) return again.action;
 	if (again.v.kind === "green") return landGreen(again.v, s, land);
 	const files = again.v.files.length > 0 ? again.v.files : whole.files;
-	const checked = baseCheck(s, main, { ...again.v, files });
+	const checked = baseCheck(b, s, main, { ...again.v, files });
 	if ("action" in checked) return checked.action;
 	const owed = baseAction(s, main, checked.read, land);
 	if (owed) return owed;
@@ -726,24 +767,38 @@ function serialAction(b, s, main) {
 	if (at?.name === next.name && at.sha === main)
 		return { kind: "record-step", sha: main, name: next.name };
 	if (at?.name === next.name && at.onto === main)
-		return stepAction(s, { ...at, member: next }, { blame, landed, rebatch });
+		return stepAction(
+			b,
+			s,
+			{ ...at, member: next },
+			{ blame, landed, rebatch },
+		);
 	/* Each member merged into the batch in this order, so one that will not
 	 * now is no collision's culprit: the rest are batched again. */
 	if (aloneAt(s, next.name, main) !== null) return rebatch;
-	return { kind: "serial-land-step", onto: main, member: next };
+	return {
+		kind: "serial-land-step",
+		onto: main,
+		member: next,
+		fresh: isRefused(s, [next]),
+	};
 }
 
 /**
  * The serial step `at`, its member merged onto `main`: landed where its
  * whole suite passes, its member dropped where it is red twice on a blamed
- * file, or on any where the red named none.
+ * file, or on any where the red named none; held where the remote refused
+ * it.
+ * @param {Batch} b
  * @param {QueueState} s
  * @param {Step & {member: Member}} at
  * @param {{blame: Blame, landed: readonly string[], rebatch: QueueAction}}
  *   so the blame, the members landed before it, and the re-batch of the rest
  * @returns {QueueAction}
  */
-function stepAction(s, { sha, onto, member }, { blame, landed, rebatch }) {
+function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
+	const refused = refusedHold(s, onto, sha);
+	if (refused) return refused;
 	/** @type {QueueAction} */
 	const land = { kind: "land-step", sha, name: member.name };
 	if (s.isGreen(sha)) return land;
@@ -777,9 +832,32 @@ function stepAction(s, { sha, onto, member }, { blame, landed, rebatch }) {
 	 * the batch's, and any red beyond `main`'s is batched again to be blamed
 	 * on its own red path. */
 	if (v.files.length === 0) return rebatch;
-	const checked = baseCheck(s, onto, v);
+	const checked = baseCheck(b, s, onto, v);
 	if ("action" in checked) return checked.action;
 	return baseAction(s, onto, checked.read, land) ?? rebatch;
+}
+
+/**
+ * Whether any of `members` is at a sha the remote refused on `main`.
+ * @param {QueueState} s
+ * @param {readonly Member[]} members
+ */
+const isRefused = (s, members) =>
+	members.some((m) => s.refusalOf(m.sha) !== null);
+
+/**
+ * The hold of a batch at `main` whose landing sha `sha` the remote refused,
+ * else null.
+ * @param {QueueState} s
+ * @param {string} main
+ * @param {string} sha
+ * @returns {QueueAction|null}
+ */
+function refusedHold(s, main, sha) {
+	const reason = s.refusalOf(sha);
+	return reason === null
+		? null
+		: { kind: "hold", hold: { kind: "refused", main, sha, reason } };
 }
 
 /**
@@ -797,8 +875,15 @@ function batchAction(b, s, main) {
 	/* A batch merged onto a `main` that has since moved is merged again onto
 	 * the new tip, so `main` only ever fast-forwards. */
 	if (b.phase === "merging" || b.onto !== main || b.integration === null)
-		return { kind: "merge-members", onto: main, members };
+		return {
+			kind: "merge-members",
+			onto: main,
+			members,
+			fresh: isRefused(s, members),
+		};
 	const sha = b.integration;
+	const refused = refusedHold(s, main, sha);
+	if (refused) return refused;
 	/** @type {QueueAction} */
 	const land = { kind: "fast-forward-main", sha };
 	if (s.isGreen(sha)) return land;
@@ -858,17 +943,25 @@ function owedAction(s) {
 			!(d.ticket !== null && s.isClosed(d.ticket)),
 	);
 	if (cut) return { kind: "drop-member", drop: cut };
+	const orphan = s.dropped.find(
+		(r) =>
+			!s.unfiled.includes(r.ref) &&
+			!s.drops.some((d) => d.ref === r.ref && d.sha === r.sha),
+	);
+	if (orphan && s.main !== null)
+		return { kind: "adopt-dropped-ref", ...orphan, onto: s.main };
 	const owed = s.drops.find(
 		(d) => d.ticket === null && !s.unfiled.includes(d.ref),
 	);
 	if (owed) return { kind: "file-fix-ticket", drop: owed };
-	const hold = s.batch?.hold;
 	/* Off the green ledger, so the pre-push gate passes no later push of a sha
-	 * the remote refused; first the batch is held, so a crash between the two
-	 * leaves it ledgered, never pushed again. */
-	if (hold?.kind === "refused" && s.isGreen(hold.sha))
-		return { kind: "unledger", sha: hold.sha };
-	return null;
+	 * the remote refused, before the batch merges again past it. */
+	const b = s.batch;
+	const hold = b?.hold?.kind === "refused" ? b.hold.sha : null;
+	const pushed = [b?.integration, b?.serial?.step?.sha, hold].find(
+		(sha) => sha && s.isGreen(sha) && s.refusalOf(sha) !== null,
+	);
+	return pushed ? { kind: "unledger", sha: pushed } : null;
 }
 
 /**
@@ -902,6 +995,13 @@ function nextQueueAction(s) {
 		(r) => !merged.some((m) => m.name === r.name && m.sha === r.sha),
 	);
 	if (waiting.length === 0) return exit("no queue ref waits");
+	if (s.superseded)
+		return {
+			...exit(
+				"main changed this lander's own code; a fresh run takes the queue",
+			),
+			relaunch: main,
+		};
 	const held = batch && heldExit(batch, main, waiting);
 	if (held) return held;
 	const ahead = batch?.phase === "requeued" ? batch.ahead : [];
@@ -911,10 +1011,11 @@ function nextQueueAction(s) {
 /**
  * @typedef {object} QueueGit
  * @property {() => QueueRefs} refs
- * @property {(onto: string, members: readonly Member[]) => MergeResult}
- *   mergeMembers each member merged in order onto `onto`, in the lander's
- *   own worktree; a lone member descending from `onto` is itself the
- *   integration commit
+ * @property {(onto: string, members: readonly Member[], fresh?: boolean) =>
+ *   MergeResult} mergeMembers each member merged in order onto `onto`, in
+ *   the lander's own worktree; a lone member descending from `onto` is
+ *   itself the integration commit, unless `fresh`, where it is merged as a
+ *   new commit
  * @property {(sha: string) => void} pushBatch `sha` to the lander's batch
  *   ref, forced, so a tester reading that ref's runs sees it
  * @property {(branch: string, sha: string) => void} pushIso `sha` to the
@@ -926,12 +1027,17 @@ function nextQueueAction(s) {
  *   failure, a network fault or `main` moved under it among them
  * @property {(branch: string, sha: string) => boolean} deleteRef deletes the
  *   remote's `branch` only where it still holds `sha`, false where it moved
+ * @property {(sha: string, of: string) => boolean} isAncestor whether `sha`
+ *   is `of` or an ancestor of it
  * @property {(branch: string, sha: string) => void} createRef creates the
  *   remote's `branch` at `sha`, refused where it holds another sha
  * @typedef {object} QueueTracker
  * @property {(d: Drop) => string} fileDropTicket files the drop's fix ticket,
  *   returning the line naming it, as `#<n>`, and throwing a FilingRefusedError
  *   where the tracker refuses it for good
+ * @property {(name: string, sha: string) => number|null} findDropTicket the
+ *   fix ticket, open or closed, filed for `queue/<name>` dropped at `sha`,
+ *   null where the tracker holds none, throwing where it cannot be searched
  * @property {(sha: string, files: readonly string[]) => string} fileBaseRed
  *   files the one base-red ticket for `files` red at `main`'s `sha`, or
  *   refreshes the open one, returning the line naming it
@@ -946,6 +1052,11 @@ function nextQueueAction(s) {
  *   Verdict|null} get
  * @property {(sha: string, files: readonly string[], v: Verdict,
  *   pass?: number) => void} add
+ * @typedef {object} RefusedRecord every sha the remote refused on `main`,
+ *   kept for good, as no batch may push one again
+ * @property {(sha: string) => string|null} refusalOf the refusal of `sha`,
+ *   null where none
+ * @property {(sha: string, reason: string) => void} add
  * @typedef {object} BatchRecord
  * @property {() => Batch|null} read
  * @property {(b: Batch) => void} write
@@ -955,6 +1066,7 @@ function nextQueueAction(s) {
  * @property {Ledger & {remove: (sha: string) => void}} ledger the green
  *   ledger the pre-push gate on `main` reads
  * @property {VerdictLedger} verdicts
+ * @property {RefusedRecord} refused
  * @property {BatchRecord} record
  * @property {DropRecord} drops
  * @property {QueueTracker} tracker
@@ -966,12 +1078,15 @@ function nextQueueAction(s) {
  * @property {(ms: number) => Promise<void>} [wait] the backoff between tries
  *   of a faulted call
  * @property {(action: QueueAction) => void} [log]
- * @property {() => void} [mainMoved] after each move of `main`
+ * @property {(sha: string) => boolean} [mainMoved] after each move of `main`
+ *   to `sha`: true where that changed the code this run loaded and the
+ *   checkout now carries it
  * @property {() => number} now the clock, in ms
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed or left unfiled, or one whose state was not read
  * @typedef {Pick<QueueState, "batch" | "unread" | "unmerged" | "alone"
- *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket">} QueueRun
+ *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
+ *   | "superseded">} QueueRun
  *   what a run carries between actions
  */
 
@@ -1065,10 +1180,8 @@ function dropMember(deps, d, run) {
 function fileFixTicket(deps, d, run) {
 	const { say = () => undefined } = deps;
 	/** @param {string} why */
-	const unfiled = (why) => {
-		say(`fix ticket for ${d.ref} not filed, left for the next run: ${why}`);
-		return { ...run, unfiled: [...run.unfiled, d.ref] };
-	};
+	const unfiled = (why) =>
+		leaveUnfiled(deps, run, { ref: d.ref, undone: "filed", why });
 	let line;
 	try {
 		line = deps.tracker.fileDropTicket(d);
@@ -1093,15 +1206,78 @@ function fileFixTicket(deps, d, run) {
 const FILED = /#(\d+)/;
 
 /**
- * Ledgers `v`, reached at `sha` on `files` on its `pass`; a no verdict is
- * left for the machine to exit on, and a transient one throws for the run
- * to retry.
+ * The run with `ref`'s fix ticket left for the next run, reported.
  * @param {QueueLanderDeps} deps
- * @param {{sha: string, files: readonly string[], pass: number, v: Verdict}} r
+ * @param {QueueRun} run
+ * @param {{ref: string, undone: "filed" | "searched", why: string}} left
+ * @returns {QueueRun}
+ */
+function leaveUnfiled(deps, run, { ref, undone, why }) {
+	const { say = () => undefined } = deps;
+	say(`fix ticket for ${ref} not ${undone}, left for the next run: ${why}`);
+	return { ...run, unfiled: [...run.unfiled, ref] };
+}
+
+/**
+ * Writes back the drop record entry of a dropped ref none names, with the
+ * fix ticket the tracker holds for it, its state read so a closed one is
+ * reaped this run; with none, the next action files one, unless `main`
+ * already holds its sha, where the ref is deleted instead. A search that
+ * throws other than transiently is reported, and the ref left for the next
+ * run, so no second ticket is filed on a search that read nothing (#4498).
+ * @param {QueueLanderDeps} deps
+ * @param {Extract<QueueAction, {kind: "adopt-dropped-ref"}>} action
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
-function writeVerdict(deps, { sha, files, pass, v }, run) {
+function adoptDroppedRef(deps, { ref, sha, onto }, run) {
+	const name = droppedNameOf(ref, sha);
+	let ticket;
+	try {
+		ticket = deps.tracker.findDropTicket(name, sha);
+	} catch (err) {
+		if (isTransientFault(err)) throw err;
+		return leaveUnfiled(deps, run, {
+			ref,
+			undone: "searched",
+			why: parseRefusal(parseErrorText(err)),
+		});
+	}
+	if (ticket === null && deps.git.isAncestor(sha, onto)) {
+		deps.git.deleteRef(ref, sha);
+		return run;
+	}
+	deps.drops.write([
+		...deps.drops.read(),
+		{
+			name,
+			sha,
+			ref,
+			onto,
+			cause: { kind: "unrecorded", name },
+			ticket,
+			at: deps.now(),
+		},
+	]);
+	if (ticket === null) return run;
+	const closed = readClosed(deps, ticket, ref);
+	const { isClosed } = run;
+	return closed
+		? { ...run, isClosed: (n) => n === ticket || isClosed(n) }
+		: run;
+}
+
+/**
+ * Keeps `v`, reached at `sha` on `files` on its `pass`, through `keep`, the
+ * verdict ledger where absent; a no verdict is left for the machine to exit
+ * on, and a transient one throws for the run to retry.
+ * @param {QueueLanderDeps} deps
+ * @param {{sha: string, files: readonly string[], pass: number, v: Verdict}} r
+ * @param {QueueRun} run
+ * @param {(v: Exclude<Verdict, {kind: "unknown"}>) => QueueRun} [keep]
+ * @returns {QueueRun}
+ */
+function writeVerdict(deps, { sha, files, pass, v }, run, keep) {
 	if (v.kind === "unknown" && v.transient)
 		throw new TransientFault(`no verdict at ${short(sha)}: ${v.reason}`);
 	if (v.kind === "unknown")
@@ -1109,6 +1285,7 @@ function writeVerdict(deps, { sha, files, pass, v }, run) {
 			...run,
 			unread: [...run.unread, { sha, files, pass, reason: v.reason }],
 		};
+	if (keep) return keep(v);
 	deps.verdicts.add(sha, files, v, pass);
 	return run;
 }
@@ -1243,7 +1420,8 @@ function recorded(deps, batch, run) {
 
 /**
  * Moves `main` to `sha`, the integration commit or a serial step, then
- * records what landed; a push the remote refuses holds the batch instead.
+ * records what landed; a push the remote refuses is written to the refused
+ * record instead, for the machine to hold the batch on.
  * @param {QueueLanderDeps} deps
  * @param {string} sha
  * @param {QueueRun} run
@@ -1255,31 +1433,12 @@ function moveMain(deps, sha, run, landed) {
 	 * other. */
 	if (!deps.ledger.has(sha)) deps.ledger.add(sha);
 	const refusal = deps.git.pushMain(sha);
-	if (refusal !== null) return refuse(deps, sha, refusal, run);
+	if (refusal !== null) {
+		deps.refused.add(sha, refusal);
+		return run;
+	}
 	const next = landed(run);
-	deps.mainMoved?.();
-	return next;
-}
-
-/**
- * Holds the batch on the remote's refusal of `sha`: pushed again it would be
- * refused again, so no run pushes it while the hold stands, and the next
- * step takes it off the green ledger.
- * @param {QueueLanderDeps} deps
- * @param {string} sha
- * @param {string} reason
- * @param {QueueRun} run
- * @returns {QueueRun}
- */
-function refuse(deps, sha, reason, run) {
-	const b = batchOf(run);
-	const at = b.serial?.step;
-	const main = at?.sha === sha ? at.onto : b.onto;
-	return recorded(
-		deps,
-		{ ...b, phase: "held", hold: { kind: "refused", main, sha, reason } },
-		run,
-	);
+	return deps.mainMoved?.(sha) === true ? { ...next, superseded: true } : next;
 }
 
 /**
@@ -1320,7 +1479,11 @@ async function act(deps, action, run) {
 				kept: [],
 			};
 		case "merge-members": {
-			const merged = git.mergeMembers(action.onto, action.members);
+			const merged = git.mergeMembers(
+				action.onto,
+				action.members,
+				action.fresh,
+			);
 			if (merged.kind !== "merged")
 				return { ...run, unmerged: { onto: action.onto, result: merged } };
 			/** @type {Batch} */
@@ -1347,6 +1510,8 @@ async function act(deps, action, run) {
 			return dropMember(deps, action.drop, run);
 		case "file-fix-ticket":
 			return fileFixTicket(deps, action.drop, run);
+		case "adopt-dropped-ref":
+			return adoptDroppedRef(deps, action, run);
 		case "test-sha":
 			return testSha(deps, action.sha, run);
 		case "fast-forward-main":
@@ -1391,15 +1556,8 @@ async function actRed(deps, action, run) {
 			const v = await verdictAt(deps, sha, [...files], pass === 2);
 			return writeVerdict(deps, { sha, files, pass, v }, run);
 		}
-		case "check-base": {
-			const { sha, files } = action;
-			const branch = isoBranch(files, "base");
-			return testIsolated(
-				deps,
-				{ runs: [{ branch, sha }], files, pass: BASE_PASS },
-				run,
-			);
-		}
+		case "check-base":
+			return checkBase(deps, action, run);
 		case "file-base-red":
 			return fileBaseRed(deps, action.sha, action.files, run);
 		case "hold":
@@ -1446,6 +1604,25 @@ async function actRed(deps, action, run) {
 }
 
 /**
+ * Pushes `main`'s `sha` to `lander/iso-base`, or iso-suite-base for the
+ * whole suite, and asks its verdict on `files` afresh, kept on the batch
+ * record.
+ * @param {QueueLanderDeps} deps
+ * @param {Extract<QueueAction, {kind: "check-base"}>} action
+ * @param {QueueRun} run
+ * @returns {Promise<QueueRun>}
+ */
+async function checkBase(deps, { sha, files }, run) {
+	deps.git.pushIso(isoBranch(files, "base"), sha);
+	const v = await verdictAt(deps, sha, [...files], true);
+	return writeVerdict(deps, { sha, files, pass: BASE_PASS, v }, run, (got) => {
+		const b = batchOf(run);
+		const bases = [...b.bases, { sha, files: [...files], verdict: got }];
+		return recorded(deps, { ...b, bases }, run);
+	});
+}
+
+/**
  * Merges the member alone onto `onto` and records the commit: as its
  * isolation commit, or as the serial step under test. One that does not
  * merge is carried as `alone`, for the machine to drop or re-batch.
@@ -1455,8 +1632,10 @@ async function actRed(deps, action, run) {
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
-function mergeAlone(deps, { kind, member, onto }, run) {
-	const result = deps.git.mergeMembers(onto, [member]);
+function mergeAlone(deps, action, run) {
+	const { kind, member, onto } = action;
+	const fresh = action.kind === "serial-land-step" && action.fresh;
+	const result = deps.git.mergeMembers(onto, [member], fresh);
 	if (result.kind !== "merged")
 		return { ...run, alone: { name: member.name, onto, result } };
 	const b = batchOf(run);
@@ -1491,6 +1670,7 @@ async function step(deps, run, log) {
 		drops: deps.drops.read(),
 		now: deps.now(),
 		isGreen: (sha) => deps.ledger.has(sha),
+		refusalOf: (sha) => deps.refused.refusalOf(sha),
 		verdictOf: (sha, files, pass) => deps.verdicts.get(sha, files, pass),
 		requiresRun: deps.tester.requiresRun === true,
 	});
@@ -1506,20 +1686,36 @@ async function step(deps, run, log) {
  * @returns {(ticket: number) => boolean}
  */
 function readClosedTickets(deps) {
-	const { say = () => undefined } = deps;
 	/** @type {Set<number>} */
 	const closed = new Set();
-	for (const { ticket, ref, reapedAt } of deps.drops.read()) {
-		if (ticket === null || reapedAt !== undefined) continue;
-		try {
-			if (deps.tracker.stateOf(ticket) === "closed") closed.add(ticket);
-		} catch (err) {
-			say(
-				`#${ticket}'s state not read, ${ref} kept for a later run: ${parseRefusal(parseErrorText(err))}`,
-			);
-		}
-	}
+	for (const { ticket, ref, reapedAt } of deps.drops.read())
+		if (
+			ticket !== null &&
+			reapedAt === undefined &&
+			readClosed(deps, ticket, ref)
+		)
+			closed.add(ticket);
 	return (ticket) => closed.has(ticket);
+}
+
+/**
+ * Whether the ticket is closed; one that cannot be read reads as open and is
+ * reported (#4485).
+ * @param {QueueLanderDeps} deps
+ * @param {number} ticket
+ * @param {string} ref the dropped ref it reaps
+ * @returns {boolean}
+ */
+function readClosed(deps, ticket, ref) {
+	const { say = () => undefined } = deps;
+	try {
+		return deps.tracker.stateOf(ticket) === "closed";
+	} catch (err) {
+		say(
+			`#${ticket}'s state not read, ${ref} kept for a later run: ${parseRefusal(parseErrorText(err))}`,
+		);
+		return false;
+	}
 }
 
 /**
@@ -1604,6 +1800,8 @@ function buildQueueActionLine(a) {
 			return `drop-member queue/${a.drop.name}@${short(a.drop.sha)} as ${a.drop.ref}`;
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
+		case "adopt-dropped-ref":
+			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":
 			return `delete-landed-ref queue/${a.name}@${short(a.sha)}`;
 		case "delete-dropped-ref":
