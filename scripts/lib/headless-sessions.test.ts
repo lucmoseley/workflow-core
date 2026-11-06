@@ -472,6 +472,7 @@ describe("end result", () => {
 			seat,
 			keyVar: KEY_VAR,
 			cwd: target,
+			prompt: "/implement 7",
 			log,
 			stderr: err,
 			launchedAt: 1,

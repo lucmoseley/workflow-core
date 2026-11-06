@@ -48,6 +48,7 @@ const CREDIT_REFUSAL = /credit balance is too low|billing_error/i;
  * @property {string} seat config dir
  * @property {string} keyVar the overflow seat's identity
  * @property {string} cwd
+ * @property {string} prompt the turn the run was launched with
  * @property {string} log stream-json output
  * @property {string} stderr
  * @property {number} launchedAt ms

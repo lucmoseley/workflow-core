@@ -1,268 +1,127 @@
 #!/usr/bin/env node
 /*
  * overflow-view.js — the founder's view of the overflow seats' headless
- * sessions (#3685), which no `claude agents` view lists: a plan's included
- * API credits cover `claude -p` alone, never a `--bg` job, which they refuse
- * "Credit balance too low" (#4578), so they never become agents-view jobs.
+ * sessions (#3685, #4583), laid out as `claude agents` lays out plan sessions
+ * (lib/overflow-viewer.js): awaiting input, working, completed.
  *
  * A headless session cannot wait for input: one that asks the founder
- * something ends on a `needs input:` line. Answering it resumes that session
- * with the answer as its next turn, on the same overflow seat.
+ * something ends on a `needs input:` line. A reply resumes the session with
+ * it as the next turn, on the same overflow seat and key, through
+ * lib/headless-sessions.js, which hands the key to the child through the
+ * `apiKeyHelper` alone. A stop goes through lib/claude-stop.js, as the refill
+ * loop's does.
  *
  * Usage:
- *   node scripts/overflow-view.js                    each key's spend, ended runs
- *                                                    waiting on the founder, live runs
- *   node scripts/overflow-view.js --follow <job>     one run's messages and
- *                                                    tool calls as they arrive
- *   node scripts/overflow-view.js --answer <job> <text>
- *                                                    resume that run's session
- *                                                    with <text>
- *   watch -n 15 node scripts/overflow-view.js        a live board
+ *   node scripts/overflow-view.js     on a terminal, the view; piped, its list once
+ *
+ * Keys: ↑↓ select · Enter open the thread · Space reply · ← back · x stop · q quit
  */
 
 const fs = require("node:fs");
 const { parseArgs } = require("node:util");
-const { readJsonl } = require("./lib/jsonl.js");
-const { writeFd } = require("./lib/write-fd.js");
-
-const { readLiveAgents, readStoredRuns } = require("./lib/headless-runs.js");
+const { caught } = require("./lib/caught.js");
+const { stopOn } = require("./lib/claude-stop.js");
 const { launch } = require("./lib/headless-sessions.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
-const { readState } = require("./lib/refill-state.js");
+const { seatBudget } = require("./lib/overflow-budget.js");
+const {
+	buildListLines,
+	openViewer,
+	readSessions,
+} = require("./lib/overflow-viewer.js");
 const {
 	findOverflowSeat,
 	readDeclaredSeats,
 } = require("./lib/refill-seats.js");
+const { writeFd } = require("./lib/write-fd.js");
 
-/** @param {string} s */
-const say = (s) => writeFd(1, `${s}\n`);
-/** @param {string} s */
-const warn = (s) => writeFd(2, `${s}\n`);
+/** @typedef {import("./lib/headless-runs.js").RunRecord} RunRecord */
 
-/* Ended runs older than this are not offered as waiting. Untraced. */
-const WAITING_WINDOW_MS = 48 * 60 * 60 * 1000;
-/* An answer's spend ceiling, as `--max-budget-usd`. Untraced. */
-const ANSWER_BUDGET_USD = 15;
-
-/** @param {number} ms */
-function age(ms) {
-	const m = Math.floor(ms / 60_000);
-	return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60}m`;
-}
-
-/** @param {string} s @param {number} n */
-const clip = (s, n) => {
-	const one = s.replace(/\s+/g, " ");
-	return one.length > n ? `${one.slice(0, n - 1)}…` : one;
-};
-
-/* `any` in these three: a stream-json row is the CLI's undocumented shape,
- * read by optional fields alone. */
-/**
- * @param {Record<string, any>} input
- * @returns {string}
- */
-const toolSummary = (input) =>
-	String(
-		input.command ??
-			input.description ??
-			input.file_path ??
-			input.pattern ??
-			"",
-	);
+/* A reply's spend ceiling, as `--max-budget-usd`. Untraced. */
+const REPLY_BUDGET_USD = 15;
 
 /**
- * The readable events of one stream-json line.
- * @param {Record<string, any>} o
- * @returns {{kind: string, text: string}[]}
+ * The key's headroom for one more run, gated as the dispatcher gates a launch
+ * (scripts/dispatch-sessions.sh): nothing past it.
+ * @param {string} keyVar
+ * @returns {{usd: number}|{why: string}}
  */
-function lineEvents(o) {
-	if (o.type === "result")
-		return [
-			{
-				kind: "end",
-				text: `${o.subtype}${o.is_error ? " (error)" : ""}`,
-			},
-		];
-	if (o.type !== "assistant") return [];
-	return (o.message?.content ?? []).flatMap(
-		(/** @type {Record<string, any>} */ c) => {
-			if (c.type === "text" && c.text.trim())
-				return [{ kind: "says", text: c.text.trim() }];
-			if (c.type === "tool_use")
-				return [{ kind: c.name, text: toolSummary(c.input ?? {}) }];
-			return [];
-		},
-	);
+function readHeadroom(keyVar) {
+	const seat = findOverflowSeat(readDeclaredSeats(), keyVar);
+	if (!seat)
+		return { why: `${keyVar} is not an overflow seat's key in the seat file` };
+	const budget = seatBudget(seat, hostRoot());
+	if ("why" in budget) return budget;
+	if (budget.exhausted || budget.fit === 0)
+		return { why: "the key's budget does not fit a reply" };
+	return { usd: budget.headroomUsd };
 }
 
 /**
- * A run's readable events: text, tool calls, its end.
- * @param {string} log
- * @returns {{kind: string, text: string}[]}
+ * Resume `run`'s session headless with `text` as its next turn.
+ * @param {RunRecord} run
+ * @param {string} text
+ * @param {(keyVar: string) => {usd: number}|{why: string}} [headroomOf]
+ * @returns {{jobId: string}|{why: string}}
  */
-function readEvents(log) {
-	return (readJsonl(log)?.rows ?? []).flatMap((o) => lineEvents(o));
-}
-
-/** @param {{kind: string, text: string}[]} evs */
-const lastSaid = (evs) => evs.findLast((e) => e.kind === "says")?.text ?? "";
-
-/** @returns {Map<string, string>} job id to the loop's prompt */
-function readLoopPrompts() {
-	const prompts = new Map();
-	const { launches } = readState((/** @type {string} */ m) => warn(m));
-	for (const l of launches) if (l.jobId) prompts.set(l.jobId, l.prompt ?? "");
-	return prompts;
-}
-
-/**
- * Ended runs whose last message asks the founder, with no later run of the
- * same session (an answer already sent).
- * @param {import("./lib/headless-runs.js").RunRecord[]} runs
- * @param {Set<string>} live job ids
- */
-function needsInputRuns(runs, live, now = Date.now()) {
-	return runs.filter((r) => {
-		if (live.has(r.jobId) || now - r.launchedAt > WAITING_WINDOW_MS)
-			return false;
-		const later = runs.some(
-			(o) => o.sessionId === r.sessionId && o.launchedAt > r.launchedAt,
-		);
-		const lines = lastSaid(readEvents(r.log)).trim().split("\n");
-		return !later && /^needs input:/i.test(lines.at(-1)?.trim() ?? "");
-	});
-}
-
-function board() {
-	let runs;
-	let liveRecords;
-	try {
-		runs = readStoredRuns();
-		liveRecords = readLiveAgents();
-	} catch (err) {
-		warn(
-			`overflow sessions unreadable: ${err instanceof Error ? err.message : err}`,
-		);
-		return 1;
-	}
-	const prompts = readLoopPrompts();
-	const live = new Set(liveRecords.map((r) => r.id));
-	const now = Date.now();
-	const title = (/** @type {string} */ job) =>
-		clip(prompts.get(job) ?? "(answer or manual run)", 70);
-
-	for (const seat of readDeclaredSeats().seats)
-		if (seat.kind === "overflow")
-			say(buildBudgetLine(seat, seatBudget(seat, hostRoot())));
-
-	const waiting = needsInputRuns(runs, live, now);
-	say(`\nNEEDS INPUT: ${waiting.length}`);
-	for (const r of waiting)
-		say(
-			`\n${r.jobId}  ended ${age(now - r.launchedAt)} after start  ${title(r.jobId)}\n  ${clip(lastSaid(readEvents(r.log)), 600)}\n  answer: node scripts/overflow-view.js --answer ${r.jobId} "<your answer>"`,
-		);
-
-	say(`\nRUNNING: ${liveRecords.length}`);
-	for (const r of liveRecords) {
-		const run = runs.find((x) => x.jobId === r.id);
-		const last = run ? readEvents(run.log).at(-1) : undefined;
-		say(
-			`\n${r.id}  ${age(now - r.startedAt)}  ${title(r.id)}\n  last: ${last ? `${last.kind}: ${clip(last.text, 110)}` : "(nothing yet)"}`,
-		);
-	}
-	say("\nfollow one: node scripts/overflow-view.js --follow <job>");
-	return 0;
-}
-
-/** @param {string} job */
-function readRunNamed(job) {
-	return readStoredRuns().find((r) => r.jobId === job);
-}
-
-/** @param {string} job */
-function follow(job) {
-	const run = readRunNamed(job);
-	if (!run) {
-		warn(`no run ${job}`);
-		return 1;
-	}
-	let shown = 0;
-	/** Shows what arrived; true once the run has ended. */
-	const tick = () => {
-		const evs = readEvents(run.log);
-		for (const e of evs.slice(shown))
-			say(`[${e.kind}] ${e.kind === "says" ? e.text : clip(e.text, 300)}`);
-		shown = evs.length;
-		return evs.at(-1)?.kind === "end";
-	};
-	if (tick()) return 0;
-	/* Untraced: a run's messages a few seconds late read fine on a terminal. */
-	const timer = setInterval(() => {
-		if (tick()) clearInterval(timer);
-	}, 3000);
-	return null;
-}
-
-/** @param {string} job @param {string} text */
-function answer(job, text) {
-	const run = readRunNamed(job);
-	if (!run) {
-		warn(`no run ${job}`);
-		return 1;
-	}
-	const runs = readStoredRuns();
-	const live = new Set(readLiveAgents().map((r) => r.id));
-	if (!needsInputRuns(runs, live).some((r) => r.jobId === job)) {
-		warn(
-			`not sent: ${job} is not a run waiting on you (still running, already answered, or not ended on needs input:)`,
-		);
-		return 1;
-	}
-	/* Gated as the dispatcher gates a launch (scripts/dispatch-sessions.sh):
-	 * nothing past the key's headroom. */
-	const seat = findOverflowSeat(readDeclaredSeats(), run.keyVar);
-	const budget = seat ? seatBudget(seat, hostRoot()) : null;
-	if (!budget || "why" in budget || budget.exhausted || budget.fit === 0) {
-		warn(
-			`not sent: the key's budget does not fit an answer (${budget && "why" in budget ? budget.why : "no headroom"})`,
-		);
-		return 1;
-	}
+function sendReply(run, text, headroomOf = readHeadroom) {
+	const headroom = headroomOf(run.keyVar);
+	if ("why" in headroom) return headroom;
 	const out = launch({
 		keyVar: run.keyVar,
 		cwd: run.cwd,
-		budgetUsd: Math.min(ANSWER_BUDGET_USD, budget.headroomUsd),
+		budgetUsd: Math.min(REPLY_BUDGET_USD, headroom.usd),
 		prompt: text,
 		resume: run.sessionId,
 	});
-	if ("why" in out) {
-		warn(`not sent: ${out.why}`);
-		return 1;
-	}
-	say(
-		`answer sent: session ${run.sessionId} resumed as job ${out.record.jobId}\nfollow it: node scripts/overflow-view.js --follow ${out.record.jobId}`,
-	);
-	return 0;
+	return "why" in out ? out : { jobId: out.record.jobId };
 }
 
-const { values, positionals } = parseArgs({
-	args: process.argv.slice(2),
-	allowPositionals: true,
-	options: {
-		follow: { type: "string" },
-		answer: { type: "string" },
-		help: { type: "boolean" },
-	},
-});
-let code;
-if (values.help) {
-	const text = fs.readFileSync(__filename, "utf8");
-	say(text.slice(0, text.indexOf("*/")));
-	code = 0;
-} else if (values.follow) code = follow(values.follow);
-else if (values.answer && positionals.length > 0)
-	code = answer(values.answer, positionals.join(" "));
-else code = board();
-if (code !== null) process.exitCode = code;
+/**
+ * @param {RunRecord} run
+ * @returns {{ok: true, said: string}|{ok: false, why: string}}
+ */
+const stopRun = (run) => stopOn(run.seat, run.jobId);
+
+/** @param {string[]} argv */
+function main(argv) {
+	let parsed;
+	try {
+		parsed = parseArgs({ args: argv, options: { help: { type: "boolean" } } });
+	} catch (err) {
+		writeFd(2, `${caught(err).message}\n`);
+		return 2;
+	}
+	if (parsed.values.help) {
+		const text = fs.readFileSync(__filename, "utf8");
+		writeFd(1, `${text.slice(0, text.indexOf("*/"))}\n`);
+		return 0;
+	}
+	if (!process.stdin.isTTY || !process.stdout.isTTY) {
+		const { lines } = buildListLines(readSessions(), null, 200, false);
+		writeFd(1, `${lines.join("\n")}\n`);
+		return 0;
+	}
+	openViewer({
+		stdin: process.stdin,
+		stdout: process.stdout,
+		proc: process,
+		reply: sendReply,
+		stop: stopRun,
+		reportCrash: (err) =>
+			writeFd(2, `${err instanceof Error ? err.stack : err}\n`),
+	});
+	return null;
+}
+
+module.exports = { main, sendReply };
+
+if (require.main === module) {
+	try {
+		const code = main(process.argv.slice(2));
+		if (code !== null) process.exitCode = code;
+	} catch (err) {
+		writeFd(2, `overflow sessions unreadable: ${caught(err).message}\n`);
+		process.exitCode = 1;
+	}
+}

@@ -127,6 +127,7 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 		seat: seat.dir,
 		keyVar: seat.keyVar,
 		cwd,
+		prompt,
 		log,
 		stderr,
 		launchedAt: Date.now(),
