@@ -459,7 +459,8 @@ describe("takeover: a stop that does not take leaves the claim untouched", () =>
 		);
 		fs.writeFileSync(
 			path.join(plan(), "on-stop.sh"),
-			`${shellQuote(process.execPath)} -e ${shellQuote(`require(${JSON.stringify(CLAIMS_LIB)}).claimIssue(${N}, { sessionId: "third" })`)}\n`,
+			// A session of its own: `claude stop` hands its child no root (#4595).
+			`CLAUDE_PROJECT_DIR=${shellQuote(sb.repo)} ${shellQuote(process.execPath)} -e ${shellQuote(`require(${JSON.stringify(CLAIMS_LIB)}).claimIssue(${N}, { sessionId: "third" })`)}\n`,
 		);
 		const r = await takeover();
 		expect(r.status).toBe(1);
