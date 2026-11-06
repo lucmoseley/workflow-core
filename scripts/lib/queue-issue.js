@@ -21,6 +21,7 @@ const { parseFiledLine } = require("./filed-line.js");
 const { parseFirstLine } = require("./first-line.js");
 const { gh, ghIssueListAll } = require("./gh.js");
 const { gateOnLineOf } = require("./issue-gate.js");
+const { buildStandaloneLine } = require("./standalone-line.js");
 const { similarTitles } = require("./tracker-ops.js");
 const { refresh: refreshBody } = require("./tracking-issue.js");
 const { takesLabel } = require("./takes-label.js");
@@ -61,7 +62,7 @@ function queueIssueFiler({
 	addLabels,
 }) {
 	return ({ title, standalone, noun, subject }, text) => {
-		const body = `${text.trimEnd()}\n\nStandalone: ${standalone}\n`;
+		const body = `${text.trimEnd()}\n\n${buildStandaloneLine(standalone)}\n`;
 		const found = openIssue(title);
 		if (found !== null) {
 			const gate = gateOnLineOf(found.body);

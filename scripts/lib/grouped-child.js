@@ -17,7 +17,7 @@ const { FIELD, readStatFields } = require("./proc-stat.js");
 const GRACE_POLL_MS = 100;
 /* A guess, as process-fixture.ts's: the kernel's reaping runs on its own clock. */
 const KILL_SETTLE_MS = 5000;
-const NO_END = {
+const NULL_END_FIELDS = {
 	code: null,
 	signal: null,
 	killedFor: null,
@@ -76,7 +76,7 @@ function isGroupAlive(pgid) {
  * @param {number} ms
  * @returns {boolean} whether the group went within `ms`
  */
-function groupGoneWithin(pgid, ms) {
+function isGroupGoneWithin(pgid, ms) {
 	const pause = new Int32Array(new SharedArrayBuffer(4));
 	for (const end = performance.now() + ms; performance.now() < end; ) {
 		if (!isGroupAlive(pgid)) return true;
@@ -97,12 +97,13 @@ function groupGoneWithin(pgid, ms) {
 function endGroup(pgid, graceMs) {
 	const unsignalled = killGroup(pgid, "SIGTERM");
 	if (unsignalled) return { killed: false, unkilled: unsignalled };
-	if (groupGoneWithin(pgid, graceMs)) return { killed: false, unkilled: null };
+	if (isGroupGoneWithin(pgid, graceMs))
+		return { killed: false, unkilled: null };
 	const unkilled = killGroup(pgid, "SIGKILL");
 	if (unkilled) return { killed: true, unkilled };
 	return {
 		killed: true,
-		unkilled: groupGoneWithin(pgid, KILL_SETTLE_MS)
+		unkilled: isGroupGoneWithin(pgid, KILL_SETTLE_MS)
 			? null
 			: `it still answers ${KILL_SETTLE_MS / 1000} s after SIGKILL`,
 	};
@@ -176,7 +177,7 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer, input }) {
 			stdout.destroy();
 			stderr.destroy();
 			settle({
-				...NO_END,
+				...NULL_END_FIELDS,
 				killedFor: unkilled ? `${why}, unkilled: ${unkilled}` : why,
 				killedCode,
 				unkilled,
@@ -204,7 +205,7 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer, input }) {
 		child.on("error", (e) => {
 			live.delete(pgid);
 			settle({
-				...NO_END,
+				...NULL_END_FIELDS,
 				killedFor: e.message,
 				spawnCode: caught(e).code ?? null,
 			});
@@ -212,7 +213,7 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer, input }) {
 		child.on("close", (code, signal) => {
 			live.delete(pgid);
 			if (killing) return;
-			settle({ ...NO_END, code, signal });
+			settle({ ...NULL_END_FIELDS, code, signal });
 		});
 	});
 }

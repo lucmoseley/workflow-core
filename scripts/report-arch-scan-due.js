@@ -79,6 +79,7 @@ const {
 } = require("./lib/workflow-core-config");
 const { takesLabel } = require("./lib/takes-label");
 const { execGit, gitCommonDirOrThrow } = require("./lib/git.js");
+const { buildStandaloneLine } = require("./lib/standalone-line.js");
 
 const RECORD = "docs/data/arch-scan-runs.jsonl";
 /* The spec's chosen values: the start date at #1309 Q4 (A), the threshold,
@@ -543,7 +544,9 @@ function body(reading) {
 		"",
 		"Closed without a scan, this issue is not filed again until growth counted from the close reaches the threshold.",
 		"",
-		`Standalone: the architecture-scan counter's standing condition (${UPSTREAM_TRACKER}#1348).`,
+		buildStandaloneLine(
+			`the architecture-scan counter's standing condition (${UPSTREAM_TRACKER}#1348).`,
+		),
 	].join("\n");
 }
 

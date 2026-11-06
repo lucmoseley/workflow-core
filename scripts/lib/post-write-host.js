@@ -13,6 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
+const { readBytes } = require("./file-read.js");
 
 /**
  * `fn` run from `root`, as the bash hook's `cd "$root"` ran the formatters:
@@ -68,21 +69,14 @@ function buildHostPorts(_root, log) {
 			}
 		},
 		digest: (root, file) => {
-			try {
-				return crypto
-					.createHash("sha1")
-					.update(fs.readFileSync(abs(root, file)))
-					.digest("hex");
-			} catch (e) {
-				/* Null: unread before the format, no reformat is reported;
-				 * unread after, one is (mantahostels#103 §6). */
-				if (caught(e).code !== "ENOENT")
-					log(
-						"the written file did not read for its digest",
-						caught(e).message,
-					);
-				return null;
-			}
+			const got = readBytes(abs(root, file));
+			if (got.state === "read")
+				return crypto.createHash("sha1").update(got.data).digest("hex");
+			/* Null: unread before the format, no reformat is reported; unread
+			 * after, one is (mantahostels#103 §6). */
+			if (got.state === "unreadable")
+				log("the written file did not read for its digest", got.message);
+			return null;
 		},
 		/* The binary by path, never `npx`: in a worktree there is no
 		 * node_modules, and npx then FETCHES an unrelated package called biome

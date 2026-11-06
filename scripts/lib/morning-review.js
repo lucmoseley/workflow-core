@@ -34,6 +34,7 @@ const { DAY_MS } = require("./retained-jsonl.js");
 const { rowChanges } = require("./primitives-table.js");
 const { buildIdleLines } = require("./idle-efforts.js");
 const { renderReadLine, renderUnreadLine } = require("./review-carry.js");
+const { buildStandaloneLine } = require("./standalone-line.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
@@ -767,7 +768,7 @@ function renderReview({
 		"",
 		"Comment `reverse <entry number>` on this issue, one per line. Each becomes a `takes:implement` ticket in that entry's repo carrying the entry's reversal recipe.",
 		"",
-		`Standalone: ${STANDALONE_REASON}`,
+		buildStandaloneLine(STANDALONE_REASON),
 		...renderBookkeepingLines(repos),
 		"",
 	].join("\n");
