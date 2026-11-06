@@ -32,10 +32,9 @@ function fold(readings: Reading[]): string[][] {
 		const startMs = Date.parse(at);
 		if (outcome !== "SKIP")
 			argvs.push(carriedArgs(CLOBBERS, { ...kept, startMs }));
-		const next = carriedNext([{ job: "clobbers", outcome, keys }], {
-			...kept,
-			startMs,
-		});
+		const next = Object.fromEntries(
+			carriedNext([{ job: "clobbers", outcome, keys }], { ...kept, startMs }),
+		);
 		kept = {
 			lastStarts: next.starts ?? kept.lastStarts,
 			rescans: next.rescans ?? kept.rescans,

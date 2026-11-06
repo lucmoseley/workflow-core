@@ -105,12 +105,11 @@ const { isCoreHost } = require("./lib/plugin-state");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { projectSlug } = require("./lib/project-slug");
 const {
-	DAY_MS,
 	FIRST_SINCE_DAYS,
 	carriedArgs,
 	carriedNext,
 } = require("./lib/repo-checks-carry");
-const { REPO_CHECKS } = require("./lib/repo-checks-registry");
+const { REPO_CHECKS, entryOf } = require("./lib/repo-checks-registry");
 const { coreRoot, scriptPath } = require("./lib/script-path");
 const { fromEnv: sessionFromEnv } = require("./lib/session-id");
 const {
@@ -136,6 +135,7 @@ const RESCAN = ".repo-checks-rescan.json";
 const ISSUE_SETS = ".repo-checks-issue.json";
 const ISSUE_TITLE = "Repo checks: standing findings";
 const ISSUE_LABEL = takesLabel("triage");
+const DAY_MS = 24 * 3_600_000;
 /* Spec #1510's chosen ceilings, §Cost and limits. */
 const CHECK_MS = 300_000;
 const RUN_MS = 30 * 60_000;
@@ -152,18 +152,6 @@ const STDERR_LINE_MAX_CHARS = 300;
  * @typedef {{ root: string, file: string, core: boolean, modules: Set<string>,
  *   config: Record<string, unknown>, tracker: () => string | null }} Host
  */
-
-/**
- * The registry entry a job was built from. Every job is, so a miss is a bug.
- *
- * @param {string} id
- * @returns {RepoCheck}
- */
-function entryOf(id) {
-	const entry = REPO_CHECKS.find((e) => e.id === id);
-	if (!entry) throw new Error(`no registry entry "${id}"`);
-	return entry;
-}
 
 /**
  * A key's first field, the finding tag `settled` names.
@@ -475,8 +463,8 @@ function runAll(host, kept) {
  * @param {Job[]} jobs
  */
 function writeCarried(files, kept, jobs) {
-	for (const [name, value] of Object.entries(carriedNext(jobs, kept)))
-		writeJson(files[/** @type {"starts" | "rescans"} */ (name)], value);
+	for (const [name, value] of carriedNext(jobs, kept))
+		writeJson(files[name], value);
 }
 
 /**

@@ -445,7 +445,7 @@ describe("repo-checks: ceilings", () => {
 			stubs: { "digest-version": { sleepMs: 10_000 } },
 		});
 		const started = Date.now();
-		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "600" } });
+		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
 		// §X9: a kill: the ceiling kills a real stub process, and the check after it still has to run.
 		expect(Date.now() - started).toBeLessThan(8000);
 		expect(job(f, "digest-version")).toMatchObject({
@@ -459,11 +459,11 @@ describe("repo-checks: ceilings", () => {
 	it("gives clobbers twice the per-check ceiling, which a whole-history window needs (#1628)", () => {
 		const f = fixture({
 			config: { contract: 1, founder: "F", tracker: "o/r", modules: [] },
-			stubs: { cycles: { sleepMs: 800 }, clobbers: { sleepMs: 800 } },
+			stubs: { cycles: { sleepMs: 1200 }, clobbers: { sleepMs: 1200 } },
 		});
-		/* A real kill, so the real clock: clobbers' 1.2 s leaves 400 ms for
-		 * node's start-up past its 800 ms sleep. */
-		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "600" } });
+		/* A real kill, so the real clock: clobbers' 2 s ceiling leaves 800 ms
+		 * past its 1.2 s sleep for node's start-up, measured at ~49 ms (#4511). */
+		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
 		expect(job(f, "cycles")).toMatchObject({
 			outcome: "BROKEN",
 			summary: expect.stringContaining("killed at its 1 s ceiling"),

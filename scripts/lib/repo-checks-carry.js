@@ -7,7 +7,7 @@
  */
 
 const { isCompleted, keysOf } = require("./key-delta");
-const { REPO_CHECKS } = require("./repo-checks-registry");
+const { entryOf } = require("./repo-checks-registry");
 
 /* Spec #1510's first window, the check's own default. */
 const FIRST_SINCE_DAYS = 30;
@@ -81,40 +81,38 @@ function carriedArgs(entry, { lastStarts, rescans, startMs }) {
 /**
  * What this reading leaves for the next: each `since` entry that completed
  * moved to this reading's start, each `rescan` entry that completed to this
- * reading's issues. A file none of whose entries completed is absent, so the
- * runner leaves it as it was.
+ * reading's issues, as one pair per file to write. A file none of whose
+ * entries completed has no pair, so the runner leaves it as it was.
  *
  * @param {CarriedJob[]} jobs
  * @param {Kept} kept
- * @returns {{ starts?: Record<string, unknown>,
- *   rescans?: Record<string, unknown> }}
+ * @returns {Array<["starts" | "rescans", Record<string, unknown>]>}
  */
 function carriedNext(jobs, { lastStarts, rescans, startMs }) {
 	/**
 	 * @param {"since" | "rescan"} field
+	 * @param {"starts" | "rescans"} name
 	 * @param {Record<string, unknown>} last
 	 * @param {(j: CarriedJob) => unknown} carried
+	 * @returns {Array<["starts" | "rescans", Record<string, unknown>]>}
 	 */
-	const carry = (field, last, carried) => {
+	const carry = (field, name, last, carried) => {
 		const completed = jobs.filter(
-			(j) =>
-				isCompleted(j.outcome) &&
-				REPO_CHECKS.find((e) => e.id === j.job)?.[field] === true,
+			(j) => isCompleted(j.outcome) && entryOf(j.job)[field] === true,
 		);
-		if (completed.length === 0) return {};
+		if (completed.length === 0) return [];
 		const next = { ...last };
 		for (const j of completed) next[j.job] = carried(j);
-		return { [field === "since" ? "starts" : "rescans"]: next };
+		return [[name, next]];
 	};
 	const start = new Date(startMs).toISOString();
-	return {
-		...carry("since", lastStarts, () => start),
-		...carry("rescan", rescans, issuesOf),
-	};
+	return [
+		...carry("since", "starts", lastStarts, () => start),
+		...carry("rescan", "rescans", rescans, issuesOf),
+	];
 }
 
 module.exports = {
-	DAY_MS,
 	FIRST_SINCE_DAYS,
 	carriedArgs,
 	carriedNext,

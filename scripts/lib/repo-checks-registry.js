@@ -234,4 +234,16 @@ const REPO_CHECKS = [
 	},
 ];
 
-module.exports = { REPO_CHECKS };
+/**
+ * The registry entry a job was built from. Every job is, so a miss is a bug.
+ *
+ * @param {string} id
+ * @returns {RepoCheck}
+ */
+function entryOf(id) {
+	const entry = REPO_CHECKS.find((e) => e.id === id);
+	if (!entry) throw new Error(`no registry entry "${id}"`);
+	return entry;
+}
+
+module.exports = { REPO_CHECKS, entryOf };
