@@ -5,7 +5,7 @@
  *
  * Driven end to end through `runInProcess` against a throwaway root, with
  * `gh` and the issue-body writer stubbed as files the script spawns. The gh
- * stub, one server per file, answers the GraphQL search per repo, filtered by the query's
+ * stub answers the GraphQL search per repo, filtered by the query's
  * `updated:` window and paged by cursor, each ticket carrying its first 100
  * comments, REST for the rest, and commit search per repo; it logs its argv, so a case reads what
  * reached the tracker.
