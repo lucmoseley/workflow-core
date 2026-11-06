@@ -19,9 +19,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
 const { deref } = require("./deref.js");
-const { gitRead } = require("./dirty-tree.js");
 const { jobStorePath, readJobRecordIn } = require("./job-paths.js");
-const { worktreePaths } = require("./worktree-paths.js");
 
 /**
  * @typedef {{sessionId: string, name: string|null}} Owner
@@ -32,22 +30,6 @@ const { worktreePaths } = require("./worktree-paths.js");
  * @typedef {{cwds?: Map<string, string>, names?: Map<string, string>}} ListedCwds
  *   the agents oracle's read: each listed session's cwd and name
  */
-
-/**
- * Every linked worktree of the repository holding `root`, symlinks
- * dereferenced, the main checkout left out — or null where git will not list
- * them. A registration whose directory is gone is listed; reading it fails
- * and the caller passes it over.
- * @param {string} root
- * @returns {string[]|null}
- */
-function readLinkedWorktrees(root) {
-	const out = gitRead(["worktree", "list", "--porcelain", "-z"], root);
-	if (out === null) return null;
-	return worktreePaths(() => out)
-		.slice(1)
-		.map(deref);
-}
 
 /**
  * A job record's id, seat, cwd, session, name and state; null where it names
@@ -134,7 +116,7 @@ function listedOwners(worktrees, listed) {
 
 /**
  * Each worktree's owner, for those any recorded cwd lies in.
- * @param {string[]} worktrees dereferenced, as readLinkedWorktrees gives them
+ * @param {string[]} worktrees dereferenced, as worktree-paths.js's readLinkedWorktrees gives them
  * @param {ListedCwds} [listed] the oracle read, whose sessions win over job
  *   records
  * @returns {Map<string, Owner>}
@@ -168,7 +150,6 @@ function worktreeLabel(root, wt) {
 
 module.exports = {
 	readJobCwds,
-	readLinkedWorktrees,
 	worktreeHolding,
 	worktreeLabel,
 	worktreeOwners,
