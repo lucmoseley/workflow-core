@@ -56,7 +56,12 @@ function run(
 	cwd?: string,
 ) {
 	return runInProcess(SCRIPT, args, {
-		env: { ...process.env, ...env },
+		/* Never the machine's own session-kill log. */
+		env: {
+			...process.env,
+			WFC_SESSION_REAP_LOG: path.join(fixture.root, "session-reaps.jsonl"),
+			...env,
+		},
 		...(cwd ? { cwd } : {}),
 	});
 }
@@ -322,7 +327,9 @@ describe("a real process of an ended session", () => {
 					env: {
 						...process.env,
 						CLAUDE_CODE_SESSION_ID: "sess-real-ended",
-						CLAUDE_PID: "99999999",
+						/* This worker: live to a real sweep elsewhere on the
+						 * machine, gone from the fake root below. */
+						CLAUDE_PID: String(process.pid),
 					},
 				},
 			);
@@ -349,6 +356,7 @@ describe("a real process of an ended session", () => {
 						WFC_PROC: fake.root,
 						WFC_REAP_FAKE_ROOT: "kill",
 						CLAUDE_PROJECT_DIR: dir,
+						WFC_SESSION_REAP_LOG: path.join(dir, "session-reaps.jsonl"),
 					},
 					dir,
 				);
@@ -359,10 +367,7 @@ describe("a real process of an ended session", () => {
 				fake.remove();
 			}
 			const lines = fs
-				.readFileSync(
-					path.join(dir, ".claude/tmp/markers/.orphan-hook-reaps.jsonl"),
-					"utf8",
-				)
+				.readFileSync(path.join(dir, "session-reaps.jsonl"), "utf8")
 				.trim()
 				.split("\n")
 				.map((l) => JSON.parse(l));
@@ -370,11 +375,51 @@ describe("a real process of an ended session", () => {
 				expect.objectContaining({
 					pid,
 					scope: "tree",
-					session: { id: "sess-real-ended", leader: 99_999_999 },
+					session: { id: "sess-real-ended", leader: process.pid },
 					killed: expect.arrayContaining([pid]),
 				}),
 			]);
 			expect(lines[0].killed).toHaveLength(2);
 		},
 	);
+});
+
+/* The timer kills with no session open; the next session start in a checkout
+ * names those kills once, off the machine log. */
+describe("a session start after the timer's kills", () => {
+	let dir: string;
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("names the logged kills no start here has named, then never again (#4342)", () => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-"));
+		spawnSync("git", ["init", "-q", dir]);
+		const log = path.join(dir, "session-reaps.jsonl");
+		fs.writeFileSync(
+			log,
+			`${JSON.stringify({
+				at: "2026-11-05T03:00:00.000Z",
+				pid: 6001,
+				argv: "node forks.js",
+				killed: [6001],
+				session: { id: "sess-gone", leader: 5000 },
+			})}\n`,
+		);
+		const env = {
+			WFC_PROC: fixture.root,
+			WFC_REAP_FAKE_ROOT: "kill",
+			CLAUDE_PROJECT_DIR: dir,
+			CLAUDE_CODE_SESSION_ID: "sess-now",
+			WFC_SESSION_REAP_LOG: log,
+		};
+
+		const first = run(["--notify"], env, dir);
+		const second = run(["--notify"], env, dir);
+
+		expect(first.stdout).toContain(
+			"2026-11-05T03:00:00.000Z: pid 6001, session sess-gone (leader pid 5000) ended: node forks.js",
+		);
+		expect(second.stdout).not.toContain("sess-gone");
+	});
 });

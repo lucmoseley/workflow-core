@@ -23,10 +23,18 @@
  * tree.
  *
  * WHAT IS KILLED: the matched process and its descendants, the walk stopping
- * at a Claude process, which is a session of its own. lib/orphan-hooks.js's
- * killReaps sends each SIGKILL, re-reading start times first.
+ * at a Claude process, which is a session of its own, and at one carrying no
+ * session id, which forgetSession marked to outlive its starter.
+ * lib/orphan-hooks.js's killReaps sends each SIGKILL, re-reading start times
+ * first.
+ *
+ * EACH KILL IS LOGGED MACHINE-WIDE, in sessionReapLog(): one timer sweeps for
+ * every repo on the machine, so no one checkout's markers would reach the
+ * rest. WFC_SESSION_REAP_LOG names another file, for a test.
  */
 
+const os = require("node:os");
+const path = require("node:path");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
 const { isInit, subtree } = require("./orphan-hooks.js");
 const { readEnvironVars } = require("./proc-environ.js");
@@ -34,6 +42,15 @@ const { ageSeconds } = require("./proc-table.js");
 
 const SESSION_ENV = "CLAUDE_CODE_SESSION_ID";
 const LEADER_ENV = "CLAUDE_PID";
+
+/** The machine's log of every kill this part makes, one JSON line a kill. */
+const sessionReapLog = () =>
+	process.env.WFC_SESSION_REAP_LOG ||
+	path.join(
+		process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local/state"),
+		"workflow-core",
+		"orphan-session-reaps.jsonl",
+	);
 
 /**
  * @typedef {import("./proc-table.js").Proc} Proc
@@ -65,6 +82,15 @@ function sessionOf(pid, root) {
 }
 
 /**
+ * `pid`'s session id, or null where its environ will not read or carries none.
+ * @param {number} pid @param {string} root
+ */
+function sessionIdOf(pid, root) {
+	const read = readEnvironVars(pid, [SESSION_ENV], root);
+	return read.ok ? read.values[SESSION_ENV] || null : null;
+}
+
+/**
  * Whether the session led by `leader` is still running for `proc`.
  * @param {Map<number, Proc>} procs @param {number} leader @param {Proc} proc
  */
@@ -93,7 +119,7 @@ function findEndedSessions(procs, { root, bootAgo, mine, skip = new Set() }) {
 	/** @type {Map<number, number[]>} */
 	const children = new Map();
 	for (const p of procs.values())
-		if (!isClaude(p.argv))
+		if (!isClaude(p.argv) && sessionIdOf(p.pid, root) !== null)
 			children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid]);
 	/** @type {Set<number>} */
 	const taken = new Set();
@@ -143,4 +169,4 @@ function matchEnded(procs, root, spared) {
 const describeSession = (session) =>
 	`session ${session.id} (leader pid ${session.leader})`;
 
-module.exports = { describeSession, findEndedSessions };
+module.exports = { describeSession, findEndedSessions, sessionReapLog };

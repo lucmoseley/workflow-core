@@ -3,7 +3,8 @@
  * Pins start-orphan-sweep-timer.js against stand-in `systemctl` and
  * `systemd-run` at WFC_SYSTEMCTL and WFC_SYSTEMD_RUN (#4342): it starts the
  * reaper's timer where none runs, leaves one running a live script alone,
- * replaces one whose script is gone, and stays green where no user manager
+ * replaces one whose script is gone or older than its own, and stays green
+ * where no user manager
  * answers. Each stand-in logs its argv, one call a line. A live case holds
  * the stand-in's ExecStart shape to the real `systemctl`'s.
  *
@@ -112,7 +113,7 @@ describe("start-orphan-sweep-timer", () => {
 		},
 	);
 
-	it("starts the reaper's timer where none runs, persisting its report from the host root", () => {
+	it("starts the reaper's timer where none runs, from the host root", () => {
 		const res = run({
 			WFC_SYSTEMCTL: systemctl(false),
 			WFC_SYSTEMD_RUN: standIn("systemd-run", "exit 0"),
@@ -123,7 +124,7 @@ describe("start-orphan-sweep-timer", () => {
 		expect(start).toContain("--unit=wfc-orphan-sweep ");
 		expect(start).toContain("--on-active=5min ");
 		expect(start).toContain("--on-unit-inactive=5min ");
-		expect(start).toContain("--setenv=WFC_NOTIFY_PERSIST=1 ");
+		expect(start).not.toContain("WFC_NOTIFY_PERSIST");
 		expect(start).toMatch(/--working-directory=\/\S+ /);
 		expect(start).toMatch(
 			/ -- \S+node\S* \S+\/scripts\/reap-orphan-hooks\.js --notify/,
@@ -132,19 +133,37 @@ describe("start-orphan-sweep-timer", () => {
 		expect(fs.existsSync(named)).toBe(true);
 	});
 
-	it("leaves a timer alone whose script still exists", () => {
-		const live = path.join(__dirname, "reap-orphan-hooks.js");
+	it("leaves a timer alone whose other script is newer than its own", () => {
+		const other = path.join(dir, "scripts/reap-orphan-hooks.js");
+		fs.mkdirSync(path.dirname(other));
+		fs.writeFileSync(other, "");
 		const res = run({
 			WFC_SYSTEMCTL: systemctl(
 				true,
-				`{ path=/usr/bin/node ; argv[]=/usr/bin/node ${live} --notify ; ignore_errors=no }`,
+				`{ path=/usr/bin/node ; argv[]=/usr/bin/node ${other} --notify ; ignore_errors=no }`,
 			),
 			WFC_SYSTEMD_RUN: standIn("systemd-run", "exit 0"),
 		});
 
 		expect(res.status).toBe(0);
 		expect(logged().some((l) => l.startsWith("systemd-run"))).toBe(false);
-		expect(logged().some((l) => l.includes(" stop "))).toBe(false);
+	});
+
+	it("replaces a timer whose other script is older than its own, a superseded install's", () => {
+		const other = path.join(dir, "scripts/reap-orphan-hooks.js");
+		fs.mkdirSync(path.dirname(other));
+		fs.writeFileSync(other, "");
+		fs.utimesSync(other, new Date(0), new Date(0));
+		const res = run({
+			WFC_SYSTEMCTL: systemctl(
+				true,
+				`{ path=/usr/bin/node ; argv[]=/usr/bin/node ${other} --notify ; ignore_errors=no }`,
+			),
+			WFC_SYSTEMD_RUN: standIn("systemd-run", "exit 0"),
+		});
+
+		expect(res.status).toBe(0);
+		expect(logged().some((l) => l.startsWith("systemd-run"))).toBe(true);
 	});
 
 	it("replaces a timer whose script is gone, a pruned worktree's", () => {

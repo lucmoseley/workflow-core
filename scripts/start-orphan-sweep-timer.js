@@ -12,15 +12,17 @@
  *
  * ONE TIMER A MACHINE, TIMER_UNIT, whichever checkout or plugin install starts
  * it first, as the sweep reads the whole machine. One already active is left
- * alone while the script it runs still exists; one whose script is gone — a
- * removed worktree, a superseded plugin version — is stopped and replaced.
+ * alone while the script it runs exists and is no older than the one this
+ * start would name; one whose script is gone — a removed worktree — or older
+ * — a superseded plugin version — is stopped and replaced. Older by mtime,
+ * so two installs converge on the newer rather than taking turns.
  *
  * THE SCRIPT IT NAMES is the main checkout's copy where this file sits in a
  * linked worktree, which a prune would delete; else this file's sibling.
  *
- * The timer's run persists its report (lib/persist-mode.js), so the next
- * session start replays it; its working directory is the host root, whose
- * notify store that replay reads.
+ * Its working directory is the host root, so the run logs where a session
+ * start in the main checkout reads; the reaper's session start names the
+ * timer's kills from its machine log.
  *
  * WFC_SYSTEMD_RUN and WFC_SYSTEMCTL name stand-in binaries for a test.
  *
@@ -89,9 +91,21 @@ function runningScript() {
 	return scriptInExecStart(exec);
 }
 
+/** @param {string} file @returns {number|null} */
+function mtime(file) {
+	try {
+		return fs.statSync(file).mtimeMs;
+	} catch {
+		return null;
+	}
+}
+
 function main() {
 	const running = runningScript();
-	if (running && fs.existsSync(running)) {
+	const script = sweepScript();
+	const ran = running ? mtime(running) : null;
+	const ours = mtime(script) ?? 0;
+	if (running && ran !== null && (running === script || ran >= ours)) {
 		writeFd(1, `${TIMER_UNIT} already runs ${running}\n`);
 		return 0;
 	}
@@ -99,7 +113,6 @@ function main() {
 		runCommand(systemctl(), ["--user", "stop", TIMER_UNIT, SERVICE_UNIT]);
 		runCommand(systemctl(), ["--user", "reset-failed", SERVICE_UNIT]);
 	}
-	const script = sweepScript();
 	const root = hostRoot();
 	const started = runCommand(systemdRun(), [
 		"--user",
@@ -108,7 +121,6 @@ function main() {
 		`--on-active=${PERIOD}`,
 		`--on-unit-inactive=${PERIOD}`,
 		`--timer-property=AccuracySec=${ACCURACY}`,
-		"--setenv=WFC_NOTIFY_PERSIST=1",
 		`--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`,
 		`--working-directory=${root}`,
 		`--property=Nice=${NICE}`,

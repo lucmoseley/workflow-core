@@ -113,6 +113,15 @@ describe("findEndedSessions", () => {
 		expect(pids(reaps[0] ?? { targets: [] })).toEqual([6010]);
 	});
 
+	it("stops its walk at a child with no session in its environ, a forgetSession child's", () => {
+		proc(6001, { ppid: 1, argv: WORKER });
+		proc(6002, { ppid: 6001, argv: "node lander.js run" }, [
+			`CLAUDE_PID=${LEADER}`,
+		]);
+		proc(6003, { ppid: 6002, argv: "sleep 300" });
+		expect(pids(find()[0] ?? { targets: [] })).toEqual([6001]);
+	});
+
 	it("leaves out its own tree and what another part already takes", () => {
 		proc(6001, { ppid: 1, argv: WORKER });
 		proc(6002, { ppid: 1, argv: WORKER });

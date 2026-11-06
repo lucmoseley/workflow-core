@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * Pins check-orphan-reaps.js, the `npm run status` view of the reaper's kill
- * log (#4342): it names each kill of the last week with its argv and, for a
+ * Pins check-orphan-reaps.js, the `npm run status` view of the reaper's two
+ * kill logs (#4342): it names each kill of the last week with its argv and, for a
  * dead session's process, the session; leaves an older one out; and is
  * all-clear where no log exists yet.
  *
@@ -29,19 +29,24 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function writeLog(rows: object[]) {
-	const markers = path.join(dir, ".claude/tmp/markers");
-	fs.mkdirSync(markers, { recursive: true });
-	fs.writeFileSync(
-		path.join(markers, ".orphan-hook-reaps.jsonl"),
-		rows.map((r) => `${JSON.stringify(r)}\n`).join(""),
-	);
+const sessionLog = () => path.join(dir, "orphan-session-reaps.jsonl");
+
+function writeRows(file: string, rows: object[]) {
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
 }
+
+const hookLog = () =>
+	path.join(dir, ".claude/tmp/markers/.orphan-hook-reaps.jsonl");
 
 function json() {
 	const res = runInProcess(SCRIPT, ["--json"], {
 		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: dir,
+			WFC_SESSION_REAP_LOG: sessionLog(),
+		},
 	});
 	return JSON.parse(res.stdout) as {
 		outcome: string;
@@ -51,17 +56,19 @@ function json() {
 }
 
 describe("check-orphan-reaps", () => {
-	it("names each kill of the last week, a dead session's with its session", () => {
+	it("names each kill of the last week from both logs, a dead session's with its session", () => {
 		const now = Date.now();
-		writeLog([
+		writeRows(sessionLog(), [
 			{ at: new Date(now - 8 * DAY_MS).toISOString(), pid: 1, argv: "old" },
 			{
-				at: new Date(now - DAY_MS).toISOString(),
+				at: new Date(now - 2 * DAY_MS).toISOString(),
 				pid: 2,
 				argv: "node forks.js",
 				killed: [2, 3],
 				session: { id: "sess-a", leader: 77 },
 			},
+		]);
+		writeRows(hookLog(), [
 			{
 				at: new Date(now - DAY_MS).toISOString(),
 				pid: 4,

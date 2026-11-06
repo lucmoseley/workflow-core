@@ -8,16 +8,17 @@
  * Usage:  node scripts/check-orphan-reaps.js [--json]
  *
  * WHY A LOG READER. The reaper kills at session start and from its user timer
- * with no session open; the timer's persisted report is replayed at the next
- * start only while fresh, so an overnight kill reaches the founder here.
+ * with no session open; this names both runs' kills whichever session asks.
  * Running the reaper itself here would kill from a read-only surface.
  *
  * READ-ONLY: it reads `.orphan-hook-reaps.jsonl` under the canonical
- * checkout's markers and writes nothing. No log yet is all-clear.
+ * checkout's markers and the machine's session-kill log
+ * (lib/ended-sessions.js's sessionReapLog), and writes nothing. No log yet is
+ * all-clear.
  */
 
 const { now, runCheck } = require("./lib/check");
-const { describeSession } = require("./lib/ended-sessions.js");
+const { describeSession, sessionReapLog } = require("./lib/ended-sessions.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { ARGV_SHOWN, reapLogPath } = require("./lib/orphan-hooks.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
@@ -32,11 +33,12 @@ runCheck({
 	run(ctx) {
 		const canonical =
 			repoRoot() ?? ctx.skip("git names no canonical checkout.");
-		const log = reapLogPath(canonical);
+		const logs = [reapLogPath(canonical), sessionReapLog()];
 		const since = now() - WINDOW_DAYS * DAY_MS;
-		const rows = (readJsonl(log)?.rows ?? []).filter(
-			(r) => typeof r.at === "string" && Date.parse(r.at) >= since,
-		);
+		const rows = logs
+			.flatMap((log) => readJsonl(log)?.rows ?? [])
+			.filter((r) => typeof r.at === "string" && Date.parse(r.at) >= since)
+			.sort((a, b) => String(a.at).localeCompare(String(b.at)));
 		for (const r of rows) {
 			const session =
 				/** @type {import("./lib/ended-sessions.js").Session | undefined} */ (
@@ -53,12 +55,12 @@ runCheck({
 		}
 		if (rows.length > 0)
 			ctx.say(
-				`\n  Logged in ${log}. Trace each launch from its argv (#4333's routes).\n`,
+				`\n  Logged in ${logs.join(" and ")}. Trace each launch from its argv (#4333's routes).\n`,
 			);
 		return {
 			okLine: `no orphan killed in the last ${WINDOW_DAYS} days.`,
 			noun: `orphan kill(s) in the last ${WINDOW_DAYS} days`,
-			data: { log, kills: rows },
+			data: { logs, kills: rows },
 		};
 	},
 });
