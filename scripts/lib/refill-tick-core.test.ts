@@ -107,12 +107,17 @@ function fakeIo(
 		readConfiguredSeats: () => [SEAT],
 		readIncluded: () => [WFC],
 		servedRoots: (scope) => ({ roots: scope.repos, dropped: [] }),
+		previewReap: recorded("previewReap", () => undefined),
 		reap: recorded("reap", () => undefined),
 		tendQuietBench: recorded("tendQuietBench", (c) => c),
 		readManagerRestart: recorded("readManagerRestart", () => null),
 		readCurrentBootId: () => null,
 		readState: recorded("readState", () => onDisk((s) => s)),
-		settleKilled: recorded("settleKilled", (read) => read),
+		adoptKilledLaunches: recorded("adoptKilledLaunches", (read) => read),
+		settleStartedResumes: recorded("settleStartedResumes", (launches) => ({
+			launches,
+			settled: false,
+		})),
 		readRegistry: recorded("readRegistry", () => ({
 			seats: [SEAT],
 			faults: [],
@@ -153,7 +158,7 @@ function fakeIo(
 			slots: 1,
 			admission: null,
 		})),
-		actOnLimits: recorded("actOnLimits", (_b, judged, _m, { slots }) => ({
+		actOnLimits: recorded("actOnLimits", (judged, _m, { slots }) => ({
 			launches: judged,
 			slots,
 			workingChange: 0,
@@ -194,7 +199,14 @@ function fakeIo(
 		dropSettledLifted: recorded("dropSettledLifted", () => undefined),
 		dropManagerRestart: recorded("dropManagerRestart", () => undefined),
 		appendTick: recorded("appendTick", () => undefined),
-		...over,
+		...(Object.fromEntries(
+			Object.entries(over).map(([name, port]) => [
+				name,
+				typeof port === "function"
+					? recorded(name, port as (...args: unknown[]) => unknown)
+					: port,
+			]),
+		) as Partial<TickIo>),
 	};
 	return { io, calls, writes, lines, disk: () => onDisk((s) => s) };
 }
@@ -236,8 +248,9 @@ describe("the tick's step order (#4212)", () => {
 		});
 		expectOrder(calls, "changeControl", "reap");
 		expectOrder(calls, "reap", "readState");
-		expectOrder(calls, "readState", "settleKilled");
-		expectOrder(calls, "settleKilled", "readRegistry");
+		expectOrder(calls, "readState", "adoptKilledLaunches");
+		expectOrder(calls, "adoptKilledLaunches", "settleStartedResumes");
+		expectOrder(calls, "settleStartedResumes", "readRegistry");
 		expectOrder(calls, "stopNeverStarted", "readListing");
 		expectOrder(calls, "tendHolds", "readListing");
 	});
@@ -279,8 +292,66 @@ describe("the tick's step order (#4212)", () => {
 	});
 });
 
+describe("what a kill left, settled ahead of the judging (#4180, #4323)", () => {
+	it("settles the resumes over the adopted launches, then writes both at once", async () => {
+		const adopted = record({ jobId: "adopted" });
+		const resumed = record({ jobId: "resumed" });
+		const handed: Launch[][] = [];
+		const { io, calls, writes } = fakeIo(
+			stateOf({ launching: { at: NOW, batch: [] } }),
+			{
+				adoptKilledLaunches: (read) => ({
+					...read,
+					launching: undefined,
+					launches: [adopted],
+				}),
+				settleStartedResumes: (launches) => {
+					handed.push(launches);
+					return { launches: [resumed], settled: true };
+				},
+			},
+			{ frontier: [] },
+		);
+		await tickOf(io);
+		expect(handed).toEqual([[adopted]]);
+		expectOrder(calls, "settleStartedResumes", "updateState");
+		expectOrder(calls, "updateState", "readRegistry");
+		expect(writes[0].launches).toMatchObject([{ jobId: "resumed" }]);
+	});
+
+	it("writes nothing where neither the adoption nor the resumes changed the state", async () => {
+		const { io, calls } = fakeIo(stateOf(), {}, { frontier: [] });
+		await tickOf(io);
+		expect(calls.slice(0, calls.indexOf("readRegistry"))).not.toContain(
+			"updateState",
+		);
+	});
+});
+
+describe("the limit acts' holds (#3735, #4323)", () => {
+	it("releases the holds the limit acts ended, against the launches they left", async () => {
+		const before = record({ jobId: "before" });
+		const after = record({ jobId: "after" });
+		const released: [Launch[], Launch[]][] = [];
+		const { io, calls } = fakeIo(stateOf({ launches: [before] }), {
+			actOnLimits: (_judged, _m, { slots }) => ({
+				launches: [after],
+				slots,
+				workingChange: 0,
+			}),
+			releaseEndedHolds: (b, a) => {
+				released.push([b as Launch[], a as Launch[]]);
+			},
+		});
+		await tickOf(io);
+		expectOrder(calls, "actOnLimits", "releaseEndedHolds");
+		expectOrder(calls, "releaseEndedHolds", "readSeats");
+		expect(released).toEqual([[[before], [after]]]);
+	});
+});
+
 describe("a kill between two steps (#4157, #4180)", () => {
-	it("leaves the batch in flight on record where the kill lands in the launcher, and the next tick hands it to settleKilled before judging", async () => {
+	it("leaves the batch in flight on record where the kill lands in the launcher, and the next tick adopts it before judging", async () => {
 		const first = fakeIo(stateOf(), {
 			launchBatch: () => {
 				throw new Killed();
@@ -297,7 +368,7 @@ describe("a kill between two steps (#4157, #4180)", () => {
 		} as Launch;
 		const seenBySettle: LoopState[] = [];
 		const second = fakeIo(left, {
-			settleKilled: (read) => {
+			adoptKilledLaunches: (read) => {
 				seenBySettle.push(read);
 				return { ...read, launching: undefined, launches: [adopted] };
 			},
@@ -371,8 +442,7 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			blockIo: () => bootPorts(blockLines),
 			readManagerRestart: () => marker,
 			readCurrentBootId: () => "b",
-			/* The adapter hands on the state it wrote, which holds no restart. */
-			settleKilled: () => {
+			adoptKilledLaunches: () => {
 				const { launching: _, ...settled } = initial;
 				return settled;
 			},
@@ -435,7 +505,7 @@ describe("a limit-held launch through the tick (#3735)", () => {
 					/* The run test's fake carries only the fields concurrency.js reads. */
 					admission: ADMISSION_VERDICT as never,
 				}),
-				actOnLimits: (_b, judged, _m, { slots }) => ({
+				actOnLimits: (judged, _m, { slots }) => ({
 					launches: judged,
 					slots,
 					workingChange: -1,
@@ -600,13 +670,8 @@ describe("the dry-run policy (#4212)", () => {
 		expect(live.calls).not.toContain("launchBatch");
 	});
 
-	it("calls none of the adapter's acts, reaping as a dry run (#4356)", async () => {
-		const reaped: boolean[] = [];
-		const { io, calls } = fakeIo(stateOf({ launches: [record()] }), {
-			reap: (dryRun) => {
-				reaped.push(dryRun);
-			},
-		});
+	it("calls none of the adapter's acts, previewing the reap (#4356, #4323)", async () => {
+		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
 		await runTick(io, {
 			dryRun: true,
 			now: NOW,
@@ -615,11 +680,13 @@ describe("the dry-run policy (#4212)", () => {
 				typed: { at: NOW - MIN, seat: null },
 			},
 		});
-		expect(reaped).toEqual([true]);
+		expect(calls).toContain("previewReap");
 		for (const port of [
 			"changeControl",
+			"reap",
 			"tendQuietBench",
-			"settleKilled",
+			"adoptKilledLaunches",
+			"settleStartedResumes",
 			"stopNeverStarted",
 			"superviseLanding",
 			"levelMain",
