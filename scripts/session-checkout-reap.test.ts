@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { registerSession } from "./lib/arbiter-testkit.js";
 import {
 	FILED_DIR,
 	markerName,
@@ -68,6 +69,7 @@ const run = (args: string[], env: Record<string, string> = {}) =>
 			CLAUDE_CONFIG_DIR: seat,
 			WFC_NPM: npmStub,
 			WFC_MODULES: "landing",
+			CLAUDE_CODE_SESSION_ID: "",
 			...env,
 		},
 	});
@@ -76,8 +78,9 @@ const worktrees = () => path.join(main, ".claude", "worktrees");
 const worktree = (name: string) => path.join(worktrees(), name);
 const stores = () => path.join(worktrees(), ".dep-stores");
 
-const cut = (name: string) => {
-	const r = run(["cut", name]);
+/** Cut worktree `name`, held for session `holder` where given. */
+const cut = (name: string, holder = "") => {
+	const r = run(["cut", name], { CLAUDE_CODE_SESSION_ID: holder });
 	expect(r.status, r.stderr).toBe(0);
 	return worktree(name);
 };
@@ -364,6 +367,67 @@ it("leaves a locked worktree alone", () => {
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toBe("");
 	expect(registered()).toContain(locked);
+});
+
+it("leaves a worktree its cutting session holds while that session lives, then removes it (#4496)", () => {
+	const dispatched = cut("dispatched", "cutter");
+	const pid = holdProcess(tmp);
+	const sb = { home: seat, repo: tmp };
+	fs.mkdirSync(path.join(seat, "sessions"));
+	registerSession(sb, "cutter", pid);
+
+	const kept = reap();
+
+	expect(kept.status, kept.stderr).toBe(0);
+	expect(kept.stderr).toBe("");
+	expect(registered()).toContain(dispatched);
+
+	registerSession(sb, "cutter", pid, { procStart: "999999999" });
+	const ended = reap();
+
+	expect(ended.status, ended.stderr).toBe(0);
+	expect(registered()).not.toContain(dispatched);
+});
+
+it("holds a worktree through its cutting process once that process trades its session id away (#4496)", () => {
+	const pid = holdProcess(tmp);
+	const sb = { home: seat, repo: tmp };
+	fs.mkdirSync(path.join(seat, "sessions"));
+	registerSession(sb, "cutter", pid);
+	const dispatched = cut("dispatched", "cutter");
+	registerSession(sb, "after-clear", pid);
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(registered()).toContain(dispatched);
+});
+
+it("leaves a held worktree standing where the session registry cannot be read (#4496)", () => {
+	const dispatched = cut("dispatched", "cutter");
+	fs.writeFileSync(path.join(seat, "sessions"), "not a directory\n");
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(registered()).toContain(dispatched);
+});
+
+it("names a holder record that names no session as unreapable, leaving its tree (#4496)", () => {
+	const dispatched = cut("dispatched", "cutter");
+	fs.writeFileSync(
+		path.join(
+			git(dispatched, "rev-parse", "--absolute-git-dir"),
+			"wfc-holder.json",
+		),
+		"{}\n",
+	);
+
+	const r = reap();
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain("names no holder session");
+	expect(registered()).toContain(dispatched);
 });
 
 it("turns away a pass while another holds the reap lock", () => {
