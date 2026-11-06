@@ -9,7 +9,8 @@
  * Driven through `runInProcess` against a throwaway git repo per case, the
  * core's scripts replaced through WFC_SCRIPT_ROOT by stubs that log their
  * argv and print what the case tells them to, and `gh` by a fake tracker.
- * Each case asserts only what the run leaves behind.
+ * Each case asserts only what the run leaves behind. The window and re-scan
+ * arithmetic across a run of readings is lib/repo-checks-carry.test.ts's.
  */
 
 import { execFileSync } from "node:child_process";
@@ -296,7 +297,7 @@ describe("repo-checks: gates and order", () => {
 	});
 
 	it("runs the core-only re-measure reporter in workflow-core and SKIPs it in an adopter (#1625)", () => {
-		const adopter = fixture({ config: ALL, core: false });
+		const adopter = fixture({ config: ROADMAP_ONLY, core: false });
 		run(adopter);
 		expect(ids(adopter.launched())).not.toContain("remeasure");
 		expect(job(adopter, "remeasure")).toMatchObject({
@@ -444,7 +445,7 @@ describe("repo-checks: ceilings", () => {
 			stubs: { "digest-version": { sleepMs: 10_000 } },
 		});
 		const started = Date.now();
-		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
+		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "600" } });
 		// §X9: a kill: the ceiling kills a real stub process, and the check after it still has to run.
 		expect(Date.now() - started).toBeLessThan(8000);
 		expect(job(f, "digest-version")).toMatchObject({
@@ -458,9 +459,11 @@ describe("repo-checks: ceilings", () => {
 	it("gives clobbers twice the per-check ceiling, which a whole-history window needs (#1628)", () => {
 		const f = fixture({
 			config: { contract: 1, founder: "F", tracker: "o/r", modules: [] },
-			stubs: { cycles: { sleepMs: 1500 }, clobbers: { sleepMs: 1500 } },
+			stubs: { cycles: { sleepMs: 800 }, clobbers: { sleepMs: 800 } },
 		});
-		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
+		/* A real kill, so the real clock: clobbers' 1.2 s leaves 400 ms for
+		 * node's start-up past its 800 ms sleep. */
+		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "600" } });
 		expect(job(f, "cycles")).toMatchObject({
 			outcome: "BROKEN",
 			summary: expect.stringContaining("killed at its 1 s ceiling"),
@@ -508,47 +511,6 @@ describe("repo-checks: the clobbers window", () => {
 		).toEqual({ clobbers: new Date(NOW).toISOString() });
 	});
 
-	it("passes the days since the last completed reading's start, rounded up, plus one, a WARN or FAIL counting as completed", () => {
-		const f = fixture({
-			config: trackerOnly,
-			stubs: {
-				clobbers: { envelope: { ...okEnvelope("clobbers"), outcome: "WARN" } },
-			},
-		});
-		run(f);
-		at(f, "2026-10-14T06:00:00Z");
-		f.restub("clobbers", {
-			envelope: { ...okEnvelope("clobbers"), outcome: "FAIL" },
-		});
-		at(f, "2026-10-15T07:00:00Z");
-		at(f, "2026-10-16T07:00:00Z");
-		expect(windows(f)).toEqual(["30", "2", "3", "2"]);
-	});
-
-	it("leaves the window's start where it was through a reading in which clobbers was BROKEN, MISSING or SKIP", () => {
-		const f = fixture({ config: trackerOnly });
-		const config = path.join(f.root, ".claude", "workflow-core.json");
-		run(f);
-		f.restub("clobbers", {
-			envelope: { ...okEnvelope("clobbers"), outcome: "BROKEN" },
-		});
-		at(f, "2026-10-14T06:00:00Z");
-		f.restub("clobbers", { envelope: null, exit: 2 });
-		at(f, "2026-10-15T06:00:00Z");
-		fs.writeFileSync(
-			config,
-			JSON.stringify({ ...trackerOnly, tracker: undefined }),
-		);
-		at(f, "2026-10-16T06:00:00Z");
-		expect(job(f, "clobbers").outcome).toBe("SKIP");
-		fs.writeFileSync(config, JSON.stringify(trackerOnly));
-		f.restub("clobbers", {});
-		at(f, "2026-10-17T06:00:00Z");
-		at(f, "2026-10-18T06:00:00Z");
-		expect(job(f, "clobbers").outcome).toBe("OK");
-		expect(windows(f)).toEqual(["30", "2", "3", "5", "2"]);
-	});
-
 	it("widens the window across a multi-day gap between readings", () => {
 		const f = fixture({ config: trackerOnly });
 		run(f);
@@ -570,30 +532,6 @@ describe("repo-checks: the clobbers window", () => {
 		clobbersArgv(f).map((argv) =>
 			argv.includes("--rescan") ? argv[argv.indexOf("--rescan") + 1] : null,
 		);
-	const clobberKeys = [
-		"CLOBBERED\t#8\t2026-10-01T06:00:00Z",
-		"SUSPECT\t#12\t2026-10-02T06:00:00Z",
-		"SUSPECT\t#8\t2026-10-03T06:00:00Z",
-	];
-
-	it("passes no --rescan on a repo's first reading, then the issues of the last completed reading's CLOBBERED and SUSPECT keys", () => {
-		const f = fixture({
-			config: trackerOnly,
-			stubs: { clobbers: findings("clobbers", clobberKeys) },
-		});
-		run(f);
-		at(f, "2026-10-14T06:00:00Z");
-		f.restub(
-			"clobbers",
-			findings("clobbers", ["SUSPECT\t#3\t2026-10-13T06:00:00Z"], "WARN"),
-		);
-		at(f, "2026-10-15T06:00:00Z");
-		f.restub("clobbers", {});
-		at(f, "2026-10-16T06:00:00Z");
-		at(f, "2026-10-17T06:00:00Z");
-		expect(rescans(f)).toEqual([null, "8,12", "8,12", "3", null]);
-	});
-
 	it("re-scans a reviewed SUSPECT's issue, whose key the standing issue leaves out (#1700)", () => {
 		const f = fixture({
 			config: trackerOnly,
@@ -610,40 +548,12 @@ describe("repo-checks: the clobbers window", () => {
 		expect(rescans(f)).toEqual([null, "34"]);
 	});
 
-	it("keeps the previous re-scan list through a reading in which clobbers was BROKEN or MISSING", () => {
-		const f = fixture({
-			config: trackerOnly,
-			stubs: { clobbers: findings("clobbers", clobberKeys) },
-		});
-		run(f);
-		f.restub("clobbers", {
-			envelope: { ...okEnvelope("clobbers"), outcome: "BROKEN" },
-		});
-		at(f, "2026-10-14T06:00:00Z");
-		f.restub("clobbers", { envelope: null, exit: 2 });
-		at(f, "2026-10-15T06:00:00Z");
-		at(f, "2026-10-16T06:00:00Z");
-		expect(rescans(f)).toEqual([null, "8,12", "8,12", "8,12"]);
-	});
-
 	it("re-scans nothing on a re-scan file that will not parse, and logs it", () => {
 		const f = fixture({ config: trackerOnly });
 		fs.writeFileSync(path.join(f.common, ".repo-checks-rescan.json"), "{");
 		run(f);
 		expect(rescans(f)).toEqual([null]);
 		expect(readGuardErrorsLog(f.config)).toContain(".repo-checks-rescan.json");
-	});
-
-	/* A bad value would make the check refuse its arguments, and a BROKEN
-	 * reading never rewrites the list that broke it. */
-	it("passes only the issue numbers in a damaged re-scan list", () => {
-		const f = fixture({ config: trackerOnly });
-		fs.writeFileSync(
-			path.join(f.common, ".repo-checks-rescan.json"),
-			JSON.stringify({ clobbers: ["x", 8, -1, 1.5, 12] }),
-		);
-		run(f);
-		expect(rescans(f)).toEqual(["8,12"]);
 	});
 
 	it("leaves `npm run check:clobbers` scanning --all as the hand route", () => {
