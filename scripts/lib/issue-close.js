@@ -147,7 +147,7 @@ const { trimEndRun } = require("./trim-run.js");
  *   commits, cited on `tree`'s HEAD or named by sha in `comment`, that the
  *   pushed ref lacks, "" where none is; outOfBudget and throws as census
  * @typedef {import("./kit-context.js").KitContext & ClosePorts
- *   & Pick<import("./guard-dispatch.js").CoreContext, "tree">} CloseContext
+ *   & Pick<import("./guard-judge.js").CoreContext, "tree">} CloseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision

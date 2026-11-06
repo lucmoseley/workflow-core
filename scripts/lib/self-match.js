@@ -124,8 +124,8 @@ const { compileEre } = require("./posix-ere.js");
 const { SHELL_NAME, pgrepSelects, readPgrepArgs } = require("./pgrep-args.js");
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
- * @typedef {import("./guard-dispatch.js").CoreDecision} CoreDecision
+ * @typedef {import("./guard-judge.js").CoreContext} CoreContext
+ * @typedef {import("./guard-judge.js").CoreDecision} CoreDecision
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {"line" | "name" | "inverted"} Kind
  * @typedef {{ segment: string, cmd: string, kind: Kind, pattern: string,
