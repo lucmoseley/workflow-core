@@ -9,6 +9,7 @@
  * no push time.
  */
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -47,6 +48,7 @@ const {
 	readNewestEvent,
 } = require("./queue-log.js");
 const { TransientFault } = require("./queue-lander.js");
+const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 
 /* Untraced, a first guess and stated as one: a verdict is read again only
@@ -90,6 +92,7 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").DropRecord} DropRecord
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
+ * @typedef {import("./regenerated-files.js").Regenerated} Regenerated
  */
 
 /**
@@ -106,9 +109,15 @@ const BROKEN_OBJECT =
  * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
  * @param {number} [mergeTimeoutMs] each member's merge, its gates included
+ * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
+ *   merge renders afresh rather than takes from either side
  * @returns {QueueGit}
  */
-function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
+function queueGit(
+	root,
+	mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
+	regenerated = REGENERATED_FILES,
+) {
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
 		QUEUE_REFSPEC,
@@ -213,27 +222,11 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 					root,
 					onto,
 					{ program: "queue-lander", use: "merge" },
-					(_dir, inTree) => {
+					(dir, inTree) => {
 						for (const m of members) {
-							/* `--no-commit`, then `git commit`: git writes a merge's tree
-							 * before pre-merge-commit runs, so only pre-commit's index
-							 * reaches the commit, the anchors a merge carries among
-							 * them (#4514). */
-							const failed = mergeFailure(m, inTree, () => {
-								inTree(
-									[
-										"merge",
-										"--no-ff",
-										"--no-commit",
-										"-m",
-										`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
-										m.sha,
-									],
-									mergeTimeoutMs,
-								);
-								if (isMerging(inTree))
-									inTree(["commit", "--no-edit"], mergeTimeoutMs);
-							});
+							const failed = mergeFailure(m, inTree, () =>
+								mergeMember(m, dir, inTree),
+							);
 							if (failed) return failed;
 						}
 						return {
@@ -274,6 +267,66 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		deleteRef: (branch, sha) => deleteRemoteRef(root, branch, sha),
 		createRef: (branch, sha) => createRemoteRef(root, branch, sha),
 	};
+
+	/**
+	 * `--no-commit`, then `git commit`: git writes a merge's tree before
+	 * pre-merge-commit runs, so only pre-commit's index reaches the commit, the
+	 * anchors a merge carries among them (#4514). A conflict in regenerated
+	 * files alone, each changed on both sides, is no refusal; one deleted on a
+	 * side is, since a render would undo the deletion.
+	 * @param {Member} m
+	 * @param {string} dir
+	 * @param {(args: string[], timeout?: number) => string} inTree
+	 */
+	function mergeMember(m, dir, inTree) {
+		try {
+			inTree(
+				[
+					"merge",
+					"--no-ff",
+					"--no-commit",
+					"-m",
+					`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
+					m.sha,
+				],
+				mergeTimeoutMs,
+			);
+		} catch (err) {
+			const files = readConflictedFiles(inTree);
+			const settles = (/** @type {string} */ f) =>
+				regenerated.has(f) && changedOnBothSides(inTree, f);
+			if (files.length === 0 || !files.every(settles)) throw err;
+			for (const f of files) inTree(["checkout", "--ours", "--", f]);
+		}
+		if (!isMerging(inTree)) return;
+		regenerate(dir, inTree);
+		inTree(["commit", "--no-edit"], mergeTimeoutMs);
+	}
+
+	/**
+	 * Stages each regenerated file the merge in `dir` holds as its generator
+	 * writes it there: two sides' copies merged as text, or merged cleanly, can
+	 * still disagree with the tree they describe. The generator is the copy the
+	 * commit gate runs, `WFC_PLUGIN_ROOT`'s else the merged tree's own, so the
+	 * gate passes what it writes; one that fails is a refusal carrying its
+	 * output.
+	 * @param {string} dir
+	 * @param {(args: string[]) => string} inTree
+	 */
+	function regenerate(dir, inTree) {
+		const pluginRoot = process.env.WFC_PLUGIN_ROOT || dir;
+		for (const [file, { generator }] of regenerated) {
+			/* Absent: the merge deleted it, and a deletion stands. */
+			if (!fs.existsSync(path.join(dir, file))) continue;
+			execFileSync(process.execPath, [path.join(pluginRoot, generator)], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: mergeTimeoutMs,
+			});
+			inTree(["add", "--", file]);
+		}
+	}
 
 	/**
 	 * Why `m` did not merge, else null. A fault that is no git refusal, a
@@ -322,6 +375,22 @@ const isMerging = (inTree) => {
 		if (caught(err).status === 1) return false;
 		throw err;
 	}
+};
+
+/**
+ * Whether the merge in the tree `inTree` runs git in left `file` conflicted
+ * with both sides' copies present, neither side deleting it.
+ * @param {(args: string[]) => string} inTree
+ * @param {string} file
+ */
+const changedOnBothSides = (inTree, file) => {
+	const stages = new Set(
+		inTree(["ls-files", "-u", "--", file])
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => l.split(/\s+/)[2]),
+	);
+	return stages.has("2") && stages.has("3");
 };
 
 /** @param {unknown} list @returns {list is string[]} */
