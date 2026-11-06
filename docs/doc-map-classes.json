@@ -1773,6 +1773,14 @@
 			}
 		]
 	},
+	"docs/data/round-check-reading-2026-11-02/classes.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#3978's classes for the round-check reading's 83 listed replies, keyed `<session>@<reply time>`, as the founder ruled on them; `scripts/report-round-check-reading.js` starts every reading from them, `--classes` winning.",
+		"route": null,
+		"consumes": null
+	},
 	"docs/data/round-sendbacks-2026-10-14/rounds.json": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",
