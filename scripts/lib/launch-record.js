@@ -1,22 +1,20 @@
 /*
  * launch-record.js — the one reader of a refill launch's job record (#4587),
  * whichever route launched it: a launch on an overflow key reads its headless
- * run (lib/headless-runs.js's readRunAsJob), a plan launch its `--bg` job's
- * state.json. Both give one shape, so the refill loop never picks a reader by
- * route.
+ * run, a plan launch its `--bg` job.
  */
 
 const { readLogged } = require("./caught.js");
 
 /**
  * A launch's job record. A `--bg` job's state.json is the harness's own
- * schema, so its fields are unknown until checked.
+ * schema.
  * @typedef {{sessionId?: unknown, cwd?: unknown, state?: unknown,
  *   detail?: unknown, linkScanPath?: unknown}} LaunchRecord
  */
 
 /**
- * The reader of a launch's job record over the two route reads: null where
+ * The reader of a launch's job record: null where
  * the launch has no job or none reads, a headless record that throws logged.
  * @param {{
  *   log: (line: string) => void,
