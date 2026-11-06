@@ -152,7 +152,7 @@ async function until(test: () => boolean, what: string) {
 
 const readTicks = () => readLogLines().filter((l) => l.startsWith("tick "));
 
-async function startLoop() {
+async function startLoop(env: Record<string, string> = {}) {
 	const launch = launchProgram({
 		scriptsDir: path.join(checkout, "scripts"),
 		codeDir,
@@ -160,7 +160,7 @@ async function startLoop() {
 	if ("error" in launch) throw new Error(launch.error);
 	// spawn-kept: a long-running loop that re-execs under its pid while the test runs beside it
 	loopProc = spawn(process.execPath, [launch.program, "run"], {
-		env: { ...gitEnv, FIXTURE_DIR: dir },
+		env: { ...gitEnv, FIXTURE_DIR: dir, ...env },
 		stdio: "ignore",
 	});
 	await until(() => readTicks().length > 0, "the first tick");
@@ -511,6 +511,42 @@ describe("the boot link (#3891)", () => {
 		await moreTicks(2);
 		expect(fs.readlinkSync(link())).toBe(path.join(codeDir, tip));
 		expect(fs.readdirSync(codeDir)).toEqual([tip]);
+	});
+
+	it("keeps a worktree a live process runs from until it exits, pruning the rest (#4548)", async () => {
+		const held = path.join(codeDir, "held");
+		const idle = path.join(codeDir, "idle");
+		fs.mkdirSync(path.join(held, "scripts"), { recursive: true });
+		fs.mkdirSync(idle, { recursive: true });
+		const lander = path.join(held, "scripts", "queue-lander.js");
+		fs.writeFileSync(lander, "setInterval(() => {}, 1000);\n");
+		// spawn-kept: a lander an older image started, running beside the loop
+		const holder = spawn(process.execPath, [lander, "run"], {
+			stdio: "ignore",
+		});
+		try {
+			await startLoop();
+			await moreTicks(2);
+			expect(fs.existsSync(idle)).toBe(false);
+			expect(fs.existsSync(held)).toBe(true);
+			expect(
+				readLogLines().filter((l) => l.startsWith(`keeping ${held} `)),
+			).toEqual([`keeping ${held} while pid ${holder.pid} runs from it`]);
+		} finally {
+			holder.kill("SIGKILL");
+		}
+		await until(() => !fs.existsSync(held), "the held worktree's removal");
+	});
+
+	it("keeps every worktree where /proc will not read, logging it once (#4548)", async () => {
+		const idle = path.join(codeDir, "idle");
+		fs.mkdirSync(idle, { recursive: true });
+		await startLoop({ WFC_PROC: path.join(dir, "no-proc") });
+		await moreTicks(2);
+		expect(fs.existsSync(idle)).toBe(true);
+		expect(
+			readLogLines().filter((l) => l.startsWith("keeping every worktree")),
+		).toHaveLength(1);
 	});
 
 	it("keeps the worktrees where it will not move, logging why", async () => {

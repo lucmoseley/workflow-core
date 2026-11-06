@@ -104,11 +104,11 @@ describe("cutGateFragment", () => {
 
 describe("gateHead and armingPattern (#1597)", () => {
 	it("reads a one-line head and its pattern", () => {
-		expect(gateHead("scripts/check-roadmap-valid.js")).toBe(
-			"if armed '^docs/reference-roadmap\\.html$'; then\n",
+		expect(gateHead("scripts/check-research-added.js")).toBe(
+			"if armed '^docs/research/'; then\n",
 		);
-		expect(armingPattern("scripts/check-roadmap-valid.js")).toBe(
-			"^docs/reference-roadmap\\.html$",
+		expect(armingPattern("scripts/check-research-added.js")).toBe(
+			"^docs/research/",
 		);
 	});
 

@@ -37,7 +37,7 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const WIRING = `  ${coreCall("command node", "scripts/mutation-hold-gate.js")} || exit "$?"`;
 const HOLD_BLOCK = cutHookBlock('mh_why=""', "fi");
-const TEST_GATE_OPEN = `if declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`;
+const TEST_GATE_OPEN = `if ! lander_batch && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`;
 const GATES_END = HOOK.split("\n").find((l) =>
 	l.startsWith("# ---- end of the gates"),
 );

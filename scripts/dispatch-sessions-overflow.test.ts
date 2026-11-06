@@ -85,12 +85,13 @@ function overflowEnv(
 	};
 }
 
-/* The stub prints `--bg`'s job line, and its listing shows that job running,
+/* The stub prints the recorded named launch, and its listing shows that job running,
  * so a member launched earlier in the set holds its reservation. */
 function stubBg(opts: Parameters<typeof stubClaude>[0] = {}) {
 	const listed = JSON.parse(agentsListing()) as object[];
 	stubClaude({
-		launchOutput: `backgrounded·\u001b[36m${JOB}\u001b[39m`,
+		launch: "named",
+		jobId: JOB,
 		agentsJson: JSON.stringify([
 			...listed,
 			{

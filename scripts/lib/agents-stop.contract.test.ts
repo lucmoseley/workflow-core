@@ -174,6 +174,27 @@ describe.each(stopCases)("the $kind stop", ({ kind, outcome }) => {
 	});
 });
 
+/* The fake's unrecorded answers, no daemon giving them on demand: held to
+ * the verdict lib/claude-stop.js owes each, with no recorded side. */
+describe.each([
+	{ answer: "busy", outcome: { ok: false, noJob: false, timedOut: false } },
+	{
+		answer: "warnedNoJob",
+		outcome: { ok: false, noJob: true, said: expect.stringContaining("job7") },
+	},
+	{
+		answer: "killed",
+		outcome: { ok: false, why: "exit on a signal: going down" },
+	},
+] as const)("the fake's $answer stop", ({ answer, outcome }) => {
+	it("reads as the verdict it stands for", () => {
+		const log = path.join(dir, "stops");
+		expect(
+			stopOn(dir, "job7", claudeOf(buildStopBranch(log, answer))),
+		).toMatchObject(outcome);
+	});
+});
+
 /*
  * The free call, against the installed `claude` on the case's own config dir:
  * a stop of an id no daemon issued (§G7.2). The listing has no live case: under the suite's own

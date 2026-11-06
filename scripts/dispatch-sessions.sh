@@ -112,6 +112,8 @@ here="${BASH_SOURCE[0]%/*}"
 source "$here/lib/interop-probe.sh" 2>/dev/null
 # shellcheck source=scripts/lib/script-path.sh
 source "$here/lib/script-path.sh"
+# shellcheck source=scripts/lib/bg-launch-id.sh
+source "$here/lib/bg-launch-id.sh"
 
 # Every member launched so far, for the refusal below to name.
 launched_prompts=()
@@ -972,21 +974,7 @@ while [[ $# -gt 0 ]]; do
     # "unknown" a pre-mantahostels#3488 entry reads as downstream.
     job_id=""
     if [[ -n "$launch_out_file" ]]; then
-      # Real `claude --bg` prints
-      # `backgrounded·<ESC>[36m<id><ESC>[39m` (#27) — a middle dot and a
-      # colour escape around the id, not whitespace. Strip the escape
-      # sequences, then take the id as the trailing run of 8 hex characters;
-      # "backgrounded" itself never forms one (its longest hex-letter run is
-      # 3, "bac" or "ded").
-      first_line=""
-      { IFS= read -r first_line <"$launch_out_file"; } 2>/dev/null
-      while [[ $first_line =~ $'\e'\[[0-9\;]*[A-Za-z] ]]; do
-        first_line="${first_line/"${BASH_REMATCH[0]}"/}"
-      done
-      while [[ $first_line =~ [0-9a-f]{8} ]]; do
-        job_id="${BASH_REMATCH[0]}"
-        first_line="${first_line#*"$job_id"}"
-      done
+      job_id="$(head -1 "$launch_out_file" 2>/dev/null | bg_launch_id)"
     fi
     # The launch record that marks this session overflow (#3694): its key and
     # the headroom it launched at. `--bg` prints no session id, so the refill

@@ -22,7 +22,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	build,
 	hooksWiring,
@@ -119,6 +119,104 @@ describe("a run", () => {
 		expect(
 			fs.readFileSync(path.join(markers(), ".landing-green-ledger"), "utf8"),
 		).toContain(main);
+	});
+
+	/**
+	 * Stub hooks in the work repo's hooks directory, each logging its
+	 * arguments; `preCommit` runs after pre-commit's log line.
+	 */
+	const stubHooks = (names: string[], preCommit = "") => {
+		const hooks = path.resolve(
+			work,
+			git(work, "rev-parse", "--git-common-dir"),
+			"hooks",
+		);
+		const log = path.join(hooks, "calls.log");
+		fs.mkdirSync(hooks, { recursive: true });
+		for (const hook of names)
+			fs.writeFileSync(
+				path.join(hooks, hook),
+				`#!/bin/sh\necho "${hook} $*" >> '${log}'\n${hook === "pre-commit" ? preCommit : ""}`,
+				{ mode: 0o755 },
+			);
+		return () => fs.readFileSync(log, "utf8").trim().split("\n");
+	};
+
+	/* Pre-commit's body on the batch pass alone, called with no argument. */
+	const onBatchPass = (body: string) =>
+		`case "$*" in --gates=*) ;; *) ${body} ;; esac\n`;
+
+	it("runs the merge gate set on each member's merge and the batch set once, and no post-commit hook (#4545)", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		pushQueue("a", seed);
+		pushQueue("b", seed);
+		const calls = stubHooks(["pre-commit", "commit-msg", "post-commit"]);
+
+		const r = await runLander(stubTester(0));
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain("exit no queue ref waits");
+		expect(calls()).toEqual([
+			"pre-commit --gates=merge",
+			"pre-commit --gates=merge",
+			"pre-commit",
+		]);
+	});
+
+	it("runs the batch gate set where the Actions run repeats the rest, and every gate where it does not (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+		const calls = stubHooks(["pre-commit"]);
+
+		queueGit(work, undefined, undefined, { ciRepeats: true }).mergeMembers(
+			seed,
+			members,
+		);
+		expect(calls().at(-1)).toBe("pre-commit --gates=batch");
+		queueGit(work).mergeMembers(seed, members);
+		expect(calls().at(-1)).toBe("pre-commit");
+	});
+
+	it("names the member the batch's gates refuse alone, not the last one the refusal fell on (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 1 },
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 2 },
+		];
+		stubHooks(["pre-commit"], onBatchPass("[ -f b.txt ] && exit 1"));
+
+		expect(queueGit(work).mergeMembers(seed, members)).toMatchObject({
+			kind: "refused",
+			name: "b",
+		});
+	});
+
+	it("commits what the batch's gates stage on top of the merges, as a member's commit took its hook's edits (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+		stubHooks(
+			["pre-commit"],
+			onBatchPass("echo fixed > fix.txt && git add fix.txt"),
+		);
+
+		const merged = queueGit(work).mergeMembers(seed, members);
+
+		expect(merged.kind).toBe("merged");
+		const sha = merged.kind === "merged" ? merged.sha : "";
+		git(work, "fetch", "-q", work, sha);
+		expect(git(work, "log", "-1", "--format=%s", sha)).toBe(
+			"Take the batch's gate fixes",
+		);
+		expect(git(work, "show", `${sha}:fix.txt`)).toBe("fixed");
+		expect(git(work, "log", "-1", "--format=%s", `${sha}^`)).toMatch(
+			/^Merge queue\/b /,
+		);
 	});
 
 	it("lands a lone queue ref that descends from main as pushed, with no merge commit", async () => {
@@ -563,6 +661,133 @@ describe("the adapters", () => {
 		expect(git(work, "rev-parse", `${sha}^1`)).toBe(seed);
 	});
 
+	describe("a generated-only file (#4541)", () => {
+		const genFile = "gen.list";
+		const generated = new Map([[genFile, { generator: "gen.js" }]]);
+		const txtsAt = (sha: string) =>
+			git(work, "ls-tree", "-r", "--name-only", sha)
+				.split("\n")
+				.filter((f) => f.endsWith(".txt"));
+		/** gen.js bodies writing genFile from the index's `.txt` files: their names, or their count. */
+		const tracked = `require("node:child_process").execFileSync("git", ["ls-files", "*.txt"], { encoding: "utf8" }).split("\\n").filter(Boolean).sort()`;
+		const listing = `require("node:fs").writeFileSync("${genFile}", ${tracked}.join("\\n") + "\\n");`;
+		const counting = `require("node:fs").writeFileSync("${genFile}", ${tracked}.length + "\\n");`;
+		const runGen = () =>
+			expect(
+				runInProcess(path.join(work, "gen.js"), [], { cwd: work }).status,
+			).toBe(0);
+		/** A commit holding gen.js as `body` and genFile as it writes. */
+		const seeded = (body: string) => {
+			fs.writeFileSync(path.join(work, "gen.js"), body);
+			fs.writeFileSync(path.join(work, "seed-gen.txt"), "seed-gen");
+			git(work, "add", "-A");
+			runGen();
+			return commit("seed-gen");
+		};
+		/** A queue ref adding `<name>.txt` and `extra`'s writes, genFile as gen.js then writes it. */
+		const pushGenerated = (name: string, from: string, extra?: () => void) =>
+			pushQueue(name, from, () => {
+				extra?.();
+				fs.writeFileSync(path.join(work, `${name}.txt`), name);
+				git(work, "add", "-A");
+				runGen();
+			});
+		const clash = (body: string) => () =>
+			fs.writeFileSync(path.join(work, "clash.md"), body);
+		const members = (a: string, b: string) => [
+			{ name: "a", sha: a, pushedAt: 1 },
+			{ name: "b", sha: b, pushedAt: 2 },
+		];
+		const genAt = (sha: string) =>
+			`${git(work, "show", `${sha}:${genFile}`)}\n`;
+		const merge = (seed: string, a: string, b: string) => {
+			const g = queueGit(work, undefined, generated);
+			g.refs();
+			return g.mergeMembers(seed, members(a, b));
+		};
+		const landed = (r: ReturnType<typeof merge>) => {
+			expect(r.kind).toBe("merged");
+			return r.kind === "merged" ? r.sha : "";
+		};
+
+		beforeEach(() => {
+			vi.stubEnv("WFC_PLUGIN_ROOT", "");
+		});
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("lands a merge whose text-merged copy is clean but stale", () => {
+			const seed = seeded(counting);
+			const a = pushGenerated("a", seed);
+			const b = pushGenerated("b", seed);
+			expect(genAt(a)).toBe(genAt(b));
+
+			const sha = landed(merge(seed, a, b));
+
+			expect(genAt(sha)).toBe(`${Number(genAt(a)) + 1}\n`);
+		});
+
+		it("lands a merge whose only conflict is the generated file", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed);
+			const b = pushGenerated("b", seed);
+
+			const sha = landed(merge(seed, a, b));
+
+			expect(genAt(sha)).toBe(`${txtsAt(sha).sort().join("\n")}\n`);
+			expect(txtsAt(sha)).toEqual(expect.arrayContaining(["a.txt", "b.txt"]));
+		});
+
+		it("renders with the merged tree's generator, a member's change to it included", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed, () =>
+				fs.writeFileSync(path.join(work, "gen.js"), counting),
+			);
+			const b = pushGenerated("b", seed);
+
+			const sha = landed(merge(seed, a, b));
+
+			expect(genAt(sha)).toBe(`${txtsAt(sha).length}\n`);
+		});
+
+		it("still drops a merge conflicting in any other file, naming that file", () => {
+			const seed = seeded(listing);
+			const a = pushQueue("a", seed, clash("one"));
+			const b = pushQueue("b", seed, clash("two"));
+
+			expect(merge(seed, a, b)).toEqual({
+				kind: "conflict",
+				name: "b",
+				files: ["clash.md"],
+			});
+		});
+
+		it("drops a merge conflicting in the generated file and another, naming both", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed, clash("one"));
+			const b = pushGenerated("b", seed, clash("two"));
+
+			expect(merge(seed, a, b)).toEqual({
+				kind: "conflict",
+				name: "b",
+				files: ["clash.md", genFile],
+			});
+		});
+
+		it("drops a merge whose member deleted the generated file, rather than render it back", () => {
+			const seed = seeded(listing);
+			const a = pushGenerated("a", seed);
+			const b = pushQueue("b", seed, () => fs.rmSync(path.join(work, genFile)));
+
+			expect(merge(seed, a, b)).toEqual({
+				kind: "conflict",
+				name: "b",
+				files: [genFile],
+			});
+		});
+	});
+
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const a = pushQueue("a", seed);
@@ -672,6 +897,13 @@ describe("the adapters", () => {
 			kind: "red",
 			files: ["a.ts"],
 		});
+		/* A red its own run retried keeps the mark, or the lander re-runs it
+		 * a second time (#4545). */
+		verdictLedger(verdicts).add("s3", [], {
+			kind: "red",
+			files: ["a.ts"],
+			retried: true,
+		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		verdictLedger(verdicts).add("s1", ["a.ts"], { kind: "green" }, 2);
 		const noFile = {
@@ -708,6 +940,11 @@ describe("the adapters", () => {
 		expect(verdictLedger(verdicts).get("s1", [])).toEqual({
 			kind: "green",
 			run: 7,
+		});
+		expect(verdictLedger(verdicts).get("s3", [])).toEqual({
+			kind: "red",
+			files: ["a.ts"],
+			retried: true,
 		});
 		expect(verdictLedger(verdicts).get("s2", [])).toBeNull();
 		expect(verdictLedger(verdicts).get("s1", ["a.ts"])).toBeNull();

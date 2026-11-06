@@ -19,25 +19,11 @@ const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
 const { projectSlug } = require("./project-slug");
 const { hostRoot } = require("./host-root.js");
-const { mainCheckout } = require("./main-checkout.js");
 const { configDir } = require("./config-dir.js");
 const { caught } = require("./caught.js");
-const { deref, realKey } = require("./deref.js");
+const { realKey } = require("./deref.js");
 
 const WORKTREES_DIR = path.join(".claude", "worktrees");
-
-/**
- * The checkout whose slug this repo's transcripts key on: the main checkout
- * (#4236), which `hostRoot()` also names for a declared linked worktree (#4487). Where git names no common dir the host root stands, and only its
- * slug is read.
- *
- * @returns {string}
- */
-function repoCheckout() {
-	const root = hostRoot();
-	const main = mainCheckout(root);
-	return main === null ? root : deref(main);
-}
 
 /**
  * Whether a name under `projects/` is this repo's: the main checkout's slug,
@@ -67,7 +53,8 @@ function repoSlugMatcher(root) {
  * @returns {string[]}
  */
 function projectDirs(seats = configDirs()) {
-	const root = repoCheckout();
+	/* The main checkout, whose slug this repo's transcripts key on (#4236). */
+	const root = hostRoot();
 	const main = projectSlug(root);
 	const isRepo = repoSlugMatcher(root);
 	/** @type {string[]} */

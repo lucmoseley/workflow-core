@@ -10,16 +10,16 @@
  *
  * `worktree` is the split a session in its own worktree runs under (#4229):
  * the root is the main checkout, whichever tree `CLAUDE_PROJECT_DIR` names
- * (#4487), while the hook's cwd is a linked worktree of it.
+ * (#4493), while the hook's cwd is a linked worktree of it.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { defineTemplate, trioTemplate } from "./git-fixture";
 import { loadCores } from "./guard-core-load.js";
-import { dispatch, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
 import { hostAdapters } from "./guard-host-ports.js";
+import { dispatch, type Output } from "./guard-judge.js";
 import { MARKERS_REL } from "./marker-root.js";
 import { readHookPersistChars } from "./rule-emission.js";
 

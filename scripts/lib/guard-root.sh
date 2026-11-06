@@ -2,7 +2,7 @@
 # The repo root, in the one spelling every guard uses (mantahostels#1905), and
 # the Claude Code config dir beside it (#2095).
 #
-# SOURCED, NEVER RUN. Four functions, no state, no dependencies.
+# SOURCED, NEVER RUN. Three functions, no state, no dependencies.
 #
 # WHY ITS OWN FILE, rather than a function in guard-log.sh: that is a call
 # site, so a helper there is unreachable from something below it, and a hook
@@ -10,7 +10,7 @@
 # gr_config_dir is the one exception: guard-log.sh keeps a copy, since its
 # detached fail-open log still needs a real config dir (#2095).
 #
-# BYTE-IDENTICAL OUTPUT IS THE CONSTRAINT. lib/guard-entry.js
+# BYTE-IDENTICAL OUTPUT IS THE CONSTRAINT, twice over. lib/guard-entry.js
 # writes a latch path clear-rule-latch.sh globs for, and gl_log derives the error-log directory
 # arbiter-core.js's stateDir() must agree with — so `scripts/lib/host-root.js`,
 # the JS half of this seam, strips the same trailing slash and dereferences the
@@ -34,57 +34,34 @@
 # The fallback is $PWD, which is the repo root on every wired path — a hook runs
 # from it — and wrong only for a guard hand-run from a subdirectory.
 #
-# A CLAUDE_PROJECT_DIR NAMING A LINKED WORKTREE ANSWERS ITS MAIN CHECKOUT (#4487):
-# the harness hands a session launched in a worktree that worktree, and the
-# shared stores are keyed on the main checkout.
-#
-# WITHOUT CLAUDE_PROJECT_DIR, THE MAIN CHECKOUT (#4482): in a linked worktree
-# the parent of a git common dir called `.git`, else the top level — one fork
-# for both reads, as hostRoot()'s owningCheckout() makes it.
+# THE MAIN CHECKOUT, CLAUDE_PROJECT_DIR set or not (#4482, #4493): in a linked
+# worktree the parent of a git common dir called `.git`, else the top level —
+# one fork for both reads, as hostRoot()'s owningCheckout() makes it. A
+# session launched in a linked worktree hands its hooks CLAUDE_PROJECT_DIR
+# naming that worktree and its Bash tool none, so both limbs map. A declared
+# directory whose `.git` is no file is kept without the fork.
 gr_root() {
-  local root real out
+  local root real out ask=
   if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
     root="$CLAUDE_PROJECT_DIR"
-    [[ -f "$root/.git" ]] && gr_declared_checkout root
-  elif out="$(git rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)"; then
+    [[ -f "$root/.git" ]] && ask="$root"
+  else
+    root="$PWD"
+    ask=.
+  fi
+  if [[ -n "$ask" ]] && out="$(git -C "$ask" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)"; then
     root="${out%%$'\n'*}"
     out="${out#*$'\n'}"
     if [[ "${out##*/}" == .git ]]; then
       root="${out%/*}"
       [[ -n "$root" ]] || root=/
     fi
-  else
-    root="$PWD"
   fi
   # Only a trailing slash, and never the last one: a repo rooted at / would
   # otherwise normalise to the empty string.
   [[ "$root" == / ]] || root="${root%/}"
   real="$(gr_physical "$root")" && root="$real"
   printf '%s' "$root"
-}
-
-# gr_declared_checkout <var> — where <var> names a linked worktree, re-points it
-# at the main checkout, read from git's on-disk layout with builtins and one
-# `cd -P`: its `.git` file names its git dir, whose `commondir` names the common
-# dir. A submodule's git file, which has no `commondir`, keeps <var>.
-# host-root.js's declaredCheckout() is the JS twin. Locals carry a `_gr_` prefix
-# so none shadows the caller's <var>.
-gr_declared_checkout() {
-  local _gr_dir="${!1}" _gr_line="" _gr_git _gr_common
-  IFS= read -r _gr_line <"$_gr_dir/.git" || [[ -n "$_gr_line" ]] || return 0
-  _gr_line="${_gr_line%$'\r'}"
-  [[ "$_gr_line" == "gitdir: "* ]] || return 0
-  _gr_git="${_gr_line#gitdir: }"
-  [[ "$_gr_git" == /* ]] || _gr_git="$_gr_dir/$_gr_git"
-  [[ -f "$_gr_git/commondir" ]] || return 0
-  _gr_line=""
-  IFS= read -r _gr_line <"$_gr_git/commondir" || [[ -n "$_gr_line" ]] || return 0
-  _gr_line="${_gr_line%$'\r'}"
-  if [[ "$_gr_line" == /* ]]; then _gr_common="$_gr_line"; else _gr_common="$_gr_git/$_gr_line"; fi
-  _gr_common="$(gr_physical "$_gr_common")" || return 0
-  [[ "${_gr_common##*/}" == .git ]] || return 0
-  _gr_common="${_gr_common%/*}"
-  printf -v "$1" '%s' "${_gr_common:-/}"
 }
 
 # gr_physical <dir> — <dir> with its symlinks dereferenced by `cd -P`. Non-zero,

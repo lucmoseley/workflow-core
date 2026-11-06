@@ -2,13 +2,19 @@
  * host-root.js — the one seam every script in the core uses to find the HOST
  * repository.
  *
- * THE CONTRACT, in order: `CLAUDE_PROJECT_DIR` where the harness sets it — its
- * main checkout where it names a linked worktree (#4487) — else
- * the main checkout owning the working directory, symlinks dereferenced either
- * way: in a linked worktree the parent of a git common dir called `.git`,
- * elsewhere the git top level. The Bash tool sets no `CLAUDE_PROJECT_DIR`, so a
- * script a worktree session runs by hand reaches the shared stores through this
- * limb (#4482).
+ * THE CONTRACT: the main checkout owning `CLAUDE_PROJECT_DIR` where the harness
+ * sets it, else the one owning the working directory, symlinks dereferenced
+ * either way: in a linked worktree the parent of a git common dir called
+ * `.git`, elsewhere the git top level. One answer for every caller in a
+ * session: in a session launched in a linked worktree the harness hands its
+ * hooks `CLAUDE_PROJECT_DIR` naming that worktree, and the Bash tool sets none,
+ * so a hook's claim and a hand-run `release` meet in one store only because
+ * both limbs map to the main checkout (#4482, #4493). A declared directory
+ * whose `.git` is not a file is kept without asking git: a main checkout, or
+ * no checkout root at all. RESIDUAL: a declared subdirectory of any checkout
+ * is such a directory, kept as declared where the working-directory limb
+ * would map it to the main checkout; the harness declares only a checkout's
+ * root.
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
  *
@@ -16,10 +22,8 @@
  * the shared stores live: claims, markers, ledgers. `sessionTree()` is the
  * session's own tree, a linked worktree of it where the session runs in one:
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
- * The harness sets `CLAUDE_PROJECT_DIR` to the linked worktree a session was
- * launched in (#4487), and the host root re-points that at
- * its main checkout, so the host root never says which tree is the session's;
- * only the hook input's `cwd` does. A script that writes tracked
+ * The host root never says which tree is the session's; only the hook input's
+ * `cwd` does. A script that writes tracked
  * files writes `worktreeRoot()`: through `hostRoot()` a worktree session's
  * write lands in the main checkout as an orphaned edit (#4438).
  *
@@ -76,6 +80,10 @@ function stripSlash(dir) {
  */
 let memo = { key: "", value: "" };
 
+/* The declared limb's, keyed on the dereferenced `CLAUDE_PROJECT_DIR`, under
+ * the same rule: a failed git read is never memoised. */
+let declaredMemo = { key: "", value: "" };
+
 /**
  * The git top level of `cwd`, symlinks dereferenced. Throws where git will
  * not say.
@@ -113,47 +121,6 @@ function owningCheckout(cwd, timeoutMs) {
 }
 
 /**
- * A file's first line, a trailing CR dropped and nothing else trimmed: the
- * parse rule all three halves share.
- * @param {string} file
- * @returns {string}
- */
-const firstLine = (file) =>
-	(fs.readFileSync(file, "utf8").split("\n")[0] ?? "").replace(/\r$/, "");
-
-/**
- * The main checkout of a declared root that is a linked worktree, else the
- * root itself. Read from git's on-disk layout, never a fork: every hook pays
- * this. A linked worktree's `.git` is a file naming its git dir, whose
- * `commondir` names the common dir; `checkoutOfCommonDir()` takes it from
- * there. A `.git` directory, none, or a submodule's git file all keep `dir`.
- * `dir` comes dereferenced, so a relative git dir resolves from the real
- * directory, and so does the git dir before `commondir` is joined to it.
- * @param {string} dir
- * @returns {string}
- */
-function declaredCheckout(dir) {
-	let gitDir;
-	try {
-		const first = firstLine(path.join(dir, ".git"));
-		const named = first.startsWith("gitdir: ")
-			? first.slice("gitdir: ".length)
-			: "";
-		if (!named) return dir;
-		gitDir = deref(path.resolve(dir, named));
-	} catch {
-		return dir;
-	}
-	let common;
-	try {
-		common = path.resolve(gitDir, firstLine(path.join(gitDir, "commondir")));
-	} catch {
-		return dir;
-	}
-	return checkoutOfCommonDir(deref(common)) ?? dir;
-}
-
-/**
  * The host repository's root.
  * @param {string} [cwd] the directory the git limb asks from
  * @param {{ timeoutMs?: number, onTimeout?: () => void }} [opts] the git
@@ -163,7 +130,8 @@ function declaredCheckout(dir) {
  */
 function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 	const declared = process.env.CLAUDE_PROJECT_DIR;
-	if (declared) return deref(declaredCheckout(deref(stripSlash(declared))));
+	if (declared)
+		return declaredHost(deref(stripSlash(declared)), timeoutMs, onTimeout);
 	if (memo.key === cwd) return memo.value;
 	let value;
 	try {
@@ -176,6 +144,39 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 		return deref(cwd);
 	}
 	memo = { key: cwd, value };
+	return value;
+}
+
+/**
+ * The main checkout owning a declared `CLAUDE_PROJECT_DIR`, or that directory
+ * itself: where its `.git` is no file, so no linked worktree, and where git
+ * will not answer.
+ * @param {string} dir dereferenced, trailing slash stripped
+ * @param {number} [timeoutMs]
+ * @param {() => void} [onTimeout]
+ * @returns {string}
+ */
+function declaredHost(dir, timeoutMs, onTimeout) {
+	if (declaredMemo.key === dir) return declaredMemo.value;
+	let linked = false;
+	try {
+		linked = fs.statSync(path.join(dir, ".git")).isFile();
+	} catch {
+		/* No `.git` at all: no checkout to map. */
+	}
+	let value = dir;
+	if (linked) {
+		try {
+			value = owningCheckout(dir, timeoutMs);
+		} catch (e) {
+			if (caught(e).code === "ETIMEDOUT") onTimeout?.();
+			/* Fails open to the declared directory (mantahostels#103 §6),
+			 * silently: the error log's own directory is derived from this, so a
+			 * report from here would recurse. */
+			return dir;
+		}
+	}
+	declaredMemo = { key: dir, value };
 	return value;
 }
 
@@ -249,8 +250,8 @@ function worktreeRoot(
 /**
  * The host a git hook at `cwd` is handed: `scripts/lib/hook-root.sh`'s answer,
  * for a script that must agree with the hook whatever its shell inherited
- * (#3830). `CLAUDE_PROJECT_DIR` where it shares this repository's git common
- * dir; else, in a linked worktree, the main checkout owning a common dir called
+ * (#3830). `hostRoot()` where `CLAUDE_PROJECT_DIR` shares this repository's
+ * git common dir, so the main checkout owning it; else, in a linked worktree, the main checkout owning a common dir called
  * `.git`; else the top level. A bare repository or a git directory has no top
  * level, so that answers the working directory and says so on stderr; a
  * directory outside any repository answers `hostRoot()`'s fail-open, silently.

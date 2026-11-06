@@ -1,7 +1,7 @@
 /*
  * kit-context.js — the KitContext a Node guard's core is handed, and the
  * adapters one call shares (#2784, ADR-0010). lib/guard-entry.js's `run`,
- * lib/guard-dispatch.js and lib/suite-concurrency-host.js's readGate all
+ * lib/guard-judge.js and lib/suite-concurrency-host.js's readGate all
  * build from it.
  *
  * NOTHING HERE REACHES lib/entry-input.js, the entry's fail-open logger: a

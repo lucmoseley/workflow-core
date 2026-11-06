@@ -120,7 +120,8 @@ class TransientFault extends Error {}
  *   error, `message` to read and `signature` to compare, the same across runs
  *   of one failure
  * @typedef {{kind: "green", run?: number}
- *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[]}
+ *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
+ *      retried?: boolean}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
  *   CI run that passed it and `jobs` the failing CI jobs, where the tester
  *   read a CI run; `failures` where it named the failing tests; `transient`
@@ -655,7 +656,10 @@ function redAction(b, s, main, { sha, whole }) {
 	/** @type {QueueAction} */
 	const land = { kind: "fast-forward-main", sha };
 	const rerun = { sha, files: whole.files, pass: 2 };
-	const again = verdictOr(s, rerun, { kind: "rerun-files", ...rerun });
+	/* Retried in its own run already: red again there, so no re-run (#4545). */
+	const again = whole.retried
+		? { v: whole }
+		: verdictOr(s, rerun, { kind: "rerun-files", ...rerun });
 	if ("action" in again) return again.action;
 	if (again.v.kind === "green") return landGreen(again.v, s, land);
 	const files = again.v.files.length > 0 ? again.v.files : whole.files;

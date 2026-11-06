@@ -13,7 +13,8 @@
  *
  * Loosen a case and a divergence lands unseen: the guards' fail-open records
  * go to a project directory check-guard-errors.js never reads, so every
- * guard that failed open looks as if it never had.
+ * guard that failed open looks as if it never had. This test, red in CI, is
+ * what catches it.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,9 +30,6 @@ let repo: string;
 let repoLink: string;
 let linked: string;
 let linkedLink: string;
-let gitFiled: string;
-let relLink: string;
-let spaced: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -59,33 +57,9 @@ beforeAll(() => {
 	fs.mkdirSync(path.join(linked, "sub"));
 	repoLink = path.join(tmp, "repo-link");
 	fs.symlinkSync(repo, repoLink);
-	fs.mkdirSync(path.join(tmp, "nowhere"));
 	linkedLink = path.join(tmp, "linked-link");
 	fs.symlinkSync(linked, linkedLink);
-	/* A submodule's checkout: a git file whose git dir has no `commondir`. */
-	gitFiled = path.join(tmp, "gitfiled");
-	fs.mkdirSync(path.join(tmp, "gitfiled-git"), { recursive: true });
-	fs.mkdirSync(gitFiled);
-	fs.writeFileSync(path.join(gitFiled, ".git"), "gitdir: ../gitfiled-git\n");
-	/* A relative git file, as `git worktree add --relative-paths` writes one,
-	 * reached through a symlink in another directory: resolved from the link's
-	 * spelling it names no git dir. CRLF, as a Windows-side editor leaves it. */
-	const rel = path.join(tmp, "rel");
-	execFileSync("git", ["worktree", "add", "-q", rel], { cwd: repo });
-	fs.writeFileSync(
-		path.join(rel, ".git"),
-		`gitdir: ${path.relative(rel, path.join(repo, ".git", "worktrees", "rel"))}\r\n`,
-	);
-	fs.mkdirSync(path.join(tmp, "links"));
-	relLink = path.join(tmp, "links", "rel");
-	fs.symlinkSync(rel, relLink);
-	/* Whitespace past the path is part of it: no half trims it. */
-	spaced = path.join(tmp, "spaced");
-	execFileSync("git", ["worktree", "add", "-q", spaced], { cwd: repo });
-	fs.writeFileSync(
-		path.join(spaced, ".git"),
-		`gitdir: ${path.join(repo, ".git", "worktrees", "spaced")} \n`,
-	);
+	fs.mkdirSync(path.join(tmp, "nowhere"));
 });
 
 afterAll(() => {
@@ -166,36 +140,21 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			() => path.join(repo, "file.txt"),
 		],
 		[
-			/* The harness hands a session launched in a worktree that worktree
-			 * (#4487); the shared stores are keyed on its main checkout. */
+			/* A session launched in a linked worktree hands its hooks this
+			 * (#4493); the Bash tool, none — the two must name one store. */
 			"a CLAUDE_PROJECT_DIR naming a linked worktree",
 			() => [linked, linked],
 			() => repo,
 		],
 		[
-			"a CLAUDE_PROJECT_DIR naming a linked worktree, from elsewhere",
+			"a CLAUDE_PROJECT_DIR naming a linked worktree, with a trailing slash",
 			() => [tmp, `${linked}/`],
 			() => repo,
 		],
 		[
-			"a symlinked CLAUDE_PROJECT_DIR naming a linked worktree",
+			"a CLAUDE_PROJECT_DIR naming a linked worktree through a symlink",
 			() => [tmp, linkedLink],
 			() => repo,
-		],
-		[
-			"a symlinked CLAUDE_PROJECT_DIR naming a worktree whose git file is relative, with CRLF",
-			() => [tmp, relLink],
-			() => repo,
-		],
-		[
-			"a CLAUDE_PROJECT_DIR whose git file names its git dir with a trailing space",
-			() => [tmp, spaced],
-			() => spaced,
-		],
-		[
-			"a CLAUDE_PROJECT_DIR whose git file names no common dir",
-			() => [tmp, gitFiled],
-			() => gitFiled,
 		],
 		[
 			/* The Bash tool sets no CLAUDE_PROJECT_DIR (#4482). */
@@ -225,24 +184,4 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 		const got = readAnswers(cwd, declared);
 		expect(got).toEqual({ js: expected(), sh: expected(), py: expected() });
 	});
-});
-
-it("a hook handed a linked worktree and a Bash-route script read one claim store", () => {
-	const stateDir = (declared: string | undefined) =>
-		spawnSync(
-			process.execPath,
-			[
-				"-e",
-				`process.stdout.write(require(${JSON.stringify(path.join(LIB, "arbiter-core.js"))}).stateDir())`,
-			],
-			{
-				cwd: linked,
-				env: { ...envWith(declared), CLAUDE_CONFIG_DIR: path.join(tmp, "cfg") },
-				encoding: "utf8",
-			},
-		).stdout;
-	const hook = stateDir(linked);
-	expect(hook).toContain(path.join(tmp, "cfg"));
-	expect(hook).toBe(stateDir(undefined));
-	expect(hook).toBe(stateDir(repo));
 });

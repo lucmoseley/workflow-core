@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * guard-dispatch.js runs every always-on guard of an event as a core of one
- * hook entry (#2786). Break the merge and a deny is lost behind another
+ * hook entry, judged and merged by lib/guard-judge.js (#2786). Break the merge and a deny is lost behind another
  * core's allow or a context behind another's; break the gating and a
  * disabled or off-module core speaks; break the failure policy and one broken
  * advisory core silences or blocks the rest.
@@ -37,7 +37,7 @@ interface Core {
 const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string, keep?: (row: Core) => boolean) => Core[];
 };
-const { dispatch, merge } = require("./guard-dispatch.js") as {
+const { dispatch } = require("./guard-judge.js") as {
 	dispatch: (
 		cores: Core[],
 		env: Record<string, unknown>,
@@ -45,14 +45,6 @@ const { dispatch, merge } = require("./guard-dispatch.js") as {
 		output: Record<string, unknown> | null;
 		latches: { latches: { name: string }[]; log: (what: string) => void }[];
 	};
-	merge: (
-		parts: {
-			permissionDecision?: string;
-			reason?: string;
-			context?: string;
-			updatedInput?: Record<string, unknown>;
-		}[],
-	) => Record<string, unknown> | null;
 };
 
 const { hostAdapters } = require("./guard-host-ports.js") as {
@@ -144,54 +136,46 @@ function run(
 }
 
 describe("the merge (vendor §PreToolUse decision control)", () => {
-	it.each([
-		[["allow", "ask", "defer", "deny"], "deny"],
-		[["allow", "ask", "defer"], "defer"],
-		[["allow", "ask"], "ask"],
-		[["allow"], "allow"],
-	])("%j merges to %s, with every reason at that strength", (given, top) => {
-		const out = merge([
-			...given.map((d) => ({ permissionDecision: d, reason: `why ${d}` })),
-			{ permissionDecision: top, reason: "and again" },
-		]);
-		expect(out).toEqual({
-			permissionDecision: top,
-			permissionDecisionReason: `why ${top}\n\nand again`,
+	const rewrite = core(
+		"r",
+		answers({ context: "r says", updatedInput: { command: "ls -a" } }),
+	);
+
+	it("refuses where any core refused, with every refusal's reason, and drops a rewrite", () => {
+		expect(
+			run([
+				rewrite,
+				core("a", answers({ deny: "why a" })),
+				core("b", answers({ deny: "why b" })),
+			]),
+		).toEqual({
+			permissionDecision: "deny",
+			permissionDecisionReason: "why a\n\nwhy b",
+			additionalContext: "r says",
 		});
 	});
 
 	it("carries every context beside the permission, and says nothing of nothing", () => {
 		expect(
-			merge([
-				{ context: "one" },
-				{ permissionDecision: "deny", reason: "no" },
-				{ context: "two" },
+			run([
+				core("a", answers({ context: "one" })),
+				core("b", answers({ deny: "no" })),
+				core("c", answers({ context: "two" })),
 			]),
 		).toEqual({
 			permissionDecision: "deny",
 			permissionDecisionReason: "no",
 			additionalContext: "one\n\ntwo",
 		});
-		expect(merge([])).toBeNull();
+		expect(run([core("a", answers(null))])).toBeNull();
 	});
 
-	it("carries a core's updatedInput on a merged allow, and drops it under any stronger answer", () => {
-		const rewrite = {
+	it("carries one core's rewrite on a merged allow beside another core's context", () => {
+		expect(run([core("a", answers({ context: "note" })), rewrite])).toEqual({
 			permissionDecision: "allow",
-			updatedInput: { prompt: "rewritten" },
-		};
-		expect(merge([{ context: "note" }, rewrite])).toEqual({
-			permissionDecision: "allow",
-			updatedInput: { prompt: "rewritten" },
-			additionalContext: "note",
+			updatedInput: { command: "ls -a" },
+			additionalContext: "note\n\nr says",
 		});
-		for (const stronger of ["ask", "defer", "deny"])
-			expect(
-				merge([rewrite, { permissionDecision: stronger, reason: "no" }]),
-			).toEqual({
-				permissionDecision: stronger,
-				permissionDecisionReason: "no",
-			});
 	});
 });
 

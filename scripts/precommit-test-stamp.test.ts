@@ -79,7 +79,7 @@ const PRECOMMIT = [
 	STUB_GATE,
 	GATES_END,
 	cut(
-		`if declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
+		`if ! lander_batch && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
 		"fi",
 	),
 	cut("pc_stamp_dir=", "fi"),
@@ -843,7 +843,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 	])
 		expect(above).toContain(gate);
 	expect(below.find((l) => !/^\s*(#|$)/.test(l))).toBe(
-		"if declared_cmd node scripts/lib/test-gate.js commit; then",
+		"if ! lander_batch && declared_cmd node scripts/lib/test-gate.js commit; then",
 	);
 	// Below the line, only the test gate's own libraries and the mutation
 	// hold, slower than the suite (#1906): any other core gate added there
@@ -866,7 +866,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 	// plugin root picks which core runs the gate, not whether it runs.
 	expect(
 		cut(
-			`if declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
+			`if ! lander_batch && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
 			"fi",
 		).replaceAll(CORE_ROOT, ""),
 	).not.toMatch(/\$\{?[A-Z_]+/);

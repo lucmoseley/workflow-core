@@ -399,7 +399,7 @@ const named = (body, from) => {
  * The refusal of a wait `what` long `ms`.
  * @param {string} what
  * @param {number} ms
- * @param {import("./guard-dispatch.js").CoreContext} ctx
+ * @param {import("./guard-judge.js").CoreContext} ctx
  */
 function waitDeny(what, ms, ctx) {
 	const length =
@@ -422,7 +422,7 @@ function waitDeny(what, ms, ctx) {
  * The deny's three shapes, in order: the summed sleeps, a counted loop, a
  * long `timeout` around an unread wait.
  * @param {string} waits
- * @param {import("./guard-dispatch.js").CoreContext} ctx
+ * @param {import("./guard-judge.js").CoreContext} ctx
  */
 function denial(waits, ctx) {
 	const all = sleeps(waits);
@@ -539,8 +539,8 @@ What this guard cannot see: it reads a ceiling as a \`timeout\`, or a numeric co
 
 /**
  * @param {string} command
- * @param {import("./guard-dispatch.js").CoreContext} ctx
- * @returns {import("./guard-dispatch.js").CoreDecision}
+ * @param {import("./guard-judge.js").CoreContext} ctx
+ * @returns {import("./guard-judge.js").CoreDecision}
  */
 function decide(command, ctx) {
 	const waits = mask(unheredoc(command));

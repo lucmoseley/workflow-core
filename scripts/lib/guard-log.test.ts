@@ -46,7 +46,7 @@ import { describe, expect, it } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
-const { hostRoot } = require("./host-root.js");
+const { mainCheckout } = require("./main-checkout.js");
 
 const GUARD_LOG = path.resolve(__dirname, "guard-log.sh");
 
@@ -86,11 +86,13 @@ const readSlugViaGuardLog = (
 };
 
 describe("guard-log.sh's slug restatement agrees with projectSlug() (mantahostels#2051)", () => {
-	// The host root, not this file's tree: run from a linked worktree, gr_root
-	// slugs that worktree's main checkout (#4487).
+	/* The seam maps a linked worktree to its main checkout (#4493), so a run
+	 * from a worktree slugs that. */
 	it("agrees on this repo's own root", () => {
-		const root = hostRoot(path.resolve(__dirname, "..", ".."));
-		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
+		const root = path.resolve(__dirname, "..", "..");
+		expect(readSlugViaGuardLog(root)).toBe(
+			projectSlug(mainCheckout(root) ?? root),
+		);
 	});
 
 	it("agrees on a dot, not only on the slashes", () => {

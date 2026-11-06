@@ -73,8 +73,8 @@ const FORK =
 const chomp = (s) => trimEndRun(s, "\n");
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext} Ctx
- * @typedef {import("./guard-dispatch.js").CoreDecision} Decision
+ * @typedef {import("./guard-judge.js").CoreContext} Ctx
+ * @typedef {import("./guard-judge.js").CoreDecision} Decision
  */
 
 /**

@@ -86,11 +86,8 @@ function readCanonicalCheckoutOf(dir) {
  * of the working directory.
  *
  * THE INVARIANT IS NOT THAT THE TWO ROOTS AGREE. It is that the store's tree is
- * the tree the claims were filed under. Neither variable is set in this
- * project's own environment, so a run from a throwaway worktree has both sides
- * resolving independently to that worktree; they agree, and the store is still
- * the wrong one, because every claim was filed under the slug of the canonical
- * checkout.
+ * the tree the claims were filed under: the canonical checkout, which the
+ * store's root names from a linked worktree too (#4482, #4493).
  *
  * The failure that matters is silence: a store resolving cleanly to the wrong
  * empty directory reads exactly like a genuinely unclaimed frontier, so the
@@ -117,12 +114,8 @@ function storeElsewhere(repoRoot, storeRoot) {
 	 */
 	const want = readCanonicalCheckoutOf(mine) || mine;
 	if (want === theirs) return null;
-	const canonical = readCanonicalCheckoutOf(theirs);
 	return {
-		why:
-			canonical && canonical !== theirs
-				? `the claim store is keyed on ${theirs}, a linked worktree of ${canonical} — claims are filed under the canonical checkout`
-				: `the claim store resolves to ${theirs}, not the tree this run's claims are filed under (${want})`,
+		why: `the claim store resolves to ${theirs}, not the tree this run's claims are filed under (${want})`,
 		use: want,
 	};
 }

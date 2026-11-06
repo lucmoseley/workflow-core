@@ -113,8 +113,11 @@ function buildLanderDeps(
 	{ tester, admit, say, code = readRunCode(root) },
 ) {
 	const files = queueLanderFiles(root);
+	const ciRepeats =
+		tester === undefined &&
+		readConfig({ root, quiet: true }).landingTester === "actions";
 	return {
-		git: queueGit(root),
+		git: queueGit(root, undefined, undefined, { ciRepeats }),
 		tester:
 			tester === undefined
 				? configuredTester(root, admit)

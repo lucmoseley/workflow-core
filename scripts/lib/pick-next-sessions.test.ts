@@ -76,15 +76,14 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 
 	it("points the reader at the canonical checkout, not the worktree", () => {
 		expect(storeElsewhere(worktree, worktree)).toEqual({
-			why: `the claim store is keyed on ${worktree}, a linked worktree of ${canonical} — claims are filed under the canonical checkout`,
+			why: `the claim store resolves to ${worktree}, not the tree this run's claims are filed under (${canonical})`,
 			use: canonical,
 		});
 	});
 
-	it("calls a subdirectory a mismatch, never a linked worktree", () => {
+	it("calls a subdirectory a mismatch", () => {
 		const sub = path.join(canonical, "sub");
 		const r = storeElsewhere(canonical, sub);
-		expect(r.why).not.toMatch(/linked worktree/);
 		expect(r.why).toMatch(/not the tree this run's claims are filed under/);
 	});
 

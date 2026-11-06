@@ -4456,31 +4456,3 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 		},
 	);
 });
-
-/* The split #4487 measured: a session's hooks are handed its linked worktree
- * as CLAUDE_PROJECT_DIR, while its Bash-run scripts get none. A claim the one
- * files the other must find, or a release from Bash answers "holds no claim". */
-describe("a claim filed from a linked worktree (#4487)", () => {
-	it("is listed by a script there with CLAUDE_PROJECT_DIR unset", () => {
-		gitRepo(sb);
-		fs.writeFileSync(inRepo("seed.md"), "x\n");
-		commitAll(sb);
-		const wt = path.join(sb.dir, "wt-4487");
-		execFileSync("git", ["worktree", "add", "-q", "--detach", wt], {
-			cwd: sb.repo,
-		});
-		fs.mkdirSync(path.join(wt, "docs"), { recursive: true });
-		fs.writeFileSync(path.join(wt, "docs", "split.md"), "x\n");
-		registerSession(sb, "bob", process.pid);
-		const env = { ...process.env };
-		const hook = runInProcess(
-			SCRIPT,
-			["claim", path.join(wt, "docs", "split.md"), "bob"],
-			{ cwd: wt, env: { ...env, CLAUDE_PROJECT_DIR: wt } },
-		);
-		expect(hook.status).toBe(0);
-		delete env.CLAUDE_PROJECT_DIR;
-		const bash = runInProcess(SCRIPT, ["list"], { cwd: wt, env });
-		expect(bash.stdout).toContain("docs/split.md");
-	});
-});

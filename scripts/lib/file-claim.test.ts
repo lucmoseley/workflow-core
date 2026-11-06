@@ -36,9 +36,9 @@ import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
 import { cutWorktree } from "./git-fixture";
 import { loadedCores, runCore, splitCheckout } from "./guard-core-testkit";
-import { dispatch, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
 import { type Adapters, hostAdapters } from "./guard-host-ports.js";
+import { dispatch, type Output } from "./guard-judge.js";
 import { registrationsOf } from "./hook-wiring";
 import { readHookPersistChars, readRuleCap } from "./rule-emission.js";
 import { readRuleText } from "./rule-text.js";
@@ -1621,11 +1621,11 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	/*
 	 * The claim store is the arbiter's, on the host: the real host port spawns
 	 * it, and it finds its store by the hook process's CLAUDE_PROJECT_DIR, which
-	 * the host root maps to the main checkout (#4487). runCore's env reaches the core
+	 * the seam maps to the main checkout. runCore's env reaches the core
 	 * alone, so the process is pointed at the store each step reads.
 	 */
-	const aliceHolds = () => {
-		storeAt(at.main);
+	const aliceHoldsIn = (root: string) => {
+		storeAt(root);
 		store.acquire("docs/plain.md", live(split, "alice"));
 	};
 	const writeFrom = (tree: string, session: string, rel = "docs/plain.md") => {
@@ -1639,7 +1639,7 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	};
 
 	it("warns of the file a session holds in the host's claim store, keyed by its path in the tree (#4397)", () => {
-		aliceHolds();
+		aliceHoldsIn(at.main);
 		const warned = writeFrom(at.worktree, "bob").output;
 		expect(warned?.permissionDecision).toBeUndefined();
 		expect(warned?.additionalContext).toContain("also held by session alice");

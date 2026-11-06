@@ -18,7 +18,6 @@ import functools
 import glob
 import json
 import os
-import subprocess
 from collections import defaultdict
 
 from host_root import host_root
@@ -74,25 +73,11 @@ def seats():
 @functools.cache
 def _slugs(_declared, _cwd):
     """(main checkout's slug, worktree slug prefix) — project-dirs.js's
-    `repoCheckout()` and `repoSlugMatcher()`. Once per CLAUDE_PROJECT_DIR and
-    working directory, the two it reads: it runs git, and `seat_of` runs once
-    per transcript (#1275). A repo moved under an unchanged working directory
-    keeps its old slugs until the process ends."""
+    `projectDirs()` root and `repoSlugMatcher()`. Once per CLAUDE_PROJECT_DIR
+    and working directory, the two it reads: `host_root()` may run git, and
+    `seat_of` runs once per transcript (#1275). A repo moved under an unchanged
+    working directory keeps its old slugs until the process ends."""
     root = host_root()
-    try:
-        common = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        # No common dir: the host root's slug alone is read, as project-dirs.js's
-        # `repoCheckout()` (#4236).
-        common = ""
-    if os.path.basename(common) == ".git":
-        root = os.path.realpath(os.path.dirname(common))
     worktrees = os.path.join(root, ".claude", "worktrees")
     return project_slug(root), project_slug(worktrees) + "-"
 

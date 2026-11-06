@@ -213,9 +213,20 @@ Researched 2026-11-05.
 - Chromium's CQ retries a failed shard, then reruns the failed suites "without the CL"; a failure that also happens without it is tip breakage, not the change's. https://chromium.googlesource.com/chromium/src/+/main/docs/infra/cq.md. [standard or field body]
 - Agreement (bors-ng, Rigby group, Zuul, Uber): batch-all on one pipeline; on a red batch, find the culprit by testing its members and drop it; keep speculation shallow while the failure rate is high.
 
+### What the queue does not redo
+
+Researched 2026-11-06.
+
+- Local hooks: forge queues (GitHub, bors-ng, Zuul, Mergify, Trunk) make the merge commit server-side, so no client hook runs and the CI run on the merged tip is the only gate; `git merge-tree --write-tree` "does not make any new commits and does not read from or write to either the working tree or index", and `commit-tree` reaches no hook. https://git-scm.com/docs/git-merge-tree, https://git-scm.com/docs/githooks. [standard or field body] A check a hook makes and CI does not must move into CI first, or the guarantee weakens.
+- Dependencies: `actions/setup-node`'s `cache: npm` caches npm's download cache, "not `node_modules`", so `npm ci` still extracts and links on every job (https://github.com/actions/setup-node/blob/main/docs/advanced-usage.md); a run restores caches from its own branch or the default branch only (https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching). [standard or field body] Caching `node_modules` on an exact lockfile, OS and Node key is tutorial practice only [unverified]; measured here at 30–53 s → 3–5 s per job (#4545).
+- Retries: Chromium's CQ retries a failed shard "with the exact same configuration", then reruns the failing suites without the change, inside one run rather than separate round trips. https://chromium.googlesource.com/chromium/src/+/main/docs/infra/cq.md. [standard or field body]
+- Pass reuse: a tree whose hash already passed needs no new run; reuse across different trees (Chromium's freshness window) breaks the exact-tree rule. [unverified]
+- Pipelining: every speculative queue (Zuul, GitHub, Mergify, Trunk, Graphite, Aviator; Uber [named expert]) starts batch N+1 on "main + N + N+1" before N finishes, fast-forwards in order, and on red at N cancels and rebuilds what follows without N's suspects. Shopify runs 3 batches of 8 at once and removes a change only after 3 successive failures, so a flake ejects 0.39% of changes against 25% at tolerance 0. https://shopify.engineering/successfully-merging-work-1000-developers. [named expert]
+- Agreement (git docs, Hoare, every forge queue, Chromium): the queue makes merges without client hooks, installs nothing an exact cache holds, and retries in the run that failed; the full suite on the exact tip stays the one gate.
+
 ### Queue health
 
-- Track time in queue as p50 and p90/p95, queue depth, eject rate and wasted runs; alert on live depth or stall against a week of own baseline. Trunk (https://docs.trunk.io/merge-queue/administration/metrics) and Mergify docs, GitHub's engineering blog (2,500 changes a month through its queue, average wait down 33%). Vendors each [unverified]; the percentile half rests on Google SRE above. No source publishes a numeric lag SLO.
+- Track time in queue as p50 and p90/p95, queue depth, eject rate and wasted runs; alert on live depth or stall against a week of own baseline. Trunk (https://docs.trunk.io/merge-queue/administration/metrics) and Mergify docs, GitHub's engineering blog. Vendors each [unverified]; the percentile half rests on Google SRE above. No source publishes a numeric lag SLO.
 
 ## Mutation-test runs
 

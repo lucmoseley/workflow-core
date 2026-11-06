@@ -169,6 +169,37 @@ it("reads a failed run as red, naming its failing jobs and the tree's failing fi
 	});
 });
 
+it("marks a red retried where every failed job failed at its in-job retry, naming only the files it failed again (#4545)", async () => {
+	const retry = (step: string): Job => ({
+		name: "Full suite / Vitest (1/2)",
+		conclusion: "failure",
+		steps: [
+			{ name: "Vitest", conclusion: "failure" },
+			{ name: step, conclusion: "failure" },
+		],
+	});
+	/* The first run failed a.test.ts and test_b.py; the retry cleared the
+	 * first. --log-failed prints both steps' lines. */
+	const retriedLog = `${FAILED_LOG}
+Full suite / Vitest (1/2)\tRetry failed files\t2026-10-27T08:31:00.0Z retry-failed-files: still failing after one retry: scripts/test_b.py`;
+	const verdictWith = (job: Job, log = retriedLog, present?: string[]) => {
+		const r = reads([() => [run(1, "failure")]], [job, SUITE_PASSED], present);
+		r.failedLogOf = () => log;
+		return verdictOf(r);
+	};
+	expect(await verdictWith(retry("Retry failed files"))).toMatchObject({
+		kind: "red",
+		files: ["scripts/test_b.py"],
+		retried: true,
+	});
+	expect(await verdictWith(retry("Vitest"))).not.toHaveProperty("retried");
+	const crashed = `${FAILED_LOG}
+x\tRetry failed files\tT retry-failed-files: still failing after one retry: none`;
+	expect(
+		await verdictWith(retry("Retry failed files"), crashed),
+	).not.toHaveProperty("retried");
+});
+
 it("names a failing file from a log whose colour codes gh printed as literal caret text (#3529)", async () => {
 	/* Verbatim from run 40759126911's `--log-failed`, shard 8/8. */
 	const log =

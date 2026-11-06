@@ -134,7 +134,7 @@ jobs:
       # read as a clean corpus. `--ignore-scripts` on ci.yml's terms.
       - name: Install dependencies
         if: ${{ !cancelled() }}
-        run: npm ci --ignore-scripts
+        uses: ./.github/actions/node-deps
 
       - name: Check roadmap HTML and digest versions agree
         if: ${{ !cancelled() }}

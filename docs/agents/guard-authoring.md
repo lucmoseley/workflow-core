@@ -381,9 +381,8 @@ never route it.
 
 ## Which tree a core reads
 
-A session works in its own linked worktree while the host root names its main
-checkout, whichever of the two `CLAUDE_PROJECT_DIR` holds (#4229, #4487), so a
-dispatcher core holds two trees. `ctx.root`, `ctx.git`, `ctx.readText` and `ctx.repoRel` are the
+A session works in its own linked worktree while the host root names the main
+checkout (#4229, #4493), so a dispatcher core holds two trees. `ctx.root`, `ctx.git`, `ctx.readText` and `ctx.repoRel` are the
 host root's: read the shared stores there — claims, markers, latches, ledgers,
 test-pass markers, the rule store, host config. `ctx.tree()` hands the same
 four reads rooted on the session's tree, the git top level of the hook input's

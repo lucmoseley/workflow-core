@@ -21,12 +21,19 @@
  * the loop last ran, which the boot unit starts from, as a restart can leave
  * the checkout's working copy mid-edit. Nothing removes the worktree it names:
  * an image moves it first, and a refused tip's removal spares it.
+ *
+ * A WORKTREE A LIVE PROCESS RUNS FROM is kept until it exits (#4548): a queue
+ * lander or levelling pass an older image started spawns its children from
+ * its own worktree, and they fail to load where that is gone.
  */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isUnder } = require("./is-under.js");
+const { readProcCwd } = require("./claude-sessions.js");
+const { procRoot } = require("./proc-root.js");
+const { readProcTable } = require("./proc-table.js");
 const {
 	PROGRAM,
 	PROGRAM_NAME,
@@ -195,6 +202,70 @@ function readRunningCode(pid, codeDir) {
 }
 
 /**
+ * Each of `stale` a live process other than this one runs from, mapped to its
+ * pid: its cwd, or a path its command line names resolved against that cwd,
+ * sits in it, spelt through the real code directory or through `codeDir`.
+ * Null where /proc will not be read, which keeps them all.
+ * Residual: a process holding a tree only through a module it loaded or a
+ * file it holds open, with neither its cwd nor an argument there (`node -e
+ * "require(…)"`), holds none; so does one whose cwd will not read, another
+ * user's.
+ * @param {string[]} stale real paths, each a child of the code directory
+ * @param {string} codeDir
+ * @returns {Map<string, number>|null}
+ */
+function readHeldDirs(stale, codeDir) {
+	const table = readProcTable(procRoot());
+	if (table === null || (table.listed > 0 && table.unreadable === table.listed))
+		return null;
+	/** @type {Map<string, number>} */
+	const held = new Map();
+	for (const { pid, argv } of table.procs.values()) {
+		if (pid === process.pid) continue;
+		const cwd = readProcCwd(String(pid));
+		if (cwd === null) continue;
+		const paths = [cwd, ...argv.map((a) => path.resolve(cwd, a))];
+		for (const dir of stale) {
+			const spellings = [dir, path.join(codeDir, path.basename(dir))];
+			if (!held.has(dir) && paths.some((p) => isUnder(p, spellings, path.sep)))
+				held.set(dir, pid);
+		}
+	}
+	return held;
+}
+
+/**
+ * Remove every worktree in the code directory but `root` and those a live
+ * process runs from, logging each of those once; true where none was kept.
+ * @param {{root: string, codeDir: string, realCodeDir: string,
+ *   kept: Set<string>, log: (line: string) => void}} o `kept` accumulator:
+ *   the directories already logged as kept
+ */
+function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
+	const stale = fs
+		.readdirSync(realCodeDir)
+		.map((name) => path.join(realCodeDir, name))
+		.filter((dir) => dir !== root);
+	if (stale.length === 0) return true;
+	const held = readHeldDirs(stale, codeDir);
+	if (held === null) {
+		if (!kept.has(realCodeDir))
+			log(`keeping every worktree in ${realCodeDir}: /proc will not read`);
+		kept.add(realCodeDir);
+		return false;
+	}
+	for (const dir of stale) {
+		const pid = held.get(dir);
+		if (pid === undefined) removeWorktree(root, dir);
+		else if (!kept.has(dir)) {
+			kept.add(dir);
+			log(`keeping ${dir} while pid ${pid} runs from it`);
+		}
+	}
+	return held.size === 0;
+}
+
+/**
  * process.execve, missing from the Node types this repo pins; it returns only
  * by throwing.
  * @typedef {(file: string, args: string[], env: NodeJS.ProcessEnv) => void} Exec
@@ -220,7 +291,10 @@ function codeUpdater({ program, codeDir, log }) {
 	let refused = null;
 	/** @type {string|null} */
 	let fetchFailed = null;
+	let linked = false;
 	let settled = false;
+	/** @type {Set<string>} */
+	const kept = new Set();
 
 	const loaded = () =>
 		new Set(
@@ -284,24 +358,28 @@ function codeUpdater({ program, codeDir, log }) {
 		},
 		/**
 		 * After the first tick of an image from the code directory, point the
-		 * boot link at it and remove every worktree there but its own. A link
-		 * that will not move keeps the worktree it names.
+		 * boot link at it; then, each tick until none is left, remove every
+		 * worktree there but its own and those a live process runs from. A
+		 * link that will not move keeps the worktree it names.
 		 */
 		afterTick() {
 			if (settled) return;
-			settled = true;
 			const realCodeDir = realPathOf(codeDir);
-			if (path.dirname(root) !== realCodeDir) return;
-			try {
-				pointLink(bootLinkOf(codeDir), root);
-			} catch (err) {
-				log(`boot link not moved to ${root}: ${whyOf(err)}`);
+			if (path.dirname(root) !== realCodeDir) {
+				settled = true;
 				return;
 			}
-			for (const name of fs.readdirSync(realCodeDir)) {
-				const dir = path.join(realCodeDir, name);
-				if (dir !== root) removeWorktree(root, dir);
+			if (!linked) {
+				try {
+					pointLink(bootLinkOf(codeDir), root);
+				} catch (err) {
+					settled = true;
+					log(`boot link not moved to ${root}: ${whyOf(err)}`);
+					return;
+				}
+				linked = true;
 			}
+			settled = pruneCodeDir({ root, codeDir, realCodeDir, kept, log });
 		},
 	};
 }

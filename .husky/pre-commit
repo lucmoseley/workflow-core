@@ -13,7 +13,7 @@
 # IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
 # JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and a gate skipped here runs next only in CI, after the push: with `landing` on, the lander's run on that push (#2413).
 # RUNS:      gates — each program below is judged by its own guard-registry row where a rule names it (#4456).
-# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify does not skip it, since .husky/prepare-commit-msg runs it and is the one hook that can refuse a commit and that the flag leaves running (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (scripts/lib/commit-key.js, scripts/mutation-hold-gate.js; #1650, #1910).
+# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. Its one argument, `--gates=merge` or `--gates=batch`, narrows a run the queue lander makes itself (#4545); git passes none, so no commit reaches it. The stack itself has no escape flag: --no-verify does not skip it, since .husky/prepare-commit-msg runs it and is the one hook that can refuse a commit and that the flag leaves running (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (scripts/lib/commit-key.js, scripts/mutation-hold-gate.js; #1650, #1910).
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
@@ -75,6 +75,58 @@ if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
   exit 1
 fi
 
+# The queue lander's two gate sets (#4545). `--gates=merge` runs on each member's merge: the two gates that
+# refuse members in practice, the guard-registry one also writing the anchor
+# carry only a merge can make (#4514). `--gates=batch` runs once over the whole
+# batch staged against `main`: every other gate, bar those the lander's Actions
+# run repeats before `main` moves, each marked `lander_batch` below.
+wfc_gates=all
+case "${1-}" in
+  --gates=merge | --gates=batch) wfc_gates="${1#--gates=}" ;;
+esac
+
+# Every parallel-safety rule in CLAUDE.md's guard-registry region must state a
+# backing that holds — an **Enforced** claim naming a guard that exists and is
+# wired — and a commit must not leave a registry anchor expired that HEAD did
+# not (#2617): the way out is the `--review` re-anchor, staged with it.
+#
+# scripts/ and .husky/ are in the condition because a guard is a file: deleting
+# .husky/pre-commit falsifies an **Enforced** claim without any document changing.
+# self-plugin/ holds the core's wiring, which an UNWIRED claim is judged against.
+#
+# --against HEAD is the whole gate (mantahostels#1801, mantahostels#1833). scripts/lib/check.js reads
+# the INDEX and HEAD, each materialised, and refuses only on a fault this commit
+# ADDS: an unstaged rule edit is not visible to it at all.
+# Its exit code is the checker's own
+# alphabet: 1 a fault this commit adds, 2 a comparison that could not answer, and
+# both refuse. The checker's own report streams past on the way, so a session
+# still meets the implicit-behaviour roster mantahostels#1261 put here.
+#
+# THAT BASELINE MUST EXIST, and this binds every --against gate in this file.
+# lib/check.js resolves HEAD^{tree} before it reads anything, so in a repo with
+# no commit yet HEAD does not resolve and the gate is BROKEN — exit 2, refusing
+# the very first commit. Nothing in this repo hits it; installing these hooks
+# into a fresh repo would (mantahostels#1940).
+if ! lander_batch && armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
+fi
+
+# docs/test-read-edges.json is what lets `--changed` select the tests that READ a
+# document rather than import it. It is derived from the test corpus, so a
+# commit adding or removing a runtime read makes it stale, and a stale manifest
+# fails silently in the only direction that matters: the test it forgot sits
+# unrun behind a filtered green indistinguishable from a real one (mantahostels#2031).
+#
+# Conditioned on test files and on the manifest itself. Deliberately NOT on
+# docs/: adding a document changes no edge until a test reads it.
+if ! lander_batch && armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit "$?"
+fi
+
+if [ "$wfc_gates" = merge ]; then
+  exit 0
+fi
+
 # Scoped to the commit's own paths, not the whole repo (mantahostels#179): a
 # whole-repo `biome check .` here fails on an unformatted file the commit does
 # not touch. scripts/biome-staged.js runs Biome on an extraction of the index,
@@ -92,7 +144,7 @@ fi
 # `?sh` and `?ash` standing for the shells, as lib/infer-commands.js's SHELLS,
 # that can run what the text never names (#3851). The first arm is
 # biome-allowlist.js's BIOME_STAGED_COMMAND, which is never classified.
-if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
+if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
   blank=$(printf '\t\n_')
   blank=${blank%_}
   case "$declared_command" in
@@ -129,7 +181,7 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit "$?"
 #
 # Anchored at both ends, so vendor/docs/reference-roadmap.html and any other
 # look-alike does not fire it.
-if armed '^docs/reference-roadmap\.html$'; then
+if ! lander_batch && armed '^docs/reference-roadmap\.html$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-valid.js || exit "$?"
 fi
 
@@ -170,7 +222,7 @@ fi
 #
 # Fed from the INDEX, not the worktree: reading the files in place would judge
 # a half-written digest the commit does not carry.
-if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$'; then
+if ! lander_batch && armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$'; then
   staged_gate digest-version live status \
     'docs/reference-roadmap.html docs/roadmap-digest.md' \
     'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-digest-version.js "$sg_dir/reference-roadmap.html" "$sg_dir/roadmap-digest.md"' \
@@ -204,7 +256,7 @@ fi
 # is unchecked until roadmap-digest.yml's own digest-render step reaches it, on
 # the next `landing` push run or scheduled sweep (#2413, mantahostels#2895);
 # `npm run check:digest-render` answers sooner.
-if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$'; then
+if ! lander_batch && armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$'; then
   # IN AN ADOPTER THE GENERATOR IS THE PLUGIN'S (#551): $WFC_PLUGIN_ROOT set
   # and naming neither this worktree's top nor the canonical checkout, which a
   # core worktree's plugin root may name. The host holds no copy, or one a
@@ -241,7 +293,7 @@ fi
 # Scoped to commits that stage a vendored path, the manifest or the licence
 # notices (#1939), so an unrelated commit pays nothing. The worktree, not the index: the check reads all 72
 # vendored files plus the manifest, too many paths to stage out one by one, and
-# the same trade-off the guard-registry gate below makes.
+# the same trade-off the guard-registry gate near the top makes.
 if armed '^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js || exit "$?"
 fi
@@ -255,32 +307,6 @@ if armed '^skills-lock\.json$'; then
   staged_gate upstream-record live status \
     "opt:skills-lock.json opt:.claude/skills/THIRD-PARTY-NOTICES.md opt:.agents/vendored-upstream-pass.json opt:.agents/vendored-skill-edits.json" \
     'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js --covered "$sg_dir"' ""
-fi
-
-# Every parallel-safety rule in CLAUDE.md's guard-registry region must state a
-# backing that holds — an **Enforced** claim naming a guard that exists and is
-# wired — and a commit must not leave a registry anchor expired that HEAD did
-# not (#2617): the way out is the `--review` re-anchor, staged with it.
-#
-# scripts/ and .husky/ are in the condition because a guard is a file: deleting
-# .husky/pre-commit falsifies an **Enforced** claim without any document changing.
-# self-plugin/ holds the core's wiring, which an UNWIRED claim is judged against.
-#
-# --against HEAD is the whole gate (mantahostels#1801, mantahostels#1833). scripts/lib/check.js reads
-# the INDEX and HEAD, each materialised, and refuses only on a fault this commit
-# ADDS: an unstaged rule edit is not visible to it at all.
-# Its exit code is the checker's own
-# alphabet: 1 a fault this commit adds, 2 a comparison that could not answer, and
-# both refuse. The checker's own report streams past on the way, so a session
-# still meets the implicit-behaviour roster mantahostels#1261 put here.
-#
-# THAT BASELINE MUST EXIST, and this binds every --against gate in this file.
-# lib/check.js resolves HEAD^{tree} before it reads anything, so in a repo with
-# no commit yet HEAD does not resolve and the gate is BROKEN — exit 2, refusing
-# the very first commit. Nothing in this repo hits it; installing these hooks
-# into a fresh repo would (mantahostels#1940).
-if armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
 fi
 
 # Every command this repo registers its own hooks with resolves to a file that
@@ -323,7 +349,7 @@ fi
 #
 # This gate, host-root-test-isolation's, git-fixture-identity's,
 # test-read-edges' and test-spawn's open on JS_TEST_ERE, set at the top.
-if armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)\$"; then
+if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)\$"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
 
@@ -347,7 +373,7 @@ fi
 # gate above: the finding pairs an init site with a commit site anywhere in
 # the same file, and a pathspec commit's staged-paths-only view could hold one
 # half without the other.
-if armed "^scripts/.*$JS_TEST_ERE"; then
+if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
 fi
 
@@ -361,21 +387,8 @@ fi
 # Whole-repo, because a site is judged against core-path constants other
 # scanned modules export; and on --against, so it judges this commit's bytes
 # rather than an untracked script in the working tree (#917).
-# 0.84 s on the live repo.
 if armed '^(scripts/|\.claude/|\.husky/)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root.js --against HEAD || exit "$?"
-fi
-
-# docs/test-read-edges.json is what lets `--changed` select the tests that READ a
-# document rather than import it. It is derived from the test corpus, so a
-# commit adding or removing a runtime read makes it stale, and a stale manifest
-# fails silently in the only direction that matters: the test it forgot sits
-# unrun behind a filtered green indistinguishable from a real one (mantahostels#2031).
-#
-# Conditioned on test files and on the manifest itself. Deliberately NOT on
-# docs/: adding a document changes no edge until a test reads it.
-if armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit "$?"
 fi
 
 # docs/agents/rules/<id>.txt is rendered from an anchor pair in the document
@@ -406,7 +419,7 @@ fi
 # pre-existing one still reports without blocking a bystander, and a tell in a
 # file this commit does not stage is seen. Repo prose and
 # source comments are out of scope and keep their em dashes.
-if armed '^app/'; then
+if ! lander_batch && armed '^app/'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-website-copy.js --against HEAD || exit "$?"
 fi
 
@@ -449,7 +462,7 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-body-size.js --touching HEAD
 # An own skill whose frontmatter js-yaml rejects, which a strict reader drops
 # silently (#887). js-yaml comes from the repo's own install, and its absence
 # refuses the commit, naming the install (#1380).
-if armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
+if ! lander_batch && armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-frontmatter.js --against HEAD || exit "$?"
 fi
 
@@ -467,7 +480,7 @@ fi
 # deleting the last workflow would otherwise refuse on NOTHING-INSPECTED. It
 # reads the working tree, so an unstaged workflow edit the commit does not
 # carry can surface here (#1380).
-if armed '^\.github/workflows/[^/]+\.ya?ml$' && [ -n "$(armed_live)" ]; then
+if ! lander_batch && armed '^\.github/workflows/[^/]+\.ya?ml$' && [ -n "$(armed_live)" ]; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-workflow-permissions.js || exit "$?"
 fi
 
@@ -897,7 +910,7 @@ fi
 #
 # Armed on .js too, as tsconfig.json's checkJs takes it into the program (#3796).
 # Residual: an adopter's .js outside its program pays for a run that reads nothing of it.
-if armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
+if ! lander_batch && armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
   if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck; then
     tc_cmd="$declared_command"
     tc_status=0
@@ -940,7 +953,7 @@ fi
 # declared command lints the whole scope, where this gate lints the commit's
 # own paths, so the gate keeps its own eslint call — and skips, saying so,
 # where eslint is not on PATH.
-if armed '^(app|lib)/.*\.(ts|tsx)$'; then
+if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$'; then
   eslint_paths="$(armed_live)"
   if [ -n "$eslint_paths" ] &&
     declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command lint; then
@@ -975,7 +988,7 @@ fi
 # a staged lib if it bites again (mantahostels#1134).
 #
 # Serialised with every other shellcheck run on the machine (#2579, #2627).
-if armed_shell; then
+if ! lander_batch && armed_shell; then
   if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
     # shellcheck disable=SC2086 # one path per line.
     hook_bound sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
@@ -1007,7 +1020,7 @@ fi
 # no --staged, so it reads the WORKTREE copy of the paths it is handed.
 # actionlint is a Go binary with no npm route: the npm package of that name is
 # an unrelated abandoned wrapper.
-if armed '^\.github/workflows/.*\.ya?ml$'; then
+if ! lander_batch && armed '^\.github/workflows/.*\.ya?ml$'; then
   if tool_gate actionlint "see package.json's comments[\"scripts.check:actions\"] for the release to fetch."; then
     # shellcheck disable=SC2086 # one path per line.
     hook_bound actionlint $tool_paths || {
@@ -1041,7 +1054,7 @@ fi
 # that reading and prints why. Not tool_gate, whose missing binary always
 # passes. Workflows are read only where ruff is missing, so a malformed
 # package.json cannot refuse a commit here.
-if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
+if ! lander_batch && armed '\.py$' && [ -n "$(armed_live --index)" ]; then
   if ! command -v "${WFC_RUFF:-ruff}" >/dev/null 2>&1; then
     # A probe that prints no `lint:` line crashed: refuse rather than skip.
     lint_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js lint-missing)" || lint_probe=""
@@ -1080,7 +1093,7 @@ fi
 # paths are programs (`pythonRoutes`) and what a citation is. Its own block,
 # not the ruff gate's: it needs python3, never ruff, and a missing python3
 # refuses the commit.
-if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
+if ! lander_batch && armed '\.py$' && [ -n "$(armed_live --index)" ]; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-swallowed-errors.js || {
     se_rc=$?
     if [ "$se_rc" -ne 1 ]; then
@@ -1104,7 +1117,7 @@ fi
 # line that installs it. The hook skips that half instead only where a
 # workflow runs the formatter, which then catches what slipped through
 # (#1354, #1463); scripts/lib/formatters.js owns that reading.
-if armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
+if ! lander_batch && armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
   # A probe that prints no `flags:` line crashed: refuse rather than skip.
   fmt_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js skip-flags)" || fmt_probe=""
   case "$fmt_probe" in
@@ -1153,7 +1166,7 @@ fi
 # directory holding the key of exactly the changes git handed this hook
 # (scripts/lib/commit-key.js, gate `test`) — a pre-lock run's green on them (#1650). The
 # stamp is never consumed: commit-paths removes it as it exits.
-if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
+if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
   tg_cmd="$declared_command"
   if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
     echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2
