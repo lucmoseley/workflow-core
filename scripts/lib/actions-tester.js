@@ -5,9 +5,10 @@
  *
  * Green only on a finished, successful run whose every Vitest shard job and
  * whose `Suite passed` job passed, naming the run; red on a failed one, with
- * its failing jobs and the test files their logs name. A run that is
- * missing, in progress at the wait bound, ended any other way, or cannot be
- * read is no verdict, never green.
+ * its failing jobs and the test files their logs name. A push run that
+ * never appears is a red naming no file, marked `noRun`: the tree fires no
+ * run on the ref (#4571). A run in progress at the wait bound, ended any
+ * other way, or that cannot be read is no verdict, never green.
  *
  * A failed run where a job failed at a step that only readies the runner
  * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
@@ -18,7 +19,9 @@
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
  * one. Asked again, a failed run has its failed jobs rerun; any other run at
  * the sha is never read, its ref deleted and created again so a run starts
- * after the ask (#4524). Named files at a sha a
+ * after the ask (#4524). Where none at the sha is listed, as when its ref was
+ * pushed while Actions fired nothing, the ref is pushed again once before
+ * the tree is read as firing none (#4572). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
@@ -61,7 +64,8 @@ const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
 /* The aggregate job #2414's ruleset on `main` requires. */
 const SUITE_PASSED_JOB = "Suite passed";
 /* Untraced: GitHub lists a push run within seconds; the rest is room for a
- * slow queue. */
+ * slow queue. Past it a run never listed is a red that can drop a member
+ * (#4571), so it decides a drop, not only a wait. */
 const APPEAR_MS = 3 * 60 * 1000;
 /* Untraced: a sharded run is held under 3 min once its jobs start (#2413);
  * the rest is room for runners to queue. */
@@ -404,20 +408,23 @@ const unreadable = (err) => ({
 });
 
 /**
+ * A push run still unlisted APPEAR_MS into the ask, the push before it, is a
+ * verdict about the tree, whose workflow fires no run on the ref: a red
+ * naming no file, so the lander's red path ends its batch (#4571).
+ * Residual: a listing GitHub delays past APPEAR_MS on both the ask and its
+ * rerun, but not on `main`'s base check, drops a member on a false red,
+ * which the verdict ledger keeps.
  * @param {RunVerdict} v
- * @param {string} sha
- * @param {string} branch
  * @returns {Verdict}
  */
-function settle(v, sha, branch) {
+function settle(v) {
 	if (v.kind !== "pending") return v;
-	return {
-		kind: "unknown",
-		reason:
-			v.run === null
-				? `no ${SUITE_WORKFLOW} push run on ${branch} at ${sha.slice(0, 9)}`
-				: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
-	};
+	return v.run === null
+		? { kind: "red", files: [], noRun: true }
+		: {
+				kind: "unknown",
+				reason: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
+			};
 }
 
 /**
@@ -431,13 +438,13 @@ function settle(v, sha, branch) {
  * @returns {Promise<Verdict>}
  */
 async function suiteVerdict(sha, after, suite, reruns = 0) {
-	const { reads, branch } = suite;
+	const { reads } = suite;
 	const v = await pollRun(
 		() => runVerdict(sha, reads, after),
 		unreadable,
 		suite,
 	);
-	if (v.kind !== "runner") return settle(v, sha, branch);
+	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
 		return {
 			kind: "unknown",
@@ -707,8 +714,10 @@ const heldBy = (reads, sha) =>
  * suite. Files at a sha no run covers are run alone. The whole suite is
  * never read off a run listed before the ask (#4524): any other run at
  * `sha` has the branch pushed again, and only a run newer than every one
- * the branch listed is judged. Residual: a run the lander's own push
- * started and GitHub listed by the ask is run twice.
+ * the branch listed is judged. Where no run at `sha` was listed and none
+ * newer appears, the branch is pushed again and waited on once more before
+ * a no-run red (#4572). Residual: a run the lander's own push started
+ * and GitHub listed by the ask is run twice.
  * @param {string} sha
  * @param {string[]} files
  * @param {{reads: Reads, branch: string} & Poll} on
@@ -716,7 +725,7 @@ const heldBy = (reads, sha) =>
  * @returns {Promise<Verdict>}
  */
 async function rerunVerdict(sha, files, on, named) {
-	const { reads, branch } = on;
+	const { reads } = on;
 	/** @type {Run[]} */
 	let listed;
 	try {
@@ -737,25 +746,32 @@ async function rerunVerdict(sha, files, on, named) {
 		return run === undefined
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
-	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
 	if (run !== undefined) {
-		/** @type {boolean} */
-		let pushed;
-		try {
-			pushed = reads.repush(branch, sha);
-		} catch (err) {
-			return {
-				kind: "unknown",
-				reason: `${branch} not pushed again at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
-				...(isNetworkFault(err) ? { transient: true } : {}),
-			};
-		}
-		if (!pushed)
-			return {
-				kind: "unknown",
-				reason: `${branch} moved off ${sha.slice(0, SHORT_SHA)} before it was pushed again`,
-			};
+		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
 	}
+	const v = await newerVerdict(sha, on, listed);
+	if (v.kind !== "red" || !v.noRun) return v;
+	/** @type {Run[]} */
+	let again;
+	try {
+		again = reads.runs();
+	} catch (err) {
+		return unreadable(err);
+	}
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
+}
+
+/**
+ * The whole suite at `sha` read off a run on `on`'s branch newer than every
+ * one in `listed`.
+ * @param {string} sha
+ * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {readonly Run[]} listed
+ * @returns {Promise<Verdict>}
+ */
+function newerVerdict(sha, on, listed) {
+	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
+	const { reads } = on;
 	return suiteVerdict(sha, 0, {
 		...on,
 		reads: {
@@ -763,6 +779,32 @@ async function rerunVerdict(sha, files, on, named) {
 			runs: () => reads.runs().filter((r) => r.databaseId > bound),
 		},
 	});
+}
+
+/**
+ * Deletes and creates `on`'s branch again at `sha`: null where it did, else the no verdict naming why not.
+ * @param {{reads: Reads, branch: string}} on
+ * @param {string} sha
+ * @returns {Verdict|null}
+ */
+function repushFailure({ reads, branch }, sha) {
+	/** @type {boolean} */
+	let pushed;
+	try {
+		pushed = reads.repush(branch, sha);
+	} catch (err) {
+		return {
+			kind: "unknown",
+			reason: `${branch} not pushed again at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
+			...(isNetworkFault(err) ? { transient: true } : {}),
+		};
+	}
+	return pushed
+		? null
+		: {
+				kind: "unknown",
+				reason: `${branch} moved off ${sha.slice(0, SHORT_SHA)} before it was pushed again`,
+			};
 }
 
 module.exports = { SUITE_WORKFLOW, queueTester };

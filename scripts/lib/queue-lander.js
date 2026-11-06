@@ -61,7 +61,9 @@
  *   failures, blamed on no member, and the one base-red ticket is filed or
  *   refreshed for them. Where none is left the batch lands, unless the
  *   tester's `requiresRun` is set, where it is held instead and retaken once
- *   a new ref waits or `main` moves. The rest isolate: each member is merged
+ *   a new ref waits or `main` moves, or, where `main` too fired no run, once
+ *   NO_RUN_RETAKE_MS has passed, so an Actions outage's hold ends when
+ *   Actions recovers (#4572). The rest isolate: each member is merged
  *   alone onto `main`, pushed to `lander/iso-<k>` and run on those files, all
  *   at once where the tester is `parallel` (the Actions one), else one after
  *   another (the local one, under its one admission slot). A member red alone
@@ -104,7 +106,12 @@
  *   ledger, so each batch asks it afresh (#4501), unless `main` went green
  *   on the green ledger within `BASE_GREEN_MS` (#4564). An unknown
  *   verdict is no verdict: it lands and drops nothing and is never
- *   ledgered, so the next run asks again.
+ *   ledgered, so the next run asks again. A tree no CI run fired for is a
+ *   verdict, never an unknown (#4571): the tester reads it as a red naming
+ *   no file, marked `noRun`, which takes the red path above, so a batch
+ *   whose run never starts ends, and a member whose tree alone fires none is
+ *   dropped, its fix ticket saying so. A no-run red stands NO_RUN_RETAKE_MS
+ *   from when it was ledgered, then is asked again (#4572).
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
  *   fault, a broken git object, a merge timing out, a tester's `transient` no
  *   verdict, as its suite slot staying shut) is retried with backoff and the
@@ -144,10 +151,11 @@ class TransientFault extends Error {}
  *   of one failure
  * @typedef {{kind: "green", run?: number}
  *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
- *      retried?: boolean}
+ *      retried?: boolean, noRun?: true}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
  *   CI run that passed it and `jobs` the failing CI jobs, where the tester
- *   read a CI run; `failures` where it named the failing tests; `transient`
+ *   read a CI run; `failures` where it named the failing tests; `noRun`
+ *   where no CI run fired for the tree at all, naming no file; `transient`
  *   where asking again shortly can reach a verdict, as when its suite slot
  *   stayed shut
  * @typedef {{verdict: (sha: string, files?: string[], again?: boolean) =>
@@ -169,11 +177,13 @@ class TransientFault extends Error {}
  *   on `main`, `serial` while members land one at a time after a collision,
  *   `requeued` done without landing, `held` done on its `hold`
  * @typedef {{readonly kind: "base", readonly main: string,
- *   readonly files: readonly string[], readonly ticket: number|null}
+ *   readonly files: readonly string[], readonly ticket: number|null,
+ *   readonly retakeAt?: number}
  *   | {readonly kind: "refused", readonly main: string,
  *     readonly sha: string, readonly reason: string}} Hold why a batch
  *   stopped at `main`: red only where `main` is, on `files`, none where the
- *   red named none, with the base-red ticket; or its push of `sha` refused
+ *   red named none, with the base-red ticket, and `retakeAt`, in ms, where
+ *   no run fired at `main` either; or its push of `sha` refused
  * @typedef {object} Blame what a red batch's isolation runs on
  * @property {readonly string[]} files the failing files `main` passes, none
  *   where the red named none
@@ -224,14 +234,16 @@ class TransientFault extends Error {}
  *   readonly dropped: readonly DroppedRef[]}} QueueRefs the remote's `main`,
  *   queue refs and dropped refs, each queue commit present locally
  * @typedef {{readonly kind: "red", readonly name: string,
- *   readonly files: readonly string[], readonly iso: string}} RedAlone red
- *   on `files` twice, none where the red named none, merged alone onto
- *   `main` as `iso`, where `main` passed them
+ *   readonly files: readonly string[], readonly iso: string,
+ *   readonly noRun?: true}} RedAlone red on `files` twice, none where the
+ *   red named none, merged alone onto `main` as `iso`, where `main` passed
+ *   them; `noRun` where no CI run fired for that tree
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
- *   readonly after: readonly string[]}} Collision the serial step `step`,
- *   merging it onto `main` after the members `after` landed, red twice on
- *   `files`, none where the red named none, each member having passed alone
+ *   readonly after: readonly string[], readonly noRun?: true}} Collision
+ *   the serial step `step`, merging it onto `main` after the members `after`
+ *   landed, red twice on `files`, none where the red named none, each member
+ *   having passed alone; `noRun` where no CI run fired for that tree
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
  *   a dropped ref no drop record entry named
  * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
@@ -329,7 +341,7 @@ class TransientFault extends Error {}
  * @property {(sha: string) => string|null} refusalOf the remote's refusal of
  *   a push of `sha` to `main`, where the refused record holds one
  * @property {(sha: string, files: readonly string[], pass: number) =>
- *   Verdict|null} verdictOf the verdict ledgered at `sha` on `files`, empty
+ *   Ledgered|null} verdictOf the verdict ledgered at `sha` on `files`, empty
  *   for the whole suite, on its `pass`
  * @property {boolean} requiresRun where `main` takes only a sha a CI run
  *   passed, so only a green naming its `run` lands
@@ -368,6 +380,13 @@ const BASE_PASS = 0;
  * base check (#4564): #4501's age limit on a base verdict. A first guess,
  * unmeasured. */
 const BASE_GREEN_MS = 60 * 60 * 1000;
+/* Untraced, a first guess and stated as one: how long a no-run red stands,
+ * and a hold on one waits to be retaken. Room for an Actions outage to
+ * clear, and many times one no-run ask's 3-6 min. Residual: a red path
+ * slowed past it, as by fault backoff or a lander restarted after a gap,
+ * asks its first verdict again, and batches may stack onto a head whose
+ * no-run red lapsed until it is reached again. */
+const NO_RUN_RETAKE_MS = 60 * 60 * 1000;
 
 /* Untraced, #4556's figures and stated as such: the window a run starts at,
  * the deepest it grows to, and the one a red drops it to. */
@@ -576,8 +595,13 @@ const sameFiles = (a, b) =>
  * @returns {Exclude<Verdict, {kind: "unknown"}>|null}
  */
 function ledgered(s, { sha, files, pass }) {
-	const v = s.verdictOf(sha, files, pass);
-	return v === null || v.kind === "unknown" ? null : v;
+	const got = s.verdictOf(sha, files, pass);
+	if (got === null) return null;
+	const { verdict: v, at } = got;
+	if (v.kind === "unknown") return null;
+	return v.kind === "red" && v.noRun && s.now - at >= NO_RUN_RETAKE_MS
+		? null
+		: v;
 }
 
 /**
@@ -646,9 +670,10 @@ const baseKey = (main, files) => `${main} ${[...files].sort().join(",")}`;
 
 /**
  * @typedef {{readonly base: readonly string[],
- *   readonly left: readonly string[], readonly baseOnly: boolean}} BaseRead
- *   what of a red `main` shares: the files red there too, the rest, and
- *   whether nothing is left
+ *   readonly left: readonly string[], readonly baseOnly: boolean,
+ *   readonly noRun?: true}} BaseRead what of a red `main` shares: the files
+ *   red there too, the rest, whether nothing is left, and `noRun` where
+ *   what it shares is that no run fired at either
  */
 
 /**
@@ -701,8 +726,22 @@ function redOnMain(onMain, checked, v) {
 }
 
 /**
+ * Whether `main`'s verdict `onMain` shares `v`, a red naming no file: no run
+ * fired at either, or `main` failed every job `v` did.
+ * @param {Verdict} onMain
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ */
+function sharesWhole(onMain, v) {
+	if (onMain.kind !== "red") return false;
+	if (v.noRun) return onMain.noRun === true;
+	const jobs = onMain.jobs ?? [];
+	return (v.jobs ?? []).every((j) => jobs.includes(j));
+}
+
+/**
  * The base check at `main` of `v`, red on its rerun: the run it is owed,
  * else what of it `main` shares. A red naming no file is `main`'s where `main` fails every job it does.
+ * A tree that fired no run takes no green off the green ledger (#4571).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -714,7 +753,7 @@ function baseCheck(b, s, main, v) {
 	const at = s.greenAt(main);
 	const onMain =
 		b.bases.find((x) => x.sha === main && sameFiles(x.files, files))?.verdict ??
-		(at !== null && s.now - at < BASE_GREEN_MS
+		(!v.noRun && at !== null && s.now - at < BASE_GREEN_MS
 			? /** @type {Verdict} */ ({ kind: "green" })
 			: undefined);
 	if (onMain === undefined) {
@@ -726,10 +765,15 @@ function baseCheck(b, s, main, v) {
 		};
 	}
 	if (files.length === 0) {
-		const jobs = onMain.kind === "red" ? (onMain.jobs ?? []) : null;
-		const baseOnly =
-			jobs !== null && (v.jobs ?? []).every((j) => jobs.includes(j));
-		return { read: { base: [], left: [], baseOnly } };
+		const baseOnly = sharesWhole(onMain, v);
+		return {
+			read: {
+				base: [],
+				left: [],
+				baseOnly,
+				...(baseOnly && v.noRun ? { noRun: v.noRun } : {}),
+			},
+		};
 	}
 	const base = redOnMain(onMain, files, v);
 	const left = files.filter((f) => !base.includes(f));
@@ -746,7 +790,7 @@ function baseCheck(b, s, main, v) {
  * @param {Extract<QueueAction, {sha: string}>} land
  * @returns {QueueAction|null}
  */
-function baseAction(s, main, { base, baseOnly }, land) {
+function baseAction(s, main, { base, baseOnly, noRun }, land) {
 	if (
 		(base.length > 0 || baseOnly) &&
 		!s.baseFiled.includes(baseKey(main, base))
@@ -763,7 +807,13 @@ function baseAction(s, main, { base, baseOnly }, land) {
 	return s.requiresRun
 		? {
 				kind: "hold",
-				hold: { kind: "base", main, files: base, ticket: s.baseTicket },
+				hold: {
+					kind: "base",
+					main,
+					files: base,
+					ticket: s.baseTicket,
+					...(noRun ? { retakeAt: s.now + NO_RUN_RETAKE_MS } : {}),
+				},
 			}
 		: land;
 }
@@ -796,6 +846,12 @@ function redAction(b, s, main, { sha, whole }) {
 	const members = included(b).map((m) => m.name);
 	return { kind: "start-isolation", blame: { files: left, base, members } };
 }
+
+/**
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ * @returns {{noRun?: true}}
+ */
+const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
 
 /**
  * The `lander/iso-*` ref a run alone on `files` is pushed to, `k` its
@@ -870,7 +926,13 @@ function isolationAction(b, s, blame) {
 		return dropAction(
 			m,
 			onto,
-			{ kind: "red", name: m.name, files, iso: i.iso },
+			{
+				kind: "red",
+				name: m.name,
+				files,
+				iso: i.iso,
+				...noRunOf(v),
+			},
 			s,
 		);
 	}
@@ -952,6 +1014,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 				files: v.files,
 				step: sha,
 				after: landed,
+				...noRunOf(v),
 			},
 			s,
 		);
@@ -1199,22 +1262,29 @@ function searchRedAction(b, s, main) {
 }
 
 /**
- * The exit naming the hold, where it stands: `main` where it stopped, and no
- * queue ref waiting that the batch did not take.
+ * The exit naming the hold, where it stands: `main` where it stopped, no
+ * queue ref waiting that the batch did not take, and its retake not due.
  * @param {Batch} b
+ * @param {number} now
  * @param {string} main
  * @param {readonly QueueRef[]} waiting
  * @returns {QueueEnd|null}
  */
-function heldExit({ hold, members }, main, waiting) {
+function heldExit({ hold, members }, now, main, waiting) {
 	if (hold === null || hold.main !== main) return null;
+	const retakeAt = hold.kind === "base" ? hold.retakeAt : undefined;
+	if (retakeAt !== undefined && now >= retakeAt) return null;
 	if (
 		waiting.some(
 			(r) => !members.some((m) => m.name === r.name && m.sha === r.sha),
 		)
 	)
 		return null;
-	const until = "retaken once a new ref waits or main moves";
+	const until = `retaken once a new ref waits or main moves${
+		retakeAt === undefined
+			? ""
+			: `, or at ${new Date(retakeAt).toISOString()} as no run fired at main either`
+	}`;
 	if (hold.kind === "refused")
 		return exit(
 			`held: the push of ${short(hold.sha)} to main was refused: ${hold.reason}; ${until}`,
@@ -1285,7 +1355,8 @@ function fillAction(s, main, { line, search }, waiting) {
 		return null;
 	const onto = tail?.integration ?? main;
 	if (tail && ledgered(s, wholeRun(onto))?.kind === "red") return null;
-	if (search?.phase === "held" && heldExit(search, main, waiting)) return null;
+	if (search?.phase === "held" && heldExit(search, s.now, main, waiting))
+		return null;
 	const ahead = search?.phase === "requeued" ? search.ahead : [];
 	return takeBatch(waiting, onto, ahead, {
 		...s.pipeline,
@@ -1381,7 +1452,7 @@ function idleAction(s, main, search, waiting) {
 			relaunch: main,
 		};
 	return (
-		(search?.phase === "held" && heldExit(search, main, waiting)) ||
+		(search?.phase === "held" && heldExit(search, s.now, main, waiting)) ||
 		exit("no queue ref the window can take")
 	);
 }
@@ -1473,9 +1544,11 @@ function stepOrEnd(s) {
  * @property {() => Drop[]} read
  * @property {(drops: readonly Drop[]) => void} write
  * @typedef {"take" | "land" | "drop"} LanderEvent
+ * @typedef {{readonly verdict: Verdict, readonly at: number}} Ledgered a
+ *   ledgered verdict and when it was ledgered, in ms
  * @typedef {object} VerdictLedger
  * @property {(sha: string, files: readonly string[], pass?: number) =>
- *   Verdict|null} get
+ *   Ledgered|null} get
  * @property {(sha: string, files: readonly string[], v: Verdict,
  *   pass?: number) => void} add
  * @typedef {object} RefusedRecord every sha the remote refused on `main`,

@@ -1,14 +1,16 @@
 /*
  * vitest-shard-sequencer.ts — splits a `--shard=k/n` run by recorded file
  * timings rather than by file count, and starts each shard's longest files first (#2413). The plan is
- * scripts/lib/shard-plan.js's; the timings are docs/data/ci-shard-timings.csv,
- * refreshed from an Actions run with `node scripts/suite-timings.js extract`.
+ * scripts/lib/shard-plan.js's; the timings are the CSV `WFC_SHARD_TIMINGS`
+ * names, which each CI shard writes from the newest green suite run with
+ * `node scripts/suite-timings.js latest` (#4574), else
+ * docs/data/ci-shard-timings.csv, refreshed by hand with `extract`.
  *
  * An unsharded run keeps vitest's own order. The lander's local tester runs
  * `fullTestShards` sharded runs (lib/local-tester.js), which this packs by
  * the same Actions timings: their ratios, not their seconds, set the plan.
  *
- * IMPLICIT:  reads docs/data/ci-shard-timings.csv on every sharded run.
+ * IMPLICIT:  reads WFC_SHARD_TIMINGS's CSV, else docs/data/ci-shard-timings.csv, on every sharded run.
  * JUSTIFIED: fail-safe — an unreadable dataset falls back to vitest's own split, which runs every file once all the same.
  * DEFEAT:    drop `sequence.sequencer` from vitest.config.ts, which puts the shards back on vitest's count split and a shard's time back on luck.
  */
@@ -26,6 +28,8 @@ const {
 	secondsByFile,
 } = require("./lib/shard-plan.js");
 const { CI_RECORD: DATASET, parseCsv } = require("./lib/suite-timings.js");
+
+const source = (): string => process.env.WFC_SHARD_TIMINGS || DATASET;
 
 /** The specs `paths` name, in that order; each path came from `byPath`. */
 function specsAt(
@@ -47,7 +51,7 @@ export default class ShardSequencer extends BaseSequencer {
 
 	private seconds(): Map<string, number> | null {
 		if (this.timings !== undefined) return this.timings;
-		const at = path.join(this.ctx.config.root, DATASET);
+		const at = path.resolve(this.ctx.config.root, source());
 		let read: Map<string, number> | null = null;
 		try {
 			read = secondsByFile(parseCsv(fs.readFileSync(at, "utf8")).rows);

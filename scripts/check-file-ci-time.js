@@ -32,18 +32,15 @@ const { caught } = require("./lib/caught.js");
 const { runCheck } = require("./lib/check.js");
 const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
 const { SWEEPS_JUDGED, collect, judge } = require("./lib/file-ci-time.js");
-const { gh, ghJson } = require("./lib/gh.js");
+const { ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
-const { readReports } = require("./lib/suite-timings.js");
+const { downloadReports, readReports } = require("./lib/suite-timings.js");
 
 /* Per sweep branch. Untraced: a week of sweeps at four a day, past the eight
  * `collect` reads, for runs with no reports in between. */
 const RUNS_LISTED = 30;
-/* What `gh run download` prints for a run whose reports are gone or never
- * uploaded (#4292). */
-const NO_ARTEFACTS = /no valid artifacts found/i;
 
 /* A manual run on a feature branch tests a tree `main` never held. */
 const SWEEP_BRANCHES = new Set([VERIFIED_BRANCH, LANDING_BRANCH]);
@@ -113,13 +110,11 @@ function remoteSweeps(ctx) {
 		return collect(runs, (run) => {
 			const dir = path.join(work, run);
 			try {
-				gh(["run", "download", run, "-p", "vitest-report-*", "-D", dir]);
+				if (!downloadReports(run, dir)) return null;
 			} catch (e) {
 				const err = caught(e);
-				const stderr = String(err.stderr ?? "");
-				if (NO_ARTEFACTS.test(stderr)) return null;
 				ctx.skip(
-					`GitHub unreachable downloading run ${run}'s vitest reports: ${(stderr || err.message).trim()}`,
+					`GitHub unreachable downloading run ${run}'s vitest reports: ${(String(err.stderr ?? "") || err.message).trim()}`,
 				);
 			}
 			const sweep = sweepAt(run, dir);

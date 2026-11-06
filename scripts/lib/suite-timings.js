@@ -3,8 +3,8 @@
  * out, from one report or every report under a directory as one sharded
  * Actions run's shards upload them (`vitest-report-*`, #2413); rows in,
  * percentile shares out; and the CSV serialisation between them.
- * `readReports` is the one export that reads the filesystem; the rest are pure
- * (#4320). `scripts/suite-timings.js` is the CLI over it.
+ * `readReports` reads the filesystem and `downloadReports` GitHub; the rest
+ * are pure (#4320). `scripts/suite-timings.js` is the CLI over it.
  *
  * It exists so the suite-file-timings note's percentile table can be
  * recomputed rather than merely quoted (mantahostels#2039), docs/agents/guard-registry.md §Conventions resting
@@ -21,6 +21,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
+const { gh } = require("./gh.js");
 
 /* The committed CI per-file record (#2413). */
 const CI_RECORD = "docs/data/ci-shard-timings.csv";
@@ -92,6 +94,27 @@ function rowsFrom(report, root) {
 	return rows;
 }
 
+/* What `gh run download` prints for a run whose reports are gone or never
+ * uploaded (#4292). */
+const NO_ARTEFACTS = /no valid artifacts found/i;
+
+/**
+ * One run's `vitest-report-*` artefacts into `dir`: true, or false where the
+ * run holds none. Any other gh failure throws, its stderr on the error.
+ * @param {string} run
+ * @param {string} dir
+ * @returns {boolean}
+ */
+function downloadReports(run, dir) {
+	try {
+		gh(["run", "download", run, "-p", "vitest-report-*", "-D", dir]);
+		return true;
+	} catch (e) {
+		if (NO_ARTEFACTS.test(String(caught(e).stderr ?? ""))) return false;
+		throw e;
+	}
+}
+
 /**
  * Heaviest first. Each report is relativised on its own: every shard ran in
  * a checkout of its own.
@@ -116,6 +139,42 @@ function readReports(source, root) {
 	});
 	rows.sort((a, b) => (b.seconds ?? -1) - (a.seconds ?? -1));
 	return rows;
+}
+
+/* A run finished this close before the planning run was created may still
+ * list as running to one shard and as green to the next. A guess: the gap
+ * between a run's completion and its listing as completed is unmeasured. */
+const SETTLE_MS = 120_000;
+
+/**
+ * @typedef {{ id: number, status: string, conclusion: string|null,
+ *   created_at: string, updated_at: string }} ListedRun
+ */
+
+/**
+ * The green runs a sharded run may take its timings from, newest first: those
+ * finished SETTLE_MS before `before`, the planning run's creation. Every shard
+ * of one run, and each re-run of it, shares that instant, so each picks the
+ * same run (#4574). A source run re-run between two reads drops out of the
+ * later one, so those shards plan apart; scheduled-checks.yml's verdict
+ * compares the shards' records and turns that red.
+ *
+ * @param {ListedRun[]} runs
+ * @param {number} before ms since the epoch
+ * @returns {number[]}
+ */
+function timingSources(runs, before) {
+	const cutoff = before - SETTLE_MS;
+	return runs
+		.filter(
+			(r) =>
+				r.status === "completed" &&
+				r.conclusion === "success" &&
+				Date.parse(r.created_at) < cutoff &&
+				Date.parse(r.updated_at) < cutoff,
+		)
+		.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+		.map((r) => r.id);
 }
 
 /**
@@ -252,6 +311,8 @@ function parseMeta(pairs) {
 
 module.exports = {
 	CI_RECORD,
+	downloadReports,
+	timingSources,
 	reportRoot,
 	rowsFrom,
 	readReports,

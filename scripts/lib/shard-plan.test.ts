@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TestSpecification, Vitest } from "vitest/node";
 import ShardSequencer from "../vitest-shard-sequencer";
 import { heaviestFirst, planShard, secondsByFile } from "./shard-plan.js";
@@ -83,7 +83,12 @@ describe("secondsByFile", () => {
 describe("the sequencer", () => {
 	let root: string | null = null;
 	const roots: string[] = [];
+	/* A CI shard runs this suite with its own timings named (ci.yml). */
+	beforeEach(() => {
+		vi.stubEnv("WFC_SHARD_TIMINGS", "");
+	});
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		for (const dir of roots.splice(0))
 			fs.rmSync(dir, { recursive: true, force: true });
 		root = null;
@@ -119,6 +124,23 @@ describe("the sequencer", () => {
 			"b.test.ts",
 			"c.test.ts",
 		]);
+	});
+
+	it("plans by the CSV WFC_SHARD_TIMINGS names over the committed one (#4574)", async () => {
+		const seq = sequencer({ index: 2, count: 2 });
+		writeDataset(
+			"a.test.ts,9.00,1,passed\nb.test.ts,5.00,1,passed\nc.test.ts,4.00,1,passed\n",
+		);
+		const named = path.join(root ?? "", "named.csv");
+		fs.writeFileSync(
+			named,
+			"file,seconds,tests,status\nc.test.ts,9.00,1,passed\nb.test.ts,5.00,1,passed\na.test.ts,4.00,1,passed\n",
+		);
+		vi.stubEnv("WFC_SHARD_TIMINGS", named);
+		const mine = await seq.shard(
+			specs(["a.test.ts", "b.test.ts", "c.test.ts"]),
+		);
+		expect(names(mine)).toEqual(["b.test.ts", "a.test.ts"]);
 	});
 
 	it("falls back to vitest's own split where the dataset is unreadable", async () => {

@@ -637,10 +637,11 @@ it("reads the whole suite at a sha off its push run on the lander/batch-<k> ref 
 	expect(r.dispatched).toEqual([]);
 });
 
-it("reads a batch run missing on lander/batch-<k>, or a listing it cannot read, as unknown (#4458)", async () => {
+it("reads a batch run never listed on lander/batch-<k> as a red naming no file, its tree firing no run, and a listing it cannot read as unknown (#4458, #4571)", async () => {
 	expect(await queueOf(queueReads([() => []])).verdict(SHA)).toEqual({
-		kind: "unknown",
-		reason: `no scheduled-checks.yml push run on lander/batch-0 at ${SHA.slice(0, 9)}`,
+		kind: "red",
+		files: [],
+		noRun: true,
 	});
 	expect(await queueOf(queueReads([])).verdict(SHA)).toMatchObject({
 		kind: "unknown",
@@ -805,8 +806,9 @@ it("pushes the ref again for the whole suite asked again over a run at the sha t
 
 	const none = queueReads([], { iso: atBase, runsOn: () => [earlier] });
 	expect(await queueOf(none).verdict(SHA, [], true)).toEqual({
-		kind: "unknown",
-		reason: `no scheduled-checks.yml push run on ${SuiteBase} at ${SHA.slice(0, 9)}`,
+		kind: "red",
+		files: [],
+		noRun: true,
 	});
 	expect(none.repushed).toEqual([`${SuiteBase}@${SHA}`]);
 });
@@ -821,15 +823,44 @@ it("never reads the whole suite asked again off a run older than the branch's ne
 		});
 	};
 	const stale = listing(run(7, "success"));
-	expect(await queueOf(stale).verdict(SHA, [], true)).toMatchObject({
-		kind: "unknown",
+	expect(await queueOf(stale).verdict(SHA, [], true)).toEqual({
+		kind: "red",
+		files: [],
+		noRun: true,
 	});
 	const pushed = listing(run(9, "success"));
 	expect(await queueOf(pushed).verdict(SHA, [], true)).toEqual({
 		kind: "green",
 		run: 9,
 	});
-	expect([...stale.repushed, ...pushed.repushed]).toEqual([]);
+	expect(pushed.repushed).toEqual([]);
+	expect(stale.repushed).toEqual([`lander/iso-suite-base@${SHA}`]);
+});
+
+it("pushes the ref again once for the whole suite asked again where no run at the sha was ever listed, judging the run that push starts (#4572)", async () => {
+	const SuiteBase = "lander/iso-suite-base";
+	const atAsk = run(8, "success", { headSha: OTHER });
+	const recovered = queueReads([], {
+		iso: () => [{ branch: SuiteBase, sha: SHA }],
+		runsOn: () =>
+			recovered.repushed.length === 0 ? [atAsk] : [run(9, "success"), atAsk],
+	});
+	expect(await queueOf(recovered).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 9,
+	});
+	expect(recovered.repushed).toEqual([`${SuiteBase}@${SHA}`]);
+
+	const outage = queueReads([], {
+		iso: () => [{ branch: SuiteBase, sha: SHA }],
+		runsOn: () => [atAsk],
+	});
+	expect(await queueOf(outage).verdict(SHA, [], true)).toEqual({
+		kind: "red",
+		files: [],
+		noRun: true,
+	});
+	expect(outage.repushed).toEqual([`${SuiteBase}@${SHA}`]);
 });
 
 it("reads a ref moved, refused or cut off by the network on pushing it again as no verdict, transient only for the network (#4524)", async () => {
@@ -1002,11 +1033,10 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	});
 	/* Asked again over the passed run 9, the ref is pushed again and no run
 	 * newer than 9 is listed. */
-	expect(await tester.verdict(iso, [], true)).toMatchObject({
-		kind: "unknown",
-		reason: expect.stringMatching(
-			/^no scheduled-checks\.yml push run on lander\/iso-suite-0/,
-		),
+	expect(await tester.verdict(iso, [], true)).toEqual({
+		kind: "red",
+		files: [],
+		noRun: true,
 	});
 	expect(
 		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),

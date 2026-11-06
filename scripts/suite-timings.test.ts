@@ -29,6 +29,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { stubGhHandler } from "./lib/gh-stub";
+
 const { runInProcess } = require("./lib/run-in-process.js");
 
 const SCRIPT = resolve(__dirname, "suite-timings.js");
@@ -169,6 +171,145 @@ describe("shares", () => {
 		expect(`${r.stdout}${r.stderr}`).toContain(
 			"node scripts/suite-timings.js shares",
 		);
+	});
+});
+
+describe("latest (#4574)", () => {
+	const Planning = "900";
+	const Created = "2026-11-06T10:00:00Z";
+	const Record = readFileSync(
+		join(REPO, "docs/data/ci-shard-timings.csv"),
+		"utf8",
+	);
+
+	/* A run listing, each run's reports and the planning run's creation, as
+	 * the API and `gh run download` answer them. `reports` maps a run id to
+	 * its files and seconds; a run absent from it has no artefacts. */
+	const stub = (
+		runs: { id: number; created_at: string; updated_at: string }[],
+		reports: Record<string, [string, number][]>,
+		failing = false,
+	) => {
+		for (const [id, files] of Object.entries(reports)) {
+			mkdirSync(join(dir, "runs", id, "vitest-report-1"), { recursive: true });
+			writeFileSync(
+				join(dir, "runs", id, "vitest-report-1", "vitest-1.json"),
+				report(files),
+			);
+		}
+		const listing = runs.map((r) => ({
+			...r,
+			status: "completed",
+			conclusion: "success",
+			head_sha: `sha${r.id}`,
+		}));
+		return stubGhHandler(
+			dir,
+			`const fs = require("node:fs");
+if (${failing}) { err("HTTP 502: Bad Gateway"); exit(1); }
+const at = (flag) => argv[argv.indexOf(flag) + 1];
+if (argv[0] === "api" && argv[1].endsWith("/actions/runs/${Planning}")) {
+	out(JSON.stringify({ id: ${Planning}, created_at: "${Created}" }));
+	exit(0);
+}
+if (argv[0] === "api" && argv[1].includes("/workflows/scheduled-checks.yml/runs?")) {
+	out(JSON.stringify({ workflow_runs: ${JSON.stringify(listing)} }));
+	exit(0);
+}
+if (argv[0] === "run" && argv[1] === "download") {
+	const from = ${JSON.stringify(join(dir, "runs"))} + "/" + argv[2];
+	if (!fs.existsSync(from)) { err("no valid artifacts found to download"); exit(1); }
+	fs.cpSync(from, at("-D"), { recursive: true });
+	exit(0);
+}
+err("unrouted: " + argv.join(" "));
+exit(1);`,
+		);
+	};
+
+	const latest = (gh: { env: Record<string, string> }, target: string) =>
+		runInProcess(SCRIPT, ["latest", target, "--before-run", Planning], {
+			cwd: REPO,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: REPO, ...gh.env },
+		});
+
+	it("writes the newest green run finished before the planning run, naming it", () => {
+		const gh = stub(
+			[
+				{
+					id: 3,
+					created_at: "2026-11-06T09:59:00Z",
+					updated_at: "2026-11-06T09:59:50Z",
+				},
+				{
+					id: 2,
+					created_at: "2026-11-06T09:50:00Z",
+					updated_at: "2026-11-06T09:53:00Z",
+				},
+				{
+					id: 1,
+					created_at: "2026-11-06T09:40:00Z",
+					updated_at: "2026-11-06T09:43:00Z",
+				},
+			],
+			{ "2": [["package.json", 2000]], "1": [["package.json", 9000]] },
+		);
+		const target = join(dir, "out.csv");
+		const r = latest(gh, target);
+		expect(r.status).toBe(0);
+		expect(`${r.stdout}${r.stderr}`).toContain("1 files from run 2 → ");
+		expect(readFileSync(target, "utf8")).toBe(
+			"# run: 2\n# sha: sha2\nfile,seconds,tests,status\npackage.json,2.00,1,passed\n",
+		);
+	});
+
+	it("passes over a run whose reports are gone to the next one", () => {
+		const gh = stub(
+			[
+				{
+					id: 2,
+					created_at: "2026-11-06T09:50:00Z",
+					updated_at: "2026-11-06T09:53:00Z",
+				},
+				{
+					id: 1,
+					created_at: "2026-11-06T09:40:00Z",
+					updated_at: "2026-11-06T09:43:00Z",
+				},
+			],
+			{ "1": [["package.json", 9000]] },
+		);
+		const target = join(dir, "out.csv");
+		const r = latest(gh, target);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("1 files from run 1 → ");
+		expect(readFileSync(target, "utf8")).toContain("# run: 1\n");
+	});
+
+	it("writes the committed record where GitHub fails, saying so", () => {
+		const gh = stub([], {}, true);
+		const target = join(dir, "out.csv");
+		const r = latest(gh, target);
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("no run read (HTTP 502: Bad Gateway)");
+		expect(readFileSync(target, "utf8")).toBe(Record);
+	});
+
+	it("writes the committed record where no green run holds reports", () => {
+		const gh = stub(
+			[
+				{
+					id: 1,
+					created_at: "2026-11-06T09:40:00Z",
+					updated_at: "2026-11-06T09:43:00Z",
+				},
+			],
+			{},
+		);
+		const target = join(dir, "out.csv");
+		const r = latest(gh, target);
+		expect(r.status).toBe(0);
+		expect(readFileSync(target, "utf8")).toBe(Record);
 	});
 });
 
