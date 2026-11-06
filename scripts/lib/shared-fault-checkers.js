@@ -5,7 +5,7 @@
 const path = require("node:path");
 
 /* Core content: every checker below ships in scripts/, beside this lib's
- * directory (#1) — a plugin install keeps them there. */
+ * directory (#1). */
 const CORE_SCRIPTS = path.join(__dirname, "..");
 
 /** Profile name -> the checker script that emits its --json envelope, for the
