@@ -696,15 +696,20 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		it("still refuses a closure file the merge left conflicted", () => {
 			const root = midMerge();
 			git(root, "reset", "-q", "--hard");
+			const before = readAnchors(root);
 			write(root, "scripts/lib/extra.sh", "extra() { exit 5; }\n");
 			git(root, "commit", "-qam", "ours again");
 			const r = spawnSync("git", ["merge", "-q", "--no-commit", "theirs"], {
 				cwd: root,
 			});
 			expect(r.status).not.toBe(0);
+			expect(
+				git(root, "ls-files", "-u", "--", "scripts/lib/extra.sh"),
+			).not.toBe("");
 			expect(review(root)).toContain(
 				"scripts/lib/extra.sh is dirty and not claimed by this session",
 			);
+			expect(readAnchors(root)).toEqual(before);
 		});
 	});
 

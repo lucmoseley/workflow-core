@@ -4113,7 +4113,8 @@ function readUnclaimed(inputs, read, ours) {
  * Mid-merge, the dirty paths staged whole at a merging parent's blob: their
  * bytes are that committed tree's, so a hash of them reads no unattributed
  * edit (#4529). HEAD is not asked, since a path at HEAD's blob is not dirty.
- * A deletion counts where that parent lacks the path too.
+ * A deletion counts where that parent lacks the path too. Throws BROKEN
+ * where MERGE_HEAD will not read, as `readMergeHeadLines` does.
  *
  * @param {string[]} dirty
  * @returns {{ paths: Set<string>, error: string | null }}
