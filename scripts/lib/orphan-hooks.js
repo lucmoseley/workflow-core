@@ -62,7 +62,9 @@ const COMMAND_END = /^(?:\|\||&&|;|\||[0-9]*>.*|<.*)$/;
  * @typedef {{ type?: string, command?: string, args?: unknown, timeout?: number }} Hook
  * @typedef {Record<string, Array<{ hooks?: Hook[] }>>} Hooks
  * @typedef {{ pid: number, pgid: number, scope: "group"|"tree", ageS: number,
- *   argv: string[], targets: Proc[] }} Reap
+ *   argv: string[], targets: Proc[],
+ *   session?: { id: string, leader: number } }} Reap `session` where the
+ *   reap is lib/ended-sessions.js's
  */
 
 /**
@@ -265,7 +267,8 @@ function planReaps(procs, orphans, mine) {
  * snapshot member still holds its start time is killed by pgid, taking any
  * member forked since; otherwise each target whose start time still matches
  * is killed on its own.
- * @param {Reap[]} reaps
+ * @template {Reap} R
+ * @param {R[]} reaps
  * @param {{ root: string, kill: (pid: number, signal: "SIGKILL") => void,
  *   log: (entry: Record<string, unknown> & { at: string }) => boolean }} io
  */
@@ -311,6 +314,7 @@ function killReaps(reaps, { root, kill, log }) {
 			})),
 			killed,
 			gone: r.targets.length - live.length,
+			...(r.session ? { session: r.session } : {}),
 			...(errors.length > 0 ? { errors } : {}),
 		});
 		return { ...r, killed, errors, logged };
@@ -322,4 +326,5 @@ module.exports = {
 	isInit,
 	killReaps,
 	readRegistry,
+	subtree,
 };

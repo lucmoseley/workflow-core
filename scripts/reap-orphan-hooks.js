@@ -17,6 +17,15 @@
  * sweep from outside it (lib/suite-ceiling.js's sweepOrphanedRuns) finds them.
  * Those kills are named in the session, never logged.
  *
+ * AND EVERY PROCESS WHOSE CLAUDE SESSION HAS ENDED (#4342), reparented to an
+ * init: the judgement is lib/ended-sessions.js's. Each kill is logged beside
+ * the hook runs', its line naming the session, and named in the session.
+ *
+ * IT ALSO RUNS WITH NO SESSION OPEN, every few minutes, from a user timer
+ * (install-orphan-sweep-timer.js), persisting its report for the next
+ * session start to replay. check-orphan-reaps.js shows the log's kills on
+ * `npm run status`.
+ *
  * THE REGISTRY IS THE RUNNING HOOKS — the self-plugin's at the core, the
  * plugin's plus the host's settings at an adopter (lib/core-hooks.js) — read
  * fresh each run.
@@ -35,12 +44,11 @@
  * one reads, or an unreadable uptime leave through ctx.skip(). An unparseable
  * hook file is the apparatus failing, and is BROKEN.
  *
- * RESIDUAL: it runs at session start alone, so a machine on which no session
- * starts keeps its orphans until one does. A hook's child running a different
- * script, orphaned with its own parent gone, is not matched.
+ * RESIDUAL: a machine with no systemd user manager has no timer, so there it
+ * runs at session start alone.
  *
- * IMPLICIT:  at every session start, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; and names each kill in the session.
- * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a run that cannot read /proc kills nothing.
+ * IMPLICIT:  at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to the same log; and names each kill in the session.
+ * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a session's worker left spinning at 80% CPU ran for eight hours unseen (2026-11-04, #4333); a run that cannot read /proc kills nothing.
  * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
  * TREE:      host — matches /proc against the hooks the main checkout registers
  */
@@ -64,6 +72,10 @@ const {
 	readUptime,
 } = require("./lib/proc-table.js");
 const { procRoot, REAL_PROC } = require("./lib/proc-root.js");
+const {
+	describeSession,
+	findEndedSessions,
+} = require("./lib/ended-sessions.js");
 const {
 	carrierUnkilled,
 	killPid,
@@ -110,6 +122,36 @@ function report(ctx, done, { ceilingS, fixture, logFile }) {
 	);
 }
 
+/**
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {Array<import("./lib/ended-sessions.js").SessionReap & { errors: string[] }>} done
+ * @param {{ fixture: boolean, logFile: string|null }} at
+ */
+function reportSessions(ctx, done, { fixture, logFile }) {
+	for (const r of done)
+		ctx.warn(
+			"ORPHAN-SESSION",
+			`pid ${r.pid} — ${describeAge(r.ageS)} old, its ${describeSession(r.session)} ended, ${fixture ? "not killed (fixture root)" : `tree of ${r.targets.length} killed`}`,
+			{ ...r, targets: r.targets.map((t) => t.pid) },
+		);
+	if (done.length === 0) return;
+	ctx.say(
+		`ORPHAN-SESSION (${done.length}) — a process with init for a parent whose Claude session has ended:`,
+	);
+	for (const r of done) {
+		ctx.say(
+			`  pid ${r.pid}, ${describeAge(r.ageS)} old, ${describeSession(r.session)}, tree of ${r.targets.length}: ${r.argv.join(" ").slice(0, ARGV_SHOWN)}`,
+		);
+		if (r.errors.length > 0) ctx.say(`    kill failed: ${r.errors.join("; ")}`);
+	}
+	ctx.say(
+		fixture
+			? "\n  A fixture /proc root: nothing was killed or logged.\n"
+			: `\n  Killed, and logged to ${logFile ?? "nowhere: git names no canonical checkout"}.\n` +
+					"  Trace the launch from the argv: a route the session's scope did not hold (#4333).\n",
+	);
+}
+
 runCheck({
 	name: "orphan-hooks",
 	usage: "node reap-orphan-hooks.js [--notify] [--json]",
@@ -134,11 +176,12 @@ runCheck({
 		const { invocations, ceilingS } = readRegistry(
 			readRunningHooks(hostRoot(), { quiet: true }),
 		);
+		const mine = ownTree(read.procs);
 		const { reaps, young } = findOrphanHooks(read.procs, {
 			invocations,
 			ceilingS,
 			bootAgo: /** @type {number} */ (uptime),
-			mine: ownTree(read.procs),
+			mine,
 		});
 
 		const fixture =
@@ -157,6 +200,26 @@ runCheck({
 
 		report(ctx, done, { ceilingS, fixture, logFile });
 
+		const sessionReaps = findEndedSessions(read.procs, {
+			root,
+			bootAgo: /** @type {number} */ (uptime),
+			mine,
+			skip: new Set(reaps.flatMap((r) => r.targets.map((t) => t.pid))),
+		});
+		const sessionsDone = fixture
+			? sessionReaps.map((r) => ({
+					...r,
+					killed: [],
+					errors: [],
+					logged: false,
+				}))
+			: killReaps(sessionReaps, {
+					root,
+					kill: killPid,
+					log: (entry) => appendRetained(logFile, entry, RETAIN_MS),
+				});
+		reportSessions(ctx, sessionsDone, { fixture, logFile });
+
 		const runs = sweepOrphanedRuns({
 			proc: root,
 			kill: fixture ? () => undefined : killPid,
@@ -173,8 +236,8 @@ runCheck({
 			);
 
 		return {
-			okLine: `no orphaned hook run past ${ceilingS}s in ${read.procs.size} process(es).`,
-			noun: "orphaned hook or suite run(s)",
+			okLine: `no orphaned hook run past ${ceilingS}s, and no process of an ended session, in ${read.procs.size} process(es).`,
+			noun: "orphaned hook run(s), suite run(s) or session process(es)",
 			data: {
 				reaps: done.map((r) => ({
 					...r,
@@ -182,6 +245,10 @@ runCheck({
 				})),
 				ceilingS,
 				young,
+				sessionReaps: sessionsDone.map((r) => ({
+					...r,
+					targets: r.targets.map((t) => t.pid),
+				})),
 				orphanRuns: runs,
 				processes: read.procs.size,
 				procRoot: root,
