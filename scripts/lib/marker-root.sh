@@ -42,14 +42,18 @@ gr_declared_markers_dir() {
   root="${CLAUDE_PROJECT_DIR%/}"
   root="${root:-/}"
   root="$(gr_physical "$root" 2>/dev/null)" || root="${CLAUDE_PROJECT_DIR%/}"
-  mkdir -p "$root/.claude/tmp/markers" 2>/dev/null
-  printf '%s' "$root/.claude/tmp/markers"
+  _mr_dir "$root"
 }
 
 gr_markers_dir() {
   local root
   root="$(gr_root)"
   [[ -n "$root" ]] || return 0
-  mkdir -p "$root/.claude/tmp/markers" 2>/dev/null
-  printf '%s' "$root/.claude/tmp/markers"
+  _mr_dir "$root"
+}
+
+# _mr_dir <root> — creates and prints <root>'s markers directory.
+_mr_dir() {
+  mkdir -p "$1/.claude/tmp/markers" 2>/dev/null
+  printf '%s' "$1/.claude/tmp/markers"
 }
