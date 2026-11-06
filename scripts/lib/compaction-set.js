@@ -12,7 +12,7 @@
  */
 
 const path = require("node:path");
-const { hookStoreRoot } = require("./hook-store-root");
+const { repoRoot } = require("./hook-block");
 const { markersDir } = require("./marker-root");
 const { readSeen, writeSeen } = require("./report-once");
 const { buildLineRe } = require("./marker-line");
@@ -23,7 +23,7 @@ const PENDING_PREFIX = "pending:";
 
 /** @param {string} sid */
 const compactionSetFile = (sid) =>
-	path.join(markersDir(hookStoreRoot()), COMPACTIONS_PREFIX + sid);
+	path.join(markersDir(repoRoot()), COMPACTIONS_PREFIX + sid);
 
 /**
  * Adds `keys` to the session's set, drops every `pending:` key not among them,

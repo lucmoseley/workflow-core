@@ -36,8 +36,17 @@ def test_one_hyphen_per_character_never_one_per_run():
 
 
 def test_slug_for_repo_names_this_checkout(monkeypatch):
+    # A linked worktree slugs as its main checkout (#4493).
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(REPO_ROOT))
-    assert slug_for_repo() == project_slug(str(REPO_ROOT))
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    main = Path(common).parent if Path(common).name == ".git" else REPO_ROOT
+    assert slug_for_repo() == project_slug(str(main.resolve()))
 
 
 def test_agrees_with_the_js_sibling(monkeypatch):

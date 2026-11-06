@@ -29,6 +29,7 @@ let tmp: string;
 let repo: string;
 let repoLink: string;
 let linked: string;
+let linkedLink: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -56,6 +57,8 @@ beforeAll(() => {
 	fs.mkdirSync(path.join(linked, "sub"));
 	repoLink = path.join(tmp, "repo-link");
 	fs.symlinkSync(repo, repoLink);
+	linkedLink = path.join(tmp, "linked-link");
+	fs.symlinkSync(linked, linkedLink);
 	fs.mkdirSync(path.join(tmp, "nowhere"));
 });
 
@@ -135,6 +138,23 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			"a file rather than a directory",
 			() => [tmp, path.join(repo, "file.txt")],
 			() => path.join(repo, "file.txt"),
+		],
+		[
+			/* A session launched in a linked worktree hands its hooks this
+			 * (#4493); the Bash tool, none — the two must name one store. */
+			"a CLAUDE_PROJECT_DIR naming a linked worktree",
+			() => [linked, linked],
+			() => repo,
+		],
+		[
+			"a CLAUDE_PROJECT_DIR naming a linked worktree, with a trailing slash",
+			() => [tmp, `${linked}/`],
+			() => repo,
+		],
+		[
+			"a CLAUDE_PROJECT_DIR naming a linked worktree through a symlink",
+			() => [tmp, linkedLink],
+			() => repo,
 		],
 		[
 			/* The Bash tool sets no CLAUDE_PROJECT_DIR (#4482). */

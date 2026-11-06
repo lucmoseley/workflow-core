@@ -808,36 +808,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	};
 
 	/*
-	 * A store keyed on the worktree itself, through a CLAUDE_PROJECT_DIR naming
-	 * it: both sides agree on the worktree, and every claim is still filed under
-	 * the canonical checkout's slug, so the run reads none.
-	 */
-	const worktreeKeyed = () => {
-		const trees = linkedWorktree();
-		kit.noProjectDir = false;
-		kit.claimsRepo = trees.wt;
-		return trees;
-	};
-
-	it("says so where the store is keyed on a linked worktree", async () => {
-		const { canonical, wt } = worktreeKeyed();
-		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
-		expect(r.out).toMatch(/CLAIMS DEGRADED/);
-		expect(r.out).toMatch(/a linked worktree of/);
-		expect(r.out).toContain(canonical);
-		expect(r.out).toContain(wt);
-	});
-
-	it("carries the worktree case into --json, with the tree to re-run from", async () => {
-		const { canonical } = worktreeKeyed();
-		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
-		expect(j.claimsDegraded.storeElsewhere).toBe(true);
-		expect(j.claimsDegraded.why).toMatch(/linked worktree of/);
-		// The path, not just the flag: a consumer should not have to regex `why`.
-		expect(j.claimsDegraded.claimsTree).toBe(canonical);
-	});
-
-	/*
 	 * mantahostels#1 is assigned and a LIVE session holds its claim, filed under
 	 * the canonical checkout. From the worktree the store resolves to that
 	 * checkout too (#4482), so the issue stays out of the shortlist.
