@@ -354,8 +354,6 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	return { end, actions, asked, said, peak, pushed, events, depths };
 }
 
-/** The record holding `b` alone: in the line where it is merging or under
- * test, else as the search. */
 const seed = (disk: Disk, b: Omit<Batch, "slot">) => {
 	const batch = { slot: 0, ...b };
 	disk.pipeline = ["merging", "testing", "landed"].includes(b.phase)
@@ -363,7 +361,6 @@ const seed = (disk: Disk, b: Omit<Batch, "slot">) => {
 		: { line: [], search: batch, depth: 1 };
 };
 
-/** The search, else the line's head. */
 const batchIn = (disk: Disk) =>
 	disk.pipeline?.search ?? disk.pipeline?.line[0] ?? null;
 
@@ -2162,12 +2159,10 @@ describe("the pipeline (#4556)", () => {
 	const RedA = "scripts/a.test.ts";
 	const A = "merge(m0;a1)";
 	const B = `merge(${A};b1)`;
-	/** Red on RedA wherever `a1` is merged in, else green naming run 1. */
 	const redWhereA = (sha: string): Verdict =>
 		sha.includes("a1")
 			? { kind: "red", files: [RedA] }
 			: { kind: "green", run: 1 };
-	/** Pushes `b` once `a`'s batch is first asked. */
 	const pushB = (sha: string, r: Remote) => {
 		if (sha.includes("a1") && !r.refs.has("b"))
 			r.refs.set("b", { sha: "b1", pushedAt: 2 });

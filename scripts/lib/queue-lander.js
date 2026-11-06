@@ -25,8 +25,7 @@
  *   cancelled through the tester's `cancel`.
  * - **Search.** A head red on its whole suite leaves the line as its search,
  *   and the batches behind it are cancelled and merged again onto `main`
- *   without it, so the red path below runs beside the line rather than ahead
- *   of it. One search runs at a time: a second red head waits for it, and a
+ *   without it. One search runs at a time: a second red head waits for it, and a
  *   held or re-batched search a new one replaces leaves its members to the
  *   queue in push order. While a search lands serially the line stands still.
  *   A search's rerun green lands where `main` has not moved past its base,
@@ -185,7 +184,7 @@ class TransientFault extends Error {}
  * @typedef {{readonly landed: readonly string[],
  *   readonly step: Step|null}} Serial the members landed so far, and the
  *   step under test
- * @typedef {object} Batch a batch in flight
+ * @typedef {object} Batch
  * @property {number} slot the k of its `lander/batch-<k>` ref, unique among
  *   the pipeline's batches
  * @property {readonly Member[]} members in push order
@@ -205,7 +204,7 @@ class TransientFault extends Error {}
  * @property {Serial|null} serial
  * @property {Hold|null} hold
  * @property {readonly BaseVerdict[]} bases the base checks this batch asked
- * @typedef {object} Pipeline the pipeline record
+ * @typedef {object} Pipeline
  * @property {readonly Batch[]} line the batches in flight, in queue order,
  *   the head first
  * @property {Batch|null} search the red batch whose culprits are sought, or
@@ -331,7 +330,7 @@ class TransientFault extends Error {}
  * @property {boolean} parallel where the tester takes several asks at once
  * @property {(r: TestRun) => boolean} isPending whether this run has asked
  *   `r` and awaits its verdict
- * @property {boolean} busy whether any ask awaits its verdict
+ * @property {boolean} busy
  * @property {readonly Unread[]} unread
  * @property {readonly DroppedRef[]} dropped
  * @property {readonly Drop[]} drops
@@ -1469,7 +1468,7 @@ function stepOrEnd(s) {
  * @property {(sha: string) => string|null} refusalOf the refusal of `sha`,
  *   null where none
  * @property {(sha: string, reason: string) => void} add
- * @typedef {object} PipelineRecord the pipeline record
+ * @typedef {object} PipelineRecord
  * @property {() => Pipeline|null} read
  * @property {(p: Pipeline) => void} write
  * @typedef {object} QueueLanderDeps
@@ -1744,7 +1743,6 @@ async function verdictAt(deps, sha, files, again) {
 }
 
 /**
- * The key of an ask, by the runs it awaits.
  * @param {readonly TestRun[]} runs
  */
 const askKey = (runs) =>
@@ -1753,7 +1751,6 @@ const askKey = (runs) =>
 		.join(" + ");
 
 /**
- * Whether `a` and `b` are one run.
  * @param {TestRun} a
  * @param {TestRun} b
  */
@@ -2177,7 +2174,6 @@ function mergeAlone(deps, action, run) {
 }
 
 /**
- * Writes the pipeline record.
  * @param {Pick<QueueLanderDeps, "record">} deps
  * @param {QueueRun} run
  * @param {Pipeline} pipeline
