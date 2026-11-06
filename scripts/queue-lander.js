@@ -17,7 +17,11 @@
  * `main` it adopts the new tip as the code this repo's guard hooks run, where
  * its guards load (lib/guard-code.js, #4227), and starts a levelling pass
  * over the main checkout (scripts/level-main.js, #4248), detached, since an
- * `npm ci` in it may outlast the next landing.
+ * `npm ci` in it may outlast the next landing. Where a move changed the code
+ * this run loaded, the run ends once its batch is done; then, its lock
+ * released, it levels the checkout until it carries the new code, asking
+ * again while another pass holds the levelling lock, and starts a fresh
+ * lander (scripts/start-lander.js) on it (#4521).
  *
  * It moves `main` only past its green ledger, which the
  * pre-push gate on `main` reads. A dropped member's fix ticket, and the one
@@ -34,8 +38,19 @@
  * command line it refuses.
  */
 
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
+const { setTimeout: wait } = require("node:timers/promises");
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const {
+	isCarried,
+	levelUntilCarried,
+	readRunCode,
+	readSupersededFiles,
+} = require("./lib/lander-code.js");
+const { short } = require("./lib/lander-git.js");
+const { levelNow } = require("./lib/level-main.js");
 const { buildLanderDeps } = require("./lib/queue-lander-deps.js");
 const { runQueueLander } = require("./lib/queue-lander.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -83,8 +98,52 @@ async function main(argv = process.argv.slice(2)) {
 	const opened = openLanderRun(argv);
 	if (typeof opened === "number") return opened;
 	const { root, tester } = opened;
-	await runQueueLander(buildLanderDeps(root, { tester, say }));
+	const code = readRunCode(root);
+	const end = await runQueueLander(
+		buildLanderDeps(root, { tester, say, code }),
+	);
+	if (end.relaunch !== undefined && code !== null)
+		await relaunch(root, tester, code, end.relaunch);
 	return 0;
+}
+
+/**
+ * A fresh lander on the code `sha` carries, started as any push starts one
+ * once the checkout carries each superseded file as `sha` does. Its output
+ * joins this run's.
+ * @param {string} root
+ * @param {string|undefined} tester
+ * @param {import("./lib/lander-code.js").RunCode} code
+ * @param {string} sha
+ */
+async function relaunch(root, tester, code, sha) {
+	const files = readSupersededFiles(root, code, sha);
+	const settled = await levelUntilCarried({
+		carried: () => isCarried(root, sha, files),
+		level: () => levelNow(root),
+		wait: (ms) => wait(ms),
+		now: Date.now,
+	});
+	if (!settled.carried) {
+		say(
+			`no fresh lander: the checkout never carried ${short(sha)}'s code${settled.failed === null ? "" : ` (${settled.failed})`}; the next push or refill tick starts one`,
+		);
+		return;
+	}
+	const r = spawnSync(
+		process.execPath,
+		[
+			path.join(__dirname, "start-lander.js"),
+			"--launched-by",
+			"the queue lander, its own code changed on main",
+			...(tester === undefined ? [] : ["--tester", tester]),
+		],
+		{ cwd: root, stdio: "inherit" },
+	);
+	if (r.status !== 0)
+		say(
+			`the fresh lander did not start (${r.error?.message ?? `exit ${r.status}`}); the next push or refill tick starts one`,
+		);
 }
 
 if (require.main === module)

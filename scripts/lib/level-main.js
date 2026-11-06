@@ -44,7 +44,7 @@ const {
 const { isCutOver } = require("./cutover.js");
 const { LANDING_REF, QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
-const { startDetachedIn } = require("./refill-repos.js");
+const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
@@ -478,15 +478,33 @@ function buildReport(root, o, { now, quiet }) {
  * @param {(err: unknown) => void} notStarted
  */
 function startLevelling(root, notStarted) {
-	startDetachedIn(
-		root,
-		[
-			process.env.WFC_LEVEL_MAIN_SCRIPT ||
-				path.join(__dirname, "..", "level-main.js"),
-			"--quiet",
-		],
-		notStarted,
-	);
+	startDetachedIn(root, [levelScript(), "--quiet"], notStarted);
+}
+
+const levelScript = () =>
+	process.env.WFC_LEVEL_MAIN_SCRIPT ||
+	path.join(__dirname, "..", "level-main.js");
+
+/* Untraced: room for an `npm ci` the pass runs where the lockfile changed. */
+const LEVEL_NOW_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * One levelling pass, waited for, in the environment the detached one gets:
+ * where a fresh lander must start on what `main` now holds. What it printed
+ * where it failed or another pass held the lock, else null.
+ * @param {string} root
+ * @returns {string|null}
+ */
+function levelNow(root) {
+	const r = spawnSync(process.execPath, [levelScript(), "--quiet"], {
+		cwd: root,
+		env: buildCheckoutEnv(root),
+		encoding: "utf8",
+		timeout: LEVEL_NOW_TIMEOUT_MS,
+	});
+	return r.status === 0
+		? null
+		: (r.stderr || r.error?.message || `exit ${r.status}`).trim();
 }
 
 /**
@@ -578,6 +596,7 @@ module.exports = {
 	buildReport,
 	describeAge,
 	level,
+	levelNow,
 	readOrphanedEdits,
 	renderOutcome,
 	startLevelling,
