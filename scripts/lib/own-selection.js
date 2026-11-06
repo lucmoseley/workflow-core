@@ -101,10 +101,9 @@ const {
  * side is `mine`, the other is too; a deletion tied to nothing stays `theirs`.
  *
  * A SESSION'S OWN WORKTREE HOLDS NO ONE ELSE'S DIRT (#3786). Given `ownTree`
- * and a session id, every tracked path in `dirty` is `mine`, whatever route
- * wrote it — the Bash-route write the ledger misses included — and for an
- * overlay every untracked path too. `--isolated` keeps the ledger's rule for
- * untracked paths, so stray scratch does not refuse a full run.
+ * and a session id, every path in `dirty` and `untracked` is `mine`, whatever
+ * route wrote it — the Bash-route write the ledger misses included — and no
+ * live claim is subtracted.
  *
  * @param {string[]} dirty tracked paths with modifications
  * @param {{ sessionId?: string|null, ledger?: Ledger, untracked?: string[],
@@ -138,13 +137,7 @@ function attributeDirty(
 	});
 	if (!ownTree || !sessionId) return byLedger;
 	return {
-		mine: [
-			...new Set([
-				...byLedger.mine,
-				...dirty,
-				...(committedAt ? untracked : []),
-			]),
-		].sort(),
+		mine: [...new Set([...byLedger.mine, ...dirty, ...untracked])].sort(),
 		theirs: [],
 		quoted: byLedger.quoted,
 	};

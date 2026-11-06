@@ -4640,7 +4640,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 		});
 
-		it("bills every tracked path of a session's own worktree, and its new files only to an overlay (#3786)", () => {
+		it("bills every uncommitted path of a session's own worktree, the ledger aside (#3786)", () => {
 			const own = {
 				sessionId: "mine",
 				ledger: ledgerOf([]),
@@ -4648,14 +4648,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				ownTree: true,
 			};
 			expect(attributeDirty(["bash-written.ts"], own)).toEqual({
-				mine: ["bash-written.ts"],
+				mine: ["bash-written.ts", "scratch.txt"],
 				theirs: [],
 				quoted: [],
 			});
-			expect(
-				attributeDirty(["bash-written.ts"], { ...own, committedAt: () => 0 })
-					.mine,
-			).toEqual(["bash-written.ts", "scratch.txt"]);
 			expect(
 				attributeDirty(["bash-written.ts"], { ...own, sessionId: null }).mine,
 			).toEqual([]);
@@ -6291,6 +6287,18 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(seen.read("orphan.txt")).toBe("orphan\n");
 				expect(seen.read("held.txt")).toBe("neighbour\n");
 				expect(err).not.toContain("not attributable");
+			});
+
+			it("refuses a full run over a linked worktree's Bash-route writes, naming them (#3786)", async () => {
+				const { code, seen, err } = await runSeeing(
+					dirtyCheckout({ linked: true }),
+					["--full=coverage"],
+					{ pid: 5404, sessionId: "mine" },
+				);
+				expect(code).toBe(1);
+				expect(seen.cwd).toBe("");
+				expect(err).toContain("--isolated REFUSED: 5 file(s)");
+				expect(err).toContain("  orphan.txt\n");
 			});
 
 			it("names each dirty file it leaves out of a shared tree's overlay (#3786)", async () => {

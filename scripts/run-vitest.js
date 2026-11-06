@@ -166,7 +166,7 @@ const {
  * (mantahostels#2196). */
 const {
 	REFUSAL_NAMED_MAX,
-	readLinkedWorktree,
+	isLinkedWorktree,
 	readTrackedStatus,
 	readUntrackedFiles,
 } = require("./lib/dirty-tree.js");
@@ -1610,7 +1610,7 @@ function sweepAndAttribute(
 		untracked: readUntrackedFiles(root, execFn) ?? [],
 		renames: status.renames,
 		tree: root,
-		ownTree: readLinkedWorktree(root, execFn),
+		ownTree: isLinkedWorktree(root, execFn),
 		...(withQuotes ? { committedAt: lastCommitAt(root, execFn) } : {}),
 	});
 }
@@ -1705,7 +1705,7 @@ function runIsolated(argv, options = {}) {
 	}
 	if (theirs.length > 0)
 		err.write(
-			`--isolated: ${String(theirs.length)} tracked file(s) are uncommitted and not attributable to this session — the frozen worktree carries HEAD's version of each, not theirs.\n`,
+			`--isolated: ${String(theirs.length)} tracked file(s) are uncommitted and not attributable to this session — the frozen worktree carries HEAD's version of each, not theirs: ${namedList(theirs)}\n`,
 		);
 
 	const made = openWorktree(options);
