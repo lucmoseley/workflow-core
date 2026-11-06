@@ -47,12 +47,13 @@
  * an escape the file's quoting undoes) with no such assignment before it; one
  * on a line `lib/env-file.js` reads no way, a name outside `[\w.-]` included;
  * a `# NAME: value`; a part after the first of one split by a break where no
- * later line closes its quote, or commented out line by line, which masks with
- * its `#`; one on the line after its name; and one the file does not hold, a
- * key set only in the environment included. Where two stored values overlap
- * in the text, the first masked leaves the other's tail. A value opening `\t`,
- * or a spelling of a control sequence (`\e7`, `%1B7`, `^[[1m`), keeps that
- * opening.
+ * later line closes its quote; one commented out line by line, read whole,
+ * where its later lines were commented out differently, a blank line in an
+ * indented block whose `# ` lost its space included; one on the line after its
+ * name; and one the file does not hold, a key set only in the environment
+ * included. Where two stored values overlap in the text, the first masked
+ * leaves the other's tail. A value opening `\t`, or a spelling of a control
+ * sequence (`\e7`, `%1B7`, `^[[1m`), keeps that opening.
  */
 
 const { SPACE } = require("./env-file.js");
