@@ -38,8 +38,10 @@ import {
 } from "./queue-lander.js";
 
 // Required, not imported: runQueueLander tests for filing-refused.js's own
-// FilingRefusedError, which an ESM import of it would load a second copy of.
+// FilingRefusedError and network-fault.js's own PushRefused, which an ESM
+// import would load a second copy of.
 const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
+const { PushRefused } = createRequire(__filename)("./network-fault.js");
 
 interface Ref {
 	sha: string;
@@ -653,6 +655,32 @@ describe("faults", () => {
 			kind: "exit",
 			reason:
 				"stopped on an error:  ! [remote rejected] a1 -> main (protected branch hook declined)",
+		});
+		expect(pushes).toBe(1);
+	});
+
+	it("exits at once on a PushRefused whose stderr quotes a network fault, never retrying it (#4513)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		let pushes = 0;
+
+		const { end } = await land(remote, freshDisk(), {
+			fault: (c) =>
+				c === "pushBatch" && ++pushes === 1
+					? new PushRefused("push", {
+							cause: Object.assign(new Error("push"), {
+								status: 1,
+								stderr:
+									"test said: Connection reset\nerror: failed to push some refs",
+							}),
+						})
+					: undefined,
+		});
+
+		expect(end).toEqual({
+			kind: "exit",
+			reason: "stopped on an error: error: failed to push some refs",
 		});
 		expect(pushes).toBe(1);
 	});
