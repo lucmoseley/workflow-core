@@ -279,17 +279,12 @@ describe("readResumeTarget on a key (#4580)", () => {
 		expect(callsTo("readJobRecord")).toEqual([]);
 	});
 
-	it("falls back to the checkout where the record will not read, logging why", () => {
-		const { steps, lines } = fakeIo({ readRunAsJob: "unreadable" });
+	it("falls back to the checkout where the record will not read", () => {
+		const { steps } = fakeIo({ readRunAsJob: "unreadable" });
 		expect(steps.readResumeTarget(keyed as unknown as JobLaunch)).toEqual({
 			sessionId: null,
 			cwd: ROOT,
 		});
-		expect(lines).toEqual([
-			expect.stringMatching(
-				`^headless run 0e0e0e0e unread: .*${FAULTS.readRunAsJob.unreadable}`,
-			),
-		]);
 	});
 });
 

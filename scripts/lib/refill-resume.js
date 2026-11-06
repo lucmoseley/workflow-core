@@ -20,7 +20,7 @@ const { buildSeatEnv } = require("./seat-claude.js");
 const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-blocks.js");
 const { OVERFLOW_PREFIX } = require("./session-name.js");
-const { launchRecordReader } = require("./launch-record.js");
+const { buildLaunchRecordReader } = require("./launch-record.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -66,7 +66,7 @@ const { launchRecordReader } = require("./launch-record.js");
  */
 function resumeSteps(io) {
 	const { log } = io;
-	const readLaunchRecord = launchRecordReader(io);
+	const readLaunchRecord = buildLaunchRecordReader(io);
 
 	/**
 	 * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `root`; what it

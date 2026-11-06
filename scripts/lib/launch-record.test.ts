@@ -1,52 +1,67 @@
+// @vitest-environment node
+/*
+ * The one launch-record reader (lib/launch-record.js, #4587) over
+ * lib/resume-io-fake.ts, whose route reads resume-io.contract.test.ts holds to
+ * the production adapter: a plan launch reads its `--bg` job record, a key
+ * launch its headless run, and a headless record that will not read is logged.
+ *
+ * Loosen one and the refill loop reads a key launch's state off a `--bg` job
+ * store it never wrote, or loses why its record would not read.
+ */
+
 import { describe, expect, it } from "vitest";
-import { launchRecordReader } from "./launch-record.js";
+import { buildLaunchRecordReader } from "./launch-record.js";
+import {
+	ANSWERS,
+	FAULTS,
+	fakeResumeIo,
+	HEADLESS_JOB,
+	JOB,
+	KEY_VAR,
+	type Picks,
+} from "./resume-io-fake";
 
-const BG = { state: "working", sessionId: "s-bg", cwd: "/r" };
-const RUN = { state: "working", sessionId: "s-run", cwd: "/w" };
+const SEAT = "/home/u/.claude3";
 
-function reader(runAsJob: (jobId: string) => typeof RUN | null = () => RUN) {
-	const lines: string[] = [];
-	const calls: string[][] = [];
-	const read = launchRecordReader({
-		log: (line) => lines.push(line),
-		readJobRecord: (seat, jobId) => {
-			calls.push(["bg", seat, jobId]);
-			return BG;
-		},
-		readRunAsJob: (jobId) => {
-			calls.push(["run", jobId]);
-			return runAsJob(jobId);
-		},
-	});
-	return { read, lines, calls };
+function reader(picks: Picks = {}) {
+	const fake = fakeResumeIo(picks);
+	return { ...fake, read: buildLaunchRecordReader(fake.io) };
 }
 
-describe("launchRecordReader (#4587)", () => {
+describe("buildLaunchRecordReader (#4587)", () => {
 	it("reads a plan launch's --bg job record on its seat", () => {
-		const { read, calls } = reader();
-		expect(read({ seat: "/s", jobId: "j1" })).toBe(BG);
-		expect(calls).toEqual([["bg", "/s", "j1"]]);
+		const { read, callsTo } = reader({ readJobRecord: "working" });
+		expect(read({ seat: SEAT, jobId: JOB })).toEqual(
+			ANSWERS.readJobRecord.working,
+		);
+		expect(callsTo("readJobRecord")).toEqual([[SEAT, JOB]]);
+		expect(callsTo("readRunAsJob")).toEqual([]);
 	});
 
 	it("reads a key launch's headless run in the same shape", () => {
-		const { read, calls } = reader();
-		expect(read({ seat: "/s", keyVar: "K2", jobId: "0e0e0e0e" })).toBe(RUN);
-		expect(calls).toEqual([["run", "0e0e0e0e"]]);
+		const { read, callsTo } = reader({ readRunAsJob: "working" });
+		expect(read({ seat: SEAT, keyVar: KEY_VAR, jobId: HEADLESS_JOB })).toEqual(
+			ANSWERS.readRunAsJob.working,
+		);
+		expect(callsTo("readRunAsJob")).toEqual([[HEADLESS_JOB]]);
+		expect(callsTo("readJobRecord")).toEqual([]);
 	});
 
 	it("gives null, logged, where the headless run will not read", () => {
-		const { read, lines } = reader(() => {
-			throw new Error("EISDIR");
-		});
-		expect(read({ seat: "/s", keyVar: "K2", jobId: "0e0e0e0e" })).toBeNull();
+		const { read, lines } = reader({ readRunAsJob: "unreadable" });
+		expect(
+			read({ seat: SEAT, keyVar: KEY_VAR, jobId: HEADLESS_JOB }),
+		).toBeNull();
 		expect(lines).toEqual([
-			expect.stringMatching(/^headless run 0e0e0e0e unread: .*EISDIR/),
+			expect.stringMatching(
+				`^headless run ${HEADLESS_JOB} unread: .*${FAULTS.readRunAsJob.unreadable}`,
+			),
 		]);
 	});
 
 	it("reads nothing for a launch with no job", () => {
-		const { read, calls } = reader();
-		expect(read({ seat: "/s", keyVar: "K2", jobId: null })).toBeNull();
-		expect(calls).toEqual([]);
+		const { read, callsTo } = reader();
+		expect(read({ seat: SEAT, keyVar: KEY_VAR, jobId: null })).toBeNull();
+		expect(callsTo("readRunAsJob")).toEqual([]);
 	});
 });

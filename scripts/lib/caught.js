@@ -94,4 +94,21 @@ function parseErrorText(e) {
 const buildErrorText = (e) =>
 	e instanceof Error ? (e.stack ?? e.message) : String(e);
 
-module.exports = { buildErrorText, caught, parseErrorText };
+/**
+ * `read()`'s value, or null where it throws, logged as `what` unread.
+ * @template T
+ * @param {(line: string) => void} log
+ * @param {string} what
+ * @param {() => T} read
+ * @returns {T|null}
+ */
+function readLogged(log, what, read) {
+	try {
+		return read();
+	} catch (e) {
+		log(`${what} unread: ${buildErrorText(e)}`);
+		return null;
+	}
+}
+
+module.exports = { buildErrorText, caught, parseErrorText, readLogged };

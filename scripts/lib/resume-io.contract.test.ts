@@ -216,7 +216,9 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 	},
 	readRunAsJob: (v) => {
 		const r = v as ReturnType<ResumeIo["readRunAsJob"]>;
-		return r && { keys: Object.keys(r).sort(), state: r.state };
+		return (
+			r && { keys: Object.keys(r).sort(), state: r.state, cwd: typeof r.cwd }
+		);
 	},
 	findHeadlessRun: (v) => {
 		const r = v as ReturnType<ResumeIo["findHeadlessRun"]>;
@@ -463,6 +465,12 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 					recursive: true,
 				},
 			);
+			return io().readRunAsJob("0e0e0e0e");
+		},
+		logUnreadable: () => {
+			const log = path.join(dir, "out.jsonl");
+			fs.mkdirSync(log);
+			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, { log });
 			return io().readRunAsJob("0e0e0e0e");
 		},
 	},

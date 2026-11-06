@@ -32,7 +32,7 @@ const { projectSlug } = require("./project-slug.js");
 const { readAllowance } = require("./allowance.js");
 const seatReading = require("./seat-reading.js");
 const { buildTypedAttach } = require("./claude-attach.js");
-const { buildErrorText, caught } = require("./caught.js");
+const { buildErrorText, caught, readLogged } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
 const { runTickChild: runChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
@@ -80,7 +80,7 @@ const {
 	readOmittedDirs,
 } = require("./refill-seats.js");
 const { readRun } = require("./headless-runs.js");
-const { launchRecordReader, readLogged } = require("./launch-record.js");
+const { buildLaunchRecordReader } = require("./launch-record.js");
 const {
 	buildCheckoutEnv,
 	discoverRepos,
@@ -597,7 +597,7 @@ function readTimelineOf(l) {
 const resumeIo = buildResumeIo(log);
 const resume = resumeSteps(resumeIo);
 /** `l`'s job record, whichever route launched it (lib/launch-record.js). */
-const readJobRecordOf = launchRecordReader(resumeIo);
+const readJobRecordOf = buildLaunchRecordReader(resumeIo);
 
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal

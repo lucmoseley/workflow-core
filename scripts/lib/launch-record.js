@@ -6,7 +6,7 @@
  * route.
  */
 
-const { buildErrorText } = require("./caught.js");
+const { readLogged } = require("./caught.js");
 
 /**
  * A launch's job record. A `--bg` job's state.json is the harness's own
@@ -14,23 +14,6 @@ const { buildErrorText } = require("./caught.js");
  * @typedef {{sessionId?: unknown, cwd?: unknown, state?: unknown,
  *   detail?: unknown, linkScanPath?: unknown}} LaunchRecord
  */
-
-/**
- * `read()`'s value, or null where it throws, logged as `what` unread.
- * @template T
- * @param {(line: string) => void} log
- * @param {string} what
- * @param {() => T} read
- * @returns {T|null}
- */
-function readLogged(log, what, read) {
-	try {
-		return read();
-	} catch (e) {
-		log(`${what} unread: ${buildErrorText(e)}`);
-		return null;
-	}
-}
 
 /**
  * The reader of a launch's job record over the two route reads: null where
@@ -43,7 +26,7 @@ function readLogged(log, what, read) {
  * @returns {(l: {seat: string, keyVar?: string, jobId?: string|null}) =>
  *   LaunchRecord|null}
  */
-const launchRecordReader =
+const buildLaunchRecordReader =
 	({ log, readJobRecord, readRunAsJob }) =>
 	({ seat, keyVar, jobId }) => {
 		if (!jobId) return null;
@@ -51,4 +34,4 @@ const launchRecordReader =
 		return readLogged(log, `headless run ${jobId}`, () => readRunAsJob(jobId));
 	};
 
-module.exports = { launchRecordReader, readLogged };
+module.exports = { buildLaunchRecordReader };

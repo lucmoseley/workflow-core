@@ -157,6 +157,8 @@ export const FAULTS = {
 	overflowLookup: { unreadable: "dispatched.jsonl would not read: EISDIR" },
 	readRunAsJob: {
 		unreadable: "EISDIR: illegal operation on a directory, read",
+		logUnreadable:
+			"its log /r/.headless-runs/0e0e0e0e/out.jsonl: EISDIR: illegal operation on a directory, read",
 	},
 };
 
