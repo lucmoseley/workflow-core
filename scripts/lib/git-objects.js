@@ -167,13 +167,13 @@ function matchBlobGroups(groups, { cwd, timeout } = {}) {
 	const owner = groups.flatMap((g, i) => g.blobs.map(() => i));
 	if (owner.length === 0) return Promise.resolve(found);
 	return new Promise((resolve, reject) => {
-		/* spawn takes no maxBuffer: only the timeout, cut to the hook's budget. */
-		const cut = gitSpawnOptions({ timeout }).timeout;
-		const child = spawn(gitBinary(), ["cat-file", "--batch"], {
-			cwd,
-			stdio: ["pipe", "pipe", "ignore"],
-			...(cut ? { timeout: cut } : {}),
-		});
+		const child = spawn(
+			gitBinary(),
+			["cat-file", "--batch"],
+			/** @type {import("node:child_process").SpawnOptionsWithStdioTuple<"pipe", "pipe", "ignore">} */ (
+				gitSpawnOptions({ cwd, timeout, stdio: ["pipe", "pipe", "ignore"] })
+			),
+		);
 		let settled = false;
 		const settle = (/** @type {() => void} */ done) => {
 			if (settled) return;
