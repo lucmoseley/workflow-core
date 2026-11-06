@@ -13,6 +13,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { gitRead } = require("./dirty-tree.js");
+const { GIT_TIMEOUT_MS } = require("./git.js");
+const { matchBlobGroups } = require("./git-objects.js");
 
 /** @param {string} text */
 function countLines(text) {
@@ -81,38 +83,66 @@ function isChangeMade(head, now, there) {
 }
 
 /**
+ * The line counts a file's change runs between: at `HEAD`, and in its
+ * working copy — or null where the working copy will not read.
  * @param {string} tree
  * @param {string} rel
- * @param {string[]} blobs
  */
-function hasLandedLines(tree, rel, blobs) {
+function readChange(tree, rel) {
 	let work;
 	try {
 		work = fs.readFileSync(path.join(tree, rel), "utf8");
 	} catch {
-		return false;
+		return null;
 	}
 	const head = countLines(gitRead(["show", `HEAD:${rel}`], tree) ?? "");
-	const now = countLines(work);
-	return blobs.some((b) => {
-		const landed = gitRead(["cat-file", "blob", b], tree);
-		return landed !== null && isChangeMade(head, now, countLines(landed));
-	});
+	return { head, now: countLines(work) };
 }
 
 /**
- * How the working copy of `rel` in `tree` reached `ref`: by its blob, by its
- * lines, or not at all (null).
+ * How the working copy of each file in `tree` reached `ref`: by its blob, by
+ * its lines, or not at all (null). Every file's landed versions are read
+ * through one `git cat-file --batch` (#4542); a batch that fails reads as
+ * not landed, which keeps the land route.
  * @param {string} tree
- * @param {string} rel
- * @param {string} blob the working copy's blob id
+ * @param {{rel: string, blob: string}[]} files each blob the working copy's id
  * @param {string} ref
- * @returns {"blob"|"lines"|null}
+ * @returns {Promise<("blob"|"lines"|null)[]>}
  */
-function landedAs(tree, rel, blob, ref) {
-	const blobs = readLandedBlobs(tree, rel, ref);
-	if (blobs.includes(blob)) return "blob";
-	return hasLandedLines(tree, rel, blobs) ? "lines" : null;
+async function readLanded(tree, files, ref) {
+	/** @type {("blob"|"lines"|null)[]} */
+	const out = files.map(() => null);
+	/** @type {{blobs: string[], test: (body: Buffer) => boolean}[]} */
+	const groups = [];
+	/** @type {number[]} */
+	const at = [];
+	files.forEach(({ rel, blob }, i) => {
+		const blobs = readLandedBlobs(tree, rel, ref);
+		if (blobs.includes(blob)) {
+			out[i] = "blob";
+			return;
+		}
+		const change = readChange(tree, rel);
+		if (change === null) return;
+		groups.push({
+			blobs,
+			test: (body) =>
+				isChangeMade(
+					change.head,
+					change.now,
+					countLines(body.toString("utf8")),
+				),
+		});
+		at.push(i);
+	});
+	const found = await matchBlobGroups(groups, {
+		cwd: tree,
+		timeout: GIT_TIMEOUT_MS,
+	}).catch(() => groups.map(() => false));
+	found.forEach((hit, g) => {
+		if (hit) out[/** @type {number} */ (at[g])] = "lines";
+	});
+	return out;
 }
 
 /**
@@ -125,4 +155,4 @@ function readUnlandedCommits(tree, ref) {
 	return n === null ? null : Number(n.trim());
 }
 
-module.exports = { landedAs, readUnlandedCommits };
+module.exports = { readLanded, readUnlandedCommits };
