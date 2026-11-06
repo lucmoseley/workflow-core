@@ -6350,6 +6350,7 @@
 			"scripts/concurrency-readout.test.ts",
 			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
+			"scripts/lib/claude-stop.test.ts",
 			"scripts/lib/console-credit.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/move-pass-markers.test.ts",
