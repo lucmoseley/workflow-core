@@ -211,7 +211,30 @@ function readUntrackedEntries(root) {
 	return paths.sort();
 }
 
+/**
+ * Whether `root` is a linked worktree, a session's own under #4229's model, so
+ * every uncommitted file in it is that session's work (#3786). False where git
+ * will not say, which keeps the ledger's attribution.
+ *
+ * @param {string} root
+ * @param {ExecFn} [execFn]
+ * @returns {boolean}
+ */
+function readLinkedWorktree(root, execFn = execProgram) {
+	const [gitDir, common] = (
+		gitRead(
+			["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+			root,
+			execFn,
+		) ?? ""
+	)
+		.trim()
+		.split("\n");
+	return Boolean(gitDir && common && gitDir !== common);
+}
+
 module.exports = {
+	readLinkedWorktree,
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
 	parseTrackedStatus,
