@@ -72,6 +72,29 @@ export function record(over: Record<string, unknown> = {}) {
 
 export type Launch = import("./refill-loop.js").LoopLaunch;
 
+/** A frontier row of `root`'s issue `number`, ranked on no tier. */
+export const row = (
+	root: string,
+	number: number,
+	takes = "implement",
+	over: Record<string, unknown> = {},
+) => ({
+	root,
+	number,
+	bug: false,
+	urgent: false,
+	goal: false,
+	stallDays: 0,
+	asksQuestions: false,
+	depth: 0,
+	closes: 0,
+	reach: 0,
+	collision: "comment-only",
+	takes: [takes],
+	labels: [`takes:${takes}`],
+	...over,
+});
+
 /** A plan seat's reading off its two bars, each null where unread. */
 export const seat = (
 	name: string,

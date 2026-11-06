@@ -489,7 +489,7 @@ def analyse_rows(session_rows, proc_rows, spike_mb):
 # `agent-liveness.js`'s TERMINAL_STATES: a session admission never charges.
 TERMINAL_STATES = {"done", "failed", "stopped"}
 # The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
-# scripts/lib/admission.js, which admits on it: move both, or neither.
+# scripts/lib/admission-figures.js, which admits on it: move both, or neither.
 DRAW_Z = 1.645
 
 
