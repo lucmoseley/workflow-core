@@ -163,7 +163,7 @@ describe.each(removalCases)("the $kind removal", ({ kind, ok }) => {
  */
 // Residual: off the founder's machine this skips, and the fixture goes unchecked.
 it.skipIf(claudeLiveSkipReason())(
-	"the installed claude answers a removal of no job as the recording does",
+	"the installed claude refuses a removal of no job, naming the id",
 	() => {
 		const { id } = recorded.removals.noJob;
 		const r = runOn(["rm", id], [], "claude");
