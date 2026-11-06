@@ -9,6 +9,7 @@
  * no push time.
  */
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -101,14 +102,22 @@ const BROKEN_OBJECT =
 
 /**
  * The queue lander's git, run in `root`. Merges are made in a throwaway
- * worktree, and run its merge driver and commit hooks as any merge there
- * does. A call that meets a broken loose object removes that object's file
+ * worktree, through its merge driver, each running the pre-commit hook's
+ * merge gate set and committed with no hook; the batch's set then runs once
+ * over them all (#4545). A call that meets a broken loose object removes that object's file
  * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
  * @param {number} [mergeTimeoutMs] each member's merge, its gates included
+ * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester is
+ *   the Actions run, which repeats the gates the batch's set leaves out
+ *   (#4545); else the batch runs every gate
  * @returns {QueueGit}
  */
-function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
+function queueGit(
+	root,
+	mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
+	{ ciRepeats = false } = {},
+) {
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
 		QUEUE_REFSPEC,
@@ -209,39 +218,15 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 					isAncestor(root, onto, lone.sha)
 				)
 					return { kind: "merged", sha: lone.sha };
-				return withThrowawayTree(
-					root,
-					onto,
-					{ program: "queue-lander", use: "merge" },
-					(_dir, inTree) => {
-						for (const m of members) {
-							/* `--no-commit`, then `git commit`: git writes a merge's tree
-							 * before pre-merge-commit runs, so only pre-commit's index
-							 * reaches the commit, the anchors a merge carries among
-							 * them (#4514). */
-							const failed = mergeFailure(m, inTree, () => {
-								inTree(
-									[
-										"merge",
-										"--no-ff",
-										"--no-commit",
-										"-m",
-										`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
-										m.sha,
-									],
-									mergeTimeoutMs,
-								);
-								if (isMerging(inTree))
-									inTree(["commit", "--no-edit"], mergeTimeoutMs);
-							});
-							if (failed) return failed;
-						}
-						return {
-							kind: "merged",
-							sha: inTree(["rev-parse", "HEAD"]).trim(),
-						};
-					},
-				);
+				const whole = mergeGated(onto, members);
+				if (whole.kind !== "refused" || members.length === 1) return whole;
+				/* The batch's gates refused: the first member they refuse alone,
+				 * else the interaction, named by the last member (#4545). */
+				for (const m of members) {
+					const alone = mergeGated(onto, [m]);
+					if (alone.kind !== "merged") return alone;
+				}
+				return whole;
 			}),
 		pushBatch(sha) {
 			pushRemote(root, ["--force", `${sha}:refs/heads/${LANDER_BATCH_BRANCH}`]);
@@ -274,6 +259,80 @@ function queueGit(root, mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS) {
 		deleteRef: (branch, sha) => deleteRemoteRef(root, branch, sha),
 		createRef: (branch, sha) => createRemoteRef(root, branch, sha),
 	};
+
+	/**
+	 * `members` merged in order onto `onto` in a throwaway worktree, each
+	 * merge running the merge's gates and committed with no hook, then the
+	 * batch's gates run once over them all, staged against `onto` (#4545). A
+	 * refusal of the batch's gates names the last member.
+	 * @param {string} onto
+	 * @param {readonly Member[]} members
+	 * @returns {MergeResult}
+	 */
+	function mergeGated(onto, members) {
+		return withThrowawayTree(
+			root,
+			onto,
+			{ program: "queue-lander", use: "merge" },
+			(dir, inTree) => {
+				const hook = path.resolve(
+					dir,
+					inTree(["rev-parse", "--git-path", "hooks/pre-commit"]).trim(),
+				);
+				/** The pre-commit hook git would run, on the gate set `set`, or
+				 * every gate on `all`; none where git would run none.
+				 * @param {"merge" | "batch" | "all"} set */
+				const gates = (set) => {
+					try {
+						fs.accessSync(hook, fs.constants.X_OK);
+					} catch {
+						return;
+					}
+					execFileSync(hook, set === "all" ? [] : [`--gates=${set}`], {
+						cwd: dir,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "pipe"],
+						timeout: mergeTimeoutMs,
+					});
+				};
+				for (const m of members) {
+					/* `--no-commit`, the merge's gates, then the commit: the
+					 * gates' index, the anchors a merge carries among them
+					 * (#4514), is what it takes. */
+					const failed = mergeFailure(m, inTree, () => {
+						inTree(
+							[
+								"merge",
+								"--no-ff",
+								"--no-commit",
+								"-m",
+								`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
+								m.sha,
+							],
+							mergeTimeoutMs,
+						);
+						if (!isMerging(inTree)) return;
+						gates("merge");
+						inTree(
+							["-c", "core.hooksPath=/dev/null", "commit", "--no-edit"],
+							mergeTimeoutMs,
+						);
+					});
+					if (failed) return failed;
+				}
+				const sha = inTree(["rev-parse", "HEAD"]).trim();
+				const last = members.at(-1);
+				if (sha !== onto && last) {
+					inTree(["reset", "--quiet", "--soft", onto]);
+					const failed = mergeFailure(last, inTree, () =>
+						gates(ciRepeats ? "batch" : "all"),
+					);
+					if (failed) return failed;
+				}
+				return { kind: "merged", sha };
+			},
+		);
+	}
 
 	/**
 	 * Why `m` did not merge, else null. A fault that is no git refusal, a

@@ -502,3 +502,8 @@ gate_direction() {
   gate_diagnostics "$gd_noun" "$gd_err"
   return 1
 }
+
+# Whether the hook runs the queue lander's batch gate set (#4545), the
+# `--gates=batch` that .husky/pre-commit parses into wfc_gates: each gate the
+# lander's Actions run repeats tests it and stands down.
+lander_batch() { [ "${wfc_gates:-all}" = batch ]; }

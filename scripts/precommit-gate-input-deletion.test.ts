@@ -778,9 +778,12 @@ describe("a rename of a gated document", () => {
 		"git diff-index --cached --name-only HEAD",
 		"git ls-files",
 	])("reports a raw `%s` put back into the hook", (read) => {
-		const gate = "if armed '^app/'; then";
+		const gate = "if armed '^docs/research/'; then";
 		expect(HOOK).toContain(gate);
-		const mutant = HOOK.replace(gate, `if ${read} | grep -q '^app/'; then`);
+		const mutant = HOOK.replace(
+			gate,
+			`if ${read} | grep -q '^docs/research/'; then`,
+		);
 		expect(rawReads(mutant)).toHaveLength(1);
 	});
 });

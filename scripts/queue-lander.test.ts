@@ -121,6 +121,62 @@ describe("a run", () => {
 		).toContain(main);
 	});
 
+	it("runs the merge gate set on each member's merge and the batch set once, and no post-commit hook (#4545)", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		pushQueue("a", seed);
+		pushQueue("b", seed);
+		const hooks = path.resolve(
+			work,
+			git(work, "rev-parse", "--git-common-dir"),
+			"hooks",
+		);
+		const log = path.join(hooks, "calls.log");
+		fs.mkdirSync(hooks, { recursive: true });
+		for (const hook of ["pre-commit", "commit-msg", "post-commit"])
+			fs.writeFileSync(
+				path.join(hooks, hook),
+				`#!/bin/sh\necho "${hook} $*" >> '${log}'\n`,
+				{ mode: 0o755 },
+			);
+
+		const r = await runLander(stubTester(0));
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain("exit no queue ref waits");
+		expect(fs.readFileSync(log, "utf8").trim().split("\n")).toEqual([
+			"pre-commit --gates=merge",
+			"pre-commit --gates=merge",
+			"pre-commit",
+		]);
+	});
+
+	it("runs the batch gate set where the Actions run repeats the rest, and every gate where it does not (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+		const hooks = path.resolve(
+			work,
+			git(work, "rev-parse", "--git-common-dir"),
+			"hooks",
+		);
+		const log = path.join(hooks, "calls.log");
+		fs.mkdirSync(hooks, { recursive: true });
+		fs.writeFileSync(
+			path.join(hooks, "pre-commit"),
+			`#!/bin/sh\necho "pre-commit $*" >> '${log}'\n`,
+			{ mode: 0o755 },
+		);
+		const lastCall = () =>
+			fs.readFileSync(log, "utf8").trim().split("\n").at(-1);
+
+		queueGit(work, undefined, { ciRepeats: true }).mergeMembers(seed, members);
+		expect(lastCall()).toBe("pre-commit --gates=batch");
+		queueGit(work).mergeMembers(seed, members);
+		expect(lastCall()).toBe("pre-commit");
+	});
+
 	it("lands a lone queue ref that descends from main as pushed, with no merge commit", async () => {
 		const a = pushQueue("a", git(work, "rev-parse", "HEAD"));
 
