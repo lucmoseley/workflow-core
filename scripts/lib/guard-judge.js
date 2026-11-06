@@ -59,7 +59,8 @@ const { treePorts } = require("./guard-host-ports.js");
  *   threw on require, carrying what to say when the row comes to run
  * @typedef {LoadedCore | UnloadedCore} Core
  * @typedef {"deny" | "allow"} Permission
- * @typedef {{ permissionDecision?: Permission, reason?: string,
+ * @typedef {{ permissionDecision: "deny", reason: string, context?: undefined,
+ *   updatedInput?: undefined } | { permissionDecision?: "allow",
  *   context?: string, updatedInput?: Record<string, unknown> }} Part
  * @typedef {{ permissionDecision?: Permission,
  *   permissionDecisionReason?: string, additionalContext?: string,
@@ -91,11 +92,11 @@ function merge(parts) {
 	/** @type {Output} */
 	const out = {};
 	const reasons = parts.flatMap((x) =>
-		x.permissionDecision === "deny" && x.reason ? [x.reason] : [],
+		x.permissionDecision === "deny" ? [x.reason] : [],
 	);
-	if (parts.some((x) => x.permissionDecision === "deny")) {
+	if (reasons.length > 0) {
 		out.permissionDecision = "deny";
-		if (reasons.length > 0) out.permissionDecisionReason = reasons.join(JOIN);
+		out.permissionDecisionReason = reasons.join(JOIN);
 	} else if (parts.some((x) => x.permissionDecision === "allow")) {
 		out.permissionDecision = "allow";
 		const rewrite = parts.find((x) => x.updatedInput)?.updatedInput;
@@ -138,7 +139,7 @@ function dispatch(cores, env) {
 /**
  * @param {Core[]} cores
  * @param {DispatchEnv} env
- * @returns {{ output: Part | null, latches: LatchSet[] }}
+ * @returns {{ output: Output | null, latches: LatchSet[] }}
  */
 function judgeAndMerge(cores, env) {
 	const { payload, adapters, disabled } = env;
