@@ -11,8 +11,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { row } from "./refill-loop-fixture";
 
-const { capSet } = require("./allowance.js");
 const {
 	FULL,
 	awayChangeOf,
@@ -22,7 +22,6 @@ const {
 	pickMoveSeat,
 	readParkers,
 } = require("./refill-decide.js");
-const { parseCapFits, readSizedSeats } = require("./seat-reading.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 const { buildVerifyPrompt } = require("./unclosed-launch.js");
 
@@ -31,25 +30,6 @@ const PRESENT_WINDOW_MS = 30 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 /** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
-
-const row = (
-	root: string,
-	number: number,
-	takes = "implement",
-	over: Record<string, unknown> = {},
-) => ({
-	root,
-	number,
-	urgent: false,
-	goal: false,
-	stallDays: 0,
-	asksQuestions: false,
-	reach: 0,
-	collision: "comment-only",
-	takes: [takes],
-	labels: [`takes:${takes}`],
-	...over,
-});
 
 const seat = (
 	name: string,
@@ -901,58 +881,6 @@ describe("decideTick's seat order and reason (#3732)", () => {
 		expect(
 			picked(tick({ seats: [five, weekFull("b")], typedSeat: "a", overflow })),
 		).toEqual([]);
-	});
-});
-
-describe("decideTick on a seat whose cap fits only the floor's member (#2432)", () => {
-	/* Seats at these week readings, sized through the real cap and the loop's
-	 * reading of it; over 97% the running sessions are projected 3 points of
-	 * the week, past 100%. */
-	const sizedOn = (weeks: Record<string, number>) =>
-		readSizedSeats(2, {
-			read: () =>
-				Object.entries(weeks).map(([name, week]) => ({
-					seat: name,
-					week,
-					session: 10,
-					weekFull: false,
-					sessionFull: false,
-					sessionResets: null,
-				})),
-			probe: (stale: string[]) => ({
-				usage: new Map(stale.map((s) => [s, ""])),
-				probes: [],
-			}),
-			sizeOf: (name: string, members: number) =>
-				parseCapFits(
-					JSON.stringify({
-						cap: capSet({
-							readings: { session: 10, weekly_all: weeks[name] },
-							thresholds: { session: 90, weekly_all: 97 },
-							members,
-							runningPoints: { session: 0, weekly_all: 3 },
-							perSessionPoints: { session: 1.5, weekly_all: 0.1 },
-						}),
-					}),
-				).fits,
-			typedSeat: null,
-		}).seats;
-
-	it("launches on the next seat with room", () => {
-		const d = tick({ seats: sizedOn({ s1: 98, s2: 10 }) });
-		expect(d.launches.map((l: { seat: string }) => l.seat)).toEqual([
-			"s2",
-			"s2",
-		]);
-	});
-
-	it("waits without stopping where every seat with room fits only the floor", () => {
-		const d = tick({ seats: sizedOn({ s1: 98, s2: 98 }) });
-		expect(d).not.toHaveProperty("stop");
-		expect(d).toMatchObject({
-			launches: [],
-			idle: "no plan has room right now",
-		});
 	});
 });
 
