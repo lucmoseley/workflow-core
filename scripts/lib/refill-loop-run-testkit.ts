@@ -38,6 +38,12 @@ import {
 	ledgerPath,
 	readRecentEntries,
 } from "./dispatch-ledger.js";
+import {
+	buildHeadlessBranch,
+	type HeadlessMode,
+	readHeadlessCalls,
+	writeHeadlessFake,
+} from "./headless-run-fake";
 import { buildMeminfo } from "./meminfo-fake";
 import { REAL_PROC } from "./proc-root.js";
 import { probedCheckout } from "./repo-hold-fixture";
@@ -388,14 +394,17 @@ export const writesWokenRecord = (jobFile: string, sessionId: string) => {
  * where it is null; `attach` records the line typed at it on a terminal
  * (lib/claude-attach-fake.ts); `--bg` prints the launcher's recorded
  * `resumeAs` response, a copy starting as FAKE_COPY (lib/bg-resume-fake.ts);
- * `-p`, a headless resume onto a key, records its session, settings, name and
- * budget, the appended contract left out, and runs on as a live run would.
- * `onResume` runs on either. */
+ * `-p`, a headless resume onto a key, is lib/headless-run-fake.ts's fake in
+ * `headless` mode, logging to readHeadlessResumes. `onResume` runs on
+ * either. */
 export const fakeResumeClaude = (
 	job: string,
 	listing: Row[] | null,
 	onResume = "",
-	resumeAs: ResumeKind = "copy",
+	{
+		resumeAs = "copy",
+		headless = "hold",
+	}: { resumeAs?: ResumeKind; headless?: HeadlessMode } = {},
 ) => {
 	const response = buildRekeyedResponse(resumeAs, job, FAKE_COPY);
 	fs.writeFileSync(at("bg-stdout"), response.stdout);
@@ -405,7 +414,13 @@ export const fakeResumeClaude = (
 		buildAgentsBranch(listing),
 		buildStopBranch(at("calls")),
 		buildAttachBranch(at("calls")),
-		`if [ "$1" = "-p" ]; then line="$1 $2 $3"; while [ $# -gt 0 ]; do case "$1" in --settings|-n|--max-budget-usd) line="$line $1 $2"; shift;; esac; shift; done; echo "$line" >> "$calls"; ${onResume} exec sleep 60; fi`,
+		buildHeadlessBranch(
+			writeHeadlessFake(at("claude-p"), {
+				log: at("headless.jsonl"),
+				mode: headless,
+			}),
+			onResume,
+		),
 		buildBgBranch({
 			out: at("bg-stdout"),
 			err: at("bg-stderr"),
@@ -413,6 +428,10 @@ export const fakeResumeClaude = (
 		}),
 	]);
 };
+
+/** Each headless resume fakeResumeClaude's `-p` fake ran, in order. */
+export const readHeadlessResumes = () =>
+	readHeadlessCalls(at("headless.jsonl"));
 
 export const readLoopState = () =>
 	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));

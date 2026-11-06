@@ -1066,7 +1066,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			Job,
 			[LISTED],
 			`${stopOnResume()} ${writesWokenRecord(path.join(seat, "jobs", Job, "state.json"), "s-job5")}`,
-			"woke",
+			{ resumeAs: "woke" },
 		);
 
 	it("resumes the session that parked it, in place, from its marker though the loop never launched it, and dispatches nothing", async () => {

@@ -29,6 +29,13 @@ import {
 	writeLaunchAnswer,
 } from "./bg-launch-fake";
 import { buildBgBranch } from "./claude-stub";
+import {
+	buildHeadlessBranch,
+	type HeadlessCall,
+	type HeadlessMode,
+	readHeadlessCalls,
+	writeHeadlessFake,
+} from "./headless-run-fake";
 import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fake";
@@ -98,6 +105,9 @@ export interface StubClaudeOptions {
 	/** Where each launch call records its environment, one `env` dump
 	 * appended per launch. */
 	envLog?: string;
+	/** How a headless `-p` launch's run behaves (lib/headless-run-fake.ts):
+	 * `end`, its recorded success, by default. */
+	headless?: HeadlessMode;
 	/** The probe rewrites this seat's usage cache, freshly stamped, with these
 	 * bars, after writing its advisor line and before printing its own, as
 	 * #2189 measured. */
@@ -129,6 +139,8 @@ export interface DispatchFixture {
 	/** The directory each launch call ran in, in order. */
 	launchCwds: () => string[];
 	readArgvLines: (f?: string) => string[];
+	/** Each headless `-p` run the stub's fake logged, in order. */
+	readFakeCalls: () => HeadlessCall[];
 	/** A reg.exe that never answers, so the interop probe reads the bridge as
 	 * wedged. */
 	regWedged: () => string;
@@ -213,6 +225,7 @@ export function dispatchFixture(): DispatchFixture {
 		launchArgv,
 		launchCwds,
 		readArgvLines,
+		readFakeCalls,
 		regWedged,
 		schedClock,
 		run,
@@ -297,6 +310,7 @@ export function dispatchFixture(): DispatchFixture {
 			envLog,
 			probeRefreshes,
 			probeHangs = false,
+			headless = "end",
 		} = opts;
 		const refresh = probeRefreshes
 			? buildRefreshBranch(probeRefreshes.configDir, probeRefreshes)
@@ -328,6 +342,12 @@ export function dispatchFixture(): DispatchFixture {
 			`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(agentsJson)}; exit 0; fi`,
 			envLog ? `env >> ${shellQuote(envLog)}` : "",
 			`pwd >> ${shellQuote(path.join(fx.dir, "launch-cwds"))}`,
+			buildHeadlessBranch(
+				writeHeadlessFake(path.join(fx.dir, "claude-p"), {
+					log: headlessLog(),
+					mode: headless,
+				}),
+			),
 			buildLaunchAnswer(launchFails, launch, jobId),
 		]
 			.filter(Boolean)
@@ -409,6 +429,14 @@ export function dispatchFixture(): DispatchFixture {
 
 	function launchCwds(): string[] {
 		return readArgvLines(path.join(fx.dir, "launch-cwds"));
+	}
+
+	function headlessLog(): string {
+		return path.join(fx.dir, "headless.jsonl");
+	}
+
+	function readFakeCalls(): HeadlessCall[] {
+		return readHeadlessCalls(headlessLog());
 	}
 
 	function readArgvLines(f: string = path.join(fx.dir, "argv")): string[] {
