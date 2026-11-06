@@ -27,6 +27,7 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { reportRoot } = require("./lib/suite-timings.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+/* The line lib/actions-tester.js reads the batch's failing files from. */
 const STILL_FAILING = "retry-failed-files: still failing after one retry:";
 
 /**
