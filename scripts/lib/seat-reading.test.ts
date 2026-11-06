@@ -14,21 +14,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readAllowance } from "./allowance";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { capSet, readAllowance } from "./allowance";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import { MIN, NOW, seat } from "./refill-loop-fixture";
 import { seatIdOf } from "./refill-seats.js";
-import { runInProcess } from "./run-in-process";
 import {
-	capArgs,
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
-	parseCapFits,
 	readSeat,
 	readSizedSeats,
-	seatReadingOf,
 	seatsDueRead,
 	seatTriedAfter,
 	sizeParkerSeats,
@@ -64,6 +60,40 @@ const budget = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
+/**
+ * Answer each `allowance.js` child spawned while the env is stubbed with the
+ * reply `replies` gives its `--config-dir`, through a preload that runs before
+ * the script; returns a reader of each child's script and arguments, in order.
+ */
+function stubAllowance(
+	dir: string,
+	replies: Record<string, { stdout: string; status?: number }>,
+) {
+	const preload = path.join(dir, "allowance-stub.cjs");
+	const log = path.join(dir, "allowance-argv.jsonl");
+	fs.writeFileSync(
+		preload,
+		[
+			'const fs = require("node:fs");',
+			"const args = process.argv.slice(2);",
+			`fs.appendFileSync(${JSON.stringify(log)}, \`\${JSON.stringify(process.argv.slice(1))}\\n\`);`,
+			`const reply = ${JSON.stringify(replies)}[args[args.indexOf("--config-dir") + 1]];`,
+			"fs.writeSync(1, reply.stdout);",
+			"process.exit(reply.status ?? 0);",
+		].join("\n"),
+	);
+	vi.stubEnv(
+		"NODE_OPTIONS",
+		`${process.env.NODE_OPTIONS ?? ""} --require ${preload}`.trim(),
+	);
+	return () =>
+		fs
+			.readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l) as string[]);
+}
+
 describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 	let dir: string;
 	beforeEach(() => {
@@ -79,7 +109,7 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 				}),
 			),
 		);
-		return seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
+		return readSeat(dir, now).reading;
 	};
 
 	it("carries the weekly bar's reset, fresh or aged", () => {
@@ -117,8 +147,7 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 	it("keeps a printed figure whose reset is a date Date.parse misreads (#4106)", () => {
 		const now = Date.now();
 		const usageText = "Current week (all models): 40% used · resets Nov 8\n";
-		const bars = readAllowance({ configDir: dir, usageText, now });
-		expect(seatReadingOf(dir, bars, now).weekRead).toEqual({
+		expect(readSeat(dir, now, usageText).reading.weekRead).toEqual({
 			percent: 40,
 			atMs: now,
 			rolled: false,
@@ -131,35 +160,28 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 			path.join(dir, ".claude.json"),
 			JSON.stringify(buildUsageCache({ week: 0 }, now)),
 		);
-		const r = seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
+		const r = readSeat(dir, now).reading;
 		expect(r).toMatchObject({ week: 0, session: 0, sessionFull: false });
 		expect(hasRoom(r)).toBe(true);
-		const cap = runInProcess(
-			path.resolve(__dirname, "..", "allowance.js"),
-			capArgs(dir, 3, { week: 97, session: 90 }),
-			{ stdin: "" },
-		);
-		expect(parseCapFits(cap.stdout)).toEqual({ fits: 3 });
+		const lines: string[] = [];
+		expect(capSizer(dir, (l) => lines.push(l))(dir, 3)).toBe(3);
+		expect(lines).toEqual([]);
 	});
 
-	it("reads a stale weekly-only seat as unread, with no room and no cap (#3758)", () => {
+	it("reads a stale weekly-only seat as unread, with no room and no cap, and no fault (#3758)", () => {
 		const now = Date.now();
 		fs.writeFileSync(
 			path.join(dir, ".claude.json"),
 			JSON.stringify(buildUsageCache({ week: 0 }, now - 10 * MIN)),
 		);
-		const r = seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
+		const r = readSeat(dir, now).reading;
 		expect(r).toMatchObject({ week: null, session: null });
 		expect(hasRoom(r)).toBe(false);
-		const cap = runInProcess(
-			path.resolve(__dirname, "..", "allowance.js"),
-			capArgs(dir, 3, { week: 97, session: 90 }),
-			{ stdin: "" },
-		);
-		expect(parseCapFits(cap.stdout)).toMatchObject({
-			fits: null,
-			fault: false,
-		});
+		const lines: string[] = [];
+		expect(capSizer(dir, (l) => lines.push(l))(dir, 3)).toBeNull();
+		expect(lines).toEqual([
+			`cap on ${dir} unsized: no trustworthy allowance reading`,
+		]);
 	});
 
 	it("reads unread where the reset has passed", () => {
@@ -170,71 +192,86 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 });
 
 describe("a seat's reading (#2606)", () => {
-	const bar = (
-		percent: number | null,
-		trust: "fresh" | "stale" | "absent",
-		resetsAt: string | null,
-	) => ({ percent, trust, resetsAt, severity: null, fetchedAtMs: null });
+	let dir: string;
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seat-bars-"));
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const Ahead = "2026-10-20T00:00:00Z";
 	const Passed = "2026-10-18T11:00:00Z";
-	const readOn = (
-		session: ReturnType<typeof bar>,
-		week: ReturnType<typeof bar>,
-	) => seatReadingOf("s", { session, weekly_all: week }, NOW);
-	const read = (week: ReturnType<typeof bar>) =>
-		readOn(bar(30, "stale", Ahead), week);
+	/** A bar's percent, null where the cache omits it, and its reset. */
+	type Bar = [percent: number | null, resetsAt: string | null];
+	const Stale = NOW - 60 * MIN;
+	/** The reading off a cache stamped `fetchedAtMs`, NOW reading it fresh and
+	 * Stale stale. */
+	const readOn = (fetchedAtMs: number, session: Bar, week: Bar) => {
+		const percents = { session: session[0], week: week[0] };
+		const cache = buildUsageCache(
+			Object.fromEntries(
+				Object.entries(percents).filter(([, p]) => p !== null),
+			),
+			fetchedAtMs,
+		);
+		const resets: Record<string, string | null> = {
+			session: session[1],
+			weekly_all: week[1],
+		};
+		for (const l of cache.cachedUsageUtilization.utilization.limits)
+			(l as { resets_at: string | null }).resets_at = resets[l.kind] ?? null;
+		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(cache));
+		return readSeat(dir, NOW).reading;
+	};
+	const read = (fetchedAtMs: number, week: Bar) =>
+		readOn(fetchedAtMs, [30, Ahead], week);
 
 	it("is weekly-full on a fresh 100% week", () => {
-		expect(read(bar(100, "fresh", Ahead))).toMatchObject({
+		expect(read(NOW, [100, Ahead])).toMatchObject({
 			week: 100,
 			weekFull: true,
 		});
 	});
 
 	it("is weekly-full on a cached 100% week whose reset is ahead, the bar still unread", () => {
-		expect(read(bar(100, "stale", Ahead))).toEqual({
-			seat: "s",
+		expect(read(Stale, [100, Ahead])).toEqual({
+			seat: dir,
 			week: null,
 			session: null,
 			weekFull: true,
 			sessionFull: false,
 			sessionResets: Ahead,
 			weekResets: Date.parse(Ahead),
-			readAt: NOW,
-			weekRead: { percent: 100, atMs: null, rolled: false },
+			readAt: Stale,
+			weekRead: { percent: 100, atMs: Stale, rolled: false },
 		});
 	});
 
 	it("is unread, not weekly-full, on a cached 100% whose reset has passed or will not parse", () => {
-		expect(read(bar(100, "stale", Passed)).weekFull).toBe(false);
-		expect(read(bar(100, "stale", null)).weekFull).toBe(false);
-		expect(read(bar(99, "stale", Ahead)).weekFull).toBe(false);
-		expect(read(bar(null, "absent", null)).weekFull).toBe(false);
+		expect(read(Stale, [100, Passed]).weekFull).toBe(false);
+		expect(read(Stale, [100, null]).weekFull).toBe(false);
+		expect(read(Stale, [99, Ahead]).weekFull).toBe(false);
+		expect(read(Stale, [null, null]).weekFull).toBe(false);
 	});
 
 	it("carries a full 5-hour bar's reset, fresh or cached with the reset ahead", () => {
-		const week = bar(40, "fresh", Ahead);
-		expect(readOn(bar(100, "fresh", "3pm"), week)).toMatchObject({
+		const week: Bar = [40, Ahead];
+		expect(readOn(NOW, [100, "3pm"], week)).toMatchObject({
 			session: 100,
 			sessionFull: true,
 			sessionResets: "3pm",
 		});
-		expect(readOn(bar(100, "stale", Ahead), week)).toMatchObject({
+		expect(readOn(Stale, [100, Ahead], week)).toMatchObject({
 			session: null,
 			sessionFull: true,
 			sessionResets: Ahead,
 		});
-		expect(readOn(bar(100, "stale", Passed), week)).toMatchObject({
+		expect(readOn(Stale, [100, Passed], week)).toMatchObject({
 			session: null,
 			sessionFull: false,
 		});
 	});
 
 	describe("through decideTick", () => {
-		const tickOn = (
-			session: ReturnType<typeof bar>,
-			week: ReturnType<typeof bar>,
-		) =>
+		const tickOn = (session: Bar, week: Bar) =>
 			decideTick({
 				now: NOW,
 				mode: "normal" as const,
@@ -244,27 +281,25 @@ describe("a seat's reading (#2606)", () => {
 				retroBundles: [],
 				running: [],
 				freeSlots: 2,
-				seats: [{ ...readOn(session, week), fits: null }],
+				seats: [{ ...readOn(Stale, session, week), fits: null }],
 				history: [],
 			});
 
 		it("waits out a locked seat's cached 100% week whose reset is ahead", () => {
-			expect(
-				tickOn(bar(30, "stale", Ahead), bar(100, "stale", Ahead)),
-			).toMatchObject({ planWait: { resets: Date.parse(Ahead) } });
+			expect(tickOn([30, Ahead], [100, Ahead])).toMatchObject({
+				planWait: { resets: Date.parse(Ahead) },
+			});
 		});
 
 		it("waits, unread, on a cached 100% week whose reset has passed", () => {
-			expect(
-				tickOn(bar(30, "stale", Ahead), bar(100, "stale", Passed)),
-			).toMatchObject({ idle: "no plan has room right now" });
+			expect(tickOn([30, Ahead], [100, Passed])).toMatchObject({
+				idle: "no plan has room right now",
+			});
 		});
 
 		it("names a locked seat's cached 5-hour wait and its reset", () => {
-			expect(
-				tickOn(bar(100, "stale", Ahead), bar(40, "stale", Ahead)),
-			).toMatchObject({
-				idle: `the 5-hour bar is full on s until its 5-hour reset ${Ahead}`,
+			expect(tickOn([100, Ahead], [40, Ahead])).toMatchObject({
+				idle: `the 5-hour bar is full on ${dir} until its 5-hour reset ${Ahead}`,
 			});
 		});
 	});
@@ -582,6 +617,23 @@ describe("a tick's seat read in launch order (#3740)", () => {
 });
 
 describe("the cap's launch count (#2278)", () => {
+	let dir: string;
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seat-cap-"));
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+	/** capSizer's count of 2 on seat `dir`, its child answering `stdout` and
+	 * exiting `status`, with the lines noted and the child's arguments. */
+	const sizeOn = (stdout: string, status = 0) => {
+		const argvOf = stubAllowance(dir, { [dir]: { stdout, status } });
+		const lines: string[] = [];
+		const fits = capSizer(dir, (l) => lines.push(l))(dir, 2);
+		return { fits, lines, argv: argvOf()[0] };
+	};
+
 	it("passes the flags dispatch-sessions.sh's cap call passes", () => {
 		const sh = fs.readFileSync(
 			path.join(__dirname, "..", "dispatch-sessions.sh"),
@@ -590,49 +642,179 @@ describe("the cap's launch count (#2278)", () => {
 		const call = sh.match(/allowance\.js" --json \\\n\s*(--cap[\s\S]*?) 2>/);
 		const flags = (args: string[]) => args.filter((a) => a.startsWith("--"));
 		expect(call).not.toBeNull();
-		expect(
-			flags(capArgs("s", 2, { week: 97, session: 90 })).filter(
-				(f) => f !== "--config-dir",
-			),
-		).toEqual(["--json", ...flags(String(call?.[1]).split(/[\s\\]+/))]);
+		const { argv } = sizeOn(JSON.stringify({ cap: { launch: 2 } }));
+		expect(path.basename(argv[0])).toBe("allowance.js");
+		expect(flags(argv).filter((f) => f !== "--config-dir")).toEqual([
+			"--json",
+			...flags(String(call?.[1]).split(/[\s\\]+/)),
+		]);
 	});
 
 	it("reads cap.launch from allowance.js's payload", () => {
-		expect(parseCapFits(JSON.stringify({ cap: { launch: 2 } }))).toEqual({
+		expect(sizeOn(JSON.stringify({ cap: { launch: 2 } }))).toMatchObject({
 			fits: 2,
+			lines: [],
 		});
 	});
 
 	it("reads a launch that is the floor's member alone as 0 (#2432)", () => {
 		expect(
-			parseCapFits(JSON.stringify({ cap: { launch: 1, floored: true } })),
-		).toEqual({ fits: 0 });
+			sizeOn(JSON.stringify({ cap: { launch: 1, floored: true } })),
+		).toMatchObject({ fits: 0, lines: [] });
 	});
 
 	it.each([
-		["no JSON", "oops", "printed no JSON", true],
-		[
-			"no cap, the reading untrusted",
-			"{}",
-			"no trustworthy allowance reading",
-			false,
-		],
-		[
-			"a cap error",
-			JSON.stringify({ cap: { launch: 0, error: "cost table unreadable" } }),
-			"cost table unreadable",
-			true,
-		],
+		{
+			name: "no JSON",
+			stdout: "oops",
+			status: 0,
+			line: "fault: cap on SEAT unsized: allowance.js printed no JSON",
+		},
+		{
+			name: "no JSON from a failed child",
+			stdout: "",
+			status: 2,
+			line: "fault: cap on SEAT unsized: allowance.js printed no JSON (exit 2)",
+		},
+		{
+			name: "no cap, the reading untrusted",
+			stdout: "{}",
+			status: 1,
+			line: "cap on SEAT unsized: no trustworthy allowance reading",
+		},
+		{
+			name: "a cap error",
+			stdout: JSON.stringify({
+				cap: { launch: 0, error: "cost table unreadable" },
+			}),
+			status: 0,
+			line: "fault: cap on SEAT unsized: cost table unreadable",
+		},
+		{
+			name: "a launch that is no integer",
+			stdout: JSON.stringify({ cap: { launch: 1.5 } }),
+			status: 0,
+			line: "fault: cap on SEAT unsized: cap.launch is 1.5",
+		},
 	])(
-		"reads %s as unsized, naming why and whether a fault (#2937)",
-		(_, stdout, why, fault) => {
-			expect(parseCapFits(stdout)).toEqual({
+		"reads $name as unsized, naming why and whether a fault (#2937)",
+		({ stdout, status, line }) => {
+			expect(sizeOn(stdout, status)).toMatchObject({
 				fits: null,
-				why: expect.stringContaining(why),
-				fault,
+				lines: [line.replace("SEAT", dir)],
 			});
 		},
 	);
+
+	it("hands the caller's note a cap it cannot size, as a fault, and sizes it null", () => {
+		const lines: string[] = [];
+		expect(capSizer(undefined, (l) => lines.push(l))(dir, 1)).toBeNull();
+		expect(lines).toEqual([
+			`fault: cap on ${dir} unsized: the loop serves no checkout to size it in`,
+		]);
+	});
+
+	it("reads a checkout with no cost table as a fault, not a full seat, naming allowance.js's own why (#2937)", () => {
+		/* Past the week ceiling, so the cap reads the cost table. */
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(buildUsageCache({ session: 10, week: 98 }, Date.now())),
+		);
+		vi.stubEnv("WFC_SESSION_COST_TABLE", path.join(dir, "no-such-table.json"));
+		const lines: string[] = [];
+		expect(capSizer(dir, (l) => lines.push(l))(dir, 1)).toBeNull();
+		/* A trustworthy reading exits 0, so the line names no exit; the cap's
+		 * fault rides in its payload. */
+		expect(lines).toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`^fault: cap on ${dir} unsized: the session cost table is unreadable — build it: \\S+ \\S+measure-session-cost\\.js --write$`,
+				),
+			),
+		]);
+	});
+
+	describe("through decideTick, a seat that fits only the floor's member", () => {
+		/* Seats at these week readings, sized through capSizer, the cap
+		 * allowance.js would print for them; over 97% the running sessions
+		 * are projected 3 points of the week, past 100%. */
+		const sizedOn = (weeks: Record<string, number>) => {
+			stubAllowance(
+				dir,
+				Object.fromEntries(
+					Object.entries(weeks).map(([name, week]) => [
+						name,
+						{
+							stdout: JSON.stringify({
+								cap: capSet({
+									readings: { session: 10, weekly_all: week },
+									thresholds: { session: 90, weekly_all: 97 },
+									members: 2,
+									runningPoints: { session: 0, weekly_all: 3 },
+									perSessionPoints: { session: 1.5, weekly_all: 0.1 },
+								}),
+							}),
+						},
+					]),
+				),
+			);
+			const noted: string[] = [];
+			const { seats } = readSizedSeats(2, {
+				read: () =>
+					Object.entries(weeks).map(([name, week]) => seat(name, week, 10)),
+				probe: (stale: string[]) => ({
+					usage: new Map(stale.map((s) => [s, ""])),
+					probes: [],
+				}),
+				sizeOf: capSizer(dir, (l) => noted.push(l)),
+				typedSeat: null,
+			});
+			expect(noted).toEqual([]);
+			return seats;
+		};
+		const tick = (seats: ReturnType<typeof sizedOn>) =>
+			decideTick({
+				now: NOW,
+				mode: "away" as const,
+				noProgressFrom: NOW - 4 * 60 * MIN,
+				stopRequested: false,
+				frontier: [1, 2, 3].map((number) => ({
+					root: "wfc",
+					number,
+					bug: false,
+					urgent: false,
+					goal: false,
+					stallDays: 0,
+					asksQuestions: false,
+					depth: 0,
+					closes: 0,
+					reach: 0,
+					collision: "comment-only",
+					takes: ["implement"],
+					labels: ["takes:implement"],
+				})),
+				retroBundles: [],
+				running: [],
+				freeSlots: 2,
+				seats,
+				history: [],
+			});
+
+		it("launches on the next seat with room", () => {
+			expect(tick(sizedOn({ s1: 98, s2: 10 }))).toMatchObject({
+				launches: [{ seat: "s2" }, { seat: "s2" }],
+			});
+		});
+
+		it("waits without stopping where every seat with room fits only the floor", () => {
+			const d = tick(sizedOn({ s1: 98, s2: 98 }));
+			expect(d).not.toHaveProperty("stop");
+			expect(d).toMatchObject({
+				launches: [],
+				idle: "no plan has room right now",
+			});
+		});
+	});
 });
 
 describe("dispatch's cap thresholds", () => {
@@ -845,40 +1027,6 @@ describe("the reads both callers share (#4218)", () => {
 		const { bars, reading } = readSeat(dir, now);
 		expect(bars).toEqual(readAllowance({ configDir: dir, now }));
 		expect(reading).toMatchObject({ seat: dir, week: 40, session: 10 });
-	});
-
-	it("hands the caller's note a cap it cannot size, as a fault, and sizes it null", () => {
-		const lines: string[] = [];
-		expect(capSizer(undefined, (l) => lines.push(l))(dir, 1)).toBeNull();
-		expect(lines).toEqual([
-			`fault: cap on ${dir} unsized: the loop serves no checkout to size it in`,
-		]);
-	});
-
-	it("reads a checkout with no cost table as a fault, not a full seat, naming allowance.js's own why (#2937)", () => {
-		/* Past the week ceiling, so the cap reads the cost table. */
-		fs.writeFileSync(
-			path.join(dir, ".claude.json"),
-			JSON.stringify(buildUsageCache({ session: 10, week: 98 }, Date.now())),
-		);
-		const cap = runInProcess(
-			path.resolve(__dirname, "..", "allowance.js"),
-			capArgs(dir, 1, { week: 97, session: 90 }),
-			{
-				stdin: "",
-				env: {
-					...process.env,
-					WFC_SESSION_COST_TABLE: path.join(dir, "no-such-table.json"),
-				},
-			},
-		);
-		/* A trustworthy reading exits 0; the cap's fault rides in its payload. */
-		expect(cap.status).toBe(0);
-		expect(parseCapFits(cap.stdout)).toEqual({
-			fits: null,
-			why: expect.stringMatching(/^the session cost table is unreadable/),
-			fault: true,
-		});
 	});
 });
 
