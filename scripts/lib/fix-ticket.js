@@ -50,6 +50,11 @@ const cutSubject = (subject) =>
 const quoteSubject = (/** @type {string} */ subject) =>
 	`\`${subject.replaceAll("`", "'")}\``;
 
+/* A gate's output, fenced for the same reason, its backtick runs broken so
+ * none closes the fence. */
+const quoteBlock = (/** @type {string} */ text) =>
+	`\`\`\`text\n${text.replaceAll("```", "'''")}\n\`\`\``;
+
 /**
  * @typedef {{status: number|null, stdout: string, stderr: string}} Ran
  * @typedef {object} FilerDeps
@@ -80,7 +85,7 @@ function buildDropEvidence({ onto, cause }) {
 		case "conflict":
 			return `${alone}, it conflicts with \`main\` in:\n${buildFileList(cause.files)}`;
 		case "refused":
-			return `${alone}, its merge was refused: ${quoteSubject(cause.reason)}`;
+			return `${alone}, its merge was refused, the refusal ending:\n\n${quoteBlock(cause.reason)}`;
 		case "red":
 			return `${alone} as ${cause.iso}, it failed ${cause.files.length > 0 ? `these files twice, which pass on \`main\` there:\n${buildFileList(cause.files)}` : "the whole suite twice, naming no file, where `main` passes it"}`;
 		case "unrecorded":
