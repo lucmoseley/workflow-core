@@ -849,12 +849,12 @@ function readTurn({
  * younger ones pass until the age bound.
  *
  * @param {TurnSnapshot} snapshot
- * @param {{ partPass?: boolean, partPassAgeMs?: number }} [options]
+ * @param {{ partPass?: boolean }} [options]
  * @returns {{ reasons: TurnReason[], passed?: number }}
  */
 function turnOf(
 	{ waiter, ahead, admissionOpen, slots, now },
-	{ partPass = true, partPassAgeMs = PART_PASS_AGE_MS } = {},
+	{ partPass = true } = {},
 ) {
 	/** @type {TurnReason[]} */
 	const reasons = [];
@@ -863,7 +863,7 @@ function turnOf(
 	if (waiter === "part") {
 		const waiting = ahead.filter((r) => r.part === true && r.spawned !== true);
 		const passable = (/** @type {TurnSnapshot["ahead"][number]} */ r) =>
-			partPass && r.memoryHeld === true && now - r.at < partPassAgeMs;
+			partPass && r.memoryHeld === true && now - r.at < PART_PASS_AGE_MS;
 		if (waiting.every(passable)) passed = waiting.length;
 		else reasons.push("fifo-part");
 	} else if (
@@ -872,7 +872,9 @@ function turnOf(
 	)
 		reasons.push(waiter === "tsc" ? "tsc-fifo" : "fifo-whole");
 	if (admissionOpen) reasons.push("admitted");
-	return reasons.length > 0 ? { reasons } : { reasons, passed };
+	return reasons.length > 0 || passed === undefined
+		? { reasons }
+		: { reasons, passed };
 }
 
 /**

@@ -130,7 +130,7 @@ describe("the passes the waiters recorded (#3115)", () => {
 		});
 		expect(r.memoryHeldPart).toEqual([600]);
 		expect(render(r, window())).toContain(
-			"1 opened part waits the memory limb held at some tick, wait p50 600 s, p90 600 s",
+			`1 opened part waits the memory limb held at some tick, wait p50 600 s, p90 600 s, max 600 s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
 		);
 	});
 
@@ -294,7 +294,7 @@ describe("the turn limbs, the gate's own turnOf (#4260)", () => {
 		),
 	);
 	it.each(pairs)(
-		"a %s wait ahead of a %s one, rung-held %s",
+		"holds a %s wait's younger %s neighbour as turnOf says, and never the older on it (rung-held: %s)",
 		(older, younger, held) => {
 			const r = replayOf({
 				waiters: [
@@ -333,6 +333,11 @@ describe("the turn limbs, the gate's own turnOf (#4260)", () => {
 				const limb = reasons[0] ?? "open";
 				expected.set(limb, (expected.get(limb) ?? 0) + 10);
 			}
+			const limbsOf = (session: string) =>
+				Object.fromEntries(
+					r.sessions.find((s) => s.session === session)?.limbs ?? [],
+				);
+			if (!held) expect(limbsOf("s-0")).toEqual({ open: 600 });
 			const mine = r.sessions.find((s) => s.session === "s-1");
 			expect(Object.fromEntries(mine?.limbs ?? [])).toEqual(
 				Object.fromEntries(expected),

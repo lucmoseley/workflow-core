@@ -13,7 +13,9 @@
  * Liveness and start time are injected as plain functions, so pid reuse can be
  * staged without a real reused pid; of the staleness cases only `readStartTimeOf`
  * reads a real process.
- * The ordering cases write real markers into a temp directory of their own.
+ * The turn's rule is pure (`turnOf`), so its cases pass values; `readTurn`'s
+ * cases write real markers into a temp directory of their own and read them
+ * through a seat.
  * That a KILLED waiter drops its marker is the seat's signal handler, its
  * signals emitted on an injected emitter; run-vitest.js's real process tests
  * the exit it takes on a real one.
@@ -112,6 +114,7 @@ async function polled(
 		pid?: number;
 		clock?: () => number;
 		alive?: (pid: number) => boolean;
+		slots?: number;
 	} = {},
 	wait: object = {},
 ) {
@@ -409,14 +412,15 @@ describe("turnOf, the turn's rule (#4260)", () => {
 			slots = WHOLE_SUITE_MAX,
 			now = 1000,
 		} = {},
-		options?: { partPass?: boolean; partPassAgeMs?: number },
+		options?: { partPass?: boolean },
 	) => turnOf({ waiter, ahead, admissionOpen, slots, now }, options);
 	const reasons = (...args: Parameters<typeof turn>) => turn(...args).reasons;
 	const wholeAhead = { at: 0 };
 	const partAhead = { at: 0, part: true };
 
 	it("opens where nobody waits ahead", () => {
-		expect(turn()).toEqual({ reasons: [], passed: undefined });
+		expect(turn()).toEqual({ reasons: [] });
+		expect("passed" in turn()).toBe(false);
 		expect(turn({ waiter: "tsc" })).toEqual({ reasons: [] });
 	});
 
@@ -455,6 +459,13 @@ describe("turnOf, the turn's rule (#4260)", () => {
 	});
 
 	describe("a part-suite, which takes no slot (#2558)", () => {
+		it("runs past an older whole suite the gate still holds unspawned (#2578)", () => {
+			expect(turn({ waiter: "part", ahead: [wholeAhead] })).toEqual({
+				reasons: [],
+				passed: 0,
+			});
+		});
+
 		it("runs beside whole suites holding every slot", () => {
 			const ahead = Array.from({ length: WHOLE_SUITE_MAX + 1 }, (_, i) => ({
 				at: i,
@@ -498,15 +509,9 @@ describe("turnOf, the turn's rule (#4260)", () => {
 				expect(turn({ waiter: "part", ahead, now: 2000 }).passed).toBe(1);
 			});
 
-			it("passes none with the switch off, and reads the age bound it is given", () => {
+			it("passes none with the switch off", () => {
 				expect(
 					reasons({ waiter: "part", ahead: [held] }, { partPass: false }),
-				).toEqual(["fifo-part"]);
-				expect(
-					reasons(
-						{ waiter: "part", ahead: [held], now: 1000 },
-						{ partPassAgeMs: 1000 },
-					),
 				).toEqual(["fifo-part"]);
 			});
 		});
@@ -554,6 +559,14 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(await turnOpen({ queueDir, pid: 22 })).toBe(false);
 		ahead.leave();
 		expect(await turnOpen({ queueDir, pid: 22 })).toBe(true);
+	});
+
+	it("reads the slot count it is given", async () => {
+		const queueDir = qdir();
+		joined(queueDir, 11, 100).spawned();
+		joined(queueDir, 22, 200);
+		expect(await turnOpen({ queueDir, pid: 22 })).toBe(false);
+		expect(await turnOpen({ queueDir, pid: 22, slots: 2 })).toBe(true);
 	});
 
 	it.each([
