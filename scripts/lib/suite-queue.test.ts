@@ -1120,6 +1120,12 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(tscDir, 100)).toBe(2148);
 	});
 
+	it("charges a lander marker the charge it carries (#3973)", () => {
+		const { suiteDir, tscDir } = queues();
+		joined(suiteDir, 11, 0, { role: "lander", chargeMb: 940 }).spawned();
+		expect(climbOf(tscDir, 100)).toBe(840);
+	});
+
 	it("charges a part marker with no file count its queue's peak", () => {
 		const { suiteDir, tscDir } = queues();
 		partIn(suiteDir, 11, null);
