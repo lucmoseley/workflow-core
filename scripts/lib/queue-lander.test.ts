@@ -613,6 +613,26 @@ describe("faults", () => {
 		expect(disk.batch?.phase).toBe("merging");
 	});
 
+	it("retries a push GitHub refused on its own internal fault, landing on the try that follows (#4497)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		let pushes = 0;
+
+		const { end } = await land(remote, freshDisk(), {
+			fault: (c) =>
+				c === "pushMain" && ++pushes === 1
+					? Object.assign(new Error("push"), {
+							stderr:
+								" ! [remote rejected] a1 -> main (fatal error in commit_refs_rules)",
+						})
+					: undefined,
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(remote.main).toBe("a1");
+	});
+
 	it("exits at once on a fault no retry outlasts, as a refused push to main", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
