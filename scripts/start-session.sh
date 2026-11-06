@@ -6,7 +6,8 @@
 # one model with no exception in the guards (#4168 Q2). The job is started as
 # the agents view starts one (`--agent claude`), so the guards read it as his
 # own (lib/background-start.js), and its record keeps the worktree for a
-# resume.
+# resume. Neither `claude` call inherits the shell's root
+# (lib/inherited-roots.js).
 #
 # Usage, from anywhere inside the repo:
 #   scripts/start-session.sh [<session-name>] [<claude args>...]
@@ -53,6 +54,10 @@ fi
 
 dir="$(node "$here/session-checkout.js" cut "$name")" || exit 1
 cd "$dir" || exit 1
+# The roots the cut read are not the job's: a daemon this launch starts would
+# hand them to every later job in any repository (#4595).
+read -ra roots <<<"$(node "$here/lib/inherited-roots.js")"
+unset "${roots[@]}"
 launched="$("${WFC_CLAUDE_BIN:-claude}" --bg --agent claude --name "$name" "$@")" || {
   # claude-route-exempt: only text
   printf 'start session: `claude --bg` failed in %s, which stays cut for a retry:\n%s\n' "$dir" "$launched" >&2

@@ -248,6 +248,21 @@ describe("launch", () => {
 		expect(r.stdout + r.stderr).not.toContain(KEY);
 	});
 
+	it("leaves the launcher's root out of the child's environment (#4595)", async () => {
+		const r = await launch({
+			WFC_REPO_ROOT: "/the/launcher",
+			CLAUDE_PROJECT_DIR: "/the/launcher",
+			WFC_DISPATCH_ROOT: "/the/launcher",
+		});
+		expect(r.status).toBe(0);
+		await until(() => readSeenOrNull() !== null);
+		const seen = readSeenOrNull();
+		if (!seen) throw new Error("fake never ran");
+		expect(seen.env.WFC_REPO_ROOT).toBeUndefined();
+		expect(seen.env.CLAUDE_PROJECT_DIR).toBeUndefined();
+		expect(seen.env.WFC_DISPATCH_ROOT).toBeUndefined();
+	});
+
 	it("leaves the key out of the launching process's own environment", async () => {
 		const before = { ...process.env };
 		Object.assign(process.env, env());

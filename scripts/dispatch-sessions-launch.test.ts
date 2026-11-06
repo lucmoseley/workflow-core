@@ -178,6 +178,23 @@ describe("the session's directory (#4245)", () => {
 		expect(env).not.toContain("WFC_DISPATCH_NO_BUILD");
 	});
 
+	it("leaves the dispatcher's root out of a launched session's environment, so a daemon it starts cannot hand that root to jobs in other repositories (#4595)", () => {
+		const envLog = path.join(fx.dir, "launch-env");
+		stubClaude({ envLog });
+		run(["sonnet", "/implement 342"], {
+			WFC_REPO_ROOT: fx.dir,
+			CLAUDE_PROJECT_DIR: fx.dir,
+		});
+		const env = fs.readFileSync(envLog, "utf8");
+		expect(env).toContain("WFC_CLAUDE_BIN=");
+		for (const v of [
+			"WFC_REPO_ROOT",
+			"CLAUDE_PROJECT_DIR",
+			"WFC_DISPATCH_ROOT",
+		])
+			expect(env).not.toMatch(new RegExp(`^${v}=`, "m"));
+	});
+
 	it("starts the member in the checkout itself where the repository has no landing module", () => {
 		stubClaude({});
 		expect(run(["sonnet", "/implement 341"]).code).toBe(0);
@@ -268,7 +285,9 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		);
 
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("would launch: claude ");
+		expect(r.stdout).toContain(
+			"would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT claude ",
+		);
 		// Both probe calls (the /usage read and the duplicate gate's `agents
 		// --json`) actually reached the PATH stub, not a real `claude` — proven
 		// by argv content, not merely a file existing.

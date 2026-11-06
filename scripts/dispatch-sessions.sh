@@ -473,7 +473,7 @@ unset WFC_DISPATCH_NO_BUILD
 gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_key"})" || exit 2
 {
   read -r seat_kind burn_state
-  read -ra key_unset
+  read -ra launch_unset
 } <<<"$gates"
 burn=0
 [[ "$burn_state" == on ]] && burn=1
@@ -503,12 +503,11 @@ if [[ $overflow -eq 1 ]]; then
   done
 fi
 
-# An overflow launch runs without the variables the gates name.
-launch_env=()
-if [[ $overflow -eq 1 ]]; then
-  launch_env=(env)
-  for v in "${key_unset[@]}"; do launch_env+=(-u "$v"); done
-fi
+# Every launch runs without the variables the gates name: this checkout's
+# root, which a daemon the launch starts would hand every later job in any
+# repository (#4595), and on an overflow seat any key.
+launch_env=(env)
+for v in "${launch_unset[@]}"; do launch_env+=(-u "$v"); done
 
 # --- duplicate gate --------------------------------------------------------
 # Placed BEFORE the allowance gate on cost: the allowance read spends up to 120
@@ -913,7 +912,7 @@ while [[ $# -gt 0 ]]; do
     [[ "$model" == "opus" ]] || args+=(--model "$model")
     wants_advisor "$model" && args+=(--advisor "$ADVISOR_MODEL")
     launcher="claude"
-    launch_cmd=("$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
+    launch_cmd=("${launch_env[@]}" "$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
   fi
   if [[ $dry_run -eq 1 ]]; then
     printf 'would launch:'
