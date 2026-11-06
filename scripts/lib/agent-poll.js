@@ -181,7 +181,7 @@ const WATCHES = {
 };
 
 /**
- * @typedef {Pick<import("./guard-dispatch.js").CoreContext,
+ * @typedef {Pick<import("./guard-judge.js").CoreContext,
  *   "input" | "tool" | "agentLabel" | "log" | "env" | "corePaths" | "ruleText" | "docPath"> & {
  *   now: () => number,
  *   readWindow: (file: string) => string | null,
@@ -285,7 +285,7 @@ function overText(r, subagent, ctx) {
 /**
  * @param {string} session
  * @param {PollContext} ctx
- * @returns {import("./guard-dispatch.js").CoreDecision}
+ * @returns {import("./guard-judge.js").CoreDecision}
  */
 function decide(session, ctx) {
 	const r = route(ctx);

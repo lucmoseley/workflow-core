@@ -62,7 +62,7 @@ const { treeOr } = require("./tree-or.js");
  *   will not read; and the host's
  *   `sensitivePaths`, throwing where its config will not read; and those at
  *   HEAD, undefined where HEAD's will not read
- * @typedef {import("./guard-dispatch.js").CoreContext & TierPorts} TierContext
+ * @typedef {import("./guard-judge.js").CoreContext & TierPorts} TierContext
  */
 
 /** The paths listed per area are capped because the prelude is not: a long
@@ -75,7 +75,7 @@ const DECLARATION = ".claude/workflow-core.json";
 /**
  * @param {string} skill
  * @param {TierContext} ctx
- * @returns {import("./guard-dispatch.js").CoreDecision}
+ * @returns {import("./guard-judge.js").CoreDecision}
  */
 function decide(skill, ctx) {
 	/* The names guard-review-rules matches, and for its reasons (#201). */

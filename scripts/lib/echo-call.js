@@ -95,7 +95,7 @@ ${WAIT_SLOT}
 If you genuinely need this again — the state it reads has changed since — VARY THE COMMAND and it will not match. The first refusal on a call clears its chain and lets the identical call through once more, but a second refusal on the same call does not, and from there only a varied command runs.`;
 
 /**
- * @typedef {Pick<import("./guard-dispatch.js").CoreContext,
+ * @typedef {Pick<import("./guard-judge.js").CoreContext,
  *   "input" | "tool" | "key" | "agentLabel" | "log" | "corePaths"> &
  *   import("./echo-record.js").EchoPorts & {
  *   now: () => number,
@@ -132,7 +132,7 @@ function recorded(ctx, name, sig, seen) {
 /**
  * @param {string} _session
  * @param {EchoContext} ctx
- * @returns {import("./guard-dispatch.js").CoreDecision}
+ * @returns {import("./guard-judge.js").CoreDecision}
  */
 function decide(_session, ctx) {
 	const tool = ctx.tool;
