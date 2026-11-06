@@ -48,8 +48,8 @@ import {
 } from "./lib/lander-testkit";
 import { redPathAtRest } from "./lib/queue-lander.js";
 import {
-	batchRecord,
 	dropRecord,
+	pipelineRecord,
 	queueGit,
 	queueLogger,
 	refusedRecord,
@@ -258,7 +258,7 @@ describe("a run", () => {
 		git(work, "push", "-q", "origin", `${moved}:main`);
 		const a = pushQueue("a", moved);
 		fs.mkdirSync(markers(), { recursive: true });
-		batchRecord(path.join(markers(), ".queue-lander-batch.json")).write({
+		pipelineRecord(path.join(markers(), ".queue-lander-batch.json")).write({
 			line: [
 				{
 					slot: 0,
@@ -942,7 +942,7 @@ describe("the adapters", () => {
 		};
 		/** The pipeline with `b`, or `x` in its place, as its search. */
 		const holding = (x: unknown) => ({ line: [], search: x, depth: 1 });
-		batchRecord(batch).write({ ...holding(b), search: b });
+		pipelineRecord(batch).write({ ...holding(b), search: b });
 
 		expect(verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])).toEqual({
 			kind: "red",
@@ -963,7 +963,7 @@ describe("the adapters", () => {
 			kind: "green",
 		});
 		expect(verdictLedger(verdicts).get("s1", [], 0)).toEqual(noFile);
-		expect(batchRecord(batch).read()).toEqual(holding(b));
+		expect(pipelineRecord(batch).read()).toEqual(holding(b));
 		for (const torn of [
 			{ ...b, phase: "parked" },
 			{ ...b, hold: { kind: "refused", main: "m0" } },
@@ -971,14 +971,14 @@ describe("the adapters", () => {
 			{ ...b, slot: "1" },
 		]) {
 			fs.writeFileSync(batch, JSON.stringify(holding(torn)));
-			expect(batchRecord(batch).read()).toBeNull();
+			expect(pipelineRecord(batch).read()).toBeNull();
 		}
 		fs.writeFileSync(batch, JSON.stringify({ line: [b], search: null }));
-		expect(batchRecord(batch).read()).toBeNull();
+		expect(pipelineRecord(batch).read()).toBeNull();
 		fs.writeFileSync(batch, JSON.stringify(b));
-		expect(batchRecord(batch).read()).toBeNull();
+		expect(pipelineRecord(batch).read()).toBeNull();
 		fs.writeFileSync(batch, '{"line": [');
-		expect(batchRecord(batch).read()).toBeNull();
+		expect(pipelineRecord(batch).read()).toBeNull();
 
 		const refused = refusedRecord(path.join(markers(), "r.jsonl"));
 		refused.add("s1", "GH013: rule violations");

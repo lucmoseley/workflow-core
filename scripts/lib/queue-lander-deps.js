@@ -27,7 +27,7 @@ const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const {
-	batchRecord,
+	pipelineRecord,
 	dropRecord,
 	queueGit,
 	queueLogger,
@@ -125,7 +125,7 @@ function buildLanderDeps(
 		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
 		refused: refusedRecord(files.refused),
-		record: batchRecord(files.batch),
+		record: pipelineRecord(files.batch),
 		drops: dropRecord(files.drops),
 		tracker: trackerOf(root),
 		logQueue: queueLogger(root),

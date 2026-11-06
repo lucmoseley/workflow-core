@@ -28,7 +28,10 @@ const {
 	droppedRefsOf,
 	queueRefOf,
 } = require("./landing-refs.js");
-const { readBatchFile, readDropFile } = require("./queue-lander-adapters.js");
+const {
+	readPipelineFile,
+	readDropFile,
+} = require("./queue-lander-adapters.js");
 const { batchesOf } = require("./queue-lander.js");
 
 /**
@@ -47,7 +50,7 @@ const { batchesOf } = require("./queue-lander.js");
  * @property {number} since when the session's worktree was made, in ms
  * @property {{sha: string}|null} waiting the remote's `queue/<name>`
  * @property {readonly LoggedRow[]} rows the queue log's, oldest first
- * @property {RecordRead<Pipeline>} batch the pipeline record
+ * @property {RecordRead<Pipeline>} pipeline the pipeline record
  * @property {RecordRead<readonly Drop[]>} drops
  * @property {readonly DroppedRef[]} dropped the remote's `dropped/*` refs
  * @property {string|null} main the remote's `main`
@@ -95,7 +98,9 @@ const holderOf = (p, name, landed) =>
  */
 function landedState(r, sha) {
 	const b =
-		r.batch.kind === "read" ? holderOf(r.batch.value, r.name, true) : null;
+		r.pipeline.kind === "read"
+			? holderOf(r.pipeline.value, r.name, true)
+			: null;
 	const main = b && memberOf(b, r.name)?.sha === sha ? b.integration : null;
 	return {
 		state: "landed",
@@ -147,13 +152,13 @@ function droppedState(r, sha) {
  */
 function waitingState(r, sha, mine) {
 	const { name } = r;
-	if (r.batch.kind === "torn")
+	if (r.pipeline.kind === "torn")
 		return { state: "unread", name, sha, why: "torn" };
-	if (r.batch.kind === "absent")
+	if (r.pipeline.kind === "absent")
 		return mine.findLast((x) => x.sha === sha)?.event === "take"
 			? { state: "unread", name, sha, why: "absent" }
 			: { state: "queued", name, sha, snapshot: null };
-	const b = holderOf(r.batch.value, name, false);
+	const b = holderOf(r.pipeline.value, name, false);
 	const m = b && memberOf(b, name);
 	if (!b || m?.sha !== sha)
 		return { state: "queued", name, sha, snapshot: m?.sha ?? null };
@@ -292,7 +297,7 @@ function readQueueRefStates(root, tree, refs, rows) {
 		since: fs.statSync(path.join(tree, ".git")).mtimeMs,
 		waiting: held ? { sha: held.sha } : null,
 		rows,
-		batch: readBatchFile(files.batch),
+		pipeline: readPipelineFile(files.batch),
 		drops: readDropFile(files.drops),
 		dropped: refs.dropped,
 		main,

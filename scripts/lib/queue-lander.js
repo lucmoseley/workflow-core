@@ -254,6 +254,10 @@ class TransientFault extends Error {}
  * @typedef {{readonly branch: string, readonly sha: string}} IsoRun a run
  *   alone at `sha`, pushed to the `lander/iso-*` ref `branch` before it is
  *   asked
+ * @typedef {{readonly line: readonly Batch[], readonly search: Batch|null}}
+ *   Live the pipeline's batches that are not spent
+ * @typedef {"take-batch" | "detach" | "await-verdict" | "wait"} PipelineKind
+ *   the actions on the pipeline rather than on one batch in it
  * @typedef {{readonly kind: "take-batch", readonly batch: Batch,
  *     readonly pipeline: Pipeline}
  *   | {readonly kind: "detach", readonly slot: number,
@@ -356,10 +360,18 @@ class TransientFault extends Error {}
  * `main`'s sha reached as a batch. */
 const BASE_PASS = 0;
 
-/* Untraced, #4556's figures and stated as such: the window a run starts at
- * and the deepest it grows to. */
+/* Untraced, #4556's figures and stated as such: the window a run starts at,
+ * the deepest it grows to, and the one a red drops it to. */
 const DEPTH_START = 2;
 const DEPTH_CEILING = 3;
+const DEPTH_FLOOR = 1;
+
+/**
+ * The first run of `sha`'s whole suite.
+ * @param {string} sha
+ * @returns {TestRun}
+ */
+const wholeRun = (sha) => ({ sha, files: [], pass: 1 });
 
 /** @type {Extract<QueueAction, {kind: "wait"}>} */
 const WAIT = { kind: "wait" };
@@ -910,11 +922,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 	/** @type {QueueAction} */
 	const land = { kind: "land-step", sha, name: member.name };
 	if (s.isGreen(sha)) return land;
-	const first = verdictOr(
-		s,
-		{ sha, files: [], pass: 1 },
-		{ kind: "test-sha", sha },
-	);
+	const first = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 	if ("action" in first) return first.action;
 	if (first.v.kind === "green") return landGreen(first.v, s, land);
 	const confirm = { sha, files: [], pass: 2 };
@@ -1005,24 +1013,24 @@ function deleteOwed(b, s) {
 }
 
 /**
- * The head's red or refusal taking it out of the line as the search: the
- * batches behind it cancelled, and the one a window of one holds merged
- * again onto `main`; a wait while another search runs.
+ * The head's red or refusal taking it out of the line as the search: every
+ * run behind it cancelled, finished or not, as a restart no longer knows
+ * which it asked, and the batches behind it merged again onto `main`, as
+ * many as the window holds. A red drops the window to DEPTH_FLOOR; a refusal
+ * keeps it, as it says nothing of the batches. A wait while another search
+ * runs.
  * @param {QueueState} s
- * @param {readonly Batch[]} line the live line, the head first
- * @param {Batch|null} search the live search
+ * @param {Live} live the live line, the head first, and the live search
+ * @param {boolean} red
  * @returns {QueueAction}
  */
-function detachAction(s, line, search) {
+function detachAction(s, { line, search }, red) {
 	if (search && !isDone(search)) return WAIT;
 	const [head, ...rest] = line;
 	if (!head) return exit("a detach with no head");
-	const depth = 1;
+	const depth = red ? DEPTH_FLOOR : s.pipeline.depth;
 	const cancel = rest.flatMap((b) =>
-		b.integration !== null &&
-		s.isPending({ sha: b.integration, files: [], pass: 1 })
-			? [{ sha: b.integration, slot: b.slot }]
-			: [],
+		b.integration === null ? [] : [{ sha: b.integration, slot: b.slot }],
 	);
 	/** @type {Batch[]} */
 	const rebuilt = rest
@@ -1037,42 +1045,65 @@ function detachAction(s, line, search) {
 }
 
 /**
+ * The merge of `b` onto `base`, where it is not merged there yet: a batch
+ * merged onto a base that has since moved is merged again onto the new one,
+ * so `main` only ever fast-forwards; else null.
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {string} base
+ * @returns {QueueAction|null}
+ */
+function mergeStep(b, s, base) {
+	if (b.phase !== "merging" && b.onto === base && b.integration !== null)
+		return null;
+	const members = included(b);
+	return {
+		kind: "merge-members",
+		onto: base,
+		members,
+		fresh: isRefused(s, members),
+	};
+}
+
+/**
+ * The step a landed batch owes, or one whose integration commit `main`
+ * already holds: its refs' deletes, or its landing recorded; else null.
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {string} main
+ * @returns {QueueAction|null}
+ */
+function landedStep(b, s, main) {
+	if (b.phase === "landed") return deleteOwed(b, s);
+	if (b.integration === main) return { kind: "record-landed", sha: main };
+	return null;
+}
+
+/**
  * The next step of the line's head, merged onto `main`: the only batch that
  * lands.
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
- * @param {{line: readonly Batch[], search: Batch|null}} live
+ * @param {Live} live
  * @returns {QueueAction}
  */
-function headAction(b, s, main, { line, search }) {
-	if (b.phase === "landed") return deleteOwed(b, s);
-	if (b.integration === main) return { kind: "record-landed", sha: main };
-	if (search?.phase === "serial") return WAIT;
-	const members = included(b);
+function headAction(b, s, main, live) {
+	const landed = landedStep(b, s, main);
+	if (landed) return landed;
+	if (live.search?.phase === "serial") return WAIT;
 	if (s.unmerged?.onto === main)
-		return unmergedAction(members, s, s.unmerged, main);
-	/* A batch merged onto a `main` that has since moved is merged again onto
-	 * the new tip, so `main` only ever fast-forwards. */
-	if (b.phase === "merging" || b.onto !== main || b.integration === null)
-		return {
-			kind: "merge-members",
-			onto: main,
-			members,
-			fresh: isRefused(s, members),
-		};
+		return unmergedAction(included(b), s, s.unmerged, main);
+	const merge = mergeStep(b, s, main);
+	if (merge || b.integration === null) return merge ?? WAIT;
 	const sha = b.integration;
-	if (s.refusalOf(sha) !== null) return detachAction(s, line, search);
+	if (s.refusalOf(sha) !== null) return detachAction(s, live, false);
 	/** @type {QueueAction} */
 	const land = { kind: "fast-forward-main", sha };
 	if (s.isGreen(sha)) return land;
-	const got = verdictOr(
-		s,
-		{ sha, files: [], pass: 1 },
-		{ kind: "test-sha", sha },
-	);
+	const got = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 	if ("action" in got) return got.action;
-	if (got.v.kind === "red") return detachAction(s, line, search);
+	if (got.v.kind === "red") return detachAction(s, live, true);
 	return landGreen(got.v, s, land);
 }
 
@@ -1092,18 +1123,12 @@ function followerAction(b, s, main, { prev, search }) {
 	const base = prev.integration;
 	if (search?.phase === "serial" || base === null || prev.phase === "merging")
 		return WAIT;
-	const members = included(b);
 	if (s.unmerged?.onto === base)
-		return unmergedAction(members, s, s.unmerged, main);
-	if (b.phase === "merging" || b.onto !== base || b.integration === null)
-		return {
-			kind: "merge-members",
-			onto: base,
-			members,
-			fresh: isRefused(s, members),
-		};
-	const r = { sha: b.integration, files: [], pass: 1 };
-	const ahead = ledgered(s, { sha: base, files: [], pass: 1 });
+		return unmergedAction(included(b), s, s.unmerged, main);
+	const merge = mergeStep(b, s, base);
+	if (merge || b.integration === null) return merge ?? WAIT;
+	const r = wholeRun(b.integration);
+	const ahead = ledgered(s, wholeRun(base));
 	if (
 		ahead?.kind === "red" ||
 		ledgered(s, r) !== null ||
@@ -1123,8 +1148,8 @@ function followerAction(b, s, main, { prev, search }) {
  * @returns {QueueAction}
  */
 function searchAction(b, s, main) {
-	if (b.phase === "landed") return deleteOwed(b, s);
-	if (b.integration === main) return { kind: "record-landed", sha: main };
+	const landed = landedStep(b, s, main);
+	if (landed) return landed;
 	if (isDone(b)) return landedOwed(b, s) ? deleteOwed(b, s) : WAIT;
 	if (b.phase === "isolating" && b.blame) return isolationAction(b, s, b.blame);
 	if (b.phase === "serial") return serialAction(b, s, main);
@@ -1149,11 +1174,7 @@ function searchRedAction(b, s, main) {
 	/** @type {QueueAction} */
 	let next = land;
 	if (!s.isGreen(sha)) {
-		const got = verdictOr(
-			s,
-			{ sha, files: [], pass: 1 },
-			{ kind: "test-sha", sha },
-		);
+		const got = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 		if ("action" in got) return got.action;
 		next =
 			got.v.kind === "red"
@@ -1239,7 +1260,7 @@ function owedAction(s) {
  * tail's run is under way on a base not known red; else null.
  * @param {QueueState} s
  * @param {string} main
- * @param {{line: readonly Batch[], search: Batch|null}} live
+ * @param {Live} live
  * @param {readonly QueueRef[]} waiting
  * @returns {QueueAction|null}
  */
@@ -1251,8 +1272,7 @@ function fillAction(s, main, { line, search }, waiting) {
 	if (tail && (tail.integration === null || tail.phase === "merging"))
 		return null;
 	const onto = tail?.integration ?? main;
-	if (tail && ledgered(s, { sha: onto, files: [], pass: 1 })?.kind === "red")
-		return null;
+	if (tail && ledgered(s, wholeRun(onto))?.kind === "red") return null;
 	if (search?.phase === "held" && heldExit(search, main, waiting)) return null;
 	const ahead = search?.phase === "requeued" ? search.ahead : [];
 	return takeBatch(waiting, onto, ahead, {
@@ -1265,7 +1285,7 @@ function fillAction(s, main, { line, search }, waiting) {
 /**
  * The batches the pipeline record holds that are not spent.
  * @param {QueueState} s
- * @returns {{line: readonly Batch[], search: Batch|null}}
+ * @returns {Live}
  */
 function liveOf(s) {
 	const { search } = s.pipeline;
@@ -1280,7 +1300,7 @@ function liveOf(s) {
  * queue order; null where each waits.
  * @param {QueueState} s
  * @param {string} main
- * @param {{line: readonly Batch[], search: Batch|null}} live
+ * @param {Live} live
  * @returns {{action: QueueAction, slot: number}|null}
  */
 function batchStep(s, main, live) {
@@ -1303,7 +1323,7 @@ function batchStep(s, main, live) {
  * The names a live batch holds, and the queue refs waiting for a take: in
  * no live batch, at no sha a batch landed or a delete found moved.
  * @param {QueueState} s
- * @param {{line: readonly Batch[], search: Batch|null}} live
+ * @param {Live} live
  */
 function waitingOf(s, { line, search }) {
 	const flying = new Set(
@@ -1360,10 +1380,23 @@ function idleAction(s, main, search, waiting) {
  *   slot of the batch it acts on, null for none
  */
 function nextQueueAction(s) {
+	const next = stepOrEnd(s);
+	/* An end awaits each ask in flight first, so a verdict a run reached is
+	 * kept rather than asked again by the next. */
+	return next.action.kind === "exit" && s.busy
+		? { action: { kind: "await-verdict" }, slot: null }
+		: next;
+}
+
+/**
+ * @param {QueueState} s
+ * @returns {{action: QueueAction, slot: number|null}}
+ */
+function stepOrEnd(s) {
 	const { main } = s;
 	/** @param {QueueAction} action */
-	const free = (action) => ({ action, slot: null });
-	if (main === null) return free(exit("the remote has no main branch"));
+	const unslotted = (action) => ({ action, slot: null });
+	if (main === null) return unslotted(exit("the remote has no main branch"));
 	const owed = owedAction(s);
 	if (owed) {
 		const d = owed.kind === "drop-member" ? owed.drop : null;
@@ -1377,11 +1410,13 @@ function nextQueueAction(s) {
 	if (stepped) return stepped;
 	const { flying, waiting } = waitingOf(s, live);
 	const fill = fillAction(s, main, live, waiting);
-	if (fill) return free(fill);
-	if (s.busy) return free({ kind: "await-verdict" });
+	if (fill) return unslotted(fill);
+	if (s.busy) return unslotted({ kind: "await-verdict" });
 	if (flying.size > 0)
-		return free(exit("no batch in flight has a step, and no verdict awaits"));
-	return free(idleAction(s, main, live.search, waiting));
+		return unslotted(
+			exit("no batch in flight has a step, and no verdict awaits"),
+		);
+	return unslotted(idleAction(s, main, live.search, waiting));
 }
 
 /**
@@ -1434,7 +1469,7 @@ function nextQueueAction(s) {
  * @property {(sha: string) => string|null} refusalOf the refusal of `sha`,
  *   null where none
  * @property {(sha: string, reason: string) => void} add
- * @typedef {object} BatchRecord the pipeline record
+ * @typedef {object} PipelineRecord the pipeline record
  * @property {() => Pipeline|null} read
  * @property {(p: Pipeline) => void} write
  * @typedef {object} QueueLanderDeps
@@ -1444,7 +1479,7 @@ function nextQueueAction(s) {
  *   ledger the pre-push gate on `main` reads
  * @property {VerdictLedger} verdicts
  * @property {RefusedRecord} refused
- * @property {BatchRecord} record
+ * @property {PipelineRecord} record
  * @property {DropRecord} drops
  * @property {QueueTracker} tracker
  * @property {(event: LanderEvent, m: Pick<Member, "name" | "sha">) => void}
@@ -1463,9 +1498,9 @@ function nextQueueAction(s) {
  *   filed or left unfiled, or one whose state was not read
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
- *   | "superseded"> & {pending: Map<string, Pending>, batch: Batch|null}}
+ *   | "superseded"> & {pending: Map<string, Pending>, acting: Batch|null}}
  *   QueueRun what a run carries between actions; `pending` its asks awaiting
- *   their verdicts, by their runs, shared by every copy of the run; `batch`
+ *   their verdicts, by their runs, shared by every copy of the run; `acting`
  *   the batch the action under way acts on
  * @typedef {{readonly runs: readonly TestRun[],
  *   readonly settled: Promise<Settled>}} Pending an ask in flight
@@ -1518,8 +1553,8 @@ const droppedFrom = (b, name) =>
  * @returns {Batch}
  */
 function batchOf(run) {
-	if (run.batch === null) throw new Error("a batch action with no batch");
-	return run.batch;
+	if (run.acting === null) throw new Error("a batch action with no batch");
+	return run.acting;
 }
 
 /**
@@ -1534,7 +1569,7 @@ function batchOf(run) {
  * @returns {QueueRun}
  */
 function dropMember(deps, d, run) {
-	const { batch } = run;
+	const { acting: batch } = run;
 	const member = batch?.members.some(
 		(m) => m.name === d.name && m.sha === d.sha,
 	);
@@ -1552,7 +1587,7 @@ function dropMember(deps, d, run) {
 	deps.git.createRef(d.ref, d.sha);
 	deps.git.deleteRef(`${QUEUE_PREFIX}${d.name}`, d.sha);
 	deps.logQueue("drop", d);
-	return { ...run, batch: left, unmerged: null, alone: null };
+	return { ...run, acting: left, unmerged: null, alone: null };
 }
 
 /**
@@ -1729,7 +1764,7 @@ const sameRun = (a, b) =>
  * Starts the ask `ask` for `runs`, unawaited: the run goes on, and the
  * verdicts are kept through `keep` once a later step awaits them.
  * @template T
- * @param {QueueRun} run
+ * @param {QueueRun} run accumulator: the ask is set in its `pending`
  * @param {readonly TestRun[]} runs
  * @param {() => Promise<T>} ask
  * @param {(deps: QueueLanderDeps, run: QueueRun, got: T) => QueueRun} keep
@@ -1749,7 +1784,8 @@ function startAsk(run, runs, ask, keep) {
  * Awaits the first ask in flight to end and keeps its verdicts; one that
  * threw is forgotten first, so the retry asks it again.
  * @param {QueueLanderDeps} deps
- * @param {QueueRun} run
+ * @param {QueueRun} run accumulator: the ended ask is deleted from its
+ *   `pending`
  * @returns {Promise<QueueRun>}
  */
 async function awaitVerdict(deps, run) {
@@ -1766,9 +1802,10 @@ async function awaitVerdict(deps, run) {
 /**
  * Forgets each ask in flight at `sha` and has the tester cancel its run on
  * the batch ref of `slot`; a cancel that throws is reported and stops
- * nothing, as the run's verdict is only unwanted.
+ * nothing, as the run's verdict is only unwanted (#4556).
  * @param {Pick<QueueLanderDeps, "tester" | "say">} deps
- * @param {QueueRun} run
+ * @param {QueueRun} run accumulator: the asks at `sha` are deleted from its
+ *   `pending`
  * @param {{sha: string, slot: number}} at
  */
 function cancelAsk(deps, run, { sha, slot }) {
@@ -1793,7 +1830,7 @@ function cancelAsk(deps, run, { sha, slot }) {
  */
 function testSha(deps, sha, run) {
 	deps.git.pushBatch(batchOf(run).slot, sha);
-	const r = { sha, files: [], pass: 1 };
+	const r = wholeRun(sha);
 	return startAsk(
 		run,
 		[r],
@@ -1803,9 +1840,9 @@ function testSha(deps, sha, run) {
 }
 
 /**
- * Pushes each run's sha to its `lander/iso-*` ref, then starts the ask of
- * its verdict on `files`: all at once where the tester is `parallel`, else
- * one after another.
+ * Pushes each run's sha to its `lander/iso-*` ref, then starts an ask of
+ * each one's verdict on `files`, each kept as it ends: all at once where the
+ * tester is `parallel`, else one after another.
  * @param {BatchDeps} deps
  * @param {{runs: readonly IsoRun[], files: readonly string[], pass: number}}
  *   asked
@@ -1814,25 +1851,23 @@ function testSha(deps, sha, run) {
  */
 function testIsolated(deps, { runs, files, pass }, run) {
 	for (const { branch, sha } of runs) deps.git.pushIso(branch, sha);
-	/** @param {IsoRun} r */
-	const ask = (r) => verdictAt(deps, r.sha, [...files], pass === 2);
-	const all = async () => {
-		if (deps.tester.parallel) return Promise.all(runs.map(ask));
-		/** @type {Verdict[]} */
-		const vs = [];
-		for (const r of runs) vs.push(await ask(r));
-		return vs;
-	};
-	return startAsk(
-		run,
-		runs.map((r) => ({ sha: r.sha, files, pass })),
-		all,
-		(d, from, vs) =>
-			runs.reduce((next, r, k) => {
-				const v = vs[k];
-				return v ? writeVerdict(d, { sha: r.sha, files, pass, v }, next) : next;
-			}, from),
-	);
+	/** @type {Promise<unknown>} */
+	let ahead = Promise.resolve();
+	return runs.reduce((next, { sha }) => {
+		const r = { sha, files, pass };
+		const after = ahead;
+		const out = startAsk(
+			next,
+			[r],
+			() =>
+				deps.tester.parallel
+					? verdictAt(deps, sha, [...files], pass === 2)
+					: after.then(() => verdictAt(deps, sha, [...files], pass === 2)),
+			(d, from, v) => writeVerdict(d, { ...r, v }, from),
+		);
+		ahead = out.pending.get(askKey([r]))?.settled ?? ahead;
+		return out;
+	}, run);
 }
 
 /**
@@ -1881,7 +1916,7 @@ function recordStep(deps, name, run) {
 		serial: { landed: [...(b.serial?.landed ?? []), name], step: null },
 	};
 	deps.record.write(batch);
-	return { ...run, batch };
+	return { ...run, acting: batch };
 }
 
 /**
@@ -1892,7 +1927,7 @@ function recordStep(deps, name, run) {
  */
 function recorded(deps, batch, run) {
 	deps.record.write(batch);
-	return { ...run, batch };
+	return { ...run, acting: batch };
 }
 
 /**
@@ -1932,12 +1967,12 @@ function recordLanded(deps, run) {
 	for (const m of included(batch))
 		if (!batch.serial?.landed.includes(m.name)) deps.logQueue("land", m);
 	deps.record.write(batch);
-	return { ...run, batch };
+	return { ...run, acting: batch };
 }
 
 /**
  * @param {BatchDeps} deps
- * @param {Exclude<QueueAction, QueueEnd>} action
+ * @param {Exclude<QueueAction, QueueEnd | {kind: PipelineKind}>} action
  * @param {QueueRun} run
  * @returns {Promise<QueueRun>}
  */
@@ -1963,7 +1998,7 @@ async function act(deps, action, run) {
 				phase: "testing",
 			};
 			record.write(batch);
-			return { ...run, batch };
+			return { ...run, acting: batch };
 		}
 		case "merge-alone": {
 			const { member, onto } = action;
@@ -1973,7 +2008,7 @@ async function act(deps, action, run) {
 		case "defer-member": {
 			const batch = leaveOut(batchOf(run), action.name, "deferred");
 			record.write(batch);
-			return { ...run, batch, unmerged: null, alone: null };
+			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
 		case "drop-member":
 			return dropMember(deps, action.drop, run);
@@ -1983,11 +2018,6 @@ async function act(deps, action, run) {
 			return adoptDroppedRef(deps, action, run);
 		case "test-sha":
 			return testSha(deps, action.sha, run);
-		case "take-batch":
-		case "detach":
-		case "await-verdict":
-		case "wait":
-			throw new Error(`${action.kind} acts on the pipeline, not a batch`);
 		case "fast-forward-main":
 			return moveMain(deps, action.sha, run, (r) => recordLanded(deps, r));
 		case "unledger":
@@ -2162,7 +2192,7 @@ function writePipeline(deps, run, pipeline) {
  * Takes `action` on the batch of `slot`, or on none where null, its record
  * writes put into the pipeline; a batch it lands widens the window by one.
  * @param {QueueLanderDeps} deps
- * @param {Exclude<QueueAction, QueueEnd>} action
+ * @param {Exclude<QueueAction, QueueEnd | {kind: PipelineKind}>} action
  * @param {QueueRun} run
  * @param {number|null} slot
  * @returns {Promise<QueueRun>}
@@ -2180,16 +2210,16 @@ async function actOn(deps, action, run, slot) {
 			},
 		},
 	};
-	const out = await act(focused, action, { ...run, pipeline, batch: was });
-	if (out.batch) pipeline = withBatch(pipeline, out.batch);
-	if (out.batch?.phase === "landed" && was?.phase !== "landed") {
+	const out = await act(focused, action, { ...run, pipeline, acting: was });
+	if (out.acting) pipeline = withBatch(pipeline, out.acting);
+	if (out.acting?.phase === "landed" && was?.phase !== "landed") {
 		pipeline = {
 			...pipeline,
 			depth: Math.min(DEPTH_CEILING, pipeline.depth + 1),
 		};
 		deps.record.write(pipeline);
 	}
-	return { ...out, pipeline, batch: null };
+	return { ...out, pipeline, acting: null };
 }
 
 /**
@@ -2208,11 +2238,10 @@ async function actOnPipeline(deps, action, run) {
 			for (const m of action.batch.members) deps.logQueue("take", m);
 			return { ...next, unmerged: null, alone: null };
 		}
-		case "detach": {
-			const next = writePipeline(deps, run, action.pipeline);
-			for (const c of action.cancel) cancelAsk(deps, next, c);
-			return next;
-		}
+		case "detach":
+			/* Cancelled first: the record written drops the shas to cancel. */
+			for (const c of action.cancel) cancelAsk(deps, run, c);
+			return writePipeline(deps, run, action.pipeline);
 		case "await-verdict":
 			return awaitVerdict(deps, run);
 	}
@@ -2330,7 +2359,7 @@ async function runQueueLander(deps) {
 	let run = {
 		pipeline: deps.record.read() ?? emptyPipeline(),
 		pending: new Map(),
-		batch: null,
+		acting: null,
 		unread: [],
 		unmerged: null,
 		alone: null,

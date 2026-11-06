@@ -87,7 +87,7 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").QueueGit} QueueGit
  * @typedef {import("./queue-lander.js").QueueRef} QueueRef
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
- * @typedef {import("./queue-lander.js").BatchRecord} BatchRecord
+ * @typedef {import("./queue-lander.js").PipelineRecord} PipelineRecord
  * @typedef {import("./queue-lander.js").BaseVerdict} BaseVerdict
  * @typedef {import("./queue-lander.js").RefusedRecord} RefusedRecord
  * @typedef {import("./queue-lander.js").Drop} Drop
@@ -763,7 +763,7 @@ function parsePipeline(parsed) {
  * @param {string} file
  * @returns {RecordRead<Pipeline>}
  */
-function readBatchFile(file) {
+function readPipelineFile(file) {
 	const r = readRecordFile(file);
 	if (r.kind !== "read") return r;
 	const pipeline = parsePipeline(r.value);
@@ -774,12 +774,12 @@ function readBatchFile(file) {
  * The pipeline record: the batches a run is landing, so the next run
  * resumes them. A record that is absent or no pipeline reads as none.
  * @param {string} file
- * @returns {BatchRecord}
+ * @returns {PipelineRecord}
  */
-function batchRecord(file) {
+function pipelineRecord(file) {
 	return {
 		read() {
-			const r = readBatchFile(file);
+			const r = readPipelineFile(file);
 			return r.kind === "read" ? r.value : null;
 		},
 		write(p) {
@@ -877,11 +877,11 @@ const queueLogger = (root) => (event, m) => {
 };
 
 module.exports = {
-	batchRecord,
+	pipelineRecord,
 	dropRecord,
 	queueGit,
 	queueLogger,
-	readBatchFile,
+	readPipelineFile,
 	readDropFile,
 	refusedRecord,
 	verdictLedger,
