@@ -2087,8 +2087,8 @@ function digestOf(rel, seen = new Set(), inStack = false) {
 			}
 			hash.update(`\0${lib}\0${(there && digestOf(lib, seen, stack)) || ""}`);
 		}
-		/* A named file in the index but gone from disk hashes as absent, as a
-		 * library does, rather than nulling the stack's whole digest. */
+		/* A named file in the index but gone from disk hashes as absent,
+		 * rather than nulling the stack's whole digest. */
 		for (const p of named ?? []) {
 			seen.add(p);
 			hash.update(`\0${p}\0`);
@@ -3995,8 +3995,7 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	const { paths: reviewPaths, taking, soleWriter } = request;
 	/*
 	 * Re-anchoring asserts a human re-read the rules describing that guard, so
-	 * the command prints them: a reviewer who sees no rule has anchored nothing
-	 * meaningful.
+	 * the command prints them.
 	 */
 	const targets =
 		reviewPaths.length > 0
@@ -4058,8 +4057,6 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	process.exit(0);
 }
 
-/* A fail-open digest is the worktree's, so anchoring it would record what
- * #4508 removed. */
 function refuseFailedTreeRead() {
 	const { failure } = treeOf(root);
 	if (failure)
@@ -4743,7 +4740,7 @@ function parseReviewRequest(ctx, reviewAt) {
 	};
 }
 
-/** The line saying the digests read the disk, not the index; none where they read the index or the tree has none. */
+/** The line saying the digests read the disk, not the index. */
 function buildTreeFailureLines() {
 	const { failure } = treeOf(root);
 	return failure

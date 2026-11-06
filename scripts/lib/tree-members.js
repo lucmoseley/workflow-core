@@ -1,10 +1,7 @@
 /*
  * tree-members.js — whether a path is in the tree a guard's closure is judged
  * in (#4508). In a checkout that tree is git's index, never the working
- * directory: an untracked or ignored file the closure probes for — a hook-local
- * lib shadowing the shared one, a sibling shadowing a run target, a require of
- * a lib no commit carries — would otherwise enter one worktree's digest and not
- * another's at the same commit. Membership only: the bytes hashed stay the
+ * directory, so one commit gives one digest in every worktree. Membership only: the bytes hashed stay the
  * working tree's, as a pathspec commit commits them, so an unstaged edit to a
  * tracked dependency still moves the digest, and --review stands that row down
  * as dirty. The index, not HEAD, so a file `git add`ed for
@@ -80,8 +77,7 @@ function readTree(base) {
 }
 
 /**
- * Whether `dir` carries its own `.git`, not an ancestor's: what makes it a
- * checkout's top rather than a materialised copy (#3450).
+ * Whether `dir` carries its own `.git`, not an ancestor's (#3450).
  * @param {string} dir
  */
 function hasOwnGit(dir) {
@@ -105,8 +101,6 @@ function treeOf(base) {
 }
 
 /**
- * Whether `rel` is in the tree `base` judges.
- *
  * @param {string} base
  * @param {string} rel a path from `base`
  */

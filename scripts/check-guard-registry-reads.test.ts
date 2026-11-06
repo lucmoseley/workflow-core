@@ -527,9 +527,6 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 
 describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	/*
-	 * `.claude/tmp/` is where docs/agents/guard-registry.md §Subagent dispatch sends every review
-	 * and concision artefact.
-	 *
 	 * A real git repository, because the filter asks `git check-ignore`. Only
 	 * the case that needs a tracked file sets `commit`.
 	 */
@@ -915,7 +912,6 @@ describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
 	it("re-anchors nothing where git cannot read the index", () => {
 		const { root } = commitWithWorktree();
 		const before = readAnchors(root);
-		// PATH, not a WFC_ binary var (docs/code-standards-base.md §N7): the case is git missing from PATH.
 		expect(() => reviewIn(root, [], { PATH: "" })).toThrow(
 			/--review re-anchors nothing: git rev-parse failed/,
 		);
