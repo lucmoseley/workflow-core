@@ -3084,6 +3084,7 @@ const {
 	RULE_ARG_RE,
 } = require("./lib/rule-emission");
 const { spawnGitSync } = require("./lib/git.js");
+const { readMergeHeadLines } = require("./lib/merge-heads.js");
 
 /* Where an emitter can live. Guards and their libs sit under scripts/; a hook
  * command under .claude/ is wired the same way and may print a rule too. */
@@ -4121,14 +4122,13 @@ function readParentStaged(dirty) {
 	/** @type {Set<string>} */
 	const paths = new Set();
 	if (dirty.length === 0) return { paths, error: null };
-	const parents = readMergeHeads();
-	if (parents.error || parents.shas.length === 0)
-		return { paths, error: parents.error };
+	const parents = readMergeHeadLines(root);
+	if (parents.length === 0) return { paths, error: null };
 	const staged = readStagedBlobs(dirty);
 	if (staged.error) return { paths, error: staged.error };
 	const { index, whole } = staged;
 	if (whole.length === 0) return { paths, error: null };
-	for (const sha of parents.shas) {
+	for (const sha of parents) {
 		const tree = readTreeBlobs(sha, whole);
 		if (tree.error) return { paths, error: tree.error };
 		for (const p of whole) if (index.get(p) === tree.blobs.get(p)) paths.add(p);
@@ -4195,38 +4195,10 @@ function readTreeBlobs(sha, paths) {
 	for (const line of tree.paths) {
 		const tab = line.indexOf("\t");
 		const blob = line.slice(0, tab).split(" ")[2];
-		if (blob) blobs.set(line.slice(tab + 1), blob);
+		if (tab < 0 || !blob) return { blobs, error: `unparsed tree line ${line}` };
+		blobs.set(line.slice(tab + 1), blob);
 	}
 	return { blobs, error: tree.error };
-}
-
-/**
- * The commits an unfinished merge is bringing in, none outside a merge.
- *
- * @returns {{ shas: string[], error: string | null }}
- */
-function readMergeHeads() {
-	const r = spawnGitSync(
-		[
-			"-C",
-			root,
-			"rev-parse",
-			"--path-format=absolute",
-			"--git-path",
-			"MERGE_HEAD",
-		],
-		{ encoding: "utf8" },
-	);
-	const failed = gitFailure(r);
-	if (failed) return { shas: [], error: failed };
-	const file = r.stdout.trim();
-	if (!fs.existsSync(file)) return { shas: [], error: null };
-	try {
-		const shas = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
-		return { shas, error: null };
-	} catch (e) {
-		return { shas: [], error: caught(e).message };
-	}
 }
 
 /**
