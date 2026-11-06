@@ -16,13 +16,13 @@ const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
 const { execGit, gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
+const { PushRefused } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
 	parseRefusalTail,
-	PushRefused,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,

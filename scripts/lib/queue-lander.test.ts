@@ -38,9 +38,10 @@ import {
 } from "./queue-lander.js";
 
 // Required, not imported: runQueueLander tests for filing-refused.js's own
-// FilingRefusedError, which an ESM import of it would load a second copy of.
+// FilingRefusedError and network-fault.js's own PushRefused, which an ESM
+// import would load a second copy of.
 const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
-const { PushRefused } = createRequire(__filename)("./lander-git.js");
+const { PushRefused } = createRequire(__filename)("./network-fault.js");
 
 interface Ref {
 	sha: string;
@@ -645,7 +646,7 @@ describe("faults", () => {
 		expect(pushes).toBe(1);
 	});
 
-	it("exits at once on a push whose hook quoted a network fault, reading git's own lines alone (#4513)", async () => {
+	it("exits at once on a PushRefused whose stderr quotes a network fault, never retrying it (#4513)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
 		});

@@ -14,6 +14,8 @@ const { caught } = require("./caught.js");
 const {
 	isNetworkFault,
 	isPushFaultText,
+	PushRefused,
+	readGitLines,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 } = require("./network-fault.js");
@@ -30,15 +32,13 @@ const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
 /* Measured on #3913: the gate stack fits this up to load 42-56, if time scales
  * with load, which no run measured. */
 const GATED_COMMIT_TIMEOUT_MS = 600 * 1000;
-const GIT_REFUSAL = /^(?:error|fatal):.*|^ ! \[.*/m;
 
 /**
  * The line naming why a git call failed: git's own refusal where it printed
  * one, as a push's first line is the pre-push hook's, else the first line.
  * @param {string} text
  */
-const parseRefusal = (text) =>
-	GIT_REFUSAL.exec(text)?.[0] ?? parseFirstLine(text);
+const parseRefusal = (text) => readGitLines(text)[0] ?? parseFirstLine(text);
 
 /* A first guess, unmeasured: room for a gate's findings and the command it
  * names to settle them. */
@@ -243,24 +243,6 @@ const readConflictedFiles = (inTree) =>
 		.filter(Boolean);
 
 /**
- * A push git refused, its hook's output in `stderr` with git's own: a retry
- * would only repeat it, even where the hook quotes a network fault (#4513).
- */
-class PushRefused extends Error {
-	/**
-	 * @param {string} message
-	 * @param {{ cause: unknown }} options `cause` the failed push
-	 */
-	constructor(message, options) {
-		super(message, options);
-		const e = caught(options.cause);
-		this.status = e.status;
-		this.stderr = e.stderr;
-		this.stdout = e.stdout;
-	}
-}
-
-/**
  * A push from `root` to lib/landing-refs.js's remote. Its timeout is the
  * pre-push hook's run, which a retry would only repeat, so it throws as no
  * network fault; a refusal whose git lines name no fault throws PushRefused.
@@ -295,7 +277,6 @@ module.exports = {
 	isAncestor,
 	parseRefusal,
 	parseRefusalTail,
-	PushRefused,
 	pushRemote,
 	readConflictedFiles,
 	readRemoteHeads,

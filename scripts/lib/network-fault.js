@@ -38,8 +38,14 @@ const remoteBackoffMs = (attempt) =>
  */
 const isNetworkFaultText = (text) => NETWORK.test(text);
 
-/** git's own refusal lines, as against a hook's output, which may quote anything. */
-const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
+/**
+ * git's own refusal lines in `text`, as against a hook's output, which may
+ * quote anything.
+ * @param {string} text
+ * @returns {string[]}
+ */
+const readGitLines = (text) =>
+	text.match(/^(?:error|fatal):.*|^ ! \[.*/gm) ?? [];
 
 /**
  * Whether a failed push's output names a network or remote fault in git's own
@@ -47,13 +53,32 @@ const GIT_LINE = /^(?:error|fatal):.*|^ ! \[.*/gm;
  * @param {string} output
  */
 const isPushFaultText = (output) =>
-	isNetworkFaultText((output.match(GIT_LINE) ?? []).join("\n"));
+	isNetworkFaultText(readGitLines(output).join("\n"));
+
+/**
+ * A push git refused, its hook's output in `stderr` with git's own: a retry
+ * would only repeat it, even where the hook quotes a network fault (#4513).
+ */
+class PushRefused extends Error {
+	/**
+	 * @param {string} message
+	 * @param {{ cause: unknown }} options `cause` the failed push
+	 */
+	constructor(message, options) {
+		super(message, options);
+		const e = caught(options.cause);
+		this.status = e.status;
+		this.stderr = e.stderr;
+		this.stdout = e.stdout;
+	}
+}
 
 /**
  * @param {unknown} err
  * @returns {boolean}
  */
 function isNetworkFault(err) {
+	if (err instanceof PushRefused) return false;
 	const e = caught(err);
 	return e.code === "ETIMEDOUT" || isNetworkFaultText(String(e.stderr ?? ""));
 }
@@ -61,6 +86,8 @@ function isNetworkFault(err) {
 module.exports = {
 	isNetworkFault,
 	isPushFaultText,
+	PushRefused,
+	readGitLines,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 };

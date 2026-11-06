@@ -87,7 +87,7 @@
 const { caught, parseErrorText } = require("./caught.js");
 const { FilingRefusedError } = require("./filing-refused.js");
 const { HEARTBEAT_MS } = require("./lander-files.js");
-const { PushRefused, parseRefusal, remote, short } = require("./lander-git.js");
+const { parseRefusal, remote, short } = require("./lander-git.js");
 const {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
@@ -980,7 +980,6 @@ function nextQueueAction(s) {
  * @param {unknown} err
  */
 function isTransientFault(err) {
-	if (err instanceof PushRefused) return false;
 	if (err instanceof TransientFault || isNetworkFault(err)) return true;
 	const { code } = caught(err);
 	return typeof code === "string" && SPAWN_FAULTS.includes(code);

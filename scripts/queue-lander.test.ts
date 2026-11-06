@@ -50,10 +50,10 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 landerSandbox();
 
-// Required, not imported: an ESM import of lib/queue-lander.js would load a
-// second copy of TransientFault, which queueGit's throw is not.
+// Required, not imported: an ESM import would load a second copy of
+// TransientFault or PushRefused, which queueGit's throw is not.
 const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
-const { PushRefused } = createRequire(__filename)("./lib/lander-git.js");
+const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
@@ -405,6 +405,22 @@ describe("the adapters", () => {
 		expect(() => queueGit(work).pushMain(a)).toThrow(
 			/fatal error in commit_refs_rules/,
 		);
+	});
+
+	it("returns the remote's refusal of a push to main though its pre-push hook quoted a network fault (#4513)", () => {
+		const a = commit("a");
+		fs.writeFileSync(
+			path.join(work, ".git", "hooks", "pre-push"),
+			"#!/bin/sh\necho 'test said: Connection reset' >&2\n",
+			{ mode: 0o755 },
+		);
+		fs.writeFileSync(
+			path.join(remote, "hooks", "pre-receive"),
+			"#!/bin/sh\necho 'GH013: rule violations' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+
+		expect(queueGit(work).pushMain(a)).toMatch(/^! \[remote rejected\] .*main/);
 	});
 
 	it("throws a push whose hook quoted a network fault as a refusal, never a fault to retry (#4513)", () => {
