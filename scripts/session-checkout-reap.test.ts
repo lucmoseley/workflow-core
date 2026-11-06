@@ -369,6 +369,17 @@ it("leaves a locked worktree alone", () => {
 	expect(registered()).toContain(locked);
 });
 
+it("leaves the queue lander's landed, clean worktree alone (#4421)", () => {
+	const lander = worktree("lander");
+	git(main, "worktree", "add", "-q", "--detach", lander, "HEAD");
+
+	const r = reap();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toBe("");
+	expect(registered()).toContain(lander);
+});
+
 it("leaves a worktree its cutting session holds while that session lives, then removes it (#4496)", () => {
 	const dispatched = cut("dispatched", "cutter");
 	const pid = holdProcess(tmp);

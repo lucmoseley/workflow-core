@@ -77,7 +77,8 @@ const POOL_WIDTH = 4;
  * `file-ci-time` (#4292) also runs in the scheduled sweep, and downloads the
  * last few sweeps' vitest reports, ~11 MB each. `compaction-backstop` (#4410)
  * reads one comment page per ticket closed in its window, so it is among the
- * slowest.
+ * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
+ * lag past its threshold: here every reading is a standing.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -110,6 +111,7 @@ const CHECKS = [
 	["skill-body-size", "check-skill-body-size.js"],
 	["marker-integrity", "check-marker-integrity.js"],
 	["release-pin", "check-release-pin.js"],
+	["release-lag", "check-release-lag.js"],
 	["band-drift", "check-band-drift.js"],
 	["citation-ceiling", "check-citation-ceiling.js"],
 	["orphaned-edits", "check-orphaned-edits.js"],
@@ -149,6 +151,7 @@ const STANDINGS = new Set([
 	"primitives",
 	"wsl-currency",
 	"compaction-backstop",
+	"release-lag",
 ]);
 
 /**

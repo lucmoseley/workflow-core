@@ -67,7 +67,7 @@ const LOCAL_SKILL = ".claude/skills/code-review";
 const BUILT_IN = `A bare \`code-review\` here is the harness's built-in reviewer, not workflow-core's: this project carries no code-review skill of its own (no \`SKILL.md\` under \`.claude/skills/code-review/\`). The built-in diffs only \`@{upstream}...HEAD\`, never your fixed point, and writes neither review-axis Artefact. Call the Skill tool with \`workflow-core:code-review\` instead, same fixed point (#1165).`;
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext
+ * @typedef {import("./guard-judge.js").CoreContext
  *   & ReturnType<typeof import("./review-rules-host.js").buildHostPorts>} ReviewRulesContext
  */
 

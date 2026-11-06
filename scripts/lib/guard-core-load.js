@@ -13,7 +13,7 @@ const { corePath, readDispatchRows } = require("./guard-cores.js");
 
 /**
  * @typedef {import("./guard-cores.js").CoreRow} CoreRow
- * @typedef {import("./guard-dispatch.js").Core} Core
+ * @typedef {import("./guard-judge.js").Core} Core
  */
 
 /**

@@ -447,6 +447,9 @@ describe("the core-only class (#440)", () => {
 		// Its remedies print only on a repo carrying .claude-plugin/marketplace.json
 		// — the core; an adopter without one SKIPs.
 		"scripts/check-release-pin.js -> scripts/release-plugin.js",
+		// Required past its core-host check, and printed only by a run past it (#4448).
+		"scripts/check-release-lag.js -> scripts/lib/release-tags.js",
+		"scripts/lib/release-lag.js -> scripts/release-plugin.js",
 		// Named to run in a core checkout, the only clone carrying release tags.
 		"docs/agents/adopter-upgrade.md -> scripts/release-contains.js",
 		// An allowlist key; an entry whose file is absent is silent.

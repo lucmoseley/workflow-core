@@ -16,7 +16,7 @@
  *     same arbiter's `writes`, which never does. It counts only where the
  *     script it names, beside the guard or under its `lib/`, writes a verdict
  *     by the first route: guard-dispatch.js relays its cores'
- *     merged verdict from lib/guard-dispatch.js.
+ *     merged verdict from lib/guard-judge.js.
  *   - A `DENIES-BY: exit 2` line in the header, for a hook that refuses by
  *     Claude Code's blocking exit with its reason on stderr, as
  *     `self-plugin-canary.sh` does to fail closed without jq (#2473).
@@ -24,7 +24,7 @@
  *     only where the script's body, below the header, carries an `exit 2`.
  *
  * A DISPATCHER CORE (lib/guard-cores.json) has a fourth route, since it
- * returns its verdict to lib/guard-dispatch.js rather than writing one:
+ * returns its verdict to lib/guard-judge.js rather than writing one:
  * `isDenyingCore` reads its module for a `deny:` key, or for guard-verdict.js's
  * `deny` or `denyText` helper, outside its whole-line comments (#3272).
  * Residual: a `deny:` in a string or a trailing comment reads as one.
