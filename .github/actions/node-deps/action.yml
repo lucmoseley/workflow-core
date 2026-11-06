@@ -1,0 +1,32 @@
+name: Install node dependencies
+description: >-
+  Restores node_modules from a cache keyed on the exact lockfile, runner and
+  Node major, else runs `npm ci --ignore-scripts` and saves what it installed
+  before any later step can write into it (#4545).
+
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: echo "key=node-modules-${RUNNER_OS}-${RUNNER_ARCH}-node$(node -p 'process.versions.node.split(".")[0]')-${{ hashFiles('package-lock.json') }}" >> "$GITHUB_OUTPUT"
+
+    - id: restore
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: node_modules
+        key: ${{ steps.key.outputs.key }}
+
+    # `--ignore-scripts` on ci.yml's terms (#3363): no dependency script runs,
+    # so the tree is the lockfile's alone and the key covers all of it.
+    - if: ${{ steps.restore.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: npm ci --ignore-scripts
+
+    # Saved here, not at the job's end, where a test's writes under
+    # node_modules (Vite's cache among them) would ride into the next run.
+    - if: ${{ steps.restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: node_modules
+        key: ${{ steps.key.outputs.key }}

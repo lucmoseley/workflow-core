@@ -76,7 +76,7 @@ jobs:
       # token before anything has read it (#3363). A dependency that needs its
       # script gets an `npm rebuild <pkg>` after the install, naming it.
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        uses: ./.github/actions/node-deps
 
       # By path, never `npx biome`: the bare name is an unrelated package that
       # exits 0 having checked nothing (mantahostels#1538). `if: !cancelled()` runs this step
@@ -260,12 +260,13 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Install dependencies
+        uses: ./.github/actions/node-deps
+
       # The repo's own `prepare` runs, as `--ignore-scripts` skipped it: the
       # hook-gate tests copy the .husky/_ shims husky writes.
-      - name: Install dependencies
-        run: |
-          npm ci --ignore-scripts
-          npm run prepare
+      - name: Write the husky shims
+        run: npm run prepare
 
       - name: Install test tools
         if: ${{ !cancelled() }}
