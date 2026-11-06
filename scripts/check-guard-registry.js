@@ -195,7 +195,7 @@ const { caught } = require("./lib/caught.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
-const { inTree, treeOf } = require("./lib/tree-members.js");
+const { hasOwnGit, isTreeMember, treeOf } = require("./lib/tree-members.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -507,7 +507,7 @@ function dropIgnored(files) {
  * @param {string} dir
  */
 function isMaterialised(dir) {
-	return !fs.existsSync(path.join(dir, ".git"));
+	return !hasOwnGit(dir);
 }
 
 /**
@@ -1898,7 +1898,7 @@ function parsedSources(rel, text, base) {
 		text,
 		...parseSourcedBy(rel, text, base),
 		named: isGateStack(header)
-			? headerNamed(header).filter((p) => inTree(base, p))
+			? headerNamed(header).filter((p) => isTreeMember(base, p))
 			: null,
 	};
 	sourcedCache.set(key, parsed);
@@ -2015,9 +2015,9 @@ function headerNamed(header) {
  */
 function resolveSourced(base, dir, lib) {
 	const sibling = path.join(dir, lib);
-	if (inTree(base, sibling)) return sibling;
+	if (isTreeMember(base, sibling)) return sibling;
 	const shared = path.join("scripts", lib);
-	return inTree(base, shared) ? shared : sibling;
+	return isTreeMember(base, shared) ? shared : sibling;
 }
 
 /** @param {string} p a run target, as a path from the tree's root */
@@ -2036,10 +2036,17 @@ function keptRun(p) {
  */
 function resolveRun(base, dir, tail) {
 	const sibling = path.join(dir, tail);
-	if (inTree(base, sibling)) return sibling;
+	if (isTreeMember(base, sibling)) return sibling;
 	if (!keptRun(path.normalize(tail))) return sibling;
-	return inTree(base, tail) ? tail : sibling;
+	return isTreeMember(base, tail) ? tail : sibling;
 }
+
+/**
+ * The dependencies a digest hashed as absent from the tree. An untracked file
+ * at one of these paths moves no digest, so --review never calls it dirty.
+ * @type {Set<string>}
+ */
+const absentFromTree = new Set();
 
 /*
  * Short hex of the guard's bytes AND of every library it sources. Truncated to
@@ -2055,7 +2062,7 @@ function resolveRun(base, dir, tail) {
  */
 /**
  * @param {string} rel
- * @param {Set<string>} [seen] accumulator: each file hashed is added, so a cycle hashes once
+ * @param {Set<string>} [seen] accumulator: each file hashed is added, and each dependency absent from the tree, so a cycle hashes once
  * @param {boolean} [inStack] reached from a gate stack, so what it runs is left out
  * @returns {string | null}
  */
@@ -2073,13 +2080,20 @@ function digestOf(rel, seen = new Set(), inStack = false) {
 		 * at its path (#4508). It stays an input, so a staged removal of it reads
 		 * as dirty. */
 		for (const lib of sourcedBy(rel, text, root, !stack).sort()) {
-			const there = inTree(root, lib);
-			if (!there) seen.add(lib);
+			const there = isTreeMember(root, lib);
+			if (!there) {
+				seen.add(lib);
+				absentFromTree.add(lib);
+			}
 			hash.update(`\0${lib}\0${(there && digestOf(lib, seen, stack)) || ""}`);
 		}
+		/* A named file in the index but gone from disk hashes as absent, as a
+		 * library does, rather than nulling the stack's whole digest. */
 		for (const p of named ?? []) {
 			seen.add(p);
-			hash.update(`\0${p}\0`).update(fs.readFileSync(path.join(root, p)));
+			hash.update(`\0${p}\0`);
+			if (fs.existsSync(path.join(root, p)))
+				hash.update(fs.readFileSync(path.join(root, p)));
 		}
 		return hash.digest("hex").slice(0, 16);
 	} catch {
@@ -3723,8 +3737,8 @@ function sortClaims(found, snap, wanted, ours) {
 }
 
 /**
- * The digest inputs dirty against HEAD, staged or not, untracked included, a
- * rename's old name too — or why git would not say. None where there is no
+ * The digest inputs dirty against HEAD, staged or not, untracked included
+ * where the digest reads it, a rename's old name too — or why git would not say. None where there is no
  * HEAD, as outside a repository.
  *
  * @param {string[]} inputs
@@ -3759,7 +3773,13 @@ function readDirtyInputs(inputs) {
 	const error = tracked.error ?? untracked.error;
 	return error
 		? { paths: [], error }
-		: { paths: [...tracked.paths, ...untracked.paths], error: null };
+		: {
+				paths: [
+					...tracked.paths,
+					...untracked.paths.filter((p) => !absentFromTree.has(p)),
+				],
+				error: null,
+			};
 }
 
 /**
@@ -3971,6 +3991,7 @@ const buildHeldLine = (h) =>
  * @returns {never}
  */
 function reanchor(request, describedBy, implicitScripts, anchors) {
+	refuseFailedTreeRead();
 	const { paths: reviewPaths, taking, soleWriter } = request;
 	/*
 	 * Re-anchoring asserts a human re-read the rules describing that guard, so
@@ -4035,6 +4056,16 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	const carried = Object.keys(next).length - written;
 	printLine(buildReviewSummary(run, carried).join("\n"));
 	process.exit(0);
+}
+
+/* A fail-open digest is the worktree's, so anchoring it would record what
+ * #4508 removed. */
+function refuseFailedTreeRead() {
+	const { failure } = treeOf(root);
+	if (failure)
+		throw brokenError(
+			`--review re-anchors nothing: ${failure}, so each digest would resolve its dependencies on disk rather than in the index (#4508).`,
+		);
 }
 
 /**
@@ -4170,7 +4201,6 @@ function buildReviewSummary(
 	const lines = [
 		`\n${written} path(s) re-anchored in ${ANCHORS}. ` +
 			"Re-anchoring asserts everything printed as anchored above was re-read against the file.",
-		...treeFailureLines(),
 	];
 	if (carried)
 		lines.push(
@@ -4714,7 +4744,7 @@ function parseReviewRequest(ctx, reviewAt) {
 }
 
 /** The line saying the digests read the disk, not the index; none where they read the index or the tree has none. */
-function treeFailureLines() {
+function buildTreeFailureLines() {
 	const { failure } = treeOf(root);
 	return failure
 		? [
@@ -4935,7 +4965,7 @@ runCheck({
 				`${triggerRefs.length} trigger(s) naming one.\n` +
 				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) or dispatcher core(s) run on a narrowed set, ` +
 				`${declaredIfUnreadable} unreadable emitter(s) skipped on the declared side (mantahostels#2234).\n` +
-				[buildIgnoreLine(), ...treeFailureLines()].join("\n"),
+				[buildIgnoreLine(), ...buildTreeFailureLines()].join("\n"),
 		);
 
 		/*

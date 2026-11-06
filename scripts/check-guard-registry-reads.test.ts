@@ -855,6 +855,7 @@ describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
 					"# IMPLICIT:  runs every gate below and refuses the commit on a red.",
 					"# JUSTIFIED: fail-safe — the last local moment before work is shared.",
 					"# RUNS:      gates — scripts/not-yet.js joins them later.",
+					"# DEFEAT:    none.",
 					"#",
 					'. "$ROOT"/scripts/lib/gate.sh',
 					'node "$ROOT"/scripts/check-valid.js || exit "$?"',
@@ -875,23 +876,50 @@ describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
 		});
 		return { root, other };
 	};
-	const digests = (tree: string) =>
-		Object.fromEntries(
-			run(tree)
-				.json.warnings.filter((w) => w.kind === "STALE-PROSE")
+	const plant = (tree: string) => {
+		for (const rel of shadows) {
+			fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true });
+			fs.writeFileSync(path.join(tree, rel), "planted\n");
+		}
+	};
+	const digests = (tree: string) => {
+		const r = run(tree);
+		expect(r.kinds).toEqual([]);
+		expect(r.code).toBe(0);
+		expect(r.report).toContain("Re-read each rule above against its guard");
+		return Object.fromEntries(
+			r.json.warnings
+				.filter((w) => w.kind === "STALE-PROSE")
 				.map((w) => [w.guard, /now ([0-9a-f]{16})/.exec(w.detail)?.[1]]),
 		);
+	};
 
 	it("gives every row one digest in two worktrees, one carrying untracked and ignored shadows", () => {
 		const { root, other } = commitWithWorktree();
-		for (const rel of shadows) {
-			fs.mkdirSync(path.dirname(path.join(other, rel)), { recursive: true });
-			fs.writeFileSync(path.join(other, rel), "planted\n");
-		}
+		plant(other);
 		const clean = digests(root);
 
 		expect(Object.keys(clean).sort()).toEqual(rows);
 		expect(digests(other)).toEqual(clean);
+	});
+
+	it("writes one set of anchors from --review in both worktrees", () => {
+		const { root, other } = commitWithWorktree();
+		plant(other);
+		reviewIn(root);
+		reviewIn(other);
+
+		expect(readAnchors(other)).toEqual(readAnchors(root));
+	});
+
+	it("re-anchors nothing where git cannot read the index", () => {
+		const { root } = commitWithWorktree();
+		const before = readAnchors(root);
+		// PATH, not a WFC_ binary var (docs/code-standards-base.md §N7): the case is git missing from PATH.
+		expect(() => reviewIn(root, [], { PATH: "" })).toThrow(
+			/--review re-anchors nothing: git rev-parse failed/,
+		);
+		expect(readAnchors(root)).toEqual(before);
 	});
 
 	it("takes a shadow into the closure once it is in the index", () => {
