@@ -33,11 +33,12 @@ fs.appendFileSync("ran.log", files.join(" ") + "\\n");
 const out = process.env.WFC_VITEST_JSON;
 if (out) fs.writeFileSync(out, JSON.stringify({ testResults: files.map((f) => ({
 	name: path.resolve(f), status: failing.includes(f) ? "failed" : "passed" })) }));
+if (process.env.STUB_EXIT) process.exit(Number(process.env.STUB_EXIT));
 process.exit(files.some((f) => failing.includes(f)) ? 1 : 0);
 `;
 
-/** A directory whose first report marks `failed` failed. */
-function repo(failed: string[]): { root: string; report: string } {
+/** A directory whose first report marks `failed` failed, named under `under`. */
+function repo(failed: string[], under = ""): { root: string; report: string } {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "retry-failed-"));
 	dir = root;
 	fs.writeFileSync(
@@ -50,7 +51,10 @@ function repo(failed: string[]): { root: string; report: string } {
 		report,
 		JSON.stringify({
 			testResults: [
-				...failed.map((f) => ({ name: path.join(root, f), status: "failed" })),
+				...failed.map((f) => ({
+					name: path.join(root, under, f),
+					status: "failed",
+				})),
 				{ name: path.join(root, "ok.test.ts"), status: "passed" },
 			],
 		}),
@@ -58,10 +62,15 @@ function repo(failed: string[]): { root: string; report: string } {
 	return { root, report };
 }
 
-const run = (root: string, report: string, stubFail = "") =>
+const run = (root: string, report: string, stubFail = "", stubExit = "") =>
 	runInProcess(SCRIPT, [report], {
 		cwd: root,
-		env: { ...process.env, STUB_FAIL: stubFail, WFC_VITEST_JSON: "" },
+		env: {
+			...process.env,
+			STUB_FAIL: stubFail,
+			STUB_EXIT: stubExit,
+			WFC_VITEST_JSON: "",
+		},
 	});
 
 it("re-runs only the failed files once, exiting 0 and naming none still failing where they pass", () => {
@@ -85,6 +94,25 @@ it("names only the files the retry failed again, exiting with the re-run's code"
 	);
 	expect(JSON.parse(fs.readFileSync(report, "utf8")).testResults).toHaveLength(
 		3,
+	);
+});
+
+it("re-runs a file an isolated worktree's report names by its path in this checkout (#4560)", () => {
+	const { root, report } = repo(["a.test.ts"], ".claude/worktrees/isolated-7");
+	fs.writeFileSync(path.join(root, "a.test.ts"), "");
+	const r = run(root, report);
+	expect(fs.readFileSync(path.join(root, "ran.log"), "utf8")).toBe(
+		"a.test.ts\n",
+	);
+	expect(r.status).toBe(0);
+});
+
+it("names the first run's files still failing where the re-run fails naming no failure (#4560)", () => {
+	const { root, report } = repo(["a.test.ts"]);
+	const r = run(root, report, "", "1");
+	expect(r.status).toBe(1);
+	expect(r.stdout).toContain(
+		"retry-failed-files: still failing after one retry: a.test.ts",
 	);
 });
 

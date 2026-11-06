@@ -24,6 +24,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { reportRoot } = require("./lib/suite-timings.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const STILL_FAILING = "retry-failed-files: still failing after one retry:";
@@ -43,10 +44,14 @@ function readFailedFiles(file, root) {
 	} catch {
 		return { why: `the report at ${file} does not parse` };
 	}
+	/* An isolated worktree's run names its files under that tree (#4560). */
+	const under = reportRoot(parsed, root, (rel) =>
+		fs.existsSync(path.join(root, rel)),
+	);
 	return {
 		files: (parsed.testResults ?? []).flatMap((r) =>
 			r.status === "failed" && typeof r.name === "string"
-				? [path.relative(root, r.name)]
+				? [path.relative(under, r.name)]
 				: [],
 		),
 	};
@@ -79,9 +84,11 @@ function main(argv = process.argv.slice(2)) {
 	});
 	const code = r.status ?? 1;
 	const again = readFailedFiles(retryReport, root);
-	/* An unread retry report leaves the first run's files standing. */
+	/* A failed re-run whose report is unread or names no failure leaves the
+	 * first run's files standing. */
 	let still = code === 0 ? [] : first.files;
-	if (code !== 0 && !("why" in again)) still = again.files;
+	if (code !== 0 && !("why" in again) && again.files.length > 0)
+		still = again.files;
 	writeFd(
 		1,
 		`${STILL_FAILING} ${still.length > 0 ? still.join(", ") : "none"}\n`,
