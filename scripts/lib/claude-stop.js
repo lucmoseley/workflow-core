@@ -15,7 +15,6 @@
 const fs = require("node:fs");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
-const { claudeBin } = require("./claude-bin.js");
 const headless = require("./headless-runs.js");
 const { readJobRecord, shortJobId } = require("./job-paths.js");
 const { buildSeatEnv, runClaude } = require("./seat-claude.js");
@@ -131,7 +130,7 @@ function stopSession(id, sessionId) {
  * @param {string} [bin]  the binary, where the caller pins a CLI version
  * @returns {StopOutcome}
  */
-function stopOn(seat, id, bin = claudeBin()) {
+function stopOn(seat, id, bin) {
 	const run = stopHeadless(id);
 	if (run) return run;
 	const r = runClaude(["stop", id], {

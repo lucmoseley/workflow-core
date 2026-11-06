@@ -16,6 +16,7 @@ import {
 	membersOf,
 	WATCH,
 } from "./session-scope.js";
+import { systemctlCalls, writeSystemctl } from "./systemctl-fake";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -112,7 +113,8 @@ describe("attachAll", () => {
 describe("the watcher", () => {
 	/**
 	 * A fake /proc, a scope cgroup at /scope holding `procs`, a systemctl
-	 * that names it and empties it on `kill`, and a busctl that logs.
+	 * (lib/systemctl-fake.ts) that names it and empties it on `kill`, and a
+	 * busctl that logs.
 	 */
 	function fakeMachine(procs: Record<number, string>) {
 		const root = tmp("session-scope-w-");
@@ -138,17 +140,19 @@ describe("the watcher", () => {
 			...process.env,
 			WFC_PROC: proc,
 			WFC_CGROUP_ROOT: path.join(root, "cg"),
-			WFC_SYSTEMCTL: stub(
-				"systemctl",
-				`case "$*" in *show*) echo /scope;; *kill*) echo "$*" >> "${root}/systemctl.log"; : > "${dir}/cgroup.procs";; esac`,
-			),
+			WFC_SYSTEMCTL: writeSystemctl(root, {
+				units: { "u.scope": { properties: { ControlGroup: "/scope" } } },
+				cgroupRoot: path.join(root, "cg"),
+			}),
 			WFC_BUSCTL: stub("busctl", `echo "$*" >> "${root}/busctl.log"`),
 		};
 		const read = (name: string) => {
 			const file = path.join(root, name);
 			return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 		};
-		return { proc, dir, env, read };
+		const kills = () =>
+			systemctlCalls(root).filter((c) => c.includes(" kill "));
+		return { proc, dir, env, read, kills };
 	}
 
 	const watch = (env: NodeJS.ProcessEnv, leader: string, start: string) =>
@@ -169,7 +173,9 @@ describe("the watcher", () => {
 		);
 		expect(m.read("busctl.log")).not.toMatch(/4242/);
 		expect(r.stdout).toMatch(/killing what is left in u\.scope: 4242 4243/);
-		expect(m.read("systemctl.log")).toMatch(/--signal=SIGTERM u\.scope/);
+		expect(m.kills()).toEqual([
+			"systemctl --user kill --signal=SIGTERM u.scope",
+		]);
 		expect(fs.readFileSync(path.join(m.dir, "cgroup.kill"), "utf8")).toBe(
 			"1\n",
 		);
@@ -205,7 +211,7 @@ describe("the watcher", () => {
 		expect(watcher.exitCode).toBeNull();
 		fs.rmSync(stat);
 		expect(await exited).toBe(0);
-		expect(m.read("systemctl.log")).toBe("");
+		expect(m.kills()).toEqual([]);
 		expect(fs.readFileSync(path.join(m.dir, "cgroup.kill"), "utf8")).toBe("");
 	});
 });

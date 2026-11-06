@@ -637,7 +637,6 @@ module.exports = {
 	limitHoldsOf,
 	runningOf,
 	workingOf,
-	parseScope,
 	scopeRoots,
 	controlWithoutOptedOut,
 	landingRoots,
