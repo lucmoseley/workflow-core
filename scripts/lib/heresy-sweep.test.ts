@@ -5,8 +5,9 @@
  * (#4039). report-heresy-sweep-due.test.ts holds the program's boundary cases.
  * The due cases run on a fake tracker port and a fixed clock, the parser cases
  * over literal comment bodies, so no case reaches `gh` or waits on time.
- * Breaking it files the monthly sweep early, late or never, or misstates check-primitives.js's "new heresies since the last sweep" count,
- * which the morning review carries.
+ * Breaking it files the monthly sweep early, late or never, or misstates
+ * check-primitives.js's "new heresies since the last sweep" count, which the
+ * morning review carries.
  */
 
 import { describe, expect, it } from "vitest";
