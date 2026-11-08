@@ -46,6 +46,7 @@ const { worktreeRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { trimEndRun, trimRun } = require("./lib/trim-run.js");
 const { caught } = require("./lib/caught.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /* Every path here — the source documents and the fragment store — is in the
  * session's own tree (#1, #4438): a plugin install keeps this script beside
@@ -387,8 +388,7 @@ function reconcile(regions, check) {
 	return stale;
 }
 
-const USAGE =
-	"usage: node scripts/generate-rule-fragments.js [--check | --sources]";
+const USAGE = `usage: node ${scriptPath("generate-rule-fragments.js")} [--check | --sources]`;
 
 /** @param {string[]} argv */
 function main(argv) {

@@ -18,6 +18,10 @@
  *   node scripts/session-checkout.js attach [<worktree>]
  *     re-points the worktree's node_modules at the store for its lockfile;
  *     the current directory's worktree where none is named
+ *   node scripts/session-checkout.js relink
+ *     where the current directory's worktree links a store its lockfile no
+ *     longer keys, re-points it at the store standing for that lockfile, or
+ *     refuses naming attach where none stands; silent where nothing changed
  *   node scripts/session-checkout.js land
  *     merges origin/main into the current directory's worktree and pushes
  *     HEAD to its queue ref, queue/<worktree name>, saying on stderr what it
@@ -37,8 +41,9 @@
  * that could not remove something it should have exits 1; one that finds
  * stranded work exits 0. A reopen exits as `claude attach` does.
  *
- * IT JOINS NO FAMILY (§G4, §N3): it gates nothing (no `check-*`), no hook
- * runs it (no `guard-*`), it generates no file (no `generate-*`) and files no
+ * IT JOINS NO FAMILY (§G4, §N3): it gates nothing (no `check-*`), no Claude
+ * Code hook runs it (no `guard-*`), and git hooks run `relink` only as a helper
+ * whose exit they ignore; it generates no file (no `generate-*`) and files no
  * issue (no `report-*`).
  */
 
@@ -56,6 +61,7 @@ const {
 	land,
 	launchDir,
 	reap,
+	relink,
 	warm,
 	reopen,
 } = require("./lib/session-checkout.js");
@@ -68,7 +74,7 @@ const { writeFd } = require("./lib/write-fd.js");
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
 	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] [--into <worktree>] <prompt> | warm | attach [<worktree>] | land | reap | reopen <job-id>",
+		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] [--into <worktree>] <prompt> | warm | attach [<worktree>] | relink | land | reap | reopen <job-id>",
 	commands: {
 		cut: {
 			usage: "usage: node scripts/session-checkout.js cut <session-name>",
@@ -86,6 +92,9 @@ const CLI = {
 		attach: {
 			usage: "usage: node scripts/session-checkout.js attach [<worktree>]",
 			max: 1,
+		},
+		relink: {
+			usage: "usage: node scripts/session-checkout.js relink",
 		},
 		land: {
 			usage: "usage: node scripts/session-checkout.js land",
@@ -201,6 +210,14 @@ const RUN = {
 				? `session checkout: ${made.dir} has no lockfile, so nothing is attached\n`
 				: `session checkout: ${made.dir} uses ${made.store}${made.built ? ", built now" : ""}\n`,
 		);
+	},
+	relink: () => {
+		const made = relink(process.cwd());
+		if (made.store !== null)
+			writeFd(
+				2,
+				`session checkout: ${made.dir}'s lockfile changed, so it now uses ${made.store}\n`,
+			);
 	},
 	land: () => {
 		const made = land(process.cwd());

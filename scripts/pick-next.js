@@ -667,7 +667,7 @@ function strandedClaimCount(listed) {
 		dirty: strandedCount.readDirtyPaths(),
 		terminal: listed.terminal,
 		found,
-		worktrees: strandedCount.attributeWorktreeDirt(found, listed),
+		attributed: strandedCount.attributeWorktreeDirt(found, listed),
 	});
 }
 
@@ -1320,7 +1320,7 @@ function renderOwedWork(state) {
 		1,
 		`  stranded claims    ${
 			stranded.ok
-				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work; ${stranded.strandedWorktrees} finished session worktree(s) carrying it`
+				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work; ${stranded.strandedWorktrees ?? "unknown how many (a job store would not read)"} finished session worktree(s) carrying it`
 				: `unknown (${stranded.error})`
 		}  — node ${scriptPath("check-stranded-file-claims.js")}\n`,
 	);
@@ -2212,7 +2212,7 @@ function renderRunSummary(state) {
 		`  ${pad("owed work", 19)}${
 			summary.strandedClaims === null
 				? "unknown stranded claims"
-				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees} stranded worktrees`
+				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees ?? "unknown"} stranded worktrees`
 		}\n`,
 	);
 	printSummaryFlags(summary);

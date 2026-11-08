@@ -43,6 +43,7 @@ const {
 	readStagedDiff,
 } = require("./lib/staged");
 const { caught } = require("./lib/caught.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {{ code: string | null, message: string, location?: { row: number, column: number } }} Diagnostic */
@@ -96,7 +97,7 @@ function chargeIntroduced(ctx, p, now, had) {
 
 runCheck({
 	name: "ruff-introduced",
-	usage: "node scripts/check-ruff-introduced.js [--config <ruff.toml>]",
+	usage: `node ${scriptPath("check-ruff-introduced.js")} [--config <ruff.toml>]`,
 	valueFlags: ["--config"],
 	run(/** @type {Ctx} */ ctx) {
 		const paths = readStagedDiff(ctx, [

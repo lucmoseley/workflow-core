@@ -129,6 +129,7 @@ const { caught } = require("./lib/caught.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
 const { flattenHooks, readOwnHookSources } = require("./lib/core-hooks.js");
 const { spawnGitSync } = require("./lib/git.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /** Resolved once: pinnedOrFirstUsable() stats, and statePath is called per assertion. */
 let stateBaseMemo = "";
@@ -2116,7 +2117,7 @@ function reportUnfinishedReaps(ctx, open, said) {
 				`${message} —\n` +
 					"  it was cancelled or died mid-run, so any session it should have stopped is still resident\n" +
 					"  and pick-next is admitting against memory that is not really spent.\n" +
-					`  Run it by hand with no timeout on it:  node scripts/reap-finished-sessions.js${o.mode === "dry" ? " --dry-run" : ""}`,
+					`  Run it by hand with no timeout on it:  node ${scriptPath("reap-finished-sessions.js")}${o.mode === "dry" ? " --dry-run" : ""}`,
 			);
 	}
 }
@@ -2143,7 +2144,7 @@ function reportChronicReaps(ctx, chronic, saidChronic) {
 					"  instead. Any session it should have stopped is still resident, and pick-next is\n" +
 					"  admitting against memory that is not really spent.\n" +
 					// Always `live`, this loop's own gate above having excluded `dry`.
-					"  Run it by hand with no timeout on it:  node scripts/reap-finished-sessions.js",
+					`  Run it by hand with no timeout on it:  node ${scriptPath("reap-finished-sessions.js")}`,
 			);
 	}
 }
@@ -2301,8 +2302,7 @@ function reportDeadJobs(ctx, dead, said) {
  */
 const DETACHED_HOW = {
 	[JOB_PRUNE_MARKERS]: buildArbiterCommand`prune-markers`,
-	[JOB_RETIRE_STALE_CONTAINERS]:
-		"node scripts/retire-stale-containers.js --dry-run",
+	[JOB_RETIRE_STALE_CONTAINERS]: `node ${scriptPath("retire-stale-containers.js")} --dry-run`,
 };
 
 /**

@@ -11,7 +11,12 @@
  */
 
 const fs = require("node:fs");
-const { jobStorePath, readJobRecord, shortJobId } = require("./job-paths.js");
+const {
+	jobDirPath,
+	jobStorePath,
+	readJobRecordAt,
+	shortJobId,
+} = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
 const { readWholeLines } = require("./session-transcript.js");
 const { findTranscript } = require("./transcript.js");
@@ -43,7 +48,8 @@ function readFirstUserUuid(file) {
  * on: a job created since, in the same cwd, not failed, under a session neither
  * the target's nor in `past`, whose transcript opens on the target's first user
  * row; the earliest such. Null where none is, or the seat has no job store;
- * `unread` where the store or the target's transcript will not read.
+ * `unread` where the store, a job record in it (#4704) or the target's
+ * transcript will not read.
  * @param {string} seat
  * @param {{sessionId: string, cwd: string}} target
  * @param {number} since
@@ -66,11 +72,33 @@ function findResumedCopy(seat, { sessionId, cwd }, since, past) {
 		return { unread: e instanceof Error ? e.message : String(e) };
 	}
 	if (!first) return null;
-	const skipped = new Set([sessionId, ...past]);
+	const copies = readCopies(seat, dirs, {
+		skipped: new Set([sessionId, ...past]),
+		cwd,
+		since,
+		first,
+	});
+	if (!Array.isArray(copies)) return copies;
+	const [copy] = copies.sort((a, b) => a.createdAt - b.createdAt);
+	return copy ? { jobId: copy.jobId, sessionId: copy.sessionId } : null;
+}
+
+/**
+ * Each job among `dirs` on `seat` that isCandidate admits and whose
+ * transcript opens on row `first`; `unread` where a record will not read
+ * (#4704).
+ * @param {string} seat
+ * @param {string[]} dirs
+ * @param {{skipped: Set<string>, cwd: string, since: number, first: string}} want
+ * @returns {{jobId: string, sessionId: string, createdAt: number}[]|{unread: string}}
+ */
+function readCopies(seat, dirs, { skipped, cwd, since, first }) {
 	/** @type {{jobId: string, sessionId: string, createdAt: number}[]} */
 	const copies = [];
 	for (const jobId of dirs) {
-		const rec = readJobRecord(seat, jobId);
+		const r = readJobRecordAt(jobDirPath(seat, jobId));
+		if (r.state === "unreadable") return { unread: r.message };
+		const rec = r.state === "read" ? r.data : null;
 		if (!isCandidate(rec, { skipped, cwd, since })) continue;
 		const file = findTranscript(seat, rec.sessionId);
 		if (file && readUuidOrNull(file) === first)
@@ -80,8 +108,7 @@ function findResumedCopy(seat, { sessionId, cwd }, since, past) {
 				createdAt: Date.parse(rec.createdAt),
 			});
 	}
-	const [copy] = copies.sort((a, b) => a.createdAt - b.createdAt);
-	return copy ? { jobId: copy.jobId, sessionId: copy.sessionId } : null;
+	return copies;
 }
 
 /**
@@ -95,7 +122,7 @@ function findResumedCopy(seat, { sessionId, cwd }, since, past) {
  */
 function findResumed(seat, target, since, past) {
 	const woken = findWokenInPlace(seat, target, since);
-	if (woken) return { ...woken, copy: false };
+	if (woken) return "unread" in woken ? woken : { ...woken, copy: false };
 	const copy = findResumedCopy(seat, target, since, past);
 	return copy && !("unread" in copy) ? { ...copy, copy: true } : copy;
 }
@@ -107,11 +134,14 @@ function findResumed(seat, target, since, past) {
  * @param {string} seat
  * @param {{sessionId: string, cwd: string}} target
  * @param {number} since
- * @returns {{jobId: string, sessionId: string}|null}
+ * @returns {{jobId: string, sessionId: string}|{unread: string}|null}
+ *   `unread` where its record will not read (#4704)
  */
 function findWokenInPlace(seat, { sessionId, cwd }, since) {
 	const jobId = shortJobId(sessionId);
-	const rec = readJobRecord(seat, jobId);
+	const r = readJobRecordAt(jobDirPath(seat, jobId));
+	if (r.state === "unreadable") return { unread: r.message };
+	const rec = r.state === "read" ? r.data : null;
 	return rec?.sessionId === sessionId &&
 		rec.cwd === cwd &&
 		!ENDED_STATES.has(rec.state) &&

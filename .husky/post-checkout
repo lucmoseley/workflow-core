@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# post-checkout — re-points a session worktree's node_modules at the store
+# for the lockfile a checkout, switch or rebase gave it (#4702).
+#
+# IMPLICIT:  where node_modules links a dependency store the checked-out lockfile no longer keys, re-points it at the store standing for that lockfile, or names the attach command where none stands.
+# JUSTIFIED: fail-safe — a worktree left on the old store runs every test and tsc against a tree built for another lockfile; git ignores post-checkout's exit status once the checkout is done.
+# DEFEAT:    no flag; skipped when scripts/lib/relink-store.sh, scripts/session-checkout.js or node is missing.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+
+toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# shellcheck source=scripts/lib/relink-store.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh" ] || . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh"
+! command -v wfc_relink_store >/dev/null 2>&1 || wfc_relink_store "$toplevel"

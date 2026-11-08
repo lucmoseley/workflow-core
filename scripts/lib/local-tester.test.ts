@@ -151,6 +151,22 @@ it("answers the queue lander's tester: the whole suite or named files at a sha, 
 	});
 });
 
+it("judges a named file the sha lacks green, running only the ones it holds (#4347)", async () => {
+	write("b.check.js", "throw new Error('no')");
+	commit("adds a red file");
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+	});
+	expect(await tester.verdict(passing, ["b.check.js"])).toEqual({
+		kind: "green",
+	});
+	expect(await tester.verdict(passing, ["a.check.js", "b.check.js"])).toEqual({
+		kind: "green",
+	});
+});
+
 it("tests the sha, never the shared tree's unsaved edits", async () => {
 	write("a.check.js", "throw new Error('unsaved')");
 	const { admit } = admitted();
@@ -570,12 +586,12 @@ it("charges a whole suite 2,630 MB, a named-file rerun 940 and one past six file
 		},
 		exec: recordingExec().exec,
 	});
+	const seven = Array.from({ length: 7 }, (_, i) => `${i}.check.js`);
+	for (const f of seven) write(f, "");
+	const many = commit("seven files");
 	await tester.verdict(passing);
 	await tester.verdict(passing, ["a.check.js"]);
-	await tester.verdict(
-		passing,
-		Array.from({ length: 7 }, (_, i) => `${i}.check.js`),
-	);
+	await tester.verdict(many, seven);
 	expect(charged).toEqual([2630, 940, 2630]);
 });
 
