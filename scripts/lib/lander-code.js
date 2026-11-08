@@ -4,8 +4,8 @@
  * a run on stale code ends and a fresh one starts on what landed.
  */
 
-const path = require("node:path");
 const { execGit } = require("./git.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * The code a run executes, where it is the landed checkout's own tracked
@@ -26,15 +26,13 @@ const readGit = (root, args) =>
  * @returns {RunCode|null}
  */
 function readRunCode(root, self = __filename) {
-	const rel = path.relative(root, self);
-	if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+	const rel = relativeUnder(root, self);
+	if (rel === null) return null;
 	if (readGit(root, ["ls-files", "--", rel]) === "") return null;
 	return {
 		sha: readGit(root, ["rev-parse", "HEAD"]),
 		loaded: () =>
-			Object.keys(require.cache)
-				.map((f) => path.relative(root, f))
-				.filter((f) => !f.startsWith("..") && !path.isAbsolute(f)),
+			Object.keys(require.cache).flatMap((f) => relativeUnder(root, f) ?? []),
 	};
 }
 

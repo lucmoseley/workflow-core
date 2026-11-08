@@ -15,6 +15,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * @param {string} root
@@ -41,8 +42,8 @@ function faultsOf(root, rel) {
 function writeFaults(root, written) {
 	/* Physically, as post-write's in-root test judged it: a symlinked prefix
 	 * would otherwise land outside the dereferenced root. */
-	const rel = path.relative(root, fs.realpathSync(path.resolve(root, written)));
-	if (rel.startsWith("..") || path.isAbsolute(rel)) return "";
+	const rel = relativeUnder(root, fs.realpathSync(path.resolve(root, written)));
+	if (rel === null) return "";
 	const faults = faultsOf(root, rel);
 	if (faults.length === 0) return "";
 	return `${rel} carries ${faults.length} fault(s) the commit gate or the release refuses — fix them now, before any test run (#1151):\n${faults.join("\n")}`;
