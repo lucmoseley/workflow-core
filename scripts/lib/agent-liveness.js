@@ -169,13 +169,10 @@ function capMs(env, fallback) {
  * on stderr; one that passes those checks and still will not start (a missing
  * shebang interpreter) reads as its exit status instead.
  *
- * WHY ONE PER DIR. The listing is scoped to CLAUDE_CONFIG_DIR, and this machine
- * runs a plan under each of several, so a session missing from its own plan's
- * listing would read dead to a reader on another (#3512).
  * WHY IN PARALLEL. Serially the reads cost the sum of three or four CLI starts
  * against the 10 s cap.
- * WHY A SHELL. A synchronous spawn cannot run children in parallel, and a shell
- * starts in a few milliseconds where a second node took ~45 (#4609).
+ * WHY A SHELL. A synchronous spawn cannot run children in parallel, and a
+ * second node is the costlier start (#4609).
  */
 const READ_EVERY_DIR = `
 out=$1 bin=$2 blocks=$3
@@ -203,7 +200,6 @@ done
 exit "$first"
 `;
 
-/* A read killed by the shell's file-size limit dies of this. */
 const OVER_CAP_STATUS = 128 + os.constants.signals.SIGXFSZ;
 
 /**
