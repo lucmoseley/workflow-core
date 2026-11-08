@@ -248,5 +248,10 @@
 		"verdict": "pass",
 		"reason": "passes an observing Outside line beside a deed: the founder pays, and reading is part of it (#4114)",
 		"body": "**Outside Claude Code:** check the deposit is paid to the hostel through the bank app.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "OBSERVE-ONLY",
+		"reason": "refuses a verify or make-sure line in the desktop app as OBSERVE-ONLY, the synonyms the first word list missed (#4114)",
+		"body": "**Outside Claude Code:** verify the bell sounds in the desktop app, and make sure the taskbar flashes.\n\n**Close when:** the founder records what he heard here."
 	}
 ]

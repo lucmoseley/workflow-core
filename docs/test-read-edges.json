@@ -1873,6 +1873,17 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"docs/agents/rules/observe-first.txt": [
+			"scripts/adopter-landing.test.ts",
+			"scripts/count-guard-fires.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/review-tier.test.ts",
+			"scripts/lib/rule-text.test.ts",
+			"scripts/lib/tracker-rules.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"docs/agents/rules/pull-fast-forward.txt": [
 			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",

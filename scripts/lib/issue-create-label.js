@@ -181,6 +181,7 @@ const {
 	CLOSE_WHEN_LINE,
 	TAKES_VALUES,
 	TRIED_MIN,
+	TRIED_WAY,
 	outsideLineFault,
 } = require("./takes-label.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -747,7 +748,7 @@ Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels
 
   ${found.line}
 
-A place the act happens, the desktop app or his phone, is not an act. Only where every route below failed, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed.
+A place the act happens, the desktop app or his phone, is not an act. Only where every route below failed, ${TRIED_WAY}.
 
 ${ruleOrFallback(run.ctx, "observe-first", "A check by eye or ear is the session's to try first, closing on its own evidence")}`,
 		);
@@ -764,7 +765,7 @@ The acts are: ${readActsLine(run.ctx)}
 Two ways out:
 
   - name the act from that list on the Outside line
-  - or, for a website job no act on it covers, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed
+  - or, for a website job no act on it covers, ${TRIED_WAY}
 
 Neither true means an agent can do it, and the label is wrong.
 

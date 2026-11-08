@@ -36,9 +36,8 @@ const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { buildFocusReturn } = require("./lib/refill-panel-routes.js");
-const { buildFrame, createPanel } = require("./lib/refill-panel.js");
 const {
-	buildScreenLines,
+	buildScreensText,
 	findPanelSizes,
 } = require("./lib/refill-panel-print.js");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
@@ -101,16 +100,12 @@ const reportCrash = (err) =>
 const isCount = (given) => /^[1-9]\d*$/.test(given);
 
 /**
- * The screen at each size, from one status read; a size's own heading only where
- * there are several.
  * @param {{columns: number, rows: number|null, pid?: number, tty?: string}[]} sizes
- *   `rows` null for every row
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<number>}
  */
 async function printScreens(sizes, env) {
-	let columns = 0;
-	const panel = createPanel({
+	const { text, readError } = await buildScreensText(sizes, {
 		run: (args) =>
 			runCommand(
 				process.execPath,
@@ -120,30 +115,9 @@ async function printScreens(sizes, env) {
 			),
 		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
 		now: Date.now,
-		resolveTopic: async () => {
-			throw new Error("--print resolves no topic");
-		},
-		returnFocus: async () => FOCUS_NOT_MOVED,
-		height: () => 0,
-		columns: () => columns,
-		onChange: () => {
-			/* A print draws once, after its read. */
-		},
 	});
-	await panel.refreshStatus();
-	const out = sizes.map((size) => {
-		columns = size.columns;
-		const rows = panel.buildViewRows();
-		const height = size.rows ?? rows.length + 3;
-		const lines = buildScreenLines(buildFrame(rows, columns, height), height);
-		const heading =
-			sizes.length > 1
-				? [`── panel ${size.pid} on ${size.tty}, ${size.rows}×${columns} ──`]
-				: [];
-		return [...heading, ...lines].join("\n");
-	});
-	writeFd(1, `${out.join("\n\n")}\n`);
-	return panel.view.readError ? 1 : 0;
+	writeFd(1, text);
+	return readError ? 1 : 0;
 }
 
 /**
@@ -175,11 +149,16 @@ function print(flags, env) {
 		writeFd(2, `refill-panel: --rows needs --columns\n${USAGE}`);
 		return 2;
 	}
-	const sizes = findPanelSizes();
+	const { sizes, unsized } = findPanelSizes();
+	for (const { pid, why } of unsized)
+		writeFd(
+			2,
+			`refill-panel: panel ${pid} left out, its terminal unread: ${why}\n`,
+		);
 	if (sizes.length === 0) {
 		writeFd(
 			2,
-			"refill-panel: no panel is running to size the print by: give --columns\n",
+			`refill-panel: ${unsized.length > 0 ? "no running panel's size reads" : "no panel is running"} to size the print by: give --columns\n`,
 		);
 		return 1;
 	}

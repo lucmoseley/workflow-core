@@ -140,7 +140,7 @@ const HUMAN_FAULTS = {
 	],
 	"OBSERVE-ONLY": [
 		`takes:human whose Outside line's only founder part is to observe a result, and whose body lists no ${TRIED_MIN} methods tried`,
-		`get the output yourself — the real renderer at the real size, a screenshot, or any API the effect touches — and close on it; only where every route failed, add a \`Tried:\` list of at least ${TRIED_MIN} methods run (#4114)`,
+		`try what \`${scriptPath("lib/rule-text.sh")} observe-first\` names and close on it; only where every route failed, add a \`Tried:\` list of at least ${TRIED_MIN} methods run (#4114)`,
 	],
 	"NO-CLOSE-WHEN": [
 		`takes:human whose body has no \`**${CLOSE_WHEN_MARKER}**\` line saying what finishes it`,

@@ -1,7 +1,8 @@
 /*
  * refill-panel-print.js — the panel's frame as the plain text a pane of a given size
  * shows, and the size of every panel running now (#4114). A session checks what the
- * founder would read through `refill-panel.js --print`, never a throwaway script.
+ * founder would read through `refill-panel.js --print`, never a throwaway script:
+ * one status read, drawn at each size asked for.
  *
  * The screen is read off lib/refill-panel.js's own frame, cursor moves and erases
  * applied, so a wrap or a cut the pane would show shows here. One cell per code
@@ -11,8 +12,14 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { procRoot } = require("./proc-root.js");
 const { readProcTable } = require("./proc-table.js");
+const {
+	buildFrame,
+	countUnscrolledHeight,
+	createPanel,
+} = require("./refill-panel.js");
 
 const PANEL_SCRIPT = "refill-panel.js";
 
@@ -77,36 +84,79 @@ function buildScreenLines(frame, height) {
 
 /**
  * @typedef {{pid: number, tty: string, rows: number, columns: number}} PanelSize
+ * @typedef {{pid: number, why: string}} UnsizedPanel
  */
 
 /**
  * Every running panel's terminal and its size, read the way `stty -F <tty> size`
- * reads it; a panel whose terminal will not read is left out.
+ * reads it, and each panel whose terminal would not read, with why: another user's,
+ * or one gone mid-read.
  * @param {{root?: string, readSize?: (tty: string) => string}} [deps]
- * @returns {PanelSize[]}
+ * @returns {{sizes: PanelSize[], unsized: UnsizedPanel[]}}
  */
 function findPanelSizes({
 	root = procRoot(),
 	readSize = (tty) =>
 		execFileSync("stty", ["-F", tty, "size"], { encoding: "utf8" }),
 } = {}) {
-	const table = readProcTable(root);
-	if (!table) return [];
 	/** @type {PanelSize[]} */
-	const found = [];
-	for (const { pid, argv } of table.procs.values()) {
+	const sizes = [];
+	/** @type {UnsizedPanel[]} */
+	const unsized = [];
+	for (const { pid, argv } of readProcTable(root)?.procs.values() ?? []) {
 		const [, script, ...rest] = argv;
 		if (path.basename(script ?? "") !== PANEL_SCRIPT) continue;
 		if (rest.includes("--print")) continue;
 		try {
 			const tty = fs.readlinkSync(path.join(root, String(pid), "fd", "1"));
 			const [rows, columns] = readSize(tty).trim().split(/\s+/).map(Number);
-			if (rows && columns) found.push({ pid, tty, rows, columns });
-		} catch {
-			/* Another user's panel, or one gone mid-read. */
+			if (rows && columns) sizes.push({ pid, tty, rows, columns });
+			else unsized.push({ pid, why: `${tty} reads no size` });
+		} catch (err) {
+			unsized.push({ pid, why: caught(err).message.split("\n")[0] ?? "" });
 		}
 	}
-	return found.sort((a, b) => a.pid - b.pid);
+	return { sizes: sizes.sort((a, b) => a.pid - b.pid), unsized };
 }
 
-module.exports = { buildScreenLines, findPanelSizes };
+/**
+ * The screen at each size from one status read, a size's own heading only where
+ * there are several, and why the read failed, or null.
+ * @param {{columns: number, rows: number|null, pid?: number, tty?: string}[]} sizes
+ *   `rows` null for every row
+ * @param {{run: import("./refill-panel.js").Runner,
+ *   runBurn: import("./refill-panel.js").Runner, now: () => number}} deps
+ * @returns {Promise<{text: string, readError: string|null}>}
+ */
+async function buildScreensText(sizes, { run, runBurn, now }) {
+	let columns = 0;
+	const panel = createPanel({
+		run,
+		runBurn,
+		now,
+		resolveTopic: async () => {
+			throw new Error("a print resolves no topic");
+		},
+		returnFocus: async () => ({ code: 0, stdout: "", stderr: "" }),
+		height: () => 0,
+		columns: () => columns,
+		onChange: () => {
+			/* A print draws once, after its read. */
+		},
+	});
+	await panel.refreshStatus();
+	const screens = sizes.map((size) => {
+		columns = size.columns;
+		const rows = panel.buildViewRows();
+		const height = size.rows ?? countUnscrolledHeight(rows.length);
+		const lines = buildScreenLines(buildFrame(rows, columns, height), height);
+		const heading =
+			sizes.length > 1
+				? [`── panel ${size.pid} on ${size.tty}, ${size.rows}×${columns} ──`]
+				: [];
+		return [...heading, ...lines].join("\n");
+	});
+	return { text: `${screens.join("\n\n")}\n`, readError: panel.view.readError };
+}
+
+module.exports = { buildScreenLines, buildScreensText, findPanelSizes };

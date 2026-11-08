@@ -110,14 +110,14 @@ const DEED_WORDS =
 const DEED_IRREGULAR =
 	"paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies";
 /** @param {string} words */
-const wholeWord = (words) =>
+const buildWholeWordSource = (words) =>
 	`(^|[^a-z0-9])(${words})(s|es|d|ed|ing|ted|ting)?($|[^a-z0-9])`;
 const FOUNDER_DEED_WORD = new RegExp(
-	`${wholeWord(DEED_WORDS)}|(^|[^a-z0-9])(${DEED_IRREGULAR})($|[^a-z0-9])`,
+	`${buildWholeWordSource(DEED_WORDS)}|(^|[^a-z0-9])(${DEED_IRREGULAR})($|[^a-z0-9])`,
 	"i",
 );
 const FOUNDER_ACT_WORD = new RegExp(
-	`${FOUNDER_DEED_WORD.source}|${wholeWord(PLACE_WORDS)}`,
+	`${FOUNDER_DEED_WORD.source}|${buildWholeWordSource(PLACE_WORDS)}`,
 	"i",
 );
 
@@ -125,7 +125,7 @@ const FOUNDER_ACT_WORD = new RegExp(
  * founder's part is only to look, and a session that has not tried to read the
  * result itself hands him its own check. */
 const OBSERVE_WORD = new RegExp(
-	`${wholeWord("look|listen|hear|see|watch|observe|notice|confirm|check|read")}|(^|[^a-z0-9])(heard|seen|saw)($|[^a-z0-9])`,
+	`${buildWholeWordSource("look|listen|hear|see|watch|observe|notice|confirm|check|read|verify|view|inspect|ensure|make sure")}|(^|[^a-z0-9])(heard|seen|saw|verified|verifies|verifying)($|[^a-z0-9])`,
 	"i",
 );
 
@@ -137,6 +137,8 @@ const OBSERVE_WORD = new RegExp(
 const TRIED_LINE = /^[ \t]*(\*\*)?Tried(:\*\*|\*\*:|:)/;
 const LIST_ITEM = /^([ \t]*)([-*+]|[0-9]+[.)])[ \t]+\S/;
 const TRIED_MIN = 3;
+/* The way out every limb that accepts a Tried: list names. */
+const TRIED_WAY = `add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed`;
 
 /**
  * How many items the list opening `following` holds at its first item's
@@ -220,7 +222,7 @@ function takesRefusal(labels, body) {
 
 	const rule = `Rule: ${docPath("agents/triage-labels.md")} §\`takes:\`, the nuances block.`;
 	const acts = readFounderActs();
-	const triedWayOut = `for a website job no act on that list covers, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed`;
+	const triedWayOut = `for a website job no act on that list covers, ${TRIED_WAY}`;
 	const found = outsideLineFault(body);
 	if (!found)
 		return CLOSE_WHEN_LINE.test(body)
@@ -231,7 +233,7 @@ function takesRefusal(labels, body) {
 	if (found.fault === "NOT-A-FOUNDER-ACT")
 		return `takes:human, but the Outside line names none of the founder's own acts: "${found.line}". Two ways out: name the act from that list, which this message closes on, on the Outside line, or, ${triedWayOut}. Neither true means an agent can do it, and the label is wrong. ${rule} The acts are (#1077): ${acts}`;
 	if (found.fault === "OBSERVE-ONLY")
-		return `takes:human, but the Outside line's only founder part is to observe a result: "${found.line}". Get the output yourself first and close on it; only where every route failed, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed. What to try: ${scriptPath("lib/rule-text.sh")} observe-first.`;
+		return `takes:human, but the Outside line's only founder part is to observe a result: "${found.line}". Try what ${scriptPath("lib/rule-text.sh")} observe-first names; only where every route failed, ${TRIED_WAY}.`;
 	if (found.fault === "BARRED-NOT-IMPOSSIBLE")
 		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts. ${rule} The founder's own acts (#1077): ${acts}`;
 	return `takes:human, but the Outside line's act produces a file in this repository: "${found.line}". The file is takes:implement; the founder's review of it is takes:wayfinder. ${rule}`;
@@ -246,6 +248,7 @@ module.exports = {
 	TAKES_PREFIX,
 	TAKES_VALUES,
 	TRIED_MIN,
+	TRIED_WAY,
 	outsideLineFault,
 	takesLabel,
 	takesOf,

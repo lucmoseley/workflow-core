@@ -9,7 +9,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProcRoot } from "./proc-fake";
 import { buildFrame } from "./refill-panel.js";
-import { buildScreenLines, findPanelSizes } from "./refill-panel-print.js";
+import {
+	buildScreenLines,
+	buildScreensText,
+	findPanelSizes,
+} from "./refill-panel-print.js";
 
 const ESC = "\u001b";
 
@@ -71,13 +75,16 @@ describe("findPanelSizes", () => {
 				root: fake.root,
 				readSize: (tty) => sizes[tty] ?? "",
 			}),
-		).toEqual([
-			{ pid: 20, tty: "/dev/pts/7", rows: 24, columns: 80 },
-			{ pid: 30, tty: "/dev/pts/5", rows: 50, columns: 38 },
-		]);
+		).toEqual({
+			sizes: [
+				{ pid: 20, tty: "/dev/pts/7", rows: 24, columns: 80 },
+				{ pid: 30, tty: "/dev/pts/5", rows: 50, columns: 38 },
+			],
+			unsized: [],
+		});
 	});
 
-	it("leaves out a panel whose terminal will not read", () => {
+	it("names each panel whose terminal will not read, and why", () => {
 		fake = makeProcRoot();
 		withTty(30, "node /x/scripts/refill-panel.js 12", "/dev/pts/5");
 		fake.proc(31, { argv: "node /x/scripts/refill-panel.js 14" });
@@ -88,6 +95,50 @@ describe("findPanelSizes", () => {
 					throw new Error("stty: /dev/pts/5: No such file");
 				},
 			}),
-		).toEqual([]);
+		).toEqual({
+			sizes: [],
+			unsized: [
+				{ pid: 30, why: "stty: /dev/pts/5: No such file" },
+				{ pid: 31, why: expect.stringContaining("ENOENT") },
+			],
+		});
+	});
+});
+
+describe("buildScreensText", () => {
+	const failed = async () => ({ code: 1, stdout: "", stderr: "loop gone" });
+
+	it("draws the unreadable status and returns why, from one read", async () => {
+		let reads = 0;
+		const { text, readError } = await buildScreensText(
+			[{ columns: 40, rows: null }],
+			{
+				run: async () => {
+					reads++;
+					return failed();
+				},
+				runBurn: failed,
+				now: () => 0,
+			},
+		);
+		expect(reads).toBe(1);
+		expect(readError).toBe("loop gone");
+		expect(text).toContain("Status unreadable");
+		expect(text).not.toContain("more");
+	});
+
+	it("heads each screen only where there are several", async () => {
+		const deps = { run: failed, runBurn: failed, now: () => 0 };
+		const one = await buildScreensText([{ columns: 40, rows: 5 }], deps);
+		expect(one.text).not.toContain("── panel");
+		const two = await buildScreensText(
+			[
+				{ columns: 40, rows: 5, pid: 7, tty: "/dev/pts/1" },
+				{ columns: 30, rows: 5, pid: 8, tty: "/dev/pts/2" },
+			],
+			deps,
+		);
+		expect(two.text).toContain("── panel 7 on /dev/pts/1, 5×40 ──");
+		expect(two.text).toContain("── panel 8 on /dev/pts/2, 5×30 ──");
 	});
 });
