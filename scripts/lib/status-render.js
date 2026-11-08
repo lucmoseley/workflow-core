@@ -41,8 +41,7 @@ function verdict(r) {
 }
 
 /**
- * The report for a finished run. A checker's body prints unless it answered
- * OK and is no standing, or answered SKIP; those go to the clean list.
+ * The report for a finished run.
  *
  * @param {Result[]} results
  * @returns {string}
