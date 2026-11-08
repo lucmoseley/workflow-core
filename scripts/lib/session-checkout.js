@@ -22,9 +22,9 @@
  *
  * ATTACH points the worktree's `node_modules` at the dependency store keyed by
  * the hash of the worktree's own `package-lock.json`, building that store
- * first where none exists. A store is built once, by `npm ci --ignore-scripts`
- * (docs/practice/dependency-and-release-management.md), into a staging
- * directory renamed into place whole, and is never installed into again. One build runs per key: a cut finding a live builder's lock waits for
+ * first where none exists. A store is built once, into a staging directory
+ * (lib/npm-ci-staging.js) renamed into place whole, and is never installed
+ * into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
  * WARM builds the store for a freshly fetched `origin/main`'s lockfile
@@ -118,11 +118,13 @@ const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
 const { LANDER_WORKTREE } = require("./lander-worktree.js");
 const { relativeUnder } = require("./is-under.js");
+const {
+	INSTALL_TIMEOUT_MS,
+	LOCKFILE,
+	stageInstall,
+} = require("./npm-ci-staging.js");
 const WORKTREES = path.join(".claude", "worktrees");
 const STORES = path.join(WORKTREES, ".dep-stores");
-const LOCKFILE = "package-lock.json";
-/* What `npm ci` reads besides the lockfile; `.npmrc` only where present. */
-const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /* 64 bits of sha256: a collision among even 10^4 live lockfiles is ~3e-12
  * likely, and the name stays short enough to read in a path. */
@@ -132,8 +134,6 @@ const SLUG_MAX = 40;
 /* 24 bits: two live worktrees for one prompt collide ~6e-8 of the time, and a
  * collision costs one refused member, which the next tick launches again. */
 const SUFFIX_BYTES = 3;
-/* Untraced: room for a cold `npm ci` over a slow link. */
-const INSTALL_TIMEOUT_MS = 15 * 60_000;
 /* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
 const FETCH_TRIES = 3;
 const POLL_MS = 1000;
@@ -145,24 +145,6 @@ const MARKER_WRITER = path.join("scripts", "write-self-plugin-marker.sh");
 
 /** A refusal the CLI prints as it stands. */
 class CheckoutError extends Error {}
-
-/**
- * `npm ci` into `dir`, its output on stderr so a caller's stdout stays the
- * path. `WFC_NPM` names the program.
- * @param {string} dir
- */
-function npmCi(dir) {
-	const r = spawnSync(
-		process.env.WFC_NPM || "npm",
-		["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-		{ cwd: dir, stdio: ["ignore", 2, 2], timeout: INSTALL_TIMEOUT_MS },
-	);
-	if (r.error) throw r.error;
-	if (r.status !== 0)
-		throw new Error(
-			`npm ci exited ${r.status ?? r.signal} building a store in ${dir} — its output is above; fix the lockfile or the network, then attach again`,
-		);
-}
 
 /**
  * @param {string[]} args
@@ -322,11 +304,7 @@ function removeTree(dir) {
 	fs.rmSync(dir, { recursive: true, force: true });
 }
 
-/**
- * Where a store's manifests are read from: each manifest's bytes, or null
- * where the source has none.
- * @typedef {(name: string) => Buffer | null} ManifestSource
- */
+/** @typedef {import("./npm-ci-staging.js").ManifestSource} ManifestSource */
 
 /**
  * The manifests of the worktree `dir`.
@@ -442,17 +420,18 @@ function ensureStore(root, source, { noBuild = false, noWait = false } = {}) {
  */
 function buildStore(staging, lockfile, source) {
 	removeTree(staging);
-	fs.mkdirSync(staging);
-	for (const name of MANIFESTS) {
-		const bytes = name === LOCKFILE ? lockfile : source(name);
-		if (bytes !== null) fs.writeFileSync(path.join(staging, name), bytes);
-	}
-	npmCi(staging);
-	if (!fs.existsSync(path.join(staging, "node_modules")))
-		throw new Error(
-			`npm ci exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names, then attach again`,
+	let built;
+	try {
+		built = stageInstall(staging, (name) =>
+			name === LOCKFILE ? lockfile : source(name),
 		);
-	setWriteBits(path.join(staging, "node_modules"), false);
+	} catch (err) {
+		throw new Error(
+			`${caught(err).message}, building a store — its output is above; fix the lockfile or the network, then attach again`,
+			{ cause: err },
+		);
+	}
+	setWriteBits(built, false);
 }
 
 /**

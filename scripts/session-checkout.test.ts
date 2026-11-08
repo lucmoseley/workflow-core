@@ -323,7 +323,7 @@ it("names a failed warm build in each no-build refusal until a build succeeds, w
 	expect(failed.status).toBe(1);
 	expect(refused.status).toBe(1);
 	expect(refused.stderr).toMatch(
-		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 building a store in .* — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
+		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 in .* — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
 	);
 
 	fs.writeFileSync(
