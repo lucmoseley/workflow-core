@@ -19,6 +19,8 @@ this ladder; #1077, the ruling that set three).
 
 There is no Playwright MCP and no `@playwright/cli` rung: do not install either.
 
+**Computer use** drives the desktop only where the session holds its tools: `mcp__computer-use__*` in a Claude Desktop app session on the machine, `mcp__remote-devices__computer_*` in a cloud session linked to it. A Claude Code CLI session, background or interactive, holds neither (#4142). Where it is absent, say so below the `Tried:` list, never as an item.
+
 ## Where each task enters
 
 | Task | Route, in order |
@@ -31,7 +33,8 @@ There is no Playwright MCP and no `@playwright/cli` rung: do not install either.
 | Anything a person outside reads | You draft it; the founder sends it (the send hand-over, below) |
 | An act on the founder-only list (below), a CAPTCHA guarding an act he is taking included | The founder, by design |
 | An act the auto-mode classifier refused | Never retried through Chrome — "never the same act by another path" (`rule:founder-handover`) |
-| A native desktop app or dialog | The founder. There is no screen-driving rung |
+| A terminal screen: the agents view, a Windows Terminal tab, another session's TUI | A private tmux server: `tmux -L <name> new-session -d -s <s> '<command>'`, then `send-keys` to press keys and `capture-pane -p` (`-e` for colour) to read the screen. The founder only with a `Tried:` list naming it |
+| A native desktop app or dialog | `powershell.exe` from WSL: the app's own CLI or COM object, `Start-Process`, or UI Automation; then computer use where the session holds it (below); then the founder, with a `Tried:` list of at least two routes run |
 
 For the Wayback Machine, `https://web.archive.org/cdx/search/cdx?url=<host>/*&output=json`
 lists captured URLs, and `https://web.archive.org/web/<timestamp>id_/<url>`
@@ -141,7 +144,7 @@ The child's prompt carries, besides the task and its URLs:
 |---|---|---|
 | Standing yes | Read a signed-in dashboard or console; read a public page; change a reversible setting only the founder sees, such as a console toggle | Act, then report on the ticket |
 | Founder sends | Anything a person outside reads (#1077 Q2 (A)): an email, a LinkedIn message or connection note, a contact or support-desk form, a partner or affiliate application, a government registration, a public profile edit. A push to `main` publishing the website is not one | You draft; he sends, under the send hand-over |
-| Founder only | (#1077 Q1 (A)) Pay, buy or subscribe; sign or accept terms; delete; install an app; accept an invite; grant access; OAuth Authorize; a CAPTCHA guarding an act he is taking; card entry; a one-time code; phone verification; signing a site in for the first time; uploading a local file; an act the auto-mode classifier refused; a phone call, an in-person act, or an act in a desktop or phone app | He does it by hand (`rule:founder-handover`) |
+| Founder only | (#1077 Q1 (A)) Pay, buy or subscribe; sign or accept terms; delete; install an app; accept an invite; grant access; OAuth Authorize; a CAPTCHA guarding an act he is taking; card entry; a one-time code; phone verification; signing a site in for the first time; uploading a local file; an act the auto-mode classifier refused, with the refused call and a narrower one under `Tried:`; a phone call, an in-person act, or an act in a phone app | He does it by hand (`rule:founder-handover`) |
 
 An act that fits two tiers takes the stricter.
 

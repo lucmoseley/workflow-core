@@ -60,8 +60,8 @@
 		"body": "**Outside Claude Code:** signing the Chrome profile in to Staylane for the first time.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
-		"verdict": "pass",
-		"reason": "passes an Outside line naming ruling 1's act class: an act the automatic permission check refused",
+		"verdict": "REFUSED-UNTRIED",
+		"reason": "refuses an act the automatic permission check refused, its only list word, with no Tried: list (#4142 item 6)",
 		"body": "**Outside Claude Code:** run the deploy Claude Code's automatic permission check refused.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
@@ -75,8 +75,8 @@
 		"body": "**Outside Claude Code:** meet the hostel owner in-person in Velmora.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
-		"verdict": "pass",
-		"reason": "passes an Outside line naming ruling 1's act class: an act in a desktop app",
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses an act in a desktop app with no Tried: list, though 'approve' and 'transfer' name no list word (#4142 item 1)",
 		"body": "**Outside Claude Code:** approve the transfer in the bank's desktop app.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
@@ -235,7 +235,122 @@
 		"body": "**Outside Claude Code:** read a setting off the founder's own phone.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
-		"verdict": "OBSERVE-ONLY",
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses #3720's line, an agents-view keypress, though 'reply' is a list word (#4142 item 1)",
+		"body": "**Outside Claude Code:** in the agents view, press Space on each probe row and reply to it, then read the billing line.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses a Windows Terminal tab named wc2 with no Tried: list",
+		"body": "**Outside Claude Code:** type the two check lines into wc2 and send them.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses #3882's line, closing Windows Terminal in the desktop app, with no Tried: list",
+		"body": "**Outside Claude Code:** close every Windows Terminal window in the desktop app, wait 2 minutes, reopen one and paste the two check lines.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses a send typed in a desktop app, a list word a session can do on that screen",
+		"body": "**Outside Claude Code:** send the approved reply from the bank's desktop app.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a desktop-app act with a two-item Tried: list of the ladder's routes",
+		"body": "**Outside Claude Code:** approve the transfer in the bank's desktop app.\n\nTried:\n- powershell.exe, UI Automation: the approve button exposes no invoke pattern\n- powershell.exe, the bank app COM object: none registered\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a terminal screen with a two-item Tried: list",
+		"body": "**Outside Claude Code:** in the agents view, press Space on each probe row and reply to it.\n\nTried:\n- private tmux server, send-keys Space: the reply box never opened\n- claude agents --json: lists rows but sends no reply\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses #3655's original Outside line, a refused act that also starts a session, with no Tried: list (#4142 item 6)",
+		"body": "**Outside Claude Code:** an act Claude Code's automatic permission check refused — the writes to the mantahostels and fantasy-books trackers. Start one session in each checkout and give it the prompt below for its repo.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "REFUSED-UNTRIED",
+		"reason": "refuses a refused act with a one-item Tried: list, one short of the refused call and a narrower one",
+		"body": "**Outside Claude Code:** run the deploy Claude Code's automatic permission check refused.\n\nTried:\n- `npm run deploy`: refused as a production deploy\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a refused act with a two-item Tried: list: the refused call and a narrower one",
+		"body": "**Outside Claude Code:** run the deploy Claude Code's automatic permission check refused.\n\nTried:\n- `npm run deploy`: refused as a production deploy\n- `vercel deploy --prebuilt` alone: refused as the same deploy\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a refused act beside another list word, since refused is not its only one",
+		"body": "**Outside Claude Code:** install the plugin Claude Code's automatic permission check refused.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an act in a phone app, which stays the founder's (#4142)",
+		"body": "**Outside Claude Code:** accept the sign-in request in the GitHub Mobile phone app.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses #3882's line with its screen words gone, whose only list word sits in a report-back clause (#4142 item 14)",
+		"body": "**Outside Claude Code:** pick a moment and close your windows, then reply with the two readings.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses a list word in a report-back clause naming here",
+		"body": "**Outside Claude Code:** read the payout schedule off the dashboard, and post it here.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a real send in a later clause, which names someone outside rather than this side",
+		"body": "**Outside Claude Code:** check the booking request, then reply to the hostel with the approved dates.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a founder act a session cannot do on a screen, done in a terminal: #3420's shape",
+		"body": "**Outside Claude Code:** delete the old API keys from the shell profile in a normal terminal.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes OAuth Authorize run from the founder's own terminal",
+		"body": "**Outside Claude Code:** click Authorize on the OAuth screen `gh auth login` opens from your own terminal.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a delete of a token pasted into a session",
+		"body": "**Outside Claude Code:** delete the token you pasted into a Claude session and issue a new one.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses a desktop application spelled in full",
+		"body": "**Outside Claude Code:** send the invoice from your desktop application.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses #3720's agents view in a report-back-free line on a send word alone",
+		"body": "**Outside Claude Code:** message each probe in the agents view.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a send naming back, which is a send to someone outside",
+		"body": "**Outside Claude Code:** read the dashboard, then send the signed form back to the council.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a with-clause naming who it goes to",
+		"body": "**Outside Claude Code:** read the figure, then reply with it to the hostel.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes here not at the clause's end, aimed at an outside site",
+		"body": "**Outside Claude Code:** read the figure — post the review here on Google Maps.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "reads the surface on the act part only, so a report-back clause naming this session does not refuse",
+		"body": "**Outside Claude Code:** sign the lease in person, then reply here in this session.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
 		"reason": "refuses an act in the desktop app whose founder part is to listen and look, #3957's case (#4114)",
 		"body": "**Outside Claude Code:** run this in the desktop app, then listen for the bell and look at the taskbar.\n\n**Close when:** the founder records what he heard and saw here."
 	},
@@ -250,8 +365,8 @@
 		"body": "**Outside Claude Code:** check the deposit is paid to the hostel through the bank app.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
-		"verdict": "OBSERVE-ONLY",
-		"reason": "refuses a verify or make-sure line in the desktop app as OBSERVE-ONLY, the synonyms the first word list missed (#4114)",
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses a verify or make-sure line in the desktop app, the synonyms the first word list missed (#4114); the desktop app is a screen a session drives, so SURFACE-UNTRIED (#4142)",
 		"body": "**Outside Claude Code:** verify the bell sounds in the desktop app, and make sure the taskbar flashes.\n\n**Close when:** the founder records what he heard here."
 	}
 ]

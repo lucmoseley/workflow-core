@@ -363,6 +363,7 @@ describe("renderReview (#2011)", () => {
 			uid: 1000,
 			name,
 			kind,
+			jobId: null as string | null,
 			badness: 741,
 			rssMiB: 983,
 			availMiB: 776,
@@ -374,8 +375,12 @@ describe("renderReview (#2011)", () => {
 			last: "2026-10-17T19:57:00.000Z",
 			kills: [
 				killed("2026-10-17T19:56:56.000Z", 1, "dbus-daemon", "other"),
-				killed("2026-10-17T19:57:00.000Z", 2, "MainThread", "test or build"),
+				{
+					...killed("2026-10-17T19:57:00.000Z", 2, "claude", "headless run"),
+					jobId: "0aaaaaaa",
+				},
 			],
+			unjoined: null,
 		};
 		const { incidentTitle } = require("./earlyoom-kills.js");
 		const body = render(
@@ -389,7 +394,7 @@ describe("renderReview (#2011)", () => {
 			},
 		);
 		expect(body).toContain(
-			`## Memory kills\n\n2 in the window — Claude host 0, test or build 1, other 1.\n\n- \`${incidentTitle(incident)}\` — 2 kills: Claude host 0, test or build 1, other 1 — #52\n`,
+			`## Memory kills\n\n2 in the window — headless run 1 (job 0aaaaaaa), other 1.\n\n- \`${incidentTitle(incident)}\` — 2 kills: headless run 1 (job 0aaaaaaa), other 1 — #52\n`,
 		);
 		expect(basisFaults(body)).toEqual([]);
 	});
@@ -445,6 +450,7 @@ describe("renderReview (#2011)", () => {
 			uid: 1000,
 			name: "2.1.310",
 			kind: "Claude host",
+			jobId: null,
 			badness: 690,
 			rssMiB: 450,
 			availMiB: 776,
@@ -456,6 +462,7 @@ describe("renderReview (#2011)", () => {
 			first: SINCE,
 			last: "2026-10-17T07:10:00Z",
 			kills: [at(SINCE, 1), at("2026-10-17T07:10:00Z", 2)],
+			unjoined: "journalctl --list-boots: denied",
 		};
 		/* One after the window's end, read minutes into a filing: the next
 		 * review's (#3813). */
@@ -463,6 +470,7 @@ describe("renderReview (#2011)", () => {
 			first: "2026-10-18T07:05:00Z",
 			last: "2026-10-18T07:05:00Z",
 			kills: [at("2026-10-18T07:05:00Z", 3)],
+			unjoined: null,
 		};
 		const repos = [{ repo: "acme/a", entries: [], stalls: [], closed: [] }];
 		const body = render(repos, [], 7, {
@@ -471,7 +479,7 @@ describe("renderReview (#2011)", () => {
 			why: null,
 		});
 		expect(body).toContain(
-			`## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0.\n\n- \`${incidentTitle(edge)}\` — 2 kills: Claude host 2, test or build 0, other 0 — ticket unread: \`HTTP 502\`\n`,
+			`## Memory kills\n\n1 in the window — Claude host 1.\n\n- \`${incidentTitle(edge)}\` — 2 kills: Claude host 2 — headless runs not joined: \`journalctl --list-boots: denied\` — ticket unread: \`HTTP 502\`\n`,
 		);
 		expect(body).not.toContain(incidentTitle(later));
 		expect(

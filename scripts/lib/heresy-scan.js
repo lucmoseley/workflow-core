@@ -2,7 +2,9 @@
  * heresy-scan.js — the whole-tree lexical heresy check's shell (#3555). A
  * finding is keyed by its site's text and occurrence number in the file, so
  * the key survives a line shift above it. A check brings only its site
- * patterns, its opt-out marker, its fix text and its okLine.
+ * patterns, its opt-out marker, its fix text and its okLine. A lexical check
+ * with a walk or report of its own still lists its tree through
+ * listTreeFiles and summarises its sites through saySites (#4123).
  */
 
 const fs = require("node:fs");
@@ -75,31 +77,63 @@ function parseMatchSites({ source, code }, re, optOut) {
 }
 
 /**
- * Every non-test program under each of `dirs` that `include` takes, as paths
- * relative to `root` with `/` separators, sorted.
+ * Every file under each of `dirs`, as a path relative to `root` with `/`
+ * separators: each dir's files sorted, the dirs in `dirs`' order. A
+ * `node_modules` directory is never entered, and a symlink is never followed
+ * or listed.
  * @param {string} root
- * @param {string[]} dirs  relative to `root`; one that is missing holds none
+ * @param {string[]} dirs  relative to `root`, `/`-separated; one that is
+ *   missing holds none
+ * @returns {string[]}
+ */
+function listTreeFiles(root, dirs) {
+	/**
+	 * @param {string} rel
+	 * @returns {string[]}
+	 */
+	const walk = (rel) =>
+		fs
+			.readdirSync(path.join(root, rel), { withFileTypes: true })
+			.flatMap((entry) => {
+				if (entry.name === "node_modules") return [];
+				const name = `${rel}/${entry.name}`;
+				if (entry.isDirectory()) return walk(name);
+				return entry.isFile() ? [name] : [];
+			});
+	return dirs.flatMap((dir) =>
+		fs.existsSync(path.join(root, dir)) ? walk(dir).sort() : [],
+	);
+}
+
+/**
+ * Every non-test program under each of `dirs` that `include` takes, sorted
+ * across them all.
+ * @param {string} root
+ * @param {string[]} dirs
  * @param {(rel: string) => boolean} include
  */
-function readPrograms(root, dirs, include) {
-	return dirs
-		.filter((dir) => fs.existsSync(path.join(root, dir)))
-		.flatMap((dir) =>
-			fs
-				.readdirSync(path.join(root, dir), {
-					recursive: true,
-					encoding: "utf8",
-				})
-				.map((rel) => `${dir}/${rel.split(path.sep).join("/")}`),
-		)
-		.filter(
-			(rel) =>
-				PROGRAM.test(rel) &&
-				!isJsTestFile(rel) &&
-				!rel.split("/").includes("node_modules") &&
-				include(rel),
-		)
+const readPrograms = (root, dirs, include) =>
+	listTreeFiles(root, dirs)
+		.filter((rel) => PROGRAM.test(rel) && !isJsTestFile(rel) && include(rel))
 		.sort();
+
+/**
+ * Where there are findings, say their count, `phrase` and each site on one
+ * line, then each of `fixes` on its own.
+ * @param {Ctx} ctx
+ * @param {string} phrase
+ * @param {string[]} fixes
+ */
+function saySites(ctx, phrase, fixes) {
+	if (ctx.findings.length === 0) return;
+	ctx.say(
+		[
+			`${ctx.findings.length} ${phrase}: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.`,
+			...fixes,
+		]
+			.map((line) => `  ${line}`)
+			.join("\n"),
+	);
 }
 
 /**
@@ -167,10 +201,8 @@ function runHeresyCheck({
 				const source = fs.readFileSync(path.join(root, rel), "utf8");
 				failSites(ctx, rel, { source, code: blankComments(source) }, breaches);
 			}
-			if (summary && ctx.findings.length > 0)
-				ctx.say(
-					`  ${ctx.findings.length} site(s) ${summary.phrase}: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${summary.fix}`,
-				);
+			if (summary)
+				saySites(ctx, `site(s) ${summary.phrase}`, [`Fix: ${summary.fix}`]);
 			return {
 				...finish(ctx, names.length),
 				count: ctx.findings.length,
@@ -182,7 +214,9 @@ function runHeresyCheck({
 
 module.exports = {
 	REPORT_PROGRAM,
+	listTreeFiles,
 	parseLineSites,
 	parseMatchSites,
 	runHeresyCheck,
+	saySites,
 };

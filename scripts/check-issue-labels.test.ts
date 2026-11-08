@@ -871,6 +871,56 @@ describe("a takes:human body against the shared table", () => {
 	});
 });
 
+/* AGENT-STEP (#4142 item 11, from #3874). */
+describe("a takes:human body handing the founder a `! gh ` step", () => {
+	const ghStep = "\n\nRun:\n\n```\n! gh workflow run founder-notice.yml\n```";
+
+	it("warns, without gating, as AGENT-STEP where the Outside line names no refused act", async () => {
+		const r = await run(
+			[],
+			stubGh([
+				{
+					number: 251,
+					labels: ["takes:human"],
+					body: `**Outside Claude Code:** accept the sign-in request in the GitHub Mobile phone app.${ghStep}${CLOSE}`,
+				},
+			]),
+		);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("AGENT-STEP");
+		expect(r.out).toContain("#251");
+	});
+
+	it("stays silent where the Outside line names a refused act", async () => {
+		const r = await run(
+			[],
+			stubGh([
+				{
+					number: 252,
+					labels: ["takes:human"],
+					body: `**Outside Claude Code:** install the plugin Claude Code's automatic permission check refused.${ghStep}${CLOSE}`,
+				},
+			]),
+		);
+		expect(r.status).toBe(0);
+		expect(r.out).not.toContain("AGENT-STEP");
+	});
+
+	it("leaves a takes:implement body carrying the same step alone", async () => {
+		const r = await run(
+			[],
+			stubGh([
+				{
+					number: 253,
+					labels: ["takes:implement"],
+					body: `Then run it.${ghStep}`,
+				},
+			]),
+		);
+		expect(r.out).not.toContain("AGENT-STEP");
+	});
+});
+
 /* HUMAN-UNREVIEWED (mantahostels#3358). */
 describe("a takes:human nobody has looked at", () => {
 	const daysAgo = (n: number) =>

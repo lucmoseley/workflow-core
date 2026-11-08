@@ -142,7 +142,7 @@ describe("file-morning-review.js (#2011)", () => {
 		).toHaveLength(2);
 		expect(issue.body).toMatch(/-->\n$/);
 		expect(issue.body).toMatch(
-			/## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0\.\n\n- `Memory kill incident from [^`]+` — 1 kill: Claude host 1, test or build 0, other 0 — #61\n/,
+			/## Memory kills\n\n1 in the window — Claude host 1\.\n\n- `Memory kill incident from [^`]+` — 1 kill: Claude host 1 — #61\n/,
 		);
 		expect(issue.body).toContain("- acme/wfc: `1 torn ledger line(s) skipped`");
 		/* The fixture's .git is no repository: the history fails open to a why. */

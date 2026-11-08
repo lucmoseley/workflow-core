@@ -128,30 +128,25 @@ jobs:
       #
       # There is no npm route — the npm package called `actionlint` is an
       # unrelated third-party WASM wrapper abandoned in 2022 — so the binary is
-      # fetched here. Pinned to a version AND a checksum: an unpinned
-      # `curl … | bash` installer would make every scheduled run trust whatever
-      # is published at that URL today. Bump the version and the sha256
-      # together, from the release's own actionlint_<v>_checksums.txt.
+      # copied out of actionlint's own image, pinned by tag AND digest
+      # (image-binary says why): an unpinned `curl … | bash` installer would
+      # make every scheduled run trust whatever is published at that URL today.
       #
       # Runs `npm run check:actions` rather than the binary directly so CI and
       # the local by-hand route are one command; the pre-commit half passes the
       # commit's own staged workflow paths instead, and warns-and-passes when
-      # the binary is absent. Here a runner that cannot fetch the tarball fails
-      # loudly rather than skipping. The retries are
-      # transport-level only (the incident behind them: mantahostels#1137):
-      # the checksum below still decides what the retried bytes may be.
+      # the binary is absent. Here a runner that cannot pull the image fails
+      # loudly rather than skipping.
+      - name: Install actionlint
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/image-binary
+        with:
+          image: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+          binary: /usr/local/bin/actionlint
+
       - name: actionlint
         if: ${{ !cancelled() }}
-        env:
-          ACTIONLINT_VERSION: 1.7.12
-          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-        run: |
-          tgz="$RUNNER_TEMP/actionlint.tgz"
-          curl -sSfL --retry 3 --retry-all-errors --retry-delay 5 -o "$tgz" \
-            "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "$ACTIONLINT_SHA256  $tgz" | sha256sum -c -
-          tar -xzf "$tgz" -C "$RUNNER_TEMP" actionlint
-          PATH="$RUNNER_TEMP:$PATH" npm run check:actions
+        run: npm run check:actions
 
       # tsc is the only thing that type-checks this repo IN CI: Biome does not
       # and ESLint does not (mantahostels#1062).

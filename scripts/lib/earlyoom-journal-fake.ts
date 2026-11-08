@@ -30,16 +30,44 @@ export const otherLine = (ms: number) =>
 export const kernelLine = (ms: number, msg: string) =>
 	`${stamp(ms)} Luctop kernel: ${msg}`;
 
+/** A boot as the fake lists it: journalctl's undashed id and its span, ms. */
+export interface FakeBoot {
+	id: string;
+	from: number;
+	to: number;
+}
+
+/** One boot spanning every line a test writes. */
+export const ONE_BOOT: FakeBoot = {
+	id: "0123456789abcdef0123456789abcdef",
+	from: 0,
+	to: Date.parse("2100-01-01T00:00:00Z"),
+};
+
 /**
  * A journalctl in `dir` serving `lines` from `--since` on, or all of them
  * without one, and `-- No entries --` where none is served, as the real one
- * does. It appends each call's `journalctl <args>` to `dir/calls`. Its path,
+ * does; `--list-boots -o json` serves `boots`, or refuses where `boots` is
+ * null. It appends each call's `journalctl <args>` to `dir/calls`. Its path,
  * for WFC_JOURNALCTL.
  */
-export function writeJournalctl(dir: string, lines: string[]): string {
+export function writeJournalctl(
+	dir: string,
+	lines: string[],
+	boots: FakeBoot[] | null = [ONE_BOOT],
+): string {
 	fs.mkdirSync(dir, { recursive: true });
 	const journal = path.join(dir, "journal");
 	fs.writeFileSync(journal, `${lines.join("\n")}\n`);
+	const listed =
+		boots === null
+			? null
+			: boots.map((b, i) => ({
+					index: i - boots.length + 1,
+					boot_id: b.id,
+					first_entry: b.from * 1000,
+					last_entry: b.to * 1000,
+				}));
 	const bin = path.join(dir, "journalctl");
 	fs.writeFileSync(
 		bin,
@@ -47,6 +75,15 @@ export function writeJournalctl(dir: string, lines: string[]): string {
 const fs = require("node:fs");
 const a = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(path.join(dir, "calls"))}, ["journalctl", ...a].join(" ") + "\\n");
+if (a.includes("--list-boots")) {
+	const listed = ${JSON.stringify(listed)};
+	if (listed === null) {
+		process.stderr.write("no boots\\n");
+		process.exit(1);
+	}
+	process.stdout.write(JSON.stringify(listed) + "\\n");
+	process.exit(0);
+}
 const at = a.indexOf("--since");
 const since = at < 0 ? -Infinity : Number(a[at + 1].slice(1)) * 1000;
 const out = fs

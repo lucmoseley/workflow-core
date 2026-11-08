@@ -1,0 +1,36 @@
+name: Install a binary from a container image
+description: Copies one binary out of a digest-pinned image's linux/amd64 variant onto $GITHUB_PATH.
+
+# For tools whose release tarball sits on GitHub's release-asset host, which
+# has answered 504 for hours at a time (#4653). The registries are other hosts,
+# and the digest pins the image's content, so the bytes are checked without
+# trusting the host that served them. Take the digest from the registry's
+# index manifest for the release tag, and bump it with the tag.
+inputs:
+  image:
+    description: The image as <name>:<tag>@sha256:<index digest>.
+    required: true
+  binary:
+    description: The binary's absolute path inside the image.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        BINARY: ${{ inputs.binary }}
+      run: |
+        for attempt in 1 2 3; do
+          docker pull -q --platform linux/amd64 "$IMAGE" && break
+          [ "$attempt" = 3 ] && exit 1
+          sleep 5
+        done
+        bin="$RUNNER_TEMP/$(basename "$BINARY")-bin"
+        mkdir -p "$bin"
+        id=$(docker create --platform linux/amd64 "$IMAGE")
+        docker cp "$id:$BINARY" "$bin/"
+        docker rm "$id" >/dev/null
+        test -x "$bin/$(basename "$BINARY")"
+        echo "$bin" >> "$GITHUB_PATH"
