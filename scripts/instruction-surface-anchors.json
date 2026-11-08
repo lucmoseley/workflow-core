@@ -397,10 +397,10 @@
 			"source": "#1604, #3583, #3925, #4142"
 		},
 		"scripts/guard-unpushed-commits.js": {
-			"digest": "08d121e922589d4a",
-			"verdict": "at need (end of the turn holding the session's unpushed commits; fed at 51b2b437b under #3070, one ledger commit ahead: suites on 598 B naming push-check.js under `rule:push-cadence`, suites off 645 B a bare push to origin/main, landing on 677 B the push to origin/landing under `rule:push-cadence-landing` (under #4485 the session's queue ref, unmeasured), suites on with `commands.test` gated at commit (`pytest`) 643 B a bare push to origin/main naming that gate, a contract-99 config the push-check route; 0 B on each re-stop)",
+			"digest": "1820d03c13b8bf54",
+			"verdict": "at need (end of the turn holding the session's unpushed commits; fed at 51b2b437b under #3070, one ledger commit ahead: suites on 598 B naming push-check.js under `rule:push-cadence`, suites off 645 B a bare push to origin/main, landing on 677 B the push to origin/landing under `rule:push-cadence-landing` (under #4485 the session's queue ref, unmeasured), suites on with `commands.test` gated at commit (`pytest`) 643 B a bare push to origin/main naming that gate, a contract-99 config the push-check route; 0 B on each re-stop; re-fed at 42ceded79 under #4272 through its suite: the single-checkout warning is byte-identical, and a worktree session with one commit unpushed on its worktree HEAD and one on the main checkout's, suites on, 692 B naming both checkouts' commits and push-check.js once)",
 			"selfSufficient": "same subject only — the act and its first command (push:check, a bare push where suites is off or the tests are gated at commit, or under landing the push of the session's queue ref) are inline, but the rest of the push cadence is a `rule:push-cadence` or `rule:push-cadence-landing` pointer, which the guard-push-rules core prints on the push itself",
-			"source": "#3070"
+			"source": "#3070, #4272"
 		},
 		"scripts/guard-paste-self-match.js": {
 			"digest": "6fe21a1f7ac86a8b",

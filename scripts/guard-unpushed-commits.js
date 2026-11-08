@@ -202,7 +202,7 @@ function buildPushStep(ref) {
 }
 
 /**
- * One checkout's paragraph of the warning: the count, the commits and the push.
+ * One checkout's paragraph of the warning: the count and the commits.
  * @param {{tree: string, ref: string, commits: string[]}} found
  * @param {string} where "" for the session's own tree, else " in <checkout>"
  */
@@ -218,8 +218,7 @@ function describeUnpushed({ tree, ref, commits }, where) {
 			: "";
 	return (
 		`${String(commits.length)} commit(s) this session made${where} are not on ${ref}:\n` +
-		`${lines.map((l) => `  ${l}`).join("\n")}${more}\n` +
-		`${buildPushStep(ref)} `
+		`${lines.map((l) => `  ${l}`).join("\n")}${more}\n`
 	);
 }
 
@@ -255,6 +254,9 @@ function judge({ sessionId: sid, payload }) {
 						f.tree === tree ? "" : ` in the main checkout (${f.tree})`,
 					),
 				)
+				.join("") +
+			[...new Set(found.map((f) => buildPushStep(f.ref)))]
+				.map((step) => `${step} `)
 				.join("") +
 			"If you are holding it back — a neighbour's red suite, say — end with a message that says so and names the failing test, so the founder sees that the branch is ahead of GitHub. " +
 			"Then re-send the message this turn was going to end on, its status marker included — this block discarded it.",

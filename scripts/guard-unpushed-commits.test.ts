@@ -174,6 +174,7 @@ describe("the session's own worktree, then the main checkout (#4243, #4272)", ()
 		);
 		expect(reason).toContain("in the main checkout");
 		expect(reason.indexOf("in wt")).toBeLessThan(reason.indexOf("in main"));
+		expect(reason.split("The push is your own act").length).toBe(2);
 	});
 });
 
