@@ -30,7 +30,7 @@ const path = require("node:path");
 
 /* lib/sh-quote.js's shellQuote and lib/pinned-code.js's SHA_SHOWN, copied:
  * the shim requires nothing of the repo's (local §LG1's marked copy). Its
- * refusals' openings are lib/core-fault.js's SHIM_FAULT_TEXTS, copied too, as
+ * refusals' openings are in lib/core-fault.js's lockout texts, copied too, as
  * the refill loop reads a session refused only so as locked out (#4228). */
 /** @param {string} word */
 const shellQuote = (word) => `'${word.replaceAll("'", "'\\''")}'`;

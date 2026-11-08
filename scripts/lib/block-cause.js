@@ -18,7 +18,8 @@
  * met after it reached its ticket (#4202's ruling).
  */
 
-const { LOCKOUT_TEXTS } = require("./core-fault.js");
+const { isLockoutText } = require("./core-fault.js");
+const { parseFirstLine } = require("./first-line.js");
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
 const { parseStatus } = require("./status-marker.js");
 
@@ -182,23 +183,11 @@ function resultText(block) {
 }
 
 /**
- * A refusal's first line, past the head the harness gives it.
- * @param {string} text
- */
-const refusalLineOf = (text) =>
-	(
-		text
-			.replace(REFUSAL_HEAD, "")
-			.split("\n")
-			.find((l) => l.trim() !== "") ?? ""
-	).trim();
-
-/**
  * Each tool result's text in `tail`, with the call it answers.
  * @param {Record<string, any>[]} tail
  * @returns {{text: string, call: RefusedCall|null}[]}
  */
-function readResults(tail) {
+function resultsOf(tail) {
 	/** @type {Map<unknown, RefusedCall>} */
 	const calls = new Map();
 	const results = [];
@@ -222,14 +211,15 @@ function readResults(tail) {
  * @param {Record<string, any>[]} tail
  * @returns {Lockout|null}
  */
-function readLockout(tail) {
-	const results = readResults(tail);
+function lockoutOf(tail) {
+	const results = resultsOf(tail);
 	if (!results.every((r) => REFUSAL_HEAD.test(r.text))) return null;
-	const first = results.find((r) =>
-		LOCKOUT_TEXTS.some((t) => r.text.includes(t)),
-	);
+	const first = results.find((r) => isLockoutText(r.text));
 	return first
-		? { refusal: refusalLineOf(first.text), call: first.call }
+		? {
+				refusal: parseFirstLine(first.text.replace(REFUSAL_HEAD, "")),
+				call: first.call,
+			}
 		: null;
 }
 
@@ -239,7 +229,7 @@ function readLockout(tail) {
  *   said: Record<string, any>, lockout: Lockout|null}} Facts
  *   `waiting`, the row's `waitingFor` while its status is `waiting`; `last`,
  *   the last main-chain row; `said`, the last assistant row; `lockout`,
- *   readLockout's
+ *   lockoutOf's
  */
 
 /** @param {Facts} f */
@@ -340,7 +330,7 @@ function blockCause({ row, job, tail }) {
 		waiting: row.status === "waiting" ? (row.waitingFor ?? "") : "",
 		last: tail.at(-1),
 		said: tail.findLast((t) => t.type === "assistant") ?? {},
-		lockout: readLockout(tail),
+		lockout: lockoutOf(tail),
 	};
 	const hit = RULES.find(([matches]) => matches(facts));
 	if (!hit) return { cause: "UNKNOWN", why: "no rule matched" };

@@ -78,6 +78,7 @@ import {
 	writesWokenRecord,
 } from "./lib/refill-loop-run-testkit";
 import {
+	GUARD_HOOKS_JSON,
 	LOGGED_OUT,
 	parseHoldId,
 	probedCheckout,
@@ -399,25 +400,7 @@ ${body}`,
 		 * that runs the shared tree's own entry. */
 		beforeEach(() => {
 			fs.mkdirSync(path.dirname(hooksFile()), { recursive: true });
-			fs.writeFileSync(
-				hooksFile(),
-				JSON.stringify({
-					hooks: {
-						PreToolUse: [
-							{
-								matcher: "Bash|Read",
-								hooks: [
-									{
-										type: "command",
-										command:
-											'node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js',
-									},
-								],
-							},
-						],
-					},
-				}),
-			);
+			fs.writeFileSync(hooksFile(), GUARD_HOOKS_JSON);
 		});
 
 		it("stops launches, raises the hold and files its issue on its first tick, off the checkout's own hook line", async () => {
@@ -610,7 +593,7 @@ if (payload.tool_name === "Bash" && !fs.existsSync(${JSON.stringify(healed())}))
 				const locked = await tickOnState(close.gh);
 
 				expect(locked.stdout).toContain(
-					`repo hold raised: probe in ${repo}: repair the shared tree: guard lockout: ${Refusal}`,
+					`repo hold raised: probe in ${repo}: repair the guard code the hook line runs, as its refusal says: guard lockout: ${Refusal}`,
 				);
 				expect(locked.stdout).toMatch(/session job7; 1 attached/);
 				expect(locked.stdout).toMatch(/session job8; 2 attached/);
@@ -619,6 +602,7 @@ if (payload.tool_name === "Bash" && !fs.existsSync(${JSON.stringify(healed())}))
 				);
 				expect(locked.stdout).not.toContain("QUESTION park");
 				expect(fs.existsSync(at("dispatches"))).toBe(false);
+				expect(await readStatus()).toContain("stops launches: yes");
 				const filed = readFiled();
 				expect(filed).toHaveLength(1);
 				expect(filed[0]?.body).toContain(`guard lockout: ${Refusal}`);

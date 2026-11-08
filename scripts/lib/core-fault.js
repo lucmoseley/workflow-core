@@ -19,4 +19,10 @@ const SHIM_FAULT_TEXTS = /** @type {const} */ ([
 
 const LOCKOUT_TEXTS = [CORE_FAULT_TEXT, ...SHIM_FAULT_TEXTS];
 
-module.exports = { CORE_FAULT_TEXT, LOCKOUT_TEXTS, SHIM_FAULT_TEXTS };
+/**
+ * Whether `text` carries a refusal for want of a guard that could judge the call.
+ * @param {string} text
+ */
+const isLockoutText = (text) => LOCKOUT_TEXTS.some((t) => text.includes(t));
+
+module.exports = { CORE_FAULT_TEXT, isLockoutText };

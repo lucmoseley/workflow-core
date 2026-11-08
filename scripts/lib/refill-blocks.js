@@ -62,8 +62,10 @@ const PARKED_STATE = "blocked";
  * @typedef {LoopLaunch & {jobId: string}} JobLaunch
  * @typedef {JobLaunch & {block: import("./block-act.js").Block}} BlockedLaunch
  * @typedef {import("./block-act.js").Act} Act
+ * @typedef {{id: string, issue: number|null}} HoldRef  a repo hold a park is
+ *   attached to
  * @typedef {{act: Act, whyEnded?: string, limitParks?: number,
- *   hold?: {id: string, issue: number|null}}} ParkWhy  `act`, stop-and-park,
+ *   hold?: HoldRef}} ParkWhy  `act`, stop-and-park,
  *   park-at-morning or attach-to-hold; `limitParks`, a limit-cap park's count in
  *   a row, for the marker; `hold`, the repo hold the park is attached to
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
@@ -229,7 +231,7 @@ const PARKED_STATE = "blocked";
  *   dispatch-ledger row on its issues, held past the window to `until` where
  *   given; whether it was written
  * @property {(l: JobLaunch, lockout: import("./block-cause.js").Lockout,
- *   now: number) => {hold: {id: string, issue: number|null}}|{why: string}}
+ *   now: number) => {hold: HoldRef}|{why: string}}
  *   holdLockedOut  attach its locked-out session to its checkout's probe
  *   hold, raised where none stands (lib/repo-holds.js's holdLockedOut): the
  *   hold, else why not

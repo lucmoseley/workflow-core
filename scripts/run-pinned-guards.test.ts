@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SHIM_FAULT_TEXTS } from "./lib/core-fault.js";
+import { isLockoutText } from "./lib/core-fault.js";
 import { readHookLines } from "./lib/pretool-guard-testkit";
 
 const SHIM = path.join(__dirname, "run-pinned-guards.js");
@@ -58,7 +58,8 @@ describe("the shim", () => {
 	it("refuses with exit 2 and the adopt command where the link is missing, as on a fresh machine", () => {
 		const r = runShim(entryOf());
 		expect(r.status).toBe(2);
-		expect(r.stderr.startsWith(SHIM_FAULT_TEXTS[0])).toBe(true);
+		expect(r.stderr).toMatch(/^Guard code missing/);
+		expect(isLockoutText(r.stderr)).toBe(true);
 		expect(r.stderr).toContain(
 			`! node '${path.join(__dirname, "adopt-guard-code.js")}'`,
 		);
@@ -71,7 +72,7 @@ describe("the shim", () => {
 		fs.symlinkSync(failing, link);
 		const r = runShim(entryOf());
 		expect(r.status).toBe(2);
-		expect(r.stderr.startsWith(SHIM_FAULT_TEXTS[1])).toBe(true);
+		expect(isLockoutText(r.stderr)).toBe(true);
 		expect(r.stderr).toMatch(
 			/^Guard code failed .*\(bbb\): Unexpected token '}'\nIt fails to load/,
 		);

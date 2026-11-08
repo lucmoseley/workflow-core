@@ -127,6 +127,103 @@ describe("a question the harness poses (rule 4)", () => {
 	});
 });
 
+describe("a session locked out by its guards (#4228)", () => {
+	/* The 3 Nov refusal's shape, read off session 321a3802's transcript. */
+	const Refusal =
+		"guard-anthropic-report could not judge this call, and it fails closed: Lexer is not defined";
+	const call = (id: string, command: string) => ({
+		type: "assistant",
+		isSidechain: false,
+		message: {
+			content: [{ type: "tool_use", id, name: "Bash", input: { command } }],
+		},
+	});
+	const result = (id: string, content: unknown, isError = true) => ({
+		type: "user",
+		isSidechain: false,
+		message: {
+			content: [
+				{ type: "tool_result", tool_use_id: id, content, is_error: isError },
+			],
+		},
+	});
+	const refused = (id: string) =>
+		result(id, `PreToolUse:Bash hook error: ${Refusal}\n\nguard-x ${Refusal}`);
+	const asked = {
+		type: "assistant",
+		isSidechain: false,
+		message: {
+			content: [
+				{ type: "text", text: "needs input: guards refuse every call" },
+			],
+		},
+	};
+	const waiting = row({ status: "waiting", waitingFor: "input needed" });
+
+	it("reads only fail-closed refusals then needs input: as LOCKED_OUT, keeping the first refusal and its call", () => {
+		const locked = [
+			call("t1", "node scripts/claim-issue.js 7"),
+			refused("t1"),
+			call("t2", "ls"),
+			refused("t2"),
+			asked,
+		];
+		expect(cause(waiting, job(), locked)).toEqual({
+			cause: "LOCKED_OUT",
+			lockout: {
+				refusal: Refusal,
+				call: {
+					tool_name: "Bash",
+					tool_input: { command: "node scripts/claim-issue.js 7" },
+				},
+			},
+		});
+	});
+
+	it("reads a passed call before the refusal as QUESTION", () => {
+		const reached = [
+			call("t1", "ls"),
+			result("t1", "README.md", false),
+			call("t2", "ls"),
+			refused("t2"),
+			asked,
+		];
+		expect(cause(waiting, job(), reached)).toEqual({ cause: "QUESTION" });
+	});
+
+	it("reads refusals none of which is a fault's as QUESTION", () => {
+		const denied = [
+			call("t1", "rm -rf x"),
+			result("t1", "PreToolUse:Bash hook error: Refused: rule:x"),
+			asked,
+		];
+		expect(cause(waiting, job(), denied)).toEqual({ cause: "QUESTION" });
+	});
+
+	it("keeps no call where the refused one is not in the transcript", () => {
+		expect(cause(waiting, job(), [refused("t9"), asked])).toEqual({
+			cause: "LOCKED_OUT",
+			lockout: { refusal: Refusal, call: null },
+		});
+	});
+
+	it("reads the shim's exit-2 refusal past the command the harness names", () => {
+		const shim = [
+			call("t1", "ls"),
+			result("t1", [
+				{
+					type: "text",
+					text: 'PreToolUse:Bash hook error: [node "$CLAUDE_PROJECT_DIR"/scripts/run-pinned-guards.js x]: Guard code missing: no x\nThe repair',
+				},
+			]),
+		];
+		expect(cause(waiting, job(), shim)).toMatchObject({
+			cause: "LOCKED_OUT",
+			lockout: { refusal: "Guard code missing: no x" },
+		});
+	});
+});
+
 describe("a seat or plan limit (rule 5)", () => {
 	it("reads off the detail, the needs or the transcript's rate_limit row", () => {
 		expect(

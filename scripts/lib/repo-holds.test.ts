@@ -20,6 +20,7 @@ import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
 import { writeFaultyGit } from "./git-fault-fake";
 import {
+	GUARD_HOOKS_JSON,
 	ISSUE,
 	LOGGED_OUT,
 	MIN,
@@ -586,25 +587,7 @@ ${body}`,
 		beforeEach(() => {
 			const hooks = path.join(repo, "self-plugin", "hooks", "hooks.json");
 			fs.mkdirSync(path.dirname(hooks), { recursive: true });
-			fs.writeFileSync(
-				hooks,
-				JSON.stringify({
-					hooks: {
-						PreToolUse: [
-							{
-								matcher: "Bash|Read",
-								hooks: [
-									{
-										type: "command",
-										command:
-											'node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js',
-									},
-								],
-							},
-						],
-					},
-				}),
-			);
+			fs.writeFileSync(hooks, GUARD_HOOKS_JSON);
 		});
 
 		it("reads a deny of its benign Read as a failure", () => {
@@ -691,7 +674,7 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 				const second = lockOut("job8", "locked");
 
 				expect(first.text).toContain(
-					`repo hold raised: probe in ${repo}: repair the shared tree: guard lockout: ${Fault}`,
+					`repo hold raised: probe in ${repo}: repair the guard code the hook line runs, as its refusal says: guard lockout: ${Fault}`,
 				);
 				expect(first.held).toMatchObject({
 					hold: { id: "probe", issue: ISSUE },
@@ -713,6 +696,33 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 				);
 				expect(text).not.toContain("repo hold cleared");
 				expect(readHolds(repo).holds).toHaveLength(1);
+			});
+
+			it("keeps the hold on its kept call before its issue files, the session not yet attached", () => {
+				serve({ isFiling: false });
+				writeGuardEntry(Judging);
+				const first = lockOut("job7", "locked");
+				expect(first.held).toEqual({
+					why: "its probe hold has no issue filed yet",
+				});
+
+				const { text } = tick(NOW + MIN);
+
+				expect(text).toContain("a kept call still fails");
+				expect(readHolds(repo).holds).toHaveLength(1);
+			});
+
+			it("raises a fresh hold for a session locked out again after the lift", () => {
+				serve();
+				writeGuardEntry(Judging);
+				lockOut("job7", "merits");
+				expect(tick(NOW + MIN).text).toContain("repo hold cleared");
+
+				const again = lockOut("job7", "locked");
+
+				expect(again.text).toContain("repo hold raised: probe in");
+				expect(again.held).toMatchObject({ hold: { id: "probe" } });
+				expect(readHolds(repo).holds[0]?.raisedAt).toBe(NOW);
 			});
 
 			it("lifts the hold where the kept call is refused only on its merits", () => {
