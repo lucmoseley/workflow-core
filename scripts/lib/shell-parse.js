@@ -737,6 +737,8 @@ function isCommandAbsorbed(line, spans) {
  * `--message` on any command, so `commit-paths.js -m` reads as `git commit -m`
  * does (#4028), and `gh`'s body and title flags on `gh`. Not keyed on the
  * subcommand: a quoted argument is data whatever the subcommand.
+ * Residual: `-m` is a count or mode on `grep`, `sort`, `mkdir` and others, so
+ * a quote opened after one there keeps its join through a `git` line too.
  * @param {Lexer} lx
  */
 function isMessageOpen(lx) {
@@ -758,6 +760,7 @@ function isMessageOpen(lx) {
  * A flattened segment for a human: every blanked span shown as `"…"`, and the
  * leading whitespace the flattening leaves dropped. A sentinel without an
  * index is not something this file writes, so it is rendered and left alone.
+ * A sentinel byte the command typed shows as `"…"` too: this reads no spans.
  * @param {string} segment
  */
 function unmask(segment) {
@@ -991,6 +994,8 @@ function expandMasked(raw, scope) {
  * @param {Scope} scope
  */
 function expandSpan(recorded, scope) {
+	/* A bare span is typed text outside quotes, read back as typed (#4278). */
+	if (isBareSpan(recorded)) return recorded;
 	const span = recorded.slice(1);
 	if (recorded.charAt(0) === '"') return expandVars(span, scope);
 	/* Single quotes are literal, so a `$` inside one names a directory rather

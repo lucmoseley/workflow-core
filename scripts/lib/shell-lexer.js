@@ -5,7 +5,7 @@
  * A CORE: it does no I/O and never runs the text.
  */
 
-const { QUOTED } = require("./shell-words.js");
+const { QUOTED, SENTINEL_BYTE } = require("./shell-words.js");
 const { endRun } = require("./trim-run.js");
 
 /** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
@@ -138,12 +138,13 @@ class Lexer {
 		this.push(dollars % 2 ? "E" : "S");
 	}
 
-	/** The sentinel for a BARE span: a sentinel byte typed outside every
-	 * quote, recorded as written, so no typed text reads as a span (#4278).
-	 * @param {string} written */
-	bare(written) {
-		this.spans.push(written);
-		return `${QUOTED}${this.spans.length - 1}\x01`;
+	/** Record `recorded` as a span and return the sentinel standing for it.
+	 * A sentinel byte typed outside every quote is recorded as written, with
+	 * no quote — a BARE span — so no typed text reads as a span (#4278).
+	 * @param {string} recorded */
+	recordSpan(recorded) {
+		this.spans.push(recorded);
+		return `${QUOTED}${this.spans.length - 1}${SENTINEL_BYTE}`;
 	}
 
 	/** Close the innermost frame on its closing character; closing the
@@ -155,8 +156,7 @@ class Lexer {
 			this.span += c;
 			return;
 		}
-		this.spans.push(this.quote + this.span);
-		this.out += `${QUOTED}${this.spans.length - 1}\x01`;
+		this.out += this.recordSpan(this.quote + this.span);
 		this.span = "";
 	}
 
@@ -199,7 +199,7 @@ class Lexer {
 		this.escaped = false;
 		const c = text.charAt(i);
 		if (this.frames) this.span += c;
-		else if (c === "\x01") this.out += this.bare("\\\x01");
+		else if (c === SENTINEL_BYTE) this.out += this.recordSpan(`\\${c}`);
 		else if (c !== "\n") this.out += `\\${c}`;
 		return i + 1;
 	}
@@ -217,7 +217,7 @@ class Lexer {
 			i = nl;
 			this.inComment = false;
 		}
-		const j = indexOfAny(text, "'\"\\#\x01", i);
+		const j = indexOfAny(text, `'"\\#${SENTINEL_BYTE}`, i);
 		if (j < 0) {
 			this.out += text.slice(i);
 			return -1;
@@ -229,7 +229,7 @@ class Lexer {
 			if (isWordStart(this.out)) this.inComment = true;
 			else this.out += "#";
 		} else if (c === "\\") this.escaped = true;
-		else if (c === "\x01") this.out += this.bare(c);
+		else if (c === SENTINEL_BYTE) this.out += this.recordSpan(c);
 		else this.openQuote(c, p);
 		return j + 1;
 	}
@@ -409,10 +409,11 @@ class Lexer {
 	}
 
 	/** The masked text so far. An UNTERMINATED quote is left alone: the rest
-	 * of the text is literal, each sentinel byte in it recorded as bare. */
+	 * of the text is literal, each sentinel byte in it recorded as a bare
+	 * span. Call it once per text: each call records those spans again. */
 	masked() {
 		if (!this.frames) return this.out;
-		const tail = this.span.replaceAll("\x01", (c) => this.bare(c));
+		const tail = this.span.replaceAll(SENTINEL_BYTE, (c) => this.recordSpan(c));
 		return this.prefix + this.quote + tail;
 	}
 }

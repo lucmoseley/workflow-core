@@ -23,6 +23,9 @@ const { trimEndRun } = require("./trim-run.js");
  */
 const QUOTED = "\x01QSTR\x01";
 
+/** The byte a sentinel opens and closes on, typed or written. */
+const SENTINEL_BYTE = "\x01";
+
 /** @param {string} recorded a span as recorded */
 const isBareSpan = (recorded) => !["'", '"'].includes(recorded.charAt(0));
 
@@ -1293,6 +1296,7 @@ function gitValueFlags(sub) {
 
 module.exports = {
 	QUOTED,
+	SENTINEL_BYTE,
 	absolute,
 	hasExpansion,
 	isBareSpan,

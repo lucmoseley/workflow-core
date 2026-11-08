@@ -1106,6 +1106,12 @@ describe("logical lines (mantahostels#182)", () => {
 		).toHaveLength(1);
 	});
 
+	it("still splits a non-git command's quote on a flag that is not -m (#4028)", () => {
+		expect(
+			lines('node x.js -x "first line\ngit branch -f main HEAD~1 second" -- f'),
+		).toHaveLength(2);
+	});
+
 	it("reads a message opening with an apostrophe in it", () => {
 		expect(
 			checkouts(
@@ -2018,6 +2024,14 @@ describe("the unresolved-tree record's fourth field (#320)", () => {
 	])("gives back a sentinel typed %s as typed (#4278)", (_where, command) => {
 		const parsed = parseCommand(command);
 		expect(asWritten(parsed.masked, parsed.spans)).toBe(command);
+	});
+
+	it("resolves a redirect and a cd through a typed sentinel byte (#4278)", () => {
+		expect(
+			walkMap("cd /t/a\x01b && echo hi > c", (c) =>
+				c.redirects().map((r) => r.path),
+			),
+		).toEqual([[], ["/t/a\x01b/c"]]);
 	});
 
 	it("reads a word holding a typed sentinel byte as that byte (#4278)", () => {
