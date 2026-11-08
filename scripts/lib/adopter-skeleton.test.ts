@@ -157,7 +157,7 @@ describe("the core-owned rules file", () => {
 
 	it.each([
 		[[], "check:ci` once", "landing-status.js"],
-		[["landing"], "landing-status.js` once", "check:ci"],
+		[["landing"], "landing-status.js --wait` in the background", "check:ci"],
 	] as [Module[], string, string][])(
 		"gives the push line for the landing module's state, modules %j (#2409)",
 		(modules, kept, dropped) => {

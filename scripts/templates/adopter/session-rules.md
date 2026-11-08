@@ -20,7 +20,7 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 ## Committing and pushing
 
 - [!landing] **A push is your own act, never asked of {{founder}}{{#ci}}; after it, run `{{ci_check}}` once — read it, never rerun it: it judges a commit range, not your sha{{/ci}}.**
-- [landing] **A push to your session's queue ref is your own act, never asked of {{founder}}; after it, run `node scripts/landing-status.js` once — it reads each commit as landed on `main` or queued. `result:` never rests on a queue push alone.**
+- [landing] **A push to your session's queue ref is your own act, never asked of {{founder}}; after it, run `node scripts/landing-status.js --wait` in the background — it exits once each commit has landed on `main` or been dropped, so no timer is guessed. `result:` never rests on a queue push alone.**
 - **Show the diff of each change before committing it.** Unenforced.
 - **Write scope is this repository.** Never write to an external surface unless the instruction names it.
 
