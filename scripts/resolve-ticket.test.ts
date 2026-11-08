@@ -1044,12 +1044,12 @@ describe("a review record in the close comment (#3846)", () => {
 		[
 			3826,
 			"**Review findings:** base `88a44510be20f03e872e02ed3b05e0b496d58577`, reviewed `98f36d9c9a871ecd5c577b1f7b08856bd0e1b398`, landed `6a459da0c`, paths `scripts/lib/read-hidden.js,scripts/test_write_secret_tty.py`. Landed names the commit queued on `landing`, not yet on `main`.",
-			'"scripts/test_write_secret_tty.py."',
+			'"scripts/test_write_secret_tty.py. Landed names the commit queued on landing"',
 		],
 		[
 			2085,
 			"**Review findings:** base 23f76f5f0305f7a3dd6768e82d27557778208484, reviewed 75982fd5ef153713a69fd079009076d5b795bde1, landed 19ba39677, paths scripts/lib/atomic-write.js, scripts/lib/atomic-write.test.ts and the 27 routed sites, tests and manifest in that commit",
-			'"routed"',
+			'"scripts/lib/atomic-write.test.ts and the 27 routed sites"',
 		],
 	])(
 		"refuses #%s's filed record, the note read as paths (#3907)",
@@ -1109,11 +1109,72 @@ describe("a review record in the close comment (#3846)", () => {
 		);
 	});
 
+	const buildReplay = () => {
+		gitRepo(sb);
+		fs.mkdirSync(path.join(sb.repo, "dir"));
+		fs.writeFileSync(path.join(sb.repo, "untouched.ts"), "0\n");
+		fs.writeFileSync(path.join(sb.repo, "dir", "a.ts"), "0\n");
+		commitAll(sb, "seed");
+		const base = gitHere("rev-parse", "HEAD");
+		fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(sb.repo, "dir", "a.ts"), "1\n");
+		fs.writeFileSync(path.join(sb.repo, "docs", "my file.md"), "1\n");
+		commitAll(sb, "Change");
+		const landed = gitHere("rev-parse", "HEAD");
+		return (paths: string) =>
+			`**Review findings:** base ${base}, reviewed ${landed}, landed ${landed}, paths ${paths}`;
+	};
+
+	it("refuses a path its replay leaves unchanged with a remedy that, followed, clears it (#4050)", () => {
+		setUp();
+		onTicket(Tier);
+		const record = buildReplay();
+		refused(
+			record("dir/a.ts,untouched.ts"),
+			'write the record with the marker\'s paths= less any of "untouched.ts" it names',
+		);
+		passes(record("dir/a.ts"));
+	});
+
+	it.each([
+		"docs/my file.md",
+		"dir/a.ts,docs/my file.md",
+		"`dir/a.ts`, `docs/my file.md`",
+	])("takes a path holding a space as one path: paths %s (#4050)", (paths) => {
+		setUp();
+		onTicket(Tier);
+		passes(buildReplay()(paths));
+	});
+
+	it("judges a comma-separated entry holding a space whole though its words name changed paths (#4050)", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			buildReplay()("dir/a.ts,docs/my file.md,dir a.ts"),
+			'less any of "dir a.ts" it names',
+		);
+	});
+
+	it("names an entry holding a space whole where no word of it changed (#4050)", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			buildReplay()("dir/a.ts,docs/no file.md"),
+			'whose paths hold "docs/no file.md", no path changed',
+		);
+	});
+
 	it.each([
 		"- Fixed: a leak",
 		"- **FIXED**: a leak",
 		"* FIXED: a leak",
 		"1. FIXED: a leak",
+		"- Fix: a leak",
+		"- Fixes: a leak",
+		"- TICKET #12: a leak",
+		"- Ticket #12: a leak",
+		"- Fixing: a leak",
+		"- TICKETING: a leak",
 	])("refuses the disposition line %s (#3907)", (line) => {
 		setUp();
 		onTicket(Tier);
