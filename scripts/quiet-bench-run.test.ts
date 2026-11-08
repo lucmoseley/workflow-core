@@ -150,6 +150,20 @@ it("reads a run kept before ceiling_killed from its logs, never rewriting it (#4
 	expect(fs.readFileSync(path.join(dir, "results.json"), "utf8")).toBe(results);
 });
 
+it("leaves a kept row's ceiling unknown where a suite's log is gone, so it counts as nothing (#4031)", () => {
+	const dir = path.join(refill, "quiet-bench-runs", "2026-11-03T19-53-27.124Z");
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "ladder.txt"), LADDER_STAMP);
+	fs.writeFileSync(
+		path.join(dir, "results.json"),
+		JSON.stringify([
+			{ suites: 2, baseline_stationary: true, all_green: true, wall_s: 300 },
+		]),
+	);
+	fs.writeFileSync(path.join(dir, "run-2-0-0.log"), "passing\n");
+	expect(runner("rows").stdout).toBe("no usable bench rows kept\n");
+});
+
 it("reads no rows with no run kept", () => {
 	expect(runner("rows").stdout).toBe("no usable bench rows kept\n");
 });

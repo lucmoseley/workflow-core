@@ -7,6 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { gh } = require("./gh.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -50,18 +51,19 @@ const CEILING_LINE = /^SUITE CEILING\b/m;
 /**
  * How many of a row's suites the ceiling killed, read from their logs
  * (`run-<count>-<row>-<suite>.log`), for a row kept before the bench wrote
- * `ceiling_killed` itself.
+ * `ceiling_killed` itself. A log not read leaves it unknown, which no count
+ * takes as a whole run (#4031).
  * @param {string} dir
  * @param {import("./quiet-bench.js").BenchRow} row
  * @param {number} index the row's place in the run
+ * @returns {number|undefined}
  */
 function readCeilingKilled(dir, row, index) {
 	let killed = 0;
 	for (let i = 0; i < (row.suites ?? 0); i++) {
-		const log = readTextIfAny(
-			path.join(dir, `run-${row.suites}-${index}-${i}.log`),
-		);
-		if (log !== null && CEILING_LINE.test(log)) killed++;
+		const log = readText(path.join(dir, `run-${row.suites}-${index}-${i}.log`));
+		if (log.state !== "read") return;
+		if (CEILING_LINE.test(log.data)) killed++;
 	}
 	return killed;
 }

@@ -326,17 +326,21 @@ const countUsableRows = (rows) => countRowsBy(rows, isUsableRow);
 /** @param {BenchRow[]} rows */
 const countLowerBoundRows = (rows) => countRowsBy(rows, isLowerBoundRow);
 
+/**
+ * @param {BenchRow[]} rows
+ * @param {(row: BenchRow) => boolean} counts
+ */
+function hasRowsPerCount(rows, counts) {
+	const tally = countRowsBy(rows, counts);
+	return COUNTS.every((n) => (tally.get(n) ?? 0) >= ROWS_PER_COUNT);
+}
+
 /** @param {BenchRow[]} rows */
-const isRunComplete = (rows) =>
-	COUNTS.every((n) => (countUsableRows(rows).get(n) ?? 0) >= ROWS_PER_COUNT);
+const isRunComplete = (rows) => hasRowsPerCount(rows, isUsableRow);
 
 /** @param {BenchRow[]} rows */
 const isRunBounded = (rows) =>
-	COUNTS.every(
-		(n) =>
-			(countRowsBy(rows, (r) => isUsableRow(r) || isLowerBoundRow(r)).get(n) ??
-				0) >= ROWS_PER_COUNT,
-	);
+	hasRowsPerCount(rows, (r) => isUsableRow(r) || isLowerBoundRow(r));
 
 /**
  * A row the suite ceiling cut short: no rerun lifts it, so #2862 stops at
@@ -471,7 +475,6 @@ module.exports = {
 	buildEnding,
 	buildRowsReading,
 	buildRunComment,
-	countLowerBoundRows,
 	countUsableRows,
 	decideQuietBench,
 	isRunAnswering,

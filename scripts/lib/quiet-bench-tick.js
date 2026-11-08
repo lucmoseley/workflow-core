@@ -51,22 +51,6 @@ const SCRIPTS = path.dirname(__dirname);
 const HOLD_LOCK_WAIT_MS = 1000;
 
 /**
- * How many open issues block the bench's issue (#4607): each is a reason its rows
- * could not yet be quoted.
- * @param {string} root
- * @throws where `gh` fails
- */
-const readOpenBlockers = (root) =>
-	Number(
-		gh([
-			"api",
-			`repos/${resolveKey("tracker", { root })}/issues/${LADDER_BENCH.issue}/dependencies/blocked_by`,
-			"--jq",
-			'[.[] | select(.state == "open")] | length',
-		]),
-	);
-
-/**
  * Whether the suite has outgrown the ladder (check-suite-size-drift's WARN), no
  * kept run answers the ladder as it stands, and no open issue blocks the bench's
  * issue. A read that fails is no due measurement.
@@ -82,7 +66,13 @@ function readDue(root, log) {
 	try {
 		if (JSON.parse(r.stdout).outcome !== "WARN") return false;
 		if (readKeptRuns().some(isRunAnswering)) return false;
-		return readOpenBlockers(root) === 0;
+		const open = gh([
+			"api",
+			`repos/${resolveKey("tracker", { root })}/issues/${LADDER_BENCH.issue}/dependencies/blocked_by`,
+			"--jq",
+			'[.[] | select(.state == "open")] | length',
+		]);
+		return Number(open) === 0;
 	} catch (e) {
 		log(`quiet bench: its due read failed: ${buildErrorText(e)}`);
 		return false;
@@ -245,4 +235,4 @@ function tendQuietBench({
 	return next;
 }
 
-module.exports = { readOpenBlockers, tendQuietBench };
+module.exports = { tendQuietBench };

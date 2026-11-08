@@ -5,6 +5,7 @@
  * control is overwritten or lifted, or a run's rows never reach the issue.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,7 +19,7 @@ import {
 	quietBenchFiles,
 	readUnpostedRuns,
 } from "./quiet-bench-runs.js";
-import { readOpenBlockers, tendQuietBench } from "./quiet-bench-tick.js";
+import { tendQuietBench } from "./quiet-bench-tick.js";
 import { QUIET_BENCH_PAUSE } from "./refill-decide.js";
 import { loopFiles, writeControlFile } from "./refill-files.js";
 import { parseControl } from "./refill-loop.js";
@@ -177,7 +178,9 @@ it("keeps its runs outside what the scratch sweep reaps", () => {
 	expect(runs).not.toContain(path.join(".claude", "tmp"));
 });
 
-it("reads the open blockers of #4607, the whole-suite re-measure (#4608)", () => {
+it("reads the due bench's blockers off #4607, the whole-suite re-measure (#4608)", () => {
+	/* An empty checkout's suite has drifted -100% from the ladder's. */
+	execFileSync("git", ["init", "-q", checkout]);
 	fs.mkdirSync(path.join(checkout, ".claude"), { recursive: true });
 	fs.writeFileSync(
 		path.join(checkout, ".claude", "workflow-core.json"),
@@ -186,10 +189,12 @@ it("reads the open blockers of #4607, the whole-suite re-measure (#4608)", () =>
 	const asked = path.join(dir, "asked");
 	vi.stubEnv(
 		"WFC_GH",
-		stubGhScript(dir, `#!/bin/sh\nprintf "%s\\n" "$@" > ${asked}\necho 2\n`).gh,
+		stubGhScript(dir, `#!/bin/sh\nprintf "%s\\n" "$@" > ${asked}\necho 1\n`).gh,
 	);
-	expect(readOpenBlockers(checkout)).toBe(2);
+	writeControlFile(baseControl);
+	expect(tend(baseControl).next.paused).toBeUndefined();
 	expect(fs.readFileSync(asked, "utf8")).toContain(
 		"repos/owner/tracker/issues/4607/dependencies/blocked_by",
 	);
+	expect(readState().due.value).toBe(false);
 });

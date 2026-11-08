@@ -10,7 +10,6 @@ import {
 	buildEnding,
 	buildRowsReading,
 	buildRunComment,
-	countLowerBoundRows,
 	countUsableRows,
 	decideQuietBench,
 	isRunAnswering,
@@ -369,18 +368,24 @@ describe("the kept rows", () => {
 		});
 
 		it("counts as a lower-bound row, never a usable one, where its dip plateaued in the first half", () => {
-			expect(countLowerBoundRows([killed(2, 300)]).get(2)).toBe(1);
+			expect(buildRowsReading([run([killed(2, 300)])])).toContain(
+				"lower-bound rows 1:0 2:1 3:0",
+			);
 			expect(countUsableRows([killed(2, 300)]).get(2)).toBe(0);
 		});
 
 		it("counts as neither where its lowest sample came in the second half", () => {
-			expect(countLowerBoundRows([killed(2, 600)]).get(2)).toBe(0);
+			expect(buildRowsReading([run([killed(2, 600)])])).toContain(
+				"lower-bound rows 1:0 2:0 3:0",
+			);
 			expect(countUsableRows([killed(2, 600)]).get(2)).toBe(0);
 		});
 
 		it("counts as neither on a baseline that moved", () => {
 			const moved = { ...killed(2, 300), baseline_stationary: false };
-			expect(countLowerBoundRows([moved]).get(2)).toBe(0);
+			expect(buildRowsReading([run([moved])])).toContain(
+				"lower-bound rows 1:0 2:0 3:0",
+			);
 		});
 
 		it("ends a run of two lower-bound or usable rows per count as a lower bound", () => {
