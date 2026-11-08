@@ -19,12 +19,12 @@ import { makeProcRoot, writeEnviron } from "./lib/proc-fake";
 import { readProcTable, USER_HZ } from "./lib/proc-table.js";
 import {
 	isGroupDead,
+	killGroup,
 	orphansReapToInit,
 	startOrphan,
 	waitFor,
 } from "./lib/process-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "reap-orphan-hooks.js");
 const { ceilingS, invocations } = readRegistry(
@@ -209,12 +209,7 @@ describe("a real orphaned guard", () => {
 	let dir: string;
 	let pid = 0;
 	afterEach(() => {
-		if (pid && !isGroupDead(pid))
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* gone */
-			}
+		if (pid) killGroup(pid);
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -240,7 +235,7 @@ describe("a real orphaned guard", () => {
 			const script = path.join(dir, "scripts", name);
 			fs.mkdirSync(path.dirname(script));
 			fs.writeFileSync(script, "sleep 300\n");
-			pid = startOrphan(`bash ${shellQuote(script)}`);
+			pid = startOrphan("bash", script);
 			/* Until the fixture's shell execs, its argv is no hook run's. */
 			expect(
 				waitFor(
@@ -303,12 +298,7 @@ describe("a real process of an ended session", () => {
 	let dir: string;
 	let pid = 0;
 	afterEach(() => {
-		if (pid && !isGroupDead(pid))
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* gone */
-			}
+		if (pid) killGroup(pid);
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 

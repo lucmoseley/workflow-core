@@ -28,7 +28,7 @@ import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { seatBudget, stopOverAllowance } from "./overflow-budget.js";
-import { isDead, readStat, startOrphan } from "./process-fixture";
+import { killGroup, readStat, startOrphan } from "./process-fixture";
 import { runInProcess } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
 
@@ -838,7 +838,7 @@ describe("the per-session cap (#3698)", () => {
 	it("stops a headless run past its allowance by its process group, never through claude stop (#4580)", () => {
 		/* A `sleep` in a group of its own, orphaned to init so its reaping is
 		 * not this process's. */
-		const pid = startOrphan("sleep 60");
+		const pid = startOrphan("sleep", "60");
 		try {
 			expect(readStat(pid)).toMatchObject({ pgrp: pid });
 			expect(readStat(pid)?.ppid).not.toBe(process.pid);
@@ -858,7 +858,7 @@ describe("the per-session cap (#3698)", () => {
 			expect(readStops()).toEqual([]);
 			expect(readProcStartOf(pid)).toBeNull();
 		} finally {
-			if (!isDead(pid)) process.kill(-pid, "SIGKILL");
+			killGroup(pid);
 		}
 	});
 

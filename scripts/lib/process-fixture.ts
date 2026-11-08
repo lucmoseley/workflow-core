@@ -52,13 +52,13 @@ export function waitFor(done: () => boolean) {
 	return done();
 }
 
-/** Run shell `command` orphaned in a session and group of its own — `&` then
- * exit orphans it, setsid leads it, as Claude Code leads every hook — and
- * return its pid once it leads that group. A `$!` read outside would come back
+/** Run `argv` orphaned in a session and group of its own — `&` then exit
+ * orphans it, setsid leads it, as Claude Code leads every hook — and return
+ * its pid once it leads that group. A `$!` read outside would come back
  * before the child's setsid() ran, and a group kill in that window reaches no
  * one (#4643). */
-export function startOrphan(command: string) {
-	const inner = `echo $$; exec ${command} </dev/null >/dev/null 2>&1`;
+export function startOrphan(...argv: string[]) {
+	const inner = `echo $$; exec ${argv.map(shellQuote).join(" ")} </dev/null >/dev/null 2>&1`;
 	const res = spawnSync(
 		"sh",
 		["-c", `setsid sh -c ${shellQuote(inner)} </dev/null 2>/dev/null &`],
@@ -69,10 +69,27 @@ export function startOrphan(command: string) {
 	 * group, or on init. */
 	if (!Number.isInteger(pid) || pid <= 1)
 		throw new Error(`no orphan started: ${res.stdout}${res.stderr}`);
-	const pgrp = readStat(pid)?.pgrp;
-	if (pgrp !== pid)
-		throw new Error(`orphan ${pid} does not lead its group: pgrp ${pgrp}`);
+	const stat = readStat(pid);
+	if (!stat) throw new Error(`orphan ${pid} exited before it was read`);
+	if (stat.pgrp !== pid) {
+		/* Its group may be this test's own: kill the orphan alone. */
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {
+			/* gone */
+		}
+		throw new Error(`orphan ${pid} does not lead its group: pgrp ${stat.pgrp}`);
+	}
 	return pid;
+}
+
+/** SIGKILL process group `pgid`, one already gone included. */
+export function killGroup(pgid: number) {
+	try {
+		process.kill(-pgid, "SIGKILL");
+	} catch {
+		/* gone */
+	}
 }
 
 let reapsToInit: boolean | undefined;
@@ -81,14 +98,10 @@ let reapsToInit: boolean | undefined;
  * a subreaper that is no init leaves nothing the orphan sweeps judge orphaned. */
 export function orphansReapToInit() {
 	if (reapsToInit !== undefined) return reapsToInit;
-	const pid = startOrphan("sleep 5");
+	const pid = startOrphan("sleep", "5");
 	const table = readProcTable(REAL_PROC)?.procs;
 	const ppid = table?.get(pid)?.ppid ?? 0;
-	try {
-		process.kill(-pid, "SIGKILL");
-	} catch {
-		/* gone */
-	}
+	killGroup(pid);
 	reapsToInit = isInit(ppid, table?.get(ppid)?.argv[0]);
 	return reapsToInit;
 }
