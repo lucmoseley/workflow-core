@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
+import { spyStderr } from "./write-fd-testkit";
 
 const {
 	hostRoot,
@@ -540,9 +541,7 @@ describe("readConfig — unknown keys", () => {
 
 	it("prints each warning on stderr once per process", () => {
 		writeConfig(dir, JSON.stringify({ typo: 1 }));
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		readConfig({ root: dir });
 		readConfig({ root: dir });
 		expect(write).toHaveBeenCalledTimes(1);
@@ -553,9 +552,7 @@ describe("readConfig — unknown keys", () => {
 describe("readConfig — type warnings reach stderr (#1530)", () => {
 	it("prints a mistyped founder and disabled once each, and nothing on a quiet read", () => {
 		writeConfig(dir, JSON.stringify({ founder: 42, disabled: "x" }));
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		readConfig({ root: dir, quiet: true });
 		expect(write).not.toHaveBeenCalled();
 		readConfig({ root: dir });
@@ -657,9 +654,7 @@ describe("readConfig — each simple key's valid, malformed and absent value (#1
 			expect([good[key], good.warnings]).toEqual([valid, []]);
 
 			writeConfig(dir, JSON.stringify({ [key]: malformed }));
-			const write = vi
-				.spyOn(process.stderr, "write")
-				.mockImplementation(() => true);
+			const write = spyStderr();
 			const bad = readConfig({ root: dir });
 			const printed = write.mock.calls.map((c) => String(c[0]));
 			const warning = `"${key}" is not ${want} — read as its default`;
@@ -1043,9 +1038,7 @@ describe("cycleLogPath (#438)", () => {
 	});
 
 	it("defaults a rejected cycleLogPath, warning that it is not a repo-relative path", () => {
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		writeConfig(dir, JSON.stringify({ cycleLogPath: "/abs/cycle-log.md" }));
 		expect(cycleLogPath({ root: dir })).toBe(CYCLE_LOG_DEFAULT);
 		expect(String(write.mock.calls[0][0])).toContain(
@@ -1090,9 +1083,7 @@ describe("brandSheetPath (#452)", () => {
 	});
 
 	it("defaults a rejected brandSheetPath, warning that it is not a repo-relative path", () => {
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		writeConfig(dir, JSON.stringify({ brandSheetPath: "../brand-sheet.md" }));
 		expect(brandSheetPath({ root: dir })).toBe(BRAND_SHEET_DEFAULT);
 		expect(String(write.mock.calls[0][0])).toContain(
@@ -1140,9 +1131,7 @@ describe("pickNextRankingPath (#455)", () => {
 	});
 
 	it("defaults a rejected pickNextRankingPath, warning that it is not a repo-relative path", () => {
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		writeConfig(dir, JSON.stringify({ pickNextRankingPath: 42 }));
 		expect(pickNextRankingPath({ root: dir })).toBe(PICK_NEXT_RANKING_DEFAULT);
 		expect(String(write.mock.calls[0][0])).toContain(
@@ -1161,17 +1150,13 @@ describe("ladderPath (#401)", () => {
 	});
 
 	it("defaults silently where undeclared", () => {
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		expect(ladderPath({ root: dir })).toBe(LADDER_DEFAULT);
 		expect(write).not.toHaveBeenCalled();
 	});
 
 	it("defaults where the config will not read, warning once and naming the default path it reads (#406)", () => {
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		writeConfig(dir, '{"capacityLadderPath": "x.md",');
 		expect(ladderPath({ root: dir })).toBe(LADDER_DEFAULT);
 		expect(ladderPath({ root: dir })).toBe(LADDER_DEFAULT);
@@ -1182,9 +1167,7 @@ describe("ladderPath (#401)", () => {
 	});
 
 	it("defaults a rejected capacityLadderPath, warning once that it is not a repo-relative path (#406)", () => {
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		writeConfig(dir, JSON.stringify({ capacityLadderPath: "../ladder.md" }));
 		expect(ladderPath({ root: dir })).toBe(LADDER_DEFAULT);
 		expect(ladderPath({ root: dir })).toBe(LADDER_DEFAULT);
