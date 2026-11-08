@@ -10,8 +10,6 @@
  *
  * Joins no §N3 family: `run` reports through its kept run and the issue, and
  * `rows`, a gate check, prints a reading and exits 0.
- *
- * Caller: lib/quiet-bench-tick.js's detached start; `rows`, check-gates.js.
  */
 
 const { spawn } = require("node:child_process");

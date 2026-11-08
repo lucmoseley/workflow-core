@@ -8,9 +8,8 @@
  * the bare name is the only one. So the host's own definition, where present,
  * wins.
  *
- * lib/review-agent-type.sh is the bash twin, still sourced by
- * inject-tracker-docs.sh and concision-backstop.sh until #2802 deletes it;
- * keep the two in step.
+ * lib/review-agent-type.sh is the bash twin until #2802 deletes it; keep the
+ * two in step.
  * review-agent-type.test.ts holds them to one answer, and
  * review-suffix.test.ts holds every route to it on both kinds of host.
  */

@@ -14,7 +14,7 @@
  * Joins no §N3 family: it reports through the result file, not stdout or an
  * exit code.
  *
- * Caller: lib/refill-tick.js, in the review checkout with its environment.
+ * It runs in the review checkout, with that checkout's environment.
  */
 
 const path = require("node:path");

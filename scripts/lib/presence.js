@@ -10,9 +10,6 @@
  *
  * The marker also names the seat he typed on (#3731): the typing session's
  * config dir, in the seat file's form. Line one is the time, line two the seat.
- *
- * Callers of `readLastTyped`: lib/refill-tick.js's tick (#2012) and
- * refill-loop.js's readSeatsView.
  */
 
 const fs = require("node:fs");

@@ -7,12 +7,10 @@
  *   node scripts/start-lander.js [--tester <command>] [--launched-by <name>]
  *
  * The lander's output is appended to `.lander.log` in the canonical
- * checkout's markers directory. Called by start-lander-on-push.js after a push
- * to a queue ref, by lib/session-checkout.js's land, and by the session-start
- * launcher, each appending this script's own output there too, so its started
- * line, naming the launching session (#2478), opens the run. The refill loop's supervision
- * (supervise-landing.js, #2692), which runs as no session, names itself with
- * `--launched-by`.
+ * checkout's markers directory. Each launcher appends this script's own output
+ * there too, so its started line, naming the launching session (#2478), opens
+ * the run. The refill loop's supervision (supervise-landing.js, #2692), which
+ * runs as no session, names itself with `--launched-by`.
  *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
