@@ -29,8 +29,10 @@
  *
  * RELINK re-points a worktree whose lockfile a merge, pull or checkout
  * changed at the store standing for the new one, building none (#4702);
- * `.husky/post-merge`, `post-checkout` and `post-commit` run it, through
- * lib/relink-store.sh. A merge's `pre-merge-commit` gates run before it, on the
+ * `.husky/post-merge`, `post-checkout` and, on a commit changing the lockfile,
+ * `post-commit` run it, through lib/relink-store.sh; `land` runs it after
+ * undoing a merge, as `git reset` fires no hook. Nothing relinks after a
+ * `git reset`, `stash` or `restore` run by hand: `relink` or `attach` does. A merge's `pre-merge-commit` gates run before it, on the
  * store linked before the merge: the lander's install keys on the merged
  * lockfile, and its full suite is what moves `main`.
  *
@@ -828,8 +830,15 @@ function mergeKeepingSession(dir, session) {
 	const said = canaryRefusal(dir, session);
 	if (said === null) return;
 	const reset = gitShown(["reset", "-q", "--keep", before], dir);
+	let stale = "";
+	if (reset.ok)
+		try {
+			relink(dir);
+		} catch (err) {
+			stale = `, though ${caught(err).message}`;
+		}
 	const undone = reset.ok
-		? `so the merge is undone, HEAD is back at ${before}`
+		? `so the merge is undone, HEAD is back at ${before}${stale}`
 		: `and undoing the merge failed, its output above — run \`git reset --keep ${before}\` from a terminal`;
 	throw new CheckoutError(
 		`with ${VERIFIED_REF} merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (${said}), ${undone} — ${VERIFIED_REF}'s canary or marker writer is broken: file it, and land once it is fixed`,

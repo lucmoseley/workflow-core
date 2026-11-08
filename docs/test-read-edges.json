@@ -584,7 +584,8 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/hook-bound.test.ts",
-			"scripts/lib/project-slug-scan.test.ts"
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/session-checkout.test.ts"
 		],
 		".husky/post-commit": [
 			"scripts/adopter-hook-errexit.test.ts",
@@ -640,6 +641,7 @@
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/post-merge": [
@@ -651,7 +653,8 @@
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/walk-and-commit.test.ts"
+			"scripts/lib/walk-and-commit.test.ts",
+			"scripts/session-checkout.test.ts"
 		],
 		".husky/pre-applypatch": [
 			"scripts/adopter-hook-errexit.test.ts",

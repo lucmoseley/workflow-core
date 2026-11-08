@@ -16,6 +16,5 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 
 toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 # shellcheck source=scripts/lib/relink-store.sh
-[ -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh" ] || exit 0
-. "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh"
-wfc_relink_store "$toplevel"
+[ ! -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh" ] || . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh"
+! command -v wfc_relink_store >/dev/null 2>&1 || wfc_relink_store "$toplevel"
