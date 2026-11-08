@@ -3,7 +3,7 @@
  * tracked tree (#1506). One predicate for every reader: check-gate-switches.js
  * refuses a commit while a subject is tracked and its switch is off, and
  * init-adopter.js and /new-repo switch on the module of each subject a
- * copied repo already holds.
+ * copied repo already holds, and START_ON's, which guard no subject.
  *
  * The tree is the INDEX — `git ls-files`, and the doc-map read as its staged
  * blob — so a commit is judged on its own bytes, never on a half-written
@@ -87,4 +87,9 @@ function readIndexSubjects(root) {
 const readSubjectModules = (root) =>
 	readIndexSubjects(root).map((s) => s.module);
 
-module.exports = { readIndexSubjects, readSubjectModules };
+/* On in every repo from its first init, whatever its tree holds: #2217 binds
+ * every adopter to the landing queue (#4685). */
+/** @type {readonly import("./workflow-core-config.js").Module[]} */
+const START_ON = ["landing"];
+
+module.exports = { readIndexSubjects, readSubjectModules, START_ON };

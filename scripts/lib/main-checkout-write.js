@@ -42,6 +42,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
@@ -104,8 +105,11 @@ function namesOneFile(p, tree) {
 		return false;
 	try {
 		return !fs.statSync(path.resolve(tree, p)).isDirectory();
-	} catch {
-		return true;
+	} catch (err) {
+		/* A deleted tracked file is the one file a restore brings back. Any
+		 * other fault cannot tell a file from a directory, so the word does
+		 * not earn the restore exemption (#4229 review). */
+		return caught(err).code === "ENOENT";
 	}
 }
 

@@ -313,11 +313,8 @@ describe("once the main checkout is cut over (#4248)", () => {
 		expect(reason("git worktree add ../x", cut)).toContain(WORKTREE);
 	});
 
-	it("no longer hands the origin/landing upstream line", () => {
-		expect(run("git worktree add --detach ../x", cut)).toEqual({
-			injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-			skip: ["branch-shared-tree-landing"],
-		});
+	it("hands no shared-tree rule on an allowed worktree add", () => {
+		expect(run("git worktree add --detach ../x", cut)).toBeNull();
 	});
 });
 

@@ -89,11 +89,11 @@ afterEach(() => {
 });
 
 describe("init-adopter's module choice on a copied repo", () => {
-	it("writes all four modules where the tree holds all four subjects, leaving the checker nothing to refuse", () => {
+	it("writes all four modules where the tree holds all four subjects, landing beside them, leaving the checker nothing to refuse", () => {
 		const r = init();
 		expect(r.status, r.stdout + r.stderr).toBe(0);
 		expect([...readModules()].sort()).toEqual(
-			["governance", "roadmap", "site", "suites"].sort(),
+			["governance", "landing", "roadmap", "site", "suites"].sort(),
 		);
 		const c = check();
 		expect(c.status, c.stderr).toBe(0);
