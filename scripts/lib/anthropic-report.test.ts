@@ -118,9 +118,20 @@ describe("a write it refuses", () => {
 		'gh api graphql -f query="mutation { createDiscussion(input:{repositoryId:\\"R\\"}) { clientMutationId } }" -f owner=anthropics',
 		'timeout 30 gh issue comment 3 --repo anthropics/claude-code --body "y"',
 		'GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
+		// An empty -R names none, so GH_REPO decides (#4268).
+		'GH_REPO=anthropics/claude-code gh --repo= issue create --title "x" --body "y"',
+		'GH_REPO=anthropics/claude-code gh issue comment 5 --repo= --body "y"',
+		'GH_REPO=anthropics/claude-code gh issue comment 5 -R "" --body "y"',
 		'env GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
 		'GH_REPO=anthropics/claude-code gh api repos/{owner}/{repo}/issues -f title="x"',
 		'export GH_REPO=anthropics/claude-code && gh issue create --title "x" --body "y"',
+		// gh's own -R before the command word, in each spelling (#4268).
+		'gh -R anthropics/claude-code issue create --title "x" --body "y"',
+		'gh --repo=anthropics/claude-code pr create --title "x" --body "y"',
+		'gh "--repo=anthropics/claude-code" issue create --title "x" --body "y"',
+		'gh "-Ranthropics/claude-code" issue comment 5 --body "x"',
+		'gh \\-Ranthropics/claude-code issue comment 5 --body "x"',
+		'gh -R someone/tool issue create --repo anthropics/claude-code --title "x" --body "y"',
 	])("refuses it, printing the rule: %s", (call) => {
 		const reason = readDenyReason(call);
 		expect(reason).toContain("This writes to an Anthropic repo");
@@ -241,6 +252,9 @@ describe("what it lets through", () => {
 		"gh api --method GET repos/anthropics/claude-code/issues -f state=closed",
 		'gh api graphql -f query="query { repository(owner:\\"anthropics\\", name:\\"claude-code\\") { id } }"',
 		'gh issue create --repo someone/tool --title "x" --body "y"',
+		// gh's own -R before the command word, and one after overriding it (#4268).
+		'gh -R someone/tool issue create --title "x" --body "y"',
+		'gh -R anthropics/claude-code issue create --repo someone/tool --title "x" --body "y"',
 		'gh issue create --repo anthropics-fan/tool --title "x" --body "y"',
 		'gh issue create --repo ghe.example.com/anthropics/tool --title "x" --body "y"',
 		'gh api repos/someone/tool/issues -f title="x"',

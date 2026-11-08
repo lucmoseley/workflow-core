@@ -257,6 +257,11 @@ describe("qualifying calls", () => {
 			"rulings",
 			"gh -R acme/core search issues x",
 		],
+		[
+			"gh's own --repo= before the command word, quoted (#4268)",
+			"rulings",
+			'gh "--repo=acme/core" issue list --state all -S x',
+		],
 	])("counts %s", (_name, rung, command) => {
 		refuseOnce();
 		append(...others(rung as Rung), bash(command));
