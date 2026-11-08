@@ -13,6 +13,7 @@ const {
 	gitAnswer,
 	gitCommonDir,
 	gitOrNull,
+	gitReader,
 	HOOK_GIT_TIMEOUT_MS,
 } = require("./git.js");
 const { markersDir } = require("./marker-root.js");
@@ -118,22 +119,16 @@ function buildHostPorts(root) {
 				quiet: true,
 			}).sensitivePaths,
 		/* readConfig throws on a revision naming no commit, an unborn HEAD's
-		 * case, which holds no copy: that throw alone is swallowed, where git
-		 * answers for the repository. The core logs any other (#4049). */
+		 * case, which holds no copy: that throw alone is swallowed, where
+		 * readCommit says so. The core logs any other (#4049). */
 		declaredAt: (tree, rev) => {
 			const { readConfig } = require("./workflow-core-config.js");
 			try {
 				return readConfig({ root: tree, rev, quiet: true }).sensitivePaths;
 			} catch (e) {
-				if (
-					gitInTime(tree, "rev-parse", ["--git-dir"]) !== null &&
-					gitInTime(tree, "rev-parse", [
-						"--verify",
-						"-q",
-						`${rev}^{commit}`,
-					]) === null
-				)
-					return;
+				const { readCommit } = require("./commit-sha.js");
+				const named = readCommit(gitReader(tree, HOOK_GIT_TIMEOUT_MS), rev);
+				if (named.ok && named.sha === null) return;
 				throw e;
 			}
 		},
