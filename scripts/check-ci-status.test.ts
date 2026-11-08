@@ -31,6 +31,7 @@ import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+import { sleepSync } from "./lib/sleep-sync.js";
 
 const SCRIPT = path.join(__dirname, "check-ci-status.js");
 
@@ -897,7 +898,7 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 				!fs.readFileSync(log, "utf8").includes("Filed")
 			) {
 				if (Date.now() > until) return false;
-				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+				sleepSync(50);
 			}
 			return fs.existsSync(launchedFile());
 		};

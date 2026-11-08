@@ -50,7 +50,7 @@ Outside it: a glob or pathspec match, such as the sensitive-paths match (#1654);
 
 **Every code kind but shell.** Code that blocks its thread for a wait calls `sleepSync` in `scripts/lib/sleep-sync.js`. An `Atomics.wait` written outside it is the breach (#4029).
 
-Outside it: a program body held in a string and run by another process that cannot load the repo lib, such as the `Hold` stub in `scripts/lib/morning-review-fixture.ts`.
+Outside it: a stub program held in a string and run as its own process, such as the `Hold` stub in `scripts/lib/morning-review-fixture.ts`, which stays self-contained so it runs from wherever the test writes it.
 
 ---
 
