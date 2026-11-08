@@ -1,20 +1,23 @@
 /*
- * hook-deadline.js — the timeout a spawn in the dispatcher's process may still
- * spend (#2792). Every core runs in the entry's one process, so the entry
+ * hook-deadline.js — the timeout a spawn in a hook's process may still spend
+ * (#2792). Every core runs in the dispatcher's one process, so the entry
  * starts the clock at the process's own start, and lib/git.js and lib/gh.js
  * cut every git and gh call to what is left: a read ends inside the budget
  * however many cores read before it, where the harness's kill at the
  * registration's timeout would refuse a PreToolUse call unexplained through
- * `"onFailure": "block"`. Unstarted, as in a test calling a core in process
- * or a hook of its own, the cap stands alone.
+ * `"onFailure": "block"`. lib/agent-liveness.js cuts its oracle read the same
+ * way, for guard-uncommitted-work.js's Stop hook, which the kill otherwise
+ * silenced on 28 turns in 56k (#4115). Unstarted, as in a test calling a core
+ * in process or a hook of its own, the cap stands alone.
  */
 
-/* Half each dispatcher registration's timeout (self-plugin/hooks/hooks.json):
+/* Half each registration's timeout — the dispatcher's, and at Stop
+ * guard-uncommitted-work.js's (self-plugin/hooks/hooks.json, hooks/hooks.json):
  * the reads end by then, and the other half holds node's start, the work
  * between reads and the output write. At PreToolUse it also holds the 20 s
  * npm-install's last registry call may run past that core's own 30 s budget,
  * which runs from the same start (lib/npm-install.js). */
-const ENTRY_BUDGET_MS = { PreToolUse: 30_000, PostToolUse: 7500 };
+const ENTRY_BUDGET_MS = { PreToolUse: 30_000, PostToolUse: 7500, Stop: 7500 };
 
 /** @type {number | null} */
 let startedAt = null;

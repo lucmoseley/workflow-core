@@ -515,6 +515,35 @@ describe("the single-flight lock", () => {
 		expect(cache.waitForLeader(bin)).toBeNull();
 	});
 
+	it("waits no longer than a started hook budget leaves (#4115)", () => {
+		vi.stubEnv("WFC_ORACLE_CACHE_WAIT_MS", "4000");
+		vi.stubEnv("WFC_ORACLE_CACHE_POLL_MS", "50");
+		const req = createRequire(__filename);
+		const modules = ["./hook-deadline.js", "./oracle-cache.js"];
+		const drop = () => {
+			for (const m of modules) delete req.cache[req.resolve(m)];
+		};
+		drop();
+		try {
+			const deadline = req("./hook-deadline.js");
+			const fresh = req("./oracle-cache.js");
+			vi.spyOn(process, "uptime").mockReturnValue(0);
+			deadline.startEntryClock(
+				"Stop",
+				Date.now() - (deadline.ENTRY_BUDGET_MS.Stop - 300),
+			);
+			const bin = "/nowhere/claude";
+			fresh.acquire(bin);
+			const started = Date.now();
+			expect(fresh.waitForLeader(bin)).toBeNull();
+			// §X9: a real wait: the 300 ms left, not the 4 s knob, ends it.
+			expect(Date.now() - started).toBeLessThan(2000);
+		} finally {
+			vi.restoreAllMocks();
+			drop();
+		}
+	});
+
 	it("gives up on a leader that published nothing, rather than waiting out the clock (mantahostels#1924)", () => {
 		const bin = "/nowhere/claude";
 		cache.acquire(bin);
