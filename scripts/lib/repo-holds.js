@@ -323,10 +323,17 @@ function removeReplays(dir, id) {
 		if (caught(err).code === "ENOENT") return;
 		throw err;
 	}
-	for (const name of names)
-		if (name.startsWith(buildReplayPrefix(id)))
-			fs.rmSync(path.join(dir, name), { force: true });
+	for (const name of parseReplayNames(names, id))
+		fs.rmSync(path.join(dir, name), { force: true });
 }
+
+/**
+ * Hold `id`'s replay files, off the store's listing.
+ * @param {string[]} names  the store's file names
+ * @param {string} id
+ */
+const parseReplayNames = (names, id) =>
+	names.filter((n) => n.startsWith(buildReplayPrefix(id)));
 
 /**
  * The job ids attached to hold `id`, off the store's listing.
@@ -1119,35 +1126,33 @@ function isCheckPassed(hold, readFailure, log) {
  */
 function readHoldReplays(root, id) {
 	const dir = holdsDir(root);
-	return fs
-		.readdirSync(dir)
-		.filter((name) => name.startsWith(buildReplayPrefix(id)))
-		.flatMap((name) => {
-			const read = readText(path.join(dir, name));
-			if (read.state === "absent") return [];
-			if (read.state === "unreadable") throw read.error;
-			try {
-				const call = JSON.parse(read.data);
-				return typeof call?.tool_name === "string" ? [call] : [];
-			} catch {
-				/* Torn: no call to replay (#4228). */
-				return [];
-			}
-		});
+	return parseReplayNames(fs.readdirSync(dir), id).flatMap((name) => {
+		const read = readText(path.join(dir, name));
+		if (read.state === "absent") return [];
+		if (read.state === "unreadable") throw read.error;
+		try {
+			const call = JSON.parse(read.data);
+			return typeof call?.tool_name === "string" ? [call] : [];
+		} catch {
+			/* Torn: no call to replay (#4228). */
+			return [];
+		}
+	});
 }
 
 /**
- * Keep `call` beside `root`'s probe hold for its clear check's replay, under
+ * Keep `call` beside `root`'s hold `id` for its clear check's replay, under
  * job `job`, the first a job asks kept.
  * @param {string} root
+ * @param {string} id
  * @param {string} job
  * @param {RefusedCall} call
  */
-function keepReplay(root, job, call) {
+function keepReplay(root, id, job, call) {
 	if (!JOB_PATTERN.test(job)) throw new Error(`not a job id: ${job}`);
 	try {
 		fs.writeFileSync(
-			path.join(holdsDir(root), `${buildReplayPrefix(PROBE_ID)}${job}`),
+			path.join(holdsDir(root), `${buildReplayPrefix(id)}${job}`),
 			JSON.stringify(call),
 			{ flag: "wx" },
 		);
@@ -1476,7 +1481,7 @@ function holdLockedOut(root, { job, refusal, call }, now, log) {
 	);
 	try {
 		if (readProbeHold(root) === null) return { why: "no probe hold stands" };
-		if (call) keepReplay(root, job, call);
+		if (call) keepReplay(root, PROBE_ID, job, call);
 		const attached = attachHold(root, PROBE_ID, job);
 		if (attached === null) return { why: "no probe hold stands" };
 		if (attached.hold.issue === null)

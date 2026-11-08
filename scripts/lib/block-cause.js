@@ -21,6 +21,7 @@
 const { isLockoutText } = require("./core-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
+const { isLoopPrompt } = require("./loop-prompts.js");
 const { parseStatus } = require("./status-marker.js");
 
 /* Below it the transcript carries no `permissionDecision` (#2358 F8). */
@@ -204,15 +205,26 @@ function resultsOf(tail) {
 	return results;
 }
 
+/** @param {Record<string, any>} row */
+const isResumeRow = (row) =>
+	row.type === "user" &&
+	isLoopPrompt(
+		typeof row.message?.content === "string"
+			? row.message.content
+			: textOf(row),
+	);
+
 /**
- * The session's lockout, read off its transcript: its first refusal for want
- * of a guard that could judge the call, where every call's result is a hook's
- * refusal. Null where one passed, or none is such a refusal.
+ * The session's lockout, read off its transcript since the loop last resumed
+ * it: its first refusal there for want of a guard that could judge the call,
+ * where every call's result there is a hook's refusal. Null where one passed,
+ * or none is such a refusal. A session resumed off a lifted hold so reads the
+ * fault it meets now, never the one the hold cleared (#4228).
  * @param {Record<string, any>[]} tail
  * @returns {Lockout|null}
  */
 function lockoutOf(tail) {
-	const results = resultsOf(tail);
+	const results = resultsOf(tail.slice(tail.findLastIndex(isResumeRow) + 1));
 	if (!results.every((r) => REFUSAL_HEAD.test(r.text))) return null;
 	const first = results.find((r) => isLockoutText(r.text));
 	return first

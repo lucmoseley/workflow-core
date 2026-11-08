@@ -165,12 +165,16 @@ describe("a probe hold on the real tick (#3860)", () => {
 
 	const serveClose = () => {
 		fs.mkdirSync(at("gh-routes"), { recursive: true });
-		return stubGhRoutes(at("gh-routes"), {
-			"issue list *": printed("[]"),
-			[`issue close ${Issue} *`]: printed(""),
-			"issue edit *": printed(""),
-			"*": readGhAnswer(LOGGED_OUT),
-		});
+		return stubGhRoutes(
+			at("gh-routes"),
+			{
+				"issue list *": printed("[]"),
+				[`issue close ${Issue} *`]: printed(""),
+				"issue edit *": printed(""),
+				"*": readGhAnswer(LOGGED_OUT),
+			},
+			{ log: at("gh-calls") },
+		);
 	};
 
 	/* The filer's seam: lib/file-through.js spawns it by path. */
@@ -645,6 +649,12 @@ if (payload.tool_name === "Bash" && !fs.existsSync(${JSON.stringify(healed())}))
 				);
 				expect(fs.existsSync(markerPath("s-job7"))).toBe(false);
 				expect(fs.existsSync(markerPath("s-job8"))).toBe(false);
+				expect(readLines(at("gh-calls"))).toEqual(
+					expect.arrayContaining([
+						"issue edit 7 --repo o/r --remove-label parked",
+						"issue edit 8 --repo o/r --remove-label parked",
+					]),
+				);
 			});
 		});
 	});

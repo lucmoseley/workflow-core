@@ -20,7 +20,7 @@ import {
 	hasRepliedSince,
 	resumedIdleSince,
 } from "./block-cause.js";
-import { API_PROMPT } from "./loop-prompts.js";
+import { API_PROMPT, HOLD_PROMPT } from "./loop-prompts.js";
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
@@ -204,6 +204,41 @@ describe("a session locked out by its guards (#4228)", () => {
 		expect(cause(waiting, job(), [refused("t9"), asked])).toEqual({
 			cause: "LOCKED_OUT",
 			lockout: { refusal: Refusal, call: null },
+		});
+	});
+
+	describe("after the loop resumed it off the hold", () => {
+		const resumed = [
+			call("t1", "node scripts/claim-issue.js 7"),
+			refused("t1"),
+			asked,
+			{
+				type: "user",
+				isSidechain: false,
+				message: { content: HOLD_PROMPT },
+			},
+		];
+
+		it("reads the refusal and call it meets since, not the cleared one's", () => {
+			const relocked = [
+				...resumed,
+				call("t2", "git status"),
+				result("t2", "PreToolUse:Bash hook error: Guard code missing: no x"),
+				asked,
+			];
+			expect(cause(waiting, job(), relocked)).toEqual({
+				cause: "LOCKED_OUT",
+				lockout: {
+					refusal: "Guard code missing: no x",
+					call: { tool_name: "Bash", tool_input: { command: "git status" } },
+				},
+			});
+		});
+
+		it("reads QUESTION where it has called nothing since", () => {
+			expect(cause(waiting, job(), [...resumed, asked])).toEqual({
+				cause: "QUESTION",
+			});
 		});
 	});
 
