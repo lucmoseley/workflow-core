@@ -2,8 +2,7 @@
  * refill-decide.js — the refill loop's decision core, in normal and away mode
  * (#2007, spec #1995; parked rows by mode, #3621): one pure function from a
  * tick's readings to the launches to make, the idle reason for making none, or
- * the stop that ends the loop, with the held sessions it resumes ahead of them
- * (#2012).
+ * the stop that ends the loop, with the held sessions it resumes ahead of them.
  */
 
 const path = require("node:path");
