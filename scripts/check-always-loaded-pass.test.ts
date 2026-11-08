@@ -156,7 +156,7 @@ describe("check-always-loaded-pass", () => {
 		write([{ date: "2026-08-25", sha: "abc1234" }]);
 		r = run(...SLACK);
 		expect(r.status).toBe(2);
-		expect(r.out).toContain('40-hex "sha"');
+		expect(r.out).toContain('full-sha "sha"');
 	});
 
 	it("is BROKEN on a second pass, so a pass replaces the entry rather than appending", () => {
