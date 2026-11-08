@@ -13,9 +13,6 @@
  * It runs in `npm run status` and, with --require-remote, in roadmap-digest.yml:
  * loosen a case and adopters silently stay on an old release because the pin
  * names a tag they cannot fetch.
- *
- * Over the 10 s file budget (base §X8): every case spawns the checker, and
- * each tag or message read re-runs it under --json, against a real remote.
  */
 
 import { execFileSync } from "node:child_process";

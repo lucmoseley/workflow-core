@@ -115,9 +115,8 @@ function semverParts(v) {
 const LS_REMOTE_TIMEOUT_MS = 15_000;
 
 /* How long after its commit a bump may pin a tag the remote lacks before the
- * sweep reads it as a fault (#4675): two delivered sweep intervals of ~12h
- * (mantahostels#2228), so a cut made by the next working session never reads
- * red. A first guess. */
+ * sweep reads it as a fault (#4675): two delivered sweep intervals of ~12h,
+ * so a cut made by the next working session never reads red. A first guess. */
 const PENDING_CUT_HOURS = 24;
 
 /**
@@ -239,8 +238,7 @@ function readRequiredRemote(ctx, root, name, source) {
 /**
  * Every `v<semver>` tag `remote` publishes, or the reason the question could
  * not be put — which the caller turns into a SKIP, the remote being the
- * subject. One listing answers both whether the pinned tag is published and
- * which tag is newest.
+ * subject.
  *
  * @param {Ctx} ctx
  * @param {string} root
@@ -538,8 +536,7 @@ function readBumpCommittedAt(root, ref) {
 /**
  * Hours left before `ref`'s cut falls due, or `null` where it is no pending
  * cut: not ahead of every tag the remote has cut, or committed
- * PENDING_CUT_HOURS ago or more. release-plugin.js cuts only from a commit
- * `main` holds, so every bump lands before its tag can exist (#4675).
+ * PENDING_CUT_HOURS ago or more (#4675).
  *
  * @param {{ root: string, ref: string, newest: string|null }} pin
  * @returns {number|null}
@@ -555,8 +552,7 @@ function judgePendingCut({ root, ref, newest }) {
 
 /**
  * A tag-pinned entry whose tag the remote lacks: pending, unresolved,
- * unpushed or never cut. Pending is `--require-remote`'s alone, the sweep's
- * flag: a run without it keeps failing at once, where the reader can cut.
+ * unpushed or never cut.
  * @param {Ctx} ctx
  * @param {{ root: string, remote: string, ref: string, newest: string|null }} pin
  */
