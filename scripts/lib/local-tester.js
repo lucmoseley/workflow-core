@@ -542,9 +542,8 @@ function readRunsAt(dir, pytest, files) {
 	};
 	if (files.length > 0) {
 		/* A file the tree lacks has no test to fail here: the base check of a
-		 * test file new in the tip, which vitest, run on it alone, exits 1 on
-		 * naming no file (#4347). actions-tester.js's namedVerdict holds the
-		 * same rule. Residual: a path misnamed by the red that asked reads
+		 * test file new in the tip (#4347). actions-tester.js's namedVerdict
+		 * holds the same rule. Residual: a path misnamed by the red that asked reads
 		 * green here, never no verdict. */
 		const present = files.filter((f) => fs.existsSync(path.join(dir, f)));
 		if (present.length === 0) return [];

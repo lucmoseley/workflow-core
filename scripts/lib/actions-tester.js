@@ -555,7 +555,8 @@ const liveNamedReads = (root) => ({
 
 /**
  * The verdict on `files` at `sha` from a dispatched run of those its tree
- * holds alone, green where it holds none; no verdict where the day's cap is spent, unless `isolation` exempts it, or
+ * holds alone, green where it holds none; no verdict where the day's cap is
+ * spent, unless `isolation` exempts it, or
  * the dispatch or its run reaches none.
  * @param {{record: string, reads: NamedReads} & Poll} named
  * @param {string} sha
@@ -572,9 +573,8 @@ async function namedVerdict(
 	/** @type {(reason: string) => Verdict} */
 	const unknown = (reason) => ({ kind: "unknown", reason });
 	/* A file the tree at `sha` lacks has no test to fail there: the base
-	 * check of a test file new in the tip, which vitest, run on it alone,
-	 * exits 1 on naming no file (#4347). local-tester.js's readRunsAt holds
-	 * the same rule. Residual: a path misnamed by the red that asked reads
+	 * check of a test file new in the tip (#4347). local-tester.js's
+	 * readRunsAt holds the same rule. Residual: a path misnamed by the red that asked reads
 	 * green here, never no verdict. */
 	/** @type {string[]} */
 	let present;
