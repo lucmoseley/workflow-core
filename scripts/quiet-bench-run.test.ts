@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
-import { LADDER_BENCH } from "./lib/quiet-bench.js";
+import { LADDER_BENCH, LADDER_STAMP } from "./lib/quiet-bench.js";
 
 const RUNNER = path.join(__dirname, "quiet-bench-run.js");
 
@@ -119,6 +119,49 @@ with open(os.environ["OUTDIR"] + "/results.json", "w") as f:
 	expect(r.stderr).toContain(`not posted to #${LADDER_BENCH.issue}`);
 	expect(fs.existsSync(path.join(onlyRun(), "posted"))).toBe(false);
 	expect(runner("rows").stdout).toContain("2:1");
+});
+
+it("reads a run kept before ceiling_killed from its logs, never rewriting it (#4608)", () => {
+	const dir = path.join(refill, "quiet-bench-runs", "2026-11-03T19-53-27.124Z");
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "ladder.txt"), LADDER_STAMP);
+	const row = (suites: number) => ({
+		suites,
+		baseline_stationary: true,
+		all_green: false,
+		wall_s: 840,
+		samples: [
+			{ t: 300, avail_mb: 6400 },
+			{ t: 839, avail_mb: 6500 },
+		],
+	});
+	const results = JSON.stringify([1, 2, 3, 1, 2, 3].map(row));
+	fs.writeFileSync(path.join(dir, "results.json"), results);
+	[1, 2, 3, 1, 2, 3].forEach((n, seq) => {
+		for (let i = 0; i < n; i++)
+			fs.writeFileSync(
+				path.join(dir, `run-${n}-${seq}-${i}.log`),
+				"passing\nSUITE CEILING — killed 840s after vitest spawned\n",
+			);
+	});
+	expect(runner("rows").stdout).toBe(
+		"2026-11-03T19-53-27.124Z: usable rows per suite count 1:0 2:0 3:0, lower-bound rows 1:2 2:2 3:2, lower bound\n",
+	);
+	expect(fs.readFileSync(path.join(dir, "results.json"), "utf8")).toBe(results);
+});
+
+it("leaves a kept row's ceiling unknown where a suite's log is gone, so it counts as nothing (#4031)", () => {
+	const dir = path.join(refill, "quiet-bench-runs", "2026-11-03T19-53-27.124Z");
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "ladder.txt"), LADDER_STAMP);
+	fs.writeFileSync(
+		path.join(dir, "results.json"),
+		JSON.stringify([
+			{ suites: 2, baseline_stationary: true, all_green: true, wall_s: 300 },
+		]),
+	);
+	fs.writeFileSync(path.join(dir, "run-2-0-0.log"), "passing\n");
+	expect(runner("rows").stdout).toBe("no usable bench rows kept\n");
 });
 
 it("reads no rows with no run kept", () => {

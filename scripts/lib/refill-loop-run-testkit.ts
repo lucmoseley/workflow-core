@@ -1,7 +1,8 @@
 /*
- * refill-loop-run-testkit.ts — the sandbox (#2435) both refill-loop `run`
- * suites stand on, split between them by #4389: scripts/refill-loop-run.test.ts
- * and scripts/refill-loop-run-recovery.test.ts.
+ * refill-loop-run-testkit.ts — the sandbox (#2435) the refill-loop `run`
+ * suites stand on, split between them by #4389 and #4602:
+ * scripts/refill-loop-run.test.ts, scripts/refill-loop-run-recovery.test.ts
+ * and scripts/refill-loop-run-holds.test.ts.
  *
  * The program and its lib/ closure are copied into a sandbox `scripts/`, its
  * children stubbed beside it: admission, the allowance cap, the reap, the
@@ -10,7 +11,7 @@
  * newer code, and the morning review's root is the sandbox, with no config, so
  * no tick files a review on a real tracker.
  *
- * Break it and both suites fail at once, or a run outlives its case (#4140).
+ * Break it and every suite fails at once, or a run outlives its case (#4140).
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -439,6 +440,20 @@ export const readLoopState = () =>
 export const launchState = () => readLoopState().launches[0];
 
 export const readStopped = () => readLoopState().stopped;
+
+/** A blocked job's state.json for job7, its detail and link-scan path given. */
+export const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
+	JSON.stringify({
+		state: "blocked",
+		detail,
+		tempo: "blocked",
+		inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
+		needs: null,
+		cliVersion: "2.1.309",
+		sessionId: "s-job7",
+		cwd: repo,
+		linkScanPath,
+	});
 
 /* The served checkout's table, as the tick reads it (#3683): a grant of 2 fits
  * no session, a grant of 200 does. */

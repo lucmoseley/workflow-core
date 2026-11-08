@@ -5,7 +5,7 @@
  * A CORE: it does no I/O and never runs the text.
  */
 
-const { QUOTED } = require("./shell-words.js");
+const { QUOTED, SENTINEL_BYTE } = require("./shell-words.js");
 const { endRun } = require("./trim-run.js");
 
 /** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
@@ -138,6 +138,13 @@ class Lexer {
 		this.push(dollars % 2 ? "E" : "S");
 	}
 
+	/** Record `recorded` as a span and return the sentinel standing for it.
+	 * @param {string} recorded */
+	recordSpan(recorded) {
+		this.spans.push(recorded);
+		return `${QUOTED}${this.spans.length - 1}${SENTINEL_BYTE}`;
+	}
+
 	/** Close the innermost frame on its closing character; closing the
 	 * outermost records the span and blanks it.
 	 * @param {string} c */
@@ -147,8 +154,7 @@ class Lexer {
 			this.span += c;
 			return;
 		}
-		this.spans.push(this.quote + this.span);
-		this.out += `${QUOTED}${this.spans.length - 1}\x01`;
+		this.out += this.recordSpan(this.quote + this.span);
 		this.span = "";
 	}
 
@@ -191,6 +197,7 @@ class Lexer {
 		this.escaped = false;
 		const c = text.charAt(i);
 		if (this.frames) this.span += c;
+		else if (c === SENTINEL_BYTE) this.out += this.recordSpan(`\\${c}`);
 		else if (c !== "\n") this.out += `\\${c}`;
 		return i + 1;
 	}
@@ -208,7 +215,7 @@ class Lexer {
 			i = nl;
 			this.inComment = false;
 		}
-		const j = indexOfAny(text, "'\"\\#", i);
+		const j = indexOfAny(text, `'"\\#${SENTINEL_BYTE}`, i);
 		if (j < 0) {
 			this.out += text.slice(i);
 			return -1;
@@ -220,6 +227,7 @@ class Lexer {
 			if (isWordStart(this.out)) this.inComment = true;
 			else this.out += "#";
 		} else if (c === "\\") this.escaped = true;
+		else if (c === SENTINEL_BYTE) this.out += this.recordSpan(c);
 		else this.openQuote(c, p);
 		return j + 1;
 	}
@@ -399,9 +407,12 @@ class Lexer {
 	}
 
 	/** The masked text so far. An UNTERMINATED quote is left alone: the rest
-	 * of the text is literal. */
+	 * of the text is literal, each sentinel byte in it recorded as a bare
+	 * span. Call it once per text: each call records those spans again. */
 	masked() {
-		return this.frames ? this.prefix + this.quote + this.span : this.out;
+		if (!this.frames) return this.out;
+		const tail = this.span.replaceAll(SENTINEL_BYTE, (c) => this.recordSpan(c));
+		return this.prefix + this.quote + tail;
 	}
 }
 

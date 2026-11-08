@@ -31,9 +31,9 @@ const lockFile = () => refillFile(".morning-review-filing.pid");
 const TWO_FILINGS_TIMEOUT_MS = 120_000;
 
 /** One filing, with the machine's clock at `at`. */
-const reviewAt = (at: string) => {
+const reviewAt = async (at: string) => {
 	vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
-	const r = run();
+	const r = await run();
 	vi.useRealTimers();
 	expect(r.status).toBe(0);
 };
@@ -111,7 +111,7 @@ function tableRepo() {
 }
 
 describe("file-morning-review.js (#2011)", () => {
-	it("files today's review once, through file-issue.js, windowed from the previous review issue", () => {
+	it("files today's review once, through file-issue.js, windowed from the previous review issue", async () => {
 		seed([
 			{
 				number: 5,
@@ -121,7 +121,8 @@ describe("file-morning-review.js (#2011)", () => {
 				body: "",
 			},
 		]);
-		const first = run();
+		fs.writeFileSync(stub("lookalike"), "");
+		const first = await run();
 		expect(first.stderr).toBe("");
 		expect(first.status).toBe(0);
 		expect(first.stdout).toMatch(/#1995 \([\d.]+\) Away mode/);
@@ -149,13 +150,35 @@ describe("file-morning-review.js (#2011)", () => {
 			/### acme\/wfc\n\n.+\n\nRow changes not read: `git: /,
 		);
 
-		const second = run();
+		const second = await run();
 		expect(second.status).toBe(0);
 		expect(second.stdout).toContain("is today's review issue already");
 		expect(readCreated()).toHaveLength(1);
 	});
 
-	it("files the idle alarm's section, read with the loop stopped (#3644)", () => {
+	it("names the open earlier reviews distinct up front, so file-issue.js files on its first run (#4601)", async () => {
+		seed([
+			{
+				number: 5,
+				title: "Morning review — 2000-01-01",
+				state: "OPEN",
+				createdAt: ago(24),
+				body: "",
+			},
+		]);
+		fs.writeFileSync(stub("calls.log"), "");
+		const r = await run();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/#5 \([\d.]+\) Morning review — 2000-01-01/);
+		/* file-issue.js reads the tracker's labels once a run: a refused first run reads them twice. */
+		const labelReads = fs
+			.readFileSync(stub("calls.log"), "utf8")
+			.split("\n")
+			.filter((l) => l.startsWith("api repos/acme/wfc/labels"));
+		expect(labelReads).toHaveLength(1);
+	});
+
+	it("files the idle alarm's section, read with the loop stopped (#3644)", async () => {
 		/* The section is "check-idle-efforts.js"'s --json, which the review spawns. */
 		seed([]);
 		fs.writeFileSync(
@@ -172,7 +195,7 @@ describe("file-morning-review.js (#2011)", () => {
 				},
 			]),
 		);
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		const [issue] = readCreated();
 		expect(issue.body).toContain(
 			[
@@ -187,20 +210,22 @@ describe("file-morning-review.js (#2011)", () => {
 		);
 	});
 
-	it("has no WSL currency section where the checker SKIPs: not WSL (#4082)", () => {
+	it("has no WSL currency section where the checker SKIPs: not WSL (#4082)", async () => {
 		seed([]);
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		expect(readCreated()[0].body).not.toContain("## WSL currency");
 	});
 
-	it("files the WSL currency section, a failed read named rather than dropped (#4082)", () => {
+	it("files the WSL currency section, a failed read named rather than dropped (#4082)", async () => {
 		seed([]);
 		const wsl = path.join(sb.dir, "wsl");
 		expect(
-			run([], {
-				WFC_PROC: writeOsrelease(wsl, WSL_KERNEL),
-				WFC_WSL_EXE: writeWsl(wsl, { version: "2.7.11.0" }),
-			}).status,
+			(
+				await run([], {
+					WFC_PROC: writeOsrelease(wsl, WSL_KERNEL),
+					WFC_WSL_EXE: writeWsl(wsl, { version: "2.7.11.0" }),
+				})
+			).status,
 		).toBe(0);
 		const { body } = readCreated()[0];
 		expect(body).toContain("## WSL currency");
@@ -208,7 +233,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(body).toContain("the latest release: ");
 	});
 
-	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", () => {
+	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", async () => {
 		seed([]);
 		/* One base instant, so a minute line and its paired tick share a time. */
 		const base = Date.now();
@@ -246,7 +271,7 @@ describe("file-morning-review.js (#2011)", () => {
 				last,
 			]),
 		);
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		const [issue] = readCreated();
 		expect(issue.body).toContain(
 			[
@@ -273,7 +298,7 @@ describe("file-morning-review.js (#2011)", () => {
 		);
 	});
 
-	it("lists the window's primitives-table row changes off the checkout's git history, numbered on from the decisions (#3465)", () => {
+	it("lists the window's primitives-table row changes off the checkout's git history, numbered on from the decisions (#3465)", async () => {
 		seed([]);
 		const { table, commit } = tableRepo();
 		const kept =
@@ -286,7 +311,7 @@ describe("file-morning-review.js (#2011)", () => {
 			),
 			ago(1),
 		);
-		const r = run(["--dry-run"]);
+		const r = await run(["--dry-run"]);
 		expect(r.status).toBe(0);
 		const section = r.stdout.slice(
 			r.stdout.indexOf("## Primitives"),
@@ -298,15 +323,15 @@ describe("file-morning-review.js (#2011)", () => {
 		);
 	});
 
-	it("files nothing when today's review issue is already closed", () => {
+	it("files nothing when today's review issue is already closed", async () => {
 		seed([{ number: 6, title: TODAY, state: "CLOSED", createdAt: ago(1) }]);
-		const r = run();
+		const r = await run();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("#6 is today's review issue already");
 		expect(readCreated()).toHaveLength(0);
 	});
 
-	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, one with no labeled event at its creation's age, marked at most, not one urgent 6 days nor one whose timeline will not read, and writes no label (#2693, #3760)", () => {
+	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, one with no labeled event at its creation's age, marked at most, not one urgent 6 days nor one whose timeline will not read, and writes no label (#2693, #3760)", async () => {
 		seed([]);
 		const labelled = (hours: number) => [
 			{ event: "labeled", label: { name: "urgent" }, created_at: ago(hours) },
@@ -361,7 +386,7 @@ describe("file-morning-review.js (#2011)", () => {
 				frontier: [{ number: 50 }],
 			}),
 		);
-		const r = run(["--dry-run"]);
+		const r = await run(["--dry-run"]);
 		expect(r.status).toBe(0);
 		const section = r.stdout.slice(r.stdout.indexOf("## Stuck urgent"));
 		expect(section).toContain(
@@ -379,7 +404,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/urgent/);
 	});
 
-	it("lists every open parked issue with its age, one whose label start will not read as age unknown, one labelled after the window's end as under a day, and writes no label (#2725, #3802)", () => {
+	it("lists every open parked issue with its age, one whose label start will not read as age unknown, one labelled after the window's end as under a day, and writes no label (#2725, #3802)", async () => {
 		seed([]);
 		fs.writeFileSync(
 			stub("parked.json"),
@@ -406,7 +431,7 @@ describe("file-morning-review.js (#2011)", () => {
 				],
 			}),
 		);
-		const r = run(["--dry-run"]);
+		const r = await run(["--dry-run"]);
 		expect(r.status).toBe(0);
 		const section = r.stdout.slice(
 			r.stdout.indexOf("## Parked"),
@@ -423,7 +448,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/parked/);
 	});
 
-	it("resumes a failed run from the day's kept reads, re-reading only what failed (#3765)", () => {
+	it("resumes a failed run from the day's kept reads, re-reading only what failed (#3765)", async () => {
 		seed([]);
 		fs.writeFileSync(stub("fail-review-create"), "");
 		fs.writeFileSync(
@@ -452,33 +477,33 @@ describe("file-morning-review.js (#2011)", () => {
 				.split("\n")
 				.filter((l) => l.includes("/timeline"))
 				.map((l) => l.match(/issues\/(\d+)\/timeline/)?.[1]);
-		expect(run().status).toBe(1);
+		expect((await run()).status).toBe(1);
 		expect(readTimelineReads()).toEqual(["60", "61"]);
 		fs.rmSync(stub("fail-review-create"));
 		fs.writeFileSync(stub("calls.log"), "");
 		/* The timeline gone: a kept age is the only way #60's still reads. */
 		fs.writeFileSync(stub("timelines.json"), JSON.stringify({ 61: [] }));
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		expect(readTimelineReads()).toEqual(["61"]);
 		expect(readCreated()[0].body).toContain(
 			"- acme/wfc#60 — `Waits on a round` — 3 days\n",
 		);
 	});
 
-	it("leaves the kept reads as it found them on --dry-run, and takes none of them (#3813)", () => {
+	it("leaves the kept reads as it found them on --dry-run, and takes none of them (#3813)", async () => {
 		seed([]);
-		expect(run(["--dry-run"]).status).toBe(0);
+		expect((await run(["--dry-run"])).status).toBe(0);
 		expect(fs.existsSync(readsFile())).toBe(false);
 
 		fs.writeFileSync(stub("fail-review-create"), "");
-		expect(run().status).toBe(1);
+		expect((await run()).status).toBe(1);
 		const kept = JSON.parse(fs.readFileSync(readsFile(), "utf8"));
 		for (const key of Object.keys(kept.reads))
 			kept.reads[key] = { line: "a stale count line" };
 		const found = JSON.stringify(kept);
 		fs.writeFileSync(readsFile(), found);
 
-		const dry = run(["--dry-run"]);
+		const dry = await run(["--dry-run"]);
 		expect(dry.status).toBe(0);
 		expect(dry.stdout).not.toContain("a stale count line");
 		expect(fs.readFileSync(readsFile(), "utf8")).toBe(found);
@@ -489,17 +514,17 @@ describe("file-morning-review.js (#2011)", () => {
 		const row = (primitive: string) =>
 			`| ${primitive} | \`${primitive}\` | \`a.js\` | §0 | Standards axis criterion |`;
 
-		it("puts a commit stamped before a window's end that reaches HEAD after it in the next review only", () => {
+		it("puts a commit stamped before a window's end that reaches HEAD after it in the next review only", async () => {
 			seed([]);
 			const { table, commit } = tableRepo();
 			commit(table(row("Old")), "2026-10-10T01:00:00Z");
-			reviewAt("2026-10-10T07:00:00.000Z");
+			await reviewAt("2026-10-10T07:00:00.000Z");
 			const sha = commit(
 				table(row("Old"), row("Late")),
 				"2026-10-10T06:59:00Z",
 			);
-			reviewAt("2026-10-11T07:00:00.000Z");
-			reviewAt("2026-10-12T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-12T07:00:00.000Z");
 
 			const created = readCreated();
 			expect(created).toHaveLength(3);
@@ -510,7 +535,7 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(created[2].body).not.toContain("Late");
 		});
 
-		it("reads the default branch's table commits once, whichever branch the checkout is on", () => {
+		it("reads the default branch's table commits once, whichever branch the checkout is on", async () => {
 			seed([]);
 			const { git, table, commit } = tableRepo();
 			git(["checkout", "-q", "-b", "main"]);
@@ -520,16 +545,16 @@ describe("file-morning-review.js (#2011)", () => {
 				"refs/remotes/origin/main",
 			]);
 			commit(table(row("Old")), "2026-10-10T01:00:00Z");
-			reviewAt("2026-10-10T07:00:00.000Z");
+			await reviewAt("2026-10-10T07:00:00.000Z");
 			const landed = commit(
 				table(row("Old"), row("Landed")),
 				"2026-10-10T08:00:00Z",
 			);
 			git(["checkout", "-q", "-b", "side", "HEAD~1"]);
 			commit(table(row("Old"), row("Unmerged")), "2026-10-10T09:00:00Z");
-			reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
 			git(["checkout", "-q", "main"]);
-			reviewAt("2026-10-12T07:00:00.000Z");
+			await reviewAt("2026-10-12T07:00:00.000Z");
 
 			const [, onSide, back] = readCreated();
 			expect(onSide.body).toContain(`job \`Landed\` — ${landed}`);
@@ -538,19 +563,19 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(back.body).not.toContain("Found by commit time");
 		});
 
-		it("falls back on commit time, saying so, where the last review's commit left HEAD", () => {
+		it("falls back on commit time, saying so, where the last review's commit left HEAD", async () => {
 			seed([]);
 			const { git, table, commit } = tableRepo();
 			commit(table(row("Old")), "2026-10-10T01:00:00Z");
-			reviewAt("2026-10-10T07:00:00.000Z");
+			await reviewAt("2026-10-10T07:00:00.000Z");
 			git(["commit", "-q", "--amend", "-m", "rewritten"]);
-			reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
 			expect(readCreated()[1].body).toMatch(
 				/Found by commit time, as [0-9a-f]{40}, where the last review read to, is not on the branch read: /,
 			);
 		});
 
-		it("puts a close stamped just before a window's end in the next review only, where the search index missed it", () => {
+		it("puts a close stamped just before a window's end in the next review only, where the search index missed it", async () => {
 			seed([]);
 			const late = {
 				number: 79,
@@ -560,10 +585,10 @@ describe("file-morning-review.js (#2011)", () => {
 				comments: [{ body: "**Door:** one-way — late" }],
 			};
 			fs.writeFileSync(stub("closed.json"), JSON.stringify([]));
-			reviewAt("2026-10-10T07:00:00.000Z");
+			await reviewAt("2026-10-10T07:00:00.000Z");
 			fs.writeFileSync(stub("closed.json"), JSON.stringify([late]));
-			reviewAt("2026-10-11T07:00:00.000Z");
-			reviewAt("2026-10-12T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-12T07:00:00.000Z");
 
 			const created = readCreated();
 			expect(created[0].body).not.toContain("acme/wfc#79");
@@ -571,13 +596,13 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(created[2].body).not.toContain("acme/wfc#79");
 		});
 
-		it("puts a ledger line appended after a window's end, for an older comment, in the next review only", () => {
+		it("puts a ledger line appended after a window's end, for an older comment, in the next review only", async () => {
 			seed([]);
-			reviewAt("2026-10-10T07:00:00.000Z");
+			await reviewAt("2026-10-10T07:00:00.000Z");
 			/* The stamp record-delegated-decision.js gives a re-run: its append's. */
 			appendDecision(wfc(), "2026-10-10T08:00:00.000Z", 3, "Re-run decision");
-			reviewAt("2026-10-11T07:00:00.000Z");
-			reviewAt("2026-10-12T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-12T07:00:00.000Z");
 
 			const created = readCreated();
 			expect(created[1].body).toContain("Re-run decision");
@@ -589,8 +614,8 @@ describe("file-morning-review.js (#2011)", () => {
 		afterEach(() => vi.unstubAllEnvs());
 
 		const Heading = "## Open repo holds";
-		const readFiledBody = () => {
-			const filed = run();
+		const readFiledBody = async () => {
+			const filed = await run();
 			expect(filed.status).toBe(0);
 			const [issue] = readCreated();
 			expect(issue.title).toBe(TODAY);
@@ -622,7 +647,7 @@ describe("file-morning-review.js (#2011)", () => {
 			return root;
 		};
 
-		it("lists each hold's act, issue, kind, age, attached count and notice state, for every served checkout", () => {
+		it("lists each hold's act, issue, kind, age, attached count and notice state, for every served checkout", async () => {
 			seed([]);
 			raiseIn(wfc());
 			raiseIn(addCheckout("second", "acme/other"), {
@@ -633,7 +658,7 @@ describe("file-morning-review.js (#2011)", () => {
 				now: Date.now() - 25 * HOUR,
 			});
 
-			const body = readFiledBody();
+			const body = await readFiledBody();
 
 			expect(body).toContain(Heading);
 			expect(body).toContain(
@@ -644,15 +669,17 @@ describe("file-morning-review.js (#2011)", () => {
 			);
 		});
 
-		it("still lists a hold where the checkout's tracker reads fail, as the store is local", () => {
+		it("still lists a hold where the checkout's tracker reads fail, as the store is local", async () => {
 			seed([]);
 			raiseIn(wfc());
 			fs.rmSync(stub("closed.json"));
 
-			expect(readFiledBody()).toContain("- wfc: `repair main` — acme/wfc#12");
+			expect(await readFiledBody()).toContain(
+				"- wfc: `repair main` — acme/wfc#12",
+			);
 		});
 
-		it("lists a hold under a bare issue number where the checkout's tracker will not resolve", () => {
+		it("lists a hold under a bare issue number where the checkout's tracker will not resolve", async () => {
 			seed([]);
 			const root = addCheckout("second", "acme/other");
 			fs.writeFileSync(
@@ -661,10 +688,12 @@ describe("file-morning-review.js (#2011)", () => {
 			);
 			raiseIn(root);
 
-			expect(readFiledBody()).toContain("- second: `repair main` — #12 — park");
+			expect(await readFiledBody()).toContain(
+				"- second: `repair main` — #12 — park",
+			);
 		});
 
-		it("lists a hold in a checkout a loop serves by name outside discovery", () => {
+		it("lists a hold in a checkout a loop serves by name outside discovery", async () => {
 			seed([]);
 			const outside = path.join(sb.dir, "elsewhere", "third");
 			fs.mkdirSync(path.join(outside, ".git"), { recursive: true });
@@ -683,17 +712,17 @@ describe("file-morning-review.js (#2011)", () => {
 				}),
 			);
 
-			expect(readFiledBody()).toContain(
+			expect(await readFiledBody()).toContain(
 				"- third: `repair main` — acme/other#12",
 			);
 		});
 
-		it("files the review and says so where the hold store will not read", () => {
+		it("files the review and says so where the hold store will not read", async () => {
 			seed([]);
 			fs.mkdirSync(path.dirname(refillFile("repo-holds")), { recursive: true });
 			fs.writeFileSync(refillFile("repo-holds"), "a file, not a directory\n");
 
-			const body = readFiledBody();
+			const body = await readFiledBody();
 
 			expect(body).toContain("**Not read, so missing below:**");
 			expect(body).toMatch(
@@ -702,7 +731,7 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(body).not.toContain(Heading);
 		});
 
-		it("lists the holds that read beside a record that will not", () => {
+		it("lists the holds that read beside a record that will not", async () => {
 			seed([]);
 			raiseIn(wfc());
 			const [store = ""] = fs.readdirSync(refillFile("repo-holds"));
@@ -711,7 +740,7 @@ describe("file-morning-review.js (#2011)", () => {
 				"{",
 			);
 
-			const body = readFiledBody();
+			const body = await readFiledBody();
 
 			expect(body).toContain("- wfc: `repair main`");
 			expect(body).toMatch(
@@ -783,7 +812,7 @@ describe("file-morning-review.js (#2011)", () => {
 			},
 		];
 
-		it("lists its closes and decisions in the first review to read it, and a repo that read throughout lists each event once", () => {
+		it("lists its closes and decisions in the first review to read it, and a repo that read throughout lists each event once", async () => {
 			seed([previousReview()]);
 			makeSecond();
 			configureSecond({});
@@ -794,7 +823,7 @@ describe("file-morning-review.js (#2011)", () => {
 			appendDecision(second(), "2026-10-10T12:00:00.000Z", 3, "Second: failed");
 			appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: read");
 			stubCloses(c80);
-			reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
 
 			appendDecision(
 				second(),
@@ -803,13 +832,13 @@ describe("file-morning-review.js (#2011)", () => {
 				"Second: failed again",
 			);
 			stubCloses(c80, c81);
-			reviewAt("2026-10-12T07:00:00.000Z");
+			await reviewAt("2026-10-12T07:00:00.000Z");
 
 			appendDecision(second(), "2026-10-12T12:00:00.000Z", 5, "Second: read");
 			stubCloses(c80, c81, c82);
 			configureSecond({ tracker: "acme/second" });
-			reviewAt("2026-10-13T07:00:00.000Z");
-			reviewAt("2026-10-14T07:00:00.000Z");
+			await reviewAt("2026-10-13T07:00:00.000Z");
+			await reviewAt("2026-10-14T07:00:00.000Z");
 
 			const [failed, failedAgain, recovered, after] = bodies();
 			for (const body of [failed, failedAgain]) {
@@ -870,11 +899,11 @@ describe("file-morning-review.js (#2011)", () => {
 					"delegated-decisions.jsonl",
 				);
 
-			it("retries a closes read that fails once, listing its closes with nothing unread", () => {
+			it("retries a closes read that fails once, listing its closes with nothing unread", async () => {
 				seed([previousReview()]);
 				stubCloses(close(80, "2026-10-10T12:00:00.000Z"));
 				fs.writeFileSync(stub("fail-closes-once"), "");
-				reviewAt(dayTwo);
+				await reviewAt(dayTwo);
 				const [body] = bodies();
 				once(body, "acme/wfc#80");
 				expect(body).toContain("- acme/wfc: 1");
@@ -883,12 +912,12 @@ describe("file-morning-review.js (#2011)", () => {
 				expect(closesCalls()).toHaveLength(2);
 			});
 
-			it("lists the decisions where closes fail every try, carries the closes alone, and repeats no decision", () => {
+			it("lists the decisions where closes fail every try, carries the closes alone, and repeats no decision", async () => {
 				seed([previousReview()]);
 				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: day one");
 				stubCloses(close(80, "2026-10-10T12:00:00.000Z"));
 				fs.writeFileSync(stub("fail-closes"), "");
-				reviewAt(dayTwo);
+				await reviewAt(dayTwo);
 
 				appendDecision(wfc(), "2026-10-11T12:00:00.000Z", 4, "Wfc: day two");
 				stubCloses(
@@ -896,7 +925,7 @@ describe("file-morning-review.js (#2011)", () => {
 					close(81, "2026-10-11T12:00:00.000Z"),
 				);
 				fs.rmSync(stub("fail-closes"));
-				reviewAt(dayThree);
+				await reviewAt(dayThree);
 
 				const [failed, recovered] = bodies();
 				once(failed, "Wfc: day one");
@@ -919,18 +948,18 @@ describe("file-morning-review.js (#2011)", () => {
 				);
 			});
 
-			it("lists the closes where the ledger will not read, names and carries the decisions, and repeats no close", () => {
+			it("lists the closes where the ledger will not read, names and carries the decisions, and repeats no close", async () => {
 				seed([previousReview()]);
 				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: carried");
 				const text = fs.readFileSync(ledger(), "utf8");
 				fs.rmSync(ledger());
 				fs.mkdirSync(ledger());
 				stubCloses(close(80, "2026-10-10T12:00:00.000Z"));
-				reviewAt(dayTwo);
+				await reviewAt(dayTwo);
 
 				fs.rmdirSync(ledger());
 				fs.writeFileSync(ledger(), text);
-				reviewAt(dayThree);
+				await reviewAt(dayThree);
 
 				const [failed, recovered] = bodies();
 				once(failed, "acme/wfc#80");
@@ -945,14 +974,14 @@ describe("file-morning-review.js (#2011)", () => {
 				expect(recovered).not.toContain("unread since");
 			});
 
-			it("keeps each kind's own start where a whole read fails after a part did", () => {
+			it("keeps each kind's own start where a whole read fails after a part did", async () => {
 				const closesStart = "2026-10-09T07:00:00.000Z";
 				seed([
 					previousReview(`Closes unread since ${closesStart} in second.\n`),
 				]);
 				makeSecond();
 				configureSecond({});
-				reviewAt(dayTwo);
+				await reviewAt(dayTwo);
 
 				const [whole] = bodies();
 				expect(whole).toContain(
@@ -964,7 +993,7 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 
 		describe("a checkout discovery leaves out (#3834)", () => {
-			it("names one whose config will not parse, on one line, keeps a failed read's start, and lands every event in the first review to read it", () => {
+			it("names one whose config will not parse, on one line, keeps a failed read's start, and lands every event in the first review to read it", async () => {
 				seed([previousReview()]);
 				makeSecond();
 				const c80 = close(80, "2026-10-10T12:00:00.000Z");
@@ -979,7 +1008,7 @@ describe("file-morning-review.js (#2011)", () => {
 					"Second: unread",
 				);
 				stubCloses(c80);
-				reviewAt("2026-10-11T07:00:00.000Z");
+				await reviewAt("2026-10-11T07:00:00.000Z");
 
 				writeSecondConfig('{\n  "tracker": }\n');
 				appendDecision(
@@ -989,11 +1018,11 @@ describe("file-morning-review.js (#2011)", () => {
 					"Second: broken",
 				);
 				stubCloses(c80, c81);
-				reviewAt("2026-10-12T07:00:00.000Z");
+				await reviewAt("2026-10-12T07:00:00.000Z");
 
 				configureSecond({ tracker: "acme/second" });
 				stubCloses(c80, c81, c82);
-				reviewAt("2026-10-13T07:00:00.000Z");
+				await reviewAt("2026-10-13T07:00:00.000Z");
 
 				const [, broken, fixed] = bodies();
 				expect(broken).toMatch(/^- second: `.*does not parse.*`$/m);
@@ -1014,12 +1043,12 @@ describe("file-morning-review.js (#2011)", () => {
 				expect(fixed).not.toContain("Events unread since");
 			});
 
-			it("starts one whose config never read at the window it first broke in", () => {
+			it("starts one whose config never read at the window it first broke in", async () => {
 				seed([previousReview()]);
 				makeSecond();
 				writeSecondConfig("{");
-				reviewAt("2026-10-11T07:00:00.000Z");
-				reviewAt("2026-10-12T07:00:00.000Z");
+				await reviewAt("2026-10-11T07:00:00.000Z");
+				await reviewAt("2026-10-12T07:00:00.000Z");
 
 				for (const { body } of readCreated())
 					expect(body).toContain(
@@ -1027,7 +1056,7 @@ describe("file-morning-review.js (#2011)", () => {
 					);
 			});
 
-			it("neither names nor carries one its owner opted out, and drops a start it had carried", () => {
+			it("neither names nor carries one its owner opted out, and drops a start it had carried", async () => {
 				seed([
 					previousReview(
 						"Events unread since 2026-10-09T07:00:00.000Z in second.\n",
@@ -1041,10 +1070,10 @@ describe("file-morning-review.js (#2011)", () => {
 					"Second: unread",
 				);
 				configureSecond({ tracker: "acme/second", refillLoop: false });
-				reviewAt("2026-10-11T07:00:00.000Z");
+				await reviewAt("2026-10-11T07:00:00.000Z");
 
 				configureSecond({ tracker: "acme/second" });
-				reviewAt("2026-10-12T07:00:00.000Z");
+				await reviewAt("2026-10-12T07:00:00.000Z");
 
 				const [optedOut, back] = bodies();
 				expect(optedOut).not.toMatch(/\bsecond\b/);
@@ -1063,7 +1092,7 @@ describe("file-morning-review.js (#2011)", () => {
 
 			it.each(Absences)(
 				"names one with $absence under the same start, and lands its events in the first review to read it",
-				({ why, remove, restore }) => {
+				async ({ why, remove, restore }) => {
 					seedCarried();
 					const c80 = close(80, "2026-10-09T12:00:00.000Z");
 					const c81 = close(81, "2026-10-11T12:00:00.000Z");
@@ -1082,11 +1111,11 @@ describe("file-morning-review.js (#2011)", () => {
 					stubCloses(c80, c81);
 
 					remove();
-					reviewAt("2026-10-11T07:00:00.000Z");
-					reviewAt("2026-10-12T07:00:00.000Z");
+					await reviewAt("2026-10-11T07:00:00.000Z");
+					await reviewAt("2026-10-12T07:00:00.000Z");
 					restore();
-					reviewAt("2026-10-13T07:00:00.000Z");
-					reviewAt("2026-10-14T07:00:00.000Z");
+					await reviewAt("2026-10-13T07:00:00.000Z");
+					await reviewAt("2026-10-14T07:00:00.000Z");
 
 					const [absent, absentAgain, read, after] = bodies();
 					for (const body of [absent, absentAgain]) {
@@ -1108,11 +1137,11 @@ describe("file-morning-review.js (#2011)", () => {
 				},
 			);
 
-			it("keeps a linked worktree out, unnamed, whether or not a line names it", () => {
+			it("keeps a linked worktree out, unnamed, whether or not a line names it", async () => {
 				seedCarried();
 				makeLinkedWorktree();
-				reviewAt("2026-10-11T07:00:00.000Z");
-				reviewAt("2026-10-12T07:00:00.000Z");
+				await reviewAt("2026-10-11T07:00:00.000Z");
+				await reviewAt("2026-10-12T07:00:00.000Z");
 
 				for (const body of bodies()) {
 					expect(body).not.toMatch(/\bsecond\b/);
@@ -1120,11 +1149,11 @@ describe("file-morning-review.js (#2011)", () => {
 				}
 			});
 
-			it("ends the carry of one whose directory is gone: named once, with what it gives up, then never", () => {
+			it("ends the carry of one whose directory is gone: named once, with what it gives up, then never", async () => {
 				seedCarried();
 				fs.rmSync(second(), { recursive: true });
-				reviewAt("2026-10-11T07:00:00.000Z");
-				reviewAt("2026-10-12T07:00:00.000Z");
+				await reviewAt("2026-10-11T07:00:00.000Z");
+				await reviewAt("2026-10-12T07:00:00.000Z");
 
 				const [ended, later] = bodies();
 				expect(ended).toContain(
@@ -1145,7 +1174,7 @@ describe("file-morning-review.js (#2011)", () => {
 
 			it.each(Absences)(
 				"names one read last review with $absence, and lands the absent window's events in the first review to read it",
-				({ why, remove, restore }) => {
+				async ({ why, remove, restore }) => {
 					seedSecond("");
 					const c80 = close(80, "2026-10-10T12:00:00.000Z");
 					const c81 = close(81, "2026-10-11T12:00:00.000Z");
@@ -1163,12 +1192,12 @@ describe("file-morning-review.js (#2011)", () => {
 					);
 					stubCloses(c80, c81);
 
-					reviewAt(firstReview);
+					await reviewAt(firstReview);
 					remove();
-					reviewAt("2026-10-12T07:00:00.000Z");
+					await reviewAt("2026-10-12T07:00:00.000Z");
 					restore();
-					reviewAt("2026-10-13T07:00:00.000Z");
-					reviewAt("2026-10-14T07:00:00.000Z");
+					await reviewAt("2026-10-13T07:00:00.000Z");
+					await reviewAt("2026-10-14T07:00:00.000Z");
 
 					const [read, absent, back, after] = bodies();
 					expect(hidden(read)).toContain("Events read in second.");
@@ -1201,10 +1230,10 @@ describe("file-morning-review.js (#2011)", () => {
 					out: "now a linked worktree",
 					leave: makeLinkedWorktree,
 				},
-			])("keeps one read last review out, unnamed, $out", ({ leave }) => {
+			])("keeps one read last review out, unnamed, $out", async ({ leave }) => {
 				seedSecond("<!--\nEvents read in second.\n-->\n");
 				leave();
-				reviewAt(firstReview);
+				await reviewAt(firstReview);
 
 				const [out] = bodies();
 				expect(out).not.toMatch(/\bsecond\b/);
@@ -1215,7 +1244,7 @@ describe("file-morning-review.js (#2011)", () => {
 	describe("the window between two reviews (#3813)", () => {
 		afterEach(() => vi.useRealTimers());
 
-		it("puts a close stamped after a filing's reads begin and before its issue exists in the next review only", () => {
+		it("puts a close stamped after a filing's reads begin and before its issue exists in the next review only", async () => {
 			seed([]);
 			const during = {
 				number: 78,
@@ -1226,11 +1255,11 @@ describe("file-morning-review.js (#2011)", () => {
 			};
 			fs.writeFileSync(stub("closed.json"), JSON.stringify([during]));
 
-			reviewAt("2026-10-10T07:00:00.000Z");
+			await reviewAt("2026-10-10T07:00:00.000Z");
 			const reviews = JSON.parse(fs.readFileSync(stub("reviews.json"), "utf8"));
 			reviews[0].createdAt = "2026-10-10T07:13:00.000Z";
 			fs.writeFileSync(stub("reviews.json"), JSON.stringify(reviews));
-			reviewAt("2026-10-11T07:00:00.000Z");
+			await reviewAt("2026-10-11T07:00:00.000Z");
 
 			const [first, next] = readCreated();
 			expect(first.body).not.toContain("Closed during the filing");
@@ -1242,7 +1271,7 @@ describe("file-morning-review.js (#2011)", () => {
 			);
 		});
 
-		it("falls back to the previous issue's creation where its Window line will not read", () => {
+		it("falls back to the previous issue's creation where its Window line will not read", async () => {
 			const createdAt = ago(5);
 			seed([
 				{
@@ -1253,7 +1282,7 @@ describe("file-morning-review.js (#2011)", () => {
 					body: "Edited by hand.\n",
 				},
 			]);
-			expect(run().status).toBe(0);
+			expect((await run()).status).toBe(0);
 			const [issue] = readCreated();
 			expect(issue.body).toContain(`Window: ${createdAt} → `);
 			expect(issue.body).toContain(
@@ -1304,7 +1333,7 @@ describe("file-morning-review.js (#2011)", () => {
 			TWO_FILINGS_TIMEOUT_MS,
 		);
 
-		it("files nothing and exits 1 while another filing holds the lock, so the loop's next tick retries", () => {
+		it("files nothing and exits 1 while another filing holds the lock, so the loop's next tick retries", async () => {
 			seed([]);
 			fs.mkdirSync(path.dirname(lockFile()), { recursive: true });
 			// spawn-kept: two processes at once — the lock's holder is a real live pid, read by its command line, beside the call under test
@@ -1315,14 +1344,14 @@ describe("file-morning-review.js (#2011)", () => {
 			);
 			try {
 				fs.writeFileSync(lockFile(), String(holder.pid));
-				const r = run();
+				const r = await run();
 				expect(r.status).toBe(1);
 				expect(r.stderr).toContain(
 					`another run is filing today's review (pid ${holder.pid}). Nothing filed: re-run once it ends.`,
 				);
 				expect(readCreated()).toHaveLength(0);
 
-				const dry = run(["--dry-run"]);
+				const dry = await run(["--dry-run"]);
 				expect(dry.status).toBe(0);
 				expect(dry.stdout).toContain(`${TODAY}\n\n## Question`);
 			} finally {
@@ -1330,11 +1359,11 @@ describe("file-morning-review.js (#2011)", () => {
 			}
 		});
 
-		it("takes over the lock of a filing that died", () => {
+		it("takes over the lock of a filing that died", async () => {
 			seed([]);
 			fs.mkdirSync(path.dirname(lockFile()), { recursive: true });
 			fs.writeFileSync(lockFile(), "999999999");
-			expect(run().status).toBe(0);
+			expect((await run()).status).toBe(0);
 			expect(readCreated()).toHaveLength(1);
 		});
 	});
@@ -1358,9 +1387,9 @@ describe("file-morning-review.js (#2011)", () => {
 				.find((i: { number: number }) => i.number === 5)
 				.comments.slice(1);
 
-		it("files today's review and a takes:implement ticket for each unanswered reverse <n>", () => {
+		it("files today's review and a takes:implement ticket for each unanswered reverse <n>", async () => {
 			seed([reviewWithRequest()]);
-			const r = run();
+			const r = await run();
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
 			expect(readCreated().map((c) => c.title)).toEqual([
@@ -1370,10 +1399,10 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(readReplies()).toHaveLength(1);
 		});
 
-		it("exits non-zero when the answering fails after a filing", () => {
+		it("exits non-zero when the answering fails after a filing", async () => {
 			seed([reviewWithRequest()]);
 			fs.writeFileSync(stub("fail-comment"), "");
-			const r = run();
+			const r = await run();
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(
 				"the reply failed (GraphQL: Could not resolve",
@@ -1381,10 +1410,10 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(readCreated().map((c) => c.title)).toContain(TODAY);
 		});
 
-		it("answers reversals and exits non-zero when the filing fails", () => {
+		it("answers reversals and exits non-zero when the filing fails", async () => {
 			seed([reviewWithRequest()]);
 			fs.writeFileSync(stub("fail-review-create"), "");
-			const r = run();
+			const r = await run();
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain("GraphQL: Could not resolve");
 			expect(readCreated().map((c) => c.title)).toEqual([
@@ -1393,9 +1422,9 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(readReplies()).toHaveLength(1);
 		});
 
-		it("files and answers nothing on --dry-run", () => {
+		it("files and answers nothing on --dry-run", async () => {
 			seed([reviewWithRequest()]);
-			const r = run(["--dry-run"]);
+			const r = await run(["--dry-run"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("would file in acme/wfc: Reverse");
 			expect(readCreated()).toHaveLength(0);
@@ -1403,9 +1432,9 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 	});
 
-	it("prints the body and files nothing on --dry-run, counting the real core's primitives", () => {
+	it("prints the body and files nothing on --dry-run, counting the real core's primitives", async () => {
 		seed([]);
-		const r = run(["--dry-run"], { WFC_SCRIPT_ROOT: "" });
+		const r = await run(["--dry-run"], { WFC_SCRIPT_ROOT: "" });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(
 			/`primitives: [1-9]\d* enforced, \d+ open breaches/,
