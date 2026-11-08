@@ -56,9 +56,6 @@ const LIMIT_HELD_WAIT =
 const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 /* The idle reason of a tick whose resumes take every free slot. */
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
-/* The idle reason of a tick whose plan seats are cut, with overflow keys that
- * open only once every plan seat is weekly-full (#2570). */
-const NO_OVERFLOW_LAUNCH = "no overflow launch";
 /* The idle reason of a tick whose plan seats are weekly-full and whose
  * overflow keys are spent. */
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
@@ -273,7 +270,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @param {string} [detail]
  * @returns {Idle}
  */
-const idleOf = (reason, detail = "") => ({ reason, detail });
+const buildIdle = (reason, detail = "") => ({ reason, detail });
 
 /** @param {Idle} idle */
 const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
@@ -410,15 +407,14 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 	if (overflow.length === 0) return plan;
 	if (!plan.allCut) {
 		const open = seats.filter((s) => !s.weekFull).map((s) => s.seat);
-		const shut = `: ${open.join(", ")} not weekly-full`;
+		const shut = `; no overflow launch: ${open.join(", ")} not weekly-full`;
+		/* A seat not cut holds a wait of its own, so plan.wait is set. */
 		return {
 			...plan,
-			wait: plan.wait
-				? {
-						...plan.wait,
-						detail: `${plan.wait.detail}; ${NO_OVERFLOW_LAUNCH}${shut}`,
-					}
-				: idleOf(NO_OVERFLOW_LAUNCH, shut),
+			wait: plan.wait && {
+				...plan.wait,
+				detail: `${plan.wait.detail}${shut}`,
+			},
 		};
 	}
 	const open = overflow.find(isFitted);
@@ -432,7 +428,7 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 		seat: null,
 		fits: 0,
 		allCut: overflow.every((o) => o.spentUntil !== null),
-		wait: idleOf(OVERFLOW_SPENT, `; overflow ${overflowHolds(overflow)}`),
+		wait: buildIdle(OVERFLOW_SPENT, `; overflow ${overflowHolds(overflow)}`),
 	};
 }
 
@@ -503,11 +499,11 @@ function pickPlanSeat(seats) {
 	/** @type {Idle|null} */
 	let wait = null;
 	if (noRoom > 0)
-		wait = idleOf(
+		wait = buildIdle(
 			NO_PLAN_ROOM,
 			fiveHour.length > 0 ? `; ${FIVE_HOUR_FULL}${fiveHourText}` : "",
 		);
-	else if (fiveHour.length > 0) wait = idleOf(FIVE_HOUR_FULL, fiveHourText);
+	else if (fiveHour.length > 0) wait = buildIdle(FIVE_HOUR_FULL, fiveHourText);
 	return { seat: null, fits: 0, allCut: cut === seats.length, wait };
 }
 
@@ -1026,7 +1022,7 @@ const buildPauseIssueText = ({ root, number }) =>
 
 /** @param {Pause} pause */
 const buildPauseIdle = ({ by, at, issues = [], why }) =>
-	idleOf(
+	buildIdle(
 		PAUSED,
 		` ${by} at ${new Date(at).toISOString()}${
 			issues.length > 0
@@ -1070,7 +1066,7 @@ function readPlanWait(seats) {
 
 /** @param {PlanWait} wait */
 const buildPlanWaitIdle = ({ resets }) =>
-	idleOf(
+	buildIdle(
 		PLAN_RESETS,
 		resets === null
 			? ", its time unread"
@@ -1205,14 +1201,14 @@ function decideTick(input) {
 function decideLaunches(input, { free, held, resumes, seatsLeft }) {
 	const launchSlots = free - resumes.length;
 	if (launchSlots === 0)
-		return buildIdleDecision(idleOf(RESUMES_TAKE_SLOTS), held, resumes);
+		return buildIdleDecision(buildIdle(RESUMES_TAKE_SLOTS), held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat(chargedInput);
 	if (launchPick.seat === null)
 		return buildNoSeatIdle(
 			input,
 			launchPick.wait ??
-				idleOf(
+				buildIdle(
 					input.limitHeldLines?.length ? LIMIT_HELD_WAIT : RESUME_DUE_WAIT,
 				),
 			held,
@@ -1231,13 +1227,13 @@ function decideLaunches(input, { free, held, resumes, seatsLeft }) {
 		...out,
 		idle:
 			failed.length > 0
-				? idleOf(
+				? buildIdle(
 						SHORTLIST_FAILED,
 						` ${failed
 							.map((f) => `${path.basename(f.root)}: ${f.error}`)
 							.join(`; ${SHORTLIST_FAILED} `)}`,
 					)
-				: idleOf(NOTHING_LAUNCHABLE),
+				: buildIdle(NOTHING_LAUNCHABLE),
 		held,
 		resumes,
 	};
@@ -1267,7 +1263,7 @@ function decideUnpaused(input) {
 	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
 	 * so an aged cache reads unread and is not why the tick waits (#2362). */
 	const held = heldParked(input);
-	if (free === 0) return buildIdleDecision(idleOf(NO_FREE_SLOT), held, []);
+	if (free === 0) return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
 		...decideLaunches(input, { free, held, resumes, seatsLeft }),
@@ -1329,16 +1325,12 @@ module.exports = {
 	buildPlanWaitText,
 	buildLoopWait,
 	buildIdleText,
-	idleOf,
 	FIVE_HOUR_FULL,
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,
-	NO_OVERFLOW_LAUNCH,
 	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
-	OVERFLOW_SPENT,
 	PAUSED,
-	PLAN_RESETS,
 	QUIET_BENCH_PAUSE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
