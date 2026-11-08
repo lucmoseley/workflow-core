@@ -17,7 +17,9 @@
  *
  * Not a check-*.js: Biome's own report and exit code are the verdict. `biome`
  * is found on PATH, which `npm run` and the hook both point at
- * node_modules/.bin. A commit adding, modifying or retyping no
+ * node_modules/.bin; a relative entry, as husky writes, is resolved against
+ * the caller's directory, since Biome runs from the temp tree (#4079). A
+ * commit adding, modifying or retyping no
  * path runs nothing and exits 0. Exits 2, BROKEN's code, where git cannot
  * extract the index or biome will not start.
  *
@@ -79,6 +81,10 @@ function main() {
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
 		);
+		env.PATH = (process.env.PATH ?? "")
+			.split(path.delimiter)
+			.map((dir) => path.resolve(dir))
+			.join(path.delimiter);
 		git(["init", "-q", tree], "making the extracted tree a repo", env);
 
 		const r = spawnSync(

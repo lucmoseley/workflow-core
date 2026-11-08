@@ -31,7 +31,7 @@ tg_stamp="${WFC_TEST_STAMP:-}"
 mh_stamp="${WFC_MUTATION_STAMP:-}"
 unset WFC_TEST_STAMP WFC_MUTATION_STAMP
 
-PATH="$(dirname "$(git rev-parse --git-common-dir)")/node_modules/.bin:$PATH"
+PATH="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/node_modules/.bin:$PATH"
 
 # lib/test-kind.js's `JS_TEST_FILE` in grep's ERE, pinned equal to it by
 # test-kind.test.ts: the arm of every gate reading scripts/ test files.
