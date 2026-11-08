@@ -26,7 +26,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -156,18 +156,21 @@ beforeEach(() => {
 	 * this one case's firing silences every case after it and the order of the
 	 * file decides what is tested. */
 	fs.rmSync(AUTOFIRE_MARKER, { force: true, recursive: true });
-	process.env.WFC_GH = stubGhScript(
-		sb.dir,
-		"#!/bin/sh\n" +
-			`echo "$@" >> ${shellQuote(ghArgsFile)}\n` +
-			`[ "$1" = "issue" ] && { echo "$@" >> ${shellQuote(issueArgsFile)}; exec cat ${shellQuote(issuesFile)}; }\n` +
-			'for a in "$@"; do\n' +
-			`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
-			`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
-			`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
-			"done\n" +
-			`exec cat ${shellQuote(runsFile)}\n`,
-	).gh;
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhScript(
+			sb.dir,
+			"#!/bin/sh\n" +
+				`echo "$@" >> ${shellQuote(ghArgsFile)}\n` +
+				`[ "$1" = "issue" ] && { echo "$@" >> ${shellQuote(issueArgsFile)}; exec cat ${shellQuote(issuesFile)}; }\n` +
+				'for a in "$@"; do\n' +
+				`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
+				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
+				"done\n" +
+				`exec cat ${shellQuote(runsFile)}\n`,
+		).gh,
+	);
 });
 
 const setRuns = (runs: Run[]) =>
@@ -2029,10 +2032,13 @@ describe("a workflow GitHub has disabled outright (mantahostels#1024)", () => {
 
 	it("asks with --all, without which a disabled workflow is simply absent", () => {
 		const argvFile = path.join(sb.dir, "argv.txt");
-		process.env.WFC_GH = stubGhScript(
-			sb.dir,
-			`#!/bin/sh\necho "$@" >> ${shellQuote(argvFile)}\nfor a in "$@"; do\n  [ "$a" = "workflow" ] && exec echo '[]'\n  [ "$a" = "--workflow" ] && exec echo '[]'\ndone\nexec cat ${shellQuote(runsFile)}\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				sb.dir,
+				`#!/bin/sh\necho "$@" >> ${shellQuote(argvFile)}\nfor a in "$@"; do\n  [ "$a" = "workflow" ] && exec echo '[]'\n  [ "$a" = "--workflow" ] && exec echo '[]'\ndone\nexec cat ${shellQuote(runsFile)}\n`,
+			).gh,
+		);
 
 		check([], at(SWEEP_NOW));
 		const argv = fs.readFileSync(argvFile, "utf8");
@@ -2691,18 +2697,21 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
 		// A gh that answers the queries and refuses `workflow run` — the shape a
 		// PAT that lost `Actions: write` takes (mantahostels#948, mantahostels#1069).
-		process.env.WFC_GH = stubGhScript(
-			sb.dir,
-			"#!/bin/sh\n" +
-				'case "$*" in\n' +
-				"  *'workflow run'*) echo 'HTTP 403' >&2; exit 1 ;;\n" +
-				"esac\n" +
-				'for a in "$@"; do\n' +
-				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
-				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
-				"done\n" +
-				`exec cat ${shellQuote(runsFile)}\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				sb.dir,
+				"#!/bin/sh\n" +
+					'case "$*" in\n' +
+					"  *'workflow run'*) echo 'HTTP 403' >&2; exit 1 ;;\n" +
+					"esac\n" +
+					'for a in "$@"; do\n' +
+					`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+					`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
+					"done\n" +
+					`exec cat ${shellQuote(runsFile)}\n`,
+			).gh,
+		);
 
 		const r = check(["--notify"], at(SWEEP_NOW));
 		expect(r.stdout).toContain("Could not fire one automatically");
@@ -2812,17 +2821,20 @@ describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)"
 		 * comfortably inside the 1300ms budget's own timeout for that one call,
 		 * but leaves under NOTIFY_BUDGET_FLOOR_MS (1000ms) of the 1300ms budget
 		 * for what follows. */
-		process.env.WFC_GH = stubGhScript(
-			sb.dir,
-			"#!/bin/sh\n" +
-				'for a in "$@"; do\n' +
-				`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
-				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
-				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
-				"done\n" +
-				"sleep 0.5\n" +
-				`exec cat ${shellQuote(runsFile)}\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				sb.dir,
+				"#!/bin/sh\n" +
+					'for a in "$@"; do\n' +
+					`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
+					`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+					`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
+					"done\n" +
+					"sleep 0.5\n" +
+					`exec cat ${shellQuote(runsFile)}\n`,
+			).gh,
+		);
 
 		const r = check(["--notify"], {
 			...at(SWEEP_NOW),
@@ -2840,17 +2852,20 @@ describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)"
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
 		setWorkflows(ACTIVE);
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
-		process.env.WFC_GH = stubGhScript(
-			sb.dir,
-			"#!/bin/sh\n" +
-				'for a in "$@"; do\n' +
-				`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
-				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
-				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
-				"done\n" +
-				"sleep 0.5\n" +
-				`exec cat ${shellQuote(runsFile)}\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				sb.dir,
+				"#!/bin/sh\n" +
+					'for a in "$@"; do\n' +
+					`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
+					`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+					`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
+					"done\n" +
+					"sleep 0.5\n" +
+					`exec cat ${shellQuote(runsFile)}\n`,
+			).gh,
+		);
 
 		const r = check([], {
 			...at(SWEEP_NOW),

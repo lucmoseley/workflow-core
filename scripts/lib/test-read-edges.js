@@ -144,6 +144,7 @@ const { shellOperands } = require("./shell-operands.js");
 const { requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
+const { isUnder } = require("./is-under.js");
 
 /** The names a root anchor is spelled with, the root calls aside. */
 const ROOT_NAMES =
@@ -426,9 +427,8 @@ function addDirClassEdges(scan, source) {
 		 * tree, `""` is every literal segment cancelling out to the anchor's
 		 * own root (e.g. a lone "."). */
 		if (!dirPath) continue;
-		const prefix = `${dirPath}/`;
 		for (const p of scan.tracked)
-			if (isCandidate(scan, p) && p.startsWith(prefix)) scan.found.add(p);
+			if (isCandidate(scan, p) && isUnder(p, [dirPath])) scan.found.add(p);
 	}
 }
 
@@ -800,7 +800,7 @@ const GLOB_CHARS = { "*": ".*", "?": "." };
  */
 function pathspecMatcher(spec) {
 	const s = spec.replace(/^\.\//, "").replace(/\/$/, "");
-	if (!/[*?]/.test(s)) return (p) => p === s || p.startsWith(`${s}/`);
+	if (!/[*?]/.test(s)) return (p) => isUnder(p, [s]);
 	const glob = s
 		.split("")
 		.map((c) => GLOB_CHARS[c] ?? escapeRe(c))

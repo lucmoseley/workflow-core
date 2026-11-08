@@ -45,6 +45,7 @@ import {
 	describe,
 	expect,
 	it,
+	vi,
 } from "vitest";
 import {
 	defineTemplate,
@@ -123,7 +124,7 @@ const judge = (
 	env: Record<string, string> = {},
 ): Decision => {
 	const saved = Object.keys(env).map((k) => [k, process.env[k]] as const);
-	Object.assign(process.env, env);
+	for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
 	try {
 		const root = hostRoot(cwd);
 		const payload = buildBashPayload(command, session);
@@ -137,10 +138,7 @@ const judge = (
 			...buildHostPorts(root),
 		});
 	} finally {
-		for (const [k, v] of saved) {
-			if (v === undefined) delete process.env[k];
-			else process.env[k] = v;
-		}
+		for (const [k, v] of saved) vi.stubEnv(k, v);
 	}
 };
 
@@ -216,11 +214,6 @@ const NO_VERIFY =
 const pushHead = (at = shared, ref = "origin/main") =>
 	git(at, "update-ref", `refs/remotes/${ref}`, "HEAD");
 
-/* The store, the host root and the rule store read these at call time, so the
- * arrangement, the core and the fragments all see the same sandbox. */
-const PINNED = ["CLAUDE_CONFIG_DIR", "CLAUDE_PROJECT_DIR"] as const;
-let savedEnv: (readonly [string, string | undefined])[];
-
 /** Points the case's paths, and the store's and host root's env, at `root`. */
 const useFixture = (root: string) => {
 	dir = root;
@@ -228,8 +221,10 @@ const useFixture = (root: string) => {
 	shared = path.join(root, "shared");
 	worktree = path.join(root, "wt");
 	elsewhere = path.join(root, "elsewhere");
-	process.env.CLAUDE_CONFIG_DIR = config;
-	process.env.CLAUDE_PROJECT_DIR = shared;
+	/* The store, the host root and the rule store read these at call time, so the
+	 * arrangement, the core and the fragments all see the same sandbox. */
+	vi.stubEnv("CLAUDE_CONFIG_DIR", config);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", shared);
 };
 
 /** Sets the mode of every directory under `root`, and of every file where given. */
@@ -302,15 +297,10 @@ beforeEach(() => {
 	logs = [];
 	copy = null;
 	owned = [];
-	savedEnv = PINNED.map((k) => [k, process.env[k]] as const);
 	useFixture(view);
 });
 
 afterEach(() => {
-	for (const [k, v] of savedEnv) {
-		if (v === undefined) delete process.env[k];
-		else process.env[k] = v;
-	}
 	for (const d of owned) fs.rmSync(d, { recursive: true, force: true });
 });
 
@@ -1527,21 +1517,14 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		const own = path.join(root, "docs", "agents", "rules");
 		fs.mkdirSync(own, { recursive: true });
 		fs.writeFileSync(path.join(own, "commit-closes-keyword.txt"), "own rule");
-		const saved = [process.env.CLAUDE_PROJECT_DIR, process.env.WFC_RULES_DIR];
-		process.env.CLAUDE_PROJECT_DIR = declared;
-		delete process.env.WFC_RULES_DIR;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", declared);
+		vi.stubEnv("WFC_RULES_DIR", undefined);
 		try {
 			const ports = buildHostPorts(root) as {
 				closingRefusal: (match: string) => string;
 			};
 			expect(ports.closingRefusal("Closes #1")).toContain("own rule");
 		} finally {
-			for (const [k, v] of [
-				["CLAUDE_PROJECT_DIR", saved[0]],
-				["WFC_RULES_DIR", saved[1]],
-			] as const)
-				if (v === undefined) delete process.env[k];
-				else process.env[k] = v;
 			fs.rmSync(root, { recursive: true, force: true });
 			fs.rmSync(declared, { recursive: true, force: true });
 		}

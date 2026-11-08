@@ -19,7 +19,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -131,18 +131,12 @@ describe("a range it cannot read is a reason, never a throw (mantahostels#945)",
 			{ script: 'echo "fatal: index file corrupt" >&2\nexit 128' },
 			{ under: dir },
 		);
-		const prev = process.env.WFC_GIT;
-		process.env.WFC_GIT = faulty.git;
-		try {
-			const r = range.readRange({ good: bad, bad, cwd: dir });
-			expect(r.ok).toBe(false);
-			expect(r.reason).toContain("git would not resolve");
-			expect(r.reason).toContain("index file corrupt");
-			expect(r.reason).not.toContain("git fetch origin");
-		} finally {
-			if (prev === undefined) delete process.env.WFC_GIT;
-			else process.env.WFC_GIT = prev;
-		}
+		vi.stubEnv("WFC_GIT", faulty.git);
+		const r = range.readRange({ good: bad, bad, cwd: dir });
+		expect(r.ok).toBe(false);
+		expect(r.reason).toContain("git would not resolve");
+		expect(r.reason).toContain("index file corrupt");
+		expect(r.reason).not.toContain("git fetch origin");
 	});
 
 	it("refuses two tips that are not one line of history", () => {

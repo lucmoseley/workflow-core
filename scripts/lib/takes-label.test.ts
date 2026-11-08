@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { takesLabel, takesRefusal, takesValue } from "./takes-label";
 
 describe("a takes: value a script names", () => {
@@ -31,7 +31,7 @@ describe("takesRefusal's Close-when line (#4129)", () => {
 	it("comes from the rule store", () => {
 		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "takes-label-rules-"));
 		fs.writeFileSync(path.join(rules, "close-when-line.txt"), "CLOSE LINE.\n");
-		process.env.WFC_RULES_DIR = rules;
+		vi.stubEnv("WFC_RULES_DIR", rules);
 		try {
 			expect(
 				takesRefusal(
@@ -40,7 +40,6 @@ describe("takesRefusal's Close-when line (#4129)", () => {
 				),
 			).toContain("Add it — CLOSE LINE. Template:");
 		} finally {
-			delete process.env.WFC_RULES_DIR;
 			fs.rmSync(rules, { recursive: true, force: true });
 		}
 	});

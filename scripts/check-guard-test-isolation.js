@@ -41,7 +41,7 @@
  * it.
  *
  * A HELPER'S process.env REDIRECT COUNTS FOR ITS CALLERS. A test calling a
- * helper function that assigns process.env.CLAUDE_CONFIG_DIR — arbiter-testkit.ts's
+ * helper function that stubs process.env.CLAUDE_CONFIG_DIR — arbiter-testkit.ts's
  * freshSandbox — and spreading process.env into some spawn's env is
  * redirected without naming it.
  *
@@ -394,14 +394,14 @@ const stripComments = (/** @type {string} */ s) =>
 const SETS_CONFIG_DIR =
 	/(?:\bCLAUDE_CONFIG_DIR|["']CLAUDE_CONFIG_DIR["'])\s*(?::(?!\s*(?:string|undefined)\b)|=(?!=))|\[\s*["']CLAUDE_CONFIG_DIR["']\s*\]\s*=(?!=)|\bstubEnv\(\s*["']CLAUDE_CONFIG_DIR["']\s*,/;
 
-/** `process.env.CLAUDE_CONFIG_DIR` assigned. */
-const SETS_PROCESS_CONFIG_DIR =
-	/\bprocess\.env(?:\.CLAUDE_CONFIG_DIR|\[\s*["']CLAUDE_CONFIG_DIR["']\s*\])\s*=(?!=)/g;
+/** `process.env.CLAUDE_CONFIG_DIR` stubbed through vitest, the one way a
+ * helper may set it (check-test-env-writes.js). */
+const SETS_PROCESS_CONFIG_DIR = /\bstubEnv\(\s*["']CLAUDE_CONFIG_DIR["']\s*,/g;
 
 /** A function's name at its definition, group 1 or 2. */
 const DEFINED = /\bfunction\s+(\w+)|\bconst\s+(\w+)\s*=\s*(?:async\s*)?\(/g;
 
-/** The functions in helper `source` that assign process.env.CLAUDE_CONFIG_DIR:
+/** The functions in helper `source` that set process.env.CLAUDE_CONFIG_DIR:
  * each assignment's nearest enclosing definition, read as the last before it. */
 function processRedirectors(/** @type {string} */ source) {
 	const code = stripComments(source);

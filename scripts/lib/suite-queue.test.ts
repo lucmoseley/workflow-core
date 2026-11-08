@@ -272,16 +272,10 @@ describe("readMarkers", () => {
 });
 
 describe("the queue directory every default reads (#2889)", () => {
-	const prior = process.env.TMPDIR;
-	afterEach(() => {
-		if (prior === undefined) delete process.env.TMPDIR;
-		else process.env.TMPDIR = prior;
-	});
-
 	/* A reader restating the temp root reads none of this queue. */
 	it("is one directory under the temp root, which the root's listing never reaches", async () => {
 		const root = qdir();
-		process.env.TMPDIR = root;
+		vi.stubEnv("TMPDIR", root);
 		const lander = queueSeat({ join: { role: "lander" } });
 		const file = lander.ticket;
 		lander.spawned();

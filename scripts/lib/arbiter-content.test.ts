@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	commitAll,
 	content,
@@ -140,13 +140,8 @@ describe("content identity — what the file held when its claimant last touched
 
 	it("reads as unknown where git itself cannot be run", () => {
 		const { blob } = claimAndRecord("alice", "content\n");
-		const savedPath = process.env.PATH;
-		process.env.PATH = "";
-		try {
-			expect(store.contentState(rel, { blob }).state).toBe("unknown");
-		} finally {
-			process.env.PATH = savedPath;
-		}
+		vi.stubEnv("PATH", "");
+		expect(store.contentState(rel, { blob }).state).toBe("unknown");
 	});
 
 	it("records nothing outside a repository, so the claim stays unknown rather than wrong", () => {

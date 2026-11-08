@@ -350,7 +350,8 @@ fi
 # for the same reason too (mantahostels#1753, mantahostels#1833).
 #
 # This gate, host-root-test-isolation's, git-fixture-identity's,
-# test-read-edges' and test-spawn's open on JS_TEST_ERE, set at the top.
+# test-env-writes', test-read-edges' and test-spawn's open on JS_TEST_ERE, set
+# at the top.
 if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)\$"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
@@ -377,6 +378,16 @@ fi
 # half without the other.
 if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
+fi
+
+# A JS test file sets or unsets an env var through vi.stubEnv, never a direct
+# process.env write or delete, which vitest.config.ts's unstubEnvs never
+# restores, so it outlives its case (#4019).
+#
+# Every test file vitest collects and every scripts/ .ts helper, and on
+# --against for the same reason as the git-fixture-identity gate above.
+if ! lander_batch && armed "$JS_TEST_ERE|^scripts/.*\.ts\$"; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-env-writes.js --against HEAD || exit "$?"
 fi
 
 # Every script in the core finds the HOST repository through the one seam (#1),

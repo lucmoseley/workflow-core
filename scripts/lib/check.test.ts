@@ -1742,30 +1742,28 @@ runCheck({
 describe("persist mode", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 	const notify: any = createRequire(__filename)("./notify-report.js");
-	const savedEnv = { ...process.env };
 	/** The env the async hook command would set, plus the sandboxing. */
 	let persistEnv: Record<string, string>;
 
 	beforeEach(() => {
-		process.env.CLAUDE_CONFIG_DIR = path.join(dir, "claude");
-		process.env.CLAUDE_PROJECT_DIR = path.join(dir, "repo");
+		const config = path.join(dir, "claude");
+		const repo = path.join(dir, "repo");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", config);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
 		// configDirs()'s own test seams: an exported one here would put the reports
 		// somewhere neither this test nor the run under it agrees on.
-		delete process.env.WFC_CLAUDE_CONFIG_A;
-		delete process.env.WFC_CLAUDE_CONFIG_B;
-		delete process.env.WFC_CLAUDE_CONFIG_C;
-		fs.mkdirSync(process.env.CLAUDE_PROJECT_DIR, { recursive: true });
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
+		fs.mkdirSync(repo, { recursive: true });
 		persistEnv = {
 			WFC_NOTIFY_PERSIST: "1",
-			CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
-			CLAUDE_PROJECT_DIR: process.env.CLAUDE_PROJECT_DIR,
+			CLAUDE_CONFIG_DIR: config,
+			CLAUDE_PROJECT_DIR: repo,
 			WFC_CLAUDE_CONFIG_A: "",
 			WFC_CLAUDE_CONFIG_B: "",
 			WFC_CLAUDE_CONFIG_C: "",
 		};
-	});
-	afterEach(() => {
-		process.env = { ...savedEnv };
 	});
 
 	const readStateFiles = () => {

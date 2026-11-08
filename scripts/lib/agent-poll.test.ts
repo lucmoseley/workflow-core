@@ -24,7 +24,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decide, type PollContext } from "./agent-poll.js";
 import { buildHostPorts } from "./agent-poll-host.js";
 import { freshSandbox } from "./arbiter-testkit";
@@ -454,14 +454,10 @@ describe("the two timed watches do not spend each other's allowance (mantahostel
 		const rules = path.join(dir, "rules");
 		fs.mkdirSync(rules);
 		fs.writeFileSync(path.join(rules, "job-wait-ceiling.txt"), "CEILING.\n");
-		process.env.WFC_RULES_DIR = rules;
-		try {
-			expect(expectWarn(bash(beat))).toContain(
-				"Act on what it says: CEILING. Meanwhile",
-			);
-		} finally {
-			delete process.env.WFC_RULES_DIR;
-		}
+		vi.stubEnv("WFC_RULES_DIR", rules);
+		expect(expectWarn(bash(beat))).toContain(
+			"Act on what it says: CEILING. Meanwhile",
+		);
 	});
 
 	it("keeps the job beat allowed past its allowance, however often", () => {

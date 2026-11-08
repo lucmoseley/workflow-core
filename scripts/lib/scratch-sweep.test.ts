@@ -24,7 +24,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process.js";
 
 const { earliestStart, sweepScratch, writtenAtMs } = require("./scratch-sweep");
@@ -660,14 +660,8 @@ describe("the write time userland cannot rewind (#1003)", () => {
 		fs.utimesSync(f, t, t);
 		const st = fs.lstatSync(f);
 		expect(writtenAtMs(f)).toBe(st.ctimeMs);
-		const prior = process.env.WFC_SCRATCH_AGE_MTIME_ONLY;
-		process.env.WFC_SCRATCH_AGE_MTIME_ONLY = "1";
-		try {
-			expect(writtenAtMs(f)).toBe(st.mtimeMs);
-		} finally {
-			if (prior === undefined) delete process.env.WFC_SCRATCH_AGE_MTIME_ONLY;
-			else process.env.WFC_SCRATCH_AGE_MTIME_ONLY = prior;
-		}
+		vi.stubEnv("WFC_SCRATCH_AGE_MTIME_ONLY", "1");
+		expect(writtenAtMs(f)).toBe(st.mtimeMs);
 		expect(writtenAtMs(path.join(dir, "gone"))).toBeNull();
 	});
 });

@@ -199,6 +199,11 @@ const PROFILES = {
 	 */
 	"git-fixture-identity": findingsProfile(on("severity", "tag", "file")),
 	/*
+	 * The subject is one variable written in one test file (#4019). `line` is
+	 * excluded for the reason above.
+	 */
+	"test-env-writes": findingsProfile(on("severity", "tag", "file", "name")),
+	/*
 	 * The subject is one banned tell in one file. `line` is excluded for the
 	 * reason above — an edit higher up the file moves every tell below it — and
 	 * `context` with it, that being the surrounding words, which a rewrite of the

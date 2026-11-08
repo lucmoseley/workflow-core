@@ -87,16 +87,14 @@ describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 });
 
 describe("every caller derives the slug from that one function", () => {
-	const saved = { cwd: process.cwd(), config: process.env.CLAUDE_CONFIG_DIR };
+	const cwd = process.cwd();
 	const dirs: string[] = [];
 
 	afterEach(() => {
 		vi.unstubAllEnvs();
-		process.chdir(saved.cwd);
+		process.chdir(cwd);
 		for (const d of dirs.splice(0))
 			fs.rmSync(d, { recursive: true, force: true });
-		if (saved.config === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-		else process.env.CLAUDE_CONFIG_DIR = saved.config;
 	});
 
 	it("guard-fires transcriptDirs spells the main checkout's directory with it", () => {
@@ -115,14 +113,11 @@ describe("every caller derives the slug from that one function", () => {
 	});
 
 	it("arbiter-core stateDir spells it with it", () => {
-		process.env.CLAUDE_CONFIG_DIR = path.join(os.tmpdir(), "slug-cfg");
+		const config = path.join(os.tmpdir(), "slug-cfg");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", config);
 		const core = require("./arbiter-core.js");
 		expect(core.stateDir()).toBe(
-			path.join(
-				process.env.CLAUDE_CONFIG_DIR,
-				"projects",
-				projectSlug(core.repoRoot()),
-			),
+			path.join(config, "projects", projectSlug(core.repoRoot())),
 		);
 	});
 
@@ -132,7 +127,7 @@ describe("every caller derives the slug from that one function", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "manta.slug."));
 		dirs.push(root);
 		process.chdir(root);
-		process.env.CLAUDE_CONFIG_DIR = "/cfg";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/cfg");
 		const hookMessage = require("./hook-message.js");
 		const got = hookMessage.transcriptPath(null, "sid1");
 		expect(got).toBe(

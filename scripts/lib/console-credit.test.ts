@@ -198,10 +198,6 @@ describe("isConsoleReadDue", () => {
 describe("read-console-credit.js", () => {
 	let tmp: string;
 	let planDir: string;
-	const saved = {
-		home: process.env.HOME,
-		refill: process.env.WFC_REFILL_DIR,
-	};
 	const seat = () => ({
 		dir: planDir,
 		kind: "overflow" as const,
@@ -231,14 +227,11 @@ describe("read-console-credit.js", () => {
 			path.join(home, ".claude", "refill-seats"),
 			`${planDir}\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
 		);
-		process.env.HOME = home;
-		process.env.WFC_REFILL_DIR = path.join(tmp, "refill");
+		vi.stubEnv("HOME", home);
+		vi.stubEnv("WFC_REFILL_DIR", path.join(tmp, "refill"));
 	});
 
 	afterEach(() => {
-		process.env.HOME = saved.home;
-		if (saved.refill === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = saved.refill;
 		fs.rmSync(tmp, { recursive: true, force: true });
 	});
 

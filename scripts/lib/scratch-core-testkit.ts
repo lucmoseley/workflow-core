@@ -8,15 +8,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { vi } from "vitest";
 
 /**
  * A core under `dir` whose plugin registers `hooks`, made the running core
  * through `WFC_SCRIPT_ROOT` (lib/script-path.js's tests-only seam). It carries
  * a `package.json`, so `scriptPath` still spells a script as a checkout does.
- * @returns a function putting `WFC_SCRIPT_ROOT` back as it was
  */
-export function useScratchCore(dir: string, hooks: object = {}): () => void {
-	const saved = process.env.WFC_SCRIPT_ROOT;
+export function useScratchCore(dir: string, hooks: object = {}): void {
 	const core = path.join(dir, "scratch-core");
 	fs.mkdirSync(path.join(core, "hooks"), { recursive: true });
 	fs.writeFileSync(path.join(core, "package.json"), "{}\n");
@@ -24,9 +23,5 @@ export function useScratchCore(dir: string, hooks: object = {}): () => void {
 		path.join(core, "hooks", "hooks.json"),
 		JSON.stringify({ hooks }),
 	);
-	process.env.WFC_SCRIPT_ROOT = core;
-	return () => {
-		if (saved === undefined) delete process.env.WFC_SCRIPT_ROOT;
-		else process.env.WFC_SCRIPT_ROOT = saved;
-	};
+	vi.stubEnv("WFC_SCRIPT_ROOT", core);
 }
