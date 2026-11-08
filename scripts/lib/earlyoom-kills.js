@@ -28,12 +28,12 @@
  *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
- * that will not read leaves the kills unjoined, with the incident's
+ * that will not read, or a run on a victim's pid that recorded no boot,
+ * leaves the kills unjoined, with the incident's
  * `unjoined` saying why, never as no headless victims. WFC_JOURNALCTL injects
  * the binary (§N7), as check-kernel-stall.js takes it.
  */
 
-const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 const { readStoredRuns } = require("./headless-runs.js");
 const {
@@ -42,17 +42,17 @@ const {
 	readTicketsByPrefix,
 	utcMinute,
 } = require("./incident-tickets.js");
+const {
+	bootKey,
+	readBoots,
+	runJournalctl,
+	toSecond,
+} = require("./journalctl.js");
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path.js");
 
 /** Ruled at #3082 (Q1 → B); untraced. */
 const INCIDENT_GAP_MS = 30 * 60 * 1000;
-
-/* Both as check-kernel-stall.js's journal reader, whose comments derive them:
- * a read is well under 1 s, and an overflow is a failed read, never "no
- * kills". The whole earlyoom journal, 11 Sep to 26 Oct 2026, read 0.8 MB. */
-const READ_TIMEOUT_MS = 5000;
-const MAX_BUFFER = 64 * 1024 * 1024;
 
 const LINE = /^(\S+) \S+ earlyoom\[\d+\]: (.*)$/;
 const SIGNAL =
@@ -178,76 +178,25 @@ const isOver = (i, now) => now - Date.parse(i.last) > INCIDENT_GAP_MS;
  * @returns {{text: string, why: string|null}}
  */
 function readJournal(sinceMs) {
-	const r = spawnSync(
-		process.env.WFC_JOURNALCTL || "journalctl",
-		[
-			"-u",
-			"earlyoom",
-			"--no-pager",
-			"-o",
-			"short-iso",
-			"--since",
-			`@${Math.floor(sinceMs / 1000)}`,
-		],
-		{
-			encoding: "utf8",
-			timeout: READ_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "pipe"],
-			maxBuffer: MAX_BUFFER,
-		},
-	);
-	if (r.error || r.status !== 0)
-		return {
-			text: "",
-			why: `journalctl -u earlyoom: ${r.error?.message ?? (r.stderr.trim() || `exit ${r.status}`)}`,
-		};
-	return { text: r.stdout, why: null };
+	const { stdout, why } = runJournalctl([
+		"-u",
+		"earlyoom",
+		"--no-pager",
+		"-o",
+		"short-iso",
+		"--since",
+		`@${Math.floor(sinceMs / 1000)}`,
+	]);
+	return {
+		text: stdout,
+		why: why === null ? null : `journalctl -u earlyoom: ${why}`,
+	};
 }
-
-/** @typedef {{id: string, from: number, to: number}} Boot ms, to the second */
-
-/**
- * The journal's boots, or why they could not be read.
- * @returns {{boots: Boot[], why: string|null}}
- */
-function readBoots() {
-	const r = spawnSync(
-		process.env.WFC_JOURNALCTL || "journalctl",
-		["--list-boots", "--no-pager", "-o", "json"],
-		{
-			encoding: "utf8",
-			timeout: READ_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "pipe"],
-		},
-	);
-	const fail = (/** @type {string} */ why) => ({
-		boots: [],
-		why: `journalctl --list-boots: ${why}`,
-	});
-	if (r.error || r.status !== 0)
-		return fail(r.error?.message ?? (r.stderr.trim() || `exit ${r.status}`));
-	try {
-		/* The kill's time is read to the second, so each boot's span is too. */
-		const second = (/** @type {number} */ us) => Math.floor(us / 1e6) * 1000;
-		const boots = /** @type {{boot_id: string, first_entry: number,
-		 * last_entry: number}[]} */ (JSON.parse(r.stdout)).map((b) => ({
-			id: b.boot_id,
-			from: second(b.first_entry),
-			to: second(b.last_entry),
-		}));
-		return { boots, why: null };
-	} catch (err) {
-		return fail(caught(err).message);
-	}
-}
-
-/** /proc's boot_id carries dashes; journalctl's does not. */
-const bootKey = (/** @type {string|null} */ id) =>
-	id === null ? null : id.replace(/-/g, "");
 
 /**
  * Each kill that is a stored headless run takes that kind and its job id; where
- * the store or the boots will not read, each incident says why instead.
+ * the store or the boots will not read, or a run on a kill's pid recorded no
+ * boot, the incident says why instead.
  * @param {Incident[]} incidents
  * @returns {Incident[]}
  */
@@ -263,18 +212,22 @@ function joinHeadlessRuns(incidents) {
 	}
 	const { boots, why } = readBoots();
 	if (why !== null) return unread(why);
-	return incidents.map((i) => ({
-		...i,
-		kills: i.kills.map((k) => {
+	return incidents.map((i) => {
+		/** @type {string[]} */
+		const bootless = [];
+		const kills = i.kills.map((k) => {
 			const at = Date.parse(k.at);
 			const boot = boots.find((b) => b.from <= at && at <= b.to);
-			const run = runs
+			const onPid = runs.filter(
+				(r) => r.pid === k.pid && toSecond(r.launchedAt) <= at,
+			);
+			for (const r of onPid) if (r.bootId === null) bootless.push(r.jobId);
+			const run = onPid
 				.filter(
 					(r) =>
-						r.pid === k.pid &&
 						boot !== undefined &&
-						bootKey(r.bootId) === boot.id &&
-						Math.floor(r.launchedAt / 1000) * 1000 <= at,
+						r.bootId !== null &&
+						bootKey(r.bootId) === boot.id,
 				)
 				.reduce(
 					(a, r) => (a === null || r.launchedAt > a.launchedAt ? r : a),
@@ -287,8 +240,16 @@ function joinHeadlessRuns(incidents) {
 						kind: /** @type {Kind} */ ("headless run"),
 						jobId: run.jobId,
 					};
-		}),
-	}));
+		});
+		return {
+			...i,
+			kills,
+			unjoined:
+				bootless.length === 0
+					? null
+					: `headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")} on a victim's pid recorded no boot`,
+		};
+	});
 }
 
 /**
@@ -417,7 +378,6 @@ module.exports = {
 	byKind,
 	incidentTitle,
 	isOver,
-	readBoots,
 	readIncidentTickets,
 	readIncidents,
 };

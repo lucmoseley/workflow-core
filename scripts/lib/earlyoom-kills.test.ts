@@ -145,7 +145,11 @@ describe("buildIncidentBody and incidentTitle (#3094)", () => {
 describe("headless runs among the kills (#4143)", () => {
 	const Pid = 4242;
 	const OtherBoot = "fedcba9876543210fedcba9876543210";
-	/** Kills of comm `claude` on PID: `at` each, in ONE_BOOT unless `boots` says. */
+	/**
+	 * Kills of comm `claude` on Pid at each of `at`, and `runs` stored on Pid,
+	 * recorded in ONE_BOOT unless `bootId` says; `boots` is what `--list-boots`
+	 * serves, null for a list that refuses.
+	 */
 	function seed(
 		at: number[],
 		runs: { jobId: string; launchedAt: number; bootId?: string | null }[],
@@ -232,6 +236,15 @@ describe("headless runs among the kills (#4143)", () => {
 			[{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN, bootId: OtherBoot }],
 		);
 		expect(victims()).toEqual([["claude CLI", null]]);
+	});
+
+	it("says the kills were not joined where a run on the victim's pid recorded no boot", () => {
+		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN, bootId: null }]);
+		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
+		expect(i.kills[0].kind).toBe("claude CLI");
+		expect(i.unjoined).toBe(
+			"headless run 0aaaaaaa on a victim's pid recorded no boot",
+		);
 	});
 
 	it("says the kills were not joined where the store or the boot list will not read, never as no headless victim", () => {

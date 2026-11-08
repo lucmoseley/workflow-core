@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import {
+	type FakeBoot,
 	kernelLine,
 	otherLine,
 	readingLine,
@@ -33,7 +34,8 @@ import {
 import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
-const { readBoots, readIncidents } = require("./earlyoom-kills.js");
+const { readIncidents } = require("./earlyoom-kills.js");
+const { readBoots } = require("./journalctl.js");
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 const MIN = 60 * 1000;
@@ -107,10 +109,7 @@ interface Side {
 	/** check-kernel-stall.js's --json outcome, and the `-k` lines it read. */
 	kernel: { outcome: string; lines: string[] };
 	/** readBoots' reading of `--list-boots -o json`. */
-	boots: {
-		boots: { id: string; from: number; to: number }[];
-		why: string | null;
-	};
+	boots: { boots: FakeBoot[]; why: string | null };
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-contract-"));
