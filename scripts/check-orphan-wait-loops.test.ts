@@ -147,7 +147,7 @@ describe("check-orphan-wait-loops", () => {
 	/* The `sleep` half of the predicate on its own. Without this fixture only
 	 * dropping the WHOLE predicate is caught, and widening the check to every
 	 * `while` orphan — a `while read` pipeline, a `while true` service — would
-	 * ship silently and flood the session start (mantahostels#2043, review). */
+	 * ship silently and flood the session start (mantahostels#2043). */
 	it("does not report a while loop that never sleeps (mantahostels#2043)", () => {
 		proc(4242, { argv: "/bin/bash -c while read l; do echo $l; done" });
 
@@ -200,7 +200,7 @@ describe("check-orphan-wait-loops", () => {
 
 	/* hidepid=2 and a hardened container: the root lists pids and none of them
 	 * reads. An empty table here would be a false all-clear over a machine the
-	 * run never saw (mantahostels#2043, review). */
+	 * run never saw (mantahostels#2043). */
 	it("skips a root that lists processes of which none reads (mantahostels#2043)", () => {
 		for (const pid of [4242, 4243]) fs.mkdirSync(path.join(root, String(pid)));
 
@@ -254,7 +254,7 @@ describe("check-orphan-wait-loops", () => {
 
 	/* A session-scope watcher sits under `systemd --user` by design and waits on
 	 * its session's leader; the check reads that leader's pid and start time out
-	 * of the watcher's argv (#4670). */
+	 * of the watcher's argv. */
 	describe("a session-scope watcher (#4670)", () => {
 		const Leader = 660_083;
 		const LeaderAgeS = 3600;
@@ -319,7 +319,7 @@ describe("check-orphan-wait-loops", () => {
 	});
 
 	/* The ancestor walk, not just the self case: the check's own parent shell is
-	 * an orphan matching every criterion, and is still not named (mantahostels#2043, review). */
+	 * an orphan matching every criterion, and is still not named (mantahostels#2043). */
 	it("never names an ancestor of its own process (mantahostels#2043)", () => {
 		const parent = 987_654;
 		proc(process.pid, {
