@@ -9,16 +9,24 @@
  * a local commit or a session's edit is moved or lost, two passes install at
  * once, or hook code runs against a tree built for another lockfile.
  */
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import {
+	type ChildProcess,
+	execFileSync,
+	spawn,
+	spawnSync,
+} from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { canaryClosure } from "./lib/canary-remark.js";
 import { level, renderOutcome } from "./lib/level-main.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "level-main.js");
+const REPO = path.resolve(__dirname, "..");
+const MARKER_LIB = "scripts/lib/self-plugin-marker.sh";
 const HOUR = 3_600_000;
 
 let tmp: string;
@@ -372,4 +380,140 @@ it("refuses a stray argument, and a directory no main checkout holds", () => {
 	const r = run(outside);
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain("no main checkout holds this directory");
+});
+
+const writerLog = () => path.join(tmp, "writer-runs");
+
+/* The canary and everything it sources, as this checkout holds them, its
+ * writer also logging each run to writerLog. Landed and levelled with no
+ * session live. */
+const seedCanary = () => {
+	/* The writer's fail-open log, here and in the pass's own runs of it. */
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(tmp, "config"));
+	const files: Record<string, string> = {};
+	for (const f of canaryClosure(REPO, "HEAD"))
+		files[f] = fs.readFileSync(path.join(REPO, f), "utf8");
+	const writer = "scripts/write-self-plugin-marker.sh";
+	files[writer] = (files[writer] ?? "").replace(
+		/exit 0\n$/,
+		`echo "$CLAUDE_PROJECT_DIR" >> ${shellQuote(writerLog())}\nexit 0\n`,
+	);
+	landOnMain(files);
+	expect(pass({ listSessions: () => ({ sessions: [] }) }).status).toBe(
+		"forwarded",
+	);
+	return files;
+};
+
+const movedMarkerPath = (files: Record<string, string>) => ({
+	[MARKER_LIB]: (files[MARKER_LIB] ?? "").replaceAll(
+		".self-plugin-loaded-",
+		".self-plugin-v2-",
+	),
+});
+
+const hook = (script: string, sessionId: string) =>
+	spawnSync("bash", [path.join(main, "scripts", script)], {
+		cwd: worktree,
+		input: JSON.stringify({ session_id: sessionId }),
+		env: {
+			...process.env,
+			CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
+			CLAUDE_PROJECT_DIR: worktree,
+		},
+		encoding: "utf8",
+	});
+
+const startSession = (sessionId: string) => {
+	expect(hook("write-self-plugin-marker.sh", sessionId).status).toBe(0);
+	fs.rmSync(writerLog(), { force: true });
+};
+
+const canaryPasses = (sessionId: string) =>
+	hook("self-plugin-canary.sh", sessionId).status === 0;
+
+const live =
+	(...ids: string[]) =>
+	() => ({
+		sessions: ids.map((sessionId) => ({ sessionId, cwd: worktree })),
+	});
+
+it("re-marks a live session before a fast-forward that moves its marker path, so its next canary call passes (#4711)", () => {
+	const files = seedCanary();
+	startSession("s-old");
+	const moved = landOnMain(movedMarkerPath(files));
+
+	expect(pass({ listSessions: live("s-old") })).toMatchObject({
+		status: "forwarded",
+		head: moved,
+	});
+	expect(
+		fs.readdirSync(path.join(worktree, ".claude", "tmp", "markers")),
+	).toContain(".self-plugin-v2-s-old");
+	expect(fs.readFileSync(writerLog(), "utf8")).toBe(`${worktree}\n`);
+	expect(canaryPasses("s-old")).toBe(true);
+});
+
+it("does not fast-forward where the target canary still refuses a re-marked session, and names the session", () => {
+	seedCanary();
+	startSession("s-live");
+	const before = git(main, "rev-parse", "HEAD");
+	landOnMain({
+		"scripts/self-plugin-canary.sh":
+			"#!/usr/bin/env bash\necho 'cannot start' >&2\nexit 2\n",
+	});
+
+	const o = pass({ listSessions: live("s-live") });
+
+	expect(o).toMatchObject({
+		status: "stranding",
+		stranded: [
+			{ sessionId: "s-live", projectDir: worktree, refusal: "cannot start" },
+		],
+	});
+	const lines = renderOutcome(o, Date.now());
+	expect(lines[0]).toMatch(
+		/^refused: \S+ changes the self-plugin canary, which would still refuse 1 live session\(s\)/,
+	);
+	expect(lines[1]).toBe(`  session s-live in ${worktree} — cannot start`);
+	expect(git(main, "rev-parse", "HEAD")).toBe(before);
+	expect(canaryPasses("s-live")).toBe(true);
+});
+
+it("does not fast-forward a canary change where the live sessions cannot be listed", () => {
+	seedCanary();
+	const before = git(main, "rev-parse", "HEAD");
+	landOnMain({ "scripts/lib/script-path.sh": "# changed\n" });
+
+	const o = pass({ listSessions: () => ({ why: "the oracle is down" }) });
+
+	expect(o).toMatchObject({ status: "stranding", why: "the oracle is down" });
+	expect(renderOutcome(o, Date.now())[0]).toMatch(
+		/^refused: .* could not be listed, so main was not moved .*: the oracle is down$/,
+	);
+	expect(git(main, "rev-parse", "HEAD")).toBe(before);
+});
+
+it("gives no marker to a session the current canary already refuses", () => {
+	const files = seedCanary();
+	landOnMain(movedMarkerPath(files));
+
+	expect(pass({ listSessions: live("s-unloaded") }).status).toBe("forwarded");
+	expect(fs.existsSync(writerLog())).toBe(false);
+	expect(canaryPasses("s-unloaded")).toBe(false);
+});
+
+it("runs no re-mark where the fast-forward changes none of the canary's files", () => {
+	seedCanary();
+	startSession("s-live");
+	landOnMain({ "hook.js": "v2\n" });
+	let listed = 0;
+	const listSessions = () => {
+		listed += 1;
+		return { sessions: [] };
+	};
+
+	expect(pass({ listSessions }).status).toBe("forwarded");
+	expect(listed).toBe(0);
+	expect(fs.existsSync(writerLog())).toBe(false);
 });

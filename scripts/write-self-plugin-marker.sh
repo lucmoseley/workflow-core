@@ -8,8 +8,10 @@
 #
 # It and the canary run the main checkout's copies (#4701), so a change to the
 # marker path reaches every running session at its next call, against markers
-# written at their starts: such a change keeps the canary reading the old path
-# until every session started before it has ended.
+# written at their starts. The levelling pass therefore re-marks every live
+# session with the target's copy before it moves the main checkout, and does
+# not move it while the target's canary would still refuse one
+# (lib/canary-remark.js).
 #
 # The marker path is lib/self-plugin-marker.sh's, under `.claude/tmp/markers/`
 # resolved from CLAUDE_PROJECT_DIR, a linked worktree's own where the session

@@ -11,6 +11,10 @@
  * fetched. A main checkout not yet cut over (lib/cutover.js) is refused, never
  * moved.
  *
+ * A FAST-FORWARD THAT CHANGES THE SELF-PLUGIN CANARY first re-marks every live
+ * session for the target's canary (lib/canary-remark.js), and is refused where
+ * that canary would still refuse one, naming each.
+ *
  * A REFUSAL NAMES EACH BLOCKING FILE — a tracked edit, staged or not, or an
  * untracked file, at a path the fast-forward changes or at a directory above
  * or below one — with its age (mtime) and its last writer (the write ledger).
@@ -31,6 +35,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { remarkForCanary } = require("./canary-remark.js");
 const { caught } = require("./caught.js");
 const {
 	execGit,
@@ -59,6 +64,8 @@ const HOLDERS = ["level-main.js", "refill-loop.js"];
 
 /**
  * @typedef {import("./npm-ci-staging.js").Install} Install
+ * @typedef {import("./canary-remark.js").ListSessions} ListSessions
+ * @typedef {import("./canary-remark.js").Stranding} Stranding
  * @typedef {(rel: string) => {sessionId: string, at: number} | null} LastWriter
  * @typedef {{ path: string, ageMs: number | null, writer: {sessionId: string, at: number} | null }} Blocker
  * @typedef {{ installed: boolean, error?: string }} InstallResult
@@ -70,6 +77,7 @@ const HOLDERS = ["level-main.js", "refill-loop.js"];
  *   | { status: "ahead", local: string[], unqueued: string[] }
  *   | { status: "blocked", from: string, to: string, blockers: Blocker[] }
  *   | { status: "refused", from: string, to: string, why: string }
+ *   | ({ status: "stranding", from: string, to: string } & Stranding)
  * )} Moved
  * @typedef {(
  *   | (Moved & { fetchError: string | null })
@@ -311,11 +319,11 @@ function readUnqueued(root) {
 /**
  * The fast-forward half of a pass: what `main` did, no install.
  * @param {string} root the main checkout
- * @param {number} now
- * @param {LastWriter} lastWriter
+ * @param {{ now: number, lastWriter: LastWriter, work: string,
+ *   listSessions?: ListSessions }} how
  * @returns {Moved}
  */
-function forward(root, now, lastWriter) {
+function forward(root, { now, lastWriter, work, listSessions }) {
 	let branch = null;
 	try {
 		branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], root).trim();
@@ -341,6 +349,15 @@ function forward(root, now, lastWriter) {
 		.sort()
 		.map((p) => readBlocker(root, p, now, lastWriter));
 	if (blockers.length > 0) return { status: "blocked", from, to, blockers };
+	const stranding = remarkForCanary(root, {
+		from,
+		to,
+		changed,
+		scratch: path.join(work, "canary"),
+		listSessions,
+	});
+	if (stranding !== null)
+		return { status: "stranding", from, to, ...stranding };
 	try {
 		git(["merge", "--ff-only", "--quiet", to], root);
 	} catch (err) {
@@ -359,10 +376,14 @@ function forward(root, now, lastWriter) {
  * `busy`, doing nothing. A git fault outside the fetch and the fast-forward
  * throws.
  * @param {string} root the main checkout
- * @param {{ install?: Install, lastWriter?: LastWriter, now: number }} options
+ * @param {{ install?: Install, lastWriter?: LastWriter,
+ *   listSessions?: ListSessions, now: number }} options
  * @returns {Outcome}
  */
-function level(root, { install = npmCi, lastWriter = () => null, now }) {
+function level(
+	root,
+	{ install = npmCi, lastWriter = () => null, listSessions, now },
+) {
 	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
 	const lock = pidLock(path.join(common, "wfc-level.pid"), HOLDERS);
 	if (!lock.acquire())
@@ -390,7 +411,7 @@ function level(root, { install = npmCi, lastWriter = () => null, now }) {
 		} catch (err) {
 			fetchError = (caught(err).stderr || caught(err).message).trim();
 		}
-		const moved = forward(root, now, lastWriter);
+		const moved = forward(root, { now, lastWriter, work, listSessions });
 		return {
 			...moved,
 			fetchError,
@@ -549,6 +570,19 @@ function renderOutcome(o, now) {
 					(b) =>
 						`  ${b.path} — ${b.ageMs === null ? "deleted" : `${describeAge(b.ageMs)} old`}; last writer ${b.writer ? `session ${b.writer.sessionId}, ledger written ${describeAge(now - b.writer.at)} ago` : "unknown — no surviving write ledger names it"}`,
 				),
+			);
+			break;
+		case "stranding":
+			lines.push(
+				"why" in o
+					? `refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, and the live sessions to re-mark for it could not be listed, so main was not moved — ${next}: ${o.why}`
+					: `refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, which would still refuse ${o.stranded.length} live session(s) after re-marking them, so main was not moved — land a canary that passes them, or end them, ${next}:`,
+				...("why" in o
+					? []
+					: o.stranded.map(
+							(s) =>
+								`  session ${s.sessionId} in ${s.projectDir} — ${s.refusal}`,
+						)),
 			);
 			break;
 		case "refused":
