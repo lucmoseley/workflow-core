@@ -147,7 +147,10 @@ const oracleCall = () => `\`${claudeBin()} agents --json\``;
  * Both caps are overridable so the suite can drive them to milliseconds, and
  * a hook that started lib/hook-deadline.js's clock cuts both to what its
  * budget leaves. A first read cut by that budget is not retried: its timeout
- * says the hook's time ran out, not that the daemon queued (#4115).
+ * says the hook's time ran out, not that the daemon queued (#4115). RESIDUAL:
+ * a cold daemon the 20 s retry would have waited out now answers that Stop
+ * hook a `why`, and guard-uncommitted-work.js then subtracts no neighbour's
+ * writes and says so in its block.
  */
 const oracleTimeoutMs = () => capMs("WFC_ORACLE_TIMEOUT_MS", 10_000);
 const oracleRetryTimeoutMs = () => capMs("WFC_ORACLE_RETRY_TIMEOUT_MS", 20_000);
@@ -483,15 +486,10 @@ function spawnUnion(bin, call, dirs) {
 	try {
 		out = runOracle(bin, firstMs, dirs);
 	} catch (e) {
-		const err = caught(e);
-		if (err.code !== "ETIMEDOUT")
-			return {
-				why: `${call} would not run (${failure(e)})`,
-			};
+		const why = `${call} would not run (${failure(e)})`;
+		if (caught(e).code !== "ETIMEDOUT") return { why };
 		if (firstMs < firstCapMs)
-			return {
-				why: `${call} would not run (${failure(e)}) inside the hook's time budget, ${firstMs} ms`,
-			};
+			return { why: `${why} inside the hook's time budget, ${firstMs} ms` };
 		// Exactly one retry: a second timeout is the wedge the cap exists for, and
 		// a loop here would wedge the SessionStart hook the cap protects.
 		const retryMs = budgetMs(oracleRetryTimeoutMs());

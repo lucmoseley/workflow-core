@@ -93,15 +93,16 @@ const halfTimeouts = (file: string, script: string) => {
 };
 
 describe("ENTRY_BUDGET_MS", () => {
-	it("is half each dispatcher registration's timeout, and the uncommitted-work guard's at Stop", () => {
-		const Guard = "guard-uncommitted-work.js";
-		expect(halfTimeouts(SELF_HOOKS, Guard)).toEqual(
-			halfTimeouts(PLUGIN_HOOKS, Guard),
-		);
-		expect(d.ENTRY_BUDGET_MS).toEqual({
-			...halfTimeouts(SELF_HOOKS, "guard-dispatch.js"),
-			...halfTimeouts(SELF_HOOKS, Guard),
-		});
+	it("is half each dispatcher registration's timeout", () => {
+		const { Stop: _stop, ...dispatcher } = d.ENTRY_BUDGET_MS;
+		expect(dispatcher).toEqual(halfTimeouts(SELF_HOOKS, "guard-dispatch.js"));
+	});
+
+	it("leaves the uncommitted-work guard 3 s of its Stop timeout after its reads", () => {
+		const guard = "guard-uncommitted-work.js";
+		const half = halfTimeouts(SELF_HOOKS, guard);
+		expect(half).toEqual(halfTimeouts(PLUGIN_HOOKS, guard));
+		expect(d.ENTRY_BUDGET_MS.Stop).toBe(half.Stop * 2 - 3000);
 	});
 });
 

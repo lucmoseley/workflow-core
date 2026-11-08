@@ -17,6 +17,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeClaudeStub } from "./claude-stub";
 import { writeHeadlessRun } from "./headless-runs-testkit";
+import { withStopClockLeft } from "./hook-deadline-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 // The module is CommonJS and stays that way — it is required by plain node
@@ -245,55 +246,27 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	});
 });
 
-/*
- * A hook that started lib/hook-deadline.js's clock gets its read cut to what
- * the budget leaves (#4115). The clock is module state, so each case loads
- * fresh copies of the three modules that hold or read it.
- */
+/* A hook that started lib/hook-deadline.js's clock gets its read cut to what
+ * the budget leaves (#4115). */
 describe("a hook's time budget (#4115)", () => {
-	const req = createRequire(__filename);
-	const Modules = [
-		"./hook-deadline.js",
-		"./oracle-cache.js",
-		"./agent-liveness.js",
-	];
-	const drop = () => {
-		for (const m of Modules) delete req.cache[req.resolve(m)];
-	};
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	let fresh: any;
-
-	beforeEach(() => {
-		drop();
+	it("cuts a hung read to what the budget leaves, and does not retry it", () => {
 		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "5000");
 		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "10000");
-		fresh = req("./agent-liveness.js");
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
-		drop();
-	});
-
-	it("cuts a hung read to what the budget leaves, and does not retry it", () => {
 		const calls = hangingClaude(listing("aaaa"), 5);
-		vi.spyOn(process, "uptime").mockReturnValue(0);
-		const deadline = req("./hook-deadline.js");
-		deadline.startEntryClock(
-			"Stop",
-			Date.now() - (deadline.ENTRY_BUDGET_MS.Stop - 400),
+		const { loaded, drop } = withStopClockLeft(
+			["./oracle-cache.js", "./agent-liveness.js"],
+			400,
 		);
-		const started = Date.now();
-		const r = fresh.listedAgents();
-		expect(r.why).toContain("inside the hook's time budget");
-		expect(calls()).toBe(1);
-		// §X9: a process timeout: the 400 ms left, not the 5 s cap, bounds the hung child.
-		expect(Date.now() - started).toBeLessThan(5000);
-	});
-
-	it("leaves an unstarted clock's caps alone", () => {
-		fakeClaude(listing("aaaa"));
-		expect(fresh.listedAgents().why).toBeUndefined();
+		try {
+			const started = Date.now();
+			const r = loaded[1].listedAgents();
+			expect(r.why).toContain("inside the hook's time budget");
+			expect(calls()).toBe(1);
+			// §X9: a process timeout: the 400 ms left, not the 5 s cap, bounds the hung child.
+			expect(Date.now() - started).toBeLessThan(5000);
+		} finally {
+			drop();
+		}
 	});
 });
 

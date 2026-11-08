@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withStopClockLeft } from "./hook-deadline-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -518,28 +519,23 @@ describe("the single-flight lock", () => {
 	it("waits no longer than a started hook budget leaves (#4115)", () => {
 		vi.stubEnv("WFC_ORACLE_CACHE_WAIT_MS", "4000");
 		vi.stubEnv("WFC_ORACLE_CACHE_POLL_MS", "50");
-		const req = createRequire(__filename);
-		const modules = ["./hook-deadline.js", "./oracle-cache.js"];
-		const drop = () => {
-			for (const m of modules) delete req.cache[req.resolve(m)];
-		};
-		drop();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const { loaded, drop } = withStopClockLeft(["./oracle-cache.js"], 300);
 		try {
-			const deadline = req("./hook-deadline.js");
-			const fresh = req("./oracle-cache.js");
-			vi.spyOn(process, "uptime").mockReturnValue(0);
-			deadline.startEntryClock(
-				"Stop",
-				Date.now() - (deadline.ENTRY_BUDGET_MS.Stop - 300),
-			);
+			const [fresh] = loaded;
 			const bin = "/nowhere/claude";
 			fresh.acquire(bin);
-			const started = Date.now();
-			expect(fresh.waitForLeader(bin)).toBeNull();
-			// §X9: a real wait: the 300 ms left, not the 4 s knob, ends it.
-			expect(Date.now() - started).toBeLessThan(2000);
+			let polls = 0;
+			const sleep = (ms: number) => {
+				polls++;
+				vi.setSystemTime(Date.now() + ms);
+				return true;
+			};
+			expect(fresh.waitForLeader(bin, { sleep })).toBeNull();
+			// 300 ms left at 50 ms a poll, where the 4 s knob alone would take 80.
+			expect(polls).toBe(6);
 		} finally {
-			vi.restoreAllMocks();
+			vi.useRealTimers();
 			drop();
 		}
 	});
