@@ -512,7 +512,10 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 	it("waits without stopping when a seat with room has no fresh reading", () => {
 		const d = tick({ seats: [seat("a", 100, 10), seat("b", null, 5)] });
 		expect(d).not.toHaveProperty("stop");
-		expect(d).toMatchObject({ launches: [], idle: expect.any(String) });
+		expect(d).toMatchObject({
+			launches: [],
+			idle: idleOf("no plan has room right now"),
+		});
 	});
 
 	it("waits without stopping when a seat with room has no sized cap", () => {
@@ -946,7 +949,9 @@ describe("buildLoopWait, the idle alarm's reason no rank launches (#3920)", () =
 	);
 
 	it("names a reason it does not know, and none for a tick that launched", () => {
-		expect(buildLoopWait("a stop added later")).toBe("a stop added later");
+		expect(buildLoopWait(idleOf("a stop added later"))).toBe(
+			"a stop added later",
+		);
 		expect(buildLoopWait(null)).toBeNull();
 	});
 });

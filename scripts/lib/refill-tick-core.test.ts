@@ -575,8 +575,10 @@ describe("a limit-held launch through the tick (#3735)", () => {
 		const idle = await tickOf(fakeIo(stateOf({ launches: [held] }), spent).io);
 		expect(idle.decision).toMatchObject({
 			idle: {
-				reason: "every seat is spent; a limit-held session waits on one",
-				detail: "",
+				reason: "a plan resets",
+				detail: expect.stringContaining(
+					"every seat is spent; a limit-held session waits on one",
+				),
 			},
 		});
 		const stopped = await tickOf(
