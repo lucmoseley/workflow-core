@@ -19,13 +19,7 @@ const { shellQuote } = require("./sh-quote.js");
 
 /** @typedef {import("./shell-tokens.js").Word} Word */
 /** @typedef {import("./shell-tokens.js").Token} Token */
-/** @typedef {import("./package-reader.js").PackageReader} PackageReader */
-/**
- * @typedef {{ root: string, readCachedPackage: PackageReader }} PackageTree `root`
- *  the directory a command starts in, which bounds the climb to a
- *  `package.json`; `readCachedPackage` called at each run found, so a command
- *  running none reads no `package.json` (#3546).
- */
+/** @typedef {import("./package-reader.js").PackageTree} PackageTree */
 
 /* A backslash-newline, which the shell deletes. */
 const CONTINUATION = /\\\n/g;

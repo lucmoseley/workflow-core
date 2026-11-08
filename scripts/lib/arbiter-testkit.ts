@@ -91,7 +91,7 @@ const BELT = path.join(__dirname, "arbiter-belt");
  * WITHOUT THIS THE SUITE READS THE MACHINE (mantahostels#1902). A case reaching
  * the liveness oracle without a shim of its own runs the real `claude` over the
  * founder's three live session registries, asking which sessions are running
- * RIGHT NOW, and answers differently minute to minute. Without it `WFC_GH`
+ * RIGHT NOW, and answers differently minute to minute. Without this, `WFC_GH`
  * is unset too, falling every `gh` call back on the real `gh`. NEITHER BINARY
  * IS REACHABLE IN CI, so a green CI run says nothing about this.
  *

@@ -319,7 +319,7 @@ function parseListing(raw, call) {
  * run, as `runOracle` does.
  * @param {string} dir
  * @param {number} timeoutMs
- * @returns {{agents: any[]} | {why: string}}
+ * @returns {ReturnType<typeof parseListing>}
  */
 function readSeatListing(dir, timeoutMs) {
 	const [raw] = runOracle(claudeBin(), timeoutMs, [dir]);
