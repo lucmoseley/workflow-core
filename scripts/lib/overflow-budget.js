@@ -13,10 +13,9 @@
  * each refill tick stops a listed session whose spend, with its chain of
  * resumed copies' (#4195), has reached the allowance its launch recorded, with
  * `claude stop` on the seat's dir, which keeps the conversation. Each chain is
- * capped once, so a founder's reply to it afterwards runs uncapped (spec #3691
- * §Out of Scope). Residual: one that
- * ended on its own, reaped before a tick saw it, carries no mark, so the
- * first reply that takes it past its allowance is stopped once (#4174).
+ * capped once, and a founder's reply to it runs uncapped (spec #3691 §Out of
+ * Scope): the reply is a headless run of its own, which its run record marks
+ * (lib/overflow-actions.js, #4174); the loop's resumes carry no mark.
  */
 
 const fs = require("node:fs");
@@ -492,8 +491,8 @@ const settleChainsOnce = (ledger) =>
 
 /**
  * The key's listed background sessions and headless runs whose chain's spend
- * has reached the allowance their launch recorded. An `ended` one is past it but no longer
- * running: capped without a stop.
+ * has reached the allowance their launch recorded, a founder's reply aside. An
+ * `ended` one is past it but no longer running: capped without a stop.
  * @param {OverflowSeat} seat
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
  * @param {OverflowLookup} lookup
@@ -509,7 +508,8 @@ function readOverAllowance(seat, agents, lookup) {
 	return agents.flatMap((a) => {
 		if (
 			!LAUNCHED_KINDS.has(a.kind ?? "") ||
-			capped.has(chainRootOf(lookup, a.sessionId))
+			capped.has(chainRootOf(lookup, a.sessionId)) ||
+			a.founderReply === true
 		)
 			return [];
 		const launch = lookup({ jobId: a.id, sessionId: a.sessionId });

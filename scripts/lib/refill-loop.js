@@ -2,11 +2,7 @@
  * refill-loop.js — the refill loop's readings shared by its tick and its
  * commands, with no I/O of its own (#2012, spec #1995, #3392): parsing its
  * files' contents, its scope, its launches' acts and the lines `status` names
- * them by. The tick's step order and its own readings are
- * lib/refill-tick-core.js's; the files themselves, lib/refill-files.js's; the
- * state file, lib/refill-state.js's; a seat's reading and sizing,
- * lib/seat-reading.js's; launching a tick's picks, lib/refill-batch.js's; what
- * `start` and `status` print, lib/refill-commands.js's.
+ * them by.
  */
 
 const path = require("node:path");
@@ -91,7 +87,8 @@ const { buildSeatName } = require("./refill-seats.js");
  * a new launch, the acts that session had already made (#3942).
  * `nothingToRepeat`, on one parked on an API error or a limit (#3949). `keyVar`,
  * the overflow seat it runs on (#4147); `movedAt`, when a limit last moved it
- * to another seat (#4257).
+ * to another seat (#4257). `leftListing`, on a finish the listing's absence
+ * made, as a manager restart reopens only those (#4145).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -107,7 +104,7 @@ const { buildSeatName } = require("./refill-seats.js");
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, movedAt?: number, pastSessionIds?: string[],
- *   resumeStarted?: import("./refill-blocks.js").ResumeStarted,
+ *   resumeStarted?: import("./refill-blocks.js").ResumeStarted, leftListing?: true,
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
@@ -613,7 +610,9 @@ function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
 	const listed = withSessionIds(launches, agents);
 	const done = new Set(newlyFinished(listed, agents, now));
 	const judged = listed.map((l) =>
-		done.has(l) ? { ...l, ...progressOf(l), finishedAt: now } : l,
+		done.has(l)
+			? { ...l, ...progressOf(l), finishedAt: now, leftListing: true }
+			: l,
 	);
 	return markParked(judged, agents, causeOf, now);
 }
