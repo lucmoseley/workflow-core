@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
+import { readText } from "./lib/file-read.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import {
@@ -1104,14 +1105,13 @@ describe("git's own refusals — exit 3, relayed", () => {
 	});
 });
 
+const readLog = () => {
+	const read = readText(store.paths.commitPathsLog());
+	if (read.state === "unreadable") throw read.error;
+	return read.state === "read" ? read.data : "";
+};
+
 describe("--tree: the tree the commit would carry, nothing written (#1695)", () => {
-	const readLog = () => {
-		try {
-			return fs.readFileSync(store.paths.commitPathsLog(), "utf8");
-		} catch {
-			return "";
-		}
-	};
 	/** The tree printed, asserting the index, the working tree and the log untouched. */
 	const tree = (args: string[]) => {
 		const before = [readIndex(), git("status", "--porcelain"), readLog()];
@@ -1177,5 +1177,165 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 		const r = run(["--tree", "--patch", patch]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("was not cut against HEAD");
+	});
+});
+
+describe("--check: the verdict a commit would get, nothing written (#4207)", () => {
+	const runs = () => path.join(sb.dir, "pre-commit-runs");
+	const countRuns = () => {
+		const read = readText(runs());
+		if (read.state === "unreadable") throw read.error;
+		return read.state === "read"
+			? read.data.split("\n").filter(Boolean).length
+			: 0;
+	};
+	const gitDir = () => path.join(sb.repo, ".git");
+	const Sid = "check-session";
+	const reviewStamp = () => path.join(gitDir(), `wfc-review-tier-${Sid}`);
+	const hookScript = (name: string, body: string) => {
+		const hook = path.join(hooks, name);
+		fs.writeFileSync(hook, `#!/bin/sh\n${body}\n`);
+		fs.chmodSync(hook, 0o755);
+	};
+	/** pre-commit as the real stack ends: a gate, then the review hold's and the stand-down stamp, each keyed to the tree. */
+	beforeEach(() => {
+		hookScript(
+			"pre-commit",
+			[
+				`echo "index=$GIT_INDEX_FILE" >> ${shellQuote(runs())}`,
+				'if [ -f gate-refuses ]; then echo "lint: a.md:1 unused widget" >&2; exit 1; fi',
+				'd="$(git rev-parse --absolute-git-dir)"',
+				`printf '%s\\nunheld\\n' "$(git write-tree)" > "$d/wfc-review-tier-${Sid}"`,
+				'git write-tree > "$d/wfc-precommit-stamp"',
+			].join("\n"),
+		);
+		hookScript(
+			"commit-msg",
+			`bash ${shellQuote(path.join(ROOT, "scripts/check-commit-subject.sh"))} "$1" commit-msg`,
+		);
+	});
+	const check = (args: string[]) =>
+		runWith(["--check", ...args], {
+			...process.env,
+			CLAUDE_CODE_SESSION_ID: Sid,
+		});
+	/** Everything a check may not move. */
+	const snapshot = () => [
+		readLog(),
+		git("log", "--format=%H"),
+		git("status", "--porcelain"),
+		readIndex(),
+		fs.readdirSync(gitDir()).sort(),
+	];
+
+	it("exits 3 on a gate's finding, printing it, and moves nothing", () => {
+		write("a.md", "edited\n");
+		write("gate-refuses");
+		const before = snapshot();
+		const r = check(["--", "a.md"]);
+		expect(r.status).toBe(3);
+		expect(r.stderr).toContain("lint: a.md:1 unused widget");
+		expect(r.stderr).toMatch(/a commit of these paths would be refused/);
+		expect(snapshot()).toEqual(before);
+	});
+
+	it("exits 0 on clean paths, a new file included, leaving no stamp, so the real commit runs its gates again", () => {
+		write("a.md", "edited\n");
+		write("new.md");
+		const before = snapshot();
+		const r = check(["--", "a.md", "new.md"]);
+		expect(r.stderr).toContain("message checks");
+		expect(r.stdout).toContain(
+			"every gate a commit of these paths would run passed",
+		);
+		expect(r.status).toBe(0);
+		expect(snapshot()).toEqual(before);
+		expect(fs.existsSync(path.join(gitDir(), "wfc-precommit-stamp"))).toBe(
+			false,
+		);
+		expect(fs.existsSync(reviewStamp())).toBe(false);
+		expect(countRuns()).toBe(1);
+
+		expect(run(["-m", "real", "--", "a.md", "new.md"]).status).toBe(0);
+		expect(countRuns()).toBe(2);
+	});
+
+	it("keeps a stamp holding another tree, a neighbour commit's", () => {
+		write("a.md", "edited\n");
+		const stamp = path.join(gitDir(), "wfc-precommit-stamp");
+		hookScript("pre-commit", `echo neighbour > ${shellQuote(stamp)}`);
+		expect(check(["--", "a.md"]).status).toBe(0);
+		expect(fs.readFileSync(stamp, "utf8")).toBe("neighbour\n");
+	});
+
+	it("fails a 73-character subject on the message checks, and passes a short one", () => {
+		write("a.md", "edited\n");
+		const long = check(["-m", "x".repeat(73), "--", "a.md"]);
+		expect(long.status).toBe(3);
+		expect(long.stderr).toMatch(/72/);
+		const short = check(["-m", "a short subject", "--", "a.md"]);
+		expect(short.stderr).not.toContain("message checks");
+		expect(short.status).toBe(0);
+		expect(git("log", "--format=%s", "-1")).not.toContain("a short subject");
+	});
+
+	it("judges a --patch's index, not the whole file", () => {
+		hookScript(
+			"pre-commit",
+			'if git show :a.md | grep -q theirs; then echo "gate: theirs is in" >&2; exit 1; fi',
+		);
+		write("a.md", "mine\na\ntheirs\n");
+		const diff = git("diff", "HEAD", "-U0", "--", "a.md");
+		const patch = path.join(sb.dir, "mine.patch");
+		fs.writeFileSync(patch, diff.slice(0, diff.lastIndexOf("@@ -1,0")));
+		const before = snapshot();
+		expect(check(["--patch", patch]).status).toBe(0);
+		expect(check(["--", "a.md"]).status).toBe(3);
+		expect(snapshot()).toEqual(before);
+	});
+
+	const patchOf = (text: string) => {
+		write("a.md", text);
+		const patch = path.join(sb.dir, "check.patch");
+		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md"));
+		git("checkout", "--", "a.md");
+		return patch;
+	};
+
+	it.each<[string, () => string[], string]>([
+		["--tree with it", () => ["--tree", "--", "a.md"], "not both"],
+		["no change", () => ["--", "a.md"], "nothing to commit"],
+		["an unknown path", () => ["--", "nowhere.md"], "exists nowhere"],
+		[
+			"a patch that does not apply",
+			() => {
+				// No `index` line, so git apply, not the preimage check, judges it.
+				const patch = path.join(sb.dir, "bare.patch");
+				fs.writeFileSync(
+					patch,
+					"diff --git a/a.md b/a.md\n--- a/a.md\n+++ b/a.md\n@@ -1 +0,0 @@\n-not in HEAD\n",
+				);
+				return ["--patch", patch];
+			},
+			"the patch does not apply to HEAD",
+		],
+		[
+			"a patch not cut against HEAD",
+			() => {
+				const patch = patchOf("a\nmine\n");
+				write("a.md", "moved\n");
+				git("commit", "-qm", "move", "--", "a.md");
+				write("a.md", "moved\nmine\n");
+				return ["--patch", patch];
+			},
+			"was not cut against HEAD",
+		],
+	])("refuses %s, exit 2, logging no outcome", (_, args, why) => {
+		const given = args();
+		const before = readLog();
+		const r = check(given);
+		expect(r.stderr).toContain(why);
+		expect(r.status).toBe(2);
+		expect(readLog()).toBe(before);
 	});
 });
