@@ -29,7 +29,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { saySites } = require("./lib/heresy-scan.js");
-const { FIX, judgeHook } = require("./lib/precommit-exit.js");
+const { FIX_LINE, judgeHook } = require("./lib/precommit-exit.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
@@ -54,7 +54,7 @@ runCheck({
 				fs.readFileSync(path.join(root, rel), "utf8"),
 			))
 				ctx.fail("PRECOMMIT-EXIT", message, { file: rel, line, match });
-		saySites(ctx, "checker line(s) exit 1 on failure", [`Fix: ${FIX}`]);
+		saySites(ctx, "checker line(s) exit 1 on failure", [FIX_LINE]);
 		return {
 			okLine: `${files.length} pre-commit file(s), every checker line passing its exit code on.`,
 			noun: "checker line(s) exiting 1 on failure",

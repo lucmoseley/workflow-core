@@ -78,6 +78,12 @@ describe("parseBreaches", () => {
 		).toEqual([{ line: 2, text: "node scripts/a.js --x || exit 1" }]);
 	});
 
+	it("reads a substitution holding a pipeline as no checker", () => {
+		expect(lines('out="$(node scripts/a.js | head -1)" || exit 1')).toEqual([]);
+	});
+});
+
+describe("judgeHook", () => {
 	it("names the hook file, line and line text in the message it prints", () => {
 		expect(
 			judgeHook(".husky/pre-commit", "node scripts/a.js || exit 1\n"),
@@ -90,9 +96,5 @@ describe("parseBreaches", () => {
 				),
 			},
 		]);
-	});
-
-	it("reads a substitution holding a pipeline as no checker", () => {
-		expect(lines('out="$(node scripts/a.js | head -1)" || exit 1')).toEqual([]);
 	});
 });

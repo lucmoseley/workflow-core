@@ -4,8 +4,9 @@
  * over one file's text. check-gh-route.js's header holds the contract: the
  * four shapes, the opt-out marker and what defeats them.
  *
- * A CORE (base §T7): its one read is the `read(rel)` port judgeTree takes.
- * The shell lists the tree and names its shell files.
+ * A CORE (base §T7): it performs no I/O; judgeTree reads through its
+ * injected `read(rel)` port. The shell lists the tree and names its shell
+ * files.
  */
 
 const { blankComments } = require("./strip-comments.js");

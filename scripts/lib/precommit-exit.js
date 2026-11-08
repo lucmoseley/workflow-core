@@ -188,4 +188,7 @@ const judgeHook = (rel, text) =>
 		message: `${rel}:${line} exits 1 on a checker's failure, turning its BROKEN into a finding (\`${match}\`). Fix: ${FIX}`,
 	}));
 
-module.exports = { FIX, judgeHook, parseBreaches };
+/** The fix line a run with findings prints beneath them. */
+const FIX_LINE = `Fix: ${FIX}`;
+
+module.exports = { FIX_LINE, judgeHook, parseBreaches };
