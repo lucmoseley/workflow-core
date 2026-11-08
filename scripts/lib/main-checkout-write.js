@@ -119,9 +119,26 @@ function namesOneFile(p, tree) {
 function restoreSource(w, next) {
 	if (w === "--source") return next();
 	if (w.startsWith("--source=")) return w.slice("--source=".length);
-	const short = /^-[^-]*?s(.*)$/.exec(w);
-	if (short) return short[1] || next();
+	const short = shortClusterRest(w);
+	if (short !== null) return short || next();
 	return null;
+}
+
+/**
+ * What follows the first `s` of a short-option cluster, as `/^-[^-]*?s(.*)$/`
+ * reads it, or null: that `s` lies after the word's last line break, as `.`
+ * crosses none, and no `-` comes before it. Read by index: the regex
+ * would re-read the tail from every `s` (#4109).
+ * @param {string} w
+ * @returns {string | null}
+ */
+function shortClusterRest(w) {
+	if (!w.startsWith("-")) return null;
+	const lastBreak = Math.max(
+		...["\n", "\r", "\u2028", "\u2029"].map((c) => w.lastIndexOf(c)),
+	);
+	const s = w.indexOf("s", Math.max(1, lastBreak + 1));
+	return s === -1 || w.slice(1, s).includes("-") ? null : w.slice(s + 1);
 }
 
 /**

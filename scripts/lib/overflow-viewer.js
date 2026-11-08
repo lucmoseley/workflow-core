@@ -260,7 +260,7 @@ function buildListLines(sessions, selected, columns, styled) {
 function wrap(text, width) {
 	const w = Math.max(1, width);
 	return text.split("\n").flatMap((para) => {
-		const one = para.replace(/\s+$/, "");
+		const one = para.trimEnd();
 		if (one === "") return [""];
 		/** @type {string[]} */
 		const out = [];

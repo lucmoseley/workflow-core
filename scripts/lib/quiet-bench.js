@@ -299,10 +299,12 @@ const isUsableRow = (row) => isCleanRow(row) && row.ceiling_killed === 0;
  * @param {BenchRow} row
  */
 function isLowerBoundRow(row) {
-	if (!isCleanRow(row) || !row.ceiling_killed || !row.samples?.length)
-		return false;
-	const lowest = row.samples.reduce((a, b) =>
-		b.avail_mb < a.avail_mb ? b : a,
+	if (!isCleanRow(row) || !row.ceiling_killed) return false;
+	const [first, ...rest] = row.samples ?? [];
+	if (first === undefined) return false;
+	const lowest = rest.reduce(
+		(a, b) => (b.avail_mb < a.avail_mb ? b : a),
+		first,
 	);
 	return lowest.t <= (row.wall_s ?? 0) / 2;
 }
@@ -394,8 +396,8 @@ function buildRowsReading(runs) {
  * @param {string} text
  */
 function parseFree(text) {
-	const mem = /^Mem:\s+(.*)$/m.exec(text)?.[1]?.split(/\s+/) ?? [];
-	const swap = /^Swap:\s+(.*)$/m.exec(text)?.[1]?.split(/\s+/) ?? [];
+	const mem = /^Mem:\s+(.*)/m.exec(text)?.[1]?.split(/\s+/) ?? [];
+	const swap = /^Swap:\s+(.*)/m.exec(text)?.[1]?.split(/\s+/) ?? [];
 	return {
 		availableMb: mem.at(-1) ?? null,
 		totalMb: mem[0] ?? null,

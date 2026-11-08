@@ -97,8 +97,12 @@ const STAMP = path.join("node_modules", ".lander-lock-hash");
 const LOCKFILE = "package-lock.json";
 const VITEST_FAIL = /^\s*FAIL\s+(\S+)/;
 const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
-const VITEST_TEST = /^\s*FAIL\s+(\S+)\s+(?:>\s+)?(.+?)\s*$/;
-const PYTEST_TEST = /^(?:FAILED|ERROR)\s+([^\s:]+)::(.+?)(?:\s+-\s+(.*?))?\s*$/;
+/* A name ends on a non-space, or is one space where nothing else is left;
+ * `(.+?)\s*$` would retry the trailing match from every character (#4109). */
+const VITEST_TEST =
+	/^\s*FAIL\s+(\S+)\s+(?:>\s+)?(\S(?:.*\S)?|[^\S\n\r\u2028\u2029](?=[\n\r\u2028\u2029]*$))\s*$/;
+const PYTEST_TEST =
+	/^(?:FAILED|ERROR)\s+([^\s:]+)::(.(?:.*?\S)??)(?:\s+-\s+(\S(?:.*\S)?|(?=$)))?\s*$/;
 const VITEST_END = /^[✓×❯⎯↓]/;
 const DIFF_LINE = /^[-+]\s/;
 const DIFF_HEADER = /^(?:- Expected|\+ Received)\b/;

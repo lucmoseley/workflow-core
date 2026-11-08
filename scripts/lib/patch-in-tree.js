@@ -35,13 +35,17 @@ function parseNewSides(section) {
 	/** @type {NewSide[]} */
 	const sides = [];
 	const lines = section.split("\n");
-	for (let i = 0; i < lines.length; i++) {
+	let i = 0;
+	while (i < lines.length) {
 		const line = lines[i];
 		if (line === undefined) break;
 		const h = parseHeader(line);
-		if (!h) continue;
+		if (!h) {
+			i++;
+			continue;
+		}
 		const body = parseBody(lines, i + 1, h);
-		i = body.end;
+		i = body.end + 1;
 		if (h.newCount > 0)
 			sides.push({
 				header: `+${formatSide(h.newStart, h.newCount)}`,

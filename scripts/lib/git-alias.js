@@ -179,7 +179,7 @@ function defineFromEnv(table, env, spans) {
 
 /* An alias git hands to a shell (`!`), one opening on a git option, which git
  * refuses or reads apart, and one its own quoting splits. */
-const UNREADABLE_VALUE = /^\s*(?:$|!|-)|['"\\]/;
+const UNREADABLE_VALUE = /(?:^\s*(?:$|!|-))|['"\\]/;
 
 /**
  * What `name` is an alias for: undefined where it is none, null where that

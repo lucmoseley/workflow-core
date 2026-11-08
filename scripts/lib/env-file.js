@@ -56,7 +56,7 @@ const SEPARATOR = /[\u2028\u2029]/;
 /* A line as dotenv's LINE reads one (github.com/motdotla/dotenv, lib/main.js),
  * an `=` behind any comment marks: the marks, the name, the value. */
 const DOTENV_LINE =
-	/^(?:\s*(?:export\s+)?[\w.-]+:\s+|([\s#]*)(?:export\s+)?([\w.-]+)\s*=\s*)([^\r\n]*)$/;
+	/^(?:\s*(?:export\s+)?[\w.-]+:\s+|([\s#]*)(?:export\s+)?([\w.-]+)\s*=\s*)((?:\S[^\r\n]*)?)$/;
 
 /* Prose in a comment (#4048): one unquoted lower-case word, assigned to a
  * lower-case name that names no secret. A passphrase holds a space or a hyphen, and a quote may

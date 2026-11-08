@@ -75,9 +75,7 @@ function parseConsoleRead(stdout, account) {
 	if (outer?.subtype !== "success" || typeof outer.result !== "string")
 		return { why: "the Chrome child gave no finished result" };
 	const text = outer.result.trim();
-	const page = parseObject(
-		/^```(?:json)?\s*([\s\S]*?)```$/.exec(text)?.[1] ?? text,
-	);
+	const page = parseObject(fenceBody(text) ?? text);
 	if (!page) return { why: "the Chrome child's report is no JSON object" };
 	if (page.page === "sign-in")
 		return { why: "the Console asked for a sign-in" };
@@ -116,6 +114,20 @@ function parseObject(text) {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * The body of a code fence, plain or `json`, wrapping all of `text`, its
+ * leading whitespace cut; else undefined. Read by index: the regex
+ * `/^```(?:json)?\s*([\s\S]*?)```$/` would re-read the body at every split of
+ * that whitespace (#4109).
+ * @param {string} text
+ */
+function fenceBody(text) {
+	if (text.length < 6 || !text.startsWith("```") || !text.endsWith("```"))
+		return;
+	const open = text.startsWith("json", 3) ? 7 : 3;
+	return text.slice(open, -3).trimStart();
 }
 
 /** @param {OverflowSeat} seat */

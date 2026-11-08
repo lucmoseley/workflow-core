@@ -54,7 +54,8 @@ function parseArgv(options, argv) {
 	const flags = new Map();
 	/** @type {string[]} */
 	const positionals = [];
-	for (let i = 0; i < argv.length; i++) {
+	let i = 0;
+	while (i < argv.length) {
 		const arg = argv[i] ?? "";
 		if (arg === "--") {
 			positionals.push(...argv.slice(i + 1));
@@ -62,6 +63,7 @@ function parseArgv(options, argv) {
 		}
 		if (!isFlag(arg)) {
 			positionals.push(arg);
+			i++;
 			continue;
 		}
 		const name = arg.startsWith("--") ? (arg.split("=")[0] ?? arg) : arg;
@@ -69,8 +71,8 @@ function parseArgv(options, argv) {
 		if (!option) return { error: `error: unknown option '${name}'` };
 		const read = parseValue(option, argv, i);
 		if ("error" in read) return read;
-		i = read.last;
 		for (const n of option.names) flags.set(n, read.value);
+		i = read.last + 1;
 	}
 	return { flags, positionals };
 }

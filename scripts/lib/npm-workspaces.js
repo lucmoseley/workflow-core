@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { NEEDS_NODE } = require("./biome-allowlist.js");
 const { findPackageDir, hasPackage } = require("./package-reader.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
 /** @typedef {{filters: string[], all: boolean, withRoot: boolean,
@@ -83,7 +84,9 @@ const isOwnDir = (pattern) =>
  * reach any, and in a list this read cannot undercount. Node's glob, unlike npm's,
  * takes no symlink past a glob's segment and no `.` in a brace (#4069). */
 const PLAIN_FILTER = /^(?:@[\w.-]+\/)?[\w-][\w.-]*$/;
-const MAY_UNDERCOUNT = /\{|\*\*|[*?[].*\//;
+/* The run after a wildcard stops at the next one, as a match from there
+ * reaches the same `/`: each character is read once (#4109). */
+const MAY_UNDERCOUNT = /\{|\*\*|[*?[][^*?[/\n\r\u2028\u2029]*\//;
 
 /**
  * The directories `patterns` match under `cwd`, none in `node_modules`, which
@@ -127,10 +130,10 @@ function listMembers(dir, patterns, read) {
 	let negated = [];
 	for (const written of patterns) {
 		const bangs = countBangs(written);
-		const pattern = written
-			.slice(bangs)
-			.replace(/^\.?\/+/, "")
-			.replace(/\/+$/, "");
+		const pattern = trimEndRun(
+			written.slice(bangs).replace(/^\.?\/+/, ""),
+			"/",
+		);
 		if (bangs % 2 === 1) negated.push(pattern);
 		else {
 			negated = negated.filter((n) => !path.matchesGlob(pattern, n));
