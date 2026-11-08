@@ -73,6 +73,5 @@ module.exports = {
 	fromPayload,
 	reportOwner,
 	forgetSession,
-	FORGOTTEN_KEYS,
 	REPORT_OWNER,
 };

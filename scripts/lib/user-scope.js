@@ -82,7 +82,7 @@ const OUTLIVE_CEILING_S = 2700;
  * @param {number|null} ceilingS
  * @returns {string[]}
  */
-function outlivingScope(ceilingS) {
+function buildOutlivingScope(ceilingS) {
 	if (!managerAnswersOnce()) return [];
 	const cap = ceilingS === null ? [] : ["-p", `RuntimeMaxSec=${ceilingS}`];
 	return [systemdRun(), ...USER_SCOPE, ...cap, "--"];
@@ -110,7 +110,7 @@ function spawnOutliving(
 	const env = { ...(options.env ?? process.env) };
 	forgetSession(env);
 	if (owner) env[REPORT_OWNER] = owner;
-	const [cmd, ...pre] = wrap ?? outlivingScope(ceilingS);
+	const [cmd, ...pre] = wrap ?? buildOutlivingScope(ceilingS);
 	const spawnOptions = { ...options, env, detached: true };
 	return cmd === undefined
 		? spawn(command, args, spawnOptions)

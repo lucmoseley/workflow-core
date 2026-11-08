@@ -26,6 +26,7 @@ const fake = writeSystemdRun(dir).bin;
 const call = (bin: string, args: string[]) => {
 	const r = spawnSync(bin, args, {
 		encoding: "utf8",
+		/* A guess: a user manager answers a scope in well under a second. */
 		timeout: 5000,
 		env: { ...process.env, WFC_REPORT_OWNER: "contract-owner" },
 	});

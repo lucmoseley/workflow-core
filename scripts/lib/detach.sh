@@ -33,8 +33,8 @@ detach() {
 # everything it started. Where no user manager answers, it is the plain
 # detach, still stripped and owner-tagged.
 OUTLIVE_STRIPPED=(CLAUDE_CODE_SESSION_ID CLAUDE_JOB_DIR WFC_REPORT_OWNER)
-# lib/user-scope.js's OUTLIVE_CEILING_S, read by the scripts that source this.
-# shellcheck disable=SC2034
+# lib/user-scope.js's OUTLIVE_CEILING_S, whose derivation it carries.
+# shellcheck disable=SC2034 # read by the scripts that source this file
 OUTLIVE_CEILING_S=2700
 
 # outlive_probe — set OUTLIVE_MANAGER to yes where `systemd-run --user

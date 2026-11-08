@@ -47,13 +47,14 @@
  * runs at session start alone. A hook's child running a different script,
  * orphaned with its own parent gone, is not matched while its session lives.
  *
- * IMPLICIT:  at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to `~/.local/state/workflow-core/orphan-session-reaps.jsonl`, making that directory where it is missing; names each kill in the session; and at a session start names the kills that log holds that no start in this checkout has named, writing `.orphan-session-reaps-shown` under its markers.
+ * IMPLICIT:  at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to `~/.local/state/workflow-core/orphan-session-reaps.jsonl`, making that directory where it is missing; names each kill in the session; and at a session start names the kills that log holds that no start in this checkout has named, writing `.orphan-session-reaps-shown` under its markers, or says it cannot read that log and writes nothing.
  * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a session's worker left spinning at 80% CPU ran for eight hours unseen (2026-11-04, #4333); a run that cannot read /proc kills nothing.
  * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
  * TREE:      host — matches /proc against the hooks the main checkout registers
  */
 
 const { runCheck } = require("./lib/check");
+const { parseErrorText } = require("./lib/caught.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
@@ -123,7 +124,7 @@ function report(ctx, done, part, { fixture, logFile }) {
 	ctx.say(
 		fixture
 			? "\n  A fixture /proc root: nothing was killed or logged.\n"
-			: `\n  ${killedLine(done, logFile)}\n${part.trace}`,
+			: `\n  ${buildKilledLine(done, logFile)}\n${part.trace}`,
 	);
 }
 
@@ -131,9 +132,9 @@ function report(ctx, done, part, { fixture, logFile }) {
  * Where a part's kills were recorded: "logged" only for lines written.
  * @param {Array<{ logged: boolean }>} done @param {string|null} logFile
  */
-function killedLine(done, logFile) {
+function buildKilledLine(done, logFile) {
 	if (logFile === null)
-		return "Killed, and logged nowhere: git names no canonical checkout.";
+		return "Killed; no line records these kills: git names no canonical checkout.";
 	const unlogged = done.filter((r) => !r.logged).length;
 	if (unlogged === 0) return `Killed, and logged to ${logFile}.`;
 	return unlogged === done.length
@@ -164,7 +165,8 @@ const SHOWN_STAMP = ".orphan-session-reaps-shown";
 /**
  * The machine log's session kills a session start in `canonical` has not yet
  * named — the timer's, made with no session open — and the stamp that marks
- * them named; null where no checkout holds a stamp.
+ * them named, and why the log could not be read where it could not; null
+ * where no checkout holds a stamp.
  * @param {string|null} canonical @param {string} log
  */
 function unseenSessionKills(canonical, log) {
@@ -179,23 +181,28 @@ function unseenSessionKills(canonical, log) {
 	let read;
 	try {
 		read = readJsonl(log);
-	} catch {
-		/* An unreadable log names nothing here; the kills still go ahead. */
-		read = null;
+	} catch (err) {
+		/* Said, not stamped, so the next start reads it again; the kills still
+		 * go ahead (#4706). */
+		return { rows: [], stamp, unreadable: `${log}: ${parseErrorText(err)}` };
 	}
 	const rows = (read?.rows ?? []).filter(
 		(r) => typeof r.at === "string" && r.at > since,
 	);
-	return { rows, stamp };
+	return { rows, stamp, unreadable: null };
 }
 
 /**
  * Name the timer's kills since this checkout's last session start, then
  * stamp them named.
  * @param {import("./lib/check").Ctx} ctx
- * @param {{ rows: Record<string, unknown>[], stamp: string }} unseen
+ * @param {{ rows: Record<string, unknown>[], stamp: string, unreadable: string|null }} unseen
  */
-function reportUnseen(ctx, { rows, stamp }) {
+function reportUnseen(ctx, { rows, stamp, unreadable }) {
+	if (unreadable !== null)
+		ctx.say(
+			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${unreadable}`,
+		);
 	if (rows.length === 0) return;
 	ctx.say(
 		`ORPHAN-SESSION, since this checkout's last session start (${rows.length}) — killed with no session open:`,

@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { writeSystemdRun } from "./systemd-run-fake";
 
 const require = createRequire(import.meta.url);
-const { FORGOTTEN_KEYS } = require("./session-id.js");
+const { forgetSession } = require("./session-id.js");
 const {
 	OUTLIVE_CEILING_S,
 	probeUserScope,
@@ -175,11 +175,24 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 			],
 			{ encoding: "utf8" },
 		);
-		expect(r.stdout.trim().split("\n")).toEqual([
-			FORGOTTEN_KEYS.join(" "),
-			String(OUTLIVE_CEILING_S),
-		]);
-		expect(FORGOTTEN_KEYS).toContain("WFC_REPORT_OWNER");
+		const [shellKeys = "", shellCeiling] = r.stdout.trim().split("\n");
+		const stripped = shellKeys.split(" ");
+		/* Every key either side might strip, and the rest of this env. */
+		const env: Record<string, string> = { ...process.env, CLAUDE_PID: "1" };
+		for (const key of [
+			...stripped,
+			"CLAUDE_CODE_SESSION_ID",
+			"CLAUDE_JOB_DIR",
+			"WFC_REPORT_OWNER",
+		])
+			env[key] = "x";
+		const before = Object.keys(env);
+		forgetSession(env);
+		expect(before.filter((k) => !(k in env)).sort()).toEqual(
+			[...stripped].sort(),
+		);
+		expect(stripped).toContain("WFC_REPORT_OWNER");
+		expect(shellCeiling).toBe(String(OUTLIVE_CEILING_S));
 	});
 
 	it("names no owner and sets no ceiling where it is given neither", () => {

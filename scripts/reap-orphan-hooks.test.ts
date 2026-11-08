@@ -213,63 +213,74 @@ describe("a real orphaned guard", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
+	/** Start a real orphan hook run past the ceiling and sweep it; `prepare`
+	 * shapes the checkout first. */
+	function sweepOrphanHook(
+		args = ["--json"],
+		prepare = () => {
+			/* a checkout as git init leaves it */
+		},
+	) {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
+		spawnSync("git", ["init", "-q", dir]);
+		fs.mkdirSync(path.join(dir, ".claude"));
+		prepare();
+		/* Registered, not a guard: any guard-* orphan is reaped by name, so
+		 * orphan-hooks.test.ts's real case would take this one too. */
+		const name = `reap-fixture-${process.pid}.sh`;
+		fs.writeFileSync(
+			path.join(dir, ".claude", "settings.json"),
+			JSON.stringify({
+				hooks: {
+					SessionStart: [
+						{ hooks: [{ type: "command", command: `bash scripts/${name}` }] },
+					],
+				},
+			}),
+		);
+		const script = path.join(dir, "scripts", name);
+		fs.mkdirSync(path.dirname(script));
+		fs.writeFileSync(script, "sleep 300\n");
+		pid = startOrphan("bash", script);
+		/* Until the fixture's shell execs, its argv is no hook run's. */
+		expect(
+			waitFor(() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script),
+		).toBe(true);
+
+		/* A machine up long enough that the orphan is past the ceiling of
+		 * the registry this run reads: an adopter's, not the core's. */
+		const live = readProcTable("/proc")?.procs ?? new Map();
+		const start = live.get(pid)?.startTicks ?? 0;
+		const adopter = readRegistry(readRunningHooks(dir, { quiet: true }));
+		const fake = makeProcRoot(start / USER_HZ + adopter.ceilingS + 1);
+		try {
+			for (const p of live.values()) if (p.pgid === pid) fake.real(p.pid);
+			/* WSL's session /init, read by argv where it is not pid 1. */
+			const ppid = live.get(pid)?.ppid ?? 0;
+			if (ppid > 1) fake.real(ppid);
+
+			const res = run(
+				args,
+				{
+					WFC_PROC: fake.root,
+					WFC_REAP_FAKE_ROOT: "kill",
+					CLAUDE_PROJECT_DIR: dir,
+				},
+				dir,
+			);
+
+			expect(res.status).toBe(0);
+			expect(waitFor(() => isGroupDead(pid))).toBe(true);
+			return res;
+		} finally {
+			fake.remove();
+		}
+	}
+
 	it.runIf(orphansReapToInit())(
 		"is killed with its group and logged in the canonical checkout's markers",
 		() => {
-			dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
-			spawnSync("git", ["init", "-q", dir]);
-			fs.mkdirSync(path.join(dir, ".claude"));
-			/* Registered, not a guard: any guard-* orphan is reaped by name, so
-			 * orphan-hooks.test.ts's real case would take this one too. */
-			const name = `reap-fixture-${process.pid}.sh`;
-			fs.writeFileSync(
-				path.join(dir, ".claude", "settings.json"),
-				JSON.stringify({
-					hooks: {
-						SessionStart: [
-							{ hooks: [{ type: "command", command: `bash scripts/${name}` }] },
-						],
-					},
-				}),
-			);
-			const script = path.join(dir, "scripts", name);
-			fs.mkdirSync(path.dirname(script));
-			fs.writeFileSync(script, "sleep 300\n");
-			pid = startOrphan("bash", script);
-			/* Until the fixture's shell execs, its argv is no hook run's. */
-			expect(
-				waitFor(
-					() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script,
-				),
-			).toBe(true);
-
-			/* A machine up long enough that the orphan is past the ceiling of
-			 * the registry this run reads: an adopter's, not the core's. */
-			const live = readProcTable("/proc")?.procs ?? new Map();
-			const start = live.get(pid)?.startTicks ?? 0;
-			const adopter = readRegistry(readRunningHooks(dir, { quiet: true }));
-			const fake = makeProcRoot(start / USER_HZ + adopter.ceilingS + 1);
-			try {
-				for (const p of live.values()) if (p.pgid === pid) fake.real(p.pid);
-				/* WSL's session /init, read by argv where it is not pid 1. */
-				const ppid = live.get(pid)?.ppid ?? 0;
-				if (ppid > 1) fake.real(ppid);
-
-				const res = run(
-					["--json"],
-					{
-						WFC_PROC: fake.root,
-						WFC_REAP_FAKE_ROOT: "kill",
-						CLAUDE_PROJECT_DIR: dir,
-					},
-					dir,
-				);
-
-				expect(res.status).toBe(0);
-				expect(waitFor(() => isGroupDead(pid))).toBe(true);
-			} finally {
-				fake.remove();
-			}
+			sweepOrphanHook();
 			const log = path.join(
 				dir,
 				".claude/tmp/markers/.orphan-hook-reaps.jsonl",
@@ -288,6 +299,28 @@ describe("a real orphaned guard", () => {
 					killed: expect.arrayContaining([pid]),
 				}),
 			]);
+		},
+	);
+
+	it.runIf(orphansReapToInit())(
+		"says the log write failed, naming the file, and never 'logged', where the markers log cannot be written",
+		() => {
+			const res = sweepOrphanHook(["--notify"], () =>
+				fs.mkdirSync(
+					path.join(dir, ".claude/tmp/markers/.orphan-hook-reaps.jsonl"),
+					{
+						recursive: true,
+					},
+				),
+			);
+			const log = path.join(
+				dir,
+				".claude/tmp/markers/.orphan-hook-reaps.jsonl",
+			);
+			expect(res.stdout).toContain(
+				`Killed, but the log write to ${log} failed`,
+			);
+			expect(res.stdout).not.toContain("logged to");
 		},
 	);
 });
@@ -448,5 +481,26 @@ describe("a session start after the timer's kills", () => {
 			"2026-11-05T03:00:00.000Z: pid 6001, session sess-gone (leader pid 5000) ended: node forks.js",
 		);
 		expect(second.stdout).not.toContain("sess-gone");
+	});
+
+	it("says it will not read an unreadable kill log, naming it, and still sweeps", () => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-"));
+		spawnSync("git", ["init", "-q", dir]);
+		const log = path.join(dir, ".git/HEAD/session-reaps.jsonl");
+		const res = run(
+			["--notify"],
+			{
+				WFC_PROC: fixture.root,
+				WFC_REAP_FAKE_ROOT: "kill",
+				CLAUDE_PROJECT_DIR: dir,
+				CLAUDE_CODE_SESSION_ID: "sess-now",
+				WFC_SESSION_REAP_LOG: log,
+			},
+			dir,
+		);
+		expect(res.status).toBe(0);
+		expect(res.stdout).toContain(
+			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${log}: `,
+		);
 	});
 });

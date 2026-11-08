@@ -323,6 +323,7 @@ describe("the SessionStart housekeeping launcher", () => {
 			},
 		});
 		const reachedLines = () => fs.readFileSync(log, "utf8").trim().split("\n");
+		/* A guess: thirteen stub jobs start well inside 5s; polled every 50ms. */
 		await vi.waitFor(
 			() =>
 				expect(
