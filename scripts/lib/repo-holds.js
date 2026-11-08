@@ -237,14 +237,15 @@ function holdsDir(root) {
 			`${path.basename(root)}-${hash.slice(0, STORE_KEY_LENGTH)}`,
 		),
 	);
-	if (common !== null) stores?.set(root, dir);
+	stores?.set(root, dir);
 	return dir;
 }
 
 /**
  * Run `fn` with each checkout's store resolved once, so a tick's many hold
  * calls fork git for each checkout's common dir once (#4398). A `.git` git will
- * not name is asked again on each call, so its repair keys anew at once.
+ * not name keys on its path for the rest of the tick, so one tick's calls all
+ * read one store; its repair keys anew on the next tick (#4609).
  * @template T
  * @param {() => T} fn
  * @returns {T}
