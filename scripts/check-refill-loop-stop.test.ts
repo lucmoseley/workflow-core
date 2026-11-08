@@ -4,7 +4,8 @@
  * control file, or paused by the no-progress rule, once, at the next session
  * start (#2014, #3389, #3859), and never an explicit stop or a founder's pause,
  * and names a damaged state file (#3380)
- * and a stopped loop's damaged control file (#3927).
+ * and a stopped loop's damaged control file (#3927), and a running loop's restart
+ * wait past its bound at every start (#4145).
  * WFC_REFILL_DIR points the loop's files
  * at a temp directory, so the machine's real loop is never read. Loosen a case
  * and a stalled loop goes unseen at session start, or its notice repeats at
@@ -41,13 +42,19 @@ function writeState(reason: string, detail = "the detail", at = STOP_AT) {
 }
 
 /** An interactive start unless `jobDir` names a background job's. */
-const run = (args: string[], source = "startup", jobDir = "") =>
+const run = (
+	args: string[],
+	source = "startup",
+	jobDir = "",
+	env: Record<string, string> = {},
+) =>
 	runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			GITHUB_ACTIONS: "",
 			WFC_REFILL_DIR: dir,
 			...buildStartEnv(jobDir),
+			...env,
 		},
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});
@@ -382,6 +389,52 @@ describe("at session start (--notify)", () => {
 			} finally {
 				holder.kill();
 			}
+		});
+	});
+
+	describe("a restart's wait on the listing (#4145)", () => {
+		const Now = Date.parse("2026-11-08T12:00:00Z");
+		const writeWait = (minutes: number) =>
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-state.json"),
+				JSON.stringify({
+					launches: [],
+					lastTick: null,
+					stopped: null,
+					bootedAt: Now - minutes * 60_000,
+					sameBootRestart: true,
+				}),
+			);
+		const runAt = (holding: boolean) => {
+			const holder = holding ? spawnLoopHolder(dir) : null;
+			try {
+				return run(["--notify"], "startup", "", {
+					WFC_NOW: new Date(Now).toISOString(),
+				});
+			} finally {
+				holder?.kill();
+			}
+		};
+
+		it("names a running loop's wait past its bound, at each start", () => {
+			writeWait(20);
+			for (const r of [runAt(true), runAt(true)]) {
+				expect(r.status).toBe(0);
+				expect(r.stdout).toContain(
+					"REFILL-LOOP-RESTART-WAIT — the refill loop has waited since a restart at 2026-11-08T11:40:00.000Z",
+				);
+				expect(r.stdout).toContain("Its status:");
+			}
+		});
+
+		it.each([
+			["inside its bound", 5, true],
+			["of a loop not running", 20, false],
+		])("names none %s", (_name, minutes, holding) => {
+			writeWait(minutes);
+			const r = runAt(holding);
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toContain("REFILL-LOOP-RESTART-WAIT");
 		});
 	});
 
