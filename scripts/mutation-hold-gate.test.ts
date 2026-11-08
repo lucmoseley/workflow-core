@@ -1911,6 +1911,21 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 	});
 
+	it("holds in the lock a commit whose working-copy config drops HEAD's glob, running nothing before it (#4331)", () => {
+		write(
+			CONFIG,
+			JSON.stringify({ modules: ["mutation"], sensitivePaths: [] }),
+		);
+		changeLine2();
+		report([{ line: 2, status: "Survived" }]);
+		const r = commitPaths([MONEY], { WFC_MODULES: undefined });
+		expect(r.status).toBe(3);
+		expect(r.stderr).toContain("rule:mutation-hold");
+		expect(r.stderr).not.toContain("running the mutation hold before");
+		expect(readRuns().map((x) => x.lock)).toEqual([true]);
+		expect(commitCount()).toBe(1);
+	});
+
 	it("reports a lint finding before any mutation run starts", () => {
 		changeLine2();
 		fs.writeFileSync(path.join(stubDir, "lint-red"), "");
