@@ -1154,6 +1154,7 @@ plan's config dir links it. Edit it at
 - test-design-and-reliability: writing unit/integration tests, fixing flaky tests.
 - test-and-ci-performance: making suites or CI faster or lighter.
 - capacity-planning-and-admission: sizing and admitting concurrent jobs or sessions against memory and CPU, and reading out utilisation and why work waits.
+- process-supervision-and-oom: keeping long-running processes alive on one machine: systemd units and timers, restart policy, graceful upgrades, and OOM ranking and recovery.
 - ci-and-repo-quality-gates: linters, pre-commit/CI gates, repo health checks, coding-standards enforcement.
 - dependency-and-release-management: npm/pip dependencies, plugin packaging, version pins, releases.
 - code-refactoring-and-architecture: restructuring code, module design, software architecture.
