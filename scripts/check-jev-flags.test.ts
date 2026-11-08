@@ -117,6 +117,7 @@ interface Envelope {
 	flagged?: number;
 	outages?: number;
 	malformed?: number;
+	refused?: number;
 	logged?: number;
 	torn?: number;
 }
@@ -203,6 +204,34 @@ describe("check-jev-flags", () => {
 		/* On "neither", not on "counts toward": a footer saying the opposite —
 		 * "counts toward reversal" — would pass the looser assertion. */
 		expect(out).toContain("toward neither limb");
+	});
+
+	it("reports a refused key apart from the outage limb (#4144)", () => {
+		writeLog([
+			{ at: "2026-09-19T10:05:00.000Z", outcome: "outage", session: "s2" },
+			{ at: "2026-09-19T10:06:00.000Z", outcome: "refused", session: "s3" },
+		]);
+
+		const envelope = json();
+
+		expect(envelope.outages).toBe(1);
+		expect(envelope.refused).toBe(1);
+		expect(envelope.findings.map((f) => f.tag)).toEqual([
+			"JEV-OUTAGE",
+			"JEV-REFUSED",
+		]);
+	});
+
+	it("says on a notify run that a refused key wants a working one stored", () => {
+		writeLog([
+			{ at: "2026-09-19T10:06:00.000Z", outcome: "refused", session: "s3" },
+		]);
+
+		const { out } = run("--notify");
+
+		expect(out).toContain("JEV-REFUSED (1)");
+		expect(out).toContain("REFUSED ");
+		expect(out).toContain("write-secret.js AI_GATEWAY_API_KEY");
 	});
 
 	it("shows a flag once and stays silent on the next session start", () => {

@@ -41,7 +41,7 @@ const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
 const OUTAGE_VOID = jevTrial.stand({
 	lines: [],
 	verdicts: new Map(),
-}).outageVoid;
+}).outageVoids[0];
 const OUTAGE_VOID_FROM_MS = Date.parse(OUTAGE_VOID.from);
 const OUTAGE_VOID_TO_MS = Date.parse(OUTAGE_VOID.to);
 
@@ -292,6 +292,34 @@ describe("limb 2 — outages", () => {
 
 		expect(s.limb2Sessions).toBe(0);
 		expect(s.outageSessions).toBe(0);
+	});
+
+	describe("the dead-key void (#4144)", () => {
+		const deadKey = jevTrial.stand({ lines: [], verdicts: new Map() })
+			.outageVoids[1];
+		const at = (ms: number) => new Date(ms).toISOString();
+
+		it("drops the outages a refused key logged before `refused` existed", () => {
+			const from = Date.parse(deadKey.from);
+			const lines: Line[] = [
+				{ at: at(from - 60_000), session: "s1", outcome: "clear" },
+				{ at: at(from + 60_000), session: "s1", outcome: "outage" },
+				{ at: at(from + 120_000), session: "s2", outcome: "outage" },
+			];
+
+			const s = stand(lines);
+
+			expect(s.limb2Sessions).toBe(1);
+			expect(s.outageSessions).toBe(0);
+		});
+
+		it("counts again from its end, which is exclusive", () => {
+			const lines: Line[] = [
+				{ at: deadKey.to, session: "s1", outcome: "outage" },
+			];
+
+			expect(stand(lines).outageSessions).toBe(1);
+		});
 	});
 
 	describe("the billing-wall void (#670)", () => {

@@ -27,7 +27,7 @@ const jevTrial = require_("./lib/jev-trial.js");
 const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
 const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
 const OUTAGE_VOID_FROM_MS = Date.parse(
-	jevTrial.stand({ lines: [], verdicts: new Map() }).outageVoid.from,
+	jevTrial.stand({ lines: [], verdicts: new Map() }).outageVoids[0].from,
 );
 
 /** #175's limb 1 is measured over the trial's first 20 sessions. */

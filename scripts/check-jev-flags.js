@@ -27,7 +27,9 @@
  * more than one session in ten. `malformed` is the vendor answering in a shape
  * the guard cannot read, which is NOT that limb and never counts toward
  * reversal (#226): it is reported because a schema drift disables the check
- * until someone fixes it here. Every `skipped-*` outcome is the gate working
+ * until someone fixes it here. `refused` is the gateway turning the key away
+ * with a 401 or 403, which counts toward neither limb either and is reported
+ * because a dead key disables the check until a working one is stored (#4144). Every `skipped-*` outcome is the gate working
  * and is never reported.
  *
  * A TURN IS NAMED BY ITS SESSION AND ITS TIMESTAMP, and an UNJUDGED FLAG is
@@ -65,6 +67,9 @@ const REPORTED = new Map([
 	/* One word end to end — outcome, tag and label — so the founder shown a tag
 	 * can grep the log for it. */
 	["malformed", { tag: "JEV-MALFORMED", label: "MALFORMED " }],
+	/* The gateway refused the key (#4144): reported so a dead key cannot run
+	 * silent for days, and counted toward neither limb. */
+	["refused", { tag: "JEV-REFUSED", label: "REFUSED   " }],
 ]);
 
 /**
@@ -115,8 +120,8 @@ function describeTurn(line, verdicts) {
 		typeof line.model === "string"
 			? ` ${line.model}${typeof line.provider === "string" ? ` via ${line.provider}` : ""}`
 			: "";
-	/* Only a flag has a verdict to carry; an outage or a malformed reply is
-	 * nothing to judge right or wrong. */
+	/* Only a flag has a verdict to carry; an outage, a malformed reply or a
+	 * refused key is nothing to judge right or wrong. */
 	const judged =
 		line.outcome === "flagged" && verdicts
 			? `, ${verdicts.get(String(line.messageHash))?.verdict ?? "unjudged"}`
@@ -182,8 +187,8 @@ function buildStandingReport(s) {
 		"    them carry a digest and no text, so none of them can be judged\n" +
 		"    (#253, #285). Limb 2 counts from its own line, which is earlier and\n" +
 		"    kept every session of evidence when the trial's line moved. It\n" +
-		`    voids ${s.outageVoid.from} to ${s.outageVoid.to}, the billing wall:\n` +
-		"    a missing payment, not a vendor outage (#670).\n"
+		"    voids:\n" +
+		s.outageVoids.map((v) => `      ${v.from} to ${v.to}, ${v.why}.\n`).join("")
 	);
 }
 
@@ -251,7 +256,7 @@ function pendingSince(all, since) {
 /**
  * @param {import("./lib/check").CheckContext} ctx
  * @param {LogLine[]} pending
- * @param {{ flagged: number, outages: number, malformed: number }} counts
+ * @param {{ flagged: number, outages: number, malformed: number, refused: number }} counts
  * @param {Map<string, {verdict: string}>} verdicts
  */
 function listPending(ctx, pending, counts, verdicts) {
@@ -265,7 +270,7 @@ function listPending(ctx, pending, counts, verdicts) {
 		});
 
 	ctx.say(
-		`JEV-FLAG (${counts.flagged}) / JEV-OUTAGE (${counts.outages}) / JEV-MALFORMED (${counts.malformed}) — raised by the Jev advisory guard ${ctx.notify ? "since this was last shown" : "across the kept log"}:\n`,
+		`JEV-FLAG (${counts.flagged}) / JEV-OUTAGE (${counts.outages}) / JEV-MALFORMED (${counts.malformed}) / JEV-REFUSED (${counts.refused}) — raised by the Jev advisory guard ${ctx.notify ? "since this was last shown" : "across the kept log"}:\n`,
 	);
 	for (const line of listed) {
 		ctx.say(`  ${said(line).label}${describeTurn(line, verdicts)}`);
@@ -328,6 +333,7 @@ runCheck({
 		const flags = pending.filter((l) => l.outcome === "flagged");
 		const outages = pending.filter((l) => l.outcome === "outage");
 		const malformed = pending.filter((l) => l.outcome === "malformed");
+		const refused = pending.filter((l) => l.outcome === "refused");
 
 		listPending(
 			ctx,
@@ -336,6 +342,7 @@ runCheck({
 				flagged: flags.length,
 				outages: outages.length,
 				malformed: malformed.length,
+				refused: refused.length,
 			},
 			verdicts,
 		);
@@ -345,7 +352,9 @@ runCheck({
 				"  turns over the first 20 sessions, or an outage notice in more than\n" +
 				"  one session in ten. A MALFORMED line counts toward neither limb: the\n" +
 				"  vendor answered in a shape the guard cannot read, which is a fix here\n" +
-				"  rather than grounds for reversal (#226).\n" +
+				"  rather than grounds for reversal (#226). Nor does a REFUSED line:\n" +
+				"  the gateway turned the key away, so store a working one with\n" +
+				`  node ${scriptPath("write-secret.js")} AI_GATEWAY_API_KEY (#4144).\n` +
 				"\n  An unjudged flag is quoted above with the command that judges it,\n" +
 				"  so the judging need not happen in the session that raised it\n" +
 				"  (#285). A flag logged with no text cannot be judged at all; it\n" +
@@ -367,6 +376,7 @@ runCheck({
 				flagged: flags.length,
 				outages: outages.length,
 				malformed: malformed.length,
+				refused: refused.length,
 				logged: all.length,
 				torn,
 				since,
