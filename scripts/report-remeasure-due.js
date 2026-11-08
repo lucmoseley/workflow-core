@@ -259,10 +259,11 @@ const COUNT_LINE = /^(\d+) commits\b/;
  * @typedef {import("./lib/review-findings").Comment} Comment
  * @typedef {import("./lib/review-findings").ReviewRecord} ReviewRecord
  * @typedef {import("./lib/review-findings").Unparsed} Unparsed
+ * @typedef {import("./lib/review-findings").RecordFault} RecordFault
  * @typedef {{ records: ReviewRecord[], unparsed: Unparsed[] }} Parsed every
  *   record parsed, of any tier, and the unparseable ones under a counted tier
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD" | "UNLOCATED" | "UNCOUNTED", fault: string }} Unseen
- * @typedef {{ tag: Unseen["tag"] | "CUT OFF" | "MISSPELT" | "NO TIER" | "NOT PATHS" | "UNKNOWN TIER" | "LANDED TREE" | "UNJUDGED" | "OFF MAIN" | "HELD", fault: string }} Report
+ * @typedef {{ tag: Unseen["tag"] | RecordFault["tag"] | "UNKNOWN TIER" | "LANDED TREE" | "OFF MAIN" | "HELD", fault: string }} Report
  * @typedef {{ isCoveredBy: (r: ReviewRecord, sha: string, message: string, root: string) => boolean,
  *   isRangeLost: (r: ReviewRecord, message: string) => boolean,
  *   rangeFaults: Unseen[] }} RecordCover

@@ -280,14 +280,14 @@ function resolveCommitHost(cwd = process.cwd()) {
 		const answer = deref(cwd);
 		/* Unlike hostRoot's fail-open, reportable: the error log's directory does
 		 * not derive from this, and a caller's marker written under a wrong answer
-		 * sits in a store the hook never reads (#3830). */
+		 * sits in a store the hook never reads (#3906). */
 		try {
 			writeFd(
 				2,
 				`host-root: git named no top level for ${answer}, so the commit host falls back to it, and a marker stored under it may be one the commit's hook never reads (${caught(e).message.split("\n")[0]}).\n`,
 			);
 		} catch {
-			/* A closed stderr must not turn this fail-open into a throw. */
+			/* A closed stderr must not turn this fail-open into a throw (#3906). */
 		}
 		return answer;
 	}

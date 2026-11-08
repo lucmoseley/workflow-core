@@ -191,7 +191,8 @@ const VAR_NAME = new RegExp(`^${SHELL_VAR_NAME}$`);
  * four hyphens and spaces; either run with either spacing, as no secret looks
  * like one. A whole key on one line holds a run of hyphens past its label, so is
  * no header. The group is bounded, as an unbounded one overflows the stack on a
- * value of megabytes (#3904). */
+ * value of megabytes (#3904). Untraced: 8 is a margin over the labels RFC 7468
+ * and OpenSSL write, which hold no hyphen, and far under a stack's depth. */
 const PEM_HEADER = /^-{4,5} ?BEGIN [^-]*(?:-[^-]+){0,8}-{4,5}$/;
 
 const USAGE = `usage: write-secret.js <NAME>

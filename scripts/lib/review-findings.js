@@ -107,7 +107,7 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const blanked = (text) => text.replace(/[^\n]/g, " ");
 
 /** @param {string} line */
-function readFence(line) {
+function parseFence(line) {
 	const m = FENCE_LINE.exec(line.trimEnd());
 	return m
 		? {
@@ -133,7 +133,7 @@ function maskMentions(body, head = FORM_HEAD) {
 	return body
 		.split("\n")
 		.map((line) => {
-			const f = readFence(line);
+			const f = parseFence(line);
 			if (fence !== null) {
 				if (f?.run.startsWith(fence) && f.rest === "") fence = null;
 				return blanked(line);
