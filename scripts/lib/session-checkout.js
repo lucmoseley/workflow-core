@@ -1146,15 +1146,21 @@ function readWorktreesOrThrow(root) {
 }
 
 /**
- * The session worktrees in `base`, judged by REAP's rules.
- * @param {string} root
- * @param {Pass} pass
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
- * @returns {string[]} every registered worktree still standing
+ * Every job, each cwd a pass leaves its worktree standing for — a live
+ * process's, or a job's not ended or ended under KEEP_MS ago — and whether a
+ * job store or record would not read. One that would not read may hold a
+ * resumable job in any worktree, so the pass removes none while it stands,
+ * and names it in `out.failed`.
+ * @param {string[]} cwds every live process's cwd
+ * @param {number} now
+ * @param {Reaped} out
  */
-function reapWorktrees(root, { cwds, now, record, common }, out) {
-	const registered = readWorktreesOrThrow(root);
-	const jobs = readJobCwds();
+function readOccupied(cwds, now, out) {
+	const { jobs, unread } = readJobCwds();
+	for (const u of unread)
+		out.failed.push(
+			`${u} — a job it holds may be resumable, so no worktree is removed until it reads`,
+		);
 	const occupied = [
 		...cwds,
 		...jobs
@@ -1167,6 +1173,19 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 			)
 			.map((j) => j.cwd),
 	];
+	return { jobs, occupied, unread: unread.length > 0 };
+}
+
+/**
+ * The session worktrees in `base`, judged by REAP's rules.
+ * @param {string} root
+ * @param {Pass} pass
+ * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
+ * @returns {string[]} every registered worktree still standing
+ */
+function reapWorktrees(root, { cwds, now, record, common }, out) {
+	const registered = readWorktreesOrThrow(root);
+	const { jobs, occupied, unread } = readOccupied(cwds, now, out);
 	const live = readLiveOrLog("session-checkout reap");
 	/** @type {string[]} */
 	const standing = [];
@@ -1203,15 +1222,11 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 				standing.push(dir);
 				continue;
 			}
-			recordReaped(
-				{ record, now },
-				dir,
-				jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
-			);
-			const link = path.join(dir, "node_modules");
-			if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
-				fs.unlinkSync(link);
-			git(["worktree", "remove", dir], root);
+			if (unread) {
+				standing.push(dir);
+				continue;
+			}
+			removeWorktree(root, dir, { record, now }, jobs);
 			out.removed.push(dir);
 		} catch (err) {
 			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
@@ -1219,6 +1234,26 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 		}
 	}
 	return standing;
+}
+
+/**
+ * Remove `dir` and its store link, first recording each job whose cwd lies in
+ * it, so `reopen` can rebuild it.
+ * @param {string} root
+ * @param {string} dir
+ * @param {Pick<Pass, "record" | "now">} pass
+ * @param {import("./session-worktrees.js").JobCwd[]} jobs
+ */
+function removeWorktree(root, dir, pass, jobs) {
+	recordReaped(
+		pass,
+		dir,
+		jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
+	);
+	const link = path.join(dir, "node_modules");
+	if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
+		fs.unlinkSync(link);
+	git(["worktree", "remove", dir], root);
 }
 
 /**
@@ -1481,7 +1516,8 @@ function reopen(cwd, id) {
 	const root = rootOf(cwd);
 	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
 	const reaped = readReaped(path.join(common, REAPED_RECORD), id);
-	const job = readJobCwds()
+	const { jobs, unread } = readJobCwds();
+	const job = jobs
 		.filter((j) => j.id === id)
 		.sort((a, b) => b.at - a.at)
 		.at(0);
@@ -1491,7 +1527,9 @@ function reopen(cwd, id) {
 	else if (job) found = { seat: job.seat, dir: job.cwd };
 	if (found === null)
 		throw new CheckoutError(
-			`no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
+			unread.length > 0
+				? `no readable seat holds job ${id} and the reaper recorded no worktree for it, but these would not read: ${unread.join("; ")} — fix their access and retry`
+				: `no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
 		);
 	const { seat, dir } = found;
 	if (fs.existsSync(dir)) return { dir, seat, restored: false };

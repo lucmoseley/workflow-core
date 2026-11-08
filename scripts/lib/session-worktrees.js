@@ -18,6 +18,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
+const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { jobStorePath, readJobRecordIn } = require("./job-paths.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
@@ -56,26 +57,40 @@ function jobCwdOf(job, id, seat) {
 
 /**
  * The id, seat, cwd, session, name and state of every job record on every
- * seat.
- * @returns {JobCwd[]}
+ * seat, and each job store or record that would not read. An absent store
+ * holds no job; one that faults otherwise, EACCES among them, may hold a
+ * resumable one, so `unread` names it for the caller to judge on.
+ * @returns {{jobs: JobCwd[], unread: string[]}} `unread` as `<path>: <fault>`
  */
 function readJobCwds() {
 	/** @type {JobCwd[]} */
-	const out = [];
+	const jobs = [];
+	/** @type {string[]} */
+	const unread = [];
 	for (const seat of configDirs()) {
 		const store = jobStorePath(seat);
 		let ids;
 		try {
 			ids = fs.readdirSync(store);
-		} catch {
+		} catch (err) {
+			if (/** @type {NodeJS.ErrnoException} */ (err).code !== "ENOENT")
+				unread.push(`${store}: ${caught(err).message}`);
 			continue;
 		}
 		for (const id of ids) {
-			const job = jobCwdOf(readJobRecordIn(path.join(store, id)), id, seat);
-			if (job) out.push(job);
+			const dir = path.join(store, id);
+			let record;
+			try {
+				record = readJobRecordIn(dir);
+			} catch (err) {
+				unread.push(`${dir}: ${caught(err).message}`);
+				continue;
+			}
+			const job = jobCwdOf(record, id, seat);
+			if (job) jobs.push(job);
 		}
 	}
-	return out;
+	return { jobs, unread };
 }
 
 /**
@@ -116,17 +131,19 @@ function listedOwners(worktrees, listed) {
 }
 
 /**
- * Each worktree's owner, for those any recorded cwd lies in.
+ * Each worktree's owner, for those any recorded cwd lies in, and readJobCwds'
+ * `unread`: a worktree with no owner may belong to a job in one of those.
  * @param {string[]} worktrees dereferenced, as worktree-paths.js's readLinkedWorktrees gives them
  * @param {ListedCwds} [listed] the oracle read, whose sessions win over job
  *   records
- * @returns {Map<string, Owner>}
+ * @returns {{owners: Map<string, Owner>, unread: string[]}}
  */
 function worktreeOwners(worktrees, listed) {
 	const owners = listedOwners(worktrees, listed);
+	const { jobs, unread } = readJobCwds();
 	/** @type {Map<string, JobCwd>} */
 	const latest = new Map();
-	for (const job of readJobCwds()) {
+	for (const job of jobs) {
 		const wt = worktreeHolding(job.cwd, worktrees);
 		if (!wt || owners.has(wt)) continue;
 		const seen = latest.get(wt);
@@ -134,7 +151,7 @@ function worktreeOwners(worktrees, listed) {
 	}
 	for (const [wt, { sessionId, name }] of latest)
 		owners.set(wt, { sessionId, name });
-	return owners;
+	return { owners, unread };
 }
 
 /**

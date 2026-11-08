@@ -57,16 +57,29 @@ const rosterPath = (seat) => path.join(seat, "daemon", "roster.json");
  */
 const shortJobId = (sessionId) => sessionId.slice(0, 8);
 
+/* A read fault meaning no record stands there: ENOTDIR where a job store holds
+ * a plain file in place of a job directory. */
+const ABSENT = new Set(["ENOENT", "ENOTDIR"]);
+
 /**
- * The parsed record in `jobDir`, or null where it is missing, torn or refused.
- * None of the three proves the job gone: a job dir is cleaned under a session
- * still running (mantahostels#104), and a writer may be mid-record.
+ * The parsed record in `jobDir`, or null where it is missing or torn; any
+ * other read fault, EACCES among them, throws. Neither null proves the job
+ * gone: a job dir is cleaned under a session still running
+ * (mantahostels#104), and a writer may be mid-record.
  * @param {string} jobDir
  * @returns {any}  untyped: the harness owns its schema
  */
 function readJobRecordIn(jobDir) {
+	let text;
 	try {
-		return JSON.parse(fs.readFileSync(jobStateIn(jobDir), "utf8"));
+		text = fs.readFileSync(jobStateIn(jobDir), "utf8");
+	} catch (err) {
+		if (ABSENT.has(/** @type {NodeJS.ErrnoException} */ (err).code ?? ""))
+			return null;
+		throw err;
+	}
+	try {
+		return JSON.parse(text);
 	} catch {
 		return null;
 	}
