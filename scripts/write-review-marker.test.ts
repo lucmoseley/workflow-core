@@ -205,6 +205,19 @@ describe("a review that left both artefacts", () => {
 			].join("\n"),
 		);
 	});
+	it("writes HEAD's tree for --paths already committed (#4288)", () => {
+		artefact("standards");
+		artefact("spec");
+		const base = git("rev-parse", "HEAD");
+		fs.writeFileSync(path.join(repo, "a.js"), "two\n");
+		git("commit", "-qam", "reviewed after");
+		const r = run(["--base", base, "--findings", "3", "--paths", "a.js"]);
+		expect(r.status).toBe(0);
+		expect(readMarkerText()).toBe(
+			`base=${base}\nfindings=3\ntree=${git("rev-parse", "HEAD^{tree}")}\npaths=a.js\n`,
+		);
+	});
+
 	/**
 	 * Write the marker for a.js, left to a patch, and the new file at `added`,
 	 * named in `--paths` as `paths`; the tree commit-paths prints for that commit.
