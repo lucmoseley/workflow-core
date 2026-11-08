@@ -40,8 +40,9 @@
 # arbiter's `claim`, which records for it.
 #
 # Every failure path exits 0 and prints nothing — breaking a session is worse
-# than missing one. A library that does not load, a missing jq or node, and a
-# host or session tree that will not resolve are logged through
+# than missing one. A library that does not load, a missing jq or node, a
+# payload naming no session, and a host or session tree that will not resolve
+# are logged through
 # lib/guard-log.sh, save guard-log.sh itself, which is the log (#4271).
 #
 # IMPLICIT:  records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code changed or a declared sensitive path written or narrowed from the declaration; in an /implement session either nag ends with rule:implement-closing-steps, the only place a session meets those steps (#2031).
@@ -73,6 +74,11 @@ source "$here/lib/guard-root.sh"
 # shellcheck source=scripts/lib/guard-log.sh
 source "$here/lib/guard-log.sh" 2>/dev/null
 declare -F gl_log >/dev/null 2>&1 || gl_log() { :; }
+# skip_nags <why> — log the fail-open and end the hook, nags unsent.
+skip_nags() {
+  gl_log "$1 — concision and code-review nags skipped"
+  exit 0
+}
 # doc_path, for the three defaults below; absent, they stay bare.
 # shellcheck source=scripts/lib/script-path.sh
 source "$here/lib/script-path.sh" 2>/dev/null ||
@@ -85,10 +91,7 @@ source "$here/lib/concision-marker.sh"
 # The code signal push-review-owed.sh reads too (#1163): its paths, its floor
 # and the /implement marker that lowers it.
 # shellcheck source=scripts/lib/code-signal.sh
-source "$here/lib/code-signal.sh" 2>/dev/null || {
-  gl_log "lib/code-signal.sh did not load — concision and code-review nags skipped"
-  exit 0
-}
+source "$here/lib/code-signal.sh" 2>/dev/null || skip_nags "lib/code-signal.sh did not load"
 # The review dispatch shape and /implement's closing steps; absent, the nag
 # names their paths instead.
 # shellcheck source=scripts/lib/rule-text.sh
@@ -107,45 +110,27 @@ source "$here/lib/rule-text.sh" 2>/dev/null || {
 # names no cwd, as sessionTree() reads the process's.
 hook_pwd="$PWD"
 host="$(gr_root)"
-cd "$host" 2>/dev/null || {
-  gl_log "host root $host could not be entered — concision and code-review nags skipped"
-  exit 0
-}
+cd "$host" 2>/dev/null || skip_nags "host root $host could not be entered"
 # Resolved once, at the host root, so every marker path below is this absolute
 # directory plus a bare filename.
 markers_dir="$(gr_markers_dir)"
-[[ -n "$markers_dir" ]] || {
-  gl_log "no markers directory — concision and code-review nags skipped"
-  exit 0
-}
-command -v jq >/dev/null 2>&1 || {
-  gl_log "jq not on PATH — concision and code-review nags skipped"
-  exit 0
-}
+[[ -n "$markers_dir" ]] || skip_nags "no markers directory"
+command -v jq >/dev/null 2>&1 || skip_nags "jq not on PATH"
 # node reads the ledger, and a missing one would leave the ledger empty rather
 # than absent — which reads exactly like a session that wrote nothing, so the
 # backstop would fall silent for good with nothing to show for it.
-command -v node >/dev/null 2>&1 || {
-  gl_log "node not on PATH — concision and code-review nags skipped"
-  exit 0
-}
+command -v node >/dev/null 2>&1 || skip_nags "node not on PATH"
 
 mode="${1:-stop}"
 payload=$(cat)
 sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
-[[ -n "$sid" ]] || exit 0
+[[ -n "$sid" ]] || skip_nags "payload named no session id"
 
 # Every git read below runs in the session's own tree (#4243): its HEAD is the
 # base, its diff the signal.
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
-tree="$(gr_session_tree "${cwd:-$hook_pwd}")" || {
-  gl_log "git named no session tree for ${cwd:-$hook_pwd} — concision and code-review nags skipped"
-  exit 0
-}
-cd "$tree" 2>/dev/null || {
-  gl_log "session tree $tree could not be entered — concision and code-review nags skipped"
-  exit 0
-}
+tree="$(gr_session_tree "${cwd:-$hook_pwd}")" || skip_nags "git named no session tree for ${cwd:-$hook_pwd}"
+cd "$tree" 2>/dev/null || skip_nags "session tree $tree could not be entered"
 
 # The two review-axis Artefact paths alone take the shortened suffix; every
 # OTHER $sid use in this file (the marker filenames below) keeps the full id.

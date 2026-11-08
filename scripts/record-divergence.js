@@ -68,7 +68,8 @@
  *    with `git` — which is why the wrapper blind spot below costs nothing extra:
  *    a `timeout git pull` reaches neither the narrowing nor the walk.
  *  - The command's own cwd is the payload's `.cwd`, the hook's own only where
- *    it carries none; one that is no directory drops the row. A CROSS-REPO `git -C` IS
+ *    it carries none; one that is no directory drops the row, so a refusal
+ *    whose cwd was removed goes unrecorded (#4271). A CROSS-REPO `git -C` IS
  *    FOLLOWED, as is a `cd` before the git call, because unfollowed it does not
  *    fail visibly: the row lands under the SESSION's repo with that repo's
  *    counts, so a refusal elsewhere reads as `level` — a state at which a

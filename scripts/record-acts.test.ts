@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { freshSandbox, gitRepo, store } from "./lib/arbiter-testkit";
+import { commitAll, freshSandbox, gitRepo, store } from "./lib/arbiter-testkit";
 import { cutWorktree } from "./lib/git-fixture";
 import {
 	buildBashPayload,
@@ -54,7 +54,7 @@ const fire = (
 		stderr?: string;
 		stdin?: string;
 		env?: NodeJS.ProcessEnv;
-		/** The payload's `cwd`; the hook itself always runs in the main checkout. */
+		/** The payload's `cwd`, absent from it where unset. */
 		cwd?: string;
 	} = {},
 ) =>
@@ -125,21 +125,8 @@ describe("each exit", () => {
 	});
 
 	it("reads a --body-file in the payload's linked worktree, recording into the main checkout's store (#4271)", () => {
-		execFileSync(
-			"git",
-			[
-				"-c",
-				"user.name=t",
-				"-c",
-				"user.email=t@t",
-				"commit",
-				"-q",
-				"--allow-empty",
-				"-m",
-				"seed",
-			],
-			{ cwd: sb.repo },
-		);
+		fs.writeFileSync(path.join(sb.repo, "seed"), "");
+		commitAll(sb);
 		const wt = cutWorktree(sb.repo);
 		fs.writeFileSync(path.join(wt, "c.md"), ROUND);
 		fire("gh issue comment 5 --body-file c.md", { cwd: wt });

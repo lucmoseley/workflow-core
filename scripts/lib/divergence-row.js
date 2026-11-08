@@ -218,7 +218,9 @@ function divergenceRow(payload, ports) {
 		ports.isDir,
 	);
 	/* A tree that is no directory, the session's own included, has no top
-	 * level either: git answers for neither. */
+	 * level either: git answers for neither. Residual: a refusal whose cwd
+	 * was removed goes unrecorded, rather than filed under the hook's own
+	 * repo (#4271). */
 	if (!call?.tree) return null;
 	return rowAt(call.tree, call.kind, refusal.marker, ports);
 }

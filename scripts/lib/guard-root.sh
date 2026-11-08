@@ -65,13 +65,15 @@ gr_root() {
 }
 
 # gr_session_tree <cwd> — host-root.js's sessionTree(): the git top level of
-# the hook input's <cwd>, else of $PWD, symlinks dereferenced. Non-zero,
+# the hook input's <cwd> where it is absolute, else of $PWD, symlinks
+# dereferenced. Non-zero,
 # printing nothing, where git names no top level — never the host, which
 # gr_root answers. Silent, as this file's every function is: the caller logs
 # its fail-open, having the gl_log this file cannot source.
 gr_session_tree() {
-  local top real
-  top="$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "$top" ]] || return 1
+  local dir="$PWD" top real
+  [[ "${1-}" == /* ]] && dir="$1"
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "$top" ]] || return 1
   real="$(gr_physical "$top")" && top="$real"
   printf '%s' "$top"
 }

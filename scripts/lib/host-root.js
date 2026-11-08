@@ -181,15 +181,16 @@ function declaredHost(dir, timeoutMs, onTimeout) {
 }
 
 /**
- * The directory the session's call ran in: the hook input's `cwd`, else the
- * process's. Takes the payload, or a core's context, whose `cwd` is the
+ * The directory the session's call ran in: the hook input's `cwd` where it is
+ * absolute, else the process's, as lib/shell-parse.js's walkCommands seeds.
+ * Takes the payload, or a core's context, whose `cwd` is the
  * payload's. What a hook resolving a command's relative paths, `git -C` among
  * them, seeds from; `sessionTree()` is its top level.
  * @param {{ cwd?: unknown }} input
  * @returns {string}
  */
 function sessionDir({ cwd }) {
-	return typeof cwd === "string" && cwd ? cwd : process.cwd();
+	return typeof cwd === "string" && cwd.startsWith("/") ? cwd : process.cwd();
 }
 
 /**

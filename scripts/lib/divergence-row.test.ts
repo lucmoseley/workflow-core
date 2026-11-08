@@ -63,7 +63,8 @@ function ports(
 		Object.values(repos).find((r) => r.top === top);
 	return {
 		disabled: false,
-		sessionDir: (p) => (typeof p.cwd === "string" && p.cwd ? p.cwd : "/hook"),
+		/* The payload's cwd as given: which cwd counts is host-root.js's. */
+		sessionDir: (p) => String(p.cwd),
 		isDir: (p) => dirs.has(p) || p === "/hook",
 		toplevel: (dir) => at(dir)?.top ?? null,
 		commonDir: (dir) => {
@@ -414,18 +415,20 @@ describe("divergenceRow", () => {
 		expect(fields(row)[8]).toBe("fetch first");
 	});
 
-	it("walks from the directory sessionDir names for the payload", () => {
-		const p = ports(repoAt(1, 1, "/hook"));
-		expect(
-			fields(divergenceRow(payload("git pull", FF_REFUSAL, 7), p))[1],
-		).toBe("hook");
+	it("walks from the directory its sessionDir port names, not the payload's cwd", () => {
+		const p = ports(
+			{ ...repoAt(0, 0), ...repoAt(1, 1, "/hook") },
+			{ sessionDir: () => "/hook" },
+		);
+		expect(fields(divergenceRow(payload("git pull"), p))[1]).toBe("hook");
 	});
 
-	it("drops the row where the session's directory is no directory, never filing it under the hook's", () => {
-		const p = ports(repoAt(1, 1, "/hook"));
-		expect(
-			divergenceRow(payload("git pull", FF_REFUSAL, "/gone"), p),
-		).toBeNull();
+	it("drops the row where the session's directory is no directory, filing it under no other (#4271)", () => {
+		const p = ports(
+			{ ...repoAt(0, 0), ...repoAt(1, 1, "/hook") },
+			{ sessionDir: () => "/gone" },
+		);
+		expect(divergenceRow(payload("git pull"), p)).toBeNull();
 	});
 
 	it("drops the row where git finds no top level", () => {
