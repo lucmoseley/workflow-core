@@ -24,9 +24,7 @@
  * the same way.
  *
  * A CORE IN lib/ ALSO HASHES EACH LIB BESIDE IT IT REQUIRES (#4667), code
- * and rule files both, as a wrapper does its core: takes-label.js holds the
- * Outside-line text issue-create-label.js's refusals quote. KIT_LIBS are
- * left out.
+ * and rule files both, as a wrapper does its core, KIT_LIBS aside.
  *
  * DEEPER LIBS FOLD THEIR RULE FILES, NOT THEIR CODE (#3167): every lib the
  * guard, its composed libs and its host reach through relative requires adds
@@ -64,8 +62,7 @@ const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
 
-/* Matches guard-registry-anchors.json's width: an anchor file is read by
- * people, and a full sha256 per row buys nothing here. */
+/* Matches guard-registry-anchors.json's width. */
 const DIGEST_HEX_LENGTH = 16;
 
 /*
@@ -73,8 +70,7 @@ const DIGEST_HEX_LENGTH = 16;
  * store scripts read and check-instruction-surface.js writes, not a document
  * anybody reads whole. It
  * also keeps it out of the doc-map's mapped scope, where a new tracked document
- * cannot land without its §A row in the same commit — and docs/doc-map.md is
- * the most contended file in the repo (mantahostels#1539).
+ * cannot land without its §A row in the same commit.
  */
 const DEFAULT_ANCHORS = "scripts/instruction-surface-anchors.json";
 
@@ -96,9 +92,8 @@ const LIB_DIR = "lib";
 /* The bindings a wrapper hands lib/guard-entry.js's run, which make the lib
  * it requires them from a composed one. */
 const COMPOSED_BINDINGS = ["decide", "buildHostPorts"];
-/* Libs never folded as composed: they print no guard's text, and each saw
- * 23 to 38 commits in the 3 months to c3c4b32b1, so folding them would
- * expire most rows near weekly. */
+/* Libs never folded as composed: they print no guard's text and are edited
+ * near weekly. */
 const KIT_LIBS = new Set([
 	"guard-entry.js",
 	"shell-parse.js",
@@ -547,16 +542,10 @@ function composedLibsOf(rel, code) {
 		.map((e) => e.to);
 }
 
-/**
- * A lib/ core's test for a lib beside it: any outside KIT_LIBS.
- * @param {{ to: string }} edge
- */
+/** @param {{ to: string }} edge */
 const isNonKitLib = (edge) => !KIT_LIBS.has(path.posix.basename(edge.to));
 
-/**
- * A wrapper's test for a lib: it binds what guard-entry's run takes.
- * @param {{ bindings?: string[] }} edge
- */
+/** @param {{ bindings?: string[] }} edge */
 const bindsComposition = (edge) =>
 	COMPOSED_BINDINGS.some((b) => edge.bindings?.includes(b));
 

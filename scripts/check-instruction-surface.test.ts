@@ -117,7 +117,6 @@ const writeBaseline = (over: Record<string, unknown> = {}) => {
 const LIB_CORE = "scripts/lib/issue-create-label.js";
 const TAKES_LABEL = "scripts/lib/takes-label.js";
 
-/** Anchors LIB_CORE, requiring TAKES_LABEL and the kit lib shell-parse.js. */
 const anchorLibCore = () => {
 	write(
 		LIB_CORE,
