@@ -746,7 +746,7 @@ it("names the attach route where a merge brings in a lockfile no store stands fo
 	const merged = gitAsSession(dir, "merge", "--no-edit", "origin/main");
 
 	const refusal =
-		/lockfile changed, and no dependency store stands for it yet \([0-9a-f]{16}\), so its node_modules still links the store built for the old one \([0-9a-f]{16}\) — run `node scripts\/session-checkout\.js attach` to build that store, up to 15 min, and link it/;
+		/lockfile changed, and no dependency store stands for it yet \([0-9a-f]{16}\), so its node_modules still links the store built for the old one \([0-9a-f]{16}\) — run `node scripts\/session-checkout\.js attach` to build that store, up to 15 min/;
 	expect(merged.status, merged.stderr).toBe(0);
 	expect(merged.stderr).toMatch(refusal);
 	expect(readStoreLock("one")).toBe("lock-1\n");

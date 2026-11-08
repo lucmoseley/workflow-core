@@ -31,7 +31,7 @@
  * changed at the store standing for the new one, building none (#4702);
  * `.husky/post-merge`, `post-checkout` and, on a commit changing the lockfile,
  * `post-commit` run it, through lib/relink-store.sh; `land` runs it after
- * undoing a merge, as `git reset` fires no hook. Nothing relinks after a
+ * undoing a merge. Nothing relinks after a
  * `git reset`, `stash` or `restore` run by hand: `relink` or `attach` does. A merge's `pre-merge-commit` gates run before it, on the
  * store linked before the merge: the lander's install keys on the merged
  * lockfile, and its full suite is what moves `main`.
@@ -504,8 +504,7 @@ function readLinkedStore(dir, storesDir) {
 
 /**
  * Re-point a worktree whose `node_modules` links a store at the one standing
- * for the lockfile it now carries (#4702): a merge, pull or checkout changes the
- * lockfile under the link. Builds none, as git hooks run it within
+ * for the lockfile it now carries (#4702). Builds none, as git hooks run it within
  * HOOK_LIMIT_MS and a build takes up to INSTALL_TIMEOUT_MS, so a missing store
  * refuses naming `attach`, which builds it.
  * @param {string} cwd anywhere in the worktree
@@ -522,7 +521,7 @@ function relink(cwd) {
 	if (path.basename(linked) === key) return { dir, store: null };
 	if (!fs.existsSync(path.join(storesDir, key, "node_modules")))
 		throw new CheckoutError(
-			`${dir}'s lockfile changed, and no dependency store stands for it yet (${key}), so its node_modules still links the store built for the old one (${path.basename(linked)}) — run \`node ${scriptPath("session-checkout.js")} attach\` to build that store, up to ${INSTALL_TIMEOUT_MS / 60_000} min, and link it`,
+			`${dir}'s lockfile changed, and no dependency store stands for it yet (${key}), so its node_modules still links the store built for the old one (${path.basename(linked)}) — run \`node ${scriptPath("session-checkout.js")} attach\` to build that store, up to ${INSTALL_TIMEOUT_MS / 60_000} min`,
 		);
 	return { dir, store: attach(dir, { noBuild: true }).store };
 }

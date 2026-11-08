@@ -1,8 +1,7 @@
 # shellcheck shell=sh
 # relink-store.sh — re-points a session worktree's node_modules at the
 # dependency store for the lockfile a merge, pull or checkout just gave it
-# (#4702), through `session-checkout.js relink`, which says what it did or
-# names the attach command where no store stands yet.
+# (#4702), through `session-checkout.js relink`.
 #
 # SOURCED, NEVER RUN, by .husky/post-merge, post-checkout and post-commit, and
 # POSIX sh. `wfc_relink_store <toplevel>` returns 0 whatever relink says: git
