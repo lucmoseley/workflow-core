@@ -73,8 +73,8 @@ const takesLabel = (value) => `${TAKES_PREFIX}${takesValue(value)}`;
 /* A bare marker naming no act fails. */
 const OUTSIDE_MARKER = "Outside Claude Code:";
 const OUTSIDE_LINE = new RegExp(`${OUTSIDE_MARKER}[ \\t*]*[^\\s*]`);
-/* The line as quoted, its leading `**` kept where present (#4665); every
- * reader of it ignores `*`. */
+/* The line as quoted, its leading `**` kept where present (#4665); the act
+ * classifiers and hasRefusedOutsideAct ignore `*`. */
 const OUTSIDE_TEXT = new RegExp(`(?:\\*\\*)?${OUTSIDE_MARKER}[^\\n]*`);
 
 /* The `repo-file-act` rule's lexical test (mantahostels#3555). No wider
