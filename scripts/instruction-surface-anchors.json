@@ -415,7 +415,7 @@
 			"source": "#2097"
 		},
 		"scripts/inject-compaction-count.js": {
-			"digest": "a4e9a7064085372c",
+			"digest": "0fb0e3b8601e8f51",
 			"verdict": "at need (the first model turn after an autocompaction). Re-measured at e833983fa under #4419, by its suite's 1, 9, 10 and 12-compaction transcripts and by compactionAdvice direct: below the backstop (10) it names the re-read — the build state file where one exists, the claimed issue, the session's own git log and diff, the summary a hint — and says start no new unit, 281 chars with a state file, 222 without; at 10 or more the hand-off with a `**Compactions:** n` line, 217 chars; with no claim the issue is 'the issue you are working', 165 chars at 12. A manual compaction prints nothing.",
 			"selfSufficient": "yes — count plus the act: below the backstop what to re-read and to start nothing new; at it, commit, update the state file, comment the count and end",
 			"source": "#1604, #4419"
