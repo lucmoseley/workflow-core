@@ -31,6 +31,11 @@
  * ONLY COMMITS ON HEAD COUNT. One not reachable from HEAD — a worktree commit
  * never fast-forwarded, or a rewound one — is not what a push would send.
  *
+ * A WORKTREE SESSION'S HEAD IS READ, THEN THE MAIN CHECKOUT'S (#4272): the
+ * commit ledger names no tree, so a commit the session made there from a `cd`
+ * is ledgered all the same. A main checkout cut over to the worktree model
+ * takes no commit (#4248), so there the second read finds none.
+ *
  * A `waiting:` TURN IS PASSED OVER, and marks nothing seen, so the warning
  * lands on the turn that ends the work rather than on the hand-off before it —
  * but only where a launch in the transcript is still out, as
@@ -46,8 +51,8 @@
  * DEFEAT:    once per commit and at most three blocks a session; silent where
  *            the pushed ref does not resolve, with no ledger, and on every
  *            failure path.
- * TREE:      both — the session tree's HEAD and branch, the host root's commit
- *            ledger, markers and config.
+ * TREE:      both — the session tree's HEAD and branch, then the main
+ *            checkout's; the host root's commit ledger, markers and config.
  */
 
 const fs = require("node:fs");
@@ -197,20 +202,11 @@ function buildPushStep(ref) {
 }
 
 /**
- * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
+ * One checkout's paragraph of the warning: the count, the commits and the push.
+ * @param {{tree: string, ref: string, commits: string[]}} found
+ * @param {string} where "" for the session's own tree, else " in <checkout>"
  */
-function judge({ sessionId: sid, payload }) {
-	const tree = sessionTree(payload);
-	if (tree === null) return;
-	const found = readUnpushedMine(sid, tree);
-	if (!found) return;
-	const seen = readSeen(sid);
-	if (found.commits.every((c) => seen.has(c))) return;
-	if (hookBlock.capSpent({ prefix: ".unpushed-nagged-", sessionId: sid }))
-		return;
-	if (handingOff(payload, sid)) return;
-
-	const { ref, commits } = found;
+function describeUnpushed({ tree, ref, commits }, where) {
 	const named = commits.slice(0, NAMED_MAX);
 	const lines =
 		gitRead(["show", "-s", "--format=%h %s", ...named], tree)
@@ -220,14 +216,46 @@ function judge({ sessionId: sid, payload }) {
 		commits.length > named.length
 			? `\n  (and ${String(commits.length - named.length)} more)`
 			: "";
+	return (
+		`${String(commits.length)} commit(s) this session made${where} are not on ${ref}:\n` +
+		`${lines.map((l) => `  ${l}`).join("\n")}${more}\n` +
+		`${buildPushStep(ref)} `
+	);
+}
+
+/**
+ * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
+ */
+function judge({ sessionId: sid, payload }) {
+	const tree = sessionTree(payload);
+	if (tree === null) return;
+	const found = (tree === REPO_ROOT ? [tree] : [tree, REPO_ROOT]).flatMap(
+		(t) => {
+			const f = readUnpushedMine(sid, t);
+			return f ? [{ tree: t, ...f }] : [];
+		},
+	);
+	const commits = found.flatMap((f) => f.commits);
+	if (commits.length === 0) return;
+	const seen = readSeen(sid);
+	if (commits.every((c) => seen.has(c))) return;
+	if (hookBlock.capSpent({ prefix: ".unpushed-nagged-", sessionId: sid }))
+		return;
+	if (handingOff(payload, sid)) return;
 
 	const emitted = hookBlock.blockStop({
 		prefix: ".unpushed-nagged-",
 		sessionId: sid,
 		reason:
-			`A warning, not a refusal — the next stop passes. ${String(commits.length)} commit(s) this session made are not on ${ref}:\n` +
-			`${lines.map((l) => `  ${l}`).join("\n")}${more}\n` +
-			`${buildPushStep(ref)} ` +
+			"A warning, not a refusal — the next stop passes. " +
+			found
+				.map((f) =>
+					describeUnpushed(
+						f,
+						f.tree === tree ? "" : ` in the main checkout (${f.tree})`,
+					),
+				)
+				.join("") +
 			"If you are holding it back — a neighbour's red suite, say — end with a message that says so and names the failing test, so the founder sees that the branch is ahead of GitHub. " +
 			"Then re-send the message this turn was going to end on, its status marker included — this block discarded it.",
 	});
