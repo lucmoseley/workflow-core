@@ -24,7 +24,8 @@
  * heading with no such table is a finding.
  *
  * A COUNT IS A NUMBER OR A REASON, never a 0 standing in for one it could not
- * read (#3365).
+ * read (#3365), save a SKIP: a local row whose check SKIPs on an out-of-reach
+ * subject adds a silent 0 (parseBreaches).
  *
  * A ROW CHANGE is keyed by the row's Job cell: a Job only one side of a commit
  * holds was added or removed, and a changed cell under the same Job is a
@@ -261,11 +262,11 @@ async function sumBreaches(rows, countBreaches) {
  * is about the check, not a caller off the primitive, and --warn caps the
  * outcome, never a finding's severity.
  *
- * SKIP reads as its empty findings, so it adds 0: check-host-root SKIPs in any
+ * A SKIP adds 0 whatever findings it carries: check-host-root SKIPs in any
  * repo shipping no plugin, and one such row must not blank the total (#4119).
- * Residual: a row whose check SKIPs because its subject is out of reach rather
- * than absent, such as GitHub being down (§N4), also adds 0, with its reason
- * dropped.
+ * Residual: every base row's check SKIPs only on an absent subject, but an
+ * adopter's local row whose check SKIPs because its subject is out of reach,
+ * such as GitHub being down (§N4), also adds 0, with its reason dropped.
  *
  * @param {string} stdout
  * @param {number | null} status
@@ -280,11 +281,12 @@ function parseBreaches(stdout, status) {
 		return { unknown: `it printed no --json envelope (exit ${status})` };
 	}
 	if (envelope?.outcome === "BROKEN") return { unknown: "it answered BROKEN" };
-	return Array.isArray(envelope?.findings)
-		? {
-				count: envelope.findings.filter((f) => f?.severity === "FAIL").length,
-			}
-		: { unknown: "its envelope carries no findings array" };
+	if (!Array.isArray(envelope?.findings))
+		return { unknown: "its envelope carries no findings array" };
+	if (envelope.outcome === "SKIP") return { count: 0 };
+	return {
+		count: envelope.findings.filter((f) => f?.severity === "FAIL").length,
+	};
 }
 
 /** @param {Count} c @param {string} noun */
