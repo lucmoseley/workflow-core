@@ -2,7 +2,7 @@
 /*
  * The line a guard says in place of a rule fragment its store cannot give
  * (#3018): every one, Node core or bash guard, keeps one template —
- * `<lead>; the rule could not be read from docs/agents/rules/<id>.txt. Read
+ * `<lead>; the rule could not be read from docs/agents/rules/<id>.txt. Restore
  * that file …` — names a fragment that exists, and says the same words
  * wherever two guards fall back for the same id. A drifted one can send the
  * refused session to a fragment that does not exist.
@@ -63,7 +63,7 @@ const leadCalls = callers.flatMap((file) => {
 		file,
 		id,
 		lead,
-		line: `${lead}; the rule could not be read from docs/agents/rules/${id}.txt. Read that file before doing anything else.`,
+		line: `${lead}; the rule could not be read from docs/agents/rules/${id}.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.`,
 	}));
 	return [
 		...literal,
@@ -84,7 +84,7 @@ const shellRead = (line: string, file: string) =>
 /* The path a fallback names: literal, or spelt for an install by docPath. */
 const RULE_FILE = String.raw`(?:docs/|\$\{(?:ctx\.)?docPath\(["\`])agents/rules/(\$\{id\}|[a-z0-9-]+)\.txt(?:["\`]\)\})?`;
 const TEMPLATE = new RegExp(
-	String.raw`\S; the rule could not be read from ${RULE_FILE}\. Read that file\b`,
+	String.raw`\S; the rule could not be read from ${RULE_FILE}\. Restore that file\b`,
 );
 
 const fallbacks = sources.flatMap((file) =>

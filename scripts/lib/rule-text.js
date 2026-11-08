@@ -410,7 +410,7 @@ function readRuleTextOr(id, lead, label, hostDir) {
  * @returns {string}
  */
 const fallbackLine = (lead, id) =>
-	`${lead}; the rule could not be read from ${docPath(`agents/rules/${id}.txt`)}. Read that file before doing anything else.`;
+	`${lead}; the rule could not be read from ${docPath(`agents/rules/${id}.txt`)}. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.`;
 
 module.exports = {
 	RULES_DIR,

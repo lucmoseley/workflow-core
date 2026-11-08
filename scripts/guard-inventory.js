@@ -621,6 +621,22 @@ function roundFault(verdict, question, sessionId, payload) {
 	return `this \`needs input:\` ending asks a question round, but no issue the block cites holds it among its newest five comments — post the round (\`❓ **Q${number}** ${title}\` through its options) as a comment on the issue that carries the decision, and list that issue: \`- #N (answer Q${number}, round posted on the issue)\``;
 }
 
+/* The most of a refused tail the refusal quotes, so a pasted wall of text
+ * cannot flood the session (#4035). */
+const TAIL_ECHO_MAX = 200;
+
+/**
+ * `text`, cut to TAIL_ECHO_MAX characters with a count of what was dropped.
+ * @param {string} text
+ * @returns {string}
+ */
+function echoed(text) {
+	const chars = [...text];
+	return chars.length <= TAIL_ECHO_MAX
+		? text
+		: `${chars.slice(0, TAIL_ECHO_MAX).join("")}… (${chars.length - TAIL_ECHO_MAX} more characters)`;
+}
+
 /**
  * The status line's tail against the block's items.
  * @param {string} payload  the status line after its marker
@@ -645,13 +661,13 @@ function tailFaults(payload, verdict) {
 	const refs = tokens.map((t) => readCanonicalRef(t));
 	if (refs.length === 0 || refs.includes(null))
 		return [
-			`the status line's tail lists issue refs only, \`— waits on you: #N, owner/repo#M\` — read: \`${tail}\``,
+			`the status line's tail lists issue refs only, \`— waits on you: #N, owner/repo#M\` — read: \`${echoed(tail)}\``,
 		];
 	const want = new Set(verdict.items.map((i) => i.ref));
 	const got = new Set(refs);
 	if (want.size === got.size && [...want].every((r) => got.has(r))) return [];
 	return [
-		`the status line's tail lists ${[...got].join(", ")} where the block lists ${listed || "nothing"} — both name the same issues`,
+		`the status line's tail lists ${echoed([...got].join(", "))} where the block lists ${listed || "nothing"} — both name the same issues`,
 	];
 }
 

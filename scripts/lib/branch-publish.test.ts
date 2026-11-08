@@ -39,7 +39,7 @@ const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string) => Record<string, unknown>[];
 };
 const REWIND_RULE_FALLBACK =
-	"Never move `main` backwards; the rule could not be read from docs/agents/rules/main-rewind.txt. Read that file before doing anything else.";
+	"Never move `main` backwards; the rule could not be read from docs/agents/rules/main-rewind.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.";
 
 let dir: string;
 let shared: string;
@@ -783,27 +783,27 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		[
 			"gh pr create",
 			"",
-			"This opens a pull request: gh pr create\n\nWork lands on `main` directly — no branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish.txt. Read that file before doing anything else.",
+			"This opens a pull request: gh pr create\n\nWork lands on `main` directly — no branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin main",
 			"landing",
-			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main` or `landing`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Read that file before doing anything else.",
+			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main` or `landing`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin :landing",
 			"landing",
-			"This deletes `landing` on the remote: git push origin :landing\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nNever force-push or delete `landing` or a queue ref; the rule could not be read from docs/agents/rules/landing-rewind.txt. Read that file before doing anything else.",
+			"This deletes `landing` on the remote: git push origin :landing\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nNever force-push or delete `landing` or a queue ref; the rule could not be read from docs/agents/rules/landing-rewind.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin HEAD:lander/batch-0",
 			"landing",
-			"This pushes to `lander/batch-0`, which only the lander writes: git push origin HEAD:lander/batch-0\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Read that file before doing anything else.",
+			"This pushes to `lander/batch-0`, which only the lander writes: git push origin HEAD:lander/batch-0\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"gh pr merge dependabot/x",
 			"",
-			"This merges a Dependabot pull request: gh pr merge dependabot/x\n\nNever merge a Dependabot pull request; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Read that file before doing anything else.",
+			"This merges a Dependabot pull request: gh pr merge dependabot/x\n\nNever merge a Dependabot pull request; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
 		],
 	])(
 		"still refuses %s where the store cannot give its rule, naming the file",

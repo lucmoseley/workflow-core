@@ -31,7 +31,7 @@ const { readRuleText } = require("./rule-text.js") as {
 };
 
 const FALLBACK =
-	"An rm Claude Code cannot check is a permission prompt no allow entry clears; the rule could not be read from docs/agents/rules/rm-unchecked.txt. Read that file before doing anything else.";
+	"An rm Claude Code cannot check is a permission prompt no allow entry clears; the rule could not be read from docs/agents/rules/rm-unchecked.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.";
 
 interface Over {
 	vars?: Record<string, string>;

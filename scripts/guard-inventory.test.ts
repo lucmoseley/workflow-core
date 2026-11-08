@@ -147,6 +147,19 @@ describe("where the block is owed", () => {
 		}
 	});
 
+	/* Its stand-in once sent the session to read the very file it could not
+	 * read (#4035): it names the restore instead. */
+	it("prints a stand-in naming the restore where the rule's fragment is gone", () => {
+		const empty = fs.mkdtempSync(path.join(dir, "rules-"));
+		const reason = run("Done.\n\nresult: done", {
+			env: { WFC_RULES_DIR: empty },
+		});
+		expect(reason).toContain(
+			"the rule could not be read from docs/agents/rules/founder-deliverable.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
+		);
+		expect(reason).not.toContain(RULE);
+	});
+
 	it("passes a `waiting:` ending with no block", () => {
 		expect(run("Dispatched the review.\n\nwaiting: the review agent")).toBe("");
 	});
@@ -257,6 +270,17 @@ describe("the status-line tail", () => {
 		expect(run(`${ITEM}\n\nresult: done — waits on you: the reply`)).toContain(
 			"lists issue refs only",
 		);
+	});
+
+	/* The whole tail was quoted back: 100,000 blanks printed 102,488 B into the
+	 * session (#4035). The refusal around the quote is ~2.5 KB. */
+	it("quotes at most 200 characters of a long tail, under 3,000 B in all", () => {
+		const reason = run(
+			`${ITEM}\n\nresult: done — waits on you: #31${" ".repeat(100_000)}x`,
+		);
+		expect(reason).toContain("lists issue refs only");
+		expect(reason).toContain("… (99804 more characters)");
+		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
 	});
 
 	it("matches the tail and the block across ref spellings", () => {
