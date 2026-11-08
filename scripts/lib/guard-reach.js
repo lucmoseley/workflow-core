@@ -170,6 +170,7 @@ function parseSourced(dir, text, isFile) {
 			const tail = sourcedTail(requiredGroup(m, 1, SOURCE_RE));
 			if (tail === null) continue;
 			const to = pick(sourceCandidates(dir, tail), isFile);
+			// Normalised, so a path escaping the tree is `..` or beneath it.
 			if (!isUnder(to, [".."]) && !out.includes(to)) out.push(to);
 		}
 	return out;

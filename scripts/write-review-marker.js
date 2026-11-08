@@ -60,6 +60,7 @@ const { numstatPaths } = require("./lib/patch-files.js");
 const { readState } = require("./lib/refill-state.js");
 const { reviewSuffix } = require("./lib/review-suffix.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { relativeUnder } = require("./lib/is-under.js");
 
 const USAGE =
 	"usage: node scripts/write-review-marker.js --base <rev> --findings <n> [--no-spec] [--skipped deletion|rename] [--tier escalated|mission-critical --areas <a,b>] [--paths <p,q> [--patch <file>]]";
@@ -240,8 +241,8 @@ function readPatchOrFail(root, patch) {
  */
 function repoRelative(root, paths) {
 	return paths.map((p) => {
-		const rel = path.relative(root, path.resolve(root, p));
-		if (rel === "" || rel.split("/")[0] === "..")
+		const rel = relativeUnder(root, path.resolve(root, p));
+		if (!rel)
 			fail(
 				`--paths entry '${p}' names no file inside ${root}. Nothing written.`,
 				2,
