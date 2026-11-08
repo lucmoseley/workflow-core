@@ -1044,12 +1044,12 @@ describe("a review record in the close comment (#3846)", () => {
 		[
 			3826,
 			"**Review findings:** base `88a44510be20f03e872e02ed3b05e0b496d58577`, reviewed `98f36d9c9a871ecd5c577b1f7b08856bd0e1b398`, landed `6a459da0c`, paths `scripts/lib/read-hidden.js,scripts/test_write_secret_tty.py`. Landed names the commit queued on `landing`, not yet on `main`.",
-			'"scripts/test_write_secret_tty.py."',
+			'"scripts/test_write_secret_tty.py. Landed names the commit queued on landing"',
 		],
 		[
 			2085,
 			"**Review findings:** base 23f76f5f0305f7a3dd6768e82d27557778208484, reviewed 75982fd5ef153713a69fd079009076d5b795bde1, landed 19ba39677, paths scripts/lib/atomic-write.js, scripts/lib/atomic-write.test.ts and the 27 routed sites, tests and manifest in that commit",
-			'"routed"',
+			'"scripts/lib/atomic-write.test.ts and the 27 routed sites"',
 		],
 	])(
 		"refuses #%s's filed record, the note read as paths (#3907)",
@@ -1148,6 +1148,15 @@ describe("a review record in the close comment (#3846)", () => {
 		passes(buildReplay()(paths));
 	});
 
+	it("judges a comma-separated entry holding a space whole, naming it whole, though its words name changed paths (#4050)", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			buildReplay()("dir/a.ts,docs/my file.md,dir a.ts"),
+			'less any of "dir a.ts" it names',
+		);
+	});
+
 	it("names an entry holding a space whole where no word of it changed (#4050)", () => {
 		setUp();
 		onTicket(Tier);
@@ -1166,6 +1175,8 @@ describe("a review record in the close comment (#3846)", () => {
 		"- Fixes: a leak",
 		"- TICKET #12: a leak",
 		"- Ticket #12: a leak",
+		"- Fixing: a leak",
+		"- TICKETING: a leak",
 	])("refuses the disposition line %s (#3907)", (line) => {
 		setUp();
 		onTicket(Tier);

@@ -35,7 +35,7 @@ const FIXED = /^\s*-\s*FIXED\b/;
  * commit." is prose. A declined line counts 0 however spelt. */
 const LIST_MARKER = "(?:[-*+–—•]|\\d+[.)])";
 const LIST_LINE = new RegExp(`^\\s*${LIST_MARKER}`);
-const SPELLING = "(?:FIX(?:E[DS])?|TICKET(?:ED|S)?)(?![A-Za-z])";
+const SPELLING = "(?:FIX(?:E[DS]|ING)?|TICKET(?:ED|S|ING)?)(?![A-Za-z])";
 const UPPER_WORD = new RegExp(`(?<![A-Za-z])${SPELLING}`);
 const MARKED_SPELLING = new RegExp(
 	`^\\s*${LIST_MARKER}\\s*[^A-Za-z]*${SPELLING}`,
@@ -199,34 +199,49 @@ const pathsOf = (m) =>
 	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
 
 /**
- * A record's entries, comma-separated as the marker's paths= is, so a path may
- * hold a space; each also read word by word, as records before that form
- * separated paths by spaces (#3817, #4050).
+ * @typedef {{ whole: string, words: string[] }} PathEntry
+ */
+
+/**
+ * A record's entries: each comma-separated one whole, as the marker's paths=
+ * joins them, so a path may hold a space. With no comma, the one entry is
+ * also read word by word, as records before that form separated paths by
+ * spaces (#3817, #4050).
  *
  * @param {string} paths
+ * @returns {PathEntry[]}
  */
-const pathEntriesOf = (paths) =>
-	paths
-		.replace(/`/g, "")
+function pathEntriesOf(paths) {
+	const bare = paths.replace(/`/g, "").trim();
+	if (bare === "") return [];
+	if (!bare.includes(",")) return [{ whole: bare, words: bare.split(/\s+/) }];
+	return bare
 		.split(",")
 		.map((whole) => whole.trim())
 		.filter(Boolean)
-		.map((whole) => ({ whole, words: whole.split(/\s+/) }));
+		.map((whole) => ({ whole, words: [whole] }));
+}
 
 /**
- * Every pathspec a replay of `paths` reads: each entry whole and each word of
- * it. Residual: a word of a spaced path that is itself a path is replayed too.
+ * Every pathspec a replay reads: each entry whole and each word of it.
+ * Residual: in the comma-free form, a word of a spaced path that is itself a
+ * path is replayed too.
  *
- * @param {string} paths
+ * @param {PathEntry[]} entries
  */
-const pathListOf = (paths) => [
-	...new Set(pathEntriesOf(paths).flatMap((e) => [e.whole, ...e.words])),
+const pathspecsOf = (entries) => [
+	...new Set(entries.flatMap((e) => [e.whole, ...e.words])),
 ];
 
 /** @param {string} paths */
+const pathListOf = (paths) => pathspecsOf(pathEntriesOf(paths));
+
+/** @param {string} paths */
 const pathSetOf = (paths) =>
-	pathEntriesOf(paths)
-		.flatMap((e) => e.words)
+	paths
+		.replace(/`/g, "")
+		.split(/[\s,]+/)
+		.filter(Boolean)
 		.sort()
 		.join(",");
 
@@ -422,8 +437,14 @@ const describeCutOff = (cutOff) =>
  */
 function readStrayPaths(r, root) {
 	const entries = pathEntriesOf(r.paths);
+	/* A stray is named as the record spells it, so the remedy names what the
+	 * marker's paths= holds: an entry whole, or a word of a comma-free one. */
 	const byShape = () =>
-		entries.flatMap((e) => e.words.filter((w) => NOT_A_PATH.test(w)));
+		entries.flatMap(({ whole, words }) => {
+			const stray = whole.split(/\s+/).filter((w) => NOT_A_PATH.test(w));
+			return stray.length === 0 || words.length > 1 ? stray : [whole];
+		});
+	const pathspecs = pathspecsOf(entries);
 	if (root === null) return byShape();
 	/** @type {string[]} */
 	const changed = [];
@@ -439,7 +460,7 @@ function readStrayPaths(r, root) {
 				r.base,
 				to,
 				"--",
-				...pathListOf(r.paths),
+				...pathspecs,
 			],
 			[],
 			root,
@@ -452,7 +473,6 @@ function readStrayPaths(r, root) {
 		const entry = e.replace(/^\.\//, "").replace(/\/$/, "");
 		return changed.some((c) => isUnder(c, [entry]));
 	};
-	/* An entry no word of which changed is named whole. */
 	return entries.flatMap(({ whole, words }) => {
 		if (isChanged(whole)) return [];
 		const stray = words.filter((w) => !isChanged(w));

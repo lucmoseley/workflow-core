@@ -1332,6 +1332,31 @@ describe("the re-measure trigger", () => {
 		});
 	});
 
+	it("reports an escape unread, not unlocated, where git finds no commit and then cannot read the checkout (#4050)", () => {
+		const gone = "f".repeat(40);
+		const fx = fixture({ hits: { "o/fleet": [buildEscapeTicket(gone)] } });
+		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
+		/* The probe of `gone` finds no commit; the --git-dir read after it fails. */
+		const seen = path.join(fx.root, "probe-seen");
+		const stub = path.join(fx.root, "git-stub.sh");
+		fs.writeFileSync(
+			stub,
+			`#!/bin/sh
+case "$*" in
+  *"${gone.slice(0, SHORT_SHA)}^{commit}"*) : >"${seen}"; exit 1 ;;
+  "rev-parse --git-dir") [ -e "${seen}" ] && { rm -f "${seen}"; exit 128; } ;;
+esac
+exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()} "$@"
+`,
+			{ mode: 0o755 },
+		);
+		const r = run(fx, { WFC_GIT: stub });
+		expect(r.stderr).toMatch(
+			/^UNREAD: o\/manta: could not read escaped f+ in /m,
+		);
+		expect(r.stderr).not.toContain("UNLOCATED");
+	});
+
 	it("keeps a record when a covered commit is reverted, dropping only an escape credited through that commit (#3832)", () => {
 		const fx = fixture({ hits: {}, issues: FILED });
 		const [base = "", cited = "", tip = ""] = trailerCheckout(
@@ -1954,8 +1979,20 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 
 	it.each([
 		[3817, ["scripts/write-secret.js.", "and", "joined", "fixes."]],
-		[3826, ["scripts/test_write_secret_tty.py.", "names", "main."]],
-		[2085, ["and", "routed", "manifest", "commit"]],
+		[
+			3826,
+			[
+				"scripts/test_write_secret_tty.py. Landed names the commit queued on landing",
+				"not yet on main.",
+			],
+		],
+		[
+			2085,
+			[
+				"scripts/lib/atomic-write.test.ts and the 27 routed sites",
+				"tests and manifest in that commit",
+			],
+		],
 	] as const)(
 		"reports #%s's filed record as holding a note, and lists it with no paths",
 		(n, entries) => {
@@ -1965,11 +2002,8 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 			);
 			expect(stderr).toMatch(/^NOT PATHS: o\/fleet#9 has a record, landed /);
 			for (const entry of entries) expect(stderr).toContain(`"${entry}"`);
-			expect(stderr).toContain(
-				"post a record of the same review with the marker's paths= less any of ",
-			);
-			expect(stderr).toContain(
-				"it names, as no file changes under them in its replay, and no note after them",
+			expect(stderr).toMatch(
+				/post a record of the same review with the marker's paths= less any of "[^\n]+" it names, as no file changes under them in its replay, and no note after them/,
 			);
 			expect(stderr).not.toContain('"scripts/lib/read-hidden.js"');
 			expect(stderr).not.toContain('"scripts/lib/atomic-write.js"');
@@ -2144,6 +2178,8 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 		"- Fixes: a leak",
 		"- TICKET #12: a leak",
 		"- Ticket #12: a leak",
+		"- Fixing: a leak",
+		"- TICKETING: a leak",
 	])("reports %s as misspelt, counting it 0", (line) => {
 		const { stderr, count } = read(
 			TIER_LINE,
