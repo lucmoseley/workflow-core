@@ -473,6 +473,7 @@
 		".github/workflows/bisect.yml": [
 			"scripts/bisect-step.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/ci-verdict.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/ci.yml": [

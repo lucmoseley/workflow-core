@@ -34,6 +34,7 @@ it("keys on a newer red run of a workflow that judges the tree", () => {
 });
 
 it.each([
+	".github/workflows/bisect.yml",
 	".github/workflows/named-rerun.yml",
 	".github/workflows/landing-quiet.yml",
 	".github/workflows/main-lag.yml",
