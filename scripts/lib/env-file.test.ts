@@ -71,7 +71,16 @@ describe("the secrets file's stored names and values (#3821)", () => {
 			"K='abcd'efgh #inner' # prod",
 			["abcd'efgh #inner' # prod", "abcd", "abcd'efgh #inner"],
 		],
-		["an expanded newline", "K=abcd\\nefgh", ["abcd\\nefgh", "abcd\nefgh"]],
+		[
+			"an expanded newline",
+			"K=abcd\\nefgh",
+			["abcd\\nefgh", "abcd\nefgh", "abcd\r\nefgh", "abcd", "efgh"],
+		],
+		[
+			"a # in a word, then a comment",
+			"K=abcd#efgh # prod",
+			["abcd#efgh # prod", "abcd", "abcd#efgh"],
+		],
 		[
 			"text after the closing quote",
 			'K="abcdefgh" junk',
@@ -109,6 +118,7 @@ describe("the secrets file's stored names and values (#3821)", () => {
 		["a label in a comment", "# Updated: 2026-11-02"],
 		["a URL in a comment", "# see https://example.test/a"],
 		["a colon and no space", "K:abcdefghij"],
+		["a lower-case name in a comment (#4048)", "# scope=repository"],
 	])("reads nothing off %s (#3917)", (_name, line) => {
 		fs.writeFileSync(file, line);
 		expect(readStoredSecrets()).toEqual({ names: [], values: [] });
@@ -154,7 +164,33 @@ describe("the secrets file's stored names and values (#3821)", () => {
 		);
 	});
 
-	it("closes a split value at a quote after an escaped backslash (#3917)", () => {
+	it("reads across a quote after an escaped backslash, as dotenv does (#4048)", () => {
+		fs.writeFileSync(file, 'K="abcdefghij\\\\"\nklmnopqrst"\n');
+		const { values } = readStoredSecrets();
+		expect(values).toContain('abcdefghij\\\\"\nklmnopqrst');
+		expect(values).toContain("klmnopqrst");
+	});
+
+	it("reads each line of a value its escapes break, and its CRLF print (#4048)", () => {
+		fs.writeFileSync(file, 'K="abcdefgh\\nijklmnop"\n');
+		expect(readStoredSecrets().values).toEqual(
+			expect.arrayContaining([
+				"abcdefgh",
+				"ijklmnop",
+				"abcdefgh\nijklmnop",
+				"abcdefgh\r\nijklmnop",
+			]),
+		);
+	});
+
+	it("reads an unquoted value across a U+2028 less its comment (#4048)", () => {
+		fs.writeFileSync(file, "K=abcdefghij\u2028klmnopqrst # note\n");
+		expect(readStoredSecrets().values).toEqual(
+			expect.arrayContaining(["klmnopqrst", "abcdefghij\u2028klmnopqrst"]),
+		);
+	});
+
+	it("closes a split value at its quote after an escaped backslash, as no later line does (#3917)", () => {
 		fs.writeFileSync(file, 'K="abcdefgh\nijklmnop\\\\"\n');
 		const { values } = readStoredSecrets();
 		expect(values).toContain("abcdefgh\nijklmnop\\\\");

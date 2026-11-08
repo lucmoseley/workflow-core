@@ -12,10 +12,10 @@ const { NEEDS_NODE } = require("./biome-allowlist.js");
 const { findPackageDir, hasPackage } = require("./package-reader.js");
 
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
-/** @typedef {{filters: string[], all: boolean, withRoot: boolean, ownRoot:
- *  boolean}} Selection `filters` each `-w`'s value, which outranks `all`, `-ws`;
- *  `withRoot` `-iwr`, which adds the root; `ownRoot` where `--prefix` or
- *  `--no-workspaces` stops npm looking above for a root. */
+/** @typedef {{filters: string[], all: boolean, withRoot: boolean,
+ *  noAncestors: boolean}} Selection `filters` each `-w`'s value, which outrank
+ *  `all`; `all` `-ws`; `withRoot` `-iwr`, which adds the root; `noAncestors`
+ *  where `--prefix` or `--no-workspaces` stops npm looking above for a root. */
 /** @typedef {{dir: string, name: string}} Member */
 
 /* `--no-workspace web` selects web and a bare one selects nothing, as a bare
@@ -41,9 +41,10 @@ const isOn = (flag, value) =>
  * The selection npm's options make, a Boolean's last spelling winning, or
  * undefined for none.
  * @param {string[]} options npm's, as `npmCanon` writes them
+ * @param {string} prefix the directory `--prefix` names, or ""
  * @returns {Selection|undefined}
  */
-function parseSelection(options) {
+function parseSelection(options, prefix) {
 	const parsed = options.map((option) => {
 		const eq = option.indexOf("=");
 		return eq < 0
@@ -59,13 +60,12 @@ function parseSelection(options) {
 		.map(({ value }) => value ?? "");
 	const all = lastOn(ALL_FLAGS);
 	const withRoot = lastOn(ROOT_FLAGS) === true;
-	const prefix = parsed.findLast(({ flag }) => flag === "--prefix")?.value;
 	return filters.length > 0 || all || (withRoot && all !== false)
 		? {
 				filters,
 				all: all === true,
 				withRoot,
-				ownRoot: Boolean(prefix) || all === false,
+				noAncestors: prefix !== "" || all === false,
 			}
 		: undefined;
 }
@@ -150,13 +150,13 @@ function listMembers(dir, patterns, read) {
  * declares workspaces.
  * @param {string} own
  * @param {string} root
- * @param {boolean} ownRoot looks at no ancestor
+ * @param {boolean} noAncestors
  * @param {PackageReader} read
  */
-function findWorkspaceRoot(own, root, ownRoot, read) {
+function findWorkspaceRoot(own, root, noAncestors, read) {
 	const list = (/** @type {string} */ d) =>
 		listMembers(d, read(d).workspaces, read);
-	for (let d = own; !ownRoot && d !== root && d !== path.dirname(d); ) {
+	for (let d = own; !noAncestors && d !== root && d !== path.dirname(d); ) {
 		d = path.dirname(d);
 		const members = list(d);
 		if (members.some((m) => m.dir === own)) return { dir: d, members };
@@ -190,8 +190,8 @@ function isSelected(filter, member, from) {
 
 /**
  * The directories `selection` runs a script in from `from`, the members it chose
- * among, and whether it may reach more, or none, which makes npm fail. Inside a member, no filter is that member
- * alone; `-iwr` alone at the root runs the root.
+ * among, and whether it may reach more, or none, which makes npm fail. Inside a
+ * member, no filter is that member alone; `-iwr` alone at the root runs the root.
  * @param {Selection} selection
  * @param {string} from the directory the run starts in
  * @param {string} root
@@ -199,14 +199,14 @@ function isSelected(filter, member, from) {
  * @returns {{dirs: string[], members: string[], unresolved: boolean}}
  */
 function resolveSelection(
-	{ filters, all, withRoot, ownRoot },
+	{ filters, all, withRoot, noAncestors },
 	from,
 	root,
 	read,
 ) {
 	if (!path.matchesGlob) throw new Error(NEEDS_NODE);
 	const own = findPackageDir(from, root);
-	const found = findWorkspaceRoot(own, root, ownRoot, read);
+	const found = findWorkspaceRoot(own, root, noAncestors, read);
 	const listed = found?.members ?? [];
 	const members = listed.map((m) => m.dir);
 	const hits = (/** @type {string} */ filter) =>

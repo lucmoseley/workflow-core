@@ -46,8 +46,9 @@
  * otherwise (URL-encoded, stringified, split by a control sequence, or holding
  * an escape the file's quoting undoes) with no such assignment before it; one
  * on a line `lib/env-file.js` reads no way, a name outside `[\w.-]` included;
- * a `# NAME: value`; a part after the first of one split by a break where no
- * later line closes its quote; one commented out line by line, read whole,
+ * a `# NAME: value` or a commented-out `name=word`, one lower-case word
+ * given a lower-case name naming no secret; a part after the first of one
+ * split by a break where no later line closes its quote; one commented out line by line, read whole,
  * where its later lines were commented out differently, a blank line in an
  * indented block whose `# ` lost its space included; one on the line after its
  * name; and one the file does not hold, a key set only in the environment
@@ -259,6 +260,10 @@ const ESCAPED_SPACE = `${BACKSLASHES}(?:[tfv]|x(?:09|0[bBcC]|[aA]0)|u(?:0009|000
 /* `=` raw, URL-encoded at any depth, or escaped as C, JSON or HTML spell it. */
 const EQUALS = `(?:=|${buildUrlEncoded("3[dD]")}|${BACKSLASHES}(?:x3[dD]|u003[dD]|075)|&#0*61;|&#[xX]0*3[dD];|&equals;)`;
 
+/* A character every spelling of EQUALS holds, so a value lacking all of them
+ * skips buildStored's regex. */
+const EQUALS_CHAR = /[=%\\&]/;
+
 /**
  * Each assignment to a name, as a log spells one, in two groups: the name and
  * what runs to its value. The name, control sequences allowed between its
@@ -282,6 +287,8 @@ function buildStored(names) {
  * masked variable: docs.gitlab.com/ci/variables. */
 const MIN_BARE_VALUE = 8;
 
+const STORED_MASK = "[REDACTED:stored]";
+
 /**
  * `text` with every token-shaped substring masked, and how many.
  * @param {string} text
@@ -303,6 +310,33 @@ function maskShapes(text) {
 	return { text: out, count };
 }
 
+/* What ends a line for a regex's `.`. */
+const LINE_END = /[\n\r\u2028\u2029]/;
+
+/**
+ * `text` with every occurrence of `values`, as literal text, masked through the
+ * end of its line, and how many.
+ * @param {string} text
+ * @param {string[]} values
+ * @returns {{ text: string, count: number }}
+ */
+function maskValuesToLineEnd(text, values) {
+	let count = 0;
+	let out = text;
+	for (const value of values) {
+		const [head = "", ...tails] = out.split(value);
+		count += tails.length;
+		out = [
+			head,
+			...tails.map((tail) => {
+				const end = tail.search(LINE_END);
+				return `${STORED_MASK}${end === -1 ? "" : tail.slice(end)}`;
+			}),
+		].join("");
+	}
+	return { text: out, count };
+}
+
 /**
  * `text` with every occurrence of `values`, as literal text, masked, and how
  * many.
@@ -316,7 +350,7 @@ function maskValues(text, values) {
 	for (const value of values) {
 		const parts = out.split(value);
 		count += parts.length - 1;
-		out = parts.join("[REDACTED:stored]");
+		out = parts.join(STORED_MASK);
 	}
 	return { text: out, count };
 }
@@ -359,23 +393,40 @@ function buildMasker(names = [], values = []) {
 			);
 		}
 	}
-	/* Longest first, so a value inside another leaves no tail of it. A value
-	 * holding a token goes before the shapes, which would take that token and
-	 * leave the rest of it; any other goes after, as a mask inside a token
-	 * would leave the token's tail. */
 	const bare = values
 		.filter((value) => value.length >= MIN_BARE_VALUE)
 		.sort((a, b) => b.length - a.length);
-	const holdingToken = bare.filter((value) => maskShapes(value).count > 0);
-	const plain = bare.filter((value) => !holdingToken.includes(value));
+	/* Longest first, so a value inside another leaves no tail of it. A value
+	 * holding an assignment to a stored name, as a key's `abc==` line reads,
+	 * goes before that name's mask, which would take the line's head for the
+	 * name and leave both bare (#4048); the name's mask then counts no line it
+	 * opens on. The test shares the one compiled `stored`, as a long list of
+	 * names costs seconds a compile, so it resets lastIndex; `replace` resets
+	 * it itself. */
+	/** @param {string} value */
+	const holdsAssignment = (value) => {
+		if (!stored || !EQUALS_CHAR.test(value)) return false;
+		stored.lastIndex = 0;
+		return stored.test(value);
+	};
+	const holdingAssignment = bare.filter(holdsAssignment);
+	/* A value holding a token goes before the shapes, which would take that
+	 * token and leave the rest of it; any other goes after, as a mask inside a
+	 * token would leave the token's tail. */
+	const later = bare.filter((value) => !holdingAssignment.includes(value));
+	const holdingToken = later.filter((value) => maskShapes(value).count > 0);
+	const plain = later.filter((value) => !holdingToken.includes(value));
 	return (text) => {
-		let count = 0;
+		const early = maskValuesToLineEnd(text, holdingAssignment);
+		let count = early.count;
 		const out = stored
-			? text.replace(stored, (_match, name, gap) => {
-					count++;
-					return `${name}${gap}[REDACTED:stored]`;
+			? early.text.replace(stored, (match, name, gap) => {
+					if (!match.startsWith(STORED_MASK, name.length + gap.length)) {
+						count++;
+					}
+					return `${name}${gap}${STORED_MASK}`;
 				})
-			: text;
+			: early.text;
 		const first = maskValues(out, holdingToken);
 		const shaped = maskShapes(first.text);
 		const rest = maskValues(shaped.text, plain);
