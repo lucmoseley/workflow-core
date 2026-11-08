@@ -79,6 +79,19 @@ describe("the binary will not run", () => {
 		expect(r.why).toContain("exit 3");
 	});
 
+	it("refuses with EACCES where the binary is a directory, as a direct spawn names it", () => {
+		const bin = path.join(dir, "claude-dir");
+		fs.mkdirSync(bin);
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
+		expect(liveness.listedAgents().why).toContain("would not run (EACCES)");
+	});
+
+	it("throws where it is given no config dir to read, never answering an empty listing", () => {
+		expect(() => liveness.runOracle(fakeClaude("[]"), 1000, [])).toThrow(
+			"no config dir",
+		);
+	});
+
 	it("names the binary it tried, so a wrong WFC_CLAUDE_BIN is visible", () => {
 		const bin = path.join(dir, "no-such-claude");
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);

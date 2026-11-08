@@ -163,8 +163,11 @@ function capMs(env, fallback) {
 
 /*
  * Every dir's read, all at once, as background jobs of one shell: each stdout
- * to its own file, then the first failed read's status, else 0. A missing or
- * unrunnable binary exits 127 with its spawn code alone on stderr.
+ * to its own file, capped at the output cap by the shell's file-size limit,
+ * then the first failed read's status, else 0. A binary missing, a directory or
+ * not executable exits 127 with the spawn code a direct spawn would give, alone
+ * on stderr; one that passes those checks and still will not start (a missing
+ * shebang interpreter) reads as its exit status instead.
  *
  * WHY ONE PER DIR. The listing is scoped to CLAUDE_CONFIG_DIR, and this machine
  * runs a plan under each of several, so a session missing from its own plan's
@@ -175,14 +178,15 @@ function capMs(env, fallback) {
  * starts in a few milliseconds where a second node took ~45 (#4609).
  */
 const READ_EVERY_DIR = `
-out=$1 bin=$2
-shift 2
+out=$1 bin=$2 blocks=$3
+shift 3
 case $bin in
 */*)
 	[ -e "$bin" ] || { printf ENOENT >&2; exit 127; }
-	[ -x "$bin" ] || { printf EACCES >&2; exit 127; } ;;
+	[ -f "$bin" ] && [ -x "$bin" ] || { printf EACCES >&2; exit 127; } ;;
 *) command -v "$bin" >/dev/null 2>&1 || { printf ENOENT >&2; exit 127; } ;;
 esac
+ulimit -f "$blocks"
 i=0
 pids=
 for dir; do
@@ -198,6 +202,9 @@ for pid in $pids; do
 done
 exit "$first"
 `;
+
+/* A read killed by the shell's file-size limit dies of this. */
+const OVER_CAP_STATUS = 128 + os.constants.signals.SIGXFSZ;
 
 /**
  * The config dirs the oracle is read in: this caller's own, then every other
@@ -228,6 +235,10 @@ function oracleCacheKey(bin = claudeBin(), dirs = oracleDirs()) {
  * not the shell alone (#2665). Exported so every other caller of the oracle
  * kills the same group on its cap.
  *
+ * RESIDUAL: the group is its own, so a kill of this caller's group misses it,
+ * and a caller killed mid-read leaves its reads and their temp dir behind until
+ * each read ends.
+ *
  * @param {string} bin
  * @param {number} timeoutMs
  * @param {string[]} dirs
@@ -236,10 +247,10 @@ function oracleCacheKey(bin = claudeBin(), dirs = oracleDirs()) {
 function runOracle(bin, timeoutMs, dirs) {
 	/* Each job sets its own dir; the first seat's env stands for every seat's. */
 	const [seat] = dirs;
-	if (seat === undefined) return [];
-	const out = fs.mkdtempSync(path.join(os.tmpdir(), "oracle-"));
-	/* Node honours `detached` on a synchronous spawn, though its types omit it;
-	 * the suite's leftover-children case fails should that stop. */
+	if (seat === undefined) throw new Error("runOracle was given no config dir");
+	const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "oracle-"));
+	/* Node honours `detached` on a synchronous spawn, undocumented and missing
+	 * from its types; the suite's leftover-children case fails should that stop. */
 	/** @type {import("node:child_process").SpawnSyncOptionsWithStringEncoding & {detached: boolean}} */
 	const opts = {
 		detached: true,
@@ -251,11 +262,23 @@ function runOracle(bin, timeoutMs, dirs) {
 	try {
 		const r = spawnSync(
 			"/bin/sh",
-			["-c", READ_EVERY_DIR, "sh", out, bin, ...dirs],
+			[
+				"-c",
+				READ_EVERY_DIR,
+				"sh",
+				outDir,
+				bin,
+				String(Math.floor(CHILD_MAX_BUFFER / 512) + 1),
+				...dirs,
+			],
 			opts,
 		);
 		if (r.pid) killGroup(r.pid, "SIGKILL");
 		if (r.error) throw r.error;
+		const overCap = Object.assign(new Error("stdout over the buffer cap"), {
+			code: "ENOBUFS",
+		});
+		if (r.status === OVER_CAP_STATUS) throw overCap;
 		const spawnCode = r.stderr.trim();
 		if (r.status === 127 && /^E[A-Z]+$/.test(spawnCode))
 			throw Object.assign(new Error(spawnCode), { code: spawnCode });
@@ -264,15 +287,12 @@ function runOracle(bin, timeoutMs, dirs) {
 				status: r.status,
 			});
 		return dirs.map((_, i) => {
-			const file = path.join(out, String(i));
-			if (fs.statSync(file).size > CHILD_MAX_BUFFER)
-				throw Object.assign(new Error("stdout over the buffer cap"), {
-					code: "ENOBUFS",
-				});
+			const file = path.join(outDir, String(i));
+			if (fs.statSync(file).size > CHILD_MAX_BUFFER) throw overCap;
 			return fs.readFileSync(file, "utf8");
 		});
 	} finally {
-		fs.rmSync(out, { recursive: true, force: true });
+		fs.rmSync(outDir, { recursive: true, force: true });
 	}
 }
 
@@ -303,15 +323,15 @@ function parseListing(raw, call) {
  * where any one is not an array. A record with no id is kept for
  * `mergedListing` to judge.
  *
- * @param {string[]} out  runOracle's
+ * @param {string[]} stdouts  runOracle's
  * @param {string} call
  * @returns {{raw: string} | {why: string}}
  */
-function unionOf(out, call) {
+function unionOf(stdouts, call) {
 	/* `any`, as parseListing's records are. */
 	/** @type {any[]} */
 	const all = [];
-	for (const raw of out) {
+	for (const raw of stdouts) {
 		const parsed = parseListing(raw, call);
 		if ("why" in parsed) return parsed;
 		all.push(...parsed.agents);
