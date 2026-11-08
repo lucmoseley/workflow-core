@@ -37,6 +37,7 @@ beforeEach(() => {
 	git(main, "config", "user.email", "t@t");
 	git(main, "config", "user.name", "t");
 	git(main, "commit", "-q", "--allow-empty", "-m", "seed");
+	git(main, "update-ref", "refs/remotes/origin/main", "HEAD");
 	git(main, "worktree", "add", "-q", "--detach", worktree);
 });
 
@@ -63,4 +64,11 @@ it("passes a main checkout not yet cut over, its main tracking landing", () => {
 it("passes with the `landing` module off, and on the founder's escape", () => {
 	expect(run(main, { WFC_MODULES: "" }).status).toBe(0);
 	expect(run(main, { WFC_ALLOW_BRANCH: "1" }).status).toBe(0);
+});
+
+it("passes where no origin/main exists yet: the commit that starts a new repo's main (#2412)", () => {
+	git(main, "update-ref", "-d", "refs/remotes/origin/main");
+	const r = run(main);
+	expect(r.status, r.stdout + r.stderr).toBe(0);
+	expect(r.stdout + r.stderr).toContain("this commit starts main");
 });
