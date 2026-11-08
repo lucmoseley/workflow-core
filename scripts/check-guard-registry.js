@@ -2062,7 +2062,7 @@ function loadAnchors() {
 	const rows = parseRows(read.data);
 	if (rows) return rows;
 	throw brokenError(
-		`${ANCHORS} is not a JSON object of digests; restore it from git and re-run.`,
+		`${ANCHORS} is not a JSON object of digests; restore it from git, or delete it and re-anchor every guard with a bare  node scripts/check-guard-registry.js --review.`,
 	);
 }
 
