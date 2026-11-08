@@ -1016,7 +1016,7 @@ async function refusingStub(status: number): Promise<string> {
 	});
 }
 
-describe("a refused key", () => {
+describe("a refused key (#4144)", () => {
 	it.each([401, 403])(
 		"logs a %i as refused and never as an outage",
 		async (status) => {

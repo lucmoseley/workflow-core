@@ -38,10 +38,21 @@ afterEach(() => {
 /** The trial's and limb 2's start lines, and limb 2's voided stretch. */
 const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
 const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
-const OUTAGE_VOID = jevTrial.stand({
+const OUTAGE_VOIDS = jevTrial.stand({
 	lines: [],
 	verdicts: new Map(),
-}).outageVoids[0];
+}).outageVoids;
+
+/** Limb 2's void for `ticket`, picked by the ticket its `why` cites. */
+function voidFor(ticket: string) {
+	const found = OUTAGE_VOIDS.find((v: { why: string }) =>
+		v.why.includes(ticket),
+	);
+	if (!found) throw new Error(`no limb 2 void cites ${ticket}`);
+	return found;
+}
+
+const OUTAGE_VOID = voidFor("#670");
 const OUTAGE_VOID_FROM_MS = Date.parse(OUTAGE_VOID.from);
 const OUTAGE_VOID_TO_MS = Date.parse(OUTAGE_VOID.to);
 
@@ -295,8 +306,7 @@ describe("limb 2 — outages", () => {
 	});
 
 	describe("the dead-key void (#4144)", () => {
-		const deadKey = jevTrial.stand({ lines: [], verdicts: new Map() })
-			.outageVoids[1];
+		const deadKey = voidFor("#4144");
 		const at = (ms: number) => new Date(ms).toISOString();
 
 		it("drops the outages a refused key logged before `refused` existed", () => {
@@ -319,6 +329,19 @@ describe("limb 2 — outages", () => {
 			];
 
 			expect(stand(lines).outageSessions).toBe(1);
+		});
+
+		it("counts a session whose only calls were refused toward neither side", () => {
+			const after = Date.parse(deadKey.to) + 60_000;
+			const lines: Line[] = [
+				{ at: at(after), session: "s1", outcome: "clear" },
+				{ at: at(after + 1000), session: "s2", outcome: "refused" },
+			];
+
+			const s = stand(lines);
+
+			expect(s.limb2Sessions).toBe(1);
+			expect(s.outageSessions).toBe(0);
 		});
 	});
 

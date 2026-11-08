@@ -60,16 +60,22 @@ const jevTrial = require("./lib/jev-trial.js");
 
 const CHECKER = "jev-flags";
 
-/** The outcomes meant for the founder's screen, and how each is said. */
+/**
+ * The outcomes meant for the founder's screen, how each is said, and the
+ * `--json` field that counts it.
+ */
 const REPORTED = new Map([
-	["flagged", { tag: "JEV-FLAG", label: "FLAG      " }],
-	["outage", { tag: "JEV-OUTAGE", label: "OUTAGE    " }],
+	["flagged", { tag: "JEV-FLAG", label: "FLAG      ", count: "flagged" }],
+	["outage", { tag: "JEV-OUTAGE", label: "OUTAGE    ", count: "outages" }],
 	/* One word end to end — outcome, tag and label — so the founder shown a tag
 	 * can grep the log for it. */
-	["malformed", { tag: "JEV-MALFORMED", label: "MALFORMED " }],
+	[
+		"malformed",
+		{ tag: "JEV-MALFORMED", label: "MALFORMED ", count: "malformed" },
+	],
 	/* The gateway refused the key (#4144): reported so a dead key cannot run
 	 * silent for days, and counted toward neither limb. */
-	["refused", { tag: "JEV-REFUSED", label: "REFUSED   " }],
+	["refused", { tag: "JEV-REFUSED", label: "REFUSED   ", count: "refused" }],
 ]);
 
 /**
@@ -100,6 +106,7 @@ function said(line) {
 		REPORTED.get(String(line.outcome)) ?? {
 			tag: "JEV-FLAG",
 			label: "FLAG      ",
+			count: "flagged",
 		}
 	);
 }
@@ -256,7 +263,7 @@ function pendingSince(all, since) {
 /**
  * @param {import("./lib/check").CheckContext} ctx
  * @param {LogLine[]} pending
- * @param {{ flagged: number, outages: number, malformed: number, refused: number }} counts
+ * @param {Record<string, number>} counts by `REPORTED`'s `count` field
  * @param {Map<string, {verdict: string}>} verdicts
  */
 function listPending(ctx, pending, counts, verdicts) {
@@ -270,7 +277,7 @@ function listPending(ctx, pending, counts, verdicts) {
 		});
 
 	ctx.say(
-		`JEV-FLAG (${counts.flagged}) / JEV-OUTAGE (${counts.outages}) / JEV-MALFORMED (${counts.malformed}) / JEV-REFUSED (${counts.refused}) — raised by the Jev advisory guard ${ctx.notify ? "since this was last shown" : "across the kept log"}:\n`,
+		`${[...REPORTED.values()].map((r) => `${r.tag} (${counts[r.count]})`).join(" / ")} — raised by the Jev advisory guard ${ctx.notify ? "since this was last shown" : "across the kept log"}:\n`,
 	);
 	for (const line of listed) {
 		ctx.say(`  ${said(line).label}${describeTurn(line, verdicts)}`);
@@ -330,22 +337,16 @@ runCheck({
 		}
 
 		pending.sort((a, b) => (jevLog.whenOf(a) ?? 0) - (jevLog.whenOf(b) ?? 0));
-		const flags = pending.filter((l) => l.outcome === "flagged");
-		const outages = pending.filter((l) => l.outcome === "outage");
-		const malformed = pending.filter((l) => l.outcome === "malformed");
-		const refused = pending.filter((l) => l.outcome === "refused");
-
-		listPending(
-			ctx,
-			pending,
-			{
-				flagged: flags.length,
-				outages: outages.length,
-				malformed: malformed.length,
-				refused: refused.length,
-			},
-			verdicts,
+		/** @type {Record<string, number>} */
+		const counts = Object.fromEntries(
+			[...REPORTED.values()].map((r) => [r.count, 0]),
 		);
+		for (const line of pending) {
+			const key = said(line).count;
+			counts[key] = (counts[key] ?? 0) + 1;
+		}
+
+		listPending(ctx, pending, counts, verdicts);
 		ctx.say(
 			"\n  A FLAG is a turn that put a choice to you in plain prose. The\n" +
 				"  adoption is reversed (#175) at more than one WRONG flag in ten flagged\n" +
@@ -373,10 +374,7 @@ runCheck({
 			noun: "Jev advisory flag(s)",
 			stamp: signature,
 			data: {
-				flagged: flags.length,
-				outages: outages.length,
-				malformed: malformed.length,
-				refused: refused.length,
+				...counts,
 				logged: all.length,
 				torn,
 				since,

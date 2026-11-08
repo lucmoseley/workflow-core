@@ -214,6 +214,7 @@ describe("check-jev-flags", () => {
 
 		const envelope = json();
 
+		expect(envelope.outcome).toBe("WARN");
 		expect(envelope.outages).toBe(1);
 		expect(envelope.refused).toBe(1);
 		expect(envelope.findings.map((f) => f.tag)).toEqual([
@@ -227,11 +228,25 @@ describe("check-jev-flags", () => {
 			{ at: "2026-09-19T10:06:00.000Z", outcome: "refused", session: "s3" },
 		]);
 
-		const { out } = run("--notify");
+		const { out, status } = run("--notify");
 
+		expect(status).toBe(0);
 		expect(out).toContain("JEV-REFUSED (1)");
 		expect(out).toContain("REFUSED ");
 		expect(out).toContain("write-secret.js AI_GATEWAY_API_KEY");
+	});
+
+	it("names every limb 2 void on a hand run", () => {
+		writeLog([
+			{ at: "2026-09-19T10:00:00.000Z", outcome: "clear", session: "s1" },
+		]);
+
+		const { out } = run();
+
+		expect(out).toContain("the billing wall");
+		expect(out).toContain(
+			"a key the gateway refused, not a vendor outage (#4144)",
+		);
 	});
 
 	it("shows a flag once and stays silent on the next session start", () => {

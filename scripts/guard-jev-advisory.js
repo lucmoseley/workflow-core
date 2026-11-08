@@ -139,7 +139,8 @@ const MALFORMED_BUDGET = 1;
 
 /**
  * The refused notice's cap, on a fourth counter: a dead key spends neither the
- * warn budget nor the outage budget (#4144).
+ * warn budget nor the outage budget (#4144). ONE, as the outage notice's: a
+ * dead key stays dead for the session, so a second notice says nothing new.
  */
 const REFUSED_BUDGET = 1;
 
@@ -417,7 +418,8 @@ const REFUSED_NOTICE =
 	"session (401 or 403), so the check is not running and its silence is not a " +
 	"clean bill of health. Store a working key with " +
 	`node ${scriptPath("write-secret.js")} ${KEY_VAR}. Not an outage, and it does not ` +
-	"count toward the adoption's reversal (#175). Said once; nothing is refused.";
+	"count toward the adoption's reversal (#175). Said once; nothing is blocked, " +
+	"and the turn stands.";
 
 /**
  * The master switch, in the two spellings this file can see. Fails OPEN, in

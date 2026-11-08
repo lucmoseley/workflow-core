@@ -272,16 +272,21 @@ function sessionsInTrial(lines) {
 
 /**
  * The sessions counted toward limb 2's denominator: those starting after
- * `OUTAGE_START`. Independent of `TRIAL_START` (#285) — limb 2 has a start
+ * `OUTAGE_START`, judged on their lines outside the voids and other than
+ * `refused` (#4144): a refused call is a check that never ran, so a session
+ * whose only calls were refused is no evidence the vendor answered. Independent of `TRIAL_START` (#285) — limb 2 has a start
  * line of its own (see header), so a session need not be in the trial at all
  * to be evidence for limb 2. Exported so `jev-verdict.js --list` marks a turn
  * by the same rule `stand()` counts it by, rather than re-deriving it.
  *
- * @param {{at?: unknown, session?: unknown}[]} lines
+ * @param {{at?: unknown, session?: unknown, outcome?: unknown}[]} lines
  * @returns {string[]}
  */
 function limb2WindowSessions(lines) {
-	return sessionStarts(outsideOutageVoid(lines))
+	const counted = outsideOutageVoid(lines).filter(
+		(line) => line.outcome !== "refused",
+	);
+	return sessionStarts(counted)
 		.filter(([, ms]) => ms > OUTAGE_START_MS)
 		.map(([session]) => session);
 }
