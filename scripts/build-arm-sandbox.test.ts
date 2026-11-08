@@ -383,6 +383,7 @@ describe("task: one run's sandbox", () => {
 		fs.writeFileSync(path.join(repo, "f.txt"), "tracker\n");
 		git(repo, "commit", "--quiet", "-am", "a tracker-only commit");
 		const absent = git(repo, "rev-parse", "HEAD").stdout.trim();
+		// The space is what makes the refusal cases pin #3975's shellQuote; a plain word passes unquoted.
 		const clone = path.join(tmp, "public clone");
 		// --no-local copies main's objects alone; a local clone hardlinks them all.
 		git(
