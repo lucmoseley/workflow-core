@@ -125,6 +125,7 @@ const {
 	withTickStores,
 } = require("./repo-holds.js");
 const { tendHoldNotices } = require("./repo-hold-notices.js");
+const { tendPauseNotices } = require("./pause-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
@@ -974,6 +975,7 @@ const productionIo = {
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
+	sendPauseNotices: (paused, now) => tendPauseNotices(paused, now, log),
 	readProgress,
 	readCause,
 	unparkAnswered: blocks.unparkAnswered,
