@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { capSet, readAllowance } from "./allowance";
+import { capSet, readAllowance, STALE_MS } from "./allowance";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import { MIN, NOW, row, seat } from "./refill-loop-fixture";
 import { seatIdOf } from "./refill-seats.js";
@@ -23,6 +23,7 @@ import {
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
+	probeOutcome,
 	readSeat,
 	readSizedSeats,
 	seatsDueRead,
@@ -31,6 +32,8 @@ import {
 	sizeResumeSeats,
 } from "./seat-reading.js";
 import { buildUsageCache } from "./usage-probe-fake";
+
+const NO_TRIES = { triedAt: {}, now: NOW };
 
 const planSeat = (name: string, weekFull: boolean) =>
 	seat(name, weekFull ? FULL : 50, 10);
@@ -323,6 +326,7 @@ function sizedRead(
 		},
 		sizeOf,
 		typedSeat: null,
+		tries: NO_TRIES,
 	});
 	return { probed, seats };
 }
@@ -423,6 +427,34 @@ describe("the seats due a read for the panel's figures (#4060)", () => {
 				NOW,
 			),
 		).toEqual({ old: 1, cachedSeat: 2, stopped: NOW, timed: NOW });
+	});
+
+	it("reads an unmoved probe once more per cache stamp, then keeps the daily limit (#4075)", () => {
+		const unmoved = [
+			{ seat: "s", outcome: "finished (stamp unmoved)", stampMs: 5 },
+		];
+		const once = seatTriedAfter({ s: 4 }, unmoved, NOW);
+		expect(once).toEqual({ s: 6 });
+		expect(seatTriedAfter(once, unmoved, NOW)).toEqual({ s: NOW });
+		expect(
+			seatTriedAfter({ s: 4 }, unmoved, NOW, { retryUnmoved: false }),
+		).toEqual({ s: NOW });
+	});
+
+	it("marks a finished probe that printed its week with the stamp at or before its start", () => {
+		const outcomeOf = (printedWeek: boolean, stampMs: number | null) =>
+			probeOutcome("finished", { printedWeek, stampMs, startMs: NOW });
+		expect(outcomeOf(true, NOW)).toBe("finished (stamp unmoved)");
+		expect(outcomeOf(true, null)).toBe("finished (stamp unmoved)");
+		expect(outcomeOf(true, NOW + 1)).toBe("finished");
+		expect(outcomeOf(false, NOW - 1)).toBe("finished");
+		expect(
+			probeOutcome("timed-out", {
+				printedWeek: true,
+				stampMs: 0,
+				startMs: NOW,
+			}),
+		).toBe("timed-out");
 	});
 });
 
@@ -536,6 +568,7 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 				return s === "a" ? 0 : 2;
 			},
 			typedSeat: null,
+			tries: NO_TRIES,
 		};
 	}
 
@@ -565,6 +598,42 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 	});
 });
 
+describe("the launch walk's retry of a seat whose probe failed (#4074)", () => {
+	/* Seat a is unread, last tried `triedMs` ago, with seat b fresh behind it;
+	 * the seats each probe was asked to refresh. */
+	function walk(triedMs?: number) {
+		const probed: string[][] = [];
+		const { seats } = readSizedSeats(1, {
+			read: () => [seat("a", null, null), seat("b", 10, 10)],
+			probe: (stale: string[]) => {
+				probed.push(stale);
+				return { usage: new Map(stale.map((s) => [s, ""])), probes: [] };
+			},
+			sizeOf: () => 1,
+			typedSeat: null,
+			tries: {
+				triedAt: triedMs === undefined ? {} : { a: NOW - triedMs },
+				now: NOW,
+			},
+		});
+		return { probed, seats };
+	}
+
+	it("passes over a seat tried under STALE_MS ago, falling through to the seat behind", () => {
+		const { probed, seats } = walk(MIN);
+		expect(probed).toEqual([]);
+		expect(seats.map((s: { fits: number | null }) => s.fits)).toEqual([
+			null,
+			1,
+		]);
+	});
+
+	it("probes it once that try is STALE_MS old, or where it was never tried", () => {
+		expect(walk(STALE_MS).probed).toEqual([["a"]]);
+		expect(walk().probed).toEqual([["a"]]);
+	});
+});
+
 describe("a move's seat reading (#3734)", () => {
 	it("probes and sizes every seat with room, past the first, the move passing its own seat over", () => {
 		const probed: string[][] = [];
@@ -583,6 +652,7 @@ describe("a move's seat reading (#3734)", () => {
 				return 1;
 			},
 			typedSeat: "own",
+			tries: NO_TRIES,
 			sizeAll: true,
 		});
 		expect(probed).toEqual([["other"]]);
@@ -609,6 +679,7 @@ describe("a tick's seat read in launch order (#3740)", () => {
 				return 2;
 			},
 			typedSeat: "b",
+			tries: NO_TRIES,
 		});
 		expect(probed).toEqual([["b"]]);
 		expect(asked).toEqual(["b"]);
@@ -768,6 +839,7 @@ describe("the cap's launch count (#2278)", () => {
 				}),
 				sizeOf: capSizer(dir, (l) => noted.push(l)),
 				typedSeat: null,
+				tries: NO_TRIES,
 			});
 			expect(noted).toEqual([]);
 			for (const argv of argvOf())

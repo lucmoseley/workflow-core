@@ -15,6 +15,7 @@
 
 const path = require("node:path");
 const {
+	STALE_MS,
 	isTrustworthy,
 	readAllowance,
 	sizedPercent,
@@ -35,7 +36,8 @@ const { hasResetPassed } = require("./usage-cache.js");
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
-/** @typedef {{seat: string, outcome: string}} Probe */
+/** @typedef {{seat: string, outcome: string, stampMs?: number|null}} Probe
+ * `stampMs`, the cache's stamp once it ended. */
 
 const SCRIPTS = path.dirname(__dirname);
 
@@ -105,17 +107,21 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
  * The stale seats to refresh: those ahead of the first fresh seat with room,
  * so failover keeps its order and a stale seat behind a full one is read
  * rather than waited on. A seat the cap sized 0 is passed as a full one is; a
- * seat with a full bar is passed unread, that bar reopening only at its reset.
+ * seat with a full bar is passed unread, that bar reopening only at its reset;
+ * so is a seat `isRetryDue` holds back, as its failed probe left it (#4074).
  * With `sizeAll`, every stale seat, a move weighing them all.
  * @param {(SeatReading & {fits?: number|null})[]} readings in failover order
  * @param {boolean} sizeAll
+ * @param {(seat: string) => boolean} isRetryDue
  */
-function seatsToRefresh(readings, sizeAll) {
+function seatsToRefresh(readings, sizeAll, isRetryDue) {
 	/** @type {string[]} */
 	const stale = [];
 	for (const r of readings) {
 		if (r.weekFull || r.sessionFull) continue;
-		if (r.week === null || r.session === null) stale.push(r.seat);
+		if (r.week === null || r.session === null) {
+			if (isRetryDue(r.seat)) stale.push(r.seat);
+		}
 		// Not fitsLaunch: an unsized seat with room ends the walk, the tick waiting on it.
 		else if (!sizeAll && hasRoom(r) && r.fits !== 0) break;
 	}
@@ -196,7 +202,10 @@ const sizeParkerSeats = (seats, parkers, sizeOf) =>
  * (#3732): the stale seats ahead of the first one free to launch are
  * refreshed by `/usage` first, then those behind a seat the cap sizes 0, so
  * the fall-through reaches them (#2432). Each seat is probed and sized at
- * most once; with no slot free nothing is refreshed or sized.
+ * most once; with no slot free nothing is refreshed or sized. A seat is
+ * probed again once its last try is STALE_MS old, the rate a seat whose probe
+ * reads is refreshed at (#4074): a try that read stamps the cache no earlier
+ * than itself, so only a seat whose try failed comes up stale inside it.
  * @param {number} slots
  * @param {{
  *   read: (usage: Map<string, string>) => SeatReading[],
@@ -204,15 +213,17 @@ const sizeParkerSeats = (seats, parkers, sizeOf) =>
  *   sizeOf: (seat: string, members: number, usageText: string) => number|null,
  *   typedSeat: string|null,
  *   sizeAll?: boolean,
+ *   tries: {triedAt: Record<string, number>, now: number},
  * }} io `read` takes each refreshed seat's printed `/usage` and returns the
  *   seats in seat-file order; `typedSeat` is the seat the founder last typed
  *   on, null where none is recorded; `sizeAll`, each seat with room read and
- *   sized, not only up to the first
+ *   sized, not only up to the first; `tries`, when each seat was last probed
+ *   (the state file's `seatTriedAt`)
  * @returns {{seats: SizedSeat[], probes: Probe[]}}
  */
 function readSizedSeats(
 	slots,
-	{ read, probe, sizeOf, typedSeat, sizeAll = false },
+	{ read, probe, sizeOf, typedSeat, sizeAll = false, tries },
 ) {
 	/** @type {Map<string, string>} */
 	const usage = new Map();
@@ -230,8 +241,10 @@ function readSizedSeats(
 		return sized;
 	};
 	const readOrdered = () => orderPlanSeats(read(usage), typedSeat);
+	const isRetryDue = (/** @type {string} */ seat) =>
+		tries.now - (tries.triedAt[seat] ?? Number.NEGATIVE_INFINITY) >= STALE_MS;
 	let readings = readOrdered();
-	let stale = slots > 0 ? seatsToRefresh(readings, sizeAll) : [];
+	let stale = slots > 0 ? seatsToRefresh(readings, sizeAll, isRetryDue) : [];
 	for (;;) {
 		if (stale.length > 0) {
 			const printed = probe(stale);
@@ -242,7 +255,9 @@ function readSizedSeats(
 		const sized = sizedSeats(readings, slots, sizeOnce, sizeAll);
 		stale =
 			slots > 0
-				? seatsToRefresh(sized, sizeAll).filter((seat) => !usage.has(seat))
+				? seatsToRefresh(sized, sizeAll, isRetryDue).filter(
+						(seat) => !usage.has(seat),
+					)
 				: [];
 		if (stale.length === 0) return { seats: sized, probes };
 	}
@@ -276,16 +291,49 @@ function seatsDueRead(seats, { barsOf, triedAt, hasRunSince, now }) {
 	});
 }
 
+const STAMP_UNMOVED = "finished (stamp unmoved)";
+
 /**
- * `triedAt` with each probe that ran stamped `now`.
+ * A probe's outcome, `finished` read as STAMP_UNMOVED where it printed a week
+ * figure yet left the cache's stamp, or no stamp at all, at or before its
+ * start (#4075).
+ * @param {string} outcome
+ * @param {{printedWeek: boolean, stampMs: number|null, startMs: number}} after
+ */
+const probeOutcome = (outcome, { printedWeek, stampMs, startMs }) =>
+	outcome === "finished" && printedWeek && (stampMs ?? 0) <= startMs
+		? STAMP_UNMOVED
+		: outcome;
+
+/**
+ * `triedAt` with each probe that ran stamped `now`. With `retryUnmoved`, a
+ * STAMP_UNMOVED probe on a seat untried since its cache's stamp is stamped
+ * just past that stamp instead, so the next tick reads it once more: one
+ * retry per stamp, so a cache that never rewrites keeps the daily limit.
  * @param {Record<string, number>} triedAt
  * @param {Probe[]} probes
  * @param {number} now
+ * @param {{retryUnmoved?: boolean}} [opts]  false mid-tick, so a seat the
+ *   walk probed is not probed again that tick
  */
-const seatTriedAfter = (triedAt, probes, now) => ({
+const seatTriedAfter = (
+	triedAt,
+	probes,
+	now,
+	{ retryUnmoved = true } = {},
+) => ({
 	...triedAt,
 	...Object.fromEntries(
-		probes.filter((p) => p.outcome !== "cached").map((p) => [p.seat, now]),
+		probes
+			.filter((p) => p.outcome !== "cached")
+			.map((p) => {
+				const stamp = p.stampMs ?? 0;
+				const retry =
+					retryUnmoved &&
+					p.outcome === STAMP_UNMOVED &&
+					(triedAt[p.seat] ?? 0) <= stamp;
+				return [p.seat, retry ? stamp + 1 : now];
+			}),
 	),
 });
 
@@ -483,6 +531,7 @@ module.exports = {
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
+	probeOutcome,
 	readSeat,
 	readSeatReadings,
 	readSizedSeats,
