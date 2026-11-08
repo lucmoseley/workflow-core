@@ -257,3 +257,32 @@ describe("isDirtyClaim", () => {
 		).toBe(true);
 	});
 });
+
+/* A job store that will not read may hold a dirty worktree's owner, so the
+ * worktree count goes unknown while the claim counts still read (#4704). */
+describe("an unreadable job store", () => {
+	it("leaves the claim counts standing and calls the worktree count unknown", () => {
+		const store = path.join(sb.home, "jobs");
+		fs.mkdirSync(store, { recursive: true });
+		fs.chmodSync(store, 0o000);
+		try {
+			const found = [{ worktree: "/wt/dead", dirty: new Set(["a.md"]) }];
+			const attributed = mod.attributeWorktreeDirt(found, {});
+			expect(attributed.unread).toEqual([
+				expect.stringContaining(`${store}: EACCES`),
+			]);
+			const r = mod.countStranded(
+				[lock("a.md", "dead", 24)],
+				new Set(["live"]),
+				{ dirty: new Set(), found, attributed },
+			);
+			expect(r).toMatchObject({
+				ok: true,
+				stranded: 1,
+				strandedWorktrees: null,
+			});
+		} finally {
+			fs.chmodSync(store, 0o755);
+		}
+	});
+});

@@ -525,6 +525,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 			burnMode: { on: false, disagreeing: [], error: null },
 			overflow: [],
 			concurrency: NO_CONCURRENCY,
+			now: NOW,
 		});
 		expect(json.running).toBe(true);
 		expect(
@@ -564,6 +565,7 @@ describe("status --json for the panel (#3873)", () => {
 			burnMode: { on: false, disagreeing: [], error: null },
 			overflow: [],
 			concurrency: NO_CONCURRENCY,
+			now: 0,
 		});
 
 	it("carries the code sha, and the last tick's summary and waiting reason", () => {
@@ -1105,6 +1107,89 @@ describe("the quiet bench route's setting and hold (#3852)", () => {
 	it("the pause text says why, and that the bench's end lifts it", () => {
 		expect(buildPausedWaitText(held.paused)).toContain("the bench is due");
 		expect(buildPausedWaitText(held.paused)).toContain("the bench ends");
+	});
+});
+
+describe("the launch hold a manual /pick-next takes (#4354)", () => {
+	const control = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/s"],
+		scope: normal([WFC]),
+	};
+	const Minute = 60_000;
+	const set = (
+		from: Parameters<typeof planSet>[0]["control"],
+		ask: object,
+		running = true,
+	) =>
+		planSet({ control: from, damaged: null }, ask, {
+			running,
+			now: 7,
+			readExclusionWhy: () => null,
+			isOptedOut: () => false,
+		}) as {
+			write: (typeof control & Record<string, unknown>) | null;
+			lines: string[];
+			startFrom: unknown;
+		};
+	const hold = { holder: "s1", until: 7 + 20 * Minute };
+
+	it("holds for the minutes asked, naming its end, and starts no process", () => {
+		const plan = set(control, { holdMinutes: 20, holder: "s1" }, false);
+		expect(plan.write?.launchHold).toEqual(hold);
+		expect(plan.lines).toEqual([
+			`launches held by a manual /pick-next until ${new Date(hold.until).toISOString()}`,
+		]);
+		expect(plan.startFrom).toBeNull();
+	});
+
+	it("releases a hold, and says so where none stands", () => {
+		expect(
+			set({ ...control, launchHold: hold }, { holdMinutes: null }).write,
+		).not.toHaveProperty("launchHold");
+		expect(set(control, { holdMinutes: null })).toMatchObject({
+			write: null,
+			lines: ["unchanged: no launch hold"],
+		});
+	});
+
+	it("leaves a live hold another session took, and releases its own or a lapsed one", () => {
+		const held = { ...control, launchHold: hold };
+		expect(set(held, { holdMinutes: null, holder: "s2" })).toMatchObject({
+			write: null,
+			lines: [expect.stringContaining("unchanged: another session's hold")],
+		});
+		expect(
+			set(held, { holdMinutes: null, holder: "s1" }).write,
+		).not.toHaveProperty("launchHold");
+		const lapsed = { ...control, launchHold: { holder: "s1", until: 7 } };
+		expect(
+			set(lapsed, { holdMinutes: null, holder: "s2" }).write,
+		).not.toHaveProperty("launchHold");
+	});
+
+	it("leaves a founder's pause as it stands through a hold and its release", () => {
+		const paused = { ...control, paused: { by: "founder", at: 3 } };
+		const held = set(paused, { holdMinutes: 20 }).write;
+		expect(held?.paused).toEqual({ by: "founder", at: 3 });
+		const released = set(held, { holdMinutes: null }).write;
+		expect(released?.paused).toEqual({ by: "founder", at: 3 });
+		expect(released?.noProgressFrom).toBe(5);
+	});
+
+	it("shows on status while live, and not once past its end", () => {
+		const statusAt = (now: number) =>
+			buildStatusLines({
+				control: { ...control, launchHold: hold },
+				state: loopStateOf({}),
+				pid: 1,
+				served: [WFC],
+				seats: NO_SEATS,
+				now,
+			}).join("\n");
+		expect(statusAt(8)).toContain("launches held by a manual /pick-next");
+		expect(statusAt(hold.until)).not.toContain("launches held");
 	});
 });
 

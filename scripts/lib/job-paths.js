@@ -2,11 +2,12 @@
  * job-paths.js — the harness's job store layout, `<seat>/jobs/<jobId>/state.json`
  * (#2966), and its daemon's roster (#2986), built in one place.
  * A leaf: a per-prompt hook reads a job record through it, so it loads
- * nothing past node's own modules.
+ * nothing past node's own modules but file-read.js and its caught.js.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 
 /** @param {string} seat */
 const jobStorePath = (seat) => path.join(seat, "jobs");
@@ -57,19 +58,45 @@ const rosterPath = (seat) => path.join(seat, "daemon", "roster.json");
  */
 const shortJobId = (sessionId) => sessionId.slice(0, 8);
 
+/* The read faults that mean no record stands there: ENOTDIR where a job
+ * store holds a plain file in place of a job directory (#4704). */
+const ABSENT = new Set(["ENOENT", "ENOTDIR"]);
+
+/** @param {unknown} err */
+const isAbsentFault = (err) => ABSENT.has(caught(err).code ?? "");
+
 /**
- * The parsed record in `jobDir`, or null where it is missing, torn or refused.
- * None of the three proves the job gone: a job dir is cleaned under a session
- * still running (mantahostels#104), and a writer may be mid-record.
+ * The record in `jobDir`, `data` null where torn; unreadable is any fault
+ * but absence (#4704).
+ * Neither absent nor torn proves the job gone: a job dir is cleaned under a
+ * session still running (mantahostels#104), and a writer may be mid-record.
  * @param {string} jobDir
- * @returns {any}  untyped: the harness owns its schema
+ * @returns {{state: "absent"} | {state: "read", data: any}
+ *   | {state: "unreadable", error: unknown, message: string}}  `data`
+ *   untyped: the harness owns its schema
+ */
+function readJobRecordAt(jobDir) {
+	const r = readText(jobStateIn(jobDir));
+	if (r.state === "absent") return r;
+	if (r.state === "unreadable")
+		return isAbsentFault(r.error) ? { state: "absent" } : r;
+	try {
+		return { state: "read", data: JSON.parse(r.data) };
+	} catch {
+		return { state: "read", data: null };
+	}
+}
+
+/**
+ * The parsed record in `jobDir`, or null where readJobRecordAt finds it
+ * absent or torn; an unreadable one throws its fault.
+ * @param {string} jobDir
+ * @returns {any}
  */
 function readJobRecordIn(jobDir) {
-	try {
-		return JSON.parse(fs.readFileSync(jobStateIn(jobDir), "utf8"));
-	} catch {
-		return null;
-	}
+	const r = readJobRecordAt(jobDir);
+	if (r.state === "unreadable") throw r.error;
+	return r.state === "read" ? r.data : null;
 }
 
 /**
@@ -96,9 +123,11 @@ module.exports = {
 	parseJobDir,
 	jobStateIn,
 	jobStatePath,
+	isAbsentFault,
 	jobStorePath,
 	readJobCwd,
 	readJobRecord,
+	readJobRecordAt,
 	readJobRecordIn,
 	rosterPath,
 	shortJobId,

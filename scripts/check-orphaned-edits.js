@@ -621,7 +621,10 @@ function findOrphans(ctx, old, { now }) {
 			live
 		);
 	const trees = [...new Set(old.flatMap((o) => (o.worktree ? o.tree : [])))];
-	const owners = trees.length > 0 ? worktreeOwners(trees, listed) : new Map();
+	/* An unread job store goes unreported here: a live session owns its tree
+	 * through the oracle's cwds, which no job store can hide (#4704). */
+	const owners =
+		trees.length > 0 ? worktreeOwners(trees, listed).owners : new Map();
 	for (const o of old) {
 		const verdict = judgeWriter(o, { owners, owned, names, listed, now });
 		if (verdict.kind === "owned") continue;

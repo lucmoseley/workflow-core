@@ -135,6 +135,9 @@ function readDirtyPaths(root = paths.repoRoot()) {
  *   dirty: Set<string>, writtenMs: number | null}} WorktreeDirt
  * @typedef {{found: {worktree: string, dirty: Set<string>}[],
  *   unreadable: string[] | null}} DirtyWorktrees
+ * @typedef {{worktrees: WorktreeDirt[], unread: string[]}} AttributedDirt
+ *   `unread` each job store or record that would not read, as
+ *   session-worktrees.js's readJobCwds names it
  */
 
 /**
@@ -167,15 +170,15 @@ function readDirtyWorktrees(root = paths.repoRoot()) {
  * @param {DirtyWorktrees["found"]} found readDirtyWorktrees()'s `found`
  * @param {ListedCwds} [listed] the oracle read, whose sessions own a worktree
  *   ahead of any job record
- * @returns {WorktreeDirt[]}
+ * @returns {AttributedDirt}
  */
 function attributeWorktreeDirt(found, listed) {
-	if (found.length === 0) return [];
-	const owners = worktreeOwners(
+	if (found.length === 0) return { worktrees: [], unread: [] };
+	const { owners, unread } = worktreeOwners(
 		found.map((f) => f.worktree),
 		listed,
 	);
-	return found.flatMap(({ worktree, dirty }) => {
+	const worktrees = found.flatMap(({ worktree, dirty }) => {
 		const owner = owners.get(worktree);
 		return owner
 			? [
@@ -188,6 +191,7 @@ function attributeWorktreeDirt(found, listed) {
 				]
 			: [];
 	});
+	return { worktrees, unread };
 }
 
 /**
@@ -361,7 +365,9 @@ function classifyClaims(
  * strandedWorktrees }`, where `carrying` is null on a `dirty` of null — a
  * working tree git would not report on, which is NOT the same as none of them
  * being dirty — and `strandedWorktrees` counts classifyWorktrees' stranded
- * ones, so the headline and the report's STRANDED-WORKTREE section agree.
+ * ones, so the headline and the report's STRANDED-WORKTREE section agree. It
+ * is null where a job store or record would not read: a dirty worktree's
+ * owner may sit in it.
  *
  * @param {Lock[] | null} locks readLocks()'s result, or null where the store
  *   could not be read.
@@ -369,17 +375,22 @@ function classifyClaims(
  *   either oracle reader's ids, or null/undefined where the running-session
  *   oracle could not be read.
  * @param {{dirty?: Set<string> | null, terminal?: Set<string>,
- *   found?: DirtyWorktrees["found"], worktrees?: WorktreeDirt[]}} [opts]
+ *   found?: DirtyWorktrees["found"], attributed?: AttributedDirt}} [opts]
  *   `dirty` is readDirtyPaths()'s result, omitted where the caller wants the
  *   standing count alone; `terminal` the same oracle read's
  *   stopped-but-resident pool — see `EMPTY_IDS` above for why omitting it is
  *   not a safe default (mantahostels#2765, mantahostels#2774); `found`
- *   readDirtyWorktrees()'s, and `worktrees` attributeWorktreeDirt()'s over it.
+ *   readDirtyWorktrees()'s, and `attributed` attributeWorktreeDirt()'s over it.
  */
 function countStranded(
 	locks,
 	listedIds,
-	{ dirty = null, terminal = EMPTY_IDS, found = [], worktrees = [] } = {},
+	{
+		dirty = null,
+		terminal = EMPTY_IDS,
+		found = [],
+		attributed = { worktrees: [], unread: [] },
+	} = {},
 ) {
 	if (locks === null)
 		return { ok: false, error: "the file-claim store could not be read" };
@@ -395,8 +406,11 @@ function countStranded(
 		ok: true,
 		stranded: stranded.length,
 		carrying,
-		strandedWorktrees: classifyWorktrees(worktrees, listedIds, { terminal })
-			.stranded.length,
+		strandedWorktrees:
+			attributed.unread.length > 0
+				? null
+				: classifyWorktrees(attributed.worktrees, listedIds, { terminal })
+						.stranded.length,
 	};
 }
 

@@ -100,6 +100,7 @@ const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
 const TSC_WAIT = {
 	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung`,
 	cap: "one `tsc` runs at a time (#3163)",
+	traceLimbs: true,
 };
 
 /**

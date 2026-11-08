@@ -40,7 +40,7 @@ const HARNESS_PROMPT =
 function isDispatchedLaunchPrompt(prompt) {
 	const jobDir = process.env.CLAUDE_JOB_DIR;
 	if (!jobDir) return false;
-	/* No readable job record marks nothing a launch (#2004). */
+	/* A missing or torn job record marks nothing a launch (#2004). */
 	const record = readJobRecordIn(jobDir);
 	const intent = record?.intent;
 	return (

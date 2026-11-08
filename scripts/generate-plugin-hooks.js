@@ -36,6 +36,7 @@ const { caught } = require("./lib/caught.js");
 const { extractTree, indexTree } = require("./lib/check.js");
 const { guardDirs, isDenyCapableIn } = require("./lib/deny-capable.js");
 const { SELF_PLUGIN_HOOKS, readHooksAt } = require("./lib/core-hooks.js");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	ENTRY,
 	OUT,
@@ -46,7 +47,7 @@ const {
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage: "Usage: node scripts/generate-plugin-hooks.js [--check]",
+	usage: `Usage: node ${scriptPath("generate-plugin-hooks.js")} [--check]`,
 	flags: { "--check": "boolean" },
 };
 
@@ -89,7 +90,7 @@ function checkAt(tree) {
 	if (faults.length === 0) return 0;
 	writeFd(
 		2,
-		`${faults.join("")}generate-plugin-hooks: run node scripts/generate-plugin-hooks.js, then stage ${OUT} and ${SELF_PLUGIN_HOOKS} with this commit\n`,
+		`${faults.join("")}generate-plugin-hooks: run node ${scriptPath("generate-plugin-hooks.js")}, then stage ${OUT} and ${SELF_PLUGIN_HOOKS} with this commit\n`,
 	);
 	return 1;
 }
