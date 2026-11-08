@@ -15,7 +15,7 @@
  * files the same orphan at every session start.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -358,6 +358,76 @@ describe("check-orphaned-edits", () => {
 			fs.readFileSync(SCRIPT, "utf8"),
 		)?.[1];
 		expect(entry.timeout * 1000).toBe(Number(budget?.replaceAll("_", "")));
+		/* Async (#4367): it prints nothing, so no start waits on it. */
+		expect(entry.async).toBe(true);
+	});
+
+	describe("--hourly, the SessionStart run's throttle (#4367)", () => {
+		/* Mid-hour, so no run here straddles a clock hour. */
+		const at = (minutes: number) => ({
+			WFC_NOW: new Date(
+				Math.floor(Date.now() / HOUR) * HOUR + (30 + minutes) * 60_000,
+			).toISOString(),
+		});
+		const hourly = (minutes = 0, json = false) =>
+			run(["--hourly", ...(json ? ["--json"] : [])], !json, at(minutes));
+
+		it("skips the run inside the clock hour of the last one", async () => {
+			await hourly();
+			dirty("a.txt", 30);
+
+			const r = await hourly(20, true);
+			expect(JSON.parse(r.stdout)).toMatchObject({ walked: false });
+			expect(readFilings()).toEqual([]);
+		});
+
+		it("runs once the clock hour has passed", async () => {
+			await hourly();
+			dirty("a.txt", 30);
+
+			await hourly(60);
+			expect(readFilings()).toHaveLength(1);
+		});
+
+		it("lets one of two runs started together through", async () => {
+			dirty("a.txt", 30);
+			const child = () =>
+				new Promise<string>((resolve) => {
+					// spawn-kept: two processes at once, as two session starts are.
+					const p = spawn(
+						process.execPath,
+						[SCRIPT, "--hourly", "--json", "--write"],
+						{
+							cwd: sb.repo,
+							env: {
+								...process.env,
+								...at(0),
+								GITHUB_ACTIONS: "",
+								WFC_ORACLE_CACHE: "0",
+								CLAUDE_PROJECT_DIR: sb.repo,
+							},
+						},
+					);
+					let out = "";
+					p.stdout.on("data", (d) => {
+						out += d;
+					});
+					p.on("close", () => resolve(out));
+				});
+			const outs = await Promise.all([child(), child()]);
+			expect(outs.map((o) => JSON.parse(o).walked).sort()).toEqual([
+				false,
+				true,
+			]);
+		});
+
+		it("never throttles a run without it", async () => {
+			await hourly();
+			dirty("a.txt", 30);
+
+			await run([], false, at(0));
+			expect(readFilings()).toHaveLength(1);
+		});
 	});
 
 	it("leaves an interrupted filing alone rather than filing it again", async () => {

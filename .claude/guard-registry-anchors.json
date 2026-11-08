@@ -26,7 +26,7 @@
 	"scripts/check-lockfile-sync.js": "096e494799c37de0",
 	"scripts/check-main-checkout-commit.js": "096223fe98db7888",
 	"scripts/check-orphan-wait-loops.js": "1ba3aa996392f3c6",
-	"scripts/check-orphaned-edits.js": "b8b605c82a903360",
+	"scripts/check-orphaned-edits.js": "ce85613206e3a9bb",
 	"scripts/check-plugin-gap.js": "3fa49eb721e8a241",
 	"scripts/check-refill-loop-stop.js": "13a66a68891ec716",
 	"scripts/check-release-lag.js": "3bfe05e1e6531206",
