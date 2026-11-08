@@ -1253,6 +1253,30 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	});
 });
 
+/* npm's aliases for `test` and `run` are the same launch (#4032): each draws
+ * what `npm test` draws, under the floor and beside a whole suite. */
+describe("reads npm's aliases as the launch `npm test` is", () => {
+	const drawn = (command: string) => ({
+		floor: gated(command, 1000, 0).verdict?.gate,
+		cap: gatedVerdict(`${command} -- --full`, ROOMY_MB, NEIGHBOURS_AT_CAP),
+	});
+
+	it.each([
+		"npm t",
+		"npm rum test",
+		"npm urn test",
+		"npm runScript test",
+		"npm run-s test",
+		"npm run-script test",
+	])("%s", (command) => {
+		expect(drawn(command)).toEqual(drawn("npm test"));
+		expect(drawn(command).cap).toBe("deny");
+		expect(readDenyReason(command, 1000).split("\n")[0]).toBe(
+			`Run instead: ${command} -- --queue`,
+		);
+	});
+});
+
 describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	it("denies a `npm run test` with the ladder's last rung already taken", () => {
 		// exempt (mantahostels#2082): deny reason pinned by the "what the refusal tells the session" describe block —
