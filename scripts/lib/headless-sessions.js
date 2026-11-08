@@ -9,7 +9,8 @@
  * seat's, #3701) and a fresh CLAUDE_JOB_DIR, with headless-contract.md
  * appended to its system prompt, and `--max-budget-usd` and a name where the
  * caller gives them: a resume the refill loop makes of its own run gives no
- * budget, the tick's allowance stop capping it as any overflow run (#3698). No `--model`: Opus is the default
+ * budget, the tick's allowance stop capping it as any overflow run (#3698),
+ * and a founder's reply is marked so that stop leaves it (#4174). No `--model`: Opus is the default
  * (mantahostels#1093). `resume` continues a session headless on the same
  * seat and key.
  *
@@ -59,10 +60,18 @@ const CONTRACT = path.join(__dirname, "headless-contract.md");
  * that session with `prompt` as its next turn: a parked run the refill loop
  * resumes, or the founder answering one that ended on a question (#3685).
  * @param {{keyVar: string, cwd: string, budgetUsd?: number, prompt: string,
- *   resume?: string, name?: string}} opts
+ *   resume?: string, name?: string, founderReply?: boolean}} opts
  * @returns {{record: RunRecord}|{why: string}}
  */
-function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
+function launch({
+	keyVar,
+	cwd,
+	budgetUsd,
+	prompt,
+	resume,
+	name,
+	founderReply,
+}) {
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) return { why: list.errors.join("\n") };
 	const seat = findOverflowSeat(list, keyVar);
@@ -135,6 +144,7 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume, name }) {
 		log,
 		stderr,
 		launchedAt: Date.now(),
+		...(founderReply ? { founderReply: true } : {}),
 	};
 	writeFileAtomic(path.join(dir, "run.json"), `${JSON.stringify(record)}\n`);
 	return { record };
