@@ -37,7 +37,7 @@
  */
 
 const path = require("node:path");
-const { matchSensitivePaths, narrowedAreas } = require("./sensitive-paths.js");
+const { matchSensitivePaths, withNarrowing } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
@@ -61,7 +61,7 @@ const { treeOr } = require("./tree-or.js");
  *   session wrote or its own commits touched, null where its write ledger
  *   will not read; and the host's
  *   `sensitivePaths`, throwing where its config will not read; and those at
- *   HEAD, undefined where HEAD's will not read
+ *   HEAD, undefined where HEAD holds no copy, throwing where it will not read
  * @typedef {import("./core-contract.js").CoreContext & TierPorts} TierContext
  */
 
@@ -103,7 +103,7 @@ function decide(skill, ctx) {
 		);
 		return null;
 	}
-	const match = withNarrowing(
+	const match = narrowedFromHead(
 		matchSensitivePaths(declared, paths),
 		declared,
 		paths,
@@ -135,8 +135,9 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
 }
 
 /**
- * `match` plus each area a change to the declaration narrows, which the review
- * hold refuses under that area's name whatever else the change touches (#3905).
+ * `match` plus each area a change to the declaration narrows from HEAD's
+ * (lib/sensitive-paths.js's withNarrowing). A HEAD copy that will not read is
+ * logged and narrows nothing.
  * @param {Match} match
  * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
  * @param {string[]} paths
@@ -144,20 +145,18 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
  *   declaration is read at
  * @returns {Match}
  */
-function withNarrowing(match, declared, paths, { tree, ctx }) {
+function narrowedFromHead(match, declared, paths, { tree, ctx }) {
 	if (!paths.includes(DECLARATION)) return match;
-	const before = ctx.declaredAtHead(tree);
-	const narrowed = narrowedAreas(before, declared);
-	const added = (before ?? [])
-		.filter(
-			(a) =>
-				narrowed.includes(a.name) &&
-				!match.matched.some((m) => m.name === a.name),
-		)
-		.map(({ globs: _globs, ...area }) => ({ ...area, paths: [DECLARATION] }));
-	return added.length === 0
-		? match
-		: { ...match, tier: "escalated", matched: [...match.matched, ...added] };
+	let before;
+	try {
+		before = ctx.declaredAtHead(tree);
+	} catch (e) {
+		ctx.log(
+			`the declaration at HEAD did not read — a narrowing of it not checked: ${caught(e).message}`,
+		);
+		return match;
+	}
+	return withNarrowing(match, before, declared, paths);
 }
 
 /**

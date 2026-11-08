@@ -20,6 +20,7 @@ const {
 	git,
 	freshCopy,
 	commitBy,
+	commitFile,
 	commitUnwritten,
 	ledgerHead,
 	marker,
@@ -108,6 +109,22 @@ describe("what the adapter answers (#1163)", () => {
 		expect(o?.markerMore).toContain(
 			"record it with --tier escalated (or mission-critical) --areas 'RLS'",
 		);
+	});
+
+	// #4049: the hold refuses a narrowing under the area's name, so the warning owes it too.
+	it("names the escalated tier and the area for a range narrowing the declaration", () => {
+		const Config = ".claude/workflow-core.json";
+		declareRls();
+		commitFile(Config, fs.readFileSync(path.join(f.shared, Config), "utf8"));
+		fs.writeFileSync(
+			path.join(f.shared, ".claude", "tmp", "markers", `.concision-base-${ME}`),
+			git(f.shared, "rev-parse", "HEAD").trim(),
+		);
+		commitBy(Config, JSON.stringify({ sensitivePaths: [] }));
+		const o = owed();
+		expect(o?.tier).toBe("escalated");
+		expect(o?.files).toBe(Config);
+		expect(o?.tierLine).toContain("declared sensitive paths (RLS)");
 	});
 
 	// #1696: a standard review's marker never passes for an escalated one.

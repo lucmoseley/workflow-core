@@ -98,7 +98,8 @@ attributed_to() { grep -Fxf "$1" - 2>/dev/null || true; }
 
 # code_review_owed <base> <ledger file> <threshold> [<to>] — 0 where the code this
 # session wrote changed by more than <threshold> lines since <base>, or where
-# any path it wrote falls under a declared sensitive glob, else 1. Sets
+# any path it wrote falls under a declared sensitive glob or narrows the
+# declaration since <base>, else 1. Sets
 # cs_files (up to NAMED_PATHS_MAX paths, space-separated), cs_churn, cs_tier
 # (`standard` or `escalated`), cs_area_names (the matched areas' names, an
 # array), cs_areas (the same, comma-separated) and cs_fault either way.
@@ -174,18 +175,24 @@ written_paths() {
 }
 
 # sensitive_match <array name> <base> <ledger file> [<to>] — fills the named
-# array with the paths this session wrote that a declared glob matched, and
+# array with the paths this session wrote that a declared glob matched, the
+# declaration itself where it narrows an area from its copy at <base>, and
 # sets cs_area_names, cs_areas and cs_fault. <to> as code_review_owed's.
 sensitive_match() {
   local -n sm_paths="$1"
-  local base="$2" mine="$3" to="${4:-}" written match
+  local base="$2" mine="$3" to="${4:-}" written match rc=0
   written=$(written_paths "$base" "$mine" "$to")
   [[ -n "$written" ]] || return 0
-  match=$(printf '%s\n' "$written" | node "$CS_MATCHER" --stdin 2>/dev/null) || {
-    # shellcheck disable=SC2034  # the caller's to read
-    cs_fault="lib/sensitive-paths.js failed — sensitive paths not checked, standard tier assumed"
-    return 0
-  }
+  match=$(printf '%s\n' "$written" | node "$CS_MATCHER" --stdin --narrowed-from "$base" 2>/dev/null) || rc=$?
+  # shellcheck disable=SC2034  # the caller's to read
+  case "$rc" in
+    0) ;;
+    3) cs_fault="the declaration at $base did not read — a narrowing of it not checked" ;;
+    *)
+      cs_fault="lib/sensitive-paths.js failed — sensitive paths not checked, standard tier assumed"
+      return 0
+      ;;
+  esac
   # First line the area count, then one area name a line, then one matched
   # path a line; nothing at `standard`.
   local filter='select(.tier == "escalated") | (.matched | length), .matched[].name, .matched[].paths[]'

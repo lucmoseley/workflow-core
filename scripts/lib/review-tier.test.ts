@@ -904,6 +904,31 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		}
 	});
 
+	// #4049: only a HEAD with no copy reads as declaring nothing.
+	it("logs a HEAD declaration that will not read, and stays at the tier the staged paths owe", () => {
+		write(".claude/workflow-core.json", "{ not json");
+		git("add", ".claude/workflow-core.json");
+		git("commit", "-qm", "broken declaration");
+		declare([]);
+		git("add", ".claude/workflow-core.json");
+		expect(envelope()).toBeNull();
+		expect(logs.join("\n")).toMatch(
+			/^the declaration at HEAD did not read — a narrowing of it not checked: /m,
+		);
+	});
+
+	it("reads an unborn HEAD as declaring nothing, unlogged, in the host port", () => {
+		const unborn = path.join(sb.dir, "unborn");
+		fs.mkdirSync(unborn);
+		execFileSync("git", ["init", "-q", unborn]);
+		execFileSync("git", ["config", "user.email", "t@example.com"], {
+			cwd: unborn,
+		});
+		execFileSync("git", ["config", "user.name", "t"], { cwd: unborn });
+		const ports = require("./review-tier-host.js").buildHostPorts(unborn);
+		expect(ports.declaredAtHead(unborn)).toBeUndefined();
+	});
+
 	it("logs a config that will not read, and says nothing", () => {
 		fs.writeFileSync(
 			path.join(sb.repo, ".claude", "workflow-core.json"),

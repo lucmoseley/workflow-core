@@ -99,6 +99,56 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 		expect(readGuardErrorsLog(cfg)).toContain("lib/sensitive-paths.js failed");
 	});
 
+	// #4049: the hold refuses a narrowing under the area's name, so the nag owes it too.
+	describe("a change narrowing the declaration since the start point", () => {
+		const Config = ".claude/workflow-core.json";
+		const startAfter = (body: () => void) => {
+			body();
+			git("add", Config);
+			git("commit", "-qm", "declaration", "--", Config);
+			fs.writeFileSync(
+				path.join(markersDir(), `.concision-base-${ME}`),
+				git("rev-parse", "HEAD").trim(),
+			);
+		};
+
+		it.each([
+			["dropping the glob", () => declare([])],
+			[
+				"declaring none",
+				() => write(Config, JSON.stringify({ sensitivePaths: [] })),
+			],
+		])("names the escalated tier and the area on %s", (_, narrow) => {
+			startAfter(() => declare(["supabase/migrations/**"]));
+			narrow();
+			record(Config, ME);
+
+			const reason = run("stop") ?? "";
+			expect(reason).toContain("`escalated` review tier is owed");
+			expect(reason).toContain("declared sensitive paths (RLS)");
+			expect(reason).toContain(Config);
+		});
+
+		it("stays silent on a change keeping every glob", () => {
+			startAfter(() => declare(["supabase/migrations/**"]));
+			declare(["supabase/migrations/**", "app/money/**"]);
+			record(Config, ME);
+
+			expect(run("stop")).toBeNull();
+		});
+
+		it("logs a start-point copy that will not read", () => {
+			startAfter(() => write(Config, "{ not json"));
+			declare([]);
+			record(Config, ME);
+
+			run("stop");
+			expect(readGuardErrorsLog(cfg)).toContain(
+				"did not read — a narrowing of it not checked",
+			);
+		});
+	});
+
 	it("names the standard tier on code no glob covers", () => {
 		declare(["supabase/migrations/**"]);
 		write("scripts/mine.ts", `${BIG_CODE}\n`);

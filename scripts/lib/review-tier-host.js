@@ -117,15 +117,18 @@ function buildHostPorts(root) {
 				root: tree,
 				quiet: true,
 			}).sensitivePaths,
+		/* readConfig reads a HEAD with no copy as declaring nothing; it throws
+		 * on an unborn HEAD too, which holds no copy (#3905), so that one
+		 * throw alone is swallowed and the core logs any other (#4049). */
 		declaredAtHead: (tree) => {
 			const { readConfig } = require("./workflow-core-config.js");
-			let atHead = null;
 			try {
-				atHead = readConfig({ root: tree, rev: "HEAD", quiet: true });
-			} catch {
-				// #3905: a HEAD with no readable copy has no declaration to narrow.
+				return readConfig({ root: tree, rev: "HEAD", quiet: true })
+					.sensitivePaths;
+			} catch (e) {
+				if (git(tree, ["rev-parse", "--verify", "-q", "HEAD"]) === null) return;
+				throw e;
 			}
-			return atHead?.sensitivePaths;
 		},
 	};
 }
