@@ -51,17 +51,20 @@ const MAIN = `refs/heads/${VERIFIED_BRANCH}`;
 const unchecked = buildUnchecked("landing-push-gate", "push to main");
 
 /**
+ * Whether the line creates `main` on a remote that has none.
+ * @param {import("./lib/push-refs.js").RefLine} line
+ */
+const createsMain = ({ sha, remoteSha }) =>
+	remoteSha !== undefined && isZeroSha(remoteSha) && !isZeroSha(sha);
+
+/**
  * The local shas the ref list pushes to an existing `main`, a deletion's
  * zeros included.
  * @param {string} stdin
  */
 const parseMainPushes = (stdin) =>
 	parseRefLines(stdin)
-		.filter(
-			({ sha, remoteRef, remoteSha }) =>
-				remoteRef === MAIN &&
-				!(remoteSha !== undefined && isZeroSha(remoteSha) && !isZeroSha(sha)),
-		)
+		.filter((line) => line.remoteRef === MAIN && !createsMain(line))
 		.map(({ sha }) => sha);
 
 /**

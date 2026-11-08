@@ -22,8 +22,7 @@ import {
 	SKELETON_PATHS,
 	upgradeAfterInit,
 } from "./init-adopter-fixture";
-import { readCutOver } from "./lib/cutover.js";
-import { GIT_TIMEOUT_MS, gitReader } from "./lib/git.js";
+import { isCutOver } from "./lib/cutover.js";
 import { allRegistrations, buildCommandLine } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -125,7 +124,7 @@ describe("a new repo created with the landing module on (#2412)", () => {
 			expect(
 				fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8"),
 			).toContain("A push to your session's queue ref is your own act");
-			expect(readCutOver(gitReader(dir, GIT_TIMEOUT_MS))).toBe(true);
+			expect(isCutOver(dir)).toBe(true);
 			/* The suite's WFC_MODULES holds every module but `landing`, and would
 			 * replace the declared list in the hooks. */
 			const { WFC_MODULES: _suite, ...env } = process.env;

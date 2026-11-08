@@ -232,7 +232,7 @@ it("returns unknown, never green, where it cannot check out, install or start", 
 	});
 });
 
-it("returns green where the sha declares no suite, taking no slot, and runs the Python suite alone where only it is routed (#2412)", async () => {
+it("returns green where the sha declares no suite, taking no slot (#2412)", async () => {
 	const { log, admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
 	config({ commands: {} });
@@ -240,7 +240,9 @@ it("returns green where the sha declares no suite, taking no slot, and runs the 
 		kind: "green",
 	});
 	expect(log).toEqual([]);
+});
 
+it("runs the Python suite alone where it is routed and no test command is declared (#2412)", async () => {
 	const pytest = path.join(tmp, "fake-pytest.js");
 	const ran = path.join(tmp, "pytest-argv");
 	fs.writeFileSync(
