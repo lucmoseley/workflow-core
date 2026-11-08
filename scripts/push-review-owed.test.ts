@@ -20,6 +20,7 @@ const {
 	git,
 	freshCopy,
 	commitBy,
+	commitFile,
 	commitUnwritten,
 	ledgerHead,
 	marker,
@@ -108,6 +109,48 @@ describe("what the adapter answers (#1163)", () => {
 		expect(o?.markerMore).toContain(
 			"record it with --tier escalated (or mission-critical) --areas 'RLS'",
 		);
+	});
+
+	// #4049: the hold refuses a narrowing under the area's name, so the warning owes it too.
+	it("names the escalated tier and the area for a range narrowing the declaration", () => {
+		const DeclarationPath = ".claude/workflow-core.json";
+		declareRls();
+		commitFile(
+			DeclarationPath,
+			fs.readFileSync(path.join(f.shared, DeclarationPath), "utf8"),
+		);
+		fs.writeFileSync(
+			path.join(f.shared, ".claude", "tmp", "markers", `.concision-base-${ME}`),
+			git(f.shared, "rev-parse", "HEAD").trim(),
+		);
+		commitBy(DeclarationPath, JSON.stringify({ sensitivePaths: [] }));
+		const o = owed();
+		expect(o?.tier).toBe("escalated");
+		expect(o?.files).toBe(DeclarationPath);
+		expect(o?.tierLine).toContain("declared sensitive paths (RLS)");
+	});
+
+	it("reads a worktree's narrowing in that worktree, not the shared tree's copy", () => {
+		const DeclarationPath = ".claude/workflow-core.json";
+		declareRls();
+		const declaring = fs.readFileSync(
+			path.join(f.shared, DeclarationPath),
+			"utf8",
+		);
+		commitFile(DeclarationPath, declaring, f.worktree);
+		fs.writeFileSync(
+			path.join(f.shared, ".claude", "tmp", "markers", `.concision-base-${ME}`),
+			git(f.worktree, "rev-parse", "HEAD").trim(),
+		);
+		commitBy(
+			DeclarationPath,
+			JSON.stringify({ sensitivePaths: [] }),
+			ME,
+			f.worktree,
+		);
+		const o = owed(f.worktree);
+		expect(o?.tier).toBe("escalated");
+		expect(o?.files).toBe(DeclarationPath);
 	});
 
 	// #1696: a standard review's marker never passes for an escalated one.

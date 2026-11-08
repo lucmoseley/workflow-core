@@ -492,6 +492,115 @@ describe("token masking (#1031)", () => {
 		},
 	);
 
+	const pemBody = "QUFBQUFBQUFBQUFBQUFBQUFBQUFB";
+	const pemLast = "ZmFrZWtleW1hZGV1cGZvcnRlc3Q";
+	const pem = `-----BEGIN X-----\n${pemBody}\n${pemLast}==\n-----END X-----`;
+	const escapedPem =
+		'K="-----BEGIN X-----\\nAAAAmadeupkeyline\\nBBBBmadeupkeyline\\n-----END X-----"';
+	it.each([
+		[
+			"a # in it, then a comment",
+			"K=pass#wordwordword # rotated",
+			"pass#wordwordword",
+		],
+		["a # in a long word", "K=abcdefgh#ijklmnop # note", "abcdefgh#ijklmnop"],
+		[
+			"a U+2028, then a comment",
+			"K=abcdefghij\u2028klmnopqrst # note",
+			"klmnopqrst",
+		],
+		[
+			"a quote after an escaped backslash, closed on a later line",
+			'K="abcdefghij\\\\"\nklmnopqrst"',
+			"klmnopqrst",
+		],
+		["a key line that reads as an assignment", `K="${pem}"`, `${pemLast}==`],
+		["that key whole", `K="${pem}"`, pem],
+		["that key whole as JSON", `K="${pem}"`, JSON.stringify(pem).slice(1, -1)],
+		["a line of a key its escapes break", escapedPem, "BBBBmadeupkeyline"],
+		[
+			"that key whole, printed with CRLF",
+			escapedPem,
+			"-----BEGIN X-----\r\nAAAAmadeupkeyline\r\nBBBBmadeupkeyline\r\n-----END X-----",
+		],
+	])("masks a stored value held by %s (#4048)", (_n, stored, logged) => {
+		fs.writeFileSync(path.join(repo, "secrets.env"), `${stored}\n`);
+		const r = run([sessionLog([toolResult(`held (${logged}) end`)])]);
+		expect(r.status).toBe(0);
+		const out = readTranscript(r.stdout).join("\n");
+		expect(out).toContain("held ([REDACTED:stored]");
+		expect(out).not.toContain(logged);
+		expect(out).not.toMatch(/madeupkeyline|ZmFrZWtleW1h/);
+	});
+
+	it.each([
+		[
+			"a key line closed by an even backslash run before a later quote",
+			'K="-----BEGIN X-----\nQUFBQUFBQUFBQUFB\nlastlinesecret\\\\" # rotated\nM="xyzxyzxyzxyz"',
+			"lastlinesecret\\\\",
+		],
+		[
+			"a lower-case name commented out",
+			"# db_password=MadeUpValue2026",
+			"MadeUpValue2026",
+		],
+		[
+			"a mixed-case name commented out",
+			"#Api_Key=MadeUpValue2026",
+			"MadeUpValue2026",
+		],
+		[
+			"a commented key opening on a bare quote",
+			'# private_key="\n# MIIEvQIBADANBgkqhkiG9w0BAQEF\n# "',
+			"MIIEvQIBADANBgkqhkiG9w0BAQEF",
+		],
+		[
+			"a commented passphrase opening a quote",
+			'# db_password="correct horse\n# Battery9Staple"',
+			"Battery9Staple",
+		],
+		[
+			"a commented hyphened passphrase",
+			"# wifi_pass=correct-horse-battery-staple",
+			"correct-horse-battery-staple",
+		],
+		[
+			"a commented one-word password",
+			"# db_password=letmeinplease",
+			"letmeinplease",
+		],
+		[
+			"an assignment inside a quoted value, a log running past it",
+			'K="first line here\nL=abcdefgh\nlast line here"',
+			"set L=abcdefghMORESECRET",
+		],
+		[
+			"a value that holds an assignment, a log running past it",
+			'K=abcdefghTAILSECRET\nL="x K=abcdefgh"',
+			"x K=abcdefghTAILSECRET",
+		],
+	])("masks the stored value of %s (#4048)", (_n, stored, logged) => {
+		fs.writeFileSync(path.join(repo, "secrets.env"), `${stored}\n`);
+		const r = run([sessionLog([toolResult(`held (${logged}`)])]);
+		expect(r.status).toBe(0);
+		const out = readTranscript(r.stdout).join("\n");
+		expect(out).not.toMatch(
+			/lastlinesecret|MadeUpValue2026|MORESECRET|TAILSECRET|MIIEvQ|Battery9|horse-battery|letmeinplease/,
+		);
+	});
+
+	it("leaves a word a comment assigns in lower case bare (#4048)", () => {
+		fs.writeFileSync(
+			path.join(repo, "secrets.env"),
+			"# scope=repository\nK=abcdefghij\n",
+		);
+		const r = run([sessionLog([toolResult("the repository holds it")])]);
+		expect(r.status).toBe(0);
+		expect(readTranscript(r.stdout).join("\n")).toContain(
+			"the repository holds it",
+		);
+	});
+
 	it("masks a stored value an object's JSON text escapes (#3908)", () => {
 		const value = 'abcd"madeupvalue';
 		fs.writeFileSync(path.join(repo, "secrets.env"), `K='${value}'\n`);

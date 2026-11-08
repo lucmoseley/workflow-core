@@ -177,7 +177,8 @@ const {
 	ghJson,
 	unreachableRemedy,
 } = require("./lib/gh");
-const { gitOutcome } = require("./lib/git");
+const { readCommit } = require("./lib/commit-sha");
+const { gitOutcome, gitReader } = require("./lib/git");
 const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
@@ -638,22 +639,18 @@ function addTrailerCommits(commits, reading) {
 }
 
 /**
- * The commit `s` names in the checkout at `root`, its `sha` empty where that
+ * The commit `s` names in the checkout at `root`, its `sha` null where that
  * checkout holds none.
  *
  * @param {string} s
  * @param {string} root
- * @returns {{ ok: true, sha: string, message: string } | { ok: false, why: string }}
+ * @returns {{ ok: true, sha: string | null, message: string } | { ok: false, why: string }}
  */
 function readEscapedCommit(s, root) {
-	const resolved = gitOutcome(
-		["rev-parse", "--verify", "--quiet", `${s}^{commit}`],
-		[1],
-		root,
-	);
+	const resolved = readCommit(gitReader(root), s);
 	if (!resolved.ok) return resolved;
-	const sha = resolved.out.trim();
-	if (sha === "") return { ok: true, sha, message: "" };
+	const { sha } = resolved;
+	if (sha === null) return { ok: true, sha, message: "" };
 	const read = gitOutcome(["log", "-1", "--format=%B", sha], [], root);
 	return read.ok ? { ok: true, sha, message: read.out } : read;
 }
@@ -686,7 +683,7 @@ function placeEscape(s, commits, checkouts, { parsed, cover, own }) {
 			continue;
 		}
 		const { sha, message } = read;
-		if (sha === "") continue;
+		if (sha === null) continue;
 		isAccountedFor = true;
 		const counted = parsed.records.filter(
 			(c) => COUNTED_TIERS.has(c.tier) && c.repo === repo,
