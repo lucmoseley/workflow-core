@@ -447,7 +447,8 @@ function pastBiomeStaged(hop) {
  * The directory other than `top` the Biome command surely runs in, by its hop's
  * directory and its own `cd` or runner's flag, or undefined: a `cd` no `&&`
  * settles is refused as holding more than the Biome command. A hop passed through
- * on the way back to `top` is no such directory (#4069).
+ * on the way back to `top` is no such directory (#4069). Of several, the first
+ * is named, as the refusal needs one.
  * @param {Placed|undefined} placed the Biome command
  * @param {string} top
  */

@@ -29,17 +29,19 @@ const KNOWN_TIERS = new Set([...COUNTED_TIERS, "standard"]);
 const BULLET = /^\s*-\s/;
 const KNOWN = /^\s*-\s*(?:FIXED|TICKETED)\b/;
 const FIXED = /^\s*-\s*FIXED\b/;
-/* A FIXED or TICKETED line in another spelling (#3907): any case right after a
- * list marker, upper case anywhere on a list line or opening a bare one, as
- * "Fixed by the next commit." is prose. A declined line counts 0 however spelt. */
+/* A FIXED or TICKETED line in another spelling (#3907), the word's stem and
+ * plural among them (#4050): any case right after a list marker, upper case
+ * anywhere on a list line or opening a bare one, as "Fixed by the next
+ * commit." is prose. A declined line counts 0 however spelt. */
 const LIST_MARKER = "(?:[-*+–—•]|\\d+[.)])";
 const LIST_LINE = new RegExp(`^\\s*${LIST_MARKER}`);
-const UPPER_WORD = /(?<![A-Za-z])(?:FIXED|TICKETED)(?![A-Za-z])/;
+const SPELLING = "(?:FIX(?:E[DS]|ING)?|TICKET(?:ED|S|ING)?)(?![A-Za-z])";
+const UPPER_WORD = new RegExp(`(?<![A-Za-z])${SPELLING}`);
 const MARKED_SPELLING = new RegExp(
-	`^\\s*${LIST_MARKER}\\s*[^A-Za-z]*(?:fixed|ticketed)(?![A-Za-z])`,
+	`^\\s*${LIST_MARKER}\\s*[^A-Za-z]*${SPELLING}`,
 	"i",
 );
-const BARE_SPELLING = /^\s*[*_`]*(?:FIXED|TICKETED)(?![A-Za-z])/;
+const BARE_SPELLING = new RegExp(`^\\s*[*_\`]*${SPELLING}`);
 const DECLINED_SPELLING = new RegExp(
 	`^\\s*(?:${LIST_MARKER})?\\s*[^A-Za-z]*declined(?![A-Za-z])`,
 	"i",
@@ -196,15 +198,52 @@ const isMisspelt = (line) =>
 const pathsOf = (m) =>
 	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
 
+/**
+ * @typedef {{ whole: string, words: string[] }} PathEntry
+ */
+
+/**
+ * A record's entries: each comma-separated one whole, as the marker's paths=
+ * joins them, so a path may hold a space. With no comma, the one entry is
+ * also read word by word, as records before that form separated paths by
+ * spaces (#3817, #4050).
+ *
+ * @param {string} paths
+ * @returns {PathEntry[]}
+ */
+function pathEntriesOf(paths) {
+	const bare = paths.replace(/`/g, "").trim();
+	if (bare === "") return [];
+	if (!bare.includes(",")) return [{ whole: bare, words: bare.split(/\s+/) }];
+	return bare
+		.split(",")
+		.map((whole) => whole.trim())
+		.filter(Boolean)
+		.map((whole) => ({ whole, words: [whole] }));
+}
+
+/**
+ * Every pathspec a replay reads: each entry whole and each word of it.
+ * Residual: in the comma-free form, a word of a spaced path that is itself a
+ * path is replayed too.
+ *
+ * @param {PathEntry[]} entries
+ */
+const pathspecsOf = (entries) => [
+	...new Set(entries.flatMap((e) => [e.whole, ...e.words])),
+];
+
 /** @param {string} paths */
-const pathListOf = (paths) =>
+const pathListOf = (paths) => pathspecsOf(pathEntriesOf(paths));
+
+/** @param {string} paths */
+const pathSetOf = (paths) =>
 	paths
 		.replace(/`/g, "")
 		.split(/[\s,]+/)
-		.filter(Boolean);
-
-/** @param {string} paths */
-const pathSetOf = (paths) => pathListOf(paths).sort().join(",");
+		.filter(Boolean)
+		.sort()
+		.join(",");
 
 /** @param {string} body @param {number} at */
 const lineAt = (body, at) => body.slice(at).replace(/\n[\s\S]*/, "");
@@ -397,8 +436,14 @@ const describeCutOff = (cutOff) =>
  * @returns {string[]}
  */
 function readStrayPaths(r, root) {
-	const entries = pathListOf(r.paths);
-	const byShape = () => entries.filter((e) => NOT_A_PATH.test(e));
+	const entries = pathEntriesOf(r.paths);
+	/* A stray is named as the record spells it. */
+	const byShape = () =>
+		entries.flatMap(({ whole, words }) => {
+			const stray = whole.split(/\s+/).filter((w) => NOT_A_PATH.test(w));
+			return stray.length === 0 || words.length > 1 ? stray : [whole];
+		});
+	const pathspecs = pathspecsOf(entries);
 	if (root === null) return byShape();
 	/** @type {string[]} */
 	const changed = [];
@@ -414,7 +459,7 @@ function readStrayPaths(r, root) {
 				r.base,
 				to,
 				"--",
-				...entries,
+				...pathspecs,
 			],
 			[],
 			root,
@@ -422,9 +467,15 @@ function readStrayPaths(r, root) {
 		if (!diff.ok) return byShape();
 		changed.push(...diff.out.split("\n"));
 	}
-	return entries.filter((e) => {
+	/** @param {string} e */
+	const isChanged = (e) => {
 		const entry = e.replace(/^\.\//, "").replace(/\/$/, "");
-		return !changed.some((c) => isUnder(c, [entry]));
+		return changed.some((c) => isUnder(c, [entry]));
+	};
+	return entries.flatMap(({ whole, words }) => {
+		if (isChanged(whole)) return [];
+		const stray = words.filter((w) => !isChanged(w));
+		return stray.length === words.length ? [whole] : stray;
 	});
 }
 
@@ -437,14 +488,18 @@ function readStrayPaths(r, root) {
  */
 function readPathFaults(r, root) {
 	if (r.paths === null) return [];
-	const stray = readStrayPaths({ ...r, paths: r.paths }, root);
+	const stray = readStrayPaths({ ...r, paths: r.paths }, root).map(
+		(e) => `"${e}"`,
+	);
 	return stray.length === 0
 		? []
 		: [
 				{
 					tag: "NOT PATHS",
-					what: `whose paths hold ${stray.map((e) => `"${e}"`).join(", ")}, no path changed in its replay, so that replay would miss what the runs saw`,
-					fix: "with the marker's paths= and no note after them",
+					what: `whose paths hold ${stray.join(", ")}, no path changed in its replay, so that replay would miss what the runs saw`,
+					/* The marker may name a path the commit left unchanged, as the
+					 * hold takes one (#4050). */
+					fix: `with the marker's paths= less any of ${stray.join(", ")} it names, as no file changes under them in its replay, and no note after them`,
 				},
 			];
 }
