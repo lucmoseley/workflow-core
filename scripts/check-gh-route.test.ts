@@ -20,9 +20,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isShipped } from "./lib/plugin-tree.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-gh-route.js");
+const CORE = path.resolve(__dirname, "..");
 
 let root: string;
 
@@ -214,7 +216,7 @@ describe("check-gh-route", () => {
 			"2 second binary route(s): scripts/a.test.ts:3, scripts/b.test.ts:2.",
 		);
 		expect(r.out).toContain(
-			"Fix: point WFC_GH at the stub, with `stubGhScript` or `stubGhRoutes` from scripts/lib/gh-stub.ts, as scripts/check-issue-orphans.test.ts does.",
+			"Fix: point WFC_GH at the stub executable, never PATH.",
 		);
 	});
 
@@ -325,8 +327,27 @@ describe("check-gh-route", () => {
 			`claude SHELL-BARE Fix: run "\${WFC_CLAUDE_BIN:-claude}"`,
 		);
 		expect(r.out).toContain(
-			"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub, as scripts/run-mod-tests.test.ts does.",
+			"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
 		);
+	});
+
+	it("names in every shape's fix only files the release ships, as an adopter reads it (#4182)", () => {
+		fixture("scripts/arm.js", "env-read.js.txt");
+		fixture("scripts/lib/archive.js", "second-var.js.txt");
+		fixture("scripts/a.test.ts", "path-stub.ts.txt");
+		fixture("scripts/claude-arm.js", "claude-copies.js.txt");
+		fixture("scripts/lib/claude-arm.js", "claude-second-var.js.txt");
+		fixture("scripts/b.test.ts", "claude-path-stub.ts.txt");
+		file(
+			"scripts/hook.sh",
+			"#!/usr/bin/env bash\ngh auth status\nclaude agents\n",
+		);
+		const fixes = run()
+			.out.split("\n")
+			.filter((l) => /^\s*\S+ [A-Z-]+ Fix: /.test(l));
+		expect(fixes).toHaveLength(8);
+		const named = fixes.flatMap((l) => l.match(/scripts\/[\w./-]*\w/g) ?? []);
+		expect(named.filter((rel) => !isShipped(CORE, rel))).toEqual([]);
 	});
 
 	it("passes the one `claude` route, and a shell `claude` marked as only text", () => {
