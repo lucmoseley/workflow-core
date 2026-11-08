@@ -40,6 +40,11 @@
  * ~12 hours — the cron asks for four a day and GitHub delivers late
  * and drops slots (mantahostels#2228), so 6h is the ask, not the lag.
  *
+ * A FRESH BUMP IS PENDING, NOT A FAULT (#4675). Every bump lands before its
+ * tag can exist, so a pin ahead of every remote tag, set by a commit that
+ * landed under PENDING_CUT_HOURS ago, is a SKIP naming when it falls due. A
+ * tag cut here and never pushed is no pending cut and fails at once.
+ *
  * AN UNREACHABLE REMOTE GATES UNDER --require-remote, AND ONLY THERE (#263),
  * against lib/check.js's alphabet. The sweep step passes it and nothing else
  * does; remoteUnreachable() carries why, and the price.
@@ -107,6 +112,11 @@ function semverParts(v) {
  * hung fetch does not hold up the rest of `npm run status`. A first guess —
  * nothing here has been profiled. */
 const LS_REMOTE_TIMEOUT_MS = 15_000;
+
+/* How long a landed bump may pin a tag the remote lacks before that reads as
+ * a fault (#4675): two delivered sweep intervals of ~12h (mantahostels#2228),
+ * so a cut made by the next working session never reads red. A first guess. */
+const PENDING_CUT_HOURS = 24;
 
 /**
  * Compare two git URLs for the same repository, so an `origin` spelled
@@ -514,13 +524,71 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 }
 
 /**
- * A tag-pinned entry whose tag the remote lacks: unresolved, unpushed or
- * never cut.
+ * When the commit that set `ref` reached HEAD's first-parent line, in epoch
+ * seconds: the lander's batch merge for a landed bump. `null` where history
+ * holds no such commit — a shallow clone or an uncommitted edit.
+ *
+ * @param {string} root
+ * @param {string} ref
+ * @returns {number|null}
+ */
+function readPinLandedAt(root, ref) {
+	const out = git(root, [
+		"log",
+		"-1",
+		"--format=%ct",
+		"--no-patch",
+		"--first-parent",
+		"--diff-merges=first-parent",
+		`-G"ref": *"${ref.replaceAll(".", "\\.")}"`,
+		"HEAD",
+		"--",
+		".claude-plugin/marketplace.json",
+	]).trim();
+	return out === "" ? null : Number(out);
+}
+
+/**
+ * Whether `ref` is a bump whose own cut is still due: ahead of every tag the
+ * remote has cut, set by a commit that landed under PENDING_CUT_HOURS ago.
+ * release-plugin.js cuts only from a commit `main` holds, so every bump lands
+ * before its tag can exist (#4675).
+ *
+ * @param {Ctx} ctx
+ * @param {{ root: string, remote: string, ref: string }} pin
+ * @returns {{ hoursLeft: number } | null}
+ */
+function readPendingCut(ctx, { root, remote, ref }) {
+	const newest = readNewestCutTagOnRemote(ctx, root, remote);
+	if ("unreachable" in newest) return null;
+	if (newest.tag !== null && !semverGt(tagVersion(ref), tagVersion(newest.tag)))
+		return null;
+	const landedAt = readPinLandedAt(root, ref);
+	if (landedAt === null) return null;
+	const hoursLeft = PENDING_CUT_HOURS - (Date.now() / 1000 - landedAt) / 3600;
+	return hoursLeft > 0 ? { hoursLeft } : null;
+}
+
+/**
+ * A tag-pinned entry whose tag the remote lacks: pending, unresolved,
+ * unpushed or never cut.
  * @param {Ctx} ctx
  * @param {{ root: string, remote: string, ref: string }} pin
  */
 function judgeUnpublishedTag(ctx, { root, remote, ref }) {
-	if (!hasTrustworthyLocalTags()) {
+	const trusted = hasTrustworthyLocalTags();
+	const cutHere = trusted && hasLocalTag(ctx, root, ref);
+	if (!cutHere) {
+		const pending = readPendingCut(ctx, { root, remote, ref });
+		if (pending)
+			ctx.skip(
+				`${ref} is a bump whose release is pending: ${remote} lacks the tag, and it\n` +
+					`      is due within ${Math.ceil(pending.hoursLeft)}h, after which this fails. Cut and push it:\n` +
+					"        node scripts/release-plugin.js --push",
+			);
+	}
+
+	if (!trusted) {
 		ctx.fail(
 			"TAG-UNRESOLVED",
 			`${ref} is pinned but not on ${remote}, and local tags here are populated from that same remote, so this cannot tell TAG-UNCUT from TAG-UNPUSHED`,
@@ -537,7 +605,7 @@ function judgeUnpublishedTag(ctx, { root, remote, ref }) {
 		return { noun: "pinned tag unresolved against the remote" };
 	}
 
-	if (hasLocalTag(ctx, root, ref)) {
+	if (cutHere) {
 		ctx.fail(
 			"TAG-UNPUSHED",
 			`${ref} was cut here but ${remote} does not have it`,

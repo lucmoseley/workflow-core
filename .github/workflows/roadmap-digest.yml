@@ -257,7 +257,7 @@ jobs:
       # cuts its tag only from a commit `main` holds, so gating that run on the
       # tag drops the bump's batch for good. A push run is scheduled-checks.yml's,
       # whose event a called workflow reads. A sweep reads `main` and judges the
-      # tag: red from a bump landing until its tag is pushed, so cut at once.
+      # tag, reading a bump that landed under 24h ago as pending (#4675).
       #
       # Local backstop: `npm run check:release-pin`.
       - name: Check the marketplace's pinned release tag is on the remote
