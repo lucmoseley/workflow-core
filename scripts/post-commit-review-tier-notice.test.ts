@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * .husky/post-commit's notice after an amend that dropped the amended commit's
- * `Review-Tier:` line (#4051), its block cut from the hook's own text and run
+ * `Review-Tier:` line, its block cut from the hook's own text and run
  * as post-commit-touched-by-notice.test.ts runs the blocks beside it. Loosen a
  * case and a reviewed commit's record goes with no word, or an empty commit on
  * a reviewed HEAD is told it amended something.
@@ -29,7 +29,7 @@ function reviewed() {
 	return repo;
 }
 
-/** `sh -e`, as .husky/_/h runs every hook; the marker proves the block returned. */
+/** `sh -e`, as .husky/_/h runs every hook. */
 function runBlock(cwd: string) {
 	const r = spawnSync(
 		"sh",

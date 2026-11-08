@@ -94,8 +94,7 @@ report_unpushed
 # Silent on a clean non-merge commit with a parent.
 #
 # EVERY FAILURE PATH HERE IS SILENCE. A missing script, a missing node, a
-# throwing run, a non-zero exit: the commit has landed and a broken notice must
-# never be the thing a session has to debug next.
+# throwing run, a non-zero exit: the commit has landed.
 report_new_shared_faults() {
   # Quiet, over mantahostels#1825's other option of one line: the range is
   # re-readable afterwards with one explicit run per sha.
