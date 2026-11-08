@@ -1878,7 +1878,7 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		});
 	});
 
-	/* A whole suite's rung is ~2.9 GB, so 4,000 MB passes it alone and fails
+	/* A whole suite's rung is ~3.35 GB, so 4,000 MB passes it alone and fails
 	 * it less a 1,500 MB climb (#3416). */
 	it("charges the climb off MemAvailable, giving the reading itself and the charge apart", () => {
 		expect(ask(4000, 0)).toBeNull();
@@ -1907,15 +1907,15 @@ describe("gateDenies, against the real gate (#2421)", () => {
 	});
 
 	it("still holds a touched run on the memory rung for its file count (#2935)", () => {
-		expect(ask(1449, 0, NAMED_200, { weight: TOUCHED_200 })).toMatchObject({
+		expect(ask(1649, 0, NAMED_200, { weight: TOUCHED_200 })).toMatchObject({
 			limb: "memory",
 			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
 		});
-		expect(ask(1449, 0, ["scripts/a.test.ts"], { weight: weighed(1) })).toEqual(
+		expect(ask(1649, 0, ["scripts/a.test.ts"], { weight: weighed(1) })).toEqual(
 			{
 				limb: "memory",
-				mb: 1449,
-				rungMb: 1450,
+				mb: 1649,
+				rungMb: 1650,
 			},
 		);
 	});
@@ -1930,14 +1930,14 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		expect(ask(500, 0, [], { config: "{" })).toMatchObject({ limb: "memory" });
 	});
 
-	it("lets a one-file run's poll through at 1,450 MB, where a whole suite's is held", () => {
-		expect(ask(1450, 0, ["scripts/a.test.ts"])).toBeNull();
-		expect(ask(1449, 0, ["scripts/a.test.ts"])).toEqual({
+	it("lets a one-file run's poll through at 1,650 MB, where a whole suite's is held", () => {
+		expect(ask(1650, 0, ["scripts/a.test.ts"])).toBeNull();
+		expect(ask(1649, 0, ["scripts/a.test.ts"])).toEqual({
 			limb: "memory",
-			mb: 1449,
-			rungMb: 1450,
+			mb: 1649,
+			rungMb: 1650,
 		});
-		expect(ask(1450, 0)).toMatchObject({
+		expect(ask(1650, 0)).toMatchObject({
 			limb: "memory",
 			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
 		});

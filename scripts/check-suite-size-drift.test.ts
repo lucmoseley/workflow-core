@@ -242,6 +242,19 @@ describe("the real repo", () => {
 		expect(r.json().baseline).toBe(SUITE_LADDER_MEASURED_AT.files);
 	});
 
+	it("WARNs on the live lower-bound ladder, naming its successor, and not under --baseline (#4606)", () => {
+		const { SUITE_LADDER_MEASURED_AT } = require("./lib/admission.js");
+		expect(SUITE_LADDER_MEASURED_AT.lowerBound).toBeDefined();
+		const r = runIn(REPO);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("is a lower bound");
+		expect(r.out).toContain(SUITE_LADDER_MEASURED_AT.lowerBound.successor);
+		expect(r.out).toContain("scripts/bench_suite_concurrency.py");
+		expect(runIn(REPO, "--baseline", "10").out).not.toContain(
+			"is a lower bound",
+		);
+	});
+
 	it("counts the same suite from a subdirectory as from the repo root", () => {
 		const fromRoot = runIn(REPO, "--json").json().files;
 		const fromSub = runIn(path.join(REPO, "docs"), "--json").json().files;

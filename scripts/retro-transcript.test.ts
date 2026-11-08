@@ -631,6 +631,25 @@ describe("token masking (#1031)", () => {
 		expect(r.stdout).toBe("");
 	});
 
+	it("exits 1 on names too many to compile, leaving a prior --out as it was (#4047)", () => {
+		const names = Array.from({ length: 120 }, (_, i) =>
+			`NAME_${i}`.padEnd(20, "X"),
+		);
+		fs.writeFileSync(
+			path.join(repo, "secrets.env"),
+			names.map((n) => `${n}=v\n`).join(""),
+		);
+		const out = path.join(repo, ".claude/tmp/prior.txt");
+		fs.mkdirSync(path.dirname(out), { recursive: true });
+		fs.writeFileSync(out, "prior\n");
+		const r = run([sessionLog([toolResult("hello")]), "--out", out]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			`retro-transcript: refused: the secrets file's 120 names make a masking pattern too large to compile. Fix or trim ${path.join(repo, "secrets.env")}, then rerun.\n`,
+		);
+		expect(fs.readFileSync(out, "utf8")).toBe("prior\n");
+	});
+
 	it("masks a token on its own line inside an object tool input", () => {
 		const token = TOKENS[0][1];
 		const log = sessionLog([
@@ -664,6 +683,24 @@ describe("token masking (#1031)", () => {
 });
 
 describe("subagent folding", () => {
+	it("exits 1 on a dangling subagent log, leaving a prior --out as it was (#4047)", () => {
+		const log = sessionLog([user("go", { origin: { kind: "human" } })]);
+		const dir = path.join(logs, SID, "subagents");
+		fs.mkdirSync(dir, { recursive: true });
+		const dangling = path.join(dir, "agent-a.jsonl");
+		fs.symlinkSync(path.join(repo, "gone.jsonl"), dangling);
+		const out = path.join(repo, ".claude/tmp/prior.txt");
+		fs.mkdirSync(path.dirname(out), { recursive: true });
+		fs.writeFileSync(out, "prior\n");
+		const r = run([log, "--out", out]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			`retro-transcript: cannot read ${dangling} (ENOENT). ${out} is as it was. Repair or remove that log, then rerun.\n`,
+		);
+		expect(fs.readFileSync(out, "utf8")).toBe("prior\n");
+		expect(fs.readdirSync(path.dirname(out))).toEqual(["prior.txt"]);
+	});
+
 	const subDir = (sid: string) => path.join(logs, sid, "subagents");
 	const writeSub = (
 		agent: string,
@@ -787,6 +824,61 @@ describe("output path", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`refused: ${out} is a tracked file`);
 		expect(fs.readFileSync(out, "utf8")).toBe("tracked\n");
+	});
+
+	it("refuses a dangling symlink whose target is outside .claude/tmp/, creating nothing (#4047)", () => {
+		fs.mkdirSync(path.join(repo, ".claude/tmp"), { recursive: true });
+		const leak = path.join(repo, "src/leak.txt");
+		fs.mkdirSync(path.dirname(leak));
+		const link = path.join(repo, ".claude/tmp/l.txt");
+		fs.symlinkSync(leak, link);
+		const r = run([log(), "--out", link]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`refused: ${link} is outside`);
+		expect(fs.existsSync(leak)).toBe(false);
+	});
+
+	it("writes through a dangling symlink whose target is under .claude/tmp/", () => {
+		const target = path.join(repo, ".claude/tmp/real.txt");
+		fs.mkdirSync(path.dirname(target), { recursive: true });
+		const link = path.join(repo, ".claude/tmp/l.txt");
+		fs.symlinkSync("real.txt", link);
+		const r = run([log(), "--out", link]);
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(target, "utf8")).toMatch(/^L1 /);
+	});
+
+	it("resolves a dangling link's relative target from its directory's real path", () => {
+		fs.mkdirSync(path.join(repo, ".claude/tmp"), { recursive: true });
+		const outside = path.join(repo, "outside/a/b");
+		fs.mkdirSync(outside, { recursive: true });
+		fs.symlinkSync(outside, path.join(repo, ".claude/tmp/sub"));
+		fs.symlinkSync("../x.txt", path.join(outside, "l.txt"));
+		const link = path.join(repo, ".claude/tmp/sub/l.txt");
+		const r = run([log(), "--out", link]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`refused: ${link} is outside`);
+		expect(fs.existsSync(path.join(repo, ".claude/tmp/x.txt"))).toBe(false);
+		expect(fs.existsSync(path.join(repo, "outside/a/x.txt"))).toBe(false);
+	});
+
+	it("keeps a replaced --out's permission bits", () => {
+		const out = path.join(repo, ".claude/tmp/private.txt");
+		fs.mkdirSync(path.dirname(out), { recursive: true });
+		fs.writeFileSync(out, "prior\n", { mode: 0o600 });
+		fs.chmodSync(out, 0o600);
+		const r = run([log(), "--out", out]);
+		expect(r.status).toBe(0);
+		expect(fs.statSync(out).mode & 0o777).toBe(0o600);
+	});
+
+	it("refuses a symlink loop as --out, naming it", () => {
+		fs.mkdirSync(path.join(repo, ".claude/tmp"), { recursive: true });
+		const link = path.join(repo, ".claude/tmp/loop.txt");
+		fs.symlinkSync("loop.txt", link);
+		const r = run([log(), "--out", link]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`refused: ${link} is a symlink loop`);
 	});
 
 	it("exits 1 naming a log it cannot read", () => {

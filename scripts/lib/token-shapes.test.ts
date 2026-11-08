@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { maskTokens } = require("./token-shapes.js");
+const { buildMasker, maskTokens } = require("./token-shapes.js");
 const { quoteValue } = require("./env-file.js");
 
 const GITHUB = `ghp_${"a".repeat(36)}`;
@@ -573,5 +573,33 @@ describe("maskTokens on a stored value holding a stored name's assignment (#4048
 			text: "K=[REDACTED:stored]",
 			count: 1,
 		});
+	});
+});
+
+describe("buildMasker", () => {
+	it("throws a short message naming the count where the names will not compile (#4047)", () => {
+		const names = Array.from({ length: 120 }, (_, i) =>
+			`NAME_${i}`.padEnd(20, "X"),
+		);
+		expect(() => buildMasker(names)).toThrow(
+			/^the secrets file's 120 names make a masking pattern too large to compile$/,
+		);
+	});
+
+	it("counts a value holding a stored name's assignment once on every call (#4048)", () => {
+		const line = "ZmFrZWtleW1hZGV1cGZvcnRlc3Q==";
+		const mask = buildMasker(["K", "ZmFrZWtleW1hZGV1cGZvcnRlc3Q"], [line]);
+		for (const _call of [1, 2]) {
+			expect(mask(`K=${line} tail`)).toEqual({
+				text: "K=[REDACTED:stored]",
+				count: 1,
+			});
+		}
+	});
+
+	it("masks a stored name's assignment and a bare stored value across calls", () => {
+		const mask = buildMasker(["API_KEY"], ["longstoredvalue"]);
+		expect(mask("API_KEY=abc").text).toBe("API_KEY=[REDACTED:stored]");
+		expect(mask("see longstoredvalue").text).toBe("see [REDACTED:stored]");
 	});
 });

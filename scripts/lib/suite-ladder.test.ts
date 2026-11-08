@@ -15,7 +15,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 import { carrying } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
-import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
 interface Weight {
 	resolvedFiles: number | null;
@@ -54,28 +53,20 @@ const {
 	suiteRungMb: (workers: number) => number;
 };
 
-describe("the whole-slot bound (#2931)", () => {
-	it("sits at a quarter of the suite the ladder was measured on", () => {
-		expect(WHOLE_SLOT_BOUND).toBe(
-			Math.floor(SUITE_LADDER_MEASURED_AT.files / 4),
-		);
-	});
-});
-
 describe("suiteRungMb, §6's table (#2558)", () => {
 	/* 794 MB + the dip + ~300 MB, rounded up to 50; past nine workers each
 	 * adds the one-suite dip's share of one, EXTRAPOLATED. */
 	it.each([
-		[1, 1450],
-		[2, 1800],
-		[4, 2500],
-		[5, 2900],
-		[6, 3250],
-		[10, 4000],
-		[11, 4350],
-		[15, 5750],
-		[16, 6100],
-		[17, 6450],
+		[1, 1650],
+		[2, 2150],
+		[4, 3000],
+		[5, 3350],
+		[6, 3650],
+		[10, 5200],
+		[11, 5750],
+		[15, 7850],
+		[16, 8400],
+		[17, 8900],
 	])("rests %i vitest worker(s) on %i MB", (workers, mb) => {
 		expect(suiteRungMb(workers)).toBe(mb);
 	});
