@@ -108,6 +108,11 @@ import {
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import {
+	buildShortlist,
+	buildShortlistRow,
+	buildShortlistStub,
+} from "./lib/shortlist-fake";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache, buildUsageText } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
@@ -758,7 +763,7 @@ describe("the loop's goal across ticks (#3864)", () => {
 		stub(
 			"pick-next.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("picks"))}, process.argv.slice(2).join(" ") + "\\n");
-process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [], conflictGraph: { candidates: [], inFlight: [] } }));\n`,
+${buildShortlistStub(buildShortlist())}`,
 		);
 	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
 		stubRecordingShortlist();
@@ -1091,13 +1096,16 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	const seed = (parker = true, parkSeat = seat) => {
 		stub(
 			"pick-next.js",
-			`process.stdout.write(JSON.stringify({
-	frontier: [{ number: 5, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: ["takes:implement", "parked"], parkedAt: "2026-10-28T07:41:00Z" }],
-	retroBundles: [],
-	pulledIn: [],
-	pulledInUnread: [],
-	conflictGraph: { candidates: [], inFlight: [] },
-}));\n`,
+			buildShortlistStub(
+				buildShortlist({
+					frontier: [
+						buildShortlistRow({
+							labels: ["takes:implement", "parked"],
+							parkedAt: "2026-10-28T07:41:00Z",
+						}),
+					],
+				}),
+			),
 		);
 		if (!parker) return;
 		writeMarker(`seat ${parkSeat}\njob ${Job}\ncwd ${repo}\n5\n`);
