@@ -8,12 +8,23 @@
  *   node scripts/commit-paths.js -F <file|-> -- <path>...
  *   node scripts/commit-paths.js -m "<message>" --patch <file> [-- <path>...]
  *   node scripts/commit-paths.js --tree [--patch <file>] -- <path>...
+ *   node scripts/commit-paths.js --check [--patch <file>] [-m <message> | -F <file|->] -- <path>...
  *
  * --TREE (#1695) prints the tree that commit would carry on today's HEAD,
  * built by the same private-index code and refused on the same grounds, and
  * writes nothing: the one computation of a pathspec commit's tree, which the
  * review hold's `tree=` and the `refs/reviewed/` pin both take. It takes no
  * message, runs no tests, and logs no outcome line.
+ *
+ * --CHECK (#4207) gives the verdict that commit would get and makes none: it
+ * builds the same private index, runs the same pre-lock gates, test run and
+ * mutation hold, then the hooks over that index as the --patch commit runs
+ * them — pre-commit, and with a message prepare-commit-msg and commit-msg —
+ * and stops before the commit object. Without a message the message checks
+ * are skipped, saying so. The worktree's index is never touched, no outcome
+ * line is logged, and finish removes the stand-down stamps the hooks leave
+ * keyed to its tree, so no later commit stands down on a check; a kill
+ * mid-run may leave them.
  *
  * --PATCH (#801) commits some of a file's changed lines and not the rest, so
  * a session's work in one file can be split across commits, and never writes
@@ -99,11 +110,11 @@
  *
  * Joins no §N3 family: it is not a check, guard, generator or report, and its
  * exits extend the tracker scripts' alphabet (spec #528) instead. Exits: 0
- * committed, or under --tree printed; 2
+ * committed, or under --tree printed, or under --check every gate passed; 2
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
  * with untracked files or no tracked ones, nothing to commit, a patch not cut
  * against HEAD, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
- * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or git or a hook refused once the index was touched, the
+ * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or under --check a hook refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
  * just works — the output above being the work either way; 4
  * (--patch only) the commit landed but the worktree's index was not reset — never
@@ -134,11 +145,13 @@ const { testGate } = require("./lib/test-gate.js");
 const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
+const { readText } = require("./lib/file-read.js");
 
 const NAME = "commit-paths";
 const USAGE = `usage: node scripts/${NAME}.js (-m <message> | -F <file|->) -- <path>...
        node scripts/${NAME}.js (-m <message> | -F <file|->) --patch <file> [-- <path>...]
-       node scripts/${NAME}.js --tree [--patch <file>] -- <path>...`;
+       node scripts/${NAME}.js --tree [--patch <file>] -- <path>...
+       node scripts/${NAME}.js --check [--patch <file>] [-m <message> | -F <file|->] -- <path>...`;
 
 /** @param {string} text */
 const out = (text) => writeFd(1, text);
@@ -183,8 +196,77 @@ const GATES_END =
  */
 let runFiles = null;
 
-/** Set by --tree, which commits nothing, so that finish logs no outcome. */
-let treeOnly = false;
+/** Set by --tree or --check, which commit nothing, so that finish logs no outcome. */
+let commitsNothing = false;
+
+/** Set by --check, whose refusals say nothing was committed. */
+let checkOnly = false;
+
+/** The review hold's stamp names, one per session (#3906). */
+const REVIEW_TIER_STAMP = path.join(__dirname, "lib", "review-tier-stamp.sh");
+
+/**
+ * --check's private index and git directory, set by armStampRemoval once its
+ * hooks may run.
+ * @type {{index: string, gitDir: string}|null}
+ */
+let checkedIndex = null;
+
+/** @param {RunFiles} files */
+const armStampRemoval = ({ index }) => {
+	checkedIndex = { index, gitDir: path.dirname(index) };
+};
+
+/**
+ * --check: removes each stamp the hooks leave keyed to the private index's
+ * tree — pre-commit's stand-down stamp (mantahostels#1705) and this session's
+ * review-hold stamp (#3664) — which a commit's prepare-commit-msg would have
+ * consumed. One holding another tree is a neighbour commit's, and stays.
+ */
+function removeHookStamps() {
+	if (!checkedIndex) return;
+	const { index, gitDir } = checkedIndex;
+	checkedIndex = null;
+	/** @param {string} what @param {string} why */
+	const leftBehind = (what, why) =>
+		err(
+			`${NAME}: ${what} may be left in ${gitDir} (${why}); a later commit of the checked tree could stand its gates down on it. Remove it by hand.\n`,
+		);
+	const tree = spawnGitSync(["write-tree"], {
+		encoding: "utf8",
+		env: { ...process.env, GIT_INDEX_FILE: index },
+	});
+	if (tree.status !== 0)
+		return leftBehind(
+			"a hook's stamp",
+			`git could not write the checked tree: ${(tree.stderr ?? "").trim()}`,
+		);
+	const stamps = [path.join(gitDir, "wfc-precommit-stamp")];
+	const review = spawnSync(
+		"bash",
+		[
+			"-c",
+			'. "$1" && review_tier_stamp "$2"',
+			"bash",
+			REVIEW_TIER_STAMP,
+			gitDir,
+		],
+		{ encoding: "utf8" },
+	);
+	if (review.status !== 0)
+		leftBehind(
+			"this session's review-hold stamp",
+			`${REVIEW_TIER_STAMP} would not name it`,
+		);
+	else if (review.stdout.trim()) stamps.push(review.stdout.trim());
+	for (const stamp of stamps) {
+		const read = readText(stamp);
+		if (read.state === "unreadable") leftBehind(stamp, read.message);
+		if (read.state !== "read") continue;
+		if (read.data.split("\n", 1)[0] === tree.stdout.trim())
+			fs.rmSync(stamp, { force: true });
+	}
+}
 
 function removeRunFiles() {
 	if (!runFiles) return;
@@ -203,8 +285,9 @@ function removeRunFiles() {
  */
 const finish = (code) => {
 	runPostCommit();
+	removeHookStamps();
 	removeRunFiles();
-	if (treeOnly) process.exit(code);
+	if (commitsNothing) process.exit(code);
 	try {
 		const log = core.paths.commitPathsLog();
 		fs.mkdirSync(path.dirname(log), { recursive: true });
@@ -283,7 +366,7 @@ const nulList = (stdout) => stdout.split("\0").filter(Boolean);
  * Walked token by token, so a message that is itself `--` is a value, not the
  * separator.
  * @param {string[]} argv
- * @returns {{message: string, paths: string[], patch: string|null, tree: boolean}}
+ * @returns {{message: string, paths: string[], patch: string|null, tree: boolean, check: boolean}}
  */
 function parseArgs(argv) {
 	let dash = -1;
@@ -292,6 +375,7 @@ function parseArgs(argv) {
 	/** @type {string|null} */
 	let patch = null;
 	let tree = false;
+	let check = false;
 	for (let i = 0; i < argv.length; i++) {
 		const opt = argv[i];
 		if (opt === "--") {
@@ -301,7 +385,13 @@ function parseArgs(argv) {
 		if (opt === "--tree") {
 			// Set as soon as seen, so a refusal after it logs no outcome either.
 			tree = true;
-			treeOnly = true;
+			commitsNothing = true;
+			continue;
+		}
+		if (opt === "--check") {
+			check = true;
+			checkOnly = true;
+			commitsNothing = true;
 			continue;
 		}
 		refuseOption(opt, { patch, message });
@@ -311,9 +401,14 @@ function parseArgs(argv) {
 		else message = readMessageOf(opt, value);
 	}
 	const paths = dash === -1 ? [] : argv.slice(dash + 1);
-	const given = requireMessage(message, tree);
+	if (tree && check)
+		fail(
+			`give --tree or --check, not both: one prints the tree, the other runs its gates. Nothing written.\n${USAGE}`,
+			2,
+		);
+	const given = requireMessage(message, { tree, check });
 	refuseNoPaths({ patch, dash, paths });
-	return { message: given, paths, patch, tree };
+	return { message: given, paths, patch, tree, check };
 }
 
 /**
@@ -328,17 +423,18 @@ const readMessageOf = (opt, value) =>
 
 /**
  * The message, refused where none was given or it is blank — or, under
- * --tree, where one was.
+ * --tree, where one was. Under --check none is "", its message checks skipped.
  * @param {string | null} message
- * @param {boolean} tree
+ * @param {{tree: boolean, check: boolean}} mode
  * @returns {string}
  */
-function requireMessage(message, tree) {
+function requireMessage(message, { tree, check }) {
 	if (tree) {
 		if (message !== null)
 			fail(`--tree commits nothing, so it takes no message.\n${USAGE}`, 2);
 		return "";
 	}
+	if (check && message === null) return "";
 	if (message === null || !message.trim())
 		fail(`no commit message. Nothing written.\n${USAGE}`, 2);
 	return message;
@@ -686,45 +782,83 @@ function commitPatch(message, cut, whole) {
  * commit writes it there, hands its hooks that path and reads the message back
  * from it; a private index takes no lock on the worktree's, so a second commit
  * running alongside in the same worktree overwrites it and each lands under
- * the other's message. Here it lives in this run's own file. The hooks run as git's commit
- * runs them — pre-commit, prepare-commit-msg `<file> message` and commit-msg
- * `<file>` — each seeing the private index and `GIT_EDITOR=:`; post-commit is
- * left owed to runPostCommit. The
- * tree is the index as pre-commit leaves it, refused where it matches the
- * base's. The message is cleaned by `commit.cleanup` as `-m`'s is, before the
- * hooks see it and again after, and signed where `commit.gpgSign` says. The
- * ref update names `base` as HEAD's old value, so a HEAD another commit in
- * this worktree moved since the index was built refuses, nothing written.
+ * the other's message. Here it lives in this run's own file. The hooks run as
+ * runCommitHooks runs them; post-commit is left owed to runPostCommit. The ref update names `base`
+ * as HEAD's old value, so a HEAD another commit in this worktree moved since
+ * the index was built refuses, nothing written.
  * @param {string} message
  * @param {RunFiles} files
  * @param {string} base
  * @param {NodeJS.ProcessEnv|undefined} stampEnv
  * @returns {string} the commit's sha
  */
-function commitIndex(message, { index, messageFile }, base, stampEnv) {
-	const env = { ...stampEnv, GIT_EDITOR: ":" };
-	/** @type {(args: string[], input?: string) => ReturnType<typeof git>} */
-	const run = (args, input) => git(args, index, input, env);
-	/** @type {(r: ReturnType<typeof git>) => string} */
-	const stdoutOrRefuse = (r) => {
-		if (r.status === 0) return r.stdout;
-		out(r.stdout);
-		err(r.stderr);
-		return fail(
-			`git or a hook refused the commit (exit ${r.status}); the output above is the work. The worktree's index and the working tree were never touched, so re-running the same command after the fix is safe.`,
-			3,
-		);
-	};
+function commitIndex(message, files, base, stampEnv) {
+	const { tree, cleaned } = runCommitHooks(files, base, stampEnv, message);
+	const run = inIndex(files.index, stampEnv);
+	const sign =
+		run(["config", "--type=bool", "--get", "commit.gpgSign"]).stdout.trim() ===
+		"true"
+			? ["-S"]
+			: [];
+	const sha = stdoutOrRefuse(
+		run(["commit-tree", ...sign, tree, "-p", base], cleaned),
+	).trim();
+	const subject = cleaned.split("\n", 1)[0];
+	stdoutOrRefuse(
+		run(["update-ref", "-m", `commit: ${subject}`, "HEAD", sha, base]),
+	);
+	markTouched();
+	owePostCommit();
+	return sha;
+}
+
+/**
+ * git over the private index, with `GIT_EDITOR=:` and the pre-lock stamps.
+ * @param {string} index
+ * @param {NodeJS.ProcessEnv|undefined} stampEnv
+ * @returns {(args: string[], input?: string) => ReturnType<typeof git>}
+ */
+const inIndex = (index, stampEnv) => (args, input) =>
+	git(args, index, input, { ...stampEnv, GIT_EDITOR: ":" });
+
+/**
+ * git's stdout, or a refusal relaying its output.
+ * @param {ReturnType<typeof git>} r
+ * @returns {string}
+ */
+function stdoutOrRefuse(r) {
+	if (r.status === 0) return r.stdout;
+	out(r.stdout);
+	err(r.stderr);
+	return fail(
+		checkOnly
+			? `a hook refused (exit ${r.status}), so a commit of these paths would be refused; the output above is the work. Nothing written.`
+			: `git or a hook refused the commit (exit ${r.status}); the output above is the work. The worktree's index and the working tree were never touched, so re-running the same command after the fix is safe.`,
+		3,
+	);
+}
+
+/**
+ * The hooks git's commit runs before it writes the commit object, over the
+ * private index: pre-commit, then — unless `message` is "" — prepare-commit-msg
+ * `<file> message` and commit-msg `<file>`. The tree is the index as pre-commit leaves it, refused where
+ * it matches the base's. The message is cleaned by `commit.cleanup` as `-m`'s
+ * is, before the hooks see it and again after.
+ * @param {RunFiles} files
+ * @param {string|null} base null on an unborn branch
+ * @param {NodeJS.ProcessEnv|undefined} stampEnv
+ * @param {string} message
+ * @returns {{tree: string, cleaned: string}}
+ */
+function runCommitHooks({ index, messageFile }, base, stampEnv, message) {
+	const run = inIndex(index, stampEnv);
 	/** git runs every hook with its stdout sent to stderr. */
 	const hook = (/** @type {string[]} */ ...args) => {
 		const r = run(["hook", "run", "--ignore-missing", ...args]);
 		err(r.stderr);
 		return { ...r, stderr: "" };
 	};
-	const config = (/** @type {string[]} */ ...args) =>
-		run(["config", ...args]).stdout.trim();
-
-	const cleanup = config("--get", "commit.cleanup");
+	const cleanup = run(["config", "--get", "commit.cleanup"]).stdout.trim();
 	/** @param {string} text */
 	const clean = (text) =>
 		cleanup === "verbatim"
@@ -740,11 +874,15 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 
 	stdoutOrRefuse(hook("pre-commit"));
 	const tree = stdoutOrRefuse(run(["write-tree"])).trim();
-	if (tree === git(["rev-parse", `${base}^{tree}`]).stdout.trim())
+	if (
+		base !== null &&
+		tree === git(["rev-parse", `${base}^{tree}`]).stdout.trim()
+	)
 		fail(
 			"the pre-commit hook left the index matching HEAD, so there is nothing to commit. Read what the hook printed above for what it unstaged. Nothing written.",
 			3,
 		);
+	if (message === "") return { tree, cleaned: "" };
 
 	fs.writeFileSync(messageFile, clean(message));
 	stdoutOrRefuse(hook("prepare-commit-msg", "--", messageFile, "message"));
@@ -755,19 +893,7 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 			"the prepare-commit-msg or commit-msg hook left the message empty, so git made no commit. Read what that hook printed above. Nothing written.",
 			3,
 		);
-
-	const sign =
-		config("--type=bool", "--get", "commit.gpgSign") === "true" ? ["-S"] : [];
-	const sha = stdoutOrRefuse(
-		run(["commit-tree", ...sign, tree, "-p", base], cleaned),
-	).trim();
-	const subject = cleaned.split("\n", 1)[0];
-	stdoutOrRefuse(
-		run(["update-ref", "-m", `commit: ${subject}`, "HEAD", sha, base]),
-	);
-	markTouched();
-	owePostCommit();
-	return sha;
+	return { tree, cleaned };
 }
 
 /**
@@ -1565,17 +1691,7 @@ function prepareWhole(paths) {
  */
 function printTree(whole, cut) {
 	const { index } = sweptRunFiles();
-	if (cut === null) {
-		const { toAdd, specs } = prepareWhole(whole);
-		try {
-			buildCommitIndex({ index, specs, toAdd });
-		} catch (e) {
-			fail(`${caught(e).message}. Nothing written.`, 2);
-		}
-	} else {
-		const { patch, root, sections } = preparePatch(cut, whole);
-		buildOnHead({ index, whole, root, patch, sections });
-	}
+	buildPrivateIndex(whole, cut, index);
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
 		fail(`git could not write the tree (${r.stderr.trim()}).`, 2);
@@ -1583,15 +1699,74 @@ function printTree(whole, cut) {
 	return finish(0);
 }
 
+/**
+ * --check: the verdict a commit of `whole`, with `cut` applied where given and
+ * `message` where not "", would get.
+ * @param {string[]} whole
+ * @param {string|null} cut
+ * @param {string} message
+ * @returns {never}
+ */
+function checkCommit(whole, cut, message) {
+	const files = sweptRunFiles();
+	const { base, build } = buildPrivateIndex(whole, cut, files.index);
+	const stampEnv = preLockRun(() => files, build);
+	armStampRemoval(files);
+	runCommitHooks(files, base, stampEnv, message);
+	if (message === "")
+		err(
+			`${NAME}: no message given, so the message checks — prepare-commit-msg and commit-msg — were skipped.\n`,
+		);
+	out(
+		`${NAME}: every gate a commit of these paths would run passed. Nothing written.\n`,
+	);
+	return finish(0);
+}
+
+/**
+ * The private index built as the commit's would be, refusing as it would; the
+ * HEAD it is built on (null on an unborn branch), and its rebuild.
+ * @param {string[]} whole
+ * @param {string|null} cut
+ * @param {string} index
+ * @returns {{base: string|null, build: (index: string) => void}}
+ */
+function buildPrivateIndex(whole, cut, index) {
+	if (cut !== null) {
+		const { patch, root, sections } = preparePatch(cut, whole);
+		const patchBuild = { index, whole, root, patch, sections };
+		const base = buildOnHead(patchBuild);
+		return {
+			base,
+			build: (i) => buildIndex({ ...patchBuild, index: i }, base),
+		};
+	}
+	const { toAdd, specs } = prepareWhole(whole);
+	const base = hasHeadCommit()
+		? git(["rev-parse", "HEAD"]).stdout.trim()
+		: null;
+	/** @param {string} i */
+	const build = (i) => buildCommitIndex({ index: i, specs, toAdd });
+	try {
+		build(index);
+	} catch (e) {
+		fail(`${caught(e).message}. Nothing written.`, 2);
+	}
+	return { base, build };
+}
+
 function main() {
 	// Only this run's own stamps may reach its suite or its commit (#1639).
 	for (const gate of SLOW_GATES) delete process.env[stampVariable(gate)];
-	const { message, paths, patch, tree } = parseArgs(process.argv.slice(2));
+	const { message, paths, patch, tree, check } = parseArgs(
+		process.argv.slice(2),
+	);
 
 	if (git(["rev-parse", "--git-dir"]).status !== 0)
 		fail("not inside a git repository. Nothing written.", 2);
 
 	if (tree) printTree(paths, patch);
+	if (check) checkCommit(paths, patch, message);
 	if (patch !== null) commitPatch(message, patch, paths);
 
 	const { toAdd, specs } = prepareWhole(paths);

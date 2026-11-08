@@ -2329,9 +2329,15 @@ describe("a resume the tick's step left held (#3855)", () => {
 		jobId: "j1",
 		launchedAt: NOW - 90,
 		finishedAt: null,
-		swapHeld: { at: NOW - 60, sessionId: "s1", cwd: "/r", tries: 0 },
+		stepResume: {
+			cause: "swapHeld" as const,
+			at: NOW - 60,
+			sessionId: "s1",
+			cwd: "/r",
+			tries: 0,
+		},
 	};
-	const { swapHeld: _, ...running } = heldLaunch;
+	const { stepResume: _, ...running } = heldLaunch;
 	const startedAsCopy = {
 		launches: [{ ...running, jobId: "j1-copy" }],
 		started: 1,

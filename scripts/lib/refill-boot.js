@@ -20,9 +20,9 @@ const {
 	hasJobEnded,
 	isBootKillable,
 	isBootKillCandidate,
-	isBootKilled,
 	isHeld,
 	isLive,
+	isStepResumeFor,
 	launchName,
 	LISTING_GRACE_MS,
 	queueBootKilled,
@@ -173,7 +173,8 @@ const isEmptyListingTrusted = (
 					(l) => registry.seats.includes(l.seat) && !isInRegistry(l, registry),
 				)
 		: bootedAt !== undefined ||
-			(launches.some(isBootKilled) && launches.filter(isLive).every(isHeld));
+			(launches.some((l) => isStepResumeFor(l, "bootKilled")) &&
+				launches.filter(isLive).every(isHeld));
 
 /**
  * `state` as the restart a surviving loop's marker reports leaves it (#3971). The

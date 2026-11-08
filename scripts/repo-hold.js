@@ -4,7 +4,7 @@
  * sessions and the founder (#3857, #3858, spec #3597). What a hold is,
  * lib/repo-holds.js says.
  *
- * Joins no §N3 family.
+ * Joins no §N3 family: a command that writes the hold store, not a checker or a guard.
  *
  * A SESSION MAY NOT SET A COMMAND. The loop would run it each tick outside every
  * guard on a session's own Bash calls, the `main`-rewind guard among them. The
