@@ -14,7 +14,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { shellQuote } from "./sh-quote.js";
 
@@ -24,19 +24,17 @@ import { shellQuote } from "./sh-quote.js";
 const liveness: any = createRequire(__filename)("./agent-liveness.js");
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "liveness-"));
 	// Outside a session there is nothing for the self-test to test against; each
 	// test that wants it opts in.
-	process.env.CLAUDE_CODE_SESSION_ID = "";
-	process.env.WFC_REFILL_DIR = path.join(dir, "refill");
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 /** A `claude` stand-in: `agents --json` prints `body`, then exits `code`. */
@@ -49,7 +47,7 @@ function fakeClaude(body: string, code = 0) {
 			mode: 0o755,
 		},
 	);
-	process.env.WFC_CLAUDE_BIN = bin;
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return bin;
 }
 
@@ -66,7 +64,7 @@ const listing = (...sessionIds: string[]) =>
 
 describe("the binary will not run", () => {
 	it("refuses with the spawn error code when there is no such binary", () => {
-		process.env.WFC_CLAUDE_BIN = path.join(dir, "no-such-claude");
+		vi.stubEnv("WFC_CLAUDE_BIN", path.join(dir, "no-such-claude"));
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("would not run");
@@ -83,7 +81,7 @@ describe("the binary will not run", () => {
 
 	it("names the binary it tried, so a wrong WFC_CLAUDE_BIN is visible", () => {
 		const bin = path.join(dir, "no-such-claude");
-		process.env.WFC_CLAUDE_BIN = bin;
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		expect(liveness.listedAgents().why).toContain(`\`${bin} agents --json\``);
 	});
 });
@@ -110,7 +108,7 @@ function hangingClaude(body: string, hangs: number) {
 			`cat <<'EOF'\n${body}\nEOF\n`,
 		{ mode: 0o755 },
 	);
-	process.env.WFC_CLAUDE_BIN = bin;
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return () => Number(fs.readFileSync(count, "utf8").trim());
 }
 
@@ -118,8 +116,8 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	beforeEach(() => {
 		// Milliseconds, not the 10s/20s defaults, so the suite does not wait on a
 		// real ceiling. The retry's cap stays the longer of the two.
-		process.env.WFC_ORACLE_TIMEOUT_MS = "300";
-		process.env.WFC_ORACLE_RETRY_TIMEOUT_MS = "600";
+		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "300");
+		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "600");
 	});
 
 	it("retries once and answers, so a load spike does not refuse the caller", () => {
@@ -164,7 +162,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 			`#!/bin/sh\nn=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)\necho $((n + 1)) > ${shellQuote(count)}\nexit 3\n`,
 			{ mode: 0o755 },
 		);
-		process.env.WFC_CLAUDE_BIN = bin;
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		const r = liveness.listedAgents();
 		expect(r.why).toContain("exit 3");
 		expect(r.why).not.toContain("twice");
@@ -174,8 +172,8 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	it("leaves no child of the oracle behind it (#2665)", async () => {
 		// An oracle that backgrounds children, then waits on them. A guess: caps
 		// roomy enough that each read starts its child under load before its cap.
-		process.env.WFC_ORACLE_TIMEOUT_MS = "1000";
-		process.env.WFC_ORACLE_RETRY_TIMEOUT_MS = "2000";
+		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "1000");
+		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "2000");
 		const pids = path.join(dir, "pids");
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
@@ -183,7 +181,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 			`#!/bin/bash\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nwait\n`,
 			{ mode: 0o755 },
 		);
-		process.env.WFC_CLAUDE_BIN = bin;
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		expect(liveness.listedAgents().why).toContain("ETIMEDOUT");
 		const children = fs.readFileSync(pids, "utf8").trim().split("\n");
 		// Two children a call, and two calls: the first and its one retry.
@@ -203,7 +201,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	});
 
 	it("falls back to the default cap when the knob is garbled", () => {
-		process.env.WFC_ORACLE_TIMEOUT_MS = "not-a-number";
+		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "not-a-number");
 		fakeClaude(listing("aaaa"));
 		// A cap of NaN or 0 would disable the ceiling; the answer proves it ran.
 		expect(liveness.listedAgents().why).toBeUndefined();
@@ -249,7 +247,7 @@ describe("the array is empty", () => {
 	it("reads as nothing live after a boot, outside a session alone (#3880)", () => {
 		fakeClaude("[]");
 		expect(liveness.readAgentsAfterBoot().agents).toEqual([]);
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect(liveness.readAgentsAfterBoot().why).toContain(
 			"listed no agents at all",
 		);
@@ -263,7 +261,7 @@ describe("the array is empty", () => {
 		expect(liveness.listedAgents({ allowEmpty: true }).why).toContain(
 			"listed no agents at all",
 		);
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect(liveness.admissionSessionIds().why).toContain(
 			"listed no agents at all",
 		);
@@ -297,7 +295,7 @@ describe("no record carries a sessionId", () => {
 
 describe("the self-test: the list omits the session this is running in", () => {
 	it("refuses, naming the session, when the oracle does not list it", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else"));
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
@@ -305,7 +303,7 @@ describe("the self-test: the list omits the session this is running in", () => {
 	});
 
 	it("passes when the oracle does list it", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else", "me"));
 		const r = liveness.listedAgents();
 		expect(r.why).toBeUndefined();
@@ -313,7 +311,7 @@ describe("the self-test: the list omits the session this is running in", () => {
 	});
 
 	it("is skipped outside a session, where there is nothing to test against", () => {
-		delete process.env.CLAUDE_CODE_SESSION_ID;
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 		fakeClaude(listing("someone-else"));
 		const r = liveness.listedAgents();
 		expect(r.why).toBeUndefined();
@@ -323,7 +321,7 @@ describe("the self-test: the list omits the session this is running in", () => {
 
 describe("requireSelf: false, the opt-in exemption from the self-test (mantahostels#540)", () => {
 	it("returns the listing when the only fault is that this session is absent", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else"));
 		const r = liveness.listedAgents({ requireSelf: false });
 		expect(r.why).toBeUndefined();
@@ -339,7 +337,7 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 		["0", { requireSelf: 0 }],
 		["the string 'false'", { requireSelf: "false" }],
 	])("keeps the self-test when requireSelf is %s", (_name, opts) => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else"));
 		expect(liveness.listedAgents(opts).why).toContain(
 			"does not list this very session",
@@ -366,7 +364,7 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 			"none of them carrying a sessionId",
 		],
 	])("still refuses when %s", (_name, arrange, fragment) => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		arrange();
 		const r = liveness.listedAgents({ requireSelf: false });
 		expect(r.agents).toBeUndefined();
@@ -376,7 +374,7 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 	/* pick-next subtracts self from its session count on the strength of this
 	 * reader listing its own caller (mantahostels#437). */
 	it("does not exempt listedSessionIds, whose callers rely on the self-test", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else"));
 		const r = liveness.listedSessionIds({ requireSelf: false });
 		expect(r.ids).toBeUndefined();
@@ -399,7 +397,7 @@ describe("what it returns when it can answer", () => {
 	it("reads WFC_CLAUDE_BIN per call, not once at load", () => {
 		fakeClaude(listing("a"));
 		expect(liveness.claudeBin()).toBe(path.join(dir, "claude"));
-		delete process.env.WFC_CLAUDE_BIN;
+		vi.stubEnv("WFC_CLAUDE_BIN", undefined);
 		expect(liveness.claudeBin()).toBe("claude");
 	});
 });
@@ -411,10 +409,10 @@ describe("every plan's listing (#3512)", () => {
 		const b = path.join(dir, "seat-b");
 		fs.mkdirSync(a);
 		fs.mkdirSync(b);
-		process.env.WFC_CLAUDE_CONFIG_A = a;
-		process.env.WFC_CLAUDE_CONFIG_B = b;
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", a);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", b);
 		const absent = path.join(dir, "no-such-seat");
-		process.env.WFC_CLAUDE_CONFIG_C = absent;
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", absent);
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
 			bin,
@@ -429,7 +427,7 @@ describe("every plan's listing (#3512)", () => {
 			].join("\n"),
 			{ mode: 0o755 },
 		);
-		process.env.WFC_CLAUDE_BIN = bin;
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	}
 
 	it("unions every existing seat's listing, one record per session, reading no absent seat", () => {
@@ -443,9 +441,9 @@ describe("every plan's listing (#3512)", () => {
 	it("keeps a seat's live record over an earlier seat's terminal one for one session (#3734)", () => {
 		const a = path.join(dir, "seat-a");
 		fs.mkdirSync(a);
-		process.env.WFC_CLAUDE_CONFIG_A = a;
-		process.env.WFC_CLAUDE_CONFIG_B = path.join(dir, "no-b");
-		process.env.WFC_CLAUDE_CONFIG_C = path.join(dir, "no-c");
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", a);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
 		const row = (state: string) =>
 			JSON.stringify([
 				{ sessionId: "moved", id: "moved", kind: "background", state },
@@ -456,7 +454,7 @@ describe("every plan's listing (#3512)", () => {
 			`#!/bin/sh\ncase "$CLAUDE_CONFIG_DIR" in\n  ${shellQuote(a)}) echo ${shellQuote(row("working"))} ;;\n  *) echo ${shellQuote(row("stopped"))} ;;\nesac\n`,
 			{ mode: 0o755 },
 		);
-		process.env.WFC_CLAUDE_BIN = bin;
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		expect(liveness.listedAgents({ requireSelf: false }).agents).toMatchObject([
 			{ sessionId: "moved", state: "working" },
 		]);
@@ -577,7 +575,7 @@ describe("headless runs (#2608)", () => {
 	});
 
 	it("passes the self-test for a headless session the oracle cannot list", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "h";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "h");
 		headlessRun("0123abcd", "h");
 		fakeClaude(listing("a"));
 		expect(liveness.listedSessionIds().ids.has("h")).toBe(true);
@@ -587,7 +585,7 @@ describe("headless runs (#2608)", () => {
 	});
 
 	it("still fails the self-test once the session's run has ended", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "h";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "h");
 		headlessRun("0123abcd", "h", false);
 		fakeClaude(listing("a"));
 		expect(liveness.listedSessionIds().why).toContain(
@@ -623,7 +621,7 @@ describe("listedSessionIds", () => {
 				{ sessionId: "nocwd", state: "working" },
 			]),
 		);
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect([...liveness.listedSessionIds().cwds]).toEqual([
 			["me", "/r/a"],
 			["w", "/r/b"],
@@ -634,7 +632,7 @@ describe("listedSessionIds", () => {
 
 	it("leaves a record with no pid absent from the map", () => {
 		fakeClaude(JSON.stringify([{ sessionId: "me" }]));
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect(liveness.listedSessionIds().pids.has("me")).toBe(false);
 	});
 
@@ -647,7 +645,7 @@ describe("listedSessionIds", () => {
 			{ sessionId: "bare" },
 		];
 		fakeClaude(JSON.stringify(records));
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const r = liveness.listedSessionIds();
 		for (const a of records) {
 			expect(r.states.get(a.sessionId)).toBe(a.state);
@@ -668,7 +666,7 @@ describe("listedSessionIds", () => {
 				{ sessionId: "done-1", kind: "background", state: "done" },
 			]),
 		);
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect([...liveness.listedSessionIds().finished]).toEqual(["done-1"]);
 	});
 
@@ -687,7 +685,7 @@ describe("listedSessionIds", () => {
 				},
 			]),
 		);
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect([...liveness.listedSessionIds().finished]).toEqual(["shell"]);
 	});
 
@@ -700,7 +698,7 @@ describe("listedSessionIds", () => {
 		["a record whose state the oracle omitted", { kind: "background" }],
 	])("leaves out %s", (_name, extra: Record<string, string>) => {
 		fakeClaude(JSON.stringify([{ sessionId: "me", ...extra }]));
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const r = liveness.listedSessionIds();
 		expect(r.finished.size).toBe(0);
 	});
@@ -716,7 +714,7 @@ describe("listedSessionIds", () => {
 		[
 			"the self-test fails",
 			() => {
-				process.env.CLAUDE_CODE_SESSION_ID = "me";
+				vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 				fakeClaude(listing("other"));
 			},
 		],
@@ -737,7 +735,7 @@ describe("listedSessionIds", () => {
  */
 describe("sweepSessionIds", () => {
 	it("answers where the only omission is the calling session", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
 		expect(liveness.listedSessionIds().ids).toBeUndefined();
 		const r = liveness.sweepSessionIds();
@@ -749,7 +747,7 @@ describe("sweepSessionIds", () => {
 	 * corrected rather than merely tolerated: leaving "me" out would delete the
 	 * sweeping session's own claim. */
 	it("adds the caller back rather than passing the short list through", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
 		expect(liveness.sweepSessionIds().ids.has("me")).toBe(true);
 	});
@@ -768,7 +766,7 @@ describe("sweepSessionIds", () => {
 		["the array is empty", () => fakeClaude("[]")],
 		["no record carries a sessionId", () => fakeClaude('[{"pid":1}]')],
 	])("still refuses when %s", (_name, arrange) => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		arrange();
 		const r = liveness.sweepSessionIds();
 		expect(r.ids).toBeUndefined();
@@ -779,7 +777,7 @@ describe("sweepSessionIds", () => {
 	 * sweep naming its holders. The caller's own id is never in the map, since
 	 * the oracle did not list it. */
 	it("carries display names, minus the caller it added back", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(
 			JSON.stringify([
 				{ pid: 1, sessionId: "other", name: "Implement 1924", kind: "session" },
@@ -794,7 +792,7 @@ describe("sweepSessionIds", () => {
 
 	/* The waiver is hard-coded, so a caller cannot re-arm the self-test. */
 	it("ignores a caller trying to set requireSelf back to true", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
 		expect(
 			[...liveness.sweepSessionIds({ requireSelf: true }).ids].sort(),
@@ -804,7 +802,7 @@ describe("sweepSessionIds", () => {
 	/* Mirrors listedSessionIds's `finished` field (mantahostels#2765): a caller reading the
 	 * waived list still needs to tell a listed-but-done holder from a live one. */
 	it("holds the background sessions the oracle calls done, like listedSessionIds", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(
 			JSON.stringify([
 				{ sessionId: "me", kind: "session", state: "working" },
@@ -815,7 +813,7 @@ describe("sweepSessionIds", () => {
 	});
 
 	it("never adds the caller it added back to `ids` into `finished`", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
 		expect(liveness.sweepSessionIds().finished.has("me")).toBe(false);
 	});
@@ -826,7 +824,7 @@ describe("sweepSessionIds", () => {
 	it.each(["done", "failed", "stopped"])(
 		"holds a background session the oracle calls %s",
 		(state) => {
-			process.env.CLAUDE_CODE_SESSION_ID = "me";
+			vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 			fakeClaude(
 				JSON.stringify([
 					{ sessionId: "me", kind: "session", state: "working" },
@@ -841,7 +839,7 @@ describe("sweepSessionIds", () => {
 	 * which promises the memory the reaper returns, and the reaper stops `done`
 	 * alone. Merging the two predicates would widen what it kills. */
 	it("leaves a failed session out of `finished` while holding it in `terminal`", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(
 			JSON.stringify([
 				{ sessionId: "me", kind: "session", state: "working" },
@@ -861,13 +859,13 @@ describe("sweepSessionIds", () => {
 		["a foreground session that is done", { kind: "session", state: "done" }],
 		["a record whose state the oracle omitted", { kind: "background" }],
 	])("leaves %s out of `terminal`", (_name, extra: Record<string, string>) => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(JSON.stringify([{ sessionId: "me", ...extra }]));
 		expect(liveness.sweepSessionIds().terminal.size).toBe(0);
 	});
 
 	it("never adds the caller it added back to `ids` into `terminal`", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
 		expect(liveness.sweepSessionIds().terminal.has("me")).toBe(false);
 	});
@@ -905,7 +903,7 @@ describe("totality", () => {
 	});
 
 	it.each(payloads)("refuses on %s inside a session too", (_n, body) => {
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(body);
 		expect(typeof liveness.listedAgents().why).toBe("string");
 		expect(typeof liveness.listedSessionIds().why).toBe("string");

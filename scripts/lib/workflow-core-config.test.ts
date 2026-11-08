@@ -58,13 +58,6 @@ const PICK_NEXT_RANKING_DEFAULT = ".claude/pick-next-ranking.md";
 const OUTPUT_STYLE_DEFAULT = ".claude/output-styles/core-voice.md";
 
 let dir: string;
-const saved = {
-	project: process.env.CLAUDE_PROJECT_DIR,
-	gh: process.env.WFC_GH,
-	modules: process.env.WFC_MODULES,
-	pool: process.env.WFC_ALWAYS_LOADED,
-	style: process.env.WFC_OUTPUT_STYLE,
-};
 const writeConfig = (root: string, text: string) => {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 	fs.writeFileSync(path.join(root, ".claude", "workflow-core.json"), text);
@@ -74,26 +67,16 @@ const git = (...args: string[]) =>
 const stubGh = (body: string) => {
 	const gh = path.join(dir, "gh");
 	fs.writeFileSync(gh, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-	process.env.WFC_GH = gh;
+	vi.stubEnv("WFC_GH", gh);
 };
 
 beforeEach(() => {
 	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-config-")));
-	delete process.env.WFC_MODULES;
-	delete process.env.WFC_ALWAYS_LOADED;
-	delete process.env.WFC_OUTPUT_STYLE;
+	vi.stubEnv("WFC_MODULES", undefined);
+	vi.stubEnv("WFC_ALWAYS_LOADED", undefined);
+	vi.stubEnv("WFC_OUTPUT_STYLE", undefined);
 });
 afterEach(() => {
-	for (const [k, env] of [
-		["project", "CLAUDE_PROJECT_DIR"],
-		["gh", "WFC_GH"],
-		["modules", "WFC_MODULES"],
-		["pool", "WFC_ALWAYS_LOADED"],
-		["style", "WFC_OUTPUT_STYLE"],
-	] as const) {
-		if (saved[k] === undefined) delete process.env[env];
-		else process.env[env] = saved[k];
-	}
 	vi.restoreAllMocks();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -103,7 +86,7 @@ describe("hostRoot", () => {
 		const link = path.join(os.tmpdir(), `wfc-config-link-${process.pid}`);
 		fs.symlinkSync(dir, link);
 		try {
-			process.env.CLAUDE_PROJECT_DIR = link;
+			vi.stubEnv("CLAUDE_PROJECT_DIR", link);
 			expect(hostRoot()).toBe(dir);
 		} finally {
 			fs.unlinkSync(link);
@@ -111,7 +94,7 @@ describe("hostRoot", () => {
 	});
 
 	it("falls back to the git top level of the working directory", () => {
-		delete process.env.CLAUDE_PROJECT_DIR;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 		const sub = path.join(dir, "a", "b");
 		fs.mkdirSync(sub, { recursive: true });
 		execFileSync("git", ["init", "-q", dir]);
@@ -477,7 +460,7 @@ describe("readConfig — defaults", () => {
 
 	it("reads WFC_ALWAYS_LOADED in place of the declared pool", () => {
 		writeConfig(dir, JSON.stringify({ alwaysLoaded: ["CLAUDE.md"] }));
-		process.env.WFC_ALWAYS_LOADED = "AGENTS.md,STYLE.md";
+		vi.stubEnv("WFC_ALWAYS_LOADED", "AGENTS.md,STYLE.md");
 		expect(readConfig({ root: dir }).alwaysLoaded).toEqual([
 			"AGENTS.md",
 			"STYLE.md",
@@ -491,7 +474,7 @@ describe("readConfig — defaults", () => {
 				overrides: { output_style: ".claude/output-styles/mine.md" },
 			}),
 		);
-		process.env.WFC_OUTPUT_STYLE = "STYLE.md";
+		vi.stubEnv("WFC_OUTPUT_STYLE", "STYLE.md");
 		expect(readConfig({ root: dir }).overrides.output_style).toBe("STYLE.md");
 	});
 
@@ -502,7 +485,7 @@ describe("readConfig — defaults", () => {
 				overrides: { output_style: ".claude/output-styles/mine.md" },
 			}),
 		);
-		process.env.WFC_OUTPUT_STYLE = "";
+		vi.stubEnv("WFC_OUTPUT_STYLE", "");
 		expect(readConfig({ root: dir }).overrides.output_style).toBeNull();
 	});
 
@@ -1002,16 +985,16 @@ describe("moduleOn and readCommandFor", () => {
 
 	it("reads WFC_MODULES in place of the declared list", () => {
 		writeConfig(dir, JSON.stringify({ modules: ["site"] }));
-		process.env.WFC_MODULES = "roadmap,suites";
+		vi.stubEnv("WFC_MODULES", "roadmap,suites");
 		expect(moduleOn("roadmap", { root: dir })).toBe(true);
 		expect(moduleOn("site", { root: dir })).toBe(false);
-		process.env.WFC_MODULES = "";
+		vi.stubEnv("WFC_MODULES", "");
 		expect(moduleOn("roadmap", { root: dir })).toBe(false);
 	});
 
 	it("never warns of a mutation hold WFC_MODULES alone turns on (#1911)", () => {
 		writeConfig(dir, JSON.stringify({}));
-		process.env.WFC_MODULES = "mutation";
+		vi.stubEnv("WFC_MODULES", "mutation");
 		expect(readConfig({ root: dir, quiet: true }).warnings).toEqual([]);
 	});
 

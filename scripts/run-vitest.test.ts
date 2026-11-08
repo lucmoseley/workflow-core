@@ -4767,31 +4767,18 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			// or a word on stdout is a fault in the fixture, not a verdict.
 			expect(credited.status).toBe(0);
 			expect(credited.stdout).toBe("");
-			const saved = {
-				project: process.env.CLAUDE_PROJECT_DIR,
-				config: process.env.CLAUDE_CONFIG_DIR,
-			};
-			process.env.CLAUDE_PROJECT_DIR = projectDir;
-			process.env.CLAUDE_CONFIG_DIR = path.join(home, ".claude");
-			try {
-				expect(
-					attributeDirty(["scripts/bash-written.ts", "scripts/never.ts"], {
-						sessionId: "bash-session",
-						ledger: require("./lib/arbiter-store.js"),
-					}),
-				).toEqual({
-					mine: ["scripts/bash-written.ts"],
-					theirs: ["scripts/never.ts"],
-					quoted: [],
-				});
-			} finally {
-				for (const [key, value] of [
-					["CLAUDE_PROJECT_DIR", saved.project],
-					["CLAUDE_CONFIG_DIR", saved.config],
-				] as const)
-					if (value === undefined) delete process.env[key];
-					else process.env[key] = value;
-			}
+			vi.stubEnv("CLAUDE_PROJECT_DIR", projectDir);
+			vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(home, ".claude"));
+			expect(
+				attributeDirty(["scripts/bash-written.ts", "scripts/never.ts"], {
+					sessionId: "bash-session",
+					ledger: require("./lib/arbiter-store.js"),
+				}),
+			).toEqual({
+				mine: ["scripts/bash-written.ts"],
+				theirs: ["scripts/never.ts"],
+				quoted: [],
+			});
 		});
 
 		describe("a staged rename (#1791)", () => {

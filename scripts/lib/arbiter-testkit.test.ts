@@ -19,7 +19,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	freshSandbox,
 	removeSandbox,
@@ -136,23 +136,13 @@ describe("removeSandbox", () => {
 });
 
 describe("freshSandbox", () => {
-	// Set before freshSandbox snapshots the environment, as a background job's
-	// inherited real-checkout roots are (#3119).
-	const Real = "/real/checkout";
-	const inherited = {
-		WFC_REPO_ROOT: process.env.WFC_REPO_ROOT,
-		WFC_DISPATCH_ROOT: process.env.WFC_DISPATCH_ROOT,
-	};
-	for (const k of Object.keys(inherited)) process.env[k] = Real;
-	const sb = freshSandbox();
-
-	afterAll(() => {
-		for (const [k, v] of Object.entries(inherited)) {
-			expect(process.env[k]).toBe(Real);
-			if (v === undefined) delete process.env[k];
-			else process.env[k] = v;
-		}
+	// Set before freshSandbox's own setup runs, as a background job's inherited
+	// real-checkout roots are (#3119).
+	beforeEach(() => {
+		for (const k of ["WFC_REPO_ROOT", "WFC_DISPATCH_ROOT"])
+			vi.stubEnv(k, "/real/checkout");
 	});
+	const sb = freshSandbox();
 
 	it("points an inherited WFC_REPO_ROOT and WFC_DISPATCH_ROOT at the sandbox repo (#3119)", () => {
 		expect(process.env.WFC_REPO_ROOT).toBe(sb.repo);

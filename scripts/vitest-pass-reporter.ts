@@ -46,6 +46,7 @@ const {
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
+const { relativeUnder } = require("./lib/is-under.js");
 
 /*
  * The dependency-graph roots every narrowed closure carries (#189): what the
@@ -325,8 +326,7 @@ export default class TestPassReporter {
 		if (!root) throw new Error("vitest reported no root to resolve against");
 		const rel = (file: string) =>
 			path.relative(root, file).split(path.sep).join("/");
-		const inside = (file: string) =>
-			!path.relative(root, file).startsWith("..");
+		const inside = (file: string) => relativeUnder(root, file) !== null;
 		const closure = new Set<string>();
 		// Per test as well as in union (#1860), so the judge can void one test
 		// without the rest; a file run under two pools merges its two walks.

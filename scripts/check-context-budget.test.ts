@@ -25,7 +25,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getPoolFiles } from "./lib/always-loaded-pool.js";
 import { SHED_REGISTERS } from "./lib/context-budget-pathspecs";
 import { liveCaps } from "./lib/context-budget-testkit";
@@ -40,9 +40,6 @@ const { pool: CAP, injection: INJECTION_CAP } = liveCaps();
 
 let dir: string;
 
-let savedInjectorEnv: string | undefined;
-let savedOutputStyleEnv: string | undefined;
-let savedRulesFallbackEnv: string | undefined;
 /** Every throwaway fallback store minted this test, drained in afterEach. */
 const rulesFallbackDirs: string[] = [];
 
@@ -72,7 +69,6 @@ const SPARE_PATH: string = poolMember(
 );
 
 beforeEach(() => {
-	savedOutputStyleEnv = process.env.WFC_OUTPUT_STYLE;
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-"));
 	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
 	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
@@ -82,23 +78,20 @@ beforeEach(() => {
 	 * WFC_INJECTOR_FILE test-injection seam (`lib/host-root.js`'s header
 	 * convention) rather than relying on `--root dir` to find it. Every fixture
 	 * in this file writes the same fixed path, so the seam is set once here. */
-	savedInjectorEnv = process.env.WFC_INJECTOR_FILE;
-	process.env.WFC_INJECTOR_FILE = path.join(
-		dir,
-		"scripts",
-		"inject-tracker-docs.sh",
+	vi.stubEnv(
+		"WFC_INJECTOR_FILE",
+		path.join(dir, "scripts", "inject-tracker-docs.sh"),
 	);
 	/* Pinned to a fresh, empty throwaway store by default, so no fixture in this
 	 * file can resolve an injected id against the LIVE core store beneath
 	 * `docs/agents/rules` by accident, colliding silently instead of throwing
 	 * (#109's second gap). `fallbackStore()` below overrides this per case for
 	 * one that wires an injecting guard on purpose. */
-	savedRulesFallbackEnv = process.env.WFC_RULES_FALLBACK_DIR;
 	const emptyFallback = fs.mkdtempSync(
 		path.join(os.tmpdir(), "ctxbudget-fallback-"),
 	);
 	rulesFallbackDirs.push(emptyFallback);
-	process.env.WFC_RULES_FALLBACK_DIR = emptyFallback;
+	vi.stubEnv("WFC_RULES_FALLBACK_DIR", emptyFallback);
 	/* One byte INSIDE the cap, not on it: both surfaces gate at or over their cap
 	 * (mantahostels#1834 unified report mode on the gate's boundary), so a baseline sitting
 	 * exactly on it would breach in every test that does not mean to. */
@@ -161,13 +154,6 @@ function agent(name: string, description: string, body = "") {
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	if (savedInjectorEnv === undefined) delete process.env.WFC_INJECTOR_FILE;
-	else process.env.WFC_INJECTOR_FILE = savedInjectorEnv;
-	if (savedOutputStyleEnv === undefined) delete process.env.WFC_OUTPUT_STYLE;
-	else process.env.WFC_OUTPUT_STYLE = savedOutputStyleEnv;
-	if (savedRulesFallbackEnv === undefined)
-		delete process.env.WFC_RULES_FALLBACK_DIR;
-	else process.env.WFC_RULES_FALLBACK_DIR = savedRulesFallbackEnv;
 	for (const d of rulesFallbackDirs.splice(0))
 		fs.rmSync(d, { recursive: true, force: true });
 });
@@ -200,7 +186,7 @@ function pool(bytes: number) {
 		fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
 		fs.writeFileSync(path.join(dir, rel), buildPoolText(rel, size));
 	}
-	process.env.WFC_OUTPUT_STYLE = VOICE_PATH;
+	vi.stubEnv("WFC_OUTPUT_STYLE", VOICE_PATH);
 }
 
 /** The core's two shed registers, which a cap refusal names only where the
@@ -710,7 +696,7 @@ describe("what the pool covers", () => {
 
 	it("counts the style once, undoubled, when overrides.output_style is undeclared (#45)", () => {
 		pool(CAP - 1000);
-		process.env.WFC_OUTPUT_STYLE = "";
+		vi.stubEnv("WFC_OUTPUT_STYLE", "");
 		const before = run("--json").json().total;
 		fs.appendFileSync(path.join(dir, VOICE_PATH), "x".repeat(100));
 		const j = run("--json").json();
@@ -723,7 +709,7 @@ describe("what the pool covers", () => {
 	it("warns when the declared style is not itself an always-loaded file, naming it and offering to add it to alwaysLoaded (#45)", () => {
 		pool(CAP - 1000);
 		const unpooled = ".claude/output-styles/unpooled.md";
-		process.env.WFC_OUTPUT_STYLE = unpooled;
+		vi.stubEnv("WFC_OUTPUT_STYLE", unpooled);
 		const j = run("--json").json();
 		const finding = j.findings.find(
 			(f: { tag: string }) => f.tag === "STYLE-NOT-POOLED",
@@ -814,7 +800,7 @@ describe("an adopter's rendered tracker payload (#1956)", () => {
 				'printf \'{"hookSpecificOutput":{"additionalContext":"%s %s"}}\' "$cmd" "$host"\n',
 		);
 		fs.rmSync(path.join(dir, "scripts", "inject-tracker-docs.sh"));
-		process.env.WFC_INJECTOR_FILE = script;
+		vi.stubEnv("WFC_INJECTOR_FILE", script);
 		return script;
 	}
 
@@ -2041,7 +2027,7 @@ describe("the core layer beneath an adopter's own store (#101, #109)", () => {
 		rulesFallbackDirs.push(at);
 		for (const [id, body] of Object.entries(fragments))
 			fs.writeFileSync(path.join(at, `${id}.txt`), body);
-		process.env.WFC_RULES_FALLBACK_DIR = at;
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", at);
 	}
 
 	/** Wires one core whose whole content is a single injection of `id`. */

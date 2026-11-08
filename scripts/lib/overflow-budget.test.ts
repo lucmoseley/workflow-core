@@ -21,7 +21,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStopBranch, type StopKind } from "./agents-stop-fake";
 import { readProcStartOf } from "./arbiter-proc.js";
 import { writeClaudeStub } from "./claude-stub";
@@ -42,15 +42,6 @@ const TABLE = {
 };
 /* Past any one month's cycle, so the write falls in an earlier one. */
 const TWO_CYCLES_MS = 62 * 24 * 3600 * 1000;
-const SAVED_ENV = [
-	"WFC_REFILL_DIR",
-	"WFC_DISPATCH_ROOT",
-	"WFC_CLAUDE_BIN",
-	"CLAUDE_PROJECT_DIR",
-	"CLAUDE_CODE_SESSION_ID",
-	"HOME",
-] as const;
-const saved = SAVED_ENV.map((k) => [k, process.env[k]] as const);
 let tmp: string;
 let home: string;
 let refill: string;
@@ -78,17 +69,14 @@ beforeEach(() => {
 		`if [ "$1" = "agents" ]; then cat "${listingFile}"; exit 0; fi`,
 	]);
 	writeListing([]);
-	process.env.WFC_REFILL_DIR = refill;
-	process.env.WFC_DISPATCH_ROOT = root;
-	process.env.WFC_CLAUDE_BIN = stub;
-	process.env.HOME = home;
-	delete process.env.CLAUDE_CODE_SESSION_ID;
+	vi.stubEnv("WFC_REFILL_DIR", refill);
+	vi.stubEnv("WFC_DISPATCH_ROOT", root);
+	vi.stubEnv("WFC_CLAUDE_BIN", stub);
+	vi.stubEnv("HOME", home);
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 });
 
 afterEach(() => {
-	for (const [k, v] of saved)
-		if (v === undefined) delete process.env[k];
-		else process.env[k] = v;
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -259,7 +247,7 @@ describe("seatBudget pricing", () => {
 	});
 
 	it("reads the cost table in the root it is given, not the working directory's checkout (#3683)", () => {
-		delete process.env.CLAUDE_PROJECT_DIR;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 		const cwd = process.cwd();
 		process.chdir(home);
 		try {

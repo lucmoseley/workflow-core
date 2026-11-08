@@ -38,14 +38,11 @@ const LIB = path.resolve(__dirname, "gh.js");
 const CHECK_LIB = path.resolve(__dirname, "check.js");
 
 let dir: string;
-let savedEnv: NodeJS.ProcessEnv;
 
 beforeEach(() => {
-	savedEnv = { ...process.env };
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-seam-test-"));
 });
 afterEach(() => {
-	process.env = savedEnv;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -53,15 +50,15 @@ const load = async () => await import(LIB);
 
 const inject = (script: string, { failing = false } = {}) => {
 	const stub = stubGhScript(dir, script, { failing });
-	process.env.WFC_GH = stub.env.WFC_GH;
+	vi.stubEnv("WFC_GH", stub.env.WFC_GH);
 };
 
 describe("the injection point", () => {
 	it("resolves the binary from WFC_GH, defaulting to gh", async () => {
 		const { ghBinary } = await load();
-		delete process.env.WFC_GH;
+		vi.stubEnv("WFC_GH", undefined);
 		expect(ghBinary()).toBe("gh");
-		process.env.WFC_GH = "/tmp/stub-gh";
+		vi.stubEnv("WFC_GH", "/tmp/stub-gh");
 		expect(ghBinary()).toBe("/tmp/stub-gh");
 	});
 
@@ -113,7 +110,7 @@ describe("run and workflow calls reach the code repo (#1963)", () => {
 			path.join(dir, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker: "o/tracker", codeRepo: "o/code" }),
 		);
-		process.env.CLAUDE_PROJECT_DIR = dir;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 	};
 
 	it("adds --repo <codeRepo> to a run or workflow call naming no repo", async () => {
@@ -352,7 +349,7 @@ describe("classifying why a gh call failed", () => {
 
 	it("reads a missing gh binary as unreachable", async () => {
 		const { gh, parseGhFailureReason } = await load();
-		process.env.WFC_GH = path.join(dir, "no-such-gh");
+		vi.stubEnv("WFC_GH", path.join(dir, "no-such-gh"));
 		try {
 			gh(["issue", "list"]);
 			expect.unreachable("no binary to run");

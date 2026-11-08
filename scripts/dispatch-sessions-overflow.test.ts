@@ -25,7 +25,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	readOverflowLookup,
@@ -138,14 +138,8 @@ const refill = () => path.join(fx.dir, "refill");
 /** The run the headless launcher stored for `jobId`, read under the fixture's
  * refill dir. */
 function storedRun(jobId: string) {
-	const was = process.env.WFC_REFILL_DIR;
-	process.env.WFC_REFILL_DIR = refill();
-	try {
-		return readRun(jobId);
-	} finally {
-		if (was === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = was;
-	}
+	vi.stubEnv("WFC_REFILL_DIR", refill());
+	return readRun(jobId);
 }
 
 const readStoredJobIds = () => {

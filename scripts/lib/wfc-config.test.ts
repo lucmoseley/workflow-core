@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commandPath } from "./command-path-testkit";
 import { shellQuote } from "./sh-quote.js";
 import { restoreStderr, spyStderr } from "./write-fd-testkit";
@@ -562,13 +562,8 @@ describe("parity with the JS reader (#1481)", () => {
 	};
 
 	const jsAnswers = (row: Row, asks: Asks): Answers => {
-		const saved = {
-			WFC_MODULES: process.env.WFC_MODULES,
-			WFC_OUTPUT_STYLE: process.env.WFC_OUTPUT_STYLE,
-		};
-		delete process.env.WFC_OUTPUT_STYLE;
-		if (row.modulesEnv === undefined) delete process.env.WFC_MODULES;
-		else process.env.WFC_MODULES = row.modulesEnv;
+		vi.stubEnv("WFC_OUTPUT_STYLE", undefined);
+		vi.stubEnv("WFC_MODULES", row.modulesEnv);
 		// The rows' own malformed keys warn; the answers are what is compared.
 		spyStderr();
 		try {
@@ -583,9 +578,6 @@ describe("parity with the JS reader (#1481)", () => {
 			return out;
 		} finally {
 			restoreStderr();
-			for (const [k, v] of Object.entries(saved))
-				if (v === undefined) delete process.env[k];
-				else process.env[k] = v;
 		}
 	};
 

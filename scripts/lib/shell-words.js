@@ -1134,8 +1134,8 @@ function skipFindOptions(texts) {
  * keeps a leading =, as git does.
  *
  * `gitLong`, where given, reads the words as git's own parser does, which pflag
- * and nopt do not: it turns a long flag as spelled into its whole name, before
- * `spec` is read, and `--end-of-options` makes every later word an `arg`, a `--`
+ * does not: it turns a long flag as spelled into its whole name, before `spec`
+ * is read, and `--end-of-options` makes every later word an `arg`, a `--`
  * among them (measured on git 2.43.0, #4008).
  * @param {string} spec
  * @param {string[]} words

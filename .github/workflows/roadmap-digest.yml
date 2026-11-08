@@ -201,6 +201,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/check-git-fixture-identity.js
 
+      # A test file writing or deleting process.env directly, which unstubEnvs
+      # never restores, so the change outlives its case (#4019). Local backstop:
+      # `npm run check:test-env-writes`.
+      - name: Check no test file writes process.env directly
+        if: ${{ !cancelled() }}
+        run: node scripts/check-test-env-writes.js
+
       # A gate. docs/agents/autonomy-ceiling.md caps TIMER-triggered work at R1 —
       # file or refresh an issue — so no job in .github/workflows/ may hold a
       # write scope beyond `issues: write`, and no step may commit or push. It

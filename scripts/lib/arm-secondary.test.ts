@@ -252,6 +252,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"guard-test-isolation": ["scripts/check-guard-test-isolation.js"],
 	"host-root-test-isolation": ["scripts/check-host-root-test-isolation.js"],
 	"git-fixture-identity": ["scripts/check-git-fixture-identity.js"],
+	"test-env-writes": ["scripts/check-test-env-writes.js"],
 	"host-root": ["scripts/check-host-root.js"],
 	"test-read-edges": ["scripts/generate-test-read-edges.js"],
 	"rule-fragments": ["scripts/generate-rule-fragments.js", ".husky/pre-commit"],

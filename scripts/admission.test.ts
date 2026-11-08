@@ -572,17 +572,14 @@ describe("the lander's suite reserve (#2416)", () => {
 	});
 
 	it("samples a tester run's tree peak as the PSS of its root and every process under it (#3323)", () => {
-		const was = process.env.WFC_PROC;
-		process.env.WFC_PROC = writeProcRoot(dir, {
-			pss: { "50": 100, "51": 200, "52": 300, "60": 9000 },
-			parents: { "51": "50", "52": "51", "60": "1" },
-		});
-		try {
-			expect(readTreePssKb(50)).toBe(600);
-		} finally {
-			if (was === undefined) delete process.env.WFC_PROC;
-			else process.env.WFC_PROC = was;
-		}
+		vi.stubEnv(
+			"WFC_PROC",
+			writeProcRoot(dir, {
+				pss: { "50": 100, "51": 200, "52": 300, "60": 9000 },
+				parents: { "51": "50", "52": "51", "60": "1" },
+			}),
+		);
+		expect(readTreePssKb(50)).toBe(600);
 	});
 
 	it("credits the lander's suite its current PSS, so it counts once, and the lander itself none", () => {
@@ -1430,14 +1427,8 @@ describe("test-suite bands", () => {
 
 /** readRunningVitestSuites against a stub `ps` at `p`, the seam pretest-reap reads it through. */
 const readSuitesWithPs = (p: string) => {
-	const was = process.env.WFC_PS;
-	process.env.WFC_PS = p;
-	try {
-		return readRunningVitestSuites();
-	} finally {
-		if (was === undefined) delete process.env.WFC_PS;
-		else process.env.WFC_PS = was;
-	}
+	vi.stubEnv("WFC_PS", p);
+	return readRunningVitestSuites();
 };
 
 /*
@@ -1539,14 +1530,8 @@ describe("readRunningVitestSuites", () => {
 			return procDir;
 		};
 		const readWithProc = (procDir: string, lines: string[]) => {
-			const was = process.env.WFC_PROC;
-			process.env.WFC_PROC = procDir;
-			try {
-				return readSuitesWithPs(ps(lines));
-			} finally {
-				if (was === undefined) delete process.env.WFC_PROC;
-				else process.env.WFC_PROC = was;
-			}
+			vi.stubEnv("WFC_PROC", procDir);
+			return readSuitesWithPs(ps(lines));
 		};
 		const runner = "node /a/node_modules/.bin/vitest run";
 

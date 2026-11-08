@@ -15,7 +15,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const probe: any = createRequire(__filename)("./commit-sha.js");
@@ -110,21 +110,18 @@ describe("readCommit (#2864, #3068)", () => {
 
 	it("answers ok: false outside a repository and where git will not run, which a checker reads as BROKEN", () => {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "commit-sha-out-"));
-		const saved = process.env.WFC_GIT;
 		try {
 			expect(probe.readCommit(gitReader(outside), "HEAD").ok).toBe(false);
-			process.env.WFC_GIT = path.join(outside, "no-such-git");
+			vi.stubEnv("WFC_GIT", path.join(outside, "no-such-git"));
 			expect(probe.readCommit(gitReader(dir), "HEAD").ok).toBe(false);
 			const exitsOne = path.join(outside, "git");
 			fs.writeFileSync(exitsOne, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-			process.env.WFC_GIT = exitsOne;
+			vi.stubEnv("WFC_GIT", exitsOne);
 			expect(probe.readCommit(gitReader(dir), "HEAD").ok).toBe(false);
 			expect(readBaselineCommit(gitReader(dir), "HEAD").ok).toBe(false);
 			expect(probe.commitSha(dir, "HEAD")).toBeNull();
 			expect(() => baselineOf("HEAD")).toThrow(/would not resolve HEAD/);
 		} finally {
-			if (saved === undefined) delete process.env.WFC_GIT;
-			else process.env.WFC_GIT = saved;
 			fs.rmSync(outside, { recursive: true, force: true });
 		}
 	});

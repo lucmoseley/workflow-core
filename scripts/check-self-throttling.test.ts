@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hookIsWired, registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -572,14 +572,10 @@ describe("the collector's own health", () => {
 	it("is not itself fooled by an ambient WFC_THROTTLE_NOTICE (mantahostels#2120)", () => {
 		// process.env, not `run`'s own env param: pins that the default neutralises
 		// what a test never explicitly set, not only what it overrides.
-		process.env.WFC_THROTTLE_NOTICE = "1";
-		try {
-			throttled();
-			run(["--refresh"]);
-			expect(run(["--notify"]).stdout).not.toMatch(/overriding/);
-		} finally {
-			delete process.env.WFC_THROTTLE_NOTICE;
-		}
+		vi.stubEnv("WFC_THROTTLE_NOTICE", "1");
+		throttled();
+		run(["--refresh"]);
+		expect(run(["--notify"]).stdout).not.toMatch(/overriding/);
 	});
 });
 

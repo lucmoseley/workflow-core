@@ -66,6 +66,16 @@ const ROWS = {
 			"touching a scripts/ test file, refusing only one that adds a " +
 			"raw-init/raw-commit pair of its own",
 	},
+	"test-env-writes": {
+		script: "check-test-env-writes.js",
+		gate: "against",
+		scope: "whole-repo",
+		cite: "(mantahostels#1753)",
+		cost:
+			"fails the scheduled sweeps, and warns every other session's commit " +
+			"touching a test file, refusing only one that adds a direct " +
+			"process.env assignment of its own",
+	},
 	"doc-map": {
 		script: "check-doc-map.js",
 		gate: "against",

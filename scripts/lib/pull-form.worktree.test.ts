@@ -7,7 +7,7 @@
  */
 
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import {
 	runCore,
@@ -52,7 +52,7 @@ describe("the landing module is read from the main checkout's config (#4274)", (
 	/* The suite injects its modules over every config (vitest.setup.ts);
 	 * uninjected, the config read declares them. */
 	const reason = () => {
-		delete process.env.WFC_MODULES;
+		vi.stubEnv("WFC_MODULES", undefined);
 		return String(
 			runCore(
 				"guard-pull-form",

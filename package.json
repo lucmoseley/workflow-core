@@ -40,6 +40,7 @@
 		"check:guards": "node scripts/check-guard-registry.js",
 		"check:guard-tests": "node scripts/check-guard-test-isolation.js",
 		"check:git-fixture-identity": "node scripts/check-git-fixture-identity.js",
+		"check:test-env-writes": "node scripts/check-test-env-writes.js",
 		"check:standards": "node scripts/check-code-standards.js",
 		"check:copy": "node scripts/check-website-copy.js",
 		"check:types-silenced": "node scripts/check-scripts-typecheck.js --full",
