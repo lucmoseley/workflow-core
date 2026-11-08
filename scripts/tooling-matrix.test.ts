@@ -809,6 +809,10 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"`scripts/check-report-programs.js`",
 			/check-report-programs\.js --index \|\| exit/,
 		],
+		[
+			"`scripts/check-program-output.js`",
+			/check-program-output\.js --index \|\| exit/,
+		],
 		["`scripts/check-gh-route.js`", /check-gh-route\.js --index \|\| exit/],
 		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[
@@ -822,11 +826,12 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		expect(hook).toMatch(call);
 	});
 
-	it("names the three test-isolation checkers in one row, all three still run", () => {
+	it("names the four test-isolation checkers in one row, all four still run", () => {
 		for (const checker of [
 			"check-guard-test-isolation",
 			"check-host-root-test-isolation",
 			"check-git-fixture-identity",
+			"check-test-env-writes",
 		]) {
 			expect(floor).toContain(`scripts/${checker}.js`);
 			expect(hook).toMatch(new RegExp(`${checker}\\.js --against HEAD`));

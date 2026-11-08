@@ -23,7 +23,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
 
 const require_ = createRequire(__filename);
@@ -36,7 +36,6 @@ const REAPER = path.resolve(__dirname, "..", "reap-finished-sessions.js");
 const CHECKER_KEY = "persist-gate-fixture";
 const REAPER_KEY = "reap-finished-sessions";
 
-const savedEnv = { ...process.env };
 let sandbox = "";
 
 beforeEach(() => {
@@ -50,10 +49,9 @@ beforeEach(() => {
 		"WFC_CLAUDE_CONFIG_B",
 		"WFC_CLAUDE_CONFIG_C",
 	])
-		process.env[v] = sandbox;
+		vi.stubEnv(v, sandbox);
 });
 afterEach(() => {
-	process.env = { ...savedEnv };
 	fs.rmSync(sandbox, { recursive: true, force: true });
 });
 
@@ -207,7 +205,7 @@ describe("the reaper's --dry-run limb", () => {
 
 	it("is the caller's, not the shared gate's", () => {
 		const { persisting } = require_("./persist-mode.js");
-		process.env.WFC_NOTIFY_PERSIST = "1";
+		vi.stubEnv("WFC_NOTIFY_PERSIST", "1");
 		expect(persisting(["--notify", "--dry-run"])).toBe(true);
 		expect(
 			persisting(["--notify", "--dry-run"], { forbid: ["--dry-run"] }),

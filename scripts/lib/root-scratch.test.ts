@@ -29,7 +29,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import {
 	type CoreRun,
@@ -123,10 +123,6 @@ function run(
 const denies = (command: string) => run(command).refusal !== null;
 
 describe("the lines its refusal takes from the rule store (#4129)", () => {
-	afterEach(() => {
-		delete process.env.WFC_RULES_DIR;
-	});
-
 	it("carries whatever the two fragments say", () => {
 		const rules = path.join(dir, "rules");
 		fs.mkdirSync(rules, { recursive: true });
@@ -135,14 +131,14 @@ describe("the lines its refusal takes from the rule store (#4129)", () => {
 			"SCRATCH.\n",
 		);
 		fs.writeFileSync(path.join(rules, "self-spelt-escape.txt"), "ESCAPE.\n");
-		process.env.WFC_RULES_DIR = rules;
+		vi.stubEnv("WFC_RULES_DIR", rules);
 		const { refusal } = run("echo x > .stray-4129");
 		expect(refusal).toContain("and nowhere else — SCRATCH. Same command");
 		expect(refusal).toContain("none is wanted: ESCAPE.");
 	});
 
 	it("still refuses, naming the file, where the store cannot give them", () => {
-		process.env.WFC_RULES_DIR = path.join(dir, "no-such-store");
+		vi.stubEnv("WFC_RULES_DIR", path.join(dir, "no-such-store"));
 		const { refusal } = run("echo x > .stray-4129");
 		expect(refusal).toContain("agents/rules/scratch-dir-sanctioned.txt");
 		expect(refusal).toContain("agents/rules/self-spelt-escape.txt");

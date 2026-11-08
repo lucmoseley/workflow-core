@@ -28,7 +28,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hostRoot } from "./lib/host-root.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -52,13 +53,21 @@ const bash = (command: string, id: string) =>
 		timestamp: "2026-08-20T09:00:00.000Z",
 	});
 
-/* The host root pinned to this checkout, so the inventory read is this
- * checkout's whatever CLAUDE_PROJECT_DIR the suite inherited. */
+/* The host root pinned to this checkout, whatever CLAUDE_PROJECT_DIR the
+ * suite inherited. From a linked worktree hostRoot maps that to the main
+ * checkout, so the inventory read is the main checkout's: compare against
+ * `host()`, never ROOT. */
 const run = (...args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		cwd: ROOT,
 		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
 	});
+
+/** The root the script reads its inventory from, resolved as it resolves it. */
+const host = () => {
+	vi.stubEnv("CLAUDE_PROJECT_DIR", ROOT);
+	return hostRoot(ROOT);
+};
 
 interface Row {
 	name: string;
@@ -95,8 +104,8 @@ describe("the inventory is derived, not listed", () => {
 		const reported = new Set(report(...BAR).skills.map((r: Row) => r.name));
 		const onDisk = new Set<string>();
 		for (const root of [
-			path.join(ROOT, ".claude", "skills"),
-			path.join(ROOT, ".agents", "skills"),
+			path.join(host(), ".claude", "skills"),
+			path.join(host(), ".agents", "skills"),
 		])
 			for (const entry of fs.readdirSync(root))
 				if (fs.existsSync(path.join(root, entry, "SKILL.md")))
@@ -109,7 +118,7 @@ describe("the inventory is derived, not listed", () => {
 		transcript("a", []);
 		const reported = new Set(report(...BAR).npm.map((r: Row) => r.name));
 		const pkg = JSON.parse(
-			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
+			fs.readFileSync(path.join(host(), "package.json"), "utf8"),
 		);
 		expect(Object.keys(pkg.scripts).filter((n) => !reported.has(n))).toEqual(
 			[],

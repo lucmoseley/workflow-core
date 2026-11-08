@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { agentKey, kitContext, latchPath, sharedReaders } =
 	require("./kit-context.js") as typeof import("./kit-context.js");
@@ -35,15 +35,11 @@ describe("the rule store and the install spellings on the context (#3018)", () =
 
 	it("reads a rule from the store, and throws where it has none", () => {
 		fragment("alpha");
-		process.env.WFC_RULES_DIR = store;
-		try {
-			expect(ctx().ruleText("alpha")).toBe(
-				fs.readFileSync(path.join(store, "alpha.txt"), "utf8"),
-			);
-			expect(() => ctx().ruleText("ghost")).toThrow();
-		} finally {
-			delete process.env.WFC_RULES_DIR;
-		}
+		vi.stubEnv("WFC_RULES_DIR", store);
+		expect(ctx().ruleText("alpha")).toBe(
+			fs.readFileSync(path.join(store, "alpha.txt"), "utf8"),
+		);
+		expect(() => ctx().ruleText("ghost")).toThrow();
 	});
 
 	it("spells a core path at the plugin root in an install", () => {
@@ -51,20 +47,14 @@ describe("the rule store and the install spellings on the context (#3018)", () =
 		fs.mkdirSync(path.join(install, "scripts"), { recursive: true });
 		fs.mkdirSync(path.join(install, "docs"));
 		fs.writeFileSync(path.join(install, "scripts", "claim-issue.js"), "");
-		const was = process.env.WFC_SCRIPT_ROOT;
-		process.env.WFC_SCRIPT_ROOT = install;
-		try {
-			expect(ctx().corePaths("run scripts/claim-issue.js.")).toBe(
-				`run ${install}/scripts/claim-issue.js.`,
-			);
-			expect(ctx().scriptPath("claim-issue.js")).toBe(
-				`${install}/scripts/claim-issue.js`,
-			);
-			expect(ctx().docPath("agents/x.md")).toBe(`${install}/docs/agents/x.md`);
-		} finally {
-			if (was === undefined) delete process.env.WFC_SCRIPT_ROOT;
-			else process.env.WFC_SCRIPT_ROOT = was;
-		}
+		vi.stubEnv("WFC_SCRIPT_ROOT", install);
+		expect(ctx().corePaths("run scripts/claim-issue.js.")).toBe(
+			`run ${install}/scripts/claim-issue.js.`,
+		);
+		expect(ctx().scriptPath("claim-issue.js")).toBe(
+			`${install}/scripts/claim-issue.js`,
+		);
+		expect(ctx().docPath("agents/x.md")).toBe(`${install}/docs/agents/x.md`);
 	});
 });
 

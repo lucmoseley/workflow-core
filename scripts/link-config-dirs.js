@@ -43,6 +43,7 @@ const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
 const { CANONICAL, readSiblings } = require("./lib/plan-dirs.js");
+const { isUnder } = require("./lib/is-under.js");
 
 const USAGE = `Usage: node ${scriptPath("link-config-dirs.js")} [--check] [--home <dir>]`;
 
@@ -147,7 +148,9 @@ function sameFile(a, b) {
  * @param {unknown} p @param {string} sibling @param {string} canonical
  */
 function rehome(p, sibling, canonical) {
-	return typeof p === "string" && p.startsWith(`${sibling}${path.sep}`)
+	return typeof p === "string" &&
+		p !== sibling &&
+		isUnder(p, [sibling], path.sep)
 		? path.join(canonical, p.slice(sibling.length + 1))
 		: p;
 }

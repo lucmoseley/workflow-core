@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAuthStatusBranch } from "./auth-status-fake";
 import { launchAuthRefusal } from "./launch-auth.js";
 import { buildKeyHelper } from "./overflow-key.js";
@@ -20,8 +20,6 @@ let bin = "";
 let home = "";
 let secrets = "";
 const CLI = path.join(__dirname, "launch-auth.js");
-const was = process.env.HOME;
-const wasSecrets = process.env.WFC_SECRETS_FILE;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "launch-auth-"));
@@ -31,15 +29,12 @@ beforeEach(() => {
 	});
 	home = path.join(dir, "home");
 	secrets = path.join(dir, "secrets.env");
-	process.env.WFC_SECRETS_FILE = secrets;
+	vi.stubEnv("WFC_SECRETS_FILE", secrets);
 	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
-	process.env.HOME = home;
+	vi.stubEnv("HOME", home);
 });
 
 afterEach(() => {
-	process.env.HOME = was;
-	if (wasSecrets === undefined) delete process.env.WFC_SECRETS_FILE;
-	else process.env.WFC_SECRETS_FILE = wasSecrets;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

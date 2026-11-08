@@ -22,7 +22,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	SCRIPT as ARBITER,
 	freshSandbox,
@@ -1098,7 +1098,7 @@ describe("it hands over the claim rules before the mistake", () => {
 			modules: string[];
 		}) => {
 			// The suite injects its own modules (vitest.setup.ts).
-			process.env.WFC_MODULES = modules.join(",");
+			vi.stubEnv("WFC_MODULES", modules.join(","));
 			const ctx = firstEnvelope(rel);
 			expect(ctx).not.toContain(readRuleText(rule));
 			expect(ctx).toContain(readRuleText("claim-bash-route"));

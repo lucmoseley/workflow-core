@@ -11,22 +11,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readSwapHold } from "./admission.js";
 import { buildMeminfo, MEMINFO_KEYS } from "./meminfo-fake";
 
 const REAL = "/proc/meminfo";
-const was = process.env.WFC_MEMINFO;
-afterEach(() => {
-	if (was === undefined) delete process.env.WFC_MEMINFO;
-	else process.env.WFC_MEMINFO = was;
-});
-
 function readFake(text: string) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meminfo-contract-"));
 	try {
 		fs.writeFileSync(path.join(dir, "meminfo"), text);
-		process.env.WFC_MEMINFO = path.join(dir, "meminfo");
+		vi.stubEnv("WFC_MEMINFO", path.join(dir, "meminfo"));
 		return readSwapHold();
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -48,7 +42,7 @@ describe("the meminfo fake against the real file (#3093)", () => {
 				expect(real).toMatch(shape);
 				expect(fake).toMatch(shape);
 			}
-			delete process.env.WFC_MEMINFO;
+			vi.stubEnv("WFC_MEMINFO", undefined);
 			expect(typeof readSwapHold().held).toBe("boolean");
 		},
 	);

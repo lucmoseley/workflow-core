@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { type Job, queueTester, type Run } from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
@@ -22,10 +22,7 @@ const SHA = "a".repeat(40);
 const OTHER = "b".repeat(40);
 
 let tmp: string | null = null;
-const savedGh = process.env.WFC_GH;
 afterEach(() => {
-	if (savedGh === undefined) delete process.env.WFC_GH;
-	else process.env.WFC_GH = savedGh;
 	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 	tmp = null;
 });
@@ -367,14 +364,17 @@ it("reads a failed run through gh and the tree through git", async () => {
 		}),
 		log: FAILED_LOG,
 	};
-	process.env.WFC_GH = stubGhScript(
-		tmp,
-		`#!/usr/bin/env node
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhScript(
+			tmp,
+			`#!/usr/bin/env node
 const a = ${JSON.stringify(answers)};
 const argv = process.argv.slice(2);
 process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed") ? a.log : a.jobs);
 `,
-	).gh;
+		).gh,
+	);
 	const v = await queueTester({ root: tmp, ...clock() }).verdict(sha);
 	expect(v).toEqual({
 		kind: "red",
@@ -990,9 +990,11 @@ it("reads lander/batch-<k> and lander/iso-suite-* runs through gh, the lander re
 		suite: [{ ...run(9, "success"), headSha: iso }],
 		jobs: { jobs: [...shards("success"), SUITE_PASSED, NAMED_OK] },
 	};
-	process.env.WFC_GH = stubGhScript(
-		tmp,
-		`#!/usr/bin/env node
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhScript(
+			tmp,
+			`#!/usr/bin/env node
 const fs = require("node:fs");
 const a = ${JSON.stringify(answers)};
 const argv = process.argv.slice(2);
@@ -1011,7 +1013,8 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	else out(a.list);
 } else out(a.jobs);
 `,
-	).gh;
+		).gh,
+	);
 	const record = path.join(markersDir(work), ".lander-named-runs.jsonl");
 	fs.writeFileSync(
 		record,

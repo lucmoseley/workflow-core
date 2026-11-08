@@ -18,6 +18,7 @@
 const {
 	QUOTED,
 	hasExpansion,
+	isBareSpan,
 	readSentinels,
 	literal,
 	unwrap,
@@ -661,7 +662,10 @@ function parseHeredocTerm(mask, line) {
 /**
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
- * line outside a message argument (mantahostels#232).
+ * line outside a message argument (mantahostels#232). The abandon is the
+ * fail-closed read of a quote typed by mistake: a stray apostrophe that a
+ * later line's quote closes would hide every command between them. A quote
+ * opening a message argument was meant, so only there does the join hold.
  * @param {string[]} commandLines
  * @param {Lexer} lx
  * @param {string[]} spans
@@ -729,9 +733,12 @@ function isCommandAbsorbed(line, spans) {
 /**
  * Is the lexer's still-open quote the argument of a flag whose value is DATA —
  * a commit message, an issue body — so the lines that follow are prose
- * (mantahostels#232)? Narrow at both ends: the segment holding the quote must be a git or
- * gh command, and the word it opens on one of its message flags. Not keyed on
- * the subcommand: a quoted argument is data whatever the subcommand.
+ * (mantahostels#232)? Narrow on the word the quote opens on: `-m` or
+ * `--message` on any command, so `commit-paths.js -m` reads as `git commit -m`
+ * does (#4028), and `gh`'s body and title flags on `gh`. Not keyed on the
+ * subcommand: a quoted argument is data whatever the subcommand.
+ * Residual: `-m` is a count or mode on `grep`, `sort`, `mkdir` and others, so
+ * a quote opened after one there keeps its join through a `git` line too.
  * @param {Lexer} lx
  */
 function isMessageOpen(lx) {
@@ -742,20 +749,18 @@ function isMessageOpen(lx) {
 	if (!ran) return false;
 	/* `--message="…` arrives glued to its `=`. */
 	const word = (words.at(-1) ?? "").replace(/[=]$/, "");
-	switch (basename(words[wi] ?? "")) {
-		case "git":
-			return word === "-m" || word === "--message";
-		case "gh":
-			return ["-b", "--body", "-t", "--title"].includes(word);
-		default:
-			return false;
-	}
+	if (word === "-m" || word === "--message") return true;
+	return (
+		basename(words[wi] ?? "") === "gh" &&
+		["-b", "--body", "-t", "--title"].includes(word)
+	);
 }
 
 /**
  * A flattened segment for a human: every blanked span shown as `"…"`, and the
  * leading whitespace the flattening leaves dropped. A sentinel without an
  * index is not something this file writes, so it is rendered and left alone.
+ * A sentinel byte the command typed shows as `"…"` too: this reads no spans.
  * @param {string} segment
  */
 function unmask(segment) {
@@ -769,24 +774,19 @@ function unmask(segment) {
 /**
  * Masked text as typed, each blanked span back inside its own quotes, for a
  * guard handing a command back to be re-issued (#519). A span index never
- * recorded is written `<quoted>` rather than guessed. Three passes, a
- * double-quoted span holding a single-quoted one's sentinel.
+ * recorded is written `<quoted>` rather than guessed. One pass: a span holds
+ * its text as typed, so a sentinel inside one was typed (#4278).
  * @param {string} text
  * @param {string[]} spans
  */
 function asWritten(text, spans) {
-	let s = text;
-	for (let pass = 0; pass < 3 && s.includes(QUOTED); pass++) {
-		const { out, rest } = readSentinels(s, (lit, idx) => {
-			const span = idx === null ? undefined : spans[idx];
-			return {
-				text: lit + (span === undefined ? "<quoted>" : span + span.charAt(0)),
-				stepPast: true,
-			};
-		});
-		s = out + rest;
-	}
-	return s;
+	const { out, rest } = readSentinels(text, (lit, idx) => {
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: `${lit}<quoted>`, stepPast: true };
+		const close = isBareSpan(span) ? "" : span.charAt(0);
+		return { text: lit + span + close, stepPast: true };
+	});
+	return out + rest;
 }
 
 /**
@@ -994,6 +994,8 @@ function expandMasked(raw, scope) {
  * @param {Scope} scope
  */
 function expandSpan(recorded, scope) {
+	/* A bare span is typed text outside quotes, read back as typed (#4278). */
+	if (isBareSpan(recorded)) return recorded;
 	const span = recorded.slice(1);
 	if (recorded.charAt(0) === '"') return expandVars(span, scope);
 	/* Single quotes are literal, so a `$` inside one names a directory rather

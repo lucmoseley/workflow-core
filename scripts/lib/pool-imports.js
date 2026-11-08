@@ -19,6 +19,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { relativeUnder } = require("./is-under.js");
 const { requiredGroup } = require("./regex-group.js");
 
 const MAX_HOPS = 5;
@@ -66,8 +67,8 @@ function importTokens(text) {
 function resolveImport(root, fromRel, token) {
 	if (token.startsWith("~") || path.isAbsolute(token)) return null;
 	const abs = path.resolve(root, path.dirname(fromRel), token);
-	const rel = path.relative(root, abs);
-	if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+	const rel = relativeUnder(root, abs);
+	if (rel === null) return null;
 	try {
 		return fs.statSync(abs).isFile() ? rel.split(path.sep).join("/") : null;
 	} catch (e) {

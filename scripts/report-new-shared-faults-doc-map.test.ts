@@ -12,7 +12,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyDataFile } from "./lib/doc-map-testkit";
 import {
 	newRepo,
@@ -289,18 +289,10 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 	describe("what a SIGKILL leaves, and the next run's sweep", () => {
 		const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-		let previousRoot: string | undefined;
-
 		beforeEach(() => {
-			previousRoot = process.env[LEFTOVER_ROOT_ENV];
 			const root = fs.mkdtempSync(path.join(os.tmpdir(), "report-leftovers-"));
 			temps.push(root);
-			process.env[LEFTOVER_ROOT_ENV] = root;
-		});
-
-		afterEach(() => {
-			if (previousRoot === undefined) delete process.env[LEFTOVER_ROOT_ENV];
-			else process.env[LEFTOVER_ROOT_ENV] = previousRoot;
+			vi.stubEnv(LEFTOVER_ROOT_ENV, root);
 		});
 
 		const leftoverRoot = () => process.env[LEFTOVER_ROOT_ENV] as string;

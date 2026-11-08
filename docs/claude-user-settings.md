@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **5 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **8 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -399,7 +399,7 @@ It needs `jq` and `perl`. `scripts/browser-profile-guard.test.ts` runs this copy
 # docs/claude-user-settings.md. Edit this file, then re-copy it there.
 #
 # Self-contained: it runs in every repo, so it sources nothing from workflow-core
-# and writes its own deny envelope rather than guard-parse.sh's.
+# and writes its own deny envelope rather than the plugin's.
 set -uo pipefail
 
 cmd=$(jq -r '.tool_input.command // empty')

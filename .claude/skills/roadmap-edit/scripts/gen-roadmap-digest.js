@@ -28,24 +28,32 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-/* Relative to this file, as claimTarget's arbiter is. The one caller that
- * runs a COPY of this file is scripts/check-digest-render.js, from the staged
- * copy pre-commit writes to a temp dir where no sibling scripts/ exists; it
- * names its own scripts dir in WFC_CORE_SCRIPTS_DIR for this fallback (#3). */
-const { requireKey } = (() => {
+/**
+ * A core scripts/lib module, relative to this file as claimTarget's arbiter
+ * is. The one caller that runs a COPY of this file is
+ * scripts/check-digest-render.js, from the staged copy pre-commit writes to a
+ * temp dir where no sibling scripts/ exists; it names its own scripts dir in
+ * WFC_CORE_SCRIPTS_DIR for this fallback (#3).
+ * @param {string} name
+ */
+function coreLib(name) {
 	try {
-		return require("../../../../scripts/lib/workflow-core-config");
+		return require(`../../../../scripts/lib/${name}`);
 	} catch (e) {
 		const dir = process.env.WFC_CORE_SCRIPTS_DIR;
-		// Residual: a missing require INSIDE the config reader also raises
+		// Residual: a missing require INSIDE the module also raises
 		// MODULE_NOT_FOUND, and with the env var set reads as a path miss.
 		// Narrowed in place, not through scripts/lib/caught.js: the copy
 		// check-digest-render.js runs has no scripts/lib/ beside it.
 		const code = e instanceof Error && "code" in e ? e.code : undefined;
 		if (code !== "MODULE_NOT_FOUND" || !dir) throw e;
-		return require(path.join(dir, "lib/workflow-core-config"));
+		return require(path.join(dir, "lib", name));
 	}
-})();
+}
+/** @type {typeof import("../../../../scripts/lib/workflow-core-config")} */
+const { requireKey } = coreLib("workflow-core-config");
+/** @type {typeof import("../../../../scripts/lib/write-fd.js")} */
+const { writeFd } = coreLib("write-fd.js");
 
 /**
  * @typedef {{id: string, state: string, t: string, p: number, needs?: string[],
@@ -78,7 +86,7 @@ function claimTarget(target) {
 	const said = r.error
 		? `no claim taken on ${target}: the arbiter did not run (${r.error.message})`
 		: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
-	if (said) console.error(said);
+	if (said) writeFd(2, `${said}\n`);
 }
 
 /**
@@ -86,20 +94,24 @@ function claimTarget(target) {
  * @returns {never}
  */
 function usage(problem) {
-	if (problem) console.error(`ERROR: ${problem}`);
-	console.error(
-		"usage: node gen-roadmap-digest.js <roadmap.html> (--out <path> | --stdout)",
+	if (problem) writeFd(2, `ERROR: ${problem}\n`);
+	writeFd(
+		2,
+		"usage: node gen-roadmap-digest.js <roadmap.html> (--out <path> | --stdout)\n",
 	);
-	console.error(
-		"  <roadmap.html>  required, positional, must come first — not a flag.",
+	writeFd(
+		2,
+		"  <roadmap.html>  required, positional, must come first — not a flag.\n",
 	);
-	console.error("  --out <path>    write the digest there. Normal use:");
-	console.error("                  --out docs/roadmap-digest.md");
-	console.error(
-		"  --stdout        print instead of writing. Never the default: a",
+	writeFd(2, "  --out <path>    write the digest there. Normal use:\n");
+	writeFd(2, "                  --out docs/roadmap-digest.md\n");
+	writeFd(
+		2,
+		"  --stdout        print instead of writing. Never the default: a\n",
 	);
-	console.error(
-		"                  missing destination must not be a silent no-op.",
+	writeFd(
+		2,
+		"                  missing destination must not be a silent no-op.\n",
 	);
 	process.exit(1);
 }
@@ -245,7 +257,7 @@ for (const ph of PHASES) {
 const md = lines.join("\n");
 
 if (toStdout) {
-	process.stdout.write(md);
+	writeFd(1, md);
 } else {
 	// The file-claim guard watches Write/Edit/NotebookEdit and is blind to a file
 	// written by a script, so a script that writes a tracked doc claims it for
@@ -260,7 +272,8 @@ if (toStdout) {
 		);
 	claimTarget(outPath);
 	fs.writeFileSync(outPath, md);
-	console.error(
-		`wrote ${outPath} — ${md.length} chars, ${ITEMS.length} cards, ${version}`,
+	writeFd(
+		2,
+		`wrote ${outPath} — ${md.length} chars, ${ITEMS.length} cards, ${version}\n`,
 	);
 }

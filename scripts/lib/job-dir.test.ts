@@ -57,9 +57,8 @@ describe("isJobDir", () => {
 			expect(isJobDir("/srv/jobdir", { jobDir: jobDirPath })).toBe(true);
 		});
 
-		/* THE PREFIX GUARD. Both sides get a trailing slash before the comparison
-		 * for exactly this case: without it `/srv/jobdir-two` starts with
-		 * `/srv/jobdir` and an unrelated sibling reads as the job directory. */
+		/* THE PREFIX GUARD: a bare prefix test reads the sibling `/srv/jobdir-two`
+		 * as the job directory. */
 		it.each([
 			[
 				"/srv/jobdir-two/tmp/x.out",

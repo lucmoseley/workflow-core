@@ -36,6 +36,7 @@ const { hostRoot, sessionTree } = require("./lib/host-root.js");
 const { runCommand } = require("./lib/run-command.js");
 const { systemctl, systemdRun } = require("./lib/systemd-bins.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { relativeUnder } = require("./lib/is-under.js");
 
 const UNIT = "wfc-orphan-sweep";
 const TIMER_UNIT = `${UNIT}.timer`;
@@ -54,8 +55,9 @@ const NICE = 10;
 function sweepScript() {
 	const own = path.join(__dirname, SWEEP);
 	const tree = sessionTree({ cwd: __dirname });
-	if (tree === null || !__dirname.startsWith(`${tree}/`)) return own;
-	const checkout = path.join(hostRoot(), path.relative(tree, __dirname), SWEEP);
+	const rel = tree === null ? null : relativeUnder(tree, __dirname);
+	if (!rel) return own;
+	const checkout = path.join(hostRoot(), rel, SWEEP);
 	return fs.existsSync(checkout) ? checkout : own;
 }
 

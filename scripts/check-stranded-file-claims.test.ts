@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox, locks, store } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -68,7 +68,7 @@ function fakeClaude(body: string, code = 0) {
 	const bin = path.join(sb.dir, "bin", "claude");
 	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`);
 	fs.chmodSync(bin, 0o755);
-	process.env.WFC_CLAUDE_BIN = bin;
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return bin;
 }
 
@@ -389,7 +389,10 @@ describe("it degrades to silence, never to dead", () => {
 		[
 			"the oracle cannot be run at all",
 			() => {
-				process.env.WFC_CLAUDE_BIN = path.join(sb.dir, "bin", "no-such-claude");
+				vi.stubEnv(
+					"WFC_CLAUDE_BIN",
+					path.join(sb.dir, "bin", "no-such-claude"),
+				);
 			},
 		],
 		["it exits non-zero", () => fakeClaude("[]", 3)],

@@ -52,7 +52,7 @@ const path = require("node:path");
 const { isListedLive, listedSessionIds } = require("./lib/agent-liveness.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { commitSha } = require("./lib/commit-sha.js");
+const { FULL_SHA, commitSha } = require("./lib/commit-sha.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { resolveCommitHost, worktreeRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
@@ -60,6 +60,7 @@ const { numstatPaths } = require("./lib/patch-files.js");
 const { readState } = require("./lib/refill-state.js");
 const { reviewSuffix } = require("./lib/review-suffix.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { relativeUnder } = require("./lib/is-under.js");
 
 const USAGE =
 	"usage: node scripts/write-review-marker.js --base <rev> --findings <n> [--no-spec] [--skipped deletion|rename] [--tier escalated|mission-critical --areas <a,b>] [--paths <p,q> [--patch <file>]]";
@@ -240,8 +241,8 @@ function readPatchOrFail(root, patch) {
  */
 function repoRelative(root, paths) {
 	return paths.map((p) => {
-		const rel = path.relative(root, path.resolve(root, p));
-		if (rel === "" || rel.split("/")[0] === "..")
+		const rel = relativeUnder(root, path.resolve(root, p));
+		if (!rel)
 			fail(
 				`--paths entry '${p}' names no file inside ${root}. Nothing written.`,
 				2,
@@ -258,7 +259,7 @@ function repoRelative(root, paths) {
  */
 function treeOrFail(r, what, remedy) {
 	const tree = String(r.stdout ?? "").trim();
-	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
+	if (r.status !== 0 || !FULL_SHA.test(tree))
 		fail(
 			`${what} failed (exit ${r.status}): ${String(r.stderr ?? "").trim()}${remedy ? ` ${remedy}` : ""} Nothing written.`,
 			1,

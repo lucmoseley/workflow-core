@@ -1093,10 +1093,23 @@ describe("logical lines (mantahostels#182)", () => {
 		["--message", 'git commit --message "Subject'],
 		["--message=", 'git commit --message="Subject'],
 		["gh --body", 'gh issue comment 1 --body "Subject'],
+		["commit-paths.js -m", 'node scripts/commit-paths.js -m "Subject'],
 	])("reads a command named in a %s argument as prose", (_label, opener) => {
 		expect(
 			checkouts(`${opener}\n\ngit checkout -b x is denied." -- a.md`),
 		).toEqual([]);
+	});
+
+	it("keeps a non-git command's -m message as one segment (#4028)", () => {
+		expect(
+			lines('node x.js -m "first line\ngit branch -f main HEAD~1 second" -- f'),
+		).toHaveLength(1);
+	});
+
+	it("still splits a non-git command's quote on a flag that is not -m (#4028)", () => {
+		expect(
+			lines('node x.js -x "first line\ngit branch -f main HEAD~1 second" -- f'),
+		).toHaveLength(2);
 	});
 
 	it("reads a message opening with an apostrophe in it", () => {
@@ -2001,6 +2014,32 @@ describe("the unresolved-tree record's fourth field (#320)", () => {
 		// No command reaches it: every sentinel the masker writes has its span
 		// recorded. #315 ruled the marker for that case anyway.
 		expect(asWritten(`a${QUOTED}7\x01b`, [])).toBe("a<quoted>b");
+	});
+
+	it.each([
+		["inside a quoted span", 'echo "\x01QSTR\x010\x01" x'],
+		["outside every quote", "echo \x01QSTR\x010\x01 'x'"],
+		["escaped outside every quote", "echo \\\x01QSTR\x010\x01 'x'"],
+		["in a quote that never closes", "echo 'x' \"\x01QSTR\x010\x01"],
+	])("gives back a sentinel typed %s as typed (#4278)", (_where, command) => {
+		const parsed = parseCommand(command);
+		expect(asWritten(parsed.masked, parsed.spans)).toBe(command);
+	});
+
+	it("resolves a redirect and a cd through a typed sentinel byte (#4278)", () => {
+		expect(
+			walkMap("cd /t/a\x01b && echo hi > c", (c) =>
+				c.redirects().map((r) => r.path),
+			),
+		).toEqual([[], ["/t/a\x01b/c"]]);
+	});
+
+	it("reads a word holding a typed sentinel byte as that byte (#4278)", () => {
+		const command = "echo a\x01QSTR\x010\x01b 'x'";
+		const { spans } = parseCommand(command);
+		expect(
+			walkMap(command, (c) => literal(c.words[1] ?? "", spans).text),
+		).toEqual(["a\x01QSTR\x010\x01b"]);
 	});
 
 	it("leaves the walker's other record at three fields", () => {

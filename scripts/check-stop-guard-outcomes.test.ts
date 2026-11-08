@@ -16,7 +16,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
@@ -387,15 +387,11 @@ describe("what --notify says twice", () => {
 	describe("under persist mode", () => {
 		// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 		const notify: any = createRequire(__filename)("./lib/notify-report.js");
-		const savedEnv = { ...process.env };
 
 		beforeEach(() => {
-			process.env.HOME = home;
-			process.env.CLAUDE_CONFIG_DIR = path.join(home, ".claude");
-			process.env.CLAUDE_PROJECT_DIR = dir;
-		});
-		afterEach(() => {
-			process.env = { ...savedEnv };
+			vi.stubEnv("HOME", home);
+			vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(home, ".claude"));
+			vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 		});
 
 		const persist = () =>

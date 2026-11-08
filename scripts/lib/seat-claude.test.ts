@@ -10,12 +10,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { writeClaudeStub } from "./claude-stub";
 import { buildSeatEnv, runClaude } from "./seat-claude.js";
 
 let tmp: string;
-let saved: string | undefined;
 let caller: NodeJS.ProcessEnv;
 
 beforeEach(() => {
@@ -25,8 +24,7 @@ beforeEach(() => {
 		`[ "$1" = fail ] && { printf '\\033[31mno job\\033[0m' >&2; exit 1; }`,
 		"exit 0",
 	]);
-	saved = process.env.WFC_CLAUDE_BIN;
-	process.env.WFC_CLAUDE_BIN = path.join(tmp, "absent");
+	vi.stubEnv("WFC_CLAUDE_BIN", path.join(tmp, "absent"));
 	caller = {
 		PATH: String(process.env.PATH),
 		WFC_CLAUDE_BIN: bin,
@@ -40,8 +38,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	if (saved === undefined) delete process.env.WFC_CLAUDE_BIN;
-	else process.env.WFC_CLAUDE_BIN = saved;
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 

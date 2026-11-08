@@ -116,6 +116,7 @@ const {
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
 const { LANDER_WORKTREE } = require("./lander-worktree.js");
+const { relativeUnder } = require("./is-under.js");
 const WORKTREES = path.join(".claude", "worktrees");
 const STORES = path.join(WORKTREES, ".dep-stores");
 const LOCKFILE = "package-lock.json";
@@ -650,8 +651,8 @@ const MOVED = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
  */
 function startLanderFor(root, dir) {
 	const own = path.join(__dirname, "..", "start-lander.js");
-	const inTree = path.relative(dir, own);
-	const script = inTree.startsWith("..") ? own : path.join(root, inTree);
+	const inTree = relativeUnder(dir, own);
+	const script = inTree === null ? own : path.join(root, inTree);
 	try {
 		const r = runStartLander(root, { script });
 		return r.ok

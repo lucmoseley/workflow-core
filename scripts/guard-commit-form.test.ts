@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import {
 	defineTemplate,
@@ -103,22 +103,11 @@ const emission = (
 const failOpenLog = () => readFailOpenLog(config, shared);
 
 /* The store's Node accessor, so a test asks for a rule by id rather than
- * holding a second copy of its text. */
-const { readRuleText: storeText } = createRequire(__filename)(
-	"./lib/rule-text",
-) as { readRuleText: (id: string) => string };
-
-/** A fragment as the guard renders it in the fixture host: push-cadence's
- * `{command:}` lines expand against the host's config, read at call time. */
-const readRuleText = (id: string) => {
-	const saved = process.env.CLAUDE_PROJECT_DIR;
-	process.env.CLAUDE_PROJECT_DIR = shared;
-	try {
-		return storeText(id);
-	} finally {
-		if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
-		else process.env.CLAUDE_PROJECT_DIR = saved;
-	}
+ * holding a second copy of its text. It renders a fragment as the guard does
+ * in the fixture host: push-cadence's `{command:}` lines expand against the
+ * config of CLAUDE_PROJECT_DIR, read at call time. */
+const { readRuleText } = createRequire(__filename)("./lib/rule-text") as {
+	readRuleText: (id: string) => string;
 };
 
 /* What a commit naming no gated path is handed, in `injectRules` order. */
@@ -144,6 +133,7 @@ beforeEach(() => {
 	worktree = path.join(dir, "wt");
 	elsewhere = path.join(dir, "elsewhere");
 	template.instantiate(dir);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", shared);
 });
 
 afterEach(() => {

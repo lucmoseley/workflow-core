@@ -25,6 +25,7 @@
  */
 
 const { gh, parseErrLine } = require("./lib/gh");
+const { writeFd } = require("./lib/write-fd.js");
 const { DRAIN_REACTION, fetchCaptures } = require("./lib/captures");
 const { parseOrExit } = require("./lib/cli-args");
 
@@ -33,7 +34,7 @@ const USAGE =
 
 /** @param {string} msg @returns {never} */
 const die = (msg) => {
-	process.stderr.write(`${msg}\n`);
+	writeFd(2, `${msg}\n`);
 	process.exit(1);
 };
 
@@ -48,12 +49,13 @@ function list({ all, json }) {
 	const shown = all ? captures : captures.filter((c) => !c.drained);
 
 	if (json) {
-		process.stdout.write(`${JSON.stringify(shown, null, 2)}\n`);
+		writeFd(1, `${JSON.stringify(shown, null, 2)}\n`);
 		return;
 	}
 
 	if (shown.length === 0) {
-		process.stdout.write(
+		writeFd(
+			1,
 			all
 				? "No capture comments on the tracker at all.\n"
 				: `No undrained captures — all ${captures.length} carry the :${DRAIN_REACTION}: reaction.\n`,
@@ -61,17 +63,20 @@ function list({ all, json }) {
 		return;
 	}
 
-	process.stdout.write(
+	writeFd(
+		1,
 		`${shown.length} capture(s), oldest first — of ${captures.length} on the tracker:\n\n`,
 	);
 	for (const c of shown) {
 		const age = `${Math.floor(c.ageDays)}d`;
 		const state = c.drained ? "drained" : "UNDRAINED";
-		process.stdout.write(
+		writeFd(
+			1,
 			`  [${c.id}] #${c.issue}  ${age}  ${state}\n    ${c.fact.replace(/\n/g, "\n    ")}\n    ${c.url}\n\n`,
 		);
 	}
-	process.stdout.write(
+	writeFd(
+		1,
 		"Mark one consumed once its fact is placed (or found already recorded):\n  node scripts/capture-drain.js mark <comment-id>\n",
 	);
 }
@@ -96,9 +101,7 @@ function mark(argv) {
 	} catch (e) {
 		die(`could not react to comment ${id}: ${parseErrLine(e)}`);
 	}
-	process.stdout.write(
-		`Marked comment ${id} consumed (:${DRAIN_REACTION}:).\n`,
-	);
+	writeFd(1, `Marked comment ${id} consumed (:${DRAIN_REACTION}:).\n`);
 }
 
 const { command, flags, positionals } = parseOrExit(process.argv.slice(2), {

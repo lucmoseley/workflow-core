@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { defineTemplate } from "./git-fixture";
 import { FAIL_STORE, STORE, storePath } from "./test-pass-marker.js";
 
@@ -26,13 +26,6 @@ const { paths } = require("./arbiter-core.js") as {
 		commitLedger: (sid: string, root: string) => string;
 	};
 };
-
-const ENV_KEYS = [
-	"CLAUDE_CONFIG_DIR",
-	"CLAUDE_PROJECT_DIR",
-	"GIT_CEILING_DIRECTORIES",
-	"WFC_GIT",
-] as const;
 
 export const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, {
@@ -91,24 +84,17 @@ export const narrowedIn = (
 
 export function rerunFixture() {
 	const f = { dir: "", project: "" };
-	const saved: Record<string, string | undefined> = {};
 
 	beforeEach(() => {
 		f.dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "unasked-")));
 		f.project = template.instantiate(path.join(f.dir, "project"));
-		for (const k of ENV_KEYS) saved[k] = process.env[k];
-		process.env.CLAUDE_CONFIG_DIR = path.join(f.dir, "config");
-		process.env.CLAUDE_PROJECT_DIR = f.project;
-		delete process.env.GIT_CEILING_DIRECTORIES;
-		delete process.env.WFC_GIT;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(f.dir, "config"));
+		vi.stubEnv("CLAUDE_PROJECT_DIR", f.project);
+		vi.stubEnv("GIT_CEILING_DIRECTORIES", undefined);
+		vi.stubEnv("WFC_GIT", undefined);
 	});
 
 	afterEach(() => {
-		for (const k of ENV_KEYS) {
-			const v = saved[k];
-			if (v === undefined) delete process.env[k];
-			else process.env[k] = v;
-		}
 		fs.rmSync(f.dir, { recursive: true, force: true });
 	});
 
@@ -212,7 +198,7 @@ export function rerunFixture() {
 	function outside() {
 		const at = path.join(f.dir, "outside");
 		fs.mkdirSync(at, { recursive: true });
-		process.env.GIT_CEILING_DIRECTORIES = f.dir;
+		vi.stubEnv("GIT_CEILING_DIRECTORIES", f.dir);
 		return at;
 	}
 

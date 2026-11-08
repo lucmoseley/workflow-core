@@ -28,6 +28,7 @@
  */
 
 const log = require("./lib/warm-fraction-log");
+const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -88,8 +89,9 @@ const headlineVerdict =
 		: { basis: "covered-bound", uninterpretablePooled: true, ...boundVerdict };
 
 if (asJson) {
-	console.log(
-		JSON.stringify(
+	writeFd(
+		1,
+		`${JSON.stringify(
 			{
 				logPath: log.LOG_SUBPATH,
 				minRuns: log.MIN_RUNS,
@@ -113,29 +115,32 @@ if (asJson) {
 			},
 			null,
 			2,
-		),
+		)}\n`,
 	);
 	process.exit(0);
 }
 
-console.log(
-	`WARM FRACTION OF THE FRONTIER — ${s.usableRuns} real re-pick(s) recorded in ${log.LOG_SUBPATH}`,
+writeFd(
+	1,
+	`WARM FRACTION OF THE FRONTIER — ${s.usableRuns} real re-pick(s) recorded in ${log.LOG_SUBPATH}\n`,
 );
 
 if (!s.usableRuns) {
-	console.log(
+	writeFd(
+		1,
 		`\nNothing recorded yet. Every \`node ${scriptPath("pick-next.js")}\` against this repo appends a\n` +
 			"line; nothing else may, since a run made to produce a figure measures the\n" +
-			"harness rather than the churn (mantahostels#628).",
+			"harness rather than the churn (mantahostels#628).\n",
 	);
 	process.exit(0);
 }
 
-console.log(
+writeFd(
+	1,
 	`  window        ${s.first} → ${s.last}  (${span(s.windowMs)})\n` +
 		`  pooled        ${pct(s.pooled)}  (${s.warmTotal} warm of ${s.frontierTotal} frontier tickets)\n` +
 		`  per-run mean  ${pct(s.mean)}${s.ci95 === null ? "" : ` ± ${(s.ci95 * 100).toFixed(1)} points (95%)`}\n` +
-		`  per-run range ${pct(s.min)} – ${pct(s.max)}`,
+		`  per-run range ${pct(s.min)} – ${pct(s.max)}\n`,
 );
 /*
  * The pre-warming figure (mantahostels#1001), kept apart from `pooled` above and printed
@@ -144,33 +149,38 @@ console.log(
  * SKIP, which is what pre-warming moved.
  */
 if (s.runsWithProvisional)
-	console.log(
-		(covered.state === "measured"
-			? `  covered       ${pct(covered.point)}  (${s.warmTotal} warm + ${s.provisionalTotal} provisional of ${s.frontierTotal}),\n` +
-				`  over ${covered.runs} run(s) that pre-warmed something.\n` +
-				"  Provisional entries are a selection run's own grep, not an agent's\n" +
-				"  judgement, so they are excluded from `pooled` above."
-			: `  covered       WITHHELD — ${covered.runs} of ${covered.need} run(s) that pre-warmed\n` +
-				`  something. The arithmetic would give ${pct(s.pooledCovered)}, and it is not stated:\n` +
-				"  `covered` rests only on runs a pre-warming build wrote, so quoting it off\n" +
-				"  `pooled`'s sample size is the fault mantahostels#789 records against the 80.0%\n" +
-				"  figure. Provisional entries are a run's own grep, not an agent's\n" +
-				"  judgement, so they are excluded from `pooled` above either way.") +
+	writeFd(
+		1,
+		`${
+			(covered.state === "measured"
+				? `  covered       ${pct(covered.point)}  (${s.warmTotal} warm + ${s.provisionalTotal} provisional of ${s.frontierTotal}),\n` +
+					`  over ${covered.runs} run(s) that pre-warmed something.\n` +
+					"  Provisional entries are a selection run's own grep, not an agent's\n" +
+					"  judgement, so they are excluded from `pooled` above."
+				: `  covered       WITHHELD — ${covered.runs} of ${covered.need} run(s) that pre-warmed\n` +
+					`  something. The arithmetic would give ${pct(s.pooledCovered)}, and it is not stated:\n` +
+					"  `covered` rests only on runs a pre-warming build wrote, so quoting it off\n" +
+					"  `pooled`'s sample size is the fault mantahostels#789 records against the 80.0%\n" +
+					"  figure. Provisional entries are a run's own grep, not an agent's\n" +
+					"  judgement, so they are excluded from `pooled` above either way.") +
 			(split.splitAt === null
 				? ""
 				: "\n  This is the WHOLE-LOG figure, pooled across the pre-warming split same as\n" +
 					"  `pooled` above — read `after`'s `covered` in the split table below instead\n" +
-					"  (mantahostels#1327)."),
+					"  (mantahostels#1327).")
+		}\n`,
 	);
 if (s.degradedRuns)
-	console.log(
+	writeFd(
+		1,
 		`  ${s.degradedRuns} of these runs was degraded — a failed blocked_by call shrinks the\n` +
-			"  frontier, so its fraction is over a smaller denominator.",
+			"  frontier, so its fraction is over a smaller denominator.\n",
 	);
 if (s.unrevalidatedWarmTotal)
-	console.log(
+	writeFd(
+		1,
 		`  ${s.unrevalidatedWarmTotal} warm hit(s) skipped the rename check (git could not list the\n` +
-			"  tree), so they are counted warm without having been fully revalidated.",
+			"  tree), so they are counted warm without having been fully revalidated.\n",
 	);
 if (s.collapsedRuns) {
 	const by = [
@@ -181,7 +191,8 @@ if (s.collapsedRuns) {
 		by.push(
 			`${s.collapsedUnknownSession} naming no session, so unattributable`,
 		);
-	console.log(
+	writeFd(
+		1,
 		`  ${s.collapsedRuns} duplicate line(s) collapsed and excluded above — ${by.join(", ")}.\n` +
 			`  A duplicate is an identical frontier and split within ${log.DUP_WINDOW_MS / 60_000} minutes with\n` +
 			"  nothing put in between; none adds an observation of the churn, and counting\n" +
@@ -189,23 +200,25 @@ if (s.collapsedRuns) {
 			`  ${s.collapsedQuiet} of these rested on a count of zero (itself a floor — a put whose entry\n` +
 			`  was pruned since is invisible) and ${s.collapsedPutsUnknown} on a line predating the count. With\n` +
 			"  nothing put, a genuine re-pick over an unchanged frontier reads exactly like\n" +
-			"  a re-run, so each one collapsed pulls `pooled` DOWN (mantahostels#667).",
+			"  a re-run, so each one collapsed pulls `pooled` DOWN (mantahostels#667).\n",
 	);
 }
 if (s.runsKeptOnPuts)
-	console.log(
+	writeFd(
+		1,
 		`  ${s.runsKeptOnPuts} line(s) inside that window were kept: entries were put between each\n` +
 			`  and the run it matches, so a band read ran in the gap (mantahostels#667). ${s.runsKeptOnPutsCrossSession} of them\n` +
-			"  matched a parallel session's run, which keeps `pooled` UP (mantahostels#680).",
+			"  matched a parallel session's run, which keeps `pooled` UP (mantahostels#680).\n",
 	);
-if (malformed) console.log(`  ${malformed} unreadable line(s) skipped.`);
+if (malformed) writeFd(1, `  ${malformed} unreadable line(s) skipped.\n`);
 
-console.log(
+writeFd(
+	1,
 	"\nWHAT THIS FRACTION IS OVER\n" +
 		"  The whole frontier, which is what pick-next can see. The band read covers\n" +
 		"  the tie band only, so where the two differ this is a lower bound on the\n" +
 		"  fraction the band read actually meets. Every run records its issue numbers,\n" +
-		"  so a narrower denominator can be recomputed from the log rather than re-run.",
+		"  so a narrower denominator can be recomputed from the log rather than re-run.\n",
 );
 
 /** Runs a build boundary cannot place, which shrinks both sides silently. */
@@ -215,10 +228,11 @@ const undatedNote = split.undated
 	: "";
 
 if (split.splitAt === null)
-	console.log(
+	writeFd(
+		1,
 		"\nBEFORE AND AFTER PRE-WARMING (mantahostels#1054)\n" +
 			"  No line carries a `provisional` count yet, so every run here predates\n" +
-			`  pre-warming and there is nothing to split.${undatedNote}`,
+			`  pre-warming and there is nothing to split.${undatedNote}\n`,
 	);
 else {
 	/**
@@ -228,8 +242,10 @@ else {
 	const side = (label, x) =>
 		`  ${label.padEnd(7)} pooled ${pct(x.pooled)}   covered ${pct(x.pooledCovered)}   ` +
 		`(${x.usableRuns} run(s) over ${span(x.windowMs)})`;
-	console.log(
-		"\nBEFORE AND AFTER PRE-WARMING (mantahostels#1054)\n" +
+	writeFd(
+		1,
+		`${
+			"\nBEFORE AND AFTER PRE-WARMING (mantahostels#1054)\n" +
 			`  split at ${split.splitAt}, the first run a pre-warming build wrote.\n` +
 			`${side("before", split.before)}\n${side("after", split.after)}\n` +
 			"  Split on the field's PRESENCE, not on a non-zero count: a post-change run\n" +
@@ -238,7 +254,8 @@ else {
 			(covered.state === "measured"
 				? "  Read `pooled` as the check that pre-warming left band-read warmth alone."
 				: `  BOTH SIDES ARE STILL PROVISIONAL — ${covered.runs} of ${covered.need} run(s) pre-warmed\n` +
-					"  anything, so the after side is too thin to compare against."),
+					"  anything, so the after side is too thin to compare against.")
+		}\n`,
 	);
 }
 
@@ -252,23 +269,25 @@ const causePct = (cause) => {
 	return pct(share);
 };
 
-console.log(
+writeFd(
+	1,
 	`\nWHY THE COLD ONES WERE COLD (${s.coldTotal} cold entries over ${s.coldDistinctTickets} distinct ticket(s))\n` +
 		`  never derived  ${s.causes.never} (${causePct("never")}) — no entry has ever been stored\n` +
 		`  body-changed   ${s.causes["body-changed"]} (${causePct("body-changed")}) — churn\n` +
 		`  path-gone      ${s.causes["path-gone"]} (${causePct("path-gone")}) — a rename invalidated the prediction\n` +
 		`  unknown        ${s.causes.unknown} (${causePct("unknown")}) — a state this reader does not know\n` +
 		"  Read `never derived` as an upper bound on cold starts: a band the picking\n" +
-		"  session abandoned never stores an entry either, and reads the same here.",
+		"  session abandoned never stores an entry either, and reads the same here.\n",
 );
 
-console.log(
+writeFd(
+	1,
 	"\nAGAINST mantahostels#385's 60-80% CLAIM (a cut in a re-pick's dominant cost)\n" +
 		"  A warm ticket costs ~4 ms and no subagent against ~3.2 s and ~7.9k tokens\n" +
 		"  cold (mantahostels#611), so the fraction above is an UPPER BOUND on the saving: mantahostels#385\n" +
 		"  prices even a warm re-pick at 50-90k tokens against 200-400k cold, and no\n" +
 		"  cache reaches that floor. A fraction inside the claim is consistent with it,\n" +
-		"  never proof of it.",
+		"  never proof of it.\n",
 );
 
 if (boundVerdict !== null) {
@@ -279,68 +298,78 @@ if (boundVerdict !== null) {
 	// found and mantahostels#1327 fixes. `covered`, not `pooled`, is the fraction that
 	// bounds the saving, and it is read on the AFTER side only, never pooled
 	// across the split either.
-	console.log(
+	writeFd(
+		1,
 		"  UNINTERPRETABLE — `pooled` above averages before and after pre-warming\n" +
 			"  (split table above); no verdict is stated off it. `covered`, not\n" +
-			"  `pooled`, is the fraction that bounds the saving.",
+			"  `pooled`, is the fraction that bounds the saving.\n",
 	);
 	if (boundVerdict.state === "provisional")
-		console.log(
+		writeFd(
+			1,
 			`  COVERED BOUND — PROVISIONAL, ${boundVerdict.runs} of ${boundVerdict.need} run(s) since\n` +
-				`  the split carry a provisional count. No bound is stated under ${boundVerdict.need}.`,
+				`  the split carry a provisional count. No bound is stated under ${boundVerdict.need}.\n`,
 		);
 	else if (boundVerdict.state === "refuted")
-		console.log(
+		writeFd(
+			1,
 			`  COVERED BOUND — ${pct(boundVerdict.point)} (95% band ${pct(boundVerdict.low)} – ${pct(boundVerdict.high)}),\n` +
 				`  the whole band below ${pct(CLAIM.low)}: the bound itself rules out ${CLAIM.source}'s\n` +
-				"  claim — even a band read that never misses cannot reach it.",
+				"  claim — even a band read that never misses cannot reach it.\n",
 		);
 	else
-		console.log(
+		writeFd(
+			1,
 			`  COVERED BOUND — ${pct(boundVerdict.point)} (95% band ${pct(boundVerdict.low)} – ${pct(boundVerdict.high)}).\n` +
 				`  An upper bound this high rules nothing out: ${CLAIM.source}'s ${pct(CLAIM.low)} – ${pct(CLAIM.high)}\n` +
 				"  needs a direct token measurement, not a warmer cache. A bound only ever\n" +
-				"  refutes; it never confirms.",
+				"  refutes; it never confirms.\n",
 		);
-	console.log("  Take this to mantahostels#789 as its answer.");
+	writeFd(1, "  Take this to mantahostels#789 as its answer.\n");
 } else if (verdict.state === "provisional")
-	console.log(
+	writeFd(
+		1,
 		`  PROVISIONAL — ${s.usableRuns} of ${log.MIN_RUNS} runs. No verdict is stated under ${log.MIN_RUNS}:\n` +
-			"  quoting a headline off too little data is the fault this measures.",
+			"  quoting a headline off too little data is the fault this measures.\n",
 	);
 else {
-	console.log(
+	writeFd(
+		1,
 		`  ${verdict.state.toUpperCase()} — measured ${pct(verdict.point)} (95% band ${pct(verdict.low)} – ${pct(verdict.high)})\n` +
-			`  against ${CLAIM.source}'s ${pct(CLAIM.low)} – ${pct(CLAIM.high)}.`,
+			`  against ${CLAIM.source}'s ${pct(CLAIM.low)} – ${pct(CLAIM.high)}.\n`,
 	);
 	// mantahostels#628's fourth criterion.
 	if (verdict.side === "below")
-		console.log(
+		writeFd(
+			1,
 			`  PLAINLY: the cache is warm on ${pct(verdict.point)} of the frontier, so it saves at\n` +
 				`  most ${pct(verdict.point)} of the band read — not ${pct(CLAIM.low)} – ${pct(CLAIM.high)}. At this rate its upkeep\n` +
 				"  (a `put` per derived issue, every run) may cost more than it returns, and\n" +
-				`  whether to keep it at all is the question ${CLAIM.source} should be reopened on.`,
+				`  whether to keep it at all is the question ${CLAIM.source} should be reopened on.\n`,
 		);
-	console.log("  Take this to mantahostels#789 as its answer.");
+	writeFd(1, "  Take this to mantahostels#789 as its answer.\n");
 }
 
 if (showRuns) {
-	console.log("\nRUNS (oldest first)");
+	writeFd(1, "\nRUNS (oldest first)\n");
 	for (const r of runs) {
 		let mark = "*";
 		if (counted.has(r)) mark = " ";
 		else if (kept.has(r)) mark = "\u00b7";
-		console.log(
+		writeFd(
+			1,
 			`  ${mark} ${r.at}  frontier ${String(r.frontier).padStart(3)}  warm ${String(r.warm).padStart(3)}  cold ${String(r.cold).padStart(3)}  ` +
-				`never ${r.causes?.never ?? "?"} / changed ${r.causes?.["body-changed"] ?? "?"} / gone ${r.causes?.["path-gone"] ?? "?"}`,
+				`never ${r.causes?.never ?? "?"} / changed ${r.causes?.["body-changed"] ?? "?"} / gone ${r.causes?.["path-gone"] ?? "?"}\n`,
 		);
 	}
 	if (s.collapsedRuns)
-		console.log(
-			"  * a duplicate, collapsed into an earlier run and excluded from the figures.",
+		writeFd(
+			1,
+			"  * a duplicate, collapsed into an earlier run and excluded from the figures.\n",
 		);
 	if (runs.length - s.usableRuns - s.collapsedRuns > 0)
-		console.log(
-			"  \u00b7 nothing takeable at the time, so it carries no fraction and is excluded too.",
+		writeFd(
+			1,
+			"  \u00b7 nothing takeable at the time, so it carries no fraction and is excluded too.\n",
 		);
 }

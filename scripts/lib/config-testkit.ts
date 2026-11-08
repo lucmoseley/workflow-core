@@ -7,12 +7,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, beforeAll, beforeEach, vi } from "vitest";
 
-/** Registers beforeAll/afterAll; returns a getter for the host root. */
+/** Registers beforeAll/beforeEach/afterAll; returns a getter for the host root. */
 export function withHostConfig(config: Record<string, unknown>): () => string {
 	let root = "";
-	const saved = process.env.CLAUDE_PROJECT_DIR;
 	beforeAll(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "host-config-"));
 		fs.mkdirSync(path.join(root, ".claude"));
@@ -20,11 +19,11 @@ export function withHostConfig(config: Record<string, unknown>): () => string {
 			path.join(root, ".claude", "workflow-core.json"),
 			JSON.stringify(config),
 		);
-		process.env.CLAUDE_PROJECT_DIR = root;
+	});
+	beforeEach(() => {
+		vi.stubEnv("CLAUDE_PROJECT_DIR", root);
 	});
 	afterAll(() => {
-		if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
-		else process.env.CLAUDE_PROJECT_DIR = saved;
 		fs.rmSync(root, { recursive: true, force: true });
 	});
 	return () => root;

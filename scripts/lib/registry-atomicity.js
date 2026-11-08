@@ -155,6 +155,7 @@ const {
 	scanFlags,
 } = require("./shell-words.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 
 const HOST_SETTINGS = ".claude/settings.json";
 
@@ -490,7 +491,7 @@ function landingOf(at) {
 	/** @type {Map<string, string | null>} */
 	const overlay = new Map();
 	for (const [file, body] of patch) {
-		const rel = file.startsWith(`${root}/`) ? file.slice(root.length + 1) : "";
+		const rel = relativeUnder(root, file);
 		if (rel && !kept.has(rel)) overlay.set(rel, body);
 	}
 	return {
@@ -1271,8 +1272,7 @@ function judgeNeedleText(view) {
 	const { root, ctx, landing } = view;
 	/* The common case — a commit landing nothing the corpus reads — reads no
 	 * corpus at all. */
-	if (!landing.some((p) => CORPUS_DIRS.some((d) => p.startsWith(`${d}/`))))
-		return "";
+	if (!landing.some((p) => isUnder(p, CORPUS_DIRS))) return "";
 	const drift = ctx.needleDrift({
 		repo: view.repo,
 		root,

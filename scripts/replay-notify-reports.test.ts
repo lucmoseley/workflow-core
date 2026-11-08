@@ -33,7 +33,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { runRecordFile } from "./lib/notify-report-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -52,7 +52,6 @@ const REAPER = "reap-finished-sessions";
 const SCRIPT = path.resolve(__dirname, "replay-notify-reports.js");
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 /** The script, run over the fixture store, as an interactive start. */
 const read = (...args: string[]) => readIn("", ...args);
@@ -264,13 +263,14 @@ const backdateShown = (checker: string, start: number, agoMs: number) =>
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "replay-reports-"));
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "claude");
-	process.env.CLAUDE_PROJECT_DIR = path.join(dir, "repo");
-	delete process.env.WFC_CLAUDE_CONFIG_A;
-	delete process.env.WFC_CLAUDE_CONFIG_B;
-	delete process.env.WFC_CLAUDE_CONFIG_C;
-	delete process.env.WFC_NOTIFY_PERSIST;
-	fs.mkdirSync(process.env.CLAUDE_PROJECT_DIR, { recursive: true });
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "claude"));
+	const repo = path.join(dir, "repo");
+	vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
+	vi.stubEnv("WFC_NOTIFY_PERSIST", undefined);
+	fs.mkdirSync(repo, { recursive: true });
 	fs.mkdirSync(notify.base(), { recursive: true });
 	useScratchCore(dir);
 	wireRoster(DEFAULT_ROSTER);
@@ -278,7 +278,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 describe("injecting what the producers persisted", () => {
