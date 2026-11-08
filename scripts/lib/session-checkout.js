@@ -30,8 +30,7 @@
  * RELINK re-points a worktree whose lockfile a merge, pull or checkout
  * changed at the store standing for the new one, building none (#4702);
  * `.husky/post-merge`, `post-checkout` and, on a commit changing the lockfile,
- * `post-commit` run it, through lib/relink-store.sh; `land` runs it after
- * undoing a merge. Nothing relinks after a
+ * `post-commit` run it, through lib/relink-store.sh. Nothing relinks after a
  * `git reset`, `stash` or `restore` run by hand: `relink` or `attach` does. A merge's `pre-merge-commit` gates run before it, on the
  * store linked before the merge: the lander's install keys on the merged
  * lockfile, and its full suite is what moves `main`.
@@ -77,7 +76,6 @@
  */
 
 const crypto = require("node:crypto");
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readLiveOrLog, readSessionEntries } = require("./arbiter-core.js");
@@ -149,11 +147,6 @@ const FETCH_TRIES = 3;
 /* Untraced: a fetch retry's and a store-lock wait's pause, short beside the
  * second-scale fetch and the minutes-scale `npm ci` either waits on. */
 const POLL_MS = 1000;
-/* The timeout `.claude/settings.json` gives the canary and
- * self-plugin/hooks/hooks.json its marker writer. */
-const HOOK_TIMEOUT_MS = 10_000;
-const CANARY = path.join("scripts", "self-plugin-canary.sh");
-const MARKER_WRITER = path.join("scripts", "write-self-plugin-marker.sh");
 
 /** A refusal the CLI prints as it stands. */
 class CheckoutError extends Error {}
@@ -740,111 +733,6 @@ function mergeMain(dir) {
 }
 
 /**
- * Runs `script`, one of the self-plugin's hooks in `dir`, as the harness would
- * for `session`. CLAUDE_PROJECT_DIR is `dir`: the Bash tool's env carries none,
- * and a session lands the worktree it was launched in.
- * @param {string} dir
- * @param {string} script path under `dir`
- * @param {string} session
- * @param {object} input the hook payload, session id aside
- */
-function runSelfPluginHook(dir, script, session, input) {
-	return spawnSync("bash", [path.join(dir, script)], {
-		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
-		input: JSON.stringify({ session_id: session, ...input }),
-		encoding: "utf8",
-		timeout: HOOK_TIMEOUT_MS,
-	});
-}
-
-/**
- * Why `dir`'s self-plugin canary refuses `session`'s next tool call, or null
- * where it passes.
- * @param {string} dir
- * @param {string} session
- * @returns {string | null}
- */
-function canaryRefusal(dir, session) {
-	const r = runSelfPluginHook(dir, CANARY, session, {
-		hook_event_name: "PreToolUse",
-		tool_name: "Bash",
-		tool_input: { command: "true" },
-	});
-	if (r.status === 0) return null;
-	/* An exit status outranks r.error: a canary that refuses before reading
-	 * its stdin leaves an EPIPE beside its status. */
-	if (r.status === null)
-		return `it did not finish: ${r.error?.message ?? `killed by ${r.signal}`}`;
-	return `${r.stderr}`.trim().split("\n")[0] || `exit ${r.status}`;
-}
-
-/**
- * The session running `land` where `dir`'s self-plugin canary, before the
- * merge, lets it through — proof the self-plugin loaded in it (#4565) — else
- * null: the founder's own terminal, or a tree with no canary, as an adopter's.
- * @param {string} dir
- * @returns {string | null}
- */
-function loadedSession(dir) {
-	const session = process.env.CLAUDE_CODE_SESSION_ID;
-	if (!session || !fs.existsSync(path.join(dir, CANARY))) return null;
-	return canaryRefusal(dir, session) === null ? session : null;
-}
-
-/**
- * Merges `VERIFIED_REF` into `dir` without locking `session` out (#4565). The
- * session's hooks run from `dir`, so the merge swaps them under it: a canary
- * that now reads its marker elsewhere, or will not run, refuses every later
- * call, and only the founder's `git merge --abort` frees it. So the merged
- * writer marks the session again and the merged canary must then pass; where
- * it still refuses, HEAD goes back to `before` and the land is refused. A merge
- * left in progress is aborted where its half-merged canary refuses. Only the
- * canary is checked: every other guard fails open.
- * @param {string} dir
- * @param {string | null} session `loadedSession`'s answer; null merges unchecked
- */
-function mergeKeepingSession(dir, session) {
-	const before = git(["rev-parse", "HEAD"], dir);
-	try {
-		mergeMain(dir);
-	} catch (err) {
-		const said =
-			session &&
-			fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)) &&
-			canaryRefusal(dir, session);
-		if (!said) throw err;
-		const conflicted = git(["diff", "--name-only", "--diff-filter=U"], dir);
-		gitShown(["merge", "--abort"], dir);
-		throw new CheckoutError(
-			`the merge of ${VERIFIED_REF}${conflicted ? `, conflicting in ${conflicted.split("\n").join(", ")},` : ""} stopped in progress, and its half-merged self-plugin canary refused this session (${said}), so the merge was aborted — merge and commit it from a terminal whose hooks do not run from this worktree, then land again`,
-			{ cause: err },
-		);
-	}
-	if (!session) return;
-	runSelfPluginHook(dir, MARKER_WRITER, session, {
-		hook_event_name: "SessionStart",
-		source: "resume",
-	});
-	const said = canaryRefusal(dir, session);
-	if (said === null) return;
-	const reset = gitShown(["reset", "-q", "--keep", before], dir);
-	let stale = "";
-	if (reset.ok)
-		try {
-			relink(dir);
-		} catch (err) {
-			stale = `, though ${caught(err).message}`;
-		}
-	const undone = reset.ok
-		? `so the merge is undone, HEAD is back at ${before}${stale}`
-		: `and undoing the merge failed, its output above — run \`git reset --keep ${before}\` from a terminal`;
-	throw new CheckoutError(
-		`with ${VERIFIED_REF} merged in, its self-plugin canary refuses this session's every tool call even after re-marking it (${said}), ${undone} — ${VERIFIED_REF}'s canary or marker writer is broken: file it, and land once it is fixed`,
-	);
-}
-
-/**
  * The session worktree `dir`'s queue ref, refused where it is none.
  * @param {string} dir
  * @param {string} root
@@ -880,7 +768,7 @@ function land(cwd) {
 			lander: null,
 		};
 	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
-	if (merged) mergeKeepingSession(dir, loadedSession(dir));
+	if (merged) mergeMain(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
 	const push = pushQueueRef(dir, queue);
 	if (!push.ok && MOVED.test(push.output)) {
@@ -1205,15 +1093,14 @@ function readWorktreesOrThrow(root) {
 }
 
 /**
- * The session worktrees in `base`, judged by REAP's rules.
- * @param {string} root
- * @param {Pass} pass
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
- * @returns {string[]} every registered worktree still standing
+ * Every job, each cwd a pass leaves its worktree standing for — a live
+ * process's, or a job's not ended or ended under KEEP_MS ago — and each job
+ * store or record that would not read, as readJobCwds names it.
+ * @param {string[]} cwds every live process's cwd
+ * @param {number} now
  */
-function reapWorktrees(root, { cwds, now, record, common }, out) {
-	const registered = readWorktreesOrThrow(root);
-	const jobs = readJobCwds();
+function readOccupied(cwds, now) {
+	const { jobs, unread } = readJobCwds();
 	const occupied = [
 		...cwds,
 		...jobs
@@ -1226,6 +1113,34 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 			)
 			.map((j) => j.cwd),
 	];
+	return { jobs, occupied, unread };
+}
+
+/**
+ * Whether the pass removes no worktree: an unread job store or record may
+ * hold a resumable job in any of them (#4704).
+ * @param {string[]} unread readJobCwds' `unread`
+ * @param {Reaped} out accumulator: each unread path is pushed onto `failed`
+ */
+function holdForUnread(unread, out) {
+	for (const u of unread)
+		out.failed.push(
+			`${u} — a job it holds may be resumable, so no worktree is removed until it reads`,
+		);
+	return unread.length > 0;
+}
+
+/**
+ * The session worktrees in `base`, judged by REAP's rules.
+ * @param {string} root
+ * @param {Pass} pass
+ * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
+ * @returns {string[]} every registered worktree still standing
+ */
+function reapWorktrees(root, { cwds, now, record, common }, out) {
+	const registered = readWorktreesOrThrow(root);
+	const { jobs, occupied, unread } = readOccupied(cwds, now);
+	const held = holdForUnread(unread, out);
 	const live = readLiveOrLog("session-checkout reap");
 	/** @type {string[]} */
 	const standing = [];
@@ -1262,15 +1177,11 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 				standing.push(dir);
 				continue;
 			}
-			recordReaped(
-				{ record, now },
-				dir,
-				jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
-			);
-			const link = path.join(dir, "node_modules");
-			if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
-				fs.unlinkSync(link);
-			git(["worktree", "remove", dir], root);
+			if (held) {
+				standing.push(dir);
+				continue;
+			}
+			removeWorktree(root, dir, { record, now }, jobs);
 			out.removed.push(dir);
 		} catch (err) {
 			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
@@ -1278,6 +1189,26 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 		}
 	}
 	return standing;
+}
+
+/**
+ * Remove `dir` and its store link, first recording each job whose cwd lies in
+ * it, so `reopen` can rebuild it.
+ * @param {string} root
+ * @param {string} dir
+ * @param {Pick<Pass, "record" | "now">} pass
+ * @param {import("./session-worktrees.js").JobCwd[]} jobs
+ */
+function removeWorktree(root, dir, pass, jobs) {
+	recordReaped(
+		pass,
+		dir,
+		jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
+	);
+	const link = path.join(dir, "node_modules");
+	if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
+		fs.unlinkSync(link);
+	git(["worktree", "remove", dir], root);
 }
 
 /**
@@ -1540,7 +1471,8 @@ function reopen(cwd, id) {
 	const root = rootOf(cwd);
 	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
 	const reaped = readReaped(path.join(common, REAPED_RECORD), id);
-	const job = readJobCwds()
+	const { jobs, unread } = readJobCwds();
+	const job = jobs
 		.filter((j) => j.id === id)
 		.sort((a, b) => b.at - a.at)
 		.at(0);
@@ -1550,7 +1482,9 @@ function reopen(cwd, id) {
 	else if (job) found = { seat: job.seat, dir: job.cwd };
 	if (found === null)
 		throw new CheckoutError(
-			`no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
+			unread.length > 0
+				? `no readable seat holds job ${id} and the reaper recorded no worktree for it, but these would not read: ${unread.join("; ")} — fix their access and retry`
+				: `no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
 		);
 	const { seat, dir } = found;
 	if (fs.existsSync(dir)) return { dir, seat, restored: false };

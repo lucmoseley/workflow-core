@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { CANARY_COMMAND as CANARY } from "./lib/core-hooks.js";
 import { emptyRegistry } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -53,8 +54,6 @@ const settings = (...scripts: string[]) =>
 			})),
 		},
 	});
-
-const CANARY = '"$CLAUDE_PROJECT_DIR"/scripts/self-plugin-canary.sh';
 
 const row = (script: string, over: Record<string, unknown> = {}) => ({
 	event: "PreToolUse",

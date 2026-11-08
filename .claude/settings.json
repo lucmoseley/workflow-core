@@ -55,8 +55,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/self-plugin-canary.sh",
-            "timeout": 10
+            "command": "\"$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir)\"/../scripts/self-plugin-canary.sh",
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }

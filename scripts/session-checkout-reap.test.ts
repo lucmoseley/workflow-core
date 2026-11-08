@@ -271,6 +271,26 @@ it("leaves a live session's worktree and a resumable one untouched and unreporte
 	expect(registered()).toEqual(expect.arrayContaining([live, parked, asking]));
 });
 
+it("removes no worktree while a job store will not read, naming it (#4704)", () => {
+	const landed = cut("landed-work");
+	recordJob("j1", landed, "stopped");
+	fs.chmodSync(path.join(seat, "jobs"), 0o000);
+
+	let r: ReturnType<typeof reap>;
+	try {
+		r = reap();
+	} finally {
+		fs.chmodSync(path.join(seat, "jobs"), 0o755);
+	}
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		`session checkout: could not reap ${path.join(seat, "jobs")}: `,
+	);
+	expect(r.stderr).toContain("so no worktree is removed until it reads");
+	expect(registered()).toContain(landed);
+});
+
 it("prunes a stale registration and removes unregistered directories, reporting one that still has a .git file", () => {
 	const gone = cut("gone-dir");
 	execFileSync("chmod", ["-R", "u+w", gone]);

@@ -54,6 +54,21 @@ function takesValue(value) {
 }
 
 /**
+ * An issue's one `takes:` command, or null where its values are none, several
+ * or one no command opens: what the loop and /pick-next launch it on (#4351).
+ * @param {string[]} takes
+ * @returns {string|null}
+ */
+function loneCommandOf(takes) {
+	const [kind, ...more] = takes;
+	return kind !== undefined &&
+		more.length === 0 &&
+		COMMAND_VALUES.includes(kind)
+		? kind
+		: null;
+}
+
+/**
  * The `takes:` values among an issue's labels, as the frontier and the loop's
  * launch filter read them.
  * @param {string[]} labels
@@ -349,6 +364,7 @@ module.exports = {
 	TRIED_WAY,
 	outsideLineFault,
 	hasRefusedOutsideAct,
+	loneCommandOf,
 	takesLabel,
 	takesOf,
 	takesRefusal,

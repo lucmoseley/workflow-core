@@ -136,8 +136,8 @@ export function blocks(
 	{
 		now = NOW,
 		io: over = {},
-		paused,
-	}: { now?: number; io?: Partial<BlockIo>; paused?: boolean } = {},
+		barred,
+	}: { now?: number; io?: Partial<BlockIo>; barred?: boolean } = {},
 ) {
 	const { io, calls } = fakeIo(over);
 	return {
@@ -146,7 +146,7 @@ export function blocks(
 			now,
 			io,
 			swapHold: NO_HOLD,
-			...(paused ? { paused } : {}),
+			...(barred ? { barred } : {}),
 		}),
 		calls,
 	};

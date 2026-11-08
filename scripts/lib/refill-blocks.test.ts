@@ -135,7 +135,7 @@ describe("which parks the loop stops (#2699)", () => {
 	it("still stops a park on a paused tick, a stop setting nothing running (#3856)", () => {
 		const labelled: string[] = [];
 		const { out, calls } = blocks([parkedFor("QUESTION", 0)], blocked, "away", {
-			paused: true,
+			barred: true,
 			io: {
 				labelParked: (l) => {
 					labelled.push(l.jobId ?? "");
@@ -372,7 +372,7 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 				now: NOW,
 				io,
 				swapHold: NO_HOLD,
-				paused: true,
+				barred: true,
 			});
 			expect(calls).toEqual([]);
 			expect(out).toEqual([l]);
@@ -695,7 +695,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				now: NOW,
 				io,
 				swapHold: NO_HOLD,
-				paused: true,
+				barred: true,
 			});
 			expect(calls).toEqual([]);
 		}
@@ -2327,7 +2327,7 @@ describe("a boot's resumed session gone from the listing (#3880)", () => {
 	);
 
 	it("waits out a pause", () => {
-		expect(act(gone, {}, { paused: true }).calls).not.toContain(
+		expect(act(gone, {}, { barred: true }).calls).not.toContain(
 			"hand-off job42",
 		);
 	});

@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 const {
+	buildRowPrompt,
 	buildVerifyPrompt,
 	unclosedLaunchOf,
 	unclosedLaunches,
@@ -77,5 +78,20 @@ describe("buildVerifyPrompt (#3782)", () => {
 		expect(prompt.startsWith("/implement 3565 ")).toBe(true);
 		expect(prompt.match(/\d+/g)?.every((d: string) => d === "3565")).toBe(true);
 		expect(prompt).not.toContain("\n");
+	});
+});
+
+describe("buildRowPrompt (#4351)", () => {
+	const row = (takes: string) => ({ root: "wfc", number: 1, takes: [takes] });
+
+	it("checks first on an /implement row whose last launch did not close", () => {
+		expect(buildRowPrompt(row("implement"), [buildLaunch(1)])).toBe(
+			buildVerifyPrompt(1),
+		);
+	});
+
+	it("types the row's own command otherwise", () => {
+		expect(buildRowPrompt(row("implement"), [])).toBe("/implement 1");
+		expect(buildRowPrompt(row("triage"), [buildLaunch(1)])).toBe("/triage 1");
 	});
 });

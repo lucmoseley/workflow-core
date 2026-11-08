@@ -58,13 +58,25 @@ With no goal, skip this step and run the script bare.
 
 ### 2. Run the script
 
+First hold the refill loop's launches, in the same message as the script:
+
+```bash
+node scripts/refill-loop.js set --hold-launches 20
+```
+
+It keeps a running loop out of this run's slots and gates (#4354). 20 minutes is
+the ~14-minute measured run to §6's dispatch lines (`references/measured-figures.md`, "What a run costs") plus
+an unmeasured 6 for §7's launches. Run the same command again just before §7's
+first launch call, so a slow run's launches stay covered. A refusal (`the loop
+was never started`) means there is no loop to hold: carry on.
+
 ```bash
 node scripts/pick-next.js [--goal <§1's set or form>] [--limit 15] \
   --dump-bodies "$PWD/.claude/tmp/pick-next-bodies/${CLAUDE_CODE_SESSION_ID:-$$}"
 ```
 
-**Always pass `--dump-bodies`** (mantahostels#409) — it writes one `<n>.md` per open issue,
-at no extra request, for §4 to read. The directory is per session, so two
+**Always pass `--dump-bodies`** (mantahostels#409) — it writes one `<n>.md` per open issue
+for §4 to read. The directory is per session, so two
 concurrent runs never write into each other's, and it is never under the job
 directory, where every band file a subagent appends would draw
 `lib/job-dir-scratch.js`'s warn (#1140).
@@ -73,8 +85,7 @@ directory, where every band file a subagent appends would draw
 you asked for `--json`** — every block the text output printed, machine-readable,
 named on that output's very last line. Read it rather than re-running: the text
 output is far too long to tail (`references/measured-figures.md`, "How long the
-text output runs"), and a reader who tails it and loses the ranking block pays
-a second full run for a report already on disk. **`frontier` in that JSON
+text output runs"). **`frontier` in that JSON
 carries the whole frontier, not the `--limit` slice** (mantahostels#1289) —
 `frontierCount` still agrees with `frontier.length`. `--limit` governs
 only the printed table (`shown` in `--json`).
@@ -82,7 +93,7 @@ only the printed table (`shown` in `--json`).
 **Write §6's message from `summary`, in one read** (mantahostels#1001) — it carries the
 frontier count, the `no command` count and its rotted containers by number
 (§5's third accounting term), the warm / provisional / to-derive split, the proposed set with
-each member's `takes:` value and write-set, the owed-work counts, and, where
+each member's `takes:` value, write-set and lone launch prompt, the owed-work counts, and, where
 each applies, the readiness-unknown count and the frontier issues whose
 `takes:` is missing or doubled — the whole frontier, not the `--limit` slice
 (mantahostels#3363, the run that read a labelled issue as unlabelled). The text output prints the same figures as
@@ -522,6 +533,8 @@ pair it prints may be two tickets stamping one file. And its proposed set drops
 the lower-ranked of every pair, which is right only where the shared file really
 is a substrate. Nothing is refused on it.
 
+**An issue whose `frontier` row carries `unclosedLaunch` never merges** (#4351).
+
 **Merging: several issues, one line, one session.** A candidate merges onto an
 existing dispatch-set member's line when three tests pass together — **same
 file, disjoint edit targets** (the section, `mantahostels#411` versus `§B17`, not just the
@@ -867,9 +880,10 @@ mantahostels#1153). One call, every session in it:
 scripts/dispatch-sessions.sh <model> "/<skill> <issues>" [<model> "<prompt>" ...]
 ```
 
-One `<model> <prompt>` pair per §6 line, same order. The prompt is the launch
-command as it would be typed into the agents view — `"/implement 341 353 366"`
-for the bundle above.
+One `<model> <prompt>` pair per §6 line, same order. **A lone issue's prompt is
+its `prompt` in `summary.proposed` (or its `frontier` row), copied as printed —
+never composed**, the refill loop's own (#4351). A bundle's prompt is the launch command as
+typed into the agents view — `"/implement 341 353 366"` for the bundle above.
 
 **A two-wave dispatch calls this twice** (§4, §6) — once for wave 1 while the
 band read runs, once for the closing wave. Each call carries only its own wave's
@@ -956,14 +970,16 @@ every session launched from that view, not just this set.
 ### 8. Send the refill loop what this command asked
 
 **Every run ends here** — after §7's last launch call, and equally after a
-hold, an admission refusal or a launcher refusal: run once
+hold, an admission refusal or a launcher refusal: release §2's launch hold, then
+run once
 
 ```bash
+node scripts/refill-loop.js set --release-launches
 node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set or form>]
 ```
 
-It starts the machine's one loop only where its process ended with no explicit
-stop, from its settings as they were, or on a machine's first run, ticking this
+The release lifts only the hold, never a pause. `start` starts the machine's one
+loop only where its process ended with no explicit stop, from its settings as they were, or on a machine's first run, ticking this
 repo. It never undoes a setting (#2526): a stopped loop stays stopped, a paused one
 paused, the no-progress pause included, and a bare run changes none. A damaged
 control file exits 1, naming it: copy that into the message. `--repo` ticks each
