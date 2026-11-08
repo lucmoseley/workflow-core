@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The repo hold's CLI (#3857), run as sessions and the founder run it. The real tick's side of a hold is
- * refill-loop-run-recovery.test.ts's.
+ * refill-loop-run-holds.test.ts's.
  *
  * WHAT BREAKING IT COSTS: a hold listed from one worktree and not another gets
  * the founder a second copy of the same question; a lift that fails leaves a
