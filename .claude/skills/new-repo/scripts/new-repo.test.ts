@@ -33,6 +33,7 @@ import {
 	HOOKS,
 	renderHookShim,
 } from "../../../../scripts/lib/adopter-skeleton.js";
+import { isCutOver } from "../../../../scripts/lib/cutover.js";
 import { shellQuote } from "../../../../scripts/lib/sh-quote.js";
 import {
 	BASHRC,
@@ -168,7 +169,10 @@ describe("new-repo.js on an empty project", () => {
 					"utf8",
 				),
 			);
+			/* With landing on and the checkout cut over, the first session the
+			 * aliases start is moved to a worktree (guard-main-checkout-job.js). */
 			expect(config.modules).toEqual(["landing"]);
+			expect(isCutOver(s.clone)).toBe(true);
 			expect(config.commands ?? {}).toEqual({});
 			const claude = fs.readFileSync(path.join(s.clone, "CLAUDE.md"), "utf8");
 			expect(claude).toContain(

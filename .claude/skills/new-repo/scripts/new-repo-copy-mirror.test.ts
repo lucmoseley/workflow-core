@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { isCutOver } from "../../../../scripts/lib/cutover.js";
 import {
 	cleanRun,
 	HAS_GITLEAKS,
@@ -48,7 +49,7 @@ describe("new-repo.js copying a source repo", () => {
 			for (const step of reported(true))
 				expect(statusOf(r.stdout, step), step).toBe("done");
 			expect(r.stdout).toContain(
-				"source repo    done — octo/surf-lib's trunk made main, 2 tags pushed, upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml",
+				"source repo    done — octo/surf-lib's trunk is main, 2 tags pushed, upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml",
 			);
 			expect(r.stdout).toContain(
 				"gitignore      done — negations appended to .gitignore for CLAUDE.md\n",
@@ -112,6 +113,7 @@ describe("new-repo.js copying a source repo", () => {
 				),
 			);
 			expect(config.modules).toEqual(["suites", "landing"]);
+			expect(isCutOver(s.clone)).toBe(true);
 			expect(config.commands.test).toBe("npm run test");
 
 			expect(s.git("show", "HEAD:docs/source/AGENTS.source.md")).toBe(

@@ -426,12 +426,14 @@ function resolveInputs(resume, given, name, saved) {
  * @param {string} cwd
  * @param {string[]} args
  * @param {Buffer} [input]
+ * @param {NodeJS.ProcessEnv} [env]
  */
-const git = (cwd, args, input) =>
+const git = (cwd, args, input, env) =>
 	execGit(args, {
 		cwd,
 		encoding: "utf8",
 		input,
+		env,
 		stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 	}).trim();
 
@@ -891,21 +893,20 @@ function copySource({ inp, clone, env, dry }, src) {
 		);
 	else {
 		const sent = /** @type {string[]} */ (tags);
-		const r =
-			sent.length > 0
-				? runGit(clone, ["push", "-q", "origin", ...sent], env)
-				: { status: 0, output: "" };
-		if (r.status !== 0)
-			throw new Stop("the push of the source repo's tags was rejected", {
-				code: 2,
-				output: r.output,
-				manual: `read the rejection above and settle it in ~/${inp.name}`,
-			});
+		if (sent.length > 0) {
+			const r = runGit(clone, ["push", "-q", "origin", ...sent], env);
+			if (r.status !== 0)
+				throw new Stop("the push of the source repo's tags was rejected", {
+					code: 2,
+					output: r.output,
+					manual: `read the rejection above and settle it in ~/${inp.name}`,
+				});
+		}
 		report(
 			"source repo",
 			"done",
 			[
-				`${inp.source}'s ${src.branch} made main`,
+				`${inp.source}'s ${src.branch} is main`,
 				...(sent.length > 0 ? [`${sent.length} tags pushed`] : []),
 				"upstream fetch-only",
 			].join(", "),
@@ -2066,8 +2067,13 @@ function skeletonCommit(
 	];
 	// With no install recorded, the hook shims resolve no core but this one (#1839).
 	const hookEnv = noInstall ? { ...env, WORKFLOW_CORE_DIR: CORE } : env;
+	/* Beside only for the commit the push creating main carries: once origin
+	 * has a main, the main checkout's own hooks judge the commit. */
+	const beside =
+		revParse(clone, "HEAD") !== null && readOriginMain(clone, false) === null;
 	let r;
-	if (revParse(clone, "HEAD") === null) {
+	if (beside) r = commitBeside(clone, spec, message, hookEnv);
+	else {
 		const add = runGit(clone, ["add", "-N", "--", ...spec], env);
 		if (add.status !== 0)
 			throw new Stop("git add refused the skeleton paths", {
@@ -2076,7 +2082,7 @@ function skeletonCommit(
 				manual,
 			});
 		r = runGit(clone, ["commit", "-q", ...message, "--", ...spec], hookEnv);
-	} else r = commitBeside(clone, spec, message, hookEnv);
+	}
 	if (r.status !== 0)
 		throw new Stop("a hook refused the skeleton commit", {
 			code: 2,
@@ -2102,32 +2108,33 @@ function skeletonCommit(
 function commitBeside(clone, spec, message, env) {
 	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "new-repo-commit-"));
 	const tree = path.join(scratch, "tree");
-	const indexed = (/** @type {string[]} */ args) =>
-		execGit(args, {
-			cwd: clone,
-			encoding: "utf8",
-			env: { ...process.env, GIT_INDEX_FILE: path.join(scratch, "index") },
-			stdio: ["ignore", "pipe", "pipe"],
-		}).trim();
-	indexed(["read-tree", "HEAD"]);
-	indexed(["add", "-A", "--", ...spec]);
-	const skeleton = indexed(["write-tree"]);
-	const was = git(clone, ["rev-parse", "HEAD"]);
-	git(clone, ["worktree", "add", "-q", "--detach", tree, was]);
+	let added = false;
 	try {
-		git(tree, ["read-tree", "-u", "--reset", skeleton]);
+		const indexEnv = {
+			...process.env,
+			GIT_INDEX_FILE: path.join(scratch, "index"),
+		};
+		git(clone, ["read-tree", "HEAD"], undefined, indexEnv);
+		git(clone, ["add", "-A", "--", ...spec], undefined, indexEnv);
+		const skeletonTree = git(clone, ["write-tree"], undefined, indexEnv);
+		const headSha = git(clone, ["rev-parse", "HEAD"]);
+		git(clone, ["worktree", "add", "-q", "--detach", tree, headSha]);
+		added = true;
+		git(tree, ["read-tree", "-u", "--reset", skeletonTree]);
 		const r = runGit(tree, ["commit", "-q", ...message], {
 			...env,
 			CLAUDE_PROJECT_DIR: tree,
 		});
 		if (r.status !== 0) return r;
-		const made = git(tree, ["rev-parse", "HEAD"]);
-		git(clone, ["update-ref", "refs/heads/main", made, was]);
+		const skeletonSha = git(tree, ["rev-parse", "HEAD"]);
+		git(clone, ["update-ref", "refs/heads/main", skeletonSha, headSha]);
 		git(clone, ["reset", "-q"]);
 		return r;
 	} finally {
-		git(clone, ["worktree", "remove", "--force", tree]);
+		if (added)
+			spawnGitSync(["worktree", "remove", "--force", tree], { cwd: clone });
 		fs.rmSync(scratch, { recursive: true, force: true });
+		spawnGitSync(["worktree", "prune"], { cwd: clone });
 	}
 }
 
