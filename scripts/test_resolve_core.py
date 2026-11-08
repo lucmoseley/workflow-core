@@ -13,6 +13,7 @@ one its JS checks use, or fail with a message naming the wrong fix.
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -390,7 +391,7 @@ def test_resolves_a_root_with_an_exact_install_row_without_spawning_git(
     bin_dir.mkdir()
     called = bin_dir / "called"
     fake_git = bin_dir / "git"
-    fake_git.write_text(f'#!/bin/sh\necho "$@" >> "{called}"\nexit 1\n')
+    fake_git.write_text(f'#!/bin/sh\necho "$@" >> {shlex.quote(str(called))}\nexit 1\n')
     fake_git.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     env = {"CLAUDE_CONFIG_DIR": str(config)}
@@ -398,19 +399,43 @@ def test_resolves_a_root_with_an_exact_install_row_without_spawning_git(
     assert not called.exists()
 
 
-@pytest.mark.parametrize("spelling", ["symlink", "trailing slash"])
+def test_fails_alike_where_git_prints_fewer_than_two_lines(
+    adopter, tmp_path, monkeypatch
+):
+    """#4150: the Python port no longer swallows what the JS throws on."""
+    root, config, _ = adopter()
+    _write_json(config / "plugins" / "installed_plugins.json", {"plugins": {}})
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_git = bin_dir / "git"
+    fake_git.write_text("#!/bin/sh\necho one-line\n")
+    fake_git.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    result = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})
+    assert not result["ok"]
+    assert result["value"] == "git rev-parse printed fewer than two lines: one-line\n"
+
+
+def _symlinked(root, tmp_path):
+    link = tmp_path / "link"
+    link.symlink_to(root)
+    return str(link)
+
+
+@pytest.mark.parametrize(
+    "spell",
+    [
+        pytest.param(_symlinked, id="through a symlink"),
+        pytest.param(lambda root, _: f"{root}{os.sep}", id="with a trailing slash"),
+    ],
+)
 def test_resolves_a_main_checkouts_root_spelt_otherwise_through_gits_spelling(
-    adopter, tmp_path, spelling
+    adopter, tmp_path, spell
 ):
     """#4150."""
     root, config, install = adopter()
     _linked_worktree(root, tmp_path)
-    if spelling == "symlink":
-        spelt = tmp_path / "link"
-        spelt.symlink_to(root)
-        spelt = str(spelt)
-    else:
-        spelt = f"{root}{os.sep}"
+    spelt = spell(root, tmp_path)
     assert agreed(spelt, {"CLAUDE_CONFIG_DIR": str(config)})["value"] == str(install)
 
 

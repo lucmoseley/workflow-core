@@ -9,8 +9,11 @@ Python 3.10 or later, because it runs before the core is found.
 
 Same lookup, same variables, same messages as resolve-core.js, whose header
 explains each step: WORKFLOW_CORE_DIR, then WORKFLOW_CORE_CHECKOUT, then the
-installed plugin's install row for the adopter root as spelt, else for its main
-checkout as git spells it, asking git only where the root has no row (#4150).
+installed plugin's install row for the adopter root as spelt, else, where the
+root is a checkout's top level, for its main checkout as git spells it, asking
+git only where the root has no row. So a linked worktree resolves through its
+main checkout, and so does a main checkout's root spelt through a symlink or
+with a trailing slash (#4150).
 test_resolve_core.py runs
 both files over the same fixtures and fails on any difference. A value the CLI
 never writes — a non-string ref or install path — fails in both, naming the
@@ -67,8 +70,9 @@ def _read_git_roots(**options):
             **options,
         ).stdout
     except (OSError, subprocess.CalledProcessError, ValueError):
-        # Outside a git tree, or with no git, the caller's own directory is the
-        # only root left (#1274, #4117).
+        # Outside a git tree, with no git, or with a root subprocess refuses (a
+        # NUL byte raises ValueError), the caller's own directory is the only
+        # root left (#1274, #4117).
         return None
     lines = out.strip().split("\n")
     if len(lines) < 2:

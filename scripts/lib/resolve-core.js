@@ -171,7 +171,7 @@ function readInstallRows(entries, root) {
 	if (own.length > 0) return { rows: own, searched: root };
 	const main = readMainCheckout(root);
 	return main === root
-		? { rows: own, searched: root }
+		? { rows: [], searched: root }
 		: { rows: rowsFor(main), searched: `${root} or ${main}` };
 }
 

@@ -18,6 +18,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { adopterFixtures } from "./plugin-state-testkit.js";
 import { resolveCore } from "./resolve-core.js";
+import { shellQuote } from "./sh-quote.js";
 
 const fixture = adopterFixtures("wfc-resolve-core-");
 
@@ -209,7 +210,7 @@ describe("resolveCore's lookup order (#461)", () => {
 		const called = path.join(bin, "called");
 		fs.writeFileSync(
 			path.join(bin, "git"),
-			`#!/bin/sh\necho "$@" >> ${JSON.stringify(called)}\nexit 1\n`,
+			`#!/bin/sh\necho "$@" >> ${shellQuote(called)}\nexit 1\n`,
 			{ mode: 0o755 },
 		);
 		expect(
