@@ -7,9 +7,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeSystemdRun } from "./systemd-run-fake";
 
 const require = createRequire(import.meta.url);
+const { FORGOTTEN_KEYS } = require("./session-id.js");
 const {
+	OUTLIVE_CEILING_S,
 	probeUserScope,
 	spawnInRunScope,
 	endRunScope,
@@ -96,4 +99,92 @@ next();
 			expect(running()).toBe("");
 		},
 	);
+});
+
+/*
+ * The outliving launch's Node face (#4706), driven in a fresh node so its
+ * probe of the user manager is its own, against a stand-in systemd-run that
+ * records what reaches it. Loosen it and a session-start job is killed at its
+ * session's end, or a job left outside every scope names the wrong owner.
+ */
+describe("the outliving launch", () => {
+	/** Launch `rec.sh job` through spawnOutliving, the manager answering or not. */
+	function launch(answers: boolean, opts: string) {
+		const dir = scratch();
+		const rec = path.join(dir, "rec.log");
+		const recorder = path.join(dir, "rec.sh");
+		fs.writeFileSync(
+			recorder,
+			`#!/bin/sh\nprintf '%s\\n' "$* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-}" >> "${rec}"\n`,
+			{ mode: 0o755 },
+		);
+		const fake = writeSystemdRun(dir, { answers });
+		const driver = `const { spawnOutliving } = require(${JSON.stringify(path.join(__dirname, "user-scope.js"))});
+spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opts} }).on("exit", () => {});`;
+		const r = spawnSync(process.execPath, ["-e", driver], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				WFC_SYSTEMD_RUN: fake.bin,
+				CLAUDE_CODE_SESSION_ID: "starter",
+				CLAUDE_JOB_DIR: "/the/job",
+				WFC_REPORT_OWNER: "inherited",
+			},
+		});
+		expect(r.status, r.stderr).toBe(0);
+		return {
+			ran: fs.readFileSync(rec, "utf8").trim(),
+			scoped: fake.calls().map(({ words, owner }) => ({ words, owner })),
+			recorder,
+		};
+	}
+
+	it("starts the job in a capped user scope, as no session, naming the owner it is given", () => {
+		const { ran, scoped } = launch(
+			true,
+			'{ owner: "starter", ceilingS: 2700 }',
+		);
+		expect(scoped).toEqual([
+			{
+				words: "--user --scope --quiet -p RuntimeMaxSec=2700 --",
+				owner: "starter",
+			},
+		]);
+		expect(ran).toBe("job sid= job= owner=starter");
+	});
+
+	it("starts it unscoped, still stripped and owner-tagged, where no manager answers", () => {
+		const { ran, scoped } = launch(
+			false,
+			'{ owner: "starter", ceilingS: 2700 }',
+		);
+		expect(scoped).toEqual([]);
+		expect(ran).toBe("job sid= job= owner=starter");
+	});
+
+	/* lib/detach.sh's `outlive` is this face's twin: drift, and the shell
+	 * launcher's jobs keep a key the sweep reads as a session's. */
+	it("strips the same keys and stops at the same ceiling as its shell twin", () => {
+		const r = spawnSync(
+			"bash",
+			[
+				"-c",
+				`source "$1"; printf "%s\\n" "\${OUTLIVE_STRIPPED[*]}" "$OUTLIVE_CEILING_S"`,
+				"_",
+				path.join(__dirname, "detach.sh"),
+			],
+			{ encoding: "utf8" },
+		);
+		expect(r.stdout.trim().split("\n")).toEqual([
+			FORGOTTEN_KEYS.join(" "),
+			String(OUTLIVE_CEILING_S),
+		]);
+		expect(FORGOTTEN_KEYS).toContain("WFC_REPORT_OWNER");
+	});
+
+	it("names no owner and sets no ceiling where it is given neither", () => {
+		const { ran, scoped } = launch(true, "{}");
+		expect(scoped).toEqual([{ words: "--user --scope --quiet --", owner: "" }]);
+		expect(ran).toBe("job sid= job= owner=");
+	});
 });

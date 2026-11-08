@@ -1,6 +1,7 @@
 /*
  * user-scope.js — starting a command in a cgroup of its own under the user's
- * systemd manager: the lander's scope (#2956) and each test run's (#3401).
+ * systemd manager: each outliving session-start job's and the lander's scope
+ * (#4706, #2956), and each test run's (#3401).
  *
  * A TEST RUN'S SCOPE IS CAPPED AND KILLED WHOLE. Its child starts in
  * `wfc-test-<pid>-<n>.scope` at `TasksMax`, so a runaway fork chain is refused
@@ -20,6 +21,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { forgetSession, REPORT_OWNER } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
 const {
 	MANAGER_TIMEOUT_MS,
@@ -59,9 +61,61 @@ function probeUserScope() {
 	return status === 0 ? [systemdRun(), ...USER_SCOPE, "--"] : [];
 }
 
-/* The probe's answer, taken once per process by `spawnInRunScope`. */
+/* The probe's answer, taken once per process by `spawnInRunScope` and
+ * `spawnOutliving`. */
 /** @type {boolean|null} */
 let managerAnswers = null;
+const managerAnswersOnce = () => {
+	if (managerAnswers === null) managerAnswers = probeUserScope().length > 0;
+	return managerAnswers;
+};
+
+/* The one time ceiling on every job a session start launches to outlive its
+ * session: repo-checks.js's 30-minute run ceiling plus a 15-minute tail for
+ * its result, issue and report (#4706). lib/detach.sh's OUTLIVE_CEILING_S is
+ * its twin. */
+const OUTLIVE_CEILING_S = 2700;
+
+/**
+ * The words that start a command in a user scope of its own, stopped at
+ * `ceilingS` where one is given; none where no user manager answers.
+ * @param {number|null} ceilingS
+ * @returns {string[]}
+ */
+function outlivingScope(ceilingS) {
+	if (!managerAnswersOnce()) return [];
+	const cap = ceilingS === null ? [] : ["-p", `RuntimeMaxSec=${ceilingS}`];
+	return [systemdRun(), ...USER_SCOPE, ...cap, "--"];
+}
+
+/**
+ * Start a command meant to outlive the session that starts it (#4706): in a
+ * session of its own, as no session's process (`forgetSession`'s keys
+ * stripped), naming `owner` as its notify reports' owner, in a user scope
+ * outside the session's own and so outside its watcher's kill, stopped at
+ * `ceilingS`. Where no user manager answers it starts the same way, unscoped.
+ * The caller unrefs the child. `wrap` replaces the scope words, for a test or
+ * a caller that probed already.
+ * @param {string} command
+ * @param {readonly string[]} args
+ * @param {import("node:child_process").SpawnOptions & { owner?: string|null,
+ *   ceilingS?: number|null, wrap?: string[] }} options
+ * @returns {import("node:child_process").ChildProcess}
+ */
+function spawnOutliving(
+	command,
+	args,
+	{ owner = null, ceilingS = null, wrap, ...options },
+) {
+	const env = { ...(options.env ?? process.env) };
+	forgetSession(env);
+	if (owner) env[REPORT_OWNER] = owner;
+	const [cmd, ...pre] = wrap ?? outlivingScope(ceilingS);
+	const spawnOptions = { ...options, env, detached: true };
+	return cmd === undefined
+		? spawn(command, args, spawnOptions)
+		: spawn(cmd, [...pre, command, ...args], spawnOptions);
+}
 
 /**
  * @param {NodeJS.ProcessEnv} [env]
@@ -122,8 +176,7 @@ function isRunnable(command, env) {
 function spawnInRunScope(command, args, options) {
 	const env = options.env ?? process.env;
 	if (!isRunnable(command, env)) return spawn(command, args, options);
-	if (managerAnswers === null) managerAnswers = probeUserScope().length > 0;
-	if (!managerAnswers) {
+	if (!managerAnswersOnce()) {
 		writeFd(
 			2,
 			"no user scope: this test run shares its starter's cgroup, uncapped (#3401)\n",
@@ -338,7 +391,9 @@ function hasOwnScopeHitCap() {
 }
 
 module.exports = {
+	OUTLIVE_CEILING_S,
 	probeUserScope,
+	spawnOutliving,
 	spawnInRunScope,
 	endRunScope,
 	hasOwnScopeHitCap,

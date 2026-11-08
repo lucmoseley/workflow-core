@@ -3,14 +3,14 @@
  * (#2405, spec #2261; #4458).
  */
 
-const { spawn, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { forgetSession, fromEnv } = require("./session-id.js");
+const { fromEnv } = require("./session-id.js");
 const { sleepSync } = require("./sleep-sync.js");
-const { probeUserScope } = require("./user-scope.js");
+const { probeUserScope, spawnOutliving } = require("./user-scope.js");
 
 /**
  * @typedef {object} StartDeps
@@ -100,9 +100,9 @@ function runStartLander(
 }
 
 /**
- * `node <script> run [--tester <command>]` in `root`, in a session of its own
- * so no hook's process-group kill reaches it, appending its output to `log`,
- * behind `wrap`'s words. It runs as no session: under the starting one's id and
+ * `node <script> run [--tester <command>]` in `root`, through the outliving
+ * launch with no report owner and no ceiling (#4706), appending its output to
+ * `log`, behind `wrap`'s words. It runs as no session: under the starting one's id and
  * root, admission counts that session as itself, the fix tickets it files are
  * claimed for it, and its suite read the main checkout (#2410).
  * Residual: a scope the probe allowed can still fail to start, and then
@@ -120,31 +120,23 @@ function spawnDetachedRun({
 }) {
 	fs.mkdirSync(path.dirname(log), { recursive: true });
 	const fd = fs.openSync(log, "a");
-	const env = buildCheckoutEnv(root);
-	forgetSession(env);
 	try {
 		const run = [
 			script,
 			"run",
 			...(tester === undefined ? [] : ["--tester", tester]),
 		];
-		/** @type {import("node:child_process").SpawnOptions} */
-		const options = {
-			cwd: root,
-			env,
-			detached: true,
-			stdio: ["ignore", fd, fd],
-		};
-		const [cmd, ...pre] = wrap;
-		if (cmd === undefined)
+		if (wrap.length === 0)
 			fs.writeSync(
 				fd,
 				`${new Date().toISOString()} no user scope: the lander shares its starter's cgroup (#2956)\n`,
 			);
-		const child =
-			cmd === undefined
-				? spawn(process.execPath, run, options)
-				: spawn(cmd, [...pre, process.execPath, ...run], options);
+		const child = spawnOutliving(process.execPath, run, {
+			cwd: root,
+			env: buildCheckoutEnv(root),
+			stdio: ["ignore", fd, fd],
+			wrap,
+		});
 		if (child.pid === undefined) throw new Error(`could not start ${script}`);
 		child.unref();
 		return child.pid;

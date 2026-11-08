@@ -24,6 +24,7 @@ import path from "node:path";
 // mocking (§X2).
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { shellQuote } from "./lib/sh-quote.js";
+import { writeSystemdRun } from "./lib/systemd-run-fake";
 
 const SCRIPT = path.join(__dirname, "session-start-sweeps.sh");
 
@@ -159,6 +160,9 @@ describe("the SessionStart housekeeping launcher", () => {
 			env: {
 				...process.env,
 				...throttleEnv(),
+				/* No user manager: a job reaches the fake node directly, and no
+				 * test makes a real scope. */
+				WFC_SYSTEMD_RUN: writeSystemdRun(bin, { answers: false }).bin,
 				...env,
 				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 			},
@@ -259,6 +263,103 @@ describe("the SessionStart housekeeping launcher", () => {
 		const test = launcherReach({ VITEST: "1" });
 		expect(await reached(test.log, "check-self-throttling.js")).toBe(true);
 		expect(await reached(test.log, "repo-checks.js")).toBe(false);
+	});
+
+	/*
+	 * The outliving launch (#4706): every job but the session's scope arrives
+	 * at a stand-in systemd-run as no session, owned by the starter, at the
+	 * 45-minute ceiling; with no manager, each still starts, stripped and
+	 * owner-tagged. Stand-in node, git and systemd-run record what reaches
+	 * them and run nothing.
+	 */
+	const Outliving = [
+		"retire-stale-containers.js",
+		"scratch-sweep.js",
+		"report-close-check-reading.js",
+		"report-suite-queue-wait.js",
+		"report-arch-scan-due.js",
+		"repo-checks.js",
+		"report-round-check-reading.js",
+		"start-lander.js",
+		"check-landing-stall.js",
+		"report-flip-line-reading.js",
+		"report-heresy-sweep-due.js",
+		"start-orphan-sweep-timer.js",
+		" gc --auto",
+	];
+
+	async function launchOutliving(answers: boolean) {
+		const bin = fs.mkdtempSync(path.join(os.tmpdir(), "outlive-launch-"));
+		onTestFinished(() =>
+			fs.rmSync(bin, {
+				recursive: true,
+				force: true,
+				maxRetries: 10,
+				retryDelay: 100,
+			}),
+		);
+		const log = path.join(bin, "reached.log");
+		for (const name of ["node", "git"])
+			fs.writeFileSync(
+				path.join(bin, name),
+				`#!/bin/sh\necho "${name} $* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-}" >> ${shellQuote(log)}\n`,
+				{ mode: 0o755 },
+			);
+		const fake = writeSystemdRun(bin, { answers });
+		const project = path.join(bin, "project");
+		fs.mkdirSync(project);
+		spawnSync(SCRIPT, [], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				...throttleEnv(),
+				VITEST: undefined,
+				WFC_SYSTEMD_RUN: fake.bin,
+				CLAUDE_PROJECT_DIR: project,
+				CLAUDE_CODE_SESSION_ID: "starter",
+				CLAUDE_JOB_DIR: "/the/job",
+				WFC_REPORT_OWNER: "stale",
+				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+			},
+		});
+		const reachedLines = () => fs.readFileSync(log, "utf8").trim().split("\n");
+		await vi.waitFor(
+			() =>
+				expect(
+					Outliving.every((job) => reachedLines().some((l) => l.includes(job))),
+				).toBe(true),
+			{ timeout: 5000, interval: 50 },
+		);
+		return { lines: reachedLines(), fake };
+	}
+
+	it("launches every job but the session's scope as no session, owned by the starter, capped at 45 minutes (#4706)", async () => {
+		const { lines, fake } = await launchOutliving(true);
+		expect(fake.probes()).toBe(1);
+		const calls = fake.calls();
+		for (const job of Outliving)
+			expect(calls.find((c) => c.command.includes(job))).toMatchObject({
+				words: "--user --scope --quiet -p RuntimeMaxSec=2700 --",
+				sid: "",
+				job: "",
+				owner: "starter",
+			});
+		expect(calls.some((c) => c.command.includes("session-scope.js"))).toBe(
+			false,
+		);
+		expect(lines.find((l) => l.includes("session-scope.js"))).toMatch(
+			/ sid=starter job=\/the\/job owner=stale$/,
+		);
+	});
+
+	it("starts each job unscoped, still stripped and owner-tagged, where no manager answers (#4706)", async () => {
+		const { lines, fake } = await launchOutliving(false);
+		expect(fake.probes()).toBe(1);
+		expect(fake.calls()).toEqual([]);
+		for (const job of Outliving)
+			expect(lines.find((l) => l.includes(job))).toMatch(
+				/ sid= job= owner=starter$/,
+			);
 	});
 
 	it("exits green where node is absent, rather than failing a session start", () => {

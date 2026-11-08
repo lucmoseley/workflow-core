@@ -42,6 +42,7 @@ import { runCore } from "./lib/guard-core-testkit";
 import { cutPostCommitBlock } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+import { writeSystemdRun } from "./lib/systemd-run-fake";
 
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const { gh } = createRequire(__filename)("./lib/gh.js");
@@ -2173,6 +2174,26 @@ describe("prune-markers --detach, the SessionStart form", () => {
 			await new Promise((r) => setTimeout(r, 100));
 		expect(readRefs()).toEqual([]);
 	}, 30_000);
+
+	/* So a short session's end neither kills the sweep nor leaves it
+	 * unbounded (#4706). */
+	it("launches its sweep outside the session's scope, as no session, owned by the starter, capped", async () => {
+		const fake = writeSystemdRun(fs.mkdtempSync(path.join(sb.dir, "sdr-")));
+		const r = cli(["prune-markers", "--detach"], {
+			WFC_SYSTEMD_RUN: fake.bin,
+			CLAUDE_CODE_SESSION_ID: "starter",
+			CLAUDE_JOB_DIR: "/the/job",
+		});
+		expect(r.status).toBe(0);
+		await vi.waitFor(() => expect(fake.calls()).toHaveLength(1));
+		expect(fake.calls()[0]).toMatchObject({
+			words: "--user --scope --quiet -p RuntimeMaxSec=2700 --",
+			command: expect.stringMatching(/session-arbiter\.js prune-markers$/),
+			sid: "",
+			job: "",
+			owner: "starter",
+		});
+	});
 });
 
 describe("release — the oracle read it pays for (mantahostels#317)", () => {

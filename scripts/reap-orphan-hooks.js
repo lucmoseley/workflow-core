@@ -144,7 +144,8 @@ function killedLine(done, logFile) {
 /**
  * One kill's line appended to `log`, its directory made first, which a fresh
  * machine's `~/.local/state` lacks (#4706); false where it was not written.
- * @param {string|null} log @param {Record<string, unknown>} entry
+ * @param {string|null} log
+ * @param {Record<string, unknown> & { at: string }} entry
  */
 function appendLog(log, entry) {
 	if (log === null) return false;
