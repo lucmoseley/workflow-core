@@ -9,6 +9,7 @@
 import { expect, it } from "vitest";
 import {
 	buildWaitLine,
+	shaState,
 	WAIT_BOUND_MS,
 	WAIT_POLL_MS,
 	waitForLanding,
@@ -117,11 +118,48 @@ it("exits on its bound, under the 15-minute Bash wait, still queued", () => {
 	);
 });
 
-it("stops on a failed read with its exit code, first or later", () => {
-	expect(waitForLanding(scripted({ fault: 1 }).read, scripted().io)).toEqual({
-		kind: "fault",
-		code: 1,
-	});
+it("stops on a failed first read with its exit code", () => {
+	const s = scripted({ fault: 1 });
+	expect(waitForLanding(s.read, s.io)).toEqual({ kind: "fault", code: 1 });
+	expect(s.reads()).toBe(1);
+});
+
+it("retries a read that fails mid-wait, and lands on the next good one", () => {
+	const s = scripted({ [A]: "pending" }, { fault: 1 }, { [A]: "landed" });
+
+	expect(waitForLanding(s.read, s.io).kind).toBe("landed");
+	expect(s.reads()).toBe(3);
+});
+
+it("returns a mid-wait fault still failing at the bound", () => {
 	const s = scripted({ [A]: "pending" }, { fault: 1 });
+
 	expect(waitForLanding(s.read, s.io)).toEqual({ kind: "fault", code: 1 });
 });
+
+it.each([
+	[
+		"landed",
+		"dropped",
+		"landed",
+		"a dropped sha that landed under a later push",
+	],
+	["queued", "dropped", "pending", "a dropped sha pushed again"],
+	[
+		"queued",
+		"landed",
+		"pending",
+		"a sha queued again after an earlier stay landed",
+	],
+	["landed", "testing", "landed", "a landed commit whose batch record lags"],
+	["unpushed", "dropped", "dropped", "a dropped sha off every ref"],
+	["unpushed", undefined, "left", "a commit off every ref with no stay"],
+	[undefined, "testing", "pending", "a stay no ledgered commit names"],
+	["queued", undefined, "pending", "a queued commit with no stay"],
+	[undefined, undefined, undefined, "nothing read"],
+] as const)(
+	"reads commit %s with stay %s as %s: %s",
+	(commit, ref, want, _why) => {
+		expect(shaState(commit, ref)).toBe(want);
+	},
+);

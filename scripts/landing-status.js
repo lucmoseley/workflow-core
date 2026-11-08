@@ -46,7 +46,13 @@ const { repoRoot } = require("./lib/test-pass-marker.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
-const { buildWaitLine, waitForLanding } = require("./lib/landing-wait.js");
+const {
+	WAIT_BOUND_MS,
+	WAIT_POLL_MS,
+	buildWaitLine,
+	shaState,
+	waitForLanding,
+} = require("./lib/landing-wait.js");
 
 /**
  * @typedef {import("./lib/landing-wait.js").Reading} Reading
@@ -55,8 +61,8 @@ const { buildWaitLine, waitForLanding } = require("./lib/landing-wait.js");
 
 const USAGE = `usage: node ${scriptPath("landing-status.js")} [--session <id>] [--wait]
   the session defaults to CLAUDE_CODE_SESSION_ID
-  --wait  re-read every 20 s until nothing of the session's is queued, or
-          14 min; run it with run_in_background to be told when it lands`;
+  --wait  re-read every ${WAIT_POLL_MS / 1000} s until nothing of the session's is queued, or
+          ${WAIT_BOUND_MS / 60_000} min; run it with run_in_background to be told when it lands`;
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
@@ -100,6 +106,8 @@ function main(argv = process.argv.slice(2)) {
 		for (const line of r.lines) say(line);
 		return 0;
 	}
+	/* The real clock, not check.js's now(): a pinned WFC_NOW would stop the
+	 * bound from ever arriving. */
 	const t0 = Date.now();
 	const o = waitForLanding(read, {
 		sleep: sleepSync,
@@ -110,23 +118,6 @@ function main(argv = process.argv.slice(2)) {
 	say(buildWaitLine(o));
 	return 0;
 }
-
-/** @type {Record<import("./lib/landing-status.js").CommitState["kind"], ShaState>} */
-const COMMIT_STATE = { landed: "landed", queued: "pending", unpushed: "left" };
-
-/**
- * A queue-ref stay's sha state. It overrides its commit's: a dropped sha's
- * commit reads unpushed.
- * @type {Record<import("./lib/queue-ref-status.js").RefState["state"], ShaState>}
- */
-const REF_STATE = {
-	queued: "pending",
-	testing: "pending",
-	unread: "pending",
-	unwalked: "pending",
-	landed: "landed",
-	dropped: "dropped",
-};
 
 /**
  * One reading of the session's commits, then its queue ref's stays and the
@@ -150,8 +141,10 @@ function readLanding(root, sessionId) {
 	}
 	/** @type {string[]} */
 	const lines = [];
-	/** @type {Map<string, ShaState>} */
-	const states = new Map();
+	/** @type {Map<string, import("./lib/landing-status.js").CommitState["kind"]>} */
+	const commitKinds = new Map();
+	/** @type {Map<string, import("./lib/queue-ref-status.js").RefState["state"]>} */
+	const refKinds = new Map();
 	if (commits.length === 0)
 		lines.push(`Session ${sessionId} made no commit here.`);
 	else
@@ -161,7 +154,7 @@ function readLanding(root, sessionId) {
 			const git = fetchedGit(root, tree);
 			for (const entry of commitStates(commits, git)) {
 				lines.push(buildStateLine(entry, git.subjectOf(entry.sha), queue));
-				states.set(entry.sha, COMMIT_STATE[entry.state.kind]);
+				commitKinds.set(entry.sha, entry.state.kind);
 			}
 		} catch (err) {
 			const e = caught(err);
@@ -176,12 +169,18 @@ function readLanding(root, sessionId) {
 		const tree = readTopLevel(process.cwd());
 		for (const s of readQueueRefStates(root, tree, refs, rows)) {
 			lines.push(buildQueueRefLine(s));
-			states.set(s.sha, REF_STATE[s.state]);
+			refKinds.set(s.sha, s.state);
 		}
 		lines.push(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
 	} catch (err) {
 		/* Fail-open (#4485). */
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);
+	}
+	/** @type {Map<string, ShaState>} */
+	const states = new Map();
+	for (const sha of new Set([...commitKinds.keys(), ...refKinds.keys()])) {
+		const s = shaState(commitKinds.get(sha), refKinds.get(sha));
+		if (s) states.set(sha, s);
 	}
 	return { lines, states };
 }
