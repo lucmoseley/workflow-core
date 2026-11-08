@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readBreadcrumbs } from "./breadcrumb-testkit";
 
 const {
@@ -72,41 +72,30 @@ const readOutcome = (sessionId: string | null = SID) =>
 	readLastBreadcrumb(sessionId)?.outcome ?? null;
 
 describe("the transcript a payload naming none falls back to", () => {
-	const saved = {
-		config: process.env.CLAUDE_CONFIG_DIR,
-		home: process.env.HOME,
-	};
-
-	afterEach(() => {
-		if (saved.config === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-		else process.env.CLAUDE_CONFIG_DIR = saved.config;
-		process.env.HOME = saved.home;
-	});
-
 	/* From the shared function, not restated: this helper spelled the SLASHES
 	 * ALONE until mantahostels#1982 and so agreed with the bug it was meant to catch. The
 	 * dotted-cwd regression lives in `project-slug.test.ts`. */
 	const slug = () => projectSlug();
 
 	it("reads the root from CLAUDE_CONFIG_DIR when the harness sets one", () => {
-		process.env.CLAUDE_CONFIG_DIR = "/home/someone/.claude2";
-		process.env.HOME = "/home/someone";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/home/someone/.claude2");
+		vi.stubEnv("HOME", "/home/someone");
 		expect(transcriptPath(null, SID)).toBe(
 			path.join("/home/someone/.claude2", "projects", slug(), `${SID}.jsonl`),
 		);
 	});
 
 	it("falls back to $HOME/.claude when it does not", () => {
-		delete process.env.CLAUDE_CONFIG_DIR;
-		process.env.HOME = "/home/someone";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", undefined);
+		vi.stubEnv("HOME", "/home/someone");
 		expect(transcriptPath(null, SID)).toBe(
 			path.join("/home/someone/.claude", "projects", slug(), `${SID}.jsonl`),
 		);
 	});
 
 	it("reads an empty CLAUDE_CONFIG_DIR as set, cwd-relative as Claude Code does (#2095)", () => {
-		process.env.CLAUDE_CONFIG_DIR = "";
-		process.env.HOME = "/home/someone";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "");
+		vi.stubEnv("HOME", "/home/someone");
 		expect(transcriptPath(null, SID)).toBe(
 			path.join("projects", slug(), `${SID}.jsonl`),
 		);
@@ -114,17 +103,6 @@ describe("the transcript a payload naming none falls back to", () => {
 });
 
 describe("transcriptPath (mantahostels#2487)", () => {
-	const saved = {
-		config: process.env.CLAUDE_CONFIG_DIR,
-		home: process.env.HOME,
-	};
-
-	afterEach(() => {
-		if (saved.config === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-		else process.env.CLAUDE_CONFIG_DIR = saved.config;
-		process.env.HOME = saved.home;
-	});
-
 	it("takes the payload's path when the file is there", () => {
 		const file = path.join(root, "given.jsonl");
 		fs.writeFileSync(file, "");
@@ -132,7 +110,7 @@ describe("transcriptPath (mantahostels#2487)", () => {
 	});
 
 	it("falls back when the payload names a path that is not there", () => {
-		process.env.CLAUDE_CONFIG_DIR = "/home/someone/.claude2";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/home/someone/.claude2");
 		const gone = path.join(root, "no-such-file.jsonl");
 		expect(transcriptPath({ transcript_path: gone }, SID)).toBe(
 			transcriptPath({}, SID),
@@ -140,7 +118,7 @@ describe("transcriptPath (mantahostels#2487)", () => {
 	});
 
 	it("falls back on a payload naming no path, and on no payload at all", () => {
-		process.env.CLAUDE_CONFIG_DIR = "/home/someone/.claude2";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/home/someone/.claude2");
 		const want = path.join(
 			"/home/someone/.claude2",
 			"projects",
@@ -170,14 +148,11 @@ describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 	});
 
 	it("needs no transcript at all when the field is there", () => {
-		process.env.CLAUDE_CONFIG_DIR = path.join(root, "no-such-config");
-		try {
-			expect(
-				readHookMessage({ session_id: SID, last_assistant_message: "text" }),
-			).toEqual({ sessionId: SID, message: "text" });
-		} finally {
-			delete process.env.CLAUDE_CONFIG_DIR;
-		}
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(root, "no-such-config"));
+		expect(
+			readHookMessage({ session_id: SID, last_assistant_message: "text" }),
+		).toEqual({ sessionId: SID, message: "text" });
+		vi.stubEnv("CLAUDE_CONFIG_DIR", undefined);
 		expect(readOutcome()).toBe("message");
 	});
 
@@ -257,17 +232,14 @@ describe("readMessageFrom names which failure it took", () => {
 	});
 
 	it("records `no-transcript` when neither the payload's path nor the fallback exists", () => {
-		process.env.CLAUDE_CONFIG_DIR = path.join(root, "no-such-config");
-		try {
-			expect(
-				readHookMessage({
-					session_id: SID,
-					transcript_path: path.join(root, "absent.jsonl"),
-				}),
-			).toBe(null);
-		} finally {
-			delete process.env.CLAUDE_CONFIG_DIR;
-		}
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(root, "no-such-config"));
+		expect(
+			readHookMessage({
+				session_id: SID,
+				transcript_path: path.join(root, "absent.jsonl"),
+			}),
+		).toBe(null);
+		vi.stubEnv("CLAUDE_CONFIG_DIR", undefined);
 		expect(readOutcome()).toBe("no-transcript");
 	});
 

@@ -216,14 +216,15 @@ if (require.main === module) {
 			},
 		],
 	]).get(verb ?? "");
+	const { writeFd } = require("./write-fd.js");
 	if (!answer || more.length > 0) {
-		require("./write-fd.js").writeFd(
+		writeFd(
 			2,
 			"usage: landing-refs.js pushed|unpushed|pushed-branch [<tree>]\n",
 		);
 		process.exit(2);
 	}
-	process.stdout.write(`${answer(root ? { root, tree: root } : undefined)}\n`);
+	writeFd(1, `${answer(root ? { root, tree: root } : undefined)}\n`);
 }
 
 module.exports = {

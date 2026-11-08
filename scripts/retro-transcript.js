@@ -63,6 +63,7 @@ const {
 const { caught } = require("./lib/caught.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
 const { execGit } = require("./lib/git.js");
+const { relativeUnder } = require("./lib/is-under.js");
 
 const USAGE = `Usage: node scripts/retro-transcript.js <session.jsonl> [--out <path>]
 
@@ -448,7 +449,7 @@ function outputPath(root, log, requested) {
 	fs.mkdirSync(scratch, { recursive: true });
 	/* Real paths on both sides, so a symlink out of .claude/tmp/ is no way out. */
 	const real = readRealPath(out);
-	if (!real.startsWith(fs.realpathSync(scratch) + path.sep))
+	if (!relativeUnder(fs.realpathSync(scratch), real))
 		return { refused: `${out} is outside ${scratch}${path.sep}` };
 	try {
 		execGit(["ls-files", "--error-unmatch", "--", real], {

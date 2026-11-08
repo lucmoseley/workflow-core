@@ -133,8 +133,17 @@ const LIB = fs.readFileSync(
 );
 
 /**
- * A gate as a RUNNABLE script: the shared library, then the `if armed … fi`
- * block (mantahostels#1793).
+ * The hook's own `JS_TEST_ERE=` line, which the test-file gates' arms expand:
+ * without it `$JS_TEST_ERE` reads empty, so an arm of it alone arms nothing.
+ * @param {string} hook
+ * @returns {string}
+ */
+const testEre = (hook) =>
+	hook.split("\n").find((l) => l.startsWith("JS_TEST_ERE=")) ?? "";
+
+/**
+ * A gate as a RUNNABLE script: the shared library, the hook's `JS_TEST_ERE`,
+ * then the `if armed … fi` block (mantahostels#1793).
  *
  * The hook sources the library by path, which a case cannot: the fragment runs
  * with a throwaway repo as its cwd, where scripts/lib does not exist. Inlining
@@ -148,7 +157,7 @@ const LIB = fs.readFileSync(
  * @returns {string}
  */
 function cutGateScript(anchor, hook = HOOK) {
-	return `${LIB}\n\n${cutGateFragment(anchor, hook)}`;
+	return `${LIB}\n\n${testEre(hook)}\n\n${cutGateFragment(anchor, hook)}`;
 }
 
 /**

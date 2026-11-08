@@ -108,6 +108,22 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 		expect(fs.readFileSync(stub("calls.log"), "utf8")).toBe("");
 	});
 
+	it("exits 1 where an incident is not filed, and files it on the next run", () => {
+		seed([300]);
+		fs.writeFileSync(stub("fail-create"), "");
+		const failed = run();
+		expect(failed.status).toBe(1);
+		expect(failed.stderr).toMatch(
+			/^Memory kill incident from .*: not filed: file-issue: gh issue create failed \(HTTP 422\)/,
+		);
+		expect(readCreated()).toHaveLength(0);
+
+		fs.rmSync(stub("fail-create"));
+		const again = run();
+		expect(again.status).toBe(0);
+		expect(again.stdout).toMatch(/: filed #900\.\n$/);
+	});
+
 	it("exits 1 filing nothing where the tracker cannot be read", () => {
 		seed([300]);
 		fs.writeFileSync(stub("down"), "");

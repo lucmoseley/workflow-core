@@ -22,12 +22,12 @@ import {
 	describe,
 	expect,
 	it,
+	vi,
 } from "vitest";
 
 const mod = require("./test-inflight.js");
 
 let root: string;
-let ambient: string | undefined;
 let sharedDir: string;
 let shared: string;
 
@@ -42,32 +42,28 @@ const recordAt = (r: string) =>
  * for the real run, where run-vitest.js names one per-run file every worker
  * shares — but the real run also SETS it, so every case below would otherwise
  * write to that live record and read back another worker's concurrent write
- * (mantahostels#2790). `beforeAll` therefore points the variable at a record of this
- * file's own, standing in for the wrapper's, and `beforeEach` unsets it per
+ * (mantahostels#2790). `beforeEach` therefore points the variable at a record of
+ * this file's own, standing in for the wrapper's, and then unsets it for the
  * case. Simulated rather than merely unset, because with no ambient variable to
  * defeat, dropping the unset leaves every case green. */
 beforeAll(() => {
 	sharedDir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-inflight-live-"));
 	shared = path.join(sharedDir, "live.json");
 	fs.writeFileSync(shared, `${JSON.stringify(FOREIGN)}\n`);
-	ambient = process.env[mod.INFLIGHT_ENV];
-	process.env[mod.INFLIGHT_ENV] = shared;
 });
 
 beforeEach(() => {
-	delete process.env[mod.INFLIGHT_ENV];
+	vi.stubEnv(mod.INFLIGHT_ENV, shared);
+	vi.stubEnv(mod.INFLIGHT_ENV, undefined);
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-inflight-"));
 	mod.begin(root);
 });
 
 afterEach(() => {
-	process.env[mod.INFLIGHT_ENV] = shared;
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
 afterAll(() => {
-	if (ambient === undefined) delete process.env[mod.INFLIGHT_ENV];
-	else process.env[mod.INFLIGHT_ENV] = ambient;
 	fs.rmSync(sharedDir, { recursive: true, force: true });
 });
 
@@ -168,7 +164,7 @@ describe("which record a case actually touches", () => {
 
 	it("still prefers the file the environment names, as the real run needs", () => {
 		const named = path.join(root, "named.json");
-		process.env[mod.INFLIGHT_ENV] = named;
+		vi.stubEnv(mod.INFLIGHT_ENV, named);
 
 		mod.enter(root, "/repo/a.test.ts", "loading");
 

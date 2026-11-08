@@ -29,6 +29,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { trimEndRun } = require("./trim-run.js");
 const { shellQuote } = require("./sh-quote.js");
+const { relativeUnder } = require("./is-under.js");
 
 /** @returns {string} absolute path of the core root the running code sits in */
 function coreRoot() {
@@ -66,10 +67,10 @@ function docPath(name) {
  * @returns {string} how a session should spell it on a command line
  */
 function corePath(rel) {
-	const fromCwd = path.relative(process.cwd(), path.join(coreRoot(), rel));
-	return fromCwd.startsWith("..") || path.isAbsolute(fromCwd)
-		? absoluteCorePath(rel)
-		: fromCwd;
+	return (
+		relativeUnder(process.cwd(), path.join(coreRoot(), rel)) ??
+		absoluteCorePath(rel)
+	);
 }
 
 /**

@@ -27,7 +27,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -52,18 +52,16 @@ interface Rec {
 }
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "oracle-cache-"));
-	process.env.CLAUDE_CONFIG_DIR = dir;
-	process.env.WFC_ORACLE_CACHE = "1";
-	process.env.CLAUDE_CODE_SESSION_ID = "";
+	vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
+	vi.stubEnv("WFC_ORACLE_CACHE", "1");
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 /** A `claude` stand-in that COUNTS ITS OWN RUNS. */
@@ -75,7 +73,7 @@ function countingClaude(body: string) {
 		`#!/bin/sh\necho x >> ${shellQuote(tally)}\ncat <<'EOF'\n${body}\nEOF\n`,
 		{ mode: 0o755 },
 	);
-	process.env.WFC_CLAUDE_BIN = bin;
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return {
 		bin,
 		spawns: () =>
@@ -124,7 +122,7 @@ describe("no plain TTL hit, for any strict caller (mantahostels#1960)", () => {
 	 * longer discriminates the flag. `lib/pick-next-testkit.ts` still rests its
 	 * whole-file cache isolation on this switch — it must still do something. */
 	it("writes no cache file at all under WFC_ORACLE_CACHE=0", () => {
-		process.env.WFC_ORACLE_CACHE = "0";
+		vi.stubEnv("WFC_ORACLE_CACHE", "0");
 		const fake = countingClaude(listing("a"));
 		liveness.listedAgents();
 		expect(fs.existsSync(cachePath(live(fake.bin)))).toBe(false);
@@ -140,7 +138,7 @@ describe("the shared reading wait polls (#3561)", () => {
 	});
 
 	it("spawns past the TTL, so a daemon failing since reads as doubt", () => {
-		process.env.WFC_ORACLE_CACHE_TTL_MS = "50";
+		vi.stubEnv("WFC_ORACLE_CACHE_TTL_MS", "50");
 		const fake = countingClaude(listing("a"));
 		fs.writeFileSync(
 			cachePath(live(fake.bin)),
@@ -160,8 +158,8 @@ describe("the shared reading wait polls (#3561)", () => {
 	});
 
 	it("answers doubt, starting nothing, while another reader refreshes", () => {
-		process.env.WFC_ORACLE_CACHE_WAIT_MS = "200";
-		process.env.WFC_ORACLE_CACHE_POLL_MS = "50";
+		vi.stubEnv("WFC_ORACLE_CACHE_WAIT_MS", "200");
+		vi.stubEnv("WFC_ORACLE_CACHE_POLL_MS", "50");
 		const fake = countingClaude(listing("a"));
 		fs.mkdirSync(lockPath(live(fake.bin)));
 		const r = liveness.sharedSessionIds();
@@ -198,16 +196,16 @@ describe("the shared reading wait polls (#3561)", () => {
 			(name) => path.join(dir, name),
 		);
 		for (const d of [seatA, seatB, overflow]) fs.mkdirSync(d);
-		process.env.WFC_CLAUDE_CONFIG_A = seatA;
-		process.env.WFC_CLAUDE_CONFIG_B = seatB;
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", seatA);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", seatB);
 		const fake = countingClaude(listing("a"));
-		process.env.CLAUDE_CONFIG_DIR = seatB;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seatB);
 		liveness.sharedSessionIds();
 		const plan = fake.spawns();
-		process.env.CLAUDE_CONFIG_DIR = seatA;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seatA);
 		expect([...liveness.sharedSessionIds().ids]).toEqual(["a"]);
 		expect(fake.spawns()).toBe(plan);
-		process.env.CLAUDE_CONFIG_DIR = overflow;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", overflow);
 		liveness.sharedSessionIds();
 		expect(fake.spawns()).toBeGreaterThan(plan);
 	});
@@ -222,7 +220,7 @@ describe("the shown reading the refill panel polls (#4169)", () => {
 		);
 
 	it("serves a reading past the TTL, inside its own age, without a spawn", () => {
-		process.env.WFC_ORACLE_CACHE_TTL_MS = "50";
+		vi.stubEnv("WFC_ORACLE_CACHE_TTL_MS", "50");
 		const fake = countingClaude(listing("a", "b"));
 		aged(fake.bin, 60_000);
 		const r = liveness.readAgentsForDisplay();
@@ -375,7 +373,7 @@ describe("a cached record that does not answer THIS caller", () => {
 
 	it("still refuses where the live read also fails the self-test, naming the session the listing lacks", () => {
 		countingClaude(listing("a"));
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const answer = liveness.listedAgents();
 		expect(answer.why).toMatch(/does not list this very session \(me\)/);
 	});
@@ -391,8 +389,8 @@ describe("what a follower refuses from the cache", () => {
 	};
 
 	beforeEach(() => {
-		process.env.WFC_ORACLE_CACHE_WAIT_MS = "300";
-		process.env.WFC_ORACLE_CACHE_POLL_MS = "50";
+		vi.stubEnv("WFC_ORACLE_CACHE_WAIT_MS", "300");
+		vi.stubEnv("WFC_ORACLE_CACHE_POLL_MS", "50");
 	});
 
 	it("treats a corrupt record as a miss, not a throw", () => {
@@ -413,9 +411,9 @@ describe("what a follower refuses from the cache", () => {
 	/* Stamped 200 ms ahead so it still passes the start bound however long the
 	 * set-up takes; the first poll lands 500 ms in, past a 50 ms TTL. */
 	it("treats a record older than the TTL as a miss", () => {
-		process.env.WFC_ORACLE_CACHE_TTL_MS = "50";
-		process.env.WFC_ORACLE_CACHE_WAIT_MS = "1200";
-		process.env.WFC_ORACLE_CACHE_POLL_MS = "500";
+		vi.stubEnv("WFC_ORACLE_CACHE_TTL_MS", "50");
+		vi.stubEnv("WFC_ORACLE_CACHE_WAIT_MS", "1200");
+		vi.stubEnv("WFC_ORACLE_CACHE_POLL_MS", "500");
 		const bin = "/nowhere/claude";
 		fs.writeFileSync(
 			cachePath(bin),
@@ -433,7 +431,7 @@ describe("keying by binary", () => {
 		fs.writeFileSync(other, `#!/bin/sh\ncat <<'EOF'\n${listing("z")}\nEOF\n`, {
 			mode: 0o755,
 		});
-		process.env.WFC_CLAUDE_BIN = other;
+		vi.stubEnv("WFC_CLAUDE_BIN", other);
 		expect(liveness.listedAgents().agents.map((a: Rec) => a.sessionId)).toEqual(
 			["z"],
 		);
@@ -506,8 +504,8 @@ describe("the single-flight lock", () => {
 	 * left by an earlier start is inside the TTL and is NOT the answer being
 	 * waited for; taking it would turn the wait into an ordinary cache read. */
 	it("ignores a record written before the wait began", () => {
-		process.env.WFC_ORACLE_CACHE_WAIT_MS = "300";
-		process.env.WFC_ORACLE_CACHE_POLL_MS = "50";
+		vi.stubEnv("WFC_ORACLE_CACHE_WAIT_MS", "300");
+		vi.stubEnv("WFC_ORACLE_CACHE_POLL_MS", "50");
 		const bin = "/nowhere/claude";
 		fs.writeFileSync(
 			cachePath(bin),
@@ -541,7 +539,7 @@ describe("the single-flight lock", () => {
 	});
 
 	it("releases the lock even where the oracle refuses, so no follower is stranded", () => {
-		process.env.WFC_CLAUDE_BIN = path.join(dir, "no-such-claude");
+		vi.stubEnv("WFC_CLAUDE_BIN", path.join(dir, "no-such-claude"));
 		const answer = liveness.listedAgents();
 		expect(answer.why).toMatch(/would not run/);
 		expect(
@@ -552,8 +550,9 @@ describe("the single-flight lock", () => {
 
 describe("an unwritable config dir", () => {
 	it("degrades to a live read and never throws", () => {
-		process.env.CLAUDE_CONFIG_DIR = path.join(dir, "file-not-a-dir");
-		fs.writeFileSync(process.env.CLAUDE_CONFIG_DIR, "");
+		const notADir = path.join(dir, "file-not-a-dir");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", notADir);
+		fs.writeFileSync(notADir, "");
 		const fake = countingClaude(listing("a"));
 		expect(liveness.listedAgents().agents).toHaveLength(1);
 		expect(fake.spawns()).toBe(1);

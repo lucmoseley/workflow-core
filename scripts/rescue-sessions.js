@@ -640,38 +640,37 @@ function cmdList(args) {
 	const jobs = all.filter((j) => want.has(j.state));
 	const live = liveSessions(dir);
 	if (jobs.length === 0) {
-		process.stdout.write(
-			`No jobs in ${dir} matching ${[...want].join("/")}.\n`,
-		);
+		writeFd(1, `No jobs in ${dir} matching ${[...want].join("/")}.\n`);
 		return;
 	}
-	process.stdout.write(`${jobs.length} job(s) in ${dir}:\n\n`);
+	writeFd(1, `${jobs.length} job(s) in ${dir}:\n\n`);
 	for (const j of jobs) {
-		process.stdout.write(
+		writeFd(
+			1,
 			`  ${j.short}  ${j.state.padEnd(8)}  ${j.intent || "(no intent)"}\n`,
 		);
-		process.stdout.write(`      ${j.name.slice(0, 76)}\n`);
-		if (j.detail)
-			process.stdout.write(`      detail: ${j.detail.slice(0, 90)}\n`);
+		writeFd(1, `      ${j.name.slice(0, 76)}\n`);
+		if (j.detail) writeFd(1, `      detail: ${j.detail.slice(0, 90)}\n`);
 		/** @type {string} */
 		let liveness;
 		if (live === null) liveness = "liveness unreadable";
 		else if (live.has(j.short)) liveness = "process LIVE";
 		else liveness = "process GONE — claims stranded, successor retakes them";
-		process.stdout.write(
+		writeFd(
+			1,
 			`      updated ${j.updatedAt}  model ${j.model || "?"}  ${liveness}\n`,
 		);
-		process.stdout.write(
-			`      transcript: ${j.transcript || "(none recorded)"}\n\n`,
-		);
+		writeFd(1, `      transcript: ${j.transcript || "(none recorded)"}\n\n`);
 	}
 	if (unreadable) {
-		process.stdout.write(
+		writeFd(
+			1,
 			`${unreadable} state file(s) would not parse and are NOT listed above — re-run before deciding the set is complete.\n\n`,
 		);
 	}
-	process.stdout.write("Snapshot them before stopping any:\n");
-	process.stdout.write(
+	writeFd(1, "Snapshot them before stopping any:\n");
+	writeFd(
+		1,
 		`  node scripts/rescue-sessions.js snapshot --from ${dir} --out .claude/tmp/rescue\n`,
 	);
 }
@@ -728,7 +727,8 @@ function cmdSnapshot(args) {
 		only ? only.has(j.short) : STUCK_STATES.has(j.state),
 	);
 	if (unreadable) {
-		process.stdout.write(
+		writeFd(
+			1,
 			`warning: ${unreadable} state file(s) would not parse and are not in this snapshot.\n`,
 		);
 	}
@@ -739,7 +739,8 @@ function cmdSnapshot(args) {
 	for (const j of jobs) {
 		const { job, narrationBytes } = snapshotJob(dir, out, j);
 		index.push(job);
-		process.stdout.write(
+		writeFd(
+			1,
 			`  ${job.short}  ${job.intent || job.name.slice(0, 40)}  narration ${narrationBytes}B\n`,
 		);
 	}
@@ -748,9 +749,10 @@ function cmdSnapshot(args) {
 		`${JSON.stringify(index, null, 2)}\n`,
 	);
 
-	process.stdout.write(`\nSnapshot in ${out}. Where each one died:\n\n`);
+	writeFd(1, `\nSnapshot in ${out}. Where each one died:\n\n`);
 	for (const j of index) writeDeathReport(j);
-	process.stdout.write(
+	writeFd(
+		1,
 		"Now: write a brief per ticket (the commits-landed and artefacts-survived " +
 			"lines above are already in index.json), then stop the source sessions.\n",
 	);
@@ -761,20 +763,20 @@ function cmdSnapshot(args) {
  * @param {Job} j
  */
 function writeDeathReport(j) {
-	process.stdout.write(
+	writeFd(
+		1,
 		`═══ ${j.short} — ${j.intent || "?"}\n${j.deathPoint || "(no transcript)"}\n`,
 	);
 	if (j.commitsLanded === null)
-		process.stdout.write("  commits landed: unreadable (git would not run)\n");
+		writeFd(1, "  commits landed: unreadable (git would not run)\n");
 	else if (j.commitsLanded && j.commitsLanded.length > 0)
-		process.stdout.write(
+		writeFd(
+			1,
 			`  commits landed (matched against its own commit attempts): ${j.commitsLanded.join("; ")}\n`,
 		);
 	if (j.artefactsSurvived && j.artefactsSurvived.length > 0)
-		process.stdout.write(
-			`  artefacts survived: ${j.artefactsSurvived.join(", ")}\n`,
-		);
-	process.stdout.write("\n");
+		writeFd(1, `  artefacts survived: ${j.artefactsSurvived.join(", ")}\n`);
+	writeFd(1, "\n");
 }
 
 /** @param {ParsedArgs} args */
@@ -784,7 +786,7 @@ function cmdStop(args) {
 	if (!ids) die("stop needs --ids <a,b,c> — it will not guess");
 	for (const id of ids) {
 		const r = stopOn(dir, id);
-		process.stdout.write(`  ${id} -> ${r.ok ? r.said : `FAILED: ${r.why}`}\n`);
+		writeFd(1, `  ${id} -> ${r.ok ? r.said : `FAILED: ${r.why}`}\n`);
 	}
 }
 

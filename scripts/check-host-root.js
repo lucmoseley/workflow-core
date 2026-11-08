@@ -240,7 +240,7 @@ const ALLOWED = {
 	"scripts/lib/tracked-scripts.js": {
 		tags: ["SECOND-SEAM-JS"],
 		reason:
-			"lists the tracked scripts/ files of the checkout it runs in for check-guard-test-isolation.js, check-host-root-test-isolation.js and check-git-fixture-identity.js, whose suites drive them by cwd into fixture repos, where an inherited CLAUDE_PROJECT_DIR would aim them at the live tree (#3131)",
+			"lists the tracked scripts/ files of the checkout it runs in for check-guard-test-isolation.js, check-host-root-test-isolation.js, check-git-fixture-identity.js and check-test-env-writes.js, whose suites drive them by cwd into fixture repos, where an inherited CLAUDE_PROJECT_DIR would aim them at the live tree (#3131)",
 	},
 };
 

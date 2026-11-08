@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	copyTemplate,
 	defineTemplate,
@@ -44,7 +44,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
-	delete process.env.WFC_GIT_FIXTURE_DIRECT;
 });
 
 describe("a plain template", () => {
@@ -367,10 +366,8 @@ describe("the escape hatch", () => {
 		initRepo(dir);
 	});
 
-	// The file-level afterEach above already clears WFC_GIT_FIXTURE_DIRECT.
-
 	it("builds directly into the destination instead of copying", () => {
-		process.env.WFC_GIT_FIXTURE_DIRECT = "1";
+		vi.stubEnv("WFC_GIT_FIXTURE_DIRECT", "1");
 		const a = path.join(root, "a");
 		const b = path.join(root, "b");
 		template.instantiate(a);

@@ -25,14 +25,11 @@ const LIB = path.resolve(__dirname, "outstanding-line.js");
 const TRACKER = "o/here";
 
 let dir: string;
-let savedEnv: NodeJS.ProcessEnv;
 
 beforeEach(() => {
-	savedEnv = { ...process.env };
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "outstanding-line-"));
 });
 afterEach(() => {
-	process.env = savedEnv;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -54,7 +51,7 @@ fs.appendFileSync(${JSON.stringify(path.join(dir, "calls"))}, argv.join(" ") + "
 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${sleep * 1000});
 serveAnswer(answerIssueData(argv, JSON.parse(fs.readFileSync(${JSON.stringify(at)}, "utf8"))));
 `;
-	process.env.WFC_GH = stubGhScript(dir, script).gh;
+	vi.stubEnv("WFC_GH", stubGhScript(dir, script).gh);
 };
 
 const readCalls = () => {
@@ -281,9 +278,12 @@ describe("the open-check", () => {
 	});
 
 	it("fails open on an unreachable GitHub: shape only, logged", async () => {
-		process.env.WFC_GH = stubGhScript(dir, GH_FAILING_SCRIPT, {
-			failing: true,
-		}).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(dir, GH_FAILING_SCRIPT, {
+				failing: true,
+			}).gh,
+		);
 		const { verdict, log } = await check("**Outstanding:** #5 (a)");
 		expect(verdict.ok).toBe(true);
 		expect(verdict.statuses["o/here#5"]).toBe("unchecked");
@@ -410,9 +410,12 @@ describe("the refusal text", () => {
 	});
 
 	it("passes a fail-open, naming the open-check left unchecked", async () => {
-		process.env.WFC_GH = stubGhScript(dir, GH_FAILING_SCRIPT, {
-			failing: true,
-		}).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(dir, GH_FAILING_SCRIPT, {
+				failing: true,
+			}).gh,
+		);
 		const { verdict } = await check("**Outstanding:** #5 (a)", { self: "9" });
 		expect(verdict.ok).toBe(true);
 		expect(verdict.unchecked[0]).toMatch(/GitHub unreachable/);

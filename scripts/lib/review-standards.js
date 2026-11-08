@@ -18,6 +18,7 @@
  */
 
 const fs = require("node:fs");
+const { relativeUnder } = require("./is-under.js");
 
 /** @param {string} p a regular file, symlinks followed, as `[[ -f ]]` reads */
 const isFile = (p) =>
@@ -49,8 +50,7 @@ function standardsGlossary(hostRoot) {
  * @param {string} p
  * @param {string} hostRoot
  */
-const standardsShown = (p, hostRoot) =>
-	p.startsWith(`${hostRoot}/`) ? p.slice(hostRoot.length + 1) : p;
+const standardsShown = (p, hostRoot) => relativeUnder(hostRoot, p) || p;
 
 /**
  * The sentence handing the Standards axis the host's glossary, with a leading

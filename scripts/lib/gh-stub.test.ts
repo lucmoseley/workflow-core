@@ -14,7 +14,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GH_LOGGED_OUT, GH_NOT_FOUND } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
 
@@ -28,7 +28,6 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-routes-test-"));
 });
 afterEach(() => {
-	delete process.env.WFC_GH;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -105,15 +104,18 @@ it("refuses a body holding a key gh's recorded answer lacks", () => {
 it("answers the batched blockers read from each issue's exact blocked_by route, null sending the rest to REST", async () => {
 	const at = (n: number) =>
 		`repos/{owner}/{repo}/issues/${n}/dependencies/blocked_by`;
-	process.env.WFC_GH = stubGhRoutes(
-		dir,
-		{
-			[at(5)]: page("blockedByPage", [{ number: 9, state: "open" }]),
-			[at(6)]: GH_NOT_FOUND,
-			"*": GH_NOT_FOUND,
-		},
-		{ log: log() },
-	).gh;
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhRoutes(
+			dir,
+			{
+				[at(5)]: page("blockedByPage", [{ number: 9, state: "open" }]),
+				[at(6)]: GH_NOT_FOUND,
+				"*": GH_NOT_FOUND,
+			},
+			{ log: log() },
+		).gh,
+	);
 	const reads = await blockedByMany(
 		[{ number: 5 }, { number: 6 }, { number: 7 }],
 		{ repo: "{owner}/{repo}", home: null },

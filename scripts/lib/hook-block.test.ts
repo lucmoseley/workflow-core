@@ -23,7 +23,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { sweptMarkers } from "./arbiter-testkit";
 import { runInProcess } from "./run-in-process.js";
 
@@ -296,13 +296,12 @@ describe("the reason in a plugin install (#1010)", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "hook-block-root-"));
 		fs.mkdirSync(path.join(root, "docs", "agents"), { recursive: true });
 		fs.writeFileSync(path.join(root, "docs", "agents", "t.md"), "");
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		try {
 			expect(emit({ reason: "see docs/agents/t.md." }).reason).toBe(
 				`see ${root}/docs/agents/t.md.`,
 			);
 		} finally {
-			delete process.env.WFC_SCRIPT_ROOT;
 			fs.rmSync(root, { recursive: true, force: true });
 		}
 	});
@@ -374,8 +373,7 @@ describe("capSpent, the read-only cap query (mantahostels#2383)", () => {
 	): { spent: boolean; after: string | null } {
 		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hook-block-"));
 		const file = path.join(cwd, ".claude", "tmp", "markers", ".t-s1");
-		const before = process.env.WFC_REPO_ROOT;
-		process.env.WFC_REPO_ROOT = cwd;
+		vi.stubEnv("WFC_REPO_ROOT", cwd);
 		try {
 			if (counter !== null) {
 				fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -391,8 +389,6 @@ describe("capSpent, the read-only cap query (mantahostels#2383)", () => {
 				after: fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null,
 			};
 		} finally {
-			if (before === undefined) delete process.env.WFC_REPO_ROOT;
-			else process.env.WFC_REPO_ROOT = before;
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}
 	}
@@ -428,8 +424,7 @@ describe("charge, the spend that emits nothing (mantahostels#2786)", () => {
 	): { charged: boolean; after: string | null; said: string } {
 		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hook-block-"));
 		const file = path.join(cwd, ".claude", "tmp", "markers", ".t-s1");
-		const before = process.env.WFC_REPO_ROOT;
-		process.env.WFC_REPO_ROOT = cwd;
+		vi.stubEnv("WFC_REPO_ROOT", cwd);
 		let said = "";
 		const write = process.stdout.write.bind(process.stdout);
 		process.stdout.write = ((chunk: string) => {
@@ -453,8 +448,6 @@ describe("charge, the spend that emits nothing (mantahostels#2786)", () => {
 			};
 		} finally {
 			process.stdout.write = write;
-			if (before === undefined) delete process.env.WFC_REPO_ROOT;
-			else process.env.WFC_REPO_ROOT = before;
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}
 	}

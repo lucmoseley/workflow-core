@@ -1119,15 +1119,6 @@ describe("upgrade", () => {
 });
 
 describe("upgrade() calls claude on no path (#217, #230)", () => {
-	let origBin: string | undefined;
-
-	beforeEach(() => {
-		origBin = process.env.WFC_CLAUDE_BIN;
-	});
-	afterEach(() => {
-		process.env.WFC_CLAUDE_BIN = origBin;
-	});
-
 	/** A logging `claude` stub on WFC_CLAUDE_BIN — returns its argv log's path. */
 	const stubClaude = () => {
 		const stub = fs.mkdtempSync(path.join(os.tmpdir(), "upgrade-claude-"));
@@ -1138,7 +1129,7 @@ describe("upgrade() calls claude on no path (#217, #230)", () => {
 			`#!/bin/sh\necho "$@" >> ${shellQuote(log)}\nexit 0\n`,
 			{ mode: 0o755 },
 		);
-		process.env.WFC_CLAUDE_BIN = path.join(stub, "claude");
+		vi.stubEnv("WFC_CLAUDE_BIN", path.join(stub, "claude"));
 		return log;
 	};
 

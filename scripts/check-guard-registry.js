@@ -277,8 +277,8 @@ function setRoot(dir) {
  * @param {string} core
  */
 function isNestedCopy(core) {
-	const rel = path.relative(root, core);
-	if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+	const rel = relativeUnder(root, core);
+	if (!rel) return false;
 	let d = core;
 	for (const _ of rel.split(path.sep)) {
 		if (fs.existsSync(path.join(d, ".git"))) return false;
@@ -550,10 +550,6 @@ function scannedFiles() {
 	listedByGit = true;
 	return listed;
 }
-
-/** `rel` is `r` or lies under it, for some `r` of `roots`. */
-const isUnder = (/** @type {string} */ rel, /** @type {string[]} */ roots) =>
-	roots.some((r) => rel === r || rel.startsWith(`${r}/`));
 
 /**
  * The files under `roots` that `accept` keeps, out of directories `skip`
@@ -1219,6 +1215,7 @@ const {
 } = require("./lib/guard-cores.js");
 const { parseEdges, walkReach } = require("./lib/guard-reach.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
+const { isUnder, relativeUnder } = require("./lib/is-under.js");
 
 /*
  * The hooks git will run, read from the directory rather than listed.

@@ -25,6 +25,7 @@
  * re-running the whole pipeline rather than reusing the numbers.
  */
 const fs = require("node:fs");
+const { writeFd } = require("../lib/write-fd.js");
 const readline = require("node:readline");
 const { parseJsonlRow } = require("../lib/jsonl.js");
 
@@ -134,7 +135,7 @@ function oldRoute(/** @type {string} */ cmd) {
 
 const [, , corpusPath, firesPath] = process.argv;
 if (!corpusPath || !firesPath) {
-	console.error("usage: measure-firing-rate.js <corpus.jsonl> <fires.jsonl>");
+	writeFd(2, "usage: measure-firing-rate.js <corpus.jsonl> <fires.jsonl>\n");
 	process.exit(2);
 }
 
@@ -190,8 +191,9 @@ rl.on("close", () => {
 	 */
 	const pct = (arr, p) =>
 		arr[Math.min(arr.length - 1, Math.floor((arr.length * p) / 100))];
-	console.log(
-		JSON.stringify(
+	writeFd(
+		1,
+		`${JSON.stringify(
 			{
 				commands: total,
 				unparsedLines: unparsed,
@@ -220,8 +222,8 @@ rl.on("close", () => {
 			},
 			null,
 			2,
-		),
+		)}\n`,
 	);
 	fs.writeFileSync(firesPath, samples.map((x) => JSON.stringify(x)).join("\n"));
-	console.error(`samples=${samples.length}`);
+	writeFd(2, `samples=${samples.length}\n`);
 });

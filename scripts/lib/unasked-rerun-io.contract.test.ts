@@ -23,7 +23,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Classing } from "./already-red.js";
 import {
 	FAIL_STORE,
@@ -54,7 +54,7 @@ const { f } = fx;
 function slowGit() {
 	const stub = path.join(f.dir, "slow-git");
 	fs.writeFileSync(stub, "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
-	process.env.WFC_GIT = stub;
+	vi.stubEnv("WFC_GIT", stub);
 	return judgeIO(f.project, { timeoutMs: 200 });
 }
 
@@ -223,7 +223,7 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			const fresh = path.join(f.project, "fresh");
 			fs.mkdirSync(fresh);
 			const before = process.cwd();
-			delete process.env.CLAUDE_PROJECT_DIR;
+			vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 			process.chdir(fresh);
 			try {
 				return slowGit().ledger(SID);
@@ -525,7 +525,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			`#!/bin/sh\ncase "$*" in *"^{tree}"*) exec sleep 5;; esac\nexec git "$@"\n`,
 			{ mode: 0o755 },
 		);
-		process.env.WFC_GIT = stub;
+		vi.stubEnv("WFC_GIT", stub);
 		// Every other git call runs for real through the stub's shell, and must
 		// finish under the bound so the tree read is the one that trips it; 1 s
 		// is a guess at that headroom, unmeasured.

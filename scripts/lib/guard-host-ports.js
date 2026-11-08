@@ -12,6 +12,7 @@ const path = require("node:path");
 const { readText: readFileText } = require("./file-read.js");
 const { gitOutcome, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { sharedReaders } = require("./kit-context.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {import("./kit-context.js").KitContext} KitContext
@@ -86,15 +87,7 @@ function treePorts(root) {
 function repoRel(file, root) {
 	if (!path.isAbsolute(file)) return null;
 	/** @param {string} p */
-	const under = (p) => {
-		const rel = path.relative(root, p);
-		return rel &&
-			rel !== ".." &&
-			!rel.startsWith(`..${path.sep}`) &&
-			!path.isAbsolute(rel)
-			? rel
-			: null;
-	};
+	const under = (p) => relativeUnder(root, p) || null;
 	const abs = path.resolve(file);
 	const direct = under(abs);
 	if (direct !== null) return direct;

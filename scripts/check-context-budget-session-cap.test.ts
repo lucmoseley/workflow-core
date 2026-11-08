@@ -23,14 +23,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	onTestFinished,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
@@ -74,12 +67,8 @@ const OVER_TOTAL = OVER_N * OVER_EACH;
 
 let dir: string;
 
-const savedEnv: { capFile?: string; injectorFile?: string } = {};
-
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-session-"));
-	savedEnv.capFile = process.env.WFC_CAP_FILE;
-	savedEnv.injectorFile = process.env.WFC_INJECTOR_FILE;
 	pool();
 	injector();
 	ruleCap(RULE_CAP);
@@ -87,10 +76,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	if (savedEnv.capFile === undefined) delete process.env.WFC_CAP_FILE;
-	else process.env.WFC_CAP_FILE = savedEnv.capFile;
-	if (savedEnv.injectorFile === undefined) delete process.env.WFC_INJECTOR_FILE;
-	else process.env.WFC_INJECTOR_FILE = savedEnv.injectorFile;
 });
 
 const write = (rel: string, body: string) => {
@@ -121,17 +106,20 @@ function pool() {
 
 /** An injector the injection cap reads as near-empty, so only the session cap speaks. */
 function injector() {
-	process.env.WFC_INJECTOR_FILE = write(
-		"scripts/inject-tracker-docs.sh",
-		'#!/usr/bin/env bash\nDOCS=()\nmatched=""\nheader="fixture."\n',
+	vi.stubEnv(
+		"WFC_INJECTOR_FILE",
+		write(
+			"scripts/inject-tracker-docs.sh",
+			'#!/usr/bin/env bash\nDOCS=()\nmatched=""\nheader="fixture."\n',
+		),
 	);
 }
 
 /** The file the ceiling is read out of, never defaulted (rule-emission.js). */
 const ruleCap = (bytes: number) => {
-	process.env.WFC_CAP_FILE = write(
-		"scripts/lib/hook-limits.sh",
-		`RULE_CAP=${bytes}\n`,
+	vi.stubEnv(
+		"WFC_CAP_FILE",
+		write("scripts/lib/hook-limits.sh", `RULE_CAP=${bytes}\n`),
 	);
 };
 
@@ -1068,11 +1056,7 @@ describe("--against HEAD over a guard's own bytes", () => {
 	 * above derives its own, so a raised cap cannot push the staged fragment
 	 * over RULE_CAP. */
 	function gatedCrossing(modules: string[]) {
-		const injected = process.env.WFC_MODULES;
-		delete process.env.WFC_MODULES;
-		onTestFinished(() => {
-			if (injected !== undefined) process.env.WFC_MODULES = injected;
-		});
+		vi.stubEnv("WFC_MODULES", undefined);
 		const gated = 3000;
 		const plainTotal = SESSION_CAP - 13 - gated;
 		const n = Math.ceil(plainTotal / (RULE_CAP - 26 - 1));

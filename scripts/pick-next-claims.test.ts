@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	writeAdopterCheckout,
 	writeIssueClaim,
@@ -1032,14 +1032,10 @@ describe("what the mantahostels#1528 review caught", () => {
 				session: "gone",
 			})}\n`,
 		);
-		process.env.WFC_DISPATCH_ROOT = elsewhere;
-		try {
-			const r = await run({ issues: [{ number: 1 }, { number: 2 }] });
-			expect(r.order()).toEqual([1]);
-			expect(r.out).toContain("ALREADY DISPATCHED (1)");
-		} finally {
-			delete process.env.WFC_DISPATCH_ROOT;
-		}
+		vi.stubEnv("WFC_DISPATCH_ROOT", elsewhere);
+		const r = await run({ issues: [{ number: 1 }, { number: 2 }] });
+		expect(r.order()).toEqual([1]);
+		expect(r.out).toContain("ALREADY DISPATCHED (1)");
 	});
 });
 

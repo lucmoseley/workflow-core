@@ -91,6 +91,7 @@ const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { treeOr } = require("./tree-or.js");
+const { isUnder } = require("./is-under.js");
 
 /**
  * @typedef {import("./core-contract.js").CoreContext} CoreContext
@@ -205,7 +206,7 @@ function considerTarget(word, resolved, { spans, where, classify }) {
 	if (!lit) return;
 	const p = resolved || lit;
 	if (!isJobDir(p, where)) return;
-	const landed = p.startsWith(`${JOB_DIR_STANDIN}/`)
+	const landed = isUnder(p, [JOB_DIR_STANDIN])
 		? `$CLAUDE_JOB_DIR${p.slice(JOB_DIR_STANDIN.length)}`
 		: p;
 	classify(

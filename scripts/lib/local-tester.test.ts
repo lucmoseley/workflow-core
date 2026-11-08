@@ -981,16 +981,11 @@ describe("a run with memory held at 1000-1400 MB (#3764)", () => {
 			pollMs: 10,
 			queueDir: tmp,
 		});
-	const savedPs = process.env.WFC_PS;
 	beforeEach(() => {
-		process.env.WFC_PS = writePsStub(tmp, [
-			"1 1024 small",
-			"2 2097152 claude --holder",
-		]);
-	});
-	afterEach(() => {
-		if (savedPs === undefined) delete process.env.WFC_PS;
-		else process.env.WFC_PS = savedPs;
+		vi.stubEnv(
+			"WFC_PS",
+			writePsStub(tmp, ["1 1024 small", "2 2097152 claude --holder"]),
+		);
 	});
 	const holderLines = () =>
 		fs

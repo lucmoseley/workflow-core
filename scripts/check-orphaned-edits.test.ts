@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
 	commitAll,
@@ -61,7 +61,7 @@ function fakeClaude(...sessionIds: string[]) {
 	const bin = path.join(sb.dir, "bin", "claude");
 	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\n`);
 	fs.chmodSync(bin, 0o755);
-	process.env.WFC_CLAUDE_BIN = bin;
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 }
 
 const filerLog = () => path.join(sb.dir, "filer-calls");
@@ -82,7 +82,7 @@ if (${JSON.stringify(hint)} && !process.argv.includes("--distinct-from")) { cons
 console.log("https://github.com/o/r/issues/7");
 `,
 	);
-	process.env.WFC_ORPHAN_FILER = bin;
+	vi.stubEnv("WFC_ORPHAN_FILER", bin);
 }
 
 const readFilings = (): { argv: string[]; body: string }[] =>
@@ -376,7 +376,7 @@ describe("check-orphaned-edits", () => {
 		dirty("a.txt", 30);
 		const bin = path.join(sb.dir, "bin", "dying-filer.js");
 		fs.writeFileSync(bin, 'process.kill(process.pid, "SIGKILL");\n');
-		process.env.WFC_ORPHAN_FILER = bin;
+		vi.stubEnv("WFC_ORPHAN_FILER", bin);
 		expect((await run()).out).toContain("filing interrupted, not retried");
 
 		fakeFiler();

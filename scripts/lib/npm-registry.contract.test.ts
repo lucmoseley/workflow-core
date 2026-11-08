@@ -23,7 +23,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { kitContextFake } from "./kit-context-fake";
 import {
@@ -141,40 +141,38 @@ function typeOf(v: unknown): unknown {
 }
 
 let dir: string;
-const SAVED_ENV = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "npm-registry-"));
 	for (const v of ["WFC_NPM", "WFC_CURL", "no_proxy", "NO_PROXY"])
-		delete process.env[v];
+		vi.stubEnv(v, undefined);
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...SAVED_ENV };
 });
 
 function cutRegistry() {
-	process.env.npm_config_registry = `${DEAD}/`;
-	process.env.npm_config_fetch_retries = "0";
-	process.env.https_proxy = DEAD;
-	process.env.HTTPS_PROXY = DEAD;
+	vi.stubEnv("npm_config_registry", `${DEAD}/`);
+	vi.stubEnv("npm_config_fetch_retries", "0");
+	vi.stubEnv("https_proxy", DEAD);
+	vi.stubEnv("HTTPS_PROXY", DEAD);
 }
 
 const realAnswer = (port: Port, c: (typeof CASES)[number]) => {
-	if (c.real === "live") process.env.npm_config_registry = PUBLIC_REGISTRY;
+	if (c.real === "live") vi.stubEnv("npm_config_registry", PUBLIC_REGISTRY);
 	if (c.real === "cut") cutRegistry();
 	if (c.real === "absent") {
-		process.env.WFC_NPM = path.join(dir, "no-such-npm");
-		process.env.WFC_CURL = path.join(dir, "no-such-curl");
+		vi.stubEnv("WFC_NPM", path.join(dir, "no-such-npm"));
+		vi.stubEnv("WFC_CURL", path.join(dir, "no-such-curl"));
 	}
 	return buildHostPorts(dir)[port](c.pkg);
 };
 
 const stubAnswer = (port: Port, c: (typeof CASES)[number]) => {
-	Object.assign(process.env, writeRegistryStubs(dir)(c.reg), {
-		STUB_CALLS: path.join(dir, "calls.log"),
-	});
+	for (const [k, v] of Object.entries(writeRegistryStubs(dir)(c.reg)))
+		vi.stubEnv(k, v);
+	vi.stubEnv("STUB_CALLS", path.join(dir, "calls.log"));
 	return buildHostPorts(dir)[port](c.pkg);
 };
 

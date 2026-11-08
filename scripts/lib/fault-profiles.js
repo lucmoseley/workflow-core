@@ -199,6 +199,11 @@ const PROFILES = {
 	 */
 	"git-fixture-identity": findingsProfile(on("severity", "tag", "file")),
 	/*
+	 * The subject is one variable written in one test file (#4019). `line` is
+	 * excluded for the reason above.
+	 */
+	"test-env-writes": findingsProfile(on("severity", "tag", "file", "name")),
+	/*
 	 * The subject is one banned tell in one file. `line` is excluded for the
 	 * reason above — an edit higher up the file moves every tell below it — and
 	 * `context` with it, that being the surrounding words, which a rewrite of the
@@ -235,8 +240,10 @@ const PROFILES = {
 	"arbiter-commands": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One WFC_NOW read, keyed as jsonl-reads' sites are (#3457). */
 	"clock-copies": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One output call or create per finding, keyed as jsonl-reads is (#3454). */
+	/* One create per finding, keyed as jsonl-reads is (#3454). */
 	"report-programs": findingsProfile(on("severity", "tag", "file", "match")),
+	/* One write past writeFd per finding, keyed as jsonl-reads is (#4018). */
+	"program-output": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One checker line exiting 1, keyed on its text, never its line (#3456). */
 	"precommit-exit": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One spawn per finding, at its call's first line, never its line number:

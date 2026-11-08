@@ -35,7 +35,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import {
 	runCore,
@@ -2717,20 +2717,14 @@ const LIMB = "WOULD MEET THE PUSH GATE HERE";
 /** A quiet launch whose limb is judged by the real port, its render half
  * standing at WFC_READ_GRAPH_RENDERS's `renders`. */
 const limbed = (command: string, renders: "0" | "1", over: Over = {}) => {
-	const was = process.env.WFC_READ_GRAPH_RENDERS;
-	process.env.WFC_READ_GRAPH_RENDERS = renders;
-	try {
-		return decide(command, {
-			...harness({ mb: QUIET_MB, ps: QUIET_PS, latches: {}, ...over }),
-			fullLaunchPlain: (argv: string[]) => {
-				asked.push(argv);
-				return readFullLaunchPlain(argv);
-			},
-		});
-	} finally {
-		if (was === undefined) delete process.env.WFC_READ_GRAPH_RENDERS;
-		else process.env.WFC_READ_GRAPH_RENDERS = was;
-	}
+	vi.stubEnv("WFC_READ_GRAPH_RENDERS", renders);
+	return decide(command, {
+		...harness({ mb: QUIET_MB, ps: QUIET_PS, latches: {}, ...over }),
+		fullLaunchPlain: (argv: string[]) => {
+			asked.push(argv);
+			return readFullLaunchPlain(argv);
+		},
+	});
 };
 
 describe("a plain --full over a tree whose read graph renders is told a bare run would do", () => {
@@ -2988,9 +2982,8 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 		fs.writeFileSync(meminfo, "MemAvailable: 67108864 kB\n");
 		const ps = path.join(sb.dir, "ps");
 		fs.writeFileSync(ps, "#!/bin/sh\necho '1 sleep 1'\n", { mode: 0o755 });
-		/* The sandbox restores the environment after each case. */
-		process.env.WFC_MEMINFO = meminfo;
-		process.env.WFC_PS = ps;
+		vi.stubEnv("WFC_MEMINFO", meminfo);
+		vi.stubEnv("WFC_PS", ps);
 		fs.mkdirSync(path.join(at.main, ".claude"), { recursive: true });
 		fs.writeFileSync(
 			path.join(at.main, ".claude", "workflow-core.json"),

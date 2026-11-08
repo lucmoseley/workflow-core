@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	base,
 	clearPendingConsent,
@@ -23,19 +23,17 @@ import {
 } from "./adopter-consent.js";
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-consent-"));
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "claude");
-	delete process.env.WFC_CLAUDE_CONFIG_A;
-	delete process.env.WFC_CLAUDE_CONFIG_B;
-	delete process.env.WFC_CLAUDE_CONFIG_C;
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "claude"));
+	vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 const REPO = "/home/founder/fantasy-books";
@@ -110,7 +108,7 @@ describe("storage location", () => {
 
 	it("honours an explicit configDir override, touching CLAUDE_CONFIG_DIR not at all", () => {
 		const other = fs.mkdtempSync(path.join(dir, "explicit-"));
-		delete process.env.CLAUDE_CONFIG_DIR;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", undefined);
 		expect(decline(REPO, "v1.1.11", { configDir: other })).toBe(true);
 		expect(isDeclined(REPO, "v1.1.11", { configDir: other })).toBe(true);
 		expect(fs.existsSync(path.join(other, "adopter-upgrade"))).toBe(true);

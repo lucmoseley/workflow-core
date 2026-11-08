@@ -53,7 +53,6 @@ let refill: string;
 let seat: string;
 let fakeOut: string;
 const callsLog = () => path.join(fakeOut, "calls.jsonl");
-const savedEnv = { ...process.env };
 
 const says = (text: string) =>
 	JSON.stringify({
@@ -113,14 +112,12 @@ beforeEach(() => {
 			}),
 		),
 	]);
-	Object.assign(process.env, {
-		HOME: home,
-		WFC_REFILL_DIR: refill,
-		WFC_CLAUDE_BIN: path.join(tmp, "claude"),
-		WFC_SECRETS_FILE: secrets,
-		/* In the parent too, so the child's lacking it proves the unset. */
-		[KEY_VAR]: KEY,
-	});
+	vi.stubEnv("HOME", home);
+	vi.stubEnv("WFC_REFILL_DIR", refill);
+	vi.stubEnv("WFC_CLAUDE_BIN", path.join(tmp, "claude"));
+	vi.stubEnv("WFC_SECRETS_FILE", secrets);
+	/* In the parent too, so the child's lacking it proves the unset. */
+	vi.stubEnv(KEY_VAR, KEY);
 	writeRun(
 		AWAITING,
 		[
@@ -140,9 +137,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const k of Object.keys(process.env))
-		if (!(k in savedEnv)) delete process.env[k];
-	Object.assign(process.env, savedEnv);
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 

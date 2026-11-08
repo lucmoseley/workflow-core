@@ -42,6 +42,7 @@ import {
 import { buildRekeyedResponse, FAKE_COPY } from "./lib/bg-resume-fake";
 import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
 import { ledgerPath, readOverflowLookup } from "./lib/dispatch-ledger.js";
+import { buildFiledLine } from "./lib/filed-line.js";
 import { readGhAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { HOLD_PROMPT, LIMIT_PROMPT, MOVED_PROMPT } from "./lib/loop-prompts.js";
@@ -177,7 +178,7 @@ describe("a probe hold on the real tick (#3860)", () => {
 			"file-issue.js",
 			`const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(at("filed"))}, JSON.stringify({ args: process.argv.slice(2), body: fs.readFileSync(0, "utf8"), cwd: process.cwd() }) + "\\n");
-process.stdout.write("Filed #${Issue}\\n");
+process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.com/o/r/issues/${Issue}`)}\n`)});
 `,
 		);
 	const readFiled = () =>
@@ -680,7 +681,7 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 		writeConfig();
 		stub(
 			"file-issue.js",
-			`process.stdout.write("Filed #${Issue}\\n");
+			`process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.com/o/r/issues/${Issue}`)}\n`)});
 `,
 		);
 	});
