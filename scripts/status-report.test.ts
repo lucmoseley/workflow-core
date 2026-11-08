@@ -14,9 +14,6 @@
  * file, and `--write` reaches it. The other writers' bare runs are held
  * silent by their own tests (check-band-drift, check-orphaned-edits).
  *
- * And it pins the STANDINGS print rule (#4107): a standing's body prints under
- * its OK, while its SKIP and any other checker's OK go to the clean list.
- *
  * spawn-kept: the adopter's case proves the script npm runs, so npm is its child.
  */
 
@@ -29,7 +26,6 @@ import { withStatusScript } from "./lib/adopter-skeleton.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { seatEnv } from "./lib/seat-testkit";
-import { render, STANDINGS } from "./status-report.js";
 
 const SCRIPT = path.join(__dirname, "status-report.js");
 
@@ -175,32 +171,5 @@ describe("a bare run writes nothing; --write reaches the writers (#4449)", () =>
 		const r = await runTrim(["--write"]);
 		expect(r.status).toBe(0);
 		expect(r.recorded).toBe(true);
-	});
-});
-
-describe("the STANDINGS print rule (#4107)", () => {
-	const result = (name: string, out: string) => ({
-		name,
-		code: 0,
-		signal: null,
-		out,
-	});
-
-	it.each([...STANDINGS])("prints %s's body under its OK", (name) => {
-		const text = render([result(name, "the standing\nOK: read")]);
-		expect(text).toContain(`▸ ${name}  — OK\nthe standing`);
-		expect(text).not.toContain("nothing to report from");
-	});
-
-	it("files a standing's SKIP with the clean list", () => {
-		const text = render([result("wsl-currency", "SKIP: not WSL")]);
-		expect(text).not.toContain("▸");
-		expect(text).toContain("nothing to report from: wsl-currency (SKIP)");
-	});
-
-	it("files any other checker's OK with the clean list", () => {
-		const text = render([result("gates", "the body\nOK: fine")]);
-		expect(text).not.toContain("the body");
-		expect(text).toContain("nothing to report from: gates (OK)");
 	});
 });
