@@ -1333,6 +1333,7 @@ module.exports = {
 	gitWords,
 	ghWords,
 	stepGhFlags,
+	valueAfter,
 	commitPathsArgs,
 	commitPathsParse,
 	findStarts,

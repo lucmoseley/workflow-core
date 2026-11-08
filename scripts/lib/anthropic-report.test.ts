@@ -118,7 +118,10 @@ describe("a write it refuses", () => {
 		'gh api graphql -f query="mutation { createDiscussion(input:{repositoryId:\\"R\\"}) { clientMutationId } }" -f owner=anthropics',
 		'timeout 30 gh issue comment 3 --repo anthropics/claude-code --body "y"',
 		'GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
+		// An empty -R names none, so GH_REPO decides (#4268).
 		'GH_REPO=anthropics/claude-code gh --repo= issue create --title "x" --body "y"',
+		'GH_REPO=anthropics/claude-code gh issue comment 5 --repo= --body "y"',
+		'GH_REPO=anthropics/claude-code gh issue comment 5 -R "" --body "y"',
 		'env GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
 		'GH_REPO=anthropics/claude-code gh api repos/{owner}/{repo}/issues -f title="x"',
 		'export GH_REPO=anthropics/claude-code && gh issue create --title "x" --body "y"',

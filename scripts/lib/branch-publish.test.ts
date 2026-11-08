@@ -179,6 +179,12 @@ describe("a merge of a Dependabot pull request is denied with the Dependabot rul
 	it.each([
 		["gh pr merge 12", "could not be looked up", "exit 1"],
 		["GH_REPO=o/r gh pr merge 12", "GH_REPO override", "echo true"],
+		// An empty --repo after the verb names none, overriding the -R before (#4268).
+		[
+			"GH_REPO=o/r gh -R a/b pr merge 12 --repo=",
+			"GH_REPO override",
+			"echo true",
+		],
 		['gh pr merge "$N"', "unreadable pr merge selector", "echo true"],
 	])("allows %s unlooked-up, and records it", (command, record, verdict) => {
 		expect(denial(command, shared, ghAnswering(verdict))).toBeNull();

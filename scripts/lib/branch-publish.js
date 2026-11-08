@@ -116,6 +116,7 @@ const {
 	literal,
 	scanFlags,
 	stepGhFlags,
+	valueAfter,
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -625,7 +626,8 @@ function readApi(args, spans) {
  */
 function judgeMerge(ctx, spans, { segment, repo, repoEnv, cwd, args }) {
 	let rawSelector = "";
-	let mergeRepo = "";
+	/** @type {string | null} */
+	let mergeRepo = null;
 	let disable = false;
 	scanFlags(MERGE_VALUE_FLAGS, args, (kind, name, value) => {
 		if (kind === "arg") rawSelector ||= value;
@@ -647,7 +649,8 @@ function judgeMerge(ctx, spans, { segment, repo, repoEnv, cwd, args }) {
 	}
 	if (selector.startsWith("dependabot/")) return dependabotMerge(ctx, segment);
 	const view = ["pr", "view", ...(selector ? [selector] : [])];
-	const r = mergeRepo ? literal(mergeRepo, spans) : repo;
+	const r =
+		mergeRepo === null ? repo : valueAfter(literal(mergeRepo, spans), "");
 	if (r) {
 		if (!r.known) return unchecked("unreadable pr merge repo");
 		view.push("-R", r.text);

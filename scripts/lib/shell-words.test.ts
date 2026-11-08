@@ -181,7 +181,7 @@ describe("ghWords (#772)", () => {
 		["gh -Ro/r pr create", "o/r"],
 		["gh -R o/r --repo=p/q pr create", "p/q"],
 		["gh pr create", "none"],
-		// An empty value names none: gh falls back to GH_REPO.
+		// An empty value names none: gh falls back to GH_REPO (#4268).
 		["gh --repo= pr create", "none"],
 		[`gh -R "" pr create`, "none"],
 		["gh -R o/r --repo= pr create", "none"],

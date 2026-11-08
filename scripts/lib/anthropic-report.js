@@ -239,17 +239,18 @@ const SHORT_REPO_RE = /^-R(.+)$/s;
 
 /**
  * A `-R`/`--repo` at `i`, in any of its three spellings: how many words it
- * took, 0 where it ran out of words, null where `word` is no repo flag.
+ * took, 0 where it ran out of words, null where `word` is no repo flag. An
+ * empty value names no repo, as gh then falls back to GH_REPO (#4268).
  * @param {Scan} scan accumulator: named, repo and hidden are set by a repo flag
  * @param {number} i
  * @param {string} word
  */
 function readRepoFlag(scan, i, word) {
 	if (word === "-R" || word === "--repo") {
-		scan.named = true;
 		const next = captured(scan.run, scan.args[i + 1] ?? "");
 		if (next === null) scan.hidden = true;
 		else scan.repo = next;
+		scan.named = scan.repo !== "" || scan.hidden;
 		return i + 1 < scan.args.length ? 2 : 0;
 	}
 	const long = LONG_REPO_RE.exec(word);
@@ -257,7 +258,7 @@ function readRepoFlag(scan, i, word) {
 	if (long) scan.repo = requiredGroup(long, 1, LONG_REPO_RE);
 	else if (short) scan.repo = requiredGroup(short, 1, SHORT_REPO_RE);
 	else return null;
-	scan.named = true;
+	scan.named = scan.repo !== "" || scan.hidden;
 	return 1;
 }
 
