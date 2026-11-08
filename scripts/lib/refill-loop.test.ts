@@ -1682,6 +1682,15 @@ describe("the control file", () => {
 		).toEqual({ by: "no-progress", at: 9, issues: [issue] });
 	});
 
+	it("reads a launch hold, and an unreadable one as none, since it could never lapse (#4354)", () => {
+		const read = (launchHold: unknown) =>
+			parseControl({ noProgressFrom: 5, launchHold })?.launchHold;
+		const hold = { by: "a manual /pick-next", at: 9, until: 99 };
+		expect(read(hold)).toEqual(hold);
+		expect(read({ by: "x", at: 9 })).toBeUndefined();
+		expect(read(true)).toBeUndefined();
+	});
+
 	it("reads a control with no scope as away mode serving nothing", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
 	});

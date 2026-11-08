@@ -43,6 +43,7 @@ const {
 	actsRead,
 	awayChangeOf,
 	decideTick,
+	liveLaunchHold,
 	NOTHING_LAUNCHABLE,
 	readParkers,
 	UNREAD,
@@ -481,15 +482,19 @@ function relieve(io, { registry, state, served, now }) {
  * @param {TickIo} io
  * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
  *   registry: RegistryListing, roots: string[],
- *   paused: import("./refill-decide.js").Pause|undefined, now: number}} tick
+ *   paused: import("./refill-decide.js").Pause|undefined, held: boolean,
+ *   now: number}} tick  `held`, whether a pause or a launch hold bars launching
  */
-function actOnListing(io, { declared, agents, registry, roots, paused, now }) {
+function actOnListing(
+	io,
+	{ declared, agents, registry, roots, paused, held, now },
+) {
 	capOverflowSessions(io, declared, agents);
 	io.sendHoldNotices(
 		roots,
 		{
 			agents: noticeAgentsOf(agents, registry),
-			isPaused: paused !== undefined,
+			isPaused: held,
 		},
 		now,
 	);
@@ -598,7 +603,7 @@ function settleRoom(
 		lastActAt,
 	},
 ) {
-	if (control.paused) {
+	if (seen.paused) {
 		io.releaseEndedHolds(before, judged, seen.io);
 		return {
 			launches: judged,
@@ -723,14 +728,14 @@ async function decide(io, input, scope) {
 }
 
 /**
- * The stopped sessions due back: none on a paused tick, which resumes none,
+ * The stopped sessions due back: none on a barred tick, which resumes none,
  * though a stop still names those it leaves.
  * @param {Control} control
  * @param {LoopLaunch[]} launches
  * @param {Seen} seen
  */
 const dueResumes = (control, launches, seen) =>
-	control.paused && !control.stopRequested
+	seen.paused && !control.stopRequested
 		? []
 		: blocks.resumableOf(launches, seen);
 
@@ -970,7 +975,12 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	 * steps trust is checked against the documented listing every tick. */
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) io.log(line);
-	const paused = control.paused !== undefined;
+	/* A pause outranks a launch hold, so the hold is the tick's only where none
+	 * stands. */
+	const launchHold = control.paused
+		? undefined
+		: liveLaunchHold(control.launchHold, now);
+	const paused = control.paused !== undefined || launchHold !== undefined;
 	const roots = landingRoots(served, state.launches);
 	actOnListing(io, {
 		declared,
@@ -978,6 +988,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		registry,
 		roots,
 		paused: control.paused,
+		held: paused,
 		now,
 	});
 	/** @type {Seen} */
@@ -1034,6 +1045,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		noProgressFrom: control.noProgressFrom,
 		stopRequested: control.stopRequested,
 		...(control.paused ? { paused: control.paused } : {}),
+		...(launchHold ? { launchHold } : {}),
 		controlDamaged: dryRun ? null : damaged,
 		frontier: [],
 		retroBundles: [],

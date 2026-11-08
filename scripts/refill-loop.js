@@ -14,7 +14,8 @@
  *   node scripts/refill-loop.js stop     record an explicit stop and end
  *                                        launching before the next dispatch
  *                                        call; running sessions finish
- *   node scripts/refill-loop.js set …    pause or resume launching, tick repos,
+ *   node scripts/refill-loop.js set …    pause or resume launching, hold it a
+ *                                        while for a manual /pick-next, tick repos,
  *                                        switch the mode or set the goal with
  *                                        no restart: the
  *                                        running loop takes it at its next tick,
@@ -170,12 +171,17 @@ const {
 /* Untraced: the loop's log is cut to its newer half past this. */
 const LOG_MAX_BYTES = 1024 * 1024;
 
+/* Untraced: the longest launch hold `set` takes, so a typo cannot hold the
+ * loop for a day; a pause is the tool for longer. */
+const HOLD_MAX_MINUTES = 60;
+
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume | watch
   start [--repo <dir>]… [--goal <goal>]        ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
   start --unless-stopped [--repo <dir>]… [--goal <goal>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --quiet-bench | --no-quiet-bench         let a due quiet-gated bench pause launches while the founder is absent, as it does by default; or never
+  set --hold-launches <minutes> | --release-launches  launch nothing for this long, up to ${HOLD_MAX_MINUTES}, keeping housekeeping and leaving any pause as it is, while a manual /pick-next dispatches; or launch again now
   set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
@@ -185,7 +191,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
   set --json <flags>                           print one object once its flags parse, whatever the exit: refused, null or its reason, remedy and box at fault; warning, the same for a change no process takes yet; and lines, what it says without --json
-  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
+  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, a live launch hold, the last tick, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
   <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
 
 /** @typedef {import("./lib/refill-notice.js").Notice} Notice */
@@ -219,6 +225,8 @@ function setConflictOf({ flags, lists }) {
 		return "set takes one of --away and --normal";
 	if (flags["--quiet-bench"] && flags["--no-quiet-bench"])
 		return "set takes one of --quiet-bench and --no-quiet-bench";
+	if (flags["--hold-launches"] !== undefined && flags["--release-launches"])
+		return "set takes one of --hold-launches and --release-launches";
 	if (lists["--repos"] && (lists["--tick"] || lists["--untick"]))
 		return "--repos is the whole set; it takes no --tick or --untick";
 	const both = lists["--tick"]?.find((n) => lists["--untick"]?.includes(n));
@@ -282,14 +290,26 @@ function parseStartAsk({ flags, lists }) {
 }
 
 /**
- * What `set`'s flags ask, or a refusal.
- * @param {import("./lib/cli-args").Parsed} parsed
- * @returns {import("./lib/refill-commands.js").SetAsk|Notice}
+ * `--hold-launches`'s minutes, a whole number from 1 to HOLD_MAX_MINUTES, or a
+ * refusal.
+ * @param {string} typed
+ * @returns {number|Notice}
  */
-function parseSetAsk(parsed) {
-	const conflict = setConflictOf(parsed);
-	if (conflict !== null) return buildNotice(conflict);
-	const { flags, lists } = parsed;
+function parseHoldMinutes(typed) {
+	const minutes = /^\d+$/.test(typed) ? Number(typed) : Number.NaN;
+	return minutes >= 1 && minutes <= HOLD_MAX_MINUTES
+		? minutes
+		: buildNotice(
+				`--hold-launches takes whole minutes, 1 to ${HOLD_MAX_MINUTES}: ${typed}`,
+			);
+}
+
+/**
+ * What `set`'s switch flags ask, each pair already judged one at most.
+ * @param {import("./lib/cli-args").Parsed["flags"]} flags
+ * @returns {import("./lib/refill-commands.js").SetAsk}
+ */
+function parseSwitchAsk(flags) {
 	/** @type {import("./lib/refill-commands.js").SetAsk} */
 	const ask = {};
 	if (flags["--pause"]) ask.pause = true;
@@ -298,6 +318,25 @@ function parseSetAsk(parsed) {
 	if (flags["--normal"]) ask.mode = "normal";
 	if (flags["--quiet-bench"]) ask.quietBench = true;
 	if (flags["--no-quiet-bench"]) ask.quietBench = false;
+	if (flags["--release-launches"]) ask.holdMinutes = null;
+	return ask;
+}
+
+/**
+ * What `set`'s flags ask, or a refusal.
+ * @param {import("./lib/cli-args").Parsed} parsed
+ * @returns {import("./lib/refill-commands.js").SetAsk|Notice}
+ */
+function parseSetAsk(parsed) {
+	const conflict = setConflictOf(parsed);
+	if (conflict !== null) return buildNotice(conflict);
+	const { flags, lists } = parsed;
+	const ask = parseSwitchAsk(flags);
+	if (flags["--hold-launches"] !== undefined) {
+		const minutes = parseHoldMinutes(String(flags["--hold-launches"]));
+		if (isNotice(minutes)) return minutes;
+		ask.holdMinutes = minutes;
+	}
 	/* An untick takes one since opted out, so an opt-out never strands a tick. */
 	for (const [flag, field, refusalOf] of /** @type {const} */ ([
 		["--repos", "repos", readTickRefusal],
@@ -554,6 +593,7 @@ function start(parsed) {
 			.buildScopeLines(control, {
 				served,
 				running: action !== "stopped",
+				now: Date.now(),
 				seatsLine: commands.buildSeatsLine(
 					readSeatsView(
 						control.seats,
@@ -794,6 +834,7 @@ function status({ flags }) {
 					burnMode: readBurnState(),
 					overflow: readOverflowStatus(budgetOf),
 					concurrency: readConcurrencyStatus(Date.now()),
+					now: Date.now(),
 				}),
 			),
 		);
@@ -983,6 +1024,8 @@ const CLI = {
 				"--normal": "boolean",
 				"--quiet-bench": "boolean",
 				"--no-quiet-bench": "boolean",
+				"--hold-launches": "value",
+				"--release-launches": "boolean",
 				"--repos": "list",
 				"--tick": "list",
 				"--untick": "list",

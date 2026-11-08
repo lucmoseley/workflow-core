@@ -1062,6 +1062,16 @@ describe("set (#3856)", () => {
 	it.each([
 		["no flag", [], "set names no field"],
 		["both flags", ["--pause", "--resume"], "one of --pause and --resume"],
+		[
+			"a hold and its release",
+			["--hold-launches", "20", "--release-launches"],
+			"one of --hold-launches and --release-launches",
+		],
+		[
+			"a hold of no minutes",
+			["--hold-launches", "0"],
+			"--hold-launches takes whole minutes, 1 to 60: 0",
+		],
 	])("refuses %s as a usage error on stderr", async (_name, flags, why) => {
 		writeControl();
 		const r = await run("set", ...flags);
@@ -1070,6 +1080,25 @@ describe("set (#3856)", () => {
 		expect(r.stderr).toContain(why);
 		expect(r.stderr).toContain("usage:");
 		expect(readControl()).toEqual(plainControl);
+	});
+
+	it("holds launches and releases them, a founder's pause standing through both (#4354)", async () => {
+		writeControl({ paused });
+		const before = Date.now();
+		const held = await run("set", "--hold-launches", "20");
+		expect(held.status).toBe(0);
+		expect(held.stdout).toMatch(
+			/^launches held by a manual \/pick-next until \S+Z$/m,
+		);
+		const { launchHold, ...rest } = readControl();
+		expect(rest).toEqual({ ...plainControl, paused });
+		expect(launchHold.until - launchHold.at).toBe(20 * 60_000);
+		expect(launchHold.at).toBeGreaterThanOrEqual(before);
+
+		const released = await run("set", "--release-launches");
+		expect(released.status).toBe(0);
+		expect(released.stdout).toContain("launch hold released");
+		expect(readControl()).toEqual({ ...plainControl, paused });
 	});
 
 	it("refuses with exit 1 where the loop was never started, writing nothing", async () => {

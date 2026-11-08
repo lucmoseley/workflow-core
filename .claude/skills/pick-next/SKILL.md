@@ -58,6 +58,21 @@ With no goal, skip this step and run the script bare.
 
 ### 2. Run the script
 
+First hold the refill loop's launches, in the same message as the script:
+
+```bash
+node scripts/refill-loop.js set --hold-launches 20
+```
+
+A running loop otherwise launches into the slots this run is measuring and
+judges the gates it is judging (#4354). The hold bars every launch and resume
+while it stands and keeps the loop's housekeeping. It is not a pause: a founder's
+`set --pause` stands through it and its release. It lapses by itself after 20
+minutes — the ~14-minute end-to-end run (`references/measured-figures.md`, "What
+a run costs") plus its launches — so a run that dies holds nothing for long. A
+run still short of §7 at that mark takes it again. A refusal (`the loop was never
+started`) means there is no loop to hold: carry on.
+
 ```bash
 node scripts/pick-next.js [--goal <§1's set or form>] [--limit 15] \
   --dump-bodies "$PWD/.claude/tmp/pick-next-bodies/${CLAUDE_CODE_SESSION_ID:-$$}"
@@ -956,14 +971,16 @@ every session launched from that view, not just this set.
 ### 8. Send the refill loop what this command asked
 
 **Every run ends here** — after §7's last launch call, and equally after a
-hold, an admission refusal or a launcher refusal: run once
+hold, an admission refusal or a launcher refusal: release §2's launch hold, then
+run once
 
 ```bash
+node scripts/refill-loop.js set --release-launches
 node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set or form>]
 ```
 
-It starts the machine's one loop only where its process ended with no explicit
-stop, from its settings as they were, or on a machine's first run, ticking this
+The release lifts only the hold, never a pause. `start` starts the machine's one
+loop only where its process ended with no explicit stop, from its settings as they were, or on a machine's first run, ticking this
 repo. It never undoes a setting (#2526): a stopped loop stays stopped, a paused one
 paused, the no-progress pause included, and a bare run changes none. A damaged
 control file exits 1, naming it: copy that into the message. `--repo` ticks each

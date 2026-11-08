@@ -122,7 +122,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
  *   swapHold: import("./admission.js").SwapHold, paused?: boolean}} Tick  a
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
- *   (#2690) as read this tick; whether the loop is paused
+ *   (#2690) as read this tick; whether launching is barred, by a pause or a
+ *   live launch hold (#4354)
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: true, why: string}} Resumed  a

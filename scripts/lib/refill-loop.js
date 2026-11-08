@@ -31,6 +31,9 @@ const { buildSeatName } = require("./refill-seats.js");
  * @property {boolean} stopRequested
  * @property {number} [stopRequestedAt] ms, when `stop` asked; a start drops it
  * @property {import("./refill-decide.js").Pause} [paused] absent where not paused
+ * @property {import("./refill-decide.js").LaunchHold} [launchHold] a manual
+ *   dispatcher's lease on launching (#4354), absent where none is set; one
+ *   past its `until` holds nothing
  * @property {import("./refill-decide.js").AwaySwitch} [away] absent in normal
  *   mode, or where the file holds no readable switch: a tick's absent read then
  *   dates it, and until then status names no switch time
@@ -160,6 +163,23 @@ function parsePause(raw) {
 }
 
 /**
+ * The control file's launch hold: absent where it is none or unreadable, since
+ * a lease that cannot be read cannot expire.
+ * @param {unknown} raw
+ * @returns {{launchHold?: import("./refill-decide.js").LaunchHold}}
+ */
+function parseLaunchHold(raw) {
+	if (
+		!isRecord(raw) ||
+		typeof raw.by !== "string" ||
+		typeof raw.at !== "number" ||
+		typeof raw.until !== "number"
+	)
+		return {};
+	return { launchHold: { by: raw.by, at: raw.at, until: raw.until } };
+}
+
+/**
  * The control file's away switch: absent where it is not one.
  * @param {unknown} raw
  * @returns {{away?: import("./refill-decide.js").AwaySwitch}}
@@ -185,6 +205,7 @@ function parseControl(raw) {
 			? { stopRequestedAt: raw.stopRequestedAt }
 			: {}),
 		...parsePause(raw.paused),
+		...parseLaunchHold(raw.launchHold),
 		...parseAway(raw.away),
 		...(raw.quietBenchOff === true
 			? { quietBenchOff: /** @type {const} */ (true) }
