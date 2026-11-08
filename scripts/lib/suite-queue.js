@@ -294,10 +294,9 @@ function logClimbUnread(what, error) {
  * over them, no margin, as a part-suite's.
  *
  * `node --test`, one repo's 35-file suite: 363 and 381 MB at its default
- * concurrency, 323 MB at 1. The only `node --test` suite on the machine.
+ * concurrency, 323 MB at 1.
  *
- * `next build`, one site's: 972 and 979 MB cold, 624 MB warm. The only build on
- * the machine.
+ * `next build`, one site's: 972 and 979 MB cold, 624 MB warm.
  *
  * MOVE ONE ONLY WITH A RE-MEASUREMENT. Residual: a suite or site heavier than
  * the one measured is charged short by the difference; pytest's workers set in
@@ -333,8 +332,7 @@ const isOtherSuiteLine = (args) =>
 /**
  * The runners `readClimbMb` charges holding no marker, each with the queue
  * whose gate counts it on its own rung or slot, or null for one no gate
- * counts, and its peak. A host's declared `suiteRunners` script is no class:
- * no host on the machine declares one, so it has no measured peak.
+ * counts, and its peak.
  * @type {{ queue: string | null, isRunner: (args: string) => boolean, peakMbOf: (row: { pid: number, args: string }, carriedOf: typeof readCarriedWeightOf) => number }[]}
  */
 const RUNNERS = [
@@ -370,10 +368,8 @@ const runnerOf = (args) => RUNNERS.find((r) => r.isRunner(args));
  * The running launches of a `RUNNERS` class in no queue (#3615, #4112): a bare
  * launch the guard admitted, or one it never judged, such as a `sh -c "…"`. A
  * hook outlives no launch, so none can leave a marker, and `ps` is what shows
- * them. `readClimbMb` charges each to the queue whose gate counts it, so a
- * queued suite pays for an unqueued `tsc`, and never for an unqueued suite,
- * which its ladder rung already counts (`runningSuites`); a `tsc` pays for
- * both; and every gate pays for a build, which none counts.
+ * them. `readClimbMb` charges each to the queue whose gate counts it, never
+ * an unqueued suite at a suite's gate (`runningSuites`).
  *
  * A RUNNER UNDER A LIVE MARKER'S PID OR ANOTHER RUNNER IS LEFT OUT: the marker
  * is charged already, and an outer runner's charge covers its tree. Markers
