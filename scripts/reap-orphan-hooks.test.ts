@@ -19,6 +19,7 @@ import { makeProcRoot, writeEnviron } from "./lib/proc-fake";
 import { readProcTable, USER_HZ } from "./lib/proc-table.js";
 import {
 	isGroupDead,
+	killGroup,
 	orphansReapToInit,
 	startOrphan,
 	waitFor,
@@ -208,12 +209,7 @@ describe("a real orphaned guard", () => {
 	let dir: string;
 	let pid = 0;
 	afterEach(() => {
-		if (pid && !isGroupDead(pid))
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* gone */
-			}
+		if (pid) killGroup(pid);
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -239,11 +235,11 @@ describe("a real orphaned guard", () => {
 			const script = path.join(dir, "scripts", name);
 			fs.mkdirSync(path.dirname(script));
 			fs.writeFileSync(script, "sleep 300\n");
-			pid = startOrphan(script);
-			/* Until setsid execs, its argv is no hook run's. */
+			pid = startOrphan("bash", script);
+			/* Until the fixture's shell execs, its argv is no hook run's. */
 			expect(
 				waitFor(
-					() => readProcTable("/proc")?.procs.get(pid)?.argv[0] === "bash",
+					() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script,
 				),
 			).toBe(true);
 
@@ -302,12 +298,7 @@ describe("a real process of an ended session", () => {
 	let dir: string;
 	let pid = 0;
 	afterEach(() => {
-		if (pid && !isGroupDead(pid))
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* gone */
-			}
+		if (pid) killGroup(pid);
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
