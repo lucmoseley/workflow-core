@@ -9,9 +9,6 @@
  * response carries no `repository`, after one retry, fails every issue in it.
  * An issue GraphQL answers with null, or with more blockers than INNER, gets
  * the REST read for itself alone.
- *
- * Callers: scripts/pick-next.js, scripts/wayfinder-frontier.js,
- * scripts/check-issue-cycles.js.
  */
 
 const {

@@ -11,10 +11,6 @@
  *
  * Residual: acts are counted per session and kind, so a session that closed
  * some other issue reads as having closed this one, and is not caught.
- *
- * Callers: lib/refill-decide.js (the launch prompt), lib/refill-loop.js (what a
- * tick's state keeps), pick-next.js (the launch prompt, #4351, and the report)
- * and check-unclosed-launches.js (the report).
  */
 
 const { takesValue } = require("./takes-label.js");

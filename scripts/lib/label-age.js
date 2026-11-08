@@ -1,6 +1,6 @@
 /*
- * label-age.js — when a label was last applied, read off an issue's timeline.
- * Callers: scripts/pick-next.js and scripts/file-morning-review.js (#2693).
+ * label-age.js — when a label was last applied, read off an issue's timeline
+ * (#2693).
  */
 
 /**
