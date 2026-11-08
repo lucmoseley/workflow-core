@@ -189,6 +189,11 @@ const ASYNC_ONLY: Row[] = [
 		args: ["ordered"],
 	},
 	{ behaviour: "runs main once", args: ["ran"] },
+	{
+		behaviour:
+			"lets a watcher it closed pass, however long a loop turn stalls (#4108)",
+		args: ["close-watcher-stalled"],
+	},
 ];
 
 /* Unmeasured guess: long enough for node to start and print "armed" on a

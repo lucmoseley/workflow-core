@@ -59,6 +59,17 @@ const modes = {
 	ran: async () => {
 		say("ran once");
 	},
+	/* refill-loop.js's `run` (#4108): a watcher closed, then its loop turn
+	 * stalled past run-in-process.js's SETTLE_MS, as a loaded machine stalls
+	 * one. The timer lands both inside the settle the harness has begun. */
+	"close-watcher-stalled": async () => {
+		const watcher = fs.watch(process.cwd());
+		setTimeout(() => {
+			watcher.close();
+			const until = Date.now() + 400;
+			while (Date.now() < until);
+		}, 20);
+	},
 	/* run-in-process.test.ts's takeover cases: a call that outlives the one
 	 * that takes it over as stale. */
 	delay: async () => {

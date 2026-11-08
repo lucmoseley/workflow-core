@@ -287,6 +287,12 @@ const KEEPS_ALIVE = new Set([
  * exit callback. A resource still open after it is refused. */
 const SETTLE_MS = 200;
 
+/* Measured on Node 24.18 (#4108): a closed `fs.watch` handle reports
+ * `destroy` on the second loop turn after its close. Given past the deadline
+ * too, so a turn stalled over SETTLE_MS on a loaded machine cannot report a
+ * handle already closed as one left open. */
+const SETTLE_TURNS = 2;
+
 /**
  * Tracks the async resources a call creates (#2782), through `async_hooks`.
  * A resource is the call's where it was created while the call's own code
@@ -332,11 +338,12 @@ function trackResources() {
 
 	return {
 		flags,
-		/** Waits, up to SETTLE_MS, for the call's own resources to close. */
+		/** Waits, up to SETTLE_MS and SETTLE_TURNS turns past it, for the call's own resources to close. */
 		async settle() {
 			flags.attributing = false;
 			const deadline = Date.now() + SETTLE_MS;
-			while (held().length > 0 && Date.now() < deadline)
+			let lateTurns = SETTLE_TURNS;
+			while (held().length > 0 && (Date.now() < deadline || lateTurns-- > 0))
 				await new Promise((resolve) => setImmediate(resolve));
 		},
 		/** @returns {string[]} `<type> x<n>` per type still held */
