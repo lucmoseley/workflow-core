@@ -13,7 +13,7 @@
 	"scripts/check-commit-subject.sh": "036a2ebddd635afb",
 	"scripts/check-digest-version.js": "ed3f08899daa0e23",
 	"scripts/check-doc-map.js": "83b0f908c013f7ed",
-	"scripts/check-gate-switches.js": "86925c3de26cb742",
+	"scripts/check-gate-switches.js": "88bcd29228b40d94",
 	"scripts/check-guard-registry.js": "27cfb235c0974c1f",
 	"scripts/check-harness-canary.js": "27aa239af8429857",
 	"scripts/check-idle-efforts.js": "ae89136084b1951c",

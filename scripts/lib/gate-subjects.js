@@ -87,4 +87,8 @@ function readIndexSubjects(root) {
 const readSubjectModules = (root) =>
 	readIndexSubjects(root).map((s) => s.module);
 
-module.exports = { readIndexSubjects, readSubjectModules };
+/* On in every repo from its first init, whatever its tree holds: #2217 binds
+ * every adopter to the landing queue (#4685). */
+const START_ON = /** @type {const} */ (["landing"]);
+
+module.exports = { readIndexSubjects, readSubjectModules, START_ON };
