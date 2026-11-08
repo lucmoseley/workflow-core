@@ -16,8 +16,8 @@
  * The uncommitted-work half of the turn-end rule, which this guard enforces,
  * lives in docs/agents/guard-registry.md §Conventions (#2034); the
  * progress-report half is CLAUDE.md's, and nothing checks it (mantahostels#1555).
- * The commit-next order lives only in this guard's refusal: CLAUDE.md shed it
- * here (always-loaded shed register R1, #4113).
+ * The commit-next order lives only in this guard's refusal (always-loaded
+ * shed register R1, #4113).
  *
  * It BLOCKS where mantahostels#908's push warning only warned. That ruling declined to
  * block on a red that may not be the session's own; here the ledger
