@@ -16,6 +16,7 @@
  */
 
 const {
+	hasJobEnded,
 	isBootKillable,
 	isBootKillCandidate,
 	isBootKilled,
@@ -174,16 +175,48 @@ const isEmptyListingTrusted = (
 
 /**
  * `state` as the restart a surviving loop's marker reports leaves it (#3971). The
- * tick queues what the restart killed as after a boot.
+ * tick queues what the restart killed as after a boot. A tick between the
+ * daemon's death and the marker may have read its sessions gone and finished
+ * them, so each the last tick finished is reopened, bar one whose job record
+ * reads it ended on its own (#4145). Residual: a tick past the marker that a kill
+ * kept from dropping it hides that last tick, so nothing is reopened.
  * @param {import("./refill-state.js").LoopState} state
  * @param {import("./refill-files.js").ManagerRestart|null} marker
  * @param {string|null} current this boot's id
+ * @param {Pick<import("./refill-blocks.js").BlockReads, "jobStateOf">} io
  * @returns {import("./refill-state.js").LoopState}
  */
-const withManagerRestart = (state, marker, current) =>
-	marker !== null && isSameBoot(marker.bootId, current)
-		? { ...state, bootedAt: marker.at, sameBootRestart: true }
-		: state;
+function withManagerRestart(state, marker, current, io) {
+	if (marker === null || !isSameBoot(marker.bootId, current)) return state;
+	const since = state.lastTick?.at ?? Number.POSITIVE_INFINITY;
+	const launches = state.launches.map((l) => {
+		if (since > marker.at || l.finishedAt === null || l.finishedAt < since)
+			return l;
+		const reopened = { ...l, finishedAt: null };
+		return isBootKillCandidate(reopened) && !hasJobEnded(reopened, io)
+			? reopened
+			: l;
+	});
+	return { ...state, launches, bootedAt: marker.at, sameBootRestart: true };
+}
+
+/* A first guess, stated as one: a manager restart's daemon is back within
+ * seconds, and the listing's grace (LISTING_GRACE_MS) holds a launch 2 minutes,
+ * so a wait several times that is no restart's own. */
+const RESTART_WAIT_ALARM_MS = 15 * 60 * 1000;
+
+/**
+ * When the restart whose killed launches still wait on a listing began, where
+ * that wait has outlasted RESTART_WAIT_ALARM_MS; null otherwise. The idle alarm
+ * counts those launches as running meanwhile (#4145).
+ * @param {Pick<import("./refill-state.js").LoopState, "bootedAt">} state
+ * @param {number} now
+ * @returns {number|null}
+ */
+const restartWaitOf = ({ bootedAt }, now) =>
+	bootedAt !== undefined && now - bootedAt >= RESTART_WAIT_ALARM_MS
+		? bootedAt
+		: null;
 
 /**
  * The jobs the never-started stop spares (#3983): until a listing has read, the
@@ -325,6 +358,8 @@ module.exports = {
 	buildFetchFailedLine,
 	holdRun,
 	isEmptyListingTrusted,
+	RESTART_WAIT_ALARM_MS,
+	restartWaitOf,
 	runBootResume,
 	runWatch,
 	settleBootKilled,
