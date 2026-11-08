@@ -70,9 +70,9 @@ const KEY_HINT = ["↑↓ move · space change", "Esc leave"];
 const POINTER_MARK = "❯";
 
 /* What the waiting row says for a tick's idle reason, whose constants are the log's too
- * (#4004). An idle reason opens with its first clause, and `status` keeps the rest. */
-/** @type {[string, string][]} */
-const WAITING_WORDS = [
+ * (#4004); a reason not here is drawn as itself. */
+/** @type {Map<string, string>} */
+const WAITING_WORDS = new Map([
 	[NO_PLAN_ROOM, "No plan room"],
 	[FIVE_HOUR_FULL, "5-hour limit full"],
 	[NOTHING_LAUNCHABLE, "No ticket ready"],
@@ -80,7 +80,7 @@ const WAITING_WORDS = [
 	[RESUMES_TAKE_SLOTS, "Resuming paused sessions first"],
 	[RESUME_DUE_WAIT, "All plans used up; a resume is due"],
 	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
-];
+]);
 
 /* A pulled-in blocker is held only
  * by `refillLoop: false` or no checkout (#2427). */
@@ -119,7 +119,7 @@ const ROLE_STYLES = {
  * @typedef {{running: boolean, stopRequested: boolean,
  *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
  *   paused: {by: string, at: number, issues?: PauseIssue[], why?: string}|null,
- *   lastTick: {at: number, idle: string|null,
+ *   lastTick: {at: number, idle: import("./refill-decide.js").Idle|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
  *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
  *   mode: "normal"|"away"|null,
@@ -267,11 +267,10 @@ function buildWaitingRowText(status, now) {
 			? "Waiting: a plan resets, its time unread"
 			: `Waiting: a plan resets at ${buildClock(resets, now)}`;
 	}
-	const idle = tick?.idle;
+	const reason = tick?.idle?.reason;
 	/* Line 1's count already says no slot is free, or `?` where it went unread (#4118). */
-	if (!idle || idle.startsWith(NO_FREE_SLOT)) return "";
-	const words = WAITING_WORDS.find(([reason]) => idle.startsWith(reason));
-	return words ? words[1] : idle.replace(/; .*$/s, "");
+	if (!reason || reason === NO_FREE_SLOT) return "";
+	return WAITING_WORDS.get(reason) ?? reason;
 }
 
 /**

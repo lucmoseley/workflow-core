@@ -285,7 +285,7 @@ describe("parseState's last tick", () => {
 			at: NOW,
 			summary: "idle: a plan resets",
 			skipped: [],
-			idle: "a plan resets",
+			idle: { reason: "a plan resets", detail: ", its time unread" },
 			planWait: { resets: NOW + 60 * MIN },
 		};
 		expect(loopStateOf({ lastTick }).lastTick).toEqual(lastTick);
