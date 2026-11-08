@@ -105,7 +105,7 @@ import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
-import { buildUsageCache } from "./lib/usage-probe-fake";
+import { buildUsageCache, buildUsageText } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 refillSandbox();
@@ -475,11 +475,12 @@ process.stdout.write("filed #900");\n`,
 describe("the panel's read on the real tick (#4060)", () => {
 	const dayMs = 24 * 3_600_000;
 	const behindCache = () => path.join(at("behind"), ".claude.json");
-	/** The usage probe's stub: records its seat, then exits `status`, naming `outcome`. */
-	const stubProbe = (outcome: string, status: number) =>
+	/** The usage probe's stub: records its seat, prints `text`, then exits `status`, naming `outcome`. */
+	const stubProbe = (outcome: string, status: number, text = "") =>
 		stub(
 			"usage-probe.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("probes"))}, process.argv[3] + "\\n");
+process.stdout.write(${JSON.stringify(text)});
 process.stderr.write("${OUTCOME_PREFIX}${outcome}\\n");
 process.exitCode = ${status};\n`,
 		);
@@ -531,6 +532,17 @@ process.exitCode = ${status};\n`,
 		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
 		await nextTick();
 		expect(readLines(at("probes"))).toEqual([at("behind")]);
+	});
+
+	it("reads once more a probe that printed its week but left the cache's stamp unmoved, then keeps the daily limit (#4075)", async () => {
+		stubProbe("finished", 0, buildUsageText({ week: 40 }));
+		writeSeats();
+		const started = Date.now();
+		const first = await nextTick();
+		expect(first.stdout).toContain(`${at("behind")}: finished (stamp unmoved)`);
+		await nextTick();
+		expect(readLines(at("probes"))).toEqual([at("behind"), at("behind")]);
+		expect(readLoopState().seatTriedAt[at("behind")]).toBeGreaterThan(started);
 	});
 });
 

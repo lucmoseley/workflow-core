@@ -29,7 +29,8 @@ const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
-const { readAllowance } = require("./allowance.js");
+const { printsWeek, readAllowance } = require("./allowance.js");
+const { readUsageCache } = require("./usage-cache.js");
 const seatReading = require("./seat-reading.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught, readLogged } = require("./caught.js");
@@ -290,6 +291,7 @@ function readPrintedUsage(seats) {
 	/** @type {import("./seat-reading.js").Probe[]} */
 	const probes = [];
 	for (const seat of seats) {
+		const startMs = Date.now();
 		const r = runChild(
 			process.execPath,
 			[path.join(SCRIPTS, "usage-probe.js"), "--config-dir", seat],
@@ -298,7 +300,13 @@ function readPrintedUsage(seats) {
 		// Exit 3 is the probe's "none ran, the cache being fresh".
 		if (r.failed && r.status !== 3) log(`/usage on ${seat}: ${r.failed}`);
 		usage.set(seat, r.stdout);
-		probes.push({ seat, outcome: core.parseProbeOutcome(r.stderr, r.failed) });
+		const cache = readUsageCache(seat);
+		const stampMs = cache.state === "ok" ? cache.fetchedAtMs : null;
+		const outcome = seatReading.probeOutcome(
+			core.parseProbeOutcome(r.stderr, r.failed),
+			{ printedWeek: printsWeek(r.stdout), stampMs, startMs },
+		);
+		probes.push({ seat, outcome, stampMs });
 	}
 	return { usage, probes };
 }
@@ -312,16 +320,19 @@ function readPrintedUsage(seats) {
  * @param {string[]} seats in seat-file order
  * @param {number} slots
  * @param {string|undefined} root
- * @param {{typedSeat: string|null, sizeAll?: boolean}} how  `sizeAll`, each
- *   seat with room sized, for a move
+ * @param {{typedSeat: string|null, sizeAll?: boolean,
+ *   tries: {triedAt: Record<string, number>, now: number}}} how  `sizeAll`,
+ *   each seat with room sized, for a move; `tries`, when each seat was last
+ *   probed
  */
-function readSeats(seats, slots, root, { typedSeat, sizeAll = false }) {
+function readSeats(seats, slots, root, { typedSeat, sizeAll = false, tries }) {
 	return seatReading.readSizedSeats(slots, {
 		read: (usage) => seatReading.readSeatReadings(seats, usage),
 		probe: readPrintedUsage,
 		sizeOf: seatReading.capSizer(root, log),
 		typedSeat,
 		sizeAll,
+		tries,
 	});
 }
 

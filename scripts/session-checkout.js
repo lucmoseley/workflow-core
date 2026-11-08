@@ -207,7 +207,7 @@ const RUN = {
 		writeFd(
 			2,
 			made.pushed
-				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. Read its outcome, once, with \`node ${scriptPath("landing-status.js")}\`.\n`
+				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. Wait on its outcome with \`node ${scriptPath("landing-status.js")} --wait\`, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.\n`
 				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${VERIFIED_REF} or ${REMOTE}/${made.queue} already\n`,
 		);
 	},

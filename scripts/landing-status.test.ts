@@ -323,3 +323,19 @@ it("adds no per-ref line for a worktree with no queue ref and no queue-log row",
 		NO_QUEUE,
 	]);
 });
+
+it("--wait exits at once where nothing is queued, the reading then its wait line", () => {
+	const tree = worktree("s");
+	const landed = commit("landed");
+	git(work, "push", "-q", "origin", "HEAD:main");
+	ledger(landed);
+
+	const r = runStatus("landing", ["--session", SESSION, "--wait"], tree);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+		`landed: ${short(landed)} landed — on main`,
+		NO_QUEUE,
+		"wait: nothing of this session's is queued, so there is nothing to wait for.",
+	]);
+});

@@ -2,8 +2,9 @@ A PUSH TO YOUR QUEUE REF IS TESTED BY THE QUEUE LANDER, NOT ON YOUR SHA ALONE.
 
 The queue lander merges the waiting queue refs as one batch onto `main`, or
 onto a batch still under test, pushes it to a `lander/batch-<k>` ref, runs the
-full suite there, and moves `main` only to a green batch, in queue order. Run `node scripts/landing-status.js` ONCE after every push, docs-only
-included, and read it: each of your commits reads `landed:` or `queued:`.
+full suite there, and moves `main` only to a green batch, in queue order. Run `node scripts/landing-status.js --wait` in the background after every
+push, docs-only included, and read it when it exits: each of your commits reads
+`landed:` or `queued:`, and its `wait:` line says landed, dropped or bound.
 
 Where a scheduled sweep runs, `npm run check:ci` reads it, and it tests `main`:
 its verdict covers what has landed, never what you just pushed.
