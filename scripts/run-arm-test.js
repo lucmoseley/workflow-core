@@ -104,6 +104,7 @@ const { secondaryOf, summariseSecondary } = require("./lib/arm-secondary.js");
 const { readRegisteredGuardSubjects } = require("./lib/guard-fires.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { sleepSync } = require("./lib/sleep-sync.js");
 
 /** `WFC_ARM_TASKS_CLI` stands a test's stub in for the task builder. */
 const armTasksCli = () =>
@@ -741,10 +742,6 @@ function launch({ flags, positionals }) {
 	return failed === 0 ? 0 : 1;
 }
 
-/** @param {number} ms */
-const sleep = (ms) =>
-	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-
 /**
  * Stop `rec`'s job and stamp its record with `mark`, the time, so it reads
  * ended from then on. Null where the stop held, a job the daemon no longer
@@ -912,7 +909,7 @@ function stopAtLimit(root, bin, { limitMs, pollMs, failed }) {
 	const states = readStatesByConfigDir(recs, bin);
 	let left = recs.filter((rec) => !ended(rec, states));
 	for (let tries = 0; tries < STOP_TRIES && left.length > 0; tries++) {
-		if (tries > 0) sleep(pollMs);
+		if (tries > 0) sleepSync(pollMs);
 		left = left.filter((rec) => {
 			const why = stopAndMark(root, rec, bin, "limited");
 			if (why === null) {
@@ -1118,7 +1115,7 @@ function runLoop({ o, planned, limitMs }) {
 		}
 		if (step === "done") return reportEnd(failed);
 		lastHeld = logHeld(step, lastHeld);
-		if (step !== "launched") sleep(o.pollMs);
+		if (step !== "launched") sleepSync(o.pollMs);
 	}
 }
 

@@ -4,7 +4,7 @@
  * the test's temp directory: git real there, `gh` through WFC_GH's route stub,
  * and a probe hold's filing through the real file-issue.js that lib/file-through.js
  * spawns. The tick's wiring of these, one case per adapter it crosses, is
- * refill-loop-run-recovery.test.ts's; the CLI's is repo-hold.test.ts's (#4314).
+ * refill-loop-run-holds.test.ts's; the CLI's is repo-hold.test.ts's (#4314).
  *
  * Broken, a repo hold (#3857) or probe hold (#3860) that never lifts stops every
  * launch into a served checkout, and one that never raises launches sessions into

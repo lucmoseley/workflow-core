@@ -67,7 +67,6 @@
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-lost-verdict.js",
-						"if": "Bash(*test*)",
 						"timeout": 10
 					}
 				]
@@ -80,7 +79,6 @@
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-lost-verdict.js",
-						"if": "Bash(*test*)",
 						"timeout": 10
 					},
 					{

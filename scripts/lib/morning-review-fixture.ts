@@ -22,7 +22,7 @@ import {
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
-import { runInProcess } from "./run-in-process";
+import { runInProcessAsync } from "./run-in-process";
 
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
 const ISSUE_COMMENT = path.join(__dirname, "fixtures/gh/issue-comment.json");
@@ -47,8 +47,9 @@ const CREATE_FAILED = path.join(
  * `fail-issues-since` exists and answering empty once where `empty-issues-since`
  * does; `fail-after-create` makes a create land and report failure. The closes
  * read fails where `fail-closes` exists, and once where `fail-closes-once` does.
- * file-issue.js's similar-title list also holds an open lookalike, #1995,
- * among enough unrelated titles that it scores above the cut.
+ * file-issue.js's similar-title list holds enough unrelated titles that a
+ * lookalike scores above the cut, and an open one, #1995, where `lookalike`
+ * exists.
  *
  * It routes its own calls (#3833) because `stubGhRoutes` fixes each key's answer
  * when the table is written, and these change within a run. A table hands no
@@ -104,7 +105,7 @@ if (a[0] === "issue" && a[1] === "comment") {
 }
 if (a[0] === "issue" && a[1] === "list") sayRows([
 	...read("reviews.json"),
-	{ number: 1995, title: "Away mode: the morning review issue", state: "OPEN" },
+	...(fs.existsSync(f("lookalike")) ? [{ number: 1995, title: "Away mode: the morning review issue", state: "OPEN" }] : []),
 	...Array.from({ length: 100 }, (_, i) => ({ number: i + 1, title: "Fix widget " + i, state: "CLOSED" })),
 ]);
 if (a[0] === "issue" && a[1] === "create") {
@@ -318,7 +319,10 @@ export function morningReviewFixture(
 	});
 
 	const run = (argv: string[] = [], env: Record<string, string> = {}) =>
-		runInProcess(script, argv, { cwd: wfc(), env: { ...runEnv(), ...env } });
+		runInProcessAsync(script, argv, {
+			cwd: wfc(),
+			env: { ...runEnv(), ...env },
+		});
 
 	const readCreated = () =>
 		fs

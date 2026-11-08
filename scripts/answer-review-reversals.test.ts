@@ -86,9 +86,9 @@ describe("answer-review-reversals.js (#2017)", () => {
 			.comments.slice(1)
 			.map((c: { body: string }) => c.body);
 
-	it("files a takes:implement ticket carrying the recipe and replies naming it", () => {
+	it("files a takes:implement ticket carrying the recipe and replies naming it", async () => {
 		seed([openReview()]);
-		const r = run();
+		const r = await run();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		const [ticket, ...more] = readCreated();
@@ -111,7 +111,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect(notFiled).toContain("the review lists no entry 9");
 	});
 
-	it("files a primitives-table entry's reversal in that entry's repo, off the review line alone (#3465)", () => {
+	it("files a primitives-table entry's reversal in that entry's repo, off the review line alone (#3465)", async () => {
 		seed([
 			{
 				...openReview(),
@@ -119,7 +119,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 				comments: [{ url: Request, body: "reverse 2" }],
 			},
 		]);
-		const r = run();
+		const r = await run();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		const [ticket, ...more] = readCreated();
@@ -136,7 +136,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 	});
 
-	it("records an entry filed on another repo under the review's tracker (#3829)", () => {
+	it("records an entry filed on another repo under the review's tracker (#3829)", async () => {
 		seed([
 			{
 				...openReview(),
@@ -147,7 +147,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		const other = path.join(home(), "other");
 		fs.mkdirSync(path.join(other, ".git"), { recursive: true });
 		writeTrackerConfig(other, "acme/other");
-		const r = run();
+		const r = await run();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		expect(fs.readFileSync(recordFile(), "utf8")).toMatch(
@@ -155,10 +155,10 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 	});
 
-	it("reads the record another checkout of the tracker wrote (#3829)", () => {
+	it("reads the record another checkout of the tracker wrote (#3829)", async () => {
 		seed([openReview()]);
 		fs.writeFileSync(stub("fail-comment"), "");
-		expect(run().status).toBe(1);
+		expect((await run()).status).toBe(1);
 		fs.rmSync(stub("fail-comment"));
 		/* A failing search leaves only the record to name the ticket by. */
 		fs.writeFileSync(stub("fail-issues-since"), "");
@@ -171,38 +171,38 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 	});
 
-	it("files nothing for a request already answered", () => {
+	it("files nothing for a request already answered", async () => {
 		seed([openReview()]);
-		run();
-		const again = run();
+		await run();
+		const again = await run();
 		expect(again.status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
 		expect(readReplies()).toHaveLength(2);
 	});
 
-	it("answers a request on a review closed since it was written", () => {
+	it("answers a request on a review closed since it was written", async () => {
 		seed([{ ...openReview(), state: "CLOSED" }]);
-		const r = run();
+		const r = await run();
 		expect(r.status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
 		expect(readReplies()).toHaveLength(2);
 	});
 
-	it("files once for a review the open and closed reads both return (#3815)", () => {
+	it("files once for a review the open and closed reads both return (#3815)", async () => {
 		seed([openReview(), { ...openReview(), state: "CLOSED" }]);
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		const calls = fs.readFileSync(stub("calls.log"), "utf8").split("\n");
 		expect(calls.filter((c) => c.startsWith("issue create"))).toHaveLength(1);
 	});
 
-	it("files once when the reply fails, and replies on the next run", () => {
+	it("files once when the reply fails, and replies on the next run", async () => {
 		seed([openReview()]);
 		fs.writeFileSync(stub("fail-comment"), "");
-		const failed = run();
+		const failed = await run();
 		expect(failed.status).toBe(1);
 		expect(failed.stderr).toContain("without filing it again");
 		fs.rmSync(stub("fail-comment"));
-		const again = run();
+		const again = await run();
 		expect(again.status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
 		expect(readReplies()[0]).toMatch(
@@ -210,21 +210,21 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 	});
 
-	it("names a ticket whose create landed reporting failure, on the next run (#3828)", () => {
+	it("names a ticket whose create landed reporting failure, on the next run (#3828)", async () => {
 		seed([openReview()]);
 		fs.writeFileSync(stub("fail-after-create"), "");
-		const failed = run();
+		const failed = await run();
 		expect(failed.status).toBe(1);
 		expect(failed.stderr).toContain("left for the next run");
 		expect(readCreated()).toHaveLength(1);
 		fs.rmSync(stub("fail-after-create"));
 		fs.writeFileSync(stub("fail-comment"), "");
-		expect(run().status).toBe(1);
+		expect((await run()).status).toBe(1);
 		expect(readCreated()).toHaveLength(1);
 		fs.rmSync(stub("fail-comment"));
 		/* Named off the record now: this run's read of the tracker would fail. */
 		fs.writeFileSync(stub("fail-issues-since"), "");
-		const named = run();
+		const named = await run();
 		expect(named.stderr).toBe("");
 		expect(named.status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
@@ -233,21 +233,21 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 	});
 
-	it("looks again before filing where the read for a landed ticket comes back empty (#3828)", () => {
+	it("looks again before filing where the read for a landed ticket comes back empty (#3828)", async () => {
 		const review = openReview();
 		seed([review]);
 		fs.writeFileSync(stub("fail-after-create"), "");
-		run();
+		await run();
 		fs.rmSync(stub("fail-after-create"));
 		fs.writeFileSync(stub("empty-issues-since"), "");
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
 		expect(fs.readFileSync(stub("calls.log"), "utf8")).toContain(
 			`since=${review.createdAt}`,
 		);
 	});
 
-	it("files a reversal whose title another request's ticket already carries (#3828)", () => {
+	it("files a reversal whose title another request's ticket already carries (#3828)", async () => {
 		seed([openReview()]);
 		/* The URL holds this request's as a prefix, as `entry 1` does `entry 12`. */
 		fs.writeFileSync(
@@ -258,15 +258,15 @@ describe("answer-review-reversals.js (#2017)", () => {
 				body: `The founder reversed entry 1 of the morning review acme/wfc#5 ([#5 comment](${Request}0)): the delegated decision.`,
 			}),
 		);
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		expect(readCreated()).toHaveLength(2);
 		expect(readReplies()[0]).toMatch(/entry 1 → acme\/wfc#9\d\d, for/);
 	});
 
-	it("files nothing where the look for a landed ticket fails (#3828)", () => {
+	it("files nothing where the look for a landed ticket fails (#3828)", async () => {
 		seed([openReview()]);
 		fs.writeFileSync(stub("fail-issues-since"), "");
-		const r = run();
+		const r = await run();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(
 			"entry 1 of #5: could not look for a ticket already filed (gh: Not Found (HTTP 404)), left for the next run",
@@ -279,7 +279,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		["another checkout of the tracker (#3829)", runFromClone],
 	])(
 		"files nothing from %s while a live run holds the reversal lock",
-		(_from, runIt) => {
+		async (_from, runIt) => {
 			seed([openReview()]);
 			/* pid-lock.js reads a holder by its command line, so the holder runs
 			 * a file of this script's name. */
@@ -296,7 +296,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 			});
 			try {
 				fs.writeFileSync(lockFile(), String(holder.pid));
-				const r = runIt();
+				const r = await runIt();
 				expect(r.status).toBe(0);
 				expect(r.stdout).toContain("another run is answering reversals");
 				expect(readCreated()).toHaveLength(0);
@@ -330,7 +330,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 					() => expect(fs.existsSync(stub("holding"))).toBe(true),
 					{ timeout: HOLDER_START_MS },
 				);
-				const r = runOther();
+				const r = await runOther();
 				expect(r.status).toBe(0);
 				expect(r.stdout).toContain("another run is answering reversals");
 				expect(readCreated()).toHaveLength(0);
@@ -345,18 +345,18 @@ describe("answer-review-reversals.js (#2017)", () => {
 		HOLDER_TEST_MS,
 	);
 
-	it("takes a reversal lock whose holder is dead", () => {
+	it("takes a reversal lock whose holder is dead", async () => {
 		seed([openReview()]);
 		fs.writeFileSync(lockFile(), endedPid());
-		expect(run().status).toBe(0);
+		expect((await run()).status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
 		expect(fs.existsSync(lockFile())).toBe(false);
 	});
 
-	it("takes over a reversal lock a live process holds that answers no reversals", () => {
+	it("takes over a reversal lock a live process holds that answers no reversals", async () => {
 		seed([openReview()]);
 		fs.writeFileSync(lockFile(), String(process.ppid));
-		const r = run();
+		const r = await run();
 		expect(r.status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
 		expect(fs.existsSync(lockFile())).toBe(false);

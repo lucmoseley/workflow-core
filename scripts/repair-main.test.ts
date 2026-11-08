@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The repair of an unreadable shared `main` (#3198), run as a session runs it,
- * against a real repo. Its side on the real tick is refill-loop-run-recovery.test.ts's, and
+ * against a real repo. Its side on the real tick is refill-loop-run-holds.test.ts's, and
  * the guard's that names it is guard-pull-form.test.ts's.
  *
  * WHAT BREAKING IT COSTS: a proof that lets a readable `main` through rewinds a
