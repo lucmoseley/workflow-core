@@ -160,8 +160,7 @@ describe("the SessionStart housekeeping launcher", () => {
 			env: {
 				...process.env,
 				...throttleEnv(),
-				/* No user manager: a job reaches the fake node directly, and no
-				 * test makes a real scope. */
+				/* No user manager: a job reaches the fake node directly. */
 				WFC_SYSTEMD_RUN: writeSystemdRun(bin, { answers: false }).bin,
 				...env,
 				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -265,13 +264,8 @@ describe("the SessionStart housekeeping launcher", () => {
 		expect(await reached(test.log, "repo-checks.js")).toBe(false);
 	});
 
-	/*
-	 * The outliving launch (#4706): every job but the session's scope arrives
-	 * at a stand-in systemd-run as no session, owned by the starter, at the
-	 * 45-minute ceiling; with no manager, each still starts, stripped and
-	 * owner-tagged. Stand-in node, git and systemd-run record what reaches
-	 * them and run nothing.
-	 */
+	/* Stand-in node, git and systemd-run record what reaches them and run
+	 * nothing (#4706). */
 	const Outliving = [
 		"retire-stale-containers.js",
 		"scratch-sweep.js",

@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # detach.sh — start a command nothing waits on, for the hooks that launch
-# background jobs (session-start-sweeps.sh), and the outliving launch below.
+# background jobs (session-start-sweeps.sh).
 #
 # SOURCED, never run.
 #
@@ -33,13 +33,13 @@ detach() {
 # everything it started. Where no user manager answers, it is the plain
 # detach, still stripped and owner-tagged.
 OUTLIVE_STRIPPED=(CLAUDE_CODE_SESSION_ID CLAUDE_JOB_DIR WFC_REPORT_OWNER)
-# lib/user-scope.js's OUTLIVE_CEILING_S, whose derivation it carries.
+# lib/user-scope.js's OUTLIVE_CEILING_S.
 # shellcheck disable=SC2034 # read by the scripts that source this file
 OUTLIVE_CEILING_S=2700
 
 # outlive_probe — set OUTLIVE_MANAGER to yes where `systemd-run --user
 # --scope` starts a command, else no; the 5 s bound is lib/systemd-bins.js's
-# MANAGER_TIMEOUT_MS. Run once per launcher, before its first outlive.
+# MANAGER_TIMEOUT_MS.
 outlive_probe() {
   OUTLIVE_MANAGER=no
   if timeout 5 "${WFC_SYSTEMD_RUN:-systemd-run}" --user --scope --quiet -- true >/dev/null 2>&1; then

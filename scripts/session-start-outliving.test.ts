@@ -10,9 +10,7 @@
  * follows lib/code-edges.js's edges, plus the launcher's `"$here/<script>"`
  * launches. It reads each file lexically, comment lines skipped:
  *   JS — a `detached: true` spawn whose child is `.unref()`ed within
- *     UNREF_REACH lines: unref is what lets the parent exit and leave it
- *     running, where a child left referenced holds its parent, and so the
- *     hook, open until it ends;
+ *     UNREF_REACH lines;
  *   shell — `setsid`, `nohup`, `disown`, lib/detach.sh's `detach`, or a
  *     command backgrounded with a lone `&`.
  * Residual: a child spawned without `detached`, or unref'd further off than
@@ -48,7 +46,6 @@ const JS_DETACH = /\bdetached:\s*true\b/;
 /* A guess: a spawn call and its unref sit within this many lines. */
 const UNREF_REACH = 15;
 
-/* The primitive's own home. */
 const PRIMITIVE = new Set([
 	"scripts/lib/detach.sh",
 	"scripts/lib/user-scope.js",
@@ -60,9 +57,7 @@ const IN_SESSION = 'detach node "$here/session-scope.js"';
 
 /*
  * Libraries the walk reaches only because a session-start script shares
- * them, whose detached launch runs from elsewhere: #4706's out-of-scope
- * routes, each either in a session and rightly killed with it, or leaving by
- * its own route. Each names its count of detach sites, so a new one fails.
+ * them, whose detached launch runs from elsewhere (#4706). Each names its count of detach sites, so a new one fails.
  */
 const NOT_AT_SESSION_START: Record<string, { why: string; sites: number }> = {
 	"scripts/lib/refill-repos.js": {

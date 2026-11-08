@@ -49,13 +49,12 @@ source "$here/lib/detach.sh"
 
 # THE SESSION'S SCOPE, FIRST (#4341), and the one job left in it: it must run
 # in the session's own cgroup to move the session into its scope. Never under
-# VITEST, which Vitest sets in every process it spawns.
+# VITEST.
 [[ -n "${VITEST:-}" ]] || detach node "$here/session-scope.js"
 
 # outlive_live [--log <file>] <command> [<args>…] — every other job: the
-# outliving launch (lib/detach.sh), owned by this session, at the one ceiling,
-# so the session's end neither kills it nor leaves it unbounded (#4706). The
-# user manager is probed once, at the first. Never under VITEST: each job
+# outliving launch (lib/detach.sh), owned by this session, at the one ceiling
+# (#4706). Never under VITEST: each job
 # writes to the live tracker or deletes from the founder's real scratch
 # directory, and has no test redirection here.
 outlive_live() {

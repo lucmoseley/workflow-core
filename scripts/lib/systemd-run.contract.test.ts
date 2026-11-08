@@ -7,8 +7,7 @@
  * release stops a scope's command seeing its argv or environment, or a probe
  * reads a manager that is not there.
  *
- * The real side runs where a user manager answers, never in CI (§G7 item 2):
- * each call starts a transient scope that ends with its command.
+ * The real side runs where a user manager answers, never in CI (§G7 item 2).
  */
 
 import { spawnSync } from "node:child_process";

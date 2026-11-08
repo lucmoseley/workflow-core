@@ -104,11 +104,9 @@ next();
 /*
  * The outliving launch's Node face (#4706), driven in a fresh node so its
  * probe of the user manager is its own, against a stand-in systemd-run that
- * records what reaches it. Loosen it and a session-start job is killed at its
- * session's end, or a job left outside every scope names the wrong owner.
+ * records what reaches it.
  */
 describe("the outliving launch", () => {
-	/** Launch `rec.sh job` through spawnOutliving, the manager answering or not. */
 	function launch(answers: boolean, opts: string) {
 		const dir = scratch();
 		const rec = path.join(dir, "rec.log");
@@ -177,7 +175,6 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		);
 		const [shellKeys = "", shellCeiling] = r.stdout.trim().split("\n");
 		const stripped = shellKeys.split(" ");
-		/* Every key either side might strip, and the rest of this env. */
 		const env: Record<string, string> = { ...process.env, CLAUDE_PID: "1" };
 		for (const key of [
 			...stripped,

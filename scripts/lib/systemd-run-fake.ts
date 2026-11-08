@@ -12,7 +12,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
 
-/** The words the probe of the user manager passes. */
 const PROBE = "--user --scope --quiet -- true";
 
 export interface SystemdRunCall {
@@ -27,7 +26,6 @@ export interface SystemdRunCall {
 }
 
 /**
- * Write the stub into `dir`.
  * @returns its path, and the calls it has recorded, the probe's left out
  */
 export function writeSystemdRun(dir: string, { answers = true } = {}) {

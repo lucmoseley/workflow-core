@@ -31,7 +31,7 @@
  * EVERY KILL IS LOGGED, one JSON line in `.orphan-hook-reaps.jsonl` under the
  * canonical checkout's .claude/tmp/markers (lib/orphan-hooks.js's killReaps
  * writes its fields). Lines are kept
- * RETAIN_MS. Each log's directory is made first. An unwritable log costs the
+ * RETAIN_MS. An unwritable log costs the
  * line, never the kill, and the report then says the write failed.
  *
  * WFC_PROC REPLACES /proc (lib/proc-root.js). A run against it names
@@ -182,8 +182,7 @@ function unseenSessionKills(canonical, log) {
 	try {
 		read = readJsonl(log);
 	} catch (err) {
-		/* Said, not stamped, so the next start reads it again; the kills still
-		 * go ahead (#4706). */
+		/* Said, not stamped, so the next start reads it again (#4706). */
 		return { rows: [], stamp, unreadable: `${log}: ${parseErrorText(err)}` };
 	}
 	const rows = (read?.rows ?? []).filter(

@@ -213,8 +213,7 @@ describe("a real orphaned guard", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	/** Start a real orphan hook run past the ceiling and sweep it; `prepare`
-	 * shapes the checkout first. */
+	/** `prepare` shapes the checkout first. */
 	function sweepOrphanHook(
 		args = ["--json"],
 		prepare = () => {
@@ -335,7 +334,7 @@ describe("a real process of an ended session", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	/** Start a real orphan of a gone session and sweep it, logging to `log`. */
+	/** `log` may name `<dir>`, this run's temp checkout. */
 	function sweepEndedSession(log: string, args = ["--json"]) {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
 		spawnSync("git", ["init", "-q", dir]);
