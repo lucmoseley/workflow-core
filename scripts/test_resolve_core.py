@@ -380,6 +380,40 @@ def test_takes_an_install_recorded_for_the_linked_worktree_over_its_main_checkou
     assert agreed(worktree, {"CLAUDE_CONFIG_DIR": str(config)})["value"] == str(own)
 
 
+def test_resolves_a_root_with_an_exact_install_row_without_spawning_git(
+    adopter, tmp_path, monkeypatch
+):
+    """#4150."""
+    root, config, install = adopter()
+    _linked_worktree(root, tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    called = bin_dir / "called"
+    fake_git = bin_dir / "git"
+    fake_git.write_text(f'#!/bin/sh\necho "$@" >> "{called}"\nexit 1\n')
+    fake_git.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    env = {"CLAUDE_CONFIG_DIR": str(config)}
+    assert resolve_core(root=str(root), env=env) == str(install)
+    assert not called.exists()
+
+
+@pytest.mark.parametrize("spelling", ["symlink", "trailing slash"])
+def test_resolves_a_main_checkouts_root_spelt_otherwise_through_gits_spelling(
+    adopter, tmp_path, spelling
+):
+    """#4150."""
+    root, config, install = adopter()
+    _linked_worktree(root, tmp_path)
+    if spelling == "symlink":
+        spelt = tmp_path / "link"
+        spelt.symlink_to(root)
+        spelt = str(spelt)
+    else:
+        spelt = f"{root}{os.sep}"
+    assert agreed(spelt, {"CLAUDE_CONFIG_DIR": str(config)})["value"] == str(install)
+
+
 def test_takes_no_main_checkout_for_a_directory_below_a_checkouts_top_level(
     adopter, tmp_path
 ):

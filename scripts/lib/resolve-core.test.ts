@@ -202,6 +202,46 @@ describe("resolveCore's lookup order (#461)", () => {
 		);
 	});
 
+	it("resolves a root with an exact install row without spawning git (#4150)", () => {
+		const { root, configDir, installPath } = fixture({ pinRef: "v1.1.8" });
+		initRepo(root);
+		const bin = siblingDir(root, "bin");
+		const called = path.join(bin, "called");
+		fs.writeFileSync(
+			path.join(bin, "git"),
+			`#!/bin/sh\necho "$@" >> ${JSON.stringify(called)}\nexit 1\n`,
+			{ mode: 0o755 },
+		);
+		expect(
+			resolveInPlainShell(root, configDir, {
+				root,
+				env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+			}),
+		).toBe(installPath);
+		expect(fs.existsSync(called)).toBe(false);
+	});
+
+	it.each([
+		[
+			"through a symlink",
+			(root: string) => {
+				const link = path.join(path.dirname(root), "link");
+				fs.symlinkSync(root, link);
+				return link;
+			},
+		],
+		["with a trailing slash", (root: string) => `${root}${path.sep}`],
+	])(
+		"resolves a main checkout's root spelt %s through git's spelling of it (#4150)",
+		(_spelling, spell) => {
+			const { root, configDir, installPath } = fixture({ pinRef: "v1.1.8" });
+			initRepo(root);
+			expect(resolve(spell(root), { CLAUDE_CONFIG_DIR: configDir })).toBe(
+				installPath,
+			);
+		},
+	);
+
 	it("takes no main checkout for a directory inside a checkout that is not its top level", () => {
 		const { root, configDir } = fixture({ pinRef: "v1.1.8" });
 		initRepo(root);
