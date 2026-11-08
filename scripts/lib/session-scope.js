@@ -148,9 +148,24 @@ while left && [ $i -lt ${GRACE_S} ]; do sleep 1; i=$((i + 1)); done
 exit 0
 `;
 
+/**
+ * The leader a watcher's argv waits on, `{pid, startTicks}`, or null where
+ * `argv` is not the watcher: `sh -c WATCH sh <pid> <start> <unit>`, as the
+ * kernel reports it, with sh at whatever path the service resolved.
+ * @param {string[]} argv
+ */
+function watchedLeader(argv) {
+	if (argv[1] !== "-c" || argv[2] !== WATCH) return null;
+	const pid = Number(argv[4]);
+	const startTicks = Number(argv[5]);
+	if (!Number.isInteger(pid) || !Number.isInteger(startTicks)) return null;
+	return { pid, startTicks };
+}
+
 module.exports = {
 	SLICE,
 	WATCH,
+	watchedLeader,
 	unitOf,
 	watcherOf,
 	isSessionProcess,

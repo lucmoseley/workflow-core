@@ -26,7 +26,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeProcRoot, type ProcSpec } from "./lib/proc-fake";
+import { USER_HZ } from "./lib/proc-table.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { WATCH } from "./lib/session-scope.js";
 
 const SCRIPT = path.join(__dirname, "check-orphan-wait-loops.js");
 
@@ -248,6 +250,59 @@ describe("check-orphan-wait-loops", () => {
 
 		expect(run("--notify").out).toContain("pid 4242");
 		expect(run("--notify").out).toContain("pid 4242");
+	});
+
+	/* A session-scope watcher sits under `systemd --user` by design and waits on
+	 * its session's leader; the check reads that leader's pid and start time out
+	 * of the watcher's argv (#4670). */
+	describe("a session-scope watcher (#4670)", () => {
+		const Leader = 660_083;
+		const LeaderAgeS = 3600;
+		const startOf = (ageS: number) =>
+			Math.round((fixture.uptime - ageS) * USER_HZ);
+
+		function watcher(start: number) {
+			proc(231, { argv: "/usr/lib/systemd/systemd --user" });
+			proc(4242, {
+				ppid: 231,
+				argv: [
+					"/usr/bin/sh",
+					"-c",
+					WATCH,
+					"sh",
+					String(Leader),
+					String(start),
+					`wfc-session-${Leader}-${start}.scope`,
+				],
+			});
+		}
+
+		it("is not reported while its leader lives", () => {
+			proc(Leader, { ppid: 900, argv: "claude bg-spare", ageS: LeaderAgeS });
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphanCount).toBe(0);
+		});
+
+		it("is reported once its leader is gone", () => {
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
+
+		it("is reported once its leader is a zombie", () => {
+			proc(Leader, { ppid: 900, state: "Z", ageS: LeaderAgeS });
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
+
+		it("is reported once its leader's pid is reused", () => {
+			proc(Leader, { ppid: 900, argv: "claude bg-spare", ageS: 60 });
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
 	});
 
 	it("never names its own process, even where its entry matches every test", () => {
