@@ -61,16 +61,18 @@
  *    and the refusal names the heredoc form. The GraphQL route never reaches
  *    it at all: labels there are opaque node ids, so the guard cannot tell a
  *    `takes:human` creation from any other one.
- *  - THE OUTSIDE-LINE LIMBS are lib/takes-label.js's four tests, in its
+ *  - THE OUTSIDE-LINE LIMBS are lib/takes-label.js's tests, in its
  *    order, on create and on relabel: no act named (mantahostels#2775); a
  *    prohibition named rather than an act (#140); a repo file as the act's
- *    product (mantahostels#3555, ruled on mantahostels#3503); none of the
- *    founder's own acts and no `Tried:` list of three (#1097, ruled on
- *    #1077). Each reads the Outside line alone and lexically, so a line
+ *    product (mantahostels#3555, ruled on mantahostels#3503); a screen a
+ *    session can drive with no `Tried:` list of two (#4142, ruled on
+ *    #3720); none of the founder's own acts and no `Tried:` list of three
+ *    (#1097, ruled on #1077); a refused act as the only one and no `Tried:`
+ *    list of two (#4142). Each reads the Outside line alone and lexically, so a line
  *    naming the act without the path, or a list word in a non-act sense,
  *    passes.
  *  - THE CLOSE-WHEN LIMB (#983) refuses a `takes:human` body, on create and
- *    on relabel, carrying no `**Close when:**` line, after the four
+ *    on relabel, carrying no `**Close when:**` line, after the
  *    Outside-line tests pass. Presence only. The refusal carries the
  *    `founder-deliverable` fragment; a body passing every limb gets a
  *    one-line pointer to it.
@@ -183,6 +185,7 @@ const {
 	TRIED_MIN,
 	TRIED_WAY,
 	outsideLineFault,
+	UNTRIED_FAULTS,
 } = require("./takes-label.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -739,6 +742,18 @@ The rule (mantahostels#3503): ${ruleOrFallback(run.ctx, "repo-file-act", "An act
 Relabel, and drop the tool and the path from the Outside line if a real outside act remains.
 
 Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels#3555).`,
+		);
+	if (found?.fault === "SURFACE-UNTRIED" || found?.fault === "REFUSED-UNTRIED")
+		deny(
+			run.ctx,
+			segment,
+			`This ${verb} whose Outside line ${UNTRIED_FAULTS[found.fault].says}: @CMD@
+
+  ${found.line}
+
+${UNTRIED_FAULTS[found.fault].fix}
+
+Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (#4142, ruled on #3720).`,
 		);
 	if (found?.fault === "OBSERVE-ONLY")
 		deny(
