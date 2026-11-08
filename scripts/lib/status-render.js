@@ -1,6 +1,7 @@
 /*
  * status-render.js — the report npm run status prints from its checkers'
- * finished runs (scripts/status-report.js).
+ * finished runs (scripts/status-report.js), a module of its own so the
+ * STANDINGS print rule is tested through its export (#4107).
  */
 
 /**
@@ -65,4 +66,4 @@ function render(results) {
 	return text;
 }
 
-module.exports = { render, STANDINGS };
+module.exports = { render };

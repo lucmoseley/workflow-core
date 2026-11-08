@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { render, STANDINGS } from "./status-render.js";
+import { render } from "./status-render.js";
 
 const result = (name: string, out: string) => ({
 	name,
@@ -17,7 +17,13 @@ const result = (name: string, out: string) => ({
 });
 
 describe("the STANDINGS print rule (#4107)", () => {
-	it.each([...STANDINGS])("prints %s's body under its OK", (name) => {
+	it.each([
+		"escape-audit",
+		"primitives",
+		"wsl-currency",
+		"compaction-backstop",
+		"release-lag",
+	])("prints %s's body under its OK", (name) => {
 		const text = render([result(name, "the standing\nOK: read")]);
 		expect(text).toContain(`▸ ${name}  — OK\nthe standing`);
 		expect(text).not.toContain("nothing to report from");
