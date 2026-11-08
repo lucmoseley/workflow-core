@@ -13,7 +13,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseNpmArgv } from "./npm-options.js";
 import { parseSelection, resolveSelection } from "./npm-workspaces.js";
-import { buildPackageReader } from "./package-reader.js";
+import { buildPackageTree } from "./package-reader.js";
 
 const trees: string[] = [];
 
@@ -57,7 +57,7 @@ const select = (top: string, flags: string, from = ".", prefix = "") => {
 		selection,
 		path.join(top, from),
 		top,
-		buildPackageReader(),
+		buildPackageTree(top).readCachedPackage,
 	);
 	return dirs.map((d: string) => path.relative(top, d) || ".");
 };

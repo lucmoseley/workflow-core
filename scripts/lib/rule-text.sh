@@ -13,8 +13,6 @@
 # deny reason. Sourcing must never exit the caller, so `rule_text` RETURNS 1 on
 # an unknown id rather than exiting — a guard that fails open in the house style
 # (mantahostels#103) needs the chance to. `rule_text` itself stays single-id.
-# `rule_or_path <id>` wraps it for a nag that prints the fragment's path where
-# its text is unreadable.
 #
 # The CLI form takes an id LIST (mantahostels#2494) — a session fetching several rules
 # resolves them in one Bash call rather than one per rule. One argument prints
@@ -257,7 +255,7 @@ rule_text() {
 # rule_or_path <id> <lead-in> <tail> — rule fragment <id>'s text, else
 # "<lead-in> <its path><tail>", for a nag that must still point somewhere
 # when the store is unreadable (#3439). It logs the miss through the caller's
-# gl_log where one is defined, since this file sources no guard-log.sh.
+# gl_log where one is defined.
 rule_or_path() {
   local text where
   text="$(rule_text "$1" 2>/dev/null)"
