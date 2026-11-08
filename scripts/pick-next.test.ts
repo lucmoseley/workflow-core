@@ -94,7 +94,7 @@ describe("readiness", () => {
 		).toContain(9);
 	});
 
-	it("marks a frontier row whose latest loop launch committed and did not close, and launches it on the loop's verify prompt (#3782, #4351)", async () => {
+	it("marks a frontier row whose latest loop launch committed and did not close, and carries the loop's verify prompt as its launch prompt (#3782, #4351)", async () => {
 		const refill = path.join(kit.dir, "refill");
 		fs.mkdirSync(refill);
 		fs.writeFileSync(
@@ -137,7 +137,9 @@ describe("readiness", () => {
 		expect(row(8).prompt).toBe("/implement 8");
 		// the prompt lib/refill-decide.js launches the same row on
 		expect(row(9).prompt).toBe(buildVerifyPrompt(9));
-		console.log("PROPOSED", JSON.stringify(r.json().summary.proposed));
+		expect(
+			r.json().summary.proposed.map((p: { prompt: string | null }) => p.prompt),
+		).toEqual([null, "/implement 8", buildVerifyPrompt(9)]);
 		expect(of(9)).toEqual({
 			launchedAt: "2026-10-29T18:00:00.000Z",
 			sessionId: "s9",

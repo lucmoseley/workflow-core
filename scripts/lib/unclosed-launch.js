@@ -12,9 +12,9 @@
  * Residual: acts are counted per session and kind, so a session that closed
  * some other issue reads as having closed this one, and is not caught.
  *
- * Callers: lib/refill-decide.js and pick-next.js (the launch prompt, #4351),
- * lib/refill-loop.js (what a tick's state keeps), pick-next.js and
- * check-unclosed-launches.js (the report).
+ * Callers: lib/refill-decide.js (the launch prompt), lib/refill-loop.js (what a
+ * tick's state keeps), pick-next.js (the launch prompt, #4351, and the report)
+ * and check-unclosed-launches.js (the report).
  */
 
 const { takesValue } = require("./takes-label.js");
@@ -76,7 +76,7 @@ function unclosedLaunchOf(launches, root, n) {
  * @param {number} n
  */
 const buildVerifyPrompt = (n) =>
-	`/implement ${n} — its last loop launch committed and ended without closing it. Before building anything, find that work (git log --all --grep=#${n}) and read it against the acceptance criteria. Finished: close with that evidence. Not finished: say on the ticket what remains, then build only that.`;
+	`${IMPLEMENT_PREFIX}${n} — its last loop launch committed and ended without closing it. Before building anything, find that work (git log --all --grep=#${n}) and read it against the acceptance criteria. Finished: close with that evidence. Not finished: say on the ticket what remains, then build only that.`;
 
 /**
  * The prompt a lone row launches on, the loop's and a manual /pick-next's

@@ -11,7 +11,7 @@ const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
-const { COMMAND_VALUES, TAKES_PREFIX } = require("./takes-label.js");
+const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
@@ -602,10 +602,8 @@ const isParkRoutingMode = (mode) => mode === "normal";
 function buildSkipReason(row, mode) {
 	if (!isParkRoutingMode(mode) && isParked(row)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
-	const [kind, ...more] = row.takes;
-	if (kind === undefined || more.length > 0)
+	if (loneCommandOf(row.takes) === null)
 		return `${TAKES_PREFIX}${row.takes.join("+") || "none"}`;
-	if (!COMMAND_VALUES.includes(kind)) return `${TAKES_PREFIX}${kind}`;
 	return null;
 }
 

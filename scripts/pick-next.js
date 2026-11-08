@@ -107,7 +107,7 @@ const {
 const { listedSessionIds } = require("./lib/agent-liveness");
 const { readJobs } = require("./lib/hung-jobs");
 const { buildOverloadText } = require("./lib/cpu-sample");
-const { COMMAND_VALUES, takesLabel } = require("./lib/takes-label");
+const { loneCommandOf, takesLabel } = require("./lib/takes-label");
 const arbiter = require("./lib/arbiter-store");
 const writeSetCache = require("./lib/write-set-cache");
 const writeSetPredict = require("./lib/write-set-predict");
@@ -943,9 +943,6 @@ function withLaunchPrompt(rows) {
 	const root = arbiter.paths.repoRoot();
 	return rows.map((row) => {
 		const l = unclosedLaunchOf(launches, root, row.number);
-		const [kind, ...more] = row.takes;
-		const lone =
-			kind !== undefined && more.length === 0 && COMMAND_VALUES.includes(kind);
 		return {
 			...row,
 			unclosedLaunch: l && {
@@ -953,7 +950,10 @@ function withLaunchPrompt(rows) {
 				sessionId: l.sessionId ?? null,
 				acts: l.acts,
 			},
-			prompt: lone ? buildRowPrompt({ ...row, root }, launches) : null,
+			prompt:
+				loneCommandOf(row.takes) === null
+					? null
+					: buildRowPrompt({ ...row, root }, launches),
 		};
 	});
 }
@@ -1035,7 +1035,7 @@ function buildPayload(state) {
 		/* Each proposed member's lone launch prompt beside its `takes:` (#4351). */
 		summary: {
 			...summary,
-			proposed: summary.proposed.map((/** @type {any} */ p) => ({
+			proposed: summary.proposed.map((/** @type {{number: number}} */ p) => ({
 				...p,
 				prompt: frontierRows.find((f) => f.number === p.number)?.prompt ?? null,
 			})),
