@@ -39,7 +39,7 @@ lands as `additionalContext` instead, read by a model. No path puts one on
 stderr at all. **What it still costs is assertion robustness** — the column
 padding is the source region's, not the fragment's, so a test asserting on a
 generated fragment collapses whitespace first, as
-`scripts/guard-tracker-rules.test.ts` does.
+`scripts/lib/tracker-rules.test.ts` does.
 
 **Plain text, not JSON.** The guards are half bash and half Node, so a fragment
 must be `cat`-able from one and `fs.readFileSync`-able from the other with no
