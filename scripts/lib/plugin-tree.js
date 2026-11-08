@@ -107,6 +107,7 @@ const { surfaceClosureFaults } = require("./surface-closure.js");
 const { requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
 const { STANDARDS_DOCS, parseBasePaths } = require("./primitives-table.js");
+const { readText } = require("./file-read.js");
 const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
 const { isCollectedTestOrConftest } = require("./test-kind.js");
 const { noticeFaults } = require("./vendored-notices.js");
@@ -704,9 +705,10 @@ function basePrimitivesFaults(root, text) {
  * @returns {string[]}
  */
 function baseFaults(root) {
-	const doc = path.join(root, STANDARDS_DOCS.base);
-	if (!fs.existsSync(doc)) return [];
-	const text = fs.readFileSync(doc, "utf8");
+	const read = readText(path.join(root, STANDARDS_DOCS.base));
+	if (read.state === "absent") return [];
+	if (read.state === "unreadable") throw read.error;
+	const text = read.data;
 	return [
 		...baseLinePinFaults(root, text),
 		...basePrimitivesFaults(root, text),

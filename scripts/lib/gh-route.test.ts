@@ -1,11 +1,14 @@
 // @vitest-environment node
 /*
- * Pins gh-route.js's judgement of one file's text, in-process (#4123).
- * check-gh-route.test.ts holds the program's boundary cases.
+ * Pins gh-route.js's judgement of a tree's files, in-process (#4123).
+ * check-gh-route.test.ts holds the program's boundary cases. Built on
+ * in-memory text and a fake read, so each shape is judged with no tree on
+ * disk. Breaking it lets a second `gh` or `claude` route past the
+ * pre-commit gate, where a call off WFC_GH reaches the live tracker.
  */
 
 import { describe, expect, it } from "vitest";
-import { judgeFile, kindOf } from "./gh-route.js";
+import { judgeFile, judgeTree, kindOf } from "./gh-route.js";
 
 /** A shell or template expansion of `name`, spelt out of plain strings. */
 const sub = (name: string) => ["$", `{${name}}`].join("");
@@ -23,6 +26,32 @@ describe("kindOf", () => {
 		expect(kindOf("scripts/a.test.ts", shell)).toBe("test");
 		expect(kindOf("scripts/a.js", shell)).toBe("node");
 		expect(kindOf("scripts/a.md", shell)).toBeNull();
+	});
+});
+
+describe("judgeTree", () => {
+	it("reads only the files whose kind it judges, counting them, and gives each distinct fix once", () => {
+		const read: string[] = [];
+		const texts: Record<string, string> = {
+			"scripts/a.js": 'spawn("gh", a);\nspawn("gh", b);\n',
+			"scripts/b.sh": "gh issue list\n",
+		};
+		const result = judgeTree(
+			["scripts/a.js", "scripts/b.sh", "scripts/c.md"],
+			new Set(["scripts/b.sh"]),
+			(rel) => {
+				read.push(rel);
+				return texts[rel] ?? "";
+			},
+		);
+		expect(read).toEqual(["scripts/a.js", "scripts/b.sh"]);
+		expect(result.scanned).toBe(2);
+		expect(result.findings.map((f) => [f.file, f.tag, f.line])).toEqual([
+			["scripts/a.js", "NODE-COPY", 1],
+			["scripts/a.js", "NODE-COPY", 2],
+			["scripts/b.sh", "SHELL-BARE", 1],
+		]);
+		expect(result.fixes).toHaveLength(2);
 	});
 });
 

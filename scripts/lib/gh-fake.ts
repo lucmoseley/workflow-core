@@ -120,7 +120,7 @@ export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
  * and a logged-out gh anywhere else: for a test that a program asks gh from
  * the directory it should.
  */
-export function ghAnswerScript(
+export function buildGhAnswerScript(
 	answer: GhAnswer,
 	{ onlyIn }: { onlyIn?: string } = {},
 ): string {
@@ -132,7 +132,7 @@ export function ghAnswerScript(
 
 /** The stub executable answering `fixture`, for gh-stub's `stubGhScript`. */
 export const ghFakeScript = (fixture: string) =>
-	ghAnswerScript(readGhAnswer(fixture));
+	buildGhAnswerScript(readGhAnswer(fixture));
 
 /** `fixture`'s answer as node source calling `out`, `err` and `exit`. */
 function buildAnswerCalls(

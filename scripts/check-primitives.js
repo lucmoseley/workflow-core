@@ -42,7 +42,7 @@ const {
 	judgePrimitives,
 	parseBreaches,
 	primitivesOutcome,
-	reportFindings,
+	buildFindingReports,
 } = require("./lib/primitives-table.js");
 const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 
@@ -140,7 +140,7 @@ const main = () =>
 				return ctx.broken(
 					`${result.broken} (${path.join(plugin, DOCS.base)}) — nothing was judged`,
 				);
-			for (const { message, file, gates } of reportFindings(
+			for (const { message, file, gates } of buildFindingReports(
 				result.findings,
 				inAdopter,
 			)) {

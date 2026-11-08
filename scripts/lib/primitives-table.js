@@ -316,7 +316,7 @@ function primitivesOutcome({ rows, line, findings }) {
  * @param {boolean} inAdopter
  * @returns {{ message: string, file: string, gates: boolean }[]}
  */
-function reportFindings(findings, inAdopter) {
+function buildFindingReports(findings, inAdopter) {
 	return findings.map((f) => {
 		const file = STANDARDS_DOCS[f.side];
 		const at = `${file}${f.line > 0 ? `:${f.line}` : ""}`;
@@ -514,6 +514,6 @@ module.exports = {
 	judgePrimitives,
 	parseBreaches,
 	primitivesOutcome,
-	reportFindings,
+	buildFindingReports,
 	rowChanges,
 };

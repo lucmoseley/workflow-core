@@ -40,7 +40,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { readWorktreeHead, shellFiles } = require("./lib/formatters.js");
-const { judgeFile, kindOf } = require("./lib/gh-route.js");
+const { judgeTree } = require("./lib/gh-route.js");
 const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -69,25 +69,17 @@ runCheck({
 				cached: rootFlag !== null,
 			}),
 		);
-		let scanned = 0;
-		/** @type {Set<string>} */
-		const fixes = new Set();
-		for (const rel of files) {
-			const kind = kindOf(rel, shell);
-			if (!kind) continue;
-			scanned++;
-			const source = fs.readFileSync(path.join(root, rel), "utf8");
-			for (const f of judgeFile(rel, kind, source)) {
-				fixes.add(f.fixLine);
-				ctx.fail(f.tag, f.message, {
-					file: rel,
-					line: f.line,
-					match: f.match,
-					bin: f.bin,
-				});
-			}
-		}
-		saySites(ctx, "second binary route(s)", [...fixes]);
+		const { scanned, findings, fixes } = judgeTree(files, shell, (rel) =>
+			fs.readFileSync(path.join(root, rel), "utf8"),
+		);
+		for (const f of findings)
+			ctx.fail(f.tag, f.message, {
+				file: f.file,
+				line: f.line,
+				match: f.match,
+				bin: f.bin,
+			});
+		saySites(ctx, "second binary route(s)", fixes);
 		return {
 			okLine: `${scanned} file(s), every \`gh\` call on WFC_GH and every \`claude\` call on WFC_CLAUDE_BIN.`,
 			noun: "second binary route(s)",

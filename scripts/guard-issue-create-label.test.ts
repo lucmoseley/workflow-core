@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { ghAnswerScript, readGhAnswer } from "./lib/gh-fake";
+import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
 import {
@@ -68,7 +68,7 @@ const emission = (
 function ghAnswering(fixture: string, stdout: string, onlyIn?: string) {
 	return stubGhScript(
 		path.join(dir, "gh"),
-		ghAnswerScript({ ...readGhAnswer(fixture), stdout }, { onlyIn }),
+		buildGhAnswerScript({ ...readGhAnswer(fixture), stdout }, { onlyIn }),
 	).env;
 }
 

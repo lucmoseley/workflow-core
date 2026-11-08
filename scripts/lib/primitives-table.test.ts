@@ -8,12 +8,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	buildFindingReports,
 	countPrimitives,
 	judgePrimitives,
 	parseBasePaths,
 	parseBreaches,
 	primitivesOutcome,
-	reportFindings,
 } from "./primitives-table.js";
 
 const envelope = (fields: Record<string, unknown>) => JSON.stringify(fields);
@@ -160,12 +160,12 @@ describe("judgePrimitives", () => {
 	});
 });
 
-describe("reportFindings", () => {
+describe("buildFindingReports", () => {
 	const base = { side: "base" as const, line: 4, job: "J", message: "m" };
 	const local = { side: "local" as const, line: 0, job: "", message: "n" };
 
 	it("warns on a base row's fault in an adopter, as the plugin's to fix, and fails every other", () => {
-		expect(reportFindings([base, local], true)).toEqual([
+		expect(buildFindingReports([base, local], true)).toEqual([
 			{
 				message:
 					'docs/code-standards-base.md:4 (row "J"): m — the plugin\'s to fix',
@@ -181,7 +181,7 @@ describe("reportFindings", () => {
 	});
 
 	it("fails a base row's fault in the core", () => {
-		expect(reportFindings([base], false)).toEqual([
+		expect(buildFindingReports([base], false)).toEqual([
 			{
 				message: 'docs/code-standards-base.md:4 (row "J"): m',
 				file: "docs/code-standards-base.md",

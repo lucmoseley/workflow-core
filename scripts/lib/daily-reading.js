@@ -22,12 +22,15 @@ const { writeFd } = require("./write-fd.js");
 const DAY_MS = 24 * 3_600_000;
 
 /**
- * @param {{ where: string, stamp: string, lock: string, script: string,
- *   read: (nowMs: number) => string }} reading `where` names the run in the
- *   error log; `stamp` and `lock` are basenames in the git common dir;
- *   `script` is the filer's basename; `read` returns what it did, to print
+ * @param {{ script: string, stamp: string, read: (nowMs: number) => string }}
+ *   reading `script` is the filer's own path, whose basename the gate's lock
+ *   holder carries and, less `.js`, names the run in the error log; `stamp`
+ *   is the stamp's basename in the git common dir, its lock beside it with
+ *   `.lock` added; `read` returns what it did, to print
  */
-function runDailyReading({ where, stamp, lock, script, read }) {
+function runDailyReading({ script, stamp, read }) {
+	const where = path.basename(script, ".js");
+	const lock = `${stamp}.lock`;
 	try {
 		const nowMs = now();
 		const dir = gitCommonDirOrThrow(hostRoot());
@@ -35,7 +38,7 @@ function runDailyReading({ where, stamp, lock, script, read }) {
 			{
 				stamp: path.join(dir, stamp),
 				lock: path.join(dir, lock),
-				script,
+				script: path.basename(script),
 				nowMs,
 				everyMs: DAY_MS,
 			},

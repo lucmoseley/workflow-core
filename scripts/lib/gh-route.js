@@ -4,8 +4,8 @@
  * over one file's text. check-gh-route.js's header holds the contract: the
  * four shapes, the opt-out marker and what defeats them.
  *
- * A CORE (base §T7): it performs no I/O. The shell lists the tree, reads each
- * file and names its shell files.
+ * A CORE (base §T7): its one read is the `read(rel)` port judgeTree takes.
+ * The shell lists the tree and names its shell files.
  */
 
 const { blankComments } = require("./strip-comments.js");
@@ -318,4 +318,29 @@ function judgeFile(rel, kind, source) {
 	});
 }
 
-module.exports = { judgeFile, kindOf };
+/**
+ * Every finding in `files`, each read through `read` only where its kind is
+ * judged, with how many were scanned and each distinct fix line.
+ * @param {string[]} files
+ * @param {Set<string>} shell
+ * @param {(rel: string) => string} read
+ */
+function judgeTree(files, shell, read) {
+	let scanned = 0;
+	/** @type {(ReturnType<typeof judgeFile>[number] & { file: string })[]} */
+	const findings = [];
+	for (const rel of files) {
+		const kind = kindOf(rel, shell);
+		if (!kind) continue;
+		scanned++;
+		for (const f of judgeFile(rel, kind, read(rel)))
+			findings.push({ ...f, file: rel });
+	}
+	return {
+		scanned,
+		findings,
+		fixes: [...new Set(findings.map((f) => f.fixLine))],
+	};
+}
+
+module.exports = { judgeFile, judgeTree, kindOf };

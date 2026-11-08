@@ -589,10 +589,8 @@ function fileRun() {
 
 function daily() {
 	runDailyReading({
-		where: "report-arch-scan-due",
+		script: __filename,
 		stamp: ".arch-scan-read",
-		lock: ".arch-scan-read.lock",
-		script: path.basename(__filename),
 		read: fileRun,
 	});
 }

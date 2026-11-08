@@ -270,7 +270,10 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"program-output": ["scripts/check-program-output.js"],
 	primitives: ["scripts/check-primitives.js"],
 	"test-spawn": ["scripts/check-test-spawn.js"],
-	"precommit-exit": ["scripts/check-precommit-exit.js"],
+	"precommit-exit": [
+		"scripts/check-precommit-exit.js",
+		"scripts/lib/precommit-exit.js",
+	],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.sh"],

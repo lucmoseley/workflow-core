@@ -175,4 +175,17 @@ function parseBreaches(text) {
 	return found;
 }
 
-module.exports = { FIX, parseBreaches };
+/**
+ * Each breach in one hook file, with the message it prints.
+ * @param {string} rel
+ * @param {string} text
+ * @returns {{ line: number, match: string, message: string }[]}
+ */
+const judgeHook = (rel, text) =>
+	parseBreaches(text).map(({ line, text: match }) => ({
+		line,
+		match,
+		message: `${rel}:${line} exits 1 on a checker's failure, turning its BROKEN into a finding (\`${match}\`). Fix: ${FIX}`,
+	}));
+
+module.exports = { FIX, judgeHook, parseBreaches };

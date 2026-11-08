@@ -17,7 +17,6 @@
  * and on a refused command line.
  */
 
-const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
 const { failureReason, now } = require("./lib/check");
 const { parseOrExit } = require("./lib/cli-args");
@@ -81,10 +80,8 @@ function fileRun(nowMs) {
 
 function daily() {
 	runDailyReading({
-		where: "report-heresy-sweep-due",
+		script: __filename,
 		stamp: ".heresy-sweep-read",
-		lock: ".heresy-sweep-read.lock",
-		script: path.basename(__filename),
 		read: fileRun,
 	});
 }
