@@ -28,7 +28,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeProcRoot, type ProcSpec } from "./lib/proc-fake";
 import { USER_HZ } from "./lib/proc-table.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { WATCH } from "./lib/session-scope.js";
+import { WATCH, watcherArgv } from "./lib/session-scope.js";
 
 const SCRIPT = path.join(__dirname, "check-orphan-wait-loops.js");
 
@@ -261,18 +261,15 @@ describe("check-orphan-wait-loops", () => {
 		const startOf = (ageS: number) =>
 			Math.round((fixture.uptime - ageS) * USER_HZ);
 
-		function watcher(start: number) {
+		function watcher(start: number, script = WATCH) {
 			proc(231, { argv: "/usr/lib/systemd/systemd --user" });
 			proc(4242, {
 				ppid: 231,
 				argv: [
 					"/usr/bin/sh",
-					"-c",
-					WATCH,
-					"sh",
-					String(Leader),
-					String(start),
-					`wfc-session-${Leader}-${start}.scope`,
+					...watcherArgv(Leader, start)
+						.slice(1)
+						.map((word) => (word === WATCH ? script : word)),
 				],
 			});
 		}
@@ -295,6 +292,13 @@ describe("check-orphan-wait-loops", () => {
 			watcher(startOf(LeaderAgeS));
 
 			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
+
+		it("is not reported while its leader lives, though started from an older WATCH", () => {
+			proc(Leader, { ppid: 900, argv: "claude bg-spare", ageS: LeaderAgeS });
+			watcher(startOf(LeaderAgeS), "p=$1\nwhile alive; do sleep 5; done");
+
+			expect(json().orphanCount).toBe(0);
 		});
 
 		it("is reported once its leader's pid is reused", () => {

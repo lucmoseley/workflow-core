@@ -85,7 +85,7 @@ const {
 } = require("./lib/proc-table.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { watchedLeader } = require("./lib/session-scope.js");
+const { parseWatcherArgv } = require("./lib/session-scope.js");
 
 /* The threshold, a judgement and not a measurement (mantahostels#2012). */
 const ORPHAN_AFTER_MINUTES = 30;
@@ -133,8 +133,8 @@ function shorten(argv) {
  * @param {import("./lib/proc-table.js").Proc} proc
  * @param {Map<number, import("./lib/proc-table.js").Proc>} table
  */
-function watchesLiveLeader(proc, table) {
-	const leader = watchedLeader(proc.argv);
+function isLiveLeaderWatcher(proc, table) {
+	const leader = parseWatcherArgv(proc.argv);
 	return (
 		leader !== null && table.get(leader.pid)?.startTicks === leader.startTicks
 	);
@@ -161,7 +161,7 @@ function findOrphans(table, mine, { bootAgo, minutes }) {
 		if (!isInit(proc.ppid, table.get(proc.ppid)?.argv[0])) continue;
 		const argv = proc.argv.join(" ");
 		if (!isWaitLoop(argv)) continue;
-		if (watchesLiveLeader(proc, table)) continue;
+		if (isLiveLeaderWatcher(proc, table)) continue;
 		const ageMinutes = ageSeconds(proc, bootAgo) / 60;
 		if (ageMinutes < minutes) {
 			young++;
