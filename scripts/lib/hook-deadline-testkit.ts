@@ -20,7 +20,7 @@ export function withStopClockLeft(modules: string[], leftMs: number) {
 	drop();
 	const deadline = req("./hook-deadline.js");
 	/* startEntryClock dates the start back by the process's uptime; adding it
-	 * here puts the start exactly `budget - leftMs` ago. */
+	 * here puts the start `budget - leftMs` ago. */
 	deadline.startEntryClock(
 		"Stop",
 		Date.now() +

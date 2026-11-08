@@ -258,8 +258,9 @@ describe("a hook's time budget (#4115)", () => {
 			400,
 		);
 		try {
+			const [, fresh] = loaded;
 			const started = Date.now();
-			const r = loaded[1].listedAgents();
+			const r = fresh.listedAgents();
 			expect(r.why).toContain("inside the hook's time budget");
 			expect(calls()).toBe(1);
 			// §X9: a process timeout: the 400 ms left, not the 5 s cap, bounds the hung child.

@@ -18,7 +18,8 @@
  * which runs from the same start (lib/npm-install.js).
  *
  * At Stop, guard-uncommitted-work.js's 15 s less 3 s for the one block write
- * after its reads, a margin chosen on #4115's measurement. */
+ * after its reads: 12 s rests on #4115's measurement, the 3 s is unmeasured
+ * headroom. */
 const ENTRY_BUDGET_MS = { PreToolUse: 30_000, PostToolUse: 7500, Stop: 12_000 };
 
 /** @type {number | null} */
