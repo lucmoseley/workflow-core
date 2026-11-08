@@ -2,7 +2,9 @@
 /*
  * list-sessions.js prints every plan's sessions, each under its config dir,
  * and names a dir it could not read rather than dropping it (#4224). A fake
- * `claude` on WFC_CLAUDE_BIN answers per CLAUDE_CONFIG_DIR.
+ * `claude` on WFC_CLAUDE_BIN answers per CLAUDE_CONFIG_DIR. Broken, a
+ * diagnosis reading it misses a session on another plan, or reads a dir that
+ * would not answer as one with nothing running (#4200).
  */
 
 import fs from "node:fs";
@@ -102,6 +104,7 @@ describe("list-sessions (#4224)", () => {
 		expect(r.stdout).not.toContain("on-b");
 		expect(r.stderr).toContain(`✗ ${b}: `);
 		expect(r.stderr).toContain("exit 4");
+		expect(r.stderr).toContain("unlisted, not absent");
 	});
 
 	it("refuses an unknown flag with exit 2, reading nothing", () => {
@@ -109,5 +112,6 @@ describe("list-sessions (#4224)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toContain("unknown flag: --jsn");
+		expect(r.stderr).toContain("usage: node scripts/list-sessions.js [--json]");
 	});
 });

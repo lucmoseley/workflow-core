@@ -3,8 +3,8 @@
  * guard-session-id-prose.js — Stop hook. Sends a reply back once where its
  * prose names a session by id rather than by name (#3557).
  *
- * WHY. Core voice §Comprehension: a session is named by its `claude agents
- * --json` name, never its id or pid, and an id appears only where a command
+ * WHY. Core voice §Comprehension: a session is named by its
+ * `list-sessions.js` name, never its id or pid, and an id appears only where a command
  * needs it.
  *
  * WHAT IS READ. The outgoing message with every fenced block and code span

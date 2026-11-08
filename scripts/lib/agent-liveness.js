@@ -405,6 +405,14 @@ function failure(e) {
 }
 
 /**
+ * The refusal for an oracle call that threw rather than answered.
+ * @param {string} call
+ * @param {unknown} e
+ * @returns {string}
+ */
+const wouldNotRun = (call, e) => `${call} would not run (${failure(e)})`;
+
+/**
  * Runs the oracle and classifies what it said, as `{agents}` or `{why}`.
  *
  * The whole record, not just the id: a reader deciding whether a session is
@@ -488,7 +496,7 @@ function spawnUnion(bin, call, dirs) {
 	try {
 		out = runOracle(bin, firstMs, dirs);
 	} catch (e) {
-		const why = `${call} would not run (${failure(e)})`;
+		const why = wouldNotRun(call, e);
 		if (caught(e).code !== "ETIMEDOUT") return { why };
 		if (firstMs < firstCapMs)
 			return { why: `${why} inside the hook's time budget, ${firstMs} ms` };
@@ -499,7 +507,7 @@ function spawnUnion(bin, call, dirs) {
 			out = runOracle(bin, retryMs, dirs);
 		} catch (again) {
 			return {
-				why: `${call} would not run (${failure(again)}) — twice, the retry given ${retryMs} ms`,
+				why: `${wouldNotRun(call, again)} — twice, the retry given ${retryMs} ms`,
 			};
 		}
 	}
@@ -581,7 +589,7 @@ function mergedListing(agents, headlessAgents, call, opts) {
  * `agents` less any record without a session id and any row the oracle derives
  * from a headless run's transcript: same session id, or a live row's pid
  * (#4588).
- * @param {any[]} agents
+ * @param {any[]} agents  oracle records, unjudged: this is where each is judged
  * @param {AgentRecord[]} headlessAgents
  * @returns {AgentRecord[]}
  */
@@ -620,14 +628,15 @@ function readHeadlessRuns() {
 }
 
 /**
- * Every plan's listing kept apart by config dir, for a person to read
+ * Every seat's listing kept apart by config dir, for a person to read
  * (#4224): each existing dir's own records or its `why`, then the live
  * headless runs or the store's `why`. Each dir is read alone, so one failing
- * names itself and the rest still answer. Uncached and unchecked: no caller
- * may judge liveness off it, which `listedAgents` is for.
+ * names itself and the rest still answer, and a session moved between seats
+ * shows under each dir that lists it. Uncached and unchecked: no caller may
+ * judge liveness off it, which `listedAgents` is for.
  * @returns {{dirs: Array<{dir: string} & Listing>, headless: Listing}}
  */
-function readEveryPlan() {
+function readEverySeat() {
 	const store = readHeadlessRuns();
 	const runs = "why" in store ? [] : store.agents;
 	const dirs = oracleDirs().map((dir) => {
@@ -636,7 +645,7 @@ function readEveryPlan() {
 			if ("why" in read) return { dir, why: read.why };
 			return { dir, agents: withoutHeadlessCopies(read.agents, runs) };
 		} catch (e) {
-			return { dir, why: `${oracleCall()} would not run (${failure(e)})` };
+			return { dir, why: wouldNotRun(oracleCall(), e) };
 		}
 	});
 	return { dirs, headless: store };
@@ -997,7 +1006,7 @@ module.exports = {
 	readAgentsAfterBoot,
 	readAgentsForBudget,
 	readAgentsForDisplay,
-	readEveryPlan,
+	readEverySeat,
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,
