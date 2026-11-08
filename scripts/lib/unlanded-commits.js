@@ -45,14 +45,14 @@ const hasUnlandedLine = (text) => hasLine(text, "Unlanded", "\\S");
 
 /**
  * `ceiling`'s git as a GitReader, a passed ceiling still thrown.
- * @param {string} root
+ * @param {string} tree
  * @param {import("./git-ceiling.js").GitCeiling} ceiling
  * @returns {GitReader}
  */
-const ceilingReader = (root, ceiling) => (args, noMatch) => {
+const ceilingReader = (tree, ceiling) => (args, noMatch) => {
 	try {
 		const out = ceiling.git(
-			["-C", root, ...args],
+			["-C", tree, ...args],
 			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
 			`git ${args[0]}`,
 		);

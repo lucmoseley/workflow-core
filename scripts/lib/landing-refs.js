@@ -202,7 +202,7 @@ function readUnpushedRef(opts) {
 }
 
 if (require.main === module) {
-	const [verb, root, ...more] = process.argv.slice(2);
+	const [verb, tree, ...more] = process.argv.slice(2);
 	const answer = new Map([
 		["pushed", pushedRef],
 		["unpushed", readUnpushedRef],
@@ -224,7 +224,7 @@ if (require.main === module) {
 		);
 		process.exit(2);
 	}
-	writeFd(1, `${answer(root ? { root, tree: root } : undefined)}\n`);
+	writeFd(1, `${answer(tree ? { root: tree, tree } : undefined)}\n`);
 }
 
 module.exports = {
