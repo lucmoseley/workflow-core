@@ -3230,6 +3230,9 @@
 			"scripts/lib/migration-note.test.ts",
 			"scripts/upgrade.test.ts"
 		],
+		"migrations/v2.1.1.md": [
+			"scripts/lib/migration-note.test.ts"
+		],
 		"package-lock.json": [
 			"scripts/admission.test.ts",
 			"scripts/answer-review-reversals.test.ts",
