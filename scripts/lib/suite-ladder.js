@@ -29,9 +29,9 @@ const EARLYOOM_FLOOR_MB = 794;
  * WHOLE RULE — there is no flat allowance above it.
  *
  * A rung is rungMb of the dip that many vitest workers make. SUITE_DIP_MB is
- * §6's dip at 0-3 suites of LADDER_SUITE_WORKERS workers each, the count #1603
- * measured them at; w workers sit w/LADDER_SUITE_WORKERS of the way to the
- * next suite's dip. SUITE_MAX is the most suites measured (mantahostels#462,
+ * §6's dip at 0-3 suites of LADDER_SUITE_WORKERS workers each, the count the
+ * bench runs them at; w workers sit w/LADDER_SUITE_WORKERS of the way to the
+ * next suite's dip. Each is a LOWER BOUND (#2862): see SUITE_LADDER_MEASURED_AT. SUITE_MAX is the most suites measured (mantahostels#462,
  * mantahostels#954); past it each worker adds the one-suite dip's share of one
  * worker — EXTRAPOLATED.
  */
@@ -43,7 +43,7 @@ const SUITE_MAX = 3;
  */
 const WHOLE_SUITE_MAX = 1;
 const LADDER_SUITE_WORKERS = 3;
-const SUITE_DIP_MB = [0, 1046, 2124, 2546];
+const SUITE_DIP_MB = [0, 1582, 2550, 3576];
 
 /**
  * The memory rung for a workload that draws `chargeMb`: EARLYOOM_FLOOR_MB +
@@ -93,14 +93,18 @@ const SUITE_GATE_MB = SUITE_RESTING_MB[SUITE_MAX];
  * variable, beside vitest's `maxWorkers`, the 2048 MB heap and the core count
  * (mantahostels#954).
  *
- * `scripts/check-suite-size-drift.js` reads it and warns when the live suite has
- * drifted. MOVE IT ONLY WITH A RE-MEASUREMENT.
+ * `lowerBound` marks dips read off suites the 840 s ceiling cut short (#4606):
+ * on the 818-file suite each reached `reached` files, so a rung is a floor
+ * under the whole suite's, and `successor` is the whole-suite re-measure.
+ *
+ * `scripts/check-suite-size-drift.js` reads it, warning when the live suite has
+ * drifted or the ladder is a lower bound. MOVE IT ONLY WITH A RE-MEASUREMENT.
  */
 const SUITE_LADDER_MEASURED_AT = {
-	files: 485,
-	tests: 19_646,
-	issue: "workflow-core#1603",
-	date: "16 Oct 2026",
+	files: 818,
+	lowerBound: { reached: "77–101", successor: "workflow-core#4607" },
+	issue: "workflow-core#2862",
+	date: "3 Nov 2026",
 };
 
 /* A `vitest list` is no suite (#1180): it is run-vitest.js's selection probe

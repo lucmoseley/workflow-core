@@ -15,11 +15,10 @@ const { JS_TEST_FILE } = require("./test-kind.js");
  * backfilling beside one (#2578). A touched run is a part-suite at any count
  * (#2935, launch-route.js's `isTouchedRun`).
  *
- * WHOLE_SLOT_FILES is a quarter of the suite the memory ladder was measured
- * on, SUITE_LADDER_MEASURED_AT in lib/suite-ladder.js: UNTRACED (#2868
- * §Values). The tests spell it in whole-slot-bound.ts, which
- * suite-bounded.test.ts holds to this one through `weighFiles` and
- * suite-ladder.test.ts to the ladder's suite.
+ * WHOLE_SLOT_FILES is a quarter of the 485-file suite #1603's ladder was
+ * measured on: UNTRACED (#2868 §Values). The tests spell it in
+ * whole-slot-bound.ts, which suite-bounded.test.ts holds to this one through
+ * `weighFiles`.
  */
 const WHOLE_SUITE_WORKERS = 5;
 const WHOLE_SLOT_FILES = 121;

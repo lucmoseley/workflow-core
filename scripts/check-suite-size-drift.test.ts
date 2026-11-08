@@ -242,6 +242,18 @@ describe("the real repo", () => {
 		expect(r.json().baseline).toBe(SUITE_LADDER_MEASURED_AT.files);
 	});
 
+	it("WARNs on a lower-bound ladder whatever the drift, naming its successor, and not under --baseline (#4606)", () => {
+		const { SUITE_LADDER_MEASURED_AT } = require("./lib/admission.js");
+		const r = runIn(REPO);
+		const lowerBound = SUITE_LADDER_MEASURED_AT.lowerBound;
+		expect(r.out.includes("is a lower bound")).toBe(Boolean(lowerBound));
+		if (lowerBound) expect(r.out).toContain(lowerBound.successor);
+		const files = String(runIn(REPO, "--json").json().files);
+		expect(runIn(REPO, "--baseline", files).out).not.toContain(
+			"is a lower bound",
+		);
+	});
+
 	it("counts the same suite from a subdirectory as from the repo root", () => {
 		const fromRoot = runIn(REPO, "--json").json().files;
 		const fromSub = runIn(path.join(REPO, "docs"), "--json").json().files;

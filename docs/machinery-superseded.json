@@ -267,15 +267,7 @@
 				"scanned": false
 			},
 			{
-				"needle": "2,550",
-				"scanned": false
-			},
-			{
 				"needle": "1900",
-				"scanned": false
-			},
-			{
-				"needle": "2550",
 				"scanned": false
 			},
 			{
@@ -520,6 +512,82 @@
 			},
 			{
 				"needle": "4050",
+				"scanned": false
+			},
+			{
+				"needle": "~2.15 / 3.25 / 3.65 GB",
+				"scanned": true
+			},
+			{
+				"needle": "2.15 / 3.25 / 3.65",
+				"scanned": true
+			},
+			{
+				"needle": "1,046 / 2,124 / 2,546",
+				"scanned": true
+			},
+			{
+				"needle": "1046 / 2124 / 2546",
+				"scanned": true
+			},
+			{
+				"needle": "1,046 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,124 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,546 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,150 MB",
+				"scanned": true
+			},
+			{
+				"needle": "3,250 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,900 MB",
+				"scanned": true
+			},
+			{
+				"needle": "~2.9 GB",
+				"scanned": true
+			},
+			{
+				"needle": "349 MB",
+				"scanned": true
+			},
+			{
+				"needle": "~4.0 GB",
+				"scanned": false
+			},
+			{
+				"needle": "2150",
+				"scanned": false
+			},
+			{
+				"needle": "3250",
+				"scanned": false
+			},
+			{
+				"needle": "2900",
+				"scanned": false
+			},
+			{
+				"needle": "1046",
+				"scanned": false
+			},
+			{
+				"needle": "2124",
+				"scanned": false
+			},
+			{
+				"needle": "2546",
 				"scanned": false
 			}
 		],

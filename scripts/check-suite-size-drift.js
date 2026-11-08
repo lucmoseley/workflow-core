@@ -24,6 +24,11 @@
  * grows its own assertion count without being added is the residual, and
  * nothing here sees it.
  *
+ * A LOWER-BOUND LADDER WARNS WHATEVER THE DRIFT (#4606): its dips came from
+ * suites the 840 s ceiling cut short, so the finding stands until the
+ * whole-suite re-measure its stamp names. `--baseline` asks the drift question
+ * alone and skips it.
+ *
  * WARN-ONLY, ALWAYS. The finding is "go and measure", which no commit can
  * discharge and no session should be blocked on.
  *
@@ -98,9 +103,8 @@ runCheck({
 		"node check-suite-size-drift.js [--threshold <pct>] [--baseline <files>] [--notify] [--json] [--warn]",
 	valueFlags: ["--threshold", "--baseline"],
 	run(/** @type {any} */ ctx) {
-		const baseline = Number(
-			ctx.value("--baseline", String(SUITE_LADDER_MEASURED_AT.files)),
-		);
+		const baselineArg = ctx.value("--baseline", null);
+		const baseline = Number(baselineArg ?? SUITE_LADDER_MEASURED_AT.files);
 		if (!Number.isFinite(baseline) || baseline <= 0)
 			ctx.usageError(`--baseline must be a positive number, got ${baseline}`);
 
@@ -121,6 +125,22 @@ runCheck({
 			threshold,
 			measuredAt: SUITE_LADDER_MEASURED_AT,
 		};
+
+		const { lowerBound } = SUITE_LADDER_MEASURED_AT;
+		if (lowerBound && baselineArg === null) {
+			const finding = `the concurrent-suite memory ladder is a lower bound (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}): the 840 s ceiling cut each bench suite after ${lowerBound.reached} of its ${baseline} files. The suite is now ${files} test files.`;
+			ctx.warn(
+				"SUITE-LADDER-LOWER-BOUND",
+				finding,
+				data,
+				`SUITE-LADDER-LOWER-BOUND\t${SUITE_LADDER_MEASURED_AT.issue}`,
+			);
+			ctx.say(`${finding.charAt(0).toUpperCase()}${finding.slice(1)}`);
+			ctx.say(
+				`Its rungs are floors under a whole suite's; ${lowerBound.successor} re-measures on a whole suite. Owner: docs/environment.md.`,
+			);
+			return { noun: "lower-bound ladder", count: 1, data };
+		}
 
 		if (Math.abs(drift) < threshold)
 			return {
