@@ -5,6 +5,8 @@
  * init-adopter.test.ts: together they would hold one worker past the per-file
  * limit (#4296). Over the 10 s run-cost budget (base §X8 (5)) by nature: each
  * case runs every gate the hooks arm, and a cheaper commit would test less.
+ * The file's cost grows with its cases: the landing-on skeleton's own commit
+ * (#2412) is one more.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
