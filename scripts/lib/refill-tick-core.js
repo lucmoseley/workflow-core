@@ -861,6 +861,7 @@ const DRY_BLOCK_ACTS = {
 	}),
 	type: () => DRY_RUN_WHY,
 	resumeStopped: () => ({ failed: DRY_RUN_WHY }),
+	resumeOwnId: () => ({ failed: DRY_RUN_WHY }),
 	adoptResumed: () => ({ unread: DRY_RUN_WHY }),
 	writeLaunch: doNothing,
 	stagger: doNothing,

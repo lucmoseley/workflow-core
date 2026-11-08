@@ -374,6 +374,7 @@ const REFUSAL_PHRASE: Record<string, string> = {
 	"BARRED-NOT-IMPOSSIBLE": "names a prohibition rather than an act",
 	"REPO-FILE-ACT": "produces a file in this repository",
 	"NOT-A-FOUNDER-ACT": "names none of the founder's own acts",
+	"OBSERVE-ONLY": "only founder part is to observe a result",
 	"NO-CLOSE-WHEN": "has no **Close when:** line",
 };
 

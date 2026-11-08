@@ -4,7 +4,9 @@
  * and how it reads what a finished sweep filed from the due issue's comments
  * (#4039). report-heresy-sweep-due.test.ts holds the program's boundary cases.
  * Built on a fake tracker port and a fixed clock, so no case reaches `gh` or
- * waits on time. Breaking it files the monthly sweep early, late or never.
+ * waits on time. Breaking it files the monthly sweep early, late or never, or
+ * misstates check-primitives.js's "new heresies since the last sweep" count,
+ * which the morning review carries.
  */
 
 import { describe, expect, it } from "vitest";

@@ -55,9 +55,7 @@ async function extractTranscript(f, tally, out) {
 	});
 	for await (const line of rl) {
 		if (!line.includes('"Bash"')) continue;
-		const rec = /** @type {Record<string, any> | null | undefined} */ (
-			parseJsonlRow(line)
-		);
+		const rec = parseJsonlRow(line);
 		if (!rec) {
 			if (rec === undefined) tally.unparsed++;
 			continue;

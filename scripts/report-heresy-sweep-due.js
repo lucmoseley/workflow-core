@@ -52,7 +52,7 @@ function readVerdict(nowMs) {
  *
  * @param {Verdict} verdict
  */
-function body(verdict) {
+function buildBody(verdict) {
 	return [
 		"Filed automatically by `scripts/report-heresy-sweep-due.js`, which reads this repo once a day at session start and rewrites this body at each reading while a sweep is due. **Edit it by hand and the next reading silently overwrites it** — put anything you want kept in a comment.",
 		"",
@@ -75,7 +75,7 @@ function fileRun(nowMs) {
 	const verdict = readVerdict(nowMs);
 	const figure = `Last sweep: ${verdict.last}; ${verdict.why}`;
 	if (!verdict.due) return `${figure}: nothing filed.`;
-	return `${figure}. ${fileOrRefresh({ title: SWEEP_TITLE, labels: [LABEL], body: body(verdict) })}`;
+	return `${figure}. ${fileOrRefresh({ title: SWEEP_TITLE, labels: [LABEL], body: buildBody(verdict) })}`;
 }
 
 function daily() {

@@ -133,7 +133,7 @@ const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
-	WRAPPER_ARGV0,
+	isNextRunnerLine,
 	runningSuites,
 	suiteRungMb,
 } = require("./suite-ladder.js");
@@ -276,20 +276,12 @@ function isNextLaunch(sub, words) {
 }
 
 /**
- * The `next <sub>` runners `ps` shows: the binary's path, so npm's `sh -c next
- * build` and a line merely quoting the words are not counted. A build also
- * counts by the `next-build (v…)` title it sets on itself; a dev server's
- * parent keeps its path for its life, and the `next-server (v…)` title its
- * child takes is `next start`'s too, so it is not read.
+ * The `next <sub>` runners `ps` shows (`isNextRunnerLine`).
  * @param {"build" | "dev"} sub
  * @param {import("./suite-ladder.js").PsRow[]} ps
  */
-function runningNext(sub, ps) {
-	const title = sub === "build" ? "^ *next-build \\(v|" : "";
-	const runner = new RegExp(`${title}([.]bin|/dist/bin)/next ${sub}( |$)`);
-	return ps.filter(({ args }) => runner.test(args) && !WRAPPER_ARGV0.test(args))
-		.length;
-}
+const runningNext = (sub, ps) =>
+	ps.filter(({ args }) => isNextRunnerLine(sub, args)).length;
 
 const SHELL_KEYWORDS = [
 	"do",
@@ -388,6 +380,7 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {number} mb MemAvailable less `climbMb`, what the rung reads
  * @property {number} readMb MemAvailable as read
  * @property {number} climbMb
+ * @property {ClimbScope} climbScope
  * @property {Running | null} running null where `ps` went unread
  * @property {number} whole
  * @property {number} busy
@@ -831,9 +824,11 @@ function judgedOf(st, at, s, readMb) {
 		(!(s.other || s.plain) &&
 			s.launchKind !== "npm-watch" &&
 			hasQueueFlag(words));
-	/* A queued launch's own gate charges the climb its way (#3416); the rung
-	 * counts every suite on `ps` (#4111). */
-	const climbMb = queued ? 0 : st.readClimb("off-rung");
+	/* A queued launch's own gate charges the climb its way (#3416); a test
+	 * launch's rung counts every suite on `ps` (#4111), and a build's none, so a
+	 * build pays every queue's climb (#4112). */
+	const climbScope = test ? "off-rung" : "all";
+	const climbMb = queued ? 0 : st.readClimb(climbScope);
 	return {
 		segment,
 		words,
@@ -841,6 +836,7 @@ function judgedOf(st, at, s, readMb) {
 		mb: readMb - climbMb,
 		readMb,
 		climbMb,
+		climbScope,
 		running,
 		whole: running?.whole ?? 0,
 		busy,
@@ -1047,7 +1043,7 @@ function memoryVerdict(st, j) {
 		: `Reap the finished-but-resident sessions first (\`${reapCmd}\`) and re-read — a stopped session gives back ${REAP_GAIN}, though a shortfall held by LIVE neighbours is reaped by nothing`;
 	return buildWarnVerdict(
 		st,
-		`${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
+		`${readingOf(j.readMb, j.climbMb, j.climbScope)}, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
 	);
 }
 

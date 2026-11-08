@@ -54,12 +54,12 @@ const MARKER = /spawn-kept:\s*\w/;
 const EXEMPLAR = "scripts/check-cli-args.test.ts";
 const WHY = "spawns node on the program under test";
 const NOUN = "spawn(s) of node on the program under test";
-const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd, an async entry runInProcessAsync cannot load), state which in a \`spawn-kept: <why>\` comment on the call or in the file's header (#3458).`;
+const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd), state which in a \`spawn-kept: <why>\` comment on the call or directly above it; for any other reason, say why in that comment in the file's header (#3458).`;
 
 /**
  * @param {string} source
  */
-function readSource(source) {
+function parseSource(source) {
 	const { comments, literals } = scanJs(source);
 	const isMasked = (/** @type {number} */ at) =>
 		comments.some(([s, e]) => at >= s && at < e) ||
@@ -142,7 +142,7 @@ function nodeWords(args, isArgv) {
  * @returns {{ line: number, call: string }[]}
  */
 function unstatedSpawns(source) {
-	const src = readSource(source);
+	const src = parseSource(source);
 	if (src.header.some((c) => MARKER.test(c))) return [];
 
 	/** @type {{ line: number, call: string }[]} */

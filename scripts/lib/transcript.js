@@ -26,6 +26,21 @@ const path = require("node:path");
 const { parseJsonl } = require("./jsonl.js");
 
 /**
+ * One parsed transcript line. `any` because the transcript is Claude Code's
+ * format, which this repo does not define, so a narrower type would assert a
+ * shape nothing guarantees; a reader tests each field it relies on.
+ *
+ * @typedef {Record<string, any>} TranscriptRecord
+ */
+
+/**
+ * One block of a record's `message.content` array: text, tool_use or
+ * tool_result. `any` for TranscriptRecord's reason, one level down.
+ *
+ * @typedef {Record<string, any>} TranscriptBlock
+ */
+
+/**
  * @typedef {object} Usage
  * @property {number} [input_tokens]
  * @property {number} [cache_creation_input_tokens]

@@ -25,6 +25,7 @@
  */
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
@@ -1302,6 +1303,65 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			vi.stubEnv("TMPDIR", path.dirname(suiteDir));
 			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
 			expect(readQueuesClimbMb("off-rung", m)).toBe(TSC_PEAK_MB - 400);
+		});
+
+		describe("a runner on no queue's own count, on its measured peak (#4112)", () => {
+			const Pytest = "python3 -m pytest -n 2 -p pytest_pass_plugin scripts";
+			const NodeTest = "node --test test/a.test.js";
+			const Build = "node /r/node_modules/.bin/next build";
+
+			it("charges pytest by its xdist workers, at the `tsc` gate alone", () => {
+				const { suiteDir, tscDir } = queues();
+				expect(
+					climbOn(tscDir, { ...machine({ 33: Pytest }), treePssKb: () => 0 }),
+				).toBe(150 + 2 * 75);
+				const m = { ...machine({ 33: "pytest -n 8" }), treePssKb: () => 0 };
+				expect(climbOn(tscDir, m)).toBe(150 + 8 * 75);
+				expect(climbOn(suiteDir, m)).toBe(0);
+				vi.stubEnv("TMPDIR", path.dirname(suiteDir));
+				expect(readQueuesClimbMb("off-rung", m)).toBe(0);
+				expect(readQueuesClimbMb("all", m)).toBe(150 + 8 * 75);
+			});
+
+			it("reads `-n auto` as a worker a CPU, and no `-n` as none", () => {
+				const { tscDir } = queues();
+				const at = (args: string) =>
+					climbOn(tscDir, { ...machine({ 33: args }), treePssKb: () => 0 });
+				expect(at("python3 -m pytest -n auto")).toBe(
+					150 + 75 * os.availableParallelism(),
+				);
+				expect(at("python3 -m pytest --numprocesses=3")).toBe(150 + 3 * 75);
+				expect(at("python3 -m pytest -n=4")).toBe(150 + 4 * 75);
+				expect(at("python3 -m pytest -n2")).toBe(150 + 2 * 75);
+				expect(at("python3 -m pytest -q")).toBe(150);
+			});
+
+			it("charges `node --test` its one measured peak", () => {
+				const { tscDir } = queues();
+				expect(
+					climbOn(tscDir, { ...machine({ 33: NodeTest }), treePssKb: () => 0 }),
+				).toBe(381);
+			});
+
+			it("charges a build at every gate, no rung counting it", () => {
+				const { suiteDir, tscDir } = queues();
+				const m = machine({ 44: Build });
+				expect(climbOn(suiteDir, m)).toBe(979 - 400);
+				expect(climbOn(tscDir, m)).toBe(979 - 400);
+				vi.stubEnv("TMPDIR", path.dirname(suiteDir));
+				expect(readQueuesClimbMb("off-rung", m)).toBe(979 - 400);
+				expect(readQueuesClimbMb("all", m)).toBe(979 - 400);
+			});
+
+			it("charges no host runner, npm's shell line or a pytest worker", () => {
+				const { tscDir } = queues();
+				const m = machine({
+					1: "node scripts/run-host-suite.js",
+					2: "sh -c next build",
+					3: 'python3 -c "import sys;exec(eval(sys.stdin.readline()))"',
+				});
+				expect(climbOn(tscDir, m)).toBe(0);
+			});
 		});
 
 		it("charges a marked suite whose vitest is on `ps` nothing off the rung (#4111)", () => {

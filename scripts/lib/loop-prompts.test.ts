@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+	BOOT_PROMPT,
 	BOOT_UNREAD_PROMPT,
 	hasNothingToRepeat,
 	parkedPromptOf,
@@ -40,6 +41,21 @@ describe("a session a restart killed on a block the loop could not read (#3980)"
 		expect(BOOT_UNREAD_PROMPT).not.toContain("then continue your task");
 		expect(BOOT_UNREAD_PROMPT).toContain(
 			"Where you parked on a question round or an act you handed him, make no tool call",
+		);
+	});
+});
+
+describe("a session a restart killed mid-work (#4098)", () => {
+	it("re-claims its issues and stands down where a twin holds them", () => {
+		expect(BOOT_PROMPT).toContain(
+			"`node scripts/claim-issue.js <n>` on each issue you hold",
+		);
+		expect(BOOT_PROMPT).toContain("where it refuses on a live holder");
+	});
+
+	it("asks one killed on an unread block to re-claim only where it continues", () => {
+		expect(BOOT_UNREAD_PROMPT).toContain(
+			"Where you continue, first re-run `node scripts/claim-issue.js <n>`",
 		);
 	});
 });

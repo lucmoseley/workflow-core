@@ -82,6 +82,7 @@ const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { killGroup } = require("./grouped-child.js");
+const { budgetMs } = require("./hook-deadline.js");
 const { buildSeatEnv } = require("./seat-claude.js");
 const headless = require("./headless-runs.js");
 
@@ -143,7 +144,13 @@ const oracleCall = () => `\`${claudeBin()} agents --json\``;
  * failure — ENOENT, a non-zero exit — is deterministic, and retrying it only
  * doubles the wait before the same refusal.
  *
- * Both caps are overridable so the suite can drive them to milliseconds.
+ * Both caps are overridable so the suite can drive them to milliseconds, and
+ * a hook that started lib/hook-deadline.js's clock cuts both to what its
+ * budget leaves. A first read cut by that budget is not retried: its timeout
+ * says the hook's time ran out, not that the daemon queued (#4115). RESIDUAL:
+ * a cold daemon the 20 s retry would have waited out now answers that Stop
+ * hook a `why`, and guard-uncommitted-work.js then subtracts no neighbour's
+ * writes and says so in its block.
  */
 const oracleTimeoutMs = () => capMs("WFC_ORACLE_TIMEOUT_MS", 10_000);
 const oracleRetryTimeoutMs = () => capMs("WFC_ORACLE_RETRY_TIMEOUT_MS", 20_000);
@@ -474,17 +481,18 @@ function readListing(opts) {
  */
 function spawnUnion(bin, call, dirs) {
 	let out;
+	const firstCapMs = oracleTimeoutMs();
+	const firstMs = budgetMs(firstCapMs);
 	try {
-		out = runOracle(bin, oracleTimeoutMs(), dirs);
+		out = runOracle(bin, firstMs, dirs);
 	} catch (e) {
-		const err = caught(e);
-		if (err.code !== "ETIMEDOUT")
-			return {
-				why: `${call} would not run (${failure(e)})`,
-			};
+		const why = `${call} would not run (${failure(e)})`;
+		if (caught(e).code !== "ETIMEDOUT") return { why };
+		if (firstMs < firstCapMs)
+			return { why: `${why} inside the hook's time budget, ${firstMs} ms` };
 		// Exactly one retry: a second timeout is the wedge the cap exists for, and
 		// a loop here would wedge the SessionStart hook the cap protects.
-		const retryMs = oracleRetryTimeoutMs();
+		const retryMs = budgetMs(oracleRetryTimeoutMs());
 		try {
 			out = runOracle(bin, retryMs, dirs);
 		} catch (again) {
