@@ -10,13 +10,13 @@ const { sizedPercent } = require("./allowance.js");
 const { RESUME_CAP } = require("./block-act.js");
 const {
 	buildLimitText,
+	buildStepStatus,
 	isLimitHeld,
 	isResuming,
-	isBootKilled,
-	isHoldCleared,
-	isSwapHeld,
 	iso,
 	nextResumeAt,
+	stepKindOf,
+	UNSETTLED_STEP_KINDS,
 } = require("./refill-blocks.js");
 const {
 	buildBasisLines,
@@ -779,7 +779,8 @@ function buildScopeLines(
 /**
  * Where a launch stands, for `status`.
  * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|"swap-held"|"hold-cleared"|"boot-killed"|"limit-held"|"resumed-idle"|"parked"|"running"}
+ *   |"resuming"|string|"limit-held"|"resumed-idle"
+ *   |"parked"|"running"}
  *   LaunchKind
  * @param {LoopLaunch} l
  * @returns {LaunchKind}
@@ -790,9 +791,7 @@ function launchKindOf(l) {
 	if (l.handOffTries !== undefined) return "hand-off-owed";
 	if (l.finishedAt !== null) return "finished";
 	if (isResuming(l)) return "resuming";
-	if (isSwapHeld(l)) return "swap-held";
-	if (isHoldCleared(l)) return "hold-cleared";
-	if (isBootKilled(l)) return "boot-killed";
+	if (l.stepResume) return stepKindOf(l.stepResume);
 	if (isLimitHeld(l)) return "limit-held";
 	if (l.idleSince !== undefined) return "resumed-idle";
 	return l.parked ? "parked" : "running";
@@ -804,7 +803,7 @@ const UNSETTLED = new Set([
 	"park-stopped",
 	"hand-off-owed",
 	"resuming",
-	"swap-held",
+	...UNSETTLED_STEP_KINDS,
 	"limit-held",
 	"resumed-idle",
 	"parked",
@@ -812,7 +811,10 @@ const UNSETTLED = new Set([
 
 /** @param {LoopLaunch} l */
 function launchStateOf(l) {
-	switch (launchKindOf(l)) {
+	const kind = launchKindOf(l);
+	if (l.stepResume && kind === stepKindOf(l.stepResume))
+		return buildStepStatus(l.stepResume);
+	switch (kind) {
 		case "park-stopped":
 			return "parked, stopped";
 		case "handed-off":
@@ -830,12 +832,6 @@ function launchStateOf(l) {
 					: "its typed resume being checked";
 			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
 		}
-		case "swap-held":
-			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed through admission once it clears`;
-		case "hold-cleared":
-			return `parked on repo hold ${l.holdCleared?.hold}, since cleared, resumed through admission`;
-		case "boot-killed":
-			return "killed by a restart, resumed through admission";
 		case "limit-held": {
 			const held = /** @type {import("./refill-blocks.js").LimitHeld} */ (
 				l.limitHeld

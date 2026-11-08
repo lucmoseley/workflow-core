@@ -13,9 +13,9 @@
  * its run. A comment unseen for
  * NOTICE_UNSEEN_MS, with no run of the workflow in flight, earns one more dispatch,
  * then the phase reads lost. Each dispatch is recorded before it runs, so a store that
- * will not write sends nothing rather than a page each tick. Only a `gh` that exited
- * with a status rolls that back for the next tick's retry: one that never exited may
- * have been taken, so it waits on the comment like any other.
+ * will not write sends nothing rather than a page each tick. A refusal rolls that back
+ * for the next tick's retry, save a `gh` that started and never exited: it may have
+ * been taken, so it waits on the comment like any other.
  *
  * RESIDUAL: a `gh` exiting non-zero after GitHub took the dispatch retries as refused,
  * and a run that starts between the last read and a second dispatch is not seen; each
@@ -45,6 +45,7 @@ const {
 	readLiftedRecord,
 	readNotice,
 	readStoreRoots,
+	TICK_CALL_TIMEOUT_MS,
 	writeNotice,
 } = require("./repo-holds.js");
 const { readConfig } = require("./workflow-core-config.js");
@@ -95,9 +96,6 @@ const PROBE_COOL_DOWN_MS = 6 * 60 * 60_000;
 
 /* The founder's limit is one page a cause, so one more try and no further. */
 const NOTICE_MAX_TRIES = 2;
-
-/* Untraced, as lib/repo-holds.js's clear check is: each call runs inside a tick. */
-const NOTICE_GH_TIMEOUT_MS = 30_000;
 
 /* A zero-width space after the `@`, which GitHub then reads as no mention. */
 const BROKEN_MENTION = "@​";
@@ -300,11 +298,13 @@ function dispatchNotice(
 				"-f",
 				`message=${cause.message(phase)}`,
 			],
-			{ timeout: NOTICE_GH_TIMEOUT_MS },
+			{ timeout: TICK_CALL_TIMEOUT_MS },
 		);
 		log(`${ref} dispatched on #${cause.issue}, try ${tries}`);
 	} catch (e) {
-		if (typeof (/** @type {{status?: unknown}} */ (e).status) === "number") {
+		/* Only a child's error, which carries no status, is a gh cut off; anything
+		 * else thrown, a null included, came before any spawn (#4192). */
+		if (!(e instanceof Error) || caught(e).status !== undefined) {
 			writeNotice(file, notice);
 			if (paged !== null) writeProbePage(paged.file, lastPage);
 			log(`${ref} not dispatched, the next tick retries: ${parseErrLine(e)}`);
@@ -332,7 +332,7 @@ function readNoticeSeen({ cause, phase, config, log }) {
 					"--json",
 					"comments",
 				],
-				{ timeout: NOTICE_GH_TIMEOUT_MS },
+				{ timeout: TICK_CALL_TIMEOUT_MS },
 			)
 		);
 		const marker = cause.marker(phase);
@@ -362,7 +362,7 @@ function isNoticeRunInFlight({ cause, phase, config, log }) {
 					"--json",
 					"status",
 				],
-				{ timeout: NOTICE_GH_TIMEOUT_MS },
+				{ timeout: TICK_CALL_TIMEOUT_MS },
 			)
 		);
 		return runs.some((r) => r.status !== "completed");
