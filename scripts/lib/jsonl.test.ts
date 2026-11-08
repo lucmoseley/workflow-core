@@ -4,6 +4,8 @@
  * empty file, a missing one, a line `keep` refuses, and one streamed line.
  * In-process over real temp files: the reader's one port is the filesystem,
  * and its ENOENT-versus-other-error split is only real on a real one.
+ * Every JSONL read in scripts/ goes through this reader (#3453), so a break
+ * here miscounts or drops rows in each of them at once.
  */
 
 import fs from "node:fs";

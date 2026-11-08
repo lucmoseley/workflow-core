@@ -9,6 +9,11 @@
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid> [windows-terminal|tmux]
+ *   node scripts/refill-panel.js --print [--columns <n> [--rows <n>]]
+ *
+ * `--print` reads status once and prints, as plain text, the screen a pane shows
+ * (#4114): at `--columns`, every row unless `--rows` cuts it, or else at each running
+ * panel's own size.
  *
  * The route names the split that opened it (lib/refill-panel-routes.js), which is how a
  * click or Esc hands focus back to the agents pane; run by hand, there is none to name.
@@ -21,15 +26,20 @@
  * gone, and on Ctrl+C. A SIGKILL runs no code, so it leaves the terminal to the
  * pane closing with the process.
  *
- * Exit codes: 0 on either exit or a pid already gone; 1 with no terminal, or on a
- * crash; 2 on a command line it refuses; 128 plus a catchable signal's number.
+ * Exit codes: 0 on either exit or a pid already gone, or a print; 1 with no terminal,
+ * on a crash, or on a print whose status read failed or that finds no panel to size
+ * it by; 2 on a command line it refuses; 128 plus a catchable signal's number.
  */
 
 const { execFile } = require("node:child_process");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
-const { parseOrCode } = require("./lib/cli-args");
+const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { buildFocusReturn } = require("./lib/refill-panel-routes.js");
+const {
+	buildScreensText,
+	findPanelSizes,
+} = require("./lib/refill-panel-print.js");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { resolveTopic } = require("./lib/refill-panel-topic.js");
 const { readViewEnv } = require("./lib/refill-panel-view-env.js");
@@ -38,8 +48,13 @@ const { writeFd } = require("./lib/write-fd.js");
 const { FETCH_TIMEOUT_MS } = require("./lib/pinned-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid> [windows-terminal|tmux]
+       node ${scriptPath("refill-panel.js")} --print [--columns <n> [--rows <n>]]
 
 Shows the refill loop, away mode, burn mode, the goal and the repos it can serve, and changes each on a click, a goal by typing it, until that pid exits.
+
+  --print           print the screen a pane shows, from one status read: at --columns, or at each running panel's size
+  --columns <n>     the pane's width
+  --rows <n>        the pane's height; every row where it is not given
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
@@ -81,12 +96,101 @@ const reportCrash = (err) =>
 		`refill-panel: ${err instanceof Error ? (err.stack ?? err.message) : err}\n`,
 	);
 
+/** @param {string} given */
+const isCount = (given) => /^[1-9]\d*$/.test(given);
+
+/**
+ * @param {{columns: number, rows: number|null, pid?: number, tty?: string}[]} sizes
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<number>}
+ */
+async function printScreens(sizes, env) {
+	const { text, readError } = await buildScreensText(sizes, {
+		run: (args) =>
+			runCommand(
+				process.execPath,
+				[LOOP_PROGRAM, ...args],
+				READ_TIMEOUT_MS,
+				env,
+			),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
+		now: Date.now,
+	});
+	writeFd(1, text);
+	return readError ? 1 : 0;
+}
+
+/**
+ * @param {Record<string, string | true>} flags
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number|Promise<number>}
+ */
+function print(flags, env) {
+	const given = {
+		columns: flagValue(flags, "--columns"),
+		rows: flagValue(flags, "--rows"),
+	};
+	for (const [name, value] of Object.entries(given))
+		if (value !== undefined && !isCount(value)) {
+			writeFd(2, `refill-panel: --${name} is not a count: ${value}\n${USAGE}`);
+			return 2;
+		}
+	if (given.columns !== undefined)
+		return printScreens(
+			[
+				{
+					columns: Number(given.columns),
+					rows: given.rows ? Number(given.rows) : null,
+				},
+			],
+			env,
+		);
+	if (given.rows !== undefined) {
+		writeFd(2, `refill-panel: --rows needs --columns\n${USAGE}`);
+		return 2;
+	}
+	const { sizes, unsized } = findPanelSizes();
+	for (const { pid, why } of unsized)
+		writeFd(
+			2,
+			`refill-panel: panel ${pid} left out, its terminal unread: ${why}\n`,
+		);
+	if (sizes.length === 0) {
+		writeFd(
+			2,
+			`refill-panel: ${unsized.length > 0 ? "no running panel's size reads" : "no panel is running"} to size the print by: give --columns\n`,
+		);
+		return 1;
+	}
+	return printScreens(sizes, env);
+}
+
 /** @param {string[]} [argv] */
 function main(argv = process.argv.slice(2)) {
-	const parsed = parseOrCode(argv, { usage: USAGE, min: 1, max: 2 });
+	const parsed = parseOrCode(argv, {
+		usage: USAGE,
+		flags: { "--print": "boolean", "--columns": "value", "--rows": "value" },
+		min: 0,
+		max: 2,
+	});
 	if (typeof parsed === "number") return parsed;
+	if (parsed.flags["--print"]) {
+		if (parsed.positionals.length > 0) {
+			writeFd(2, `refill-panel: --print takes no pid\n${USAGE}`);
+			return 2;
+		}
+		return print(parsed.flags, process.env);
+	}
+	if (parsed.flags["--columns"] || parsed.flags["--rows"]) {
+		writeFd(2, `refill-panel: --columns and --rows go with --print\n${USAGE}`);
+		return 2;
+	}
+	if (parsed.positionals.length === 0) {
+		writeFd(2, `refill-panel: needs a pid\n${USAGE}`);
+		return 2;
+	}
 	const [given = "", route] = parsed.positionals;
-	if (!/^[1-9]\d*$/.test(given)) {
+	if (!isCount(given)) {
 		writeFd(2, `refill-panel: not a pid: ${given}\n${USAGE}`);
 		return 2;
 	}
@@ -137,5 +241,15 @@ module.exports = { main };
 
 if (require.main === module) {
 	const code = main();
-	if (code !== null) process.exitCode = code;
+	if (code instanceof Promise)
+		code.then(
+			(printed) => {
+				process.exitCode = printed;
+			},
+			(err) => {
+				reportCrash(err);
+				process.exitCode = 1;
+			},
+		);
+	else if (code !== null) process.exitCode = code;
 }

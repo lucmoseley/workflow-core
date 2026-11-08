@@ -50,8 +50,8 @@ function stdoutOrThrow(r, argv) {
 const gitBinary = () => process.env.WFC_GIT || "git";
 
 /**
- * The options every git spawn takes: its timeout, or none, cut to what the
- * dispatcher's entry budget leaves (hook-deadline.js).
+ * The options every git spawn takes: its timeout, or none, cut to what a
+ * started hook budget leaves (hook-deadline.js).
  * @template {object} T
  * @param {T} [opts]
  * @returns {T & {maxBuffer: number}}
@@ -288,7 +288,7 @@ const HOOK_GIT_TIMEOUT_MS = 3000;
 /* The ceiling on a git call not held to HOOK_GIT_TIMEOUT_MS, unmeasured and
  * there only so a wedged git ends the read rather than hanging a suite launch
  * or a Stop hook: dirty-tree.js's `gitRead` answers null, `gitOutcome`
- * `ok: false`. */
+ * `ok: false`. A hook that started hook-deadline.js's clock cuts it further. */
 const GIT_TIMEOUT_MS = 30_000;
 /* Untraced: long enough to stay unique in a repository this size. */
 const SHORT_SHA = 9;

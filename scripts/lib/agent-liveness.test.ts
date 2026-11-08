@@ -17,6 +17,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeClaudeStub } from "./claude-stub";
 import { writeHeadlessRun } from "./headless-runs-testkit";
+import { withStopClockLeft } from "./hook-deadline-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 // The module is CommonJS and stays that way — it is required by plain node
@@ -242,6 +243,31 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		fakeClaude(listing("aaaa"));
 		// A cap of NaN or 0 would disable the ceiling; the answer proves it ran.
 		expect(liveness.listedAgents().why).toBeUndefined();
+	});
+});
+
+/* A hook that started lib/hook-deadline.js's clock gets its read cut to what
+ * the budget leaves (#4115). */
+describe("a hook's time budget (#4115)", () => {
+	it("cuts a hung read to what the budget leaves, and does not retry it", () => {
+		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "5000");
+		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "10000");
+		const calls = hangingClaude(listing("aaaa"), 5);
+		const { loaded, drop } = withStopClockLeft(
+			["./oracle-cache.js", "./agent-liveness.js"],
+			400,
+		);
+		try {
+			const [, fresh] = loaded;
+			const started = Date.now();
+			const r = fresh.listedAgents();
+			expect(r.why).toContain("inside the hook's time budget");
+			expect(calls()).toBe(1);
+			// §X9: a process timeout: the 400 ms left, not the 5 s cap, bounds the hung child.
+			expect(Date.now() - started).toBeLessThan(5000);
+		} finally {
+			drop();
+		}
 	});
 });
 

@@ -145,7 +145,7 @@ const isProgramEnforced = (row) => row.check !== AXIS_CRITERION;
  * @param {string} message
  * @returns {Finding}
  */
-const finding = (row, message) => ({
+const buildFinding = (row, message) => ({
 	side: row.side,
 	line: row.line,
 	job: row.job,
@@ -161,10 +161,12 @@ const finding = (row, message) => ({
  */
 function pathFaults(row, cell, { noun, empty, fix }, exists) {
 	const rels = backticked(cell);
-	if (rels.length === 0) return [finding(row, empty)];
+	if (rels.length === 0) return [buildFinding(row, empty)];
 	return rels
 		.filter((rel) => !exists(row.side, rel))
-		.map((rel) => finding(row, `its ${noun} \`${rel}\` does not exist${fix}`));
+		.map((rel) =>
+			buildFinding(row, `its ${noun} \`${rel}\` does not exist${fix}`),
+		);
 }
 
 /**
@@ -207,15 +209,16 @@ function judgeRow(row, ids, exists) {
 		pathFaults(row, cell, words, exists),
 	);
 	const cited = row.rule.match(RULE_ID) ?? [];
-	if (cited.length === 0) out.push(finding(row, "its Rule cell cites no § id"));
+	if (cited.length === 0)
+		out.push(buildFinding(row, "its Rule cell cites no § id"));
 	for (const [cell, name] of /** @type {const} */ ([
 		[row.job, "Job"],
 		[row.primitive, "Primitive"],
 	]))
-		if (cell === "") out.push(finding(row, `its ${name} cell is empty`));
+		if (cell === "") out.push(buildFinding(row, `its ${name} cell is empty`));
 	for (const id of cited.filter((c) => !ids.has(c)))
 		out.push(
-			finding(
+			buildFinding(
 				row,
 				`its Rule cell cites ${id}, which no standards file defines — cite the § that states the primitive, or write one under base §0 "How a rule enters"`,
 			),
@@ -291,7 +294,7 @@ const shown = (c, noun) =>
 /**
  * @param {{ enforced: Count, breaches: Count, heresies: Count }} counts
  */
-const countLine = ({ enforced, breaches, heresies }) =>
+const buildCountLine = ({ enforced, breaches, heresies }) =>
 	`primitives: ${shown(enforced, "enforced")}, ${shown(breaches, "open breaches")}, ${shown(heresies, "new heresies since the last sweep")}`;
 
 /**
@@ -344,7 +347,7 @@ function parseTables(baseText, localText) {
 function twinFinding(row, baseJobs) {
 	const twin = row.side === "local" ? baseJobs.get(jobKey(row.job)) : null;
 	return twin
-		? finding(
+		? buildFinding(
 				row,
 				`it names the job of the base row at line ${twin.line}, whose primitive is ${twin.primitive}; a local row adds a job the base has none for (base §0) — drop the local row, or name a job of its own`,
 			)
@@ -393,7 +396,7 @@ async function countPrimitives({ rows, unreadable }, ports) {
 	/** @type {Count | null} */
 	const blind =
 		unreadable.length > 0 ? { unknown: unreadable.join("; ") } : null;
-	return countLine({
+	return buildCountLine({
 		enforced: blind ?? { count: rows.filter(isProgramEnforced).length },
 		breaches: blind ?? (await sumBreaches(rows, ports.countBreaches)),
 		heresies: ports.readNewHeresies(),
@@ -426,7 +429,7 @@ function rowsByJob(side, text) {
  * @param {string[]} [cells]
  * @returns {RowChange}
  */
-const rowChange = (change, { job, primitive }, cells = []) => ({
+const buildRowChange = (change, { job, primitive }, cells = []) => ({
 	change,
 	job,
 	primitive,
@@ -453,16 +456,16 @@ function rowChanges(side, before, after) {
 	for (const [key, row] of next) {
 		const old = prior.get(key);
 		if (!old) {
-			changes.push(rowChange("added", row));
+			changes.push(buildRowChange("added", row));
 			continue;
 		}
 		const cells = Object.entries(CELL_KEYS)
 			.filter(([, k]) => old[k] !== row[k])
 			.map(([name]) => name);
-		if (cells.length > 0) changes.push(rowChange("rewritten", row, cells));
+		if (cells.length > 0) changes.push(buildRowChange("rewritten", row, cells));
 	}
 	for (const [key, row] of prior)
-		if (!next.has(key)) changes.push(rowChange("removed", row));
+		if (!next.has(key)) changes.push(buildRowChange("removed", row));
 	return { changes };
 }
 

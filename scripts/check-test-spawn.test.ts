@@ -59,6 +59,9 @@ describe("check-test-spawn", () => {
 		expect(r.out).toContain(
 			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, `runInProcessAsync` for an async entry, as its scripts/check-cli-args.test.ts does",
 		);
+		expect(r.out).toContain(
+			"where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd), state which in a `spawn-kept: <why>` comment on the call or directly above it; for any other reason, say why in that comment in the file's header",
+		);
 		expect(r.out).toContain("FAIL: 3 spawn(s) of node");
 	});
 
