@@ -29,7 +29,9 @@ const CANARY = "scripts/self-plugin-canary.sh";
 const WRITER = "scripts/write-self-plugin-marker.sh";
 /* `source "$here/lib/x.sh"`, `source "${BASH_SOURCE[0]%/*}/x.sh"`: every
  * variable a file sources through names that file's own directory. */
-const SOURCE_LINE = /\bsource\s+"\$(?:\{[^}]*\}|\w+)\/([^"$]+\.sh)"/g;
+const SOURCE_ARG = /^"\$(?:\{[^}]*\}|\w+)\/([^"$]+\.sh)"$/;
+/* Every `source <arg>` or `. <arg>` on a line that is no comment. */
+const SOURCING = /(?:\bsource|(?:^|[;&|]|\bthen|\bdo)\s*\.)\s+(\S+)/g;
 /* Untraced: a canary or writer is a few file reads and one jq. */
 const HOOK_TIMEOUT_MS = 10_000;
 
@@ -41,25 +43,56 @@ const HOOK_TIMEOUT_MS = 10_000;
  */
 
 /**
- * The canary and its writer at `rev`, with every file they source, as
- * repo-relative paths.
+ * The files `file` sources, repo-relative, or a `why` where one is sourced in
+ * a form this cannot follow: a file it missed would change unwatched.
+ * @param {string} file
+ * @param {string} text
+ * @returns {{ sourced: string[] } | { why: string }}
+ */
+function readSourced(file, text) {
+	/** @type {string[]} */
+	const sourced = [];
+	for (const line of text.split("\n")) {
+		if (/^\s*#/.test(line)) continue;
+		for (const [, arg = ""] of line.matchAll(SOURCING)) {
+			const rel = SOURCE_ARG.exec(arg)?.[1];
+			if (rel === undefined)
+				return {
+					why: `${file} sources ${arg}, which the re-mark cannot follow`,
+				};
+			sourced.push(path.posix.join(path.posix.dirname(file), rel));
+		}
+	}
+	return { sourced };
+}
+
+/**
+ * The canary and its writer at `rev`, with every file they source, each with
+ * its text — or a `why` where git faults or a source line will not parse.
  * @param {string} root
  * @param {string} rev
- * @returns {Set<string>}
+ * @returns {{ files: Map<string, string> } | { why: string }}
  */
-function canaryClosure(root, rev) {
-	const seen = new Set();
+function readClosure(root, rev) {
+	/** @type {Map<string, string>} */
+	const files = new Map();
 	const queue = [CANARY, WRITER];
 	while (queue.length > 0) {
 		const file = /** @type {string} */ (queue.pop());
-		if (seen.has(file)) continue;
+		if (files.has(file)) continue;
 		const text = gitRead(["show", `${rev}:${file}`], root);
-		if (text === null) continue;
-		seen.add(file);
-		for (const m of text.matchAll(SOURCE_LINE))
-			queue.push(path.posix.join(path.posix.dirname(file), m[1] ?? ""));
+		if (text === null) {
+			/* Absent at `rev` lists nothing; a git fault answers null. */
+			if (gitRead(["ls-tree", "--name-only", rev, "--", file], root) === "")
+				continue;
+			return { why: `git could not read ${file} at ${rev}` };
+		}
+		files.set(file, text);
+		const read = readSourced(file, text);
+		if ("why" in read) return read;
+		queue.push(...read.sourced);
 	}
-	return seen;
+	return { files };
 }
 
 /**
@@ -71,10 +104,16 @@ function canaryClosure(root, rev) {
 function listLiveSessions() {
 	const listed = listedAgents({ requireSelf: false });
 	if (listed.why !== undefined) return { why: listed.why };
+	const blind = listed.agents.find((a) => !a.cwd);
+	if (blind)
+		return {
+			why: `session ${blind.sessionId} is listed with no directory, so it cannot be re-marked`,
+		};
 	return {
-		sessions: listed.agents.flatMap((a) =>
-			a.cwd ? [{ sessionId: a.sessionId, cwd: a.cwd }] : [],
-		),
+		sessions: listed.agents.map((a) => ({
+			sessionId: a.sessionId,
+			cwd: a.cwd ?? "",
+		})),
 	};
 }
 
@@ -100,15 +139,12 @@ function runHook(script, s) {
 }
 
 /**
- * Write the files of `to`'s closure under `dir`.
- * @param {string} root
- * @param {string} to
+ * Write `files` under `dir`.
+ * @param {Map<string, string>} files
  * @param {string} dir
  */
-function extractClosure(root, to, dir) {
-	for (const file of canaryClosure(root, to)) {
-		const text = gitRead(["show", `${to}:${file}`], root);
-		if (text === null) throw new Error(`git show ${to}:${file} failed`);
+function writeTree(files, dir) {
+	for (const [file, text] of files) {
 		fs.mkdirSync(path.join(dir, path.dirname(file)), { recursive: true });
 		fs.writeFileSync(path.join(dir, file), text);
 	}
@@ -130,6 +166,7 @@ function vouchedSessions(root, listed) {
 	const ids = new Set();
 	/** @type {LiveSession[]} */
 	const sessions = [];
+	/* No canary there: its hook cannot start, so it refuses every session. */
 	if (!fs.existsSync(current)) return { sessions };
 	for (const s of listed) {
 		if (ids.has(s.sessionId) || !isUnder(deref(s.cwd), trees)) continue;
@@ -175,11 +212,12 @@ function remarkForCanary(
 	root,
 	{ from, to, changed, scratch, listSessions = listLiveSessions },
 ) {
-	const files = new Set([
-		...canaryClosure(root, from),
-		...canaryClosure(root, to),
-	]);
-	if (!changed.some((c) => files.has(c))) return null;
+	const before = readClosure(root, from);
+	if ("why" in before) return before;
+	const after = readClosure(root, to);
+	if ("why" in after) return after;
+	if (!changed.some((c) => before.files.has(c) || after.files.has(c)))
+		return null;
 	const listed = listSessions();
 	if ("why" in listed) return listed;
 	const vouched = vouchedSessions(root, listed.sessions);
@@ -187,7 +225,7 @@ function remarkForCanary(
 	if (vouched.sessions.length === 0) return null;
 	fs.rmSync(scratch, { recursive: true, force: true });
 	try {
-		extractClosure(root, to, scratch);
+		writeTree(after.files, scratch);
 		const stranded = remarkEach(scratch, vouched.sessions);
 		return stranded.length > 0 ? { stranded } : null;
 	} finally {
@@ -195,4 +233,4 @@ function remarkForCanary(
 	}
 }
 
-module.exports = { canaryClosure, remarkForCanary };
+module.exports = { remarkForCanary };

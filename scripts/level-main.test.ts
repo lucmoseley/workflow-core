@@ -19,7 +19,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { canaryClosure } from "./lib/canary-remark.js";
 import { level, renderOutcome } from "./lib/level-main.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -27,6 +26,16 @@ import { shellQuote } from "./lib/sh-quote.js";
 const SCRIPT = path.resolve(__dirname, "level-main.js");
 const REPO = path.resolve(__dirname, "..");
 const MARKER_LIB = "scripts/lib/self-plugin-marker.sh";
+/* The canary, its writer and every file they source. */
+const CANARY_FILES = [
+	"scripts/self-plugin-canary.sh",
+	"scripts/write-self-plugin-marker.sh",
+	MARKER_LIB,
+	"scripts/lib/marker-root.sh",
+	"scripts/lib/guard-root.sh",
+	"scripts/lib/guard-log.sh",
+	"scripts/lib/script-path.sh",
+];
 const HOUR = 3_600_000;
 
 let tmp: string;
@@ -391,7 +400,7 @@ const seedCanary = () => {
 	/* The writer's fail-open log, here and in the pass's own runs of it. */
 	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(tmp, "config"));
 	const files: Record<string, string> = {};
-	for (const f of canaryClosure(REPO, "HEAD"))
+	for (const f of CANARY_FILES)
 		files[f] = fs.readFileSync(path.join(REPO, f), "utf8");
 	const writer = "scripts/write-self-plugin-marker.sh";
 	files[writer] = (files[writer] ?? "").replace(
@@ -489,7 +498,7 @@ it("does not fast-forward a canary change where the live sessions cannot be list
 
 	expect(o).toMatchObject({ status: "stranding", why: "the oracle is down" });
 	expect(renderOutcome(o, Date.now())[0]).toMatch(
-		/^refused: .* could not be listed, so main was not moved .*: the oracle is down$/,
+		/^refused: .* the re-mark it owes the live sessions could not run, so main was not moved .*: the oracle is down$/,
 	);
 	expect(git(main, "rev-parse", "HEAD")).toBe(before);
 });
@@ -516,4 +525,22 @@ it("runs no re-mark where the fast-forward changes none of the canary's files", 
 	expect(pass({ listSessions }).status).toBe("forwarded");
 	expect(listed).toBe(0);
 	expect(fs.existsSync(writerLog())).toBe(false);
+});
+
+it("does not fast-forward a canary that sources a file in a form the re-mark cannot follow", () => {
+	const files = seedCanary();
+	const canary = "scripts/self-plugin-canary.sh";
+	const before = git(main, "rev-parse", "HEAD");
+	landOnMain({
+		[canary]: (files[canary] ?? "").replace(
+			"set -uo pipefail\n",
+			'set -uo pipefail\n. "$here"/lib/extra.sh\n',
+		),
+	});
+
+	expect(pass({ listSessions: live() })).toMatchObject({
+		status: "stranding",
+		why: `${canary} sources "$here"/lib/extra.sh, which the re-mark cannot follow`,
+	});
+	expect(git(main, "rev-parse", "HEAD")).toBe(before);
 });

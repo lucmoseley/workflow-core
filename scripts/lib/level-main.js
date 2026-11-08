@@ -573,16 +573,17 @@ function renderOutcome(o, now) {
 			);
 			break;
 		case "stranding":
+			if ("why" in o) {
+				lines.push(
+					`refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, and the re-mark it owes the live sessions could not run, so main was not moved — ${next}: ${o.why}`,
+				);
+				break;
+			}
 			lines.push(
-				"why" in o
-					? `refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, and the live sessions to re-mark for it could not be listed, so main was not moved — ${next}: ${o.why}`
-					: `refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, which would still refuse ${o.stranded.length} live session(s) after re-marking them, so main was not moved — land a canary that passes them, or end them, ${next}:`,
-				...("why" in o
-					? []
-					: o.stranded.map(
-							(s) =>
-								`  session ${s.sessionId} in ${s.projectDir} — ${s.refusal}`,
-						)),
+				`refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, which would still refuse ${o.stranded.length} live session(s) after re-marking them, so main was not moved — land a canary that passes them, or end them, ${next}:`,
+				...o.stranded.map(
+					(s) => `  session ${s.sessionId} in ${s.projectDir} — ${s.refusal}`,
+				),
 			);
 			break;
 		case "refused":
