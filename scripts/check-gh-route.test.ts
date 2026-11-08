@@ -347,6 +347,7 @@ describe("check-gh-route", () => {
 			.filter((l) => /^\s*\S+ [A-Z-]+ Fix: /.test(l));
 		expect(fixes).toHaveLength(8);
 		const named = fixes.flatMap((l) => l.match(/scripts\/[\w./-]*\w/g) ?? []);
+		expect(named).toContain("scripts/lib/gh.js");
 		expect(named.filter((rel) => !isShipped(CORE, rel))).toEqual([]);
 	});
 

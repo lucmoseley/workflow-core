@@ -31,7 +31,7 @@
  * wrapper in the user's own shell; a PATH line where it tests what a bare name
  * resolves to. A marker with no word after it is no marker.
  *
- * IMPLICIT:  on every commit staging a path under scripts/, .claude/skills/, .husky/ or hooks/, refuses any second `gh` or `claude` route in the tree, naming the file, line, the binary's primitive and its exemplar.
+ * IMPLICIT:  on every commit staging a path under scripts/, .claude/skills/, .husky/ or hooks/, refuses any second `gh` or `claude` route in the tree, naming the file, line and the binary's var, with its primitive and exemplar where the shape has them.
  * JUSTIFIED: fail-safe — a `gh` call off WFC_GH escapes every test's stub and reaches the founder's live tracker, and a `claude` call off WFC_CLAUDE_BIN reads or launches his live sessions.
  * DEFEAT:    the `<binary>-route-exempt: <why>` marker; --warn caps findings below the gating line; a binary named through a variable; a PATH stub whose directory is spelt differently where it is joined and where it is prepended, or written by a helper taking the name after its first parameter or into a directory a call passes it, built with `/<binary>` in a string, or prepended by `join` or `+`; a stub in a tracked directory, whose name no line joins on; a shell call after a word this list does not name; a command-string spawn such as `execSync("gh …")`; a test's own literal spawn; Python, which reaches each binary through lib/wfc_bin.py.
  */

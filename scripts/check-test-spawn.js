@@ -23,7 +23,7 @@
  * above it, or in the file's opening comments, which covers every spawn in
  * the file. A marker with no word after it is no marker.
  *
- * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js's exemplar.
+ * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js.
  * JUSTIFIED: fail-safe — a spawn pays node's startup on every case (mantahostels#1907).
  * DEFEAT:    the `spawn-kept: <why>` marker, whatever its reason, the header's covering every later spawn in its file; --warn caps findings below the gating line; a program named through a variable, a helper or a testkit; a spawn inside a template literal, or behind an env prefix in a command string; a spawn swapped for another whose first line reads the same; a test file outside scripts/ and .claude/skills/.
  */
