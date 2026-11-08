@@ -18,9 +18,9 @@
  * The tree has no node_modules, so a rule that reads one goes quiet here:
  * noUntrustedLicenses, and noFloatingPromises, noMisusedPromises and
  * noDeprecatedImports on a third-party import. Local types still fire, and
- * `biome ci .` in CI covers the rest. A symlinked node_modules does not
- * restore them, as Biome skips a link whose target lies outside the project
- * root (#4085).
+ * `biome ci .` in CI, which installs node_modules, raises the rest. A
+ * symlinked node_modules does not restore them: a link whose target lies
+ * outside the tree stays silent (#4085). Restoring them is #4639.
  *
  * Not a check-*.js: Biome's own report and exit code are the verdict. `biome`
  * is found on PATH, which `npm run` and the hook both point at
