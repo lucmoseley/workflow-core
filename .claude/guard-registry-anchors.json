@@ -44,7 +44,7 @@
 	"scripts/concision-backstop.sh": "daa136b6a1403525",
 	"scripts/cutover-main-checkout.js": "aec876ca4470dcfc",
 	"scripts/guard-automode-refusal.js": "578f72f4305d6cc8",
-	"scripts/guard-dispatch.js": "728c2caa9db98dc0",
+	"scripts/guard-dispatch.js": "1df4bbe22933f4c6",
 	"scripts/guard-exhausted-map.js": "df6f704f151a697a",
 	"scripts/guard-failed-call-rules.js": "f5e6358491cf6d6d",
 	"scripts/guard-inventory.js": "a9ce96896ee413ac",
@@ -93,6 +93,6 @@
 	"scripts/vitest-json-reporter.ts": "6caf007578bc2159",
 	"scripts/vitest-pass-reporter.ts": "200270dbb5057baf",
 	"scripts/vitest-tree-watch.ts": "34521badedb069bf",
-	"scripts/watch-artefact.js": "2cd51fb4bbe4796f",
+	"scripts/watch-artefact.js": "ed0d2525ef56c580",
 	"scripts/write-self-plugin-marker.sh": "bf6a54bdf1ce4fd7"
 }
