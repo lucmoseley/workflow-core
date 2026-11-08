@@ -841,12 +841,16 @@ function stepEnvEscape(split, next) {
 
 /**
  * The words of a string a wrapper hands to `sh -c`: read back through literal,
- * its first line split on IFS whitespace.
+ * its first non-blank line split on IFS whitespace, as sh skips blank lines to
+ * reach its first command (#4281).
  * @param {string} word
  * @param {string[]} spans
  */
 const splitString = (word, spans) =>
-	beforeFirst(literal(word, spans).text, "\n").split(IFS_SPLIT).filter(Boolean);
+	literal(word, spans)
+		.text.split("\n")
+		.map((line) => line.split(IFS_SPLIT).filter(Boolean))
+		.find((words) => words.length > 0) ?? [];
 
 /**
  * Does the command carry `name` set to a non-empty value (#1499), as an escape
