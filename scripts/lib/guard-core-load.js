@@ -39,7 +39,8 @@ function loadCore(row) {
 /**
  * The cores of `event`'s rows in `manifest` that `keep` passes, each row
  * filtered before its module is required, so a call loads only the cores that
- * can fire on it (#3141).
+ * can fire on it (#3141). `manifest` defaults to the plugin's own; the core
+ * testkit names it so its tests take a read edge to it (#4153).
  * @param {string} event
  * @param {{ keep?: (row: CoreRow) => boolean, manifest?: string }} [options]
  * @returns {Core[]}
