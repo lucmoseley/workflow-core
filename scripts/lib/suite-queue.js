@@ -36,10 +36,16 @@ const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
 const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
 
 /**
- * Which limb of the suite gate denied: its count cap, or its memory rung, with
- * the reading and the rung where the guard gave them, and what the other
- * queue's launches have yet to draw where the gate charged it (#3416).
- * @typedef {{ limb: "count" } | { limb: "memory", mb?: number, rungMb?: number, climbMb?: number }} GateDenial
+ * Which limb of the suite gate denied: its count cap, with the PIDs holding it
+ * where the gate read them (#4359), or its memory rung, with the reading and
+ * the rung where the guard gave them, and what the other queue's launches have
+ * yet to draw where the gate charged it (#3416).
+ * @typedef {{ limb: "count", pids?: (number | null)[] } | { limb: "memory", mb?: number, rungMb?: number, climbMb?: number }} GateDenial
+ */
+/**
+ * Why a turn is closed, by whom (#4359): `fifo`, the waiters joined ahead,
+ * by PID; `admitted`, the launches admitted and not yet up, by PID and queue.
+ * @typedef {{ limb: "fifo", pids: number[] } | { limb: "admitted", admissions: { pid: number, queue: string }[] }} TurnHold
  */
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
@@ -165,12 +171,12 @@ function isUnspawnedAdmission(record) {
  *
  * @param {string} queueDir
  * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {QueueRecord[]}
+ * @returns {(QueueRecord & { queue: string })[]}
  */
 function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
 	return peerQueueDirs(queueDir).flatMap((dir) =>
 		readMarkers(dir, queueFs)
-			.markers.map((m) => m.record)
+			.markers.map((m) => ({ ...m.record, queue: path.basename(dir) }))
 			.filter((r) => isUnspawnedAdmission(r) && !isMarkerStale(r, { alive })),
 	);
 }
@@ -815,7 +821,7 @@ function queueLeave(file, { queueFs = fs } = {}) {
  * be read opens the turn.
  *
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive, slots?: number, clock?: () => number }} [options]
- * @returns {{ open: boolean, passed?: number }}
+ * @returns {{ open: boolean, passed?: number, hold?: TurnHold }}
  */
 function readTurn({
 	queueDir = defaultQueueDir(),
@@ -848,16 +854,28 @@ function readTurn({
 		pid,
 		at: Number.POSITIVE_INFINITY,
 	};
+	const ahead = live.filter((r) => joinedBefore(r, mine));
+	const admissions = [
+		...live
+			.filter((r) => r.pid !== pid && isUnspawnedAdmission(r))
+			.map((r) => ({ ...r, queue: path.basename(queueDir) })),
+		...readPeerAdmissions(queueDir, { queueFs, alive }),
+	].map(({ pid: holder, queue }) => ({ pid: holder, queue }));
 	const { reasons, passed } = turnOf({
 		waiter: mine.part === true ? "part" : "whole",
-		ahead: live.filter((r) => joinedBefore(r, mine)),
-		admissionOpen:
-			live.some((r) => r.pid !== pid && isUnspawnedAdmission(r)) ||
-			readPeerAdmissions(queueDir, { queueFs, alive }).length > 0,
+		ahead,
+		admissionOpen: admissions.length > 0,
 		slots,
 		now: clock(),
 	});
-	return reasons.length > 0 ? { open: false } : { open: true, passed };
+	if (reasons.length === 0) return { open: true, passed };
+	return {
+		open: false,
+		hold:
+			reasons[0] === "admitted"
+				? { limb: "admitted", admissions }
+				: { limb: "fifo", pids: ahead.map((r) => r.pid) },
+	};
 }
 
 /**
@@ -952,18 +970,24 @@ function turnOf(
  * other exit may follow polls the gate denied before reading the turn, so the
  * last count read there could be stale.
  *
+ * `turnHold` is who held the last turn read shut (#4359).
+ *
  * @param {Parameters<typeof readTurn>[0]} [options]
- * @returns {{ turn: () => boolean, exitFields: (reason: WaitExitReason, heldBy?: WaitHold) => object }}
+ * @returns {{ turn: () => boolean, turnHold: () => TurnHold | undefined, exitFields: (reason: WaitExitReason, heldBy?: WaitHold) => object }}
  */
 function passingTurn(options = {}) {
 	/** @type {number | undefined} */
 	let passed;
+	/** @type {TurnHold | undefined} */
+	let hold;
 	return {
 		turn: () => {
 			const reading = readTurn(options);
 			passed = reading.passed;
+			hold = reading.hold;
 			return reading.open;
 		},
+		turnHold: () => hold,
 		exitFields: (reason, heldBy) => ({
 			...heldBy,
 			...(reason === "opened" && passed !== undefined ? { passed } : {}),
@@ -1057,6 +1081,112 @@ const HELD_LINE = {
 };
 
 /**
+ * What holds a wait on one poll: a gate denial, who holds the turn shut, a
+ * turn closed by a caller's own `turn` (`{ limb: "turn" }`), or a yield to a
+ * launch admitted on the same poll.
+ * @typedef {GateDenial | TurnHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
+ */
+
+/* Each limb as a wait's trace names it (#4359). */
+const LIMB_NAMES = {
+	count: "the count cap",
+	memory: "the memory rung",
+	fifo: "the waiters ahead",
+	admitted: "a launch admitted and not yet up",
+	turn: "the queue's turn",
+	yielded: "yielding to a launch admitted on the same poll",
+};
+
+/** @param {(number | null)[]} pids */
+const pidList = (pids) =>
+	pids.length === 0 ? "" : `, PID ${pids.map((p) => p ?? "unread").join(", ")}`;
+
+/**
+ * Who a limb names: the PIDs on a count cap or a closed turn, an admission's
+ * PID and queue. A memory reading is no identity, so a moving MemAvailable
+ * never reads as a new limb.
+ *
+ * @param {WaitLimb} hold
+ */
+function limbHolder(hold) {
+	if (hold.limb === "count") return pidList(hold.pids ?? []);
+	if (hold.limb === "fifo") return pidList(hold.pids);
+	if (hold.limb === "admitted")
+		return `, ${hold.admissions.map(({ pid, queue }) => `PID ${pid} in ${queue}`).join(", ")}`;
+	return "";
+}
+
+/**
+ * @param {WaitLimb} hold
+ * @returns {string}
+ */
+function describeLimb(hold) {
+	if (hold.limb !== "memory")
+		return `${LIMB_NAMES[hold.limb]}${limbHolder(hold)}`;
+	const { mb, rungMb, climbMb } = hold;
+	if (mb === undefined) return LIMB_NAMES.memory;
+	const climb = climbMb ? `, less ${climbMb} MB yet to draw` : "";
+	const rung = rungMb === undefined ? "" : ` against ~${rungMb} MB`;
+	return `${LIMB_NAMES.memory}, MemAvailable ${mb} MB${climb}${rung}`;
+}
+
+/**
+ * The limb that held one poll: the gate's denial, else who held the turn shut,
+ * else null where the poll opened.
+ *
+ * @param {GateDenial | null} denial
+ * @param {boolean} open
+ * @param {() => TurnHold | undefined} turnHold
+ * @returns {WaitLimb | null}
+ */
+function waitLimb(denial, open, turnHold) {
+	if (denial) return denial;
+	if (open) return null;
+	return turnHold() ?? { limb: "turn" };
+}
+
+/**
+ * A wait's trace of what holds it (#4359): `see` takes each poll's limb, or
+ * null where nothing held it, and returns the line to print where the limb or
+ * its holder changed; `breakdown` names the time held on each limb, in the
+ * order each first held it, the limb holding it now counted to now. A poll's
+ * time is its limb's until the next poll.
+ *
+ * @param {() => number} clock
+ */
+function limbTrace(clock) {
+	/** @type {Map<WaitLimb["limb"], number>} */
+	const heldMs = new Map();
+	/** @type {WaitLimb | null} */
+	let current = null;
+	let identity = "";
+	let since = clock();
+	const accrue = () => {
+		const now = clock();
+		if (current)
+			heldMs.set(current.limb, (heldMs.get(current.limb) ?? 0) + now - since);
+		since = now;
+	};
+	return {
+		/** @param {WaitLimb | null} hold @returns {string | null} */
+		see(hold) {
+			accrue();
+			current = hold;
+			const next = hold ? `${hold.limb}${limbHolder(hold)}` : "";
+			if (next === identity) return null;
+			identity = next;
+			return hold && hold.limb !== "yielded" ? describeLimb(hold) : null;
+		},
+		breakdown() {
+			accrue();
+			return [...heldMs]
+				.map(([limb, ms]) => `${Math.round(ms / 1000)}s on ${LIMB_NAMES[limb]}`)
+				.join(", ");
+		},
+	};
+}
+
+/**
  * The line a wait the memory rung still holds at its timeout ends on (#2421):
  * the reading, the other queue's climb charged on it (#3416) and the rung
  * where the guard gave them, and the reap.
@@ -1123,7 +1253,11 @@ function heldOnClimbMb(denial) {
  * `climbMb` is read each poll and handed to `gate` to charge on its memory
  * rung (#3416).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number }} options
+ * `traceLimbs` prints the limb that holds the wait each time it or its holder
+ * changes, and the time held on each limb as the wait ends (#4359);
+ * `turnHold` names who holds a closed turn (`passingTurn`).
+ *
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined }} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1155,6 +1289,8 @@ function waitForGate({
 		/* no caller listening */
 	},
 	clock = Date.now,
+	traceLimbs = false,
+	turnHold = () => undefined,
 }) {
 	if (typeof admit !== "function")
 		throw new TypeError("waitForGate: `admit` is required (#2742)");
@@ -1166,6 +1302,12 @@ function waitForGate({
 	let held = false;
 	let memoryHeld = false;
 	let climbHeldMb = 0;
+	const trace = limbTrace(clock);
+	/* The breakdown a wait that ends held prints ahead of its last line. */
+	const sayBreakdown = () => {
+		const spent = trace.breakdown();
+		if (traceLimbs && spent) out.write(`${label}: held ${spent}\n`);
+	};
 	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome @param {HeldLimb} [limb] */
 	const exit = (reason, outcome, limb) => {
 		const heldBy = {
@@ -1179,14 +1321,23 @@ function waitForGate({
 		);
 		return Promise.resolve(outcome);
 	};
+	const announce = () => {
+		if (announced) return;
+		announced = true;
+		out.write(`${label}: ${waiting}\n`);
+	};
 	/** @returns {Promise<WaitOutcome>} */
 	const wait = () => {
-		if (!announced) {
-			announced = true;
-			out.write(`${label}: ${waiting}\n`);
-		}
+		announce();
 		held = false;
 		return sleepFn(pollMs).then(step);
+	};
+	/** @param {WaitLimb | null} limb */
+	const see = (limb) => {
+		const line = trace.see(limb);
+		if (!traceLimbs || !line) return;
+		announce();
+		out.write(`${label}: after ${secs()}s, held on ${line}\n`);
 	};
 	/**
 	 * @param {() => Promise<WaitOutcome>} launch
@@ -1196,6 +1347,7 @@ function waitForGate({
 	const admitOrYield = (launch, atOnce) => {
 		const admission = admit();
 		if (admission === "admitted") return launch();
+		see({ limb: "yielded" });
 		out.write(
 			`${label}: another launch was admitted on the same poll — yielding to it (#2622)\n`,
 		);
@@ -1203,6 +1355,7 @@ function waitForGate({
 	};
 	/** @param {GateDenial | null} denial @returns {Promise<WaitOutcome>} */
 	const refuse = (denial) => {
+		sayBreakdown();
 		if (denial?.limb === "memory") {
 			out.write(memoryRefusal(label, secs(), denial));
 			return exit("refused", "refused", "memory");
@@ -1218,6 +1371,7 @@ function waitForGate({
 		/* Not at once: the bound ignores the turn, so an immediate re-read
 		 * would yield again on the same stamp. */
 		admitOrYield(() => {
+			sayBreakdown();
 			out.write(
 				`${label}: gate still closed after ${secs()}s — running anyway\n`,
 			);
@@ -1236,7 +1390,11 @@ function waitForGate({
 		if (!open)
 			return denial?.limb === "memory" ? refuse(denial) : runAnyway(denial);
 		return admitOrYield(() => {
-			if (announced) out.write(`${label}: gate opened after ${secs()}s\n`);
+			const spent = traceLimbs ? trace.breakdown() : "";
+			if (announced)
+				out.write(
+					`${label}: gate opened after ${secs()}s${spent ? ` — held ${spent}` : ""}\n`,
+				);
 			return exit("opened", "run");
 		}, true);
 	};
@@ -1256,6 +1414,7 @@ function waitForGate({
 			onMemoryHeld(memoryHeld);
 		}
 		const open = !denial && turn();
+		see(waitLimb(denial, open, turnHold));
 		if (!open && clock() - started >= timeoutMs)
 			return part ? proceed(denial, false) : refuse(denial);
 		if (open) return proceed(denial, true);
@@ -1414,6 +1573,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 		try {
 			const outcome = await waitForGate({
 				turn: passing ? passing.turn : turn,
+				...(passing ? { turnHold: passing.turnHold } : {}),
 				...options,
 				...stamps,
 				admit: options.admit ?? stamps.admit,
