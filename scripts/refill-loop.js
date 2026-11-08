@@ -382,7 +382,11 @@ function readSeatsView(planSeats, root, budgetOf, callerSeat) {
 	const now = Date.now();
 	const declared = readDeclaredSeats();
 	const ceilings = seatReading.ceilingsOf(process.env);
-	const sizeCap = seatReading.capSizer(root, (line) => writeFd(2, `${line}\n`));
+	const sizeCap = seatReading.capSizer(
+		root,
+		(line) => writeFd(2, `${line}\n`),
+		readAgentsForDisplay,
+	);
 	const seats = planSeats.map((seat) => {
 		const { bars, reading } = seatReading.readSeat(seat, now);
 		return commands.foreseeSeat({

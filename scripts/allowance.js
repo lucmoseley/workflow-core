@@ -82,8 +82,10 @@ function main() {
 						trustworthy,
 						cap: capOf(result, {
 							members: args.cap,
-							sessionThreshold: args.sessionThreshold,
-							weekThreshold: args.weekThreshold,
+							thresholds: {
+								session: args.sessionThreshold,
+								weekly_all: args.weekThreshold,
+							},
 							configDir: args.configDir || defaultConfigDir(),
 						}),
 					}

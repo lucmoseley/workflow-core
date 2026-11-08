@@ -37,32 +37,44 @@ const {
  *   | {launch: 0, error: string}} Cap
  */
 
+/** The listing `allowance.js --cap` reads: strict, waiving the self-test. */
+const readListedAgents = () => listedAgents({ requireSelf: false });
+
 /**
  * The cap on a trustworthy `result` for `members`, against the caller's
- * thresholds (#293 ruling 2); `error` set, and `launch` 0, where it cannot be
- * read: a threshold or count that is no number, the cost table unreadable, the
+ * `thresholds` (#293 ruling 2); `error` set, and `launch` 0, where it cannot be
+ * read: a count or threshold that is no number, the cost table unreadable, the
  * listing unanswered, or the launch record unread. `root` is the host checkout
- * whose cost table and dispatch ledger it reads, this process's by default.
+ * whose cost table and dispatch ledger it reads, this process's by default;
+ * `readAgents` the running-session listing, strict by default.
  * @param {ReturnType<typeof import("./allowance").readAllowance>} result
- * @param {{members: number|null, sessionThreshold: number|null,
- *   weekThreshold: number|null, configDir: string, root?: string}} opts
+ * @param {{members: number|null,
+ *   thresholds: {session: number|null, weekly_all: number|null},
+ *   configDir: string, root?: string,
+ *   readAgents?: () => import("./agent-liveness").Listing}} opts
  * @returns {Cap}
  */
 function capOf(
 	result,
-	{ members, sessionThreshold, weekThreshold, configDir, root },
+	{
+		members,
+		thresholds: asked,
+		configDir,
+		root,
+		readAgents = readListedAgents,
+	},
 ) {
 	// No default threshold: a missing or non-numeric one refuses rather than
 	// reading as NaN, which no reading is past, and launching the whole set.
 	if (
 		!Number.isInteger(members) ||
 		/** @type {number} */ (members) < 0 ||
-		!Number.isFinite(sessionThreshold) ||
-		!Number.isFinite(weekThreshold)
+		!Number.isFinite(asked.session) ||
+		!Number.isFinite(asked.weekly_all)
 	)
 		return {
 			launch: 0,
-			error: `--cap, --session-threshold and --week-threshold need numbers, got ${members}, ${sessionThreshold}, ${weekThreshold}`,
+			error: `the member count and both thresholds need numbers, got members ${members}, session ${asked.session}, week ${asked.weekly_all}`,
 		};
 	const count = /** @type {number} */ (members);
 	// Only a trustworthy reading is sized, so neither bar reads null here.
@@ -70,10 +82,9 @@ function capOf(
 		session: sizedPercent(result.session) ?? 0,
 		weekly_all: sizedPercent(result.weekly_all) ?? 0,
 	};
-	const thresholds = {
-		session: /** @type {number} */ (sessionThreshold),
-		weekly_all: /** @type {number} */ (weekThreshold),
-	};
+	const thresholds = /** @type {Record<"session" | "weekly_all", number>} */ (
+		asked
+	);
 	const none = { session: 0, weekly_all: 0 };
 	if (
 		!isWarned("session", readings, thresholds) &&
@@ -95,7 +106,7 @@ function capOf(
 			launch: 0,
 			error: `the session cost table is unreadable — build it: node ${scriptPath("measure-session-cost.js")} --write`,
 		};
-	const listed = listedAgents({ requireSelf: false });
+	const listed = readAgents();
 	// An empty listing is the one `why` that still answers: nothing is running,
 	// as from a terminal with no session open.
 	const agents = listed.why?.includes("listed no agents at all")

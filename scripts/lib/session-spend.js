@@ -163,6 +163,8 @@ const SESSION_COST_TABLE = "docs/data/session-cost-table.json";
 const tablePath = (root = hostRoot()) => path.join(root, SESSION_COST_TABLE);
 /**
  * The table readCostTable reads by default, for the host `root`.
+ * `WFC_SESSION_COST_TABLE` wins over `root` too, so a test's fixed table holds
+ * for the loop's in-process cap sizing (#4176).
  * @param {string} [root]
  */
 const costTableFile = (root) =>

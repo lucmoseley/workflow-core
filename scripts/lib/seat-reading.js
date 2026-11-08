@@ -34,6 +34,7 @@ const { hasResetPassed } = require("./usage-cache.js");
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
+/** @typedef {() => import("./agent-liveness.js").Listing} ReadAgents */
 /** @typedef {{seat: string, outcome: string, stampMs?: number|null}} Probe
  * `stampMs`, the cache's stamp once it ended. */
 
@@ -429,15 +430,15 @@ const readSeatReadings = (seats, usage = new Map(), now = Date.now()) =>
  * sizing its `allowance.js --cap` call makes, in this process (#4176), fed the
  * seat's printed `/usage` as the dispatcher feeds its probe's, off the cost
  * table and ledger of `root`, the checkout the dispatcher runs in (#2937);
- * null where it cannot be sized.
- * @param {string|undefined} root
+ * null where it cannot be sized. `readAgents` is capOf's listing.
+ * @param {{root: string|undefined, readAgents?: ReadAgents}} where
  * @param {string} seat
  * @param {number} members
  * @param {string} usageText
  * @returns {{fits: number, why?: undefined, fault?: undefined}
  *   | {fits: null, why: string, fault: boolean}}
  */
-function readCap(root, seat, members, usageText) {
+function readCap({ root, readAgents }, seat, members, usageText) {
 	if (root === undefined)
 		return {
 			fits: null,
@@ -460,10 +461,10 @@ function readCap(root, seat, members, usageText) {
 		return capFitsOf(
 			capOf(result, {
 				members,
-				sessionThreshold: ceilings.session,
-				weekThreshold: ceilings.week,
+				thresholds: { session: ceilings.session, weekly_all: ceilings.week },
 				configDir: seat,
 				root,
+				readAgents,
 			}),
 		);
 	} catch (err) {
@@ -482,21 +483,22 @@ const buildCapUnsizedLine = (seat, cap) =>
 
 /**
  * readCap's count in `root`, with `note` given the line naming a cap unsized:
- * readSizedSeats's `sizeOf`.
+ * readSizedSeats's `sizeOf`. The status view passes `readAgents` its shown
+ * listing, so its poll refreshes no listing (#4169); the tick sizes strictly.
  * @param {string|undefined} root
  * @param {(line: string) => void} note
+ * @param {ReadAgents} [readAgents]
  * @returns {(seat: string, members: number, usageText?: string) => number|null}
  */
 const capSizer =
-	(root, note) =>
+	(root, note, readAgents) =>
 	(seat, members, usageText = "") => {
-		const cap = readCap(root, seat, members, usageText);
+		const cap = readCap({ root, readAgents }, seat, members, usageText);
 		if (cap.fits === null) note(buildCapUnsizedLine(seat, cap));
 		return cap.fits;
 	};
 
 module.exports = {
-	capFitsOf,
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
