@@ -1,47 +1,65 @@
 // @vitest-environment node
 /*
  * lib/npm-workspaces.js against what npm 11.16.0 ran in this same tree: each
- * row's directories are the scripts `npm <flags>` ran there (#4041).
+ * row's directories are the scripts `npm <flags>` ran there (#4041). The rows
+ * are measured, not read off npm's source, so a row edited to fit the code
+ * rather than rerun against npm stops checking that a selector reaches what npm
+ * reaches, and check_staged is judged on the wrong `package.json`.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { npmCanon } from "./npm-options.js";
+import { parseNpmArgv } from "./npm-options.js";
 import { parseSelection, resolveSelection } from "./npm-workspaces.js";
 import { buildPackageReader } from "./package-reader.js";
 
-let dir: string;
+const trees: string[] = [];
 
-const write = (rel: string, pkg: object) => {
-	fs.mkdirSync(path.join(dir, rel), { recursive: true });
-	fs.writeFileSync(path.join(dir, rel, "package.json"), JSON.stringify(pkg));
+/** A new tree holding each `package.json` in `pkgs`, by its directory. */
+const makeTree = (pkgs: Record<string, object>) => {
+	const top = fs.mkdtempSync(path.join(os.tmpdir(), "npm-workspaces-"));
+	trees.push(top);
+	for (const [rel, pkg] of Object.entries(pkgs)) {
+		fs.mkdirSync(path.join(top, rel), { recursive: true });
+		fs.writeFileSync(path.join(top, rel, "package.json"), JSON.stringify(pkg));
+	}
+	return top;
 };
 
+const TREE = {
+	".": { name: "top", workspaces: ["web", "pkgs/*"] },
+	web: { name: "@x/web" },
+	"pkgs/a": { name: "a" },
+	"pkgs/b": {},
+};
+
+let dir: string;
+
 beforeAll(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "npm-workspaces-"));
-	write(".", { name: "top", workspaces: ["web", "pkgs/*"] });
-	write("web", { name: "@x/web" });
-	write("pkgs/a", { name: "a" });
-	write("pkgs/b", {});
+	dir = makeTree(TREE);
 });
 
 afterAll(() => {
-	fs.rmSync(dir, { recursive: true, force: true });
+	for (const top of trees) fs.rmSync(top, { recursive: true, force: true });
 });
 
-/** The directories `flags` select from `from`, relative to the top; "." for it. */
-const select = (flags: string, from = ".") => {
-	const selection = parseSelection(npmCanon(flags.split(" ")));
+/** The directories `flags` select in `top` from `from`, relative to `top`; "."
+ * for it. `prefix` is the directory a `--prefix` names. */
+const select = (top: string, flags: string, from = ".", prefix = "") => {
+	const { options } = parseNpmArgv(
+		flags.split(" ").map((value) => ({ value })),
+	);
+	const selection = parseSelection(options, prefix);
 	if (!selection) return;
 	const { dirs } = resolveSelection(
 		selection,
-		path.join(dir, from),
-		dir,
+		path.join(top, from),
+		top,
 		buildPackageReader(),
 	);
-	return dirs.map((d: string) => path.relative(dir, d) || ".");
+	return dirs.map((d: string) => path.relative(top, d) || ".");
 };
 
 describe("the directories npm's selectors run in", () => {
@@ -71,7 +89,7 @@ describe("the directories npm's selectors run in", () => {
 		["-w !web", ["web", "pkgs/a", "pkgs/b"]],
 		["-w !pkgs", ["web"]],
 	])("npm %s runs in %j", (flags, dirs) => {
-		expect(select(flags)?.sort()).toEqual([...dirs].sort());
+		expect(select(dir, flags)?.sort()).toEqual([...dirs].sort());
 	});
 
 	it.each([
@@ -82,7 +100,7 @@ describe("the directories npm's selectors run in", () => {
 		"--no-workspaces=null",
 		"--workspaces --no-workspaces",
 	])("npm %s selects nothing", (flags) => {
-		expect(select(flags)).toBeUndefined();
+		expect(select(dir, flags)).toBeUndefined();
 	});
 
 	it.each([
@@ -92,25 +110,26 @@ describe("the directories npm's selectors run in", () => {
 		["-iwr", "web", [".", "web"]],
 		["--workspace", "web", []],
 	])("npm %s from %s runs in %j", (flags, from, dirs) => {
-		expect(select(flags, from)).toEqual(dirs);
+		expect(select(dir, flags, from)).toEqual(dirs);
 	});
 
 	describe("from a member that declares workspaces of its own", () => {
-		beforeAll(() => {
-			write("pkgs/a", { name: "a", workspaces: ["sub"] });
-			write("pkgs/a/sub", { name: "sub" });
-		});
+		let nested: string;
 
-		afterAll(() => {
-			write("pkgs/a", { name: "a" });
+		beforeAll(() => {
+			nested = makeTree({
+				...TREE,
+				"pkgs/a": { name: "a", workspaces: ["sub"] },
+				"pkgs/a/sub": { name: "sub" },
+			});
 		});
 
 		it.each([
-			["-ws", ["pkgs/a"]],
-			["-ws --prefix .", ["pkgs/a/sub"]],
-			["--no-workspaces --workspaces", ["pkgs/a"]],
-		])("npm %s runs in %j", (flags, dirs) => {
-			expect(select(flags, "pkgs/a")).toEqual(dirs);
+			["-ws", "", ["pkgs/a"]],
+			["-ws", ".", ["pkgs/a/sub"]],
+			["--no-workspaces --workspaces", "", ["pkgs/a"]],
+		])("npm %s with --prefix %j runs in %j", (flags, prefix, dirs) => {
+			expect(select(nested, flags, "pkgs/a", prefix)).toEqual(dirs);
 		});
 	});
 });

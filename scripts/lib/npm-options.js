@@ -287,14 +287,25 @@ function takes(kind, flag, next) {
  * @param {string[]} argv the words after `npm`
  * @returns {string[]}
  */
-function npmCanon(argv) {
-	const args = [...argv];
-	/** @type {string[]} */
+const npmCanon = (argv) =>
+	canonFrom(argv.map((value) => ({ value }))).map(({ word }) => word);
+
+/**
+ * `npmCanon`'s words, each with the argv word it was read off: a shorthand's
+ * expansion, and a value given after `=`, from the word that held them.
+ * @template {{value: string}} W
+ * @param {W[]} argv
+ * @returns {{word: string, from: W}[]}
+ */
+function canonFrom(argv) {
+	const args = argv.map((from) => ({ word: from.value, from }));
+	/** @type {typeof args} */
 	const canon = [];
-	for (let w = args.shift(); w !== undefined; w = args.shift()) {
-		if (/^--+$/.test(w)) return [...canon, "--", ...args];
-		if (/^-./s.test(w)) canonOption(w, args, canon);
-		else canon.push(w);
+	for (let a = args.shift(); a !== undefined; a = args.shift()) {
+		if (/^--+$/.test(a.word))
+			return [...canon, { word: "--", from: a.from }, ...args];
+		if (/^-./s.test(a.word)) canonOption(a, args, canon);
+		else canon.push(a);
 	}
 	return canon;
 }
@@ -303,30 +314,33 @@ function npmCanon(argv) {
  * One option word read off `args` into `canon`: a shorthand put back on
  * `args` expanded, anything else pushed as its full `--<config>`, taking the
  * next word as its value where npm would.
- * @param {string} word
- * @param {string[]} args accumulator: the words still to read, its value
- *   word taken off the front
- * @param {string[]} canon accumulator: the canonical words, this option's pushed
+ * @template W
+ * @param {{word: string, from: W}} option
+ * @param {{word: string, from: W}[]} args accumulator: the words still to read,
+ *   its value word taken off the front
+ * @param {{word: string, from: W}[]} canon accumulator: the canonical words, this
+ *   option's pushed
  */
-function canonOption(word, args, canon) {
+function canonOption({ word, from }, args, canon) {
 	const eqAt = word.indexOf("=");
 	const eq = eqAt >= 0;
 	const val = eq ? word.slice(eqAt + 1) : "";
 	const key = (eq ? word.slice(0, eqAt) : word).replace(/^-+/, "");
 	const exp = shorthand(key);
+	const at = (/** @type {string} */ w) => ({ word: w, from });
 	if (exp !== null) {
-		args.unshift(...exp, ...(eq ? [val] : []));
+		args.unshift(...[...exp, ...(eq ? [val] : [])].map(at));
 		return;
 	}
 	const { flag, kind } = optionOf(key, eq);
 	/* nopt reads an `=` word as the next argument, under the same look-ahead:
 	 * `--save-dev=pkg` installs `pkg` (#559). */
-	if (eq) args.unshift(val);
+	if (eq) args.unshift(at(val));
 	const next = args[0];
-	if (next !== undefined && takes(kind, flag, next)) {
-		canon.push(`${flag}=${next}`);
+	if (next !== undefined && takes(kind, flag, next.word)) {
+		canon.push(at(`${flag}=${next.word}`));
 		args.shift();
-	} else canon.push(kind === "value" ? `${flag}=` : flag);
+	} else canon.push(at(kind === "value" ? `${flag}=` : flag));
 }
 
 /**
@@ -355,19 +369,29 @@ function optionOf(given, eq) {
 }
 
 /**
- * The words npm reads as operands, not options or their values, in order.
- * @param {string[]} argv
+ * npm's argv as it reads it: its options, as `npmCanon` writes them, and its
+ * operands in order, each with the argv word that holds it. A value given after
+ * `=` to a flag that takes none (`--silent=foo`) is an operand at the end of its
+ * word (#559, #4069).
+ * @template {{value: string}} W
+ * @param {W[]} argv
+ * @returns {{options: string[], operands: {value: string, from: W}[]}}
  */
-function parseNpmOperands(argv) {
-	const canon = npmCanon(argv);
-	const cut = canon.indexOf("--");
-	return [
-		...(cut < 0 ? canon : canon.slice(0, cut)).filter(
-			(w) => !w.startsWith("-"),
-		),
-		...(cut < 0 ? [] : canon.slice(cut + 1)),
-	];
+function parseNpmArgv(argv) {
+	const canon = canonFrom(argv);
+	const cut = canon.findIndex(({ word }) => word === "--");
+	const before = cut < 0 ? canon : canon.slice(0, cut);
+	return {
+		options: before.filter(isOption).map(({ word }) => word),
+		operands: [
+			...before.filter((c) => !isOption(c)),
+			...(cut < 0 ? [] : canon.slice(cut + 1)),
+		].map(({ word, from }) => ({ value: word, from })),
+	};
 }
+
+/** @param {{word: string}} canon */
+const isOption = ({ word }) => word.startsWith("-");
 
 /**
  * Whether `word` is npm's `run` command as npm 11.16.0's cmd-list derefs it:
@@ -443,7 +467,7 @@ module.exports = {
 	boolExact,
 	isNpmRun,
 	npmCanon,
-	parseNpmOperands,
+	parseNpmArgv,
 	scriptOfNpmCommand,
 	shorthandExact,
 	treeCommandOf,

@@ -10,8 +10,7 @@ const path = require("node:path");
 const { findPackageDir } = require("./package-reader.js");
 const {
 	isNpmRun,
-	npmCanon,
-	parseNpmOperands,
+	parseNpmArgv,
 	scriptOfNpmCommand,
 } = require("./npm-options.js");
 const { parseSelection, resolveSelection } = require("./npm-workspaces.js");
@@ -158,27 +157,22 @@ function parseEqFormValue(word, flags) {
  *  after the runner; `script` where the script's name is not all of that word. */
 
 /**
- * The words npm reads as operands, each at the word that holds it. Each reaches
- * a script as one literal word, so it counts as unquoted, and is shell-quoted
- * where it is written out (#3545). The value of an npm flag given after a space
- * (`-w web`) is npm's, and one given after a `=` (`--silent=foo`) is an operand
- * if the flag takes none, at the end of its word (#559, #4069).
+ * npm's options, and the words it reads as operands, each at the word that holds
+ * it. Each reaches a script as one literal word, so it counts as unquoted, and is
+ * shell-quoted where it is written out (#3545).
  * @param {Word[]} words
- * @returns {{at: number, word: Word}[]}
  */
-function placeNpmOperands(words) {
-	let from = 0;
-	return parseNpmOperands(words.map((w) => w.value)).flatMap((value) => {
-		const at = words.findIndex(
-			(w, i) =>
-				i >= from && (w.value === value || w.value.endsWith(`=${value}`)),
-		);
-		const word = words[at];
-		if (!word) return [];
-		from = at + 1;
-		const raw = word.value === value ? word.raw : value;
-		return [{ at, word: { ...word, value, raw, quoted: false } }];
-	});
+function parseNpmWords(words) {
+	const { options, operands } = parseNpmArgv(
+		words.map((word, at) => ({ value: word.value, word, at })),
+	);
+	return {
+		options,
+		operands: operands.map(({ value, from: { word, at } }) => {
+			const raw = word.value === value ? word.raw : value;
+			return { at, word: { ...word, value, raw, quoted: false } };
+		}),
+	};
 }
 
 /**
@@ -187,10 +181,7 @@ function placeNpmOperands(words) {
  * @returns {RunWords|undefined}
  */
 function parseNpmRun(words, rules) {
-	const canon = npmCanon(words.map((w) => w.value));
-	const cut = canon.indexOf("--");
-	const options = cut < 0 ? canon : canon.slice(0, cut);
-	const operands = placeNpmOperands(words);
+	const { options, operands } = parseNpmWords(words);
 	const [verb, name] = operands;
 	if (verb === undefined) return;
 	/* `npmCanon` writes the flag's space form with a `=`, so only that is read. */
@@ -198,7 +189,7 @@ function parseNpmRun(words, rules) {
 		options
 			.map((w) => parseEqFormValue(w, rules.dirFlags))
 			.findLast((v) => v !== undefined) ?? "";
-	const selection = parseSelection(options);
+	const selection = parseSelection(options, dir);
 	const handedAfter = (/** @type {number} */ n) =>
 		operands.slice(n).map(({ word }) => word);
 	const script = scriptOfNpmCommand(verb.word.value);
@@ -344,7 +335,7 @@ const runPackageDirs = (run, dirs, root) => [
  * @param {string} root
  * @param {PackageReader} readCachedPackage
  */
-function runTargets(run, dirs, root, readCachedPackage) {
+function resolveRunDirs(run, dirs, root, readCachedPackage) {
 	const { selection } = run;
 	if (!selection)
 		return {
@@ -376,7 +367,7 @@ function runTargets(run, dirs, root, readCachedPackage) {
 function unresolvedSelectorMembers({ command, dirs }, root, readCachedPackage) {
 	const run = findRun(command);
 	return (
-		run && runTargets(run, dirs, root, readCachedPackage).unresolvedMembers
+		run && resolveRunDirs(run, dirs, root, readCachedPackage).unresolvedMembers
 	);
 }
 
@@ -395,7 +386,7 @@ function namedScriptWord({ command, dirs }, root, readCachedPackage) {
 	if (!run || run.at > 0) return;
 	if (!run.rules.ownsFlags && command.some((w) => w.value.startsWith("-")))
 		return;
-	const targets = runTargets(run, dirs, root, readCachedPackage).dirs;
+	const targets = resolveRunDirs(run, dirs, root, readCachedPackage).dirs;
 	return targets.length > 0 &&
 		targets.every(
 			(d) => typeof readCachedPackage(d).scripts[run.name] === "string",
@@ -557,7 +548,7 @@ function* hopsFrom(hop, root, readCachedPackage) {
 	for (const { command, dirs } of placedCommands(hop)) {
 		const run = findRun(command);
 		if (!run) continue;
-		const targets = runTargets(run, dirs, root, readCachedPackage).dirs;
+		const targets = resolveRunDirs(run, dirs, root, readCachedPackage).dirs;
 		for (const dir of targets)
 			yield* runHops(run, run.handed, {
 				dir,
