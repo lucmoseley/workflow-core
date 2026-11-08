@@ -138,11 +138,11 @@ const MODULE_RULE_RE = new RegExp(
 /**
  * A repo-relative script path inside a hook command string.
  *
- * There are two house spellings (mantahostels#2059): the shell form
- * `"$CLAUDE_PROJECT_DIR"/scripts/x.sh` and the exec form
- * `${CLAUDE_PROJECT_DIR}/scripts/x.sh`, which carries an `args` key. Both put a
- * slash immediately before the path, which is why the preceding character class
- * admits `/`; it admits whitespace for the `node scripts/x.js` spelling.
+ * The core spells it off the main checkout, `"${CLAUDE_PLUGIN_ROOT}"/../scripts/x.sh`
+ * (lib/core-hooks.js's SCRIPT_PREFIX, #4701); an adopter's settings may spell
+ * `"$CLAUDE_PROJECT_DIR"/scripts/x.sh`. Each puts a slash immediately before
+ * the path, which is why the preceding character class admits `/`; it admits
+ * whitespace for the `node scripts/x.js` spelling.
  * Shared with scripts/check-guard-registry.js, which reads the same settings
  * file to decide which script a command wires.
  *

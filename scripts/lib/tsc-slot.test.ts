@@ -12,7 +12,13 @@ const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
 		rows: { pid: number | null; args: string }[] | null,
 		mb: number | null,
 		climbMb?: number,
-	) => { limb: string; mb?: number; rungMb?: number; climbMb?: number } | null;
+	) => {
+		limb: string;
+		pids?: (number | null)[];
+		mb?: number;
+		rungMb?: number;
+		climbMb?: number;
+	} | null;
 	isTscLaunch: (words: string[]) => boolean;
 };
 
@@ -41,15 +47,16 @@ describe("lib/tsc-slot.js", () => {
 		])
 			expect(tscDenial([...decoys, ...rows(runner)], 9000)).toEqual({
 				limb: "count",
+				pids: [null],
 			});
 	});
 
 	it.each([
 		[
-			"one running",
-			rows("node /r/node_modules/.bin/tsc"),
+			"one running, naming its PID (#4359)",
+			[{ pid: 4242, args: "node /r/node_modules/.bin/tsc" }],
 			9000,
-			{ limb: "count" },
+			{ limb: "count", pids: [4242] },
 		],
 		[
 			"MemAvailable under the rung",

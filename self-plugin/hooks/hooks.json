@@ -6,7 +6,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
 						"timeout": 60,
 						"onFailure": "block"
 					}
@@ -19,7 +19,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
 						"timeout": 15
 					}
 				]
@@ -29,43 +29,43 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "${CLAUDE_PROJECT_DIR}/scripts/place-new-issue.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/place-new-issue.sh",
 						"if": "Bash(gh *)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-issue-claim.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/record-issue-claim.js",
 						"if": "Bash(gh *)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/release-issue-claim.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/release-issue-claim.js",
 						"if": "Bash(gh *)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-acts.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/record-acts.js",
 						"if": "Bash(gh *)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-divergence.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/record-divergence.js",
 						"if": "Bash(git *)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/start-lander-on-push.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/start-lander-on-push.js",
 						"if": "Bash(*push*)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-lost-verdict.js",
 						"timeout": 10
 					}
 				]
@@ -77,18 +77,18 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-lost-verdict.js",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-divergence.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/record-divergence.js",
 						"if": "Bash(git *)",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-failed-call-rules.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-failed-call-rules.js",
 						"timeout": 10
 					}
 				]
@@ -99,7 +99,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-failed-call-rules.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-failed-call-rules.js",
 						"timeout": 10
 					}
 				]
@@ -110,27 +110,27 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/name-issue-session.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/name-issue-session.sh",
 						"timeout": 30
 					},
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-tracker-docs.sh",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-founder-wording.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-founder-wording.js",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/unpark-on-prompt.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/unpark-on-prompt.js || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/mark-presence.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/mark-presence.js || true",
 						"timeout": 10
 					}
 				]
@@ -141,82 +141,82 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/concision-backstop.sh stop",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/concision-backstop.sh stop",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-priced-options.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-priced-options.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-inventory.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-inventory.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-jev-advisory.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-jev-advisory.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-selection-sum.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-selection-sum.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-uncommitted-work.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-uncommitted-work.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-session-ceiling.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-session-ceiling.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-deny.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-lost-deny.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-automode-refusal.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-automode-refusal.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-unpushed-commits.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-unpushed-commits.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-typecheck-owed.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-typecheck-owed.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-exhausted-map.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-exhausted-map.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-paste-self-match.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-paste-self-match.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-session-id-prose.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-session-id-prose.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/park-on-round.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/park-on-round.js || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/refill-wake.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/refill-wake.sh",
 						"timeout": 5
 					}
 				]
@@ -227,12 +227,12 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/clear-rule-latch.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/clear-rule-latch.sh",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-compaction-count.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-compaction-count.js || true",
 						"timeout": 10
 					}
 				]
@@ -244,7 +244,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-compaction-count.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-compaction-count.js || true",
 						"timeout": 10
 					}
 				]
@@ -254,7 +254,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-main-checkout-job.js || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-main-checkout-job.js || true",
 						"timeout": 1200
 					}
 				]
@@ -263,115 +263,115 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/write-self-plugin-marker.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/write-self-plugin-marker.sh",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/replay-notify-reports.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/replay-notify-reports.js --notify || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-plugin-gap.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-plugin-gap.js --notify || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/concision-backstop.sh start",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/concision-backstop.sh start",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/name-issue-session.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/name-issue-session.sh",
 						"timeout": 30
 					},
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-tracker-docs.sh",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/session-arbiter.js prune-markers --detach || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/session-arbiter.js prune-markers --detach || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/session-start-sweeps.sh",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/session-start-sweeps.sh",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify --write || true",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-ci-status.js --notify --write || true",
 						"timeout": 40,
 						"async": true
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-orphan-hooks.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/reap-orphan-hooks.js --notify || true",
 						"timeout": 60
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphan-wait-loops.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-orphan-wait-loops.js --notify || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-kernel-stall.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-kernel-stall.js --notify || true",
 						"timeout": 20
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-release-lag.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-release-lag.js --notify || true",
 						"timeout": 20
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-landing-switch-on.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-landing-switch-on.js --notify || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-interop-latency.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-interop-latency.js --notify || true",
 						"timeout": 60
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-refill-loop-stop.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-refill-loop-stop.js --notify || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-idle-efforts.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-idle-efforts.js --notify || true",
 						"timeout": 60,
 						"async": true
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-harness-canary.js --notify --write || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-harness-canary.js --notify --write || true",
 						"timeout": 15
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify --write --hourly || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-orphaned-edits.js --notify --write --hourly || true",
 						"timeout": 60,
 						"async": true
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/audit-escape-lines.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/audit-escape-lines.js --notify || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-seat-utilisation.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-seat-utilisation.js --notify || true",
 						"timeout": 10
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-finished-sessions.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/reap-finished-sessions.js --notify || true",
 						"timeout": 65,
 						"async": true
 					}
@@ -383,7 +383,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reconcile-plugin.js --session-end || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/reconcile-plugin.js --session-end || true",
 						"timeout": 400
 					}
 				]

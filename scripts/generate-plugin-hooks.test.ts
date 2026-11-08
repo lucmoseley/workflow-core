@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MARKER_WRITER, SELF_PLUGIN_HOOKS } from "./lib/core-hooks.js";
+import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { guardDirs, isDenyCapableIn } from "./lib/deny-capable.js";
 import { guardKey } from "./lib/guard-fires.js";
 import { renderAt } from "./lib/plugin-hooks-render.js";
@@ -33,7 +34,6 @@ const CORE = path.resolve(__dirname, "..");
 // Spelled in pieces: a `${…}` literal in a plain string trips Biome's template lint.
 const BARE_PLUGIN_ROOT = ["$", "{CLAUDE_PLUGIN_ROOT}"].join("");
 const PLUGIN_ROOT = `"${BARE_PLUGIN_ROOT}"`;
-const PROJECT_DIR = ["$", "{CLAUDE_PROJECT_DIR}"].join("");
 
 const run = (root: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, {
@@ -99,9 +99,7 @@ describe("the committed plugin hook manifest", () => {
 		expect(pairs.length).toBeGreaterThan(0);
 		for (const { hook, shipped } of pairs) {
 			expect(shipped.command).toMatch(
-				Array.isArray(hook.args)
-					? /^\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\//
-					: /^[^$]*"\$\{CLAUDE_PLUGIN_ROOT\}"\/scripts\//,
+				/^[^$]*"\$\{CLAUDE_PLUGIN_ROOT\}"\/scripts\//,
 			);
 			const script = shipped.command?.match(/\/scripts\/([^\s"]+)/)?.[1] ?? "";
 			expect(fs.existsSync(path.join(CORE, "scripts", script))).toBe(true);
@@ -172,35 +170,35 @@ describe("renderAt", () => {
 	const shipped = (hook: Hook): string | undefined =>
 		render({ hooks: { Stop: [{ hooks: [hook] }] } }).Stop[0].hooks[0].command;
 
-	it("rewrites both project-dir spellings to the quoted plugin root", () => {
+	it("rewrites both main-checkout spellings to the quoted plugin root", () => {
+		expect(shipped({ type: "command", command: `${MAIN_SCRIPTS}a.sh` })).toBe(
+			`${PLUGIN_ROOT}/scripts/a.sh`,
+		);
 		expect(
 			shipped({
 				type: "command",
-				command: '"$CLAUDE_PROJECT_DIR"/scripts/a.sh',
-			}),
-		).toBe(`${PLUGIN_ROOT}/scripts/a.sh`);
-		expect(
-			shipped({
-				type: "command",
-				command: `node ${PROJECT_DIR}/scripts/b.js --x`,
+				command: `node ${CANARY_MAIN_SCRIPTS}b.js --x`,
 			}),
 		).toBe(`node ${PLUGIN_ROOT}/scripts/b.js --x`);
 	});
 
-	it("leaves an exec-form hook's plugin root unquoted, since no shell strips the quotes", () => {
-		expect(
-			shipped({
-				type: "command",
-				command: `${PROJECT_DIR}/scripts/c.sh`,
-				args: [],
-			}),
-		).toBe(`${BARE_PLUGIN_ROOT}/scripts/c.sh`);
-	});
+	it.each([
+		['x --root "$CLAUDE_PROJECT_DIR"'],
+		[`"${BARE_PLUGIN_ROOT}"/../docs/a.md`],
+		[`${BARE_PLUGIN_ROOT}/../scripts/c.sh`],
+	])(
+		"refuses a main-checkout use it cannot read as a scripts/ prefix: %s",
+		(command) => {
+			expect(() => shipped({ type: "command", command })).toThrow(
+				/names the main checkout other than as its scripts\/ prefix/,
+			);
+		},
+	);
 
-	it("refuses a project-dir use it cannot read as a scripts/ prefix", () => {
+	it("refuses an exec-form hook, whose quoted plugin root no shell strips (#4701)", () => {
 		expect(() =>
-			shipped({ type: "command", command: 'x --root "$CLAUDE_PROJECT_DIR"' }),
-		).toThrow(/CLAUDE_PROJECT_DIR/);
+			shipped({ type: "command", command: `${MAIN_SCRIPTS}a.sh`, args: ["x"] }),
+		).toThrow(/carries args/);
 	});
 
 	it("refuses a source with no hooks", () => {
@@ -208,20 +206,20 @@ describe("renderAt", () => {
 	});
 
 	describe("the self-plugin's marker writer", () => {
-		const writer = (spelling: string): Hook => ({
+		const writer = (prefix: string): Hook => ({
 			type: "command",
-			command: `bash ${spelling}/scripts/${MARKER_WRITER}`,
+			command: `bash ${prefix}${MARKER_WRITER}`,
 		});
 		const guard: Hook = {
 			type: "command",
-			command: '"$CLAUDE_PROJECT_DIR"/scripts/guard.sh',
+			command: `${MAIN_SCRIPTS}guard.sh`,
 		};
 		const shippedGuard = () => ({
 			...guard,
 			command: `${PLUGIN_ROOT}/scripts/guard.sh`,
 		});
 
-		it.each([['"$CLAUDE_PROJECT_DIR"'], [PROJECT_DIR]])(
+		it.each([[MAIN_SCRIPTS], [CANARY_MAIN_SCRIPTS]])(
 			"is left out of the adopters' render, spelt %s",
 			(spelling) => {
 				expect(
@@ -243,7 +241,7 @@ describe("renderAt", () => {
 				render({
 					hooks: {
 						SessionStart: [
-							{ matcher: "startup", hooks: [writer(PROJECT_DIR)] },
+							{ matcher: "startup", hooks: [writer(MAIN_SCRIPTS)] },
 						],
 						Stop: [{ hooks: [guard] }, { matcher: "x", hooks: [] }],
 					},
@@ -257,7 +255,7 @@ describe("renderAt", () => {
 			const stem = MARKER_WRITER.replace(/\.sh$/, "");
 			const neighbour: Hook = {
 				type: "command",
-				command: `"$CLAUDE_PROJECT_DIR"/scripts/${stem}-sweep.sh`,
+				command: `${MAIN_SCRIPTS}${stem}-sweep.sh`,
 			};
 			expect(shipped(neighbour)).toBe(
 				`${PLUGIN_ROOT}/scripts/${stem}-sweep.sh`,
@@ -304,7 +302,7 @@ describe("a render in a fixture repo", () => {
 							hooks: [
 								{
 									type: "command",
-									command: `"$CLAUDE_PROJECT_DIR"/scripts/${MARKER_WRITER}`,
+									command: `${MAIN_SCRIPTS}${MARKER_WRITER}`,
 								},
 							],
 						},
@@ -314,7 +312,7 @@ describe("a render in a fixture repo", () => {
 							hooks: [
 								{
 									type: "command",
-									command: '"$CLAUDE_PROJECT_DIR"/scripts/guard.sh',
+									command: `${MAIN_SCRIPTS}guard.sh`,
 								},
 							],
 						},
@@ -429,7 +427,7 @@ describe("a render in a fixture repo", () => {
 		});
 	});
 
-	it("refuses with exit 2 a self-plugin command naming CLAUDE_PROJECT_DIR off the scripts/ prefix", () => {
+	it("refuses with exit 2 a self-plugin command naming the main checkout off the scripts/ prefix", () => {
 		fs.writeFileSync(
 			path.join(dir, SELF_PLUGIN_HOOKS),
 			JSON.stringify({
@@ -447,7 +445,7 @@ describe("a render in a fixture repo", () => {
 		const r = check();
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
-			/^generate-plugin-hooks: .*CLAUDE_PROJECT_DIR other than as a scripts\/ prefix/,
+			/^generate-plugin-hooks: .*names the main checkout other than as its scripts\/ prefix/,
 		);
 		expect(readTree()).not.toContain("hooks/hooks.json");
 	});
@@ -533,7 +531,7 @@ describe("a render in a fixture repo", () => {
 		it("--check exits 1 naming a deny-capable PreToolUse guard that lacks it", () => {
 			source({
 				type: "command",
-				command: '"$CLAUDE_PROJECT_DIR"/scripts/deny.sh',
+				command: `${MAIN_SCRIPTS}deny.sh`,
 			});
 			const r = check();
 			expect(r.status).toBe(1);
@@ -546,7 +544,7 @@ describe("a render in a fixture repo", () => {
 		it("--check exits 1 naming a guard that cannot refuse but carries it", () => {
 			source({
 				type: "command",
-				command: '"$CLAUDE_PROJECT_DIR"/scripts/guard.sh',
+				command: `${MAIN_SCRIPTS}guard.sh`,
 				onFailure: "block",
 			});
 			const r = check();
@@ -560,7 +558,7 @@ describe("a render in a fixture repo", () => {
 		it("--check judges a guard by its staged copy, not its disk copy (#2901)", () => {
 			source({
 				type: "command",
-				command: '"$CLAUDE_PROJECT_DIR"/scripts/guard.sh',
+				command: `${MAIN_SCRIPTS}guard.sh`,
 			});
 			expect(run(dir).status).toBe(0);
 			stage();
@@ -579,7 +577,7 @@ describe("a render in a fixture repo", () => {
 		it("a run writes it into the self-plugin file and the render, after which --check passes", () => {
 			source({
 				type: "command",
-				command: '"$CLAUDE_PROJECT_DIR"/scripts/deny.sh',
+				command: `${MAIN_SCRIPTS}deny.sh`,
 			});
 			expect(run(dir).status).toBe(0);
 			expect(readSourceHook().onFailure).toBe("block");
