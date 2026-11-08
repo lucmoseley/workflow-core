@@ -1,0 +1,30 @@
+COMMIT BY PATHSPEC.
+
+  node scripts/commit-paths.js -m "…" -- <paths>   (Bash `timeout: 600000`)
+
+It intent-adds new paths and refuses a typo, an ignored path or a directory
+hiding new files. Exits: 0 done, 2 fix the input, 3 git or a hook refused.
+To read the gates' verdict without committing, add `--check`: `-m` is then
+optional, and given, runs the message checks too.
+The hand form stays legal:
+
+  git commit -m "…" -- <paths>
+
+By hand, a file git does not track yet needs `git add -N <path>` first: a
+pathspec cannot reach it, and git exits 1 having committed nothing.
+
+THE WORKING TREE IS THE HAZARD. Your subagents share your worktree, and a
+pathspec takes the working-tree copy of every path it names, a subagent's
+unfinished edit included (mantahostels#1539). `git commit -a` takes every
+such edit, so it is refused. Splitting the work in one file across commits?
+`--patch` commits the lines you pick (docs/agents/partial-commit.md).
+
+NEVER AMEND A PUSHED COMMIT. `git commit --amend` is refused where HEAD is
+already on the ref your checkout pushes to: the rewrite cannot be pushed, and
+landing again merges the original and its rewrite both. Make a follow-up
+commit.
+
+WHAT THE GUARD DOES NOT CATCH. Its warns are advisory — the commit lands. The
+warns and the `-a` and amend denies stand down mid-merge, rebase, cherry-pick
+or revert. And a commit run from your own terminal or from a script never
+reaches the hook at all.

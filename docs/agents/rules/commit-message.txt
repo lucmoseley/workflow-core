@@ -1,0 +1,3 @@
+A COMMIT SUBJECT IS AT MOST 72 CHARACTERS, imperative, saying what changed:
+no `so …` clause, no Conventional Commits prefix.
+THE BODY GIVES THE WHY in lay terms, specifics under it. `#N` goes anywhere.

@@ -1,0 +1,7 @@
+{
+	"name": "wfc-liveness",
+	"version": "0.1.0",
+	"description": "Names a stalled subagent in the status line as a fact, and lists every subagent in a pane on /liveness (#863)",
+	"defaultEnabled": true,
+	"types": "./types/index.d.ts"
+}

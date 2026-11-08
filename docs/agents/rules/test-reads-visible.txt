@@ -1,0 +1,5 @@
+### §X10 · A test names what it reads where the repo's test selector can see it — **judgement**
+
+A test that reads a tracked file at runtime names it as a literal path, in the test or in a helper it loads directly, so a change to that file selects the test. Where it cannot, its header carries a `full-sweep-only:` line saying why, and the test runs only on a full run. This binds every test, standing or new: a read the selector misses loses an assertion, not time, so no #1771 exception reaches it.
+
+- *Stack (read-edge manifest)*: the read shapes the plugin's read-edge extractor (`scripts/lib/test-read-edges.js`) attributes, and the shapes its header lists as getting no edge, are the shapes this clause means. A read in an unseen shape, with no `full-sweep-only:` line, is the breach. `node <plugin root>/scripts/generate-test-read-edges.js --unseen` lists each one the extractor can judge; its header names the reads it cannot.

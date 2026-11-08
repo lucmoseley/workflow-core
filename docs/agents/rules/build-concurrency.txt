@@ -1,0 +1,9 @@
+NEVER RUN TWO BUILDS, OR TWO DEV SERVERS, AT ONCE.
+
+No `next build` or `next dev` has been measured here, so two at once is load no
+rung of the memory ladder prices, and past the memory cap the whole machine
+freezes.
+
+Stop the running one first and confirm it exited:
+
+  ps -eo pid,args | grep -E '[n]ext([- ]build| dev)'

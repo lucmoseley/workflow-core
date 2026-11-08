@@ -1,0 +1,1 @@
+JUDGE EACH AREA DECLARED WITH NO GLOBS FROM ITS DESCRIPTION. One you judge this change touches owes the escalated tier, and the change's commit adds the area's `globs`. That commit is held too, until this review is recorded.

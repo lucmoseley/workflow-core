@@ -1,0 +1,232 @@
+#!/usr/bin/env node
+/*
+ * report-retro-due.js — the weekly trigger for the retro-sweep skill (workflow-core#969,
+ * from workflow-core#948 §Trigger: a due issue dispatched through /pick-next,
+ * never a session-start launch).
+ *
+ * Same shape as scripts/report-cycle-review-due.js: ONE tracked issue,
+ * "Weekly retro due", filed or refreshed through lib/tracking-issue.js, never
+ * duplicated across daily runs. The run it asks for closes it
+ * (retro-sweep step 8), and the next due week files a fresh one.
+ *
+ * Due where `retro.weeklyCount` is set and the newest `weekly` line in
+ * docs/data/retro-runs.jsonl is 7 or more days old, or there is none. A
+ * `calibrate` line never counts. Unset — and an adopter has no `retro` key —
+ * is a named SKIP.
+ *
+ * Exit 0 whether or not a run is due. Exit 2 only where it cannot do its job:
+ * the record unreadable, the config unreadable or its `retro` key malformed
+ * (BROKEN, so a typo never reads as "not yet calibrated"), its own `takes:`
+ * value refused, the file or refresh failing, or a command line
+ * lib/cli-args.js refuses.
+ */
+
+const { writeFd } = require("./lib/write-fd.js");
+const { readJsonl } = require("./lib/jsonl.js");
+const path = require("node:path");
+const { parseOrExit } = require("./lib/cli-args");
+const { hostRoot } = require("./lib/host-root");
+const { takesLabel, takesRefusal } = require("./lib/takes-label");
+const { fileOrRefresh } = require("./lib/tracking-issue");
+const {
+	parseErrLine,
+	parseGhFailureReason,
+	unreachableRemedy,
+} = require("./lib/gh");
+const { readConfig, retroFault } = require("./lib/workflow-core-config");
+const { buildStandaloneLine } = require("./lib/standalone-line.js");
+
+const TITLE = "Weekly retro due";
+const LABEL = takesLabel("implement");
+const RECORD = "docs/data/retro-runs.jsonl";
+const DUE_DAYS = 7;
+
+/**
+ * The date of the newest `weekly` run in the record, or null where it holds
+ * none. Throws on a line it cannot read: a corrupt record must not read as
+ * "never run", which would file on every run.
+ *
+ * @param {import("./lib/jsonl.js").Jsonl} read
+ * @returns {string | null} YYYY-MM-DD
+ */
+function newestWeekly(read) {
+	const [bad] = read.bad;
+	if (bad !== undefined)
+		throw new Error(`${RECORD}:${bad} is not a JSON object`);
+	/** @type {string | null} */
+	let newest = null;
+	for (const [k, row] of read.rows.entries()) {
+		const date = weeklyDate(row, /** @type {number} */ (read.rowLines[k]));
+		if (date === null) continue;
+		if (!newest || date > newest) newest = date;
+	}
+	return newest;
+}
+
+/**
+ * The date of one record row's `weekly` run, or null for a run of another
+ * mode. Throws as newestWeekly documents.
+ *
+ * @param {Record<string, unknown>} row
+ * @param {number} line its 1-based line in the record
+ * @returns {string | null} YYYY-MM-DD
+ */
+function weeklyDate(row, line) {
+	if (row.mode !== "weekly") return null;
+	const date = typeof row.date === "string" ? row.date.slice(0, 10) : "";
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))
+		throw new Error(
+			`${RECORD}:${line} is a weekly run with no readable "date" (YYYY-MM-DD)`,
+		);
+	return date;
+}
+
+/**
+ * @param {string | null} newest
+ * @param {string} todayIso YYYY-MM-DD
+ * @returns {{ due: boolean, age: number | null }} age in whole days
+ */
+function verdict(newest, todayIso) {
+	if (!newest) return { due: true, age: null };
+	const age = Math.floor((Date.parse(todayIso) - Date.parse(newest)) / 864e5);
+	return { due: age >= DUE_DAYS, age };
+}
+
+/**
+ * Carries no date of today's, so an unchanged condition leaves the body
+ * current and a run refreshes nothing.
+ *
+ * @param {string | null} newest
+ * @param {number} weeklyCount
+ */
+function body(newest, weeklyCount) {
+	return [
+		"Filed automatically by `scripts/report-retro-due.js`, from the",
+		"daily repo-checks run at session start, which rewrites this body each day the condition still stands.",
+		"**Edit it by hand and the next run silently overwrites it** — put anything",
+		"you want kept in a comment.",
+		"",
+		"## A weekly retro is due",
+		"",
+		newest
+			? `The newest \`weekly\` run in \`${RECORD}\` is dated ${newest}, ${DUE_DAYS} or more days ago.`
+			: `\`${RECORD}\` holds no \`weekly\` run yet; a \`calibrate\` line does not count.`,
+		"",
+		"## What to do",
+		"",
+		"Run the `retro-sweep` skill in `weekly` mode with this issue's number:",
+		"`weekly <this issue>`. It reviews the week's top",
+		`${weeklyCount} sessions (\`retro.weeklyCount\` in \`.claude/workflow-core.json\`)`,
+		"and closes this issue.",
+		"",
+		"Launch the session on plain Opus (`docs/effort-guide.md` §Which model to launch",
+		"each session on, `/implement`).",
+		"",
+		buildStandaloneLine(
+			"a daily-run reporter's standing condition, under no spec (workflow-core#948 §Trigger).",
+		),
+	].join("\n");
+}
+
+/**
+ * The verdict this reporter files on, for scripts/check-cleared-trackers.js
+ * too.
+ *
+ * @param {string} todayIso YYYY-MM-DD
+ * @returns {{ skip: string } | { skip: null, weeklyCount: number, newest: string | null, due: boolean, age: number | null }}
+ */
+function condition(todayIso) {
+	const c = readConfig({ quiet: true });
+	const fault = retroFault(c);
+	if (fault) throw new Error(`${c.file}: ${fault}`);
+	if (!c.retro)
+		return {
+			skip: `SKIP: no "retro" key in ${c.file}; calibration sets retro.weeklyCount where the practice runs.`,
+		};
+	if (!c.retro.weeklyCount)
+		return {
+			skip: `SKIP: retro.weeklyCount is unset in ${c.file}; the calibration batch sets it.`,
+		};
+	const read = readJsonl(path.join(hostRoot(), RECORD));
+	if (!read)
+		throw new Error(
+			`${RECORD} is missing. It is committed empty; restore it with \`git checkout -- ${RECORD}\`.`,
+		);
+	const newest = newestWeekly(read);
+	return {
+		skip: null,
+		weeklyCount: c.retro.weeklyCount,
+		newest,
+		...verdict(newest, todayIso),
+	};
+}
+
+/** RETRO_TODAY pins the date for tests. */
+const today = () =>
+	(process.env.RETRO_TODAY || new Date().toISOString()).slice(0, 10);
+
+function main() {
+	parseOrExit(process.argv.slice(2), {
+		usage: "usage: node scripts/report-retro-due.js",
+	});
+	const date = today();
+	let v;
+	try {
+		v = condition(date);
+	} catch (e) {
+		const why = e instanceof Error ? e.message : String(e);
+		writeFd(2, `BROKEN: ${why}\n`);
+		process.exit(2);
+	}
+	if (v.skip !== null) {
+		writeFd(2, `${v.skip}\n`);
+		return;
+	}
+	if (!v.due) {
+		writeFd(
+			1,
+			`Last weekly retro ran ${v.newest}, ${v.age} day(s) before ${date} — nothing to file.\n`,
+		);
+		return;
+	}
+
+	const text = body(v.newest, v.weeklyCount);
+	/* No PreToolUse hook sees a script's own gh call, so the create guard's
+	 * takes: check is made here (workflow-core#969). */
+	const refused = takesRefusal([LABEL], text);
+	if (refused) {
+		writeFd(2, `BROKEN: ${refused}\n`);
+		process.exit(2);
+	}
+	let filed;
+	try {
+		filed = fileOrRefresh({
+			title: TITLE,
+			label: LABEL,
+			labels: [LABEL],
+			body: text,
+		});
+	} catch (e) {
+		/* Not e.message: a failed gh call's holds its whole argv, the body
+		 * included. */
+		const hint =
+			parseGhFailureReason(e) === "unreachable"
+				? unreachableRemedy(e)
+				: "A gh 403 is a token missing a permission: the gh token needs `issues: write`.";
+		writeFd(
+			2,
+			`BROKEN: could not file or refresh "${TITLE}" — ${parseErrLine(e)}\n${hint} The run is still due: re-run once that is cleared, or the next day's run retries.\n`,
+		);
+		process.exit(2);
+	}
+	writeFd(1, `Weekly retro due. ${filed}\n`);
+}
+
+if (require.main === module) main();
+
+module.exports = {
+	TITLE,
+	LABEL,
+	today,
+	condition,
+};

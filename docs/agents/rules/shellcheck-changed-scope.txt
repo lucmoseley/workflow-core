@@ -1,0 +1,6 @@
+THE FULL `npm run check:sh` TAKES MINUTES and has overrun a 300 s Bash call.
+
+For an in-session check run `bash scripts/check-sh-changed.sh`: the same flags over only
+the shell files that differ from HEAD, staged, unstaged or new (#1015). It does
+not re-check an unchanged caller of a changed `scripts/lib/*.sh`; CI's full run
+does.

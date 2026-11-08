@@ -1,0 +1,4 @@
+PUSH YOUR WORK TO YOUR SESSION'S OWN QUEUE REF, `queue/<worktree name>`.
+
+It passes as a creation or a fast-forward, never forced. Undo a commit with a
+follow-up commit pushed on top.
