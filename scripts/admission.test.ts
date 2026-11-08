@@ -1415,13 +1415,13 @@ describe("test-suite bands", () => {
 		expect(suites(100_000)).toBe(3);
 	});
 
-	it("walks the 2.15 / 3.25 / 3.65 GB resting bands", () => {
-		expect(suites(3650)).toBe(3);
-		expect(suites(3649)).toBe(2);
-		expect(suites(3250)).toBe(2);
-		expect(suites(3249)).toBe(1);
-		expect(suites(2150)).toBe(1);
-		expect(suites(2149)).toBe(0);
+	it("walks the 2.7 / 3.65 / 4.7 GB resting bands", () => {
+		expect(suites(4700)).toBe(3);
+		expect(suites(4699)).toBe(2);
+		expect(suites(3650)).toBe(2);
+		expect(suites(3649)).toBe(1);
+		expect(suites(2700)).toBe(1);
+		expect(suites(2699)).toBe(0);
 	});
 });
 

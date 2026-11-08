@@ -651,7 +651,9 @@ describe("command line", () => {
 			const walk = (dir: string) => {
 				for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 					const full = path.join(dir, e.name);
-					if (full === path.join(home, ".oracle-home")) continue;
+					// The oracle's cache and its temp reads land here, beside the seats.
+					if (full === path.join(home, ".oracle-home") || full === systmp)
+						continue;
 					const st = fs.lstatSync(full);
 					out.push(`${full} ${st.size} ${st.mtimeMs}`);
 					if (e.isDirectory()) walk(full);
