@@ -23,6 +23,7 @@ The core's own primitives, beside the base's table.
 | Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
 | Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
+| Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
 | Setting an environment variable in a test | `vi.stubEnv`, `undefined` to unset, undone before each test by `unstubEnvs: true` in `vitest.config.ts` | `scripts/lib/wait-loop.test.ts` | §X2 | `scripts/check-test-env-writes.js` |
 
 ## Local rules
@@ -44,6 +45,12 @@ Outside it: a catch that guards more than the one read, such as a rename then a 
 **Every code kind but shell.** Code asking whether a path is a given directory or sits beneath it calls `isUnder` or `relativeUnder` in `scripts/lib/is-under.js`; strictly beneath is `relativeUnder`'s truthy answer, or `isUnder` with the path unequal to the root. A hand-written `startsWith(dir + sep)` test, or a `path.relative` answer tested for a leading `..`, is the breach (#4021).
 
 Outside it: a glob or pathspec match, such as the sensitive-paths match (#1654); a prefix test on a name that is no directory.
+
+### §LG4 · A synchronous pause goes through the one sleeper — **hard**
+
+**Every code kind but shell.** Code that blocks its thread for a wait calls `sleepSync` in `scripts/lib/sleep-sync.js`. An `Atomics.wait` written outside it is the breach (#4029).
+
+Outside it: a stub program held in a string and run as its own process, such as the `Hold` stub in `scripts/lib/morning-review-fixture.ts`, which stays self-contained so it runs from wherever the test writes it.
 
 ---
 
