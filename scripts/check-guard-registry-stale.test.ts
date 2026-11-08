@@ -273,6 +273,22 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
+	it("refuses a run over an anchors file that is not a JSON object of digests, and a targeted --review leaves it as it was (#4177)", () => {
+		const root = guardRepo();
+		const malformed = '{"scripts/guard-branch.sh": 1}\n';
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		fs.writeFileSync(path.join(root, ANCHORS), malformed);
+		const r = run(root);
+		expect(r.code).toBe(2);
+		expect(JSON.stringify(r.json)).toContain(
+			`${ANCHORS} is not a JSON object of digests`,
+		);
+		expect(() => reviewIn(root, ["scripts/guard-branch.sh"])).toThrow(
+			/--review exited 2/,
+		);
+		expect(fs.readFileSync(path.join(root, ANCHORS), "utf8")).toBe(malformed);
+	});
+
 	it("--review <path> re-anchors only that guard", () => {
 		const root = build({
 			claude: region(

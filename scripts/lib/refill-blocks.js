@@ -1758,6 +1758,16 @@ const isBootKillCandidate = (l) =>
 	!(l.parked && FOUNDER_BLOCKS.has(l.block?.cause ?? ""));
 
 /**
+ * Whether `l`'s job record reads it ended on its own (ENDED_JOB_STATES).
+ * @param {JobLaunch} l
+ * @param {Pick<BlockReads, "jobStateOf">} io
+ */
+const hasJobEnded = (l, io) => {
+	const state = io.jobStateOf(l)?.state;
+	return typeof state === "string" && ENDED_JOB_STATES.has(state);
+};
+
+/**
  * Whether `l`'s session was at work when a restart killed it: a candidate not
  * listed live, not ended on its own between the last tick and the restart, and not
  * launched since it (#3971).
@@ -1768,9 +1778,7 @@ const isBootKillCandidate = (l) =>
  */
 function isBootKillable(l, { agents, io }, bootedAt) {
 	if (l.launchedAt > bootedAt) return false;
-	if (!isBootKillCandidate(l) || isLiveIn(l, agents)) return false;
-	const state = io.jobStateOf(l)?.state;
-	return typeof state !== "string" || !ENDED_JOB_STATES.has(state);
+	return isBootKillCandidate(l) && !isLiveIn(l, agents) && !hasJobEnded(l, io);
 }
 
 /**
@@ -2835,6 +2843,7 @@ module.exports = {
 	isLive,
 	isResuming,
 	isHoldCleared,
+	hasJobEnded,
 	isBootKillCandidate,
 	isBootKillable,
 	isBootKilled,
