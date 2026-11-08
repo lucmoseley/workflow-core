@@ -841,15 +841,20 @@ function stepEnvEscape(split, next) {
 
 /**
  * The words of a string a wrapper hands to `sh -c`: read back through literal,
- * its first non-blank line split on IFS whitespace, as sh skips blank lines to
- * reach its first command (#4281).
+ * the words of its first line carrying any, split on IFS whitespace and cut at
+ * a word opening `#`, as sh skips blank and comment lines to reach its first
+ * command (#4281).
  * @param {string} word
  * @param {string[]} spans
  */
 const splitString = (word, spans) =>
 	literal(word, spans)
 		.text.split("\n")
-		.map((line) => line.split(IFS_SPLIT).filter(Boolean))
+		.map((line) => {
+			const words = line.split(IFS_SPLIT).filter(Boolean);
+			const comment = words.findIndex((w) => w.startsWith("#"));
+			return comment < 0 ? words : words.slice(0, comment);
+		})
 		.find((words) => words.length > 0) ?? [];
 
 /**
