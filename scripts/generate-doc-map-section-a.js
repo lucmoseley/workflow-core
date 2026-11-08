@@ -132,8 +132,6 @@ function main(argv) {
 	let held = null;
 	if (!flag("--no-claim")) {
 		const subject = `${mapPath}#${REGISTER_SECTION}`;
-		// `claimed`, not `ok`: fail-open answers ok on a refusal too, and releasing
-		// a claim the arbiter never granted asks it to drop somebody else's.
 		if (
 			claimDataFile(subject, {
 				claimCmd: value("--claim-cmd"),

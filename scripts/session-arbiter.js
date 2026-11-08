@@ -609,7 +609,7 @@ function uncheckedNotes(unchecked) {
 function dirtyUnclaimedNotes({ rel, verdict, lock }) {
 	if (
 		verdict === "claimed" &&
-		store.isGuarded(rel) &&
+		store.isWarned(rel) &&
 		store.gitDirty(rel) === true &&
 		// gitDirty is whole-file even for a region subject, so on a regioned path
 		// the dirt may belong to a live claimant of ANOTHER region — this session's
@@ -800,7 +800,7 @@ function wholeFileRegionWarning(rel) {
 		);
 	}
 	return (
-		`session-arbiter: ${rel} is claimed per region, and this claim names none — so it takes the WHOLE file and denies every other session's region claim on it until you release.\n` +
+		`session-arbiter: ${rel} is claimed per region, and this claim names none — so it takes the WHOLE file, and every other session's region claim on it is warned of until you release.\n` +
 		listing +
 		`  One region instead:\n    ${buildArbiterCommand`claim ${rel}#<region>`}\n` +
 		(allocatable
@@ -955,12 +955,12 @@ function takeSet(rels, me) {
 		rels: order,
 		taken,
 		contended: taken.filter(
-			(t) => t.verdict === "held" && store.isGuarded(t.rel),
+			(t) => t.verdict === "held" && store.isWarned(t.rel),
 		),
 		notices: {
 			broken,
 			unchecked: taken
-				.filter((t) => t.verdict === "unknown" && store.isGuarded(t.rel))
+				.filter((t) => t.verdict === "unknown" && store.isWarned(t.rel))
 				.map((t) => t.rel),
 		},
 	};

@@ -29,8 +29,10 @@ const { buildManifestText } = require("./read-edges-render.js");
 const CLAIM_TIMEOUT_MS = 5000;
 
 /**
- * A claim taken on `file` for `session`, by the arbiter's own CLI, or why not.
- * @typedef {(file: string, session: string|null, cwd: string) => { ok: true } | { ok: false, why: string }} ClaimFn
+ * A claim taken on `file` for `session`, by the arbiter's own CLI, with the
+ * warning it printed where a live neighbour also holds the file (#4249) — or
+ * why not.
+ * @typedef {(file: string, session: string|null, cwd: string) => { ok: true, warning?: string } | { ok: false, why: string }} ClaimFn
  * @type {ClaimFn}
  */
 function claimWithArbiter(file, session, cwd) {
@@ -45,7 +47,7 @@ function claimWithArbiter(file, session, cwd) {
 		{ cwd, encoding: "utf8", timeout: CLAIM_TIMEOUT_MS },
 	);
 	return claim.status === 0
-		? { ok: true }
+		? { ok: true, warning: claim.stderr?.trim() || undefined }
 		: {
 				ok: false,
 				why:
@@ -74,21 +76,23 @@ function readManifest(dir) {
 
 /**
  * The working tree's manifest written, or why it was left alone: it holds an
- * edit the overlay was not `given`, a live session holds it, or the write
- * failed.
+ * edit the overlay was not `given`, the claim failed, or the write failed. A
+ * claim's warning of a live neighbour goes to `err`, and the write goes ahead.
  *
  * @param {string} home
  * @param {string} text
- * @param {{ given: string|null, session: string|null, claimFn: ClaimFn }} by
+ * @param {{ given: string|null, session: string|null, claimFn: ClaimFn,
+ *   err: { write: (s: string) => unknown } }} by
  * @returns {string|null}
  */
-function writeShared(home, text, { given, session, claimFn }) {
+function writeShared(home, text, { given, session, claimFn, err }) {
 	const shared = readManifest(home);
 	if (shared instanceof Error) return `it would not read (${shared.message})`;
 	if (shared !== given) return "it holds an edit this run was not given";
 	const file = path.join(home, EDGES_FILE);
 	const claim = claimFn(file, session, home);
 	if (!claim.ok) return claim.why;
+	if (claim.warning) err.write(`${claim.warning}\n`);
 	try {
 		fs.writeFileSync(file, text);
 		return null;
@@ -127,7 +131,7 @@ function freshenManifest(
 		return;
 	}
 	if (home === root || readManifest(home) === text) return;
-	const why = writeShared(home, text, { given, session, claimFn });
+	const why = writeShared(home, text, { given, session, claimFn, err });
 	if (why) {
 		err.write(
 			`${EDGES_FILE}: the working tree's copy is left alone — ${why}. Regenerate it before you commit: npm run gen:test-read-edges (#1860).\n`,

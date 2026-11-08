@@ -164,9 +164,15 @@ function writeClaimed(body) {
 		encoding: "utf8",
 	});
 	if (claim.status !== 0) {
-		writeFd(2, `not written — claim refused:\n${claim.stdout}${claim.stderr}`);
+		writeFd(
+			2,
+			`not written — the arbiter's claim failed (exit ${claim.status}):\n${claim.stdout}${claim.stderr}`,
+		);
 		return 1;
 	}
+	// A live neighbour holding the table too is warned of, and the write goes
+	// ahead (#4249).
+	if (claim.stderr) writeFd(2, claim.stderr);
 	try {
 		fs.mkdirSync(path.dirname(table), { recursive: true });
 		fs.writeFileSync(table, body);

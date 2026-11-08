@@ -464,7 +464,8 @@ A deny carries a false-positive mode a warn does not: a `PreToolUse` matcher on
 `Bash` sees the raw command string, so a session merely *writing documentation
 that mentions* the guarded command trips it — noise under warn, a wedged session
 under deny. A guard reading a structured field such as `tool_input.file_path`
-has no such mode, which is why the file-claim guard denies.
+has no such mode. The file-claim guard reads one and still only warns (#4249):
+a second writer in its own worktree has a legitimate use.
 
 `scripts/lib/self-match.js`'s header is the worked example, splitting one
 guard across both verdicts: `pkill -f` is **denied** (it can kill the session,
