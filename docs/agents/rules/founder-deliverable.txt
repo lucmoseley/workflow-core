@@ -10,7 +10,7 @@ FILE IT THE MOMENT the session produces the deliverable or names the act, not at
 
 THE LABEL:
 
-  - a deliverable or an act outside Claude Code   → takes:human, with the body below
+  - a deliverable or an act only his hands can do → takes:human, with the body below; a screen a session drives — a terminal, a Windows app — is not one (`rule:takes-label-nuances`)
   - a check by eye of agent-made work             → takes:wayfinder, with a `## Question` body
   - an unanswered decision                        → takes:wayfinder, with a `## Question` body
 
@@ -18,7 +18,7 @@ A `takes:human` BODY, in this order (modelled on mmm-infra#32):
 
   1. **Outside Claude Code:** <the act>
   2. Why the work exists and the facts it rests on, each dated.
-  3. The deliverable verbatim in a fenced block — or each step with its surface, its literal text and what the founder should see.
+  3. The deliverable verbatim in a fenced block — or each step with its surface, its literal text and what the founder should see. Every step is a founder act: a prerequisite an agent can run is done before filing, sits on a blocking ticket, or is named as the opening session's step, with a dated line once run.
   4. {rule:close-when-line}
 
 THE ISSUE BODY IS THE HAND-OVER'S SOURCE for later sessions, never what the founder is sent to read: the final message asking for the act carries every step in full (`rule:founder-handover`).

@@ -1,5 +1,5 @@
 /*
- * takes-label.js — the `takes:` vocabulary, the four `takes:human`
+ * takes-label.js — the `takes:` vocabulary, the `takes:human`
  * Outside-line tests and its `**Close when:**` test, for the scripts that
  * write or audit a `takes:` value (#533, #983, #1095).
  *
@@ -100,11 +100,45 @@ const readFounderActs = () =>
 	);
 
 /* The vocabulary that names one of them (#1092 §The check), whole-word and
- * case-insensitive on the Outside line alone. The suffix, and the irregular
- * forms listed whole, let the list's own wording pass ("signing", "sending");
- * a word used in a non-act sense passes too, the accepted escape. */
+ * case-insensitive, read on the Outside line's act part alone. The suffix,
+ * and the irregular forms listed whole, let the list's own wording pass
+ * ("signing", "sending"); a word used in a non-act sense passes too, the
+ * accepted escape. */
 const FOUNDER_ACT_WORD =
-	/(^|[^a-z0-9])(pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|otp|verification|phone|call|in[ -]person|desktop app|phone app|iphone|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form)(s|es|d|ed|ing|ted|ting)?($|[^a-z0-9])|(^|[^a-z0-9])(paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies)($|[^a-z0-9])/i;
+	/(?<![a-z0-9])(?:(?:pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|otp|verification|phone|call|in[ -]person|phone app|iphone|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form)(?:s|es|d|ed|ing|ted|ting)?|paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies)(?![a-z0-9])/gi;
+const REFUSED_WORD = /^refused$/i;
+
+/* A screen a session can drive (#4142, ruling #3720 Q1 (A)): a terminal, the
+ * agents view, a Windows Terminal tab, a session, or a desktop app. No
+ * founder-act word passes one, only a Tried: list. A phone app stays the
+ * founder's. */
+const SESSION_SURFACE =
+	/(?<![a-z0-9])(agents? view|wc[1-3]|sessions?|terminals?|desktop apps?)(?![a-z0-9])/i;
+
+/* A report-back clause reports to the project, not to anyone outside it,
+ * so its verb never passes the line (#4142 item 14). It is a clause after the
+ * first, opened by its verb, that names this side: `with` straight after
+ * the verb, or me, here, back, or this or the issue, ticket, session or
+ * thread. A send to someone outside ("then reply to the hostel") stays. */
+const CLAUSE_BREAK = /(?:[,;—]\s*|\s+(?=(?:and|then)\s))(?:(?:and|then)\s+)*/gi;
+const REPORT_BACK =
+	/^(?:reply|replies|report|post|comment|log|record|paste|message|note|send|share|tell)\b(?:\s+with\b|[^,;—]*(?<![a-z0-9])(?:me|here|back|(?:this|the) (?:issue|ticket|session|thread))(?![a-z0-9]))/i;
+
+/**
+ * The Outside line up to its first report-back clause.
+ * @param {string} line
+ * @returns {string}
+ */
+function actPart(line) {
+	const breaks = [...line.matchAll(CLAUSE_BREAK)];
+	for (const [k, brk] of breaks.entries()) {
+		const start = brk.index + brk[0].length;
+		const end = breaks[k + 1]?.index ?? line.length;
+		if (REPORT_BACK.test(line.slice(start, end)))
+			return line.slice(0, brk.index);
+	}
+	return line;
+}
 
 /* A website job no list act covers reaches the founder with methods tried
  * (#1077 Q3 (A)): a `Tried:` line, bold or plain, then the items on the
@@ -114,6 +148,10 @@ const FOUNDER_ACT_WORD =
 const TRIED_LINE = /^[ \t]*(\*\*)?Tried(:\*\*|\*\*:|:)/;
 const LIST_ITEM = /^([ \t]*)([-*+]|[0-9]+[.)])[ \t]+\S/;
 const TRIED_MIN = 3;
+/* A screen a session can drive, or an act the permission check refused,
+ * needs fewer: the ladder names two routes for a screen, and a refusal's
+ * evidence is the refused call and a narrower one (#4142). */
+const TRIED_MIN_ROUTES = 2;
 
 /**
  * How many items the list opening `following` holds at its first item's
@@ -157,26 +195,56 @@ const CLOSE_WHEN_MARKER = "Close when:";
 const CLOSE_WHEN_LINE = /Close when:[ \t*]*[^\s*]/;
 
 /**
- * Which of the four Outside-line tests a `takes:human` body fails, in the
- * create guard's order, with the line it read — or null where it passes. The
- * fault is check-issue-labels.js's finding tag.
+ * Which of the Outside-line tests a `takes:human` body fails, in the create
+ * guard's order, with the line it read — or null where it passes. The fault
+ * is check-issue-labels.js's finding tag.
  * @param {string} body
- * @returns {{fault: "NO-OUTSIDE-ACT"|"BARRED-NOT-IMPOSSIBLE"|"REPO-FILE-ACT"|"NOT-A-FOUNDER-ACT", line: string}|null}
+ * @returns {{fault: "NO-OUTSIDE-ACT"|"BARRED-NOT-IMPOSSIBLE"|"REPO-FILE-ACT"|"SURFACE-UNTRIED"|"NOT-A-FOUNDER-ACT"|"REFUSED-UNTRIED", line: string}|null}
  */
 function outsideLineFault(body) {
 	const line = OUTSIDE_TEXT.exec(body)?.[0] ?? "";
 	if (!OUTSIDE_LINE.test(body)) return { fault: "NO-OUTSIDE-ACT", line };
 	if (BARRED_ACT.test(line)) return { fault: "BARRED-NOT-IMPOSSIBLE", line };
 	if (REPO_FILE_ACT.test(line)) return { fault: "REPO-FILE-ACT", line };
-	if (!FOUNDER_ACT_WORD.test(line) && triedCount(body) < TRIED_MIN)
-		return { fault: "NOT-A-FOUNDER-ACT", line };
+	const tried = triedCount(body);
+	if (SESSION_SURFACE.test(line))
+		return tried < TRIED_MIN_ROUTES ? { fault: "SURFACE-UNTRIED", line } : null;
+	const words = [...actPart(line).matchAll(FOUNDER_ACT_WORD)].map((m) => m[0]);
+	if (words.length === 0)
+		return tried < TRIED_MIN ? { fault: "NOT-A-FOUNDER-ACT", line } : null;
+	if (words.every((w) => REFUSED_WORD.test(w)) && tried < TRIED_MIN_ROUTES)
+		return { fault: "REFUSED-UNTRIED", line };
 	return null;
+}
+
+/**
+ * Whether a body's Outside line names an act the permission check refused,
+ * the one case where a `! gh ` step is the founder's.
+ * @param {string} body
+ * @returns {boolean}
+ */
+const outsideNamesRefusal = (body) =>
+	[...(OUTSIDE_TEXT.exec(body)?.[0] ?? "").matchAll(FOUNDER_ACT_WORD)].some(
+		(m) => REFUSED_WORD.test(m[0]),
+	);
+
+/**
+ * The way out of the two faults a `Tried:` list of routes answers, as the
+ * guard, file-issue.js and the checker print it.
+ * @param {"SURFACE-UNTRIED"|"REFUSED-UNTRIED"} fault
+ * @returns {string}
+ */
+function untriedFix(fault) {
+	const list = `a **Tried:** line followed directly by at least ${TRIED_MIN_ROUTES} list items`;
+	if (fault === "SURFACE-UNTRIED")
+		return `A session drives these, and no founder-act word passes one. Run the routes the browser-ladder skill names — a private tmux server for a terminal screen; for a desktop app, \`powershell.exe\` and, if the session has it, computer use — and attack the ticket's question, not only the act the body prescribes. Where they fail, add ${list}, one per route you ran and what it showed. Where the founder's only part is a yes or a time, the label is takes:wayfinder: ask, then act.`;
+	return `A refusal reaches the founder only with its evidence: add ${list}, the refused call and a narrower one, each with what the permission check said (\`rule:founder-handover\`, its auto-mode paragraph). Where the narrower call ran, the label is wrong.`;
 }
 
 /**
  * Why `labels` and `body` may not be filed as they stand, or null. Exactly
  * one `takes:` value from the seven, and a `takes:human` body passing the
- * four Outside-line tests, then carrying a Close-when line.
+ * Outside-line tests, then carrying a Close-when line.
  * @param {string[]} labels
  * @param {string} body
  * @returns {string|null}
@@ -205,6 +273,10 @@ function takesRefusal(labels, body) {
 		return `takes:human, but the body names no act performed outside Claude Code. Add it on its own line — **${OUTSIDE_MARKER}** <the act, in plain words>, one of the founder's own acts this message closes on. Or, ${triedWayOut}. If you can honestly write neither, the label is wrong. ${rule} The founder's own acts (#1077): ${acts}`;
 	if (found.fault === "NOT-A-FOUNDER-ACT")
 		return `takes:human, but the Outside line names none of the founder's own acts: "${found.line}". Two ways out: name the act from that list, which this message closes on, on the Outside line, or, ${triedWayOut}. Neither true means an agent can do it, and the label is wrong. ${rule} The acts are (#1077): ${acts}`;
+	if (found.fault === "SURFACE-UNTRIED")
+		return `takes:human, but the Outside line names a screen a session can drive — a terminal, the agents view, a session or a desktop app: "${found.line}". ${untriedFix(found.fault)} ${rule}`;
+	if (found.fault === "REFUSED-UNTRIED")
+		return `takes:human, but the Outside line's only founder act is a refused one: "${found.line}". ${untriedFix(found.fault)} ${rule}`;
 	if (found.fault === "BARRED-NOT-IMPOSSIBLE")
 		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts. ${rule} The founder's own acts (#1077): ${acts}`;
 	return `takes:human, but the Outside line's act produces a file in this repository: "${found.line}". The file is takes:implement; the founder's review of it is takes:wayfinder. ${rule}`;
@@ -219,9 +291,12 @@ module.exports = {
 	TAKES_PREFIX,
 	TAKES_VALUES,
 	TRIED_MIN,
+	TRIED_MIN_ROUTES,
 	outsideLineFault,
+	outsideNamesRefusal,
 	takesLabel,
 	takesOf,
 	takesRefusal,
 	takesValue,
+	untriedFix,
 };

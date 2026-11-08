@@ -58,7 +58,7 @@
  * the ticket that drew that line), and an
  * unlabelled child is a FAIL finding (exit 1, or 0 under --warn).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, or untouched for 14 days, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, a brief still holding its spec, a latest comment saying the issue is not ready on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, untouched for 14 days, or carrying a `! gh ` step with no refused act named, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, a brief still holding its spec, a latest comment saying the issue is not ready on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
  * JUSTIFIED: fail-safe — an issue with no `takes:` is routed to no command, and every reader of the label reads it rather than fixing it.
  * DEFEAT:    none; --notify is silent when no open issue carries a fault.
  */
@@ -97,8 +97,11 @@ const {
 	COMMAND_VALUES,
 	OUTSIDE_MARKER,
 	TRIED_MIN,
+	TRIED_MIN_ROUTES,
 	outsideLineFault,
+	outsideNamesRefusal,
 	takesLabel,
+	untriedFix,
 } = require("./lib/takes-label");
 
 const HUMAN_LABEL = takesLabel("human");
@@ -133,6 +136,14 @@ const HUMAN_FAULTS = {
 	"REPO-FILE-ACT": [
 		"takes:human whose outside act produces a file in this repository",
 		"an agent writes the file and the founder reviews it — relabel takes:implement, or takes:wayfinder for the review",
+	],
+	"SURFACE-UNTRIED": [
+		`takes:human whose Outside line names a screen a session can drive, and whose body lists no ${TRIED_MIN_ROUTES} routes tried`,
+		untriedFix("SURFACE-UNTRIED"),
+	],
+	"REFUSED-UNTRIED": [
+		`takes:human whose Outside line's only founder act is a refused one, and whose body lists no ${TRIED_MIN_ROUTES} calls tried`,
+		untriedFix("REFUSED-UNTRIED"),
 	],
 	"NOT-A-FOUNDER-ACT": [
 		`takes:human whose Outside line names none of the founder's own acts, and whose body lists no ${TRIED_MIN} methods tried`,
@@ -494,6 +505,28 @@ function checkHumanIdle(iss, own, raise) {
 		);
 }
 
+/** @param {any} iss @param {string[]} own @param {Raise} raise */
+function checkAgentStep(iss, own, raise) {
+	/*
+	 * A `! gh ` step is one a session runs itself (#4142 item 11, from #3874),
+	 * unless the permission check refused it. A WARN, never a FAIL: it reads
+	 * only `! gh `, and a step a session could not run when the body was
+	 * filed may have become runnable since.
+	 */
+	const body = String(iss.body ?? "");
+	if (
+		own.includes(HUMAN_LABEL) &&
+		body.includes("! gh ") &&
+		!outsideNamesRefusal(body)
+	)
+		raise(
+			"WARN",
+			"AGENT-STEP",
+			"takes:human whose steps include a `! gh ` line a session can run, and whose Outside line names no refused act",
+			`run the step and record it with its date, or move it to a blocking ticket; the body's steps are founder acts only (${scriptPath("lib/rule-text.sh")} founder-deliverable)`,
+		);
+}
+
 /** @param {any} iss @param {Raise} raise */
 function checkStaleContainer(iss, raise) {
 	/* An unread list could hold the open child, so it reports no
@@ -579,6 +612,7 @@ function checkTakesFaults(iss, own, counts, raise) {
 	checkHumanBody(iss, own, raise);
 	checkGates(iss, raise);
 	checkHumanIdle(iss, own, raise);
+	checkAgentStep(iss, own, raise);
 	checkContainer(iss, own, children, raise);
 	checkSpeccedBrief(iss, own, counts.openSpecs.get(iss.number) || 0, raise);
 }
