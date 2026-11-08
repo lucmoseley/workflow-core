@@ -139,8 +139,6 @@ class Lexer {
 	}
 
 	/** Record `recorded` as a span and return the sentinel standing for it.
-	 * A sentinel byte typed outside every quote is recorded as written, with
-	 * no quote — a BARE span — so no typed text reads as a span (#4278).
 	 * @param {string} recorded */
 	recordSpan(recorded) {
 		this.spans.push(recorded);

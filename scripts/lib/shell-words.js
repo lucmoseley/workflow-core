@@ -23,7 +23,7 @@ const { trimEndRun } = require("./trim-run.js");
  */
 const QUOTED = "\x01QSTR\x01";
 
-/** The byte a sentinel opens and closes on, typed or written. */
+/** The byte a sentinel opens and closes on. */
 const SENTINEL_BYTE = "\x01";
 
 /** @param {string} recorded a span as recorded */
