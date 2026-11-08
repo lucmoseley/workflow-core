@@ -7,14 +7,16 @@
  * Loosen it and a session starts on stale work or local `main`, two sessions
  * install into one tree, a tool writes under a store every neighbour on its
  * lockfile reads, or a lockfile change runs against a tree built for another
- * lockfile. Loosen `land` (#4239) and a merge commit skips the pre-commit
+ * lockfile, one a merge or checkout brought in included (#4702). Loosen `land` (#4239) and a merge commit skips the pre-commit
  * gates, a rewritten HEAD's push is lost or misreported, a registry-anchor
  * conflict costs a hand merge, or uncommitted work reads as landed.
  *
  * Every land runs with the `landing` module on and a live process holding the
  * lander's lock, so start-lander.js answers without starting a real lander.
  *
- * Every case cuts real worktrees off a real bare origin, so the file runs over the 10 s budget (base §X8 (5)).
+ * Every case cuts real worktrees off a real bare origin, and the relink cases
+ * run this repository's own post-merge, post-checkout and post-commit, the
+ * last's every block, so the file runs over the 10 s budget (base §X8 (5)).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -567,6 +569,26 @@ const installHooks = (hooks: Record<string, string>) => {
 	git(main, "config", "core.hooksPath", dir);
 };
 
+const ROOT = path.resolve(__dirname, "..");
+
+/** This repository's own `.husky/<name>` as the fixture's `name` hook. */
+const installRealHooks = (...names: string[]) =>
+	installHooks(
+		Object.fromEntries(
+			names.map((name) => [
+				name,
+				`WFC_PLUGIN_ROOT=${shellQuote(ROOT)} exec sh ${shellQuote(path.join(ROOT, ".husky", name))} "$@"`,
+			]),
+		),
+	);
+
+/** A git command run as a session would, its hooks' stderr kept. */
+const gitAsSession = (cwd: string, ...args: string[]) =>
+	spawnSync("git", args, { cwd, encoding: "utf8", env: ENV() });
+
+const lockIn = (name: string) =>
+	fs.readFileSync(path.join(storeOf(name), "lock"), "utf8");
+
 const parents = (cwd: string, rev: string) =>
 	git(cwd, "rev-list", "--parents", "-n1", rev).split(" ").slice(1);
 
@@ -683,6 +705,73 @@ it("refuses to land from a linked worktree outside the worktrees folder, which h
 	expect(
 		git(origin, "for-each-ref", "--format=%(refname)", "refs/heads/queue/"),
 	).toBe("");
+});
+
+it("re-points a landed worktree at the store for the lockfile its merge brought in, and a checkout back at the old one's (#4702)", () => {
+	installRealHooks("post-merge", "post-checkout");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	const mine = commitIn(dir, { "mine.txt": "m" }, "mine");
+	landOnOrigin({ "package-lock.json": "lock-2\n" });
+	expect(run(main, "warm").status).toBe(0);
+
+	const landed = run(dir, "land");
+
+	expect(landed.status, landed.stderr).toBe(0);
+	expect(lockIn("one")).toBe("lock-2\n");
+	expect(landed.stderr).toContain(
+		`session checkout: ${dir}'s lockfile changed, so it now uses ${path.dirname(storeOf("one"))}\n`,
+	);
+
+	const back = gitAsSession(dir, "checkout", "-q", "--detach", mine);
+
+	expect(back.status, back.stderr).toBe(0);
+	expect(lockIn("one")).toBe("lock-1\n");
+	expect(back.stderr).toContain("lockfile changed, so it now uses");
+	const again = run(dir, "relink");
+	expect(again.status, again.stderr).toBe(0);
+	expect(again.stderr).toBe("");
+});
+
+it("names the attach route where a merge brings in a lockfile no store stands for, leaving the old link, which attach then replaces (#4702)", () => {
+	installRealHooks("post-merge");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	landOnOrigin({ "package-lock.json": "lock-2\n" });
+	git(dir, "fetch", "-q", "origin");
+
+	const merged = gitAsSession(dir, "merge", "--no-edit", "origin/main");
+
+	const refusal =
+		/lockfile changed, and no dependency store stands for it yet \([0-9a-f]{16}\), so its node_modules still links the store built for the old one \([0-9a-f]{16}\) — run `node scripts\/session-checkout\.js attach` to build that store, up to 15 min, and link it/;
+	expect(merged.status, merged.stderr).toBe(0);
+	expect(merged.stderr).toMatch(refusal);
+	expect(lockIn("one")).toBe("lock-1\n");
+	const relinked = run(dir, "relink");
+	expect(relinked.status).toBe(1);
+	expect(relinked.stderr).toMatch(refusal);
+
+	expect(run(dir, "attach").status).toBe(0);
+	expect(lockIn("one")).toBe("lock-2\n");
+});
+
+it("re-points a worktree when a conflicted merge bringing in a lockfile is committed (#4702)", () => {
+	installRealHooks("post-commit");
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	commitIn(dir, { "shared.txt": "mine\n" }, "mine");
+	landOnOrigin({ "shared.txt": "theirs\n", "package-lock.json": "lock-2\n" });
+	expect(run(main, "warm").status).toBe(0);
+	git(dir, "fetch", "-q", "origin");
+	expect(gitAsSession(dir, "merge", "--no-edit", "origin/main").status).toBe(1);
+	fs.writeFileSync(path.join(dir, "shared.txt"), "both\n");
+	git(dir, "add", "shared.txt");
+
+	const committed = gitAsSession(dir, "commit", "-q", "--no-edit");
+
+	expect(committed.status, committed.stderr).toBe(0);
+	expect(lockIn("one")).toBe("lock-2\n");
+	expect(committed.stderr).toContain("lockfile changed, so it now uses");
 });
 
 it("settles a registry-anchor conflict through the per-row merge driver, with no hand merge", () => {

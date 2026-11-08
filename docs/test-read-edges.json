@@ -577,6 +577,15 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts"
 		],
+		".husky/post-checkout": [
+			"scripts/adopter-hook-errexit.test.ts",
+			"scripts/adopter-hook-shim.test.ts",
+			"scripts/husky-script-refs.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
+			"scripts/lib/project-slug-scan.test.ts"
+		],
 		".husky/post-commit": [
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -32277,6 +32286,31 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/relink-store.sh": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/rendered-injection.js": [
 			"scripts/check-guard-errors.test.ts",

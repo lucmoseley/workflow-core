@@ -27,6 +27,13 @@
  * into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
+ * RELINK re-points a worktree whose lockfile a merge, pull or checkout
+ * changed at the store standing for the new one, building none (#4702);
+ * `.husky/post-merge`, `post-checkout` and `post-commit` run it, through
+ * lib/relink-store.sh. A merge's `pre-merge-commit` gates run before it, on the
+ * store linked before the merge: the lander's install keys on the merged
+ * lockfile, and its full suite is what moves `main`.
+ *
  * WARM builds the store for a freshly fetched `origin/main`'s lockfile
  * where none stands, so a cut needs no build of its own (#4318). The refill
  * tick runs it, detached, ahead of its launches, and its dispatcher cuts with
@@ -472,6 +479,50 @@ function attach(cwd, { noBuild = false } = {}) {
 	fs.symlinkSync(path.join(made.store, "node_modules"), tmp, "dir");
 	fs.renameSync(tmp, link);
 	return { dir, store: made.store, built: made.state === "built" };
+}
+
+/**
+ * The store a session worktree's `node_modules` links, or null where it links none.
+ * @param {string} dir
+ * @param {string} storesDir
+ * @returns {string | null}
+ */
+function readLinkedStore(dir, storesDir) {
+	let target;
+	try {
+		target = fs.readlinkSync(path.join(dir, "node_modules"));
+	} catch (err) {
+		/* ENOENT: never attached; EINVAL: a real directory, as the lander's. */
+		if (["ENOENT", "EINVAL"].includes(String(caught(err).code))) return null;
+		throw err;
+	}
+	const store = path.dirname(path.resolve(dir, target));
+	return path.dirname(store) === storesDir ? store : null;
+}
+
+/**
+ * Re-point a worktree whose `node_modules` links a store at the one standing
+ * for the lockfile it now carries (#4702): a merge, pull or checkout changes the
+ * lockfile under the link. Builds none, as git hooks run it within
+ * HOOK_LIMIT_MS and a build takes up to INSTALL_TIMEOUT_MS, so a missing store
+ * refuses naming `attach`, which builds it.
+ * @param {string} cwd anywhere in the worktree
+ * @returns {{ dir: string, store: string | null }} the store newly linked, or
+ *   null where the worktree links no store or its link still matches
+ */
+function relink(cwd) {
+	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
+	const storesDir = path.join(rootOf(dir), STORES);
+	const linked = readLinkedStore(dir, storesDir);
+	const lockfile = buildWorktreeSource(dir)(LOCKFILE);
+	if (linked === null || lockfile === null) return { dir, store: null };
+	const key = storeKeyOf(lockfile);
+	if (path.basename(linked) === key) return { dir, store: null };
+	if (!fs.existsSync(path.join(storesDir, key, "node_modules")))
+		throw new CheckoutError(
+			`${dir}'s lockfile changed, and no dependency store stands for it yet (${key}), so its node_modules still links the store built for the old one (${path.basename(linked)}) — run \`node ${scriptPath("session-checkout.js")} attach\` to build that store, up to ${INSTALL_TIMEOUT_MS / 60_000} min, and link it`,
+		);
+	return { dir, store: attach(dir, { noBuild: true }).store };
 }
 
 /**
@@ -1513,6 +1564,7 @@ module.exports = {
 	land,
 	launchDir,
 	reap,
+	relink,
 	reopen,
 	STORES,
 	warm,
