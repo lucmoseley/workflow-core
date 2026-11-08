@@ -105,6 +105,7 @@ const {
 } = require("./npm-options.js");
 const { ruleOrFallback, spliceCmd } = require("./guard-verdict.js");
 const { isUnder } = require("./is-under.js");
+const { readOrNull } = require("./tree-or.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
 
@@ -148,12 +149,6 @@ const NPX_REMOVED = new Set(
  *   a registry call: `missing` where its program could not be started, else
  *   its exit status (null where it was killed) and stdout
  * @typedef {object} NpmInstallPorts
- * @property {(root: string) => { path: string, text: string | null }} readPackageJson
- *   the package.json of the tree at `root`, the session's (#4242), `text` null
- *   where it cannot be read
- * @property {(root: string, dep: string) => string | null} readManifest
- *   `node_modules/<dep>/package.json` under `root`, the session's tree, null
- *   where it cannot be read
  * @property {(pkg: string) => Call} npmView `npm view <pkg> time.created --json`
  * @property {(pkg: string) => Call} downloads last month's downloads endpoint
  *   for `pkg`
@@ -317,14 +312,15 @@ const DEP_FIELDS = [
  * @returns {string[] | null}
  */
 function loadDeps(ctx) {
-	const pkg = ctx.readPackageJson(ctx.tree().root);
-	if (pkg.text === null) {
+	const tree = ctx.tree();
+	const text = readOrNull(tree, "package.json");
+	if (text === null) {
 		ctx.log(
-			`no readable package.json at ${pkg.path} — install allowed unchecked`,
+			`no readable package.json at ${tree.root}/package.json — install allowed unchecked`,
 		);
 		return null;
 	}
-	const names = depNames(pkg.text);
+	const names = depNames(text);
 	if (names === null)
 		ctx.log("package.json did not parse — install allowed unchecked");
 	return names;
@@ -369,8 +365,10 @@ function depNames(text) {
  * @returns {string | null | undefined}
  */
 function binOwner(bin, deps, ctx) {
-	const { root } = ctx.tree();
-	const texts = deps.map((dep) => ctx.readManifest(root, dep));
+	const tree = ctx.tree();
+	const texts = deps.map((dep) =>
+		readOrNull(tree, `node_modules/${dep}/package.json`),
+	);
 	let whole = texts.every((t) => t !== null);
 	/** @type {string | null} */
 	let owner = null;

@@ -2,10 +2,10 @@
  * refill-blocks.js — the refill loop's blocked and resumed-idle launches
  * (#2848, spec #2695): their block and resume records, the act
  * lib/block-act.js's table returns for each, and each act done through the
- * I/O the program passes in (BlockIo).
+ * I/O the program passes in (BlockIo). The limit-blocked ones' acts are
+ * lib/refill-limits.js's; what both share is lib/refill-block-core.js's.
  */
 
-const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { blockCause, hasEndedUnblocked } = require("./block-cause.js");
 const { newestMarkerListing } = require("./parked.js");
@@ -14,8 +14,6 @@ const {
 	IDLE_TRIES,
 	RESUME_CAP,
 	blockAct,
-	buildLimitParkWhy,
-	holdBoundAt,
 	isFounderWait,
 	nextTryAt,
 	resumeDueAt,
@@ -24,26 +22,38 @@ const {
 	API_PROMPT,
 	HOLD_PROMPT,
 	IDLE_PROMPT,
-	LIMIT_PROMPT,
-	MOVED_PROMPT,
 	BOOT_PROMPT,
 	BOOT_UNREAD_PROMPT,
 } = require("./loop-prompts.js");
+const { buildResumeWaitLine } = require("./refill-decide.js");
+const { seatIdOf } = require("./refill-seats.js");
 const {
-	buildLimitCapText,
-	buildResumeWaitLine,
-	isAtLimitCap,
-	pickMoveSeat,
-} = require("./refill-decide.js");
-const { buildSeatName, isSameSeat, seatIdOf } = require("./refill-seats.js");
-const { ledgerJobOf } = require("./refill-state.js");
+	PARKED_STATE,
+	blockedIdsOf,
+	buildResumedHow,
+	isActionable,
+	isHeld,
+	isLimitHeld,
+	isLive,
+	isResuming,
+	isStepResume,
+	iso,
+	launchName,
+	ledgerOf,
+	relaunched,
+	stopJob,
+	stopPark,
+} = require("./refill-block-core.js");
+const {
+	adoptTargetOf,
+	isLimitBlocked,
+	settleStartedLimit,
+} = require("./refill-limits.js");
 
 /* #2359's "within one tick": a typed line reaches the timeline at once
  * (#2354 F8), so a minute is ample; untraced. */
 const ATTACH_VERDICT_MS = 60 * 1000;
 const ATTACH_ROUTE = "typing into the live session";
-const LIMIT_LOSS_TEXT =
-	"Lost: its in-flight subagents, background tasks and monitors, and the warm prompt cache (one cache rewrite of its context).";
 const FALLBACK_ROUTE = "stop and --bg --resume";
 /* The hand-offs of a stopped resumed-idle session tried before the loop gives
  * up on posting it and finishes the launch; untraced. */
@@ -54,9 +64,6 @@ const SWAP_RESUME_TRIES = 3;
 /* A finished session drops off the listing; one just launched may not be on
  * it yet, so a launch younger than this is never judged finished. Untraced. */
 const LISTING_GRACE_MS = 2 * 60 * 1000;
-/* The listed state of a session parked on a question
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1). */
-const PARKED_STATE = "blocked";
 
 /**
  * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
@@ -70,6 +77,9 @@ const PARKED_STATE = "blocked";
  *   park-at-morning or attach-to-hold; `limitParks`, a limit-cap park's count in
  *   a row, for the marker
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
+ * @typedef {import("./refill-limits.js").LimitHeld} LimitHeld
+ * @typedef {import("./refill-limits.js").LimitAct} LimitAct
+ * @typedef {import("./refill-limits.js").MoveTarget} MoveTarget
  * @typedef {{tries: number, triedAt: number, nextAt: number,
  *   attachAt?: number, heldAt?: number}} Resumes  a launch's resumes after an
  *   API error, kept across spells so the cap is the session's (#2705)
@@ -96,30 +106,6 @@ const PARKED_STATE = "blocked";
  *   launch flags, read on the tick it is queued, before any resume removes its
  *   job record (#4098)
  * @typedef {keyof StepPayloads} StepCause
- * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
- *   limit a seat's reading shows a session stopped on, null where neither bar
- *   read, with its reset as read; from the reading, never the limit's text
- * @typedef {{at: number, sessionId: string, cwd: string, limit: LimitRead,
- *   resumedAt?: number, ledgerHeldUntil?: number, failedTries?: number,
- *   movedFrom?: MovedFrom}}
- *   LimitHeld  a limit-blocked session the loop stopped (#3735): when, the
- *   session and directory its resume runs in, read before the stop, and its
- *   limit, read then, as a reset seat no longer shows it; `resumedAt`, a
- *   resume not yet judged; `ledgerHeldUntil`, when the ledger hold written for
- *   it ends;
- *   `failedTries`, its failed resumes this hold, which park it at the cap;
- *   `movedFrom`, the launch a move not yet judged left, for a failed one to go
- *   back to
- * @typedef {Partial<Pick<LoopLaunch, (typeof MOVED_FIELDS)[number]>> &
- *   {seat: string, jobId: string}} MovedFrom  what a move rewrites: its seat, reason and key, and the job and
- *   session a copy replaced
- * @typedef {{tries: number, triedAt: number, nextAt: number, failed?: string,
- *   takenAt?: number, dryResumes?: number}}
- *   LimitResumes  its resumes and moves, kept for the launch's life, each
- *   spacing the next; `failed`, why the last one failed; `takenAt`, when the
- *   last one took, until judged at its next limit block (judgeTakenResume);
- *   `dryResumes`, those in a row that took and bought no reply, which park it
- *   at the cap (#3792)
  * @typedef {(l: LoopLaunch, row: AgentRecord) =>
  *   import("./block-cause.js").Reading} CauseOf
  * @typedef {{root: string, job: import("./parked.js").ParkJob|null,
@@ -137,18 +123,6 @@ const PARKED_STATE = "blocked";
  *   swapHold: import("./admission.js").SwapHold, paused?: boolean}} Tick  a
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
  *   (#2690) as read this tick; whether the loop is paused
- * @typedef {Tick & {typedSeat: string|null, slots: number,
- *   readMoveSeats: () => MoveSeats,
- *   seatListRead: boolean}} LimitTick  `seatListRead`, whether the seats read
- *   are the loop's own list, not a damaged or empty control's stand-in
- *   a tick read further for its limit-blocked launches: the plan seats sized
- *   for one session each, the overflow seats on those readings, and
- *   admission's free slots
- * @typedef {{seats: import("./refill-decide.js").SizedSeat[],
- *   overflow: import("./refill-decide.js").OverflowReading[]}} MoveSeats
- * @typedef {{seat: string, keyVar?: string, allowanceUsd?: number}} MoveTarget
- *   a move's seat: on an overflow seat, its key and the allowance the session
- *   takes there, the key's headroom at the move (#3736)
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: true, why: string}} Resumed  a
@@ -158,8 +132,6 @@ const PARKED_STATE = "blocked";
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
  *   the job a resume started, woken in place or a copy handed what the session
  *   held; why the job store could not tell, or null where it holds neither
- * @typedef {{kind: "in-place"}|{kind: "move", to: MoveTarget}} LimitAct  a
- *   limit resume on its own seat, or a move to `to`
  * @typedef {{kind: "api", route: string, again: boolean}|
  *   (LimitAct & {held: LimitHeld})} StartedAct  the act a resume was made for:
  *   an API-error fallBack, told by `route`, `again` its typed resume's
@@ -270,13 +242,6 @@ const PARKED_STATE = "blocked";
 /** @typedef {BlockReads & BlockActs} BlockIo */
 
 /**
- * The dispatch-ledger row `l` holds its issues by: a copy's is its first
- * job's (#2963).
- * @param {JobLaunch} l
- */
-const ledgerOf = (l) => ({ jobId: ledgerJobOf(l), root: l.root });
-
-/**
  * `rescue-sessions.js hand-off` of `l`'s stopped session, `l.sessionId`
  * standing in for a job record that is gone (#3988).
  * @param {JobLaunch} l
@@ -291,12 +256,6 @@ const buildHandOffArgs = (l) => [
 	...l.issues.flatMap((n) => ["--issue", String(n)]),
 ];
 
-/** @param {number} ms */
-const iso = (ms) => new Date(ms).toISOString();
-
-/** @param {{root: string, prompt: string}} l */
-const launchName = (l) => `${path.basename(l.root)} ${l.prompt}`;
-
 /** @param {string} text */
 const indented = (text) => text.replace(/\n/g, "\n  ");
 
@@ -310,39 +269,6 @@ const buildChildLine = (label, ran) =>
 	`${label}: ${ran.failed ?? "exit 0"}\n  ${indented(ran.out)}`;
 
 /**
- * Whether `l` is unfinished and tied to a job. A launch with no job id is never
- * judged, so it never finishes and is not live.
- * @param {LoopLaunch} l
- * @returns {l is JobLaunch}
- */
-const isLive = (l) => l.finishedAt === null && l.jobId !== null;
-
-/**
- * Whether the loop may act on `l`'s session: live and not stopped already for
- * a park.
- * @param {LoopLaunch} l
- * @returns {l is JobLaunch}
- */
-const isActionable = (l) => isLive(l) && l.parkStopped === undefined;
-
-/**
- * Whether `l` waits on the loop's resumes after a transient API stop.
- * @param {LoopLaunch} l
- */
-const isResuming = (l) =>
-	l.block?.cause === "API_ERROR" &&
-	l.block.sub === "transient" &&
-	l.parkStopped === undefined;
-
-/**
- * Whether `l`'s stopped session waits on the tick's resume step.
- * @template {LoopLaunch} L
- * @param {L} l
- * @returns {l is L & {stepResume: StepResume}}
- */
-const isStepResume = (l) => l.stepResume !== undefined;
-
-/**
  * @template {LoopLaunch} L
  * @template {StepCause} C
  * @param {L} l
@@ -350,39 +276,6 @@ const isStepResume = (l) => l.stepResume !== undefined;
  * @returns {l is L & {stepResume: StepResume<C>}}
  */
 const isStepResumeFor = (l, cause) => l.stepResume?.cause === cause;
-
-/**
- * Whether the loop stopped `l`'s session on its seat's limit (#3735).
- * @param {LoopLaunch} l
- * @returns {l is LoopLaunch & {limitHeld: LimitHeld}}
- */
-const isLimitHeld = (l) => l.limitHeld !== undefined;
-
-/**
- * Whether `l` was resumed from its limit hold and not yet judged.
- * @param {LoopLaunch} l
- * @returns {l is LoopLaunch & {limitHeld: LimitHeld}}
- */
-const isResumeUnjudged = (l) =>
-	isLimitHeld(l) && l.limitHeld.resumedAt !== undefined;
-
-/**
- * Whether `l` waits on its seat's limit, its session live or held.
- * @param {LoopLaunch} l
- * @returns {l is JobLaunch & {block: import("./block-act.js").Block}}
- */
-const isLimitBlocked = (l) => isActionable(l) && l.block?.cause === "LIMIT";
-
-/**
- * Whether the loop stopped `l`'s session to wait for its next resume, for
- * the swap hold to clear (#3093) or for a seat with room (#3735): the launch
- * stays unfinished until a resume takes, it parks or it is handed off.
- * @param {LoopLaunch} l
- */
-const isHeld = (l) =>
-	(isResuming(l) && l.resumes?.heldAt !== undefined) ||
-	isStepResume(l) ||
-	isLimitHeld(l);
 
 /**
  * `l`'s block with its resume record, as lib/block-act.js reads it.
@@ -459,13 +352,6 @@ const buildBlock = (reading, since) => ({
 	...("lockout" in reading ? { lockout: reading.lockout } : {}),
 	since,
 });
-
-/**
- * The job ids the listing shows blocked.
- * @param {AgentRecord[]} agents
- */
-const blockedIdsOf = (agents) =>
-	new Set(agents.filter((a) => a.state === PARKED_STATE).map((a) => a.id));
 
 /**
  * The launches the table acts on this tick, each with its act: those the
@@ -692,131 +578,6 @@ const buildIdleResumeLine = (l, failed) =>
 	`${failed ? "could not resume" : "resumed"} ${launchName(l)}, idle since its host's restart, by ${ATTACH_ROUTE}, try ${l.idleResumes?.tries ?? 0} of ${IDLE_TRIES}${failed ? `: ${failed}` : ""}`;
 
 /**
- * The loop log's line for a park it stopped, or could not; `brief`, the
- * issue comment's, each reason cut to its first line, never a stack (#3670).
- * @param {BlockedLaunch & {act?: Act, whyEnded?: string,
- *   hold?: ParkWhy["hold"]}} l  `whyEnded`, why a held session's wait ended
- * @param {"away"|"normal"} mode
- * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
- *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
- *   not in the session's marker
- * @param {{brief?: boolean}} [opts]
- */
-function buildParkStopLine(
-	l,
-	mode,
-	{ failed, unlabelled, unmarkedWhy = null },
-	{ brief = false } = {},
-) {
-	const reason = (/** @type {string} */ why) =>
-		brief ? why.split(/\r?\n/)[0] : why;
-	const tried = l.resumes ? `, ${l.resumes.tries} resumes` : "";
-	const morning = l.act === "park-at-morning" ? ", at the morning cut-off" : "";
-	const ended = l.whyEnded ? `, ${l.whyEnded}` : "";
-	const held = l.hold
-		? `, attached to repo hold ${l.hold.id} (#${l.hold.issue})`
-		: "";
-	const what = `${l.block.cause} park ${launchName(l)} (${mode} mode, blocked since ${iso(l.block.since)}${tried}${morning}${ended}${held})`;
-	if (failed) return `could not stop ${what}: ${failed}`;
-	const labelled = labelledOf(l, unlabelled);
-	return [
-		`stopped ${what}`,
-		`labelled parked: ${labelled.map((n) => `#${n}`).join(", ") || "none"}`,
-		...unlabelled.map((u) => `not labelled #${u.n}: ${reason(u.why)}`),
-		...(unmarkedWhy
-			? [`left parked until claimed, not on his typing: ${reason(unmarkedWhy)}`]
-			: []),
-	].join("; ");
-}
-
-/**
- * @param {{issues: number[]}} l
- * @param {{n: number}[]} unlabelled
- */
-function labelledOf(l, unlabelled) {
-	const missed = new Set(unlabelled.map((u) => u.n));
-	return l.issues.filter((n) => !missed.has(n));
-}
-
-/**
- * Add `l`'s labelled issues to its session's `.parked-` marker, so the
- * founder's typing there takes the label off (unpark-on-prompt.js, #3584);
- * null once recorded or with none labelled, else why not.
- * @param {LoopLaunch} l
- * @param {number[]} labelled
- * @param {number|undefined} limitParks
- * @param {BlockIo} io
- */
-function markLabelled(l, labelled, limitParks, io) {
-	if (labelled.length === 0) return null;
-	if (!l.sessionId) return "no session id read";
-	return io.recordParked(l.sessionId, labelled, {
-		root: l.root,
-		job: l.jobId
-			? { ...seatIdOf(l), jobId: l.jobId, cwd: io.readJobCwd(l.seat, l.jobId) }
-			: null,
-		limitParks,
-		cause: l.block?.cause,
-	});
-}
-
-/**
- * The park's closing words on the issue: where this limit-cap park ends the
- * loop's relaunches, says so (#3804).
- * @param {number|undefined} limitParks
- */
-const buildRelaunchEndText = (limitParks) =>
-	isAtLimitCap(limitParks)
-		? ` The loop will not relaunch it: ${buildLimitCapText(limitParks)}.`
-		: "";
-
-/**
- * `claude stop` on `l`'s job; null once stopped, else why not. A job the loop
- * already stopped to wait for its next resume (isHeld) may be gone, so a
- * stop that finds no job is that stop, not a failure.
- * @param {JobLaunch} l
- * @param {BlockIo} io
- */
-function stopJob(l, io) {
-	const r = io.stop(l.seat, l.jobId);
-	if (r.ok) return null;
-	return isHeld(l) && r.noJob ? null : r.why;
-}
-
-/**
- * Park `l`, its session stopped: label its issues `parked`, record them in its
- * session's marker and comment its cause on them, since a stopped session's own
- * words may not say why it waits (#2846). `l`, marked `parkStopped`, and
- * `parkedAway` in away mode.
- * @param {BlockedLaunch} l
- * @param {ParkWhy} why
- * @param {"away"|"normal"} mode
- * @param {Tick} seen
- * @returns {LoopLaunch}
- */
-function parkOnceStopped(l, why, mode, { now, io }) {
-	const parking = { ...l, ...why };
-	const unlabelled = io.labelParked(l);
-	const outcome = {
-		failed: null,
-		unlabelled,
-		unmarkedWhy: markLabelled(l, labelledOf(l, unlabelled), why.limitParks, io),
-	};
-	io.log(buildParkStopLine(parking, mode, outcome));
-	io.comment(
-		l,
-		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${why.hold ? " The loop resumes it once the hold clears." : ""}${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
-	);
-	/* A park on a hold comes back through the hold's resume step, so its ledger
-	 * row is not released for a fresh launch to race it (#4228). */
-	return {
-		...l,
-		parkStopped: now,
-		...(mode === "away" && !why.hold ? { parkedAway: true } : {}),
-	};
-}
-
-/**
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
@@ -849,25 +610,6 @@ function releaseAwayParks(launches, mode, served, io) {
 		const { parkedAway: _, ...released } = l;
 		return released;
 	});
-}
-
-/**
- * Stop `l`'s park and, where the stop held, park it (parkOnceStopped).
- * @param {BlockedLaunch} l
- * @param {ParkWhy} why
- * @param {"away"|"normal"} mode
- * @param {Tick} seen
- * @returns {LoopLaunch}
- */
-function stopPark(l, why, mode, seen) {
-	const failed = stopJob(l, seen.io);
-	if (failed) {
-		seen.io.log(
-			buildParkStopLine({ ...l, ...why }, mode, { failed, unlabelled: [] }),
-		);
-		return l;
-	}
-	return parkOnceStopped(l, why, mode, seen);
 }
 
 /**
@@ -939,46 +681,6 @@ function relaunchResume(l, act, { now, io }) {
 		fromSessionId: sessionId,
 	};
 }
-
-/**
- * `l` after a resume that restarted its job at `now`: `relaunchedAt` set,
- * from which it has the listing's grace. Where the job is a copy, `l` tracks
- * the copy's job and session id, its dispatch-ledger hold still the job
- * first launched (#2963), and `fromSessionId`, the session it resumed, kept
- * among its past ones for actsOf (#2969); a job woken in place keeps both,
- * and a headless resume keeps its session under the new run's job id (#4580).
- * @param {JobLaunch} l
- * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} resumed
- * @param {number} now
- * @returns {JobLaunch}
- */
-function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
-	if (!copy)
-		return {
-			...l,
-			jobId,
-			...(sessionId ? { sessionId } : {}),
-			relaunchedAt: now,
-		};
-	const { sessionId: _, ...rest } = l;
-	const past = new Set([...(l.pastSessionIds ?? []), fromSessionId]);
-	return {
-		...rest,
-		jobId,
-		copiedFrom: l.copiedFrom ?? l.jobId,
-		relaunchedAt: now,
-		...(sessionId ? { sessionId } : {}),
-		pastSessionIds: [...past],
-	};
-}
-
-/**
- * How resume `r` started its job: woken in place, or as a copy with the
- * reason the harness gave (#4098).
- * @param {Extract<Resumed, {failed: null}>} r
- */
-const buildResumedHow = (r) =>
-	r.copy ? `as its copy ${r.jobId} (${r.why})` : "woken in place";
 
 /**
  * One resume, or one that could not be made, logged and commented on `l`'s
@@ -1978,404 +1680,6 @@ function actOnBlocks(launches, mode, seen) {
 }
 
 /**
- * The limit `l` hit, its reset off its seat's reading `s`: the bar its block
- * text names, else the one the reading shows, a full bar, the weekly first,
- * as it outlasts the 5-hour one, else the fuller, a session reaching its
- * limit ahead of the cached reading.
- * @param {import("./refill-decide.js").SizedSeat} s
- * @param {import("./block-cause.js").LimitBar} [named]  the bar the block
- *   text names
- * @returns {LimitRead}
- */
-function limitReadOf(s, named) {
-	if (
-		!named &&
-		s.week === null &&
-		s.session === null &&
-		!s.weekFull &&
-		!s.sessionFull
-	)
-		return { bar: null, resets: null };
-	const isWeekly = named
-		? named === "weekly"
-		: s.weekFull || (!s.sessionFull && (s.week ?? 0) >= (s.session ?? 0));
-	return isWeekly
-		? {
-				bar: "weekly",
-				resets: s.weekResets === null ? null : iso(s.weekResets),
-			}
-		: { bar: "5-hour", resets: s.sessionResets };
-}
-
-/** @param {LimitRead} limit */
-const buildLimitText = ({ bar, resets }) =>
-	`${bar ?? "unread"} limit (reset ${resets ?? "unread"})`;
-
-/**
- * What `l` waits on, and since when, where it waits on its limit and no resume
- * is being judged; null otherwise. One the loop could not stop stays live with
- * no hold, so no bound parks it (#3838).
- * @param {LoopLaunch} l
- * @returns {{why: string, since: number}|null}
- */
-function limitWaitOf(l) {
-	if (!isLive(l) || isResumeUnjudged(l)) return null;
-	if (isLimitHeld(l))
-		return {
-			why: `stopped on its ${buildLimitText(l.limitHeld.limit)}`,
-			since: l.limitHeld.at,
-		};
-	return isLimitBlocked(l)
-		? {
-				why: "blocked on its limit, its session not stopped",
-				since: l.block.since,
-			}
-		: null;
-}
-
-/**
- * `l` with one more resume or move counted, `failed` why it failed, which a
- * held one's hold counts towards its park at the cap (#3790); one that took
- * is judged at the launch's next limit block (#3792).
- * @template {LoopLaunch} L
- * @param {L} l
- * @param {number} now
- * @param {string} [failed]
- * @returns {L & {limitResumes: LimitResumes}}
- */
-function afterLimitTry(l, now, failed) {
-	const tries = (l.limitResumes?.tries ?? 0) + 1;
-	const held = l.limitHeld;
-	const dryResumes = l.limitResumes?.dryResumes;
-	return {
-		...l,
-		...(failed !== undefined && held
-			? {
-					limitHeld: {
-						...held,
-						failedTries: (held.failedTries ?? 0) + 1,
-					},
-				}
-			: {}),
-		limitResumes: {
-			tries,
-			triedAt: now,
-			nextAt: nextTryAt(tries, now),
-			...(dryResumes === undefined ? {} : { dryResumes }),
-			...(failed === undefined ? { takenAt: now } : { failed }),
-		},
-	};
-}
-
-/**
- * Log a resume or move that failed, and comment it where its failure is news,
- * so one that keeps failing does not comment on every try.
- * @param {LoopLaunch} l
- * @param {string} line
- * @param {string} why
- * @param {BlockIo} io
- */
-function reportLimitFailure(l, line, why, io) {
-	io.log(`${line}: ${why}`);
-	if (l.limitResumes?.failed === why) return;
-	io.comment(
-		l,
-		`Refill loop: ${line}: ${why.split(/\r?\n/)[0]}. It stays held on its seat, its conversation kept, and is judged again on a later tick.`,
-	);
-}
-
-/**
- * Stop `l`'s limit-blocked session until a seat has room: it keeps its
- * conversation and its launch, and holds no memory or slot. Told in the log
- * alone. One with no session id is not stopped, as nothing could resume it.
- * @param {JobLaunch} l
- * @param {LimitRead} limit
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function holdForLimit(l, limit, { now, io }) {
-	const what = `${l.jobId} ${launchName(l)} on ${l.seat}, at its ${buildLimitText(limit)}`;
-	const { sessionId, cwd } = io.resumeTargetOf(l);
-	if (!sessionId) {
-		io.log(`not holding ${what}: no session id read to resume it by`);
-		return l;
-	}
-	const failed = stopJob(l, io);
-	if (failed) {
-		io.log(`could not hold ${what}: ${failed}`);
-		return l;
-	}
-	io.log(`held ${what}: stopped until a seat has room`);
-	return { ...l, limitHeld: { at: now, sessionId, cwd, limit } };
-}
-
-/**
- * Limit act `act` on `l`: its session stopped, unless held already, and held
- * from now on, then `resume` run on it and the launch it leaves written. Where
- * no session id read or the stop failed, `l` after that failed try, reported
- * under `failedLine` of the limit it is held at.
- * @param {JobLaunch} l
- * @param {LimitRead} limit  what a live session's seat reads now
- * @param {{act: LimitAct, failedLine: (held: LimitRead) => string,
- *   resume: (stopped: JobLaunch & {limitHeld: LimitHeld},
- *   ids: ResumeTarget & {sessionId: string}) => LoopLaunch}} how
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function runLimitAct(l, limit, { act, failedLine, resume }, { now, io }) {
-	const held = l.limitHeld ?? { ...io.resumeTargetOf(l), at: now, limit };
-	const { sessionId, cwd } = held;
-	/** @param {string} why */
-	const gaveUp = (why) => {
-		reportLimitFailure(l, failedLine(held.limit), why, io);
-		return afterLimitTry(l, now, why);
-	};
-	if (!sessionId) return gaveUp("no session id read for it");
-	io.writeLaunch({
-		...l,
-		resumeStarted: {
-			at: now,
-			sessionId,
-			cwd,
-			act: { ...act, held: { ...held, sessionId } },
-		},
-	});
-	const stopFailed = isLimitHeld(l) ? null : stopJob(l, io);
-	if (stopFailed) return gaveUp(`stop: ${stopFailed}`);
-	const out = resume(
-		{ ...l, limitHeld: { ...held, sessionId } },
-		{ sessionId, cwd },
-	);
-	io.writeLaunch(out);
-	return out;
-}
-
-/**
- * Resume `l`'s limit-blocked session on its own seat (#3735): stopped, unless
- * held already, then `--bg --resume` under its own session id. A resume stays
- * held until settleLimitResume, as a failed one can show only seconds later
- * (#2159). One the launcher ran as a copy tracks the copy, as
- * lib/refill-tick.js's resumeStopped moves the claims to it (#2963).
- * @param {JobLaunch} l
- * @param {LimitRead} limit  what a live session's seat reads now
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function resumeInPlace(l, limit, seen) {
-	const { now, io } = seen;
-	return runLimitAct(
-		l,
-		limit,
-		{
-			act: { kind: "in-place" },
-			failedLine: (at) => `could not resume ${buildInPlaceWhat(l, at)}`,
-			resume: (stopped, ids) =>
-				settleInPlace(
-					stopped,
-					{
-						...io.resumeStopped(stopped, LIMIT_PROMPT, ids),
-						fromSessionId: ids.sessionId,
-					},
-					now,
-					io,
-				),
-		},
-		seen,
-	);
-}
-
-/**
- * What resumeInPlace's lines call its resume of `l` after `limit`.
- * @param {JobLaunch} l
- * @param {LimitRead} limit
- */
-const buildInPlaceWhat = (l, limit) =>
-	`${l.jobId} ${launchName(l)} on ${l.seat}, after its ${buildLimitText(limit)}`;
-
-/**
- * `l`, stopped, after resumeInPlace's resume `r` at `now`, reported.
- * @param {JobLaunch & {limitHeld: LimitHeld}} l
- * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
- * @param {number} now
- * @param {BlockIo} io
- * @returns {LoopLaunch}
- */
-function settleInPlace(l, r, now, io) {
-	const limitText = buildLimitText(l.limitHeld.limit);
-	const what = buildInPlaceWhat(l, l.limitHeld.limit);
-	if (r.failed !== null) {
-		reportLimitFailure(l, `could not resume ${what}`, r.failed, io);
-		return afterLimitTry(l, now, r.failed);
-	}
-	const resumed = relaunched(
-		{
-			...l,
-			parked: false,
-			limitHeld: { ...l.limitHeld, resumedAt: now },
-		},
-		r,
-		now,
-	);
-	const how = buildResumedHow(r);
-	io.log(`resumed ${what}: same seat, ${how}`);
-	io.comment(
-		l,
-		`Refill loop: resumed this session after its ${limitText}: same seat, ${l.seat}, ${how}. ${LIMIT_LOSS_TEXT}`,
-	);
-	return afterLimitTry(resumed, now);
-}
-
-const MOVED_FIELDS = /** @type {const} */ ([
-	"seat",
-	"reason",
-	"keyVar",
-	"jobId",
-	"sessionId",
-	"copiedFrom",
-	"pastSessionIds",
-	"movedAt",
-]);
-
-/**
- * @param {JobLaunch} l
- * @returns {MovedFrom}
- */
-const movedFromOf = (l) => ({
-	...Object.fromEntries(
-		MOVED_FIELDS.flatMap((k) => (l[k] === undefined ? [] : [[k, l[k]]])),
-	),
-	seat: l.seat,
-	jobId: l.jobId,
-});
-
-/**
- * @template {JobLaunch} L
- * @param {L} l
- * @param {MovedFrom} from
- * @returns {L}
- */
-function unmoved(l, from) {
-	const back = { ...l };
-	for (const k of MOVED_FIELDS) delete back[k];
-	return { ...back, ...from };
-}
-
-/**
- * @template {JobLaunch} L
- * @param {L} l
- * @param {MoveTarget} target
- * @returns {L}
- */
-const movedOnto = (l, { seat, keyVar }) => ({
-	...l,
-	...seatIdOf({ seat, keyVar }),
-});
-
-/** @param {MoveTarget} target */
-const buildTargetText = (target) =>
-	target.keyVar
-		? `${target.seat} on overflow key ${target.keyVar}`
-		: target.seat;
-
-/**
- * Move `l`'s limit-blocked session to `target` under its own session id:
- * stopped on its seat, unless held already, then carried and resumed
- * there, from its own cwd. The launch stays the same launch, its seat, key
- * and reason rewritten, so stop, reap, status and the allowance stop address
- * `target` from here, and its block dated now, so no reading older than the
- * move sends it back. A failure leaves it held on its seat; a resume that the
- * launcher ran as a copy tracks the copy, as an overflow seat's always does
- * (#3692 (d)).
- * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @param {MoveTarget} target
- * @param {LimitRead} limit  what a live session's seat reads now
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function moveToSeat(l, target, limit, seen) {
-	const { now, io } = seen;
-	return runLimitAct(
-		l,
-		limit,
-		{
-			act: { kind: "move", to: target },
-			failedLine: (at) => `could not move ${buildMoveWhat(l, target, at)}`,
-			resume: (stopped, ids) =>
-				settleMove(
-					{ ...stopped, block: l.block },
-					target,
-					{
-						...io.moveSession(stopped, target, MOVED_PROMPT, ids),
-						fromSessionId: ids.sessionId,
-					},
-					{ now, io },
-				),
-		},
-		seen,
-	);
-}
-
-/**
- * What moveToSeat's lines call its move of `l` to `target` at `limit`.
- * @param {JobLaunch} l
- * @param {MoveTarget} target
- * @param {LimitRead} limit
- */
-const buildMoveWhat = (l, target, limit) =>
-	`${l.jobId} ${launchName(l)} from ${l.seat} to ${buildTargetText(target)}, at its ${buildLimitText(limit)}`;
-
-/**
- * `l`, stopped, after moveToSeat's resume `r` on `target` at `now`, reported.
- * @param {JobLaunch & {block: import("./block-act.js").Block,
- *   limitHeld: LimitHeld}} l
- * @param {MoveTarget} target
- * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
- * @param {{now: number, io: BlockIo}} seen
- * @returns {LoopLaunch}
- */
-function settleMove(l, target, r, { now, io }) {
-	const limitText = buildLimitText(l.limitHeld.limit);
-	const what = buildMoveWhat(l, target, l.limitHeld.limit);
-	if (r.failed !== null) {
-		reportLimitFailure(l, `could not move ${what}`, r.failed, io);
-		return afterLimitTry(l, now, r.failed);
-	}
-	const moved = relaunched(
-		{
-			...movedOnto(l, target),
-			reason: `moved from ${buildSeatName(l.seat)}`,
-			movedAt: now,
-			parked: false,
-			block: { ...l.block, since: now },
-			limitLeft: [
-				...(l.limitLeft ?? []).filter((x) => x.seat !== l.seat),
-				{ seat: l.seat, since: l.block.since },
-			],
-			limitHeld: {
-				...l.limitHeld,
-				resumedAt: now,
-				movedFrom: movedFromOf(l),
-			},
-		},
-		r,
-		now,
-	);
-	const how = r.copy ? buildResumedHow(r) : "under its own session id";
-	const charged =
-		target.allowanceUsd === undefined
-			? ""
-			: `, its allowance there $${target.allowanceUsd.toFixed(2)}`;
-	io.log(`moved ${what}: ${how}${charged}`);
-	io.comment(
-		l,
-		`Refill loop: moved this session after its ${limitText}: from ${l.seat} to ${buildTargetText(target)}, ${how}${charged}. ${LIMIT_LOSS_TEXT}`,
-	);
-	/* Spacing is for tries that fail: one that took may move again at once. */
-	const tried = afterLimitTry(moved, now);
-	return { ...tried, limitResumes: { ...tried.limitResumes, nextAt: now } };
-}
-
-/**
  * The launches with each resume a kill left out of the state settled (#4180):
  * one carrying `resumeStarted` gets the outcome its act would have given it,
  * the job the resume started where the job store holds one, else a failed try,
@@ -2407,8 +1711,7 @@ function settleStartedResumes(launches, io) {
  * @returns {LoopLaunch}
  */
 function settleStarted(l, { at, sessionId, cwd, act }, io) {
-	const move = act.kind === "move" ? act.to : undefined;
-	const on = move ? movedOnto(l, move) : l;
+	const { on, move } = adoptTargetOf(l, act);
 	const found = io.adoptResumed(on, { sessionId, cwd }, at, move);
 	const killed = "a kill came between it and the state write";
 	const what = `${launchName(l)}'s resume at ${iso(at)}`;
@@ -2430,392 +1733,7 @@ function settleStarted(l, { at, sessionId, cwd, act }, io) {
 		return l;
 	}
 	if (act.kind === "api") return settleFallBack(l, r, { now: at, io }, act);
-	if (!l.block) {
-		io.log(`${what} is dropped: its launch is no longer blocked`);
-		return l;
-	}
-	const held = { ...l, block: l.block, limitHeld: act.held };
-	return syncLedgerHold(
-		act.kind === "in-place"
-			? settleInPlace(held, r, at, io)
-			: settleMove(held, act.to, r, { now: at, io }),
-		io,
-	);
-}
-
-/**
- * Judge a resume or move a tick on, its session not listed live or markParked
- * would have let it go. A job record reading failed or unread goes back to
- * held, a move back on the seat it left, named; any other is let go, for the
- * listing to judge finished. A move that took has its job record gone from
- * the seat it left.
- * @param {JobLaunch & {limitHeld: LimitHeld}} l
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function settleLimitResume(l, { now, io }) {
-	const job = io.jobStateOf(l);
-	if (job && job.state !== "failed") {
-		const { limitHeld: _, block: __, ...rest } = l;
-		const { movedFrom, sessionId } = l.limitHeld;
-		/* The job it left, unless it woke in that job, in the dir it shares. */
-		const left =
-			movedFrom && (movedFrom.seat !== l.seat || movedFrom.jobId !== l.jobId);
-		const failed = left
-			? io.removeJobRecord(movedFrom.seat, sessionId, l.limitHeld.cwd)
-			: null;
-		if (failed) io.log(`${launchName(l)}: ${failed}`);
-		return rest;
-	}
-	const { resumedAt: _, movedFrom, ...limitHeld } = l.limitHeld;
-	const why = job
-		? `state failed after its resume: ${job.detail}`
-		: "its job record is unread after its resume";
-	const name = `${l.jobId} ${launchName(l)}`;
-	if (!movedFrom) {
-		reportLimitFailure(l, `could not resume ${name} on ${l.seat}`, why, io);
-		return afterLimitTry({ ...l, limitHeld }, now, why);
-	}
-	reportLimitFailure(
-		l,
-		`could not move ${name} from ${movedFrom.seat} to ${l.seat}`,
-		why,
-		io,
-	);
-	const stopFailed = stopJob(l, io);
-	if (stopFailed) io.log(`could not stop ${name}'s failed move: ${stopFailed}`);
-	return afterLimitTry(unmoved({ ...l, limitHeld }, movedFrom), now, why);
-}
-
-/**
- * `l`, limit-blocked again, with its last resume that took judged, once: no
- * reply since adds to its dry resumes, a reply clears them (#3792). An unread
- * transcript judges nothing, and the next resume replaces what it would have
- * judged.
- * Residual: a launch whose transcript never reads is never counted, though one
- * that reads LIMIT has read its transcript that tick.
- * @template {JobLaunch} L
- * @param {L} l
- * @param {BlockIo} io
- * @returns {L}
- */
-function judgeTakenResume(l, io) {
-	if (l.limitResumes?.takenAt === undefined) return l;
-	const { takenAt, dryResumes = 0, ...rest } = l.limitResumes;
-	const replied = io.hasRepliedSince(l, takenAt);
-	if (replied === null) return l;
-	return {
-		...l,
-		limitResumes: replied ? rest : { ...rest, dryResumes: dryResumes + 1 },
-	};
-}
-
-/**
- * `l`, held, with a dispatch-ledger hold written to the hold's bound: its
- * stopped session leaves the listing and its claim unread, so nothing else
- * keeps a direct dispatch off its issues, and the hold must outlast the run,
- * which may end with no tick left to write another (#3785).
- * Residual: a session the founder resumes by hand while the loop is stopped
- * keeps its ticket refused, once it ends, until the next `start` or the bound;
- * `--force` is the way out.
- * @param {LoopLaunch & {limitHeld: LimitHeld}} l
- * @param {BlockIo} io
- * @returns {LoopLaunch}
- */
-function writeLedgerHold(l, io) {
-	if (l.limitHeld.ledgerHeldUntil !== undefined) return l;
-	const until = holdBoundAt(l.limitHeld.at);
-	if (io.writeLedgerHold(l, until))
-		return { ...l, limitHeld: { ...l.limitHeld, ledgerHeldUntil: until } };
-	io.log(`could not write ${launchName(l)}'s dispatch-ledger hold`);
-	return l;
-}
-
-/**
- * `l` with the ledger state its hold owes: a session stopped holds past the
- * window; one resumed and unjudged is live and may end while the loop is
- * stopped, so it gives the hold up (releaseEndedHolds).
- * @param {LoopLaunch} l
- * @param {BlockIo} io
- * @returns {LoopLaunch}
- */
-function syncLedgerHold(l, io) {
-	if (!isLimitHeld(l)) return l;
-	if (!isResumeUnjudged(l)) return writeLedgerHold(l, io);
-	const { ledgerHeldUntil: _, ...limitHeld } = l.limitHeld;
-	return { ...l, limitHeld };
-}
-
-/**
- * @param {LoopLaunch} l
- * @returns {l is JobLaunch & {limitHeld: LimitHeld & {ledgerHeldUntil: number}}}
- */
-const isLedgerHolding = (l) =>
-	l.jobId !== null &&
-	l.finishedAt === null &&
-	l.limitHeld?.ledgerHeldUntil !== undefined;
-
-/**
- * Release the ledger hold of each launch in `before` whose hold ended by
- * `after`. One whose session runs on takes an ordinary row in its place, so its
- * ticket has the window any launch has. A release that fails, the ledger
- * unwritable, is logged and not retried (#3785): its issues wait to the hold's
- * bound or a `--force`.
- * @param {LoopLaunch[]} before
- * @param {LoopLaunch[]} after
- * @param {Pick<BlockIo, "release"|"writeLedgerHold"|"log">} io
- */
-function releaseEndedHolds(before, after, io) {
-	const kept = new Set(after.filter(isLedgerHolding).map(ledgerJobOf));
-	const running = new Map(
-		after
-			.filter((l) => l.finishedAt === null && l.parkStopped === undefined)
-			.map((l) => [ledgerJobOf(l), l]),
-	);
-	for (const l of before.filter(isLedgerHolding)) {
-		const job = ledgerJobOf(l);
-		if (kept.has(job)) continue;
-		if (!io.release(ledgerOf(l)))
-			io.log(
-				`could not release ${launchName(l)}'s dispatch-ledger hold: its issues wait until ${iso(l.limitHeld.ledgerHeldUntil)}`,
-			);
-		const live = running.get(job);
-		if (live && !io.writeLedgerHold(live))
-			io.log(`could not write ${launchName(l)}'s dispatch-ledger row`);
-	}
-}
-
-/**
- * A held launch for a stop line (#3785): the session, its seat and what its
- * ticket is open to from now, as nothing judges it until the next `start`.
- * @param {LoopLaunch & {limitHeld: LimitHeld}} l
- */
-function buildHeldStopText(l) {
-	const { ledgerHeldUntil: until, limit, resumedAt } = l.limitHeld;
-	const what = `${l.jobId} ${launchName(l)} on ${buildSeatName(l.seat)}`;
-	if (resumedAt !== undefined)
-		return `${what}, resumed at ${iso(resumedAt)} after its ${buildLimitText(limit)}, not yet judged`;
-	return `${what}, stopped at its ${buildLimitText(limit)}, ${
-		until === undefined
-			? "its dispatch-ledger hold unwritten, so a direct dispatch may take its ticket"
-			: `its ticket held from dispatch until ${iso(until)}`
-	}`;
-}
-
-/**
- * Park `l`, held where nothing will resume it, so the launch finishes and a
- * normal-mode loop routes its ticket back (#3790). A failed resume can leave
- * its session starting, so it is stopped too, though a stop that fails, as
- * one off a dropped seat may for good, does not keep it held. Off the hold, as
- * isLimitHeld has no parkStopped guard; its session id kept for the marker.
- * @param {JobLaunch & {block: import("./block-act.js").Block,
- *   limitHeld: LimitHeld}} l
- * @param {{whyEnded: string|undefined, limitParks?: number}} why
- * @param {"away"|"normal"} mode
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function parkHeld(l, why, mode, seen) {
-	const stopFailed = stopJob(l, seen.io);
-	if (stopFailed)
-		seen.io.log(`could not stop ${launchName(l)} for its park: ${stopFailed}`);
-	const { limitHeld: _, ...parked } = parkOnceStopped(
-		{ ...l, sessionId: l.sessionId ?? l.limitHeld.sessionId },
-		{ act: "stop-and-park", ...why },
-		mode,
-		seen,
-	);
-	return parked;
-}
-
-/**
- * Why `l` parks at a limit cap: `whyEnded`, and its parks at one in a row, a
- * reply since its launch starting them again (#3804). An unread transcript
- * counts as none, so a reading that fails cannot lift the bound.
- * @param {JobLaunch} l
- * @param {string|undefined} whyEnded
- * @param {BlockIo} io
- */
-const buildLimitCapWhy = (l, whyEnded, io) => ({
-	whyEnded,
-	limitParks: io.hasRepliedSince(l, l.launchedAt) ? 1 : (l.limitParks ?? 0) + 1,
-});
-
-/**
- * `l`'s block as the table reads it, short of what its seat's reading adds.
- * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @returns {import("./block-act.js").Block}
- */
-const limitBlockOf = (l) => ({
-	...l.block,
-	held: isLimitHeld(l),
-	heldAt: l.limitHeld?.at,
-	tries: l.limitHeld?.failedTries,
-	nextAt: l.limitResumes?.nextAt,
-	dryResumes: l.limitResumes?.dryResumes,
-});
-
-/**
- * `l`, whose seat the seats read do not hold: parked where it is held and the
- * seats are the loop's own list, or, whatever the list, held at a cap.
- * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @param {"away"|"normal"} mode
- * @param {LimitTick} seen
- * @returns {LoopLaunch}
- */
-function parkOffList(l, mode, seen) {
-	if (!isLimitHeld(l)) return l;
-	if (seen.seatListRead)
-		/* No count: this is no limit-cap park, and its marker's count goes. */
-		return parkHeld(
-			l,
-			{ whyEnded: `its seat ${l.seat} off the loop's seats` },
-			mode,
-			seen,
-		);
-	const whyEnded = buildLimitParkWhy(limitBlockOf(l), seen.now);
-	return whyEnded
-		? parkHeld(l, buildLimitCapWhy(l, whyEnded, seen.io), mode, seen)
-		: l;
-}
-
-/**
- * Where pickMoveSeat sends `l`, null nowhere.
- * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @param {LimitTick} seen
- * @param {MoveSeats} moveSeats
- * @returns {MoveTarget|null}
- */
-function pickMoveTarget(l, seen, { seats, overflow }) {
-	const pick = pickMoveSeat({
-		seats,
-		overflow,
-		typedSeat: seen.typedSeat,
-		ownSeat: l.seat,
-		since: l.block.since,
-		left: l.limitLeft,
-	});
-	if (pick.seat === null) return null;
-	if (!pick.keyVar) return { seat: pick.seat };
-	const allowanceUsd = overflow.find(
-		(o) => o.keyVar === pick.keyVar,
-	)?.headroomUsd;
-	/* Unread, the move could not be charged to the key (#3730). */
-	if (allowanceUsd === undefined) return null;
-	return { seat: pick.seat, keyVar: pick.keyVar, allowanceUsd };
-}
-
-/**
- * The move pick and the table's act on one limit-blocked launch on a plan seat.
- * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @param {import("./refill-decide.js").SizedSeat} own  its seat's reading
- * @param {LimitTick} seen
- * @param {{mode: "away"|"normal", slots: number, moveSeats: MoveSeats}} how
- * @returns {LoopLaunch}
- */
-function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
-	const target = pickMoveTarget(l, seen, moveSeats);
-	const block = {
-		...limitBlockOf(l),
-		seat: l.seat,
-		movePick: target,
-		slotFree: slots > 0,
-	};
-	const act = blockAct(block, mode, seen.now);
-	if (act === "stop-and-park") {
-		const why = buildLimitCapWhy(
-			l,
-			buildLimitParkWhy(block, seen.now),
-			seen.io,
-		);
-		return isLimitHeld(l)
-			? parkHeld(l, why, mode, seen)
-			: stopPark(l, { act, ...why }, mode, seen);
-	}
-	const limit = limitReadOf(own, l.block.bar);
-	if (act === "hold") return holdForLimit(l, limit, seen);
-	if (act === "resume-in-place") return resumeInPlace(l, limit, seen);
-	if (act === "move" && target) return moveToSeat(l, target, limit, seen);
-	if (target?.seat === l.seat && !target.keyVar && slots <= 0)
-		seen.io.log(
-			`${launchName(l)} on ${l.seat} reads open, and waits on a free slot`,
-		);
-	return l;
-}
-
-/**
- * `seats` with the seat `l` was moved or resumed onto sized 0, as its next
- * sizing needs a fresh read.
- * @param {MoveSeats} seats
- * @param {LoopLaunch} l
- * @returns {MoveSeats}
- */
-const withSeatTaken = ({ seats, overflow }, l) => ({
-	seats: seats.map((s) => (isSameSeat(l, s) ? { ...s, fits: 0 } : s)),
-	overflow: overflow.map((o) => (isSameSeat(l, o) ? { ...o, fits: 0 } : o)),
-});
-
-/**
- * The sessions an act on `l` added to the listing (#3778): one resumed from
- * held adds one, and one live left held or parked, no resume made, is gone. A
- * live one stopped and resumed in place adds none.
- * @param {LoopLaunch} l
- * @param {LoopLaunch} out
- * @returns {-1|0|1}
- */
-function limitWorkingChange(l, out) {
-	if (!isLimitHeld(out))
-		return out.parkStopped !== undefined && !isLimitHeld(l) ? -1 : 0;
-	const resumed = out.limitHeld.resumedAt !== undefined;
-	if (isLimitHeld(l)) return resumed ? 1 : 0;
-	return resumed ? 0 : -1;
-}
-
-/**
- * The tick's acts on limit-blocked launches, on the seats they read (#3735):
- * each resume made a tick ago judged, then for each on a plan seat its act; one
- * held whose seat has left the loop's list is parked (#3790), so a restart on
- * fewer seats parks each hold on those dropped. Each one resumed or moved from
- * held takes a slot, so a seat's reset lets them back only as admission has
- * room. A seat is sized for one session, so it takes one move or one resume
- * from held a tick, and the next waits a tick for a fresh sizing. The launches, the slots left, and the
- * net sessions added to those admission read. Nothing off an unread listing, and with none
- * limit-blocked no seat is read.
- * @param {LoopLaunch[]} launches
- * @param {"away"|"normal"} mode
- * @param {LimitTick} seen
- * @returns {{launches: LoopLaunch[], slots: number, workingChange: number}}
- */
-function actOnLimits(launches, mode, seen) {
-	let { slots } = seen;
-	let workingChange = 0;
-	if (!seen.agents || !launches.some(isLimitBlocked))
-		return { launches, slots, workingChange };
-	let moveSeats = seen.readMoveSeats();
-	const blocked = blockedIdsOf(seen.agents);
-	const acted = launches.map((l) => {
-		if (!isLimitBlocked(l)) return l;
-		if (isResumeUnjudged(l))
-			return syncLedgerHold(settleLimitResume(l, seen), seen.io);
-		/* A plan reading on the same dir is not this launch's: a key has no bars. */
-		const own = moveSeats.seats.find((s) => isSameSeat(l, s));
-		if (!own) return parkOffList(l, mode, seen);
-		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
-		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {
-			mode,
-			slots,
-			moveSeats,
-		});
-		const change = limitWorkingChange(l, out);
-		/* A resume from held fills a seat as a move onto it does; a live one's
-		 * stop and resume in place keeps the slot it holds (#3730). */
-		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)
-			moveSeats = withSeatTaken(moveSeats, out);
-		if (change > 0) slots -= 1;
-		workingChange += change;
-		return syncLedgerHold(out, seen.io);
-	});
-	return { launches: acted, slots, workingChange };
+	return settleStartedLimit(l, act, r, { what, at, io });
 }
 
 /**
@@ -2926,34 +1844,20 @@ module.exports = {
 	causeReader,
 	actOnBlocks,
 	actOnIdle,
-	actOnLimits,
 	unparkAnswered,
 	buildChildLine,
-	buildHeldStopText,
-	buildLimitText,
 	indented,
-	isHeld,
-	isLimitHeld,
-	isLive,
-	isResuming,
 	hasJobEnded,
 	isBootKillCandidate,
 	isBootKillable,
-	isStepResume,
 	buildStepStatus,
 	stepKindOf,
 	UNSETTLED_STEP_KINDS,
 	isStepResumeFor,
 	LISTING_GRACE_MS,
-	iso,
-	launchName,
-	buildResumedHow,
-	movedOnto,
-	limitWaitOf,
 	markParked,
 	nextResumeAt,
 	releaseAwayParks,
-	releaseEndedHolds,
 	queueBootKilled,
 	queueLifted,
 	resumableOf,

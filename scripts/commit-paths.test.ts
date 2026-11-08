@@ -1156,9 +1156,27 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 		expect(git("show", "HEAD:a.md")).toBe("mine\na\n");
 	});
 
+	it("prints HEAD's tree for paths that all match HEAD (#4288)", () => {
+		expect(tree(["--", "a.md"])).toBe(git("rev-parse", "HEAD^{tree}").trim());
+	});
+
+	it("prints HEAD's tree for a patch that leaves HEAD as it is (#4288)", () => {
+		const blob = git("rev-parse", "HEAD:a.md").trim();
+		const patch = path.join(sb.dir, "noop.patch");
+		fs.writeFileSync(
+			patch,
+			`diff --git a/a.md b/a.md\nindex ${blob}..${blob} 100644\n--- a/a.md\n+++ b/a.md\n@@ -1 +1 @@\n-a\n+a\n`,
+		);
+		expect(tree(["--patch", patch])).toBe(
+			git("rev-parse", "HEAD^{tree}").trim(),
+		);
+		const r = run(["-m", "x", "--patch", patch]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("leave HEAD as it is");
+	});
+
 	it.each([
 		["a message", ["-m", "x", "--", "a.md"], "takes no message"],
-		["no change", ["--", "a.md"], "nothing to commit"],
 		["no paths", [], "no paths after `--`"],
 	])("refuses %s, logging no outcome", (_, args, why) => {
 		const before = readLog();

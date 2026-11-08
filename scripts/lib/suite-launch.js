@@ -202,11 +202,42 @@ function isQueueable(words, ports) {
  */
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
+/**
+ * LaunchPorts' `isWrapperScript` over one tree's package.json, the tree
+ * resolved and the file read on the first script asked about. An absent
+ * package.json answers yes; so do an unreadable and an unparsed one, logged
+ * (mantahostels#103 §6, #2795). A fault resolving the tree propagates.
+ * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
+ * @param {(what: string) => void} log
+ * @returns {LaunchPorts["isWrapperScript"]}
+ */
+function buildIsWrapperScript(tree, log) {
+	/** @type {Record<string, unknown> | null | undefined} */
+	let scripts;
+	return (script) => {
+		if (scripts === undefined) {
+			const { readText } = tree();
+			try {
+				const text = readText("package.json");
+				scripts = text === null ? null : (JSON.parse(text)?.scripts ?? {});
+			} catch {
+				log(
+					`package.json unreadable — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
+				);
+				scripts = null;
+			}
+		}
+		if (!scripts) return true;
+		const body = scripts[script];
+		return hasWrapperCall(typeof body === "string" ? body : null);
+	};
+}
+
 module.exports = {
 	afterSlash,
 	isOtherRunner,
 	npmScriptOf,
 	suiteLaunchKind,
 	isQueueable,
-	hasWrapperCall,
+	buildIsWrapperScript,
 };

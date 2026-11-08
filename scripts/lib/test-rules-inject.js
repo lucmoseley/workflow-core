@@ -15,7 +15,7 @@
  */
 
 const { COLLECTED_TEST, isTestKind } = require("./test-kind.js");
-const { treeOr } = require("./tree-or.js");
+const { treeOrHost } = require("./tree-or.js");
 
 /**
  * @param {string} file the path the write names
@@ -27,7 +27,7 @@ function decide(file, ctx) {
 	 * read as one in it; a write outside that tree is no test of this repo's.
 	 * In a linked worktree that tree is the worktree, never the host (#4242);
 	 * where git names none for the session, the host's. */
-	const rel = treeOr(ctx, ctx).repoRel(file);
+	const rel = treeOrHost(ctx).repoRel(file);
 	if (rel === null || !(isTestKind(rel) || COLLECTED_TEST.test(rel)))
 		return null;
 	return {

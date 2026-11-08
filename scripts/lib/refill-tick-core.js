@@ -30,6 +30,8 @@ const { buildErrorText } = require("./caught.js");
 const { buildTickRecord } = require("./concurrency.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const blocks = require("./refill-blocks.js");
+const { isLimitHeld, launchName } = require("./refill-block-core.js");
+const limits = require("./refill-limits.js");
 const { declaresOverflowSeat } = require("./refill-seats.js");
 const {
 	bootSparedJobs,
@@ -64,8 +66,6 @@ const {
 	sizeResumeSeats,
 } = require("./seat-reading.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
-
-const { launchName } = blocks;
 
 /** @typedef {import("./refill-loop.js").Control} Control */
 /** @typedef {import("./refill-loop.js").ControlRead} ControlRead */
@@ -276,7 +276,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *     served: string[], seen: Seen) => LoopLaunch[],
  *   attachProbeParks: (broken: string[], launches: LoopLaunch[]) => void,
  *   actOnLimits: (judged: LoopLaunch[], mode: "normal"|"away",
- *     seen: Parameters<typeof blocks.actOnLimits>[2]) =>
+ *     seen: Parameters<typeof limits.actOnLimits>[2]) =>
  *     {launches: LoopLaunch[], slots: number, workingChange: number},
  *   releaseEndedHolds: (before: LoopLaunch[], after: LoopLaunch[], io: BlockIo) => void,
  *   probeDueSeats: (seats: string[], triedAt: Record<string, number>) => Probe[],
@@ -1039,9 +1039,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		retroBundles: [],
 		running: runningOf(launches),
 		freeSlots: slots,
-		limitHeldLines: launches
-			.filter(blocks.isLimitHeld)
-			.map(blocks.buildHeldStopText),
+		limitHeldLines: launches.filter(isLimitHeld).map(limits.buildHeldStopText),
 		typedSeat: typed.seat,
 		seats: sizeResumeSeats(seats, resumable, slots, io.capSizer(served[0])),
 		overflow,

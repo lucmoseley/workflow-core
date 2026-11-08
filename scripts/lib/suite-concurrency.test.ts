@@ -80,9 +80,6 @@ interface Weight {
 /** `n` named test files, as a launch's words. */
 const namedFiles = (n: number) =>
 	Array.from({ length: n }, (_, i) => `scripts/f${i}.test.ts`).join(" ");
-const { hasWrapperCall } = require("./suite-launch.js") as {
-	hasWrapperCall: (body: string | null) => boolean;
-};
 const { readRuleText } = require("./rule-text.js") as {
 	readRuleText: (id: string) => string;
 };
@@ -202,8 +199,6 @@ function harness(over: Over = {}) {
 		carriedOf: over.carriedOf ?? (() => null),
 		launchWeight: over.launchWeight ?? null,
 		runners: () => runners,
-		isWrapperScript: (script: string) =>
-			pkg === null ? true : hasWrapperCall(pkg[script] ?? null),
 		declaredTest: () =>
 			over.declaredTest === undefined ? null : over.declaredTest,
 		fullLaunchPlain: (argv: string[]) => {
@@ -217,7 +212,13 @@ function harness(over: Over = {}) {
 		},
 		now: () => NOW,
 		session: "test",
-		tree: () => ({ root: "/repo" }),
+		tree: () => ({
+			root: "/repo",
+			readText: (rel: string) =>
+				rel === "package.json" && pkg !== null
+					? JSON.stringify({ scripts: pkg })
+					: null,
+		}),
 	});
 }
 
