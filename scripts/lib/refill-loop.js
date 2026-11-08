@@ -461,8 +461,7 @@ const sessionIdsOf = (l) => [
 /**
  * The latest act any of `launches`' sessions made, ms, across `rootsOf` its
  * stores, null where none read (#4223), and each store that would not read,
- * which counts as no act so the unproven cap holds. The reader is passed in so
- * this module stays free of store reads.
+ * which counts as no act so the unproven cap holds.
  * @param {LoopLaunch[]} launches
  * @param {(l: LoopLaunch) => string[]} rootsOf
  * @param {ReadLastActAt} readLastActAt

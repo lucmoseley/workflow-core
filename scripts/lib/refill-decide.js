@@ -189,8 +189,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  *   order
  * @property {LaunchRecord[]} history
  * @property {number|null} lastActAt ms, the latest act any of `history`'s
- *   sessions made, null where none read: every launch running then counts
- *   against the unproven cap (#4223)
+ *   sessions made, null where none read (#4223)
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
  *   sweep's queue, launched ahead of the ranking (#2279), behind normal
  *   mode's parked rows (#3713)
