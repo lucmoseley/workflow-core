@@ -84,6 +84,7 @@
 	"scripts/release-issue-claim.js": "9cf3a632b153e70c",
 	"scripts/replay-notify-reports.js": "51f9ebbd341dd04e",
 	"scripts/report-suite-queue-wait.js": "0d0e0bbc183f04ef",
+	"scripts/review-hold-gate.sh": "84ebef61073e4ba0",
 	"scripts/run-pinned-guards.js": "d31cd85a73158684",
 	"scripts/run-vitest.js": "fb6cb3d681c00010",
 	"scripts/self-plugin-canary.sh": "126377d8df66ac82",
