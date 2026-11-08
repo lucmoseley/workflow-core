@@ -138,6 +138,8 @@ describe("messages a shipped script prints", () => {
 				.readdirSync(huskyDir)
 				.filter((f) => isShipped(path.join(SCRIPTS, ".."), `.husky/${f}`))
 				.map((f) => path.join(huskyDir, f))
+				/* husky's own `.husky/_/`, where installed, is no hook. */
+				.filter((file) => fs.statSync(file).isFile())
 				.flatMap((file) => [
 					...fs
 						.readFileSync(file, "utf8")
