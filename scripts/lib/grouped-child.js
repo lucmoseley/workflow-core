@@ -12,6 +12,7 @@ const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { REAL_PROC } = require("./proc-root.js");
 const { FIELD, readStatFields } = require("./proc-stat.js");
+const { sleepSync } = require("./sleep-sync.js");
 
 /* Untraced: short against a grace, long enough not to spin. */
 const GRACE_POLL_MS = 100;
@@ -77,10 +78,9 @@ function isGroupAlive(pgid) {
  * @returns {boolean} whether the group went within `ms`
  */
 function isGroupGoneWithin(pgid, ms) {
-	const pause = new Int32Array(new SharedArrayBuffer(4));
 	for (const end = performance.now() + ms; performance.now() < end; ) {
 		if (!isGroupAlive(pgid)) return true;
-		Atomics.wait(pause, 0, 0, GRACE_POLL_MS);
+		sleepSync(GRACE_POLL_MS);
 	}
 	return !isGroupAlive(pgid);
 }
