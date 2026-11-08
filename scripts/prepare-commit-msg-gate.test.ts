@@ -20,11 +20,12 @@
  * (`docs/agents/guard-authoring.md` §The proving discipline).
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -240,26 +241,18 @@ function probe(): Probe {
 	};
 }
 
-/** Runs `args` in `cwd`, returning the exit code and the merged output. */
+/** Runs `args` in `cwd`, returning the exit code and the merged output, a pass's stderr included. */
 function attempt(
 	cwd: string,
 	...args: string[]
 ): { code: number; output: string } {
-	try {
-		const out = execFileSync("git", args, {
-			cwd,
-			encoding: "utf8",
-			env: { ...process.env, GIT_EDITOR: "true" },
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return { code: 0, output: out };
-	} catch (e) {
-		const err = e as { status?: number; stdout?: string; stderr?: string };
-		return {
-			code: err.status ?? 1,
-			output: `${err.stdout ?? ""}${err.stderr ?? ""}`,
-		};
-	}
+	const r = spawnSync("git", args, {
+		cwd,
+		encoding: "utf8",
+		env: { ...process.env, GIT_EDITOR: "true" },
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	return { code: r.status ?? 1, output: `${r.stdout}${r.stderr}` };
 }
 
 /** A branch adding `files`, leaving the probe back on the branch it started on. */
@@ -1102,6 +1095,23 @@ describe("the closing-keyword refusal (#138)", () => {
 	});
 });
 
+/**
+ * Gives `p` the guard log library, its records under a fresh CLAUDE_CONFIG_DIR
+ * stubbed for the case, and returns that directory.
+ */
+function loggingTo(p: Probe): string {
+	for (const rel of ["scripts/lib/guard-log.sh", "scripts/lib/guard-root.sh"])
+		fs.copyFileSync(path.join(ROOT, rel), path.join(p.root, rel));
+	const config = mkScratchDir("prepare-commit-msg-config-");
+	temps.push(config);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", config);
+	return config;
+}
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
+
 describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 	const refusing = (p: Probe) =>
 		fs.writeFileSync(
@@ -1147,12 +1157,31 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		expect(r.output).toContain("the hold refused this pick");
 	});
 
-	it("passes where the hold is missing", () => {
+	it("passes where the hold is missing, saying so and logging it (#4051)", () => {
 		const p = probe();
 		const pick = sideCommit(p, "f.txt");
 		fs.rmSync(path.join(p.root, HOLD));
+		const config = loggingTo(p);
 		const r = attempt(p.root, "cherry-pick", pick);
 		expect(r.code).toBe(0);
+		expect(r.output).toContain("this cherry-pick went unchecked");
+		expect(readGuardErrorsLog(config)).toMatch(
+			/\tprepare-commit-msg\treview-hold-gate\.sh is missing — this cherry-pick went unchecked for a sensitive-path review\n$/,
+		);
+	});
+
+	it("passes where the trailer script is missing, saying so and logging it (#4051)", () => {
+		const p = probe();
+		fs.rmSync(path.join(p.root, "scripts", "review-tier-trailer.sh"));
+		const config = loggingTo(p);
+		fs.writeFileSync(path.join(p.root, "f.txt"), "new\n");
+		p.git("add", "--", "f.txt");
+		const r = attempt(p.root, "commit", "-qm", "land");
+		expect(r.code).toBe(0);
+		expect(r.output).toContain("lands with no Review-Tier: trailer");
+		expect(readGuardErrorsLog(config)).toMatch(
+			/\tprepare-commit-msg\treview-tier-trailer\.sh is missing — this commit lands with no Review-Tier: trailer and no check that its tree stayed put\n$/,
+		);
 	});
 
 	it("takes no hold on a rebase", () => {

@@ -137,6 +137,16 @@ refused_in_progress() {
   exit "$1"
 }
 
+# unchecked <path> <what went unchecked> — says on stderr that <path> is
+# missing, and logs it for check-guard-errors.js through bash, as guard-log.sh
+# is bash and this hook sh (#4051).
+unchecked() {
+  echo "prepare-commit-msg: $1 is missing, so $2." >&2
+  log_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/guard-log.sh"
+  [ ! -r "$log_lib" ] ||
+    bash -c '. "$1" && gl_log "$2 is missing — $3"' prepare-commit-msg "$log_lib" "${1##*/}" "$2" 2>/dev/null || :
+}
+
 # The hold's trailer and its re-read of a moved tree, on every exit a passing
 # commit takes: the hold wrote its stamp in whichever run passed, `pre-commit`'s,
 # this hook's own or the replay path's.
@@ -147,7 +157,7 @@ review_tier_trailer() {
     bash "$trailer" "$1" || status=$?
     [ "$status" -eq 0 ] || refused_in_progress "$status"
   else
-    echo "prepare-commit-msg: $trailer is missing, so this commit lands with no Review-Tier: trailer and no check that its tree stayed put." >&2
+    unchecked "$trailer" "this commit lands with no Review-Tier: trailer and no check that its tree stayed put"
   fi
 }
 
@@ -171,7 +181,7 @@ if [ -n "$replay" ]; then
       [ "$status" -eq 0 ] || refused_in_progress "$status"
       review_tier_trailer "${1-}"
     else
-      echo "prepare-commit-msg: $hold is missing, so this cherry-pick went unchecked for a sensitive-path review." >&2
+      unchecked "$hold" "this cherry-pick went unchecked for a sensitive-path review"
     fi
   fi
   exit 0
