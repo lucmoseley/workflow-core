@@ -882,7 +882,7 @@ describe("a takes:human body handing the founder a `! gh ` step", () => {
 				{
 					number: 251,
 					labels: ["takes:human"],
-					body: `**Outside Claude Code:** look at the GitHub Mobile phone app and confirm the push arrived.${ghStep}${CLOSE}`,
+					body: `**Outside Claude Code:** accept the sign-in request in the GitHub Mobile phone app.${ghStep}${CLOSE}`,
 				},
 			]),
 		);

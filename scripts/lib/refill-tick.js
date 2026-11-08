@@ -833,6 +833,7 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: resume.readResumeTarget,
 	resumeStopped: resume.resumeStopped,
+	resumeOwnId: resume.resumeOwnId,
 	adoptResumed: resume.adoptResumed,
 	writeLaunch,
 	admitResume,

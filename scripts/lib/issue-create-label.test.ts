@@ -847,7 +847,7 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 		for (const body of [
 			"**Outside Claude Code:** submit the registration form",
 			"Outside Claude Code: email Bunkward's partner team",
-			"## Why\nprose first\n\n**Outside Claude Code:** read the region off the iPhone\n",
+			"## Why\nprose first\n\n**Outside Claude Code:** install the region's app on the iPhone\n",
 		]) {
 			const call = `gh issue create --title x --label takes:human --body ${JSON.stringify(body + CLOSE)}`;
 			expect(verdict(call)).toBe("allow");
@@ -2107,6 +2107,7 @@ describe("the founder-act limb (#1097)", () => {
 		"NOT-A-FOUNDER-ACT": "names none of the founder's own acts",
 		"SURFACE-UNTRIED": "names a screen a session can drive",
 		"REFUSED-UNTRIED": "names a refused act as its only founder act",
+		"OBSERVE-ONLY": "only founder part is to observe a result",
 		"NO-CLOSE-WHEN": "has no **Close when:** line",
 	};
 	const create = (body: string) =>

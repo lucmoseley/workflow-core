@@ -376,6 +376,7 @@ const REFUSAL_PHRASE: Record<string, string> = {
 	"NOT-A-FOUNDER-ACT": "names none of the founder's own acts",
 	"SURFACE-UNTRIED": "names a screen a session can drive",
 	"REFUSED-UNTRIED": "names a refused act as its only founder act",
+	"OBSERVE-ONLY": "only founder part is to observe a result",
 	"NO-CLOSE-WHEN": "has no **Close when:** line",
 };
 

@@ -1,17 +1,19 @@
 A FOUNDER-FACING ITEM lives in an open issue, never only in chat. Three kinds count:
 
   - a deliverable the founder must still act on — a draft to send, a file to upload;
-  - an act only the founder can do, written only in chat or inside a comment — a check by eye, a click-through;
+  - an act only the founder can do, written only in chat or inside a comment — a check by eye no agent can make, a click-through;
   - a decision the founder has not answered.
 
 This holds in background and interactive sessions alike. Chat, a `needs input:` or `waiting:` ending, the status line, the job list and a closed issue's comment never count.
 
 FILE IT THE MOMENT the session produces the deliverable or names the act, not at session end. A paste the founder runs while this session waits — a `!` line, or a line in his own terminal whose output he sends back — or a secret he enters, is finished in the session and needs no issue: the `waits on you:` line cites the ticket in hand.
 
+A CHECK BY EYE OR EAR IS YOURS FIRST (#4114): before filing or handing one over, run `scripts/lib/rule-text.sh observe-first` and try what it names; close on your own evidence, whatever the close clause says.
+
 THE LABEL:
 
   - a deliverable or an act only his hands can do → takes:human, with the body below; a screen a session drives — a terminal, a Windows app — is not one (`rule:takes-label-nuances`)
-  - a check by eye of agent-made work             → takes:wayfinder, with a `## Question` body
+  - a judgement by eye of agent-made work         → takes:wayfinder, with a `## Question` body
   - an unanswered decision                        → takes:wayfinder, with a `## Question` body
 
 A `takes:human` BODY, in this order (modelled on mmm-infra#32):

@@ -103,10 +103,33 @@ const readFounderActs = () =>
  * case-insensitive, read on the Outside line's act part alone. The suffix,
  * and the irregular forms listed whole, let the list's own wording pass
  * ("signing", "sending"); a word used in a non-act sense passes too, the
- * accepted escape. */
-const FOUNDER_ACT_WORD =
-	/(?<![a-z0-9])(?:(?:pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|otp|verification|phone|call|in[ -]person|phone app|iphone|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form)(?:s|es|d|ed|ing|ted|ting)?|paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies)(?![a-z0-9])/gi;
+ * accepted escape. A place word names where an act happens, never what it is
+ * (#4114). */
+const PLACE_WORDS = "phone|in[ -]person|phone app|iphone";
+const DEED_WORDS =
+	"pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|two-factor|2fa|otp|verification|call|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form";
+const DEED_IRREGULAR =
+	"paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies";
+/** @param {string} words */
+const buildWholeWordSource = (words) =>
+	`(?<![a-z0-9])(?:${words})(?:s|es|d|ed|ing|ted|ting)?(?![a-z0-9])`;
+const FOUNDER_DEED_WORD = new RegExp(
+	`${buildWholeWordSource(DEED_WORDS)}|(?<![a-z0-9])(?:${DEED_IRREGULAR})(?![a-z0-9])`,
+	"i",
+);
+/* Global, so read through matchAll alone. */
+const FOUNDER_ACT_WORD = new RegExp(
+	`${FOUNDER_DEED_WORD.source}|${buildWholeWordSource(PLACE_WORDS)}`,
+	"gi",
+);
 const REFUSED_WORD = /^refused$/i;
+
+/* An Outside line whose job is to observe a result (#4114). With no deed beside it, the
+ * founder's part is only to look. */
+const OBSERVE_WORD = new RegExp(
+	`${buildWholeWordSource("look|listen|hear|see|watch|observe|notice|confirm|check|read|verify|view|inspect|ensure|make sure")}|(?<![a-z0-9])(?:heard|seen|saw|verified|verifies|verifying)(?![a-z0-9])`,
+	"i",
+);
 
 /* A screen a session can drive (#4142, ruling #3720 Q1 (A)); wc1-wc3 are
  * Windows Terminal tabs. */
@@ -156,6 +179,8 @@ const TRIED_MIN = 3;
  * needs fewer: the ladder names two routes for a screen, and a refusal's
  * evidence is the refused call and a narrower one (#4142). */
 const TRIED_MIN_ROUTES = 2;
+/* The way out every limb that accepts a Tried: list names. */
+const TRIED_WAY = `add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed`;
 
 /**
  * How many items the list opening `following` holds at its first item's
@@ -203,26 +228,41 @@ const CLOSE_WHEN_LINE = /Close when:[ \t*]*[^\s*]/;
  * guard's order, with the line it read — or null where it passes. The fault
  * is check-issue-labels.js's finding tag.
  * @param {string} body
- * @returns {{fault: "NO-OUTSIDE-ACT"|"BARRED-NOT-IMPOSSIBLE"|"REPO-FILE-ACT"|"SURFACE-UNTRIED"|"NOT-A-FOUNDER-ACT"|"REFUSED-UNTRIED", line: string}|null}
+ * @returns {{fault: "NO-OUTSIDE-ACT"|"BARRED-NOT-IMPOSSIBLE"|"REPO-FILE-ACT"|"SURFACE-UNTRIED"|"NOT-A-FOUNDER-ACT"|"OBSERVE-ONLY"|"REFUSED-UNTRIED", line: string}|null}
  */
 function outsideLineFault(body) {
 	const line = OUTSIDE_TEXT.exec(body)?.[0] ?? "";
 	if (!OUTSIDE_LINE.test(body)) return { fault: "NO-OUTSIDE-ACT", line };
 	if (BARRED_ACT.test(line)) return { fault: "BARRED-NOT-IMPOSSIBLE", line };
 	if (REPO_FILE_ACT.test(line)) return { fault: "REPO-FILE-ACT", line };
-	const tried = triedCount(body);
-	const act = actPart(line);
+	const fault = actFault(actPart(line), triedCount(body));
+	return fault ? { fault, line } : null;
+}
+
+/**
+ * The act-part limbs of outsideLineFault, given the Tried: list's length.
+ * A screen a session drives needs the ladder's two routes, or the full three
+ * where the founder only observes there.
+ * @param {string} act
+ * @param {number} tried
+ * @returns {"SURFACE-UNTRIED"|"NOT-A-FOUNDER-ACT"|"OBSERVE-ONLY"|"REFUSED-UNTRIED"|null}
+ */
+function actFault(act, tried) {
 	const words = [
 		...act
 			.replace(new RegExp(SESSION_SURFACE.source, "gi"), " ")
 			.matchAll(FOUNDER_ACT_WORD),
 	].map((m) => m[0]);
-	if (SESSION_SURFACE.test(act) && words.every((w) => SCREEN_DOABLE.test(w)))
-		return tried < TRIED_MIN_ROUTES ? { fault: "SURFACE-UNTRIED", line } : null;
-	if (words.length === 0)
-		return tried < TRIED_MIN ? { fault: "NOT-A-FOUNDER-ACT", line } : null;
+	const observeOnly = OBSERVE_WORD.test(act) && !FOUNDER_DEED_WORD.test(act);
+	if (SESSION_SURFACE.test(act) && words.every((w) => SCREEN_DOABLE.test(w))) {
+		if (tried < TRIED_MIN_ROUTES) return "SURFACE-UNTRIED";
+		return observeOnly && tried < TRIED_MIN ? "OBSERVE-ONLY" : null;
+	}
+	if (tried >= TRIED_MIN) return null;
+	if (words.length === 0) return "NOT-A-FOUNDER-ACT";
+	if (observeOnly) return "OBSERVE-ONLY";
 	if (words.every((w) => REFUSED_WORD.test(w)) && tried < TRIED_MIN_ROUTES)
-		return { fault: "REFUSED-UNTRIED", line };
+		return "REFUSED-UNTRIED";
 	return null;
 }
 
@@ -273,7 +313,7 @@ function takesRefusal(labels, body) {
 
 	const rule = `Rule: ${docPath("agents/triage-labels.md")} §\`takes:\`, the nuances block.`;
 	const acts = readFounderActs();
-	const triedWayOut = `for a website job no act on that list covers, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed`;
+	const triedWayOut = `for a website job no act on that list covers, ${TRIED_WAY}`;
 	const found = outsideLineFault(body);
 	if (!found)
 		return CLOSE_WHEN_LINE.test(body)
@@ -287,6 +327,8 @@ function takesRefusal(labels, body) {
 		const { says, fix } = UNTRIED_FAULTS[found.fault];
 		return `takes:human, but the Outside line ${says}: "${found.line}". ${fix} ${rule}`;
 	}
+	if (found.fault === "OBSERVE-ONLY")
+		return `takes:human, but the Outside line's only founder part is to observe a result: "${found.line}". Try what ${scriptPath("lib/rule-text.sh")} observe-first names; only where every route failed, ${TRIED_WAY}.`;
 	if (found.fault === "BARRED-NOT-IMPOSSIBLE")
 		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts. ${rule} The founder's own acts (#1077): ${acts}`;
 	return `takes:human, but the Outside line's act produces a file in this repository: "${found.line}". The file is takes:implement; the founder's review of it is takes:wayfinder. ${rule}`;
@@ -302,6 +344,7 @@ module.exports = {
 	TAKES_VALUES,
 	TRIED_MIN,
 	TRIED_MIN_ROUTES,
+	TRIED_WAY,
 	outsideLineFault,
 	hasRefusedOutsideAct,
 	takesLabel,

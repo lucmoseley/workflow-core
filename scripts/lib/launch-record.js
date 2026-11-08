@@ -10,7 +10,8 @@ const { readLogged } = require("./caught.js");
  * A launch's job record. A `--bg` job's state.json is the harness's own
  * schema.
  * @typedef {{sessionId?: unknown, cwd?: unknown, state?: unknown,
- *   detail?: unknown, linkScanPath?: unknown}} LaunchRecord
+ *   detail?: unknown, linkScanPath?: unknown, respawnFlags?: unknown}}
+ *   LaunchRecord
  */
 
 /**

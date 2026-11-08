@@ -39,6 +39,7 @@ import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { FAKE_COPY } from "./lib/bg-resume-fake";
 import { API_PROMPT, BOOT_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
+import { MODEL } from "./lib/refill-decide.js";
 import {
 	arbiterAs,
 	at,
@@ -545,8 +546,11 @@ describe("the launches a restart killed (#3880)", () => {
 	const stateFile = () => at(".refill-loop-state.json");
 	const readState = () => JSON.parse(fs.readFileSync(stateFile(), "utf8"));
 	const readCalls = () => readLines(at("calls"));
+	/* The loop runs from the sandbox's copy of scripts/, which spells the
+	 * prompt's claim-issue.js absolute; no job record saved launch flags, so
+	 * the resume carries the loop's model (#4098). */
 	const buildResumeArgs = (job: string) =>
-		`--bg --resume s-${job} ${BOOT_PROMPT}`;
+		`--bg --resume s-${job} --model ${MODEL} ${BOOT_PROMPT.replace("scripts/claim-issue.js", `${scripts}/claim-issue.js`)}`;
 	const readKilled = () =>
 		readState()
 			.launches.filter((l: { bootKilled?: unknown }) => l.bootKilled)
@@ -699,7 +703,7 @@ describe("the launches a restart killed (#3880)", () => {
 		});
 		expect(readState().launches[0]).not.toHaveProperty("bootKilled");
 		expect(next.stdout).toMatch(
-			/as its copy c0de7a11, which a kill left out of the state: tracking it, not resuming again/,
+			/as its copy c0de7a11 \(found after a kill, the harness's reason lost with it\), which a kill left out of the state: tracking it, not resuming again/,
 		);
 		const claims = arbiterAs(`s-${FAKE_COPY}`, "issue-claims");
 		expect(claims).toContain(`s-${FAKE_COPY}`);
