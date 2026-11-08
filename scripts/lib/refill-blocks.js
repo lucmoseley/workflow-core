@@ -396,13 +396,11 @@ const blockOf = (l) => ({
 const nextResumeAt = (l) => resumeDueAt(blockOf(l));
 
 /**
- * The launches with `parked` read off the listing, and each parked one's
- * `block`: its cause this tick, and since when it has been parked, kept across
- * a change of cause. A parked
- * session is neither finished nor working: it waits in its own thread for the
- * founder's answer (#1995 stories 52, 55). It is read off the listing alone,
- * whether or not the `parked` label is on its issues yet (#4258). Off an
- * unread listing, for an
+ * The launches with `parked` read off the listing alone, whether or not the
+ * `parked` label is on its issues, and each parked one's `block`: its cause
+ * this tick, and since when it has been parked, kept across a change of cause.
+ * A parked session is neither finished nor working: it waits in its own thread
+ * for the founder's answer (#1995 stories 52, 55). Off an unread listing, for an
  * unlisted launch, for one whose row carries no `state`, or for a held one
  * (isHeld) whose session has ended, each keeps what the last read said; one held under the swap hold whose session
  * the listing shows live again is no longer held (#3093), as one due back off a
