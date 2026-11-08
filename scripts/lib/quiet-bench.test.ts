@@ -290,7 +290,7 @@ describe("the founder back, or the route off", () => {
 });
 
 describe("the bench's command", () => {
-	it("is the one #2862 names", () => {
+	it("is the one #2862 named", () => {
 		expect(LADDER_BENCH.args.join(" ")).toBe("1 2 3 1 2 3 --require-quiet=3");
 	});
 });
@@ -349,8 +349,55 @@ describe("the kept rows", () => {
 		expect(isRunAnswering(run(cut))).toBe(true);
 		expect(isRunAnswering(run(cut, null))).toBe(false);
 		expect(buildRowsReading([run(cut)])).toBe(
-			"a: usable rows per suite count 1:1 2:0 3:0, reached the suite ceiling",
+			"a: usable rows per suite count 1:1 2:0 3:0, lower-bound rows 1:0 2:0 3:0, reached the suite ceiling",
 		);
+	});
+
+	describe("a ceiling-killed row (#4606)", () => {
+		/* The 3 Nov run's shape: lowest at 292-368 s of an 840 s wall. */
+		const killed = (suites: number, lowestAt: number) => ({
+			...usable(suites),
+			all_green: false,
+			ceiling_killed: suites,
+			wall_s: 840,
+			samples: [
+				{ t: 1, avail_mb: 7900 },
+				{ t: lowestAt, avail_mb: 6400 },
+				{ t: 839, avail_mb: 6500 },
+			],
+		});
+
+		it("counts as a lower-bound row, never a usable one, where its dip plateaued in the first half", () => {
+			expect(buildRowsReading([run([killed(2, 300)])])).toContain(
+				"lower-bound rows 1:0 2:1 3:0",
+			);
+			expect(countUsableRows([killed(2, 300)]).get(2)).toBe(0);
+		});
+
+		it("counts as neither where its lowest sample came in the second half", () => {
+			expect(buildRowsReading([run([killed(2, 600)])])).toContain(
+				"lower-bound rows 1:0 2:0 3:0",
+			);
+			expect(countUsableRows([killed(2, 600)]).get(2)).toBe(0);
+		});
+
+		it("counts as neither on a baseline that moved", () => {
+			const moved = { ...killed(2, 300), baseline_stationary: false };
+			expect(buildRowsReading([run([moved])])).toContain(
+				"lower-bound rows 1:0 2:0 3:0",
+			);
+		});
+
+		it("ends a run of two lower-bound or usable rows per count as a lower bound", () => {
+			const bounded = [
+				usable(1),
+				...[1, 2, 3, 2, 3].map((n) => killed(n, 300)),
+			];
+			expect(isRunAnswering(run(bounded))).toBe(true);
+			expect(buildRowsReading([run(bounded)])).toBe(
+				"a: usable rows per suite count 1:1 2:0 3:0, lower-bound rows 1:1 2:2 3:2, lower bound",
+			);
+		});
 	});
 
 	it("names each run in the gate's reading, and none until a row is usable", () => {
@@ -358,7 +405,7 @@ describe("the kept rows", () => {
 			buildRowsReading([run([{ suites: 1, skipped_not_quiet: true }])]),
 		).toBe("no usable bench rows kept");
 		expect(buildRowsReading([run(whole)])).toBe(
-			"a: usable rows per suite count 1:2 2:2 3:2, complete",
+			"a: usable rows per suite count 1:2 2:2 3:2, lower-bound rows 1:0 2:0 3:0, complete",
 		);
 	});
 });

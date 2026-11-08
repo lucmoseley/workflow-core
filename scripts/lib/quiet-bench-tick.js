@@ -52,8 +52,8 @@ const HOLD_LOCK_WAIT_MS = 1000;
 
 /**
  * Whether the suite has outgrown the ladder (check-suite-size-drift's WARN), no
- * kept run answers the ladder as it stands, and no open issue blocks #2862, whose
- * rows that issue would make unusable. A read that fails is no due measurement.
+ * kept run answers the ladder as it stands, and no open issue blocks the bench's
+ * issue. A read that fails is no due measurement.
  * @param {string} root
  * @param {(line: string) => void} log
  */

@@ -41,6 +41,7 @@ import {
 import type { HeadlessCall } from "./lib/headless-run-fake";
 import { readRun } from "./lib/headless-runs.js";
 import { launchBatch } from "./lib/refill-batch.js";
+import { sleepSync } from "./lib/sleep-sync.js";
 import { isTestKind } from "./lib/test-kind.js";
 
 const fx = dispatchFixture();
@@ -151,10 +152,9 @@ const readStoredJobIds = () => {
  * after the launcher has returned. The ceiling is a guess, generous against
  * a loaded machine. */
 function readHeadlessLaunches(expected = readStoredJobIds().length) {
-	const pause = new Int32Array(new SharedArrayBuffer(4));
 	for (const end = Date.now() + 10_000; Date.now() < end; ) {
 		if (readFakeCalls().length >= expected) break;
-		Atomics.wait(pause, 0, 0, 50);
+		sleepSync(50);
 	}
 	return readFakeCalls();
 }

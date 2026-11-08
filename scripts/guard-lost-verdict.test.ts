@@ -94,7 +94,7 @@ const posted = (payload: Record<string, unknown> = {}, run = {}) =>
 const readFaults = () => readFailOpenLog(config, dir);
 
 describe("the registered hook lines", () => {
-	it("are one on PostToolUse and one on PostToolUseFailure, narrowed by `if: Bash(*test*)`, in the plugin and the self-plugin alike", () => {
+	it("are one on PostToolUse and one on PostToolUseFailure, with no `if` narrowing, in the plugin and the self-plugin alike", () => {
 		for (const file of ["hooks/hooks.json", "self-plugin/hooks/hooks.json"]) {
 			const hooks = JSON.parse(
 				fs.readFileSync(path.join(CHECKOUT, file), "utf8"),
@@ -104,7 +104,7 @@ describe("the registered hook lines", () => {
 					.flatMap((group) => group.hooks)
 					.filter((hook) => String(hook.command).includes(SCRIPT));
 				expect(entries).toHaveLength(1);
-				expect(entries[0]).toMatchObject({ if: "Bash(*test*)" });
+				expect(entries[0]).not.toHaveProperty("if");
 				expect(entries[0]).not.toHaveProperty("args");
 			}
 		}
