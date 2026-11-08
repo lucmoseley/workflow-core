@@ -5,8 +5,7 @@
  * From v2.1.0 the core carries neither the shared-tree guard limbs (#4251)
  * nor the file-claim refusal (#4249). A repo with the `landing` module off,
  * or on with its main checkout not yet cut over (lib/cutover.js's mark), is
- * still one shared tree, with nothing left guarding it until the v2.1.0
- * migration note's switch-on steps are done.
+ * still one shared tree.
  */
 
 const { compareVersions } = require("./compare-versions.js");

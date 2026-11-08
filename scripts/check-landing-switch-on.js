@@ -2,13 +2,12 @@
 /*
  * check-landing-switch-on.js — report a repo on workflow-core v2.1.0 or later
  * that still runs as one shared tree: the `landing` module off, or on with
- * the main checkout not cut over (#4688). lib/landing-switch-on.js judges.
+ * the main checkout not cut over (#4688).
  *
  * Usage:  node scripts/check-landing-switch-on.js [--notify] [--json]
  *
  * THE VERSION IS THE CORE THIS FILE SHIPS IN (lib/script-path.js's coreRoot),
- * never the install record: the guards a session runs are this core's, so
- * this core's version is what says whether they are gone.
+ * never the install record.
  *
  * WFC_REPO_ROOT injects the repo, WFC_SCRIPT_ROOT the core.
  *
