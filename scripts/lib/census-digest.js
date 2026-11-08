@@ -24,11 +24,16 @@
  * core's digest hashes the host ports lib/guard-cores.json binds it to (#3167)
  * the same way.
  *
+ * A CORE IN lib/ ALSO HASHES EACH LIB BESIDE IT IT REQUIRES (#4667), code
+ * and rule files both, as a wrapper does its core: takes-label.js holds the
+ * Outside-line text issue-create-label.js's refusals quote. KIT_LIBS, the
+ * parsing and verdict helpers most cores share, are left out.
+ *
  * DEEPER LIBS FOLD THEIR RULE FILES, NOT THEIR CODE (#3167): every lib the
  * guard, its composed libs and its host reach through relative requires adds
  * the rule files it names. The cores share shell-parse.js, guard-verdict.js
  * and rule-gates.js, so folding deeper code would expire every row on an edit
- * to any of them.
+ * to any of them; KIT_LIBS keeps a core's direct require of them out too.
  * Residual: a deeper lib's non-literal ids, an id a sourced lib names, and
  * one built at run time, are unread. A manifest edit
  * alone rebinding a core's host to an existing lib is unread at a ticket's
@@ -91,6 +96,18 @@ const LIB_DIR = "lib";
 /* The bindings a wrapper hands lib/guard-entry.js's run, which make the lib
  * it requires them from a composed one. */
 const COMPOSED_BINDINGS = ["decide", "buildHostPorts"];
+/* The libs most lib/ cores require: an edit to any would expire every row. */
+const KIT_LIBS = new Set([
+	"caught.js",
+	"guard-entry.js",
+	"guard-verdict.js",
+	"is-under.js",
+	"rule-gates.js",
+	"shell-parse.js",
+	"shell-words.js",
+	"tree-or.js",
+	"trim-run.js",
+]);
 /**
  * @typedef {{ root: string, tree: Map<string, string> | null, disk: boolean,
  *   ceiling: import("./git-ceiling.js").GitCeiling }} Snapshot
@@ -514,8 +531,8 @@ function ruleFilesIn(rel, code) {
 }
 
 /**
- * The libs a Node guard wrapper composes: the core and host ports it hands
- * guard-entry's run.
+ * The libs a Node guard composes: a wrapper's core and host ports it hands
+ * guard-entry's run, or each non-kit lib beside a core in lib/ it requires.
  *
  * @param {string} rel
  * @param {string | Buffer} code codeOf's answer
@@ -524,26 +541,31 @@ function ruleFilesIn(rel, code) {
 function composedLibsOf(rel, code) {
 	const dir = libDirOf(rel);
 	if (dir === null) return [];
+	const inLib = path.posix.dirname(rel) === dir;
 	return parseEdges(rel, String(code), { kinds: ["require"] })
 		.filter(
 			(e) =>
 				path.posix.dirname(e.to) === dir &&
 				e.to.endsWith(".js") &&
-				COMPOSED_BINDINGS.some((b) => e.bindings?.includes(b)),
+				(inLib
+					? !KIT_LIBS.has(path.posix.basename(e.to))
+					: COMPOSED_BINDINGS.some((b) => e.bindings?.includes(b))),
 		)
 		.map((e) => e.to);
 }
 
 /**
- * The directory a Node guard at `rel` composes its libs from, or null for
- * any other guard.
+ * The directory a Node guard at `rel` composes its libs from — its own where
+ * it sits in lib/, else the lib/ beside it — or null for any other guard.
  *
  * @param {string} rel
  */
 function libDirOf(rel) {
-	return rel.endsWith(".js")
-		? path.posix.join(path.posix.dirname(rel), LIB_DIR)
-		: null;
+	if (!rel.endsWith(".js")) return null;
+	const dir = path.posix.dirname(rel);
+	return path.posix.basename(dir) === LIB_DIR
+		? dir
+		: path.posix.join(dir, LIB_DIR);
 }
 
 /**
@@ -579,7 +601,9 @@ function readInputs(snap, rel) {
  * @returns {Map<string, string | Buffer | null>}
  */
 function readComposed(snap, rel, code, ruleFiles) {
-	const composed = [...composedLibsOf(rel, code), ...readHosts(snap, rel)];
+	const composed = [
+		...new Set([...composedLibsOf(rel, code), ...readHosts(snap, rel)]),
+	];
 	prefetch(snap, composed);
 	/** @type {Map<string, string | Buffer | null>} */
 	const libs = new Map();
