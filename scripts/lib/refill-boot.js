@@ -190,6 +190,7 @@ const isEmptyListingTrusted = (
  */
 function withManagerRestart(state, marker, current, io) {
 	if (marker === null || !isSameBoot(marker.bootId, current)) return state;
+	/** @type {import("./refill-state.js").LoopState} */
 	const restarted = { ...state, bootedAt: marker.at, sameBootRestart: true };
 	const lastTickAt = state.lastTick?.at;
 	if (lastTickAt === undefined || lastTickAt > marker.at) return restarted;
