@@ -21,6 +21,7 @@ const {
 	POINTS_PER_USD,
 } = require("./allowance");
 const { listedAgents } = require("./agent-liveness");
+const { caught } = require("./caught.js");
 const { readDeclaredOverflowLookup } = require("./dispatch-ledger.js");
 const { readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
@@ -117,10 +118,7 @@ function capOf(
 	try {
 		overflowLaunchOf = readDeclaredOverflowLookup(readDeclaredSeats(), root);
 	} catch (e) {
-		return {
-			launch: 0,
-			error: `launch record unreadable: ${String(e)} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
-		};
+		return { launch: 0, error: caught(e).message };
 	}
 	const running = runningRemainders({
 		agents: agents.filter((a) => !overflowLaunchOf({ sessionId: a.sessionId })),

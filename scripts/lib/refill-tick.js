@@ -77,6 +77,8 @@ const { appendTick, concurrencyFiles } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
 const { seatBudget, stopOverAllowance } = require("./overflow-budget.js");
 const {
+	buildSeatLabel,
+	overflowSeatsOf,
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
@@ -118,6 +120,7 @@ const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const {
 	attachProbeParks,
+	holdLockedOut,
 	dropLiftedJobs,
 	readLiftedHolds,
 	readTickHolds,
@@ -125,6 +128,7 @@ const {
 	withTickStores,
 } = require("./repo-holds.js");
 const { tendHoldNotices } = require("./repo-hold-notices.js");
+const { tendPauseNotices } = require("./pause-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
@@ -483,17 +487,18 @@ function startReview(start) {
  */
 function startDueConsoleReads(declared, plan, root) {
 	const now = Date.now();
-	for (const seat of declared.seats) {
-		if (seat.kind !== "overflow") continue;
+	for (const seat of overflowSeatsOf(declared.seats)) {
 		const budget = seatBudget(seat, root);
 		if ("why" in budget || !isConsoleReadDue(seat, budget, plan, now)) continue;
 		try {
 			appendConsoleRow(seat, { at: now, started: true });
 		} catch (err) {
-			log(`console read of ${seat.dir}: not started (${buildErrorText(err)})`);
+			log(
+				`console read of ${buildSeatLabel(seat)}: not started (${buildErrorText(err)})`,
+			);
 			continue;
 		}
-		startDetached(`console read of ${seat.dir}`, [
+		startDetached(`console read of ${buildSeatLabel(seat)}`, [
 			path.join(SCRIPTS, "read-console-credit.js"),
 			seat.keyVar,
 		]);
@@ -875,6 +880,8 @@ const blockIo = (served) => ({
 		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	hasRepliedSince: (l, at) =>
 		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
+	holdLockedOut: (l, { refusal, call }, now) =>
+		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,
 	recordParked,
 	readJobCwd,
@@ -991,6 +998,7 @@ const productionIo = {
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
+	sendPauseNotices: (paused, now) => tendPauseNotices(paused, now, log),
 	readProgress,
 	readLoopLastActAt,
 	readCause,

@@ -187,10 +187,12 @@ describe("launch", () => {
 			fs.readFileSync(path.join(path.dirname(secrets), ".gitignore"), "utf8"),
 		).toBe("*\n");
 		expect(seen.argv).not.toContain("-n");
+		expect(seen.env.WFC_NAME_PREFIX).toBe("Overflow · ");
+		expect(seen.env.WFC_NAME_PREFIX_SESSION).toBe(sessionId);
 		expect(seen.argv).not.toContain("--resume");
 	});
 
-	it("resumes a session on the same seat and key, under the name given (#4580)", async () => {
+	it("resumes a session on the same seat and key, under the name given with the overflow prefix once (#4580, #3701)", async () => {
 		const r = await cli([
 			"launch",
 			"--key",
@@ -219,6 +221,9 @@ describe("launch", () => {
 		expect(seen.argv).not.toContain("--session-id");
 		expect(seen.argv).not.toContain("--bg");
 		expect(flag(seen.argv, "-n")).toBe("Overflow · /implement 7");
+		expect(seen.env.WFC_NAME_PREFIX_SESSION).toBe(
+			"0f0e0d0c-0000-4000-8000-000000000000",
+		);
 		expect(seen.helped).toBe(KEY);
 		expect(seen.env.CLAUDE_CONFIG_DIR).toBe(seat);
 		expect(seen.argv.at(-1)).toBe("the answer");

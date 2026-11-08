@@ -1014,7 +1014,7 @@ describe("each overflow seat's reading", () => {
 		);
 		expect(out).toEqual([
 			{
-				seat: "the seat file",
+				seat: null,
 				fits: null,
 				spentUntil: null,
 				why: "it refuses: refill-seats:2: missing cycle-day=",

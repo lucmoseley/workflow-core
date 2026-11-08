@@ -440,7 +440,6 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	sessionName: {
 		unnamed: () => io().sessionName(writeTranscript(seat)),
 		named: () => namedSession("Implement 7: a title"),
-		prefixed: () => namedSession("Overflow · Implement 7"),
 		unreadable: () => {
 			fs.mkdirSync(transcriptPath(seat, root, SESSION), { recursive: true });
 			return io().sessionName(transcriptPath(seat, root, SESSION));

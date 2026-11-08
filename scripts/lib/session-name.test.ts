@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OVERFLOW_PREFIX, readSessionName } from "./session-name.js";
+import { readSessionName } from "./session-name.js";
 
 let dir = "";
 beforeEach(() => {
@@ -61,18 +61,5 @@ describe("readSessionName", () => {
 		expect(r).toEqual({
 			why: expect.stringContaining(`reading ${dir}: EISDIR`),
 		});
-	});
-});
-
-describe("OVERFLOW_PREFIX", () => {
-	it("is the prefix dispatch-sessions.sh launches with and name-issue-session.sh keeps", () => {
-		const read = (f: string) =>
-			fs.readFileSync(path.join(__dirname, f), "utf8");
-		expect(read("../dispatch-sessions.sh")).toContain(
-			`--name "${OVERFLOW_PREFIX}$prompt"`,
-		);
-		expect(read("../name-issue-session.sh")).toContain(
-			`local prefix="${OVERFLOW_PREFIX}"`,
-		);
 	});
 });

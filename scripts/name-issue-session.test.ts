@@ -80,8 +80,8 @@ function runHook(
 		gh?: "ok" | "slow" | "fail";
 		timeoutMs?: number;
 		intent?: string;
-		/** The name the launch gave the job, before the hook renames it. */
-		launchName?: string;
+		/** The environment the launcher handed the session. */
+		env?: Record<string, string>;
 		extra?: Record<string, unknown>;
 	} = {},
 ): Run {
@@ -91,7 +91,6 @@ function runHook(
 		JSON.stringify({
 			state: "working",
 			...(opts.intent ? { intent: opts.intent } : {}),
-			...(opts.launchName ? { name: opts.launchName } : {}),
 		}),
 	);
 
@@ -113,6 +112,7 @@ function runHook(
 			// Never the founder's live registry: a job-write failure would send
 			// the interactive branch scanning their real sessions.
 			CLAUDE_CONFIG_DIR: path.join(dir, "config"),
+			...opts.env,
 		},
 		timeout: opts.timeoutMs,
 		killSignal: "SIGKILL",
@@ -213,14 +213,16 @@ describe("the name is written before the title is fetched", () => {
 		expect(r.nameSource).toBe("user");
 	});
 
-	it("keeps the prefix an overflow launch named its job with, once (#3701)", () => {
-		const r = runHook("/implement 962", {
-			launchName: "Overflow · /implement 962",
-		});
-		expect(r.name).toBe(`Overflow · Implement 962: ${TITLE}`);
-		expect(
-			runHook("/implement 962", { launchName: "/implement 962" }).name,
-		).toBe(`Implement 962: ${TITLE}`);
+	it("keeps the prefix its launcher pinned to this session, and not one pinned to another (#3701)", () => {
+		const pinned = (session: string) =>
+			runHook("/implement 962", {
+				env: {
+					WFC_NAME_PREFIX: "Overflow · ",
+					WFC_NAME_PREFIX_SESSION: session,
+				},
+			}).name;
+		expect(pinned("s1")).toBe(`Overflow · Implement 962: ${TITLE}`);
+		expect(pinned("the-launching-session")).toBe(`Implement 962: ${TITLE}`);
 	});
 });
 

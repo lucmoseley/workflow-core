@@ -32,6 +32,7 @@ const {
 	UNPROVEN_CAP,
 } = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
+const { buildSeatLabel } = require("./refill-seats.js");
 const { buildNotice, buildNoticeText } = require("./refill-notice.js");
 
 /* Where the block starts, 1-based as a mouse report counts. Untraced: one cell
@@ -117,8 +118,9 @@ const ROLE_STYLES = {
 /**
  * The fields of `refill-loop.js status --json` the panel reads.
  * @typedef {{root: string, number: number}} PauseIssue
- * @typedef {{seat: string, why: string}
- *   | {seat: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
+ * @typedef {{seat: string, keyVar: string, why: string}
+ *   | {seat: null, why: string}
+ *   | {seat: string, keyVar: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
  *     creditReadAt: number|null, runningReadAt: number|null,
  *     noLaunchLeft: boolean, running: number}} OverflowKey
  * @typedef {Exclude<OverflowKey, {why: string}>} ReadKey
@@ -435,7 +437,7 @@ function buildKeysInPlanOrder({ seats, overflow }) {
 	const plans = seats.readings.map((reading) => reading.seat);
 	/** @param {OverflowKey} key */
 	const rank = (key) => {
-		const at = plans.indexOf(key.seat);
+		const at = key.seat === null ? -1 : plans.indexOf(key.seat);
 		return at === -1 ? plans.length : at;
 	};
 	return [...overflow].sort((a, b) => rank(a) - rank(b));
@@ -586,7 +588,8 @@ function buildCreditRows(status, now) {
 		SIBLING_GAP,
 		{ text: "API credits left", role },
 		...buildKeysInPlanOrder(status).map((key) => {
-			const name = key.seat.replace("~/", "");
+			/* The dir alone, as the pane is narrow. */
+			const name = buildSeatLabel({ seat: key.seat }).replace("~/", "");
 			return "why" in key
 				? {
 						text: `  ${name}  unread: ${key.why}`,

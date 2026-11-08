@@ -6,8 +6,8 @@
  * It goes out when a `probe` hold exists, or any hold is open while no slot has worked
  * for NOTICE_NO_WORK_MS: one `gh workflow run` on `founderNotice`'s workflow on the
  * raise, and one on the clear only where a raise went. The founder holds this to one
- * page a cause (#3871's comment of 3 Nov), and no other caller joins it without his
- * ruling.
+ * page a cause (#3871's comment of 3 Nov). A no-progress pause joins it by his ruling
+ * (#4200): lib/pause-notices.js sends its pair through tendPhase.
  *
  * SENT MEANS THE BOT'S COMMENT SEEN ON THE ISSUE: an accepted dispatch can still lose
  * its run. A comment unseen for
@@ -58,12 +58,20 @@ const { readConfig } = require("./workflow-core-config.js");
  * @typedef {import("./repo-holds.js").Log} Log
  * @typedef {"raise"|"clear"} NoticeName
  *
+ * @typedef {object} NoticeCause  what a notice is about: a hold, or a pause
+ * @property {string} name  how the log names it
+ * @property {string} ref  its name with its place, for a dispatch's log line
+ * @property {number} issue  the issue to comment on
+ * @property {(phase: NoticeName) => string} marker  identifies its comment
+ * @property {(phase: NoticeName) => string} message  the comment, marker included
+ *
  * @typedef {object} NoticeStep
- * @property {RepoHold} hold  with an issue to comment on
+ * @property {NoticeCause} cause
  * @property {NoticeName} phase
- * @property {string} file  the hold's notice file
+ * @property {string} file  the cause's notice file
  * @property {import("./workflow-core-config.js").FounderNotice} config
- * @property {string|null} paged  a probe hold's checkout's buildProbePagedFile
+ * @property {{file: string, raisedAt: number}|null} paged  a probe hold's
+ *   checkout's buildProbePagedFile, with the hold's raise
  * @property {number} now
  * @property {Log} log
  *
@@ -163,15 +171,35 @@ const buildNoticeMarker = (hold, phase) =>
 	`repo-hold-notice ${hold.id} ${hold.raisedAt} ${phase}`;
 
 /**
- * What the phone shows, with the marker out of sight. A mention in the act's text
- * would page whoever it names, so it is broken.
- * @param {RepoHold} hold
- * @param {NoticeName} phase
+ * What the phone shows, with the marker out of sight. A mention in the text would
+ * page whoever it names, so it is broken.
+ * @param {string} text
+ * @param {string} marker
  */
-function buildNoticeMessage(hold, phase) {
-	const act = hold.act.replaceAll("@", BROKEN_MENTION);
-	const verb = phase === "raise" ? "has halted work" : "has cleared";
-	return `Repo hold in ${path.basename(hold.checkout)} ${verb}: ${act}\n\n<!-- ${buildNoticeMarker(hold, phase)} -->`;
+const buildNoticeBody = (text, marker) =>
+	`${text.replaceAll("@", BROKEN_MENTION)}\n\n<!-- ${marker} -->`;
+
+/**
+ * @param {RepoHold} hold
+ * @param {number} issue  its issue, which stands once a raise is due
+ * @returns {NoticeCause}
+ */
+function buildHoldCause(hold, issue) {
+	/** @param {NoticeName} phase */
+	const marker = (phase) => buildNoticeMarker(hold, phase);
+	return {
+		name: `repo hold ${hold.id}`,
+		ref: `repo hold ${hold.id} in ${hold.checkout}`,
+		issue,
+		marker,
+		message: (phase) =>
+			buildNoticeBody(
+				`Repo hold in ${path.basename(hold.checkout)} ${
+					phase === "raise" ? "has halted work" : "has cleared"
+				}: ${hold.act}`,
+				marker(phase),
+			),
+	};
 }
 
 /**
@@ -211,9 +239,12 @@ const writeProbePage = (file, page) =>
 /**
  * @param {RepoHold} hold
  * @param {string} root  its store's
+ * @returns {NoticeStep["paged"]}
  */
-const findPagedFile = (hold, root) =>
-	hold.kind === "probe" ? buildProbePagedFile(root) : null;
+const findPaged = (hold, root) =>
+	hold.kind === "probe"
+		? { file: buildProbePagedFile(root), raisedAt: hold.raisedAt }
+		: null;
 
 /**
  * Whether this probe hold's raise waits out the cool-down: another hold of the
@@ -240,7 +271,7 @@ function isProbeCoolingDown(hold, file, now, log) {
  * @param {number} tries  including this one
  */
 function dispatchNotice(
-	{ hold, phase, file, config, paged, now, log },
+	{ cause, phase, file, config, paged, now, log },
 	notice,
 	tries,
 ) {
@@ -248,10 +279,10 @@ function dispatchNotice(
 		...notice,
 		[phase]: { at: now, tries, outcome: "dispatched" },
 	});
-	const lastPage = paged === null ? null : readProbePage(paged, log);
+	const lastPage = paged === null ? null : readProbePage(paged.file, log);
 	if (paged !== null)
-		writeProbePage(paged, { raisedAt: hold.raisedAt, at: now });
-	const ref = `repo hold ${hold.id} in ${hold.checkout}: ${phase} notice`;
+		writeProbePage(paged.file, { raisedAt: paged.raisedAt, at: now });
+	const ref = `${cause.ref}: ${phase} notice`;
 	try {
 		gh(
 			[
@@ -261,21 +292,21 @@ function dispatchNotice(
 				"--repo",
 				config.repo,
 				"-f",
-				`issue=${hold.issue}`,
+				`issue=${cause.issue}`,
 				"-f",
 				`mention=${config.mention}`,
 				"-f",
-				`message=${buildNoticeMessage(hold, phase)}`,
+				`message=${cause.message(phase)}`,
 			],
 			{ timeout: TICK_CALL_TIMEOUT_MS },
 		);
-		log(`${ref} dispatched on #${hold.issue}, try ${tries}`);
+		log(`${ref} dispatched on #${cause.issue}, try ${tries}`);
 	} catch (e) {
 		/* Only a child's error, which carries no status, is a gh cut off; anything
 		 * else thrown, a null included, came before any spawn (#4192). */
 		if (!(e instanceof Error) || caught(e).status !== undefined) {
 			writeNotice(file, notice);
-			if (paged !== null) writeProbePage(paged, lastPage);
+			if (paged !== null) writeProbePage(paged.file, lastPage);
 			log(`${ref} not dispatched, the next tick retries: ${parseErrLine(e)}`);
 		} else
 			log(`${ref}: gh never exited, so it may have gone: ${parseErrLine(e)}`);
@@ -288,14 +319,14 @@ function dispatchNotice(
  * @param {NoticeStep} step
  * @returns {boolean|null}
  */
-function readNoticeSeen({ hold, phase, config, log }) {
+function readNoticeSeen({ cause, phase, config, log }) {
 	try {
 		const { comments } = /** @type {{comments: {body: string}[]}} */ (
 			ghJson(
 				[
 					"issue",
 					"view",
-					String(hold.issue),
+					String(cause.issue),
 					"--repo",
 					config.repo,
 					"--json",
@@ -304,12 +335,10 @@ function readNoticeSeen({ hold, phase, config, log }) {
 				{ timeout: TICK_CALL_TIMEOUT_MS },
 			)
 		);
-		const marker = buildNoticeMarker(hold, phase);
+		const marker = cause.marker(phase);
 		return comments.some((c) => c.body.includes(marker));
 	} catch (e) {
-		log(
-			`repo hold ${hold.id}: ${phase} notice unconfirmed: ${parseErrLine(e)}`,
-		);
+		log(`${cause.name}: ${phase} notice unconfirmed: ${parseErrLine(e)}`);
 		return null;
 	}
 }
@@ -319,7 +348,7 @@ function readNoticeSeen({ hold, phase, config, log }) {
  * may yet land; true where that will not read, as a second page is the worse fault.
  * @param {NoticeStep} step
  */
-function isNoticeRunInFlight({ hold, phase, config, log }) {
+function isNoticeRunInFlight({ cause, phase, config, log }) {
 	try {
 		const runs = /** @type {{status: string}[]} */ (
 			ghJson(
@@ -338,9 +367,7 @@ function isNoticeRunInFlight({ hold, phase, config, log }) {
 		);
 		return runs.some((r) => r.status !== "completed");
 	} catch (e) {
-		log(
-			`repo hold ${hold.id}: ${phase} notice's runs unread: ${parseErrLine(e)}`,
-		);
+		log(`${cause.name}: ${phase} notice's runs unread: ${parseErrLine(e)}`);
 		return true;
 	}
 }
@@ -352,9 +379,9 @@ function isNoticeRunInFlight({ hold, phase, config, log }) {
  * @param {"seen"|"lost"} outcome
  * @param {string} line
  */
-function settlePhase({ hold, phase, file, log }, sent, outcome, line) {
+function settlePhase({ cause, phase, file, log }, sent, outcome, line) {
 	writeNotice(file, { ...readNotice(file), [phase]: { ...sent, outcome } });
-	log(`repo hold ${hold.id}: ${phase} notice ${outcome}${line}`);
+	log(`${cause.name}: ${phase} notice ${outcome}${line}`);
 }
 
 /**
@@ -362,7 +389,7 @@ function settlePhase({ hold, phase, file, log }, sent, outcome, line) {
  * @param {NoticeStep} step
  */
 function tendPhase(step) {
-	const { hold, file, phase, now } = step;
+	const { cause, file, phase, now } = step;
 	const notice = readNotice(file);
 	const sent = notice[phase];
 	if (sent === null) {
@@ -372,7 +399,7 @@ function tendPhase(step) {
 	if (sent.outcome !== "dispatched") return;
 	const seen = readNoticeSeen(step);
 	if (seen === true) {
-		settlePhase(step, sent, "seen", ` on #${hold.issue}`);
+		settlePhase(step, sent, "seen", ` on #${cause.issue}`);
 		return;
 	}
 	if (now - sent.at >= NOTICE_GIVE_UP_MS) {
@@ -385,7 +412,7 @@ function tendPhase(step) {
 			step,
 			sent,
 			"lost",
-			`: no comment on #${hold.issue} after ${sent.tries} dispatches, none further`,
+			`: no comment on #${cause.issue} after ${sent.tries} dispatches, none further`,
 		);
 		return;
 	}
@@ -430,18 +457,36 @@ function tendRaise(hold, root, { workedAt, now, log }) {
 		(workedAt !== null && now - workedAt >= NOTICE_NO_WORK_MS);
 	if (hold.issue === null || !isDue) return;
 	const file = path.join(holdsDir(root), buildNoticeName(hold.id));
-	const paged = findPagedFile(hold, root);
+	const paged = findPaged(hold, root);
 	const config = readNoticeConfig(hold.checkout);
 	if (config !== null) {
 		if (
 			paged === null ||
 			hold.notice.raise !== null ||
-			!isProbeCoolingDown(hold, paged, now, log)
+			!isProbeCoolingDown(hold, paged.file, now, log)
 		)
-			tendPhase({ hold, phase: "raise", file, config, paged, now, log });
+			tendPhase({
+				cause: buildHoldCause(hold, hold.issue),
+				phase: "raise",
+				file,
+				config,
+				paged,
+				now,
+				log,
+			});
 	} else if (!hold.notice.isUnsetLogged)
 		noteNoticeUnset(hold, "raise", { file, now, log });
 }
+
+/**
+ * @param {string} file
+ * @param {number} now
+ */
+const giveUpClear = (file, now) =>
+	writeNotice(file, {
+		...readNotice(file),
+		clear: { at: now, tries: 0, outcome: "lost" },
+	});
 
 /**
  * A lifted hold's clear notice, where one is owed. A record torn since cannot name
@@ -454,24 +499,26 @@ function tendClear(lifted, { now, log }) {
 	const file = path.join(lifted.dir, buildNoticeName(lifted.id));
 	const hold = readLiftedRecord(lifted);
 	if (hold === null) {
-		writeNotice(file, {
-			...readNotice(file),
-			clear: { at: now, tries: 0, outcome: "lost" },
-		});
+		giveUpClear(file, now);
 		log(
 			`repo hold ${lifted.id}: clear notice lost: its lifted record will not read`,
 		);
+		return;
+	}
+	if (hold.issue === null) {
+		giveUpClear(file, now);
+		log(`repo hold ${lifted.id}: clear notice lost: its record names no issue`);
 		return;
 	}
 	const config = readNoticeConfig(hold.checkout);
 	if (config === null) noteNoticeUnset(hold, "clear", { file, now, log });
 	else
 		tendPhase({
-			hold,
+			cause: buildHoldCause(hold, hold.issue),
 			phase: "clear",
 			file,
 			config,
-			paged: findPagedFile(hold, lifted.root),
+			paged: findPaged(hold, lifted.root),
 			now,
 			log,
 		});
@@ -503,4 +550,9 @@ function tendHoldNotices(roots, seen, now, log) {
 		guarded(lifted.id, () => tendClear(lifted, { now, log }));
 }
 
-module.exports = { tendHoldNotices };
+module.exports = {
+	buildNoticeBody,
+	readNoticeConfig,
+	tendHoldNotices,
+	tendPhase,
+};

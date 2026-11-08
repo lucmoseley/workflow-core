@@ -10,7 +10,7 @@
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
-const { isSameSeat, seatIdOf } = require("./refill-seats.js");
+const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const {
 	COMMAND_VALUES,
 	TAKES_PREFIX,
@@ -121,9 +121,9 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * fits on the key now, null where it was not read, with `why`; `spentUntil`
  * the date its cycle ends where the key is spent for it, else null.
  * @typedef {object} OverflowReading
- * @property {string} seat config dir
- * @property {string} [keyVar] the seat's identity; none on the row standing in
- *   for a seat file that refuses
+ * @property {string|null} seat config dir; null on the row standing in for a
+ *   seat file that refuses
+ * @property {string} [keyVar] the seat's identity; none on that row
  * @property {number|null} fits
  * @property {number} [headroomUsd] the key's headroom where its budget read,
  *   the allowance a session moved onto it takes (#3736)
@@ -460,9 +460,9 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 		};
 	}
 	const open = overflow.find(isFitted);
-	if (open)
+	if (open?.seat)
 		return {
-			...seatIdOf(open),
+			...seatIdOf({ seat: open.seat, keyVar: open.keyVar }),
 			fits: open.fits,
 			reason: "overflow",
 		};
@@ -552,7 +552,7 @@ function pickPlanSeat(seats) {
 /**
  * @param {OverflowReading} o
  */
-const overflowHold = (o) => `${o.seat} ${buildOverflowHoldText(o)}`;
+const overflowHold = (o) => `${buildSeatLabel(o)} ${buildOverflowHoldText(o)}`;
 
 /**
  * @param {OverflowReading} o
@@ -1369,6 +1369,7 @@ module.exports = {
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildResumeWaitLine,
+	buildPauseIssueText,
 	buildPauseText,
 	buildPausedWaitText,
 	buildPlanWaitText,

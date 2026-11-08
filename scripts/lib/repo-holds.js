@@ -32,13 +32,20 @@
  * a hand lift of one still failing is raised anew, with a new issue, on the next
  * tick, unless it now fails as an outage younger than the window.
  *
- * THE GUARD-LOAD PROBE (#4226): a self-plugin host's sessions load their guards
- * from its shared tree, so the probe also runs that tree's PreToolUse entry on a
- * benign `Read`, as a session would. A failure is run once more after
+ * THE GUARD-LOAD PROBE (#4226): a self-plugin host's sessions run the guard hook
+ * line its `self-plugin/hooks/hooks.json` registers, so the probe also runs that
+ * line on a benign `Read`, as a session would, whatever code it runs. A failure is run once more after
  * GUARD_PROBE_RETRY_MS; a second raises the hold on its tick, with no outage
  * window. While it stands, each loop session that parks there is attached to it
  * (attachProbeParks). An adopter loads its guards from its pinned plugin
  * release, so runs no step.
+ *
+ * A LOCKED-OUT SESSION (#4228), one every call of which its guards refused for
+ * want of a guard that could judge it, raises the probe hold where none stands
+ * and attaches to it (holdLockedOut). Its first refused call is kept in a
+ * replay file beside the hold, written before the hold's issue files, and the
+ * hold's clear check replays each kept call through the hook line beside the
+ * benign `Read`, so a fault that `Read` does not touch keeps the hold.
  *
  * RESIDUAL: during an outage's window launches are withheld with no hold to show
  * for it, so `status` reads no hold open, only the log says why, and no notice is
@@ -71,6 +78,9 @@ const path = require("node:path");
 const { createHash, randomBytes } = require("node:crypto");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { isLockoutText } = require("./core-fault.js");
+const { readText } = require("./file-read.js");
+const { parseFirstLine } = require("./first-line.js");
 const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
@@ -130,6 +140,7 @@ const { resolveKey } = require("./workflow-core-config.js");
  * @property {boolean} isClearNoticeOwed  a raise notice went and its clear is not done
  *
  * @typedef {{text: string, isOutage: boolean}} ProbeFailure
+ * @typedef {import("./block-cause.js").RefusedCall} RefusedCall
  */
 
 /* Untraced: the budget of one call a tick makes for a hold or its notice, a clear
@@ -214,8 +225,15 @@ function guardProbeRetryMs() {
 /* The probe's own, so it leaves no latch on a real session. */
 const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
 
-/* The probe's `Read` names it, as it is tracked wherever the step runs. */
+/* The probe's `Read` names it, as it is tracked wherever the step runs, and
+ * the step runs the guard hook line it registers. */
 const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
+
+/* What a lockout's hold asks repaired. */
+const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
+
+/* The entry the guard hook line runs, whatever runs it. */
+const GUARD_ENTRY = "guard-dispatch.js";
 
 /**
  * The checkout a command run from `cwd` holds holds in.
@@ -288,6 +306,36 @@ const holdFile = (root, id) => path.join(holdsDir(root), buildHoldFileName(id));
  * @param {string} id
  */
 const buildAttachPrefix = (id) => `${id}.attached.`;
+
+/**
+ * @param {string} id
+ */
+const buildReplayPrefix = (id) => `${id}.replay.`;
+
+/**
+ * Remove open hold `id`'s replay files from `dir`, its store.
+ * @param {string} dir
+ * @param {string} id
+ */
+function removeReplays(dir, id) {
+	let names;
+	try {
+		names = fs.readdirSync(dir);
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return;
+		throw err;
+	}
+	for (const name of parseReplayNames(names, id))
+		fs.rmSync(path.join(dir, name), { force: true });
+}
+
+/**
+ * Hold `id`'s replay files, off the store's listing.
+ * @param {string[]} names  the store's file names
+ * @param {string} id
+ */
+const parseReplayNames = (names, id) =>
+	names.filter((n) => n.startsWith(buildReplayPrefix(id)));
 
 /**
  * The job ids attached to hold `id`, off the store's listing.
@@ -501,8 +549,10 @@ function raiseHold(
 		now,
 	},
 ) {
-	/* A lift that raced a notice's write can leave one behind, for a fixed id. */
+	/* A lift that raced a notice's or a replay's write can leave one behind, for
+	 * a fixed id. */
 	fs.rmSync(path.join(holdsDir(root), buildNoticeName(id)), { force: true });
+	removeReplays(holdsDir(root), id);
 	/** @type {Omit<RepoHold, "notice">} */
 	const record = {
 		id,
@@ -623,6 +673,7 @@ function removeHold(root, id) {
 			if (caught(err).code !== "ENOENT") throw err;
 		}
 	}
+	removeReplays(dir, id);
 	fs.mkdirSync(path.join(dir, LIFTED_DIR), { recursive: true });
 	fs.renameSync(lifting, path.join(dir, LIFTED_DIR, name));
 	return true;
@@ -876,43 +927,90 @@ function isIssueClosed(hold, issue, log) {
 }
 
 /**
- * What one run of `root`'s own guard entry fails on, or null where it allows a
- * benign `Read`, run from the shared tree's files, never the loop's code copy.
+ * The guard hook line `root`'s `self-plugin/hooks/hooks.json` registers for a
+ * PreToolUse call of `tool`, else why there is none to run: a self-plugin host
+ * with none runs no guard on the call, which is a fault of its own.
  * @param {string} root
+ * @param {string} tool
+ * @returns {{line: string}|{why: string}}
+ */
+function readGuardHookLine(root, tool) {
+	const read = readText(path.join(root, SELF_PLUGIN_HOOKS));
+	if (read.state === "absent") return { why: `no ${SELF_PLUGIN_HOOKS}` };
+	if (read.state === "unreadable")
+		return { why: `${SELF_PLUGIN_HOOKS} unread: ${read.message}` };
+	let config;
+	try {
+		config = JSON.parse(read.data);
+	} catch (err) {
+		return { why: `${SELF_PLUGIN_HOOKS} unparsed: ${caught(err).message}` };
+	}
+	const groups = config?.hooks?.PreToolUse;
+	for (const group of Array.isArray(groups) ? groups : []) {
+		const matcher = String(group?.matcher ?? "");
+		if (
+			matcher !== "" &&
+			matcher !== "*" &&
+			!new RegExp(`^(?:${matcher})$`).test(tool)
+		)
+			continue;
+		const line = (Array.isArray(group?.hooks) ? group.hooks : []).find(
+			(/** @type {{command?: unknown}} */ h) =>
+				typeof h?.command === "string" && h.command.includes(GUARD_ENTRY),
+		)?.command;
+		if (line) return { line };
+	}
+	return { why: `${SELF_PLUGIN_HOOKS} registers no guard line for ${tool}` };
+}
+
+/**
+ * The benign `Read` the probe runs in `root`.
+ * @param {string} root
+ * @returns {RefusedCall}
+ */
+const buildBenignRead = (root) => ({
+	tool_name: "Read",
+	tool_input: { file_path: path.join(root, SELF_PLUGIN_HOOKS), limit: 1 },
+});
+
+/**
+ * What one run of `root`'s guard hook line on `call` fails on, or null where it
+ * lets the call through, run from the shared tree's files, never the loop's code
+ * copy, under the probe's own session id. `isAnyDeny`, whether any deny fails
+ * it, as for the benign `Read`; else only one for want of a guard that could
+ * judge the call, as a replayed call may be refused on its merits.
+ * @param {string} root
+ * @param {RefusedCall} call
+ * @param {boolean} isAnyDeny
  * @returns {string|null}
  */
-function readGuardRunFailure(root) {
+function readGuardRunFailure(root, call, isAnyDeny) {
+	const hookLine = readGuardHookLine(root, String(call.tool_name));
+	if ("why" in hookLine) return hookLine.why;
 	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it. */
-	const run = spawnChild(
-		process.execPath,
-		[path.join(root, "scripts", "guard-dispatch.js")],
-		{
+	const run = spawnChild("sh", ["-c", hookLine.line], {
+		cwd: root,
+		env: buildCheckoutEnv(root),
+		input: JSON.stringify({
+			session_id: GUARD_PROBE_SESSION,
+			hook_event_name: "PreToolUse",
 			cwd: root,
-			env: buildCheckoutEnv(root),
-			input: JSON.stringify({
-				session_id: GUARD_PROBE_SESSION,
-				hook_event_name: "PreToolUse",
-				cwd: root,
-				tool_name: "Read",
-				tool_input: { file_path: path.join(root, SELF_PLUGIN_HOOKS), limit: 1 },
-			}),
-			timeout: GUARD_PROBE_TIMEOUT_MS,
-		},
-	);
+			...call,
+		}),
+		timeout: GUARD_PROBE_TIMEOUT_MS,
+	});
 	if (run.error)
 		return caught(run.error).code === "ETIMEDOUT"
 			? `outlived ${GUARD_PROBE_TIMEOUT_MS} ms`
 			: run.error.message;
-	const firstLine = (/** @type {string} */ text) =>
-		text
-			.split("\n")
-			.find((l) => l.trim() !== "")
-			?.trim();
-	if (run.status !== 0) return firstLine(run.stderr) ?? `exited ${run.status}`;
-	const out = readHookOutput(run.stdout);
+	if (run.status !== 0)
+		return parseFirstLine(String(run.stderr)) || `exited ${run.status}`;
+	const out = readHookOutput(String(run.stdout));
 	if (out?.permissionDecision !== "deny") return null;
-	const reason = firstLine(String(out.permissionDecisionReason ?? ""));
-	return `refused a benign Read${reason ? `: ${reason}` : ""}`;
+	const reason = String(out.permissionDecisionReason ?? "");
+	if (!isAnyDeny && !isLockoutText(reason)) return null;
+	const first = parseFirstLine(reason);
+	return `refused a ${isAnyDeny ? "benign " : "replayed "}${call.tool_name}${first ? `: ${first}` : ""}`;
 }
 
 /**
@@ -938,9 +1036,10 @@ function readHookOutput(stdout) {
  */
 function readGuardLoadFailure(root) {
 	if (!fs.existsSync(path.join(root, "self-plugin"))) return null;
-	if (readGuardRunFailure(root) === null) return null;
+	const read = buildBenignRead(root);
+	if (readGuardRunFailure(root, read, true) === null) return null;
 	sleepSync(guardProbeRetryMs());
-	const failure = readGuardRunFailure(root);
+	const failure = readGuardRunFailure(root, read, true);
 	return failure === null
 		? null
 		: { text: `guard entry: ${failure}`, isOutage: false };
@@ -1022,10 +1121,74 @@ function closeProbeIssue(hold, why) {
  * @param {Log} log
  */
 function isCheckPassed(hold, readFailure, log) {
-	if ("probe" in hold.clearCheck) return readFailure(hold.checkout) === null;
+	if ("probe" in hold.clearCheck)
+		return (
+			readFailure(hold.checkout) === null &&
+			isEveryReplayPassed(hold, readHoldReplays(hold.checkout, hold.id), log)
+		);
 	return "command" in hold.clearCheck
 		? isCommandPassed(hold, hold.clearCheck.command, log)
 		: isIssueClosed(hold, hold.clearCheck.issueClosed, log);
+}
+
+/**
+ * The refused calls kept in open hold `id`'s replay files: none where one is
+ * gone since the listing, or torn, which keeps no call to replay.
+ * @param {string} root
+ * @param {string} id
+ * @returns {RefusedCall[]}
+ */
+function readHoldReplays(root, id) {
+	const dir = holdsDir(root);
+	return parseReplayNames(fs.readdirSync(dir), id).flatMap((name) => {
+		const read = readText(path.join(dir, name));
+		if (read.state === "absent") return [];
+		if (read.state === "unreadable") throw read.error;
+		try {
+			const call = JSON.parse(read.data);
+			return typeof call?.tool_name === "string" ? [call] : [];
+		} catch {
+			/* Torn: no call to replay (#4228). */
+			return [];
+		}
+	});
+}
+
+/**
+ * Keep `call` beside `root`'s probe hold for its clear check's replay, under
+ * job `job`, the first a job asks kept.
+ * @param {string} root
+ * @param {string} job
+ * @param {RefusedCall} call
+ */
+function keepProbeReplay(root, job, call) {
+	if (!JOB_PATTERN.test(job)) throw new Error(`not a job id: ${job}`);
+	try {
+		fs.writeFileSync(
+			path.join(holdsDir(root), `${buildReplayPrefix(PROBE_ID)}${job}`),
+			JSON.stringify(call),
+			{ flag: "wx" },
+		);
+	} catch (err) {
+		if (caught(err).code !== "EEXIST") throw err;
+	}
+}
+
+/**
+ * Whether each of `replays` runs through `hold`'s checkout's guard hook line
+ * with no refusal for want of a guard that could judge it; each that does not
+ * is logged.
+ * @param {RepoHold} hold
+ * @param {RefusedCall[]} replays
+ * @param {Log} log
+ */
+function isEveryReplayPassed(hold, replays, log) {
+	return replays.every((call) => {
+		const failure = readGuardRunFailure(hold.checkout, call, false);
+		if (failure !== null)
+			log(`repo hold ${hold.id}: a kept call still fails: ${failure}`);
+		return failure === null;
+	});
 }
 
 /**
@@ -1227,12 +1390,18 @@ function tendOutage(root, failure, now, log) {
  * throw is logged and fails open on the record alone, the caller stopping
  * launches whatever the store took (#3860).
  * @param {string} root
- * @param {{failureText: string, isRaiseDue: boolean}} probed  `isRaiseDue`,
- *   whether a hold not yet open may be raised
+ * @param {{failureText: string, isRaiseDue: boolean, repair?: string}} probed
+ *   `isRaiseDue`, whether a hold not yet open may be raised; `repair`, what
+ *   the founder repairs, which a raise names
  * @param {number} now
  * @param {Log} log
  */
-function keepProbeHold(root, { failureText, isRaiseDue }, now, log) {
+function keepProbeHold(
+	root,
+	{ failureText, isRaiseDue, repair = "the shared tree" },
+	now,
+	log,
+) {
 	try {
 		let hold = readProbeHold(root);
 		if (hold === null) {
@@ -1240,7 +1409,7 @@ function keepProbeHold(root, { failureText, isRaiseDue }, now, log) {
 			hold = raiseHold(root, {
 				id: PROBE_ID,
 				kind: "probe",
-				act: `repair the shared tree: ${failureText}`,
+				act: `repair ${repair}: ${failureText}`,
 				issue: null,
 				clearCheck: { probe: true },
 				session: null,
@@ -1296,6 +1465,42 @@ function isBlockedSinceRaise(l, hold) {
 		since !== undefined &&
 		since >= hold.raisedAt
 	);
+}
+
+/**
+ * Raise `root`'s probe hold where none stands, its step `guard lockout:
+ * <refusal>`, file its issue where it has none, and attach job `job`, locked out
+ * by its guards, keeping `call` for the clear check's replay (#4228). The hold
+ * once attached, else why not, which a later tick retries.
+ * @param {string} root
+ * @param {{job: string, refusal: string, call: RefusedCall|null}} lockout
+ * @param {number} now
+ * @param {Log} log
+ * @returns {{hold: RepoHold}|{why: string}}
+ */
+function holdLockedOut(root, { job, refusal, call }, now, log) {
+	keepProbeHold(
+		root,
+		{
+			failureText: `guard lockout: ${refusal}`,
+			isRaiseDue: true,
+			repair: LOCKOUT_REPAIR,
+		},
+		now,
+		log,
+	);
+	try {
+		if (readProbeHold(root) === null) return { why: "no probe hold stands" };
+		if (call) keepProbeReplay(root, job, call);
+		const attached = attachHold(root, PROBE_ID, job);
+		if (attached === null) return { why: "no probe hold stands" };
+		if (attached.hold.issue === null)
+			return { why: "its probe hold has no issue filed yet" };
+		if (attached.isNew) log(buildAttachedLine(attached.hold, job));
+		return { hold: attached.hold };
+	} catch (err) {
+		return { why: caught(err).message };
+	}
 }
 
 /**
@@ -1422,7 +1627,9 @@ module.exports = {
 	buildRaisedLine,
 	dropLiftedJobs,
 	findOwnHold,
+	holdLockedOut,
 	holdsDir,
+	isClearOwed,
 	liftHold,
 	raiseHold,
 	readCheckout,
