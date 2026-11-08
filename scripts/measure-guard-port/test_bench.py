@@ -1,5 +1,5 @@
 """Pins bench.py's per-call figures and deny count, and the paired gate a
-guard port is read by (#2733, #2783, #3216), and that each dispatched tool's
+guard port is read by (#2733, #2783, #3216) with its one re-read (#4664), and that each dispatched tool's
 payload carries what its cores read (#3176).
 
 `one_call` runs real `/bin/sh` commands, since the parallel start and the
@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import bench
 from bench import (
     one_call,
     payload,
@@ -260,7 +261,8 @@ def test_an_open_interval_adds_30_pairs_up_to_90_and_stays_inconclusive():
     assert out["verdict"] == "INCONCLUSIVE" and out["pairs"] == 90
 
 
-def test_a_reread_is_one_720_pair_read_with_no_earlier_look():
+def test_a_reread_is_one_720_pair_read_with_no_earlier_look(monkeypatch):
+    monkeypatch.setattr(bench, "RESAMPLES", 1_000)
     passing, _ = run_with([1.0], reread=True)
     assert passing["verdict"] == "PASS" and passing["pairs"] == 720
     wide = [0.9, 0.93, 0.96, 0.99, 1.02, 1.05, 1.08, 1.11, 1.14, 1.17]
@@ -387,6 +389,23 @@ def test_each_paired_side_runs_from_its_own_root(tmp_path):
     assert done.returncode == 0, done.stderr
     out = json.loads(done.stdout)
     assert out["verdict"] != "REFUSED" and out["old"]["denies"] == 0
+
+
+def test_the_reread_flag_reaches_the_paired_read(tmp_path, monkeypatch):
+    sets = tmp_path / "set.txt"
+    sets.write_text("cat >/dev/null\n")
+    (tmp_path / ".claude").mkdir()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    seen = {}
+
+    def fake(call_old, call_new, narrowed, rng, *, reread=False):
+        seen["reread"] = reread
+        return {"verdict": "PASS"}
+
+    monkeypatch.setattr(bench, "run_paired", fake)
+    args = ["--paired", "--reread", str(sets), str(sets), "PreToolUse", "Bash", "ls"]
+    assert bench.main(args) == 0
+    assert seen == {"reread": True}
 
 
 def test_the_program_refuses_a_bad_invocation():
