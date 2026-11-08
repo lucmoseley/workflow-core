@@ -755,12 +755,13 @@ function withIgnoreBlock(text, lines = IGNORED) {
 
 /**
  * `package.json`'s text with the `status` script every adopter's
- * `npm run status` runs (#4151), or null where it already declares one. Laid
- * out as `npm pkg set` writes it: the file's indent and line ending, else two
- * spaces and LF, with a final newline.
+ * `npm run status` runs (#4151), as `body`, or null where it already declares
+ * one; `kept` where that one is not the plugin's, which prints no primitives
+ * count line (#4190). Laid out as `npm pkg set` writes it: the
+ * file's indent and line ending, else two spaces and LF, with a final newline.
  * Throws on a file that is not a package manifest.
  * @param {string} text
- * @returns {string|null}
+ * @returns {{body: string|null, kept: boolean}}
  */
 function withStatusScript(text) {
 	const body = text.replace(/^\uFEFF/, "");
@@ -768,10 +769,14 @@ function withStatusScript(text) {
 	const scripts = manifest?.scripts ?? {};
 	if (!isObject(manifest) || !isObject(scripts))
 		throw new Error("it or its `scripts` is not a JSON object");
-	if (scripts.status !== undefined) return null;
+	const own = scripts.status;
+	if (own !== undefined) return { body: null, kept: own !== STATUS_SCRIPT };
 	const [, eol = "\n", indent] = body.match(/^\s*\{(\r?\n)([ \t]*)/) ?? [];
 	const next = { ...manifest, scripts: { ...scripts, status: STATUS_SCRIPT } };
-	return `${JSON.stringify(next, null, indent || "  ")}\n`.replace(/\n/g, eol);
+	return {
+		body: `${JSON.stringify(next, null, indent || "  ")}\n`.replace(/\n/g, eol),
+		kept: false,
+	};
 }
 
 module.exports = {
@@ -785,6 +790,7 @@ module.exports = {
 	renderAgentsMd,
 	withIgnoreBlock,
 	withStatusScript,
+	STATUS_SCRIPT,
 	appendLines,
 	renderDocMap,
 	renderCodeStandards,

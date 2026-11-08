@@ -9,7 +9,8 @@
  *
  * EVERY ENTRY IS IDEMPOTENT: over an adopter already current it writes nothing
  * and prints nothing, so init then upgrade at one plugin leaves every file
- * byte-identical. Renderers stay in `adopter-skeleton.js`.
+ * byte-identical. One line repeats: an adopter's own status script is said
+ * kept on every run (#4190). Renderers stay in `adopter-skeleton.js`.
  *
  * AN ENTRY THAT CANNOT READ ITS INPUT SKIPS WITH A LINE, but for one: a
  * `settings.json` that does not parse throws, since the plugin entry it
@@ -30,6 +31,7 @@ const {
 	isHookShim,
 	withIgnoreBlock,
 	withStatusScript,
+	STATUS_SCRIPT,
 	settingsKeys,
 	labelPlan,
 	hookRootOf,
@@ -334,16 +336,22 @@ function bringIgnoreBlock(ctx) {
 function bringStatusScript(ctx) {
 	const text = readIfPresent(path.join(ctx.root, "package.json"));
 	if (text === null) return [];
-	let body;
+	let outcome;
 	try {
-		body = withStatusScript(text);
+		outcome = withStatusScript(text);
 	} catch (err) {
 		/* A skip, not bringSettings' refusal: the script is a convenience, and a
 		 * throw would stop the upgrade's walk over it (#4151). */
 		ctx.out(`skipped package.json's status script: ${caught(err).message}`);
 		return [];
 	}
-	return body === null ? [] : bringFile(ctx, { rel: "package.json", body });
+	if (outcome.kept)
+		ctx.out(
+			`kept    package.json's own status script, which prints no primitives count line — the plugin's is: ${STATUS_SCRIPT}`,
+		);
+	return outcome.body === null
+		? []
+		: bringFile(ctx, { rel: "package.json", body: outcome.body });
 }
 
 /** @param {Context} ctx */
