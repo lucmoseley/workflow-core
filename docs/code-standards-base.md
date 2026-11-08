@@ -350,7 +350,7 @@ A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it thr
 
 Every program, library module, hook module and shell script opens with a block comment giving the filename, one line on what it is, then the *why* and the ticket that settled it. A test's header gives one line on what it pins, then the ticket, why the test is built the way it is, and what breaking it costs — for example, that it runs inside a throwaway repository rather than against the real one, and that it is a hard gate in CI, so loosening it loosens CI. Either header's why explains the code as it stands, never a change to it (#2351). A test header need not name itself or its subject, though it may: the runner prints a test's path on every result and failure, and a self-name goes stale on a rename (#1279, #1406).
 
-**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:361` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
+**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:366` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
 
 ### §N3 · The filename prefix is the contract — **hard**
 
