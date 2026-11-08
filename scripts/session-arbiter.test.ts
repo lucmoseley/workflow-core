@@ -36,6 +36,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { commandPath } from "./lib/command-path-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
+import { printed as ghPrinted } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
 import { cutPostCommitBlock } from "./lib/precommit-gate-testkit";
@@ -55,6 +56,9 @@ const {
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
+
+/** A fakeGh route table answering every call with a closed issue's state. */
+const CLOSED = { "*": ghPrinted('{"state":"CLOSED"}\n') };
 
 const cli = (args: string[], env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, args, { cwd: sb.repo, env: { ...process.env, ...env } });
@@ -128,8 +132,8 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	it("still lets fakeGh take the gh seam from the default", () => {
 		// stubOracles claims WFC_GH in the sandbox's own beforeEach, and a case
 		// arranging its own `gh` must still win.
-		fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
-		expect(process.env.WFC_GH).toBe(path.join(sb.dir, "gh-fake"));
+		const stub = fakeGh(sb, CLOSED);
+		expect(process.env.WFC_GH).toBe(stub);
 		expect(ghCallCount(sb)).toBe(0);
 	});
 
@@ -196,7 +200,7 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	});
 
 	it("answers none of a fakeGh, so a caller off the var fails its test rather than passing it", () => {
-		fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
+		fakeGh(sb, CLOSED);
 		const r = spawnSync("gh", ["--version"], { encoding: "utf8" });
 		expect(r.status).toBe(1);
 		expect(r.stdout).toBe("");

@@ -50,6 +50,7 @@ const { readFdAll } = require("./lib/read-fd.js");
 const { isZeroSha, parsePushes } = require("./lib/push-refs.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
+const { compareVersions } = require("./lib/compare-versions.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
 const { claudeBin } = require("./lib/claude-bin.js");
@@ -108,18 +109,10 @@ function unmetTestFloor(dir) {
 	const have = floor && readClaudeVersionOnce();
 	if (!floor || !have) return null;
 	const parseVersion = (/** @type {string} */ v) => v.split(".").map(Number);
-	const f = parseVersion(floor);
 	/* Both are x.y.z, by TEST_FLOOR and readClaudeVersionOnce's patterns. */
-	const cmp =
-		parseVersion(have)
-			.map((n, i) => {
-				const m = f[i];
-				if (m === undefined)
-					throw new Error(`claude ${have} has more parts than floor ${floor}`);
-				return n - m;
-			})
-			.find((d) => d !== 0) ?? 0;
-	return cmp < 0 ? floor : null;
+	return compareVersions(parseVersion(have), parseVersion(floor)) < 0
+		? floor
+		: null;
 }
 
 /**

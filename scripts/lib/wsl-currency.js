@@ -4,6 +4,7 @@
  * reads so each verdict is testable without a bridge or a network.
  */
 
+const { compareVersions } = require("./compare-versions.js");
 const { scriptPath } = require("./script-path.js");
 
 /*
@@ -39,19 +40,6 @@ const RELEASE_READS = {
  */
 function parseVersion(text) {
 	return /^\d+(?:\.\d+)*$/.test(text) ? text.split(".").map(Number) : null;
-}
-
-/**
- * Numeric by component, a missing component reading 0.
- * @param {number[]} a
- * @param {number[]} b
- */
-function compareVersions(a, b) {
-	for (let i = 0; i < Math.max(a.length, b.length); i++) {
-		const diff = (a[i] ?? 0) - (b[i] ?? 0);
-		if (diff !== 0) return diff;
-	}
-	return 0;
 }
 
 /**
