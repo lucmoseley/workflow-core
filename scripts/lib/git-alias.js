@@ -31,9 +31,10 @@ const UNREAD_ALIAS = "unread alias";
 
 /**
  * `git config -z --get-regexp ^alias\\.`'s output as a table: the last of a name
- * wins. A dotted name leaves both its head and itself unread: git 2.43 runs
- * `alias.a.b` as `git a.b`, and `alias..x` as `git .x`, where newer gits read
- * the subsection form.
+ * wins. A dotted name leaves both its head and itself unread (#4277): git 2.43
+ * runs `alias.a.b` as `git a.b`, and `alias..x` as `git .x`, where the head is
+ * the subsection form #4009 names. Residual: a plain `alias.a` beside
+ * `alias.a.b` reads as unread too.
  * @param {string} out
  * @returns {FileAliases}
  */
