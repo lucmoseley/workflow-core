@@ -1,6 +1,6 @@
 {
 	".husky/commit-msg": "0f1cc882fdb47637",
-	".husky/post-commit": "cfbfb4ebb64e6c48",
+	".husky/post-commit": "511d92cd11f36c78",
 	".husky/post-merge": "ee21ece5b9e7d3ce",
 	".husky/pre-applypatch": "69f9d4a97d975e81",
 	".husky/pre-commit": "ca737e9345c6028f",
