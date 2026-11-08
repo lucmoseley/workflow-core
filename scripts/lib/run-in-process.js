@@ -70,7 +70,7 @@
  *      no throw node would have died of, and leaves a ref'd resource of its
  *      own open is refused, naming its type — that resource is what would
  *      keep a real process from exiting. The async form first gives its own
- *      resources SETTLE_MS to close. One that does end so still leaks what it
+ *      resources SETTLE_MS, then SETTLE_TURNS loop turns, to close. One that does end so still leaks what it
  *      left into the test process.
  *   6. A REAL FD FOR A GRANDCHILD. A script that spawns its own child with
  *      `stdio: "inherit"` on fd 1/2 (lib/check.js's `reread`, for one) hands
@@ -284,13 +284,14 @@ const KEEPS_ALIVE = new Set([
 
 /* Unmeasured guess: how long an async call's own handles get to close once
  * main() has settled — a child process's handle closes a few ticks after its
- * exit callback. A resource still open after it is refused. */
+ * exit callback. A resource still open after it and SETTLE_TURNS is refused. */
 const SETTLE_MS = 200;
 
 /* Measured on Node 24.18 (#4108): a closed `fs.watch` handle reports
  * `destroy` on the second loop turn after its close. Given past the deadline
  * too, so a turn stalled over SETTLE_MS on a loaded machine cannot report a
- * handle already closed as one left open. */
+ * handle already closed as one left open. Residual: the other KEEPS_ALIVE
+ * types, and other Node versions, are unmeasured. */
 const SETTLE_TURNS = 2;
 
 /**

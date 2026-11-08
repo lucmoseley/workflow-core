@@ -931,37 +931,40 @@ async function run() {
 		log,
 	});
 	const watcher = wakes.wakeWatcher(files.wake, { log });
-	await wakes.runTicks(async (wake) => {
-		if (wake.woken)
-			log(
-				`${wake.recheck ? "re-checking after wake" : "woken"}${wake.sessions.length > 0 ? ` by ${wake.sessions.join(", ")}` : ""}`,
-			);
-		try {
-			/* Before the sweep starts, so the image it replaces has no child.
-			 * A review runner runs from this image's worktree too (#3765). */
-			updater?.adoptIfMoved({
-				hold:
-					sweeper.busy() ||
-					isReviewRunning() ||
-					readControlFile(log)?.stopRequested === true,
-			});
-			startGateSweep(sweeper);
-			const { decision, noProgressFrom, agents } = await tick({
-				dryRun: false,
-			});
-			updater?.afterTick();
-			/* A `start` that overtook a pending stop mid-tick saw this pid and
-			 * spawned nothing, so that stop must not end the loop. */
-			const done =
-				"stop" in decision &&
-				!loop.isRestartedSince(readControlFile(log), noProgressFrom);
-			return { done, agents };
-		} catch (err) {
-			log(`tick failed: ${buildErrorText(err)}`);
-			return { done: false, agents: null };
-		}
-	}, watcher);
-	watcher.close();
+	try {
+		await wakes.runTicks(async (wake) => {
+			if (wake.woken)
+				log(
+					`${wake.recheck ? "re-checking after wake" : "woken"}${wake.sessions.length > 0 ? ` by ${wake.sessions.join(", ")}` : ""}`,
+				);
+			try {
+				/* Before the sweep starts, so the image it replaces has no child.
+				 * A review runner runs from this image's worktree too (#3765). */
+				updater?.adoptIfMoved({
+					hold:
+						sweeper.busy() ||
+						isReviewRunning() ||
+						readControlFile(log)?.stopRequested === true,
+				});
+				startGateSweep(sweeper);
+				const { decision, noProgressFrom, agents } = await tick({
+					dryRun: false,
+				});
+				updater?.afterTick();
+				/* A `start` that overtook a pending stop mid-tick saw this pid and
+				 * spawned nothing, so that stop must not end the loop. */
+				const done =
+					"stop" in decision &&
+					!loop.isRestartedSince(readControlFile(log), noProgressFrom);
+				return { done, agents };
+			} catch (err) {
+				log(`tick failed: ${buildErrorText(err)}`);
+				return { done: false, agents: null };
+			}
+		}, watcher);
+	} finally {
+		watcher.close();
+	}
 	return 0;
 }
 
