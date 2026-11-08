@@ -14,11 +14,10 @@
  *
  * TWO RUNS (#813, #2038, #4449): at SessionStart, under `--write`, it files
  * and prints nothing, and `npm run status` runs it by hand for the report.
- * The SessionStart run is async and passes `--hourly` (#4367): it walks at
- * most once an hour across the machine, gated by a stamp in the git common
- * dir, because the walk costs 9–14 s and grows with the worktree count. An
- * orphan sits 24 hours before it is filed, so the throttle delays a filing by
- * an hour at most. A run without `--hourly` always walks.
+ * The SessionStart run is async and passes `--hourly` (#4367): it runs at
+ * most once a clock hour across the repository's worktrees, because the walk
+ * costs 9–14 s and grows with the worktree count. The throttle delays a
+ * filing by an hour at most. A run without `--hourly` always runs.
  *
  * LIVE MEANS LISTED BY THE ORACLE AND NOT TERMINAL (`isListedLive`): a finished
  * background session never commits its edit, so its ledger holds nothing back.
@@ -79,7 +78,7 @@
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at session start, at most once an hour across the machine (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
+ * IMPLICIT:  at session start, at most once a clock hour across the repository's worktrees (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook beyond its hourly throttle; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
  * TREE:      host — walks the main checkout, as git's common dir names it from whichever tree launched the run (#4483), and every linked worktree (#4244)
@@ -88,7 +87,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { brokenError, runCheck } = require("./lib/check");
+const { brokenError, now: clock, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
 const { mapLimit } = require("./lib/gh.js");
@@ -150,9 +149,10 @@ const hasFilingTime = () =>
 	hookTimeoutMs() - EXIT_MARGIN_MS - process.uptime() * 1000 >=
 	FILER_TIMEOUT_MS;
 
-/* The `--hourly` run's stamp in the git common dir, and its period: an
- * untraced value, held cheap by the 24-hour threshold (#4367). */
-const WALK_STAMP = "orphaned-edits-walked";
+/* Where `--hourly` runs claim their clock hour, in the git common dir, and
+ * the hour: an untraced value, cheap because it delays a filing by an hour at
+ * most (#4367). */
+const WALK_DIR = "orphaned-edits-walked";
 const WALK_EVERY_MS = 3_600_000;
 
 /* Hex digits of a blob id a title or table shows: enough to tell a reader's
@@ -221,29 +221,30 @@ function filedDir(root) {
 }
 
 /**
- * Whether an `--hourly` run walks: null where it does, stamping the common
- * dir first so starts that follow skip; else the minutes since the last walk.
- * It walks where git names no common dir, rather than never.
+ * Whether an `--hourly` run runs: the first to create this clock hour's
+ * marker, exclusively, so starts landing together cannot all run, and every
+ * run where git names no common dir or the marker will not be made (#4367).
+ * RESIDUAL: the hour is claimed before the walk, so a run killed or broken
+ * mid-walk holds the rest of the hour back, unseen behind the async hook;
+ * and the clock is WFC_NOW's, so an exported WFC_NOW pins the hour.
  * @param {string} root
- * @param {number} now
- * @returns {number|null}
+ * @param {number} at
+ * @returns {boolean}
  */
-function takeHourlyWalk(root, now) {
+function claimWalkHour(root, at) {
 	const common = gitCommonDir(root, { timeout: GIT_TIMEOUT_MS });
-	if (!common) return null;
-	const stamp = path.join(common, WALK_STAMP);
+	if (!common) return true;
+	const dir = path.join(common, WALK_DIR);
+	const hour = String(Math.floor(at / WALK_EVERY_MS));
 	try {
-		const since = now - fs.statSync(stamp).mtimeMs;
-		if (since >= 0 && since < WALK_EVERY_MS) return Math.floor(since / 60_000);
-	} catch {
-		/* No stamp yet: walk. */
+		fs.mkdirSync(dir, { recursive: true });
+		fs.closeSync(fs.openSync(path.join(dir, hour), "wx"));
+	} catch (e) {
+		return caught(e).code !== "EEXIST";
 	}
-	try {
-		fs.writeFileSync(stamp, `${new Date(now).toISOString()}\n`);
-	} catch {
-		/* An unwritable stamp only means the next start walks too. */
-	}
-	return null;
+	for (const old of fs.readdirSync(dir))
+		if (old !== hour) fs.rmSync(path.join(dir, old), { force: true });
+	return true;
 }
 
 /** @param {{path: string, worktree: string|null}} o */
@@ -1064,22 +1065,19 @@ async function run(ctx) {
 	const hours = ctx.numberValue("--hours", ORPHAN_AFTER_HOURS, "non-negative");
 
 	const root = adoptMainCheckout();
-	if (ctx.has("--hourly")) {
-		const since = takeHourlyWalk(root, Date.now());
-		if (since !== null)
-			return {
-				okLine: `not walked: the last --hourly walk was ${String(since)} min ago.`,
-				noun: "orphaned edit(s)",
-				data: { walked: false, minutesSinceWalk: since },
-			};
-	}
+	const now = clock();
+	if (ctx.has("--hourly") && !claimWalkHour(root, now))
+		return {
+			okLine: "not run: an --hourly run already ran this clock hour.",
+			noun: "orphaned edit(s)",
+			data: { walked: false },
+		};
 	const dirty = readDirtyTracked(root);
 	// git is the apparatus here, not the subject: BROKEN (§N4).
 	if (dirty === null)
 		throw brokenError(
 			"git status would not answer, so what is uncommitted is unknown.",
 		);
-	const now = Date.now();
 
 	const cutOver = landingCutOver(
 		(m) => moduleOn(m, { root }),
