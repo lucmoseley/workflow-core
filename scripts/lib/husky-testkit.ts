@@ -5,8 +5,7 @@
  * gitignored and exists only in the shared checkout, so a fixture copying it
  * fails in every linked worktree (#4360).
  *
- * FOR TESTS ONLY. Generated once per test file into a scratch repo and
- * copied from there.
+ * FOR TESTS ONLY.
  */
 
 import { execFileSync } from "node:child_process";
@@ -27,7 +26,6 @@ afterAll(() => {
 	generated = null;
 });
 
-/** The generated `.husky/_`, built on first call. */
 function shimDir(): string {
 	if (generated === null) {
 		const at = mkScratchDir("husky-shim-");
@@ -55,7 +53,6 @@ function shimDir(): string {
 	return generated;
 }
 
-/** The hook names husky writes a shim for. */
 export function huskyHooks(): string[] {
 	return fs
 		.readdirSync(shimDir())
