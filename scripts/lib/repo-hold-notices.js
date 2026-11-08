@@ -22,8 +22,12 @@
  * can page twice.
  *
  * RESIDUAL: a checkout whose config sets no `founderNotice` sends nothing, and here
- * only workflow-core sets it. A probe hold that lifts and comes back is a new hold,
- * with its own pair of pages (#4148).
+ * only workflow-core sets it.
+ *
+ * A PROBE HOLD THAT LIFTS AND COMES BACK is a new hold, as is one raised over a torn
+ * record, so the checkout keeps when its probe hold last paged, and a new one's raise
+ * waits out PROBE_COOL_DOWN_MS from that page before it goes, if the hold still
+ * stands (#4148). One withheld sends no clear, as no raise went.
  */
 
 const fs = require("node:fs");
@@ -34,6 +38,7 @@ const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { refillPath } = require("./refill-dir.js");
 const {
 	buildNoticeName,
+	buildProbePagedFile,
 	holdsDir,
 	readHolds,
 	readLiftedHolds,
@@ -57,8 +62,12 @@ const { readConfig } = require("./workflow-core-config.js");
  * @property {NoticeName} phase
  * @property {string} file  the hold's notice file
  * @property {import("./workflow-core-config.js").FounderNotice} config
+ * @property {string|null} paged  a probe hold's checkout's buildProbePagedFile
  * @property {number} now
  * @property {Log} log
+ *
+ * @typedef {{raisedAt: number|null, at: number}} ProbePage  the hold that paged,
+ *   null where unknown
  */
 
 /* From spec #3597, which marks it untraced. */
@@ -71,6 +80,12 @@ const NOTICE_UNSEEN_MS = 15 * 60_000;
 /* A guess: the loop's own run window, past which a `gh` that still will not read
  * (a deleted issue, say) is no outage, and a lifted record must not wait on it. */
 const NOTICE_GIVE_UP_MS = 24 * 60 * 60_000;
+
+/* Measured off the loop's log, 6 to 8 Nov 2026 (#4148): each network outage lasted
+ * one tick, the 29 Oct one about 7 min (#3899), and the shortest gap between two was
+ * about 7 h. Under that gap, each outage still pages and a flapping one's re-raises
+ * wait; where it sits under the gap is a guess. */
+const PROBE_COOL_DOWN_MS = 6 * 60 * 60_000;
 
 /* The founder's limit is one page a cause, so one more try and no further. */
 const NOTICE_MAX_TRIES = 2;
@@ -164,13 +179,58 @@ function buildNoticeMessage(hold, phase) {
 }
 
 /**
- * Dispatch this phase's notice, recorded first.
+ * The checkout's last probe page, or null where there is none. A torn record, logged,
+ * reads as a page now, written so, as a page the founder has had is the worse fault
+ * and a window from now still ends.
+ * @param {string} file
+ * @param {number} now
+ * @param {Log} log
+ * @returns {ProbePage|null}
+ */
+function readProbePage(file, now, log) {
+	try {
+		const { raisedAt, at } = JSON.parse(fs.readFileSync(file, "utf8"));
+		if (
+			(typeof raisedAt === "number" || raisedAt === null) &&
+			typeof at === "number"
+		)
+			return { raisedAt, at };
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return null;
+		if (!(err instanceof SyntaxError)) throw err;
+	}
+	log(`probe page record torn, its cool-down begun anew: ${file}`);
+	/** @type {ProbePage} */
+	const page = { raisedAt: null, at: now };
+	writeFileAtomic(file, JSON.stringify(page), { mkdir: true });
+	return page;
+}
+
+/**
+ * Whether this probe hold's raise waits out the cool-down: another hold of the
+ * checkout paged inside it.
+ * @param {RepoHold} hold
+ * @param {string} file  buildProbePagedFile's
+ * @param {number} now
+ * @param {Log} log
+ */
+function isProbeCoolingDown(hold, file, now, log) {
+	const page = readProbePage(file, now, log);
+	return (
+		page !== null &&
+		page.raisedAt !== hold.raisedAt &&
+		now - page.at < PROBE_COOL_DOWN_MS
+	);
+}
+
+/**
+ * Dispatch this phase's notice, recorded first, with a probe hold's page.
  * @param {NoticeStep} step
  * @param {HoldNotice} notice  as it stands
  * @param {number} tries  including this one
  */
 function dispatchNotice(
-	{ hold, phase, file, config, now, log },
+	{ hold, phase, file, config, paged, now, log },
 	notice,
 	tries,
 ) {
@@ -178,6 +238,14 @@ function dispatchNotice(
 		...notice,
 		[phase]: { at: now, tries, outcome: "dispatched" },
 	});
+	if (paged !== null)
+		writeFileAtomic(
+			paged,
+			JSON.stringify({ raisedAt: hold.raisedAt, at: now }),
+			{
+				mkdir: true,
+			},
+		);
 	const ref = `repo hold ${hold.id} in ${hold.checkout}: ${phase} notice`;
 	try {
 		gh(
@@ -344,20 +412,26 @@ function noteNoticeUnset(hold, phase, { file, now, log }) {
  * An open hold's raise notice. An issue must stand first: a probe hold whose filing
  * has yet to land retries with it.
  * @param {RepoHold} hold
- * @param {string} dir  its store
+ * @param {string} root  its store's
  * @param {{workedAt: number|null, now: number, log: Log}} tick
  */
-function tendRaise(hold, dir, { workedAt, now, log }) {
+function tendRaise(hold, root, { workedAt, now, log }) {
 	const isDue =
 		hold.notice.raise !== null ||
 		hold.kind === "probe" ||
 		(workedAt !== null && now - workedAt >= NOTICE_NO_WORK_MS);
 	if (hold.issue === null || !isDue) return;
-	const file = path.join(dir, buildNoticeName(hold.id));
+	const file = path.join(holdsDir(root), buildNoticeName(hold.id));
+	const paged = hold.kind === "probe" ? buildProbePagedFile(root) : null;
 	const config = readNoticeConfig(hold.checkout);
-	if (config !== null)
-		tendPhase({ hold, phase: "raise", file, config, now, log });
-	else if (!hold.notice.isUnsetLogged)
+	if (config !== null) {
+		if (
+			paged === null ||
+			hold.notice.raise !== null ||
+			!isProbeCoolingDown(hold, paged, now, log)
+		)
+			tendPhase({ hold, phase: "raise", file, config, paged, now, log });
+	} else if (!hold.notice.isUnsetLogged)
 		noteNoticeUnset(hold, "raise", { file, now, log });
 }
 
@@ -383,7 +457,16 @@ function tendClear(lifted, { now, log }) {
 	}
 	const config = readNoticeConfig(hold.checkout);
 	if (config === null) noteNoticeUnset(hold, "clear", { file, now, log });
-	else tendPhase({ hold, phase: "clear", file, config, now, log });
+	else
+		tendPhase({
+			hold,
+			phase: "clear",
+			file,
+			config,
+			paged: hold.kind === "probe" ? buildProbePagedFile(lifted.root) : null,
+			now,
+			log,
+		});
 }
 
 /**
@@ -407,9 +490,7 @@ function tendHoldNotices(roots, seen, now, log) {
 	};
 	for (const root of readStoreRoots(roots))
 		for (const hold of readHolds(root).holds)
-			guarded(hold.id, () =>
-				tendRaise(hold, holdsDir(root), { workedAt, now, log }),
-			);
+			guarded(hold.id, () => tendRaise(hold, root, { workedAt, now, log }));
 	for (const lifted of readLiftedHolds(roots, log))
 		guarded(lifted.id, () => tendClear(lifted, { now, log }));
 }

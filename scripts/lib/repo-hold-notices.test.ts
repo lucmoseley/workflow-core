@@ -121,6 +121,8 @@ const serve = ({
 const PAST_NO_WORK = 31 * MIN;
 const PAST_UNSEEN = 16 * MIN;
 const PAST_GIVE_UP = 25 * 60 * MIN;
+/* Just past a probe hold's 6 h cool-down after its checkout's last page. */
+const PAST_COOL_DOWN = 6 * 60 * MIN + MIN;
 
 /* A background session that is not at work: no slot has worked. */
 const IDLE = [{ state: "blocked", kind: "background" }];
@@ -157,7 +159,7 @@ const raisePark = (act = "repair main") =>
 		session: null,
 		now: NOW,
 	});
-const raiseProbe = () =>
+const raiseProbe = (now = NOW) =>
 	raiseHold(repo, {
 		id: "probe",
 		kind: "probe",
@@ -165,7 +167,7 @@ const raiseProbe = () =>
 		issue: ISSUE,
 		clearCheck: { probe: true },
 		session: null,
-		now: NOW,
+		now,
 	});
 
 const lastWorked = () => at("last-slot-worked.json");
@@ -422,6 +424,80 @@ exec ${shellQuote(routed)} "$@"
 		notices(NOW + MIN);
 
 		expect(readGhLog()).not.toContain("workflow run");
+	});
+});
+
+describe("a probe hold that comes back (#4148)", () => {
+	/** Raise a probe hold at `now` and tend its notices; that tick's log. */
+	const raiseAndTend = (now: number) => {
+		raiseProbe(now);
+		serve();
+		return notices(now);
+	};
+	/** Clear the open probe hold at `now`, as the passing probe would, and tend. */
+	const clearAndTend = (now: number) => {
+		serve();
+		expect(holdTick(now)).toContain("repo hold cleared: probe in");
+		return notices(now);
+	};
+
+	it("sends no second raise inside the cool-down, nor a clear for one withheld", () => {
+		raiseAndTend(NOW);
+		clearAndTend(NOW + MIN);
+		expect(readPhases()).toEqual(["raise", "clear"]);
+
+		raiseAndTend(NOW + 20 * MIN);
+		clearAndTend(NOW + 21 * MIN);
+		raiseAndTend(NOW + 40 * MIN);
+
+		expect(readPhases()).toEqual(["raise", "clear"]);
+	});
+
+	it("sends one raise for a hold still open when the cool-down ends", () => {
+		raiseAndTend(NOW);
+		clearAndTend(NOW + MIN);
+		raiseAndTend(NOW + 20 * MIN);
+
+		serve();
+		notices(NOW + MIN + PAST_COOL_DOWN);
+		serve();
+		notices(NOW + 2 * MIN + PAST_COOL_DOWN);
+
+		expect(readPhases()).toEqual(["raise", "clear", "raise"]);
+		clearAndTend(NOW + 3 * MIN + PAST_COOL_DOWN);
+		expect(readPhases()).toEqual(["raise", "clear", "raise", "clear"]);
+	});
+
+	it("sends no second raise for one raised again over a torn record, which drops its notice file", () => {
+		raiseAndTend(NOW);
+		expect(fs.existsSync(noticeFile("probe"))).toBe(true);
+
+		raiseAndTend(NOW + MIN);
+
+		expect(fs.existsSync(noticeFile("probe"))).toBe(false);
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("reads a torn page record as a page now, logged, and sends once its cool-down ends", () => {
+		fs.mkdirSync(holdsDir(repo), { recursive: true });
+		fs.writeFileSync(path.join(holdsDir(repo), "probe.paged"), "{ torn");
+
+		expect(raiseAndTend(NOW)).toContain("probe page record torn");
+		expect(readPhases()).toEqual([]);
+
+		serve();
+		notices(NOW + PAST_COOL_DOWN);
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("leaves a park hold's raise to its own rule", () => {
+		raiseAndTend(NOW);
+		raisePark();
+		slotWorkedAgo(PAST_NO_WORK, NOW + MIN);
+		serve();
+		notices(NOW + MIN);
+
+		expect(readPhases()).toEqual(["raise", "raise"]);
 	});
 });
 
