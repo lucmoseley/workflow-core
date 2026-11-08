@@ -18,7 +18,7 @@ import {
 	quietBenchFiles,
 	readUnpostedRuns,
 } from "./quiet-bench-runs.js";
-import { tendQuietBench } from "./quiet-bench-tick.js";
+import { readOpenBlockers, tendQuietBench } from "./quiet-bench-tick.js";
 import { QUIET_BENCH_PAUSE } from "./refill-decide.js";
 import { loopFiles, writeControlFile } from "./refill-files.js";
 import { parseControl } from "./refill-loop.js";
@@ -175,4 +175,21 @@ it("keeps its runs outside what the scratch sweep reaps", () => {
 	const { runs } = quietBenchFiles();
 	expect(runs.startsWith(dir)).toBe(true);
 	expect(runs).not.toContain(path.join(".claude", "tmp"));
+});
+
+it("reads the open blockers of #4607, the whole-suite re-measure (#4608)", () => {
+	fs.mkdirSync(path.join(checkout, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(checkout, ".claude", "workflow-core.json"),
+		JSON.stringify({ tracker: "owner/tracker" }),
+	);
+	const asked = path.join(dir, "asked");
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhScript(dir, `#!/bin/sh\nprintf "%s\\n" "$@" > ${asked}\necho 2\n`).gh,
+	);
+	expect(readOpenBlockers(checkout)).toBe(2);
+	expect(fs.readFileSync(asked, "utf8")).toContain(
+		"repos/owner/tracker/issues/4607/dependencies/blocked_by",
+	);
 });

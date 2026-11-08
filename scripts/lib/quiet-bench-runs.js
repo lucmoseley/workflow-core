@@ -43,21 +43,52 @@ function readTextIfAny(file) {
 	}
 }
 
+/* The first words of the line `bench_suite_concurrency.py`'s
+ * `killed_at_ceiling` matches in a suite's log. */
+const CEILING_LINE = /^SUITE CEILING\b/m;
+
+/**
+ * How many of a row's suites the ceiling killed, read from their logs
+ * (`run-<count>-<row>-<suite>.log`), for a row kept before the bench wrote
+ * `ceiling_killed` itself.
+ * @param {string} dir
+ * @param {import("./quiet-bench.js").BenchRow} row
+ * @param {number} index the row's place in the run
+ */
+function readCeilingKilled(dir, row, index) {
+	let killed = 0;
+	for (let i = 0; i < (row.suites ?? 0); i++) {
+		const log = readTextIfAny(
+			path.join(dir, `run-${row.suites}-${index}-${i}.log`),
+		);
+		if (log !== null && CEILING_LINE.test(log)) killed++;
+	}
+	return killed;
+}
+
 /**
  * A run's rows: its `results.json`, which the bench rewrites after each row, so a
- * read through a rewrite reads as none until the next.
+ * read through a rewrite reads as none until the next. A kept run is read, never
+ * rewritten.
  * @param {string} dir
  * @returns {import("./quiet-bench.js").BenchRow[]}
  */
 function readRunRows(dir) {
 	const text = readTextIfAny(path.join(dir, "results.json"));
 	if (text === null) return [];
+	let rows;
 	try {
-		const rows = JSON.parse(text);
-		return Array.isArray(rows) ? rows : [];
+		rows = JSON.parse(text);
 	} catch {
 		return [];
 	}
+	if (!Array.isArray(rows)) return [];
+	return rows.map(
+		(/** @type {import("./quiet-bench.js").BenchRow} */ row, i) =>
+			row.ceiling_killed === undefined && row.suites !== undefined
+				? { ...row, ceiling_killed: readCeilingKilled(dir, row, i) }
+				: row,
+	);
 }
 
 /**

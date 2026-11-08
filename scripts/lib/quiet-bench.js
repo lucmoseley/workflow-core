@@ -21,8 +21,9 @@ const ROWS_PER_COUNT = 2;
 /* The bar the bench's `--require-quiet` refuses above. */
 const QUIET_SESSIONS = 3;
 
+/* The whole-suite re-measure: the route waits on its blockers (#4608). */
 const LADDER_BENCH = {
-	issue: 2862,
+	issue: 4607,
 	script: path.join("scripts", "bench_suite_concurrency.py"),
 	args: [
 		...Array.from({ length: ROWS_PER_COUNT }, () => COUNTS.map(String)).flat(),
@@ -261,7 +262,7 @@ const BENCH_RUNNER = "quiet-bench-run.js";
  *   baseline_stationary?: boolean, wall_s?: number, sessions_live?: number,
  *   avail_rest_mb?: number, avail_min_mb?: number, avail_dip_mb?: number,
  *   dip_attributable_mb?: number, all_green?: boolean,
- *   ceiling_killed?: number}} BenchRow
+ *   ceiling_killed?: number, samples?: {t: number, avail_mb: number}[]}} BenchRow
  *   the bench's `results.json` fields read here
  */
 
@@ -275,33 +276,67 @@ const BENCH_RUNNER = "quiet-bench-run.js";
  */
 
 /**
+ * A row measured on a quiet, stationary baseline, whatever stopped its suites.
+ * @param {BenchRow} row
+ */
+const isCleanRow = (row) =>
+	!row.skipped_below_floor &&
+	!row.skipped_not_quiet &&
+	!row.aborted_by_watchdog &&
+	row.baseline_stationary === true;
+
+/**
  * A row #2862 may quote: every suite ran to its end, on a baseline that held
  * still. A suite the 840 s ceiling killed did not, so its dip stopped early; one
  * that only failed tests did (#4031).
  * @param {BenchRow} row
  */
-const isUsableRow = (row) =>
-	!row.skipped_below_floor &&
-	!row.skipped_not_quiet &&
-	!row.aborted_by_watchdog &&
-	row.baseline_stationary === true &&
-	row.ceiling_killed === 0;
+const isUsableRow = (row) => isCleanRow(row) && row.ceiling_killed === 0;
+
+/**
+ * A ceiling-killed row whose dip plateaued: its lowest sample came in the first
+ * half of its wall. Its dip may raise a rung and never lower one (#4606).
+ * @param {BenchRow} row
+ */
+function isLowerBoundRow(row) {
+	if (!isCleanRow(row) || !row.ceiling_killed || !row.samples?.length)
+		return false;
+	const lowest = row.samples.reduce((a, b) =>
+		b.avail_mb < a.avail_mb ? b : a,
+	);
+	return lowest.t <= (row.wall_s ?? 0) / 2;
+}
 
 /**
  * @param {BenchRow[]} rows
+ * @param {(row: BenchRow) => boolean} counts
  * @returns {Map<number, number>}
  */
-function countUsableRows(rows) {
-	const counts = new Map(COUNTS.map((n) => [n, 0]));
+function countRowsBy(rows, counts) {
+	const tally = new Map(COUNTS.map((n) => [n, 0]));
 	for (const row of rows)
-		if (row.suites !== undefined && isUsableRow(row))
-			counts.set(row.suites, (counts.get(row.suites) ?? 0) + 1);
-	return counts;
+		if (row.suites !== undefined && counts(row))
+			tally.set(row.suites, (tally.get(row.suites) ?? 0) + 1);
+	return tally;
 }
+
+/** @param {BenchRow[]} rows */
+const countUsableRows = (rows) => countRowsBy(rows, isUsableRow);
+
+/** @param {BenchRow[]} rows */
+const countLowerBoundRows = (rows) => countRowsBy(rows, isLowerBoundRow);
 
 /** @param {BenchRow[]} rows */
 const isRunComplete = (rows) =>
 	COUNTS.every((n) => (countUsableRows(rows).get(n) ?? 0) >= ROWS_PER_COUNT);
+
+/** @param {BenchRow[]} rows */
+const isRunBounded = (rows) =>
+	COUNTS.every(
+		(n) =>
+			(countRowsBy(rows, (r) => isUsableRow(r) || isLowerBoundRow(r)).get(n) ??
+				0) >= ROWS_PER_COUNT,
+	);
 
 /**
  * A row the suite ceiling cut short: no rerun lifts it, so #2862 stops at
@@ -311,7 +346,8 @@ const isRunComplete = (rows) =>
 const reachedCeiling = (rows) => rows.some((r) => (r.ceiling_killed ?? 0) > 0);
 
 /**
- * Whether a kept run already answers the ladder as it stands.
+ * Whether a kept run already answers the ladder as it stands. A lower-bound row
+ * is ceiling-killed, so a bounded run is among those that reached the ceiling.
  * @param {KeptRun} run
  */
 const isRunAnswering = ({ ladder, rows }) =>
@@ -320,13 +356,19 @@ const isRunAnswering = ({ ladder, rows }) =>
 /** @param {BenchRow[]} rows */
 function buildRunEnd(rows) {
 	if (isRunComplete(rows)) return ", complete";
+	if (isRunBounded(rows)) return ", lower bound";
 	if (reachedCeiling(rows)) return ", reached the suite ceiling";
 	return "";
 }
 
+/** @param {Map<number, number>} tally */
+const buildTallyText = (tally) =>
+	[...tally].map(([n, have]) => `${n}:${have}`).join(" ");
+
 /**
- * The reading #2862's gate prints: each run of the ladder as it stands, with its
- * usable rows per count, so it changes only when a run keeps a new one.
+ * The reading #3852's gate prints: each run of the ladder as it stands, with its
+ * usable and lower-bound rows per count, so it changes only when a run keeps a
+ * new one.
  * @param {KeptRun[]} runs
  */
 function buildRowsReading(runs) {
@@ -337,12 +379,10 @@ function buildRowsReading(runs) {
 	);
 	if (withRows.length === 0) return "no usable bench rows kept";
 	return withRows
-		.map(({ id, rows }) => {
-			const counts = [...countUsableRows(rows)]
-				.map(([n, have]) => `${n}:${have}`)
-				.join(" ");
-			return `${id}: usable rows per suite count ${counts}${buildRunEnd(rows)}`;
-		})
+		.map(
+			({ id, rows }) =>
+				`${id}: usable rows per suite count ${buildTallyText(countUsableRows(rows))}, lower-bound rows ${buildTallyText(countLowerBoundRows(rows))}${buildRunEnd(rows)}`,
+		)
 		.join("\n");
 }
 
@@ -431,6 +471,7 @@ module.exports = {
 	buildEnding,
 	buildRowsReading,
 	buildRunComment,
+	countLowerBoundRows,
 	countUsableRows,
 	decideQuietBench,
 	isRunAnswering,
