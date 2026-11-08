@@ -9,7 +9,7 @@ const { compareVersions } = require("./compare-versions.js") as {
 	compareVersions: (a: number[], b: number[]) => number;
 };
 
-describe("compareVersions", () => {
+describe("ordering two versions by numeric part", () => {
 	it.each([
 		[[1, 2, 3], [1, 2, 3], 0],
 		[[1, 10, 0], [1, 9, 9], 1],

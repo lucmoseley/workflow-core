@@ -70,9 +70,8 @@ const TAG_RE = /^v\d+\.\d+\.\d+$/;
 /**
  * A bare `plugin.json` version in the same three-numeric-part shape a
  * release tag requires. `semverGt` needs this: an unparsed part becomes
- * `NaN`, and `NaN !== n` reads as "not equal" while `NaN > n` reads `false`
- * either way round, so a malformed version would silently compare as NOT
- * ahead rather than surface as the fault it is.
+ * `NaN`, which compares as NOT ahead either way round, so a malformed
+ * version would pass silently rather than surface as the fault it is.
  */
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 

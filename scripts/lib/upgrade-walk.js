@@ -572,10 +572,9 @@ function probeNotes({
 	walkCeiling,
 }) {
 	/* Semver-shaped pins only. `semverCompare` reads a SHA beginning with a
-	 * digit as a version — `3f9a2c1` parses as 3.0.0 — and a branch name as
-	 * NaN, so an unfixed ref would put notes on the wrong side of a floor that
-	 * means nothing. #251 left that hole open on the in-range side; the probe
-	 * does not widen it. */
+	 * digit as a version — `3f9a2c1` parses as 3.0.0 — so an unfixed ref
+	 * would put notes on the wrong side of a floor that means nothing. #251
+	 * left that hole open on the in-range side; the probe does not widen it. */
 	const pinIsTag =
 		typeof pinned === "string" && /^v?\d+\.\d+\.\d+$/.test(pinned);
 

@@ -3184,7 +3184,8 @@
 			"scripts/lib/migration-note.test.ts"
 		],
 		"migrations/v2.1.0.md": [
-			"scripts/lib/migration-note.test.ts"
+			"scripts/lib/migration-note.test.ts",
+			"scripts/upgrade.test.ts"
 		],
 		"package-lock.json": [
 			"scripts/admission.test.ts",
