@@ -1,7 +1,7 @@
 """Tests for scripts/lib/host_root.py's git route: it asks git through WFC_GIT,
 as scripts/lib/git.js does, so a test can feed it a stub (#4262).
 
-A `stub_bin` git answering for two bare temp dirs, not a real repo: the stub's
+A `stub_bin` git answering for two empty temp dirs, not a real repo: the stub's
 answer alone can name the main checkout, so a pass proves the call reached it.
 Loosen it and host_root can drift back to the real git, past every test that
 means to stub it."""
