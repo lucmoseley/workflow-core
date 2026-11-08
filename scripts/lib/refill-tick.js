@@ -177,9 +177,10 @@ function reapFinished(dryRun) {
 /**
  * Stop the working jobs with no live process and no transcript past the grace
  * (lib/refill-tick-core.js's stopNeverStarted, #2467): admission charges each a
- * full session until it goes. The log lines. `spared` go unjudged (#3983).
+ * full session until it goes. `spared` go unjudged (#3983).
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @param {Set<string>} spared
+ * @returns {string[]} the log lines
  */
 function stopNeverStarted(registry, spared) {
 	const jobs = readJobs()?.filter((j) => !spared.has(j.job)) ?? null;
