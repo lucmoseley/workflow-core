@@ -376,16 +376,17 @@ describe("queue-run.js", () => {
 			return rest;
 		};
 
-		it("waits, visibly, while a `tsc` is running, then runs nothing", async () => {
+		it("waits, visibly, while a `tsc` is running, naming its PID, then runs nothing", async () => {
 			const f = fixture();
-			machine(f.dir, ["node /r/node_modules/.bin/tsc --noEmit"], 9000);
+			machine(f.dir, ["4242 node /r/node_modules/.bin/tsc --noEmit"], 9000);
 			const out: string[] = [];
 			main(typecheck, own(f, { out: { write: (s: string) => out.push(s) } }));
 			await tick();
 			expect(f.spawned).toEqual([]);
-			expect(out.join("")).toBe(
+			expect(out).toEqual([
 				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung\n",
-			);
+				"queue-run.js: after 0s, held on the count cap, PID 4242\n",
+			]);
 		});
 
 		it("waits, visibly, while MemAvailable is under its rung", async () => {
@@ -395,9 +396,10 @@ describe("queue-run.js", () => {
 			main(typecheck, own(f, { out: { write: (s: string) => out.push(s) } }));
 			await tick();
 			expect(f.spawned).toEqual([]);
-			expect(out.join("")).toBe(
+			expect(out).toEqual([
 				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung\n",
-			);
+				"queue-run.js: after 0s, held on the memory rung, MemAvailable 1000 MB against ~2750 MB\n",
+			]);
 		});
 
 		it("refuses at the bound a launch under its rung, naming the rung", async () => {
@@ -556,12 +558,16 @@ describe("queue-run.js", () => {
 			expect(f.spawned).toHaveLength(1);
 			expect(out).toEqual([
 				"102: queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung\n",
+				"102: queue-run.js: after 0s, held on the waiters ahead, PID 101\n",
 			]);
 			f.spawned[0].child.emit("exit", 0, null);
 			expect(await first).toBe(0);
 			wake();
 			await tick();
 			expect(f.spawned).toHaveLength(2);
+			expect(out.at(-1)).toMatch(
+				/^102: queue-run\.js: gate opened after \d+s — held \d+s on the waiters ahead\n$/,
+			);
 			f.spawned[1].child.emit("spawn");
 			f.spawned[1].child.emit("exit", 0, null);
 			expect(await second).toBe(0);
