@@ -11,7 +11,10 @@
  * of the loop alone queues a live session for a second resume. And what
  * `boot-resume`, `watch` and `run` write around them (#4356): loosen that and a
  * failed boot loses the last loop's death, `watch` restarts over a live loop or
- * logs at every firing, or a run keeps a stop from before it.
+ * logs at every firing, or a run keeps a stop from before it. And what a manager
+ * restart's marker reopens, and when its wait alarms (#4145): loosen that and a
+ * session that ended on its own is resumed; tighten it and one a tick finished
+ * just before the marker is never resumed, or a stuck wait goes unseen.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -23,6 +26,8 @@ import {
 	bootVerdictOf,
 	holdRun,
 	isEmptyListingTrusted,
+	RESTART_WAIT_ALARM_MS,
+	restartWaitOf,
 	runBootResume,
 	runWatch,
 	settleBootKilled,
@@ -300,9 +305,16 @@ describe("a same-boot restart (#3971)", () => {
 		expect(isSameBoot(recorded, current)).toBe(same);
 	});
 
+	const unread = { jobStateOf: () => null };
+
 	it("takes a marker from this boot as the restart", () => {
 		expect(
-			withManagerRestart(buildState([]), { bootId: "b", at: START }, "b"),
+			withManagerRestart(
+				buildState([]),
+				{ bootId: "b", at: START },
+				"b",
+				unread,
+			),
 		).toMatchObject({ bootedAt: START, sameBootRestart: true });
 	});
 
@@ -311,7 +323,75 @@ describe("a same-boot restart (#3971)", () => {
 		["a marker from another boot", { bootId: "a", at: START }],
 	])("leaves the state as it was on %s", (_name, marker) => {
 		const state = buildState([]);
-		expect(withManagerRestart(state, marker, "b")).toBe(state);
+		expect(withManagerRestart(state, marker, "b", unread)).toBe(state);
+	});
+});
+
+/* A tick between the daemon's death and the marker read the restart's sessions
+ * gone, so finished them (#4145). */
+describe("a tick just before a same-boot restart's marker (#4145)", () => {
+	const Tick = START - 30_000;
+	const Marker = { bootId: "b", at: START };
+	const marked = (
+		over: object,
+		{ lastTick = Tick as number | null, jobState = null as string | null } = {},
+	) =>
+		withManagerRestart(
+			loopStateOf({
+				launches: [buildLaunch({ sessionId: "s", launchedAt: 0, ...over })],
+				lastTick: lastTick === null ? null : { at: lastTick, summary: "" },
+			}),
+			Marker,
+			"b",
+			{ jobStateOf: () => (jobState === null ? null : { state: jobState }) },
+		);
+	const seen = {
+		agents: [],
+		now: START + 10 * 60 * 1000,
+		io: {
+			jobStateOf: () => null,
+			resumeTargetOf: () => ({ sessionId: "s", cwd: "/" }),
+			log: () => undefined,
+		},
+	} as never;
+
+	it("reopens a launch that tick finished, and the marker's tick queues it", () => {
+		const state = marked({ finishedAt: Tick });
+		expect(state.launches[0]?.finishedAt).toBeNull();
+		expect(settleBootKilled(state, seen, CLEAR).launches[0]).toHaveProperty(
+			"bootKilled",
+		);
+	});
+
+	it.each([
+		["one finished by an earlier tick", { finishedAt: Tick - 1 }, {}],
+		[
+			"one whose job ended on its own",
+			{ finishedAt: Tick },
+			{ jobState: "done" },
+		],
+		["one parked and stopped", { finishedAt: Tick, parkStopped: Tick }, {}],
+		["with no tick on record", { finishedAt: Tick }, { lastTick: null }],
+		[
+			"where the last tick is past the marker",
+			{ finishedAt: START + 1 },
+			{ lastTick: START + 1 },
+		],
+	])("reopens none: %s", (_name, over, context) => {
+		expect(marked(over, context).launches[0]?.finishedAt).not.toBeNull();
+	});
+});
+
+describe("restartWaitOf (#4145)", () => {
+	it.each([
+		["names a wait past its bound", RESTART_WAIT_ALARM_MS, START],
+		["names none inside it", RESTART_WAIT_ALARM_MS - 1, null],
+	])("%s", (_name, waited, since) => {
+		expect(restartWaitOf({ bootedAt: START }, START + waited)).toBe(since);
+	});
+
+	it("names none with no restart waiting", () => {
+		expect(restartWaitOf({}, START + RESTART_WAIT_ALARM_MS)).toBeNull();
 	});
 });
 
