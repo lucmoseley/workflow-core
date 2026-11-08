@@ -1872,6 +1872,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		writeHook({ testGate: true });
 	};
 	const moved = SEED.replace("amount > 100", "amount > 99");
+	const preLock = "running the mutation hold before";
 	const inLock =
 		"running the mutation hold in the lock — no pre-lock green stands it down";
 
@@ -1920,8 +1921,11 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		report([{ line: 2, status: "Survived" }]);
 		const r = commitPaths([MONEY], { WFC_MODULES: undefined });
 		expect(r.status).toBe(3);
+		expect(r.stderr).toContain(
+			"  lib/money.js:2:7  ConditionalExpression  amount >= 100 → true  Survived",
+		);
 		expect(r.stderr).toContain("rule:mutation-hold");
-		expect(r.stderr).not.toContain("running the mutation hold before");
+		expect(r.stderr).not.toContain(preLock);
 		expect(readRuns().map((x) => x.lock)).toEqual([true]);
 		expect(commitCount()).toBe(1);
 	});
@@ -2046,7 +2050,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		expect(readRuns().map((x) => x.lock)).toEqual([false]);
 		expect(
 			r.stderr.indexOf(`running 'sh ${shellQuote(`${stubDir}/test.sh`)}'`),
-		).toBeLessThan(r.stderr.indexOf("running the mutation hold before"));
+		).toBeLessThan(r.stderr.indexOf(preLock));
 		expect(r.stderr).not.toContain("in the lock —");
 	});
 });
