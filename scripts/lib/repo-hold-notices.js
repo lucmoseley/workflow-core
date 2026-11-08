@@ -182,7 +182,6 @@ const buildNoticeBody = (text, marker) =>
 	`${text.replaceAll("@", BROKEN_MENTION)}\n\n<!-- ${marker} -->`;
 
 /**
- * A hold as its notice's cause.
  * @param {RepoHold} hold
  * @param {number} issue  its issue, which stands once a raise is due
  * @returns {NoticeCause}
@@ -480,7 +479,6 @@ function tendRaise(hold, root, { workedAt, now, log }) {
 }
 
 /**
- * Mark a clear notice lost, owed no further.
  * @param {string} file
  * @param {number} now
  */

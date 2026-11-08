@@ -13,8 +13,7 @@
  * `founderNotice` whose `repo` is that checkout's tracker.
  *
  * RESIDUAL: a pause none of whose issues lives in such a tracker sends nothing,
- * logged once; here only workflow-core sets `founderNotice`, so a pause on other
- * checkouts' issues alone reaches only the panel.
+ * logged once.
  */
 
 const fs = require("node:fs");
@@ -55,8 +54,6 @@ const buildNoticeFile = (pausedAt) =>
 	path.join(noticeDir(), `${pausedAt}${NOTICE_SUFFIX}`);
 
 /**
- * The first of `issues` in a checkout whose `founderNotice` goes to its own
- * tracker, or null.
  * @param {PauseIssue[]} issues
  * @returns {PauseIssue|null}
  */
@@ -128,8 +125,7 @@ function buildPauseCause({ pausedAt, issues, target }) {
 
 /**
  * A live no-progress pause's raise: its record written on first sight, then its
- * phase tended. A pause with nowhere to page logs so once, on that first sight. A
- * torn record cannot say whether a page went, so it is rewritten as one with
+ * phase tended. A torn record cannot say whether a page went, so it is rewritten as one with
  * nowhere to page, logged: a second page is the worse fault (#3871).
  * @param {Pause & {issues?: PauseIssue[]}} pause
  * @param {number} now
@@ -215,7 +211,6 @@ function tendClear(file, pausedAt, now, log) {
 }
 
 /**
- * The notice files of pauses, each by its name's time.
  * @param {Log} log
  * @returns {{file: string, pausedAt: number}[]}
  */

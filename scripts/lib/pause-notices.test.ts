@@ -1,8 +1,7 @@
 // @vitest-environment node
 /*
  * lib/pause-notices.js's tendPauseNotices, called in-process as the tick calls it,
- * with `gh` through WFC_GH's route stub, which serves each dispatch so far as its
- * comment on the issue, as the notice workflow would.
+ * with `gh` through WFC_GH's route stub.
  *
  * Broken, a no-progress pause that only the founder can end goes unseen for hours
  * (#4200), or pages him every tick.
