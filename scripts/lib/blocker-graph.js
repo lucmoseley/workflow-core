@@ -16,11 +16,6 @@
  * A served issue's open children in another repo count toward its
  * openChildren, so a map whose only open child lives elsewhere is still a
  * container (#3658).
- *
- * Callers: scripts/pick-next.js, which ranks on reachOf, inheritance and
- * closesOf,
- * holds on openBlockersOf, and reports pulledInOf's rows and proseOf's
- * markers; and through its `--json` lib/refill-frontier.js.
  */
 
 const { isInOtherRepo, refKey, refLabel } = require("./issue-ref.js");
