@@ -301,7 +301,7 @@
 			"source": "#3143, #3201"
 		},
 		"scripts/lib/check-sh-rules.js": {
-			"digest": "e1d9fcb186883bd3",
+			"digest": "e32b79b148c0fc22",
 			"verdict": "at need — injected before the gate runs, the only moment the not-installed reading can be stated. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — carries the binary's location/version, the directive's literal form and the faster command",
 			"source": "#1780"
@@ -379,8 +379,8 @@
 			"source": "#1810, #3583, #4035, #4129, #4067, #4114"
 		},
 		"scripts/guard-jev-advisory.js": {
-			"digest": "963b6d0ec9629bbd",
-			"verdict": "at need for the founder (the turn's Stop); never reaches the session — by design systemMessage is screen-only, so the model that wrote the choice is told nothing; `npm run status` quotes the flag back (status-report.js, #2038). Re-fed at 6f96cb55e under #3583 through the Stop command, a loopback stub gateway answering: flag 508 B at 0.95 and 0.92, systemMessage alone; 0 B on a clear, a round marker, a sweep finding, absent gitleaks, no key and WFC_JEV_ADVISORY=0; outage notice 208 B and malformed 325 B, each once a session; three flags a session, the fourth silent and unasked. Against 747246e96 the key moved: 6aee888ef reads the secrets store, so a key left only in the root `.env` skips silently, and 6c1c1cc4b, the digest's only move since its anchor, adds the store's `.gitignore` and prints nothing. status-report.js's `check-jev-flags.js --notify` quotes each flag once, 3792 B on the fed set, was 3826 B (51564fb70), a second run 0 B.",
+			"digest": "1da500f49d52a3b9",
+			"verdict": "at need for the founder (the turn's Stop); never reaches the session — by design systemMessage is screen-only, so the model that wrote the choice is told nothing; `npm run status` quotes the flag back (status-report.js, #2038). Re-fed at 6f96cb55e under #3583 through the Stop command, a loopback stub gateway answering: flag 508 B at 0.95 and 0.92, systemMessage alone; 0 B on a clear, a round marker, a sweep finding, absent gitleaks, no key and WFC_JEV_ADVISORY=0; outage notice 208 B and malformed 325 B, each once a session; re-fed under #4144 against a stub answering 401 and 403, refused-key notice 394 B once a session and the 500 still the 208 B outage notice; three flags a session, the fourth silent and unasked. Against 747246e96 the key moved: 6aee888ef reads the secrets store, so a key left only in the root `.env` skips silently, and 6c1c1cc4b, the digest's only move since its anchor, adds the store's `.gitignore` and prints nothing. status-report.js's `check-jev-flags.js --notify` quotes each flag once, 3792 B on the fed set, was 3826 B (51564fb70), a second run 0 B.",
 			"selfSufficient": "no (for the session) — the text is addressed to the founder and the session never sees it; for the founder it is self-sufficient (says what is wrong, what to ask for, and the jev-verdict.js command to judge the flag)",
 			"source": "#2263, #3583"
 		},

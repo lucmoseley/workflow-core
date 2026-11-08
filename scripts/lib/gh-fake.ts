@@ -114,9 +114,25 @@ export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
 	);
 }
 
+/**
+ * The stub executable answering `answer`, for gh-stub's `stubGhScript`.
+ * `onlyIn` answers it only where the stub's working directory is that path,
+ * and a logged-out gh anywhere else: for a test that a program asks gh from
+ * the directory it should.
+ */
+export function buildGhAnswerScript(
+	answer: GhAnswer,
+	{ onlyIn }: { onlyIn?: string } = {},
+): string {
+	const elsewhere = onlyIn
+		? `if [ "$PWD" != ${shellQuote(onlyIn)} ]; then\n${ghServeLines(GH_LOGGED_OUT)}fi\n`
+		: "";
+	return `#!/bin/sh\n${elsewhere}${ghServeLines(answer)}`;
+}
+
 /** The stub executable answering `fixture`, for gh-stub's `stubGhScript`. */
 export const ghFakeScript = (fixture: string) =>
-	`#!/bin/sh\n${ghServeLines(readGhAnswer(fixture))}`;
+	buildGhAnswerScript(readGhAnswer(fixture));
 
 /** `fixture`'s answer as node source calling `out`, `err` and `exit`. */
 function buildAnswerCalls(

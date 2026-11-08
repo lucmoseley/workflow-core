@@ -77,7 +77,9 @@ const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
  * close-rivals record of the questions it last refused (#489).
  * `.jev-advisory-outage-` is guard-jev-advisory.js's second counter (#204),
  * the once-a-session outage notice's, kept off the warn counter, and `.jev-advisory-malformed-` its third (#226), the once-a-session
- * notice for a vendor reply that arrived whole and unreadable, kept off both.
+ * notice for a vendor reply that arrived whole and unreadable, kept off both;
+ * `.jev-advisory-refused-` its fourth (#4144), the once-a-session notice for
+ * a key the gateway refused, kept off all three.
  * `.unasked-rerun-refused-` is lib/unasked-rerun.js's once-a-session latch
  * (#815), a marker rather than a counter. `.session-ceiling-compactions-` is
  * guard-session-ceiling.js's set of the autocompactions it has counted (#1032).
@@ -128,6 +130,7 @@ const MARKER_PREFIXES = [
 	".jev-advisory-nagged-",
 	".jev-advisory-outage-",
 	".jev-advisory-malformed-",
+	".jev-advisory-refused-",
 	".inventory-nagged-",
 	".inventory-draft-nagged-",
 	".unasked-rerun-refused-",

@@ -1,19 +1,195 @@
 // @vitest-environment node
 /*
- * Pins how primitives-table.js reads a check's --json output into a breach
- * count (#4119), and which base paths an adopter judges (#4156).
+ * Pins primitives-table.js's branches over fake ports: how it judges both
+ * tables, reads a check's --json output into a breach count (#4119), which
+ * findings gate, and which base paths the release judges (#4156, #4189).
  * check-primitives.test.ts holds the program's boundary cases.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+	buildFindingReports,
 	countPrimitives,
+	judgePrimitives,
 	parseBasePaths,
 	parseBreaches,
 	primitivesOutcome,
 } from "./primitives-table.js";
 
 const envelope = (fields: Record<string, unknown>) => JSON.stringify(fields);
+
+const HEADER =
+	"| Job | Primitive | Exemplar | Rule | Enforcing check |\n|---|---|---|---|---|\n";
+const doc = (sections: string, rows: string) =>
+	`${sections}\n## Primitives\n\n${HEADER}${rows}`;
+
+/** A fake read and exists over two in-memory sides. */
+const ports = (
+	texts: { base: string | null; local: string | null },
+	files: string[] = [],
+) => ({
+	read: (side: "base" | "local") => texts[side],
+	exists: (side: "base" | "local", rel: string) =>
+		files.includes(`${side}:${rel}`),
+});
+
+describe("judgePrimitives", () => {
+	const BaseIds = "## §N — Names\n### §N1 · One\n";
+
+	it("is broken, judging nothing, where the base cannot be read", () => {
+		expect(judgePrimitives(ports({ base: null, local: null }))).toEqual({
+			rows: [],
+			findings: [],
+			broken: "the code standards base is unreadable at the plugin root",
+			unreadable: [],
+		});
+	});
+
+	it("passes a row whose paths exist and whose § id the base defines", () => {
+		const result = judgePrimitives(
+			ports(
+				{
+					base: doc(BaseIds, "| J | P | `e.js` | §N1 | `c.js` |\n"),
+					local: null,
+				},
+				["base:e.js", "base:c.js"],
+			),
+		);
+		expect(result.findings).toEqual([]);
+		expect(result.rows).toHaveLength(1);
+	});
+
+	it("names each missing path, an uncited Rule and empty cells, by side and line", () => {
+		const { findings } = judgePrimitives(
+			ports({
+				base: doc(BaseIds, "|  |  | `e.js` | none | `c.js` |\n"),
+				local: null,
+			}),
+		);
+		expect(findings.map((f) => f.message)).toEqual([
+			"its exemplar `e.js` does not exist — point the cell at the file that does the job now, or drop the row",
+			"its enforcing check `c.js` does not exist — name the program that refuses a breach now, or `Standards axis criterion`",
+			"its Rule cell cites no § id",
+			"its Job cell is empty",
+			"its Primitive cell is empty",
+		]);
+		expect(findings.every((f) => f.side === "base" && f.line === 8)).toBe(true);
+	});
+
+	it("judges no check path on a Standards axis criterion row, and names a cell with no backticked path", () => {
+		const { findings } = judgePrimitives(
+			ports({
+				base: doc(
+					BaseIds,
+					"| J | P | e.js | §N1 | Standards axis criterion |\n| K | P | `e.js` | §N1 | c.js |\n",
+				),
+				local: null,
+			}),
+		);
+		expect(findings.map((f) => f.message)).toEqual([
+			"its Exemplar cell names no backticked path",
+			"its exemplar `e.js` does not exist — point the cell at the file that does the job now, or drop the row",
+			"its Enforcing check cell names neither a backticked check path nor `Standards axis criterion`",
+		]);
+	});
+
+	it("lets a local row cite a local § id, and never a base row", () => {
+		const local = doc(
+			"## §L — Local\n",
+			"| Local job | P | `e.js` | §L | Standards axis criterion |\n",
+		);
+		const base = doc(
+			BaseIds,
+			"| J | P | `e.js` | §L | Standards axis criterion |\n",
+		);
+		const { findings } = judgePrimitives(
+			ports({ base, local }, ["base:e.js", "local:e.js"]),
+		);
+		expect(findings).toEqual([
+			{
+				side: "base",
+				line: 8,
+				job: "J",
+				message:
+					'its Rule cell cites §L, which no standards file defines — cite the § that states the primitive, or write one under base §0 "How a rule enters"',
+			},
+		]);
+	});
+
+	it("names a local row taking a base row's job, case and spacing aside", () => {
+		const base = doc(
+			BaseIds,
+			"| Some  Job | `p` | `e.js` | §N1 | Standards axis criterion |\n",
+		);
+		const local = doc(
+			"",
+			"| some job | P | `e.js` | §N1 | Standards axis criterion |\n",
+		);
+		const { findings } = judgePrimitives(
+			ports({ base, local }, ["base:e.js", "local:e.js"]),
+		);
+		expect(findings.map((f) => [f.side, f.message])).toEqual([
+			[
+				"local",
+				"it names the job of the base row at line 8, whose primitive is `p`; a local row adds a job the base has none for (base §0) — drop the local row, or name a job of its own",
+			],
+		]);
+	});
+
+	it("reads a side with no Primitives heading as no rows, and one whose table will not parse as a finding and a blind count", () => {
+		const result = judgePrimitives(
+			ports({
+				base: "# Base\n",
+				local: "## Primitives\n\n| Job | Typo |\n|---|---|\n",
+			}),
+		);
+		expect(result).toEqual({
+			rows: [],
+			findings: [
+				{
+					side: "local",
+					line: 0,
+					job: "",
+					message:
+						"its Primitives table's header is not | Job | Primitive | Exemplar | Rule | Enforcing check |",
+				},
+			],
+			broken: null,
+			unreadable: ["the local table is unreadable"],
+		});
+	});
+});
+
+describe("buildFindingReports", () => {
+	const base = { side: "base" as const, line: 4, job: "J", message: "m" };
+	const local = { side: "local" as const, line: 0, job: "", message: "n" };
+
+	it("warns on a base row's fault in an adopter, as the plugin's to fix, and fails every other", () => {
+		expect(buildFindingReports([base, local], true)).toEqual([
+			{
+				message:
+					'docs/code-standards-base.md:4 (row "J"): m — the plugin\'s to fix',
+				file: "docs/code-standards-base.md",
+				gates: false,
+			},
+			{
+				message: "docs/code-standards.md: n",
+				file: "docs/code-standards.md",
+				gates: true,
+			},
+		]);
+	});
+
+	it("fails a base row's fault in the core", () => {
+		expect(buildFindingReports([base], false)).toEqual([
+			{
+				message: 'docs/code-standards-base.md:4 (row "J"): m',
+				file: "docs/code-standards-base.md",
+				gates: true,
+			},
+		]);
+	});
+});
 
 describe("parseBreaches", () => {
 	it("counts FAIL findings and no WARN", () => {
@@ -67,18 +243,30 @@ describe("parseBasePaths", () => {
 						"| B | `x` | `scripts/c.js` | §N1 | Standards axis criterion |\n",
 				),
 			),
-		).toEqual([
-			{ line: 5, rel: "scripts/a.js" },
-			{ line: 5, rel: "scripts/b.sh" },
-			{ line: 5, rel: "scripts/check-a.js" },
-			{ line: 6, rel: "scripts/c.js" },
-		]);
+		).toEqual({
+			paths: [
+				{ line: 5, rel: "scripts/a.js" },
+				{ line: 5, rel: "scripts/b.sh" },
+				{ line: 5, rel: "scripts/check-a.js" },
+				{ line: 6, rel: "scripts/c.js" },
+			],
+		});
 	});
 
-	it("names none from a table it cannot read (#4156)", () => {
+	it("names why a table it cannot read is unreadable, never an empty path list (#4189)", () => {
 		expect(
 			parseBasePaths("## Primitives\n\n| Job | Typo |\n|---|---|\n"),
-		).toEqual([]);
+		).toEqual({
+			unreadable:
+				"its Primitives table's header is not | Job | Primitive | Exemplar | Rule | Enforcing check |",
+		});
+		expect(parseBasePaths("## Primitives\n\nNo table.\n")).toEqual({
+			unreadable: "its Primitives section holds no table",
+		});
+	});
+
+	it("names none from a base with no Primitives heading", () => {
+		expect(parseBasePaths("# Base\n")).toEqual({ paths: [] });
 	});
 });
 
@@ -108,6 +296,21 @@ describe("countPrimitives", () => {
 		);
 		expect(asked).toEqual(["a.js", "b.js"]);
 		expect(line).toContain("2 enforced, 3 open breaches");
+	});
+
+	it("counts nothing where a table is unreadable, naming it for both counts", async () => {
+		const line = await countPrimitives(
+			{ rows: [row("`a.js`")], unreadable: ["the local table is unreadable"] },
+			{
+				countBreaches: async () => {
+					throw new Error("asked a blind count");
+				},
+				readNewHeresies: heresies,
+			},
+		);
+		expect(line).toBe(
+			"primitives: enforced unknown (the local table is unreadable), open breaches unknown (the local table is unreadable), 0 new heresies since the last sweep",
+		);
 	});
 
 	it("names a check whose count never came back, never reading it as 0", async () => {

@@ -58,9 +58,10 @@
  * the fix. Limb 1 is untouched by #255: nothing was wrong with how flags were
  * raised.
  *
- * LIMB 2 ALSO VOIDS ONE STRETCH, rather than moving its line again (#670): the
- * billing wall of 27-28 Sep (`OUTAGE_VOID_FROM`/`_TO`). Moving the line would
- * have thrown away a week of sessions measured under the right conditions.
+ * LIMB 2 ALSO VOIDS STRETCHES, rather than moving its line again (#670):
+ * `OUTAGE_VOIDS`, each a fault of this machine's and not the vendor's. Moving
+ * the line would throw away the sessions measured under the right conditions
+ * either side.
  */
 
 const fs = require("node:fs");
@@ -88,25 +89,46 @@ const OUTAGE_START = "2026-09-20T04:25:00.000Z";
 const OUTAGE_START_MS = Date.parse(OUTAGE_START);
 
 /**
- * Limb 2's one voided stretch, [from, to): the AI Gateway billing wall, when
- * every call 403'd because Jev was never in the free tier and no credits had
- * been bought (#661). Not a vendor fault, so not the limb's subject (#670).
- * Limb 2 drops every line inside it before reading the log, so a session is
- * judged on its lines outside it alone, whichever side it started on; one
- * logged wholly inside it counts toward neither side.
+ * Limb 2's voided stretches, each [from, to). Not vendor faults, so not the
+ * limb's subject (#670). Limb 2 drops every line inside one before reading the
+ * log, so a session is judged on its lines outside them alone, whichever side
+ * it started on; one logged wholly inside counts toward neither side.
+ *
+ *   - THE BILLING WALL: every call 403'd because Jev was never in the free
+ *     tier and no credits had been bought (#661).
+ *   - THE DEAD KEY (#4144): the secrets file held a key the gateway refused
+ *     with 401. It opens the millisecond after the last answered call and
+ *     closes at the first `clear` after the founder stored the real key.
+ *
+ * @type {{from: string, to: string, why: string}[]}
  */
-const OUTAGE_VOID_FROM = "2026-09-27T04:00:00.000Z";
-const OUTAGE_VOID_TO = "2026-09-28T10:07:00.000Z";
+const OUTAGE_VOIDS = [
+	{
+		from: "2026-09-27T04:00:00.000Z",
+		to: "2026-09-28T10:07:00.000Z",
+		why: "the billing wall: a missing payment, not a vendor outage (#670)",
+	},
+	{
+		from: "2026-10-28T10:03:39.600Z",
+		to: "2026-11-03T12:39:56.000Z",
+		why: "a key the gateway refused, not a vendor outage (#4144)",
+	},
+];
 
-const OUTAGE_VOID_FROM_MS = Date.parse(OUTAGE_VOID_FROM);
-const OUTAGE_VOID_TO_MS = Date.parse(OUTAGE_VOID_TO);
+const OUTAGE_VOID_SPANS = OUTAGE_VOIDS.map((v) => ({
+	from: Date.parse(v.from),
+	to: Date.parse(v.to),
+}));
 
 /**
  * @param {number|null} ms
  * @returns {boolean}
  */
 function inOutageVoid(ms) {
-	return ms !== null && ms >= OUTAGE_VOID_FROM_MS && ms < OUTAGE_VOID_TO_MS;
+	return (
+		ms !== null &&
+		OUTAGE_VOID_SPANS.some(({ from, to }) => ms >= from && ms < to)
+	);
 }
 
 /**
@@ -246,16 +268,21 @@ function sessionsInTrial(lines) {
 
 /**
  * The sessions counted toward limb 2's denominator: those starting after
- * `OUTAGE_START`. Independent of `TRIAL_START` (#285) — limb 2 has a start
+ * `OUTAGE_START`, judged on their lines outside the voids and other than
+ * `refused` (#4144), a refused call being a check that never ran.
+ * Independent of `TRIAL_START` (#285) — limb 2 has a start
  * line of its own (see header), so a session need not be in the trial at all
  * to be evidence for limb 2. Exported so `jev-verdict.js --list` marks a turn
  * by the same rule `stand()` counts it by, rather than re-deriving it.
  *
- * @param {{at?: unknown, session?: unknown}[]} lines
+ * @param {{at?: unknown, session?: unknown, outcome?: unknown}[]} lines
  * @returns {string[]}
  */
 function limb2WindowSessions(lines) {
-	return sessionStarts(outsideOutageVoid(lines))
+	const counted = outsideOutageVoid(lines).filter(
+		(line) => line.outcome !== "refused",
+	);
+	return sessionStarts(counted)
 		.filter(([, ms]) => ms > OUTAGE_START_MS)
 		.map(([session]) => session);
 }
@@ -281,7 +308,7 @@ function limb1WindowSessions(lines) {
  * nothing to judge.
  *
  * @typedef {{start: string, outageStart: string,
- *   outageVoid: {from: string, to: string}, sessions: number,
+ *   outageVoids: {from: string, to: string, why: string}[], sessions: number,
  *   limb1Sessions: number, limb1Closed: boolean, flagged: number,
  *   right: number, wrong: number, unjudged: number, limb2Sessions: number,
  *   outageSessions: number, limb1: string, limb2: string}} Standing
@@ -326,7 +353,7 @@ function stand({ lines, verdicts }) {
 	return {
 		start: TRIAL_START,
 		outageStart: OUTAGE_START,
-		outageVoid: { from: OUTAGE_VOID_FROM, to: OUTAGE_VOID_TO },
+		outageVoids: OUTAGE_VOIDS,
 		sessions,
 		limb1Sessions: limb1Window.size,
 		/* Limb 1's window is over: no later session can add a flag to it, so the
