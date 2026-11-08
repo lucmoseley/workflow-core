@@ -60,7 +60,7 @@
 	"scripts/guard-typecheck-owed.js": "426a3d5e3ee3615b",
 	"scripts/guard-uncommitted-work.js": "6645758376e26452",
 	"scripts/guard-unpushed-commits.js": "154e077d3e37b85a",
-	"scripts/inject-compaction-count.js": "ce8b1085e81d3ad5",
+	"scripts/inject-compaction-count.js": "ad2be4f539c8676b",
 	"scripts/inject-founder-wording.js": "e1a529c1ce88a454",
 	"scripts/inject-tracker-docs.sh": "2d0381a3a722f6d3",
 	"scripts/landing-registry-gate.js": "1b36495917cfd4fa",

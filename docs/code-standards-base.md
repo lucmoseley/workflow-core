@@ -121,7 +121,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 |---|---|---|---|---|
 | Keeping a new program's decisions out of its I/O | a core taking every read through injected ports, and a shell that builds the adapters, delegates to the core and turns its outcome into output and an exit | `scripts/lib/primitives-table.js`, behind `scripts/check-primitives.js` | §0, its Core and Shell; §T7, §X11 | Standards axis criterion |
 | Ending a guard's hook call with a decision | `scripts/lib/guard-entry.js`'s `run`, the core returning a decision | `scripts/guard-failed-call-rules.js` | §S4 | Standards axis criterion |
-| Building a hook's JSON output | `envelope` in `scripts/lib/hook-envelope.js` | `scripts/lib/guard-entry.js` | §S4 | Standards axis criterion |
+| Building a hook's JSON output | `envelope` in `scripts/lib/hook-envelope.js` | `scripts/inject-compaction-count.js` | §G12 | Standards axis criterion |
 | A checker's outcome, report and exit | `runCheck` in `scripts/lib/check.js` and its five-outcome alphabet | `scripts/check-cli-args.js` | §N3, §N4 | Standards axis criterion |
 | Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
 | Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
@@ -253,6 +253,12 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 *House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
 
 **The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/inject-tracker-docs.sh`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `ultra`, `gh_empty_result_rule` and the `standards` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
+
+### §G12 · A Node hook's JSON output is built by `envelope` — **hard**
+
+**Program and hook module.** The harness drops a misspelt event name or output key without an error, so the shape lives once: `envelope` in `scripts/lib/hook-envelope.js` builds every `hookSpecificOutput` and every `PostToolUse` decision (#4025). A Node hook spelling either as an object literal of its own is the breach.
+
+**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/inject-tracker-docs.sh` does, since a Node process per run would cost more than the copy.
 
 ---
 
@@ -588,7 +594,7 @@ Any hook that gates an act. A missing tool, a payload it cannot parse or a libra
 
 A gate refuses only on a structured fact where the act has no legitimate use, and warns where it is inferring (mantahostels#103). A deny that a legitimate spelling cannot escape is a wedge, not a guard.
 
-*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/hook-envelope.js`'s `envelope` owns the JSON shape (`:15-30`). Any other Node hook emitting `hookSpecificOutput` or a `PostToolUse` decision builds it through `envelope` too, never an object literal of its own: the harness drops a misspelt event name or key without an error. **Outside the rule:** a shell hook building it with one `jq` expression, as `scripts/inject-tracker-docs.sh` does, where a Node process per run would cost more than the copy.
+*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/hook-envelope.js`'s `envelope` owns the JSON shape (`:15-30`).
 
 ### §S5 · A script sets the shell options its kind needs — **hard**
 

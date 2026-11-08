@@ -61,6 +61,7 @@ const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
 const { envelope } = require("./lib/hook-envelope.js");
+const { writeFd } = require("./lib/write-fd.js");
 
 const TRIGGER_PREFIX = ".compaction-trigger-";
 
@@ -177,7 +178,8 @@ function main(raw) {
 		return;
 	const text = afterCompaction(payload, sid);
 	if (text)
-		process.stdout.write(
+		writeFd(
+			1,
 			JSON.stringify(envelope("SessionStart", { additionalContext: text })),
 		);
 }
