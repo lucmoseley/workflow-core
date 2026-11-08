@@ -510,7 +510,11 @@ function rerunsOf(files, test, python) {
  * Python test path; with `files`, `rerunsOf`'s runs. A declared
  * `fullTestShards` splits the whole run into that many `--shard=k/n` groups,
  * each under its own suite ceiling, the Python runner joining the last
- * (#2996). Read from the worktree's own config, the one the sha carries.
+ * (#2996). Where neither `full_test` nor `test` is declared, the Python runner
+ * alone, and where that is unrouted too, no group: a repo declaring no suite
+ * has nothing to fail, so its sha is green, which the commit gate keeps true
+ * by refusing a test file while no test command is declared (#2412). Read
+ * from the worktree's own config, the one the sha carries.
  * @param {string} dir
  * @param {string} pytest
  * @param {string[]} files
@@ -539,9 +543,6 @@ function readRunsAt(dir, pytest, files) {
 		const runs = rerunsOf(files, test, routesPython && python);
 		return typeof runs === "string" ? runs : [runs];
 	}
-	const whole = full_test ?? test;
-	if (!whole) return "no test command is declared";
-	const shards = config.fullTestShards ?? 1;
 	/* A bare run in this clean worktree selects no touched test (#3508). */
 	/** @type {Run} */
 	const wholePython = {
@@ -549,6 +550,9 @@ function readRunsAt(dir, pytest, files) {
 		args: [pytest, "--full"],
 		label: `${python.label} --full`,
 	};
+	const whole = full_test ?? test;
+	if (!whole) return routesPython ? [[wholePython]] : [];
+	const shards = config.fullTestShards ?? 1;
 	return Array.from({ length: shards }, (_, i) => {
 		const shard = `--shard=${i + 1}/${shards}`;
 		return [

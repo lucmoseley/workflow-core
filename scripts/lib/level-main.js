@@ -20,11 +20,8 @@
  * from a marker inside it. Keyed on the blob, not on the fast-forward's diff,
  * so a failed install is retried on the next pass; built from `HEAD`'s
  * manifests, never the working tree's, so a stray lockfile edit is never
- * installed. `npm ci --ignore-scripts`
- * (docs/practice/dependency-and-release-management.md) builds into a staging
- * directory under the git dir, which is swapped in by two renames: `npm ci`
- * into the live tree would delete it first, and hook code loads from it
- * throughout.
+ * installed. It builds into a staging directory under the git dir
+ * (lib/npm-ci-staging.js), swapped in by two renames.
  *
  * ONE PASS AT A TIME, under a pidfile in the git dir: the refill loop and the
  * lander both run it (#4229), and two `npm ci` runs at once would spend the
@@ -47,21 +44,16 @@ const { pidLock } = require("./pid-lock.js");
 const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
+const { LOCKFILE, npmCi, stageInstall } = require("./npm-ci-staging.js");
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
-const LOCKFILE = "package-lock.json";
-/* What `npm ci` reads besides the lockfile; `.npmrc` only where present. */
-const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
 /* Inside `node_modules`, so it is swapped in with the tree it describes. */
 const MARKER = ".wfc-lockfile-blob";
 const HOLDERS = ["level-main.js", "refill-loop.js"];
-/* Untraced: room for a cold `npm ci` over a slow link. */
-const INSTALL_TIMEOUT_MS = 15 * 60_000;
 
 /**
- * @typedef {(dir: string) => void} Install builds `node_modules` in `dir`,
- *   which holds the manifests; throws where it fails
+ * @typedef {import("./npm-ci-staging.js").Install} Install
  * @typedef {(rel: string) => {sessionId: string, at: number} | null} LastWriter
  * @typedef {{ path: string, ageMs: number | null, writer: {sessionId: string, at: number} | null }} Blocker
  * @typedef {{ installed: boolean, error?: string }} InstallResult
@@ -79,22 +71,6 @@ const INSTALL_TIMEOUT_MS = 15 * 60_000;
  *   | { status: "busy", holder: number | null, fetchError: null }
  * ) & { install: InstallResult }} Outcome
  */
-
-/**
- * `npm ci` into `dir`, its output on stderr. `WFC_NPM` names the program, as
- * it does for the install guard.
- * @type {Install}
- */
-function npmCi(dir) {
-	const r = spawnSync(
-		process.env.WFC_NPM || "npm",
-		["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-		{ cwd: dir, stdio: ["ignore", 2, 2], timeout: INSTALL_TIMEOUT_MS },
-	);
-	if (r.error) throw r.error;
-	if (r.status !== 0)
-		throw new Error(`npm ci exited ${r.status ?? r.signal} in ${dir}`);
-}
 
 /**
  * @param {string[]} args
@@ -247,21 +223,19 @@ function readMarker(live) {
  * @returns {string} the built `node_modules`
  */
 function buildStaging(root, staging, want, install) {
-	fs.mkdirSync(staging, { recursive: true });
-	for (const name of MANIFESTS) {
-		const blob = readHeadBlob(root, name);
-		if (blob === null) continue;
-		const bytes = execGit(["cat-file", "blob", blob], {
-			cwd: root,
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: GIT_TIMEOUT_MS,
-		});
-		fs.writeFileSync(path.join(staging, name), bytes);
-	}
-	install(staging);
-	const built = path.join(staging, "node_modules");
-	if (!fs.existsSync(built))
-		throw new Error(`the install left no node_modules in ${staging}`);
+	const built = stageInstall(
+		staging,
+		(name) => {
+			const blob = readHeadBlob(root, name);
+			if (blob === null) return null;
+			return execGit(["cat-file", "blob", blob], {
+				cwd: root,
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: GIT_TIMEOUT_MS,
+			});
+		},
+		install,
+	);
 	fs.writeFileSync(path.join(built, MARKER), `${want}\n`);
 	return built;
 }

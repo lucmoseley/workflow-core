@@ -56,6 +56,10 @@ beforeEach(() => {
 	git(shared, "config", "user.email", "t@t");
 	git(shared, "config", "user.name", "t");
 	git(shared, "remote", "add", "origin", remote);
+	// The remote holds a main, so a push to it is no new repo's first; fetched
+	// from the bare side, leaving the checkout no origin/main.
+	git(shared, "commit", "-q", "--allow-empty", "-m", "base");
+	git(remote, "fetch", "-q", shared, "main:refs/heads/main");
 	writeConfig(shared, {
 		contract: 1,
 		tracker: "o/tracker",

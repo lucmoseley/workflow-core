@@ -45,14 +45,14 @@ const hasUnlandedLine = (text) => hasLine(text, "Unlanded", "\\S");
 
 /**
  * `ceiling`'s git as a GitReader, a passed ceiling still thrown.
- * @param {string} root
+ * @param {string} tree
  * @param {import("./git-ceiling.js").GitCeiling} ceiling
  * @returns {GitReader}
  */
-const ceilingReader = (root, ceiling) => (args, noMatch) => {
+const ceilingReader = (tree, ceiling) => (args, noMatch) => {
 	try {
 		const out = ceiling.git(
-			["-C", root, ...args],
+			["-C", tree, ...args],
 			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
 			`git ${args[0]}`,
 		);
@@ -68,7 +68,7 @@ const ceilingReader = (root, ceiling) => (args, noMatch) => {
 
 /**
  * Issue `n`'s commits, cited on HEAD or named by sha in `comment`, that the
- * pushed ref holds under no hash, and that ref. `root` is the checkout the
+ * pushed ref holds under no hash, and that ref. `tree` is the checkout the
  * close ran from, whose HEAD may be a linked worktree's rather than the host
  * root's; `host` is the host root, whose config names the pushed ref (#4280).
  * Each half is read on its own: a HEAD git cannot walk
@@ -76,14 +76,14 @@ const ceilingReader = (root, ceiling) => (args, noMatch) => {
  * nothing to refuse. Throws where the pushed ref is absent or git cannot answer;
  * CeilingPassed where `ceiling` passes.
  *
- * @param {string} root
+ * @param {string} tree
  * @param {number} n
  * @param {string} comment
  * @param {{ ceiling?: import("./git-ceiling.js").GitCeiling, host: string }} opts
  * @returns {{ pushed: string, commits: Commit[] }}
  */
-function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING, host }) {
-	const read = ceilingReader(root, ceiling);
+function readUnlandedCommits(tree, n, comment, { ceiling = NO_CEILING, host }) {
+	const read = ceilingReader(tree, ceiling);
 	/**
 	 * @param {string[]} args
 	 * @param {number[]} [noMatch]
@@ -93,7 +93,7 @@ function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING, host }) {
 		if (!r.ok) throw new Error(`git ${args[0]}: ${r.why}`);
 		return r.out;
 	};
-	const pushed = pushedRef({ root: host, tree: root });
+	const pushed = pushedRef({ root: host, tree });
 	if (!commitOrThrow(read, pushed))
 		throw new Error(`no ${pushed} to compare against`);
 	const format = "--format=%h%x00%at%x00%s";

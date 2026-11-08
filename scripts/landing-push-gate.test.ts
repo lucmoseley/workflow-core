@@ -37,8 +37,11 @@ const ledgerHolds = (held: string) => {
 	fs.writeFileSync(ledger(), `${held} 2026-10-21T00:00:00.000Z\n`);
 };
 
-const buildRefLine = (local: string, remoteRef: string) =>
-	`refs/heads/main ${local} ${remoteRef} ${ZERO}\n`;
+/* The remote's own tip, as git reads it off a remote whose ref exists. */
+const REMOTE_TIP = "a".repeat(40);
+
+const buildRefLine = (local: string, remoteRef: string, remote = REMOTE_TIP) =>
+	`refs/heads/main ${local} ${remoteRef} ${remote}\n`;
 
 const check = (stdin: string, modules = "landing") => {
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_MODULES: modules };
@@ -98,6 +101,11 @@ describe("with the landing module on", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(ZERO);
 		expect(r.stderr).toContain("session-checkout.js land");
+	});
+
+	it("passes a push creating main on a remote that has none: a new repo's first push (#2412)", () => {
+		const r = check(buildRefLine(sha, "refs/heads/main", ZERO));
+		expect(r.status, r.stderr).toBe(0);
 	});
 
 	it("passes a push to landing of an unledgered sha", () => {
