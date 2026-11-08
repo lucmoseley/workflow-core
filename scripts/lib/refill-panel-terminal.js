@@ -29,7 +29,7 @@ const HOVER_ON = `${ESC}[?1003h`;
 const SCREEN_OFF = `${ESC}[?1004l${ESC}[?1003l${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
 
-/* Untraced, a first guess. */
+/* Untraced, a first guess: how often the panel checks its own code for a change. */
 const WATCH_MS = 1000;
 
 /**

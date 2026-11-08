@@ -106,7 +106,8 @@ const headless = require("./headless-runs.js");
  *   startedAt?: number, cwd?: string}} AgentRecord
  * @typedef {{agents: AgentRecord[], why?: undefined, readAt?: number}
  *   | {why: string, agents?: undefined, readAt?: undefined}} Listing
- *   `readAt`, ms, when the oracle answered: a shared reading's write time
+ *   `readAt`, ms, when the oracle answered: a shared reading's write time. The
+ *   headless runs merged in are read now, so they may be fresher than it.
  * @typedef {{why: string, ids?: undefined, names?: undefined,
  *   finished?: undefined, terminal?: undefined, pids?: undefined,
  *   cwds?: undefined, states?: undefined, kinds?: undefined}} SessionsRefused

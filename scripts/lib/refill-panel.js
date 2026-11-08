@@ -456,8 +456,7 @@ function buildKeyFigure(
 	/* Running runs' reservations can pass a key's credit. */
 	const usd = exhausted ? 0 : Math.floor(Math.max(headroomUsd, 0));
 	if (creditReadAt === null) return `${exhausted ? "" : "~"}$${usd} ${figure}`;
-	const age = describeAge(Math.max(0, (now - creditReadAt) / 1000));
-	return `$${usd} ${figure} (${age} ago)`;
+	return `$${usd} ${figure} (${describeAgo(creditReadAt, now)})`;
 }
 
 /**
@@ -474,6 +473,17 @@ function buildNotSpendingReason(status, picksKey) {
 }
 
 /**
+ * How long ago `at` was, in seconds under a minute: the running count's age stays
+ * under two minutes (#4175).
+ * @param {number} at ms
+ * @param {number} now
+ */
+function describeAgo(at, now) {
+	const s = Math.floor(Math.max(0, now - at) / 1000);
+	return `${s < 60 ? `${s}s` : describeAge(s)} ago`;
+}
+
+/**
  * The running count's age, ` (45s ago)`, where the oldest listing a key counted
  * its sessions off is older than one poll (#4175), else nothing.
  * @param {ReadKey[]} keys
@@ -484,10 +494,8 @@ function buildRunningAge(keys, now) {
 		key.runningReadAt === null ? [] : [key.runningReadAt],
 	);
 	if (dated.length === 0) return "";
-	const ageMs = now - Math.min(...dated);
-	if (ageMs <= POLL_MS) return "";
-	const s = Math.floor(ageMs / 1000);
-	return ` (${s < 60 ? `${s}s` : describeAge(s)} ago)`;
+	const at = Math.min(...dated);
+	return now - at <= POLL_MS ? "" : ` (${describeAgo(at, now)})`;
 }
 
 /**
