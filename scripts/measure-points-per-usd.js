@@ -27,6 +27,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { readAllowance } = require("./lib/allowance");
+const { caught } = require("./lib/caught.js");
 const { readDeclaredOverflowLookup } = require("./lib/dispatch-ledger.js");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
@@ -39,7 +40,7 @@ const SPANS = /** @type {const} */ ({
 	weekly_all: 7 * 24 * HOUR_MS,
 });
 
-/** @typedef {ReturnType<typeof readDeclaredOverflowLookup>} OverflowLookup */
+/** @typedef {import("./lib/dispatch-ledger.js").OverflowLookup} OverflowLookup */
 
 /**
  * @param {string} dir
@@ -198,10 +199,7 @@ function main() {
 	try {
 		overflowLaunchOf = readDeclaredOverflowLookup();
 	} catch (e) {
-		writeFd(
-			2,
-			`measure-points-per-usd: ${String(e)} — fix that read and re-run: until then an overflow session cannot be told from a plan one\n`,
-		);
+		writeFd(2, `measure-points-per-usd: ${caught(e).message}\n`);
 		return 1;
 	}
 	const now = Date.now();

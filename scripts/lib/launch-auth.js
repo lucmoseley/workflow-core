@@ -39,7 +39,11 @@ const { parseArgs } = require("node:util");
 const { claudeBin } = require("./claude-bin.js");
 const { secretsFile } = require("./env-file.js");
 const { buildKeyHelper } = require("./overflow-key.js");
-const { readDeclaredSeats, seatOfLaunch } = require("./refill-seats.js");
+const {
+	overflowSeatsOf,
+	readDeclaredSeats,
+	seatOfLaunch,
+} = require("./refill-seats.js");
 const { writeFd } = require("./write-fd.js");
 
 /* Untraced: `auth status` answers in ~0.4 s idle; CLI starts on a loaded
@@ -116,9 +120,8 @@ function isSeatHelper(helper, env) {
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) return false;
 	const file = secretsFile();
-	return list.seats.some(
+	return overflowSeatsOf(list.seats).some(
 		(s) =>
-			s.kind === "overflow" &&
 			helper === buildKeyHelper(s.keyVar, file) &&
 			!("why" in seatOfLaunch(list, { dir, keyVar: s.keyVar })),
 	);

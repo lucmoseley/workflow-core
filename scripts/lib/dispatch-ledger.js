@@ -165,6 +165,12 @@ function entryHolds(rec, command) {
  */
 
 /**
+ * A session's latest overflow launch, or null for one none records.
+ * @typedef {(session: {jobId?: string|null, sessionId?: string|null}) =>
+ *   OverflowLaunch|null} OverflowLookup
+ */
+
+/**
  * Whether a row counts whatever the window: a launch before its `heldUntil`,
  * and any release, as one aged out would revive the held launch it ended.
  * @param {DispatchRecord|ReleaseRecord} rec
@@ -288,6 +294,16 @@ const isOverflowLaunch = (rec) =>
 	/** @type {{kind?: unknown}} */ (rec).kind === "overflow";
 
 /**
+ * A launch record's read failure, with its remedy.
+ * @param {unknown} err
+ */
+const buildRemediedError = (err) =>
+	new Error(
+		`launch record unreadable: ${caught(err).message} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
+		{ cause: err },
+	);
+
+/**
  * The one answer to "is this session overflow, on which key, with what
  * allowance" (#3694): a lookup over every overflow launch in `roots`' ledgers,
  * any age, released or not, as credits stay spent. A session's latest such
@@ -297,14 +313,19 @@ const isOverflowLaunch = (rec) =>
  * names every checkout (`readEveryOverflowLookup`); the default suits a session
  * asking about itself.
  * @param {string[]} [roots]
- * @returns {(session: {jobId?: string|null, sessionId?: string|null}) => OverflowLaunch|null}
+ * @returns {OverflowLookup}
  * @throws where a ledger will not read: a plan session and an unread overflow
  *   one must not look alike
  */
 function readOverflowLookup(roots = [ledgerRoot()]) {
-	const launches = roots.flatMap((root) =>
-		readEveryRow(root).filter(isOverflowLaunch),
-	);
+	let launches;
+	try {
+		launches = roots.flatMap((root) =>
+			readEveryRow(root).filter(isOverflowLaunch),
+		);
+	} catch (err) {
+		throw buildRemediedError(err);
+	}
 	return ({ jobId, sessionId }) =>
 		launches
 			.filter(
@@ -330,8 +351,15 @@ const readEveryLedgerRoot = (root = ledgerRoot()) => [
  * @param {string} [root] as readEveryLedgerRoot's
  * @throws where a ledger will not read, or the checkouts cannot be listed
  */
-const readEveryOverflowLookup = (root) =>
-	readOverflowLookup(readEveryLedgerRoot(root));
+function readEveryOverflowLookup(root) {
+	let roots;
+	try {
+		roots = readEveryLedgerRoot(root);
+	} catch (err) {
+		throw buildRemediedError(err);
+	}
+	return readOverflowLookup(roots);
+}
 
 /**
  * `readEveryOverflowLookup` where the seat file declares an overflow seat, or
@@ -339,6 +367,7 @@ const readEveryOverflowLookup = (root) =>
  * ledger, as a host with no overflow seat has none to tell apart (#4393).
  * @param {import("./refill-seats.js").SeatList} [declared]
  * @param {string} [root] as readEveryLedgerRoot's
+ * @returns {OverflowLookup}
  * @throws as `readEveryOverflowLookup`, where it reads
  */
 function readDeclaredOverflowLookup(

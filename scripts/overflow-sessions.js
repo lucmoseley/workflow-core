@@ -8,6 +8,7 @@
  * Joins no §N3 family: its one reader takes any non-zero as a refusal.
  */
 
+const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { readDeclaredOverflowLookup } = require("./lib/dispatch-ledger.js");
 const { readFdAll } = require("./lib/read-fd.js");
@@ -22,10 +23,7 @@ function main() {
 	try {
 		lookup = readDeclaredOverflowLookup();
 	} catch (e) {
-		writeFd(
-			2,
-			`overflow-sessions: ${String(e)} — fix that read and re-run: until then an overflow session cannot be told from a plan one\n`,
-		);
+		writeFd(2, `overflow-sessions: ${caught(e).message}\n`);
 		return 1;
 	}
 	const marked = readFdAll(0)

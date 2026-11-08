@@ -28,7 +28,7 @@ const {
 	hasRoom,
 	orderPlanSeats,
 } = require("./refill-decide.js");
-const { isSameSeat } = require("./refill-seats.js");
+const { isSameSeat, overflowSeatsOf } = require("./refill-seats.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { hasResetPassed } = require("./usage-cache.js");
 
@@ -357,7 +357,7 @@ function overflowReadings(list, plan, budgetOf) {
 	if (list.errors.length > 0)
 		return [
 			{
-				seat: "the seat file",
+				seat: null,
 				fits: null,
 				spentUntil: null,
 				why: `it refuses: ${list.errors.join("; ")}`,
@@ -366,9 +366,7 @@ function overflowReadings(list, plan, budgetOf) {
 	/* The decision core's own test too; repeated here so a tick a plan seat
 	 * can serve sizes no key to launch on. */
 	const due = plan.every((s) => s.weekFull);
-	/** @type {import("./refill-seats.js").OverflowSeat[]} */
-	const seats = list.seats.flatMap((s) => (s.kind === "overflow" ? [s] : []));
-	return seats.map((seat) => {
+	return overflowSeatsOf(list.seats).map((seat) => {
 		const unread = {
 			seat: seat.dir,
 			keyVar: seat.keyVar,

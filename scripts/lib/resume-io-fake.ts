@@ -166,7 +166,6 @@ export const ANSWERS = {
 	sessionName: {
 		unnamed: { name: null },
 		named: { name: "Implement 7: a title" },
-		prefixed: { name: "Overflow · Implement 7" },
 		unreadable: {
 			why: "reading /a: EISDIR: illegal operation on a directory, read",
 		},
