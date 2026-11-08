@@ -39,6 +39,7 @@ const { runTickChild: runChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
+	DEFAULT_WINDOW_HOURS,
 	readRecentEntries,
 	record: recordLaunch,
 	recordListedSessionIds,
@@ -76,6 +77,8 @@ const { appendTick, concurrencyFiles } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
 const { seatBudget, stopOverAllowance } = require("./overflow-budget.js");
 const {
+	buildSeatLabel,
+	overflowSeatsOf,
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
@@ -101,6 +104,7 @@ const {
 	readManagerRestart,
 	REVIEW_RUNNER,
 	readControlChecked,
+	buildLoopLogLine,
 	withControlLock,
 	writeControlFile,
 	writeLoopPause,
@@ -124,6 +128,7 @@ const {
 	withTickStores,
 } = require("./repo-holds.js");
 const { tendHoldNotices } = require("./repo-hold-notices.js");
+const { tendPauseNotices } = require("./pause-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
@@ -134,8 +139,6 @@ const { writeFd } = require("./write-fd.js");
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
-/* The ledger's own hour, ample for one dispatcher call. */
-const LEDGER_WINDOW_HOURS = 1;
 
 const SCRIPTS = path.dirname(__dirname);
 /* The checkout the loop's own scripts sit in, workflow-core's, whose tracker
@@ -153,7 +156,7 @@ const readIncluded = () => discoverRepos(homeDir()).included;
 const say = (line) => writeFd(1, `${line}\n`);
 
 /** @param {string} line */
-const log = (line) => say(`${new Date().toISOString()} ${line}`);
+const log = (line) => writeFd(1, buildLoopLogLine(line));
 
 const readControl = () => readControlChecked(log);
 
@@ -177,9 +180,10 @@ function reapFinished(dryRun) {
 /**
  * Stop the working jobs with no live process and no transcript past the grace
  * (lib/refill-tick-core.js's stopNeverStarted, #2467): admission charges each a
- * full session until it goes. The log lines. `spared` go unjudged (#3983).
+ * full session until it goes. `spared` go unjudged (#3983).
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @param {Set<string>} spared
+ * @returns {string[]} the log lines
  */
 function stopNeverStarted(registry, spared) {
 	const jobs = readJobs()?.filter((j) => !spared.has(j.job)) ?? null;
@@ -372,7 +376,7 @@ function launchBatch(batch) {
 				env: call.env,
 				timeout: call.timeout,
 			}),
-		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
+		entriesOf: (root) => readRecentEntries(root, DEFAULT_WINDOW_HOURS).entries,
 		sessionOf: readHeadlessSession,
 		now: Date.now,
 	});
@@ -483,17 +487,18 @@ function startReview(start) {
  */
 function startDueConsoleReads(declared, plan, root) {
 	const now = Date.now();
-	for (const seat of declared.seats) {
-		if (seat.kind !== "overflow") continue;
+	for (const seat of overflowSeatsOf(declared.seats)) {
 		const budget = seatBudget(seat, root);
 		if ("why" in budget || !isConsoleReadDue(seat, budget, plan, now)) continue;
 		try {
 			appendConsoleRow(seat, { at: now, started: true });
 		} catch (err) {
-			log(`console read of ${seat.dir}: not started (${buildErrorText(err)})`);
+			log(
+				`console read of ${buildSeatLabel(seat)}: not started (${buildErrorText(err)})`,
+			);
 			continue;
 		}
-		startDetached(`console read of ${seat.dir}`, [
+		startDetached(`console read of ${buildSeatLabel(seat)}`, [
 			path.join(SCRIPTS, "read-console-credit.js"),
 			seat.keyVar,
 		]);
@@ -641,7 +646,8 @@ const writeLaunch = (l) => updateState(launchRecorded(l), log);
 const adoptKilledLaunches = (state, served) =>
 	core.settleLaunching(state, (launching) => {
 		const launched = refillBatch.adoptLaunching(launching, {
-			entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
+			entriesOf: (root) =>
+				readRecentEntries(root, DEFAULT_WINDOW_HOURS).entries,
 			sessionOf: readHeadlessSession,
 			readActsBefore: buildActsBeforeReader(served),
 			recordLaunch,
@@ -975,6 +981,7 @@ const productionIo = {
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
+	sendPauseNotices: (paused, now) => tendPauseNotices(paused, now, log),
 	readProgress,
 	readCause,
 	unparkAnswered: blocks.unparkAnswered,

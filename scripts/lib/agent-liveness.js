@@ -1,8 +1,8 @@
 /*
  * agent-liveness.js — the one reader of `claude agents --json`, the only
- * documented interface that says which sessions are live (mantahostels#318 fixed it as the
- * oracle). The finished-session reaper and the refill loop's never-started
- * stop read lib/registry-agents.js instead, which needs no CLI (#2665).
+ * documented interface that says which sessions are live. The
+ * finished-session reaper and the refill loop's never-started stop read
+ * lib/registry-agents.js instead, which needs no CLI (#2665).
  *
  * THIS HEADER OWNS THE ~465 ms FIGURE, and every other statement of it in
  * `scripts/` restates this line. Measured at mantahostels#317. A site citing
@@ -99,13 +99,17 @@ const headless = require("./headless-runs.js");
  * where no live session predates its mtime.
  *
  * `kind: "headless"` marks a run lib/headless-runs.js listed, which
- * `claude stop` cannot reach: lib/claude-stop.js stops it by its group.
+ * `claude stop` cannot reach: lib/claude-stop.js stops it by its group. Its
+ * `seat` is the config dir it runs under.
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,
- *   startedAt?: number, cwd?: string, founderReply?: true}} AgentRecord
- * @typedef {{agents: AgentRecord[], why?: undefined}
- *   | {why: string, agents?: undefined}} Listing
+ *   startedAt?: number, cwd?: string, seat?: string,
+ *   founderReply?: true}} AgentRecord
+ * @typedef {{agents: AgentRecord[], why?: undefined, readAt?: number}
+ *   | {why: string, agents?: undefined, readAt?: undefined}} Listing
+ *   `readAt`, ms, when the oracle answered: a shared reading's write time. The
+ *   headless runs merged in are read now, so they may be fresher than it.
  * @typedef {{why: string, ids?: undefined, names?: undefined,
  *   finished?: undefined, terminal?: undefined, pids?: undefined,
  *   cwds?: undefined, states?: undefined, kinds?: undefined}} SessionsRefused
@@ -403,6 +407,13 @@ function failure(e) {
 }
 
 /**
+ * @param {string} call
+ * @param {unknown} e
+ * @returns {string}
+ */
+const wouldNotRun = (call, e) => `${call} would not run (${failure(e)})`;
+
+/**
  * Runs the oracle and classifies what it said, as `{agents}` or `{why}`.
  *
  * The whole record, not just the id: a reader deciding whether a session is
@@ -420,12 +431,15 @@ function readListing(opts) {
 	const dirs = oracleDirs();
 	const key = oracleCacheKey(bin, dirs);
 
+	/** @param {Listing} answer @param {number} at */
+	const dated = (answer, at) =>
+		answer.agents ? { agents: answer.agents, readAt: at } : answer;
 	/* A plain hit for the shared and shown readers alone (module header). */
-	/** @param {string|null} cached */
+	/** @param {import("./oracle-cache.js").Hit|null} cached */
 	const served = (cached) => {
 		if (cached === null) return null;
-		const answer = classifyRaw(cached, call, opts, runs.agents);
-		return answer.why ? null : answer;
+		const answer = classifyRaw(cached.raw, call, opts, runs.agents);
+		return answer.why ? null : dated(answer, cached.at);
 	};
 	if (opts?.shared || opts?.shownAgeMs !== undefined) {
 		const hit = served(cache.readFresh(key, undefined, opts.shownAgeMs));
@@ -468,7 +482,7 @@ function readListing(opts) {
 		if (leading) cache.release(key);
 	}
 
-	return classifyRaw(raw, call, opts, runs.agents);
+	return dated(classifyRaw(raw, call, opts, runs.agents), Date.now());
 }
 
 /**
@@ -486,7 +500,7 @@ function spawnUnion(bin, call, dirs) {
 	try {
 		out = runOracle(bin, firstMs, dirs);
 	} catch (e) {
-		const why = `${call} would not run (${failure(e)})`;
+		const why = wouldNotRun(call, e);
 		if (caught(e).code !== "ETIMEDOUT") return { why };
 		if (firstMs < firstCapMs)
 			return { why: `${why} inside the hook's time budget, ${firstMs} ms` };
@@ -497,7 +511,7 @@ function spawnUnion(bin, call, dirs) {
 			out = runOracle(bin, retryMs, dirs);
 		} catch (again) {
 			return {
-				why: `${call} would not run (${failure(again)}) — twice, the retry given ${retryMs} ms`,
+				why: `${wouldNotRun(call, again)} — twice, the retry given ${retryMs} ms`,
 			};
 		}
 	}
@@ -567,19 +581,31 @@ function mergedListing(agents, headlessAgents, call, opts) {
 			why: `${call} does not list this very session (${me}), so its list is not a list of what is live`,
 		};
 
-	const headlessIds = new Set(headlessAgents.map((a) => a.sessionId));
-	const headlessPids = new Set(headlessAgents.map((a) => a.pid));
 	return {
 		agents: [
-			...agents.filter(
-				(a) =>
-					hasSessionId(a) &&
-					!headlessIds.has(a.sessionId) &&
-					!(!isTerminalAgent(a) && headlessPids.has(a.pid)),
-			),
+			...withoutHeadlessCopies(agents, headlessAgents),
 			...headlessAgents,
 		],
 	};
+}
+
+/**
+ * `agents` less any record without a session id and any row the oracle derives
+ * from a headless run's transcript: same session id, or a live row's pid
+ * (#4588).
+ * @param {any[]} agents  oracle records, unjudged: this is where each is judged
+ * @param {AgentRecord[]} headlessAgents
+ * @returns {AgentRecord[]}
+ */
+function withoutHeadlessCopies(agents, headlessAgents) {
+	const ids = new Set(headlessAgents.map((a) => a.sessionId));
+	const pids = new Set(headlessAgents.map((a) => a.pid));
+	return agents.filter(
+		(a) =>
+			hasSessionId(a) &&
+			!ids.has(a.sessionId) &&
+			!(!isTerminalAgent(a) && pids.has(a.pid)),
+	);
 }
 
 /**
@@ -590,8 +616,6 @@ const hasSessionId = (a) =>
 	Boolean(a) && typeof a.sessionId === "string" && a.sessionId !== "";
 
 /**
- * The live headless runs as `{agents}`, or `{why}` where the store will not
- * read.
  * @returns {{agents: AgentRecord[]} | {why: string}}
  */
 function readHeadlessRuns() {
@@ -603,6 +627,30 @@ function readHeadlessRuns() {
 			why: `the headless-run store could not be read (${code || String(message).slice(0, QUOTE_CHARS)})`,
 		};
 	}
+}
+
+/**
+ * Every seat's listing kept apart by config dir, for a person to read
+ * (#4224): each existing dir's own records or its `why`, then the live
+ * headless runs or the store's `why`. Each dir is read alone, so one failing
+ * names itself and the rest still answer, and a session moved between seats
+ * shows under each dir that lists it. Uncached and unchecked: no caller may
+ * judge liveness off it, which `listedAgents` is for.
+ * @returns {{dirs: Array<{dir: string} & Listing>, headless: Listing}}
+ */
+function readEverySeat() {
+	const store = readHeadlessRuns();
+	const runs = "why" in store ? [] : store.agents;
+	const dirs = oracleDirs().map((dir) => {
+		try {
+			const read = readSeatListing(dir, oracleTimeoutMs());
+			if ("why" in read) return { dir, why: read.why };
+			return { dir, agents: withoutHeadlessCopies(read.agents, runs) };
+		} catch (e) {
+			return { dir, why: wouldNotRun(oracleCall(), e) };
+		}
+	});
+	return { dirs, headless: store };
 }
 
 /**
@@ -960,6 +1008,7 @@ module.exports = {
 	readAgentsAfterBoot,
 	readAgentsForBudget,
 	readAgentsForDisplay,
+	readEverySeat,
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,

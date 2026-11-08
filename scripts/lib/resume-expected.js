@@ -9,12 +9,7 @@ const { readParkMarkersOrThrow } = require("./parked.js");
 const { readState } = require("./refill-state.js");
 
 /* The fields a held launch keeps the session its resume will name. */
-const HOLD_FIELDS = /** @type {const} */ ([
-	"limitHeld",
-	"swapHeld",
-	"holdCleared",
-	"bootKilled",
-]);
+const HOLD_FIELDS = /** @type {const} */ (["limitHeld", "stepResume"]);
 
 /**
  * Throws where the loop's state, one of its launch rows or a park marker will

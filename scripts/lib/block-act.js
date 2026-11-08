@@ -243,19 +243,39 @@ const limit = (block, now) => {
  * slot until then, admission's memory gate bounding the count. PERMISSION as
  * a question: #2360. API_ERROR: #2359. LIMIT: #2125, #3735. UNKNOWN: #2358 F9.
  * RESUMED_IDLE: #2659, #2978. LOCKED_OUT: #4228, in either mode, as no answer
- * of the founder's mends it.
- * @type {Record<Cause, {away: Rule, normal: Rule}>}
+ * of the founder's mends it. `isFounderWait`, a block that waits on the founder, in a
+ * thread his answer resumes (#3584).
+ * @type {Record<Cause, {away: Rule, normal: Rule, isFounderWait: boolean}>}
  */
 const TABLE = {
-	QUESTION: { away: stopAtOnce, normal: waitForAnswer },
-	PERMISSION: { away: stopAtOnce, normal: waitForAnswer },
-	API_ERROR: { away: apiError(true), normal: apiError(false) },
-	LIMIT: { away: limit, normal: limit },
-	OTHER_DIALOG: { away: leave, normal: leave },
-	LOCKED_OUT: { away: attachToHold, normal: attachToHold },
-	RESUMED_IDLE: { away: resumedIdle, normal: resumedIdle },
-	UNKNOWN: { away: leave, normal: leave },
+	QUESTION: { away: stopAtOnce, normal: waitForAnswer, isFounderWait: true },
+	PERMISSION: { away: stopAtOnce, normal: waitForAnswer, isFounderWait: true },
+	API_ERROR: {
+		away: apiError(true),
+		normal: apiError(false),
+		isFounderWait: false,
+	},
+	LIMIT: { away: limit, normal: limit, isFounderWait: false },
+	OTHER_DIALOG: { away: leave, normal: leave, isFounderWait: true },
+	LOCKED_OUT: {
+		away: attachToHold,
+		normal: attachToHold,
+		isFounderWait: false,
+	},
+	RESUMED_IDLE: {
+		away: resumedIdle,
+		normal: resumedIdle,
+		isFounderWait: false,
+	},
+	UNKNOWN: { away: leave, normal: leave, isFounderWait: false },
 };
+
+/**
+ * Whether a block of this cause waits on the founder.
+ * @param {Cause|undefined} cause
+ */
+const isFounderWait = (cause) =>
+	cause !== undefined && TABLE[cause].isFounderWait;
 
 /**
  * @param {Block} block
@@ -271,6 +291,7 @@ module.exports = {
 	blockAct,
 	buildLimitParkWhy,
 	holdBoundAt,
+	isFounderWait,
 	nextTryAt,
 	resumeDueAt,
 };

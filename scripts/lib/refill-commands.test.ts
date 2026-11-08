@@ -334,15 +334,27 @@ describe("the launch lines status shows (#2850)", () => {
 	});
 
 	it("shows a launch a restart killed (#3880)", () => {
-		const bootKilled = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
-		expect(statusOf([record({ bootKilled })])).toContain(
+		const stepResume = {
+			cause: "bootKilled",
+			at: NOW,
+			sessionId: "s",
+			cwd: "/",
+			tries: 0,
+		} as const;
+		expect(statusOf([record({ stepResume })])).toContain(
 			"killed by a restart, resumed through admission",
 		);
 	});
 
 	it("shows a launch stopped under the swap hold, and when (#3093)", () => {
-		const swapHeld = { at: NOW - 6 * MIN, sessionId: "s", cwd: "/", tries: 0 };
-		expect(statusOf([record({ swapHeld })])).toContain(
+		const stepResume = {
+			cause: "swapHeld",
+			at: NOW - 6 * MIN,
+			sessionId: "s",
+			cwd: "/",
+			tries: 0,
+		} as const;
+		expect(statusOf([record({ stepResume })])).toContain(
 			"stopped under the swap hold since 2026-10-18T11:54:00.000Z, resumed through admission once it clears",
 		);
 	});
@@ -721,14 +733,15 @@ describe("the seats: line (#3733)", () => {
 		const full = seat(".claude3", 100, 20, { fits: null });
 		const overflow = [
 			{
-				seat: `${process.env.HOME}/.claude3-api`,
+				seat: full.seat,
+				keyVar: "K3",
 				fits: 2,
 				spentUntil: null,
 				why: null,
 			},
 		];
 		expect(lineOf([full], null, { overflow })).toContain(
-			"next ~/.claude3-api (overflow); passed over ~/.claude3 week 100% ≥ 97%",
+			"next ~/.claude3 key=K3 (overflow); passed over ~/.claude3 week 100% ≥ 97%",
 		);
 	});
 
@@ -748,29 +761,28 @@ describe("the seats: line (#3733)", () => {
 		);
 	});
 
-	it("names each overflow seat the walk passed, once every plan seat is weekly-full", () => {
+	it("names each overflow seat the walk passed by its key, once every plan seat is weekly-full, keys on one dir told apart (#4196)", () => {
 		const full = seat(".claude3", 100, 20, { fits: null });
-		const dirOf = (name: string) => `${process.env.HOME}/${name}`;
-		const row = (name: string, fits: number, spentUntil: string | null) => ({
-			seat: dirOf(name),
-			keyVar: `KEY_${name}`,
+		const row = (keyVar: string, fits: number, spentUntil: string | null) => ({
+			seat: full.seat,
+			keyVar,
 			fits,
 			spentUntil,
 			why: null,
 		});
 		const overflow = [
-			row(".claude2-api", 0, "2026-11-20"),
-			row(".claude3-api", 2, null),
-			row(".claude4-api", 2, null),
+			row("K2", 0, "2026-11-20"),
+			row("K3", 2, null),
+			row("K4", 2, null),
 		];
 		const out = buildSeatsLine(
 			buildSeatsView({ seats: [full], overflow, typedSeat: null, ceilings }),
 			NOW,
 		);
 		expect(out).toContain(
-			"next ~/.claude3-api (overflow); passed over ~/.claude3 week 100% ≥ 97%; passed over ~/.claude2-api exhausted until 2026-11-20",
+			"next ~/.claude3 key=K3 (overflow); passed over ~/.claude3 week 100% ≥ 97%; passed over ~/.claude3 key=K2 exhausted until 2026-11-20",
 		);
-		expect(out).not.toContain("~/.claude4-api");
+		expect(out).not.toContain("key=K4");
 	});
 
 	it("tells an overflow pick from the plan seat on its dir (#3693)", () => {
@@ -801,7 +813,8 @@ describe("the seats: line (#3733)", () => {
 		const open = seat(".claude3", 40, 20);
 		const overflow = [
 			{
-				seat: `${process.env.HOME}/.claude3-api`,
+				seat: open.seat,
+				keyVar: "K3",
 				fits: null,
 				spentUntil: null,
 				why: "a plan seat is not weekly-full",

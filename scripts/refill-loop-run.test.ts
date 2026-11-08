@@ -643,7 +643,7 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 		const r = await stoppedTick();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			`stopped overflow session Overflow · job (${job}) on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
+			`stopped overflow session Overflow · job (${job}) on ${overflowSeat()} key=WFC_TEST_KEY: spent $60.00 of its $50.00 allowance`,
 		);
 		expect(readLines(at("stops"))).toEqual([`stop ${job}`]);
 	});
@@ -687,7 +687,7 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 			writeNextRun();
 			const r = await stoppedTick();
 			expect(r.stdout).toContain(
-				`stopped overflow session ${next} on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
+				`stopped overflow session ${next} on ${overflowSeat()} key=WFC_TEST_KEY: spent $60.00 of its $50.00 allowance`,
 			);
 			expect(readProcStartOf(pid)).toBeNull();
 			expect(readLines(at("stops"))).toEqual([]);
@@ -735,7 +735,7 @@ describe("a due Console read on the real tick (#4071)", () => {
 		const r = await dueReadTick();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			`console read of ${overflowSeat()}: not started (`,
+			`console read of ${overflowSeat()} key=WFC_TEST_KEY: not started (`,
 		);
 		expect(readLines(runnerCallsFile())).toEqual([]);
 	});

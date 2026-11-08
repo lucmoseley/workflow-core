@@ -5,7 +5,7 @@
  * Broken, a view opens no panel, or a repo that never asked for one gets a pane.
  *
  * Most cases inject `run` and `detach`, so no test opens a pane in the terminal it runs
- * in; three cross the real spawn and PATH search, against a stub `tmux`. Every case injects
+ * in; three cross the real spawn, against a stub `tmux` at `WFC_TMUX`. Every case injects
  * `wait`, so none takes the hold's real 5 seconds.
  */
 import fs from "node:fs";
@@ -85,7 +85,7 @@ describe("refill-panel-open.js", () => {
 				return detachStarts;
 			},
 			appendLog: (text: string) => {
-				logged += text;
+				logged += `${text}\n`;
 			},
 			wait: (ms: number) => {
 				waits.push(ms);
@@ -183,7 +183,7 @@ describe("refill-panel-open.js", () => {
 		expect(code).toBe(0);
 		expect(ran.map((route) => route.file)).toEqual(["cmd.exe", "tmux"]);
 		expect(logged).toMatch(
-			/^\d{4}-\d\d-\d\dT\S+ refill-panel-open: the windows-terminal route failed: exit 1\n$/,
+			/^refill-panel-open: the windows-terminal route failed: exit 1\n$/,
 		);
 		expect(stderr).toBe("");
 		expect(stdout).toBe("");
@@ -244,7 +244,7 @@ describe("refill-panel-open.js", () => {
 		expect(ran).toEqual([]);
 	});
 
-	it("crosses the real spawn and PATH search to a stub tmux", () => {
+	it("crosses the real spawn to a stub tmux at WFC_TMUX", () => {
 		const bin = path.join(root, "bin");
 		const seen = path.join(root, "seen");
 		fs.mkdirSync(bin);
@@ -255,7 +255,7 @@ describe("refill-panel-open.js", () => {
 		);
 		const code = main(
 			[String(process.pid)],
-			{ TMUX: "/t", PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+			{ TMUX: "/t", WFC_TMUX: path.join(bin, "tmux"), PATH: process.env.PATH },
 			{ readViewEnv: () => ({}), readViewColumns: () => 156 },
 		);
 		expect(code).toBe(0);
@@ -283,7 +283,8 @@ describe("refill-panel-open.js", () => {
 			{
 				TMUX: "/t",
 				WFC_REFILL_DIR: root,
-				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+				WFC_TMUX: path.join(bin, "tmux"),
+				PATH: process.env.PATH,
 			},
 			{
 				root,
@@ -330,7 +331,8 @@ describe("refill-panel-open.js", () => {
 			{
 				TMUX: "/t",
 				WFC_REFILL_DIR: path.join(unopenable, "x"),
-				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+				WFC_TMUX: path.join(bin, "tmux"),
+				PATH: process.env.PATH,
 			},
 			{ root, readViewEnv: () => ({}), readViewColumns: () => 156 },
 		);

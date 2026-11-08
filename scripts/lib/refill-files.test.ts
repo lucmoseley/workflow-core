@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideTick } from "./refill-decide.js";
 import {
+	appendLoopLog,
 	readControlChecked,
 	withControlLock,
 	writeLoopPause,
@@ -73,7 +74,7 @@ describe("the loop's own pause (#3859)", () => {
 
 	it("writes the pause, changing no other field", () => {
 		writeStored({ seats: ["/s"] });
-		writeLoopPause(pause, From, () => undefined);
+		expect(writeLoopPause(pause, From, () => undefined)).toBe(true);
 		expect(stored()).toMatchObject({ paused: pause, seats: ["/s"] });
 		expect(fs.existsSync(`${control()}.lock`)).toBe(false);
 	});
@@ -81,13 +82,13 @@ describe("the loop's own pause (#3859)", () => {
 	it("keeps a pause set since the tick read the control", () => {
 		const founder = { by: "founder", at: 7 };
 		writeStored({ paused: founder });
-		writeLoopPause(pause, From, () => undefined);
+		expect(writeLoopPause(pause, From, () => undefined)).toBe(false);
 		expect(stored().paused).toEqual(founder);
 	});
 
 	it("writes nothing where a resume moved the count since", () => {
 		writeStored({ noProgressFrom: From + 1 });
-		writeLoopPause(pause, From, () => undefined);
+		expect(writeLoopPause(pause, From, () => undefined)).toBe(false);
 		expect(stored()).not.toHaveProperty("paused");
 	});
 
@@ -101,7 +102,7 @@ describe("the loop's own pause (#3859)", () => {
 		try {
 			fs.writeFileSync(`${control()}.lock`, String(holder.pid));
 			const lines: string[] = [];
-			writeLoopPause(pause, From, (l) => lines.push(l), 0);
+			expect(writeLoopPause(pause, From, (l) => lines.push(l), 0)).toBe(false);
 			expect(stored()).not.toHaveProperty("paused");
 			expect(lines.join()).toContain("the next tick decides it again");
 		} finally {
@@ -258,5 +259,26 @@ describe("the tick's control read (#3389)", () => {
 			expect(r.control?.scope.goal).toEqual(goal);
 			expect(r.lines).toEqual([]);
 		});
+	});
+});
+
+describe("the loop's log (#4186)", () => {
+	let tmp: string;
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-log-"));
+	});
+	afterEach(() => {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("appends each line stamped, making a missing directory", () => {
+		const dir = path.join(tmp, "not-yet");
+		vi.stubEnv("WFC_REFILL_DIR", dir);
+		appendLoopLog("one");
+		appendLoopLog("two");
+		const text = fs.readFileSync(path.join(dir, ".refill-loop.log"), "utf8");
+		expect(text).toMatch(
+			/^\d{4}-\d\d-\d\dT\S+Z one\n\d{4}-\d\d-\d\dT\S+Z two\n$/,
+		);
 	});
 });

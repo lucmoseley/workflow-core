@@ -133,6 +133,7 @@ const MARKER_PREFIXES = [
 	".jev-advisory-refused-",
 	".inventory-nagged-",
 	".inventory-draft-nagged-",
+	".needs-input-checklist-",
 	".unasked-rerun-refused-",
 ];
 

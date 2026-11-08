@@ -70,10 +70,10 @@ const { buildSeatName } = require("./refill-seats.js");
  * wait for the next. `idleResumes` counts its typed resumes of a
  * resumed-idle session (#2659), cleared once the session takes a turn;
  * `idleSince`, the time of the harness restart row it last read resumed-idle
- * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
- * swap hold (#3093). `holdCleared`, while its session, parked on a repo hold since
- * cleared, waits on the resume step (#3863). `bootKilled`, while its session, killed
- * by a restart, waits on the same step, and `bootResumedAt`, from that resume until
+ * on (#2978). `stepResume`, while its stopped session waits on the tick's resume
+ * step, its `cause` why: stopped under the swap hold (#3093), parked on a repo
+ * hold since cleared (#3863) or killed by a restart (#3880); `bootResumedAt`, from
+ * a restart's resume until
  * it takes a turn (#3880), and `blockUnread`, from a restart killing it on an UNKNOWN
  * block until then, so every resume asks what it waits on (#3980). `limitHeld`, while it holds one stopped on its seat's
  * limit, and `limitResumes`, its resumes and moves (#3735, #3734), `limitLeft`,
@@ -96,9 +96,7 @@ const { buildSeatName } = require("./refill-seats.js");
  *   parkedAway?: boolean, sessionId?: string,
  *   resumes?: import("./refill-blocks.js").Resumes,
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
- *   swapHeld?: import("./refill-blocks.js").SwapHeld,
- *   holdCleared?: import("./refill-blocks.js").HoldCleared,
- *   bootKilled?: import("./refill-blocks.js").BootKilled, bootResumedAt?: number,
+ *   stepResume?: import("./refill-blocks.js").StepResume, bootResumedAt?: number,
  *   blockUnread?: true,
  *   limitHeld?: import("./refill-blocks.js").LimitHeld,
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,

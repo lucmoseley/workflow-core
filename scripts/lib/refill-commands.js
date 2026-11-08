@@ -10,17 +10,18 @@ const { sizedPercent } = require("./allowance.js");
 const { RESUME_CAP } = require("./block-act.js");
 const {
 	buildLimitText,
+	buildStepStatus,
 	isLimitHeld,
 	isResuming,
-	isBootKilled,
-	isHoldCleared,
-	isSwapHeld,
 	iso,
 	nextResumeAt,
+	stepKindOf,
+	UNSETTLED_STEP_KINDS,
 } = require("./refill-blocks.js");
 const {
 	buildBasisLines,
 	buildOverflowStartLines,
+	buildStartLabel,
 } = require("./overflow-notice.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { buildNotice, isNotice } = require("./refill-notice.js");
@@ -55,7 +56,11 @@ const {
 	qualifyOpenRefs,
 	qualifyRefs,
 } = require("./refill-goal.js");
-const { buildSeatName, seatIdOf } = require("./refill-seats.js");
+const {
+	buildSeatLabel,
+	buildSeatName,
+	seatIdOf,
+} = require("./refill-seats.js");
 
 /* Untraced. */
 const STATUS_LAUNCHES = 10;
@@ -562,11 +567,13 @@ function buildGoalChange(control, asked, { now, readExclusionWhy }) {
  *   weekRead: {percent: number|null, at: string|null, rolled?: boolean},
  *   session: number|null, readAt: string, fresh: boolean}[]} readings in launch
  *   order
- * @property {{seat: string, reason: import("./refill-decide.js").SeatReason}|null} next
+ * @property {{seat: string, keyVar?: string,
+ *   reason: import("./refill-decide.js").SeatReason}|null} next
  * @property {string|null} wait why no seat is next, where none is
- * @property {{seat: string, limits: FailingLimit[], hold: string|null}[]} passedOver
- *   each seat a limit fails on, and each ahead of the pick, `hold` saying why
- *   where no limit fails
+ * @property {{seat: string|null, keyVar?: string, limits: FailingLimit[],
+ *   hold: string|null}[]} passedOver each seat a limit fails on, and each ahead
+ *   of the pick, `hold` saying why where no limit fails; a null seat is the
+ *   seat file that refuses
  * @property {string|null} callerSeat the seat `/pick-next`'s own launches went
  *   on, for `start`
  */
@@ -641,13 +648,6 @@ const HOLD_TEXT = {
 };
 
 /**
- * A seat's tilde path; "the seat file", standing in for an overflow seat where
- * that file refuses, is no path.
- * @param {string} dir
- */
-const buildDirName = (dir) => (path.isAbsolute(dir) ? buildSeatName(dir) : dir);
-
-/**
  * The picker's walk over the seats as foreseen, with every limit failing on
  * each seat it does not take. A seat behind the pick that no limit fails on
  * was never reached, so is not passed over; nor is an overflow seat before
@@ -674,7 +674,8 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 	const wait =
 		pick.seat === null
 			? [...seats, ...overflow].reduce(
-					(text, { seat }) => text.replaceAll(seat, buildDirName(seat)),
+					(text, { seat }) =>
+						seat === null ? text : text.replaceAll(seat, buildSeatName(seat)),
 					pick.wait ? buildIdleText(pick.wait) : "every seat is spent",
 				)
 			: null;
@@ -696,7 +697,10 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 			pick.seat === null
 				? null
 				: {
-						...seatIdOf({ seat: buildDirName(pick.seat), keyVar: pick.keyVar }),
+						...seatIdOf({
+							seat: buildSeatName(pick.seat),
+							keyVar: pick.keyVar,
+						}),
 						reason: pick.reason,
 					},
 		wait,
@@ -711,7 +715,8 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 					: [];
 			}),
 			...overflowReached.map((o) => ({
-				seat: buildDirName(o.seat),
+				seat: o.seat === null ? null : buildSeatName(o.seat),
+				...(o.keyVar ? { keyVar: o.keyVar } : {}),
 				limits: [],
 				hold: buildOverflowHoldText(o),
 			})),
@@ -736,13 +741,13 @@ function buildSeatsLine(view, now) {
 	return [
 		`seats:     ${readings.join(", ") || "none"}`,
 		view.next
-			? `next ${view.next.seat} (${view.next.reason})`
+			? `next ${buildSeatLabel(view.next)} (${view.next.reason})`
 			: `next none (${view.wait})`,
-		...view.passedOver.map(({ seat, limits, hold }) => {
+		...view.passedOver.map(({ limits, hold, ...seat }) => {
 			const failing = limits.map(
 				(l) => `${l.bar} ${l.percent}% ≥ ${l.ceiling}%`,
 			);
-			return `passed over ${seat} ${[...failing, ...(hold ? [hold] : [])].join(", ")}`;
+			return `passed over ${buildSeatLabel(seat)} ${[...failing, ...(hold ? [hold] : [])].join(", ")}`;
 		}),
 		...(view.callerSeat
 			? [`/pick-next's launches ${view.callerSeat} (its caller's seat)`]
@@ -779,7 +784,8 @@ function buildScopeLines(
 /**
  * Where a launch stands, for `status`.
  * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|"swap-held"|"hold-cleared"|"boot-killed"|"limit-held"|"resumed-idle"|"parked"|"running"}
+ *   |"resuming"|string|"limit-held"|"resumed-idle"
+ *   |"parked"|"running"}
  *   LaunchKind
  * @param {LoopLaunch} l
  * @returns {LaunchKind}
@@ -790,9 +796,7 @@ function launchKindOf(l) {
 	if (l.handOffTries !== undefined) return "hand-off-owed";
 	if (l.finishedAt !== null) return "finished";
 	if (isResuming(l)) return "resuming";
-	if (isSwapHeld(l)) return "swap-held";
-	if (isHoldCleared(l)) return "hold-cleared";
-	if (isBootKilled(l)) return "boot-killed";
+	if (l.stepResume) return stepKindOf(l.stepResume);
 	if (isLimitHeld(l)) return "limit-held";
 	if (l.idleSince !== undefined) return "resumed-idle";
 	return l.parked ? "parked" : "running";
@@ -804,7 +808,7 @@ const UNSETTLED = new Set([
 	"park-stopped",
 	"hand-off-owed",
 	"resuming",
-	"swap-held",
+	...UNSETTLED_STEP_KINDS,
 	"limit-held",
 	"resumed-idle",
 	"parked",
@@ -812,7 +816,10 @@ const UNSETTLED = new Set([
 
 /** @param {LoopLaunch} l */
 function launchStateOf(l) {
-	switch (launchKindOf(l)) {
+	const kind = launchKindOf(l);
+	if (l.stepResume && kind === stepKindOf(l.stepResume))
+		return buildStepStatus(l.stepResume);
+	switch (kind) {
 		case "park-stopped":
 			return "parked, stopped";
 		case "handed-off":
@@ -830,12 +837,6 @@ function launchStateOf(l) {
 					: "its typed resume being checked";
 			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
 		}
-		case "swap-held":
-			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed through admission once it clears`;
-		case "hold-cleared":
-			return `parked on repo hold ${l.holdCleared?.hold}, since cleared, resumed through admission`;
-		case "boot-killed":
-			return "killed by a restart, resumed through admission";
 		case "limit-held": {
 			const held = /** @type {import("./refill-blocks.js").LimitHeld} */ (
 				l.limitHeld
@@ -1024,7 +1025,7 @@ function buildOverflowBasisLines({
 			: []),
 		...(start
 			? [
-					`last overflow start: ${iso(start.at)} on ${buildSeatName(start.seat)}`,
+					`last overflow start: ${iso(start.at)} on ${buildStartLabel(start)}`,
 					...buildOverflowStartLines(start).map((l) => `  ${l}`),
 				]
 			: []),
@@ -1038,7 +1039,7 @@ function buildOverflowBasisLines({
  * @param {import("./overflow-budget.js").SeatBudget|{why: string}} budget
  */
 function buildOverflowStatus({ dir, keyVar }, budget) {
-	const seat = buildDirName(dir);
+	const seat = buildSeatName(dir);
 	if ("why" in budget) return { seat, keyVar, why: budget.why };
 	return {
 		seat,
@@ -1052,6 +1053,7 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
 		exhausted: budget.exhausted,
 		noLaunchLeft: isBudgetSpent(budget),
 		running: budget.running,
+		runningReadAt: budget.runningReadAt,
 	};
 }
 
@@ -1068,7 +1070,7 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
  *   seats: SeatsView, codeSha: string|null,
  *   candidates: {root: string, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
- *   overflow: (ReturnType<typeof buildOverflowStatus>|{seat: string, why: string})[],
+ *   overflow: (ReturnType<typeof buildOverflowStatus>|{seat: null, why: string})[],
  *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>}} input
  *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
  *   `burnMode`, lib/burn-mode.js's readBurnState

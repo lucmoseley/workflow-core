@@ -214,11 +214,14 @@ describe("the shared reading wait polls (#3561)", () => {
 
 describe("the shown reading the refill panel polls (#4169)", () => {
 	/* Ages either side of agent-liveness.js's DISPLAY_MAX_AGE_MS, 120 s. */
-	const aged = (bin: string, ageMs: number) =>
+	const aged = (bin: string, ageMs: number) => {
+		const at = Date.now() - ageMs;
 		fs.writeFileSync(
 			cachePath(live(bin)),
-			JSON.stringify({ at: Date.now() - ageMs, raw: listing("a") }),
+			JSON.stringify({ at, raw: listing("a") }),
 		);
+		return at;
+	};
 
 	it("serves a reading past the TTL, inside its own age, without a spawn", () => {
 		vi.stubEnv("WFC_ORACLE_CACHE_TTL_MS", "50");
@@ -227,6 +230,12 @@ describe("the shown reading the refill panel polls (#4169)", () => {
 		const r = liveness.readAgentsForDisplay();
 		expect(r.agents.map((a: Rec) => a.sessionId)).toEqual(["a"]);
 		expect(fake.spawns()).toBe(0);
+	});
+
+	it("dates a served reading by its write, not the read (#4175)", () => {
+		const fake = countingClaude(listing("a"));
+		const at = aged(fake.bin, 60_000);
+		expect(liveness.readAgentsForDisplay().readAt).toBe(at);
 	});
 
 	it("spawns past its own age", () => {
@@ -538,6 +547,18 @@ describe("the single-flight lock", () => {
 			vi.useRealTimers();
 			drop();
 		}
+	});
+
+	it("hands a follower its leader's record with that record's write time (#4175)", () => {
+		const bin = "/nowhere/claude";
+		cache.acquire(bin);
+		const sleep = () => {
+			cache.write(bin, listing("a"));
+			return true;
+		};
+		const hit = cache.waitForLeader(bin, { sleep });
+		const written = JSON.parse(fs.readFileSync(cachePath(bin), "utf8"));
+		expect(hit).toEqual({ raw: listing("a"), at: written.at });
 	});
 
 	it("gives up on a leader that published nothing, rather than waiting out the clock (mantahostels#1924)", () => {

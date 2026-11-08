@@ -117,7 +117,7 @@ describe("start", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2\n~/.claude2-api api key=K grant=200\n",
+			"~/.claude2\n~/.claude2 api key=K grant=200\n",
 		);
 		const r = await run("start");
 		expect(r.status).toBe(2);
@@ -511,6 +511,7 @@ describe("stop and status", () => {
 				exhausted: false,
 				noLaunchLeft: false,
 				running: 0,
+				runningReadAt: expect.any(Number),
 			},
 		]);
 		expect(json.seats.readings).toEqual([
@@ -590,12 +591,12 @@ describe("stop and status", () => {
 		expect(key.why).toBe("the session cost table is unreadable");
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2-api api key=WFC_TEST_KEY grant=200\n",
+			"~/.claude2\n~/.claude2 api key=WFC_TEST_KEY grant=200\n",
 		);
 		const [refusal] = JSON.parse(
 			(await run("status", "--json")).stdout,
 		).overflow;
-		expect(refusal.seat).toBe("the seat file");
+		expect(refusal.seat).toBeNull();
 		expect(refusal.why).toContain("missing cycle-day=");
 	});
 
@@ -604,7 +605,11 @@ describe("stop and status", () => {
 		const r = await run("status");
 		const line = r.stdout
 			.split("\n")
-			.find((l) => l.startsWith(`overflow ${path.join(dir, ".claude3")}: `));
+			.find((l) =>
+				l.startsWith(
+					`overflow ${path.join(dir, ".claude3")} key=WFC_TEST_KEY: `,
+				),
+			);
 		expect(line?.slice(line.indexOf(": ") + 2)).toMatch(
 			/^fits 50; headroom \$200\.00 \(\$0\.00 held by 0 running\); spent \$0\.00 of \$200\.00 since \d{4}-\d{2}-20; resets \d{4}-\d{2}-20$/,
 		);
@@ -782,7 +787,7 @@ describe("stop and status", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n~/.claude3-api api nope\n",
+			"~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n~/.claude2 api nope\n",
 		);
 		const { stdout } = await run("status");
 		expect(stdout).toContain("seat file refuses: ");
