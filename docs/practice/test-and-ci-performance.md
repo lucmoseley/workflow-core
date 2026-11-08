@@ -249,7 +249,7 @@ Researched 2026-11-06.
 - CPU time (user + sys) excludes run-queue wait (`getrusage(2)`, [standard or field body] for what it counts) and is the low-noise metric; wall is noisier but is what a caller waits for (Tratt, "What Metric to Use When Benchmarking?", 2022). [named expert]
 - 95% confidence, about 30 samples to start, a bootstrap CI of the ratio (1,000+ replicates; Duet uses 10,000), compared against a stated threshold. Kalibera & Jones; Georges, Buytaert & Eeckhout, OOPSLA 2007; Duet. [named expert] A rank test at α 0.05 (Google Benchmark `compare.py`, Mozilla PerfCompare) tests for a difference and cannot show "no worse".
 - Refuse on precision, never on load: stop when the CI is tight enough, and at a sample cap report the CI as inconclusive. Georges et al.; Kalibera & Jones; Abedi & Brecht. [named expert]
-- Agreement (3+): a paired, randomised-order ratio with a bootstrap CI against a non-inferiority margin, more samples while the CI straddles it, inconclusive at the cap. This repo's form is `scripts/measure-guard-port/bench.py --paired` (#3216); its 3% margin, +30 step and 90 cap are untraced, and its median of ratios departs from Duet's geometric mean so one loaded call does not move it.
+- Agreement (3+): a paired, randomised-order ratio with a bootstrap CI against a non-inferiority margin, more samples while the CI straddles it, inconclusive at the cap. This repo's form is `scripts/measure-guard-port/bench.py --paired` (#3216); its 3% margin (#3232) and one final 720-pair re-read of an INCONCLUSIVE (#4664) are house, its +30 step and 90 cap untraced, and its median of ratios departs from Duet's geometric mean so one loaded call does not move it.
 
 ## Gaps
 

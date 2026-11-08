@@ -42,6 +42,15 @@ describe("the cause→act table", () => {
 			);
 	});
 
+	it("LOCKED_OUT: attaches to its probe hold in either mode, on the first tick (#4228)", () => {
+		expect(blockAct(block("LOCKED_OUT", 0), "away", NOW)).toBe(
+			"attach-to-hold",
+		);
+		expect(blockAct(block("LOCKED_OUT", 0), "normal", NOW)).toBe(
+			"attach-to-hold",
+		);
+	});
+
 	for (const cause of ["OTHER_DIALOG", "UNKNOWN"] as const)
 		it(`${cause}: none in either mode`, () => {
 			expect(blockAct(block(cause, 600), "away", NOW)).toBe("none");

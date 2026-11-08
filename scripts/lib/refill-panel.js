@@ -29,8 +29,10 @@ const {
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
+	UNPROVEN_CAP,
 } = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
+const { buildSeatLabel } = require("./refill-seats.js");
 const { buildNotice, buildNoticeText } = require("./refill-notice.js");
 
 /* Where the block starts, 1-based as a mouse report counts. Untraced: one cell
@@ -41,6 +43,10 @@ const LEFT_COLUMN = 3;
 const WHEEL_ROWS = 3;
 const MORE_ABOVE_MARK = "↑ more";
 const MORE_BELOW_MARK = "↓ more";
+
+/* Untraced, a first guess: fast enough that a change elsewhere shows while the
+ * founder looks, and each poll is one short Node process. */
+const POLL_MS = 3000;
 
 /* How long a press's note holds its row before that row's own words return. Untraced:
  * a first guess, long enough to read one line. */
@@ -78,6 +84,7 @@ const WAITING_WORDS = new Map([
 	[NOTHING_LAUNCHABLE, "No ticket ready"],
 	[SHORTLIST_FAILED, "Ticket list failed"],
 	[RESUMES_TAKE_SLOTS, "Resuming paused sessions first"],
+	[UNPROVEN_CAP, "Waiting on any session's next act"],
 	[RESUME_DUE_WAIT, "All plans used up; a resume is due"],
 	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
 ]);
@@ -111,9 +118,10 @@ const ROLE_STYLES = {
 /**
  * The fields of `refill-loop.js status --json` the panel reads.
  * @typedef {{root: string, number: number}} PauseIssue
- * @typedef {{seat: string, why: string}
- *   | {seat: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
- *     creditReadAt: number|null,
+ * @typedef {{seat: string, keyVar: string, why: string}
+ *   | {seat: null, why: string}
+ *   | {seat: string, keyVar: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
+ *     creditReadAt: number|null, runningReadAt: number|null,
  *     noLaunchLeft: boolean, running: number}} OverflowKey
  * @typedef {Exclude<OverflowKey, {why: string}>} ReadKey
  * @typedef {{running: boolean, stopRequested: boolean,
@@ -429,7 +437,7 @@ function buildKeysInPlanOrder({ seats, overflow }) {
 	const plans = seats.readings.map((reading) => reading.seat);
 	/** @param {OverflowKey} key */
 	const rank = (key) => {
-		const at = plans.indexOf(key.seat);
+		const at = key.seat === null ? -1 : plans.indexOf(key.seat);
 		return at === -1 ? plans.length : at;
 	};
 	return [...overflow].sort((a, b) => rank(a) - rank(b));
@@ -450,8 +458,7 @@ function buildKeyFigure(
 	/* Running runs' reservations can pass a key's credit. */
 	const usd = exhausted ? 0 : Math.floor(Math.max(headroomUsd, 0));
 	if (creditReadAt === null) return `${exhausted ? "" : "~"}$${usd} ${figure}`;
-	const age = describeAge(Math.max(0, (now - creditReadAt) / 1000));
-	return `$${usd} ${figure} (${age} ago)`;
+	return `$${usd} ${figure} (${describeAgo(creditReadAt, now)})`;
 }
 
 /**
@@ -468,22 +475,52 @@ function buildNotSpendingReason(status, picksKey) {
 }
 
 /**
+ * How long ago `at` was, in seconds under a minute: the running count's age stays
+ * under two minutes (#4175).
+ * @param {number} at ms
+ * @param {number} now
+ */
+function describeAgo(at, now) {
+	const s = Math.floor(Math.max(0, now - at) / 1000);
+	return `${s < 60 ? `${s}s` : describeAge(s)} ago`;
+}
+
+/**
+ * The running count's age, ` (45s ago)`, where the oldest listing a key counted
+ * its sessions off is older than one poll (#4175), else nothing.
+ * @param {ReadKey[]} keys
+ * @param {number} now
+ */
+function buildRunningAge(keys, now) {
+	const dated = keys.flatMap((key) =>
+		key.runningReadAt === null ? [] : [key.runningReadAt],
+	);
+	if (dated.length === 0) return "";
+	const at = Math.min(...dated);
+	return now - at <= POLL_MS ? "" : ` (${describeAgo(at, now)})`;
+}
+
+/**
  * Whether credits are spending (#3958): a session on a key is running, or the seat the
  * picker takes next is a key and the last tick launched rather than idled. Residual:
  * between such a tick's launch and the next status read, this says spending before
  * that session has spent. An unread key
- * could hold running sessions, so it never reads as not spending.
+ * could hold running sessions, so it never reads as not spending. A verdict off the
+ * running count carries that count's age.
  * @param {PanelStatus} status
+ * @param {number} now
  * @returns {{spending: boolean, text: string}}
  */
-function buildSpendState(status) {
+function buildSpendState(status, now) {
 	const { seats, overflow } = status;
-	const running = buildReadKeys(overflow).reduce(
-		(sum, key) => sum + key.running,
-		0,
-	);
+	const keys = buildReadKeys(overflow);
+	const running = keys.reduce((sum, key) => sum + key.running, 0);
+	const age = buildRunningAge(keys, now);
 	if (running > 0)
-		return { spending: true, text: `Spending now: ${running} on credits` };
+		return {
+			spending: true,
+			text: `Spending now: ${running} on credits${age}`,
+		};
 	const picksKey = seats.next?.reason === "overflow";
 	if (isLaunching(status) && picksKey && status.lastTick?.idle === null)
 		return { spending: true, text: "Spending now: plans are full" };
@@ -491,7 +528,7 @@ function buildSpendState(status) {
 		return { spending: false, text: "Spending unknown" };
 	return {
 		spending: false,
-		text: `Not spending: ${buildNotSpendingReason(status, picksKey)}`,
+		text: `Not spending: ${buildNotSpendingReason(status, picksKey)}${age}`,
 	};
 }
 
@@ -544,14 +581,15 @@ function buildPlanRows({ seats }, now) {
  */
 function buildCreditRows(status, now) {
 	if (status.overflow.length === 0) return [];
-	const { spending, text } = buildSpendState(status);
+	const { spending, text } = buildSpendState(status, now);
 	/** @type {Role} */
 	const role = spending ? "value" : "secondary";
 	return [
 		SIBLING_GAP,
 		{ text: "API credits left", role },
 		...buildKeysInPlanOrder(status).map((key) => {
-			const name = key.seat.replace("~/", "");
+			/* The dir alone, as the pane is narrow. */
+			const name = buildSeatLabel({ seat: key.seat }).replace("~/", "");
 			return "why" in key
 				? {
 						text: `  ${name}  unread: ${key.why}`,
@@ -2065,6 +2103,7 @@ function buildFrameLine(
 
 module.exports = {
 	ESC,
+	POLL_MS,
 	buildFrame,
 	findHoverRow,
 	countUnscrolledHeight,

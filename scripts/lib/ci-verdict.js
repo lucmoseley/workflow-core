@@ -16,11 +16,20 @@
  * bisect check-ci-status.js's report recommends creates a newer run at a newer
  * sha, which would then mask the red that prompted it. `issue-card-drift` has
  * no workflow file (#1557), but GitHub still lists its past runs, which judge
- * the tracker, not the tree. */
+ * the tracker, not the tree. `Named rerun` is dispatched on ref `main` with the
+ * tree under test as an input, so GitHub stamps `main`'s sha on a queue tree's
+ * verdict; the lander reads those runs by title instead (#4676). The two queue
+ * alarms run on `main` and go red on a stalled queue, not a faulty tree.
+ * Residual: a named rerun of `main`'s own base check no longer keys either
+ * reader, which leaves `main`'s own CI runs to carry its verdict; an alarm's
+ * red reaches only its failure email. */
 const NOT_A_TREE_VERDICT = new Set([
 	"bisect",
 	"Dependency Graph",
 	"issue-card-drift",
+	"Named rerun",
+	"Landing quiet 14h",
+	"Queue ref waiting 2h",
 ]);
 
 /* A run has FINISHED when it has a conclusion — never when `status` says so.

@@ -6,11 +6,14 @@
  *   node scripts/lib/dispatch-gates.js -- <config dir> [<key var>]
  *
  * Prints `<seat kind> <burn>` — `plan` or `overflow` (lib/refill-seats.js),
- * then `on` where burn mode's marker exists (lib/burn-mode.js) — and a
- * second line: the variables every launch's environment drops. Those are the
- * launcher's root (lib/inherited-roots.js) and, on an overflow seat, any key,
- * so the key reaches the child through lib/overflow-key.js's helper alone,
- * which lib/headless-sessions.js passes in `--settings`. Exits 0. Exits 2 printing `REFUSED:` and why where
+ * then `on` where burn mode's marker exists (lib/burn-mode.js) — a second
+ * line: the variables every launch's environment drops, and a third: the
+ * seat's label (lib/refill-seats.js's buildSeatLabel), which the dispatcher's
+ * lines name it by. The variables dropped are the launcher's root
+ * (lib/inherited-roots.js) and, on an overflow seat, those
+ * lib/overflow-key.js's buildOverflowLaunch names, any key among them, so the
+ * key reaches the child through that file's helper alone, which
+ * lib/headless-sessions.js passes in `--settings`. Exits 0. Exits 2 printing `REFUSED:` and why where
  * the seat file refuses the seat, the overflow key cannot be read, or the
  * launch would bill other than its seat (lib/launch-auth.js), judged in the
  * environment the launch hands its child.
@@ -26,8 +29,12 @@ const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { ROOT_VARS } = require("./inherited-roots.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const { buildKeySettings, overflowUnset } = require("./overflow-key.js");
-const { readDeclaredSeats, seatOfLaunch } = require("./refill-seats.js");
+const { buildOverflowLaunch } = require("./overflow-key.js");
+const {
+	buildSeatLabel,
+	readDeclaredSeats,
+	seatOfLaunch,
+} = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -58,9 +65,11 @@ function readBurnMode() {
 /**
  * @param {string} dir
  * @param {string | undefined} keyVar
- * @returns {{kind: "plan" | "overflow", overflow?: {settings: string, unset: string[]}} | {why: string}}
- *   the seat's kind and an overflow launch's settings and dropped variables,
- *   or the refusal of the first gate that refuses, ending in a newline
+ * @returns {{kind: "plan" | "overflow", label: string,
+ *   overflow?: {settings: string, unset: string[]}} | {why: string}}
+ *   the seat's kind and label and an overflow launch's settings and dropped
+ *   variables, or the refusal of the first gate that refuses, ending in a
+ *   newline
  */
 function gateOutcome(dir, keyVar) {
 	const list = readDeclaredSeats();
@@ -72,14 +81,15 @@ function gateOutcome(dir, keyVar) {
 			why: `the seat file refuses (seat ${dir}):\n${why.map((w) => `  ${w}\n`).join("")}`,
 		};
 	}
-	const env = { ...process.env };
+	let env = process.env;
 	/** @type {{settings: string, unset: string[]} | undefined} */
 	let overflow;
 	if (seat.kind === "overflow") {
-		const built = buildKeySettings(seat.keyVar);
-		if ("why" in built) return { why: `overflow seat ${dir}: ${built.why}\n` };
-		overflow = { settings: built.settings, unset: overflowUnset(seat.keyVar) };
-		for (const name of overflow.unset) delete env[name];
+		const built = buildOverflowLaunch(seat.keyVar, env);
+		if ("why" in built)
+			return { why: `overflow seat ${buildSeatLabel(seat)}: ${built.why}\n` };
+		({ env } = built);
+		overflow = { settings: built.settings, unset: built.unset };
 	}
 	const auth = launchAuthRefusal({
 		bin: claudeBin(env),
@@ -88,7 +98,7 @@ function gateOutcome(dir, keyVar) {
 		settings: overflow?.settings,
 	});
 	if (auth) return { why: `${auth}\n` };
-	return { kind: seat.kind, overflow };
+	return { kind: seat.kind, label: buildSeatLabel(seat), overflow };
 }
 
 /** @returns {never} */
@@ -132,5 +142,5 @@ if (require.main === module) {
 	}
 	writeFd(1, `${outcome.kind} ${readBurnMode()}\n`);
 	const unset = [...ROOT_VARS, ...(outcome.overflow?.unset ?? [])];
-	writeFd(1, `${unset.join(" ")}\n`);
+	writeFd(1, `${unset.join(" ")}\n${outcome.label}\n`);
 }

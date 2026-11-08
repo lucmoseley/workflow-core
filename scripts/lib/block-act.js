@@ -41,7 +41,10 @@ const IDLE_TRIES = 2;
 /**
  * @typedef {import("./block-cause.js").Cause} Cause
  * @typedef {"stop-and-park"|"park-at-morning"|"resume"|"hold"
- *   |"resume-in-place"|"move"|"handoff-relaunch"|"wait"|"none"} Act  `hold`, stop the
+ *   |"resume-in-place"|"move"|"handoff-relaunch"|"attach-to-hold"|"wait"
+ *   |"none"} Act  `attach-to-hold`, attach a locked-out session to its
+ *   checkout's probe hold, raising it where none stands, then stop and park it
+ *   there (#4228); `hold`, stop the
  *   session until its next resume is due, a resumed-idle one until the swap
  *   hold clears, or a limit-blocked one until a seat has room for it;
  *   `resume-in-place`, a limit-blocked one back on its own seat; `move`, one
@@ -51,11 +54,12 @@ const IDLE_TRIES = 2;
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
  *   movePick?: Pick<import("./refill-blocks.js").MoveTarget, "seat"|"keyVar">|null,
  *   slotFree?: boolean,
- *   dryResumes?: number, heldAt?: number}} Block  `since`,
+ *   dryResumes?: number, heldAt?: number,
+ *   lockout?: import("./block-cause.js").Lockout}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
  *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
- *   `bar`, the bar a LIMIT's text names;
+ *   `bar`, the bar a LIMIT's text names; `lockout`, a LOCKED_OUT's refusal;
  *   `tries`, the resumes made for the launch so far, the last at `triedAt`,
  *   and `nextAt`, when the next is due; `held`, its session stopped until
  *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
@@ -104,6 +108,8 @@ const stopAtOnce = () => "stop-and-park";
 const waitForAnswer = () => "wait";
 /** @type {Rule} */
 const leave = () => "none";
+/** @type {Rule} */
+const attachToHold = () => "attach-to-hold";
 
 /**
  * Whether a resumed session blocked again before its next try is stopped
@@ -236,7 +242,8 @@ const limit = (block, now) => {
  * answered, so they stay in needs input: #3621; residual: each holds a launch
  * slot until then, admission's memory gate bounding the count. PERMISSION as
  * a question: #2360. API_ERROR: #2359. LIMIT: #2125, #3735. UNKNOWN: #2358 F9.
- * RESUMED_IDLE: #2659, #2978. `isFounderWait`, a block that waits on the founder, in a
+ * RESUMED_IDLE: #2659, #2978. LOCKED_OUT: #4228, in either mode, as no answer
+ * of the founder's mends it. `isFounderWait`, a block that waits on the founder, in a
  * thread his answer resumes (#3584).
  * @type {Record<Cause, {away: Rule, normal: Rule, isFounderWait: boolean}>}
  */
@@ -250,6 +257,11 @@ const TABLE = {
 	},
 	LIMIT: { away: limit, normal: limit, isFounderWait: false },
 	OTHER_DIALOG: { away: leave, normal: leave, isFounderWait: true },
+	LOCKED_OUT: {
+		away: attachToHold,
+		normal: attachToHold,
+		isFounderWait: false,
+	},
 	RESUMED_IDLE: {
 		away: resumedIdle,
 		normal: resumedIdle,

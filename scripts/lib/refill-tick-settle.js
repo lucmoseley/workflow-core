@@ -33,6 +33,7 @@ const { seatTriedAfter } = require("./seat-reading.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
 	buildOverflowStartLines,
+	buildStartLabel,
 	firstOverflowStart,
 	planSeatBasisOf,
 } = require("./overflow-notice.js");
@@ -339,11 +340,12 @@ function recordOverflowStart(input, launches, since, io) {
 	const start = {
 		at: first.at,
 		seat: first.launch.seat,
+		...(first.launch.keyVar ? { keyVar: first.launch.keyVar } : {}),
 		planSeats: input.seats.map(planSeatBasisOf),
 		omitted,
 	};
 	io.log(
-		`first overflow launch on ${buildSeatName(first.launch.seat)}: ${buildOverflowStartLines(start).join("; ")}`,
+		`first overflow launch on ${buildStartLabel(start)}: ${buildOverflowStartLines(start).join("; ")}`,
 	);
 	return start;
 }

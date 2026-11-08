@@ -135,6 +135,10 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			calls.push(`ledger ${l.jobId} ${until}`);
 			return true;
 		},
+		holdLockedOut: (l, { refusal }) => {
+			calls.push(`hold ${l.jobId} ${refusal}`);
+			return { hold: { id: "probe", issue: 77 } };
+		},
 		readTimeline: () => [],
 		idleSince: () => null,
 		hasTurnedSince: () => false,
@@ -285,6 +289,45 @@ describe("which parks the loop stops (#2699)", () => {
 		]);
 		expect(labelled).toEqual(["p"]);
 		expect(out[0]).toMatchObject({ parkStopped: NOW });
+	});
+
+	describe("a locked-out park (#4228)", () => {
+		const lockout = {
+			refusal: "guard-x could not judge this call, and it fails closed: boom",
+			call: { tool_name: "Bash", tool_input: { command: "ls" } },
+		};
+		const locked = () =>
+			parkedFor("LOCKED_OUT", 0, {
+				block: { cause: "LOCKED_OUT", lockout, since: NOW },
+			});
+
+		it.each(["away", "normal"] as const)(
+			"attaches to the probe hold, then stops and parks it there with no question comment, in %s mode",
+			(mode) => {
+				const { out, calls } = blocks([locked()], blocked, mode);
+				const since = new Date(NOW).toISOString();
+				const line = `stopped LOCKED_OUT park design-vault /implement 42 (${mode} mode, blocked since ${since}, attached to repo hold probe (#77)); labelled parked: #42`;
+				expect(calls).toEqual([
+					`hold p ${lockout.refusal}`,
+					"stop p",
+					"record s-p 42",
+					`log ${line}`,
+					`comment Refill loop: ${line}. The conversation is kept: \`claude attach\` reopens it. The loop resumes it once the hold clears.`,
+				]);
+				expect(out[0]).toMatchObject({ parkStopped: NOW });
+				expect(out[0]).not.toHaveProperty("parkedAway");
+			},
+		);
+
+		it("leaves it running, for the next tick, where the attach does not take", () => {
+			const { out, calls } = blocks([locked()], blocked, "away", {
+				io: { holdLockedOut: () => ({ why: "no issue filed yet" }) },
+			});
+			expect(calls).toEqual([
+				"log could not attach locked-out design-vault /implement 42 to its probe hold, the next tick retries: no issue filed yet",
+			]);
+			expect(out[0]).not.toHaveProperty("parkStopped");
+		});
 	});
 
 	it("stops nothing off an unread listing", () => {

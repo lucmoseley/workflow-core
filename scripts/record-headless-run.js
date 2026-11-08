@@ -33,7 +33,7 @@ const {
 	parseHelpOptions,
 } = require("./lib/headless-options.js");
 const { readJsonl } = require("./lib/jsonl.js");
-const { readDeclaredSeats } = require("./lib/refill-seats.js");
+const { overflowSeatsOf, readDeclaredSeats } = require("./lib/refill-seats.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "headless-run.json");
@@ -53,9 +53,9 @@ const SYNTHETIC = {
 function readOverflowKey(key) {
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) throw new Error(list.errors.join("\n"));
-	const seat = list.seats
-		.flatMap((s) => (s.kind === "overflow" ? [s] : []))
-		.find((s) => key === undefined || s.keyVar === key);
+	const seat = overflowSeatsOf(list.seats).find(
+		(s) => key === undefined || s.keyVar === key,
+	);
 	if (!seat)
 		throw new Error(
 			key ? `${key} is no overflow seat's key` : "no overflow seat declared",

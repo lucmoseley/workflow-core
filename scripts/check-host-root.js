@@ -127,11 +127,6 @@ const ALLOWED = {
 		reason:
 			"the heresy checks' subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3555)",
 	},
-	"scripts/lib/repo-holds.js": {
-		tags: ["HOST-ROOTED-CORE"],
-		reason:
-			"the guard-load probe runs the self-plugin host's own scripts/guard-dispatch.js, the entry its sessions load; the loop's code copy under __dirname is the one a broken main checkout leaves healthy (#4226)",
-	},
 	"scripts/lib/husky-shim.js": {
 		tags: ["SECOND-SEAM-JS"],
 		reason:

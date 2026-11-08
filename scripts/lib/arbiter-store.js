@@ -149,6 +149,7 @@ module.exports = {
 	readObservedEntriesBy: observations.readObservedEntriesBy,
 	observedVersions: observations.observedVersions,
 	readActsBy: ledger.readActsBy,
+	readLastActAt: ledger.readLastActAt,
 	readBilledPathsBy: ledger.readBilledPathsBy,
 	readCommitsBy: ledger.readCommitsBy,
 	paths: core.paths,
