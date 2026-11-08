@@ -1004,6 +1004,57 @@ describe("the abort budget's override (#1024)", () => {
 	}, 20_000);
 });
 
+/** A stub gateway that refuses the key with `status`, as a dead key is (#4144). */
+async function refusingStub(status: number): Promise<string> {
+	return stub((_body, res) => {
+		res.writeHead(status, { "content-type": "application/json" });
+		res.end(
+			JSON.stringify({
+				error: { message: "Invalid API key", type: "authentication_error" },
+			}),
+		);
+	});
+}
+
+describe("a refused key (#4144)", () => {
+	it.each([401, 403])(
+		"logs a %i as refused and never as an outage",
+		async (status) => {
+			await run(PLAIN, callable(await refusingStub(status)));
+			const outcomes = readLogLines().map((l) => l.outcome);
+			expect(outcomes).toEqual(["refused"]);
+		},
+	);
+
+	it("names the fix rather than an unreachable vendor", async () => {
+		const res = await run(PLAIN, callable(await refusingStub(401)));
+		expect(saidBy(res)).toContain("refused its key");
+		expect(saidBy(res)).toContain("write-secret.js");
+		expect(saidBy(res)).not.toContain("could not reach its vendor");
+	});
+
+	it("spends its own counter and neither the outage nor the warn budget", async () => {
+		await run(PLAIN, callable(await refusingStub(401)));
+		expect(
+			fs.readFileSync(marker(`.jev-advisory-refused-${sid}`), "utf8").trim(),
+		).toBe("1");
+		expect(fs.existsSync(marker(`.jev-advisory-outage-${sid}`))).toBe(false);
+		expect(fs.existsSync(marker(`.jev-advisory-nagged-${sid}`))).toBe(false);
+	});
+
+	it("notices once a session and logs every time after", async () => {
+		const env = callable(await refusingStub(401));
+		const first = await run(PLAIN, env);
+		const second = await run(PLAIN, env);
+		expect(saidBy(first)).toContain("refused its key");
+		expect(saidBy(second)).toBe("");
+		expect(readLogLines().map((l) => l.outcome)).toEqual([
+			"refused",
+			"refused",
+		]);
+	});
+});
+
 /**
  * A reply the gateway delivers whole and the check cannot read: vendor schema
  * drift, which #175's outage limb must not count (#226).
