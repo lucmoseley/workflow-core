@@ -307,7 +307,7 @@ fi
   if source "$here/lib/rule-text.sh" 2>/dev/null && text="$(rule_text review-hold 2>/dev/null)"; then
     printf '\n%s\n\n' "$text"
   else
-    echo "  The rule itself could not be read from docs/agents/rules/review-hold.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before going on."
+    echo "  The rule itself could not be read from docs/agents/rules/review-hold.txt. Restore that file from origin/main, or revert the change that removed it, then read it before going on."
   fi
   echo "pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed."
 } >&2

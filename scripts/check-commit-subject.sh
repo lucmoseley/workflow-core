@@ -73,7 +73,7 @@ length="$(printf '%s' "$subject" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' 
 # shellcheck source=scripts/lib/rule-text.sh
 source "$here/lib/rule-text.sh" 2>/dev/null
 if ! declare -F rule_text >/dev/null 2>&1 || ! rule="$(rule_text commit-message 2>/dev/null)"; then
-  rule="A commit subject is at most $LIMIT characters; the rule could not be read from docs/agents/rules/commit-message.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before committing again."
+  rule="A commit subject is at most $LIMIT characters; the rule could not be read from docs/agents/rules/commit-message.txt. Restore that file from origin/main, or revert the change that removed it, then read it before committing again."
 fi
 
 {

@@ -123,7 +123,7 @@ describe("ruleOrFallback", () => {
 			},
 		};
 		expect(ruleOrFallback(empty, "a-rule", "Lead", onFault)).toBe(
-			"Lead; the rule could not be read from /core/docs/agents/rules/a-rule.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
+			"Lead; the rule could not be read from /core/docs/agents/rules/a-rule.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 		expect(faults).toEqual(["fault"]);
 	});

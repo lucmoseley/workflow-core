@@ -537,7 +537,7 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 				log: (what: string) => faults.push(what),
 			}),
 		).toBe(
-			`This writes an issue body whole, erasing any parallel session's edit: gh issue edit 132 --body "…"\n\nEvery issue-body edit goes through node scripts/issue-body.js; the rule could not be read from docs/agents/rules/issue-body-clobber.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.`,
+			`This writes an issue body whole, erasing any parallel session's edit: gh issue edit 132 --body "…"\n\nEvery issue-body edit goes through node scripts/issue-body.js; the rule could not be read from docs/agents/rules/issue-body-clobber.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.`,
 		);
 		expect(faults).toEqual([]);
 	});

@@ -880,7 +880,7 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 	it("answers the lead in the fallback template where it cannot, and logs under the label", () => {
 		store({});
 		expect(lib.readRuleTextOr("a-rule", "Short", "guard-x")).toBe(
-			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
+			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 		expect(readLogged()).toContain("guard-x rule-text a-rule");
 	});
@@ -888,7 +888,7 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 	it("answers the lead in the fallback template where the store cannot be read at all (#772)", () => {
 		vi.stubEnv("WFC_RULES_DIR", path.join(store({}), "gone"));
 		expect(lib.readRuleTextOr("a-rule", "Short", "guard-x")).toBe(
-			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
+			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 		expect(readLogged()).toContain("guard-x rule-text a-rule");
 	});

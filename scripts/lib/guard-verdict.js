@@ -104,7 +104,7 @@ function ruleOrFallback(ctx, id, lead, onFault) {
 		return ctx.ruleText(id);
 	} catch {
 		onFault?.();
-		return `${lead}; the rule could not be read from ${ctx.docPath(`agents/rules/${id}.txt`)}. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.`;
+		return `${lead}; the rule could not be read from ${ctx.docPath(`agents/rules/${id}.txt`)}. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.`;
 	}
 }
 

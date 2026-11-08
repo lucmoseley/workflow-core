@@ -38,7 +38,7 @@ type Verdict = {
 } | null;
 
 const WRAPPER_RULE_FALLBACK =
-	"A vitest run outside `scripts/run-vitest.js` has no stall watchdog; the rule could not be read from docs/agents/rules/vitest-wrapper.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.";
+	"A vitest run outside `scripts/run-vitest.js` has no stall watchdog; the rule could not be read from docs/agents/rules/vitest-wrapper.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
 
 const { decide } = require("./vitest-wrapper.js") as {
 	decide: (command: string, ctx: object) => Verdict;

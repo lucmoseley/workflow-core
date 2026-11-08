@@ -40,9 +40,9 @@ type Decision = { deny: string } | null;
 /* An install's spelling, so a fallback naming a bare checkout path fails. */
 const docPath = (name: string) => `/core/docs/${name}`;
 const UNASKED_RULE_FALLBACK =
-	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.";
+	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
 const UNASKED_LANDING_RULE_FALLBACK =
-	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun-landing.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.";
+	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
 const { decide } = require("./unasked-rerun-guard.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };

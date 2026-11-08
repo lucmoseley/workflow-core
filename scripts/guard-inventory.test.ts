@@ -155,7 +155,7 @@ describe("where the block is owed", () => {
 			env: { WFC_RULES_DIR: empty },
 		});
 		expect(reason).toContain(
-			"the rule could not be read from docs/agents/rules/founder-deliverable.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.",
+			"the rule could not be read from docs/agents/rules/founder-deliverable.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 		expect(reason).not.toContain(RULE);
 	});
@@ -268,7 +268,7 @@ describe("the status-line tail", () => {
 
 	it("refuses a tail that is not refs", () => {
 		expect(run(`${ITEM}\n\nresult: done — waits on you: the reply`)).toContain(
-			"lists issue refs only",
+			"lists issue refs only, `— waits on you: #N, owner/repo#M` — read: `the reply`",
 		);
 	});
 
@@ -280,6 +280,17 @@ describe("the status-line tail", () => {
 		);
 		expect(reason).toContain("lists issue refs only");
 		expect(reason).toContain("… (99804 more characters)");
+		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
+	});
+
+	it("caps a long mismatched ref list the same way", () => {
+		const refs = Array.from({ length: 2000 }, (_, i) => `#${i + 100}`);
+		const reason = run(
+			`${ITEM}\n\nresult: done — waits on you: ${refs.join(", ")}`,
+		);
+		expect(reason).toMatch(
+			/the status line's tail lists o\/here#100, .*… \(\d+ more characters\) where the block lists o\/here#31/,
+		);
 		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
 	});
 

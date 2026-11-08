@@ -202,7 +202,7 @@ describe("the refusal's text", () => {
 			},
 		});
 		expect(reason).toBe(
-			`${FRAMING}: export WFC_ALLOW_BRANCH=1\n\nA git-hook WFC_ALLOW_* escape is the founder's to set, never an agent's (#916); the rule could not be read from docs/agents/rules/hook-escape.txt. Restore that file with git pull, or by reverting the change that removed it, then read it before doing anything else.`,
+			`${FRAMING}: export WFC_ALLOW_BRANCH=1\n\nA git-hook WFC_ALLOW_* escape is the founder's to set, never an agent's (#916); the rule could not be read from docs/agents/rules/hook-escape.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.`,
 		);
 	});
 

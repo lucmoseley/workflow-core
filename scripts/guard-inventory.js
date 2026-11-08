@@ -622,7 +622,8 @@ function roundFault(verdict, question, sessionId, payload) {
 }
 
 /* The most of a refused tail the refusal quotes, so a pasted wall of text
- * cannot flood the session (#4035). */
+ * cannot flood the session (#4035). A first guess: room for a dozen refs and
+ * their separators, under a tenth of the ~2.5 KB refusal it sits in. */
 const TAIL_ECHO_MAX = 200;
 
 /**
@@ -630,7 +631,7 @@ const TAIL_ECHO_MAX = 200;
  * @param {string} text
  * @returns {string}
  */
-function echoed(text) {
+function cappedForEcho(text) {
 	const chars = [...text];
 	return chars.length <= TAIL_ECHO_MAX
 		? text
@@ -661,13 +662,13 @@ function tailFaults(payload, verdict) {
 	const refs = tokens.map((t) => readCanonicalRef(t));
 	if (refs.length === 0 || refs.includes(null))
 		return [
-			`the status line's tail lists issue refs only, \`— waits on you: #N, owner/repo#M\` — read: \`${echoed(tail)}\``,
+			`the status line's tail lists issue refs only, \`— waits on you: #N, owner/repo#M\` — read: \`${cappedForEcho(tail)}\``,
 		];
 	const want = new Set(verdict.items.map((i) => i.ref));
 	const got = new Set(refs);
 	if (want.size === got.size && [...want].every((r) => got.has(r))) return [];
 	return [
-		`the status line's tail lists ${echoed([...got].join(", "))} where the block lists ${listed || "nothing"} — both name the same issues`,
+		`the status line's tail lists ${cappedForEcho([...got].join(", "))} where the block lists ${cappedForEcho(listed) || "nothing"} — both name the same issues`,
 	];
 }
 
