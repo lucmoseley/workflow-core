@@ -150,8 +150,7 @@ const hasFilingTime = () =>
 	FILER_TIMEOUT_MS;
 
 /* Where `--hourly` runs claim their clock hour, in the git common dir, and
- * the hour: an untraced value, cheap because it delays a filing by an hour at
- * most (#4367). */
+ * the hour, an untraced value (#4367). */
 const WALK_DIR = "orphaned-edits-walked";
 const WALK_EVERY_MS = 3_600_000;
 
