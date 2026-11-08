@@ -147,6 +147,17 @@ describe("where the block is owed", () => {
 		}
 	});
 
+	it("prints a stand-in naming the restore where the rule's fragment is gone", () => {
+		const empty = fs.mkdtempSync(path.join(dir, "rules-"));
+		const reason = run("Done.\n\nresult: done", {
+			env: { WFC_RULES_DIR: empty },
+		});
+		expect(reason).toContain(
+			"the rule could not be read from docs/agents/rules/founder-deliverable.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+		);
+		expect(reason).not.toContain(RULE);
+	});
+
 	it("passes a `waiting:` ending with no block", () => {
 		expect(run("Dispatched the review.\n\nwaiting: the review agent")).toBe("");
 	});
@@ -255,8 +266,29 @@ describe("the status-line tail", () => {
 
 	it("refuses a tail that is not refs", () => {
 		expect(run(`${ITEM}\n\nresult: done — waits on you: the reply`)).toContain(
-			"lists issue refs only",
+			"lists issue refs only, `— waits on you: #N, owner/repo#M` — read: `the reply`",
 		);
+	});
+
+	/* The refusal around the quote is ~2.5 KB (#4035). */
+	it("quotes at most 200 characters of a long tail, under 3,000 B in all", () => {
+		const reason = run(
+			`${ITEM}\n\nresult: done — waits on you: #31${" ".repeat(100_000)}x`,
+		);
+		expect(reason).toContain("lists issue refs only");
+		expect(reason).toContain("… (99804 more characters)");
+		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
+	});
+
+	it("caps a long mismatched ref list the same way", () => {
+		const refs = Array.from({ length: 2000 }, (_, i) => `#${i + 100}`);
+		const reason = run(
+			`${ITEM}\n\nresult: done — waits on you: ${refs.join(", ")}`,
+		);
+		expect(reason).toMatch(
+			/the status line's tail lists o\/here#100, .*… \(\d+ more characters\) where the block lists o\/here#31/,
+		);
+		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
 	});
 
 	it("matches the tail and the block across ref spellings", () => {

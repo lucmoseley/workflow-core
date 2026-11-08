@@ -1096,7 +1096,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			decide("code-review", stubCtx({ declared: () => undefined }) as never),
 		).toEqual({
 			context:
-				"No sensitive paths are declared, so no review here can escalate; the rule could not be read from docs/agents/rules/review-sensitive-undeclared.txt. Read that file before doing anything else.",
+				"No sensitive paths are declared, so no review here can escalate; the rule could not be read from docs/agents/rules/review-sensitive-undeclared.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		});
 	});
 });
