@@ -2,6 +2,10 @@
 /*
  * Pins how heresy-sweep.js reads what a finished sweep filed from the due
  * issue's comments (#4039).
+ * In-process over literal comment bodies, with no tracker: the parser is a
+ * pure core over strings its caller fetched. Breaking it misstates
+ * check-primitives.js's "new heresies since the last sweep" count, which the
+ * morning review carries.
  */
 
 import { describe, expect, it } from "vitest";
