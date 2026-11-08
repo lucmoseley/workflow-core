@@ -122,14 +122,36 @@ describe("verdicts", () => {
 		);
 	}, 15_000);
 
-	it("reports an artefact absent throughout as MISSING, distinct from a stall", async () => {
-		const r = await watch([artefact, "0.1"]);
+	it("reports an artefact never written as MISSING at the first-write deadline, not before", async () => {
+		const started = Date.now();
+		const r = await watch([artefact, "0.1", "--first-write", "0.6"]);
 		expect(r.status).toBe(EXIT.MISSING);
+		expect(Date.now() - started).toBeGreaterThanOrEqual(600);
 		expect(r.stdout).toMatch(
 			new RegExp(
-				`^MISSING ${artefact} size=absent last-growth=none — .*never written, deleted`,
+				`^MISSING ${artefact} size=absent last-growth=none — .*never written by the first-write deadline`,
 			),
 		);
+	});
+
+	it("draws no MISSING from an agent whose first write lands late but inside the deadline (#4034)", async () => {
+		// Scaled: 0.5 s checks stand for 120 s ones, so the 3.5-interval write is
+		// a first write at 7 minutes against an 8-minute deadline.
+		const r = await watch(
+			[artefact, String(INTERVAL_S), "--first-write", String(4 * INTERVAL_S)],
+			[[3.5, grow]],
+		);
+		expect(r.status).toBe(EXIT.STALLED);
+		expect(r.stdout).toMatch(new RegExp(`^STALLED ${artefact} size=10 `));
+	}, 15_000);
+
+	it("waits 600 s for a first write by default, past a 6-minute first write", async () => {
+		const child = spawn(process.execPath, [SCRIPT, artefact, "120"]);
+		const line = await new Promise<string>((resolve) =>
+			child.stderr.once("data", (d) => resolve(String(d))),
+		);
+		child.kill();
+		expect(line).toContain("first write by 600s");
 	});
 
 	it("watches a file that appears after one absent check as it would any other", async () => {
@@ -168,6 +190,7 @@ describe("a bad invocation", () => {
 		["no path", []],
 		["a zero interval", ["x", "0"]],
 		["a non-numeric ceiling", ["x", "1", "soon"]],
+		["a zero first-write deadline", ["x", "1", "--first-write", "0"]],
 	])("refuses %s with exit 2, printing no verdict", async (_label, args) => {
 		const r = await runInProcessAsync(SCRIPT, args);
 		expect(r.status).toBe(EXIT.USAGE);

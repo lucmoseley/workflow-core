@@ -8,20 +8,30 @@
  *
  * Usage:
  *   node scripts/watch-artefact.js <path> <interval-seconds> [ceiling-seconds]
+ *     [--first-write <seconds>]
  *
- * The interval and ceiling accept fractions. The first check is the baseline;
+ * The interval, ceiling and first-write deadline accept fractions. The first check is the baseline;
  * each later one compares the size with the check before it. Prints one start
  * line to stderr, then exactly one verdict line to stdout, and exits on it:
  *
  *   STALLED  3  two consecutive checks saw no change, the file present at
  *               one of them at least
- *   MISSING  4  the file was absent at two consecutive checks — never written,
- *               or deleted
+ *   MISSING  4  never present by the first check at or past the first-write
+ *               deadline, or absent at two consecutive checks once seen
  *   CEILING  5  the ceiling came before a stall
  *   (bad invocation, or a path that cannot be stat'd: 2, on stderr; a crash: 1)
  *
  * Last growth on the verdict line is the check that saw it, not the write
  * itself.
+ *
+ * THE FIRST-WRITE DEADLINE, 600 S BY DEFAULT, IS MEASURED (#4034). Of 11,132
+ * subagents dispatched with an `Artefact:` line on this machine (their
+ * transcripts, 2026-11-08), 712 first wrote it after 240 s — two 120 s checks
+ * in — 53 after 600 s and 14 after 900 s; the late tail is agents that write
+ * only at the end. Until the file is first seen, no check counts toward any
+ * verdict. 600 s is also the ten-minute silent stall the watch is there for.
+ * A file created at dispatch would not help: the same agents would read
+ * STALLED at 240 s instead.
  *
  * SIZE, NOT MTIME: a touch without an append is not progress. A size that
  * FALLS counts as progress — a rewrite is the agent working, not stalled.
@@ -48,6 +58,7 @@ const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 
 const DEFAULT_CEILING_S = 3600;
+const DEFAULT_FIRST_WRITE_S = 600;
 
 const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5 };
 
@@ -55,13 +66,13 @@ const ADVICE = {
 	STALLED:
 		"no growth across two checks; abandon the agent unless it has already reported",
 	MISSING:
-		"absent at two consecutive checks; never written, deleted, or the wrong path",
+		"never written by the first-write deadline, deleted, or the wrong path",
 	CEILING:
 		"the ceiling came before two checks without growth; re-run the watch to keep waiting",
 };
 
 // This file's own path, which in an adopter is the plugin's, not `scripts/`.
-const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds]`;
+const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>]`;
 
 /**
  * @param {string} message
@@ -104,31 +115,83 @@ function readSizeOf(file) {
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function main() {
-	const [file, rawInterval, rawCeiling] = parseOrExit(process.argv.slice(2), {
+/** The verdict state over successive checks of one file's size. */
+class SizeTrack {
+	/**
+	 * @param {number | null} baseline the size at the start, null where absent
+	 * @param {number} firstWriteMs how long a never-seen file is waited on
+	 */
+	constructor(baseline, firstWriteMs) {
+		this.size = baseline;
+		/** @type {number | null} */
+		this.lastGrowth = null;
+		this.firstWriteMs = firstWriteMs;
+		this.seen = baseline !== null;
+		this.idle = 0;
+		this.absent = 0;
+	}
+
+	/**
+	 * @param {number | null} now the size at this check
+	 * @param {number} elapsedMs since the start
+	 * @returns {"MISSING" | "STALLED" | null}
+	 */
+	observe(now, elapsedMs) {
+		if (!this.seen && now === null)
+			return elapsedMs >= this.firstWriteMs ? "MISSING" : null;
+		this.seen = true;
+		const grew = now !== null && now !== this.size;
+		this.idle = grew ? 0 : this.idle + 1;
+		if (grew) this.lastGrowth = Date.now();
+		this.absent = now === null ? this.absent + 1 : 0;
+		this.size = now;
+		if (this.idle < 2) return null;
+		return this.absent >= 2 ? "MISSING" : "STALLED";
+	}
+}
+
+/**
+ * @param {string | true | undefined} raw
+ * @param {string} name
+ * @param {number} fallback seconds, where the argument is not given
+ * @returns {number} milliseconds
+ */
+const optionalMs = (raw, name, fallback) =>
+	(raw === undefined ? fallback : parseSeconds(String(raw), name)) * 1000;
+
+function readArgs() {
+	const { positionals, flags } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
 		max: 3,
-	}).positionals;
+		flags: { "--first-write": "value" },
+	});
+	const [file, rawInterval, rawCeiling] = positionals;
 	if (!file) refuse("no artefact path");
-	const intervalMs = parseSeconds(rawInterval, "interval") * 1000;
-	const ceilingMs =
-		(rawCeiling === undefined
-			? DEFAULT_CEILING_S
-			: parseSeconds(rawCeiling, "ceiling")) * 1000;
+	return {
+		file,
+		intervalMs: parseSeconds(rawInterval, "interval") * 1000,
+		ceilingMs: optionalMs(rawCeiling, "ceiling", DEFAULT_CEILING_S),
+		firstWriteMs: optionalMs(
+			flags["--first-write"],
+			"first-write",
+			DEFAULT_FIRST_WRITE_S,
+		),
+	};
+}
+
+async function main() {
+	const { file, intervalMs, ceilingMs, firstWriteMs } = readArgs();
 
 	const start = Date.now();
-	let size = readSizeOf(file);
-	/** @type {number | null} */
-	let lastGrowth = null;
-	let idle = 0;
-	let absent = 0;
+	const tracker = new SizeTrack(readSizeOf(file), firstWriteMs);
 	writeFd(
 		2,
-		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, ceiling ${ceilingMs / 1000}s\n`,
+		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, first write by ${firstWriteMs / 1000}s, ceiling ${ceilingMs / 1000}s\n`,
 	);
 
 	/** @param {keyof typeof ADVICE} verdict */
 	const finish = (verdict) => {
+		const { size, lastGrowth } = tracker;
 		const at =
 			lastGrowth === null ? "none" : new Date(lastGrowth).toISOString();
 		writeFd(
@@ -145,16 +208,8 @@ async function main() {
 			finish("CEILING");
 		}
 		await sleep(due - Date.now());
-		const now = readSizeOf(file);
-		if (now !== null && now !== size) {
-			idle = 0;
-			lastGrowth = Date.now();
-		} else {
-			idle++;
-		}
-		absent = now === null ? absent + 1 : 0;
-		size = now;
-		if (idle >= 2) finish(absent >= 2 ? "MISSING" : "STALLED");
+		const verdict = tracker.observe(readSizeOf(file), check * intervalMs);
+		if (verdict) finish(verdict);
 	}
 }
 
