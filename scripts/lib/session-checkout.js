@@ -426,10 +426,9 @@ function buildStore(staging, lockfile, source) {
 			name === LOCKFILE ? lockfile : source(name),
 		);
 	} catch (err) {
-		throw new Error(
-			`${caught(err).message}, building a store — its output is above; fix the lockfile or the network, then attach again`,
-			{ cause: err },
-		);
+		throw new Error(`${caught(err).message}, then attach again`, {
+			cause: err,
+		});
 	}
 	setWriteBits(built, false);
 }

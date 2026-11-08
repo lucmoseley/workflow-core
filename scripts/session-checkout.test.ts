@@ -323,7 +323,7 @@ it("names a failed warm build in each no-build refusal until a build succeeds, w
 	expect(failed.status).toBe(1);
 	expect(refused.status).toBe(1);
 	expect(refused.stderr).toMatch(
-		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 in .* — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
+		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 in \S+ — its output is above; fix the lockfile or the network, then attach again — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
 	);
 
 	fs.writeFileSync(
@@ -523,6 +523,18 @@ it("attaches nothing to a worktree with no lockfile", () => {
 it("exits 2 on a usage error", () => {
 	expect(run(main, "cut").status).toBe(2);
 	expect(run(main, "attach", "a", "b").status).toBe(2);
+});
+
+it("names the program, not the lockfile or the network, where an install exits 0 but builds nothing (#4261)", () => {
+	fs.writeFileSync(npmStub, "#!/bin/sh\nexit 0\n");
+
+	const r = run(main, "cut", "one");
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toMatch(
+		/the install left no node_modules in \S+ — check what WFC_NPM or npm names, then attach again/,
+	);
+	expect(r.stderr).not.toContain("the network");
 });
 
 it("leaves no worktree and no store behind where the install fails, only the failure's record, and says how to retry", () => {

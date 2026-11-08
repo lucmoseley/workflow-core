@@ -1,7 +1,7 @@
 /*
  * npm-ci-staging.js — a frozen `node_modules` built in a staging directory,
  * for the levelling step (lib/level-main.js) and the checkout's dependency
- * stores (lib/session-checkout.js). Each swaps the result into place by rename:
+ * stores (lib/session-checkout.js), #4261. Each swaps the result into place by rename:
  * `npm ci` into a live tree deletes it first, and hook code loads from it.
  * `npm ci --ignore-scripts`: docs/practice/dependency-and-release-management.md.
  */
@@ -37,7 +37,9 @@ function npmCi(dir) {
 	);
 	if (r.error) throw r.error;
 	if (r.status !== 0)
-		throw new Error(`npm ci exited ${r.status ?? r.signal} in ${dir}`);
+		throw new Error(
+			`npm ci exited ${r.status ?? r.signal} in ${dir} — its output is above; fix the lockfile or the network`,
+		);
 }
 
 /**
@@ -58,7 +60,7 @@ function stageInstall(staging, source, install = npmCi) {
 	const built = path.join(staging, "node_modules");
 	if (!fs.existsSync(built))
 		throw new Error(
-			`the install exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names`,
+			`the install left no node_modules in ${staging} — check what WFC_NPM or npm names`,
 		);
 	return built;
 }
