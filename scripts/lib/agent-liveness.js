@@ -99,11 +99,13 @@ const headless = require("./headless-runs.js");
  * where no live session predates its mtime.
  *
  * `kind: "headless"` marks a run lib/headless-runs.js listed, which
- * `claude stop` cannot reach: lib/claude-stop.js stops it by its group.
+ * `claude stop` cannot reach: lib/claude-stop.js stops it by its group. Its
+ * `seat` is the config dir it runs under.
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,
- *   startedAt?: number, cwd?: string, founderReply?: true}} AgentRecord
+ *   startedAt?: number, cwd?: string, seat?: string,
+ *   founderReply?: true}} AgentRecord
  * @typedef {{agents: AgentRecord[], why?: undefined}
  *   | {why: string, agents?: undefined}} Listing
  * @typedef {{why: string, ids?: undefined, names?: undefined,
@@ -567,19 +569,31 @@ function mergedListing(agents, headlessAgents, call, opts) {
 			why: `${call} does not list this very session (${me}), so its list is not a list of what is live`,
 		};
 
-	const headlessIds = new Set(headlessAgents.map((a) => a.sessionId));
-	const headlessPids = new Set(headlessAgents.map((a) => a.pid));
 	return {
 		agents: [
-			...agents.filter(
-				(a) =>
-					hasSessionId(a) &&
-					!headlessIds.has(a.sessionId) &&
-					!(!isTerminalAgent(a) && headlessPids.has(a.pid)),
-			),
+			...withoutHeadlessCopies(agents, headlessAgents),
 			...headlessAgents,
 		],
 	};
+}
+
+/**
+ * `agents` less any record without a session id and any row the oracle derives
+ * from a headless run's transcript: same session id, or a live row's pid
+ * (#4588).
+ * @param {any[]} agents
+ * @param {AgentRecord[]} headlessAgents
+ * @returns {AgentRecord[]}
+ */
+function withoutHeadlessCopies(agents, headlessAgents) {
+	const ids = new Set(headlessAgents.map((a) => a.sessionId));
+	const pids = new Set(headlessAgents.map((a) => a.pid));
+	return agents.filter(
+		(a) =>
+			hasSessionId(a) &&
+			!ids.has(a.sessionId) &&
+			!(!isTerminalAgent(a) && pids.has(a.pid)),
+	);
 }
 
 /**
@@ -603,6 +617,29 @@ function readHeadlessRuns() {
 			why: `the headless-run store could not be read (${code || String(message).slice(0, QUOTE_CHARS)})`,
 		};
 	}
+}
+
+/**
+ * Every plan's listing kept apart by config dir, for a person to read
+ * (#4224): each existing dir's own records or its `why`, then the live
+ * headless runs or the store's `why`. Each dir is read alone, so one failing
+ * names itself and the rest still answer. Uncached and unchecked: no caller
+ * may judge liveness off it, which `listedAgents` is for.
+ * @returns {{dirs: Array<{dir: string} & Listing>, headless: Listing}}
+ */
+function readEveryPlan() {
+	const store = readHeadlessRuns();
+	const runs = "why" in store ? [] : store.agents;
+	const dirs = oracleDirs().map((dir) => {
+		try {
+			const read = readSeatListing(dir, oracleTimeoutMs());
+			if ("why" in read) return { dir, why: read.why };
+			return { dir, agents: withoutHeadlessCopies(read.agents, runs) };
+		} catch (e) {
+			return { dir, why: `${oracleCall()} would not run (${failure(e)})` };
+		}
+	});
+	return { dirs, headless: store };
 }
 
 /**
@@ -960,6 +997,7 @@ module.exports = {
 	readAgentsAfterBoot,
 	readAgentsForBudget,
 	readAgentsForDisplay,
+	readEveryPlan,
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,

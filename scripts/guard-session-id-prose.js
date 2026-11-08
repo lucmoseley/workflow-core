@@ -29,6 +29,7 @@
 const hookBlock = require("./lib/hook-block");
 const stopGuard = require("./lib/stop-guard");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { CODE_SPAN } = require("./lib/secret-ask");
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -72,14 +73,14 @@ function namedIds(message) {
  */
 function buildRefusal(hits) {
 	return [
-		"THIS REPLY NAMES A SESSION BY ITS ID. Core voice §Comprehension: name a session by its `claude agents --json` name, never its id or pid; an id appears only where a command needs it, inside that command's code span (#2478, #3557).",
+		"THIS REPLY NAMES A SESSION BY ITS ID. Core voice §Comprehension: name a session by its `node scripts/list-sessions.js` name, never its id or pid; an id appears only where a command needs it, inside that command's code span (#2478, #3557).",
 		"",
 		...hits.map(
 			({ id, name }) =>
 				`  ${id} → ${name ?? "no name in the registry: name it by its role and what it is doing"}`,
 		),
 		"",
-		`Rewrite each before ending the turn. Where a tool printed only an id, \`${buildArbiterCommand`list`}\` or \`claude agents --json\` gives the name.`,
+		`Rewrite each before ending the turn. Where a tool printed only an id, \`${buildArbiterCommand`list`}\` or \`node ${scriptPath("list-sessions.js")}\` gives the name.`,
 	].join("\n");
 }
 
