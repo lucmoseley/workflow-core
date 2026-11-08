@@ -108,15 +108,13 @@ const FOUNDER_ACT_WORD =
 	/(?<![a-z0-9])(?:(?:pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|otp|verification|phone|call|in[ -]person|phone app|iphone|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form)(?:s|es|d|ed|ing|ted|ting)?|paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies)(?![a-z0-9])/gi;
 const REFUSED_WORD = /^refused$/i;
 
-/* A screen a session can drive (#4142, ruling #3720 Q1 (A)): a terminal, the
- * agents view, a Windows Terminal tab, a session, or a desktop app. A phone
- * app stays the founder's. */
+/* A screen a session can drive (#4142, ruling #3720 Q1 (A)); wc1-wc3 are
+ * Windows Terminal tabs. */
 const SESSION_SURFACE =
 	/(?<![a-z0-9])(agents? view|wc[1-3]|sessions?|terminals?|desktop app(?:lication)?s?)(?![a-z0-9])/i;
 /* The list words a session can do on such a screen, which pass none: a
  * send or call typed there (#3720's `reply`), and a refusal, which owes its
- * own evidence. Any other list act still passes ("delete the key in a normal
- * terminal", #3420). */
+ * own evidence. Any other list act still passes (#3420). */
 const SCREEN_DOABLE =
 	/^(?:send|email|e-mail|message|messaging|reply|replied|replies|post|submit|form|call|phone|phoning|refused)/i;
 
@@ -239,8 +237,8 @@ const hasRefusedOutsideAct = (body) =>
 		(m) => REFUSED_WORD.test(m[0]),
 	);
 
-/* The two faults a `Tried:` list of routes answers: what each says, and its
- * way out, as the guard, file-issue.js and the checker print them. */
+/* The two faults a `Tried:` list of routes answers, as the guard,
+ * file-issue.js and the checker print them. */
 const TRIED_LIST = `a **Tried:** line followed directly by at least ${TRIED_MIN_ROUTES} list items`;
 const UNTRIED_FAULTS = {
 	"SURFACE-UNTRIED": {
