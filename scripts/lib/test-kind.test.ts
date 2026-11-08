@@ -349,6 +349,7 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 		["check-guard-test-isolation", "^scripts/.*$JS_TEST_ERE"],
 		["check-host-root-test-isolation", "^scripts/.*$JS_TEST_ERE"],
 		["check-git-fixture-identity", "^scripts/.*$JS_TEST_ERE"],
+		["check-test-env-writes", "$JS_TEST_ERE"],
 		["generate-test-read-edges", "$JS_TEST_ERE"],
 		["check-test-spawn", String.raw`^(scripts|\.claude/skills)/.*$JS_TEST_ERE`],
 	])(

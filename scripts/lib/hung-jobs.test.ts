@@ -16,16 +16,8 @@
  * hung on its own re-read.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { findHungJobs } from "./hung-jobs";
-
-const ORIGINAL_SESSION_ID = process.env.CLAUDE_CODE_SESSION_ID;
-
-afterEach(() => {
-	if (ORIGINAL_SESSION_ID === undefined)
-		delete process.env.CLAUDE_CODE_SESSION_ID;
-	else process.env.CLAUDE_CODE_SESSION_ID = ORIGINAL_SESSION_ID;
-});
 
 /** A "working" job record, silent since it was created — no transcript lookup
  * needed: its session names no transcript findTranscript can resolve, so every case
@@ -44,7 +36,7 @@ function workingJob(sessionId: string, agedMinutes: number) {
 
 describe("findHungJobs — the own-session skip (mantahostels#2598)", () => {
 	beforeEach(() => {
-		process.env.CLAUDE_CODE_SESSION_ID = "self-session";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "self-session");
 	});
 
 	it("never calls its own caller's job hung, however long it has been silent", () => {

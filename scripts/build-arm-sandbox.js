@@ -64,6 +64,7 @@ const {
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
 const { jobStorePath } = require("./lib/job-paths.js");
+const { isUnder, relativeUnder } = require("./lib/is-under.js");
 const {
 	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_ID,
@@ -304,7 +305,7 @@ function parseOverrides(specs, dest) {
 		const rel = spec.slice(0, eq);
 		const file = spec.slice(eq + 1);
 		const target = path.resolve(dest, rel);
-		if (eq <= 0 || !file || !target.startsWith(`${dest}${path.sep}`))
+		if (eq <= 0 || !file || !relativeUnder(dest, target))
 			return `--override takes <path inside the config dir>=<file>, got ${spec}`;
 		if (!fs.existsSync(file)) return `--override ${spec}: no file ${file}`;
 		out.push({ target, file });
@@ -370,8 +371,7 @@ function isInsideForbiddenTree(p) {
 		? jobStorePath(path.resolve(process.env.CLAUDE_CONFIG_DIR))
 		: null;
 	return (
-		(configJobs !== null &&
-			(real === configJobs || real.startsWith(`${configJobs}${path.sep}`))) ||
+		(configJobs !== null && isUnder(real, [configJobs], path.sep)) ||
 		parts.some(
 			(seg, i) =>
 				seg.startsWith(".claude") &&

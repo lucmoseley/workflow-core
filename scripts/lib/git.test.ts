@@ -16,7 +16,15 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const lib: any = createRequire(__filename)("./git.js");
@@ -53,20 +61,20 @@ const uncommentedLines = (src: string, pattern: RegExp) =>
 
 describe("the binary at WFC_GIT (#2589, #2636)", () => {
 	let dir: string;
-	const saved = process.env.WFC_GIT;
+	let stub: string;
 	beforeAll(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "git-seam-"));
-		const stub = path.join(dir, "git");
+		stub = path.join(dir, "git");
 		fs.writeFileSync(
 			stub,
 			'#!/bin/sh\n[ "$1" = fail ] && exit 3\necho "stub $*"\n',
 		);
 		fs.chmodSync(stub, 0o755);
-		process.env.WFC_GIT = stub;
+	});
+	beforeEach(() => {
+		vi.stubEnv("WFC_GIT", stub);
 	});
 	afterAll(() => {
-		if (saved === undefined) delete process.env.WFC_GIT;
-		else process.env.WFC_GIT = saved;
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 

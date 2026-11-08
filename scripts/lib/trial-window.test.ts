@@ -24,6 +24,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const {
 	LADDER,
@@ -264,23 +265,9 @@ describe("reading the file", () => {
 	/** Runs `fn` with the host root at `dir` and no `WFC_LADDER` seam, so
 	 *  LADDER() resolves through the host config. */
 	const atHost = (fn: () => void) => {
-		const saved = {
-			project: process.env.CLAUDE_PROJECT_DIR,
-			ladder: process.env.WFC_LADDER,
-		};
-		process.env.CLAUDE_PROJECT_DIR = dir;
-		delete process.env.WFC_LADDER;
-		try {
-			fn();
-		} finally {
-			for (const [k, env] of [
-				["project", "CLAUDE_PROJECT_DIR"],
-				["ladder", "WFC_LADDER"],
-			] as const) {
-				if (saved[k] === undefined) delete process.env[env];
-				else process.env[env] = saved[k];
-			}
-		}
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+		vi.stubEnv("WFC_LADDER", undefined);
+		fn();
 	};
 
 	it("opens the ladder at the host's declared capacityLadderPath (#401)", () => {
@@ -294,9 +281,7 @@ describe("reading the file", () => {
 
 	it("opens the default ladder at a rejected capacityLadderPath, and says so once (#406)", () => {
 		hostWith('{"capacityLadderPath": "/abs/ladder.md"}');
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		try {
 			atHost(() => {
 				const expected = path.join(
@@ -311,7 +296,7 @@ describe("reading the file", () => {
 				'"capacityLadderPath" is not a repo-relative path',
 			);
 		} finally {
-			write.mockRestore();
+			restoreStderr();
 		}
 	});
 

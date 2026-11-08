@@ -291,7 +291,7 @@ const warned = new Set();
  * @param {string} line
  * @param {(line: string) => void} [say] where the line goes; stderr by default
  */
-const warnOnce = (line, say = (l) => process.stderr.write(`${l}\n`)) => {
+const warnOnce = (line, say = (l) => writeFd(2, `${l}\n`)) => {
 	if (warned.has(line)) return;
 	warned.add(line);
 	say(line);

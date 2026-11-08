@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { printed, stubGhRoutes } from "./gh-stub";
 import {
 	moveParkedBy,
@@ -177,14 +177,8 @@ describe("unparkClosed (#3940)", () => {
 	const fail = { status: 1, stdout: "", stderr: "HTTP 502\n" };
 
 	const withGh = (routes: Parameters<typeof stubGhRoutes>[1]) => {
-		const was = process.env.WFC_GH;
-		process.env.WFC_GH = stubGhRoutes(root, routes).gh;
-		try {
-			return unparkClosed("o/r");
-		} finally {
-			if (was === undefined) delete process.env.WFC_GH;
-			else process.env.WFC_GH = was;
-		}
+		vi.stubEnv("WFC_GH", stubGhRoutes(root, routes).gh);
+		return unparkClosed("o/r");
 	};
 
 	it("clears each closed issue, reporting one the label would not leave", () => {

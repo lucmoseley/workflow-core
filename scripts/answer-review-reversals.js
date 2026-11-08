@@ -31,6 +31,7 @@ const { parseOrExit } = require("./lib/cli-args.js");
 const { parseErrLine, gh, ghIssuesUpdatedSince } = require("./lib/gh.js");
 const { caught } = require("./lib/caught.js");
 const { fileThrough } = require("./lib/file-through.js");
+const { findFiledLine } = require("./lib/filed-line.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { readLedger } = require("./lib/delegated-decision.js");
@@ -163,7 +164,7 @@ function fileReversal(run, request) {
 		return { why: `no included checkout here files on ${listed.repo}` };
 	const ticket = buildTicket(root, reviewIssue, request, listed);
 	if ("why" in ticket) return ticket;
-	/** @param {number | string} number */
+	/** @param {number} number */
 	const recordFiled = (number) => {
 		const ref = `${listed.repo}#${number}`;
 		if (!dryRun)
@@ -202,8 +203,8 @@ function fileReversal(run, request) {
 		ticket.body,
 		root,
 	);
-	const n = /^Filed #(\d+)/m.exec(filed.stdout ?? "")?.[1];
-	if (n) return recordFiled(n);
+	const n = findFiledLine(filed.stdout ?? "")?.n;
+	if (n !== undefined) return recordFiled(n);
 	if (filed.status === 2)
 		return {
 			why: `file-issue.js refused it: ${buildQuotedFirstLine(filed.stderr ?? "")}`,

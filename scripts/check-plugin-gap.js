@@ -85,6 +85,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { deref } = require("./lib/deref.js");
+const { envelope } = require("./lib/hook-envelope.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { readPluginState, resolveConfigDir } = require("./lib/plugin-state.js");
 const { readRuleText } = require("./lib/rule-text.js");
@@ -465,12 +466,7 @@ function main(argv) {
 		if (!text) return 0;
 		writeFd(
 			1,
-			`${JSON.stringify({
-				hookSpecificOutput: {
-					hookEventName: "SessionStart",
-					additionalContext: text,
-				},
-			})}\n`,
+			`${JSON.stringify(envelope("SessionStart", { additionalContext: text }))}\n`,
 		);
 		return 0;
 	} catch {

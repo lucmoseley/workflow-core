@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { projectSlug as slug } from "./lib/project-slug.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -180,18 +180,9 @@ describe("a worktree session's transcript is read by every transcript reader (#4
 	});
 
 	it("hook-message.js finds it where the payload names no transcript", () => {
-		const saved = { ...process.env };
-		Object.assign(process.env, {
-			CLAUDE_PROJECT_DIR: main,
-			CLAUDE_CONFIG_DIR: seat,
-		});
-		try {
-			const { transcriptPath } = require("./lib/hook-message.js");
-			expect(transcriptPath(null, SID)).toBe(transcript);
-		} finally {
-			for (const k of ["CLAUDE_PROJECT_DIR", "CLAUDE_CONFIG_DIR"])
-				if (saved[k] === undefined) delete process.env[k];
-				else process.env[k] = saved[k];
-		}
+		vi.stubEnv("CLAUDE_PROJECT_DIR", main);
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seat);
+		const { transcriptPath } = require("./lib/hook-message.js");
+		expect(transcriptPath(null, SID)).toBe(transcript);
 	});
 });

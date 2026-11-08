@@ -78,12 +78,8 @@ describe("the SessionStart housekeeping launcher", () => {
 	it("is not itself fooled by an ambient WFC_THROTTLE_NOTICE (mantahostels#2120)", () => {
 		// process.env, not throttleEnv()'s own pin: checks that the default
 		// neutralises what a test never explicitly set, not only what it overrides.
-		process.env.WFC_THROTTLE_NOTICE = "1";
-		try {
-			expect(run().stdout).toBe("");
-		} finally {
-			delete process.env.WFC_THROTTLE_NOTICE;
-		}
+		vi.stubEnv("WFC_THROTTLE_NOTICE", "1");
+		expect(run().stdout).toBe("");
 	});
 
 	it("also runs the self-throttling sweep, which is the piggyback mantahostels#1362 ruled", () => {

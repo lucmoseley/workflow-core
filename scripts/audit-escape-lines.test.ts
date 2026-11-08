@@ -16,7 +16,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import audit from "./lib/escape-audit.js";
 import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
@@ -31,22 +31,17 @@ const ENV_KEYS = [
 
 let dir: string;
 let transcripts: string;
-let saved: Record<string, string | undefined>;
 const servers: http.Server[] = [];
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "audit-escape-"));
 	transcripts = path.join(dir, "projects");
 	fs.mkdirSync(transcripts);
-	saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
-	for (const k of ENV_KEYS) delete process.env[k];
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "config");
+	for (const k of ENV_KEYS) vi.stubEnv(k, undefined);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
 });
 
 afterEach(() => {
-	for (const k of ENV_KEYS)
-		if (saved[k] === undefined) delete process.env[k];
-		else process.env[k] = saved[k];
 	for (const s of servers.splice(0)) s.close();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -121,9 +116,9 @@ function gitleaks(code: number) {
 
 async function callable(answers: (number | { status: number })[], sweep = 0) {
 	const g = await gateway(answers);
-	process.env.AI_GATEWAY_API_KEY = "test-key";
-	process.env.WFC_JEV_BASE_URL = g.base;
-	process.env.WFC_GITLEAKS = gitleaks(sweep);
+	vi.stubEnv("AI_GATEWAY_API_KEY", "test-key");
+	vi.stubEnv("WFC_JEV_BASE_URL", g.base);
+	vi.stubEnv("WFC_GITLEAKS", gitleaks(sweep));
 	return g;
 }
 

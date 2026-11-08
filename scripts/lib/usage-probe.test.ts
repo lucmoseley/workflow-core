@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ADMITTED_AUTH,
 	buildAuthStatusBranch,
@@ -93,7 +93,6 @@ describe("a probe that will not end itself (#2306)", () => {
 
 describe("the probe's auth (#2236)", () => {
 	let quick = "";
-	const saved: Record<string, string | undefined> = {};
 	const launched = () => fs.existsSync(path.join(dir, "launched"));
 
 	beforeEach(() => {
@@ -110,20 +109,10 @@ describe("the probe's auth (#2236)", () => {
 		);
 	});
 
-	/** `env` set on this process, which the probe hands its child, for one call. */
+	/** `env` set on this process, which the probe hands its child. */
 	async function probeUnder(env: Record<string, string>) {
-		for (const [k, v] of Object.entries(env)) {
-			saved[k] = process.env[k];
-			process.env[k] = v;
-		}
-		try {
-			return await probeUsage({ configDir: seat(), claudeBin: quick });
-		} finally {
-			for (const k of Object.keys(env)) {
-				if (saved[k] === undefined) delete process.env[k];
-				else process.env[k] = saved[k];
-			}
-		}
+		for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+		return await probeUsage({ configDir: seat(), claudeBin: quick });
 	}
 
 	it.each(REFUSED_AUTH)(

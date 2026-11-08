@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
+import { withStubbedEnv } from "./lib/scoped-env";
 
 // The reader's own derivation, not a copy of it. lib/guard-log.sh's header makes
 // this the invariant that matters — "WHERE IT LANDS must equal session-arbiter.js's
@@ -21,25 +22,11 @@ const { errorLog } = createRequire(import.meta.url)("./lib/arbiter-store.js");
  * of the call and put back. Synchronous throughout, and Vitest runs a file's tests
  * in sequence, so nothing observes the window.
  */
-const asChild = <T>(config: string, project: string, fn: () => T): T => {
-	const saved = [
-		process.env.CLAUDE_CONFIG_DIR,
-		process.env.CLAUDE_PROJECT_DIR,
-	] as const;
-	process.env.CLAUDE_CONFIG_DIR = config;
-	process.env.CLAUDE_PROJECT_DIR = project;
-	try {
-		return fn();
-	} finally {
-		for (const [k, v] of [
-			["CLAUDE_CONFIG_DIR", saved[0]],
-			["CLAUDE_PROJECT_DIR", saved[1]],
-		] as const) {
-			if (v === undefined) delete process.env[k];
-			else process.env[k] = v;
-		}
-	}
-};
+const asChild = <T>(config: string, project: string, fn: () => T): T =>
+	withStubbedEnv(
+		{ CLAUDE_CONFIG_DIR: config, CLAUDE_PROJECT_DIR: project },
+		fn,
+	);
 
 /**
  * Where check-guard-errors.js will look, so a test never spells the derivation

@@ -25,7 +25,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox, live, store, storeAt } from "./arbiter-testkit";
 import { plan } from "./bash-write-plan.js";
 import { decide } from "./claimed-bash-write.js";
@@ -467,7 +467,7 @@ describe("failing open", () => {
 		const [{ timeout }] = registrationsOf("PreToolUse", "guard-dispatch.js");
 		if (typeof timeout !== "number")
 			throw new Error("the hook registration no longer carries a timeout");
-		process.env.CLAUDE_CONFIG_DIR = "/proc/nonexistent/nope";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/proc/nonexistent/nope");
 		const started = Date.now();
 		const r = run(`echo hi > scripts/a.js; node -e "r('scripts/q.js')"`);
 		expect(Date.now() - started).toBeLessThan(timeout * 1000);

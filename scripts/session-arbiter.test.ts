@@ -18,7 +18,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
 	commitAll,
@@ -187,9 +187,9 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	);
 
 	it("refuses each primitive's own fallback once its var is gone", () => {
-		delete process.env.WFC_GH;
+		vi.stubEnv("WFC_GH", undefined);
 		expect(() => gh(["--version"])).toThrow(refusalOf("gh", "WFC_GH"));
-		delete process.env.WFC_CLAUDE_BIN;
+		vi.stubEnv("WFC_CLAUDE_BIN", undefined);
 		const r = spawnSync(claudePrimitive(), ["--version"], { encoding: "utf8" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(refusalOf("claude", "WFC_CLAUDE_BIN"));
@@ -285,7 +285,7 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 		// the real hang shape: mkdirSync(recursive) under an unreadable /proc path
 		// blocks forever on this kernel rather than raising. The arbiter inherits
 		// it from this process's environment, which the sandbox restores.
-		process.env.CLAUDE_CONFIG_DIR = "/proc/nonexistent/nope";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/proc/nonexistent/nope");
 		const file = inRepo("docs/doc-map.md");
 		const r = runCore(
 			"guard-file-claim",

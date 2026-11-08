@@ -104,6 +104,7 @@ const { normAbs, parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, programSource } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { isScratch } = require("./scratch-dir.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * lib/code-signal.sh's CODE globs, spelled again here, in TWO LIMBS because
@@ -158,16 +159,16 @@ const RESTORE_ROUTES = ["cp", "mv", "git restore", "git checkout"];
  * the session's tree, so in a linked worktree the worktree (#4242).
  * Purely textual: a write target need not exist, nor its parents, so two
  * spellings of one path can reach the judge separately, which costs a
- * duplicate line at worst. A `..` segment climbs back out of the repo and the
- * prefix test cannot see it, so it is rejected rather than resolved
+ * duplicate line at worst. A `..` segment is rejected rather than resolved:
+ * after a symlink it climbs from the target, which text cannot see, and
+ * crediting a path the command may not write is the worse error
  * (mantahostels#2778).
  * @param {string} abs
  * @param {string} root
  */
 function relPath(abs, root) {
-	if (!abs.startsWith(`${root}/`)) return null;
-	const rel = abs.slice(root.length + 1);
-	return /(^|\/)\.\.(\/|$)/.test(rel) ? null : rel;
+	if (/(^|\/)\.\.(\/|$)/.test(abs)) return null;
+	return relativeUnder(root, abs) || null;
 }
 
 /**

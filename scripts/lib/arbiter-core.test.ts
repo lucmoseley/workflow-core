@@ -156,16 +156,10 @@ describe("the state directory has a name (mantahostels#205)", () => {
 });
 
 describe("repoRoot normalises the trailing slash (mantahostels#1905)", () => {
-	/** Call `body` with CLAUDE_PROJECT_DIR set to `dir`, then put it back. */
+	/** Call `body` with CLAUDE_PROJECT_DIR set to `dir`. */
 	const withProjectDir = <T>(dir: string, body: () => T): T => {
-		const saved = process.env.CLAUDE_PROJECT_DIR;
-		process.env.CLAUDE_PROJECT_DIR = dir;
-		try {
-			return body();
-		} finally {
-			if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
-			else process.env.CLAUDE_PROJECT_DIR = saved;
-		}
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+		return body();
 	};
 
 	it("answers the same root however the variable is spelled", () => {
@@ -214,7 +208,7 @@ describe("every seat's state lives in the first seat's store (#383)", () => {
 		path.join(dir, "projects", projectSlug(sb.repo));
 
 	it("resolves the store under the first seat for a session on the second", () => {
-		process.env.CLAUDE_CONFIG_DIR = seat(".claude2");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seat(".claude2"));
 		expect(store.stateDir()).toBe(stateIn(sb.home));
 	});
 
@@ -225,15 +219,15 @@ describe("every seat's state lives in the first seat's store (#383)", () => {
 			path.join(home, ".claude", "refill-seats"),
 			"~/.claude2\n~/.claude2 api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
 		);
-		process.env.CLAUDE_CONFIG_DIR = seat(".claude2");
-		process.env.WFC_SEAT_KEY = "WFC_TEST_KEY";
-		delete process.env.CLAUDE_CODE_SESSION_ID;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seat(".claude2"));
+		vi.stubEnv("WFC_SEAT_KEY", "WFC_TEST_KEY");
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 		expect(store.stateDir()).toBe(stateIn(sb.home));
 	});
 
 	it("keeps a config dir that is no seat on a store of its own", () => {
 		const scratch = path.join(sb.dir, "scratch");
-		process.env.CLAUDE_CONFIG_DIR = scratch;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", scratch);
 		expect(store.stateDir()).toBe(stateIn(scratch));
 	});
 });
@@ -286,7 +280,7 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 		const savedCwd = process.cwd();
 		vi.stubEnv("WFC_GIT", git.bin);
 		vi.stubEnv("PATH", git.decoys);
-		delete process.env.CLAUDE_PROJECT_DIR;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 		process.chdir(at);
 		try {
 			body();
@@ -362,15 +356,10 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 	it("stateDir follows a re-pointed CLAUDE_CONFIG_DIR", () => {
 		const first = store.stateDir();
 		const elsewhere = path.join(sb.dir, "other-config");
-		const saved = process.env.CLAUDE_CONFIG_DIR;
-		process.env.CLAUDE_CONFIG_DIR = elsewhere;
-		try {
-			expect(store.stateDir()).not.toBe(first);
-			expect(store.stateDir().startsWith(elsewhere)).toBe(true);
-		} finally {
-			if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-			else process.env.CLAUDE_CONFIG_DIR = saved;
-		}
+		vi.stubEnv("CLAUDE_CONFIG_DIR", elsewhere);
+		expect(store.stateDir()).not.toBe(first);
+		expect(store.stateDir().startsWith(elsewhere)).toBe(true);
+		vi.stubEnv("CLAUDE_CONFIG_DIR", sb.home);
 		expect(store.stateDir()).toBe(first);
 	});
 });
@@ -399,7 +388,7 @@ describe("withGitTimeout bounds the store's git (#2891)", () => {
 		const git = hangingGit(path.join(sb.dir, "g-hang"));
 		const savedCwd = process.cwd();
 		vi.stubEnv("WFC_GIT", git.bin);
-		delete process.env.CLAUDE_PROJECT_DIR;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 		process.chdir(here);
 		try {
 			const { value, overran } = core.withGitTimeout(200, () => [
@@ -899,7 +888,7 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 		// A proving arena or a hand-set CLAUDE_CONFIG_DIR need not be named either.
 		const own = path.join(sb.dir, "elsewhere");
 		fs.mkdirSync(path.join(own, "sessions"), { recursive: true });
-		process.env.CLAUDE_CONFIG_DIR = own;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", own);
 
 		expect(store.paths.sessionDirs()[0]).toBe(path.join(own, "sessions"));
 	});
@@ -1001,9 +990,9 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 		const a = path.join(sb.dir, "plan-a");
 		const b = path.join(sb.dir, "plan-b");
 		const c = path.join(sb.dir, "plan-c");
-		process.env.WFC_CLAUDE_CONFIG_A = a;
-		process.env.WFC_CLAUDE_CONFIG_B = b;
-		process.env.WFC_CLAUDE_CONFIG_C = c;
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", a);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", b);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", c);
 
 		expect(store.paths.sessionDirs()).toEqual([
 			path.join(sb.home, "sessions"),
@@ -1015,7 +1004,7 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 
 	it("still defaults _B and _C when only WFC_CLAUDE_CONFIG_A is set", () => {
 		// Each knob falls back on its own.
-		process.env.WFC_CLAUDE_CONFIG_A = path.join(sb.dir, "plan-a");
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", path.join(sb.dir, "plan-a"));
 
 		expect(store.paths.sessionDirs()).toEqual([
 			path.join(sb.home, "sessions"),
@@ -1039,7 +1028,7 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 		const sealed = () => {
 			const dir = path.join(sb.dir, "unreadable");
 			fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
-			process.env.WFC_CLAUDE_CONFIG_A = dir;
+			vi.stubEnv("WFC_CLAUDE_CONFIG_A", dir);
 			return path.join(dir, "sessions");
 		};
 

@@ -27,19 +27,17 @@ import {
 } from "./lib/adopter-consent.js";
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-consent-cli-"));
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "claude");
-	delete process.env.WFC_CLAUDE_CONFIG_A;
-	delete process.env.WFC_CLAUDE_CONFIG_B;
-	delete process.env.WFC_CLAUDE_CONFIG_C;
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "claude"));
+	vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 const REPO = "/home/founder/fantasy-books";

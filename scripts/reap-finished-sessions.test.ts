@@ -25,7 +25,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -2161,21 +2161,19 @@ describe("openedRecord — a live reap cancelled at consecutive session starts (
 describe("persist mode: the report goes to a file, not to stdout", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 	const notify: any = require("./lib/notify-report.js");
-	const savedEnv = { ...process.env };
 	let sandbox = "";
 
 	beforeEach(() => {
 		sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "reap-persist-"));
 		/* Mirrored onto this process as well as the run's, so the two agree on
 		 * where `base()` puts the report. */
-		process.env.CLAUDE_CONFIG_DIR = sandbox;
-		process.env.CLAUDE_PROJECT_DIR = sandbox;
-		process.env.WFC_CLAUDE_CONFIG_A = sandbox;
-		process.env.WFC_CLAUDE_CONFIG_B = sandbox;
-		process.env.WFC_CLAUDE_CONFIG_C = sandbox;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", sandbox);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", sandbox);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", sandbox);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", sandbox);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", sandbox);
 	});
 	afterEach(() => {
-		process.env = { ...savedEnv };
 		fs.rmSync(sandbox, { recursive: true, force: true });
 	});
 
@@ -2554,19 +2552,16 @@ describe("seats other than the run's own (#1571)", () => {
 	it("counts a seat-B session in admission's reclaimable figure after a reap from seat A", () => {
 		daemonHolds(seatB, "bbbb");
 		reapFromA();
-		const saved = { ...process.env };
-		Object.assign(process.env, buildSeatEnv(), {
+		for (const [k, v] of Object.entries({
+			...buildSeatEnv(),
 			CLAUDE_CONFIG_DIR: seatA,
 			WFC_CLAUDE_BIN: path.join(seatA, "claude"),
 			CLAUDE_CODE_SESSION_ID: "the-session-this-hook-started-in",
-		});
-		delete process.env.WFC_REAP_SCRIPT;
-		try {
-			// biome-ignore lint/suspicious/noExplicitAny: CommonJS module, read for the figure admission.js prints
-			const { reclaimableMb } = require("./lib/admission.js") as any;
-			expect(reclaimableMb()).toMatchObject({ ok: true, count: 1 });
-		} finally {
-			process.env = saved;
-		}
+		}))
+			vi.stubEnv(k, v);
+		vi.stubEnv("WFC_REAP_SCRIPT", undefined);
+		// biome-ignore lint/suspicious/noExplicitAny: CommonJS module, read for the figure admission.js prints
+		const { reclaimableMb } = require("./lib/admission.js") as any;
+		expect(reclaimableMb()).toMatchObject({ ok: true, count: 1 });
 	});
 });

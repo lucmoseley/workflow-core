@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { core, freshSandbox, live, store } from "./arbiter-testkit";
 import { runCore, splitCheckout } from "./guard-core-testkit";
 
@@ -165,9 +165,9 @@ describe("a Bash call from a session in its own worktree (#4242)", () => {
 	const split = freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
 		/* The claim store is the main checkout's, as the harness names it. */
-		process.env.CLAUDE_PROJECT_DIR = at.main;
-		process.env.WFC_REPO_ROOT = at.main;
-		process.env.WFC_DISPATCH_ROOT = at.main;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", at.main);
+		vi.stubEnv("WFC_REPO_ROOT", at.main);
+		vi.stubEnv("WFC_DISPATCH_ROOT", at.main);
 		fs.mkdirSync(path.join(at.main, "scripts"));
 	});
 

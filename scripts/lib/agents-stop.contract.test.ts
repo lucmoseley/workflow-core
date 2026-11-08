@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	isFinishedAgent,
 	isTerminalAgent,
@@ -39,18 +39,16 @@ import { claudeLiveSkipReason, writeClaudeStub } from "./claude-stub";
 import { shellQuote } from "./sh-quote.js";
 
 let dir: string;
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-stop-"));
-	process.env.CLAUDE_CODE_SESSION_ID = "";
-	process.env.WFC_REFILL_DIR = path.join(dir, "refill");
-	process.env.WFC_ORACLE_CACHE = "0";
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
+	vi.stubEnv("WFC_ORACLE_CACHE", "0");
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 /** A `claude` whose body is `lines`. */
@@ -59,7 +57,7 @@ const claudeOf = (...lines: string[]) =>
 
 /** The reader's listing off a `claude` at `bin`. */
 const readListing = (bin: string) => {
-	process.env.WFC_CLAUDE_BIN = bin;
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	const listing = listedAgents({ requireSelf: false });
 	expect(listing.why).toBeUndefined();
 	return listing.agents ?? [];

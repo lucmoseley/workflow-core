@@ -272,7 +272,8 @@ function main(argv = process.argv.slice(2)) {
 
 	if (!check) {
 		fs.writeFileSync(target, text);
-		process.stdout.write(
+		writeFd(
+			1,
 			`${OUT}: ${Object.keys(edges).length} file(s) read by ${anchored} of ${tests} test file(s)\n`,
 		);
 		const dirty = readDirtyContributors(root, read);

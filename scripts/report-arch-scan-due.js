@@ -79,6 +79,7 @@ const {
 } = require("./lib/workflow-core-config");
 const { takesLabel } = require("./lib/takes-label");
 const { execGit, gitCommonDirOrThrow } = require("./lib/git.js");
+const { FULL_SHA } = require("./lib/commit-sha.js");
 const { buildStandaloneLine } = require("./lib/standalone-line.js");
 
 const RECORD = "docs/data/arch-scan-runs.jsonl";
@@ -100,7 +101,6 @@ const LABEL = takesLabel("implement");
 const STAMP = ".arch-scan-read";
 const LOCK = ".arch-scan-read.lock";
 const DAY_MS = 24 * 3_600_000;
-const SHA_RE = /^[0-9a-f]{40}$/;
 const WHERE = "report-arch-scan-due";
 
 const CODE_EXT = /\.(?:js|mjs|cjs|ts|tsx|sh|py)$/;
@@ -164,8 +164,8 @@ function readRecord() {
 function windowStart(rows) {
 	const scan = newestRow(rows, "scan");
 	if (scan) {
-		if (typeof scan.head !== "string" || !SHA_RE.test(scan.head))
-			throw new Error(`${RECORD}: the newest scan line has no 40-hex "head"`);
+		if (typeof scan.head !== "string" || !FULL_SHA.test(scan.head))
+			throw new Error(`${RECORD}: the newest scan line has no full-sha "head"`);
 		return { sha: scan.head };
 	}
 	const seed = newestRow(rows, "seed");
@@ -688,7 +688,7 @@ function partners(file) {
 		);
 	const since = requiredGroup(m, 1, WINDOW_RE);
 	/** @type {Start} */
-	const start = SHA_RE.test(since)
+	const start = FULL_SHA.test(since)
 		? { sha: since }
 		: { date: since, from: requiredGroup(m, 2, WINDOW_RE) };
 	const commits = readWindowCommits(

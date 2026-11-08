@@ -26,6 +26,7 @@
  */
 
 const { treeOr } = require("./tree-or.js");
+const { relativeUnder } = require("./is-under.js");
 
 /* What Biome formats, and so what a checkout without it leaves unformatted. */
 const BIOME_KIND = /\.(c|m)?[jt]sx?$|\.jsonc?$/;
@@ -54,7 +55,7 @@ const BIOME_KIND = /\.(c|m)?[jt]sx?$|\.jsonc?$/;
  * @param {{ changed: boolean, unformatted: boolean }} what
  */
 function noticeOf(file, root, { changed, unformatted }) {
-	const rel = file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
+	const rel = relativeUnder(root, file) || file;
 	if (changed)
 		return `post-write reformatted ${rel}: re-read it before your next Edit to it.`;
 	if (unformatted)

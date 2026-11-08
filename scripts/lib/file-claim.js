@@ -109,9 +109,9 @@
 const { caught } = require("./caught.js");
 const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
-const { trimEndRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
 const { isScratch } = require("./scratch-dir.js");
+const { relativeUnder } = require("./is-under.js");
 
 /** The anchor's argv share, below Linux's 128 KB single-argument cap. */
 const ANCHOR_MAX = 8000;
@@ -389,13 +389,9 @@ function decide(file, ctx) {
 	const creating = ctx.tool === "Write" && !ctx.exists(file);
 	/* The rules follow the path in the session's tree, so a linked worktree's
 	 * write is read by its own spelling there (#4242); the claim is keyed by
-	 * the same spelling, in the host's store (#4397). A root spelled with a
-	 * trailing slash once made every strip a no-op. */
+	 * the same spelling, in the host's store (#4397). */
 	const tree = treeOr(ctx, ctx);
-	const root = trimEndRun(tree.root, "/");
-	const rel = (
-		file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
-	).replace(/^\.\//, "");
+	const rel = (relativeUnder(tree.root, file) || file).replace(/^\.\//, "");
 	/* Scratch skips the arbiter, so no arbiter-fault line is logged for it. */
 	if (isScratch(rel)) return null;
 	const answer = arbiterAnswer(file, ctx, tree.root);

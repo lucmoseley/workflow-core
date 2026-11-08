@@ -13,7 +13,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -21,15 +21,12 @@ const lib: any = createRequire(__filename)("./scratch-git-host.js");
 
 describe("isTracked", () => {
 	let dir: string;
-	const saved = process.env.WFC_GIT;
 	const isTracked = (abs: string) => lib.buildHostPorts().isTracked(abs);
 
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "scratch-git-host-"));
 	});
 	afterEach(() => {
-		if (saved === undefined) delete process.env.WFC_GIT;
-		else process.env.WFC_GIT = saved;
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -44,20 +41,19 @@ describe("isTracked", () => {
 
 	it("answers false where git says there is no repository", () => {
 		fs.writeFileSync(path.join(dir, "a.sh"), "x\n");
-		process.env.GIT_CEILING_DIRECTORIES = dir;
-		try {
-			expect(isTracked(path.join(dir, "a.sh"))).toBe(false);
-		} finally {
-			delete process.env.GIT_CEILING_DIRECTORIES;
-		}
+		vi.stubEnv("GIT_CEILING_DIRECTORIES", dir);
+		expect(isTracked(path.join(dir, "a.sh"))).toBe(false);
 	});
 
 	it("cannot say on any other exit 128", () => {
-		process.env.WFC_GIT = writeFaultyGit(
-			{ all: true },
-			{ script: "echo 'fatal: unable to read index' >&2\nexit 128" },
-			{ under: dir },
-		).git;
+		vi.stubEnv(
+			"WFC_GIT",
+			writeFaultyGit(
+				{ all: true },
+				{ script: "echo 'fatal: unable to read index' >&2\nexit 128" },
+				{ under: dir },
+			).git,
+		);
 		expect(isTracked(path.join(dir, "a.sh"))).toBeNull();
 	});
 });

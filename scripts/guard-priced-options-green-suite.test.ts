@@ -17,7 +17,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import { cutWorktree } from "./lib/git-fixture";
 import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
@@ -67,14 +67,9 @@ afterEach(() => {
  * from, so a test never re-implements the arbiter's private path encoding.
  */
 function inSandbox<T>(body: () => T): T {
-	const saved = { ...process.env };
-	process.env.CLAUDE_CONFIG_DIR = home;
-	process.env.CLAUDE_PROJECT_DIR = dir;
-	try {
-		return body();
-	} finally {
-		process.env = saved;
-	}
+	vi.stubEnv("CLAUDE_CONFIG_DIR", home);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+	return body();
 }
 
 /** `session`'s commit ledger file, as `.husky/post-commit` writes it (#766). */

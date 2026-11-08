@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	hasSeatRunSince,
 	listTranscripts,
@@ -33,12 +33,8 @@ describe("projectDirs", () => {
 		"WFC_CLAUDE_CONFIG_B",
 		"WFC_CLAUDE_CONFIG_C",
 	];
-	const saved = Object.fromEntries(knobs.map((k) => [k, process.env[k]]));
 	let home = "";
 	afterEach(() => {
-		for (const k of knobs)
-			if (saved[k] === undefined) delete process.env[k];
-			else process.env[k] = saved[k];
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 
@@ -51,10 +47,10 @@ describe("projectDirs", () => {
 		fs.mkdirSync(projects(".claude2"), { recursive: true });
 		fs.mkdirSync(path.dirname(projects(".claude3")), { recursive: true });
 		fs.symlinkSync(projects(".claude2"), projects(".claude3"));
-		process.env.CLAUDE_CONFIG_DIR = seat(".claude");
-		process.env.WFC_CLAUDE_CONFIG_A = seat(".claude");
-		process.env.WFC_CLAUDE_CONFIG_B = seat(".claude2");
-		process.env.WFC_CLAUDE_CONFIG_C = seat(".claude3");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seat(".claude"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", seat(".claude"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", seat(".claude2"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", seat(".claude3"));
 		expect(projectDirs()).toEqual([projects(".claude"), projects(".claude2")]);
 	});
 
@@ -84,13 +80,13 @@ describe("projectDirs", () => {
 		const at = (p: string) => path.join(seat, "projects", projectSlug(p));
 		for (const p of [worktree, path.join(main, "elsewhere"), `${main}2`])
 			fs.mkdirSync(at(p), { recursive: true });
-		process.env.CLAUDE_CONFIG_DIR = seat;
-		for (const k of knobs.slice(2)) process.env[k] = seat;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", seat);
+		for (const k of knobs.slice(2)) vi.stubEnv(k, seat);
 
 		const want = [at(main), at(worktree)];
-		process.env.CLAUDE_PROJECT_DIR = main;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", main);
 		expect(projectDirs()).toEqual(want);
-		process.env.CLAUDE_PROJECT_DIR = worktree;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", worktree);
 		expect(projectDirs()).toEqual(want);
 	});
 });

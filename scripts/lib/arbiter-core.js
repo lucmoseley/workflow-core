@@ -26,6 +26,7 @@ const { realKey } = require("./deref.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { hostRoot, worktreeRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
+const { relativeUnder } = require("./is-under.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
@@ -803,9 +804,8 @@ function inRecordTree(record, fn) {
  */
 function claimKey(filePath) {
 	const tree = treeRoot();
-	const rel = path.relative(tree, path.resolve(tree, filePath));
-	if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-	return rel.split(path.sep).join("/");
+	const rel = relativeUnder(tree, path.resolve(tree, filePath));
+	return rel === null ? null : rel.split(path.sep).join("/");
 }
 
 /*
