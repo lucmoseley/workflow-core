@@ -4916,6 +4916,22 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/check-landing-switch-on.js": [
+			"scripts/check-landing-switch-on.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-landing-switch-on.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/check-lockfile-sync.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -6176,6 +6192,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/cutover-main-checkout.js": [
+			"scripts/check-landing-switch-on.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/cutover-main-checkout.test.ts",
 			"scripts/level-main.test.ts",
@@ -23561,6 +23578,51 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/landing-status.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/landing-switch-on.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/landing-switch-on.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/landing-switch-on.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -44559,6 +44621,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/status-report.js": [
+			"scripts/check-landing-switch-on.test.ts",
 			"scripts/check-stale-git-locks.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -44583,6 +44646,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/steps-owed.js": [
+			"scripts/check-landing-switch-on.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",

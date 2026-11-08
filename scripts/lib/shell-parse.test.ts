@@ -1527,6 +1527,21 @@ describe("walkGit reads an alias wherever git defines one (#4009)", () => {
 		expect(subs("git -c alias.k.y=checkout k", "")).toEqual([unread]);
 	});
 
+	it("reads a dotted name in the files as unread whole, an empty head included (#4277)", () => {
+		expect(subs("git x.y")).toEqual([unread]);
+		expect(subs("git .x", "alias..x\nstatus\0")).toEqual([unread]);
+		expect(subs("git st", "alias..x\nstatus\0alias.st\nstatus -s\0")).toEqual([
+			"status -s",
+		]);
+		expect(subs("git -c alias..x=status .x", "")).toEqual([unread]);
+		expect(
+			subs(
+				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias..x GIT_CONFIG_VALUE_0=status git .x",
+				"",
+			),
+		).toEqual([unread]);
+	});
+
 	it("reads a GIT_CONFIG_KEY_<n> pair below the count, and nothing from another variable (#4009)", () => {
 		expect(
 			subs(

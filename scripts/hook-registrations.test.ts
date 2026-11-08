@@ -400,6 +400,14 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
+		/* Silent before v2.1.0 and on a cut-over landing repo; fails at every
+		 * start on one still running as a shared tree (#4688). */
+		event: "SessionStart",
+		id: "scripts/check-landing-switch-on.js --notify",
+		matcher: null,
+		covers: [],
+	},
+	{
 		/* Silent on a fast or unprobeable interop bridge; warns at every start
 		 * while two policy queries in a row are slow, logging evidence (#3564). */
 		event: "SessionStart",
