@@ -14,7 +14,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { readAvailableMb } = require("./meminfo.js");
-const { wrapperScriptOf } = require("./suite-launch.js");
+const { treePorts } = require("./guard-host-ports.js");
+const { buildIsWrapperScript } = require("./suite-launch.js");
 const { STANDDOWN_LOG } = require("./suite-concurrency.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
 
@@ -25,26 +26,33 @@ const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
 const now = () => `${new Date().toISOString().slice(0, 19)}.000Z`;
 
 /**
+ * The host's declared `suiteRunners`, none where its config will not read.
+ * @param {string} root
+ * @param {(what: string) => void} log
+ * @returns {() => string[]}
+ */
+function buildRunners(root, log) {
+	const { readConfig } = require("./workflow-core-config.js");
+	return () => {
+		try {
+			return readConfig({ root, quiet: true }).suiteRunners ?? [];
+		} catch {
+			log("workflow-core.json unreadable — no declared suite runner counted");
+			return [];
+		}
+	};
+}
+
+/**
  * The host's declared runners and npm scripts, the two ports
  * lib/suite-launch.js reads.
  * @param {{ root: string, log: (m: string) => void }} env
  * @returns {import("./suite-launch.js").LaunchPorts}
  */
 function buildLaunchPorts({ root, log }) {
-	const { readConfig } = require("./workflow-core-config.js");
 	return {
-		runners: () => {
-			try {
-				return readConfig({ root, quiet: true }).suiteRunners ?? [];
-			} catch {
-				log("workflow-core.json unreadable — no declared suite runner counted");
-				return [];
-			}
-		},
-		isWrapperScript: wrapperScriptOf(
-			require("./guard-host-ports.js").treePorts(root).readText,
-			log,
-		),
+		runners: buildRunners(root, log),
+		isWrapperScript: buildIsWrapperScript(() => treePorts(root), log),
 	};
 }
 
@@ -66,7 +74,7 @@ function buildHostPorts(root, log) {
 			return ps.ok ? ps.rows : null;
 		},
 		carriedOf: readCarriedWeightOf,
-		runners: buildLaunchPorts({ root, log }).runners,
+		runners: buildRunners(root, log),
 		declaredTest: () => {
 			try {
 				return readCommandFor("test", { root });
@@ -125,7 +133,6 @@ function readGate(command, root, weight = null, climbMb = 0) {
 	};
 	const { decide } = require("./suite-concurrency.js");
 	const { kitContext, sharedReaders } = require("./kit-context.js");
-	const { treePorts } = require("./guard-host-ports.js");
 	const env = { root: host, payload: { cwd: host }, log };
 	const ctx = kitContext(env, sharedReaders(host, log));
 	const { WFC_SUITE_CONCURRENT: _escape, ...vars } = ctx.vars;

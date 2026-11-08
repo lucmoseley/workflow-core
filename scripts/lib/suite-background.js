@@ -136,7 +136,7 @@ const {
 const {
 	afterSlash,
 	suiteLaunchKind,
-	wrapperScriptOf,
+	buildIsWrapperScript,
 } = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
@@ -332,10 +332,7 @@ function decide(command, ctx) {
 		runners: ctx.runners,
 		/* Whether an npm script runs run-vitest.js is the session's tree's
 		 * package.json's to say (#4242), read on the first script asked about. */
-		isWrapperScript: wrapperScriptOf(
-			(rel) => ctx.tree().readText(rel),
-			ctx.log,
-		),
+		isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
 	};
 	let foundSuite = false;
 	let escaped = false;

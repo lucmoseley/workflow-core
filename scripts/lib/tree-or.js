@@ -53,7 +53,8 @@ const treeOrHost = (ctx) =>
 
 /**
  * A file's text in `tree`, null where it is absent or will not read: the
- * fail-open read of a core that allows, logged, on either.
+ * fail-open read of a core that allows, logged, on either (mantahostels#103
+ * §6, #4132).
  * @param {Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
  * @param {string} rel
  * @returns {string | null}

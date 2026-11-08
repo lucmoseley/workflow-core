@@ -149,7 +149,7 @@ const {
 	isOtherRunner,
 	npmScriptOf,
 	suiteLaunchKind,
-	wrapperScriptOf,
+	buildIsWrapperScript,
 } = require("./suite-launch.js");
 const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
@@ -419,12 +419,7 @@ function buildState(command, parsed, ctx) {
 				runners ??= ctx.runners();
 				return runners;
 			},
-			/* The tree resolved on the first npm script asked about, never on a
-			 * call naming none. */
-			isWrapperScript: wrapperScriptOf(
-				(rel) => treeOrHost(ctx).readText(rel),
-				ctx.log,
-			),
+			isWrapperScript: buildIsWrapperScript(() => treeOrHost(ctx), ctx.log),
 		},
 		readPs: () => {
 			if (ps === undefined) ps = ctx.psRows();

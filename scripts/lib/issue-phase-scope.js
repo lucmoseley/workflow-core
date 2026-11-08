@@ -320,12 +320,12 @@ function cardOf(title) {
 
 /**
  * A card's phase digit, null where the roadmap names no such card — the
- * prefix was never a card reference. Every creation has read the roadmap,
- * and opened on one that would not read, before its title is judged.
+ * prefix was never a card reference.
  * @param {Run} run
  * @param {string} card
  */
 function phaseOf(run, card) {
+	openIfRoadmapUnreadable(run);
 	const re = new RegExp(`id:"${card}",p:([0-9])`);
 	const hit = re.exec(run.roadmap ?? "");
 	return hit ? requiredGroup(hit, 1, re) : null;
