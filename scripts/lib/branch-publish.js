@@ -110,7 +110,14 @@ const {
 	walkCommands,
 	walkGit,
 } = require("./shell-parse.js");
-const { carriesVar, ghWords, literal, scanFlags } = require("./shell-words.js");
+const {
+	carriesVar,
+	ghWords,
+	literal,
+	scanFlags,
+	stepGhFlags,
+	valueAfter,
+} = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -513,14 +520,6 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 // ── GH ───────────────────────────────────────────────────────────────────
 
 /**
- * `${w#prefix}`: `w` with `prefix` off its front where it stands there. The
- * test is on the literal, the cut on the raw word, as the bash guard cut.
- * @param {string} w
- * @param {string} prefix
- */
-const cut = (w, prefix) => (w.startsWith(prefix) ? w.slice(prefix.length) : w);
-
-/**
  * @param {BranchPublishContext} ctx
  * @param {string[]} spans
  * @param {import("./shell-parse.js").Command} cmd
@@ -538,7 +537,7 @@ function judgeGh(ctx, spans, { segment, words, leading, cwd }) {
 	const first = lit(gh.args[0]);
 	if (first === "api") return judgeApi(ctx, spans, segment, gh.args.slice(1));
 	if (first !== "pr") return null;
-	const pr = stepPrFlags(gh.args.slice(1), gh.repo, lit);
+	const pr = stepGhFlags(gh.args.slice(1), spans, gh.repo);
 	if (!pr) return null;
 	const verb = lit(pr.args[0]);
 	if (verb === "create" || verb === "new")
@@ -551,31 +550,6 @@ function judgeGh(ctx, spans, { segment, words, leading, cwd }) {
 		cwd,
 		args: pr.args.slice(1),
 	});
-}
-
-/**
- * The flags between `pr` and its verb stepped over, keeping a `-R`/`--repo`
- * value, raw; null where `-R` has none left.
- * @param {string[]} words the words after `pr`
- * @param {string} repo the `-R` before `pr`, raw, or ""
- * @param {(w: string | undefined) => string} lit
- * @returns {{ args: string[], repo: string } | null}
- */
-function stepPrFlags(words, repo, lit) {
-	let args = words;
-	let r = repo;
-	for (let f = lit(args[0]); f.startsWith("-"); f = lit(args[0])) {
-		const raw = args[0] ?? "";
-		let step = 1;
-		if (f === "-R" || f === "--repo") {
-			if (args.length < 2) return null;
-			r = args[1] ?? "";
-			step = 2;
-		} else if (f.startsWith("--repo=")) r = cut(raw, "--repo=");
-		else if (f.startsWith("-R")) r = cut(raw, "-R");
-		args = args.slice(step);
-	}
-	return { args, repo: r };
 }
 
 /** The `gh api` flags that carry a request body. */
@@ -599,7 +573,7 @@ function judgeApi(ctx, spans, segment, args) {
 					segment,
 				)
 			: null;
-	if (!PULLS_RE.test(cut(endpoint, "/"))) return null;
+	if (!PULLS_RE.test(endpoint.replace(/^\//, ""))) return null;
 	const verb = method.toUpperCase();
 	if (verb === "POST" || (!verb && body))
 		return refuse(
@@ -635,7 +609,8 @@ function readApi(args, spans) {
 /**
  * @typedef {object} Merge
  * @property {string} segment
- * @property {string} repo the `-R` word before `merge`, raw, or ""
+ * @property {import("./shell-words.js").GhRepo | null} repo the `-R` before
+ *   `merge`, as stepGhFlags reads it
  * @property {boolean} repoEnv the command carries GH_REPO
  * @property {string} cwd where the command runs; "" where the walk cannot know
  * @property {string[]} args the words after `merge`
@@ -651,7 +626,8 @@ function readApi(args, spans) {
  */
 function judgeMerge(ctx, spans, { segment, repo, repoEnv, cwd, args }) {
 	let rawSelector = "";
-	let mergeRepo = "";
+	/** @type {string | null} */
+	let mergeRepo = null;
 	let disable = false;
 	scanFlags(MERGE_VALUE_FLAGS, args, (kind, name, value) => {
 		if (kind === "arg") rawSelector ||= value;
@@ -673,9 +649,9 @@ function judgeMerge(ctx, spans, { segment, repo, repoEnv, cwd, args }) {
 	}
 	if (selector.startsWith("dependabot/")) return dependabotMerge(ctx, segment);
 	const view = ["pr", "view", ...(selector ? [selector] : [])];
-	const rawRepo = mergeRepo || repo;
-	if (rawRepo) {
-		const r = literal(rawRepo, spans);
+	const r =
+		mergeRepo === null ? repo : valueAfter(literal(mergeRepo, spans), "");
+	if (r) {
 		if (!r.known) return unchecked("unreadable pr merge repo");
 		view.push("-R", r.text);
 	} else if (repoEnv) return unchecked("pr merge under a GH_REPO override");
