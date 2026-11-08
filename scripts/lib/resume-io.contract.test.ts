@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildAgentsBranch,
 	buildJobRow,
@@ -46,7 +46,6 @@ import {
 type ResumeIo = import("./refill-resume.js").ResumeIo;
 type ChildRun = ReturnType<ResumeIo["runClaude"]>;
 
-const savedEnv = { ...process.env };
 let dir: string;
 let root: string;
 let seat: string;
@@ -63,22 +62,19 @@ beforeEach(() => {
 	fs.mkdirSync(root);
 	fs.mkdirSync(seat);
 	fs.mkdirSync(target);
-	Object.assign(process.env, {
-		HOME: dir,
-		CLAUDE_CONFIG_DIR: seat,
-		CLAUDE_PROJECT_DIR: root,
-		CLAUDE_CODE_SESSION_ID: "",
-		WFC_CLAUDE_BIN: bin,
-		WFC_SECRETS_FILE: path.join(dir, "secrets.env"),
-		WFC_REFILL_DIR: path.join(dir, "refill"),
-	});
-	delete process.env.ANTHROPIC_API_KEY;
+	vi.stubEnv("HOME", dir);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", seat);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", root);
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
+	vi.stubEnv("WFC_SECRETS_FILE", path.join(dir, "secrets.env"));
+	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
+	vi.stubEnv("ANTHROPIC_API_KEY", undefined);
 	lines.length = 0;
 	writeClaudeStub(bin, []);
 });
 
 afterEach(() => {
-	process.env = { ...savedEnv };
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -16,7 +16,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const { DEFAULT_ROTATE_AT, rotateAt, rotateLog }: any =
@@ -99,10 +99,6 @@ describe("a rotation that genuinely failed", () => {
 });
 
 describe("the limit", () => {
-	afterEach(() => {
-		delete process.env.WFC_ROTATE_AT;
-	});
-
 	it("is 8 MB", () => {
 		expect(DEFAULT_ROTATE_AT).toBe(8 * 1024 * 1024);
 		expect(rotateAt({})).toBe(DEFAULT_ROTATE_AT);
@@ -120,7 +116,7 @@ describe("the limit", () => {
 	});
 
 	it("defaults to this process's own environment", () => {
-		process.env.WFC_ROTATE_AT = "4096";
+		vi.stubEnv("WFC_ROTATE_AT", "4096");
 		expect(rotateAt()).toBe(4096);
 	});
 });

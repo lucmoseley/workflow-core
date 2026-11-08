@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
@@ -747,8 +747,7 @@ describe("release-plugin", () => {
 			tmp,
 			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(record)}\nexit 0\n`,
 		);
-		const prevWfcGh = process.env.WFC_GH;
-		process.env.WFC_GH = stub.gh;
+		vi.stubEnv("WFC_GH", stub.gh);
 		try {
 			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
 			manifests("2.0.0", "v2.0.0");
@@ -775,8 +774,6 @@ describe("release-plugin", () => {
 				"skipped the labels — a release's dry run writes no labels",
 			);
 		} finally {
-			if (prevWfcGh === undefined) delete process.env.WFC_GH;
-			else process.env.WFC_GH = prevWfcGh;
 			fs.rmSync(tmp, { recursive: true, force: true });
 		}
 	});

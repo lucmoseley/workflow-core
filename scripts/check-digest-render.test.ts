@@ -21,7 +21,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyRequireClosure } from "./lib/require-closure";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -36,7 +36,6 @@ const HTML = "docs/reference-roadmap.html";
 const DIGEST = "docs/roadmap-digest.md";
 
 let dir: string;
-let priorProjectDir: string | undefined;
 
 /* The three things gen-roadmap-digest.js reads out of the roadmap: the two
  * array literals, each closed with "\n];" as its extractor requires, and the
@@ -89,12 +88,9 @@ beforeEach(() => {
 	// that root, for the generator this file spawns and the one the checker does.
 	fs.mkdirSync(path.join(dir, ".claude"));
 	write(".claude/workflow-core.json", JSON.stringify({ name: "Test" }));
-	priorProjectDir = process.env.CLAUDE_PROJECT_DIR;
-	process.env.CLAUDE_PROJECT_DIR = dir;
+	vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 });
 afterEach(() => {
-	if (priorProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
-	else process.env.CLAUDE_PROJECT_DIR = priorProjectDir;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -26,14 +26,15 @@ const present = fs.existsSync(MEMCHECK) && fs.existsSync(MEMWATCH);
 const hasProc = fs.existsSync("/proc/stat");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "memwatch-pair-"));
+beforeEach(() => {
+	/* Every pass writes the minute line, so no run here may reach the live one. */
+	vi.stubEnv("MEMWATCH_MINUTE_LOG", path.join(tmp, "minute.jsonl"));
+	vi.stubEnv("MEMWATCH_RUNAWAY_LOG", path.join(tmp, "runaway-default.jsonl"));
+	/* Nor may any start a real PowerShell read of Windows memory. */
+	vi.stubEnv("MEMWATCH_WIN_READ", "");
+	vi.stubEnv("MEMWATCH_WIN_OUT", path.join(tmp, "win-default"));
+});
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
-
-/* Every pass writes the minute line, so no run here may reach the live one. */
-process.env.MEMWATCH_MINUTE_LOG = path.join(tmp, "minute.jsonl");
-process.env.MEMWATCH_RUNAWAY_LOG = path.join(tmp, "runaway-default.jsonl");
-/* Nor may any start a real PowerShell read of Windows memory. */
-process.env.MEMWATCH_WIN_READ = "";
-process.env.MEMWATCH_WIN_OUT = path.join(tmp, "win-default");
 
 function runMemcheckLine(watchdogSrc: string): string {
 	return execFileSync("bash", [MEMCHECK, "--memwatch-line"], {

@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { readGuardErrorsLog } from "./guard-errors-log";
@@ -527,14 +527,9 @@ describe("cases a mutant must not survive", () => {
 
 	it("leaves the Skill route unlatched where its fragment did not read", () => {
 		const store = fs.mkdtempSync(path.join(config, "rules-"));
-		const prior = process.env.WFC_RULES_DIR;
-		process.env.WFC_RULES_DIR = store;
-		try {
-			expect(skillInjected("diagnosing-bugs")).toBeUndefined();
-		} finally {
-			if (prior === undefined) delete process.env.WFC_RULES_DIR;
-			else process.env.WFC_RULES_DIR = prior;
-		}
+		vi.stubEnv("WFC_RULES_DIR", store);
+		expect(skillInjected("diagnosing-bugs")).toBeUndefined();
+		vi.unstubAllEnvs();
 		expect(logs).toContain(
 			"recurrence-checks fragment unreadable — recurrence checks not injected",
 		);

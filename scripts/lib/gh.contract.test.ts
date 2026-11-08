@@ -18,7 +18,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caught } from "./caught.js";
 import {
 	answerLinkRead,
@@ -125,14 +125,11 @@ const LIB = path.resolve(__dirname, "gh.js");
 const LINK_SCRIPT = path.resolve(__dirname, "../link-sub-issue.sh");
 
 let dir: string;
-let savedEnv: NodeJS.ProcessEnv;
 
 beforeEach(() => {
-	savedEnv = { ...process.env };
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-contract-"));
 });
 afterEach(() => {
-	process.env = savedEnv;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -193,7 +190,7 @@ async function observe(call: (args: string[]) => string, args: string[]) {
 /** The same call through lib/gh.js with WFC_GH pointing at `bin`. */
 async function throughSeam(bin: string, args: string[]) {
 	const { gh } = await import(LIB);
-	process.env.WFC_GH = bin;
+	vi.stubEnv("WFC_GH", bin);
 	return observe(gh, args);
 }
 
@@ -243,8 +240,8 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 			"BUILD_NUMBER",
 			"RUN_ID",
 		])
-			delete process.env[v];
-		process.env.GH_CONFIG_DIR = fs.mkdtempSync(path.join(dir, "gh-config-"));
+			vi.stubEnv(v, undefined);
+		vi.stubEnv("GH_CONFIG_DIR", fs.mkdtempSync(path.join(dir, "gh-config-")));
 	};
 	const args = ["api", "repos/o/r"];
 
@@ -665,7 +662,7 @@ describe("live: computed answers", () => {
 			`argv[1] === "graphql" ? answerBlockedBy(argv, ${blockers}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
 			log,
 		);
-		process.env.WFC_GH = stub;
+		vi.stubEnv("WFC_GH", stub);
 		await blockedByMany([{ number: 2331 }, { number: 999_999_999 }], {
 			repo: "{owner}/{repo}",
 			home: null,
@@ -693,10 +690,13 @@ describe("live: computed answers", () => {
 		if (liveSkip.reason) return skip(liveSkip.reason);
 		const { ghIssuesUpdatedSince } = await import(LIB);
 		const log = path.join(dir, "since-calls");
-		process.env.WFC_GH = computedStub(
-			BLOCKED_BY_GRAPHQL_FAKE,
-			JSON.stringify(readGhAnswer(ISSUES_PAGE)),
-			log,
+		vi.stubEnv(
+			"WFC_GH",
+			computedStub(
+				BLOCKED_BY_GRAPHQL_FAKE,
+				JSON.stringify(readGhAnswer(ISSUES_PAGE)),
+				log,
+			),
 		);
 		ghIssuesUpdatedSince("{owner}/{repo}", "2020-01-01T00:00:00Z");
 		const sent: string[] = JSON.parse(
@@ -766,10 +766,13 @@ describe("live: computed answers", () => {
 		if (liveSkip.reason) return skip(liveSkip.reason);
 		const { blockedByMany } = await import("./blocked-by-batch.js");
 		const log = path.join(dir, "no-repo-calls");
-		process.env.WFC_GH = computedStub(
-			BLOCKED_BY_GRAPHQL_FAKE,
-			JSON.stringify(readGhAnswer(GRAPHQL_NO_REPO)),
-			log,
+		vi.stubEnv(
+			"WFC_GH",
+			computedStub(
+				BLOCKED_BY_GRAPHQL_FAKE,
+				JSON.stringify(readGhAnswer(GRAPHQL_NO_REPO)),
+				log,
+			),
 		);
 		await blockedByMany([{ number: 1 }], {
 			repo: `${readOwner()}/${noRepo}`,

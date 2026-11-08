@@ -608,7 +608,7 @@ function giveUpLock({ file, holder, undeletable, waitMs }) {
  * @param {string} why
  */
 function warnWritingUnlocked(file, why) {
-	process.stderr.write(`issue-body: lock ${file} ${why}; writing without it\n`);
+	writeFd(2, `issue-body: lock ${file} ${why}; writing without it\n`);
 }
 
 /** @param {string} file */

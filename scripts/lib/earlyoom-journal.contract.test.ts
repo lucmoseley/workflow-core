@@ -22,7 +22,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
 	kernelLine,
 	otherLine,
@@ -174,28 +174,22 @@ function readSide(
 	kernelBin: string,
 ): { side?: Side; why?: string } {
 	const t = tap(name, bin);
-	const was = process.env.WFC_JOURNALCTL;
-	process.env.WFC_JOURNALCTL = t.at;
-	try {
-		const { incidents, why } = readIncidents(Date.now() - WINDOW_MS);
-		if (why !== null) return { why };
-		/* readIncidents widens its read until it holds every incident whole:
-		 * its last read is the one its kills came from. */
-		const lines = lineList(t.last());
-		readIncidents(Date.now() + 24 * 60 * MIN);
-		return {
-			side: {
-				real: name === "real",
-				lines,
-				kills: incidents.flatMap((i: { kills: Kill[] }) => i.kills),
-				empty: t.last().trim(),
-				kernel: readKernel(kernelBin, name),
-			},
-		};
-	} finally {
-		if (was === undefined) delete process.env.WFC_JOURNALCTL;
-		else process.env.WFC_JOURNALCTL = was;
-	}
+	vi.stubEnv("WFC_JOURNALCTL", t.at);
+	const { incidents, why } = readIncidents(Date.now() - WINDOW_MS);
+	if (why !== null) return { why };
+	/* readIncidents widens its read until it holds every incident whole:
+	 * its last read is the one its kills came from. */
+	const lines = lineList(t.last());
+	readIncidents(Date.now() + 24 * 60 * MIN);
+	return {
+		side: {
+			real: name === "real",
+			lines,
+			kills: incidents.flatMap((i: { kills: Kill[] }) => i.kills),
+			empty: t.last().trim(),
+			kernel: readKernel(kernelBin, name),
+		},
+	};
 }
 
 /** The journal line a kill's first signal was read from; -1 where none. */

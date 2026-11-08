@@ -15,21 +15,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mod = require("./detached-run.js");
 
 let cfg: string;
-const prior = process.env.CLAUDE_CONFIG_DIR;
-
 beforeEach(() => {
 	cfg = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-detached-"));
-	process.env.CLAUDE_CONFIG_DIR = cfg;
+	vi.stubEnv("CLAUDE_CONFIG_DIR", cfg);
 });
 
 afterEach(() => {
-	if (prior === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-	else process.env.CLAUDE_CONFIG_DIR = prior;
 	fs.rmSync(cfg, { recursive: true, force: true });
 });
 
@@ -198,13 +194,13 @@ describe("it never throws on the session-start path", () => {
 	it("survives a config dir it cannot write to", () => {
 		const blocked = path.join(cfg, "not-a-dir");
 		fs.writeFileSync(blocked, "x");
-		process.env.CLAUDE_CONFIG_DIR = path.join(blocked, "cfg");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(blocked, "cfg"));
 		expect(() => mod.recordRun("prune-markers", () => 1)).not.toThrow();
 	});
 
 	it("leaves a config dir that is gone unmade, filing no record (#2889)", () => {
 		const gone = path.join(cfg, "removed");
-		process.env.CLAUDE_CONFIG_DIR = gone;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", gone);
 		expect(() => mod.recordRun("prune-markers", () => 1)).not.toThrow();
 		expect(fs.existsSync(gone)).toBe(false);
 	});

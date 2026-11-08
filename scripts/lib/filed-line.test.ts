@@ -4,7 +4,7 @@
  * of output that names other issues first.
  */
 import { describe, expect, it } from "vitest";
-import { buildFiledLine, parseFiledLine } from "./filed-line.js";
+import { buildFiledLine, findFiledLine, parseFiledLine } from "./filed-line.js";
 
 describe("parseFiledLine", () => {
 	it("reads the filed issue past the sibling and similar-title lines printed before it", () => {
@@ -26,5 +26,18 @@ describe("parseFiledLine", () => {
 		expect(() => parseFiledLine("  #4498 — filed by this session\n")).toThrow(
 			"printed no Filed #<n> line: #4498 — filed by this session",
 		);
+	});
+});
+
+describe("findFiledLine", () => {
+	it("reads the Filed line and its number", () => {
+		expect(
+			findFiledLine(`${buildFiledLine(7, "https://x/7")}\nlabels: x\n`),
+		).toEqual({ line: "Filed #7: https://x/7", n: 7 });
+	});
+
+	it("returns null where no Filed line was printed, a bare `Filed #<n>` included", () => {
+		expect(findFiledLine("  #4498 — filed by this session\n")).toBeNull();
+		expect(findFiledLine("Filed #7\n")).toBeNull();
 	});
 });

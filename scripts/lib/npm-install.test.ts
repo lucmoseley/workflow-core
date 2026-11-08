@@ -24,7 +24,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
@@ -468,13 +468,12 @@ That is the shape of a hallucinated name. Roughly one in five package references
 		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "npm-install-rules-"));
 		fs.writeFileSync(path.join(rules, "self-spelt-escape.txt"), "ESCAPE.\n");
 		const { ctx } = harness({ created: daysAgo(179) });
-		process.env.WFC_RULES_DIR = rules;
+		vi.stubEnv("WFC_RULES_DIR", rules);
 		try {
 			expect(decide(install, ctx)?.deny).toContain(
 				"never honoured: ESCAPE. Otherwise ask",
 			);
 		} finally {
-			delete process.env.WFC_RULES_DIR;
 			fs.rmSync(rules, { recursive: true, force: true });
 		}
 	});

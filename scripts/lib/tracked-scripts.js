@@ -1,10 +1,11 @@
 /*
  * tracked-scripts.js — the tracked files under `scripts/` a checker reads, kept
- * to those its filter admits (#3131).
+ * to those its filter admits (#3131), or under the whole repo where the checker
+ * names `""` as its top.
  *
  * check-guard-test-isolation.js, check-host-root-test-isolation.js and
- * check-git-fixture-identity.js each read this set, and differ only in the
- * filter.
+ * check-git-fixture-identity.js each read the `scripts/` set, and differ only
+ * in the filter; check-test-env-writes.js reads the whole repo's (#4019).
  *
  * `--root` walks the filesystem. That tree is a `git archive HEAD` extraction
  * (mantahostels#1753), so the walk answers what `git ls-files` would. Not
@@ -19,23 +20,25 @@ const { caught } = require("./caught.js");
 
 /** @typedef {import("./check.js").Ctx} Ctx */
 
+/** The BROKEN line's tail: what the failure left unread. */
+const noneRead = (/** @type {string} */ top) =>
+	top ? `No ${top}/ files read.` : "No files read.";
+
 /**
  * A root it cannot read, or any read error under it but a directory gone, is
- * the checker's BROKEN, never an empty set. A readable root with no `scripts/`
+ * the checker's BROKEN, never an empty set. A readable root with no `top`
  * tracks none, so it lists none (#3387).
  * @param {Ctx} ctx
  * @param {string} root
  * @param {(rel: string) => boolean} keep
+ * @param {string} top
  */
-function walkScripts(ctx, root, keep) {
+function walkScripts(ctx, root, keep, top) {
 	const out = /** @type {string[]} */ ([]);
 	const reportUnreadable = (
 		/** @type {string} */ at,
 		/** @type {unknown} */ e,
-	) =>
-		ctx.broken(
-			`could not read ${at}: ${errMessage(e)}. No scripts/ files read.`,
-		);
+	) => ctx.broken(`could not read ${at}: ${errMessage(e)}. ${noneRead(top)}`);
 	try {
 		fs.readdirSync(root);
 	} catch (e) {
@@ -48,36 +51,37 @@ function walkScripts(ctx, root, keep) {
 		} catch (e) {
 			if (caught(e).code !== "ENOENT")
 				return reportUnreadable(path.join(root, rel), e);
-			/* `scripts/` itself absent tracks nothing. A directory under it,
+			/* `top` itself absent tracks nothing. A directory under it,
 			 * listed by its parent then gone, is a parallel write in the tree
 			 * with nothing under it to read (#3170). */
-			if (rel !== "scripts")
+			if (rel !== top)
 				ctx.say(`${path.join(root, rel)} vanished mid-walk; read as empty.`);
 			return [];
 		}
 	};
 	const walk = (/** @type {string} */ rel) => {
 		for (const e of list(rel).sort((a, b) => a.name.localeCompare(b.name))) {
-			const child = `${rel}/${e.name}`;
+			const child = rel ? `${rel}/${e.name}` : e.name;
 			if (e.isDirectory()) walk(child);
 			else if (keep(child)) out.push(child);
 		}
 	};
-	walk("scripts");
+	walk(top);
 	return out;
 }
 
 /**
- * The repo root and its tracked `scripts/` paths `keep` admits, repo-relative.
- * A git failure is the checker's BROKEN, never an empty set.
+ * The repo root and its tracked paths under `top` that `keep` admits,
+ * repo-relative. A git failure is the checker's BROKEN, never an empty set.
  * @param {Ctx} ctx
- * @param {(rel: string) => boolean} keep called with a `scripts/…` path
+ * @param {(rel: string) => boolean} keep called with a repo-relative path
+ * @param {string} [top] the directory read, `""` for the whole repo
  */
-function readTrackedScripts(ctx, keep) {
+function readTrackedScripts(ctx, keep, top = "scripts") {
 	const rootFlag = ctx.value("--root");
 	if (rootFlag) {
 		const root = path.resolve(rootFlag);
-		return { root, files: walkScripts(ctx, root, keep) };
+		return { root, files: walkScripts(ctx, root, keep, top) };
 	}
 	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
 		try {
@@ -87,7 +91,7 @@ function readTrackedScripts(ctx, keep) {
 			});
 		} catch (e) {
 			return ctx.broken(
-				`git ${args[0]} failed while ${what}: ${errMessage(e)}. No scripts/ files read.`,
+				`git ${args[0]} failed while ${what}: ${errMessage(e)}. ${noneRead(top)}`,
 			);
 		}
 	};
@@ -97,7 +101,10 @@ function readTrackedScripts(ctx, keep) {
 	).trim();
 	const files = git(["-C", root, "ls-files", "-z"], "listing tracked files")
 		.split("\0")
-		.filter((/** @type {string} */ p) => p.startsWith("scripts/") && keep(p));
+		.filter(
+			(/** @type {string} */ p) =>
+				(top === "" || p.startsWith(`${top}/`)) && keep(p),
+		);
 	return { root, files };
 }
 

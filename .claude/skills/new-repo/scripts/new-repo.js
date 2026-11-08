@@ -54,6 +54,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { findFiledLine } = require("../../../../scripts/lib/filed-line.js");
 const { execGit, spawnGitSync } = require("../../../../scripts/lib/git.js");
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
@@ -1522,14 +1523,14 @@ function fileIssue(
 		],
 		filerEnv,
 	);
-	const n = filed.output.match(/^Filed #(\d+)/m);
-	if (filed.status !== 0 || !n)
+	const n = findFiledLine(filed.output)?.n;
+	if (filed.status !== 0 || n === undefined)
 		throw new Stop(`file-issue.js did not file ${noun}`, {
 			code: filed.status === 2 ? 2 : 1,
 			output: filed.output,
 			manual,
 		});
-	return Number(n[1]);
+	return n;
 }
 
 /**

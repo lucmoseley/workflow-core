@@ -15,6 +15,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 
 const {
@@ -168,32 +169,36 @@ function tallySessions(files, sinceMs, untilMs) {
  * @param {{ dirs: string[], unreadableDirs: string[], opts: ReturnType<typeof parseArgs>, t: Tally }} report
  */
 function printReport({ dirs, unreadableDirs, opts, t }) {
-	console.log(`Corpus: ${dirs.join(", ")}`);
+	writeFd(1, `Corpus: ${dirs.join(", ")}\n`);
 	if (unreadableDirs.length > 0)
-		console.log(
-			`  (${unreadableDirs.length} directory(ies) unreadable, excluded: ${unreadableDirs.join("; ")})`,
+		writeFd(
+			1,
+			`  (${unreadableDirs.length} directory(ies) unreadable, excluded: ${unreadableDirs.join("; ")})\n`,
 		);
-	console.log(
-		`Window: since ${opts.since}${opts.until ? ` until ${opts.until}` : ""}`,
+	writeFd(
+		1,
+		`Window: since ${opts.since}${opts.until ? ` until ${opts.until}` : ""}\n`,
 	);
-	console.log(`/implement sessions: ${t.total} (${t.opusCount} opus)`);
-	console.log(`  hard carve-out (widened list): ${t.hard}`);
-	console.log(`  adjacent only: ${t.adjacentOnly}`);
-	console.log(`  plain miss: ${t.plainMiss}`);
+	writeFd(1, `/implement sessions: ${t.total} (${t.opusCount} opus)\n`);
+	writeFd(1, `  hard carve-out (widened list): ${t.hard}\n`);
+	writeFd(1, `  adjacent only: ${t.adjacentOnly}\n`);
+	writeFd(1, `  plain miss: ${t.plainMiss}\n`);
 	if (t.unreadableFiles)
-		console.log(`  (${t.unreadableFiles} transcript(s) unreadable, excluded)`);
+		writeFd(1, `  (${t.unreadableFiles} transcript(s) unreadable, excluded)\n`);
 	if (t.capped)
-		console.log(
-			`  (${t.capped} transcript(s) capped before a <command-name> block turned up, so their command is unread)`,
+		writeFd(
+			1,
+			`  (${t.capped} transcript(s) capped before a <command-name> block turned up, so their command is unread)\n`,
 		);
 	if (t.unparseableStart)
-		console.log(
-			`  (${t.unparseableStart} /implement session(s) carry no parseable start timestamp, excluded from the window)`,
+		writeFd(
+			1,
+			`  (${t.unparseableStart} /implement session(s) carry no parseable start timestamp, excluded from the window)\n`,
 		);
 	if (t.misses.length > 0) {
-		console.log("\nPlain-miss sessions:");
+		writeFd(1, "\nPlain-miss sessions:\n");
 		for (const r of t.misses)
-			console.log(`  ${r.file}  paths=${JSON.stringify(r.paths.slice(0, 3))}`);
+			writeFd(1, `  ${r.file}  paths=${JSON.stringify(r.paths.slice(0, 3))}\n`);
 	}
 }
 
@@ -208,9 +213,10 @@ function main() {
 	} = listTranscripts(dirs);
 
 	if (unreadableDirs.length + absentDirs.length === dirs.length) {
-		console.error(
+		writeFd(
+			2,
 			`Cannot read any corpus directory (${[...unreadableDirs, ...absentDirs.map((d) => `${d} (absent)`)].join("; ")}). ` +
-				"This is a broken read, NOT a low miss count.",
+				"This is a broken read, NOT a low miss count.\n",
 		);
 		process.exit(2);
 	}

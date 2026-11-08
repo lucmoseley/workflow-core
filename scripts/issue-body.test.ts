@@ -36,7 +36,6 @@ let store: string;
 let counter: string;
 /** The fake `gh` below, as written into `dir`. */
 let gh: string;
-let savedEnv: NodeJS.ProcessEnv;
 
 /**
  * `gh` as this script uses it, plus three levers the real thing does not have:
@@ -92,25 +91,23 @@ const ib = (...args: string[]) =>
 	runInProcess(SCRIPT, args, { env: process.env });
 
 beforeEach(() => {
-	savedEnv = { ...process.env };
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "issue-body-test-"));
 	store = path.join(dir, "body.md");
 	counter = path.join(dir, "edits");
 	fs.writeFileSync(counter, "0");
 	gh = stubGhScript(dir, STUB).gh;
-	process.env.WFC_GH = gh;
-	process.env.STUB_STORE = store;
-	process.env.STUB_COUNTER = counter;
+	vi.stubEnv("WFC_GH", gh);
+	vi.stubEnv("STUB_STORE", store);
+	vi.stubEnv("STUB_COUNTER", counter);
 	// Never the real ~/.claude: the lock lands under CLAUDE_CONFIG_DIR, and a
 	// test that wrote there could wedge a live session.
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "config");
-	process.env.CLAUDE_JOB_DIR = path.join(dir, "job");
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
+	vi.stubEnv("CLAUDE_JOB_DIR", path.join(dir, "job"));
 	// A gate this suite adds would land in the real session's acts ledger.
-	delete process.env.CLAUDE_CODE_SESSION_ID;
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 });
 
 afterEach(() => {
-	process.env = savedEnv;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -390,8 +387,8 @@ describe("the write loop", () => {
 	 */
 	it("repairs a clobber by re-applying onto the rival's body, so both survive", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.STUB_CLOBBER_ON = "1";
-		process.env.STUB_CLOBBER_BODY = "## Log\n\nv0\n\nENTRY-B\n";
+		vi.stubEnv("STUB_CLOBBER_ON", "1");
+		vi.stubEnv("STUB_CLOBBER_BODY", "## Log\n\nv0\n\nENTRY-B\n");
 
 		const r = ib("append", "96", "--text", "ENTRY-A");
 
@@ -402,8 +399,8 @@ describe("the write loop", () => {
 
 	it("gives up loudly and saves the unwritten body when a rival never stops", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.STUB_CLOBBER_ON = "all";
-		process.env.STUB_CLOBBER_BODY = "## Log\n\nv0\n\nENTRY-B\n";
+		vi.stubEnv("STUB_CLOBBER_ON", "all");
+		vi.stubEnv("STUB_CLOBBER_BODY", "## Log\n\nv0\n\nENTRY-B\n");
 
 		const r = ib("append", "96", "--text", "ENTRY-A", "--attempts", "3");
 		expect(r.status).toBe(1);
@@ -423,10 +420,13 @@ describe("the CLI's argument handling, before any gh call (#920)", () => {
 	/** Runs the script against a gh that records being called at all. */
 	const cli = (...args: string[]) => {
 		const called = path.join(dir, "gh-called");
-		process.env.WFC_GH = stubGhScript(
-			dir,
-			`#!/bin/sh\necho "$@" >> ${shellQuote(called)}\nexit 1\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				dir,
+				`#!/bin/sh\necho "$@" >> ${shellQuote(called)}\nexit 1\n`,
+			).gh,
+		);
 		const r = runInProcess(path.join(__dirname, "issue-body.js"), args, {
 			env: process.env,
 		});
@@ -510,8 +510,8 @@ describe("the CLI", () => {
 	 */
 	it("replace refuses on divergence instead of retrying, leaving the parallel edit in place", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.STUB_CLOBBER_ON = "all";
-		process.env.STUB_CLOBBER_BODY = "## Log\n\nv0\n\nENTRY-B\n";
+		vi.stubEnv("STUB_CLOBBER_ON", "all");
+		vi.stubEnv("STUB_CLOBBER_BODY", "## Log\n\nv0\n\nENTRY-B\n");
 		const next = path.join(dir, "next.md");
 		fs.writeFileSync(next, "wholly new body\n");
 
@@ -610,7 +610,7 @@ describe("the CLI", () => {
 			JSON.stringify({ tracker: "owner/theirs" }),
 		);
 		fs.writeFileSync(path.join(root, "their-file.txt"), "their reading\n");
-		process.env.HOME = home;
+		vi.stubEnv("HOME", home);
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		const line =
 			"**Gated on:** it lands — check: `cat their-file.txt` — abandon if: it is dropped\n**Gate basis:** the landing sets it";
@@ -634,7 +634,7 @@ describe("the CLI", () => {
 
 	const dryReplace = (contents: string) => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.STUB_EDIT_FAILS = "1";
+		vi.stubEnv("STUB_EDIT_FAILS", "1");
 		const next = path.join(dir, "next.md");
 		fs.writeFileSync(next, contents);
 		return runInProcess(
@@ -762,9 +762,11 @@ describe("append-decision", () => {
 		fs.writeFileSync(store, mapBody);
 		// A rival writing from a base older than #528's line lands right after
 		// our write; the loop repairs our line, but #528's is gone.
-		process.env.STUB_CLOBBER_ON = "1";
-		process.env.STUB_CLOBBER_BODY =
-			"## Decisions so far\n\n## Not yet specified\n\nfog\n";
+		vi.stubEnv("STUB_CLOBBER_ON", "1");
+		vi.stubEnv(
+			"STUB_CLOBBER_BODY",
+			"## Decisions so far\n\n## Not yet specified\n\nfog\n",
+		);
 		const r = decide("531", "keyed append");
 		expect(r.status).toBe(1);
 		expect(r.stdout).not.toContain("written and verified");
@@ -828,7 +830,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 	const appendUnder = (waitMs: number) => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.WFC_ISSUE_LOCK_WAIT_MS = String(waitMs);
+		vi.stubEnv("WFC_ISSUE_LOCK_WAIT_MS", String(waitMs));
 		return ib("append", "96", "--repo", "owner/repo", "--text", "ENTRY-A");
 	};
 
@@ -840,8 +842,8 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 	beforeEach(() => {
 		fs.mkdirSync(lockDir(), { recursive: true });
-		process.env.STUB_LOCK = lockFile();
-		process.env.STUB_LOCK_SEEN = path.join(dir, "lock-seen");
+		vi.stubEnv("STUB_LOCK", lockFile());
+		vi.stubEnv("STUB_LOCK_SEEN", path.join(dir, "lock-seen"));
 	});
 
 	it("names its holder the instant the lock file exists", () => {
@@ -978,7 +980,7 @@ describe("the gate act (#3301)", () => {
 	// freshSandbox points WFC_GH at its refusing stub; re-point it at the fake
 	// above, which answers issue-body's calls (#3577).
 	const sb = freshSandbox(() => {
-		process.env.WFC_GH = gh;
+		vi.stubEnv("WFC_GH", gh);
 	});
 	const Gate = "**Gated until:** 2026-10-09 — x\n**Gate basis:** y";
 	const acts = () => arbiter.readActsBy(Me, [sb.repo]).acts;
@@ -1000,7 +1002,7 @@ describe("the gate act (#3301)", () => {
 
 	it("still writes, recording nothing, where the repo will not resolve", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.STUB_REPO_FAILS = "1";
+		vi.stubEnv("STUB_REPO_FAILS", "1");
 		const r = run("append", "96", "--text", Gate);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("gated, but no gate act was recorded");
@@ -1018,8 +1020,8 @@ describe("the gate act (#3301)", () => {
 
 	it("records nothing where a rival's write, not this one, added the gate", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
-		process.env.STUB_CLOBBER_ON = "1";
-		process.env.STUB_CLOBBER_BODY = `## Log\n\nv0\n\n${Gate}\n`;
+		vi.stubEnv("STUB_CLOBBER_ON", "1");
+		vi.stubEnv("STUB_CLOBBER_BODY", `## Log\n\nv0\n\n${Gate}\n`);
 		expect(run("append", "96", "--text", "ENTRY-A").status).toBe(0);
 		expect(readBody()).toContain("ENTRY-A");
 		expect(acts()).toEqual([]);

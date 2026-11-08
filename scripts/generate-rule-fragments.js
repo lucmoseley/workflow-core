@@ -39,6 +39,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args");
 const { worktreeRoot } = require("./lib/host-root.js");
@@ -311,7 +312,8 @@ function collect() {
 		 * triage-labels.md — so an absent one anchors nothing. Said aloud, since
 		 * a silent skip would also hide a source renamed out from under the list. */
 		if (!fs.existsSync(path.join(ROOT, src))) {
-			process.stdout.write(
+			writeFd(
+				1,
 				`generate-rule-fragments: SKIP ${src} (absent — anchors nothing)\n`,
 			);
 			continue;
@@ -395,13 +397,14 @@ function main(argv) {
 		flags: { "--check": "boolean", "--sources": "boolean" },
 	});
 	if (flags["--sources"] === true && flags["--check"] === true) {
-		process.stderr.write(
+		writeFd(
+			2,
 			`generate-rule-fragments: --check and --sources are exclusive\n${USAGE}\n`,
 		);
 		return 2;
 	}
 	if (flags["--sources"] === true) {
-		process.stdout.write(SOURCES.map((s) => `${s}\n`).join(""));
+		writeFd(1, SOURCES.map((s) => `${s}\n`).join(""));
 		return 0;
 	}
 	const check = flags["--check"] === true;
@@ -410,13 +413,14 @@ function main(argv) {
 	try {
 		regions = collect();
 	} catch (e) {
-		process.stderr.write(`generate-rule-fragments: ${caught(e).message}\n`);
+		writeFd(2, `generate-rule-fragments: ${caught(e).message}\n`);
 		return 1;
 	}
 
 	const stale = reconcile(regions, check);
 	if (check && stale.length > 0) {
-		process.stderr.write(
+		writeFd(
+			2,
 			`generate-rule-fragments: ${stale.length} generated file(s) out of step with their anchored source:\n` +
 				stale.map((f) => `  ${f}\n`).join("") +
 				`Run \`npm run gen:rule-fragments\` (outside this repo: \`node ${__filename}\`) and commit the result.\n`,
@@ -424,9 +428,7 @@ function main(argv) {
 		return 1;
 	}
 	if (!check && stale.length > 0)
-		process.stdout.write(
-			`generate-rule-fragments: wrote ${stale.join(", ")}\n`,
-		);
+		writeFd(1, `generate-rule-fragments: wrote ${stale.join(", ")}\n`);
 	return 0;
 }
 

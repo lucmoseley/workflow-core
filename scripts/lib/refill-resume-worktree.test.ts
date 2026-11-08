@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { buildRekeyedResponse, FAKE_COPY } from "./bg-resume-fake";
 import { buildBgBranch, writeClaudeStub } from "./claude-stub";
 import { jobDirPath, jobStatePath } from "./job-paths.js";
@@ -24,7 +24,6 @@ import { shellQuote } from "./sh-quote.js";
 
 type JobLaunch = import("./refill-blocks.js").JobLaunch;
 
-const savedEnv = { ...process.env };
 let dir: string;
 
 beforeEach(() => {
@@ -32,7 +31,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	process.env = { ...savedEnv };
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -88,14 +86,12 @@ it("runs the --bg --resume in the job record's worktree, leaving its uncommitted
 			onLaunch: `pwd -P > ${shellQuote(ranIn)}; printf %s ${shellQuote(running)} > ${shellQuote(record)}`,
 		}),
 	]);
-	Object.assign(process.env, {
-		HOME: dir,
-		CLAUDE_CONFIG_DIR: seat,
-		CLAUDE_CODE_SESSION_ID: "",
-		WFC_CLAUDE_BIN: bin,
-		WFC_SECRETS_FILE: path.join(dir, "secrets.env"),
-	});
-	delete process.env.ANTHROPIC_API_KEY;
+	vi.stubEnv("HOME", dir);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", seat);
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+	vi.stubEnv("WFC_CLAUDE_BIN", bin);
+	vi.stubEnv("WFC_SECRETS_FILE", path.join(dir, "secrets.env"));
+	vi.stubEnv("ANTHROPIC_API_KEY", undefined);
 	const l = { root, issues: [7], seat, jobId: JOB } as unknown as JobLaunch;
 	const logged: string[] = [];
 	const steps = resumeSteps(buildResumeIo((line) => logged.push(line)));

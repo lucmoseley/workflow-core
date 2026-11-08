@@ -73,6 +73,7 @@ const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
 const { fileThrough } = require("./file-through.js");
+const { findFiledLine } = require("./filed-line.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { gitCommonDir, gitOutcome, gitReader } = require("./git.js");
 const { hostRoot } = require("./host-root.js");
@@ -1130,14 +1131,14 @@ function fileProbeIssue(root, hold, failure, log) {
 		buildProbeIssueBody(root, failure),
 		root,
 	);
-	const number = (filed.stdout ?? "").match(/^Filed #(\d+)/m)?.[1];
+	const number = findFiledLine(filed.stdout ?? "")?.n;
 	if (number === undefined) {
 		log(
 			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: ${(filed.stderr || filed.error?.message || "no reason given").trim()}`,
 		);
 		return;
 	}
-	writeHold(root, { ...hold, issue: Number(number) });
+	writeHold(root, { ...hold, issue: number });
 	log(`repo hold ${hold.id} in ${root}: filed #${number}`);
 }
 

@@ -49,6 +49,7 @@
  * not digits.
  */
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
@@ -72,7 +73,7 @@ const ROOTS = corpusDirs(
 const listing = listTranscripts(ROOTS);
 const missed = [...listing.absent, ...listing.unreadable];
 if (missed.length > 0) {
-	console.error(`no corpus at ${missed.join(", ")} — pass --root <dir>`);
+	writeFd(2, `no corpus at ${missed.join(", ")} — pass --root <dir>\n`);
 	process.exit(1);
 }
 
@@ -384,22 +385,27 @@ for (const f of files) {
 const line = (label, r) =>
 	`${label.padEnd(34)} denies=${String(r.denies).padStart(5)}  right=${String(r.right).padStart(5)} (${r.pct.toFixed(1)}%)  wrong=${String(r.wrong).padStart(4)}  unscored=${String(r.unscored).padStart(3)}  sessions=${r.sessions}`;
 
-console.log(`corpus root : ${ROOTS.join(", ")}`);
-console.log(
-	`transcripts : ${files.length} top-level (${transcripts.length} with a main-thread turn, ${unreadable} unreadable)`,
+writeFd(1, `corpus root : ${ROOTS.join(", ")}\n`);
+writeFd(
+	1,
+	`transcripts : ${files.length} top-level (${transcripts.length} with a main-thread turn, ${unreadable} unreadable)\n`,
 );
-console.log(`measured    : ${new Date().toISOString().slice(0, 10)}`);
-console.log("tools       : Bash + Read, the poll guard's two shapes skipped");
-console.log("");
+writeFd(1, `measured    : ${new Date().toISOString().slice(0, 10)}\n`);
+writeFd(1, "tools       : Bash + Read, the poll guard's two shapes skipped\n");
+writeFd(1, "\n");
 for (const n of [1, 2, 3])
-	console.log(
-		line(
+	writeFd(
+		1,
+		`${line(
 			`N=${n} identical responses`,
 			score(transcripts, n, Number.POSITIVE_INFINITY),
-		),
+		)}\n`,
 	);
-console.log("");
-console.log(line("N=2, 5-turn proximity window", score(transcripts, 2, 5)));
+writeFd(1, "\n");
+writeFd(
+	1,
+	`${line("N=2, 5-turn proximity window", score(transcripts, 2, 5))}\n`,
+);
 
 /*
  * --read-chains: the Read limb alone, which is the question mantahostels#2637 asks. The
@@ -415,11 +421,12 @@ console.log(line("N=2, 5-turn proximity window", score(transcripts, 2, 5)));
 if (flags["--read-chains"]) {
 	/** @param {string} label @param {ReturnType<typeof score>} r */
 	const readRow = (label, r) =>
-		console.log(
-			`${line(`  ${label}`, r)}  (${r.ownEdit} of the wrong ones follow this session's own edit)`,
+		writeFd(
+			1,
+			`${line(`  ${label}`, r)}  (${r.ownEdit} of the wrong ones follow this session's own edit)\n`,
 		);
-	console.log("");
-	console.log("Read only, N=2 — the limb mantahostels#2637 moves:");
+	writeFd(1, "\n");
+	writeFd(1, "Read only, N=2 — the limb mantahostels#2637 moves:\n");
 	for (const fold of [false, true]) {
 		readRow(
 			`short circuit ${fold ? "folded in (mantahostels#2637)" : "resets (before #1058)"}`,
@@ -487,10 +494,11 @@ if (flags["--read-chains"]) {
 		for (const st of state.values()) record(st.run);
 	}
 	const lengths = [...hist.keys()].sort((a, b) => a - b);
-	console.log("");
-	console.log("Read chain lengths, short circuit folded in:");
+	writeFd(1, "\n");
+	writeFd(1, "Read chain lengths, short circuit folded in:\n");
 	for (const l of lengths)
-		console.log(
-			`  ${String(l).padStart(4)} identical answers in a row : ${hist.get(l)}`,
+		writeFd(
+			1,
+			`  ${String(l).padStart(4)} identical answers in a row : ${hist.get(l)}\n`,
 		);
 }

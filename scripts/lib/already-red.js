@@ -29,6 +29,7 @@ const {
 } = require("./test-pass-marker.js");
 const { GIT_TIMEOUT_MS } = require("./git.js");
 const { caught } = require("./caught.js");
+const { relativeUnder } = require("./is-under.js");
 
 /* Untraced: how many runs naming a failing file are judged, newest first. */
 const MAX_WALKED = 100;
@@ -55,8 +56,10 @@ const WORKTREE = /^\.claude\/worktrees\/[^/]+\//;
  */
 function toRepoPath(file, root) {
 	if (!path.isAbsolute(file)) return file;
-	const rel = path.relative(root, file).split(path.sep).join("/");
-	return rel.startsWith("..") ? file : rel.replace(WORKTREE, "");
+	const rel = relativeUnder(root, file);
+	return rel === null
+		? file
+		: rel.split(path.sep).join("/").replace(WORKTREE, "");
 }
 
 /**

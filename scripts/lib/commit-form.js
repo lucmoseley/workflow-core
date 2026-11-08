@@ -101,6 +101,7 @@
 const { closingMatch } = require("./closing-keyword.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 const {
 	normAbs,
 	parseCommand,
@@ -368,8 +369,7 @@ const absAt = (p, dir) => normAbs(p.startsWith("/") ? p : `${dir}/${p}`);
  * @param {string} top
  * @param {string} abs
  */
-const relativeTo = (top, abs) =>
-	abs.startsWith(`${top}/`) ? abs.slice(top.length + 1) : abs;
+const relativeTo = (top, abs) => relativeUnder(top, abs) || abs;
 
 /**
  * One command's judging state, built by decide and threaded through the
@@ -451,8 +451,7 @@ function untrackedWarn(j, words, dir) {
 		/* CONTAINMENT (mantahostels#3318): a file intent-added inside a
 		 * directory word clears that word too. */
 		const bare = abs.replace(/\/$/, "");
-		if (j.intentAdded.some((ia) => ia === abs || ia.startsWith(`${bare}/`)))
-			continue;
+		if (j.intentAdded.some((ia) => isUnder(ia, [bare]))) continue;
 		if (onlyUntracked(j, dir, abs)) list += `  ${lit}\n`;
 	}
 	if (!list) return;

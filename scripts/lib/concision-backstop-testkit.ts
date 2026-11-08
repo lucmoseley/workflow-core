@@ -11,6 +11,7 @@ import { afterEach, beforeEach } from "vitest";
 import { ledgerHead } from "./arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { runInProcess } from "./run-in-process.js";
+import { withStubbedEnv } from "./scoped-env";
 
 export const BACKSTOP = path.resolve(__dirname, "..", "concision-backstop.sh");
 const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");
@@ -59,18 +60,12 @@ export const implementRan = (sid = ME) => {
  */
 // biome-ignore lint/suspicious/noExplicitAny: the store is untyped CommonJS.
 export const storePath = (pick: (store: any) => string) => {
-	const saved = { ...process.env };
-	Object.assign(process.env, {
-		CLAUDE_PROJECT_DIR: repo,
-		CLAUDE_CONFIG_DIR: cfg,
-	});
-	try {
-		// The store, not the CLI: session-arbiter.js exports nothing (mantahostels#158),
-		// and requiring it would run a subcommand and exit this process.
-		return pick(createRequire(__filename)("./arbiter-store.js"));
-	} finally {
-		process.env = saved;
-	}
+	// The store, not the CLI: session-arbiter.js exports nothing (mantahostels#158),
+	// and requiring it would run a subcommand and exit this process.
+	return withStubbedEnv(
+		{ CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: cfg },
+		() => pick(createRequire(__filename)("./arbiter-store.js")),
+	);
 };
 
 export const ledgerFor = (sid: string) => storePath((s) => s.paths.ledger(sid));

@@ -17,7 +17,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { childFailure, childVerdict } from "./child-failure.js";
 import { buildTypedAttach } from "./claude-attach.js";
 import {
@@ -28,7 +28,6 @@ import {
 import { writeClaudeStub } from "./claude-stub";
 
 let dir: string;
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-attach-"));
@@ -36,7 +35,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 const fakeClaude = () =>
@@ -50,7 +48,7 @@ const attach: Record<AttachKind, (bin: string) => string | null> = {
 			childVerdict(spawnSync(bin, ["attach", "job7"], { encoding: "utf8" })),
 		),
 	onTerminal: (bin) => {
-		process.env.WFC_CLAUDE_BIN = bin;
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		const [file, args, opts] = buildTypedAttach("job7", "ok");
 		return childFailure(
 			childVerdict(spawnSync(file, args, { ...opts, encoding: "utf8" })),

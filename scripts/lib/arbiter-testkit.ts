@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { caught } from "./caught.js";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
@@ -75,11 +75,12 @@ export interface Sandbox {
 	errorLog: () => string;
 }
 
-function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
-	delete env.WFC_CLAUDE_CONFIG_A;
-	delete env.WFC_CLAUDE_CONFIG_B;
-	delete env.WFC_CLAUDE_CONFIG_C;
-}
+/** The config dirs sessionDirs() (arbiter-core.js) prefers over its own. */
+const SIBLING_CONFIGS = [
+	"WFC_CLAUDE_CONFIG_A",
+	"WFC_CLAUDE_CONFIG_B",
+	"WFC_CLAUDE_CONFIG_C",
+];
 
 const BELT = path.join(__dirname, "arbiter-belt");
 
@@ -131,27 +132,33 @@ function stubOracles(sb: Sandbox) {
 
 	// A sandbox id of its own, so the oracle's self-test is not answered with
 	// the founder's live session id (agent-liveness.js's `me`).
-	process.env.CLAUDE_CODE_SESSION_ID = "sandbox";
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "sandbox");
 
 	// sessionDirs() (arbiter-core.js) PREFERS these three over its
 	// configDir-derived defaults, so one exported in a session's environment
 	// would reopen the route this whole helper closes. Latent today: nothing
 	// exports them. Cleared anyway, since the failure would be silent.
-	dropSiblingConfigs(process.env);
+	for (const name of SIBLING_CONFIGS) vi.stubEnv(name, undefined);
 
-	process.env.WFC_CLAUDE_BIN = write(
-		"claude",
-		// `${...}` spelt out longhand: Biome reads the shell form as a stray
-		// template placeholder (lint/suspicious/noTemplateCurlyInString).
-		'sid=$CLAUDE_CODE_SESSION_ID\n[ -n "$sid" ] || sid=sandbox\n' +
-			'printf \'[{"sessionId":"%s"}]\\n\' "$sid"',
+	vi.stubEnv(
+		"WFC_CLAUDE_BIN",
+		write(
+			"claude",
+			// `${...}` spelt out longhand: Biome reads the shell form as a stray
+			// template placeholder (lint/suspicious/noTemplateCurlyInString).
+			'sid=$CLAUDE_CODE_SESSION_ID\n[ -n "$sid" ] || sid=sandbox\n' +
+				'printf \'[{"sessionId":"%s"}]\\n\' "$sid"',
+		),
 	);
-	process.env.WFC_GH = write(
-		"gh-unstubbed",
-		'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
+	vi.stubEnv(
+		"WFC_GH",
+		write(
+			"gh-unstubbed",
+			'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
+		),
 	);
 
-	process.env.PATH = `${BELT}${path.delimiter}${process.env.PATH}`;
+	vi.stubEnv("PATH", `${BELT}${path.delimiter}${process.env.PATH}`);
 }
 
 /**
@@ -274,8 +281,6 @@ export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 		stateDir: () => store.stateDir(),
 		errorLog: () => store.errorLog(),
 	};
-	const savedEnv = { ...process.env };
-
 	beforeEach(() => {
 		sb.dir = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-"));
 		sb.home = path.join(sb.dir, "home", ".claude");
@@ -283,21 +288,18 @@ export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 		fs.mkdirSync(path.join(sb.home, "sessions"), { recursive: true });
 		fs.mkdirSync(path.join(sb.home, "jobs"), { recursive: true });
 		fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
-		process.env.CLAUDE_CONFIG_DIR = sb.home;
-		process.env.CLAUDE_PROJECT_DIR = sb.repo;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", sb.home);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", sb.repo);
 		// A background job inherits both pointed at the real checkout, and either
 		// outranks CLAUDE_PROJECT_DIR in dispatch-ledger.js ledgerRoot() and every
 		// `WFC_REPO_ROOT || hostRoot()` reader (#3119).
-		process.env.WFC_REPO_ROOT = sb.repo;
-		process.env.WFC_DISPATCH_ROOT = sb.repo;
+		vi.stubEnv("WFC_REPO_ROOT", sb.repo);
+		vi.stubEnv("WFC_DISPATCH_ROOT", sb.repo);
 		stubOracles(sb);
 		setUp?.(sb);
 	});
 
-	afterEach(() => {
-		removeSandbox(sb.dir);
-		process.env = { ...savedEnv };
-	});
+	afterEach(() => removeSandbox(sb.dir));
 
 	return sb;
 }
@@ -336,11 +338,11 @@ export function registerSession(
 /**
  * Point this process's arbiter store at `root`'s, as a hook process on that
  * host finds it: both variables, since WFC_REPO_ROOT outranks
- * CLAUDE_PROJECT_DIR for some readers. freshSandbox restores them.
+ * CLAUDE_PROJECT_DIR for some readers. unstubEnvs restores them.
  */
 export function storeAt(root: string) {
-	process.env.CLAUDE_PROJECT_DIR = root;
-	process.env.WFC_REPO_ROOT = root;
+	vi.stubEnv("CLAUDE_PROJECT_DIR", root);
+	vi.stubEnv("WFC_REPO_ROOT", root);
 }
 
 export function live(sb: Sandbox, sessionId: string, name?: string) {
@@ -364,7 +366,7 @@ export function fakeGh(sb: Sandbox, body: string) {
 		`#!/bin/sh\necho "$*" >> ${shellQuote(path.join(sb.dir, "gh-calls"))}\n${body}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
-	process.env.WFC_GH = bin;
+	vi.stubEnv("WFC_GH", bin);
 }
 
 /**
@@ -496,7 +498,7 @@ export function sweptMarkers(names: string[], running = "running"): string[] {
 			CLAUDE_CODE_SESSION_ID: "sandbox",
 			WFC_CLAUDE_BIN: "/bin/false",
 		};
-		dropSiblingConfigs(env);
+		for (const name of SIBLING_CONFIGS) delete env[name];
 		execFileSync(process.execPath, [SCRIPT, "prune-markers"], {
 			env,
 			stdio: "ignore",

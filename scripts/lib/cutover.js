@@ -33,6 +33,7 @@ const {
 	VERIFIED_REF,
 } = require("./landing-refs.js");
 const { scriptPath } = require("./script-path.js");
+const { isUnder } = require("./is-under.js");
 
 const BRANCH = "main";
 const SHARED_MERGE = `refs/heads/${LANDING_BRANCH}`;
@@ -66,8 +67,7 @@ const buildCutCommand = (at = scriptPath) =>
  */
 function standsIn(cwd, root, worktrees) {
 	const real = realOr(cwd);
-	const inside = (/** @type {string} */ dir) =>
-		real === dir || real.startsWith(dir + path.sep);
+	const inside = (/** @type {string} */ dir) => isUnder(real, [dir], path.sep);
 	return inside(realOr(root)) && !worktrees.some(inside);
 }
 

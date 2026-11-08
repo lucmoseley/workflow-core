@@ -218,33 +218,42 @@ const fig = (n) => (n === null ? "-" : String(n));
 function print(byRepo, rows, showRows) {
 	const repos = Object.entries(byRepo).sort(([a], [b]) => byCodeUnit(a, b));
 	if (repos.length === 0) {
-		console.log(
-			"No divergence rows recorded yet. record-divergence.js writes one per refused pull or rejected push, session-checkout.js one per land a neighbour beat;",
+		writeFd(
+			1,
+			"No divergence rows recorded yet. record-divergence.js writes one per refused pull or rejected push, session-checkout.js one per land a neighbour beat;\n",
 		);
-		console.log(
-			"an empty log after a day of work is itself the finding this log is after (#289).",
+		writeFd(
+			1,
+			"an empty log after a day of work is itself the finding this log is after (#289).\n",
 		);
 		return;
 	}
 	for (const [repo, s] of repos) {
-		console.log(`${repo}`);
-		console.log(
-			`  ${s.refusals} refusal(s): ${s.pull} pull, ${s.push} push, ${s.land} land  (${s.first} … ${s.last})`,
+		writeFd(1, `${repo}\n`);
+		writeFd(
+			1,
+			`  ${s.refusals} refusal(s): ${s.pull} pull, ${s.push} push, ${s.land} land  (${s.first} … ${s.last})\n`,
 		);
-		console.log(
-			`  state      diverged ${s.state.diverged}, behind ${s.state.behind}, ahead ${s.state.ahead}, level ${s.state.level}, unknown ${s.state.unknown}`,
+		writeFd(
+			1,
+			`  state      diverged ${s.state.diverged}, behind ${s.state.behind}, ahead ${s.state.ahead}, level ${s.state.level}, unknown ${s.state.unknown}\n`,
 		);
-		console.log(
-			`  median     ahead ${fig(s.medianAhead)}, behind ${fig(s.medianBehindOnPull)} on pull, ${fig(s.medianBehindOnPush)} on push (lower bound), ${fig(s.medianBehindOnLand)} on land`,
+		writeFd(
+			1,
+			`  median     ahead ${fig(s.medianAhead)}, behind ${fig(s.medianBehindOnPull)} on pull, ${fig(s.medianBehindOnPush)} on push (lower bound), ${fig(s.medianBehindOnLand)} on land\n`,
 		);
-		console.log(`  sessions   median ${fig(s.medianSessions)} live at refusal`);
-		console.log("");
+		writeFd(
+			1,
+			`  sessions   median ${fig(s.medianSessions)} live at refusal\n`,
+		);
+		writeFd(1, "\n");
 	}
 	if (!showRows) return;
-	console.log("Rows");
+	writeFd(1, "Rows\n");
 	for (const r of rows) {
-		console.log(
-			`  ${r.when}  ${r.repo}  ${r.kind}  +${r.ahead}/-${r.behind}  ${r.state}  ${r.sessions} session(s)  ${r.ref}  ${r.marker}`,
+		writeFd(
+			1,
+			`  ${r.when}  ${r.repo}  ${r.kind}  +${r.ahead}/-${r.behind}  ${r.state}  ${r.sessions} session(s)  ${r.ref}  ${r.marker}\n`,
 		);
 	}
 }
@@ -272,7 +281,10 @@ function main() {
 		byRepo[repo] = summarise(repoRows);
 
 	if (asJson) {
-		console.log(JSON.stringify({ since: bound, byRepo, rows }, null, "\t"));
+		writeFd(
+			1,
+			`${JSON.stringify({ since: bound, byRepo, rows }, null, "\t")}\n`,
+		);
 		return;
 	}
 	print(byRepo, rows, showRows);
