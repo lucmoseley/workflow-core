@@ -44,3 +44,16 @@ describe("takesRefusal's Close-when line (#4129)", () => {
 		}
 	});
 });
+
+describe("takesRefusal's quote of the Outside line (#4665)", () => {
+	it("prints the line whole, both ** pairs kept", () => {
+		expect(
+			takesRefusal(
+				["takes:human"],
+				"**Outside Claude Code:** watch the result on the dashboard.",
+			),
+		).toContain(
+			'"**Outside Claude Code:** watch the result on the dashboard."',
+		);
+	});
+});

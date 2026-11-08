@@ -73,7 +73,7 @@ const takesLabel = (value) => `${TAKES_PREFIX}${takesValue(value)}`;
 /* A bare marker naming no act fails. */
 const OUTSIDE_MARKER = "Outside Claude Code:";
 const OUTSIDE_LINE = /Outside Claude Code:[ \t*]*[^\s*]/;
-const OUTSIDE_TEXT = /Outside Claude Code:[^\n]*/;
+const OUTSIDE_TEXT = /(?:\*\*)?Outside Claude Code:[^\n]*/;
 
 /* The `repo-file-act` rule's lexical test (mantahostels#3555). No wider
  * than mantahostels#3555 item 4 lists: a line naming the act without the path
