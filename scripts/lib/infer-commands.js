@@ -49,12 +49,13 @@ const {
 	wordOf,
 	writtenCommands,
 } = require("./shell-tokens.js");
+const { escapeRe } = require("./shell-words.js");
 const { writeFd } = require("./write-fd.js");
 
 /** @typedef {import("./shell-tokens.js").Word} Word */
 /** @typedef {import("./shell-tokens.js").Token} Token */
 /** @typedef {import("./script-runners.js").Hop} Hop */
-/** @typedef {import("./package-reader.js").PackageReader} PackageReader */
+/** @typedef {import("./script-runners.js").PackageTree} PackageTree */
 /** @typedef {import("./script-runners.js").Placed} Placed */
 /** @typedef {import("./biome-allowlist.js").MappedCommand} MappedCommand */
 
@@ -88,14 +89,14 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
  * @returns {boolean}
  */
 function isLintStagedCommand(root, command) {
-	const readCachedPackage = buildPackageReader();
-	const top = path.resolve(root);
+	const tree = {
+		root: path.resolve(root),
+		readCachedPackage: buildPackageReader(),
+	};
 	return (
-		walkRunScripts(top, readCachedPackage, command, (hop) =>
+		walkRunScripts(tree, command, (hop) =>
 			[...placedCommands(hop)].some((placed) =>
-				withoutRun(placed, top, readCachedPackage).some((w) =>
-					LINT_STAGED.test(w.value),
-				),
+				withoutRun(placed, tree).some((w) => LINT_STAGED.test(w.value)),
 			)
 				? true
 				: undefined,
@@ -124,9 +125,6 @@ const GLOB_SOURCE = new Map([
 	["?", "."],
 ]);
 
-/** @param {string} c */
-const escapeRegex = (c) => c.replace(/[.+^${}()|[\]\\]/, "\\$&");
-
 /**
  * Whether `word` is a glob that could name `biome`, each `[…]` read as any
  * one character.
@@ -138,7 +136,7 @@ const isBiomeGlob = (word) => {
 		.basename(word.value)
 		.replace(
 			/\[[^\]]*\]|./gs,
-			(c) => GLOB_SOURCE.get(c) ?? (c.length > 1 ? "." : escapeRegex(c)),
+			(c) => GLOB_SOURCE.get(c) ?? (c.length > 1 ? "." : escapeRe(c)),
 		);
 	return new RegExp(`^${source}$`).test("biome");
 };
@@ -382,11 +380,10 @@ function isHiddenCommand(command) {
  * shell's `-c` script, quoted or not. A word naming a script is no INDIRECT
  * command (`npm run eval`, #4042).
  * @param {Hop} hop
- * @param {string} root
- * @param {PackageReader} readCachedPackage
+ * @param {PackageTree} tree
  * @returns {boolean}
  */
-const isUnreadable = (hop, root, readCachedPackage) =>
+const isUnreadable = (hop, tree) =>
 	hop.tokens.some((t) => {
 		const word = wordOf(t);
 		return (
@@ -396,17 +393,13 @@ const isUnreadable = (hop, root, readCachedPackage) =>
 	}) ||
 	[...placedCommands(hop)].some((placed) => {
 		const script = parseShellScript(placed.command);
-		const name = namedScriptWord(placed, root, readCachedPackage);
+		const name = namedScriptWord(placed, tree);
 		return (
 			placed.command.some(
 				(w) => w !== name && INDIRECT.has(path.posix.basename(w.value)),
 			) ||
 			(script !== undefined &&
-				isUnreadable(
-					{ ...hop, tokens: tokenise(script.value) },
-					root,
-					readCachedPackage,
-				))
+				isUnreadable({ ...hop, tokens: tokenise(script.value) }, tree))
 		);
 	});
 
@@ -481,8 +474,11 @@ function findElsewhere(placed, top) {
  */
 function classifyCheckStaged(root, command, { inferred }) {
 	if (command.trim().startsWith(BIOME_STAGED_COMMAND)) return { kind: "none" };
-	const top = path.resolve(root);
-	const readCachedPackage = buildPackageReader();
+	const tree = {
+		root: path.resolve(root),
+		readCachedPackage: buildPackageReader(),
+	};
+	const { root: top, readCachedPackage } = tree;
 	/**
 	 * Evidence this repo runs Biome at all: `biome` written in the hop, or
 	 * declared or in a script of the `package.json` at the top, the hop's
@@ -505,17 +501,14 @@ function classifyCheckStaged(root, command, { inferred }) {
 		);
 	};
 	const hit = walkRunScripts(
-		top,
-		readCachedPackage,
+		tree,
 		command,
 		/** @param {Hop} hop @param {Hop[]} hops */
 		(hop, hops) => {
 			const judged = pastBiomeStaged(hop);
 			const { text, tokens } = judged;
 			const placed = [...placedCommands(judged)];
-			const candidates = placed.map((p) =>
-				withoutRun(p, top, readCachedPackage),
-			);
+			const candidates = placed.map((p) => withoutRun(p, tree));
 			const segment = candidates.find(isBiomeCheck);
 			const subcommand = candidates
 				.map(parseBiomeSubcommand)
@@ -523,10 +516,10 @@ function classifyCheckStaged(root, command, { inferred }) {
 			const biomeCommand = segment !== undefined || subcommand !== undefined;
 			const unread =
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
-					isUnreadable(judged, top, readCachedPackage)) ||
+					isUnreadable(judged, tree)) ||
 				writtenCommands(tokens).some(isHiddenCommand);
 			const unresolvedMembers = placed
-				.map((p) => unresolvedSelectorMembers(p, top, readCachedPackage))
+				.map((p) => unresolvedSelectorMembers(p, tree))
 				.find((members) => members !== undefined);
 			if (
 				(!unread && !unresolvedMembers && !biomeCommand) ||

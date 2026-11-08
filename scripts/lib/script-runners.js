@@ -20,6 +20,12 @@ const { shellQuote } = require("./sh-quote.js");
 /** @typedef {import("./shell-tokens.js").Word} Word */
 /** @typedef {import("./shell-tokens.js").Token} Token */
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
+/**
+ * @typedef {{ root: string, readCachedPackage: PackageReader }} PackageTree `root`
+ *  the directory a command starts in, which bounds the climb to a
+ *  `package.json`; `readCachedPackage` called at each run found, so a command
+ *  running none reads no `package.json` (#3546).
+ */
 
 /* A backslash-newline, which the shell deletes. */
 const CONTINUATION = /\\\n/g;
@@ -332,10 +338,9 @@ const runPackageDirs = (run, dirs, root) => [
  * none to choose.
  * @param {Run} run
  * @param {string[]} dirs
- * @param {string} root
- * @param {PackageReader} readCachedPackage
+ * @param {PackageTree} tree
  */
-function resolveRunDirs(run, dirs, root, readCachedPackage) {
+function resolveRunDirs(run, dirs, { root, readCachedPackage }) {
 	const { selection } = run;
 	if (!selection)
 		return {
@@ -360,15 +365,12 @@ function resolveRunDirs(run, dirs, root, readCachedPackage) {
  * The members of a workspace selector in `placed` that is unresolved, or
  * undefined where it has none.
  * @param {Placed} placed
- * @param {string} root
- * @param {PackageReader} readCachedPackage
+ * @param {PackageTree} tree
  * @returns {string[]|undefined}
  */
-function unresolvedSelectorMembers({ command, dirs }, root, readCachedPackage) {
+function unresolvedSelectorMembers({ command, dirs }, tree) {
 	const run = findRun(command);
-	return (
-		run && resolveRunDirs(run, dirs, root, readCachedPackage).unresolvedMembers
-	);
+	return run && resolveRunDirs(run, dirs, tree).unresolvedMembers;
 }
 
 /**
@@ -377,19 +379,18 @@ function unresolvedSelectorMembers({ command, dirs }, root, readCachedPackage) {
  * A prefix may set npm's selector, and another runner's flag may be a selector
  * this walk does not read, so with either the word is not known to name one.
  * @param {Placed} placed
- * @param {string} root
- * @param {PackageReader} readCachedPackage
+ * @param {PackageTree} tree
  * @returns {Word|undefined}
  */
-function namedScriptWord({ command, dirs }, root, readCachedPackage) {
+function namedScriptWord({ command, dirs }, tree) {
 	const run = findRun(command);
 	if (!run || run.at > 0) return;
 	if (!run.rules.ownsFlags && command.some((w) => w.value.startsWith("-")))
 		return;
-	const targets = resolveRunDirs(run, dirs, root, readCachedPackage).dirs;
+	const targets = resolveRunDirs(run, dirs, tree).dirs;
 	return targets.length > 0 &&
 		targets.every(
-			(d) => typeof readCachedPackage(d).scripts[run.name] === "string",
+			(d) => typeof tree.readCachedPackage(d).scripts[run.name] === "string",
 		)
 		? command[run.end - 1]
 		: undefined;
@@ -402,10 +403,9 @@ function namedScriptWord({ command, dirs }, root, readCachedPackage) {
  * and so does a run a binary may answer, as `yarn run biome check` runs Biome
  * where no script is called `biome` (#3944).
  * @param {Placed} placed
- * @param {string} root
- * @param {PackageReader} readCachedPackage
+ * @param {PackageTree} tree
  */
-function withoutRun({ command, dirs }, root, readCachedPackage) {
+function withoutRun({ command, dirs }, { root, readCachedPackage }) {
 	const run = findRun(command);
 	if (!run || run.runLess) return command;
 	const isScriptIn = (/** @type {string} */ dir) =>
@@ -541,18 +541,17 @@ function runHops(run, handed, { dir, scripts, onlyDir }) {
 
 /**
  * @param {Hop} hop
- * @param {string} root
- * @param {PackageReader} readCachedPackage
+ * @param {PackageTree} tree
  */
-function* hopsFrom(hop, root, readCachedPackage) {
+function* hopsFrom(hop, tree) {
 	for (const { command, dirs } of placedCommands(hop)) {
 		const run = findRun(command);
 		if (!run) continue;
-		const targets = resolveRunDirs(run, dirs, root, readCachedPackage).dirs;
+		const targets = resolveRunDirs(run, dirs, tree).dirs;
 		for (const dir of targets)
 			yield* runHops(run, run.handed, {
 				dir,
-				scripts: readCachedPackage(dir).scripts,
+				scripts: tree.readCachedPackage(dir).scripts,
 				onlyDir: targets.length === 1,
 			});
 	}
@@ -563,14 +562,12 @@ function* hopsFrom(hop, root, readCachedPackage) {
  * words handed on to it, handing `visit` each hop and the path of hops to it;
  * the first result `visit` returns that is not undefined is the walk's.
  * @template T
- * @param {string} root the directory the command starts in
- * @param {PackageReader} readCachedPackage called at each run found, so a
- *   command running none reads no `package.json` (#3546)
+ * @param {PackageTree} tree
  * @param {string} command
  * @param {(hop: Hop, hops: Hop[]) => T|undefined} visit
  * @returns {T|undefined}
  */
-function walkRunScripts(root, readCachedPackage, command, visit) {
+function walkRunScripts(tree, command, visit) {
 	const seen = new Set();
 	/**
 	 * @param {Hop} hop
@@ -580,7 +577,7 @@ function walkRunScripts(root, readCachedPackage, command, visit) {
 	const walk = (hop, hops) => {
 		const hit = visit(hop, hops);
 		if (hit !== undefined) return hit;
-		for (const { next, key } of hopsFrom(hop, root, readCachedPackage)) {
+		for (const { next, key } of hopsFrom(hop, tree)) {
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const found = walk(next, [...hops, next]);
@@ -594,7 +591,7 @@ function walkRunScripts(root, readCachedPackage, command, visit) {
 		text: command.replace(CONTINUATION, ""),
 		handed: "",
 		tokens: tokenise(command),
-		dir: root,
+		dir: tree.root,
 		alone: true,
 	};
 	return walk(top, [top]);

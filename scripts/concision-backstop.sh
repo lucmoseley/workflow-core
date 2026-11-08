@@ -91,21 +91,13 @@ source "$here/lib/code-signal.sh" 2>/dev/null || {
 # The review dispatch shape and /implement's closing steps; absent, the nag
 # names their paths instead.
 # shellcheck source=scripts/lib/rule-text.sh
-source "$here/lib/rule-text.sh" 2>/dev/null ||
+source "$here/lib/rule-text.sh" 2>/dev/null || {
   gl_log "lib/rule-text.sh did not load — nags named their rule fragments' paths"
-
-# rule_or_path <id> <lead-in> <tail> — rule fragment <id>'s text, else
-# "<lead-in> <its path><tail>", logging the miss.
-rule_or_path() {
-  local text where
-  text="$(rule_text "$1" 2>/dev/null)"
-  if [[ -n "$text" ]]; then
-    printf '%s' "$text"
-    return
-  fi
-  gl_log "rule:$1 unreadable — nag printed its path instead"
-  where="$(doc_path "agents/rules/$1.txt" 2>/dev/null)" || where="docs/agents/rules/$1.txt"
-  printf '%s %s%s' "$2" "$where" "$3"
+  rule_or_path() {
+    local where
+    where="$(doc_path "agents/rules/$1.txt" 2>/dev/null)" || where="docs/agents/rules/$1.txt"
+    printf '%s %s%s' "$2" "$where" "$3"
+  }
 }
 
 host="$(gr_root)"

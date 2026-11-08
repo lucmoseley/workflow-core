@@ -215,10 +215,7 @@ class WordBuilder {
 /** @type {PartParser} */
 const parseEscape = (src, i, w) => {
 	if (src[i] !== "\\") return;
-	if (src[i + 1] !== "\n") {
-		w.text += src[i + 1] ?? "\\";
-		w.quoted = true;
-	}
+	if (src[i + 1] !== "\n") w.span(src[i + 1] ?? "\\");
 	return i + 2;
 };
 

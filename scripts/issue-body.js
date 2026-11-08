@@ -77,6 +77,7 @@ const { recordOwnAct } = require("./lib/tracker-ops.js");
 const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
 const { caught } = require("./lib/caught.js");
+const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { addedCheckVerdict } = require("./lib/gate-check.js");
 
@@ -383,7 +384,7 @@ function fetchBody(issue, repo) {
 		parsed = JSON.parse(out);
 	} catch (e) {
 		throw new Error(
-			`gh returned no JSON for issue ${issue}: ${out.slice(0, 200)}`,
+			`gh returned no JSON for issue ${issue}: ${out.slice(0, CHILD_ERROR_CHARS)}`,
 			{ cause: e },
 		);
 	}
