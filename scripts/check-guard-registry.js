@@ -205,6 +205,7 @@ const {
 	readMerge,
 	writeCarried,
 } = require("./lib/registry-carry.js");
+const { buildAnchorsText } = require("./lib/registry-anchors-merge.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -2058,15 +2059,7 @@ function loadAnchors() {
 function saveAnchors(anchors) {
 	/* A host with no .claude/ yet has nowhere to write the first anchor. */
 	fs.mkdirSync(path.dirname(path.join(root, ANCHORS)), { recursive: true });
-	const sorted = Object.fromEntries(
-		Object.keys(anchors)
-			.sort()
-			.map((k) => [k, anchors[k]]),
-	);
-	fs.writeFileSync(
-		path.join(root, ANCHORS),
-		`${JSON.stringify(sorted, null, "\t")}\n`,
-	);
+	fs.writeFileSync(path.join(root, ANCHORS), buildAnchorsText(anchors));
 }
 
 // --- checking ---------------------------------------------------------------

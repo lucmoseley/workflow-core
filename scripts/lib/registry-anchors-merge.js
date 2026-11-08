@@ -28,8 +28,8 @@ function parseRows(text) {
 }
 
 /**
- * The file's bytes as `check-guard-registry.js --review` writes them: rows
- * sorted by path, tab-indented, one trailing newline.
+ * The file's bytes, for every writer of it: rows sorted by path,
+ * tab-indented, one trailing newline.
  * @param {Record<string, string>} rows
  */
 function buildAnchorsText(rows) {
