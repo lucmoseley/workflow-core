@@ -17,6 +17,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { fileThrough } = require("./file-through.js");
+const { findFiledLine } = require("./filed-line.js");
 const { ghIssueListAll, parseErrLine } = require("./gh.js");
 const { gitCommonDir } = require("./git.js");
 const { markersDir } = require("./marker-root.js");
@@ -77,16 +78,16 @@ function fileOne(title, body, standalone, root) {
 		body,
 		root,
 	);
-	const m = (ran.stdout ?? "").match(/^Filed #(\d+)/m);
-	if (!m) {
+	const n = findFiledLine(ran.stdout ?? "")?.n;
+	if (n === undefined) {
 		writeFd(
 			2,
 			`${title}: not filed: ${(ran.stderr || ran.error?.message || "").trim()}\n`,
 		);
 		return null;
 	}
-	writeFd(1, `${title}: filed #${m[1]}.\n`);
-	return Number(m[1]);
+	writeFd(1, `${title}: filed #${n}.\n`);
+	return n;
 }
 
 /**
