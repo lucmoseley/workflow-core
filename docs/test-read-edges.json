@@ -44892,6 +44892,7 @@
 		],
 		"scripts/write-secret.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/guard-jev-advisory.test.ts",
 			"scripts/guard-priced-options-founder-act.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",

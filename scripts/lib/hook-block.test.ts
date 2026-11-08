@@ -168,12 +168,12 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	 * guard-session-ceiling.js three times — the tripwire, the turn band and the
 	 * wind-up band (#1199) — guard-lost-deny.js once,
 	 * guard-automode-refusal.js once (#860), guard-unpushed-commits.js once (#766), guard-typecheck-owed.js once (#3803), guard-paste-self-match.js once (#921), guard-session-id-prose.js once (#3557), guard-exhausted-map.js once (#3639), guard-inventory.js twice (#988, and its draft-and-act limb's own counter, #989), and
-	 * guard-jev-advisory.js three times — the flag's warn, the outage notice and
-	 * the malformed-reply notice #226 split off it, on three counters kept
-	 * separate. A drop below twenty-two means a caller went away — deliberately, or
+	 * guard-jev-advisory.js four times — the flag's warn, the outage notice,
+	 * the malformed-reply notice #226 split off it and the refused-key notice
+	 * (#4144), on four counters kept separate. A drop below twenty-three means a caller went away — deliberately, or
 	 * because the scan stopped seeing it. */
-	it("still finds the twenty-two call sites", () => {
-		expect(total("calls")).toBe(22);
+	it("still finds the twenty-three call sites", () => {
+		expect(total("calls")).toBe(23);
 	});
 
 	/* Every call must be reachable by ONE of the two readers: the literal prefix
