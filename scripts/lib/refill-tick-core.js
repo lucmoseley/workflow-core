@@ -44,6 +44,7 @@ const {
 	NOTHING_LAUNCHABLE,
 	readParkers,
 	UNREAD,
+	unprovenRoom,
 } = require("./refill-decide.js");
 const {
 	controlInMode,
@@ -225,6 +226,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   blockIo: (served: string[]) => BlockIo,
  *   readSwapHold: () => Seen["swapHold"],
  *   readProgress: (l: LoopLaunch, served: string[]) => object,
+ *   readLastActAt: (launches: LoopLaunch[], served: string[]) => number|null,
  *   readCause: import("./refill-blocks.js").CauseOf,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
  *   readFreeSlots: () => {slots: number,
@@ -566,12 +568,14 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  * and the seats. A paused tick launches nothing, so it reads none of them, and leaves the limit acts, which need them,
  * for the tick after the resume (#3856); a hold its finishes ended is still
  * released, as that tick's `before` no longer shows it holding. The walks'
- * probe stamps are for this read alone: settleTick writes the tick's own.
+ * probe stamps are for this read alone: settleTick writes the tick's own. A
+ * limit resume from held takes a slot only where the unproven cap has room,
+ * as a launch does (#4223).
  * @param {TickIo} io
  * @param {{control: Control, seatListRead: boolean,
  *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
  *   declared: DeclaredSeats, typedSeat: string|null,
- *   seatTriedAt: Record<string, number>}} tick
+ *   seatTriedAt: Record<string, number>, lastActAt: number|null}} tick
  */
 function settleRoom(
 	io,
@@ -585,6 +589,7 @@ function settleRoom(
 		declared,
 		typedSeat,
 		seatTriedAt,
+		lastActAt,
 	},
 ) {
 	if (control.paused) {
@@ -600,30 +605,35 @@ function settleRoom(
 		};
 	}
 	const { slots: free, admission } = io.readFreeSlots();
+	const limitSlots = Math.min(
+		free,
+		unprovenRoom({ history: judged, lastActAt }),
+	);
 	/** @param {import("./refill-decide.js").SizedSeat[]} sized */
 	const overflowOf = (sized) =>
 		overflowReadings(declared, sized, (seat) => io.seatBudget(seat, served[0]));
 	/** @type {Probe[]} */
 	const moveProbes = [];
-	const { launches, slots, workingChange } = io.actOnLimits(
-		judged,
-		control.scope.mode,
-		{
-			...seen,
-			typedSeat,
-			readMoveSeats: () => {
-				const read = io.readSeats(control.seats, 1, served[0], {
-					typedSeat,
-					sizeAll: true,
-					tries: { triedAt: seatTriedAt, now: io.now() },
-				});
-				moveProbes.push(...read.probes);
-				return { seats: read.seats, overflow: overflowOf(read.seats) };
-			},
-			seatListRead,
-			slots: free,
+	const {
+		launches,
+		slots: limitLeft,
+		workingChange,
+	} = io.actOnLimits(judged, control.scope.mode, {
+		...seen,
+		typedSeat,
+		readMoveSeats: () => {
+			const read = io.readSeats(control.seats, 1, served[0], {
+				typedSeat,
+				sizeAll: true,
+				tries: { triedAt: seatTriedAt, now: io.now() },
+			});
+			moveProbes.push(...read.probes);
+			return { seats: read.seats, overflow: overflowOf(read.seats) };
 		},
-	);
+		seatListRead,
+		slots: limitSlots,
+	});
+	const slots = free - (limitSlots - limitLeft);
 	io.releaseEndedHolds(before, launches, seen.io);
 	const { seats, probes: walked } = io.readSeats(
 		control.seats,
@@ -976,6 +986,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		dryRun || seen.paused || control.stopRequested
 			? { launches: acted, settled: [] }
 			: blocks.queueLifted(acted, io.readLiftedHolds(roots), seen);
+	const lastActAt = io.readLastActAt(judged, served);
 	const {
 		launches,
 		slots,
@@ -994,6 +1005,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		declared,
 		typedSeat: typed.seat,
 		seatTriedAt: state.seatTriedAt,
+		lastActAt,
 	});
 	const resumable = dueResumes(control, launches, seen);
 	/** @type {import("./refill-decide.js").TickInput} */
@@ -1015,6 +1027,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		seats: sizeResumeSeats(seats, resumable, slots, io.capSizer(served[0])),
 		overflow,
 		history: launches,
+		lastActAt,
 		judgements: io.readGateJudgements().filter((j) => served.includes(j.root)),
 		resumable,
 		holds: io.readTickHolds(served, broken).holds,

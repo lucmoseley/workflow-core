@@ -107,6 +107,8 @@ const { buildSeatName } = require("./refill-seats.js");
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
+ * @typedef {(sessionId: string, roots: string[]) =>
+ *   {at: number|null, unreadable: string[]}} ReadLastActAt  lib/arbiter-ledger.js's
  */
 
 /** @typedef {import("./refill-state.js").LoopState} LoopState */
@@ -423,8 +425,7 @@ function readActsSoFar(sessionId, roots, readActsBy) {
  */
 function actsOf(l, roots, readActsBy) {
 	if (!l.sessionId || l.actsBefore === UNREAD) return { acts: UNREAD };
-	const ids = new Set([...(l.pastSessionIds ?? []), l.sessionId]);
-	const reads = [...ids].map((id) => readActsBy(id, roots));
+	const reads = sessionIdsOf(l).map((id) => readActsBy(id, roots));
 	const acts = reads.flatMap((r) => r.acts);
 	if (
 		(acts.length === 0 || l.actsBefore) &&
@@ -440,6 +441,42 @@ function actsOf(l, roots, readActsBy) {
 			}),
 		),
 	};
+}
+
+/**
+ * The sessions `l` ran under: each before a resume moved it to a copy, then its
+ * own, where captured.
+ * @param {LoopLaunch} l
+ * @returns {string[]}
+ */
+const sessionIdsOf = (l) => [
+	...new Set([
+		...(l.pastSessionIds ?? []),
+		...(l.sessionId ? [l.sessionId] : []),
+	]),
+];
+
+/**
+ * The latest act any of `launches`' sessions made, ms, across `rootsOf` its
+ * stores, null where none read (#4223), and each store that would not read,
+ * which counts as no act so the unproven cap holds.
+ * @param {LoopLaunch[]} launches
+ * @param {(l: LoopLaunch) => string[]} rootsOf
+ * @param {ReadLastActAt} readLastActAt
+ * @returns {{at: number|null, unread: {sessionId: string, root: string}[]}}
+ */
+function lastActOf(launches, rootsOf, readLastActAt) {
+	/** @type {number|null} */
+	let at = null;
+	/** @type {{sessionId: string, root: string}[]} */
+	const unread = [];
+	for (const l of launches)
+		for (const sessionId of sessionIdsOf(l)) {
+			const read = readLastActAt(sessionId, rootsOf(l));
+			for (const root of read.unreadable) unread.push({ sessionId, root });
+			if (read.at !== null) at = Math.max(at ?? 0, read.at);
+		}
+	return { at, unread };
 }
 
 /**
@@ -622,6 +659,7 @@ module.exports = {
 	handedOffSince,
 	withAbsentRead,
 	actsOf,
+	lastActOf,
 	readActsSoFar,
 	parseControl,
 	recordedStop,

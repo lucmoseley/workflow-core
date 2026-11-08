@@ -29,6 +29,7 @@ const {
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
+	UNPROVEN_CAP,
 } = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
 const { buildNotice, buildNoticeText } = require("./refill-notice.js");
@@ -82,6 +83,7 @@ const WAITING_WORDS = new Map([
 	[NOTHING_LAUNCHABLE, "No ticket ready"],
 	[SHORTLIST_FAILED, "Ticket list failed"],
 	[RESUMES_TAKE_SLOTS, "Resuming paused sessions first"],
+	[UNPROVEN_CAP, "Waiting on any session's next act"],
 	[RESUME_DUE_WAIT, "All plans used up; a resume is due"],
 	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
 ]);

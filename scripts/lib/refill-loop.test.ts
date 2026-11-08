@@ -29,6 +29,7 @@ import {
 	isReviewRunDue,
 	judgedLaunches,
 	landingRoots,
+	lastActOf,
 	limitHoldsOf,
 	parseControl,
 	readActsSoFar,
@@ -318,6 +319,37 @@ describe("the launched session's id (#2311)", () => {
 	});
 });
 
+describe("the loop's last act, for the unproven cap (#4223)", () => {
+	const at: Record<string, number> = { old: 100, mid: 300, now: 200 };
+	const read = (id: string, roots: string[]) => ({
+		at: at[id] ?? null,
+		unreadable: id === "bad" ? roots : [],
+	});
+
+	it("takes the latest act across every launch and each session it ran under", () => {
+		const launches = [
+			record({ sessionId: "now", pastSessionIds: ["mid"] }),
+			record({ sessionId: "old" }),
+			record({}),
+		] as Launch[];
+		expect(lastActOf(launches, () => ["r"], read)).toEqual({
+			at: 300,
+			unread: [],
+		});
+	});
+
+	it("names each store that would not read, reading no act there", () => {
+		const launches = [record({ sessionId: "bad" })] as Launch[];
+		expect(lastActOf(launches, () => ["r1", "r2"], read)).toEqual({
+			at: null,
+			unread: [
+				{ sessionId: "bad", root: "r1" },
+				{ sessionId: "bad", root: "r2" },
+			],
+		});
+	});
+});
+
 describe("a finished launch's progress, from its session's acts ledger (#2312)", () => {
 	const sb = freshSandbox();
 	const other = () => path.join(sb.dir, "other-repo");
@@ -510,6 +542,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 				},
 			],
 			history,
+			lastActAt: null,
 		});
 
 	/** Finishes in order, `j<n>` finishing at NOW - 10 + n, those in `idless`
@@ -622,6 +655,7 @@ function settleOnce(
 				seats,
 				overflow,
 				history: past,
+				lastActAt: null,
 			},
 			decision,
 			state,
@@ -1046,6 +1080,7 @@ describe("a tick's log line (#2362)", () => {
 				},
 			],
 			history: [],
+			lastActAt: null,
 		});
 		const wait =
 			"idle: the 5-hour bar is full on /s1 until its 5-hour reset 2026-10-18T14:00:00Z";
@@ -1703,6 +1738,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		typedSeat: null,
 		seats: [],
 		history: [],
+		lastActAt: null,
 	} as Tick["input"];
 	/* One repo per pick, so each is its own dispatcher call. */
 	const pick = (n: number) => ({
@@ -2369,6 +2405,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					seats: [],
 					overflow: [],
 					history: [],
+					lastActAt: null,
 					resumable,
 				},
 				decision: {

@@ -163,6 +163,7 @@ describe("a headless launch's finish (#2611)", () => {
 					},
 				],
 				history,
+				lastActAt: null,
 			}),
 		).toHaveProperty("pause.by", "no-progress");
 	});
