@@ -3,8 +3,8 @@
 # last local gate, nothing running on push (mantahostels#910).
 #
 # Borrow the canonical checkout's binaries, since a worktree has no node_modules
-# of its own: --git-common-dir is absolute in a worktree, a bare `.git` here, so
-# this resolves either way. These gates fire in a worktree too, from that
+# of its own, by an absolute path, since a gate may run from another directory
+# (#4079). These gates fire in a worktree too, from that
 # worktree's own copy of this file, because `prepare`'s install-hooks.js re-pins
 # core.hooksPath absolute after husky writes it relative and points husky's
 # shim at the committing tree (#3138). Revert that pin and every gate below
@@ -31,7 +31,7 @@ tg_stamp="${WFC_TEST_STAMP:-}"
 mh_stamp="${WFC_MUTATION_STAMP:-}"
 unset WFC_TEST_STAMP WFC_MUTATION_STAMP
 
-PATH="$(dirname "$(git rev-parse --git-common-dir)")/node_modules/.bin:$PATH"
+PATH="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/node_modules/.bin:$PATH"
 
 # lib/test-kind.js's `JS_TEST_FILE` in grep's ERE, pinned equal to it by
 # test-kind.test.ts: the arm of every gate reading scripts/ test files.

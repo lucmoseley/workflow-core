@@ -15,9 +15,18 @@
  * Biome runs there: whole, as its project rules (noImportCycles,
  * noFloatingPromises) read the files a staged one imports.
  *
+ * The tree has no node_modules, so a rule that reads one goes quiet here:
+ * noUntrustedLicenses, and noFloatingPromises, noMisusedPromises and
+ * noDeprecatedImports on a third-party import. Local types still fire, and
+ * `biome ci .` in CI, which installs node_modules, raises the rest. A
+ * symlinked node_modules does not restore them: a link whose target lies
+ * outside the tree stays silent (#4085). Restoring them is #4639.
+ *
  * Not a check-*.js: Biome's own report and exit code are the verdict. `biome`
  * is found on PATH, which `npm run` and the hook both point at
- * node_modules/.bin. A commit adding, modifying or retyping no
+ * node_modules/.bin; a relative entry, as husky writes, is resolved against
+ * the caller's directory, since Biome runs from the temp tree (#4079). A
+ * commit adding, modifying or retyping no
  * path runs nothing and exits 0. Exits 2, BROKEN's code, where git cannot
  * extract the index or biome will not start.
  *
@@ -79,6 +88,10 @@ function main() {
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
 		);
+		if (process.env.PATH !== undefined)
+			env.PATH = process.env.PATH.split(path.delimiter)
+				.map((dir) => path.resolve(dir))
+				.join(path.delimiter);
 		git(["init", "-q", tree], "making the extracted tree a repo", env);
 
 		const r = spawnSync(
