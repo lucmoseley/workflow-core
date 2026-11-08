@@ -10,6 +10,7 @@
  * launch into a served checkout, and one that never raises launches sessions into
  * a broken `.git`.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -560,6 +561,22 @@ describe("the probe hold (#3860)", () => {
 
 		expect(status(NOW + MIN)).toContain("stops launches: yes");
 		expect(readFiled()).toHaveLength(2);
+	});
+
+	it("reads a hold raised on a linked worktree with a broken .git once it is repaired (#4402)", () => {
+		serve();
+		const worktree = at("worktree");
+		execFileSync("git", ["worktree", "add", "-q", worktree], { cwd: repo });
+		const admin = path.join(repo, ".git", "worktrees", "worktree");
+		const head = fs.readFileSync(path.join(admin, "HEAD"), "utf8");
+		fs.writeFileSync(path.join(admin, "HEAD"), "junk\n");
+
+		const raised = tick(NOW, [worktree]);
+		expect(raised.text).toContain("repo hold raised: probe in");
+
+		fs.writeFileSync(path.join(admin, "HEAD"), head);
+
+		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
 	describe("a guard entry that will not load (#4226)", () => {

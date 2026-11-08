@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { huskyHooks, installHuskyShim } from "./lib/husky-testkit";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -103,19 +104,11 @@ const buildTemplate = (root: string) => {
 	git("config", "user.name", "t");
 
 	const husky = path.join(root, ".husky");
-	const underscore = path.join(husky, "_");
-	fs.mkdirSync(underscore, { recursive: true });
-
-	for (const f of ["h", "pre-merge-commit", "pre-commit"]) {
-		const src = path.join(ROOT, ".husky", "_", f);
-		fs.copyFileSync(src, path.join(underscore, f));
-		fs.chmodSync(path.join(underscore, f), 0o755);
-	}
+	installHuskyShim(root);
 	fs.copyFileSync(
 		path.join(ROOT, HOOK_REL),
 		path.join(husky, "pre-merge-commit"),
 	);
-	git("config", "core.hooksPath", underscore);
 
 	const log = path.join(root, LOG);
 	fs.writeFileSync(
@@ -208,9 +201,7 @@ describe(".husky/pre-merge-commit", () => {
 		// shim at install, so it fails only on a husky that stopped emitting
 		// this name.
 		expect(fs.existsSync(path.join(ROOT, HOOK_REL))).toBe(true);
-		expect(
-			fs.existsSync(path.join(ROOT, ".husky", "_", "pre-merge-commit")),
-		).toBe(true);
+		expect(huskyHooks()).toContain("pre-merge-commit");
 	});
 
 	it("runs the whole of .husky/pre-commit rather than a copied gate list", () => {
