@@ -478,16 +478,25 @@ describe("a probe hold that comes back (#4148)", () => {
 		expect(readPhases()).toEqual(["raise"]);
 	});
 
-	it("reads a torn page record as a page now, logged, and sends once its cool-down ends", () => {
+	it("reads a torn page record as none, logged, and sends the raise", () => {
 		fs.mkdirSync(holdsDir(repo), { recursive: true });
-		fs.writeFileSync(path.join(holdsDir(repo), "probe.paged"), "{ torn");
+		fs.writeFileSync(path.join(holdsDir(repo), "probe.paged"), "null");
 
 		expect(raiseAndTend(NOW)).toContain("probe page record torn");
-		expect(readPhases()).toEqual([]);
-
-		serve();
-		notices(NOW + PAST_COOL_DOWN);
 		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("starts no cool-down on a refused dispatch, so a hold back inside the window still pages", () => {
+		raiseProbe(NOW);
+		serve({ isRefusing: true });
+		notices(NOW);
+		serve();
+		expect(holdTick(NOW + MIN)).toContain("repo hold cleared: probe in");
+		notices(NOW + MIN);
+
+		raiseAndTend(NOW + 20 * MIN);
+
+		expect(readPhases()).toEqual(["raise", "raise"]);
 	});
 
 	it("leaves a park hold's raise to its own rule", () => {

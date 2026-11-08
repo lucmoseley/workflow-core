@@ -180,31 +180,45 @@ function buildNoticeMessage(hold, phase) {
 
 /**
  * The checkout's last probe page, or null where there is none. A torn record, logged,
- * reads as a page now, written so, as a page the founder has had is the worse fault
- * and a window from now still ends.
+ * reads as none, as a hold that stops launches unannounced for the window is the
+ * worse fault (#4148).
  * @param {string} file
- * @param {number} now
  * @param {Log} log
  * @returns {ProbePage|null}
  */
-function readProbePage(file, now, log) {
+function readProbePage(file, log) {
 	try {
-		const { raisedAt, at } = JSON.parse(fs.readFileSync(file, "utf8"));
+		const value = JSON.parse(fs.readFileSync(file, "utf8"));
 		if (
-			(typeof raisedAt === "number" || raisedAt === null) &&
-			typeof at === "number"
+			(typeof value?.raisedAt === "number" || value?.raisedAt === null) &&
+			typeof value.at === "number"
 		)
-			return { raisedAt, at };
+			return { raisedAt: value.raisedAt, at: value.at };
 	} catch (err) {
 		if (caught(err).code === "ENOENT") return null;
 		if (!(err instanceof SyntaxError)) throw err;
 	}
-	log(`probe page record torn, its cool-down begun anew: ${file}`);
-	/** @type {ProbePage} */
-	const page = { raisedAt: null, at: now };
-	writeFileAtomic(file, JSON.stringify(page), { mkdir: true });
-	return page;
+	log(`probe page record torn, read as none: ${file}`);
+	return null;
 }
+
+/**
+ * Record a probe page, or remove the record where `page` is null.
+ * @param {string} file
+ * @param {ProbePage|null} page
+ */
+const writeProbePage = (file, page) =>
+	page === null
+		? fs.rmSync(file, { force: true })
+		: writeFileAtomic(file, JSON.stringify(page), { mkdir: true });
+
+/**
+ * The checkout's probe page record where `hold` is a probe hold, else null.
+ * @param {RepoHold} hold
+ * @param {string} root  its store's
+ */
+const findPagedFile = (hold, root) =>
+	hold.kind === "probe" ? buildProbePagedFile(root) : null;
 
 /**
  * Whether this probe hold's raise waits out the cool-down: another hold of the
@@ -215,7 +229,7 @@ function readProbePage(file, now, log) {
  * @param {Log} log
  */
 function isProbeCoolingDown(hold, file, now, log) {
-	const page = readProbePage(file, now, log);
+	const page = readProbePage(file, log);
 	return (
 		page !== null &&
 		page.raisedAt !== hold.raisedAt &&
@@ -224,7 +238,8 @@ function isProbeCoolingDown(hold, file, now, log) {
 }
 
 /**
- * Dispatch this phase's notice, recorded first, with a probe hold's page.
+ * Dispatch this phase's notice, recorded first, with a probe hold's page; a refusal
+ * takes both back.
  * @param {NoticeStep} step
  * @param {HoldNotice} notice  as it stands
  * @param {number} tries  including this one
@@ -238,14 +253,9 @@ function dispatchNotice(
 		...notice,
 		[phase]: { at: now, tries, outcome: "dispatched" },
 	});
+	const lastPage = paged === null ? null : readProbePage(paged, log);
 	if (paged !== null)
-		writeFileAtomic(
-			paged,
-			JSON.stringify({ raisedAt: hold.raisedAt, at: now }),
-			{
-				mkdir: true,
-			},
-		);
+		writeProbePage(paged, { raisedAt: hold.raisedAt, at: now });
 	const ref = `repo hold ${hold.id} in ${hold.checkout}: ${phase} notice`;
 	try {
 		gh(
@@ -268,6 +278,7 @@ function dispatchNotice(
 	} catch (e) {
 		if (typeof (/** @type {{status?: unknown}} */ (e).status) === "number") {
 			writeNotice(file, notice);
+			if (paged !== null) writeProbePage(paged, lastPage);
 			log(`${ref} not dispatched, the next tick retries: ${parseErrLine(e)}`);
 		} else
 			log(`${ref}: gh never exited, so it may have gone: ${parseErrLine(e)}`);
@@ -422,7 +433,7 @@ function tendRaise(hold, root, { workedAt, now, log }) {
 		(workedAt !== null && now - workedAt >= NOTICE_NO_WORK_MS);
 	if (hold.issue === null || !isDue) return;
 	const file = path.join(holdsDir(root), buildNoticeName(hold.id));
-	const paged = hold.kind === "probe" ? buildProbePagedFile(root) : null;
+	const paged = findPagedFile(hold, root);
 	const config = readNoticeConfig(hold.checkout);
 	if (config !== null) {
 		if (
@@ -463,7 +474,7 @@ function tendClear(lifted, { now, log }) {
 			phase: "clear",
 			file,
 			config,
-			paged: hold.kind === "probe" ? buildProbePagedFile(lifted.root) : null,
+			paged: findPagedFile(hold, lifted.root),
 			now,
 			log,
 		});
