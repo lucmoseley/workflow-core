@@ -1,16 +1,14 @@
 A FOUNDER-FACING ITEM lives in an open issue, never only in chat. Three kinds count:
 
   - a deliverable the founder must still act on — a draft to send, a file to upload;
-  - an act only the founder can do, written only in chat or inside a comment — a click-through, or a judgement no agent can make;
+  - an act only the founder can do, written only in chat or inside a comment — a check by eye no agent can make, a click-through;
   - a decision the founder has not answered.
 
 This holds in background and interactive sessions alike. Chat, a `needs input:` or `waiting:` ending, the status line, the job list and a closed issue's comment never count.
 
 FILE IT THE MOMENT the session produces the deliverable or names the act, not at session end. A paste the founder runs while this session waits — a `!` line, or a line in his own terminal whose output he sends back — or a secret he enters, is finished in the session and needs no issue: the `waits on you:` line cites the ticket in hand.
 
-A CHECK BY EYE OR EAR IS YOURS FIRST (#4114). Before filing or handing one over, get the output yourself: text from the real renderer at the real size (`node scripts/refill-panel.js --print` for the refill panel), a screenshot through the browser route, or a reading through any API the effect touches — this machine's Windows side answers `powershell.exe` from WSL2, so a desktop app's sound or flash is often readable. A different experiment reaching the same answer counts. Where any of these reads it, check it and close on that evidence, even where the close clause names the founder, and say so on the ticket. Only what no route reaches goes to him: how something feels or looks to a person, or an effect no API reads, such as a push on his phone. The ticket says which of the two it is.
-
-A CLAIM THAT A SESSION CANNOT OBSERVE SOMETHING — in a body, a hand-over or a `**waived:**` line — names the methods it tried, each with what it showed. An untried "cannot" is no reason.
+A CHECK BY EYE OR EAR IS YOURS FIRST (#4114): before filing or handing one over, run `scripts/lib/rule-text.sh observe-first` and try what it names; close on your own evidence, whatever the close clause says.
 
 THE LABEL:
 
