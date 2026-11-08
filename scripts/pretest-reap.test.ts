@@ -163,33 +163,33 @@ describe("pretest-reap.js", () => {
 		},
 	);
 
-	/* Past the cap the guard's extrapolated rung: 349 MB a worker past 9. */
+	/* Past the cap the guard's extrapolated rung: ~527 MB a worker past 9. */
 	it("judges a suite past the cap against the rung for its workers", () => {
-		const r = run({ mbs: [7499, 7499], suites: 3 });
+		const r = run({ mbs: [10_499, 10_499], suites: 3 });
 		expect(r.reaps).toBe(1);
 		expect(r.text).toContain(
-			"under the 7500 MB rung for 20 vitest workers, 15 of them already running",
+			"under the 10500 MB rung for 20 vitest workers, 15 of them already running",
 		);
-		const five = run({ mbs: [10_999, 10_999], suites: 5 });
+		const five = run({ mbs: [15_749, 15_749], suites: 5 });
 		expect(five.text).toContain(
-			"under the 11000 MB rung for 30 vitest workers, 25 of them already running",
+			"under the 15750 MB rung for 30 vitest workers, 25 of them already running",
 		);
-		const above = run({ mbs: [7500], suites: 3 });
+		const above = run({ mbs: [10_500], suites: 3 });
 		expect(above.reaps).toBe(0);
 		expect(above.lines).toEqual([]);
 	});
 
 	/* A running 1-file run weighs 1 worker, not a whole suite (#2560). */
-	it("judges a whole launch beside one running 1-file run against the 3,250 MB rung", () => {
+	it("judges a whole launch beside one running 1-file run against the 3,650 MB rung", () => {
 		const ps = [
 			"node /r/node_modules/.bin/vitest run --passWithNoTests a.test.ts",
 		];
-		const short = run({ mbs: [3249, 3249], ps });
+		const short = run({ mbs: [3649, 3649], ps });
 		expect(short.reaps).toBe(1);
 		expect(short.text).toContain(
-			"under the 3250 MB rung for 6 vitest workers, 1 of them already running",
+			"under the 3650 MB rung for 6 vitest workers, 1 of them already running",
 		);
-		const at = run({ mbs: [3250], ps });
+		const at = run({ mbs: [3650], ps });
 		expect(at.reaps).toBe(0);
 		expect(at.lines).toEqual([]);
 	});

@@ -596,14 +596,13 @@ function deathPoint(narration) {
  */
 function liveSessions(dir) {
 	try {
-		const out = runOracle(
+		const [raw] = runOracle(
 			claudeBin(),
 			// A guess, never measured: a wedged daemon, not a slow one.
 			capMs("WFC_RESCUE_ORACLE_TIMEOUT_MS", 45_000),
 			[dir],
 		);
-		const [raw] = JSON.parse(out);
-		if (typeof raw !== "string") return null;
+		if (raw === undefined) return null;
 		const parsed = JSON.parse(raw);
 		if (!Array.isArray(parsed)) return null;
 		return new Set(parsed.map((a) => String(a.id || "").slice(0, 8)));

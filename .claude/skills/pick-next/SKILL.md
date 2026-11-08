@@ -686,9 +686,9 @@ at the 1-minute grace a band read outlasts the reaper's window
 `Memory:` block carries it — and start it: each session the set starts reaps whatever is past grace on its way up.
 
 **Concurrent test suites: one whole suite at a time (#2680), on a headroom ladder.** 1/2/3 suites
-need **~2.15 / 3.25 / 3.65 GB resting** at launch (all three measured at
-3 workers a suite, #1603; a lone whole suite runs 5 workers and is charged ~2.9 GB), extrapolated below ~7.7 GB. **There is no flat allowance above the ladder and
-four is unmeasured** — 3 GB buys one. Builds and dev servers at one, unmeasured.
+need **~2.7 / 3.65 / 4.7 GB resting** at launch (all three lower bounds at
+3 workers a suite, #2862; a lone whole suite runs 5 workers and is charged ~3.35 GB), extrapolated below ~7.7 GB. **There is no flat allowance above the ladder and
+four is unmeasured** — 3 GB buys one three-worker suite and no whole one. Builds and dev servers at one, unmeasured.
 `docs/environment.md` §6 owns all three. **The ladder governs concurrent suite
 *launches*, and caps the size of a dispatch set at nothing** (mantahostels#1476). It is a resting-headroom test applied per launch
 inside an already-admitted session by `scripts/guard-dispatch.js` (its `guard-suite-concurrency` core), a

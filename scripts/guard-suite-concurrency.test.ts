@@ -175,7 +175,7 @@ describe("each exit path", () => {
 		const out = emission("npm run build");
 		expect(out.permissionDecision).toBeUndefined();
 		expect(out.additionalContext).toMatch(
-			/^MemAvailable is 1000 MB, under the ~2900 MB/,
+			/^MemAvailable is 1000 MB, under the ~3350 MB/,
 		);
 	});
 

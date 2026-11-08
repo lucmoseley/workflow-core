@@ -25,11 +25,10 @@
  *  - A `head` that closes the pipe early kills the run itself, so no log
  *    holds a verdict and the record has no line for it.
  *
- * Its `if: Bash(*test*)` narrowing, which `npm run test`, `npm test` and
- * `run-vitest` all hold, is unanchored, as unwrap reads past a wrapper prefix
- * the anchored form would not match. ONE registration per event, never two:
- * two both fire on some calls, doubling the context (#1661). The narrowing is
- * best-effort, so the core re-reads the command.
+ * NO `if` NARROWING, so every Bash call execs it, ~90 ms (#4032): npm's
+ * `t`, `ts`, `tst` and `tes` hold no `test`, and no single glob takes them
+ * and `run-vitest` short of `*t*`. ONE registration per event, never two:
+ * two both fire on some calls, doubling the context (#1661).
  *
  * IMPLICIT: after a suite run whose output shows no pass/fail line, hands the
  *   session that run's verdict lines and TEST LOG path.

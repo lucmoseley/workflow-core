@@ -167,7 +167,7 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 
 	it("carries the rule's fallback sentence where the store cannot give it (mantahostels#1648)", () => {
 		expect(readDenyReason("git pull --rebase", { storeFault: true })).toBe(
-			"This reconciles the shared `main` by rewriting or merging, not by fast-forward: git pull --rebase\n\nReconcile the shared `main` by fast-forward or not at all; the rule could not be read from docs/agents/rules/pull-fast-forward.txt. Read that file before doing anything else.",
+			"This reconciles the shared `main` by rewriting or merging, not by fast-forward: git pull --rebase\n\nReconcile the shared `main` by fast-forward or not at all; the rule could not be read from docs/agents/rules/pull-fast-forward.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 	});
 
@@ -960,7 +960,7 @@ describe("rewinding main is refused (#765)", () => {
 
 	it("carries lib/main-rewind.js's fallback where the store cannot give the rule (#1777)", () => {
 		expect(readDenyReason("git branch -D main", { storeFault: true })).toBe(
-			"This deletes `main`: git branch -D main\n\nNever move `main` backwards; the rule could not be read from docs/agents/rules/main-rewind.txt. Read that file before doing anything else.",
+			"This deletes `main`: git branch -D main\n\nNever move `main` backwards; the rule could not be read from docs/agents/rules/main-rewind.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 	});
 

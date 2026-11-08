@@ -87,7 +87,7 @@
 		"reaped": [],
 		"expected": {
 			"status": 1,
-			"stdout": "available memory   1500 MB\nlive sessions      1 alongside this one\nsession draw       mean 600 MB, σ 200 MB — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included\nlive draw          1 live session(s): mean 600 MB + 1.645 × σ 200 MB − 410 MB they already hold\nreclaimable        0 MB about to be reaped\nslots              0 — HOLD: 300 MB available after reserving 106 MB for the spare pool, holding 794 + 300 MB above earlyoom's kill line, under the 1256 MB the live sessions' draw and one more need at p95\ntest suites        0 concurrent (under the ~3650 MB three-suite gate)\nallowance          weekly allowance reading is absent — admitting anyway; session allowance reading is absent — admitting anyway\n",
+			"stdout": "available memory   1500 MB\nlive sessions      1 alongside this one\nsession draw       mean 600 MB, σ 200 MB — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included\nlive draw          1 live session(s): mean 600 MB + 1.645 × σ 200 MB − 410 MB they already hold\nreclaimable        0 MB about to be reaped\nslots              0 — HOLD: 300 MB available after reserving 106 MB for the spare pool, holding 794 + 300 MB above earlyoom's kill line, under the 1256 MB the live sessions' draw and one more need at p95\ntest suites        0 concurrent (under the ~4700 MB three-suite gate)\nallowance          weekly allowance reading is absent — admitting anyway; session allowance reading is absent — admitting anyway\n",
 			"stderr": ""
 		}
 	},

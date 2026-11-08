@@ -147,6 +147,7 @@ const {
 const {
 	afterSlash,
 	isOtherRunner,
+	npmScriptOf,
 	suiteLaunchKind,
 } = require("./suite-launch.js");
 const { isNpmRun, npmCanon } = require("./npm-options.js");
@@ -495,18 +496,14 @@ function prePass(st, parsed) {
 /**
  * The words as one string, an npm script launch spelt with `run` whatever
  * its spelling and a trailing lone `--` dropped.
- * @param {St} st
  * @param {string[]} given
  */
-function launchKey(st, given) {
+function launchKey(given) {
 	const words = [...given];
 	if (words.at(-1) === "--") words.pop();
-	const head = afterSlash(words[0] ?? "");
-	if (head === "npm" && words[1] === "t") words[1] = "test";
-	if (head === "npm" && words[1] === "run-script") words[1] = "run";
-	const launch = launchOf(st, words);
-	const key = launch?.script
-		? [head, "run", launch.script, ...words.slice(launch.taken)]
+	const run = npmScriptOf(words);
+	const key = run
+		? [afterSlash(words[0] ?? ""), "run", run.script, ...words.slice(run.taken)]
 		: words;
 	return key.join(" ");
 }
@@ -525,14 +522,14 @@ function wholeSuiteLaunch(st, parsed) {
 		.split(/[ \t\n]+/)
 		.filter(Boolean);
 	if (declared.length === 0) return false;
-	const key = launchKey(st, declared);
+	const key = launchKey(declared);
 	let found = false;
 	walkCommands(
 		parsed,
 		(cmd) => {
 			if (found) return;
 			const words = unwrap(cmd.words, st.spans).words;
-			if (words.length === 0 || launchKey(st, words) !== key) return;
+			if (words.length === 0 || launchKey(words) !== key) return;
 			const launch = launchOf(st, words);
 			if (launch?.kind === "wrapper") return;
 			if (launch?.script && st.launchPorts.isWrapperScript(launch.script))
