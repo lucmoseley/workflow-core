@@ -20,7 +20,8 @@ const { presenceAt } = require("./presence.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
-/* Three finishes in a row with no progress pause the loop (#1920, #3859). */
+/* Three finishes in a row with no progress pause the loop (#1920, #3859), and
+ * as many launches since the last act are all that run unproven (#4223). */
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
@@ -56,6 +57,8 @@ const LIMIT_HELD_WAIT =
 const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 /* The idle reason of a tick whose resumes take every free slot. */
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
+/* The idle reason of a tick whose unproven launches fill the cap (#4223). */
+const UNPROVEN_CAP = `${NO_PROGRESS_RUN} launches since the last act are running`;
 /* The idle reason of a tick whose plan seats are weekly-full and whose
  * overflow keys are spent. */
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
@@ -135,6 +138,10 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {number[]} issues
  * @property {string} [prompt] what it launched on
  * @property {number} launchedAt ms
+ * @property {number} [relaunchedAt] ms, when a resume last restarted its job
+ * @property {string|null} [jobId]
+ * @property {{resumedAt?: number}} [limitHeld] where the loop stopped it on its
+ *   seat's limit, with `resumedAt` once a resume restarted it
  * @property {number|null} finishedAt ms of the tick that saw the finish, not
  *   of the finish itself, used only to order the last three finishes; null
  *   while running
@@ -181,6 +188,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {OverflowReading[]} [overflow] the overflow seats, in failover
  *   order
  * @property {LaunchRecord[]} history
+ * @property {number|null} lastActAt ms, the latest act any of `history`'s
+ *   sessions made, null where none read (#4223)
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
  *   sweep's queue, launched ahead of the ranking (#2279), behind normal
  *   mode's parked rows (#3713)
@@ -332,6 +341,39 @@ function noProgressRun({ history, noProgressFrom }) {
 		? recent
 		: null;
 }
+
+/**
+ * How many more launches and resumes may start before an act proves one
+ * (#4223): NO_PROGRESS_RUN less the running launches started after
+ * `lastActAt`, every one where it is null. One the loop stopped, for a park or
+ * on its seat's limit and not since resumed, runs no session, and one due back
+ * this tick is counted as its resume.
+ * @param {Pick<TickInput, "history"|"lastActAt"> & Partial<Pick<TickInput, "resumable">>} input
+ */
+function unprovenRoom({ history, lastActAt, resumable = [] }) {
+	const due = new Set(resumable.map((r) => r.jobId));
+	const unproven = history.filter(
+		(l) =>
+			l.finishedAt === null &&
+			l.parkStopped === undefined &&
+			!(l.limitHeld && l.limitHeld.resumedAt === undefined) &&
+			!(l.jobId && due.has(l.jobId)) &&
+			(lastActAt === null || startedAt(l) > lastActAt),
+	).length;
+	return Math.max(0, NO_PROGRESS_RUN - unproven);
+}
+
+/**
+ * The unproven cap's idle, naming the act it counts from.
+ * @param {number|null} lastActAt
+ */
+const buildUnprovenIdle = (lastActAt) =>
+	buildIdle(
+		UNPROVEN_CAP,
+		lastActAt === null
+			? " (no act read)"
+			: ` (last act ${new Date(lastActAt).toISOString()})`,
+	);
 
 /**
  * Whether the dispatcher would launch on a seat: both bars fresh and under
@@ -1114,6 +1156,7 @@ const buildPausedWaitText = (pause) =>
 const QUEUE_MOVING_WAITS = [
 	NO_FREE_SLOT,
 	RESUMES_TAKE_SLOTS,
+	UNPROVEN_CAP,
 	NOTHING_LAUNCHABLE,
 ];
 
@@ -1192,15 +1235,15 @@ function decideTick(input) {
 
 /**
  * The decision once the tick's resumes are taken: their launches, or why none.
+ * `spent`, the idle where the resumes take every slot of `free`.
  * @param {TickInput} input
- * @param {{free: number, held: Skip[], resumes: HeldResume[],
+ * @param {{free: number, spent: Idle, held: Skip[], resumes: HeldResume[],
  *   seatsLeft: SizedSeat[]}} taken
  * @returns {Exclude<Decision, {stop: StopReason}>}
  */
-function decideLaunches(input, { free, held, resumes, seatsLeft }) {
+function decideLaunches(input, { free, spent, held, resumes, seatsLeft }) {
 	const launchSlots = free - resumes.length;
-	if (launchSlots === 0)
-		return buildIdleDecision(buildIdle(RESUMES_TAKE_SLOTS), held, resumes);
+	if (launchSlots === 0) return buildIdleDecision(spent, held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat(chargedInput);
 	if (launchPick.seat === null)
@@ -1258,14 +1301,22 @@ function decideUnpaused(input) {
 		!input.resumable?.length
 	)
 		return buildNoSeatIdle(input, null, heldParked(input), []);
-	const free = input.freeSlots;
 	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
 	 * so an aged cache reads unread and is not why the tick waits (#2362). */
 	const held = heldParked(input);
-	if (free === 0) return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
+	if (input.freeSlots === 0)
+		return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
+	const room = unprovenRoom(input);
+	if (room === 0)
+		return buildIdleDecision(buildUnprovenIdle(input.lastActAt), held, []);
+	const free = Math.min(input.freeSlots, room);
+	const spent =
+		room < input.freeSlots
+			? buildUnprovenIdle(input.lastActAt)
+			: buildIdle(RESUMES_TAKE_SLOTS);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
-		...decideLaunches(input, { free, held, resumes, seatsLeft }),
+		...decideLaunches(input, { free, spent, held, resumes, seatsLeft }),
 		capHeld,
 	};
 }
@@ -1335,6 +1386,8 @@ module.exports = {
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
+	UNPROVEN_CAP,
+	unprovenRoom,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

@@ -75,6 +75,7 @@ const tick = (over: Record<string, unknown> = {}) =>
 		freeSlots: 2,
 		seats: [seat("~/.claude3", 40, 20), seat("~/.claude2", 10, 10)],
 		history: [],
+		lastActAt: null,
 		...over,
 	});
 
@@ -1287,6 +1288,107 @@ describe("decideTick free slot", () => {
 	});
 });
 
+describe("decideTick's unproven-launch cap (#4223)", () => {
+	const Act = NOW - HOUR;
+	const running = (jobId: string, launchedAt: number, over = {}) => ({
+		root: "wfc",
+		issues: [90],
+		jobId,
+		launchedAt,
+		finishedAt: null,
+		...over,
+	});
+	const sinceAct = (n: number) =>
+		Array.from({ length: n }, (_, i) => running(`j${i}`, Act + 1 + i));
+	const capIdle = buildIdle(
+		"3 launches since the last act are running",
+		` (last act ${new Date(Act).toISOString()})`,
+	);
+
+	it("launches none past three running since the last act, whatever the free slots", () => {
+		const d = tick({ freeSlots: 5, history: sinceAct(3), lastActAt: Act });
+		expect(d).toMatchObject({ launches: [], idle: capIdle });
+	});
+
+	it("fills only the cap's room where fewer than three run unproven", () => {
+		const d = tick({ freeSlots: 5, history: sinceAct(1), lastActAt: Act });
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+	});
+
+	it("counts nothing launched before the last act, so an act frees the cap", () => {
+		const proven = [0, 1, 2].map((i) => running(`p${i}`, Act - 1 - i));
+		const d = tick({ freeSlots: 3, history: proven, lastActAt: Act });
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2", "wfc#3"]);
+	});
+
+	it("counts a launch resumed since the last act, and passes over finished and park-stopped ones", () => {
+		const history = [
+			running("r", Act - HOUR, { relaunchedAt: Act + 1 }),
+			running("f", Act + 1, { finishedAt: NOW - 1 }),
+			running("p", Act + 1, { parkStopped: Act + 2 }),
+		];
+		const d = tick({ freeSlots: 5, history, lastActAt: Act });
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+	});
+
+	it("passes over a launch stopped on its seat's limit until a resume restarts it", () => {
+		const stopped = running("s", Act + 1, { limitHeld: {} });
+		const resumed = running("r", Act + 1, {
+			limitHeld: { resumedAt: Act + 2 },
+		});
+		const free = (history: unknown[]) =>
+			launched(tick({ freeSlots: 5, history, lastActAt: Act })).length;
+		expect(free([...sinceAct(2), stopped])).toBe(1);
+		expect(free([...sinceAct(2), resumed])).toBe(0);
+	});
+
+	it("holds every running launch unproven where no act reads", () => {
+		const d = tick({
+			freeSlots: 5,
+			history: [0, 1, 2].map((i) => running(`j${i}`, NOW - 10 * HOUR + i)),
+			lastActAt: null,
+		});
+		expect(d).toMatchObject({
+			launches: [],
+			idle: buildIdle(
+				"3 launches since the last act are running",
+				" (no act read)",
+			),
+		});
+	});
+
+	it("counts a resume against the cap, and names the cap where resumes take its room", () => {
+		const due = (jobId: string) => ({
+			jobId,
+			seat: "~/.claude3",
+			root: "wfc",
+			at: NOW - HOUR,
+			line: `${jobId} held`,
+		});
+		const d = tick({
+			freeSlots: 5,
+			history: [...sinceAct(1), running("held", Act + 9)],
+			resumable: [due("held"), due("other")],
+			lastActAt: Act,
+		});
+		expect(d.resumes.map((r: { jobId: string }) => r.jobId)).toEqual([
+			"held",
+			"other",
+		]);
+		expect(d).toMatchObject({ launches: [], idle: capIdle });
+	});
+
+	it("leaves the no-free-slot idle to admission where it is the tighter", () => {
+		expect(
+			tick({ freeSlots: 0, history: sinceAct(3), lastActAt: Act }),
+		).toMatchObject({ idle: buildIdle("no free slot") });
+	});
+
+	it("is a wait the queue moves through, not one the idle alarm names", () => {
+		expect(buildLoopWait(capIdle)).toBeNull();
+	});
+});
+
 describe("decideTick launch filter", () => {
 	it("never launches human, children, waiting:external, parked or label-faulty rows", () => {
 		const d = tick({
@@ -1350,30 +1452,32 @@ describe("decideTick launch filter", () => {
 	});
 
 	it("launches a map at any kind, an exhausted takes:wayfinder map as /wayfinder (#2639, #3569)", () => {
-		const d = tick({
-			freeSlots: 9,
-			frontier: ["to-spec", "to-tickets", "implement", "wayfinder"].map(
-				(k, i) =>
-					row("wfc", 1 + i, k, { labels: [`takes:${k}`, "wayfinder:map"] }),
-			),
-		});
-		expect(d.launches.map((l: { prompt: string }) => l.prompt)).toEqual([
+		/* One tick a kind: the unproven cap launches three at most (#4223). */
+		const ticks = ["to-spec", "to-tickets", "implement", "wayfinder"].map(
+			(k, i) =>
+				tick({
+					frontier: [
+						row("wfc", 1 + i, k, { labels: [`takes:${k}`, "wayfinder:map"] }),
+					],
+				}),
+		);
+		expect(ticks.map((d) => d.launches[0].prompt)).toEqual([
 			"/to-spec 1",
 			"/to-tickets 2",
 			"/implement 3",
 			"/wayfinder 4",
 		]);
-		expect(d.skipped).toEqual([]);
+		expect(ticks.flatMap((d) => d.skipped)).toEqual([]);
 	});
 
 	it("prompts each launchable kind with its own command, every one on Opus", () => {
 		const kinds = ["implement", "wayfinder", "to-spec", "to-tickets", "triage"];
-		const d = tick({
-			freeSlots: 9,
-			frontier: kinds.map((k, i) => row("wfc", 10 + i, k)),
-		});
+		/* One tick a kind: the unproven cap launches three at most (#4223). */
+		const launches = kinds.map(
+			(k, i) => tick({ frontier: [row("wfc", 10 + i, k)] }).launches[0],
+		);
 		expect(
-			d.launches.map((l: { prompt: string; model: string }) => [
+			launches.map((l: { prompt: string; model: string }) => [
 				l.prompt,
 				l.model,
 			]),
@@ -1500,7 +1604,8 @@ describe("decideTick on parked rows (#3621)", () => {
 			freeSlots: 9,
 			frontier: [...frontier, parked(4, null)],
 		});
-		expect(launched(d)).toEqual(["wfc#4", "wfc#3", "wfc#2", "wfc#1"]);
+		/* The unproven cap stops the walk at three (#4223). */
+		expect(launched(d)).toEqual(["wfc#4", "wfc#3", "wfc#2"]);
 	});
 
 	const judgement = { root: "wfc", number: 7, prompt: "/triage 7" };

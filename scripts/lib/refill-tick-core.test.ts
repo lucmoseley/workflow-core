@@ -213,6 +213,7 @@ function fakeIo(
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
 		sendPauseNotices: recorded("sendPauseNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
+		readLastActAt: () => null,
 		readCause: () => null as never,
 		unparkAnswered: recorded("unparkAnswered", () => undefined),
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
@@ -554,6 +555,41 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			"bootKilled",
 		);
 		expect(read.disk().bootedAt).toBeUndefined();
+	});
+});
+
+describe("the unproven cap through the tick (#4223)", () => {
+	/* Inside the listing's grace, so an empty listing ends none of them. */
+	const running = [1, 2, 3].map((n) =>
+		record({ jobId: `job${n}`, launchedAt: NOW - 30_000 }),
+	);
+	const limitSlotsOf = async (lastActAt: number) => {
+		const handed: number[] = [];
+		const { io } = fakeIo(stateOf({ launches: running }), {
+			readLastActAt: () => lastActAt,
+			readFreeSlots: () => ({ slots: 5, admission: null }),
+			actOnLimits: (judged, _m, { slots }) => {
+				handed.push(slots);
+				return { launches: judged, slots, workingChange: 0 };
+			},
+		});
+		const { decision } = await tickOf(io);
+		return { handed, decision };
+	};
+
+	it("holds the limit resumes and the launches where three run since the last act", async () => {
+		const { handed, decision } = await limitSlotsOf(NOW - MIN);
+		expect(handed).toEqual([0]);
+		expect(decision).toMatchObject({
+			launches: [],
+			idle: { reason: "3 launches since the last act are running" },
+		});
+	});
+
+	it("frees the cap once an act follows them", async () => {
+		const { handed, decision } = await limitSlotsOf(NOW - 1000);
+		expect(handed).toEqual([3]);
+		expect(decision).toMatchObject({ idle: null });
 	});
 });
 

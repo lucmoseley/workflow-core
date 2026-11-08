@@ -25,7 +25,7 @@ const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { readRegistryAgents } = require("./registry-agents.js");
-const { readActsBy } = require("./arbiter-store.js");
+const { readActsBy, readLastActAt } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
@@ -533,6 +533,23 @@ function readProgress(l, served) {
 	return progress;
 }
 
+/**
+ * lib/refill-loop.js's lastActOf over actRootsOf's stores, each unread one
+ * logged.
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {string[]} served
+ */
+function readLoopLastActAt(launches, served) {
+	const { at, unread } = loop.lastActOf(
+		launches,
+		(l) => actRootsOf(l.root, served),
+		readLastActAt,
+	);
+	for (const { sessionId, root } of unread)
+		log(`act time of ${sessionId} in ${root} unread: counted as no act`);
+	return at;
+}
+
 /** lib/refill-blocks.js's CauseOf on the job record and transcript. */
 const readCause = blocks.causeReader({
 	readJob: (l) => readJobRecordOf(l),
@@ -983,6 +1000,7 @@ const productionIo = {
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
 	sendPauseNotices: (paused, now) => tendPauseNotices(paused, now, log),
 	readProgress,
+	readLastActAt: readLoopLastActAt,
 	readCause,
 	unparkAnswered: blocks.unparkAnswered,
 	tendClosedParks,
