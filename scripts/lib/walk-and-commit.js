@@ -275,6 +275,12 @@ function anchorAndCommit({ root, written, message }) {
 	const left =
 		"Nothing committed; the walk's output is left in the tree for inspection, " +
 		"and the next session's exit will not retry until it is cleared by hand.";
+	/* Staged before anchoring: a shim outside the index has no digest (#4517). */
+	try {
+		git(["add", "--", ...written], root);
+	} catch (err) {
+		return `migration walk: ${REFUSAL_CAUSE.stage} — ${reasonOf(err)}. ${left}`;
+	}
 	const anchored = anchorWalkOutput(root, written);
 	if (!anchored.ok)
 		return `migration walk: re-anchoring the walk's output failed — ${anchored.reason}. ${left}`;

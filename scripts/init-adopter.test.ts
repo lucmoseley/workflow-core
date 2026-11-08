@@ -1065,9 +1065,20 @@ describe("init in a fresh repository", () => {
 			"--no-tracker",
 		);
 		expect(r.status).toBe(0);
-		expect(
-			fs.existsSync(path.join(dir, ".claude/guard-registry-anchors.json")),
-		).toBe(true);
+		const anchors = JSON.parse(
+			fs.readFileSync(
+				path.join(dir, ".claude/guard-registry-anchors.json"),
+				"utf8",
+			),
+		);
+		const hooks = fs
+			.readdirSync(path.join(dir, ".husky"), { withFileTypes: true })
+			.filter((e) => e.isFile() && !e.name.includes("."))
+			.map((e) => `.husky/${e.name}`);
+		expect(hooks.length).toBeGreaterThan(0);
+		expect(Object.keys(anchors).filter((g) => g.startsWith(".husky/"))).toEqual(
+			hooks.sort(),
+		);
 		expect(
 			fs.existsSync(
 				path.join(elsewhere, ".claude/guard-registry-anchors.json"),

@@ -349,7 +349,8 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	/*
 	 * A real git repository, because the filter asks `git check-ignore`. Only
-	 * the case that needs a tracked file sets `commit`.
+	 * the case that needs a tracked file sets `commit`; the guard is staged in
+	 * every case, as one outside the index is BROKEN-CLAIM (#4517).
 	 */
 	function gitRepo(
 		fx: Fixture & { ignore?: string; commit?: boolean },
@@ -360,6 +361,7 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		const git = (...args: string[]) =>
 			execFileSync("git", args, { cwd: root, encoding: "utf8" });
 		git("init", "-q", ".");
+		git("add", "--", "scripts/guard-branch.sh");
 		if (fx.commit) {
 			git("config", "user.email", "test@example.com");
 			git("config", "user.name", "test");
@@ -748,5 +750,70 @@ describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
 		expect(digests(other)["scripts/check-valid.js"]).not.toBe(
 			clean["scripts/check-valid.js"],
 		);
+	});
+});
+
+describe("a rule's own guard is judged on git's index, not the disk (#4517)", () => {
+	const guard = "scripts/guard-new.sh";
+	const twoWorktrees = (named = guard) => {
+		const root = committedRepo({
+			claude: region(
+				`- New things are refused. **Enforced** (#9): \`${named}\` denies them.`,
+			),
+			files: { [SELF_PLUGIN_HOOKS]: hooksWiring(guard) },
+		});
+		const other = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
+		temps.push(other);
+		execFileSync("git", ["worktree", "add", "-q", "--detach", other], {
+			cwd: root,
+		});
+		fs.mkdirSync(path.join(other, "scripts"), { recursive: true });
+		fs.writeFileSync(path.join(other, guard), "#!/usr/bin/env bash\n");
+		return { root, other };
+	};
+	const verdict = (r: Result) => ({
+		code: r.code,
+		kinds: r.kinds,
+		warned: r.json.warnings.filter((w) => w.guard === guard),
+	});
+
+	it("gives the row one verdict and no digest in two worktrees, one holding the guard untracked", () => {
+		const { root, other } = twoWorktrees();
+		const clean = verdict(run(root));
+		const held = run(other);
+
+		expect(clean).toEqual({ code: 1, kinds: ["BROKEN-CLAIM"], warned: [] });
+		expect(verdict(held)).toEqual(clean);
+		expect(held.report).toContain(`\`git add ${guard}\``);
+	});
+
+	it("tells --review to stage an untracked guard rather than calling it absent", () => {
+		const { other } = twoWorktrees();
+
+		expect(reviewIn(other, [guard, "--sole-writer"])).toContain(
+			`skipped ${guard} — on disk but not in git's index — \`git add ${guard}\``,
+		);
+	});
+
+	it("takes the guard once it is in the index, before any commit", () => {
+		const { other } = twoWorktrees();
+		execFileSync("git", ["add", guard], { cwd: other });
+
+		expect(run(other).kinds).not.toContain("BROKEN-CLAIM");
+	});
+
+	it("stays BROKEN-CLAIM for a guard in the index but deleted on disk", () => {
+		const { other } = twoWorktrees();
+		execFileSync("git", ["add", guard], { cwd: other });
+		fs.rmSync(path.join(other, guard));
+
+		expect(run(other).kinds).toEqual(["BROKEN-CLAIM"]);
+	});
+
+	it("takes a directory the rule names where the index holds a file under it", () => {
+		const { other } = twoWorktrees("scripts/");
+		execFileSync("git", ["add", guard], { cwd: other });
+
+		expect(run(other).kinds).not.toContain("BROKEN-CLAIM");
 	});
 });

@@ -100,7 +100,9 @@ bodies are 70–670 lines of bespoke judgement.
    event-agnostic and matcher-blind — `if` is the one registration field it does
    read (mantahostels#2212), and this table still owns the event and the matcher.
 6. **An entry in `.claude/guard-registry-anchors.json`**, where surface 8's
-   sentence names the guard. It is generated, never typed:
+   sentence names the guard. It is generated, never typed, from a staged guard,
+   as one outside git's index has no digest (#4517):
+   `git add -N scripts/guard-<name>.sh`, then
    `node scripts/check-guard-registry.js --review scripts/guard-<name>.sh`.
    A later commit that changes the guard, or a file its digest hashes, is told
    at post-commit to re-read and re-anchor it (`--touched-by`, #2375). A merge
