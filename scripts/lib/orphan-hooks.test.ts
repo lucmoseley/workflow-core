@@ -23,6 +23,7 @@ import {
 	startOrphan,
 	waitFor,
 } from "./process-fixture";
+import { shellQuote } from "./sh-quote.js";
 
 const BOOT_AGO = 100_000;
 const GUARD = "/repo/scripts/guard-cpu-load.sh";
@@ -280,7 +281,7 @@ describe("a real orphaned guard", () => {
 			const script = path.join(dir, "scripts", name);
 			fs.mkdirSync(path.dirname(script));
 			fs.writeFileSync(script, "( while :; do sleep 1; done ) &\nsleep 300\n");
-			pid = startOrphan(script);
+			pid = startOrphan(`bash ${shellQuote(script)}`);
 			const forked = () =>
 				[...(readProcTable("/proc")?.procs.values() ?? [])].some(
 					(p) => p.pgid === pid && p.pid !== pid && p.argv[0] === "bash",

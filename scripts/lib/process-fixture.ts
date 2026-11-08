@@ -16,11 +16,16 @@ import { FIELD, readStatFields } from "./proc-stat.js";
 import { readProcTable } from "./proc-table.js";
 import { shellQuote } from "./sh-quote.js";
 
-/** A process's state letter and process group, or null where it is gone. */
-function readStat(pid: number | string) {
+/** A process's state letter, parent and process group, or null where it is
+ * gone. */
+export function readStat(pid: number | string) {
 	const fields = readStatFields(pid, REAL_PROC);
 	if (!fields) return null;
-	return { state: fields[FIELD.state], pgrp: Number(fields[FIELD.pgrp]) };
+	return {
+		state: fields[FIELD.state],
+		ppid: Number(fields[FIELD.ppid]),
+		pgrp: Number(fields[FIELD.pgrp]),
+	};
 }
 
 /** Gone, or a zombie: a Linux zombie still answers a signal 0, and a
@@ -47,15 +52,16 @@ export function waitFor(done: () => boolean) {
 	return done();
 }
 
-/** Start `script` orphaned in a group of its own — `&` then exit orphans it,
- * setsid leads it, as Claude Code leads every hook — and return its pid. */
-export function startOrphan(script: string) {
+/** Run shell `command` orphaned in a session and group of its own — `&` then
+ * exit orphans it, setsid leads it, as Claude Code leads every hook — and
+ * return its pid once it leads that group. A `$!` read outside would come back
+ * before the child's setsid() ran, and a group kill in that window reaches no
+ * one (#4643). */
+export function startOrphan(command: string) {
+	const inner = `echo $$; exec ${command} </dev/null >/dev/null 2>&1`;
 	const res = spawnSync(
-		"bash",
-		[
-			"-c",
-			`setsid bash ${shellQuote(script)} </dev/null >/dev/null 2>&1 & echo $!`,
-		],
+		"sh",
+		["-c", `setsid sh -c ${shellQuote(inner)} </dev/null 2>/dev/null &`],
 		{ encoding: "utf8" },
 	);
 	const pid = Number(res.stdout.trim());
@@ -63,6 +69,9 @@ export function startOrphan(script: string) {
 	 * group, or on init. */
 	if (!Number.isInteger(pid) || pid <= 1)
 		throw new Error(`no orphan started: ${res.stdout}${res.stderr}`);
+	const pgrp = readStat(pid)?.pgrp;
+	if (pgrp !== pid)
+		throw new Error(`orphan ${pid} does not lead its group: pgrp ${pgrp}`);
 	return pid;
 }
 
@@ -72,7 +81,7 @@ let reapsToInit: boolean | undefined;
  * a subreaper that is no init leaves nothing the orphan sweeps judge orphaned. */
 export function orphansReapToInit() {
 	if (reapsToInit !== undefined) return reapsToInit;
-	const pid = startOrphan("-c 'sleep 5'");
+	const pid = startOrphan("sleep 5");
 	const table = readProcTable(REAL_PROC)?.procs;
 	const ppid = table?.get(pid)?.ppid ?? 0;
 	try {

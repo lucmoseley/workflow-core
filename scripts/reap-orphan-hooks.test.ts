@@ -24,6 +24,7 @@ import {
 	waitFor,
 } from "./lib/process-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "reap-orphan-hooks.js");
 const { ceilingS, invocations } = readRegistry(
@@ -239,11 +240,11 @@ describe("a real orphaned guard", () => {
 			const script = path.join(dir, "scripts", name);
 			fs.mkdirSync(path.dirname(script));
 			fs.writeFileSync(script, "sleep 300\n");
-			pid = startOrphan(script);
-			/* Until setsid execs, its argv is no hook run's. */
+			pid = startOrphan(`bash ${shellQuote(script)}`);
+			/* Until the fixture's shell execs, its argv is no hook run's. */
 			expect(
 				waitFor(
-					() => readProcTable("/proc")?.procs.get(pid)?.argv[0] === "bash",
+					() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script,
 				),
 			).toBe(true);
 
