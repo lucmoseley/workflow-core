@@ -3117,9 +3117,6 @@
 			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/lib/plugin-tree.test.ts"
 		],
-		"migrations/hold.txt": [
-			"scripts/release-plugin.test.ts"
-		],
 		"migrations/v1.1.1.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
@@ -44676,6 +44673,12 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/test_host_dir_isolation.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/test_host_root.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
