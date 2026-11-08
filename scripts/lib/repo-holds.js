@@ -12,7 +12,7 @@
  * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
  * out a hold the founder has yet to answer. Where git will not name the common
  * dir, a linked worktree keys on the one its `.git` file points at (#4402).
- * RESIDUAL: a `.git` file that points nowhere keys on its own path, so its
+ * RESIDUAL (#4718): a `.git` file that points nowhere keys on its own path, so its
  * holds split from the checkout's until it is repaired.
  *
  * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
@@ -85,7 +85,7 @@ const { parseFirstLine } = require("./first-line.js");
 const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
-const { gitFileCommonDir } = require("./git-file.js");
+const { readGitFileCommonDir } = require("./git-file.js");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
@@ -258,7 +258,7 @@ function holdsDir(root) {
 	const known = stores?.get(root);
 	if (known !== undefined) return known;
 	const common =
-		gitCommonDir(root) ?? gitFileCommonDir(root) ?? path.join(root, ".git");
+		gitCommonDir(root) ?? readGitFileCommonDir(root) ?? path.join(root, ".git");
 	const key = deref(common);
 	const hash = createHash("sha256").update(key).digest("hex");
 	const dir = refillPath(

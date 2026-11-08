@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { gitFileCommonDir } from "./git-file.js";
+import { readGitFileCommonDir } from "./git-file.js";
 
 let dir: string;
 let worktree: string;
@@ -26,7 +26,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("gitFileCommonDir (#4402)", () => {
+describe("readGitFileCommonDir (#4402)", () => {
 	it("reads the registration's commondir", () => {
 		fs.mkdirSync(registration, { recursive: true });
 		fs.writeFileSync(
@@ -34,21 +34,27 @@ describe("gitFileCommonDir (#4402)", () => {
 			"../../../elsewhere\n",
 		);
 
-		expect(gitFileCommonDir(worktree)).toBe(
+		expect(readGitFileCommonDir(worktree)).toBe(
 			path.join(dir, "main", "elsewhere"),
 		);
 	});
 
 	it("reads a pruned registration's place under worktrees/", () => {
-		expect(gitFileCommonDir(worktree)).toBe(path.join(dir, "main", ".git"));
+		expect(readGitFileCommonDir(worktree)).toBe(path.join(dir, "main", ".git"));
 	});
 
 	it("is null for a .git file with no gitdir line, or a .git directory", () => {
 		fs.writeFileSync(path.join(worktree, ".git"), "junk\n");
-		expect(gitFileCommonDir(worktree)).toBeNull();
+		expect(readGitFileCommonDir(worktree)).toBeNull();
 
 		const main = path.join(dir, "main");
 		fs.mkdirSync(path.join(main, ".git"), { recursive: true });
-		expect(gitFileCommonDir(main)).toBeNull();
+		expect(readGitFileCommonDir(main)).toBeNull();
+	});
+
+	it("throws where the .git file is there but will not read", () => {
+		fs.chmodSync(path.join(worktree, ".git"), 0o000);
+
+		expect(() => readGitFileCommonDir(worktree)).toThrow(/EACCES/);
 	});
 });
