@@ -330,8 +330,7 @@ function decide(command, ctx) {
 	/** @type {import("./suite-launch.js").LaunchPorts} */
 	const launchPorts = {
 		runners: ctx.runners,
-		/* Whether an npm script runs run-vitest.js is the session's tree's
-		 * package.json's to say (#4242), read on the first script asked about. */
+		/* The session's tree's package.json, never the host's (#4242). */
 		isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
 	};
 	let foundSuite = false;

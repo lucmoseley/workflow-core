@@ -206,8 +206,7 @@ const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
  * LaunchPorts' `isWrapperScript` over one tree's package.json, the tree
  * resolved and the file read on the first script asked about. An absent
  * package.json answers yes; so do an unreadable and an unparsed one, logged
- * (mantahostels#103 §6, #2795). A fault resolving the tree propagates, the
- * core's to answer for.
+ * (mantahostels#103 §6, #2795). A fault resolving the tree propagates.
  * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
  * @param {(what: string) => void} log
  * @returns {LaunchPorts["isWrapperScript"]}
