@@ -113,7 +113,9 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 		fs.writeFileSync(stub("fail-create"), "");
 		const failed = run();
 		expect(failed.status).toBe(1);
-		expect(failed.stderr).toMatch(/^Memory kill incident from .*: not filed: /);
+		expect(failed.stderr).toMatch(
+			/^Memory kill incident from .*: not filed: file-issue: gh issue create failed \(HTTP 422\)/,
+		);
 		expect(readCreated()).toHaveLength(0);
 
 		fs.rmSync(stub("fail-create"));
