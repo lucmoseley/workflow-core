@@ -661,7 +661,10 @@ function parseHeredocTerm(mask, line) {
 /**
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
- * line outside a message argument (mantahostels#232).
+ * line outside a message argument (mantahostels#232). The abandon is the
+ * fail-closed read of a quote typed by mistake: a stray apostrophe that a
+ * later line's quote closes would hide every command between them. A quote
+ * opening a message argument was meant, so only there does the join hold.
  * @param {string[]} commandLines
  * @param {Lexer} lx
  * @param {string[]} spans
@@ -729,9 +732,10 @@ function isCommandAbsorbed(line, spans) {
 /**
  * Is the lexer's still-open quote the argument of a flag whose value is DATA —
  * a commit message, an issue body — so the lines that follow are prose
- * (mantahostels#232)? Narrow at both ends: the segment holding the quote must be a git or
- * gh command, and the word it opens on one of its message flags. Not keyed on
- * the subcommand: a quoted argument is data whatever the subcommand.
+ * (mantahostels#232)? Narrow on the word the quote opens on: `-m` or
+ * `--message` on any command, so `commit-paths.js -m` reads as `git commit -m`
+ * does (#4028), and `gh`'s body and title flags on `gh`. Not keyed on the
+ * subcommand: a quoted argument is data whatever the subcommand.
  * @param {Lexer} lx
  */
 function isMessageOpen(lx) {
@@ -742,14 +746,11 @@ function isMessageOpen(lx) {
 	if (!ran) return false;
 	/* `--message="…` arrives glued to its `=`. */
 	const word = (words.at(-1) ?? "").replace(/[=]$/, "");
-	switch (basename(words[wi] ?? "")) {
-		case "git":
-			return word === "-m" || word === "--message";
-		case "gh":
-			return ["-b", "--body", "-t", "--title"].includes(word);
-		default:
-			return false;
-	}
+	if (word === "-m" || word === "--message") return true;
+	return (
+		basename(words[wi] ?? "") === "gh" &&
+		["-b", "--body", "-t", "--title"].includes(word)
+	);
 }
 
 /**

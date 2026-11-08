@@ -1093,10 +1093,17 @@ describe("logical lines (mantahostels#182)", () => {
 		["--message", 'git commit --message "Subject'],
 		["--message=", 'git commit --message="Subject'],
 		["gh --body", 'gh issue comment 1 --body "Subject'],
+		["commit-paths.js -m", 'node scripts/commit-paths.js -m "Subject'],
 	])("reads a command named in a %s argument as prose", (_label, opener) => {
 		expect(
 			checkouts(`${opener}\n\ngit checkout -b x is denied." -- a.md`),
 		).toEqual([]);
+	});
+
+	it("keeps a non-git command's -m message as one segment (#4028)", () => {
+		expect(
+			lines('node x.js -m "first line\ngit branch -f main HEAD~1 second" -- f'),
+		).toHaveLength(1);
 	});
 
 	it("reads a message opening with an apostrophe in it", () => {
