@@ -341,8 +341,7 @@ function buildNarrationLines(j) {
 }
 
 /**
- * @param {any} c a `tool_use` block — `any`, not ContentBlock, because its
- *   `input` is the tool's own argument object, a different shape per tool
+ * @param {TranscriptBlock} c a `tool_use` block
  */
 function toolSignature(c) {
 	let detail;
