@@ -18,6 +18,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
+const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { jobStorePath, readJobRecordIn } = require("./job-paths.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
@@ -67,8 +68,13 @@ function readJobCwds() {
 		let ids;
 		try {
 			ids = fs.readdirSync(store);
-		} catch {
-			continue;
+		} catch (err) {
+			/* A seat that never ran a job has no store. Any other fault throws:
+			 * a seat's unread jobs would read as no resumable session, and the
+			 * reaper would judge their worktrees on that (#4229 review). */
+			const { code } = caught(err);
+			if (code === "ENOENT" || code === "ENOTDIR") continue;
+			throw err;
 		}
 		for (const id of ids) {
 			const job = jobCwdOf(readJobRecordIn(path.join(store, id)), id, seat);

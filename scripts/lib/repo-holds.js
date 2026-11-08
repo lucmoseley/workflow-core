@@ -1216,7 +1216,7 @@ function settleHold(root, hold, readFailure, log) {
 		);
 		const closeFailure = closeProbeIssue(
 			hold,
-			"The probe of the shared tree passes again, so its hold has cleared.",
+			"The probe of the main checkout passes again, so its hold has cleared.",
 		);
 		if (closeFailure) log(`repo hold ${hold.id}: ${closeFailure}`);
 	} catch (err) {
@@ -1241,7 +1241,7 @@ function readProbeHold(root) {
  * @param {string} failure
  */
 const buildProbeIssueBody = (root, failure) =>
-	`The refill loop's probe of the shared tree of \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
+	`The refill loop's probe of the main checkout \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
 
 **Failure:** ${failure}
 
@@ -1398,7 +1398,7 @@ function tendOutage(root, failure, now, log) {
  */
 function keepProbeHold(
 	root,
-	{ failureText, isRaiseDue, repair = "the shared tree" },
+	{ failureText, isRaiseDue, repair = "the main checkout" },
 	now,
 	log,
 ) {
