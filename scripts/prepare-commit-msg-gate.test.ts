@@ -26,6 +26,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
+import { huskyHooks, installHuskyShim } from "./lib/husky-testkit";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -145,20 +146,7 @@ const buildTemplate = (root: string) => {
 	git("config", "user.name", "t");
 
 	const husky = path.join(root, ".husky");
-	const underscore = path.join(husky, "_");
-	fs.mkdirSync(underscore, { recursive: true });
-
-	for (const f of [
-		"h",
-		"prepare-commit-msg",
-		"pre-merge-commit",
-		"pre-commit",
-		"commit-msg",
-	]) {
-		const src = path.join(ROOT, ".husky", "_", f);
-		fs.copyFileSync(src, path.join(underscore, f));
-		fs.chmodSync(path.join(underscore, f), 0o755);
-	}
+	installHuskyShim(root);
 	for (const f of ["prepare-commit-msg", "pre-merge-commit", "commit-msg"])
 		fs.copyFileSync(path.join(ROOT, ".husky", f), path.join(husky, f));
 
@@ -194,7 +182,6 @@ const buildTemplate = (root: string) => {
 		"scripts/lib/commit-message.js",
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
-	git("config", "core.hooksPath", underscore);
 
 	const log = path.join(root, LOG);
 	fs.writeFileSync(path.join(husky, "pre-commit"), precommitStub(log, 0));
@@ -288,9 +275,7 @@ describe(".husky/prepare-commit-msg", () => {
 		// `_/h` exits 0 when the user hook is absent, so the two halves are
 		// separately load-bearing.
 		expect(fs.existsSync(path.join(ROOT, HOOK_REL))).toBe(true);
-		expect(
-			fs.existsSync(path.join(ROOT, ".husky", "_", "prepare-commit-msg")),
-		).toBe(true);
+		expect(huskyHooks()).toContain("prepare-commit-msg");
 	});
 
 	it("runs the whole of .husky/pre-commit rather than a copied gate list", () => {

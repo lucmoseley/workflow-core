@@ -4,8 +4,10 @@
  * (#4227, #4203): `node run-pinned-guards.js <link>/scripts/guard-dispatch.js`, the
  * link lib/guard-code.js keeps at the last guard code that passed its probe.
  *
- * DEPENDENCY-FREE, node's own modules alone: it is the one file the hook line
- * runs from the main checkout, so no edit to a shared lib can break it.
+ * DEPENDENCY-FREE, node's own modules alone: the hook line runs it from the
+ * main checkout, as it runs every other hook (lib/core-hooks.js's
+ * SCRIPT_PREFIX, #4701), and the guards from the pinned code, so no fault in a
+ * shared lib at either can silence its refusal.
  *
  * FAIL-CLOSED STAYS TOTAL. Where the entry is missing or throws while it
  * loads or runs, the shim refuses with exit 2, the error's first line and the
