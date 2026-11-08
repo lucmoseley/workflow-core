@@ -20,13 +20,10 @@
  * The state is one marker file per MACHINE, beside the settings files it is
  * the record for. `on` writes the effort it found into it, so `off` restores
  * what was there rather than assuming the standing default (mantahostels#130).
- * readBurnState reads the marker and each plan's settings file, so a reader
- * sees a half-flip the script left.
  *
  * The maps are exact-match on purpose. An `Agent` call takes only the four
  * bare aliases, so a suffix there is impossible; a launch spelling this table
- * does not know passes through unchanged rather than being guessed at, which
- * is the safe direction — an unmapped spelling costs what it always cost.
+ * does not know passes through unchanged rather than being guessed at.
  */
 
 const fs = require("node:fs");
@@ -79,12 +76,7 @@ const LAUNCH = new Map([
  * Where the marker lives. `WFC_BURN_MARKER` overrides, so a test never
  * touches the machine's real switch; otherwise `~/.claude/.burn-mode`.
  *
- * ONE SWITCH PER MACHINE, not per checkout (#127), because the settings.json
- * half it gates is machine-wide and the two must not differ in scope.
- *
- * NO MIGRATION SHIM: no marker existed at the old path anywhere on the
- * machine when this landed, and nothing here reads it now, so a leftover is
- * ignored.
+ * ONE SWITCH PER MACHINE, not per checkout (#127).
  *
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}
