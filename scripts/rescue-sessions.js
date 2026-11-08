@@ -1957,13 +1957,10 @@ function readTakeoverJob(dir, sessionId, transcript, row) {
  * @returns {{cwd: string, cwdGuessed?: true}}
  */
 function readUnrecordedCwd(transcript, row) {
-	const { deref } = require("./lib/deref.js");
 	const { hostRoot } = require("./lib/host-root.js");
-	const { mainCheckout } = require("./lib/main-checkout.js");
 	const cwd = row?.cwd || readTranscriptCwd(transcript);
 	if (cwd) return { cwd };
-	const root = hostRoot();
-	return { cwd: deref(mainCheckout(root) ?? root), cwdGuessed: true };
+	return { cwd: hostRoot(), cwdGuessed: true };
 }
 
 /**

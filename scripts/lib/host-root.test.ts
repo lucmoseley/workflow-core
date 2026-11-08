@@ -9,9 +9,6 @@
  * the worktree's copy differing from the shared tree's; the runners' cases
  * read the worktree's own config.
  *
- * Break it and a test run inside a worktree passes or fails on the shared
- * tree's files.
- *
  * The seam's cases are spawned, not required in-process: it reads
  * `CLAUDE_PROJECT_DIR` and memoises on cwd, and the suite's own process must
  * keep both. The runners' run through `runInProcessAsync`, which restores
@@ -159,6 +156,49 @@ describe("the host seam", () => {
 		});
 	});
 
+	describe("adoptHostRoot, one main checkout for the run and its children (#4486)", () => {
+		/** `a.md` through what adoptHostRoot answers, where that is also what
+		 * it leaves in CLAUDE_PROJECT_DIR and is free of symlinks. */
+		const readAdopted = (cwd: string, projectDir: string | undefined) => {
+			const seam = `require(${JSON.stringify(SEAM)})`;
+			return readThrough(
+				`((r) => r === process.env.CLAUDE_PROJECT_DIR && r === require("fs").realpathSync(r) ? r : "/no-agreement")(${seam}.adoptHostRoot())`,
+				cwd,
+				projectDir,
+			);
+		};
+
+		it("adopts the main checkout from a linked worktree, declared or not", () => {
+			expect(readAdopted(at.wt, at.wt)).toBe("a\n");
+			expect(readAdopted(at.wt, undefined)).toBe("a\n");
+		});
+
+		it("adopts the dereferenced main checkout through a symlink to it", () => {
+			const link = path.join(dir, "linked-shared");
+			fs.symlinkSync(at.shared, link);
+			expect(readAdopted(at.wt, link)).toBe("a\n");
+			expect(readAdopted(link, undefined)).toBe("a\n");
+		});
+
+		it("adopts no guess where git names no checkout", () => {
+			const outside = mkDirOutsideRepo("adopt-host-");
+			try {
+				const { CLAUDE_PROJECT_DIR: _, ...env } = process.env;
+				const r = spawnSync(
+					process.execPath,
+					[
+						"-e",
+						`require(${JSON.stringify(SEAM)}).adoptHostRoot(); process.stdout.write(String(process.env.CLAUDE_PROJECT_DIR))`,
+					],
+					{ cwd: outside, encoding: "utf8", env },
+				);
+				expect(r.stdout).toBe("undefined");
+			} finally {
+				fs.rmSync(outside, { recursive: true, force: true });
+			}
+		});
+	});
+
 	describe("sessionTree, the tree a hook input's cwd names (#4234)", () => {
 		/** `a.md` through the session tree of `input`, from a hook run in the
 		 * shared tree with CLAUDE_PROJECT_DIR on it. */
@@ -246,7 +286,6 @@ describe("the host seam", () => {
 			expect(readFromCommitHost(tree, undefined)).toBe("septree\n");
 		});
 
-		/* The answer there may be a store the hook never reads (#3830, #3906). */
 		it("answers the working directory in a bare repository, which has no top level, and says so on stderr", () => {
 			const bare = path.join(dir, "bare.git");
 			spawnSync("git", ["init", "-q", "--bare", bare]);

@@ -119,13 +119,17 @@ const headless = require("./headless-runs.js");
  *   states: Map<string, string>, kinds: Map<string, string>,
  *   unvouched?: boolean}} SessionsListed
  * @typedef {SessionsRefused|SessionsListed} ListedSessions
+ * @typedef {(bin: string, timeoutMs: number, dirs: string[]) => string[]} RunOracle
  * @typedef {{requireSelf?: unknown, allowEmpty?: boolean, shared?: boolean,
- *   shownAgeMs?: number}} ReadOpts  `shownAgeMs`, a hit up to that old for a
- *   reader that only shows it, which otherwise reads as a strict reader does
- * @typedef {{read?: (o: ReadOpts) => any,
+ *   shownAgeMs?: number, run?: RunOracle}} ReadOpts  `shownAgeMs`, a hit up to
+ *   that old for a reader that only shows it, which otherwise reads as a
+ *   strict reader does
+ * @typedef {{read?: (o: ReadOpts) => any, run?: RunOracle,
  *   requireSelf?: unknown, allowEmpty?: boolean}} Opts
  *   `read` answers `any` on purpose: it is the suite's seam, and its job is to
- *   hand this module shapes the oracle should never produce.
+ *   hand this module shapes the oracle should never produce. `run`, the suite's
+ *   too, stands in for runOracle alone, so the retry's count and caps do not
+ *   ride on a real child starting inside a cap (#4411).
  */
 
 /* Untraced: enough of a quoted message to name a fault without printing a
@@ -466,7 +470,7 @@ function readListing(opts) {
 
 	let raw;
 	try {
-		const union = spawnUnion(bin, call, dirs);
+		const union = spawnUnion(bin, call, dirs, opts?.run);
 		if ("why" in union) {
 			cache.writeRefusal(key, union.why);
 			return union;
@@ -491,14 +495,15 @@ function readListing(opts) {
  * @param {string} bin
  * @param {string} call
  * @param {string[]} dirs
+ * @param {RunOracle} [run]
  * @returns {{raw: string} | {why: string}}
  */
-function spawnUnion(bin, call, dirs) {
+function spawnUnion(bin, call, dirs, run = runOracle) {
 	let out;
 	const firstCapMs = oracleTimeoutMs();
 	const firstMs = budgetMs(firstCapMs);
 	try {
-		out = runOracle(bin, firstMs, dirs);
+		out = run(bin, firstMs, dirs);
 	} catch (e) {
 		const why = wouldNotRun(call, e);
 		if (caught(e).code !== "ETIMEDOUT") return { why };
@@ -508,7 +513,7 @@ function spawnUnion(bin, call, dirs) {
 		// a loop here would wedge the SessionStart hook the cap protects.
 		const retryMs = budgetMs(oracleRetryTimeoutMs());
 		try {
-			out = runOracle(bin, retryMs, dirs);
+			out = run(bin, retryMs, dirs);
 		} catch (again) {
 			return {
 				why: `${wouldNotRun(call, again)} — twice, the retry given ${retryMs} ms`,
@@ -671,7 +676,7 @@ function readEverySeat() {
 function refuseOnThrow(opts, requireSelf, answer, how = {}) {
 	const read = opts?.read || readListing;
 	try {
-		return answer(read({ requireSelf, ...how }));
+		return answer(read({ requireSelf, run: opts?.run, ...how }));
 	} catch (e) {
 		const said = String(caught(e).message || e).slice(0, QUOTE_CHARS);
 		return { why: `${oracleCall()} could not be read: ${said}` };

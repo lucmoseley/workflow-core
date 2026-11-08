@@ -93,9 +93,7 @@ const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
 const { mapLimit } = require("./lib/gh.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
-const { hostRoot } = require("./lib/host-root.js");
-const { mainCheckout } = require("./lib/main-checkout.js");
-const { deref } = require("./lib/deref.js");
+const { adoptHostRoot } = require("./lib/host-root.js");
 const { worktreeLabel, worktreeOwners } = require("./lib/session-worktrees.js");
 const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
@@ -1003,25 +1001,6 @@ function describeUnread({ linked, unread }) {
 	return parts.length > 0 ? ` ${parts.join("; ")}.` : "";
 }
 
-/**
- * The main checkout, never a linked worktree: `hostRoot()` is the launch
- * directory, so a session started inside a worktree would judge that
- * worktree's live dirt as the main checkout's (#4483). It is made the host for
- * the rest of the run, so the arbiter's stores, the module config and the filer
- * all read the main checkout too. RESIDUAL: a linked worktree of a
- * `--separate-git-dir` checkout, whose common dir is not named `.git`, is
- * still read as the main checkout.
- * @returns {string}
- */
-function adoptMainCheckout() {
-	const host = hostRoot();
-	const checkout = mainCheckout(host);
-	const main = checkout === null ? host : deref(checkout);
-	if (main === host) return host;
-	process.env.CLAUDE_PROJECT_DIR = main;
-	return main;
-}
-
 /* `git status` calls in flight across the linked worktrees (#4542). Four,
  * half the cores, is a guess that leaves the rest to the other SessionStart
  * hooks. */
@@ -1063,7 +1042,7 @@ async function readLinkedDirt(root, { hours, now }) {
 async function run(ctx) {
 	const hours = ctx.numberValue("--hours", ORPHAN_AFTER_HOURS, "non-negative");
 
-	const root = adoptMainCheckout();
+	const root = adoptHostRoot();
 	const now = clock();
 	if (ctx.has("--hourly") && !claimWalkHour(root, now))
 		return {

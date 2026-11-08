@@ -28,7 +28,6 @@ const {
 const { writeFileAtomic } = require("./atomic-write.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { hostRoot } = require("./host-root.js");
-const { mainCheckout } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
 
 /*
@@ -64,7 +63,7 @@ const SKEW_MS = 5 * 60 * 1000;
 /** @param {string} repo */
 const cacheFile = (repo) =>
 	path.join(
-		mainCheckout(hostRoot()) ?? hostRoot(),
+		hostRoot(),
 		MARKERS_REL,
 		"closed-titles",
 		`${repo.replace("/", "__")}.json`,
