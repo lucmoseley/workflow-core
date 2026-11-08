@@ -35,7 +35,10 @@ interface Core {
 	decide: (subject: string, ctx: Record<string, unknown>) => Decision;
 }
 const { loadCores } = require("./guard-core-load.js") as {
-	loadCores: (event: string, keep?: (row: Core) => boolean) => Core[];
+	loadCores: (
+		event: string,
+		options?: { keep?: (row: Core) => boolean; manifest?: string },
+	) => Core[];
 };
 const { dispatch } = require("./guard-judge.js") as {
 	dispatch: (
