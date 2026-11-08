@@ -3,4 +3,5 @@ worked, never batch-ticked to clear a report.** Re-read the body first (`node sc
 <n>`), and tick only what this session verified, one call each: `tick <n>
 --match "<distinctive words from that criterion>"`. Anything unverified or
 deliberately dropped stays **unticked**, annotated `annotate <n> --match "<the
-criterion>" --text "**waived:** <why>"`.
+criterion>" --text "**waived:** <why>"`. A why saying a session cannot observe
+something names the methods tried and what each showed (#4114).

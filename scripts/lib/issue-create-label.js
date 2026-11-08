@@ -739,6 +739,24 @@ Relabel, and drop the tool and the path from the Outside line if a real outside 
 
 Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels#3555).`,
 		);
+	if (found?.fault === "OBSERVE-ONLY")
+		deny(
+			run.ctx,
+			segment,
+			`This ${verb} whose Outside line's only founder part is to observe a result: @CMD@
+
+  ${found.line}
+
+A place the act happens — the desktop app, his phone — is not an act, and looking, listening or reading a result is a check a session tries first (#4114):
+
+  - text from the real renderer at the real size, or a screenshot through the browser route
+  - a reading through any API the effect touches: this machine's Windows side answers powershell.exe from WSL2
+  - a different experiment reaching the same answer counts
+
+Where one reads it, check it and close on that evidence, whatever the close clause names. Only where every route failed, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed.
+
+Rule: ${ruleOrFallback(run.ctx, "founder-deliverable", "a check by eye an agent can reach is the agent's")}`,
+		);
 	if (found?.fault === "NOT-A-FOUNDER-ACT")
 		deny(
 			run.ctx,

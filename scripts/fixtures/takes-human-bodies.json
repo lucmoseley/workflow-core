@@ -230,8 +230,23 @@
 		"body": "**Outside Claude Code:** look up which payment methods the hostel's site lists.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
-		"verdict": "pass",
-		"reason": "passes a read off the founder's own phone, the other old example, on the word 'phone': a known escape",
+		"verdict": "OBSERVE-ONLY",
+		"reason": "refuses a read off the founder's own phone as OBSERVE-ONLY: 'phone' names a place, never a deed (#4114)",
 		"body": "**Outside Claude Code:** read a setting off the founder's own phone.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "OBSERVE-ONLY",
+		"reason": "refuses an act in the desktop app whose founder part is to listen and look, #3957's case (#4114)",
+		"body": "**Outside Claude Code:** run this in the desktop app, then listen for the bell and look at the taskbar.\n\n**Close when:** the founder records what he heard and saw here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an observing Outside line with three methods tried (#4114)",
+		"body": "**Outside Claude Code:** look at the notification on the founder's phone.\n\n**Tried:**\n- read the push service's delivery log: it records a send, not a display\n- Phone Link through powershell.exe: not paired on this machine\n- a test push to a desktop browser: shows, but says nothing of the phone\n\n**Close when:** the founder records whether it showed."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an observing Outside line beside a deed: the founder pays, and reading is part of it (#4114)",
+		"body": "**Outside Claude Code:** check the deposit is paid to the hostel through the bank app.\n\n**Close when:** the founder records the outcome here."
 	}
 ]

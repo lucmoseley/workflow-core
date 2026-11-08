@@ -1,5 +1,5 @@
 /*
- * takes-label.js — the `takes:` vocabulary, the four `takes:human`
+ * takes-label.js — the `takes:` vocabulary, the five `takes:human`
  * Outside-line tests and its `**Close when:**` test, for the scripts that
  * write or audit a `takes:` value (#533, #983, #1095).
  *
@@ -102,9 +102,32 @@ const readFounderActs = () =>
 /* The vocabulary that names one of them (#1092 §The check), whole-word and
  * case-insensitive on the Outside line alone. The suffix, and the irregular
  * forms listed whole, let the list's own wording pass ("signing", "sending");
- * a word used in a non-act sense passes too, the accepted escape. */
-const FOUNDER_ACT_WORD =
-	/(^|[^a-z0-9])(pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|otp|verification|phone|call|in[ -]person|desktop app|phone app|iphone|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form)(s|es|d|ed|ing|ted|ting)?($|[^a-z0-9])|(^|[^a-z0-9])(paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies)($|[^a-z0-9])/i;
+ * a word used in a non-act sense passes too, the accepted escape. A place word
+ * names where an act happens, never what it is (#4114). */
+const PLACE_WORDS = "phone|in[ -]person|desktop app|phone app|iphone";
+const DEED_WORDS =
+	"pay|payment|buy|purchase|subscribe|sign|signature|accept|terms|delete|install|invite|grant|authorise|authorize|oauth|captcha|card|one-time code|two-factor|2fa|otp|verification|call|refused|send|email|e-mail|message|reply|post|submit|apply|application|register|registration|linkedin|profile|form";
+const DEED_IRREGULAR =
+	"paid|bought|purchasing|subscribing|deleting|inviting|authorising|authorizing|phoning|messaging|replied|replies|applied|applies";
+/** @param {string} words */
+const wholeWord = (words) =>
+	`(^|[^a-z0-9])(${words})(s|es|d|ed|ing|ted|ting)?($|[^a-z0-9])`;
+const FOUNDER_DEED_WORD = new RegExp(
+	`${wholeWord(DEED_WORDS)}|(^|[^a-z0-9])(${DEED_IRREGULAR})($|[^a-z0-9])`,
+	"i",
+);
+const FOUNDER_ACT_WORD = new RegExp(
+	`${FOUNDER_DEED_WORD.source}|${wholeWord(PLACE_WORDS)}`,
+	"i",
+);
+
+/* An Outside line whose job is to observe a result (#4114). With no deed beside it, the
+ * founder's part is only to look, and a session that has not tried to read the
+ * result itself hands him its own check. */
+const OBSERVE_WORD = new RegExp(
+	`${wholeWord("look|listen|hear|see|watch|observe|notice|confirm|check|read")}|(^|[^a-z0-9])(heard|seen|saw)($|[^a-z0-9])`,
+	"i",
+);
 
 /* A website job no list act covers reaches the founder with methods tried
  * (#1077 Q3 (A)): a `Tried:` line, bold or plain, then the items on the
@@ -157,26 +180,28 @@ const CLOSE_WHEN_MARKER = "Close when:";
 const CLOSE_WHEN_LINE = /Close when:[ \t*]*[^\s*]/;
 
 /**
- * Which of the four Outside-line tests a `takes:human` body fails, in the
+ * Which of the five Outside-line tests a `takes:human` body fails, in the
  * create guard's order, with the line it read — or null where it passes. The
  * fault is check-issue-labels.js's finding tag.
  * @param {string} body
- * @returns {{fault: "NO-OUTSIDE-ACT"|"BARRED-NOT-IMPOSSIBLE"|"REPO-FILE-ACT"|"NOT-A-FOUNDER-ACT", line: string}|null}
+ * @returns {{fault: "NO-OUTSIDE-ACT"|"BARRED-NOT-IMPOSSIBLE"|"REPO-FILE-ACT"|"NOT-A-FOUNDER-ACT"|"OBSERVE-ONLY", line: string}|null}
  */
 function outsideLineFault(body) {
 	const line = OUTSIDE_TEXT.exec(body)?.[0] ?? "";
 	if (!OUTSIDE_LINE.test(body)) return { fault: "NO-OUTSIDE-ACT", line };
 	if (BARRED_ACT.test(line)) return { fault: "BARRED-NOT-IMPOSSIBLE", line };
 	if (REPO_FILE_ACT.test(line)) return { fault: "REPO-FILE-ACT", line };
-	if (!FOUNDER_ACT_WORD.test(line) && triedCount(body) < TRIED_MIN)
-		return { fault: "NOT-A-FOUNDER-ACT", line };
+	if (triedCount(body) >= TRIED_MIN) return null;
+	if (!FOUNDER_ACT_WORD.test(line)) return { fault: "NOT-A-FOUNDER-ACT", line };
+	if (OBSERVE_WORD.test(line) && !FOUNDER_DEED_WORD.test(line))
+		return { fault: "OBSERVE-ONLY", line };
 	return null;
 }
 
 /**
  * Why `labels` and `body` may not be filed as they stand, or null. Exactly
  * one `takes:` value from the seven, and a `takes:human` body passing the
- * four Outside-line tests, then carrying a Close-when line.
+ * five Outside-line tests, then carrying a Close-when line.
  * @param {string[]} labels
  * @param {string} body
  * @returns {string|null}
@@ -205,6 +230,8 @@ function takesRefusal(labels, body) {
 		return `takes:human, but the body names no act performed outside Claude Code. Add it on its own line — **${OUTSIDE_MARKER}** <the act, in plain words>, one of the founder's own acts this message closes on. Or, ${triedWayOut}. If you can honestly write neither, the label is wrong. ${rule} The founder's own acts (#1077): ${acts}`;
 	if (found.fault === "NOT-A-FOUNDER-ACT")
 		return `takes:human, but the Outside line names none of the founder's own acts: "${found.line}". Two ways out: name the act from that list, which this message closes on, on the Outside line, or, ${triedWayOut}. Neither true means an agent can do it, and the label is wrong. ${rule} The acts are (#1077): ${acts}`;
+	if (found.fault === "OBSERVE-ONLY")
+		return `takes:human, but the Outside line's only founder part is to observe a result: "${found.line}". Get the output yourself first — text from the real renderer at the real size, a screenshot, or a reading through any API the effect touches, the Windows side through powershell.exe included — and where it reads, check it and close on that evidence. Only where every route failed, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed. Rule: ${scriptPath("lib/rule-text.sh")} founder-deliverable.`;
 	if (found.fault === "BARRED-NOT-IMPOSSIBLE")
 		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts. ${rule} The founder's own acts (#1077): ${acts}`;
 	return `takes:human, but the Outside line's act produces a file in this repository: "${found.line}". The file is takes:implement; the founder's review of it is takes:wayfinder. ${rule}`;
