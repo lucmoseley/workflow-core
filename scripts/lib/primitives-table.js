@@ -3,7 +3,7 @@
  * primitives tables in the code standards base and a repo's local file,
  * judges every path and § id they name, and builds the count line. The
  * release build reads the base's paths through parseBasePaths, to refuse one
- * the release does not ship (#4156).
+ * the release does not ship (#4156) or a table it cannot read (#4189).
  *
  * A CORE (base §T7): every read comes in through the ports below.
  *
@@ -312,6 +312,28 @@ function primitivesOutcome({ rows, line, findings }) {
 }
 
 /**
+ * Each finding as the line it prints, the file it is recorded against, and
+ * whether it gates. A base row's fault in an adopter is the plugin's to fix,
+ * so it warns there; every other finding fails.
+ * @param {Finding[]} findings
+ * @param {boolean} inAdopter
+ * @returns {{ message: string, file: string, gates: boolean }[]}
+ */
+function buildFindingReports(findings, inAdopter) {
+	return findings.map((f) => {
+		const file = STANDARDS_DOCS[f.side];
+		const at = `${file}${f.line > 0 ? `:${f.line}` : ""}`;
+		const row = f.job ? ` (row "${f.job}")` : "";
+		const pluginsToFix = f.side === "base" && inAdopter;
+		return {
+			message: `${at}${row}: ${f.message}${pluginsToFix ? " — the plugin's to fix" : ""}`,
+			file,
+			gates: !pluginsToFix,
+		};
+	});
+}
+
+/**
  * Both sides' rows, with a finding and a reason for each side whose table
  * cannot be read.
  * @param {string} baseText
@@ -471,18 +493,21 @@ function rowChanges(side, before, after) {
 
 /**
  * Every backticked path the base table's Exemplar and Enforcing check cells
- * name; none from a table that cannot be read, which the core's own pre-commit run FAILs (#4156).
+ * name, or why the table cannot be read, which the release build refuses
+ * rather than judge no row (#4189).
  * @param {string} baseText
- * @returns {{ line: number, rel: string }[]}
+ * @returns {{ paths: { line: number, rel: string }[] } | { unreadable: string }}
  */
 function parseBasePaths(baseText) {
 	const parsed = parseTable("base", baseText);
-	if ("unreadable" in parsed) return [];
-	return parsed.rows.flatMap((row) =>
-		pathCells(row).flatMap(({ cell }) =>
-			backticked(cell).map((rel) => ({ line: row.line, rel })),
+	if ("unreadable" in parsed) return parsed;
+	return {
+		paths: parsed.rows.flatMap((row) =>
+			pathCells(row).flatMap(({ cell }) =>
+				backticked(cell).map((rel) => ({ line: row.line, rel })),
+			),
 		),
-	);
+	};
 }
 
 module.exports = {
@@ -492,5 +517,6 @@ module.exports = {
 	judgePrimitives,
 	parseBreaches,
 	primitivesOutcome,
+	buildFindingReports,
 	rowChanges,
 };

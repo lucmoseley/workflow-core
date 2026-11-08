@@ -17,24 +17,17 @@
  * and on a refused command line.
  */
 
-const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
-const { logError } = require("./lib/arbiter-core");
 const { failureReason, now } = require("./lib/check");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { SWEEP_DAYS, SWEEP_TITLE, judgeSweep } = require("./lib/heresy-sweep");
-const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
 const { takesLabel } = require("./lib/takes-label");
-const { gitCommonDirOrThrow } = require("./lib/git.js");
 const { buildStandaloneLine } = require("./lib/standalone-line.js");
+const { runDailyReading } = require("./lib/daily-reading.js");
 
 const LABEL = takesLabel("implement");
-const STAMP = ".heresy-sweep-read";
-const LOCK = ".heresy-sweep-read.lock";
-const DAY_MS = 24 * 3_600_000;
-const WHERE = "report-heresy-sweep-due";
 const USAGE = "usage: node scripts/report-heresy-sweep-due.js [--dry-run]";
 
 /** @typedef {import("./lib/heresy-sweep").Verdict} Verdict */
@@ -47,11 +40,10 @@ const USAGE = "usage: node scripts/report-heresy-sweep-due.js [--dry-run]";
  */
 function readVerdict(nowMs) {
 	const opts = { cwd: hostRoot() };
-	const closed = findTrackingIssue({ title: SWEEP_TITLE }, "closed", opts);
-	const open = closed
-		? null
-		: findTrackingIssue({ title: SWEEP_TITLE }, "open", opts);
-	return judgeSweep({ closed, open }, nowMs);
+	return judgeSweep(
+		(state) => findTrackingIssue({ title: SWEEP_TITLE }, state, opts),
+		nowMs,
+	);
 }
 
 /**
@@ -87,28 +79,11 @@ function fileRun(nowMs) {
 }
 
 function daily() {
-	try {
-		const nowMs = now();
-		const dir = gitCommonDirOrThrow(hostRoot());
-		const gate = periodicReading(
-			{
-				stamp: path.join(dir, STAMP),
-				lock: path.join(dir, LOCK),
-				script: path.basename(__filename),
-				nowMs,
-				everyMs: DAY_MS,
-			},
-			() => fileRun(nowMs),
-		);
-		writeFd(1, `${gate.ran ? gate.value : buildSkipLine(gate, "a day")}\n`);
-	} catch (e) {
-		/* Fails open (#3464). */
-		logError(WHERE, e);
-		writeFd(
-			2,
-			`FAILED OPEN: ${failureReason(e)} — recorded in the guard-error log; the next day's reading retries.\n`,
-		);
-	}
+	runDailyReading({
+		script: __filename,
+		stamp: ".heresy-sweep-read",
+		read: fileRun,
+	});
 }
 
 function dryRun() {

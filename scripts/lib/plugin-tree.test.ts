@@ -971,6 +971,20 @@ describe("a render in a fixture", () => {
 		expect(fs.existsSync(out)).toBe(false);
 	});
 
+	it("refuses a base primitives table that will not parse, naming the table and why, and leaving no tree (#4189)", () => {
+		const root = fixture("");
+		fs.mkdirSync(path.join(root, "docs"));
+		fs.writeFileSync(
+			path.join(root, "docs/code-standards-base.md"),
+			"## Primitives\n\n| Job | Typo |\n|---|---|\n| A | `scripts/gone.js` |\n",
+		);
+		const out = path.join(tmp, "out");
+		expect(() => buildTree(root, out)).toThrow(
+			"docs/code-standards-base.md's primitives table cannot be read, so no row's paths were judged: its Primitives table's header is not | Job | Primitive | Exemplar | Rule | Enforcing check | (#4189)",
+		);
+		expect(fs.existsSync(out)).toBe(false);
+	});
+
 	it("renders a base primitives table naming only shipped files (#4156)", () => {
 		const out = path.join(tmp, "out");
 		buildTree(
