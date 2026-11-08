@@ -521,6 +521,34 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(disk().sameBootRestart).toBeUndefined();
 		expect(calls).toContain("dropManagerRestart");
 	});
+
+	it("reopens what the tick before the marker finished for leaving the listing, holding it over a refused listing until one reads (#4145)", async () => {
+		const blockLines: string[] = [];
+		const marker = { bootId: "b", at: NOW - MIN };
+		const before = stateOf({
+			launches: [{ ...killed, finishedAt: NOW - 2 * MIN, leftListing: true }],
+			lastTick: { at: NOW - 2 * MIN, summary: "" },
+		});
+		const refused = fakeIo(before, {
+			blockIo: () => bootPorts(blockLines),
+			readManagerRestart: () => marker,
+			readCurrentBootId: () => "b",
+			readListing: () => ({ agents: null, why: "the listing failed" }),
+		});
+		await tickOf(refused.io);
+		expect(blockLines).toContain(
+			"design-vault /implement 42, finished just before a manager restart: reopened",
+		);
+		expect(refused.disk().launches[0]?.finishedAt).toBeNull();
+		expect(refused.disk().bootedAt).toBe(NOW - MIN);
+		expect(refused.calls).toContain("dropManagerRestart");
+		const read = fakeIo(refused.disk(), {
+			blockIo: () => bootPorts(blockLines),
+		});
+		await tickOf(read.io);
+		expect(read.disk().launches[0]).toHaveProperty("bootKilled");
+		expect(read.disk().bootedAt).toBeUndefined();
+	});
 });
 
 describe("a limit-held launch through the tick (#3735)", () => {

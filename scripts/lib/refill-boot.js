@@ -7,7 +7,8 @@
  * which jobs the never-started stop spares until they are queued (#3983). And
  * whether a loop just spawned, by a boot or a `start`, came to hold the lock
  * (#4083). And what `boot-resume`, `watch` and `run` write and return around
- * that verdict and that lock (#4356).
+ * that verdict and that lock (#4356). And which launches a manager restart's
+ * marker reopens, and when a restart's wait on the listing alarms (#4145).
  *
  * `boot-resume` runs at each start of the user manager, so on the manager's
  * restart within a boot too (#3963), which sessions in `/init.scope` outlive; and
@@ -16,11 +17,13 @@
  */
 
 const {
+	hasJobEnded,
 	isBootKillable,
 	isBootKillCandidate,
 	isBootKilled,
 	isHeld,
 	isLive,
+	launchName,
 	LISTING_GRACE_MS,
 	queueBootKilled,
 } = require("./refill-blocks.js");
@@ -174,16 +177,53 @@ const isEmptyListingTrusted = (
 
 /**
  * `state` as the restart a surviving loop's marker reports leaves it (#3971). The
- * tick queues what the restart killed as after a boot.
+ * tick queues what the restart killed as after a boot. A tick between the
+ * daemon's death and the marker may have read its sessions gone and finished
+ * them, so each the last tick finished for leaving the listing is reopened, bar
+ * one whose job record reads it ended on its own (#4145). Residual: a tick past the marker that a kill
+ * kept from dropping it hides that last tick, so nothing is reopened.
  * @param {import("./refill-state.js").LoopState} state
  * @param {import("./refill-files.js").ManagerRestart|null} marker
  * @param {string|null} current this boot's id
+ * @param {Pick<import("./refill-blocks.js").BlockReads, "jobStateOf"|"log">} io
  * @returns {import("./refill-state.js").LoopState}
  */
-const withManagerRestart = (state, marker, current) =>
-	marker !== null && isSameBoot(marker.bootId, current)
-		? { ...state, bootedAt: marker.at, sameBootRestart: true }
-		: state;
+function withManagerRestart(state, marker, current, io) {
+	if (marker === null || !isSameBoot(marker.bootId, current)) return state;
+	const restarted = { ...state, bootedAt: marker.at, sameBootRestart: true };
+	const lastTickAt = state.lastTick?.at;
+	if (lastTickAt === undefined || lastTickAt > marker.at) return restarted;
+	const launches = state.launches.map((l) => {
+		if (!l.leftListing || l.finishedAt === null || l.finishedAt < lastTickAt)
+			return l;
+		const { leftListing: _, ...rest } = l;
+		const reopened = { ...rest, finishedAt: null };
+		if (!isBootKillCandidate(reopened) || hasJobEnded(reopened, io)) return l;
+		io.log(
+			`${launchName(l)}, finished just before a manager restart: reopened`,
+		);
+		return reopened;
+	});
+	return { ...restarted, launches };
+}
+
+/* A first guess, stated as one: a manager restart's daemon is back within
+ * seconds, and the listing's grace (LISTING_GRACE_MS) holds a launch 2 minutes,
+ * so a wait several times that is no restart's own. */
+const RESTART_WAIT_ALARM_MS = 15 * 60 * 1000;
+
+/**
+ * When the restart whose killed launches still wait on a listing began, where
+ * that wait has outlasted RESTART_WAIT_ALARM_MS; null otherwise. The idle alarm
+ * counts those launches as running meanwhile (#4145).
+ * @param {Pick<import("./refill-state.js").LoopState, "bootedAt">} state
+ * @param {number} now
+ * @returns {number|null}
+ */
+const restartWaitOf = ({ bootedAt }, now) =>
+	bootedAt !== undefined && now - bootedAt >= RESTART_WAIT_ALARM_MS
+		? bootedAt
+		: null;
 
 /**
  * The jobs the never-started stop spares (#3983): until a listing has read, the
@@ -325,6 +365,7 @@ module.exports = {
 	buildFetchFailedLine,
 	holdRun,
 	isEmptyListingTrusted,
+	restartWaitOf,
 	runBootResume,
 	runWatch,
 	settleBootKilled,
