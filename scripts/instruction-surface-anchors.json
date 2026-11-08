@@ -427,7 +427,7 @@
 			"source": "#2791, #3583"
 		},
 		"scripts/lib/anthropic-report.js": {
-			"digest": "e7e72d230e0f5ed4",
+			"digest": "3f0a70b38d85d4f9",
 			"verdict": "at need — any gh issue, pr or api write tied to an anthropics/* repo, whether through --repo/-R, an issue URL, the api endpoint, GH_REPO, `timeout 60 gh` or behind `cd … &&`, is refused (510–533 B); a gh api call whose method it cannot read counts as a write (not re-fed). Reads, other repos and gh release pass silent (fed through scripts/guard-dispatch.js in a full clone at 5c45b5a16 under #3201, byte-identical to the standalone entry's at #3143). Byte counts are the whole hook stdout. Re-fed at 60fd69b77 under #3421 after its gh api scan took the parse's spans: a comment POST with the field quoted whole refused, 535 B, the same unquoted 520 B, a GET silent. Re-fed under #4268 in the linked worktree `implement-4268-c4f609` through `guard-dispatch.js --only guard-anthropic-report`, after gh's own -R before the command word came to be read: `gh pr comment 5 --repo anthropics/claude-code --body \"x\"` 517 B; `gh -R anthropics/claude-code issue create` 529 B and `gh \"--repo=anthropics/claude-code\" issue create` 511 B, each refused, which passed silent before; `gh issue view` on it and `gh -R o/r issue create` silent. After the review fix an empty `--repo=` names no repo: `GH_REPO=anthropics/claude-code gh --repo= issue create` 530 B, refused from GH_REPO.",
 			"selfSufficient": "yes — the refusal names the repo it read, quotes the command and prints the whole rule with the in-repo alternative. With the rule unreadable it still refuses (399 B), giving a one-line rule and the file path",
 			"source": "#3143, #3201, #3421, #4268"
