@@ -1578,6 +1578,42 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 		expect(r.status).toBe(0);
 	});
 
+	it.each(["Named rerun", "Landing quiet 14h", "Queue ref waiting 2h"])(
+		"reports green off CI over a newer red %s at main's sha (#4676)",
+		(workflowName) => {
+			// Named rerun carries main's sha over a queue tree it tested; the two
+			// alarms go red on a stalled queue. Neither judged main's tree.
+			setRuns([
+				run_({
+					databaseId: 400,
+					headSha: back(0),
+					workflowName,
+					conclusion: "failure",
+					createdAt: "2026-08-04T15:00:00Z",
+				}),
+				run_({
+					databaseId: 300,
+					headSha: back(0),
+					workflowName: "CI",
+					conclusion: "success",
+					createdAt: "2026-08-04T13:00:00Z",
+				}),
+			]);
+			stubRunsAndJobs([
+				{
+					name: "Named files",
+					conclusion: "failure",
+					steps: [{ name: "Run the named files", conclusion: "failure" }],
+				},
+			]);
+
+			const r = check(["--notify"]);
+			expect(r.stdout.trim()).toBe("");
+			expect(r.stdout).not.toContain("Ticket for Named files");
+			expect(r.status).toBe(0);
+		},
+	);
+
 	it("reports a workflow it has never heard of, rather than ignoring it", () => {
 		setRuns([
 			run_({
