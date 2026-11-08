@@ -55,22 +55,43 @@ import {
 	template,
 	write,
 } from "./lib/concision-backstop-testkit";
-import { cutWorktree, mkScratchDir } from "./lib/git-fixture";
+import { cutWorktree, mkDirOutsideRepo, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
 
 backstopFixture();
 
 describe("the session's own worktree (#4243)", () => {
-	const stopIn = (cwd: string) => {
+	/** A Stop whose payload names `cwd`, the hook run from `from`. */
+	const stopIn = (cwd: string, from = cwd) => {
 		const r = spawnSync(BACKSTOP, ["stop"], {
-			cwd,
+			cwd: from,
 			encoding: "utf8",
 			input: JSON.stringify({ session_id: ME, cwd }),
 			env: env(),
 		});
 		return r.stdout?.trim() ? (JSON.parse(r.stdout).reason as string) : null;
 	};
+
+	it("reads the payload's worktree, not the main checkout the hook runs from (#4271)", () => {
+		const wt = cutWorktree(repo);
+		fs.mkdirSync(path.join(wt, "docs"));
+		fs.writeFileSync(path.join(wt, "docs", "mine.md"), PARAGRAPH);
+		record("docs/mine.md", ME, wt);
+		expect(stopIn(wt, repo)).toContain("docs/mine.md");
+	});
+
+	it("logs its fail-open where git names no session tree (#4271)", () => {
+		const outside = mkDirOutsideRepo("backstop-outside-");
+		try {
+			expect(stopIn(outside, repo)).toBeNull();
+			expect(readGuardErrorsLog(cfg)).toContain(
+				`git named no session tree for ${outside}`,
+			);
+		} finally {
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+	});
 
 	it("demands the pass for prose this session wrote in its worktree", () => {
 		const wt = cutWorktree(repo);

@@ -57,17 +57,21 @@
  * IMPLICIT:  after a `gh issue close`, a round-opening `gh issue comment`, a `takes:` label added by `gh issue edit` or a blocked-by edge added, appends one line per act to the session's acts ledger.
  * JUSTIFIED: convenience — the record is the session's own, into its own ledger, which only the refill loop's progress test reads; the act itself has already landed.
  * DEFEAT:    evadable by spelling — any `gh api` call but a blocked-by POST, a shell variable, an unread body or the web UI all miss the seam — but there is no switch.
- * TREE:      both — reads a `--body-file` and the origin from the command's own cwd, and records into the host root's arbiter store
+ * TREE:      both — reads a `--body-file` and the origin from the command's own cwd, walked from host-root.js's sessionDir, and records into the host root's arbiter store
  */
 
 const { run } = require("./lib/guard-entry.js");
 const { decide } = require("./lib/gh-acts.js");
 const { buildHostPorts } = require("./lib/gh-recorder-host.js");
+const { sessionDir } = require("./lib/host-root.js");
 
 run({
 	field: "command",
 	noun: "command",
 	event: "PostToolUse",
 	decide,
-	ports: buildHostPorts,
+	ports: (env) => ({
+		...buildHostPorts(env),
+		fallbackCwd: sessionDir(env.payload),
+	}),
 });

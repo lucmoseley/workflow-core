@@ -23,7 +23,7 @@
  * session's own tree, a linked worktree of it where the session runs in one:
  * a hook reading `git status`, `HEAD`, the index or working files reads that.
  * The host root never says which tree is the session's; only the hook input's
- * `cwd` does. A script that writes tracked
+ * `cwd` does, read through `sessionDir()`. A script that writes tracked
  * files writes `worktreeRoot()`: through `hostRoot()` a worktree session's
  * write lands in the main checkout as an orphaned edit (#4438).
  *
@@ -181,17 +181,28 @@ function declaredHost(dir, timeoutMs, onTimeout) {
 }
 
 /**
- * The session's tree: the git top level of the hook input's `cwd`, symlinks
- * dereferenced. Takes the payload, or a core's context, whose `cwd` is the
- * payload's; where it carries none, the process's cwd. Null where git names no
- * top level — outside every repository, or git failing — never the host.
+ * The directory the session's call ran in: the hook input's `cwd`, else the
+ * process's. Takes the payload, or a core's context, whose `cwd` is the
+ * payload's. What a hook resolving a command's relative paths, `git -C` among
+ * them, seeds from; `sessionTree()` is its top level.
+ * @param {{ cwd?: unknown }} input
+ * @returns {string}
+ */
+function sessionDir({ cwd }) {
+	return typeof cwd === "string" && cwd ? cwd : process.cwd();
+}
+
+/**
+ * The session's tree: the git top level of `sessionDir(input)`, symlinks
+ * dereferenced. Null where git names no top level — outside every repository,
+ * or git failing — never the host. `scripts/lib/guard-root.sh`'s
+ * `gr_session_tree` is the shell half; change the two together.
  * @param {{ cwd?: unknown }} input
  * @returns {string | null}
  */
-function sessionTree({ cwd }) {
-	const dir = typeof cwd === "string" && cwd ? cwd : process.cwd();
+function sessionTree(input) {
 	try {
-		return gitTopLevel(dir);
+		return gitTopLevel(sessionDir(input));
 	} catch {
 		return null;
 	}
@@ -297,6 +308,7 @@ module.exports = {
 	gitTopLevel,
 	hostRoot,
 	resolveCommitHost,
+	sessionDir,
 	sessionTree,
 	worktreeRoot,
 };

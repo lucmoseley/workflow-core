@@ -39,9 +39,10 @@
 # exists to refuse. A script that writes a tracked doc already calls the
 # arbiter's `claim`, which records for it.
 #
-# Every failure path exits 0 and stays silent — breaking a session is worse than
-# missing one. A library that does not load is logged through lib/guard-log.sh,
-# save guard-log.sh itself, which is the log.
+# Every failure path exits 0 and prints nothing — breaking a session is worse
+# than missing one. A library that does not load, a missing jq or node, and a
+# host or session tree that will not resolve are logged through
+# lib/guard-log.sh, save guard-log.sh itself, which is the log (#4271).
 #
 # IMPLICIT:  records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code changed or a declared sensitive path written or narrowed from the declaration; in an /implement session either nag ends with rule:implement-closing-steps, the only place a session meets those steps (#2031).
 # JUSTIFIED: fail-safe — both are closing steps, and a session that has finished writing has no reason left of its own to run them.
@@ -102,28 +103,49 @@ source "$here/lib/rule-text.sh" 2>/dev/null || {
   }
 }
 
+# The hook's own directory, which gr_session_tree reads where the payload
+# names no cwd, as sessionTree() reads the process's.
+hook_pwd="$PWD"
 host="$(gr_root)"
-cd "$host" 2>/dev/null || exit 0
+cd "$host" 2>/dev/null || {
+  gl_log "host root $host could not be entered — concision and code-review nags skipped"
+  exit 0
+}
 # Resolved once, at the host root, so every marker path below is this absolute
 # directory plus a bare filename.
 markers_dir="$(gr_markers_dir)"
-[[ -n "$markers_dir" ]] || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+[[ -n "$markers_dir" ]] || {
+  gl_log "no markers directory — concision and code-review nags skipped"
+  exit 0
+}
+command -v jq >/dev/null 2>&1 || {
+  gl_log "jq not on PATH — concision and code-review nags skipped"
+  exit 0
+}
 # node reads the ledger, and a missing one would leave the ledger empty rather
 # than absent — which reads exactly like a session that wrote nothing, so the
 # backstop would fall silent for good with nothing to show for it.
-command -v node >/dev/null 2>&1 || exit 0
+command -v node >/dev/null 2>&1 || {
+  gl_log "node not on PATH — concision and code-review nags skipped"
+  exit 0
+}
 
 mode="${1:-stop}"
 payload=$(cat)
 sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
 [[ -n "$sid" ]] || exit 0
 
-# Every git read below runs in the session's own tree, the payload's cwd's top
-# level (#4243): its HEAD is the base, its diff the signal.
+# Every git read below runs in the session's own tree (#4243): its HEAD is the
+# base, its diff the signal.
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
-tree=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || exit 0
-cd "$tree" 2>/dev/null || exit 0
+tree="$(gr_session_tree "${cwd:-$hook_pwd}")" || {
+  gl_log "git named no session tree for ${cwd:-$hook_pwd} — concision and code-review nags skipped"
+  exit 0
+}
+cd "$tree" 2>/dev/null || {
+  gl_log "session tree $tree could not be entered — concision and code-review nags skipped"
+  exit 0
+}
 
 # The two review-axis Artefact paths alone take the shortened suffix; every
 # OTHER $sid use in this file (the marker filenames below) keeps the full id.
