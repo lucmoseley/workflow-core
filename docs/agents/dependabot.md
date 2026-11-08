@@ -57,7 +57,7 @@ Most of what both raise is false here. The rules triaged false across the board,
 
 The Sonar classes switched off are the rows listed in `.sonarcloud.properties`'s comment. They live in the project's **Ignore Issues on Multiple Criteria** setting, because automatic analysis cannot read it from a file. So a red quality gate means a new finding outside those classes: triage it, fixing a true one and marking a false one False Positive with its reason (#3579). A reason must meet two tests (#4209):
 
-1. **A finding whose truth depends on reachability, taint source or input size is called false per site, never from a sample.** That covers regex backtracking, injection and taint rules. Each site names its input source (argv, a repo file, `gh` output, an issue body, a session message) or carries a measured bound on its input. Switching such a class off needs that evidence for every site, plus a line on the class's row in `.sonarcloud.properties`'s comment naming what a new site would need to be judged false.
+1. **A finding whose truth depends on reachability, taint source or input size is called false per site, never from a sample.** That covers regex backtracking, injection and taint rules. Each site names its input source (argv, a repo file, `gh` output, an issue body, a session message) or carries a measured bound on its input. Switching such a Sonar class off needs that evidence for every site, plus a line on the class's row in `.sonarcloud.properties`'s comment naming what a new site would need to be judged false.
 2. **Two verdicts that disagree on one line, from two scanners or two agents, are reconciled by reading the site before either is recorded or marked.**
 
 ## What the config does
