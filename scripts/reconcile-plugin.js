@@ -83,7 +83,9 @@
  *            machine's shared marketplace clone, unless the install is
  *            already at the pin — and, once that succeeds on a clean tree,
  *            walks and commits whatever migration notes the new version
- *            owes; whatever it says is also filed as its notify report.
+ *            owes, re-anchoring the guard-registry rows of the paths the
+ *            walk wrote in that commit; whatever it says is also filed as
+ *            its notify report.
  * JUSTIFIED: convenience — the committed pin is the consent token and the
  *            chat yes is the second half, so every write here only brings
  *            reality to the state the pin already declares (#238); the walk

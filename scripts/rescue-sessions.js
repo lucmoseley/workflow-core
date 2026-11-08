@@ -36,10 +36,9 @@ const os = require("node:os");
 const path = require("node:path");
 const {
 	capMs,
-	claudeBin,
 	isTerminalAgent,
 	listedAgents,
-	runOracle,
+	readSeatListing,
 } = require("./lib/agent-liveness");
 const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
@@ -587,7 +586,7 @@ function deathPoint(narration) {
  *
  * `claude agents --json` is scoped to one config dir, so this is asked of the
  * SOURCE plan with that plan's own dir — the one case where a session missing
- * from the listing really does read dead. So it calls the oracle itself, not
+ * from the listing really does read dead. So it reads `readSeatListing`, not
  * `listedAgents`, which unions every plan's listing (#3512). Degrades to
  * `null`, never to "all dead".
  *
@@ -596,16 +595,13 @@ function deathPoint(narration) {
  */
 function liveSessions(dir) {
 	try {
-		const [raw] = runOracle(
-			claudeBin(),
+		const listing = readSeatListing(
+			dir,
 			// A guess, never measured: a wedged daemon, not a slow one.
 			capMs("WFC_RESCUE_ORACLE_TIMEOUT_MS", 45_000),
-			[dir],
 		);
-		if (raw === undefined) return null;
-		const parsed = JSON.parse(raw);
-		if (!Array.isArray(parsed)) return null;
-		return new Set(parsed.map((a) => String(a.id || "").slice(0, 8)));
+		if ("why" in listing) return null;
+		return new Set(listing.agents.map((a) => String(a.id || "").slice(0, 8)));
 	} catch {
 		return null;
 	}

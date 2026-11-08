@@ -1,7 +1,8 @@
 /*
  * child-buffer.js — the one cap on a child process's output that the scripts
- * pass as `maxBuffer`, alone in a module so a hook can hold it without loading
- * lib/check.js and its exit handlers (#1440).
+ * pass as `maxBuffer`, and the one excerpt of it an error quotes, alone in a
+ * module so a hook can hold them without loading lib/check.js and its exit
+ * handlers (#1440).
  *
  * Headroom, not a need. Node's 1 MiB default kills a call past it with
  * ENOBUFS, and the widest stream read through it, a whole-history
@@ -14,4 +15,7 @@
  */
 const CHILD_MAX_BUFFER = 64e6;
 
-module.exports = { CHILD_MAX_BUFFER };
+/** Of a failed child's output, enough to name its error in one line; a guess. */
+const CHILD_ERROR_CHARS = 200;
+
+module.exports = { CHILD_ERROR_CHARS, CHILD_MAX_BUFFER };

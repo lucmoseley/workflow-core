@@ -872,7 +872,7 @@ describe("reading the injections", () => {
 		});
 	});
 
-	it("counts concision-backstop.sh's rule_or_path as a direct call (#3439)", () => {
+	it("counts lib/rule-text.sh's rule_or_path as a direct call (#3439)", () => {
 		expect(census(`x="$(rule_or_path alpha "lead" .)"`, ["alpha"])).toEqual({
 			alpha: "none",
 		});
