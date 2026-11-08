@@ -50,6 +50,7 @@ import { REAL_PROC } from "./proc-root.js";
 import { probedCheckout } from "./repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
+import { buildShortlist, printShortlist, shortlistRow } from "./shortlist-fake";
 import { killCarrying, killPid } from "./suite-ceiling.js";
 import { buildUsageCache } from "./usage-probe-fake";
 
@@ -196,14 +197,7 @@ process.stdout.write("started the lander");\n`,
 		);
 		stub(
 			"pick-next.js",
-			`process.stdout.write(JSON.stringify({
-	frontier: [{ number: 5, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: [] }],
-	retroBundles: [],
-	pulledIn: [],
-	pulledInUnread: [],
-	conflictGraph: { candidates: [], inFlight: [] },
-	running: [],
-}));\n`,
+			printShortlist(buildShortlist({ frontier: [shortlistRow()] })),
 		);
 		/* What `stop` writes: the control's flag, then a wake line. Not `stop`
 		 * itself, which wakes only a loop whose pid's command line names the
