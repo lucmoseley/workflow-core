@@ -229,7 +229,7 @@ def test_a_narrowed_guard_passes_on_wall_with_cpu_recorded_beside_it():
     assert read["verdict"] == "PASS" and read["cpu"]["verdict"] == "FAIL"
 
 
-def run_with(values, narrowed=False):
+def run_with(values, narrowed=False, reread=False):
     """run_paired over calls whose new/old ratio cycles through `values`,
     recording the order each pair ran in."""
     order, i = [], [0]
@@ -244,7 +244,7 @@ def run_with(values, narrowed=False):
         i[0] += 1
         return call(100 * r, 100 * r)
 
-    return run_paired(old, new, narrowed, random.Random(7)), order
+    return run_paired(old, new, narrowed, random.Random(7), reread=reread), order
 
 
 def test_pairs_run_in_a_coin_flip_order_and_stop_at_the_first_verdict():
@@ -258,6 +258,14 @@ def test_pairs_run_in_a_coin_flip_order_and_stop_at_the_first_verdict():
 def test_an_open_interval_adds_30_pairs_up_to_90_and_stays_inconclusive():
     out, _ = run_with([0.9, 0.93, 0.96, 0.99, 1.02, 1.05, 1.08, 1.11, 1.14, 1.17])
     assert out["verdict"] == "INCONCLUSIVE" and out["pairs"] == 90
+
+
+def test_a_reread_is_one_720_pair_read_with_no_earlier_look():
+    passing, _ = run_with([1.0], reread=True)
+    assert passing["verdict"] == "PASS" and passing["pairs"] == 720
+    wide = [0.9, 0.93, 0.96, 0.99, 1.02, 1.05, 1.08, 1.11, 1.14, 1.17]
+    held, _ = run_with(wide, reread=True)
+    assert held["verdict"] == "INCONCLUSIVE" and held["pairs"] == 720
 
 
 def test_a_pair_whose_deny_counts_differ_or_that_detaches_is_refused():
