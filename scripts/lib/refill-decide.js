@@ -11,14 +11,10 @@ const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
-const {
-	COMMAND_VALUES,
-	TAKES_PREFIX,
-	takesValue,
-} = require("./takes-label.js");
+const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
 const { withoutStamps } = require("./stamp-paths.js");
-const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
+const { buildRowPrompt } = require("./unclosed-launch.js");
 
 /* Three finishes in a row with no progress pause the loop (#1920, #3859), and
  * as many launches since the last act are all that run unproven (#4200, #4223). */
@@ -606,25 +602,10 @@ const isParkRoutingMode = (mode) => mode === "normal";
 function buildSkipReason(row, mode) {
 	if (!isParkRoutingMode(mode) && isParked(row)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
-	const [kind, ...more] = row.takes;
-	if (kind === undefined || more.length > 0)
+	if (loneCommandOf(row.takes) === null)
 		return `${TAKES_PREFIX}${row.takes.join("+") || "none"}`;
-	if (!COMMAND_VALUES.includes(kind)) return `${TAKES_PREFIX}${kind}`;
 	return null;
 }
-
-/**
- * The prompt a lone row launches on: its `takes:` command, checking first
- * whether the work landed where an `/implement` launch committed and did not
- * close (#3782).
- * @param {MergedRow} row
- * @param {LaunchRecord[]} history
- */
-const buildRowPrompt = (row, history) =>
-	row.takes[0] === takesValue("implement") &&
-	unclosedLaunchOf(history, row.root, row.number)
-		? buildVerifyPrompt(row.number)
-		: `/${row.takes[0]} ${row.number}`;
 
 /**
  * What one ranked row launches, its whole retro bundle where it sits in one,

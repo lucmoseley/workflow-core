@@ -36,6 +36,7 @@ const writeSetCache = require("./lib/write-set-cache.js");
 const selectionMarker = require("./lib/selection-marker.js");
 const { issuesIn, commandOf } = require("./lib/dispatch-ledger.js");
 const { RETRO_BUNDLE_MODEL } = require("./lib/retro-bundles.js");
+const { buildVerifyPrompt } = require("./lib/unclosed-launch.js");
 
 import type { RetroLaunch } from "./lib/retro-bundles.js";
 
@@ -93,7 +94,7 @@ describe("readiness", () => {
 		).toContain(9);
 	});
 
-	it("marks a frontier row whose latest loop launch committed and did not close (#3782)", async () => {
+	it("marks a frontier row whose latest loop launch committed and did not close, and carries the loop's verify prompt as its launch prompt (#3782, #4351)", async () => {
 		const refill = path.join(kit.dir, "refill");
 		fs.mkdirSync(refill);
 		fs.writeFileSync(
@@ -115,16 +116,30 @@ describe("readiness", () => {
 			}),
 		);
 		const r = await run(
-			{ issues: [{ number: 8 }, { number: 9 }] },
+			{
+				issues: [
+					{ number: 7 },
+					{ number: 8, labels: ["takes:implement"] },
+					{ number: 9, labels: ["takes:implement"] },
+				],
+			},
 			["--json"],
 			{
 				env: { WFC_REFILL_DIR: refill },
 			},
 		);
 		const rows = r.json().frontier;
-		const of = (n: number) =>
-			rows.find((f: { number: number }) => f.number === n).unclosedLaunch;
+		const row = (n: number) =>
+			rows.find((f: { number: number }) => f.number === n);
+		const of = (n: number) => row(n).unclosedLaunch;
 		expect(of(8)).toBeNull();
+		expect(row(7).prompt).toBeNull();
+		expect(row(8).prompt).toBe("/implement 8");
+		// the prompt lib/refill-decide.js launches the same row on
+		expect(row(9).prompt).toBe(buildVerifyPrompt(9));
+		expect(
+			r.json().summary.proposed.map((p: { prompt: string | null }) => p.prompt),
+		).toEqual([null, "/implement 8", buildVerifyPrompt(9)]);
 		expect(of(9)).toEqual({
 			launchedAt: "2026-10-29T18:00:00.000Z",
 			sessionId: "s9",

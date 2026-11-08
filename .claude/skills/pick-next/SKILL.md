@@ -82,7 +82,7 @@ only the printed table (`shown` in `--json`).
 **Write §6's message from `summary`, in one read** (mantahostels#1001) — it carries the
 frontier count, the `no command` count and its rotted containers by number
 (§5's third accounting term), the warm / provisional / to-derive split, the proposed set with
-each member's `takes:` value and write-set, the owed-work counts, and, where
+each member's `takes:` value, write-set and lone launch prompt, the owed-work counts, and, where
 each applies, the readiness-unknown count and the frontier issues whose
 `takes:` is missing or doubled — the whole frontier, not the `--limit` slice
 (mantahostels#3363, the run that read a labelled issue as unlabelled). The text output prints the same figures as
@@ -522,6 +522,8 @@ pair it prints may be two tickets stamping one file. And its proposed set drops
 the lower-ranked of every pair, which is right only where the shared file really
 is a substrate. Nothing is refused on it.
 
+**An issue whose `frontier` row carries `unclosedLaunch` never merges** (#4351).
+
 **Merging: several issues, one line, one session.** A candidate merges onto an
 existing dispatch-set member's line when three tests pass together — **same
 file, disjoint edit targets** (the section, `mantahostels#411` versus `§B17`, not just the
@@ -867,9 +869,10 @@ mantahostels#1153). One call, every session in it:
 scripts/dispatch-sessions.sh <model> "/<skill> <issues>" [<model> "<prompt>" ...]
 ```
 
-One `<model> <prompt>` pair per §6 line, same order. The prompt is the launch
-command as it would be typed into the agents view — `"/implement 341 353 366"`
-for the bundle above.
+One `<model> <prompt>` pair per §6 line, same order. **A lone issue's prompt is
+its `prompt` in `summary.proposed` (or its `frontier` row), copied as printed —
+never composed**, the refill loop's own (#4351). A bundle's prompt is the launch command as
+typed into the agents view — `"/implement 341 353 366"` for the bundle above.
 
 **A two-wave dispatch calls this twice** (§4, §6) — once for wave 1 while the
 band read runs, once for the closing wave. Each call carries only its own wave's
