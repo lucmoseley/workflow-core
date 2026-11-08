@@ -137,14 +137,16 @@ never skip them.
    ```bash
    for _ in $(seq 10); do
      if [ -z "$(git status --porcelain docs/reference-roadmap.html)" ]; then
-       node scripts/session-arbiter.js claim docs/reference-roadmap.html && exit 0
+       out="$(node scripts/session-arbiter.js claim docs/reference-roadmap.html 2>&1)" &&
+         [[ $out != *"is also held by session"* ]] && exit 0
      fi
      sleep 30
    done
    exit 1
    ```
-   It takes the claim in the same run it sees the file clean, so a neighbour
-   cannot take it in the gap between the read and your first edit. **Exit 0 →
+   It takes the claim in the same run it sees the file clean, and retries while
+   a live neighbour holds it, which the arbiter warns of rather than refuses
+   (#4249). **Exit 0 →
    proceed to the `git show` above. Non-zero (all 10 attempts exhausted) →
    abandon the edit**, and report it naming the card and the edit, so the
    collision is countable rather than vanishing. Then carry on with the rest of

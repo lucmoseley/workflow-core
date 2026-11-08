@@ -55,7 +55,7 @@ const SCAN_MINT_MAX = 20;
  * listing through `core.isWatched` afterwards; these prefixes only keep the
  * question cheap.
  */
-const WATCHED_PATHSPECS = [...core.REFUSING, ...core.DETECT_ONLY];
+const WATCHED_PATHSPECS = [...core.WARNED, ...core.DETECT_ONLY];
 
 /**
  * How far before the previous scan's start a file's ctime must lie for that

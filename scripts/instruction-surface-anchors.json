@@ -82,7 +82,7 @@
 		"SessionStart scripts/check-orphan-wait-loops.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphan-wait-loops.js --notify || true",
 		"SessionStart scripts/reap-orphan-hooks.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-orphan-hooks.js --notify || true",
 		"SessionStart scripts/check-kernel-stall.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-kernel-stall.js --notify || true",
-		"SessionStart scripts/check-orphaned-edits.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify --write || true",
+		"SessionStart scripts/check-orphaned-edits.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify --write --hourly || true",
 		"SessionStart scripts/audit-escape-lines.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/audit-escape-lines.js --notify || true",
 		"SessionStart scripts/check-seat-utilisation.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-seat-utilisation.js --notify || true",
 		"SessionStart scripts/reap-finished-sessions.js": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-finished-sessions.js --notify || true",

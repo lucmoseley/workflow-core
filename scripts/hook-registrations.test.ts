@@ -441,10 +441,11 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
-		/* Silent; files each orphaned edit's triage issue once per path and blob
-		 * (#813), the report read on `npm run status` (#2038). */
+		/* Silent and async; files each orphaned edit's triage issue once per path
+		 * and blob (#813), walking at most hourly (#4367), the report read on
+		 * `npm run status` (#2038). */
 		event: "SessionStart",
-		id: "scripts/check-orphaned-edits.js --notify --write",
+		id: "scripts/check-orphaned-edits.js --notify --write --hourly",
 		matcher: null,
 		covers: [],
 	},

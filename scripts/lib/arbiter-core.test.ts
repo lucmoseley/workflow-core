@@ -68,16 +68,16 @@ describe("scope — the prefix rule, not a hand-listed hot set", () => {
 	];
 
 	it("refuses on the coordination layer", () => {
-		for (const p of refused) expect(store.isGuarded(p)).toBe(true);
+		for (const p of refused) expect(store.isWarned(p)).toBe(true);
 	});
 
 	it("never refuses on the detect-only tier", () => {
-		for (const p of detected) expect(store.isGuarded(p)).toBe(false);
+		for (const p of detected) expect(store.isWarned(p)).toBe(false);
 	});
 
 	it("leaves everything outside both tiers to git", () => {
 		for (const p of uncovered) {
-			expect(store.isGuarded(p)).toBe(false);
+			expect(store.isWarned(p)).toBe(false);
 			expect(store.isWatched(p)).toBe(false);
 		}
 	});
@@ -96,7 +96,7 @@ describe("scope — the prefix rule, not a hand-listed hot set", () => {
 			".claude/tmp/review-standards.md",
 			".claude/tmp/i1965/close.md",
 		]) {
-			expect(store.isGuarded(p)).toBe(false);
+			expect(store.isWarned(p)).toBe(false);
 			expect(store.isWatched(p)).toBe(false);
 		}
 	});
@@ -118,7 +118,7 @@ describe("scope — the prefix rule, not a hand-listed hot set", () => {
 	 * that name and nothing beneath it. This pins the boundary from the other
 	 * side: the neighbour whose name merely starts with the prefix. */
 	it("exempts the directory, not the name it starts with", () => {
-		expect(store.isGuarded(".claude/tmpfile.md")).toBe(true);
+		expect(store.isWarned(".claude/tmpfile.md")).toBe(true);
 		expect(store.isWatched(".claude/tmpfile.md")).toBe(true);
 	});
 

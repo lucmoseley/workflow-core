@@ -31,7 +31,8 @@
  *
  * A NEEDLE IS THE GUARD'S OWN WORDS, never its filename. An array of strings is
  * an AND: every one must appear, used where a single clause is shared (the claim
- * guard's deny and session-arbiter's CLI refusal both say "is held by session").
+ * guard's warning and session-arbiter's CLI notice both say "is also held by
+ * session").
  *
  * SUBAGENT TRANSCRIPTS ARE RETAINED ON THIS MACHINE FROM 31 JULY 2026 ON, so
  * an earlier window holds none (mantahostels#1725, mantahostels#1779). A

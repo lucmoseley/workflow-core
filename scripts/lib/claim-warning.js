@@ -13,7 +13,7 @@
  * neither refused nor announced. mantahostels#287 declined a Bash-route DENY
  * on price — the parser is outrunnable (mantahostels#201).
  *
- * TIER 1 ONLY FOR THE WARNING, which is `isGuarded` — `docs/`, `.claude/`,
+ * TIER 1 ONLY FOR THE WARNING, which is `isWarned` — `docs/`, `.claude/`,
  * `CLAUDE.md`, `AGENTS.md`. The `scripts/` tier is detect-only by
  * mantahostels#287's own ruling and a prompt there buys the least; adding it
  * is a separate call (mantahostels#1772).
@@ -164,7 +164,7 @@ const WARN_TAIL =
  * @typedef {{
  *   listLocks: () => Lock[] | null,
  *   claimKey: (p: string) => string | null,
- *   isGuarded: (rel: string) => boolean,
+ *   isWarned: (rel: string) => boolean,
  *   subjectsOverlap: (a: string, b: string) => boolean,
  *   now: () => number,
  * }} ClaimPorts the claim store's reads and the clock
@@ -203,7 +203,7 @@ function readLedger(text) {
 /**
  * Every target resolved to a repo-relative tier-1 path, de-duplicated. A path
  * outside the repo, or inside it but outside the refusing tier, is dropped
- * here: `isGuarded` is the authority on which tier a path sits in, and the
+ * here: `isWarned` is the authority on which tier a path sits in, and the
  * core's own prefix test only saves the store a read.
  * @param {string[]} targets
  * @param {ClaimPorts} ports
@@ -213,7 +213,7 @@ function resolveTargets(targets, ports) {
 	const out = [];
 	for (const raw of targets) {
 		const rel = ports.claimKey(raw);
-		if (rel !== null && ports.isGuarded(rel) && !out.includes(rel))
+		if (rel !== null && ports.isWarned(rel) && !out.includes(rel))
 			out.push(rel);
 	}
 	return out;

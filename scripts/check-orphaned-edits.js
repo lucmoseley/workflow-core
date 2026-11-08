@@ -5,7 +5,7 @@
  * in its write ledger, unchanged for at least 24 hours — and file each one
  * once as a `takes:triage` issue.
  *
- * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json] [--write]
+ * Usage:  npm run check:orphaned-edits  [--hours <n>] [--notify] [--json] [--write] [--hourly]
  *
  * WHY (#810, the spec; #794 Q2, Q5–Q7, the rulings). An uncommitted edit in the
  * main checkout enters every suite run that reads it rather than a
@@ -14,6 +14,10 @@
  *
  * TWO RUNS (#813, #2038, #4449): at SessionStart, under `--write`, it files
  * and prints nothing, and `npm run status` runs it by hand for the report.
+ * The SessionStart run is async and passes `--hourly` (#4367): it runs at
+ * most once a clock hour across the repository's worktrees, because the walk
+ * costs 9–14 s and grows with the worktree count. The throttle delays a
+ * filing by an hour at most. A run without `--hourly` always runs.
  *
  * LIVE MEANS LISTED BY THE ORACLE AND NOT TERMINAL (`isListedLive`): a finished
  * background session never commits its edit, so its ledger holds nothing back.
@@ -74,16 +78,16 @@
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at every session start (its hook passes --write), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
+ * IMPLICIT:  at session start, at most once a clock hour across the repository's worktrees (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
- * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
+ * DEFEAT:    none at the hook beyond its hourly throttle; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
  * TREE:      host — walks the main checkout, as git's common dir names it from whichever tree launched the run (#4483), and every linked worktree (#4244)
  */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { brokenError, runCheck } = require("./lib/check");
+const { brokenError, now: clock, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
 const { mapLimit } = require("./lib/gh.js");
@@ -144,6 +148,11 @@ const EXIT_MARGIN_MS = 2000;
 const hasFilingTime = () =>
 	hookTimeoutMs() - EXIT_MARGIN_MS - process.uptime() * 1000 >=
 	FILER_TIMEOUT_MS;
+
+/* Where `--hourly` runs claim their clock hour, in the git common dir, and
+ * the hour, an untraced value (#4367). */
+const WALK_DIR = "orphaned-edits-walked";
+const WALK_EVERY_MS = 3_600_000;
 
 /* Hex digits of a blob id a title or table shows: enough to tell a reader's
  * issues apart; the marker, not the title, prevents a refile. */
@@ -208,6 +217,33 @@ function filedDir(root) {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Whether an `--hourly` run runs: the first to create this clock hour's
+ * marker, exclusively, so starts landing together cannot all run, and every
+ * run where git names no common dir or the marker will not be made (#4367).
+ * RESIDUAL: the hour is claimed before the walk, so a run killed or broken
+ * mid-walk holds the rest of the hour back, unseen behind the async hook;
+ * and the clock is WFC_NOW's, so an exported WFC_NOW pins the hour.
+ * @param {string} root
+ * @param {number} at
+ * @returns {boolean}
+ */
+function claimWalkHour(root, at) {
+	const common = gitCommonDir(root, { timeout: GIT_TIMEOUT_MS });
+	if (!common) return true;
+	const dir = path.join(common, WALK_DIR);
+	const hour = String(Math.floor(at / WALK_EVERY_MS));
+	try {
+		fs.mkdirSync(dir, { recursive: true });
+		fs.closeSync(fs.openSync(path.join(dir, hour), "wx"));
+	} catch (e) {
+		return caught(e).code !== "EEXIST";
+	}
+	for (const old of fs.readdirSync(dir))
+		if (old !== hour) fs.rmSync(path.join(dir, old), { force: true });
+	return true;
 }
 
 /** @param {{path: string, worktree: string|null}} o */
@@ -1028,13 +1064,19 @@ async function run(ctx) {
 	const hours = ctx.numberValue("--hours", ORPHAN_AFTER_HOURS, "non-negative");
 
 	const root = adoptMainCheckout();
+	const now = clock();
+	if (ctx.has("--hourly") && !claimWalkHour(root, now))
+		return {
+			okLine: "not run: an --hourly run already ran this clock hour.",
+			noun: "orphaned edit(s)",
+			data: { walked: false },
+		};
 	const dirty = readDirtyTracked(root);
 	// git is the apparatus here, not the subject: BROKEN (§N4).
 	if (dirty === null)
 		throw brokenError(
 			"git status would not answer, so what is uncommitted is unknown.",
 		);
-	const now = Date.now();
 
 	const cutOver = landingCutOver(
 		(m) => moduleOn(m, { root }),
@@ -1075,6 +1117,7 @@ async function run(ctx) {
 		okLine: `no orphaned edit ${threshold} among ${String(total)} uncommitted file(s) across the main checkout and its worktrees.${describeUnread({ linked, unread })}`,
 		noun: "orphaned edit(s)",
 		data: {
+			walked: true,
 			orphans,
 			orphanCount: orphans.length,
 			young,
@@ -1091,9 +1134,9 @@ const main = () =>
 	runCheck({
 		name: "orphaned-edits",
 		usage:
-			"node check-orphaned-edits.js [--hours <n>] [--notify] [--json] [--write]",
+			"node check-orphaned-edits.js [--hours <n>] [--notify] [--json] [--write] [--hourly]",
 		valueFlags: ["--hours"],
-		flags: ["--write"],
+		flags: ["--write", "--hourly"],
 		run,
 	});
 

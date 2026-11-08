@@ -67,9 +67,9 @@
  *
  * Claims `docs/doc-map-classes.json#A:<path>` BEFORE reading the sidecar, and
  * re-reads it fresh once the claim is held — never writes from a read taken
- * before the claim. Fails CLOSED on a held claim: the sidecar's content is
- * authored, so a write racing another session's claim on the SAME key is
- * refused rather than silently overwritten.
+ * before the claim. A live neighbour holding the SAME key is warned of, as a
+ * write is (#4249), and the arbiter's warning passed on: each session writes
+ * its own worktree's sidecar, so the clash is at the merge.
  *
  * NAMED RESIDUAL (mantahostels#1848): the claim is per-key but the write rewrites the
  * whole file, so two sessions registering two DIFFERENT keys can still each
@@ -596,7 +596,8 @@ function main(argv) {
 
 /**
  * Claims `docs/doc-map-classes.json#A:<path>` and reads the sidecar under it,
- * per the header's claim rule. Returns an exit code on failure.
+ * per the header's claim rule. Returns an exit code where the sidecar will not
+ * read.
  * @param {string} docPath
  * @param {(name: string) => string | null} value
  * @param {(name: string) => boolean} flag
@@ -607,12 +608,8 @@ function claimAndRead(docPath, value, flag) {
 	let heldSubject = null;
 	if (!flag("--no-claim")) {
 		const subject = `${SIDECAR_PATH}#${ROW_PREFIX}${docPath}`;
-		const claimed = claimDataFile(subject, {
-			claimCmd: value("--claim-cmd"),
-			failClosed: true,
-		});
-		if (!claimed.ok) return 1;
-		heldSubject = subject;
+		if (claimDataFile(subject, { claimCmd: value("--claim-cmd") }).claimed)
+			heldSubject = subject;
 	}
 
 	/** @param {number} code */
