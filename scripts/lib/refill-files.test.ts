@@ -274,14 +274,11 @@ describe("the loop's log (#4186)", () => {
 	it("appends each line stamped, making a missing directory", () => {
 		const dir = path.join(tmp, "not-yet");
 		vi.stubEnv("WFC_REFILL_DIR", dir);
-		const first = appendLoopLog("one");
+		appendLoopLog("one");
 		appendLoopLog("two");
-		expect(first).toMatch(/^\d{4}-\d\d-\d\dT\S+Z one\n$/);
 		const text = fs.readFileSync(path.join(dir, ".refill-loop.log"), "utf8");
-		expect(text.split("\n").map((l) => l.replace(/^\S+ /, ""))).toEqual([
-			"one",
-			"two",
-			"",
-		]);
+		expect(text).toMatch(
+			/^\d{4}-\d\d-\d\dT\S+Z one\n\d{4}-\d\d-\d\dT\S+Z two\n$/,
+		);
 	});
 });

@@ -214,12 +214,18 @@ const panelOver = (
 		returnFocus = focusMoved,
 		height = TALL,
 		columns = WIDE,
-	}: { returnFocus?: unknown; height?: number; columns?: number } = {},
+		at = AT,
+	}: {
+		returnFocus?: unknown;
+		height?: number;
+		columns?: number;
+		at?: number;
+	} = {},
 ) =>
 	createPanel({
 		run,
 		runBurn,
-		now: () => AT,
+		now: () => at,
 		resolveTopic,
 		returnFocus,
 		height: () => height,
@@ -228,16 +234,7 @@ const panelOver = (
 	});
 /* The rows a panel showing `shown` draws at `at`, `columns` wide, read through its own buildViewRows. */
 function rowsAt(shown: object, at: number, columns: number) {
-	const panel = createPanel({
-		run: noop,
-		runBurn: noop,
-		now: () => at,
-		resolveTopic: noop,
-		returnFocus: focusMoved,
-		height: () => TALL,
-		columns: () => columns,
-		onChange: noop,
-	});
+	const panel = panelOver(noop, noop, noop, { columns, at });
 	Object.assign(panel.view, shown);
 	return panel.buildViewRows();
 }

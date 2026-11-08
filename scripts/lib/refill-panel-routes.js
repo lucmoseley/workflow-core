@@ -17,7 +17,9 @@ const USUAL_VIEW_COLUMNS = 156;
 const MOST_SHARE = 0.5;
 const WINDOWS_TERMINAL = "windows-terminal";
 const TMUX = "tmux";
-/* The tmux binary: WFC_TMUX, else `tmux` on the child's PATH (§N7). Read from the env the child runs under. */
+/* The tmux binary: WFC_TMUX, else `tmux` on the child's PATH (§N7). Read from the env the child runs under.
+ * cmd.exe and wt.exe take no var: no test stubs them, the routes skip either where absent, and Windows
+ * resolves wt.exe inside `cmd.exe /c`, where a Linux path could not name it (#4186). */
 /** @param {Record<string, string | undefined>} env */
 const tmuxBin = (env) => env.WFC_TMUX || "tmux";
 const WT_IN_THIS_WINDOW = ["/c", "wt.exe", "-w", "0"];

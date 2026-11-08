@@ -72,7 +72,7 @@ home_real="$(realpath -- "$HOME")" || home_real="$HOME"
 # so an unreadable HOME would otherwise read as no plans and `on` would write
 # an empty record, exiting 0.
 node "$lib" plans >/dev/null || exit 2
-settings_files() { node "$lib" plans 2>/dev/null; }
+settings_files() { node "$lib" plans --quiet; }
 # rel <file> — the file as the founder names it, `.claude/settings.json`. A
 # file resolving outside HOME keeps its absolute path.
 rel() { printf '%s' "${1#"$home_real"/}"; }

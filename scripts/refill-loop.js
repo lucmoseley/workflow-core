@@ -138,6 +138,7 @@ const { systemctl } = require("./lib/systemd-bins.js");
 const {
 	appendLoopLog,
 	readControlChecked,
+	buildLoopLogLine,
 	readControlFile,
 	withControlLock,
 	writeControlFile,
@@ -466,7 +467,10 @@ const bootPorts = (write) => ({
  * stdout is the journal, so its lines also go to the loop's log.
  */
 function bootResume() {
-	const note = (/** @type {string} */ line) => writeFd(1, appendLoopLog(line));
+	const note = (/** @type {string} */ line) => {
+		writeFd(1, buildLoopLogLine(line));
+		appendLoopLog(line);
+	};
 	return runBootResume({
 		...bootPorts(note),
 		note,

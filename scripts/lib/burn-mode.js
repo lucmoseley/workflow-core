@@ -8,12 +8,13 @@
  * `docs/effort-guide.md` §Burn mode). The code reviewer is left alone: its
  * dispatch names `opus` and its agent definition's `effort:` outranks the
  * per-model effort this writes (#363).
- * Four surfaces read this file so the mapping and the plans are written once:
+ * These read this file so the mapping and the plans are written once:
  *
  *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's `model` field
  *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`
  *   scripts/burn-mode.sh               writes Opus 5.5's effort into the plans'
  *                                      settings files, listed by `plans` below
+ *   scripts/lib/dispatch-gates.js      reads the marker's path
  *   scripts/refill-loop.js status      readBurnState, for the refill panel
  *
  * The state is one marker file per MACHINE, beside the settings files it is
@@ -146,7 +147,8 @@ function remapModel(input) {
 
 /**
  * The plans' settings files, one entry per real file (#187), as the founder
- * names them, and the settings.json symlinks that resolve to nothing, skipped.
+ * names them, and those present that resolve to nothing, skipped: a dangling
+ * or looping symlink, or one that will not read.
  * @param {string} home
  * @returns {{files: Map<string, string>, dangling: string[]}} `files`, real path to name
  */
@@ -161,18 +163,18 @@ function readPlanFiles(home) {
 		try {
 			const real = fs.realpathSync(file);
 			files.set(real, path.relative(homeReal, real));
-		} catch (err) {
-			if (caught(err).code !== "ENOENT") throw err;
-			if (isSymlink(file)) dangling.push(file);
+		} catch {
+			if (isPresent(file)) dangling.push(file);
 		}
 	}
 	return { files, dangling };
 }
 
 /** @param {string} file */
-function isSymlink(file) {
+function isPresent(file) {
 	try {
-		return fs.lstatSync(file).isSymbolicLink();
+		fs.lstatSync(file);
+		return true;
 	} catch {
 		return false;
 	}
@@ -230,9 +232,9 @@ module.exports = {
  *
  *   launch <model>    prints the launch spelling burn mode substitutes
  *   marker            prints the marker's path; 2 where HOME is unset
- *   plans             prints each plan's settings file, real and NUL-ended,
- *                     warning of each that resolves to nothing; 2 where HOME
- *                     will not list
+ *   plans [--quiet]   prints each plan's settings file, real and NUL-ended,
+ *                     warning of each that resolves to nothing unless quiet;
+ *                     2 where HOME will not list
  *
  * stdout is always a pipe here, so it is written synchronously before the
  * exit — process.stdout.write can be cut off by process.exit on a pipe.
@@ -255,11 +257,14 @@ if (require.main === module) {
 			try {
 				listed = readPlanFiles(home);
 			} catch (err) {
-				writeFd(2, `burn-mode: ${caught(err).message}\n`);
+				writeFd(
+					2,
+					`burn-mode: cannot list the plans under ${home}: ${caught(err).message}\n`,
+				);
 				process.exit(2);
 			}
 			const { files, dangling } = listed;
-			for (const file of dangling)
+			for (const file of arg === "--quiet" ? [] : dangling)
 				writeFd(
 					2,
 					`warning: skipping ${path.relative(home, file)} — it resolves to nothing\n`,
