@@ -25,7 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decide, type PollContext } from "./agent-poll.js";
+import { decide, NOOP, type PollContext } from "./agent-poll.js";
 import { buildHostPorts } from "./agent-poll-host.js";
 import { freshSandbox } from "./arbiter-testkit";
 import type { CoreDecision } from "./core-contract.js";
@@ -300,6 +300,9 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		"  true  ",
 		"true;",
 		"true # end turn",
+		"true;\n# a\n",
+		"true\n# a\n# b",
+		"true # a\n\n  # b\n",
 	])("reads %j as inert", (spelling) => {
 		expectSilentAllow(bash(spelling));
 		expectDeny(bash(spelling));
@@ -316,6 +319,25 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		expectNotCounted(bash(command));
 		expectNotCounted(bash(command));
 		expectNotCounted(bash(command));
+	});
+
+	it.each(["true;\n# a\nb", "true # a\rb\nc", "true\n# a\n# b\nc"])(
+		"ends a comment at the newline, so %j runs its last line (#4037)",
+		(command) => {
+			expectNotCounted(bash(command));
+			expectNotCounted(bash(command));
+		},
+	);
+
+	it.each([
+		["a whitespace run", `true${" ".repeat(40_000)}x`],
+		["a run after `;`", `true;${" ".repeat(40_000)}x`],
+		["blank lines", `true${"\n".repeat(40_000)}x`],
+		["comment lines", `true${"\n# a".repeat(40_000)}\nx`],
+	])("reads %s ending in real work in linear time (#4037)", (_, command) => {
+		const start = performance.now();
+		expect(NOOP.test(command)).toBe(false);
+		expect(performance.now() - start).toBeLessThan(200);
 	});
 });
 

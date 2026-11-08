@@ -28,8 +28,10 @@ import { freshSandbox } from "./arbiter-testkit";
 import { decide } from "./dispatch-rewrite.js";
 import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { runInProcessAsync } from "./run-in-process.js";
 
 const FILE = "/repo/.claude/tmp/agents/d-0badf00d.md";
+const WATCHER = path.join(__dirname, "..", "watch-artefact.js");
 
 /**
  * One parent dispatch through `decide`: the fresh artefact path is FILE, burn
@@ -37,7 +39,10 @@ const FILE = "/repo/.claude/tmp/agents/d-0badf00d.md";
  * recorded in `made` — the artefact's, where one was supplied — and every
  * line it logs in `logged`.
  */
-function rewrite(input: unknown, { file = FILE, burn = false } = {}) {
+function rewrite(
+	input: unknown,
+	{ file = FILE, burn = false, home = "/home/u" } = {},
+) {
 	const made: string[] = [];
 	const logged: string[] = [];
 	const out = decide(
@@ -45,7 +50,7 @@ function rewrite(input: unknown, { file = FILE, burn = false } = {}) {
 		kitContextFake({
 			/* Unchecked: a case may hand the core a malformed input. */
 			input: input as Record<string, unknown>,
-			env: { WFC_BURN_MARKER: "/burn-marker" },
+			env: { WFC_BURN_MARKER: "/burn-marker", HOME: home },
 			artefactFile: () => file,
 			makeDir: (at: string) => made.push(at) > 0,
 			isFile: () => burn,
@@ -104,6 +109,36 @@ describe("the composed rewrite", () => {
 		expect(out).not.toHaveProperty("updatedInput");
 		expect(out?.prelude).toContain("This dispatch names its artefact: a/b.md.");
 		expect(out?.prelude).toContain("watch-artefact.js a/b.md 120");
+	});
+
+	it("watches a prompt's `~/` artefact at its absolute path, which the watcher finds (#4034)", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-home-"));
+		try {
+			const file = path.join(home, "x", "a.md");
+			fs.mkdirSync(path.dirname(file));
+			fs.writeFileSync(file, "found");
+			const out = rewrite({ prompt: "Artefact: ~/x/a.md" }, { home });
+			expect(out?.prelude).toContain(`names its artefact: ${file}.`);
+			const watched = /watch-artefact\.js'? '?([^' ]+)'? 120/.exec(
+				out?.prelude ?? "",
+			)?.[1];
+			expect(watched).toBe(file);
+			const r = await runInProcessAsync(WATCHER, [
+				String(watched),
+				"0.1",
+				"--first-write",
+				"0.1",
+			]);
+			expect(r.stdout).toMatch(/^STALLED /);
+			expect(r.status).toBe(3);
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves a `~/` artefact as written where HOME is relative", () => {
+		const out = rewrite({ prompt: "Artefact: ~/x/a.md" }, { home: "rel" });
+		expect(out?.prelude).toContain("names its artefact: ~/x/a.md.");
 	});
 
 	it("tells an agent with no artefact to watch to end the turn", () => {

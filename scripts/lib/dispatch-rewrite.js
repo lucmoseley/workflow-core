@@ -22,8 +22,9 @@
  *     source on disk rather than read it whole (#1789). The path is absolute:
  *     <project root>/.claude/tmp/agents/<description slug>-<8 hex>.md;
  *   * the session is told the path and the watcher command to watch it with,
- *     the prompt's own artefact path where it names one; a dispatch with no
- *     artefact to watch is told to end the turn;
+ *     the prompt's own artefact path where it names one, a leading `~/` read
+ *     against HOME; a dispatch with no artefact to watch is told to end the
+ *     turn;
  *   * a named model the effort guide routes away from (lib/dispatch-rules.js)
  *     gets rule:dispatch-tier, and a "search the repo" prompt naming no tracker
  *     rule:dispatch-search-tracker, each fragment once a session;
@@ -107,13 +108,14 @@ const END_TURN =
  * Every change to one `Agent` call, and what the session is told of it.
  *
  * @param {unknown} input the tool_input object
- * @param {{file: string, burn: boolean}} opts the artefact path to supply
- *   where one is needed, and whether burn mode is on
+ * @param {{file: string, burn: boolean, home?: string}} opts the artefact
+ *   path to supply where one is needed, whether burn mode is on, and the home
+ *   directory a prompt's `~/` artefact names
  * @returns {null | {artefact: string | null, rules: string[], context: string, updatedInput?: Record<string, unknown>}}
  *   the artefact supplied, if any; the ids of the rules it tripped (#2013);
  *   the notes, joined; and the call as rewritten, where it changed
  */
-function rewrite(input, { file, burn }) {
+function rewrite(input, { file, burn, home }) {
 	if (input === null || typeof input !== "object") return null;
 	const asked = /** @type {Record<string, unknown>} */ (input);
 	let call = asked;
@@ -129,7 +131,7 @@ function rewrite(input, { file, burn }) {
 		notes.push(artefacted.note);
 		artefact = file;
 	} else {
-		notes.push(buildWatchNote(call, watchCommand) ?? END_TURN);
+		notes.push(buildWatchNote(call, watchCommand, home) ?? END_TURN);
 	}
 	// Loaded only while burn mode is on, so a broken table costs the remap and
 	// never the artefact line.
@@ -196,6 +198,7 @@ function decide(_prompt, ctx) {
 		out = rewrite(ctx.input, {
 			file: ctx.artefactFile(ctx.input.description),
 			burn: burnOn(ctx),
+			home: ctx.env.HOME,
 		});
 	} catch (e) {
 		ctx.log(
