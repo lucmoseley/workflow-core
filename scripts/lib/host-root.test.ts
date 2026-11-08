@@ -160,12 +160,12 @@ describe("the host seam", () => {
 	});
 
 	describe("adoptHostRoot, one main checkout for the run and its children (#4486)", () => {
-		/** `a.md` through what adoptHostRoot answers and what it leaves in
-		 * CLAUDE_PROJECT_DIR, each read in the same child. */
+		/** `a.md` through what adoptHostRoot answers, where that is also what
+		 * it leaves in CLAUDE_PROJECT_DIR and is free of symlinks. */
 		const readAdopted = (cwd: string, projectDir: string | undefined) => {
 			const seam = `require(${JSON.stringify(SEAM)})`;
 			return readThrough(
-				`(${seam}.adoptHostRoot() === process.env.CLAUDE_PROJECT_DIR ? process.env.CLAUDE_PROJECT_DIR : "/no-agreement")`,
+				`((r) => r === process.env.CLAUDE_PROJECT_DIR && r === require("fs").realpathSync(r) ? r : "/no-agreement")(${seam}.adoptHostRoot())`,
 				cwd,
 				projectDir,
 			);
@@ -179,19 +179,26 @@ describe("the host seam", () => {
 		it("adopts the dereferenced main checkout through a symlink to it", () => {
 			const link = path.join(dir, "linked-shared");
 			fs.symlinkSync(at.shared, link);
-			const r = spawnSync(
-				process.execPath,
-				[
-					"-e",
-					`process.stdout.write(require(${JSON.stringify(SEAM)}).adoptHostRoot() + "|" + process.env.CLAUDE_PROJECT_DIR)`,
-				],
-				{
-					cwd: at.wt,
-					encoding: "utf8",
-					env: { ...process.env, CLAUDE_PROJECT_DIR: link },
-				},
-			);
-			expect(r.stdout).toBe(`${at.shared}|${at.shared}`);
+			expect(readAdopted(at.wt, link)).toBe("a\n");
+			expect(readAdopted(link, undefined)).toBe("a\n");
+		});
+
+		it("adopts no guess where git names no checkout", () => {
+			const outside = mkDirOutsideRepo("adopt-host-");
+			try {
+				const { CLAUDE_PROJECT_DIR: _, ...env } = process.env;
+				const r = spawnSync(
+					process.execPath,
+					[
+						"-e",
+						`require(${JSON.stringify(SEAM)}).adoptHostRoot(); process.stdout.write(String(process.env.CLAUDE_PROJECT_DIR))`,
+					],
+					{ cwd: outside, encoding: "utf8", env },
+				);
+				expect(r.stdout).toBe("undefined");
+			} finally {
+				fs.rmSync(outside, { recursive: true, force: true });
+			}
 		});
 	});
 

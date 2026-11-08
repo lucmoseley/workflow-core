@@ -17,6 +17,9 @@
  * root.
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
+ * `adoptHostRoot()` is the seam's one writer of `CLAUDE_PROJECT_DIR`: it
+ * points the variable at `hostRoot()` for the rest of the process and its
+ * children.
  *
  * TWO TREES A HOOK CAN MEAN (#4229). The host root is the main checkout, where
  * the shared stores live: claims, markers, ledgers. `sessionTree()` is the
@@ -152,12 +155,15 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
  * pointed at it, so every child the run launches, a shell or Python half or a
  * raw reader of the variable among them, answers the same main checkout. For a
  * run launched in a linked worktree that reads the main checkout's stores
- * (#1555, #4483, #4486).
+ * (#1555, #4483, #4486). The working-directory limb's fail-open guess is
+ * never adopted: the declared limb would keep it unasked for the rest of the
+ * run, and only a git read that succeeded is memoised.
  * @returns {string}
  */
 function adoptHostRoot() {
 	const root = hostRoot();
-	process.env.CLAUDE_PROJECT_DIR = root;
+	if (process.env.CLAUDE_PROJECT_DIR || memo.key === process.cwd())
+		process.env.CLAUDE_PROJECT_DIR = root;
 	return root;
 }
 
