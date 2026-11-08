@@ -125,7 +125,7 @@ def test_growth_is_the_least_squares_slope_per_day():
     assert ds.growth_per_day({"2026-08-20": 100}) == 0.0
 
 
-def test_git_runs_through_wfc_git(monkeypatch, stub_bin):
+def test_git_output_comes_from_the_git_at_wfc_git(monkeypatch, stub_bin):
     git, calls = stub_bin("git", "out\n")
     monkeypatch.setenv("WFC_GIT", git)
     assert ds.git("status") == "out\n"
