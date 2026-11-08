@@ -43,8 +43,7 @@ const MORE_ABOVE_MARK = "↑ more";
 const MORE_BELOW_MARK = "↓ more";
 
 /* Untraced, a first guess: fast enough that a change elsewhere shows while the
- * founder looks, and each poll is one short Node process. A read older than one
- * poll shows its age. */
+ * founder looks, and each poll is one short Node process. */
 const POLL_MS = 3000;
 
 /* How long a press's note holds its row before that row's own words return. Untraced:
