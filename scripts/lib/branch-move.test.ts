@@ -427,7 +427,7 @@ describe("a refusal whose rule it cannot read still refuses (mantahostels#1648)"
 		const d = decide(command, h.ctx) as { deny: string };
 		expect(d.deny).toContain(framing);
 		expect(d.deny).toContain(
-			"The shared working tree stays on `main`; the rule could not be read from docs/agents/rules/branch-shared-tree.txt. Read that file before doing anything else.",
+			"The shared working tree stays on `main`; the rule could not be read from docs/agents/rules/branch-shared-tree.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		);
 		expect(h.logs).toEqual([]);
 	});

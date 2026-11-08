@@ -351,7 +351,7 @@ const verdict = (command: string, mb: number, suites = 0, watchers = 0) => {
 	return outcome(v);
 };
 
-describe("warns under the ~2900 MB resting floor (a whole suite's rung, #2772)", () => {
+describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)", () => {
 	it("warns a `npm run test` under the floor", () => {
 		expect(verdict("npm run test", 1000)).toBe("warn");
 	});
@@ -377,8 +377,8 @@ describe("warns under the ~2900 MB resting floor (a whole suite's rung, #2772)",
 	/* The floor's derivation is on `suiteRungMb` in lib/suite-ladder.js
 	 * (#1603). */
 	it("warns at one MB under the floor and allows at the floor", () => {
-		expect(verdict("npm run test", 2899)).toBe("warn");
-		expect(verdict("npm run test", 2900)).toBe("allow");
+		expect(verdict("npm run test", 3349)).toBe("warn");
+		expect(verdict("npm run test", 3350)).toBe("allow");
 	});
 });
 
@@ -387,7 +387,7 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		const reason = readDenyReason("npm run test", 1000);
 		expect(reason.split("\n")[0]).toBe("Run instead: npm run test -- --queue");
 		expect(reason).toMatch(
-			/MemAvailable is 1000 MB, under the ~2900 MB docs\/environment\.md §6 says a test run needs resting/,
+			/MemAvailable is 1000 MB, under the ~3350 MB docs\/environment\.md §6 says a test run needs resting/,
 		);
 		expect(reason).toMatch(/`--queue` waits for this gate to open/);
 		expect(reason).toMatch(/`pretest` reaps finished sessions before the wait/);
@@ -399,7 +399,7 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		expect(gated("npm run test", 1000, 0).verdict?.gate).toEqual({
 			limb: "memory",
 			mb: 1000,
-			rungMb: 2900,
+			rungMb: 3350,
 		});
 		expect(
 			gated("npm run test", ROOMY_MB, NEIGHBOURS_AT_CAP).verdict?.gate,
@@ -407,31 +407,31 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 	});
 
 	it("charges a suite only the climb its rung does not count (#3488, #4111)", () => {
-		expect(gated("npm run test", 3000, 0).verdict?.gate).toBeUndefined();
-		const { verdict: charged, text } = judge("npm run test", 3000, psWith(0), {
+		expect(gated("npm run test", 3500, 0).verdict?.gate).toBeUndefined();
+		const { verdict: charged, text } = judge("npm run test", 3500, psWith(0), {
 			climb: { "off-rung": 500, all: 900 },
 		});
 		expect(charged?.gate).toEqual({
 			limb: "memory",
-			mb: 3000,
-			rungMb: 2900,
+			mb: 3500,
+			rungMb: 3350,
 			climbMb: 500,
 		});
 		expect(text).toContain(
-			"MemAvailable is 3000 MB, less 500 MB the queues' running launches its rung does not count have yet to draw, under the ~2900 MB",
+			"MemAvailable is 3500 MB, less 500 MB the queues' running launches its rung does not count have yet to draw, under the ~3350 MB",
 		);
 	});
 
 	it("judges the rung the launch would reach", () => {
 		expect(warning("npm run test", inBand2(), 1)).toMatch(
-			/under the ~4000 MB .* as suite 2 of 3/,
+			/under the ~5200 MB .* as suite 2 of 3/,
 		);
 		expect(gatedVerdict("npm run test", inBand2(), 0)).toBe("allow");
 	});
 
 	it("refuses below the floor and allows at it", () => {
-		expect(gatedVerdict("npm run test", 2899)).toBe("deny");
-		expect(gatedVerdict("npm run test", 2900)).toBe("allow");
+		expect(gatedVerdict("npm run test", 3349)).toBe("deny");
+		expect(gatedVerdict("npm run test", 3350)).toBe("allow");
 	});
 
 	it("names the reap where the launch has no `pretest` of its own", () => {
@@ -446,7 +446,7 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 
 	it("tells a watcher to free memory first, no queue taking one", () => {
 		expect(readDenyReason("npm run test:watch", 1000).split("\n")[0]).toMatch(
-			/^Reap finished sessions .* or wait for MemAvailable to reach ~2900 MB, then re-run: npm run test:watch/,
+			/^Reap finished sessions .* or wait for MemAvailable to reach ~3350 MB, then re-run: npm run test:watch/,
 		);
 	});
 
@@ -1053,8 +1053,8 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	 * one-at-a-time warn standing only once it is met. */
 	it("warns one at a time, not on memory, at each rung its headroom meets", () => {
 		for (const [mb, suites] of [
-			[4000, 1],
-			[5750, 2],
+			[5200, 1],
+			[7850, 2],
 		]) {
 			const out = warning("npm run test", mb, suites);
 			expect(out).toMatch(/one at a time/);
@@ -1064,8 +1064,8 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 
 	it("names the rung it judged the launch on, and the figure it used", () => {
 		expect(run("npm run test", inBand2(), 1).text).toMatch(/as suite 2 of 3/);
-		expect(run("npm run test", inBand2(), 1).text).toMatch(/~4000 MB/);
-		expect(run("npm run test", inBand3(), 2).text).toMatch(/~5750 MB/);
+		expect(run("npm run test", inBand2(), 1).text).toMatch(/~5200 MB/);
+		expect(run("npm run test", inBand3(), 2).text).toMatch(/~7850 MB/);
 	});
 
 	/* A build is not on the ladder — §6 measured vitest — so it keeps the
@@ -1251,6 +1251,41 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 			/as suite 2 of 3/,
 		);
 	});
+});
+
+describe("reads npm's aliases as the launch `npm test` is (#4032)", () => {
+	/** Under the ~2900 MB whole-suite rung. */
+	const UnderFloorMb = 1000;
+	const drawn = (command: string) => ({
+		floor: gated(command, UnderFloorMb, 0).verdict?.gate,
+		cap: gatedVerdict(`${command} -- --full`, ROOMY_MB, NEIGHBOURS_AT_CAP),
+	});
+	let npmTest: ReturnType<typeof drawn>;
+	beforeEach(() => {
+		npmTest = drawn("npm test");
+	});
+
+	it("denies `npm test` on both limbs", () => {
+		expect(npmTest.floor).toMatchObject({ limb: "memory" });
+		expect(npmTest.cap).toBe("deny");
+	});
+
+	it.each([
+		"npm t",
+		"npm rum test",
+		"npm urn test",
+		"npm runScript test",
+		"npm run-s test",
+		"npm run-script test",
+	])(
+		"%s draws npm test's memory-rung and count-cap denies, its Run instead keeping the spelling",
+		(command) => {
+			expect(drawn(command)).toEqual(npmTest);
+			expect(readDenyReason(command, UnderFloorMb).split("\n")[0]).toBe(
+				`Run instead: ${command} -- --queue`,
+			);
+		},
+	);
 });
 
 describe("the count cap denies a second whole suite (#2680, #155)", () => {
@@ -1777,7 +1812,7 @@ describe("the wrapper form is in scope, so it is not a bypass (mantahostels#2015
 		expect(
 			gatedVerdict(
 				"node scripts/run-vitest.js scripts/foo.test.ts",
-				8000,
+				ROOMY_MB,
 				NEIGHBOURS_PAST_LADDER,
 			),
 		).toBe("warn");
@@ -1871,9 +1906,9 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 	});
 
 	describe.each(Object.entries(routes))("on the %s route", (_route, launch) => {
-		it("passes a one-file run at 1,500 MB and refuses it at 1,400 MB with no suite running", () => {
-			expect(gatedVerdict(launch(one), 1500, 0)).toBe("allow");
-			expect(gatedVerdict(launch(one), 1400, 0)).toBe("deny");
+		it("passes a one-file run at 1,650 MB and refuses it at 1,600 MB with no suite running", () => {
+			expect(gatedVerdict(launch(one), 1650, 0)).toBe("allow");
+			expect(gatedVerdict(launch(one), 1600, 0)).toBe("deny");
 		});
 
 		it("refuses a run at the whole-slot bound under a whole suite's rung, never at the count cap (#2935)", () => {
@@ -1885,38 +1920,38 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 
 		/* Past the ladder the rung is extrapolated, and the over-the-ladder warn
 		 * still stands on a run the rung lets through. */
-		it("passes a two-file run beside three suites at 6,450 MB and refuses it at 6,400 MB", () => {
-			expect(gatedVerdict(launch(two), 6450, NEIGHBOURS_PAST_LADDER)).toBe(
+		it("passes a two-file run beside three suites at 8,900 MB and refuses it at 8,850 MB", () => {
+			expect(gatedVerdict(launch(two), 8900, NEIGHBOURS_PAST_LADDER)).toBe(
 				"warn",
 			);
-			expect(gatedVerdict(launch(two), 6400, NEIGHBOURS_PAST_LADDER)).toBe(
+			expect(gatedVerdict(launch(two), 8850, NEIGHBOURS_PAST_LADDER)).toBe(
 				"deny",
 			);
 		});
 	});
 
 	it("names the rung it judged a part-suite on, and hands back `--queue`", () => {
-		const reason = readDenyReason(routes.npm(two), 1800 - 1, 0);
+		const reason = readDenyReason(routes.npm(two), 2150 - 1, 0);
 		expect(reason.split("\n")[0]).toBe(
 			`Run instead: npm run test -- ${two} --queue`,
 		);
 		expect(reason).toMatch(
-			/under the ~1800 MB .* for the 2 vitest worker\(s\) its named files can occupy, beside 0 running,/,
+			/under the ~2150 MB .* for the 2 vitest worker\(s\) its named files can occupy, beside 0 running,/,
 		);
 	});
 
 	/* §6's table, every cell: 794 MB + the dip + ~300 MB, rounded up to 50.
 	 * Each running suite is a whole one, WHOLE_SUITE_WORKERS wide. */
 	it.each([
-		[0, one, 1450],
-		[0, two, 1800],
-		[0, three, 2150],
-		[1, one, 3250],
-		[1, two, 3400],
-		[2, one, 4350],
-		[2, two, 4700],
-		[3, one, 6100],
-		[3, two, 6450],
+		[0, one, 1650],
+		[0, two, 2150],
+		[0, three, 2700],
+		[1, one, 3650],
+		[1, two, 4000],
+		[2, one, 5750],
+		[2, two, 6300],
+		[3, one, 8400],
+		[3, two, 8900],
 	])("with %i suites running rests `%s` on %i MB", (suites, files, rung) => {
 		expect(gatedVerdict(routes.npm(files), rung, suites)).not.toBe("deny");
 		expect(gatedVerdict(routes.npm(files), rung - 1, suites)).toBe("deny");
@@ -1983,21 +2018,21 @@ describe("a running vitest run is weighed by the workers its runner line names (
 		outcome(gatedOn(command, mb, psListing(lines)).verdict);
 	const full = "npm run test -- --full=flag";
 
-	it("passes a whole launch beside one running 1-file run at 3,250 MB and refuses it at 3,200 MB", () => {
-		expect(gatedWith(full, 3250, [oneFile])).toBe("allow");
-		expect(gatedWith(full, 3200, [oneFile])).toBe("deny");
+	it("passes a whole launch beside one running 1-file run at 3,650 MB and refuses it at 3,600 MB", () => {
+		expect(gatedWith(full, 3650, [oneFile])).toBe("allow");
+		expect(gatedWith(full, 3600, [oneFile])).toBe("deny");
 	});
 
 	it("takes no slot of the count cap for three running 1-file runs, charging their workers alone", () => {
 		const three = [oneFile, oneFile, oneFile];
-		expect(gatedWith(full, 3500, three)).toBe("allow");
-		expect(gatedWith(full, 3450, three)).toBe("deny");
+		expect(gatedWith(full, 4350, three)).toBe("allow");
+		expect(gatedWith(full, 4300, three)).toBe("deny");
 	});
 
 	it("weighs a running `-t foo a.test.ts` run at 1 worker", () => {
 		const line = [runner(" run -t foo a.test.ts")];
-		expect(gatedWith(full, 3250, line)).toBe("allow");
-		expect(gatedWith(full, 3200, line)).toBe("deny");
+		expect(gatedWith(full, 3650, line)).toBe("allow");
+		expect(gatedWith(full, 3600, line)).toBe("deny");
 	});
 
 	/* The guard's rung against admission.js's `suiteRungMb`, between rungs and
@@ -2850,6 +2885,7 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 		["npm test", "the same script without `run`"],
 		["npm t", "npm's alias for `test`"],
 		["npm run-script test", "npm's alias for `run`"],
+		["npm rum test", "another alias for `run`"],
 		["npm run test --", "a lone `--` narrows nothing"],
 	])("%s is told — %s", (command) => {
 		expect(told(command, adopter())).toBe(true);
@@ -2882,6 +2918,16 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 		adopter();
 		expect(told("npm run test", "")).toBe(false);
 	});
+
+	it.each(["npm run-script unit", "npm rum unit", "npm runScript unit"])(
+		"reads %s as a declared `npm run unit`, a script outside the suite's own (#4032)",
+		(command) => {
+			const declared = adopter({ test: "npm run unit" });
+			pkg = { unit: "vitest run" };
+			expect(told(command, declared)).toBe(true);
+			expect(told("npm run unit -- a.test.ts", declared)).toBe(false);
+		},
+	);
 
 	it("reads a declared command other than an npm script", () => {
 		const declared = adopter({ test: "node --test" });

@@ -12,6 +12,10 @@
  * its baseline, so every event lands half an interval from the nearest check. A case that fails only under heavy load is that margin
  * running out, not the verdict changing.
  *
+ * Each verdict case crosses the real clock at 0.5 s checks, a few seconds
+ * apiece, so the file runs over the 10 s budget: the checks are the subject,
+ * and a faked clock would not exercise the watcher's own sleep and stat.
+ *
  * A parent session abandons a subagent on `STALLED` or `MISSING`, as the
  * `pick-next` and `concision-pass` skills direct: loosen a case and a working
  * agent is abandoned, or a stalled one is waited on until the ceiling.
@@ -122,14 +126,45 @@ describe("verdicts", () => {
 		);
 	}, 15_000);
 
-	it("reports an artefact absent throughout as MISSING, distinct from a stall", async () => {
-		const r = await watch([artefact, "0.1"]);
+	it("reports an artefact never written as MISSING at the first-write deadline, not before", async () => {
+		const r = await watch([artefact, "0.1", "--first-write", "0.6"]);
 		expect(r.status).toBe(EXIT.MISSING);
 		expect(r.stdout).toMatch(
 			new RegExp(
-				`^MISSING ${artefact} size=absent last-growth=none — .*never written, deleted`,
+				`^MISSING ${artefact} size=absent last-growth=none — .*never written by the first-write deadline`,
 			),
 		);
+	});
+
+	it("draws no MISSING from an agent whose first write lands late but inside the deadline (#4034)", async () => {
+		// Scaled: 0.5 s checks stand for 120 s ones, so the 3.5-interval write is
+		// a first write at 7 minutes against the default's 10.
+		const r = await watch(
+			[artefact, String(INTERVAL_S), "--first-write", String(5 * INTERVAL_S)],
+			[[3.5, grow]],
+		);
+		expect(r.status).toBe(EXIT.STALLED);
+		expect(r.stdout).toMatch(new RegExp(`^STALLED ${artefact} size=10 `));
+	}, 15_000);
+
+	it("raises a first-write deadline under two intervals to two", async () => {
+		const r = await watch([artefact, "0.2", "--first-write", "0.05"]);
+		expect(r.stderr).toContain("first write by 0.4s");
+		expect(r.status).toBe(EXIT.MISSING);
+	});
+
+	it("sets a 600 s first-write deadline by default", async () => {
+		// spawn-kept: a signal — the watcher is killed once its start line prints.
+		const child = spawn(process.execPath, [SCRIPT, artefact, "120"]);
+		const line = await new Promise<string>((resolve) => {
+			let err = "";
+			child.stderr.on("data", (d) => {
+				err += d;
+				if (err.includes("\n")) resolve(err);
+			});
+		});
+		child.kill();
+		expect(line).toContain("first write by 600s");
 	});
 
 	it("watches a file that appears after one absent check as it would any other", async () => {
@@ -168,6 +203,7 @@ describe("a bad invocation", () => {
 		["no path", []],
 		["a zero interval", ["x", "0"]],
 		["a non-numeric ceiling", ["x", "1", "soon"]],
+		["a zero first-write deadline", ["x", "1", "--first-write", "0"]],
 	])("refuses %s with exit 2, printing no verdict", async (_label, args) => {
 		const r = await runInProcessAsync(SCRIPT, args);
 		expect(r.status).toBe(EXIT.USAGE);

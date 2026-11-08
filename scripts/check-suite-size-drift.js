@@ -24,6 +24,11 @@
  * grows its own assertion count without being added is the residual, and
  * nothing here sees it.
  *
+ * A LOWER-BOUND LADDER WARNS WHATEVER THE DRIFT (#4606): its dips came from
+ * suites the suite ceiling cut short, so the finding stands until the
+ * whole-suite re-measure its stamp names. `--baseline` asks the drift question
+ * alone and skips it.
+ *
  * WARN-ONLY, ALWAYS. The finding is "go and measure", which no commit can
  * discharge and no session should be blocked on.
  *
@@ -98,9 +103,8 @@ runCheck({
 		"node check-suite-size-drift.js [--threshold <pct>] [--baseline <files>] [--notify] [--json] [--warn]",
 	valueFlags: ["--threshold", "--baseline"],
 	run(/** @type {any} */ ctx) {
-		const baseline = Number(
-			ctx.value("--baseline", String(SUITE_LADDER_MEASURED_AT.files)),
-		);
+		const baselineArg = ctx.value("--baseline", null);
+		const baseline = Number(baselineArg ?? SUITE_LADDER_MEASURED_AT.files);
 		if (!Number.isFinite(baseline) || baseline <= 0)
 			ctx.usageError(`--baseline must be a positive number, got ${baseline}`);
 
@@ -122,27 +126,47 @@ runCheck({
 			measuredAt: SUITE_LADDER_MEASURED_AT,
 		};
 
-		if (Math.abs(drift) < threshold)
+		const { lowerBound } = SUITE_LADDER_MEASURED_AT;
+		const isLowerBound = Boolean(lowerBound) && baselineArg === null;
+		const isDrifted = Math.abs(drift) >= threshold;
+		const signed = `${driftPct >= 0 ? "+" : ""}${driftPct}%`;
+		if (!isLowerBound && !isDrifted)
 			return {
-				okLine: `suite is ${files} test files, ${driftPct >= 0 ? "+" : ""}${driftPct}% against the ${baseline} the memory ladder was measured on.`,
+				okLine: `suite is ${files} test files, ${signed} against the ${baseline} the memory ladder was measured on.`,
 				data,
 			};
 
-		const signed = `${driftPct >= 0 ? "+" : ""}${driftPct}%`;
-		ctx.warn(
-			"SUITE-SIZE-DRIFT",
-			`suite is ${files} test files, ${signed} against the ${baseline} the concurrent-suite memory ladder was measured on (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}).`,
-			data,
-			/* The live count is out of the key: it moves with every test file
-			 * added, and the finding stands until the ladder is re-measured (#1591). */
-			`SUITE-SIZE-DRIFT\t${baseline}`,
-		);
-		ctx.say(
-			`The concurrent-test-suite memory ladder was measured on a suite of ${baseline} test files (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}). It is now ${files} — ${signed}.`,
-		);
-		ctx.say(
-			"Every figure in that ladder is earlyoom's line plus one suite's memory dip, and the dip scales with what the suite runs. Treat the ladder as unverified until it is re-measured.",
-		);
+		if (isLowerBound) {
+			const finding = `the concurrent-suite memory ladder is a lower bound (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}): the ${lowerBound.ceilingS} s ceiling cut each bench suite after ${lowerBound.reachedMin}–${lowerBound.reachedMax} of its ${baseline} files.`;
+			ctx.warn(
+				"SUITE-LADDER-LOWER-BOUND",
+				finding,
+				data,
+				`SUITE-LADDER-LOWER-BOUND\t${SUITE_LADDER_MEASURED_AT.issue}`,
+			);
+			ctx.say(`${finding.charAt(0).toUpperCase()}${finding.slice(1)}`);
+			ctx.say(
+				`Its rungs are floors under a whole suite's; ${lowerBound.successor} re-measures on a whole suite.`,
+			);
+		}
+		if (isDrifted) {
+			ctx.warn(
+				"SUITE-SIZE-DRIFT",
+				`suite is ${files} test files, ${signed} against the ${baseline} the concurrent-suite memory ladder was measured on (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}).`,
+				data,
+				/* The live count is out of the key: it moves with every test file
+				 * added, and the finding stands until the ladder is re-measured (#1591). */
+				`SUITE-SIZE-DRIFT\t${baseline}`,
+			);
+			ctx.say(
+				`The concurrent-test-suite memory ladder was measured on a suite of ${baseline} test files (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}). It is now ${files} — ${signed}.`,
+			);
+			ctx.say(
+				"Every figure in that ladder is earlyoom's line plus one suite's memory dip, and the dip scales with what the suite runs. Treat the ladder as unverified until it is re-measured.",
+			);
+		} else {
+			ctx.say(`The suite is now ${files} test files, ${signed}.`);
+		}
 		ctx.say(
 			"  Re-measure:  OUTDIR=<dir> python3 scripts/bench_suite_concurrency.py 1 2 3 1 2 3 --require-quiet=3",
 		);
@@ -152,6 +176,11 @@ runCheck({
 		ctx.say(
 			"  Then restate, all five: docs/environment.md (owner), docs/agents/guard-registry.md §Machine limits, .claude/skills/pick-next/SKILL.md §5, SUITE_DIP_MB, SUITE_MAX and SUITE_LADDER_MEASURED_AT in scripts/lib/suite-ladder.js, and suite-concurrency-ladder in docs/machinery-superseded.json.",
 		);
-		return { noun: "drifted ladder", count: 1, data };
+		const count = Number(isLowerBound) + Number(isDrifted);
+		return {
+			noun: isDrifted ? "drifted ladder" : "lower-bound ladder",
+			count,
+			data,
+		};
 	},
 });

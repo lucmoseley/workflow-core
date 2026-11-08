@@ -163,12 +163,10 @@ const REGISTRATIONS: Registration[] = [
 		covers: ["Bash"],
 	},
 	{
-		/* #1575: the cut verdict is only visible in the RESPONSE. One glob
-		 * every launch spelling holds, never two — the guard's header says
-		 * why (#1661). */
+		/* #1575: the cut verdict is only visible in the RESPONSE. No
+		 * narrowing: `npm t` holds no `test` (#4032). */
 		event: "PostToolUse",
 		id: "scripts/guard-lost-verdict.js",
-		narrowing: "Bash(*test*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
@@ -176,7 +174,6 @@ const REGISTRATIONS: Registration[] = [
 		/* A call exiting non-zero reaches this event instead (#1575). */
 		event: "PostToolUseFailure",
 		id: "scripts/guard-lost-verdict.js",
-		narrowing: "Bash(*test*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
