@@ -57,6 +57,7 @@ const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
+const { envelope } = require("./lib/hook-envelope.js");
 const { readOwnPaths } = require("./lib/own-work.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
 const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
@@ -523,12 +524,9 @@ function cmdCheck(filePath, sessionId, { anchor, anchorLength, newIds } = {}) {
 
 	if (notes.length > 0) {
 		writeStdout(
-			`${JSON.stringify({
-				hookSpecificOutput: {
-					hookEventName: "PreToolUse",
-					additionalContext: notes.join("\n\n"),
-				},
-			})}\n`,
+			`${JSON.stringify(
+				envelope("PreToolUse", { additionalContext: notes.join("\n\n") }),
+			)}\n`,
 		);
 	}
 }
