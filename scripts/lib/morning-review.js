@@ -429,7 +429,7 @@ function renderConcurrencyLines({ day, week }) {
  * @param {TableCommit} commit
  * @param {import("./primitives-table.js").RowChange} c
  */
-const primitiveLine = (n, repo, { side, sha }, c) =>
+const renderPrimitiveLine = (n, repo, { side, sha }, c) =>
 	`${n}. ${repo} — ${side} row ${c.change}${c.cells.length > 0 ? ` (${c.cells.join(", ")})` : ""}: ${quoted(c.primitive)} — job ${quoted(c.job)} — ${sha}`;
 
 /**
@@ -445,7 +445,7 @@ function renderRowChanges(repo, history, next) {
 			? [
 					`- ${commit.sha}: the ${commit.side} table did not read — ${quoted(read.unreadable)}`,
 				]
-			: read.changes.map((c) => primitiveLine(next(), repo, commit, c));
+			: read.changes.map((c) => renderPrimitiveLine(next(), repo, commit, c));
 	});
 }
 
@@ -778,7 +778,7 @@ function renderReview({
  * A link numbered other than its entry's issue is no line renderReview wrote,
  * so it is no entry. */
 const ENTRY_LINE = /^(\d+)\. (\S+)#(\d+) — .* — \[#\3 comment\]\((\S+)\)$/;
-/* A primitives entry line, as primitiveLine writes it. */
+/* A primitives entry line, as renderPrimitiveLine writes it. */
 const PRIMITIVE_LINE =
 	/^(\d+)\. (\S+) — (base|local) row (added|removed|rewritten)(?: \(([^)]*)\))?: `([^`]*)` — job `([^`]*)` — ([0-9a-f]+)$/;
 

@@ -116,6 +116,11 @@ const OTHER_INPUT_CHARS = 100;
  * @typedef {{ type: string, text?: string, file_path?: string }} ContentBlock
  */
 
+/**
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
+ */
+
 const HOLDER_USAGE = "(--issue <n> | --session <id>) [--interval <s>]";
 const HAND_OFF_USAGE =
 	"usage: rescue-sessions.js hand-off --from <config-dir> --job <short id> [--session <id>] --issue <n> [--issue <n>]…";
@@ -265,7 +270,7 @@ function readJobs(dir) {
  * A session's own account of itself: every real user turn, every line of
  * prose it wrote, and a one-line signature for every tool call, in order.
  *
- * @param {any[]} records
+ * @param {TranscriptRecord[]} records
  */
 function extractNarration(records) {
 	return records.flatMap(buildNarrationLines).join("\n");
@@ -275,7 +280,7 @@ function extractNarration(records) {
  * Every parseable line of a transcript.
  *
  * @param {string} transcriptPath
- * @returns {any[]}
+ * @returns {TranscriptRecord[]}
  */
 function readTranscriptRecords(transcriptPath) {
 	return parseJsonl(fs.readFileSync(transcriptPath, "utf8")).rows;
@@ -284,7 +289,7 @@ function readTranscriptRecords(transcriptPath) {
 /**
  * Every Bash command the session ran, whole.
  *
- * @param {any[]} records
+ * @param {TranscriptRecord[]} records
  * @returns {string[]}
  */
 function bashCommands(records) {
@@ -292,12 +297,12 @@ function bashCommands(records) {
 		j.type === "assistant" && Array.isArray(j.message?.content)
 			? j.message.content
 					.filter(
-						(/** @type {any} */ c) =>
+						(/** @type {TranscriptBlock} */ c) =>
 							c.type === "tool_use" &&
 							c.name === "Bash" &&
 							typeof c.input?.command === "string",
 					)
-					.map((/** @type {any} */ c) => c.input.command)
+					.map((/** @type {TranscriptBlock} */ c) => c.input.command)
 			: [],
 	);
 }
@@ -306,8 +311,7 @@ function bashCommands(records) {
  * The narration lines one transcript record gives: a real user turn, or an
  * assistant turn's prose and its tool-call signatures.
  *
- * @param {any} j one transcript line, JSON.parse's output — `any` because the
- *   record types differ per line and each field read is type-tested first
+ * @param {TranscriptRecord} j
  * @returns {string[]}
  */
 function buildNarrationLines(j) {
@@ -337,8 +341,7 @@ function buildNarrationLines(j) {
 }
 
 /**
- * @param {any} c a `tool_use` block — `any`, not ContentBlock, because its
- *   `input` is the tool's own argument object, a different shape per tool
+ * @param {TranscriptBlock} c a `tool_use` block
  */
 function toolSignature(c) {
 	let detail;
@@ -949,7 +952,7 @@ function readLastTurnMarker(transcript) {
 		// takeSample has already stat'd it, so an unreadable transcript is UNKNOWN there.
 		return "";
 	}
-	for (const j of /** @type {Record<string, any>[]} */ (
+	for (const j of /** @type {TranscriptRecord[]} */ (
 		parseJsonl(text).rows
 	).reverse()) {
 		if (isUserPrompt(j)) return "prompt";
@@ -969,7 +972,7 @@ function readLastTurnMarker(transcript) {
 /**
  * A transcript entry that is a person's prompt — not a tool result, and not an
  * injected `<system-reminder>` or hook payload, which open with a tag.
- * @param {any} j
+ * @param {TranscriptRecord} j
  */
 function isUserPrompt(j) {
 	if (j.type !== "user") return false;
