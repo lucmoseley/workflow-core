@@ -40,7 +40,7 @@ const { isUnder, relativeUnder } = require("./is-under.js");
 /**
  * A job record's id, seat, cwd, session, name and state; null where it names
  * no cwd or session.
- * @param {any} job a job record; untyped, as the harness owns its schema
+ * @param {any} job a job record
  * @param {string} id the job's directory name
  * @param {string} seat the config dir holding it
  * @returns {JobCwd | null}
@@ -63,7 +63,7 @@ function jobCwdOf(job, id, seat) {
  * The id, seat, cwd, session, name and state of every job record on every
  * seat, and each job store or record that would not read. An absent store
  * holds no job; one that faults otherwise, EACCES among them, may hold a
- * resumable one, so `unread` names it for the caller to judge on.
+ * resumable one.
  * @returns {{jobs: JobCwd[], unread: string[]}} `unread` as `<path>: <fault>`
  */
 function readJobCwds() {
@@ -76,7 +76,6 @@ function readJobCwds() {
 }
 
 /**
- * readJobCwds' read of one seat's job store.
  * @param {string} seat
  * @param {JobCwd[]} jobs accumulator: each job read is pushed here
  * @param {string[]} unread accumulator: each store or record that would not

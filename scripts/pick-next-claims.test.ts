@@ -522,8 +522,7 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(r.out).toMatch(/stranded claims\s+1, unknown how many carrying/);
 	});
 
-	/* #4704: a job store that will not read may hold a dirty worktree's owner,
-	 * so the worktree count reads unknown while the claim counts still render. */
+	/* #4704: a job store that will not read may hold a dirty worktree's owner. */
 	it("renders the counts with the worktree count unknown where a job store will not read", async () => {
 		kit.oracleSessions = ["self"];
 		const repo = kit.repoRoot as string;

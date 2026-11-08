@@ -62,15 +62,12 @@ const shortJobId = (sessionId) => sessionId.slice(0, 8);
  * store holds a plain file in place of a job directory (#4704). */
 const ABSENT = new Set(["ENOENT", "ENOTDIR"]);
 
-/**
- * Whether a fault reading a job store or record means it is absent.
- * @param {unknown} err
- */
+/** @param {unknown} err */
 const isAbsentFault = (err) => ABSENT.has(caught(err).code ?? "");
 
 /**
- * The record in `jobDir`, told three ways: absent, read (`data` null where
- * torn), or unreadable for any other fault, EACCES among them (#4704).
+ * The record in `jobDir`, `data` null where torn; unreadable is any fault
+ * but absence (#4704).
  * Neither absent nor torn proves the job gone: a job dir is cleaned under a
  * session still running (mantahostels#104), and a writer may be mid-record.
  * @param {string} jobDir

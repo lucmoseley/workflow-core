@@ -1171,7 +1171,7 @@ function readOccupied(cwds, now) {
 
 /**
  * Whether the pass removes no worktree: an unread job store or record may
- * hold a resumable job in any of them (#4704). Each is named in `out.failed`.
+ * hold a resumable job in any of them (#4704).
  * @param {string[]} unread readJobCwds' `unread`
  * @param {Reaped} out accumulator: each unread path is pushed onto `failed`
  */

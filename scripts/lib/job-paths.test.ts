@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
- * job-paths.js's readJobRecordIn: a missing or torn record reads as none, and
- * any other fault throws (#4704). Loosen it and an unreadable record reads as
- * no job, so the reaper can judge a resumable session's worktree reapable.
+ * job-paths.js's readJobRecordIn (#4704). Loosen it and an unreadable record
+ * reads as no job, so the reaper can judge a resumable session's worktree
+ * reapable.
  */
 import fs from "node:fs";
 import { createRequire } from "node:module";
