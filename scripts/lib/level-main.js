@@ -46,6 +46,7 @@ const { LANDING_REF, QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
+const { isUnder } = require("./is-under.js");
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
@@ -145,10 +146,7 @@ function readEditedPaths(root) {
  * @param {string[]} changed
  */
 const clashes = (edited, changed) =>
-	changed.some(
-		(c) =>
-			c === edited || c.startsWith(`${edited}/`) || edited.startsWith(`${c}/`),
-	);
+	changed.some((c) => isUnder(c, [edited]) || isUnder(edited, [c]));
 
 /**
  * @param {string} root
