@@ -1712,7 +1712,8 @@ function prepareWhole(paths, { refuseUnchanged }) {
 function printTree(whole, cut) {
 	const { index } = sweptRunFiles();
 	// An unsaved or mistyped path prints HEAD's tree rather than refusing:
-	// the review hold's tree= comparison catches it at commit, not this (#4288).
+	// the commit's own nothing-to-commit refusal catches it, and on a held
+	// commit the review hold's tree= comparison too (#4288).
 	buildPrivateIndex(whole, cut, index, { refuseUnchanged: false });
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
