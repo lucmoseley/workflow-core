@@ -5,8 +5,8 @@
  * gitignored and exists only in the shared checkout, so a fixture copying it
  * fails in every linked worktree (#4360).
  *
- * FOR TESTS ONLY. Generated once per worker into a scratch repo and copied
- * from there.
+ * FOR TESTS ONLY. Generated once per test file into a scratch repo and
+ * copied from there.
  */
 
 import { execFileSync } from "node:child_process";
@@ -18,29 +18,39 @@ import { mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 
+let repo: string | null = null;
 let generated: string | null = null;
 
 afterAll(() => {
-	if (generated)
-		fs.rmSync(path.dirname(path.dirname(generated)), {
-			recursive: true,
-			force: true,
-		});
+	if (repo) fs.rmSync(repo, { recursive: true, force: true });
+	repo = null;
 	generated = null;
 });
 
 /** The generated `.husky/_`, built on first call. */
 function shimDir(): string {
 	if (generated === null) {
-		const repo = mkScratchDir("husky-shim-");
+		const at = mkScratchDir("husky-shim-");
+		repo = at;
 		const env = { ...process.env };
 		delete env.HUSKY;
 		const run = (args: string[]) =>
-			execFileSync(process.execPath, args, { cwd: repo, env, stdio: "pipe" });
-		execFileSync("git", ["init", "-q", "."], { cwd: repo });
-		run([path.join(path.dirname(require.resolve("husky")), "bin.js")]);
+			execFileSync(process.execPath, args, {
+				cwd: at,
+				env,
+				encoding: "utf8",
+				stdio: "pipe",
+			});
+		execFileSync("git", ["init", "-q", "."], { cwd: at });
+		// husky prints why it skipped and still exits 0.
+		const said = run([
+			path.join(path.dirname(require.resolve("husky")), "bin.js"),
+		]);
+		const dir = path.join(at, ".husky", "_");
+		if (!fs.existsSync(path.join(dir, "h")))
+			throw new Error(`husky wrote no ${dir}/h: ${said.trim()}`);
 		run([path.join(__dirname, "..", "install-hooks.js")]);
-		generated = path.join(repo, ".husky", "_");
+		generated = dir;
 	}
 	return generated;
 }
