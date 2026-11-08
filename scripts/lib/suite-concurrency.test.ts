@@ -422,6 +422,15 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		);
 	});
 
+	it("charges a build every queue's climb, its rung counting no suite (#4112)", () => {
+		const { text } = judge("npm run build", 3000, psWith(0), {
+			climb: { "off-rung": 500, all: 900 },
+		});
+		expect(text).toContain(
+			"MemAvailable is 3000 MB, less 900 MB the queues' running launches have yet to draw, under the ~",
+		);
+	});
+
 	it("judges the rung the launch would reach", () => {
 		expect(warning("npm run test", inBand2(), 1)).toMatch(
 			/under the ~5200 MB .* as suite 2 of 3/,

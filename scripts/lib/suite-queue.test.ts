@@ -1331,6 +1331,8 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 					150 + 75 * os.availableParallelism(),
 				);
 				expect(at("python3 -m pytest --numprocesses=3")).toBe(150 + 3 * 75);
+				expect(at("python3 -m pytest -n=4")).toBe(150 + 4 * 75);
+				expect(at("python3 -m pytest -n2")).toBe(150 + 2 * 75);
 				expect(at("python3 -m pytest -q")).toBe(150);
 			});
 

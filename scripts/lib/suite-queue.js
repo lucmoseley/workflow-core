@@ -226,7 +226,7 @@ function readClimbMb(
 		const name = path.basename(dir);
 		const { markers, error } = readMarkers(dir, queueFs);
 		if (error) onUnread(dir, error);
-		const marked = markers
+		return markers
 			.map((m) => m.record)
 			.filter(
 				(r) =>
@@ -235,7 +235,6 @@ function readClimbMb(
 					!(name === rungQueue && onRung.has(r.pid)),
 			)
 			.map((r) => ({ peakMb: peakMbOf(name, r), pid: r.pid }));
-		return marked;
 	});
 	const names = queueDirs.map((dir) => path.basename(dir));
 	const bare = unmarked.flatMap((row) => {
@@ -302,7 +301,10 @@ function logClimbUnread(what, error) {
  *
  * MOVE ONE ONLY WITH A RE-MEASUREMENT. Residual: a suite or site heavier than
  * the one measured is charged short by the difference; pytest's workers set in
- * its config's `addopts` are read as none.
+ * its config's `addopts` are read as none; a `python3 -m unittest` or bare
+ * Python test file, unmeasured, is charged pytest's line at no workers; an
+ * `auto` run is charged a worker a CPU, never capped by `--maxprocesses`,
+ * `PYTEST_XDIST_AUTO_NUM_WORKERS` or physical cores, so it errs high.
  */
 const PYTEST_BASE_MB = 150;
 const PYTEST_WORKER_MB = 75;
@@ -315,15 +317,14 @@ const NEXT_BUILD_PEAK_MB = 979;
  * @param {string} args
  */
 function pytestWorkersOf(args) {
-	const value = /(?:^| )(?:-n ?|--numprocesses[ =])(\S+)/.exec(args)?.[1];
+	const value = /(?:^| )(?:-n[ =]?|--numprocesses[ =])(\S+)/.exec(args)?.[1];
 	if (value === "auto" || value === "logical") return os.availableParallelism();
 	const workers = Number(value);
 	return Number.isInteger(workers) && workers > 0 ? workers : 0;
 }
 
 /** @param {string} args */
-const isNodeLine = (args) =>
-	/^(\S*\/)?node(js)?$/.test(args.split(" ")[0] ?? "");
+const isNodeLine = (args) => /^ *(\S*\/)?node(js)?( |$)/.test(args);
 
 /** @param {string} args */
 const isOtherSuiteLine = (args) =>
@@ -450,7 +451,7 @@ const readPeerClimbMb = (queueDir, options) =>
 /**
  * What the admitting queues' launches have yet to draw, in MB (#3488): the
  * charge a launch the guard judges unqueued takes, being in neither queue. A
- * bare `tsc` pays `"all"`; a suite or build pays `"off-rung"` (#4111). Read at
+ * bare `tsc` or a build pays `"all"`; a suite pays `"off-rung"` (#4111, #4112). Read at
  * call time, so a caller's `TMPDIR` redirects it.
  * @param {ClimbScope} scope
  * @param {ClimbOptions} [options]

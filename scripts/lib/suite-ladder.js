@@ -297,7 +297,6 @@ module.exports = {
 	SUITE_RESTING_MB,
 	SUITE_GATE_MB,
 	SUITE_LADDER_MEASURED_AT,
-	WRAPPER_ARGV0,
 	isNextRunnerLine,
 	isVitestRunnerLine,
 	runningSuites,
