@@ -4,8 +4,8 @@ COMMIT BY PATHSPEC.
 
 It intent-adds new paths and refuses a typo, an ignored path or a directory
 hiding new files. Exits: 0 done, 2 fix the input, 3 git or a hook refused.
-To read the gates' verdict without committing, give `--check` in place of
-`-m` (or beside it, to run the message checks too).
+To read the gates' verdict without committing, add `--check`: `-m` is then
+optional, and given, runs the message checks too.
 The hand form stays legal:
 
   git commit -m "…" -- <paths>

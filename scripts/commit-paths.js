@@ -145,6 +145,7 @@ const { testGate } = require("./lib/test-gate.js");
 const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
+const { readText } = require("./lib/file-read.js");
 
 const NAME = "commit-paths";
 const USAGE = `usage: node scripts/${NAME}.js (-m <message> | -F <file|->) -- <path>...
@@ -205,26 +206,43 @@ let checkOnly = false;
 const REVIEW_TIER_STAMP = path.join(__dirname, "lib", "review-tier-stamp.sh");
 
 /**
- * --check's private index and git directory, once its hooks may have run.
+ * --check's private index and git directory, set by armStampRemoval once its
+ * hooks may run and read by finish, through removeHookStamps, however the run
+ * ends.
  * @type {{index: string, gitDir: string}|null}
  */
-let hookStampsOf = null;
+let checkedIndex = null;
+
+/** @param {RunFiles} files */
+const armStampRemoval = ({ index }) => {
+	checkedIndex = { index, gitDir: path.dirname(index) };
+};
 
 /**
  * --check: removes each stamp the hooks leave keyed to the private index's
  * tree — pre-commit's stand-down stamp (mantahostels#1705) and this session's
  * review-hold stamp (#3664) — which a commit's prepare-commit-msg would have
- * consumed. One holding another tree is a neighbour commit's, and stays.
+ * consumed. One holding another tree is a neighbour commit's, and stays. Each
+ * stamp it cannot judge is named, as one a later commit may stand down on.
  */
 function removeHookStamps() {
-	if (!hookStampsOf) return;
-	const { index, gitDir } = hookStampsOf;
-	hookStampsOf = null;
+	if (!checkedIndex) return;
+	const { index, gitDir } = checkedIndex;
+	checkedIndex = null;
+	/** @param {string} what @param {string} why */
+	const leftBehind = (what, why) =>
+		err(
+			`${NAME}: ${what} may be left in ${gitDir} (${why}); a later commit of the checked tree could stand its gates down on it. Remove it by hand.\n`,
+		);
 	const tree = spawnGitSync(["write-tree"], {
 		encoding: "utf8",
 		env: { ...process.env, GIT_INDEX_FILE: index },
 	});
-	if (tree.status !== 0) return;
+	if (tree.status !== 0)
+		return leftBehind(
+			"a hook's stamp",
+			`git could not write the checked tree: ${(tree.stderr ?? "").trim()}`,
+		);
 	const stamps = [path.join(gitDir, "wfc-precommit-stamp")];
 	const review = spawnSync(
 		"bash",
@@ -237,16 +255,18 @@ function removeHookStamps() {
 		],
 		{ encoding: "utf8" },
 	);
-	if (review.status === 0 && review.stdout.trim())
-		stamps.push(review.stdout.trim());
+	if (review.status !== 0)
+		leftBehind(
+			"this session's review-hold stamp",
+			`${REVIEW_TIER_STAMP} would not name it`,
+		);
+	else if (review.stdout.trim()) stamps.push(review.stdout.trim());
 	for (const stamp of stamps) {
-		let first;
-		try {
-			first = fs.readFileSync(stamp, "utf8").split("\n", 1)[0];
-		} catch {
-			continue;
-		}
-		if (first === tree.stdout.trim()) fs.rmSync(stamp, { force: true });
+		const read = readText(stamp);
+		if (read.state === "unreadable") leftBehind(stamp, read.message);
+		if (read.state !== "read") continue;
+		if (read.data.split("\n", 1)[0] === tree.stdout.trim())
+			fs.rmSync(stamp, { force: true });
 	}
 }
 
@@ -1675,17 +1695,7 @@ function prepareWhole(paths) {
  */
 function printTree(whole, cut) {
 	const { index } = sweptRunFiles();
-	if (cut === null) {
-		const { toAdd, specs } = prepareWhole(whole);
-		try {
-			buildCommitIndex({ index, specs, toAdd });
-		} catch (e) {
-			fail(`${caught(e).message}. Nothing written.`, 2);
-		}
-	} else {
-		const { patch, root, sections } = preparePatch(cut, whole);
-		buildOnHead({ index, whole, root, patch, sections });
-	}
+	buildPrivateIndex(whole, cut, index);
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
 		fail(`git could not write the tree (${r.stderr.trim()}).`, 2);
@@ -1704,12 +1714,9 @@ function printTree(whole, cut) {
  */
 function checkCommit(whole, cut, message) {
 	const files = sweptRunFiles();
-	const { base, build } = checkBuild(whole, cut, files.index);
+	const { base, build } = buildPrivateIndex(whole, cut, files.index);
 	const stampEnv = preLockRun(() => files, build);
-	hookStampsOf = {
-		index: files.index,
-		gitDir: path.dirname(files.index),
-	};
+	armStampRemoval(files);
 	runCommitHooks(files, base, stampEnv, message);
 	if (message === "")
 		err(
@@ -1722,14 +1729,14 @@ function checkCommit(whole, cut, message) {
 }
 
 /**
- * --check's private index built as the commit's would be, refusing as it
- * would; the HEAD it is built on (null on an unborn branch), and its rebuild.
+ * The private index built as the commit's would be, refusing as it would; the
+ * HEAD it is built on (null on an unborn branch), and its rebuild.
  * @param {string[]} whole
  * @param {string|null} cut
  * @param {string} index
  * @returns {{base: string|null, build: (index: string) => void}}
  */
-function checkBuild(whole, cut, index) {
+function buildPrivateIndex(whole, cut, index) {
 	if (cut !== null) {
 		const { patch, root, sections } = preparePatch(cut, whole);
 		const patchBuild = { index, whole, root, patch, sections };

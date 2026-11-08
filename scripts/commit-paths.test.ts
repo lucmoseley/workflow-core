@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
+import { readText } from "./lib/file-read.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import {
@@ -1104,14 +1105,14 @@ describe("git's own refusals — exit 3, relayed", () => {
 	});
 });
 
+/** The outcome log whole, "" where none is written yet. */
+const readLog = () => {
+	const read = readText(store.paths.commitPathsLog());
+	if (read.state === "unreadable") throw read.error;
+	return read.state === "read" ? read.data : "";
+};
+
 describe("--tree: the tree the commit would carry, nothing written (#1695)", () => {
-	const readLog = () => {
-		try {
-			return fs.readFileSync(store.paths.commitPathsLog(), "utf8");
-		} catch {
-			return "";
-		}
-	};
 	/** The tree printed, asserting the index, the working tree and the log untouched. */
 	const tree = (args: string[]) => {
 		const before = [readIndex(), git("status", "--porcelain"), readLog()];
@@ -1182,12 +1183,13 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 
 describe("--check: the verdict a commit would get, nothing written (#4207)", () => {
 	const runs = () => path.join(sb.dir, "pre-commit-runs");
+	/** How many times the fixture pre-commit has run. */
 	const countRuns = () => {
-		try {
-			return fs.readFileSync(runs(), "utf8").split("\n").filter(Boolean).length;
-		} catch {
-			return 0;
-		}
+		const read = readText(runs());
+		if (read.state === "unreadable") throw read.error;
+		return read.state === "read"
+			? read.data.split("\n").filter(Boolean).length
+			: 0;
 	};
 	const gitDir = () => path.join(sb.repo, ".git");
 	const Sid = "check-session";
@@ -1219,8 +1221,9 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 			...process.env,
 			CLAUDE_CODE_SESSION_ID: Sid,
 		});
-	/** Everything a check may not move: the log, the status, the index, the git directory's files. */
+	/** Everything a check may not move: the outcome log, the git log, the status, the index, the git directory's files. */
 	const snapshot = () => [
+		readLog(),
 		git("log", "--format=%H"),
 		git("status", "--porcelain"),
 		readIndex(),
@@ -1293,22 +1296,49 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 		expect(snapshot()).toEqual(before);
 	});
 
-	it.each([
-		["--tree with it", ["--tree", "--", "a.md"], "not both"],
-		["no change", ["--", "a.md"], "nothing to commit"],
-		["an unknown path", ["--", "nowhere.md"], "exists nowhere"],
+	/** A patch adding a line to a.md, written beside the repo. */
+	const patchOf = (text: string) => {
+		write("a.md", text);
+		const patch = path.join(sb.dir, "check.patch");
+		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md"));
+		git("checkout", "--", "a.md");
+		return patch;
+	};
+
+	it.each<[string, () => string[], string]>([
+		["--tree with it", () => ["--tree", "--", "a.md"], "not both"],
+		["no change", () => ["--", "a.md"], "nothing to commit"],
+		["an unknown path", () => ["--", "nowhere.md"], "exists nowhere"],
+		[
+			"a patch that does not apply",
+			() => {
+				// No `index` line, so git apply, not the preimage check, judges it.
+				const patch = path.join(sb.dir, "bare.patch");
+				fs.writeFileSync(
+					patch,
+					"diff --git a/a.md b/a.md\n--- a/a.md\n+++ b/a.md\n@@ -1 +0,0 @@\n-not in HEAD\n",
+				);
+				return ["--patch", patch];
+			},
+			"the patch does not apply to HEAD",
+		],
+		[
+			"a patch not cut against HEAD",
+			() => {
+				const patch = patchOf("a\nmine\n");
+				write("a.md", "moved\n");
+				git("commit", "-qm", "move", "--", "a.md");
+				write("a.md", "moved\nmine\n");
+				return ["--patch", patch];
+			},
+			"was not cut against HEAD",
+		],
 	])("refuses %s, exit 2, logging no outcome", (_, args, why) => {
-		const log = () => {
-			try {
-				return fs.readFileSync(store.paths.commitPathsLog(), "utf8");
-			} catch {
-				return "";
-			}
-		};
-		const before = log();
-		const r = check(args);
+		const given = args();
+		const before = readLog();
+		const r = check(given);
 		expect(r.stderr).toContain(why);
 		expect(r.status).toBe(2);
-		expect(log()).toBe(before);
+		expect(readLog()).toBe(before);
 	});
 });
