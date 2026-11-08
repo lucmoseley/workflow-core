@@ -36,9 +36,9 @@ const {
 	runHeld,
 } = require("./refill-state.js");
 
-/* First guesses, and stated as ones: the 3 Nov boot's loop reached its lock in
- * 61 ms, so 30 s allows for a machine far busier than a boot was; a poll costs
- * a few small reads of the pidfile and /proc. */
+/* First guesses, and stated as ones: 30 s allows for a machine far busier than
+ * the one boot measured (#4083); a poll costs a few small reads of the pidfile
+ * and /proc. */
 const LOOP_HOLD_WAIT_MS = 30_000;
 const LOOP_HOLD_POLL_MS = 50;
 
