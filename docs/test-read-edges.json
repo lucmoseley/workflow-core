@@ -40135,6 +40135,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/unclosed-launch.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pick-next.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
