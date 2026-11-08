@@ -21,8 +21,8 @@ the upper bound is at most 1.03, FAIL when the lower bound is above it, else
 30 more pairs up to 90 and then INCONCLUSIVE, which is never a pass.
 `--reread` is the one re-read an INCONCLUSIVE gets: a single read of 720
 pairs with no earlier look, whose verdict is final (#4664). Its INCONCLUSIVE
-with CPU PASS closes the gate as wall not resolved at 3%, no FAIL, never as a
-pass. Residual: nothing checks that a read is a first re-read, so one use per
+on wall alone (CPU PASS, or `--narrowed`) closes the gate as wall not resolved
+at 3%, no FAIL, never as a pass. Residual: nothing checks that a read is a first re-read, so one use per
 gate is the caller's. An
 always-on set passes on CPU and wall; `--narrowed` (an `if`-narrowed guard)
 passes on wall, CPU recorded beside it. Pairing cancels the load both calls

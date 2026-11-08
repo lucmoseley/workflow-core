@@ -186,6 +186,133 @@ describe("check-release-pin", () => {
 		expect(r.out).toContain("release-plugin.js");
 	});
 
+	describe("#4675: a bump whose tag is not yet cut, on the sweep", () => {
+		/* The checker's clock, pinned so the 24h deadline never rides the wall
+		 * clock on either side. */
+		const Now = Date.parse("2026-11-08T12:00:00Z");
+
+		/** Commits the tree as `msg`, dated `hours` before NOW. */
+		const commitAt = (msg: string, hours: number) => {
+			const date = `${Math.floor(Now / 1000 - hours * 3600)} +0000`;
+			execFileSync("git", ["commit", "-qam", msg, "--date", date], {
+				cwd: repo,
+				env: { ...process.env, GIT_COMMITTER_DATE: date },
+			});
+		};
+
+		const bump = (hours: number) => {
+			writePlugin("1.2.3");
+			writeMarketplace(urlSource("v1.2.3"));
+			commitAt("bump", hours);
+		};
+
+		beforeEach(() => {
+			writePlugin("1.2.2");
+			writeMarketplace(urlSource("v1.2.2"));
+			commitAt("release 1.2.2", 100);
+			git(repo, "tag", "v1.2.2");
+			git(repo, "push", "-q", "origin", "v1.2.2");
+			envOverride = {
+				GITHUB_ACTIONS: "true",
+				WFC_NOW: new Date(Now).toISOString(),
+			};
+		});
+
+		it("skips as pending, naming when the cut falls due and both ways out", () => {
+			bump(1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("v1.2.3 is a bump whose release is pending");
+			expect(r.out).toContain("falls due within 23h");
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
+		});
+
+		it("fails TAG-UNRESOLVED once the bump was committed 24h ago or more", () => {
+			bump(24);
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).not.toContain("pending");
+		});
+
+		/* Git records no landing time: the lander fast-forwards main onto queue
+		 * tips, so a later commit over the bump restarts nothing. */
+		it("dates the bump from its own commit, not a later commit over it", () => {
+			bump(25);
+			fs.writeFileSync(path.join(repo, "later.txt"), "x");
+			git(repo, "add", "later.txt");
+			commitAt("later", 1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
+		});
+
+		it("dates the bump from its own commit, not a later reformat of the pin line", () => {
+			bump(25);
+			const at = path.join(repo, ".claude-plugin", "marketplace.json");
+			fs.writeFileSync(
+				at,
+				JSON.stringify(JSON.parse(fs.readFileSync(at, "utf8")), null, "\t"),
+			);
+			commitAt("reformat", 1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
+		});
+
+		it("fails TAG-UNRESOLVED on a fresh pin that is not ahead of the newest cut tag", () => {
+			git(repo, "tag", "v1.3.0");
+			git(repo, "push", "-q", "origin", "v1.3.0");
+			bump(1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).not.toContain("pending");
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
+		});
+
+		/* A shallow clone's grafted root matches any line, so its date says
+		 * nothing about the bump. */
+		it("fails TAG-UNRESOLVED in a shallow clone, which cannot date the bump", () => {
+			bump(1);
+			const shallow = path.join(dir, "shallow");
+			git(dir, "clone", "-q", "--depth", "1", `file://${repo}`, shallow);
+			repo = shallow;
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			// The clone has no remote carrying the marketplace URL, so the push names the URL.
+			expect(r.out).toContain(`git push file://${remote} v1.2.3`);
+			expect(r.out).toContain("release-plugin.js");
+		});
+
+		it("fails TAG-UNPUSHED at once where the tag was cut here, naming the push", () => {
+			envOverride = { WFC_NOW: new Date(Now).toISOString() };
+			bump(1);
+			git(repo, "tag", "v1.2.3");
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNPUSHED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+		});
+
+		it("fails TAG-UNCUT at once on a local run, which can cut", () => {
+			envOverride = { WFC_NOW: new Date(Now).toISOString() };
+			bump(1);
+			const r = check();
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNCUT"]);
+			expect(r.out).toContain("release-plugin.js");
+		});
+	});
+
 	it("fails PIN-MISMATCH when the ref and plugin.json disagree, naming both versions", () => {
 		writeMarketplace(urlSource("v1.2.2"));
 		git(repo, "tag", "v1.2.2");

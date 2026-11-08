@@ -391,21 +391,32 @@ def test_each_paired_side_runs_from_its_own_root(tmp_path):
     assert out["verdict"] != "REFUSED" and out["old"]["denies"] == 0
 
 
-def test_the_reread_flag_reaches_the_paired_read(tmp_path, monkeypatch):
+def test_the_reread_flag_reaches_the_paired_read(tmp_path):
+    # Run in a child, since main makes its process a subreaper. run_paired
+    # is stubbed: the 720 real pairs a re-read runs would cost seconds.
     sets = tmp_path / "set.txt"
     sets.write_text("cat >/dev/null\n")
     (tmp_path / ".claude").mkdir()
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
-    seen = {}
-
-    def fake(call_old, call_new, narrowed, rng, *, reread=False):
-        seen["reread"] = reread
-        return {"verdict": "PASS"}
-
-    monkeypatch.setattr(bench, "run_paired", fake)
-    args = ["--paired", "--reread", str(sets), str(sets), "PreToolUse", "Bash", "ls"]
-    assert bench.main(args) == 0
-    assert seen == {"reread": True}
+    probe = f"""
+import sys
+sys.path.insert(0, {str(HERE)!r})
+import bench
+seen = {{}}
+def fake(call_old, call_new, narrowed, rng, *, reread=False):
+    seen["reread"] = reread
+    return {{"verdict": "PASS"}}
+bench.run_paired = fake
+s = {str(sets)!r}
+assert bench.main(["--paired", "--reread", s, s, "PreToolUse", "Bash", "ls"]) == 0
+assert seen == {{"reread": True}}, seen
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, CLAUDE_PROJECT_DIR=str(tmp_path)),
+    )
+    assert done.returncode == 0, done.stderr
 
 
 def test_the_program_refuses_a_bad_invocation():
