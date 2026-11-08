@@ -510,6 +510,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 				},
 			],
 			history,
+			lastActAt: null,
 		});
 
 	/** Finishes in order, `j<n>` finishing at NOW - 10 + n, those in `idless`
@@ -622,6 +623,7 @@ function settleOnce(
 				seats,
 				overflow,
 				history: past,
+				lastActAt: null,
 			},
 			decision,
 			state,
@@ -1046,6 +1048,7 @@ describe("a tick's log line (#2362)", () => {
 				},
 			],
 			history: [],
+			lastActAt: null,
 		});
 		const wait =
 			"idle: the 5-hour bar is full on /s1 until its 5-hour reset 2026-10-18T14:00:00Z";
@@ -1703,6 +1706,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		typedSeat: null,
 		seats: [],
 		history: [],
+		lastActAt: null,
 	} as Tick["input"];
 	/* One repo per pick, so each is its own dispatcher call. */
 	const pick = (n: number) => ({
@@ -2363,6 +2367,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					seats: [],
 					overflow: [],
 					history: [],
+					lastActAt: null,
 					resumable,
 				},
 				decision: {

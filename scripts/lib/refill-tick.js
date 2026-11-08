@@ -25,7 +25,7 @@ const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { readRegistryAgents } = require("./registry-agents.js");
-const { readActsBy } = require("./arbiter-store.js");
+const { readActsBy, readLastActAt } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
@@ -527,6 +527,28 @@ function readProgress(l, served) {
 	return progress;
 }
 
+/**
+ * The latest act any of `launches`' sessions made, ms, from actRootsOf's stores,
+ * null where none read (#4223). A store that will not read is logged and counts
+ * as no act, so the unproven cap holds.
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {string[]} served
+ * @returns {number|null}
+ */
+function readLoopLastActAt(launches, served) {
+	/** @type {number|null} */
+	let last = null;
+	for (const l of launches)
+		for (const id of new Set([...(l.pastSessionIds ?? []), l.sessionId])) {
+			if (!id) continue;
+			const { at, unreadable } = readLastActAt(id, actRootsOf(l.root, served));
+			for (const root of unreadable)
+				log(`act time of ${id} in ${root} unread: counted as no act`);
+			if (at !== null) last = Math.max(last ?? 0, at);
+		}
+	return last;
+}
+
 /** lib/refill-blocks.js's CauseOf on the job record and transcript. */
 const readCause = blocks.causeReader({
 	readJob: (l) => readJobRecordOf(l),
@@ -973,6 +995,7 @@ const productionIo = {
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
 	readProgress,
+	readLastActAt: readLoopLastActAt,
 	readCause,
 	unparkAnswered: blocks.unparkAnswered,
 	tendClosedParks,

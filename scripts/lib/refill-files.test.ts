@@ -182,6 +182,7 @@ describe("the tick's control read (#3389)", () => {
 			freeSlots: 1,
 			seats: [],
 			history: [],
+			lastActAt: null,
 		});
 
 	it("reads an absent control as none, not damaged, so a real tick stops as explicit", () => {

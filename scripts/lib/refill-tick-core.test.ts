@@ -210,6 +210,7 @@ function fakeIo(
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
+		readLastActAt: () => null,
 		readCause: () => null as never,
 		unparkAnswered: recorded("unparkAnswered", () => undefined),
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
