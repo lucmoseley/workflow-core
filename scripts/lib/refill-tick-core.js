@@ -264,6 +264,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *   stopOverAllowance: (declared: DeclaredSeats, agents: AgentRecord[]|null) => string[],
  *   sendHoldNotices: (roots: string[],
  *     seen: {agents: AgentRecord[]|null, isPaused: boolean}, now: number) => void,
+ *   sendPauseNotices: (paused: import("./refill-decide.js").Pause|undefined,
+ *     now: number) => void,
  *   unparkAnswered: (roots: string[], seen: Seen) => void,
  *   tendClosedParks: (served: string[]) => void,
  *   actOnBlocks: (listed: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
@@ -286,7 +288,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *     held: LoopLaunch[], seen: Seen,
  *     how: {isStopped: () => boolean, record: (launches: LoopLaunch[]) => void}) =>
  *     {launches: LoopLaunch[], started: number, waiting: boolean},
- *   writePause: (pause: import("./refill-decide.js").Pause, noProgressFrom: number) => void,
+ *   writePause: (pause: import("./refill-decide.js").Pause, noProgressFrom: number) => boolean,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   updateState: (transition: import("./refill-state.js").Transition) => LoopState,
  *   dropSettledLifted: (settled: ReturnType<typeof blocks.queueLifted>["settled"]) => void,
@@ -475,19 +477,23 @@ function relieve(io, { registry, state, served, now }) {
 
 /**
  * A real tick's acts off its listing: each overflow session past its allowance
- * stopped, then each repo hold's notice sent.
+ * stopped, then each repo hold's notice and the pause's sent.
  * @param {TickIo} io
  * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
- *   registry: RegistryListing, roots: string[], paused: boolean,
- *   now: number}} tick
+ *   registry: RegistryListing, roots: string[],
+ *   paused: import("./refill-decide.js").Pause|undefined, now: number}} tick
  */
 function actOnListing(io, { declared, agents, registry, roots, paused, now }) {
 	capOverflowSessions(io, declared, agents);
 	io.sendHoldNotices(
 		roots,
-		{ agents: noticeAgentsOf(agents, registry), isPaused: paused },
+		{
+			agents: noticeAgentsOf(agents, registry),
+			isPaused: paused !== undefined,
+		},
 		now,
 	);
+	io.sendPauseNotices(paused, now);
 }
 
 /**
@@ -779,7 +785,11 @@ function settleDecided(
 			launchBatch: (batch) => io.launchBatch(batch, served),
 			resumeHeld: (resumes, held, isStopped, record) =>
 				io.resumeHeld(resumes, held, seen, { isStopped, record }),
-			writePause: (pause) => io.writePause(pause, control.noProgressFrom),
+			/* The raise goes the tick the pause is written, not the next. */
+			writePause: (pause) => {
+				if (io.writePause(pause, control.noProgressFrom))
+					io.sendPauseNotices(pause, input.now);
+			},
 			runReview: io.runReview,
 			updateState: io.updateState,
 			readOmittedDirs: () => io.readOmittedDirs(declared),
@@ -826,6 +836,7 @@ const buildDryActs = (io) => ({
 	recordListedOverflowSessions: doNothing,
 	stopOverAllowance: () => [],
 	sendHoldNotices: doNothing,
+	sendPauseNotices: doNothing,
 	unparkAnswered: doNothing,
 	tendClosedParks: doNothing,
 	actOnBlocks: (listed) => listed,
@@ -846,7 +857,7 @@ const buildDryActs = (io) => ({
 		started: 0,
 		waiting: false,
 	}),
-	writePause: doNothing,
+	writePause: () => false,
 	runReview: (lastRunOn) => lastRunOn,
 	updateState: (transition) => transition(io.readState()),
 	dropSettledLifted: doNothing,
@@ -960,7 +971,14 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		for (const line of buildDriftLines(agents, registry.agents)) io.log(line);
 	const paused = control.paused !== undefined;
 	const roots = landingRoots(served, state.launches);
-	actOnListing(io, { declared, agents, registry, roots, paused, now });
+	actOnListing(io, {
+		declared,
+		agents,
+		registry,
+		roots,
+		paused: control.paused,
+		now,
+	});
 	/** @type {Seen} */
 	const seen = {
 		agents,

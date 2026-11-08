@@ -52,7 +52,9 @@ const { writeFd } = require("./write-fd.js");
  * @typedef {import("./overflow-budget-core.js").RunningRun} RunningRun
  * @typedef {import("./overflow-budget-core.js").Budget} Budget
  * @typedef {ReturnType<typeof readEveryOverflowLookup>} OverflowLookup
- * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null}} SeatBudget
+ * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null,
+ *   runningReadAt: number|null}} SeatBudget `runningReadAt`, ms, when the
+ *   listing that counted `running` was read; null where it carried no time
  */
 
 /* The API's refusal for credit, as the harness writes it into a transcript:
@@ -239,24 +241,28 @@ function priceSessions(seat, lookup) {
 }
 
 /**
- * The key's sessions the listing holds running.
+ * The key's sessions the listing holds running, and when it was read.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
  * @param {() => import("./agent-liveness.js").Listing} readAgents
- * @returns {string[]}
+ * @returns {{sessionIds: string[], readAt: number|null}}
  * @throws where the listing cannot be read: a key's running sessions must not
  *   read as none
  */
 function readRunning(seat, lookup, readAgents) {
 	const listing = readAgents();
 	if (listing.why !== undefined) throw new Error(listing.why);
-	return listing.agents
-		.filter(
-			(a) =>
-				!isTerminalAgent(a) &&
-				lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar === seat.keyVar,
-		)
-		.map((a) => a.sessionId);
+	return {
+		sessionIds: listing.agents
+			.filter(
+				(a) =>
+					!isTerminalAgent(a) &&
+					lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar ===
+						seat.keyVar,
+			)
+			.map((a) => a.sessionId),
+		readAt: listing.readAt ?? null,
+	};
 }
 
 /**
@@ -296,15 +302,13 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	let running;
 	let settled;
 	let log;
+	let listed;
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
 		settled = settleChainsOnce(ledger);
-		running = priceRunning(
-			readRunning(seat, lookup, readAgents),
-			ledger,
-			settled,
-		);
+		listed = readRunning(seat, lookup, readAgents);
+		running = priceRunning(listed.sessionIds, ledger, settled);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
@@ -321,6 +325,7 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 		}),
 		readFailure: log.failure,
 		lastAttemptAt: log.lastAttemptAt,
+		runningReadAt: listed.readAt,
 	};
 }
 

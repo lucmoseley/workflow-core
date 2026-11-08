@@ -511,6 +511,7 @@ describe("stop and status", () => {
 				exhausted: false,
 				noLaunchLeft: false,
 				running: 0,
+				runningReadAt: expect.any(Number),
 			},
 		]);
 		expect(json.seats.readings).toEqual([
