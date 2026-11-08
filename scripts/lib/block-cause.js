@@ -10,8 +10,15 @@
  *
  * PERMISSION IS TESTED FIRST: a new prompt can open over a stale question
  * `needs` (#2358 F3).
+ *
+ * LOCKED_OUT IS TESTED BEFORE QUESTION (#4228): a session every one of whose
+ * tool calls a guard refused, at least one for want of a guard that could
+ * judge it, writes `needs input:` over a fault no answer of the founder's
+ * mends. A session with a passed call reads on as before, its lockout, if any,
+ * met after it reached its ticket (#4202's ruling).
  */
 
+const { LOCKOUT_TEXTS } = require("./core-fault.js");
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
 const { parseStatus } = require("./status-marker.js");
 
@@ -71,12 +78,18 @@ const API_NEEDS = new Set([
  * @typedef {"5-hour"|"weekly"} LimitBar  the bar a LIMIT's text names, where
  *   it names one
  * @typedef {"PERMISSION"|"QUESTION"|"LIMIT"|"API_ERROR"|"OTHER_DIALOG"
- *   |"RESUMED_IDLE"|"UNKNOWN"} Cause  RESUMED_IDLE is read from a `working`
- *   job by resumedIdleSince, not by blockCause (#2659)
+ *   |"LOCKED_OUT"|"RESUMED_IDLE"|"UNKNOWN"} Cause  RESUMED_IDLE is read from
+ *   a `working` job by resumedIdleSince, not by blockCause (#2659)
+ * @typedef {{tool_name: unknown, tool_input: unknown}} RefusedCall  the call
+ *   a lockout's first refusal answered, as the session made it
+ * @typedef {{refusal: string, call: RefusedCall|null}} Lockout  `refusal`,
+ *   that refusal's first line; `call`, null where its call is not in the
+ *   transcript
  * @typedef {{cause: Exclude<Cause,
- *   "API_ERROR"|"LIMIT"|"RESUMED_IDLE"|"UNKNOWN">}
+ *   "API_ERROR"|"LIMIT"|"LOCKED_OUT"|"RESUMED_IDLE"|"UNKNOWN">}
  *   | {cause: "LIMIT", bar?: LimitBar}
  *   | {cause: "API_ERROR", sub: ApiErrorKind}
+ *   | {cause: "LOCKED_OUT", lockout: Lockout}
  *   | {cause: "UNKNOWN", why: string}} Reading
  * @typedef {{row: unknown, job: unknown, tail: unknown}} Records
  *   `row`, the launch's `claude agents --json` row; `job`, its parsed
@@ -149,12 +162,84 @@ const textOf = (row) =>
 		.map((b) => b.text)
 		.join("\n");
 
+/* The head the harness gives a call a PreToolUse hook refused, and the
+ * command an exit-2 refusal's text names after it. */
+const REFUSAL_HEAD = /^PreToolUse:\S+ hook error: (\[[^\]\n]*\]: )?/;
+
+/**
+ * A tool result's text.
+ * @param {Record<string, any>} block
+ */
+function resultText(block) {
+	const { content } = block;
+	if (typeof content === "string") return content;
+	return Array.isArray(content)
+		? content
+				.filter((c) => c?.type === "text" && typeof c.text === "string")
+				.map((c) => c.text)
+				.join("\n")
+		: "";
+}
+
+/**
+ * A refusal's first line, past the head the harness gives it.
+ * @param {string} text
+ */
+const refusalLineOf = (text) =>
+	(
+		text
+			.replace(REFUSAL_HEAD, "")
+			.split("\n")
+			.find((l) => l.trim() !== "") ?? ""
+	).trim();
+
+/**
+ * Each tool result's text in `tail`, with the call it answers.
+ * @param {Record<string, any>[]} tail
+ * @returns {{text: string, call: RefusedCall|null}[]}
+ */
+function readResults(tail) {
+	/** @type {Map<unknown, RefusedCall>} */
+	const calls = new Map();
+	const results = [];
+	for (const r of tail)
+		for (const b of contentOf(r)) {
+			if (r.type === "assistant" && b?.type === "tool_use")
+				calls.set(b.id, { tool_name: b.name, tool_input: b.input });
+			else if (r.type === "user" && b?.type === "tool_result")
+				results.push({
+					text: resultText(b),
+					call: calls.get(b.tool_use_id) ?? null,
+				});
+		}
+	return results;
+}
+
+/**
+ * The session's lockout, read off its transcript: its first refusal for want
+ * of a guard that could judge the call, where every call's result is a hook's
+ * refusal. Null where one passed, or none is such a refusal.
+ * @param {Record<string, any>[]} tail
+ * @returns {Lockout|null}
+ */
+function readLockout(tail) {
+	const results = readResults(tail);
+	if (!results.every((r) => REFUSAL_HEAD.test(r.text))) return null;
+	const first = results.find((r) =>
+		LOCKOUT_TEXTS.some((t) => r.text.includes(t)),
+	);
+	return first
+		? { refusal: refusalLineOf(first.text), call: first.call }
+		: null;
+}
+
 /**
  * @typedef {{job: Record<string, any>, needs: string, detail: string,
  *   waiting: string, last: Record<string, any>|undefined,
- *   said: Record<string, any>}} Facts
+ *   said: Record<string, any>, lockout: Lockout|null}} Facts
  *   `waiting`, the row's `waitingFor` while its status is `waiting`; `last`,
- *   the last main-chain row; `said`, the last assistant row
+ *   the last main-chain row; `said`, the last assistant row; `lockout`,
+ *   readLockout's
  */
 
 /** @param {Facts} f */
@@ -178,6 +263,13 @@ const RULES = [
 			contentOf(f.last).some((b) => b?.type === "tool_use") &&
 			f.job.inFlight.tasks === 0,
 		{ cause: "PERMISSION" },
+	],
+	[
+		(f) => f.lockout !== null,
+		(f) => ({
+			cause: "LOCKED_OUT",
+			lockout: /** @type {Lockout} */ (f.lockout),
+		}),
 	],
 	[
 		(f) =>
@@ -248,6 +340,7 @@ function blockCause({ row, job, tail }) {
 		waiting: row.status === "waiting" ? (row.waitingFor ?? "") : "",
 		last: tail.at(-1),
 		said: tail.findLast((t) => t.type === "assistant") ?? {},
+		lockout: readLockout(tail),
 	};
 	const hit = RULES.find(([matches]) => matches(facts));
 	if (!hit) return { cause: "UNKNOWN", why: "no rule matched" };

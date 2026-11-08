@@ -62,9 +62,10 @@ const PARKED_STATE = "blocked";
  * @typedef {LoopLaunch & {jobId: string}} JobLaunch
  * @typedef {JobLaunch & {block: import("./block-act.js").Block}} BlockedLaunch
  * @typedef {import("./block-act.js").Act} Act
- * @typedef {{act: Act, whyEnded?: string, limitParks?: number}} ParkWhy  `act`,
- *   stop-and-park or park-at-morning; `limitParks`, a limit-cap park's count in
- *   a row, for the marker
+ * @typedef {{act: Act, whyEnded?: string, limitParks?: number,
+ *   hold?: {id: string, issue: number|null}}} ParkWhy  `act`, stop-and-park,
+ *   park-at-morning or attach-to-hold; `limitParks`, a limit-cap park's count in
+ *   a row, for the marker; `hold`, the repo hold the park is attached to
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {{tries: number, triedAt: number, nextAt: number,
  *   attachAt?: number, heldAt?: number}} Resumes  a launch's resumes after an
@@ -227,6 +228,11 @@ const PARKED_STATE = "blocked";
  * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold  a
  *   dispatch-ledger row on its issues, held past the window to `until` where
  *   given; whether it was written
+ * @property {(l: JobLaunch, lockout: import("./block-cause.js").Lockout,
+ *   now: number) => {hold: {id: string, issue: number|null}}|{why: string}}
+ *   holdLockedOut  attach its locked-out session to its checkout's probe
+ *   hold, raised where none stands (lib/repo-holds.js's holdLockedOut): the
+ *   hold, else why not
  * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
  *   each of its issues the `parked` label would not go on, with why
  * @property {(sessionId: string, numbers: number[], record: ParkRecord) =>
@@ -455,6 +461,7 @@ const buildBlock = (reading, since) => ({
 	cause: reading.cause,
 	...("sub" in reading ? { sub: reading.sub } : {}),
 	...("bar" in reading ? { bar: reading.bar } : {}),
+	...("lockout" in reading ? { lockout: reading.lockout } : {}),
 	since,
 });
 
@@ -692,8 +699,9 @@ const buildIdleResumeLine = (l, failed) =>
 /**
  * The loop log's line for a park it stopped, or could not; `brief`, the
  * issue comment's, each reason cut to its first line, never a stack (#3670).
- * @param {BlockedLaunch & {act?: Act, whyEnded?: string}} l  `whyEnded`, why a
- *   held session's wait ended
+ * @param {BlockedLaunch & {act?: Act, whyEnded?: string,
+ *   hold?: ParkWhy["hold"]}} l  `whyEnded`, why a held session's wait ended;
+ *   `hold`, the repo hold it is attached to
  * @param {"away"|"normal"} mode
  * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
  *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
@@ -711,7 +719,10 @@ function buildParkStopLine(
 	const tried = l.resumes ? `, ${l.resumes.tries} resumes` : "";
 	const morning = l.act === "park-at-morning" ? ", at the morning cut-off" : "";
 	const ended = l.whyEnded ? `, ${l.whyEnded}` : "";
-	const what = `${l.block.cause} park ${launchName(l)} (${mode} mode, blocked since ${iso(l.block.since)}${tried}${morning}${ended})`;
+	const held = l.hold
+		? `, attached to repo hold ${l.hold.id} (#${l.hold.issue})`
+		: "";
+	const what = `${l.block.cause} park ${launchName(l)} (${mode} mode, blocked since ${iso(l.block.since)}${tried}${morning}${ended}${held})`;
 	if (failed) return `could not stop ${what}: ${failed}`;
 	const labelled = labelledOf(l, unlabelled);
 	return [
@@ -800,12 +811,14 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 	io.log(buildParkStopLine(parking, mode, outcome));
 	io.comment(
 		l,
-		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
+		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${why.hold ? " The loop resumes it once the hold clears." : ""}${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
 	);
+	/* A park on a hold comes back through the hold's resume step, so its ledger
+	 * row is not released for a fresh launch to race it (#4228). */
 	return {
 		...l,
 		parkStopped: now,
-		...(mode === "away" ? { parkedAway: true } : {}),
+		...(mode === "away" && !why.hold ? { parkedAway: true } : {}),
 	};
 }
 
@@ -861,6 +874,29 @@ function stopPark(l, why, mode, seen) {
 		return l;
 	}
 	return parkOnceStopped(l, why, mode, seen);
+}
+
+/**
+ * Attach locked-out `l` to its checkout's probe hold, raised where none stands,
+ * then stop and park it there, its issues labelled and in its marker for the
+ * hold's resume step (#4228). Left as it is, logged, where the attach does not
+ * take, for the next tick to retry.
+ * @param {BlockedLaunch} l
+ * @param {"away"|"normal"} mode
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function parkLockedOut(l, mode, seen) {
+	const { lockout } = l.block;
+	if (!lockout) return l;
+	const held = seen.io.holdLockedOut(l, lockout, seen.now);
+	if ("why" in held) {
+		seen.io.log(
+			`could not attach locked-out ${launchName(l)} to its probe hold, the next tick retries: ${held.why}`,
+		);
+		return l;
+	}
+	return stopPark(l, { act: "attach-to-hold", hold: held.hold }, mode, seen);
 }
 
 /**
@@ -1832,6 +1868,7 @@ const ACTS = {
 		stopPark(l, { act: "stop-and-park" }, mode, seen),
 	"park-at-morning": (l, seen, { mode }) =>
 		stopPark(l, { act: "park-at-morning" }, mode, seen),
+	"attach-to-hold": (l, seen, { mode }) => parkLockedOut(l, mode, seen),
 	hold: (l, seen, { hold }) => hold(l, seen),
 	resume: (l, seen, { resume }) => resume(l, seen),
 	"handoff-relaunch": (l, seen) => handOff(l, seen),

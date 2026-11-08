@@ -22,7 +22,7 @@
  *   broken .git A, the other checkout A, the state's probe A, its parked
  *   resumed A, a stored hold left out of a dry run's preview A (the hold
  *   store read). Guard entry (#4226): raises and files A, attaches and
- *   resumes A.
+ *   resumes A. Locked out (#4228): raises, attaches, holds and resumes A.
  * - cleared repo hold (#3863): its raiser and attached resumed off a hand
  *   lift A (repo-hold.js lift).
  * - phone notice (#3871): one on raise, one on clear A (gh workflow).
@@ -395,12 +395,32 @@ ${body}`,
 					},
 			);
 
+		/* The probe runs the guard hook line the checkout registers, here one
+		 * that runs the shared tree's own entry. */
 		beforeEach(() => {
 			fs.mkdirSync(path.dirname(hooksFile()), { recursive: true });
-			fs.writeFileSync(hooksFile(), "{}\n");
+			fs.writeFileSync(
+				hooksFile(),
+				JSON.stringify({
+					hooks: {
+						PreToolUse: [
+							{
+								matcher: "Bash|Read",
+								hooks: [
+									{
+										type: "command",
+										command:
+											'node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js',
+									},
+								],
+							},
+						],
+					},
+				}),
+			);
 		});
 
-		it("stops launches, raises the hold and files its issue on its first tick, off the shared tree's own entry", async () => {
+		it("stops launches, raises the hold and files its issue on its first tick, off the checkout's own hook line", async () => {
 			writeGuardEntry(Failing);
 
 			const broken = await tickRun(serveClose().gh);
@@ -481,6 +501,167 @@ ${body}`,
 			expect(readLines(at("calls"))).toContain(
 				`--bg --resume s-job7 ${HOLD_PROMPT}`,
 			);
+		});
+
+		describe("sessions its guards lock out (#4228)", () => {
+			const Refusal =
+				"guard-x could not judge this call, and it fails closed: Lexer is not defined";
+			const healed = () => at("guard-healed");
+			/* The entry lets the benign Read through and refuses every Bash call
+			 * as a core it could not run would, until healed. */
+			const writeLockingEntry = () => {
+				fs.mkdirSync(path.dirname(guardEntry()), { recursive: true });
+				fs.writeFileSync(
+					guardEntry(),
+					`const fs = require("node:fs");
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+fs.appendFileSync(${JSON.stringify(at("guard-runs"))}, JSON.stringify({ cwd: process.cwd(), dir: process.env.CLAUDE_PROJECT_DIR, payload }) + "\\n");
+if (payload.tool_name === "Bash" && !fs.existsSync(${JSON.stringify(healed())}))
+	process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: ${JSON.stringify(Refusal)} } }));
+`,
+				);
+			};
+			/* A locked-out session's transcript and job record, as the 3 Nov
+			 * sessions wrote them: every call refused, then needs input:. */
+			const seedLockedOut = (job: string) => {
+				const transcript = at(`${job}.jsonl`);
+				const call = {
+					type: "assistant",
+					message: {
+						content: [
+							{
+								type: "tool_use",
+								id: `t-${job}`,
+								name: "Bash",
+								input: { command: `node scripts/claim-issue.js ${job}` },
+							},
+						],
+					},
+				};
+				const refused = {
+					type: "user",
+					message: {
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: `t-${job}`,
+								is_error: true,
+								content: `PreToolUse:Bash hook error: ${Refusal}`,
+							},
+						],
+					},
+				};
+				const asked = {
+					type: "assistant",
+					message: {
+						content: [{ type: "text", text: "needs input: guards refuse" }],
+					},
+				};
+				fs.writeFileSync(
+					transcript,
+					`${[call, refused, asked].map((r) => JSON.stringify(r)).join("\n")}\n`,
+				);
+				const file = path.join(seat, "jobs", job, "state.json");
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+				fs.writeFileSync(
+					file,
+					JSON.stringify({
+						state: "blocked",
+						detail: "guards refuse every call",
+						tempo: "blocked",
+						inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
+						needs: "guards refuse every call",
+						cliVersion: "2.1.309",
+						sessionId: `s-${job}`,
+						cwd: repo,
+						linkScanPath: transcript,
+					}),
+				);
+			};
+			const isResume = (line: string) => line.startsWith("--bg");
+			const launch = (job: string, issue: number) => ({
+				root: repo,
+				issues: [issue],
+				prompt: `/implement ${issue}`,
+				seat,
+				jobId: job,
+				sessionId: `s-${job}`,
+				launchedAt: Date.now() - 10 * 60_000,
+				finishedAt: null,
+			});
+
+			it("parks them on one raised probe hold, keeps it while a kept call is refused, and resumes them through admission on the lift", async () => {
+				const close = serveClose();
+				writeLockingEntry();
+				seedLockedOut("job7");
+				seedLockedOut("job8");
+				fs.writeFileSync(
+					stateFile(),
+					JSON.stringify({ launches: [launch("job7", 7), launch("job8", 8)] }),
+				);
+				writeClaudeStub(at("claude"), [
+					buildAgentsBranch([
+						buildJobRow("job7", "blocked"),
+						buildJobRow("job8", "blocked"),
+					]),
+					buildStopBranch(at("stops")),
+				]);
+
+				const locked = await tickOnState(close.gh);
+
+				expect(locked.stdout).toContain(
+					`repo hold raised: probe in ${repo}: repair the shared tree: guard lockout: ${Refusal}`,
+				);
+				expect(locked.stdout).toMatch(/session job7; 1 attached/);
+				expect(locked.stdout).toMatch(/session job8; 2 attached/);
+				expect(locked.stdout).toMatch(
+					/stopped LOCKED_OUT park .* attached to repo hold probe \(#77\)\); labelled parked: #7/,
+				);
+				expect(locked.stdout).not.toContain("QUESTION park");
+				expect(fs.existsSync(at("dispatches"))).toBe(false);
+				const filed = readFiled();
+				expect(filed).toHaveLength(1);
+				expect(filed[0]?.body).toContain(`guard lockout: ${Refusal}`);
+
+				const still = await tickOnState(close.gh);
+
+				expect(still.stdout).toContain(
+					`repo hold probe: a kept call still fails: refused a replayed Bash: ${Refusal}`,
+				);
+				expect(still.stdout).not.toContain("repo hold cleared");
+				const replays = guardRuns().filter(
+					(r) => r.payload.tool_name === "Bash",
+				);
+				expect(replays[0]?.payload).toMatchObject({
+					session_id: "refill-loop-guard-probe",
+					tool_input: { command: "node scripts/claim-issue.js job7" },
+				});
+
+				fs.writeFileSync(healed(), "");
+				fakeResumeClaude("job7", [LISTED]);
+				stub(
+					"allowance.js",
+					"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
+				);
+				updateControl({ stopRequested: false });
+				const running = run(2, { WFC_GH: close.gh });
+				await polled(
+					() => readLines(at("calls")).filter(isResume).length === 2,
+					"the resumes never came",
+				);
+				requestStop();
+				const lifted = await settled(running, "run with healed guards");
+
+				expect(lifted.stdout).toContain("repo hold cleared: probe in");
+				expect(readLines(at("calls"))).toEqual(
+					expect.arrayContaining([
+						`--bg --resume s-job7 ${HOLD_PROMPT}`,
+						`--bg --resume s-job8 ${HOLD_PROMPT}`,
+					]),
+				);
+				expect(fs.existsSync(markerPath("s-job7"))).toBe(false);
+				expect(fs.existsSync(markerPath("s-job8"))).toBe(false);
+			});
 		});
 	});
 });

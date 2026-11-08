@@ -868,6 +868,7 @@ const DRY_BLOCK_ACTS = {
 	moveSession: () => ({ failed: DRY_RUN_WHY }),
 	removeJobRecord: () => DRY_RUN_WHY,
 	writeLedgerHold: () => false,
+	holdLockedOut: () => ({ why: DRY_RUN_WHY }),
 	labelParked: (l) => l.issues.map((n) => ({ n, why: DRY_RUN_WHY })),
 	recordParked: () => DRY_RUN_WHY,
 	unparkSession: () => DRY_RUN_WHY,

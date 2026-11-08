@@ -116,6 +116,7 @@ const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const {
 	attachProbeParks,
+	holdLockedOut,
 	dropLiftedJobs,
 	readLiftedHolds,
 	readTickHolds,
@@ -856,6 +857,8 @@ const blockIo = (served) => ({
 		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	hasRepliedSince: (l, at) =>
 		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
+	holdLockedOut: (l, { refusal, call }, now) =>
+		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,
 	recordParked,
 	readJobCwd,
