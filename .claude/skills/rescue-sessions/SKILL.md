@@ -104,8 +104,8 @@ the launch before it (mantahostels#2553).
 
 Watch with one backgrounded beat. A beat checks the issue states and each dead
 session's worktree's `git status --porcelain | grep -c '^ M'`; the dirty count
-falling is the progress signal that matters. `claude agents --json` reads ONE plan, so scope it
-to the destination dir.
+falling is the progress signal that matters. `node scripts/list-sessions.js` lists every
+plan's sessions, each under its config dir; read the destination dir's rows.
 
 ## Takeover: one frozen session
 
