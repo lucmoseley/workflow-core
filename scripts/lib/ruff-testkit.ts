@@ -34,7 +34,7 @@ export function writeRuffStub(file: string, argsFile: string, exit = 0): void {
 		file,
 		`#!${process.execPath}\nconst ARGS = ${JSON.stringify(argsFile)};\n${STUB}process.exit(${exit});\n`,
 	);
-	fs.chmodSync(file, 0o755);
+	fs.chmodSync(file, 0o700);
 }
 
 /**
@@ -56,7 +56,7 @@ console.error("stub syntax fault"); process.exit(2);`,
 
 export function writeFailingRuffStub(file: string, failure: RuffFailure): void {
 	fs.writeFileSync(file, `#!${process.execPath}\n${FAILURE_BODY[failure]}\n`);
-	fs.chmodSync(file, 0o755);
+	fs.chmodSync(file, 0o700);
 }
 
 /** Each stub invocation's argv, in call order. */

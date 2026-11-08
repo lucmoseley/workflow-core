@@ -1,6 +1,6 @@
 {
 	"recordedBy": "node scripts/record-claude-responses.js",
-	"harness": "2.1.318",
+	"harness": "2.1.319",
 	"responses": {
 		"copy": {
 			"resumed": "5e55101d",
@@ -17,6 +17,12 @@
 		"continued": {
 			"resumed": "5e55101d",
 			"stdout": "backgrounded · 5e55101d\n  claude agents             list sessions\n  claude attach 5e55101d    open in this terminal\n  claude logs 5e55101d      show recent output\n  claude stop 5e55101d      stop this session\n",
+			"stderr": "",
+			"startedAs": "5e55101d"
+		},
+		"ownId": {
+			"resumed": "5e55101d",
+			"stdout": "backgrounded · 5e55101d · a recorded session\n  claude agents             list sessions\n  claude attach 5e55101d    open in this terminal\n  claude logs 5e55101d      show recent output\n  claude stop 5e55101d      stop this session\n",
 			"stderr": "",
 			"startedAs": "5e55101d"
 		}

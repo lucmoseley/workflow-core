@@ -34,7 +34,7 @@ interface Running {
 const {
 	SUITE_LADDER_MEASURED_AT,
 	SUITE_RESTING_MB,
-	WRAPPER_ARGV0,
+	isNextRunnerLine,
 	readCarriedWeightOf,
 	readPs,
 	runningSuites,
@@ -42,7 +42,7 @@ const {
 } = require("./suite-ladder.js") as {
 	SUITE_LADDER_MEASURED_AT: { files: number };
 	SUITE_RESTING_MB: Record<number, number>;
-	WRAPPER_ARGV0: RegExp;
+	isNextRunnerLine: (sub: "build" | "dev", line: string) => boolean;
 	readCarriedWeightOf: (pid: number | null) => Weight | null;
 	readPs: () => { ok: true; rows: PsRow[] } | { ok: false; error: string };
 	runningSuites: (
@@ -131,8 +131,12 @@ describe("runningSuites, the runs `ps` shows (mantahostels#1906, #2560)", () => 
 				]),
 			),
 		).toEqual({ total: 0, watchers: 0, whole: 0, workers: 0 });
-		expect(WRAPPER_ARGV0.test("/usr/bin/zsh x")).toBe(true);
-		expect(WRAPPER_ARGV0.test("node x")).toBe(false);
+		expect(
+			isNextRunnerLine("build", "/usr/bin/zsh /r/node_modules/.bin/next build"),
+		).toBe(false);
+		expect(
+			isNextRunnerLine("build", "node /r/node_modules/.bin/next build"),
+		).toBe(true);
 	});
 
 	it("counts a line the other-runner reader names as a whole one-shot (#330)", () => {

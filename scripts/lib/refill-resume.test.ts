@@ -11,6 +11,8 @@
  * starting, or run a move's job on a key unrecorded.
  */
 import { describe, expect, it } from "vitest";
+import { FAKE_COPY } from "./bg-resume-fake";
+import { MODEL } from "./refill-decide.js";
 import { resumeSteps } from "./refill-resume.js";
 import {
 	ANSWERS,
@@ -21,6 +23,7 @@ import {
 	JOB,
 	KEY_VAR,
 	type Picks,
+	SAVED_FLAGS,
 	SESSION,
 } from "./resume-io-fake";
 
@@ -57,6 +60,13 @@ describe("readResumeTarget", () => {
 		expect(
 			steps.readResumeTarget({ ...LAUNCH, jobId: JOB } as unknown as JobLaunch),
 		).toEqual(IDS);
+	});
+
+	it("carries the launch flags its job record saved (#4098)", () => {
+		const { steps } = fakeIo({ readJobRecord: "saved" });
+		expect(
+			steps.readResumeTarget({ ...LAUNCH, jobId: JOB } as unknown as JobLaunch),
+		).toEqual({ ...IDS, flags: SAVED_FLAGS });
 	});
 
 	it("reads no job record for a launch naming no job, its target the checkout", () => {
@@ -156,6 +166,179 @@ describe("resumeStopped", () => {
 		expect(lines).toContain(
 			`pass markers of ${SESSION} not moved: ${ANSWERS.movePassMarkers.live}`,
 		);
+	});
+});
+
+describe("a copy's original retired (#4098)", () => {
+	const Name = ANSWERS.sessionName.named.name;
+	const CopyNote = ANSWERS.runClaude.copy.stderr.trim();
+
+	it("names the copy after its original and stops and removes the original's job row", () => {
+		const { steps, callsTo } = fakeIo({
+			runClaude: ["copy", "removed"],
+			readJobRecord: ["copyWorking", "working"],
+			hasJobRecord: "present",
+			sessionName: "named",
+		});
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
+			failed: null,
+			jobId: FAKE_COPY,
+			sessionId: COPY_SESSION,
+			copy: true,
+			why: CopyNote,
+		});
+		expect(callsTo("writeJobName")).toEqual([[SEAT, FAKE_COPY, Name]]);
+		expect(callsTo("stop")).toEqual([[SEAT, JOB]]);
+		expect(callsTo("runClaude").map(([argv]) => argv)[1]).toEqual(["rm", JOB]);
+	});
+
+	it("leaves a job row naming another session where the original's would be", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: ["copyWorking", "otherSession"],
+			hasJobRecord: "present",
+		});
+		steps.resumeStopped(LAUNCH, PROMPT, IDS);
+		expect(callsTo("stop")).toEqual([]);
+		expect(callsTo("runClaude")).toHaveLength(1);
+	});
+
+	it("keeps an original it could not stop, and a copy it could not name, logging both", () => {
+		const { steps, callsTo, lines } = fakeIo({
+			readJobRecord: ["copyWorking", "working"],
+			hasJobRecord: "present",
+			stop: "busy",
+			sessionName: "named",
+			writeJobName: "unwritable",
+		});
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS).failed).toBeNull();
+		expect(callsTo("runClaude")).toHaveLength(1);
+		expect(lines).toContain(
+			`copy ${FAKE_COPY} of ${SESSION} not named: ${ANSWERS.writeJobName.unwritable}`,
+		);
+		expect(lines).toContain(
+			`original ${JOB} of copy ${FAKE_COPY} not retired: its job ${JOB} not confirmed stopped: ${ANSWERS.stop.busy.why}`,
+		);
+	});
+});
+
+describe("resumeOwnId (#4098)", () => {
+	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
+
+	it("stops and removes a killed job, then resumes it under its own id with the flags it saved", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: ["saved", "saved", "working"],
+			hasJobRecord: "present",
+			runClaude: ["removed", "ownId"],
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS)).toEqual({
+			failed: null,
+			jobId: JOB,
+			sessionId: SESSION,
+			copy: false,
+		});
+		expect(callsTo("stop")).toEqual([[SEAT, JOB]]);
+		expect(argvs(callsTo("runClaude"))).toEqual([
+			["rm", JOB],
+			["--bg", "--resume", SESSION, ...SAVED_FLAGS, PROMPT],
+		]);
+		expect(callsTo("writeJobName")).toEqual([]);
+	});
+
+	it("resumes with the loop's model and its transcript's name where its record saved no flags", () => {
+		const { steps, callsTo, lines } = fakeIo({
+			readJobRecord: ["working", "working", "working"],
+			hasJobRecord: "present",
+			runClaude: ["removed", "ownId"],
+			sessionName: "named",
+		});
+		steps.resumeOwnId(LAUNCH, PROMPT, IDS);
+		expect(argvs(callsTo("runClaude"))[1]).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			"--model",
+			MODEL,
+			"--name",
+			ANSWERS.sessionName.named.name,
+			PROMPT,
+		]);
+		expect(lines.join("\n")).toContain(
+			`no saved launch flags read for ${SESSION}`,
+		);
+	});
+
+	it("names the copy the harness still starts, its original's row gone already", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: ["saved", "saved", "copyWorking"],
+			hasJobRecord: ["present", "present", "none"],
+			runClaude: ["removed", "copy"],
+			sessionName: "named",
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS)).toMatchObject({
+			jobId: FAKE_COPY,
+			copy: true,
+		});
+		expect(callsTo("writeJobName")).toEqual([
+			[SEAT, FAKE_COPY, ANSWERS.sessionName.named.name],
+		]);
+		expect(callsTo("stop")).toEqual([[SEAT, JOB]]);
+	});
+
+	it("takes the flags read before an earlier try removed its record over any read now", () => {
+		const flags = ["--model", "sonnet"];
+		const { steps, callsTo, lines } = fakeIo({
+			readJobRecord: "working",
+			runClaude: "ownId",
+		});
+		steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
+		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			...flags,
+			PROMPT,
+		]);
+		expect(lines.join("\n")).not.toContain("no saved launch flags");
+	});
+
+	it("stops what a failed resume may still be starting under its id", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: "saved",
+			hasJobRecord: ["present", "present", "none"],
+			runClaude: ["removed", "noJob"],
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS).failed).toContain(
+			"the launcher never said what it started",
+		);
+		expect(callsTo("stop")).toEqual([
+			[SEAT, JOB],
+			[SEAT, JOB],
+		]);
+	});
+
+	it("resumes nothing where the killed job is not confirmed stopped", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: "saved",
+			hasJobRecord: "present",
+			stop: "busy",
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS)).toEqual({
+			failed: `its job ${JOB} not confirmed stopped: ${ANSWERS.stop.busy.why}`,
+		});
+		expect(callsTo("runClaude")).toEqual([]);
+	});
+
+	it("stops and removes nothing where the resume's auth would not bill the subscription", () => {
+		const { steps, callsTo } = fakeIo({
+			authRefusal: "refused",
+			readJobRecord: "saved",
+			hasJobRecord: "present",
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS)).toEqual({
+			failed: ANSWERS.authRefusal.refused,
+		});
+		expect(callsTo("stop")).toEqual([]);
+		expect(callsTo("runClaude")).toEqual([]);
 	});
 });
 

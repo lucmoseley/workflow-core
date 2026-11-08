@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { COPY_WHY } from "./bg-resume-fake";
 import { readRecentEntries } from "./dispatch-ledger.js";
 import {
 	adoptLaunching,
@@ -503,6 +504,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			jobId: "j-9",
 			sessionId: "s-copy",
 			copy: true,
+			why: COPY_WHY,
 		}));
 		expect(woken.out.launched[0]).not.toHaveProperty("pastSessionIds");
 		expect(copied.out.launched[0]).toMatchObject({
@@ -530,7 +532,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		});
 		expect(out.launched.map((l) => l.jobId)).toEqual(["j-9", "fresh"]);
 		expect(lines).toEqual([
-			"resumed parked design-vault /implement 1 as job j-9",
+			"resumed parked design-vault /implement 1, woken in place",
 		]);
 	});
 
@@ -590,6 +592,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			jobId: "j-9",
 			sessionId: null,
 			copy: true,
+			why: COPY_WHY,
 		}));
 		expect(fresh).toEqual([]);
 		expect(out.refused).toEqual([]);
@@ -724,7 +727,13 @@ describe("the members of a batch a kill cut off (#4180)", () => {
 
 	it("tracks a parked member's resume the job store shows, writing the ledger row the kill beat", () => {
 		const { launched, recorded, looked } = adopt([parked], {
-			found: { failed: null, jobId: "c-1", sessionId: "s-c", copy: true },
+			found: {
+				failed: null,
+				jobId: "c-1",
+				sessionId: "s-c",
+				copy: true,
+				why: COPY_WHY,
+			},
 		});
 		expect(looked).toEqual([[target, NOW]]);
 		expect(launched).toEqual([

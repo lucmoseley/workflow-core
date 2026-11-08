@@ -6,6 +6,8 @@
  * #3381).
  */
 
+const { scriptPath } = require("./script-path.js");
+
 const LOOP_PROMPT_PREFIX = "[refill loop] ";
 
 /* #2359's wording. */
@@ -15,8 +17,11 @@ const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and
 const LOST =
 	"Your in-flight subagents, background tasks and monitors are gone.";
 const LIMIT_LOSS = `${LOST} Before repeating your last tool call, check whether it already took effect, then continue your task.`;
+/* A session a restart killed may come back as a copy beside its original, and
+ * either may be revived (#4098): the claim decides which carries on. */
+const TWIN_CHECK = `A copy or the original of this session may be live beside you: first re-run \`node ${scriptPath("claim-issue.js")} <n>\` on each issue you hold, and where it refuses on a live holder, that session carries the work, so make no other tool call and end your turn saying so.`;
 /* A session a distro restart killed mid-work (#3880). */
-const BOOT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was running. ${LIMIT_LOSS}`;
+const BOOT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was running. ${TWIN_CHECK} ${LIMIT_LOSS}`;
 /* A session its seat's limit stopped, resumed on that seat (#3735). */
 const LIMIT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit stopped you and has since reset, so you were resumed on the same seat. ${LIMIT_LOSS}`;
 /* A session its seat's limit stopped, moved to another seat under its own id
@@ -30,7 +35,7 @@ const PARK_STEPS =
 /* A parked session resumed by a normal-mode loop (#3621). */
 const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. ${PARK_STEPS}`;
 /* A session a restart killed on a block the loop could not read (#3980). */
-const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was blocked, and the loop could not read on what, so you may be waiting on the founder. ${LOST} ${PARK_STEPS} Where you continue, first check whether your last tool call already took effect.`;
+const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was blocked, and the loop could not read on what, so you may be waiting on the founder. ${LOST} ${PARK_STEPS} Where you continue, first re-run \`node ${scriptPath("claim-issue.js")} <n>\` on each issue you hold, since a copy or the original of this session may be live beside you: where it refuses on a live holder, that session carries the work, so make no other tool call and end your turn saying so. Then check whether your last tool call already took effect.`;
 /* A session the loop stopped on a permission prompt, whose prompt went with the
  * stop (#3949). */
 const PARKED_PERMISSION_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop stopped you on a permission prompt and the founder may be back. Repeat the tool call that raised it, a subagent's by making it yourself, so the prompt comes back to him, then continue your task. Where you cannot repeat it, post a \`**Hand-off:**\` on the issue saying why, hand him the call as a literal \`!\` line or fenced text and what to send back, and end \`needs input: <the call> — waits on you: #N\` under your \`waits on you:\` block.`;

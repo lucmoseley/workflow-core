@@ -19,6 +19,7 @@ import { makeProcRoot, statLine } from "./proc-fake";
 import { readProcTable, readUptime, USER_HZ } from "./proc-table.js";
 import {
 	isGroupDead,
+	killGroup,
 	orphansReapToInit,
 	startOrphan,
 	waitFor,
@@ -263,12 +264,7 @@ describe("a real orphaned guard", () => {
 	let dir: string;
 	let pid = 0;
 	afterEach(() => {
-		if (pid && !isGroupDead(pid))
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* gone */
-			}
+		if (pid) killGroup(pid);
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -280,7 +276,7 @@ describe("a real orphaned guard", () => {
 			const script = path.join(dir, "scripts", name);
 			fs.mkdirSync(path.dirname(script));
 			fs.writeFileSync(script, "( while :; do sleep 1; done ) &\nsleep 300\n");
-			pid = startOrphan(script);
+			pid = startOrphan("bash", script);
 			const forked = () =>
 				[...(readProcTable("/proc")?.procs.values() ?? [])].some(
 					(p) => p.pgid === pid && p.pid !== pid && p.argv[0] === "bash",

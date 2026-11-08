@@ -1092,7 +1092,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		]);
 		expect(readLines(at("dispatches"))).toEqual([]);
 		expect(r.stdout).toContain(
-			`resumed parked ${path.basename(repo)} /implement 5 as job ${Job}`,
+			`resumed parked ${path.basename(repo)} /implement 5, woken in place`,
 		);
 		expect(launches().at(-1)).toMatchObject({
 			root: repo,

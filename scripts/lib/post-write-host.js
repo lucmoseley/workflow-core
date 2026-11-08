@@ -72,7 +72,7 @@ function buildHostPorts(_root, log) {
 		digest: (root, file) => {
 			const got = readBytes(abs(root, file));
 			if (got.state === "read")
-				return crypto.createHash("sha1").update(got.data).digest("hex");
+				return crypto.createHash("sha256").update(got.data).digest("hex");
 			/* Null: unread before the format, no reformat is reported; unread
 			 * after, one is (mantahostels#103 §6). */
 			if (got.state === "unreadable")
