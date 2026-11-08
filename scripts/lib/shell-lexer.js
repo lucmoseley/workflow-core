@@ -138,6 +138,14 @@ class Lexer {
 		this.push(dollars % 2 ? "E" : "S");
 	}
 
+	/** The sentinel for a BARE span: a sentinel byte typed outside every
+	 * quote, recorded as written, so no typed text reads as a span (#4278).
+	 * @param {string} written */
+	bare(written) {
+		this.spans.push(written);
+		return `${QUOTED}${this.spans.length - 1}\x01`;
+	}
+
 	/** Close the innermost frame on its closing character; closing the
 	 * outermost records the span and blanks it.
 	 * @param {string} c */
@@ -191,6 +199,7 @@ class Lexer {
 		this.escaped = false;
 		const c = text.charAt(i);
 		if (this.frames) this.span += c;
+		else if (c === "\x01") this.out += this.bare("\\\x01");
 		else if (c !== "\n") this.out += `\\${c}`;
 		return i + 1;
 	}
@@ -208,7 +217,7 @@ class Lexer {
 			i = nl;
 			this.inComment = false;
 		}
-		const j = indexOfAny(text, "'\"\\#", i);
+		const j = indexOfAny(text, "'\"\\#\x01", i);
 		if (j < 0) {
 			this.out += text.slice(i);
 			return -1;
@@ -220,6 +229,7 @@ class Lexer {
 			if (isWordStart(this.out)) this.inComment = true;
 			else this.out += "#";
 		} else if (c === "\\") this.escaped = true;
+		else if (c === "\x01") this.out += this.bare(c);
 		else this.openQuote(c, p);
 		return j + 1;
 	}
@@ -399,9 +409,11 @@ class Lexer {
 	}
 
 	/** The masked text so far. An UNTERMINATED quote is left alone: the rest
-	 * of the text is literal. */
+	 * of the text is literal, each sentinel byte in it recorded as bare. */
 	masked() {
-		return this.frames ? this.prefix + this.quote + this.span : this.out;
+		if (!this.frames) return this.out;
+		const tail = this.span.replaceAll("\x01", (c) => this.bare(c));
+		return this.prefix + this.quote + tail;
 	}
 }
 

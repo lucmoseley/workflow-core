@@ -2010,6 +2010,24 @@ describe("the unresolved-tree record's fourth field (#320)", () => {
 		expect(asWritten(`a${QUOTED}7\x01b`, [])).toBe("a<quoted>b");
 	});
 
+	it.each([
+		["inside a quoted span", 'echo "\x01QSTR\x010\x01" x'],
+		["outside every quote", "echo \x01QSTR\x010\x01 'x'"],
+		["escaped outside every quote", "echo \\\x01QSTR\x010\x01 'x'"],
+		["in a quote that never closes", "echo 'x' \"\x01QSTR\x010\x01"],
+	])("gives back a sentinel typed %s as typed (#4278)", (_where, command) => {
+		const parsed = parseCommand(command);
+		expect(asWritten(parsed.masked, parsed.spans)).toBe(command);
+	});
+
+	it("reads a word holding a typed sentinel byte as that byte (#4278)", () => {
+		const command = "echo a\x01QSTR\x010\x01b 'x'";
+		const { spans } = parseCommand(command);
+		expect(
+			walkMap(command, (c) => literal(c.words[1] ?? "", spans).text),
+		).toEqual(["a\x01QSTR\x010\x01b"]);
+	});
+
 	it("leaves the walker's other record at three fields", () => {
 		const r = walkGitRun(`cd ${BROKEN} && git checkout x`);
 		expect(r.logged).toHaveLength(1);

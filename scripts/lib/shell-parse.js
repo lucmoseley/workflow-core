@@ -18,6 +18,7 @@
 const {
 	QUOTED,
 	hasExpansion,
+	isBareSpan,
 	readSentinels,
 	literal,
 	unwrap,
@@ -770,24 +771,19 @@ function unmask(segment) {
 /**
  * Masked text as typed, each blanked span back inside its own quotes, for a
  * guard handing a command back to be re-issued (#519). A span index never
- * recorded is written `<quoted>` rather than guessed. Three passes, a
- * double-quoted span holding a single-quoted one's sentinel.
+ * recorded is written `<quoted>` rather than guessed. One pass: a span holds
+ * its text as typed, so a sentinel inside one was typed (#4278).
  * @param {string} text
  * @param {string[]} spans
  */
 function asWritten(text, spans) {
-	let s = text;
-	for (let pass = 0; pass < 3 && s.includes(QUOTED); pass++) {
-		const { out, rest } = readSentinels(s, (lit, idx) => {
-			const span = idx === null ? undefined : spans[idx];
-			return {
-				text: lit + (span === undefined ? "<quoted>" : span + span.charAt(0)),
-				stepPast: true,
-			};
-		});
-		s = out + rest;
-	}
-	return s;
+	const { out, rest } = readSentinels(text, (lit, idx) => {
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: `${lit}<quoted>`, stepPast: true };
+		const close = isBareSpan(span) ? "" : span.charAt(0);
+		return { text: lit + span + close, stepPast: true };
+	});
+	return out + rest;
 }
 
 /**
