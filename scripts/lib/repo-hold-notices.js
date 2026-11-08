@@ -27,7 +27,7 @@
  * A PROBE HOLD THAT LIFTS AND COMES BACK is a new hold, as is one raised over a torn
  * record, so the checkout keeps when its probe hold last paged, and a new one's raise
  * waits out PROBE_COOL_DOWN_MS from that page before it goes, if the hold still
- * stands (#4148). One withheld sends no clear, as no raise went.
+ * stands (#4148).
  */
 
 const fs = require("node:fs");
@@ -81,10 +81,8 @@ const NOTICE_UNSEEN_MS = 15 * 60_000;
  * (a deleted issue, say) is no outage, and a lifted record must not wait on it. */
 const NOTICE_GIVE_UP_MS = 24 * 60 * 60_000;
 
-/* Measured off the loop's log, 6 to 8 Nov 2026 (#4148): each network outage lasted
- * one tick, the 29 Oct one about 7 min (#3899), and the shortest gap between two was
- * about 7 h. Under that gap, each outage still pages and a flapping one's re-raises
- * wait; where it sits under the gap is a guess. */
+/* Under the shortest gap between two outages in the loop's log, about 7 h (#4148);
+ * where it sits under the gap is a guess. */
 const PROBE_COOL_DOWN_MS = 6 * 60 * 60_000;
 
 /* The founder's limit is one page a cause, so one more try and no further. */
@@ -213,7 +211,6 @@ const writeProbePage = (file, page) =>
 		: writeFileAtomic(file, JSON.stringify(page), { mkdir: true });
 
 /**
- * The checkout's probe page record where `hold` is a probe hold, else null.
  * @param {RepoHold} hold
  * @param {string} root  its store's
  */

@@ -121,7 +121,6 @@ const serve = ({
 const PAST_NO_WORK = 31 * MIN;
 const PAST_UNSEEN = 16 * MIN;
 const PAST_GIVE_UP = 25 * 60 * MIN;
-/* Just past a probe hold's 6 h cool-down after its checkout's last page. */
 const PAST_COOL_DOWN = 6 * 60 * MIN + MIN;
 
 /* A background session that is not at work: no slot has worked. */
