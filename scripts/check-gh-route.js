@@ -40,315 +40,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { readWorktreeHead, shellFiles } = require("./lib/formatters.js");
-const { blankComments } = require("./lib/strip-comments.js");
-const { requiredGroup } = require("./lib/regex-group.js");
-const { isTestKind } = require("./lib/test-kind.js");
+const { judgeFile, kindOf } = require("./lib/gh-route.js");
+const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
 
 const ROOTS = ["scripts", ".claude/skills", ".husky", "hooks"];
-
-/**
- * @typedef {"SECOND-VAR" | "NODE-COPY" | "SHELL-BARE" | "PATH-STUB"} Shape
- * @typedef {{
- *   bin: string,
- *   envVar: string,
- *   primitive: string,
- *   fix: Record<Shape, string>,
- *   secondVar: RegExp,
- *   exempt: RegExp,
- *   envRead: RegExp,
- *   literalSpawn: RegExp,
- *   shellRun: RegExp,
- *   shellProbe: RegExp,
- *   joinBin: RegExp,
- * }} Route
- */
-
-/**
- * `calls` names what a Node program calls from the
- * primitive, `stubWith` how a test stubs the binary, and the exemplars a
- * Node, shell and test file on the route.
- * @param {{
- *   bin: string,
- *   envVar: string,
- *   primitive: string,
- *   secondVar: RegExp,
- *   calls: string,
- *   stubWith: string,
- *   exemplar: string,
- *   shellExemplar: string,
- *   stubExemplar: string,
- * }} spec
- * @returns {Route}
- */
-function buildRoute({
-	bin,
-	envVar,
-	primitive,
-	secondVar,
-	calls,
-	stubWith,
-	exemplar,
-	shellExemplar,
-	stubExemplar,
-}) {
-	return {
-		bin,
-		envVar,
-		primitive,
-		fix: {
-			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
-			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: <why>\` where \`${bin}\` is only text.`,
-			"PATH-STUB": `point ${envVar} at the stub${stubWith}, as ${stubExemplar} does.`,
-		},
-		secondVar,
-		exempt: new RegExp(`${bin}-route-exempt:\\s*\\w`),
-		envRead: new RegExp(`\\bprocess\\.env\\.${envVar}\\b(?!\\s*=[^=])`),
-		literalSpawn: new RegExp(
-			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${bin}\\1`,
-		),
-		shellRun: new RegExp(
-			`(?:^|\\$\\(|(?<!\\\\)\`|[;&|!]|\\b(?:then|do|else|elif|if|while|until|exec|time|command|timeout\\s+\\S+))\\s*${bin}\\s`,
-		),
-		shellProbe: new RegExp(
-			`\\b(?:command\\s+-v|type\\s+-P|which)\\s+${bin}\\b`,
-		),
-		joinBin: new RegExp(
-			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*(["'\`])${bin}\\2\\s*\\)`,
-			"g",
-		),
-	};
-}
-
-const ROUTES = [
-	buildRoute({
-		bin: "gh",
-		envVar: "WFC_GH",
-		primitive: "scripts/lib/gh.js",
-		secondVar: /\bWFC_\w+_GH\b/,
-		calls: "`gh`, `ghJson` or their kin",
-		stubWith:
-			", with `stubGhScript` or `stubGhRoutes` from scripts/lib/gh-stub.ts",
-		exemplar: "scripts/check-issue-orphans.js",
-		shellExemplar: "scripts/link-sub-issue.sh",
-		stubExemplar: "scripts/check-issue-orphans.test.ts",
-	}),
-	buildRoute({
-		bin: "claude",
-		envVar: "WFC_CLAUDE_BIN",
-		primitive: "scripts/lib/claude-bin.js",
-		secondVar: /\bWFC_\w+_CLAUDE(?:_BIN)?\b/,
-		calls: "`claudeBin()`",
-		stubWith: "",
-		exemplar: "scripts/run-mod-tests.js",
-		shellExemplar: "scripts/dispatch-sessions.sh",
-		stubExemplar: "scripts/run-mod-tests.test.ts",
-	}),
-];
-
-// A local helper's header: its name, then its parameter list (#3638).
-const HELPER =
-	/(?:\bfunction\s+(\w+)\s*|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?)(?:<[^<>]*>\s*)?\(((?:[^()]|\([^()]*\))*)\)/g;
-
-/**
- * `text` split at its commas outside brackets.
- * @param {string} text
- */
-function splitTopLevel(text) {
-	/** @type {string[]} */
-	const parts = [""];
-	let depth = 0;
-	for (const ch of text) {
-		if ("([{".includes(ch)) depth++;
-		else if (")]}".includes(ch)) depth--;
-		if (ch === "," && depth === 0) parts.push("");
-		else parts[parts.length - 1] += ch;
-	}
-	return parts;
-}
-
-/**
- * Where the helper body opening at `from` ends: its block's closing brace, or
- * the `;`, `,` or closing bracket ending an expression body.
- * @param {string} code
- * @param {number} from
- */
-function findBodyEnd(code, from) {
-	let depth = 0;
-	for (let i = from; i < code.length; i++) {
-		const ch = code.charAt(i);
-		if ("([{".includes(ch)) depth++;
-		else if (")]}".includes(ch)) {
-			depth--;
-			if (depth < 0 || (depth === 0 && ch === "}")) return i;
-		} else if (depth === 0 && (ch === ";" || ch === ",")) return i;
-	}
-	return code.length;
-}
-
-/**
- * The directories local helpers join their first parameter onto, a directory
- * that is itself a parameter read off its default, for each helper a call
- * passes `bin` first.
- * @param {string} bin
- * @param {string} code
- * @returns {string[]}
- */
-function parseHelperDirs(bin, code) {
-	return [...code.matchAll(HELPER)].flatMap((h) => {
-		const name = h[1] ?? h[2];
-		if (name === undefined)
-			throw new Error(`HELPER matched no name in ${JSON.stringify(h[0])}`);
-		const params = splitTopLevel(requiredGroup(h, 3, HELPER)).map((p) => {
-			const at = p.indexOf("=");
-			const id = at < 0 ? p : p.slice(0, at);
-			return {
-				id: id.replace(/[?]?:.*$/s, "").trim(),
-				fallback: at < 0 ? "" : p.slice(at + 1).trim(),
-			};
-		});
-		const first = params[0]?.id ?? "";
-		if (!/^[$\w]+$/.test(first)) return [];
-		const called = new RegExp(`\\b${name}\\s*\\(\\s*(["'\`])${bin}\\1`);
-		if (!called.test(code)) return [];
-		const start = (h.index ?? 0) + h[0].length;
-		const body = code.slice(start, findBodyEnd(code, start));
-		const join = new RegExp(
-			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*${first.replace(/\$/g, "\\$")}\\s*\\)`,
-			"g",
-		);
-		return [...body.matchAll(join)].map((m) => {
-			const dir = requiredGroup(m, 1, join);
-			return params.find((p) => p.id === dir)?.fallback || dir;
-		});
-	});
-}
-
-const PATH_PREPEND =
-	/`\$\{([^}]+)\}(?:\$\{path\.delimiter\}|:)\$\{process\.env\.PATH\b/g;
-
-const TS_FILE = /\.[cm]?tsx?$/;
-
-/** @param {string} expr */
-const normal = (expr) =>
-	expr.replace(/^path\.join\((.*)\)$/s, "$1").replace(/\s+/g, "");
-
-/**
- * @param {string} rel
- * @param {Set<string>} shell
- * @returns {"node" | "test" | "shell" | null}
- */
-function kindOf(rel, shell) {
-	if (shell.has(rel)) return "shell";
-	if (!/\.[cm]?[jt]sx?$/.test(rel)) return null;
-	return isTestKind(rel) ? "test" : "node";
-}
-
-/**
- * `binDirs` holds the directories a file PATH-STUB reads joins the route's
- * binary onto, itself or through a helper, and is empty for any other file.
- * @param {{ r: Route, rel: string, kind: "node" | "test" | "shell", binDirs: Set<string> }} at
- * @param {string} line
- * @returns {Shape | null}
- */
-function shapeOf({ r, rel, kind, binDirs }, line) {
-	if (r.secondVar.test(line)) return "SECOND-VAR";
-	if (kind === "shell")
-		return r.shellRun.test(line) || r.shellProbe.test(line)
-			? "SHELL-BARE"
-			: null;
-	if (
-		kind === "node" &&
-		(r.literalSpawn.test(line) || (rel !== r.primitive && r.envRead.test(line)))
-	)
-		return "NODE-COPY";
-	for (const m of line.matchAll(PATH_PREPEND))
-		if (binDirs.has(normal(requiredGroup(m, 1, PATH_PREPEND))))
-			return "PATH-STUB";
-	return null;
-}
-
-const MARKABLE = new Set(["SHELL-BARE", "PATH-STUB"]);
-
-/** @typedef {{ r: Route, shape: Shape, line: number, text: string }} Found */
-
-/**
- * One route's findings, `code` being `raw` with its comments blanked.
- * @param {Route} r
- * @param {string} rel
- * @param {"node" | "test" | "shell"} kind
- * @param {{ raw: string[], code: string[] }} lines
- * @returns {Found[]}
- */
-function routeFindings(r, rel, kind, { raw, code }) {
-	/** @type {Set<string>} */
-	const binDirs = new Set();
-	if (kind === "test" || TS_FILE.test(rel)) {
-		const text = code.join("\n");
-		for (const m of text.matchAll(r.joinBin))
-			binDirs.add(normal(requiredGroup(m, 1, r.joinBin)));
-		for (const dir of parseHelperDirs(r.bin, text)) binDirs.add(normal(dir));
-	}
-	const at = { r, rel, kind, binDirs };
-	/** @type {Found[]} */
-	const found = [];
-	for (const [i, line] of code.entries()) {
-		const shape = shapeOf(at, line);
-		if (!shape) continue;
-		const marked = raw
-			.slice(Math.max(0, i - 1), i + 1)
-			.some((l) => r.exempt.test(l));
-		if (marked && MARKABLE.has(shape)) continue;
-		found.push({
-			r,
-			shape,
-			line: i + 1,
-			text: line.trim().replace(/\s+/g, " "),
-		});
-	}
-	return found;
-}
-
-/**
- * @param {string} rel
- * @param {"node" | "test" | "shell"} kind
- * @param {string} source
- * @returns {Found[]}
- */
-function findingsIn(rel, kind, source) {
-	const raw = source.split("\n");
-	const code =
-		kind === "shell"
-			? raw.map((l) => (/^\s*#/.test(l) ? "" : l))
-			: blankComments(source).split("\n");
-	return ROUTES.flatMap((r) => routeFindings(r, rel, kind, { raw, code })).sort(
-		(a, b) => a.line - b.line,
-	);
-}
-
-/**
- * @param {string} root
- */
-function listFiles(root) {
-	/** @type {string[]} */
-	const out = [];
-	/** @param {string} rel */
-	const walk = (rel) => {
-		const at = path.join(root, rel);
-		if (!fs.existsSync(at)) return;
-		for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
-			if (entry.name === "node_modules") continue;
-			const name = path.posix.join(rel, entry.name);
-			if (entry.isDirectory()) walk(name);
-			else if (entry.isFile()) out.push(name);
-		}
-	};
-	for (const dir of ROOTS) walk(dir);
-	return out.sort();
-}
 
 runCheck({
 	name: "gh-route",
@@ -363,7 +61,7 @@ runCheck({
 	run(/** @type {Ctx} */ ctx) {
 		const rootFlag = ctx.value("--root");
 		const root = path.resolve(rootFlag ?? hostRoot());
-		const files = listFiles(root);
+		const files = listTreeFiles(root, ROOTS).sort();
 		/* A materialised tree's vendored marks are the index's .gitattributes,
 		 * never an unstaged edit to it (#3687). */
 		const shell = new Set(
@@ -372,34 +70,24 @@ runCheck({
 			}),
 		);
 		let scanned = 0;
-		/** @type {Map<string, string>} */
-		const fixes = new Map();
+		/** @type {Set<string>} */
+		const fixes = new Set();
 		for (const rel of files) {
 			const kind = kindOf(rel, shell);
 			if (!kind) continue;
 			scanned++;
 			const source = fs.readFileSync(path.join(root, rel), "utf8");
-			/** @type {Map<string, number>} */
-			const seen = new Map();
-			for (const { r, shape, line, text } of findingsIn(rel, kind, source)) {
-				const n = (seen.get(text) ?? 0) + 1;
-				seen.set(text, n);
-				fixes.set(`${r.bin} ${shape}`, r.fix[shape]);
-				ctx.fail(
-					shape,
-					`${rel}:${line} reaches \`${r.bin}\` off its one route (${shape}). Fix: ${r.fix[shape]}`,
-					{ file: rel, line, match: `${text} #${n}`, bin: r.bin },
-				);
+			for (const f of judgeFile(rel, kind, source)) {
+				fixes.add(f.fixLine);
+				ctx.fail(f.tag, f.message, {
+					file: rel,
+					line: f.line,
+					match: f.match,
+					bin: f.bin,
+				});
 			}
 		}
-		if (ctx.findings.length > 0)
-			ctx.say(
-				`  ${ctx.findings.length} second binary route(s): ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n${[
-					...fixes,
-				]
-					.map(([what, fix]) => `  ${what} Fix: ${fix}`)
-					.join("\n")}`,
-			);
+		saySites(ctx, "second binary route(s)", [...fixes]);
 		return {
 			okLine: `${scanned} file(s), every \`gh\` call on WFC_GH and every \`claude\` call on WFC_CLAUDE_BIN.`,
 			noun: "second binary route(s)",

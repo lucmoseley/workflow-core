@@ -30,6 +30,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { programSource } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
@@ -38,7 +39,7 @@ const { isJsTestFile } = require("./lib/test-kind.js");
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
 
-const ROOTS = ["scripts", path.join(".claude", "skills")];
+const ROOTS = ["scripts", ".claude/skills"];
 const NODE = String.raw`(?:"node"|'node'|\`node\`|process\.execPath)`;
 const SPAWN = new RegExp(
 	[
@@ -54,25 +55,6 @@ const EXEMPLAR = "scripts/check-cli-args.test.ts";
 const WHY = "spawns node on the program under test";
 const NOUN = "spawn(s) of node on the program under test";
 const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd, an async entry runInProcessAsync cannot load), state which in a \`spawn-kept: <why>\` comment on the call or in the file's header (#3458).`;
-
-/**
- * @param {string} dir
- * @param {string} rel
- * @returns {string[]} paths relative to the root, sorted
- */
-function listTestFiles(dir, rel) {
-	if (!fs.existsSync(dir)) return [];
-	/** @type {string[]} */
-	const out = [];
-	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-		if (entry.name === "node_modules") continue;
-		const at = path.join(dir, entry.name);
-		const name = path.posix.join(rel, entry.name);
-		if (entry.isDirectory()) out.push(...listTestFiles(at, name));
-		else if (entry.isFile() && isJsTestFile(entry.name)) out.push(name);
-	}
-	return out.sort();
-}
 
 /**
  * @param {string} source
@@ -200,13 +182,11 @@ runCheck({
 	against: {
 		profile: "test-spawn",
 		materialise: "blobs",
-		pathspecs: () => ROOTS.map((r) => r.split(path.sep).join("/")),
+		pathspecs: () => ROOTS,
 	},
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
-		const files = ROOTS.flatMap((r) =>
-			listTestFiles(path.join(root, r), r.split(path.sep).join("/")),
-		);
+		const files = listTreeFiles(root, ROOTS).filter(isJsTestFile);
 		for (const rel of files) {
 			/** @type {Record<string, number>} */
 			const seen = {};
@@ -221,10 +201,7 @@ runCheck({
 				});
 			}
 		}
-		if (ctx.findings.length > 0)
-			ctx.say(
-				`  ${ctx.findings.length} ${NOUN}: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${FIX}`,
-			);
+		saySites(ctx, NOUN, [`Fix: ${FIX}`]);
 		return {
 			okLine: `${files.length} test file(s), none spawning node on the program under test without a stated reason.`,
 			noun: NOUN,

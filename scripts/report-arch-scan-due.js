@@ -64,11 +64,9 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
-const { logError } = require("./lib/arbiter-core");
-const { failureReason, now } = require("./lib/check");
+const { failureReason } = require("./lib/check");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
-const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { requiredGroup } = require("./lib/regex-group");
 const { isTestKind } = require("./lib/test-kind");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
@@ -78,9 +76,10 @@ const {
 	UPSTREAM_TRACKER,
 } = require("./lib/workflow-core-config");
 const { takesLabel } = require("./lib/takes-label");
-const { execGit, gitCommonDirOrThrow } = require("./lib/git.js");
+const { execGit } = require("./lib/git.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
 const { buildStandaloneLine } = require("./lib/standalone-line.js");
+const { runDailyReading } = require("./lib/daily-reading.js");
 
 const RECORD = "docs/data/arch-scan-runs.jsonl";
 /* The spec's chosen values: the start date at #1309 Q4 (A), the threshold,
@@ -98,10 +97,6 @@ const PARTNER_COUNT = 3;
 const NUMSTAT_RE = /^(\d+|-)\t(\d+|-)\t(.*)$/s;
 const TITLE = "Architecture scan due";
 const LABEL = takesLabel("implement");
-const STAMP = ".arch-scan-read";
-const LOCK = ".arch-scan-read.lock";
-const DAY_MS = 24 * 3_600_000;
-const WHERE = "report-arch-scan-due";
 
 const CODE_EXT = /\.(?:js|mjs|cjs|ts|tsx|sh|py)$/;
 const GENERATED = /\.(?:d\.ts|min\.js)$/;
@@ -593,29 +588,13 @@ function fileRun() {
 }
 
 function daily() {
-	try {
-		const nowMs = now();
-		const dir = gitCommonDirOrThrow(hostRoot());
-		const gate = periodicReading(
-			{
-				stamp: path.join(dir, STAMP),
-				lock: path.join(dir, LOCK),
-				script: path.basename(__filename),
-				nowMs,
-				everyMs: DAY_MS,
-			},
-			fileRun,
-		);
-		writeFd(1, `${gate.ran ? gate.value : buildSkipLine(gate, "a day")}\n`);
-	} catch (e) {
-		/* Fails open (#1378): a session start never waits on, or fails for, a
-		 * count nobody asked for. */
-		logError(WHERE, e);
-		writeFd(
-			2,
-			`FAILED OPEN: ${failureReason(e)} — recorded in the guard-error log; the next day's reading retries.\n`,
-		);
-	}
+	runDailyReading({
+		where: "report-arch-scan-due",
+		stamp: ".arch-scan-read",
+		lock: ".arch-scan-read.lock",
+		script: path.basename(__filename),
+		read: fileRun,
+	});
 }
 
 /** @param {string} raw */
