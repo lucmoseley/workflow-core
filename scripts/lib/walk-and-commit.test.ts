@@ -15,8 +15,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bringCoreFiles } from "./core-owned-files.js";
+import { runInProcess } from "./run-in-process.js";
 import { walkAndCommit } from "./walk-and-commit.js";
 
 let root: string;
@@ -336,6 +337,91 @@ describe("walkAndCommit", () => {
 			"scripts/browse.py",
 		);
 		expect(git(["status", "--porcelain"], root)).toBe("");
+	});
+
+	describe("in an adopter whose guard-registry gate refuses an expired anchor (#4078)", () => {
+		const checker = path.join(__dirname, "..", "check-guard-registry.js");
+		/** The checker judges `root`, not the suite's test host. */
+		const checkerEnv = () => ({ ...process.env, CLAUDE_PROJECT_DIR: root });
+
+		/** A tree an older release left: one shim missing and one out of date,
+		 * every shim it has anchored where `anchored`, as init leaves them; and
+		 * the real gate as the pre-commit hook. */
+		function leaveOlderRelease({ anchored }: { anchored: boolean }) {
+			fs.rmSync(path.join(root, ".husky/post-merge"));
+			fs.appendFileSync(path.join(root, ".husky/pre-push"), "# older shim\n");
+			if (anchored) {
+				const review = runInProcess(checker, ["--review", "--sole-writer"], {
+					cwd: root,
+					env: checkerEnv(),
+				});
+				expect(review.status).toBe(0);
+			}
+			commitAll(root, "an older release's shims");
+			const hook = path.join(root, ".git/hooks/pre-commit");
+			fs.mkdirSync(path.dirname(hook), { recursive: true });
+			fs.writeFileSync(
+				hook,
+				`#!/bin/sh\nCLAUDE_PROJECT_DIR="$PWD" exec "${process.execPath}" "${checker}" --against HEAD\n`,
+				{ mode: 0o755 },
+			);
+		}
+
+		/* No live session's claims reach the checker. */
+		beforeEach(() => vi.stubEnv("WFC_ANCHOR_LOCKS", "[]"));
+
+		it("the planted gate refuses a shim edit committed with no re-anchor", () => {
+			leaveOlderRelease({ anchored: true });
+			fs.appendFileSync(path.join(root, ".husky/pre-commit"), "# drift\n");
+			expect(() =>
+				execFileSync("git", ["commit", "-qam", "unanchored"], {
+					cwd: root,
+					encoding: "utf8",
+					stdio: "pipe",
+				}),
+			).toThrow(/STALE-PROSE\s+\.husky\/pre-commit/);
+		});
+
+		it("commits a shim it adds where the adopter keeps no anchors file", () => {
+			leaveOlderRelease({ anchored: false });
+
+			const r = walkAndCommit({ root, pluginRoot });
+
+			expect(r.action).toBe("committed");
+			expect(git(["status", "--porcelain"], root)).toBe("");
+			expect(
+				readJson(root, ".claude/guard-registry-anchors.json")[
+					".husky/post-merge"
+				],
+			).toEqual(expect.any(String));
+		});
+
+		it("re-anchors the shims it adds and rewrites, and commits the anchors with them", () => {
+			leaveOlderRelease({ anchored: true });
+			const before = readJson(root, ".claude/guard-registry-anchors.json");
+
+			const lines: string[] = [];
+			const r = walkAndCommit({ root, pluginRoot, out: (l) => lines.push(l) });
+
+			expect(lines.join("\n")).not.toMatch(/refused/);
+			expect(r.action).toBe("committed");
+			expect(git(["status", "--porcelain"], root)).toBe("");
+			const committed = git(["show", "--name-only", "--format=", "HEAD"], root)
+				.trim()
+				.split("\n");
+			expect(committed).toEqual(
+				expect.arrayContaining([
+					".claude/guard-registry-anchors.json",
+					".husky/post-merge",
+					".husky/pre-push",
+				]),
+			);
+			const after = readJson(root, ".claude/guard-registry-anchors.json");
+			expect(before[".husky/post-merge"]).toBeUndefined();
+			expect(after[".husky/post-merge"]).toEqual(expect.any(String));
+			expect(after[".husky/pre-push"]).not.toBe(before[".husky/pre-push"]);
+			expect(after[".husky/pre-commit"]).toBe(before[".husky/pre-commit"]);
+		});
 	});
 
 	it("re-run after a committed walk changes nothing further", () => {
