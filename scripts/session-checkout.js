@@ -25,9 +25,8 @@
  *   node scripts/session-checkout.js land
  *     merges origin/main into the current directory's worktree and pushes
  *     HEAD to its queue ref, queue/<worktree name>, saying on stderr what it
- *     did and how to read the outcome; undoes a merge whose self-plugin
- *     canary would refuse the session running it; refused, it says why and
- *     what to do before landing again
+ *     did and how to read the outcome; refused, it says why and what to do
+ *     before landing again
  *   node scripts/session-checkout.js reap
  *     removes landed, clean worktrees no session can resume and none
  *     finished in the last 3 days, stray directories and unlinked dependency

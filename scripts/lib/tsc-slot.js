@@ -63,15 +63,18 @@ const TSC_RUNNER = /^ *(\S*\/)?node +\S*([.]bin|typescript\/bin)\/tsc( |$)/;
 const isTscRunner = (args) => TSC_RUNNER.test(args);
 
 /**
+ * The `tsc` runners on `ps`, each by its PID, null where `ps` gave none.
+ *
  * @param {import("./suite-ladder.js").PsRow[]} rows
- * @returns {number}
+ * @returns {(number | null)[]}
  */
 function runningTsc(rows) {
-	return rows.filter(({ args }) => isTscRunner(args)).length;
+	return rows.filter(({ args }) => isTscRunner(args)).map(({ pid }) => pid);
 }
 
 /**
- * Whether the slot would refuse a `tsc` now, and on which limb. Null where it
+ * Whether the slot would refuse a `tsc` now, and on which limb: the count cap
+ * with the running `tsc`s' PIDs (#4359), or the memory rung. Null where it
  * would not, and on an unread `ps` or MemAvailable that limb fails open
  * (mantahostels#103 §6). `climbMb`, what the suite queue's launches have yet
  * to draw (#3416), comes off MemAvailable before the rung reads it.
@@ -82,7 +85,8 @@ function runningTsc(rows) {
  * @returns {import("./suite-queue.js").GateDenial | null}
  */
 function tscDenial(rows, mb, climbMb = 0) {
-	if (rows !== null && runningTsc(rows) >= TSC_MAX) return { limb: "count" };
+	const running = rows === null ? [] : runningTsc(rows);
+	if (running.length >= TSC_MAX) return { limb: "count", pids: running };
 	if (mb !== null && mb - climbMb < TSC_RUNG_MB)
 		return {
 			limb: "memory",

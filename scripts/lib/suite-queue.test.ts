@@ -973,6 +973,55 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		expect(await turn(suite)).toBe(true);
 	});
 
+	it("names the peer launch admitted and not yet up that holds a traced wait (#4359)", async () => {
+		const { suite, tsc } = queues();
+		expect(suite.seat.stamps.admit()).toBe("admitted");
+		const lines: string[] = [];
+		const outcome = await tsc.seat.wait({
+			gate: () => null,
+			traceLimbs: true,
+			label: "q",
+			waiting: "waiting",
+			sleepFn: () => {
+				suite.seat.spawned();
+				return Promise.resolve();
+			},
+			out: { write: (line: string) => lines.push(line) },
+		});
+		expect(outcome).toBe("run");
+		expect(lines.slice(0, 2)).toEqual([
+			"q: waiting\n",
+			"q: after 0s, held on a launch admitted and not yet up, PID 11 in wfc-suite-queue\n",
+		]);
+		expect(lines[2]).toMatch(
+			/^q: gate opened after \d+s — held \d+s on a launch admitted and not yet up\n$/,
+		);
+	});
+
+	it("names the admission, not the waiter ahead it also holds, where both close the turn (#4359)", async () => {
+		const { suite, tsc } = queues();
+		const ahead = joined(tsc.queueDir, 21, 21);
+		expect(suite.seat.stamps.admit()).toBe("admitted");
+		const lines: string[] = [];
+		let polls = 0;
+		await tsc.seat.wait({
+			gate: () => null,
+			traceLimbs: true,
+			label: "q",
+			waiting: "waiting",
+			sleepFn: () => {
+				if (++polls === 1) suite.seat.spawned();
+				else ahead.leave();
+				return Promise.resolve();
+			},
+			out: { write: (line: string) => lines.push(line) },
+		});
+		expect(lines.slice(1, 3)).toEqual([
+			"q: after 0s, held on a launch admitted and not yet up, PID 11 in wfc-suite-queue\n",
+			"q: after 0s, held on the waiters ahead, PID 21\n",
+		]);
+	});
+
 	it("reads no peer for a queue directory of another name", async () => {
 		const { tsc } = queues();
 		const queueDir = qdir();
@@ -1606,6 +1655,70 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 		});
 		expect(lines.join("")).toMatch(/waiting for it/);
 		expect(lines.join("")).toMatch(/gate opened/);
+	});
+
+	describe("tracing the limb that holds it (#4359)", () => {
+		/** A wait on `polls`, one a poll, each poll 10 s apart. */
+		const traced = async (polls: object[], traceLimbs: boolean) => {
+			const lines: string[] = [];
+			let now = 0;
+			await waitForGate({
+				gate: () => polls.shift() ?? null,
+				admit: noQueue,
+				clock: () => now,
+				sleepFn: () => {
+					now += 10_000;
+					return Promise.resolve();
+				},
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs,
+			});
+			return lines;
+		};
+		const gates = () => [
+			{ limb: "count", pids: [7] },
+			{ limb: "count", pids: [7] },
+			{ limb: "memory", mb: 2000, rungMb: 2750 },
+			{ limb: "memory", mb: 2100, rungMb: 2750, climbMb: 300 },
+			{ limb: "count", pids: [8] },
+		];
+
+		it("prints each change of limb or holder, never a moving MemAvailable, and the time on each as the gate opens", async () => {
+			expect(await traced(gates(), true)).toEqual([
+				"q: waiting\n",
+				"q: after 0s, held on the count cap, PID 7\n",
+				"q: after 20s, held on the memory rung, MemAvailable 2000 MB against ~2750 MB\n",
+				"q: after 40s, held on the count cap, PID 8\n",
+				"q: gate opened after 50s — held 30s on the count cap, 20s on the memory rung (MemAvailable at lowest 2000 MB)\n",
+			]);
+		});
+
+		it("prints none of it untraced", async () => {
+			expect(await traced(gates(), false)).toEqual([
+				"q: waiting\n",
+				"q: gate opened after 50s\n",
+			]);
+		});
+
+		it("breaks a wait refused at its bound down by limb", async () => {
+			const lines: string[] = [];
+			await waitForGate({
+				gate: () => ({ limb: "memory", mb: 1000, rungMb: 2750 }),
+				admit: noQueue,
+				timeoutMs: 0,
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			expect(lines.slice(0, 3)).toEqual([
+				"q: waiting\n",
+				"q: after 0s, held on the memory rung, MemAvailable 1000 MB against ~2750 MB\n",
+				"q: held 0s on the memory rung (MemAvailable at lowest 1000 MB)\n",
+			]);
+		});
 	});
 
 	it("admits no run its own memory rung refuses, its turn open (#3058)", async () => {

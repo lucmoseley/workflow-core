@@ -41,6 +41,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
 import { stampFile, stampVariable, writeStamp } from "./lib/commit-key.js";
+import { installHuskyShim } from "./lib/husky-testkit";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
 	CORE_ROOT,
@@ -156,12 +157,7 @@ function fixture({
 } = {}) {
 	const { root, git } = newRepo("precommit-test-stamp-", temps);
 	copyRequireClosure(root, ROOT, COPIED);
-	const underscore = path.join(root, ".husky/_");
-	fs.mkdirSync(underscore, { recursive: true });
-	for (const f of ["h", "pre-commit", "prepare-commit-msg"]) {
-		fs.copyFileSync(path.join(ROOT, ".husky/_", f), path.join(underscore, f));
-		fs.chmodSync(path.join(underscore, f), 0o755);
-	}
+	fs.mkdirSync(path.join(root, ".husky"), { recursive: true });
 	fs.copyFileSync(
 		path.join(ROOT, ".husky/prepare-commit-msg"),
 		path.join(root, ".husky/prepare-commit-msg"),
@@ -184,7 +180,7 @@ function fixture({
 		git("commit", "-qm", "base", "--no-verify");
 		fs.rmSync(path.join(root, "stub.log"), { force: true });
 	}
-	git("config", "core.hooksPath", underscore);
+	installHuskyShim(root);
 	const gitDir = path.join(root, ".git");
 	const named: string[] = [];
 	const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-stamp-cfg-"));

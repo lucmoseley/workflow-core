@@ -6,7 +6,7 @@
  * limit-held launch into the state, the idle reason and the tick's record
  * (#4315); the sessions it launched into that record, the room a paused or
  * stopping tick leaves unread, which checkout it sizes the seats and a
- * parker's seat in, away mode's return, a paused tick, a full week's wait and
+ * parker's seat in, away mode's return, a paused tick, a launch hold, a full week's wait and
  * the hold notices' agent read (#4282). Every port records its call, so a case
  * reads the order off one list; the state file is held in memory
  * (stateFileFake), and the control file under its lock (controlFileFake). The
@@ -1046,6 +1046,53 @@ describe("a paused tick (#3856)", () => {
 		])
 			expect(calls).not.toContain(port);
 		expect(capReads).toEqual([]);
+	});
+});
+
+describe("a launch hold through the tick (#4354)", () => {
+	const hold = (until: number) => ({ holder: "s1", until });
+
+	it("keeps the housekeeping, launches nothing and logs the hold as its idle reason", async () => {
+		const gone = record({
+			root: WFC,
+			seat: SEAT,
+			jobId: "gone",
+			launchedAt: NOW - 60 * MIN,
+		});
+		const { io, calls, lines, disk } = fakeIo(stateOf({ launches: [gone] }));
+		const r = await tickOf(io, control({ launchHold: hold(NOW + 20 * MIN) }));
+
+		expect("launches" in r.decision && r.decision.idle?.reason).toBe(
+			"launches held by a manual /pick-next",
+		);
+		expect(lines.join("\n")).toContain(
+			`idle: launches held by a manual /pick-next until ${new Date(NOW + 20 * MIN).toISOString()}`,
+		);
+		expect(calls).toEqual(
+			expect.arrayContaining(["reap", "tendHolds", "releaseEndedHolds"]),
+		);
+		expect(disk().launches[0].finishedAt).not.toBeNull();
+		for (const port of ["readFreeSlots", "readFrontier", "launchBatch"])
+			expect(calls).not.toContain(port);
+	});
+
+	it("ignores a hold past its expiry, as a /pick-next that died before its §8 release leaves one, launching as with none", async () => {
+		const { io, calls } = fakeIo(stateOf());
+		const r = await tickOf(io, control({ launchHold: hold(NOW) }));
+		expect("launches" in r.decision && r.decision.launches).toHaveLength(1);
+		expect(calls).toContain("launchBatch");
+	});
+
+	it("names the founder's pause, not the hold, where both stand", async () => {
+		const { io, lines } = fakeIo(stateOf());
+		await tickOf(
+			io,
+			control({
+				paused: { by: "founder", at: 7 },
+				launchHold: hold(NOW + 20 * MIN),
+			}),
+		);
+		expect(lines.join("\n")).toContain("idle: paused by founder");
 	});
 });
 

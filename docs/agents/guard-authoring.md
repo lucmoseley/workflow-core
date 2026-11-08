@@ -26,38 +26,16 @@ bodies are 70–670 lines of bespoke judgement.
    - **Then re-render `hooks/hooks.json`** — `node
      scripts/generate-plugin-hooks.js`. It is the plugin's copy of the
      self-plugin's registration, never hand-edited (#1011, #2441).
-   - **Two spellings live in the file, and converting between them by copying a
-     neighbour's quotes disables the guard silently.** The shell form is
-     `"$CLAUDE_PROJECT_DIR"/scripts/x.sh` with no `args` key; the exec form
-     (mantahostels#2059) is `${CLAUDE_PROJECT_DIR}/scripts/x.sh` **with** one. **Adding
-     `args` while keeping the quoted spelling does not error visibly**: the
-     entry stops going through a shell, so every tool call gets a non-blocking
+   - **A hook runs the main checkout's script, spelt
+     `"${CLAUDE_PLUGIN_ROOT}"/../scripts/x.sh`, never the session's tree's**
+     (`lib/core-hooks.js`'s `SCRIPT_PREFIX`, #4701). So an edited hook script
+     reaches no session, its editor's included, until it lands: try it by
+     running the script or its test. A `$CLAUDE_PROJECT_DIR` spelling would
+     run the session's unlanded copy, and `generate-plugin-hooks.js` refuses
+     it. **Never add an `args` key** (the exec form, mantahostels#2059): no
+     shell strips the prefix's quotes, so every call gets a non-blocking
      `ENOENT: no such file or directory, posix_spawn` that reaches the
-     transcript and nothing else — no denial and no session output (mantahostels#2059).
-     **Convert the quotes and the `args` key together, or neither.**
-     - **`args` also carries the guard's own arguments, and the five readers
-       named here all see them.** `guard-fires.js`'s registration key and
-       `check-hook-liveness.js`'s **assertion 4** read `args`
-       (mantahostels#2106); that checker's runtime census needs nothing, the
-       harness writing the transcript's `.command` as `command` plus `args`
-       joined. `check-guard-registry.js` matches a script path against
-       `rule-emission.js`'s exported `buildHookCommandLine()` join rather than
-       against `command`, so an interpreter-plus-script entry
-       (`"command": "node"`) does not FAIL a commit with `UNWIRED-IF`;
-       `rule-emission.js` uses the same join for its own RULE_CAP byte
-       census (mantahostels#2266). And
-       `lib/hook-wiring.ts` carries `args` through, its `buildCommandLine` helper
-       being what `hook-registrations.test.ts` matches its ids against, so a
-       pair told apart only by an argument (`concision-backstop.sh stop` /
-       `start`) survives an exec-form conversion. The fifth,
-       `check-instruction-surface.js`'s `readHookCommands`, also runs
-       `buildHookCommandLine()` over each entry rather than reading `command` alone,
-       so its `liveCommandCount`-versus-`hooks.total` census counts an
-       exec-form entry as wired (mantahostels#2301). No entry holds a script
-       path in `args` today, so all of it makes the next conversion safe.
-       **The survey is five readers because five is what has been audited, not
-       because five is all there are** — mantahostels#2266's review found one
-       the first audit missed.
+     transcript and nothing else — no denial and no session output.
    - **An `if` field narrows which calls the guard is even exec'd on** —
      `Bash(git *)`, `Bash(gh *)`, and `Bash(*gh *)` on two guards that
      walk wrappers. **It

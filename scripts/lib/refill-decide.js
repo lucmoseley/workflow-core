@@ -61,6 +61,8 @@ const OVERFLOW_SPENT = "every plan seat is weekly-full";
 /* The idle reason of a tick waiting out every plan seat's full week. */
 const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
+/* The idle reason of a tick under a manual /pick-next's launch hold (#4354). */
+const LAUNCH_HELD = "launches held by a manual /pick-next";
 /* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* A row a running launch already holds, skipped as any other so an idle
@@ -170,6 +172,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
  * @property {Pause} [paused] absent where the loop is not paused
+ * @property {LaunchHold} [launchHold] live only; absent where a pause already
+ *   bars the launches
  * @property {string|null} [controlDamaged] the control file and why, where it
  *   exists but is not a control
  * @property {MergedRow[]} frontier lib/frontier-order.js's merged ranking
@@ -217,6 +221,35 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  */
 
 /** @typedef {{root: string, number: number}} PauseIssue */
+
+/**
+ * A manual /pick-next's lease on the loop's launches (#4354): the session that
+ * took it, null where none was named, and the time it lapses, ms.
+ * @typedef {{holder: string|null, until: number}} LaunchHold
+ */
+
+/**
+ * @param {LaunchHold|undefined} hold
+ * @param {number} now
+ */
+const liveLaunchHold = (hold, now) =>
+	hold !== undefined && hold.until > now ? hold : undefined;
+
+/**
+ * Whether launching is barred, by a pause or a launch hold live at `now`: the
+ * one reading of a bar, for a control or a tick's input alike.
+ * @param {{paused?: Pause, launchHold?: LaunchHold}} barring
+ * @param {number} now
+ */
+const isLaunchBarred = ({ paused, launchHold }, now) =>
+	paused !== undefined || liveLaunchHold(launchHold, now) !== undefined;
+
+/** @param {LaunchHold} hold */
+const buildLaunchHoldIdle = ({ until }) =>
+	buildIdle(LAUNCH_HELD, ` until ${new Date(until).toISOString()}`);
+
+/** @param {LaunchHold} hold */
+const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
 
 /**
  * A stopped session due back: its launch's job, seat and checkout, when it was
@@ -1202,8 +1235,9 @@ function awayChangeOf({ mode, away }, lastPromptAt, now) {
 }
 
 /**
- * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause
- * outranks every other reason, as the reads they rest on are barred (#3856).
+ * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause,
+ * then a launch hold, outranks every other reason, as the reads they rest on are
+ * barred (#3856).
  * @param {TickInput} input
  * @returns {Decision}
  */
@@ -1212,6 +1246,8 @@ function decideTick(input) {
 	if (requested) return buildStopDecision(requested, input);
 	if (input.paused)
 		return buildIdleDecision(buildPauseIdle(input.paused), [], []);
+	if (input.launchHold)
+		return buildIdleDecision(buildLaunchHoldIdle(input.launchHold), [], []);
 	return decideUnpaused(input);
 }
 
@@ -1363,6 +1399,9 @@ module.exports = {
 	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
 	PAUSED,
+	buildLaunchHoldText,
+	liveLaunchHold,
+	isLaunchBarred,
 	QUIET_BENCH_PAUSE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
