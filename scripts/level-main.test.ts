@@ -393,9 +393,8 @@ it("refuses a stray argument, and a directory no main checkout holds", () => {
 
 const writerLog = () => path.join(tmp, "writer-runs");
 
-/* The canary and everything it sources, as this checkout holds them, its
- * writer also logging each run to writerLog. Landed and levelled with no
- * session live. */
+/* CANARY_FILES, its writer also logging each run to writerLog. Landed and
+ * levelled with no session live. */
 const seedCanary = () => {
 	/* The writer's fail-open log, here and in the pass's own runs of it. */
 	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(tmp, "config"));

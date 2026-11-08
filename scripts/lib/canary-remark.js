@@ -139,7 +139,6 @@ function runHook(script, s) {
 }
 
 /**
- * Write `files` under `dir`.
  * @param {Map<string, string>} files
  * @param {string} dir
  */
