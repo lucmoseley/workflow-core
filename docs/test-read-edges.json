@@ -5926,6 +5926,7 @@
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-injector-margin-gate.test.ts",
 			"scripts/priced-options-copies.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/repo-hold-attach.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
