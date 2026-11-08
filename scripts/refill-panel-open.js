@@ -91,15 +91,13 @@ function runRoute({ file, args }, env) {
 
 /**
  * A log that will not open costs only the log, never the panel.
- * @param {string} text
+ * @param {string} line
  */
-function appendToLoopLog(text) {
+function appendToLoopLog(line) {
 	/* Required here, as the view's start waits on this script and the module takes tens of ms to load. */
-	const { loopFiles } = require("./lib/refill-files.js");
-	const logFile = loopFiles().log;
+	const { appendLoopLog } = require("./lib/refill-files.js");
 	try {
-		fs.mkdirSync(path.dirname(logFile), { recursive: true });
-		fs.appendFileSync(logFile, text);
+		appendLoopLog(line);
 	} catch {
 		/* Nowhere is left to say so: the view is drawn. */
 	}
@@ -183,7 +181,7 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 	const routesJson = parsed.flags["--run-routes"];
 	if (typeof routesJson === "string") {
 		/** @param {string} text */
-		const logLine = (text) => appendLog(`${new Date().toISOString()} ${text}`);
+		const logLine = (text) => appendLog(text.trimEnd());
 		if (!openByFirstRoute(JSON.parse(routesJson), ownEnv, run, logLine))
 			logLine(`refill-panel-open: no refill panel opened; run: ${printed}`);
 		return 0;
