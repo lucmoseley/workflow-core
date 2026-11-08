@@ -1256,9 +1256,20 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 /* npm's aliases for `test` and `run` are the same launch (#4032): each draws
  * what `npm test` draws, under the floor and beside a whole suite. */
 describe("reads npm's aliases as the launch `npm test` is", () => {
+	/** Under the ~2900 MB whole-suite rung. */
+	const UnderFloorMb = 1000;
 	const drawn = (command: string) => ({
-		floor: gated(command, 1000, 0).verdict?.gate,
+		floor: gated(command, UnderFloorMb, 0).verdict?.gate,
 		cap: gatedVerdict(`${command} -- --full`, ROOMY_MB, NEIGHBOURS_AT_CAP),
+	});
+	let npmTest: ReturnType<typeof drawn>;
+	beforeEach(() => {
+		npmTest = drawn("npm test");
+	});
+
+	it("denies `npm test` on both limbs", () => {
+		expect(npmTest.floor).toMatchObject({ limb: "memory" });
+		expect(npmTest.cap).toBe("deny");
 	});
 
 	it.each([
@@ -1268,13 +1279,15 @@ describe("reads npm's aliases as the launch `npm test` is", () => {
 		"npm runScript test",
 		"npm run-s test",
 		"npm run-script test",
-	])("%s", (command) => {
-		expect(drawn(command)).toEqual(drawn("npm test"));
-		expect(drawn(command).cap).toBe("deny");
-		expect(readDenyReason(command, 1000).split("\n")[0]).toBe(
-			`Run instead: ${command} -- --queue`,
-		);
-	});
+	])(
+		"%s draws npm test's memory-rung and count-cap denies, its Run instead keeping the spelling",
+		(command) => {
+			expect(drawn(command)).toEqual(npmTest);
+			expect(readDenyReason(command, UnderFloorMb).split("\n")[0]).toBe(
+				`Run instead: ${command} -- --queue`,
+			);
+		},
+	);
 });
 
 describe("the count cap denies a second whole suite (#2680, #155)", () => {
@@ -2874,6 +2887,7 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 		["npm test", "the same script without `run`"],
 		["npm t", "npm's alias for `test`"],
 		["npm run-script test", "npm's alias for `run`"],
+		["npm rum test", "another alias for `run`"],
 		["npm run test --", "a lone `--` narrows nothing"],
 	])("%s is told — %s", (command) => {
 		expect(told(command, adopter())).toBe(true);
@@ -2906,6 +2920,16 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 		adopter();
 		expect(told("npm run test", "")).toBe(false);
 	});
+
+	it.each(["npm run-script unit", "npm rum unit", "npm runScript unit"])(
+		"reads %s as a declared `npm run unit`, a script outside the suite's own (#4032)",
+		(command) => {
+			const declared = adopter({ test: "npm run unit" });
+			pkg = { unit: "vitest run" };
+			expect(told(command, declared)).toBe(true);
+			expect(told("npm run unit -- a.test.ts", declared)).toBe(false);
+		},
+	);
 
 	it("reads a declared command other than an npm script", () => {
 		const declared = adopter({ test: "node --test" });

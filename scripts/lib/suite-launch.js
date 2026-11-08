@@ -137,20 +137,32 @@ function nodeLaunch(words, ports) {
 }
 
 /**
- * `npm test`, `npm test:py`, or `npm run` one of the suite scripts, each
- * command word read as npm derefs it (#4032): `npm t`, `npm run-script test`.
+ * The npm script the words run, and how many words name it, each command
+ * word read as npm derefs it (#4032): `npm t`, `npm run-script x`. Null
+ * where they run no script.
+ * @param {string[]} words
+ * @returns {{ script: string, taken: number } | null}
+ */
+function npmScriptOf(words) {
+	if (afterSlash(words[0] ?? "") !== "npm") return null;
+	const w1 = words[1] ?? "";
+	if (isNpmRun(w1)) return words[2] ? { script: words[2], taken: 3 } : null;
+	const script = w1 === "test:py" ? w1 : scriptOfNpmCommand(w1);
+	return script ? { script, taken: 2 } : null;
+}
+
+/**
+ * `npm test`, `npm test:py`, or `npm run` one of the suite scripts.
  * @param {string[]} words
  * @returns {Launch | null}
  */
 function npmLaunch(words) {
-	const w1 = words[1] ?? "";
-	const run = isNpmRun(w1);
-	const bare = w1 === "test:py" ? w1 : (scriptOfNpmCommand(w1) ?? "");
-	const script = run ? (words[2] ?? "") : bare;
-	const kind = Object.hasOwn(SCRIPT_KINDS, script)
-		? SCRIPT_KINDS[script]
-		: undefined;
-	return kind ? { kind, script, taken: run ? 3 : 2, queued: false } : null;
+	const run = npmScriptOf(words);
+	const kind =
+		run && Object.hasOwn(SCRIPT_KINDS, run.script)
+			? SCRIPT_KINDS[run.script]
+			: undefined;
+	return run && kind ? { kind, ...run, queued: false } : null;
 }
 
 /**
@@ -193,6 +205,7 @@ const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 module.exports = {
 	afterSlash,
 	isOtherRunner,
+	npmScriptOf,
 	suiteLaunchKind,
 	isQueueable,
 	hasWrapperCall,
