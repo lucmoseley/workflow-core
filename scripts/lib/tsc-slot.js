@@ -74,7 +74,8 @@ function runningTsc(rows) {
 
 /**
  * Whether the slot would refuse a `tsc` now, and on which limb: the count cap
- * with the running `tsc`s' PIDs (#4359), or the memory rung. Null where it
+ * with the running `tsc`s' PIDs, and the memory reading where the rung fails
+ * too (#4359), or the memory rung. Null where it
  * would not, and on an unread `ps` or MemAvailable that limb fails open
  * (mantahostels#103 §6). `climbMb`, what the suite queue's launches have yet
  * to draw (#3416), comes off MemAvailable before the rung reads it.
@@ -86,15 +87,13 @@ function runningTsc(rows) {
  */
 function tscDenial(rows, mb, climbMb = 0) {
 	const running = rows === null ? [] : runningTsc(rows);
-	if (running.length >= TSC_MAX) return { limb: "count", pids: running };
-	if (mb !== null && mb - climbMb < TSC_RUNG_MB)
-		return {
-			limb: "memory",
-			mb,
-			rungMb: TSC_RUNG_MB,
-			...(climbMb > 0 ? { climbMb } : {}),
-		};
-	return null;
+	const memory =
+		mb !== null && mb - climbMb < TSC_RUNG_MB
+			? { mb, rungMb: TSC_RUNG_MB, ...(climbMb > 0 ? { climbMb } : {}) }
+			: null;
+	if (running.length >= TSC_MAX)
+		return { limb: "count", pids: running, ...(memory ? { memory } : {}) };
+	return memory ? { limb: "memory", ...memory } : null;
 }
 
 /**

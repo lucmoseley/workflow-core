@@ -1695,6 +1695,49 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			]);
 		});
 
+		it("names every limb failing on the poll, not the gate's first alone", async () => {
+			const lines: string[] = [];
+			let turns = 0;
+			await waitForGate({
+				gate: () =>
+					turns < 1
+						? { limb: "count", pids: [7], memory: { mb: 2000, rungMb: 2750 } }
+						: null,
+				turn: () => turns++ > 0,
+				admit: noQueue,
+				sleepFn: () => Promise.resolve(),
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			expect(lines[1]).toBe(
+				"q: after 0s, held on the count cap, PID 7; also on the memory rung, MemAvailable 2000 MB against ~2750 MB; also on the queue's turn\n",
+			);
+		});
+
+		it("rounds the breakdown so its parts sum to the whole", async () => {
+			const lines: string[] = [];
+			let now = 0;
+			const polls: object[] = [{ limb: "count" }, { limb: "memory" }];
+			await waitForGate({
+				gate: () => polls.shift() ?? null,
+				admit: noQueue,
+				clock: () => now,
+				sleepFn: () => {
+					now += 1500;
+					return Promise.resolve();
+				},
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			expect(lines.at(-1)).toBe(
+				"q: gate opened after 3s — held 2s on the count cap, 1s on the memory rung\n",
+			);
+		});
+
 		it("prints none of it untraced", async () => {
 			expect(await traced(gates(), false)).toEqual([
 				"q: waiting\n",
