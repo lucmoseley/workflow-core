@@ -110,8 +110,8 @@ import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import {
 	buildShortlist,
-	printShortlist,
-	shortlistRow,
+	buildShortlistRow,
+	buildShortlistStub,
 } from "./lib/shortlist-fake";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache, buildUsageText } from "./lib/usage-probe-fake";
@@ -763,7 +763,7 @@ describe("the loop's goal across ticks (#3864)", () => {
 		stub(
 			"pick-next.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("picks"))}, process.argv.slice(2).join(" ") + "\\n");
-${printShortlist(buildShortlist())}`,
+${buildShortlistStub(buildShortlist())}`,
 		);
 	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
 		stubRecordingShortlist();
@@ -1096,10 +1096,10 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	const seed = (parker = true, parkSeat = seat) => {
 		stub(
 			"pick-next.js",
-			printShortlist(
+			buildShortlistStub(
 				buildShortlist({
 					frontier: [
-						shortlistRow({
+						buildShortlistRow({
 							labels: ["takes:implement", "parked"],
 							parkedAt: "2026-10-28T07:41:00Z",
 						}),

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildShortlist, shortlistRow } from "./shortlist-fake";
+import { buildShortlist, buildShortlistRow } from "./shortlist-fake";
 
 const { parseShortlist } = require("./shortlist-parse.js");
 
@@ -60,11 +60,17 @@ describe("parseShortlist's write-sets (#4355)", () => {
 });
 
 describe("the run tests' shortlist fake (#4358)", () => {
-	it("parses clean", () => {
+	it("parses its bare default with no error, reading no row", () => {
+		const out = parseShortlist(JSON.stringify(buildShortlist()));
+		expect(out).not.toHaveProperty("error");
+		expect(out.rows).toEqual([]);
+	});
+
+	it("parses a row with no error, reading it back whole with an empty write-set", () => {
 		const out = parseShortlist(
-			JSON.stringify(buildShortlist({ frontier: [shortlistRow()] })),
+			JSON.stringify(buildShortlist({ frontier: [buildShortlistRow()] })),
 		);
 		expect(out).not.toHaveProperty("error");
-		expect(out.rows).toEqual([{ ...shortlistRow(), writeSet: [] }]);
+		expect(out.rows).toEqual([{ ...buildShortlistRow(), writeSet: [] }]);
 	});
 });
