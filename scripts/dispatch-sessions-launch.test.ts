@@ -366,7 +366,7 @@ describe("the seat kind (#2605)", () => {
 
 	it("refuses a malformed overflow line, naming it, even on a plan seat", () => {
 		stubClaude({ session: "10" });
-		seatFile("~/.claude2\n~/.claude2-api api key=K grant=200\n");
+		seatFile("~/.claude2\n~/.claude2 api key=K grant=200\n");
 		const r = run(["sonnet", "/implement 341"], {
 			CLAUDE_CONFIG_DIR: path.join(fx.dir, ".claude2"),
 		});

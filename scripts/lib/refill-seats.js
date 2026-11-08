@@ -40,6 +40,20 @@ const { relativeUnder } = require("./is-under.js");
 
 const FIELDS = ["key", "grant", "cycle-day"];
 
+/**
+ * @param {Seat[]} seats
+ * @returns {OverflowSeat[]}
+ */
+const overflowSeatsOf = (seats) =>
+	seats.flatMap((s) => (s.kind === "overflow" ? [s] : []));
+
+/**
+ * @param {Seat[]} seats
+ * @returns {PlanSeat[]}
+ */
+const planSeatsOf = (seats) =>
+	seats.flatMap((s) => (s.kind === "plan" ? [s] : []));
+
 /** @param {string} home */
 const seatsFile = (home) => path.join(home, ".claude", "refill-seats");
 
@@ -144,9 +158,7 @@ function parseSeats(text, { home, file }) {
 				: { dir, kind: "overflow", ...fields },
 		);
 	}
-	const planDirs = new Set(
-		seats.flatMap((s) => (s.kind === "plan" ? [s.dir] : [])),
-	);
+	const planDirs = new Set(planSeatsOf(seats).map((s) => s.dir));
 	for (const { dir, where, named, line } of overflowLines)
 		if (!planDirs.has(dir))
 			errors.push(
@@ -179,8 +191,7 @@ function readDeclaredSeats(home = homeDir()) {
  * @param {SeatList} list
  * @returns {boolean}
  */
-const declaresOverflowSeat = (list) =>
-	list.seats.some((s) => s.kind === "overflow");
+const declaresOverflowSeat = (list) => overflowSeatsOf(list.seats).length > 0;
 
 /**
  * @param {SeatList} list
@@ -188,9 +199,7 @@ const declaresOverflowSeat = (list) =>
  * @returns {OverflowSeat|null}
  */
 function findOverflowSeat(list, keyVar) {
-	for (const s of list.seats)
-		if (s.kind === "overflow" && s.keyVar === keyVar) return s;
-	return null;
+	return overflowSeatsOf(list.seats).find((s) => s.keyVar === keyVar) ?? null;
 }
 
 /**
@@ -230,8 +239,8 @@ const seatIdOf = ({ seat, keyVar }) => (keyVar ? { seat, keyVar } : { seat });
 /**
  * Whether `a` and `b` carry one seat: a plan seat is never the overflow seat
  * that shares its dir (#4147).
- * @param {{seat: string, keyVar?: string|null}} a
- * @param {{seat: string, keyVar?: string|null}} b
+ * @param {{seat: string|null, keyVar?: string|null}} a
+ * @param {{seat: string|null, keyVar?: string|null}} b
  */
 const isSameSeat = (a, b) =>
 	a.seat === b.seat && (a.keyVar || null) === (b.keyVar || null);
@@ -243,10 +252,7 @@ const isSameSeat = (a, b) =>
  */
 function readConfiguredSeats() {
 	const { seats, errors } = readDeclaredSeats();
-	const listed =
-		errors.length > 0
-			? []
-			: seats.filter((s) => s.kind === "plan").map((s) => s.dir);
+	const listed = errors.length > 0 ? [] : planSeatsOf(seats).map((s) => s.dir);
 	if (listed.length > 0) return listed;
 	return [configDir()];
 }
@@ -258,6 +264,19 @@ function readConfiguredSeats() {
 function buildSeatName(seat, home = homeDir()) {
 	const rel = relativeUnder(home, seat);
 	return rel ? `~/${rel}` : seat;
+}
+
+/**
+ * A seat as a line names it: its dir, and an overflow seat's key, since two
+ * keys may share one dir (#3693). A null seat is the seat file, standing in
+ * for the overflow seats it hides where it refuses.
+ * @param {{dir: string, keyVar?: string|null}
+ *   | {seat: string|null, keyVar?: string|null}} of a Seat, or a SeatId
+ */
+function buildSeatLabel(of) {
+	const dir = "dir" in of ? of.dir : of.seat;
+	if (dir === null) return "the seat file";
+	return of.keyVar ? `${dir} key=${of.keyVar}` : dir;
 }
 
 /**
@@ -298,10 +317,13 @@ function unlistedSeats(seats) {
 }
 
 module.exports = {
+	buildSeatLabel,
 	buildSeatName,
 	declaresOverflowSeat,
 	findOverflowSeat,
 	isSameSeat,
+	overflowSeatsOf,
+	planSeatsOf,
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,

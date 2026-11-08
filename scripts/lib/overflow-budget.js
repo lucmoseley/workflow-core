@@ -35,7 +35,12 @@ const { localDate } = require("./morning-review.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
 const { readSeatTranscripts } = require("./project-dirs.js");
 const { refillPath } = require("./refill-dir.js");
-const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
+const {
+	buildSeatLabel,
+	findOverflowSeat,
+	overflowSeatsOf,
+	readDeclaredSeats,
+} = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { budgetOf } = require("./overflow-budget-core.js");
 const {
@@ -51,8 +56,10 @@ const { writeFd } = require("./write-fd.js");
  * @typedef {import("./overflow-budget-core.js").LedgerEntry} LedgerEntry
  * @typedef {import("./overflow-budget-core.js").RunningRun} RunningRun
  * @typedef {import("./overflow-budget-core.js").Budget} Budget
- * @typedef {ReturnType<typeof readEveryOverflowLookup>} OverflowLookup
- * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null}} SeatBudget
+ * @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup
+ * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null,
+ *   runningReadAt: number|null}} SeatBudget `runningReadAt`, ms, when the
+ *   listing that counted `running` was read; null where it carried no time
  */
 
 /* The API's refusal for credit, as the harness writes it into a transcript:
@@ -222,7 +229,11 @@ function priceSessions(seat, lookup) {
 			changed = true;
 		}
 		const files = new Map(transcripts.map((t) => [t.sessionId, t.file]));
-		for (const [row, sharedUsd] of sharedOf(lookup, ledger.values(), files)) {
+		for (const [row, sharedUsd] of readSharedUsd(
+			lookup,
+			ledger.values(),
+			files,
+		)) {
 			if (row.sharedUsd === sharedUsd) continue;
 			ledger.set(row.sessionId, { ...row, sharedUsd });
 			changed = true;
@@ -239,24 +250,28 @@ function priceSessions(seat, lookup) {
 }
 
 /**
- * The key's sessions the listing holds running.
+ * The key's sessions the listing holds running, and when it was read.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
  * @param {() => import("./agent-liveness.js").Listing} readAgents
- * @returns {string[]}
+ * @returns {{sessionIds: string[], readAt: number|null}}
  * @throws where the listing cannot be read: a key's running sessions must not
  *   read as none
  */
 function readRunning(seat, lookup, readAgents) {
 	const listing = readAgents();
 	if (listing.why !== undefined) throw new Error(listing.why);
-	return listing.agents
-		.filter(
-			(a) =>
-				!isTerminalAgent(a) &&
-				lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar === seat.keyVar,
-		)
-		.map((a) => a.sessionId);
+	return {
+		sessionIds: listing.agents
+			.filter(
+				(a) =>
+					!isTerminalAgent(a) &&
+					lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar ===
+						seat.keyVar,
+			)
+			.map((a) => a.sessionId),
+		readAt: listing.readAt ?? null,
+	};
 }
 
 /**
@@ -296,15 +311,13 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	let running;
 	let settled;
 	let log;
+	let listed;
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
 		settled = settleChainsOnce(ledger);
-		running = priceRunning(
-			readRunning(seat, lookup, readAgents),
-			ledger,
-			settled,
-		);
+		listed = readRunning(seat, lookup, readAgents);
+		running = priceRunning(listed.sessionIds, ledger, settled);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
@@ -321,6 +334,7 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 		}),
 		readFailure: log.failure,
 		lastAttemptAt: log.lastAttemptAt,
+		runningReadAt: listed.readAt,
 	};
 }
 
@@ -414,21 +428,21 @@ const readListedChainUsd = (lookup, root, listed) =>
  * @param {Map<string, string>} files each listed session's main transcript
  * @returns {[LedgerEntry, number][]}
  */
-function sharedOf(lookup, rows, files) {
+function readSharedUsd(lookup, rows, files) {
 	return [...groupByChain(lookup, rows)].flatMap(([root, members]) =>
-		members.length < 2 ? [] : sharedInChain(lookup, root, members, files),
+		members.length < 2 ? [] : readChainSharedUsd(lookup, root, members, files),
 	);
 }
 
 /**
- * `sharedOf` for one chain, its members in chain order.
+ * `readSharedUsd` for one chain, its members in chain order.
  * @param {OverflowLookup} lookup
  * @param {string} root
  * @param {LedgerEntry[]} members
  * @param {Map<string, string>} files
  * @returns {[LedgerEntry, number][]}
  */
-function sharedInChain(lookup, root, members, files) {
+function readChainSharedUsd(lookup, root, members, files) {
 	/** @type {[LedgerEntry, number][]} */
 	const shared = [];
 	/** @type {string[]} */
@@ -491,14 +505,15 @@ const settleChainsOnce = (ledger) =>
 
 /**
  * The key's listed background sessions and headless runs whose chain's spend
- * has reached the allowance their launch recorded, a founder's reply aside. An
- * `ended` one is past it but no longer running: capped without a stop.
+ * has reached the allowance their launch recorded, a founder's reply aside,
+ * once priceSessions has priced the key's ledger again. An `ended` one is past
+ * it but no longer running: capped without a stop.
  * @param {OverflowSeat} seat
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
  * @param {OverflowLookup} lookup
- * @throws where a transcript or the ledger cannot be read
+ * @throws where a transcript or the ledger cannot be read, written or locked
  */
-function readOverAllowance(seat, agents, lookup) {
+function priceOverAllowance(seat, agents, lookup) {
 	const spent = chainSpendOf(lookup, priceSessions(seat, lookup));
 	const capped = new Set(
 		(readJsonl(cappedFile(seat))?.rows ?? []).map((r) =>
@@ -547,9 +562,7 @@ function readOverAllowance(seat, agents, lookup) {
 function stopOverAllowance(declared, agents) {
 	if (declared.errors.length > 0)
 		return [`overflow allowances unjudged: ${declared.errors.join("; ")}`];
-	const seats = declared.seats.filter(
-		/** @returns {s is OverflowSeat} */ (s) => s.kind === "overflow",
-	);
+	const seats = overflowSeatsOf(declared.seats);
 	if (seats.length === 0) return [];
 	if (!agents) return ["overflow allowances unjudged: the listing is unread"];
 	let lookup;
@@ -561,10 +574,10 @@ function stopOverAllowance(declared, agents) {
 	return seats.flatMap((seat) => {
 		let over;
 		try {
-			over = readOverAllowance(seat, agents, lookup);
+			over = priceOverAllowance(seat, agents, lookup);
 		} catch (err) {
 			return [
-				`overflow allowances on ${seat.keyVar} unjudged: ${caught(err).message}`,
+				`overflow allowances on ${buildSeatLabel(seat)} unjudged: ${caught(err).message}`,
 			];
 		}
 		return over.flatMap((s) => capSession(seat, s));
@@ -575,11 +588,11 @@ function stopOverAllowance(declared, agents) {
  * Stop one session at or past its allowance, unless it has ended, and mark
  * it capped.
  * @param {OverflowSeat} seat
- * @param {ReturnType<typeof readOverAllowance>[number]} s
+ * @param {ReturnType<typeof priceOverAllowance>[number]} s
  * @returns {string[]}
  */
 function capSession(seat, s) {
-	const who = `overflow session ${s.name ? `${s.name} (${s.jobId})` : s.jobId} on ${seat.dir}`;
+	const who = `overflow session ${s.name ? `${s.name} (${s.jobId})` : s.jobId} on ${buildSeatLabel(seat)}`;
 	/* A malformed launch row must not read as an allowance of nothing. */
 	if (!Number.isFinite(s.allowanceUsd))
 		return [`${who} unjudged: its launch records no allowance`];
@@ -608,7 +621,8 @@ function capSession(seat, s) {
  * @param {SeatBudget|{why: string}} budget
  */
 function buildBudgetLine(seat, budget) {
-	if ("why" in budget) return `overflow ${seat.dir}: unread — ${budget.why}`;
+	const label = `overflow ${buildSeatLabel(seat)}`;
+	if ("why" in budget) return `${label}: unread — ${budget.why}`;
 	const failed = budget.readFailure
 		? `; last Console read failed: ${budget.readFailure}`
 		: "";
@@ -619,13 +633,13 @@ function buildBudgetLine(seat, budget) {
 		const state = budget.exhausted
 			? "exhausted until a newer Console reading"
 			: `fits ${budget.fit}`;
-		return `overflow ${seat.dir}: ${state}; ${headroom}; ${spent}${expires}${failed}`;
+		return `${label}: ${state}; ${headroom}; ${spent}${expires}${failed}`;
 	}
 	const resets = localDate(new Date(budget.nextCycleStart));
 	const spent = `spent ${dollars(budget.settledUsd)} of ${dollars(budget.grantUsd)} since ${localDate(new Date(budget.cycleStart))}`;
 	if (budget.exhausted)
-		return `overflow ${seat.dir}: exhausted until ${resets}; headroom ${dollars(budget.headroomUsd)}; ${spent}${failed}`;
-	return `overflow ${seat.dir}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${resets}${failed}`;
+		return `${label}: exhausted until ${resets}; headroom ${dollars(budget.headroomUsd)}; ${spent}${failed}`;
+	return `${label}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${resets}${failed}`;
 }
 
 /*

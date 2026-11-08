@@ -400,17 +400,17 @@ describe("moveSession (#3734, #3736)", () => {
 		};
 	};
 
-	it("resumes a plan session moved onto a key headless, named with the overflow prefix and the name its transcript gives, capped at the allowance it moved with (#4395, #4580)", () => {
+	it("resumes a plan session moved onto a key headless, named as its transcript gives, capped at the allowance it moved with (#4395, #4580)", () => {
 		expect(movedName("named")).toMatchObject({
 			headless: {
 				keyVar: KEY_VAR,
 				cwd: ROOT,
 				prompt: PROMPT,
 				resume: SESSION,
-				name: "Overflow · Implement 7: a title",
+				name: "Implement 7: a title",
 				budgetUsd: 40,
 			},
-			name: "Overflow · Implement 7: a title",
+			name: "Implement 7: a title",
 			read: [[`${SEAT}/projects/-home-u-repo/${SESSION}.jsonl`]],
 			lines: expect.not.arrayContaining([
 				expect.stringContaining("name not read"),
@@ -418,14 +418,13 @@ describe("moveSession (#3734, #3736)", () => {
 		});
 	});
 
-	it("names a session whose transcript gives no name after its prompt, and never prefixes twice (#4395)", () => {
-		expect(movedName("unnamed").name).toBe("Overflow · /implement 7");
-		expect(movedName("prefixed").name).toBe("Overflow · Implement 7");
+	it("names a session whose transcript gives no name after its prompt (#4395)", () => {
+		expect(movedName("unnamed").name).toBe("/implement 7");
 	});
 
 	it("names a session whose transcript will not read after its prompt, logging why (#4395)", () => {
 		const r = movedName("unreadable");
-		expect(r.name).toBe("Overflow · /implement 7");
+		expect(r.name).toBe("/implement 7");
 		expect(r.lines).toContain(
 			`${SESSION}'s name not read, so named after its prompt: ${ANSWERS.sessionName.unreadable.why}`,
 		);
