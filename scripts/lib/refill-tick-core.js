@@ -673,7 +673,7 @@ async function decide(io, input, scope) {
 	const first = decideTick(input);
 	if (
 		"stop" in first ||
-		(first.idle !== null && first.idle !== NOTHING_LAUNCHABLE)
+		(first.idle !== null && first.idle.reason !== NOTHING_LAUNCHABLE)
 	)
 		return { decision: first, read: null };
 	const served = io.servedRoots(scope);
