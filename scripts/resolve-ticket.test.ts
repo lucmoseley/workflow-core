@@ -1109,8 +1109,6 @@ describe("a review record in the close comment (#3846)", () => {
 		);
 	});
 
-	/* A seed holding untouched.ts, then a commit changing dir/a.ts and adding
-	 * docs/my file.md. */
 	const buildReplay = () => {
 		gitRepo(sb);
 		fs.mkdirSync(path.join(sb.repo, "dir"));
@@ -1148,7 +1146,7 @@ describe("a review record in the close comment (#3846)", () => {
 		passes(buildReplay()(paths));
 	});
 
-	it("judges a comma-separated entry holding a space whole, naming it whole, though its words name changed paths (#4050)", () => {
+	it("judges a comma-separated entry holding a space whole though its words name changed paths (#4050)", () => {
 		setUp();
 		onTicket(Tier);
 		refused(

@@ -437,8 +437,7 @@ const describeCutOff = (cutOff) =>
  */
 function readStrayPaths(r, root) {
 	const entries = pathEntriesOf(r.paths);
-	/* A stray is named as the record spells it, so the remedy names what the
-	 * marker's paths= holds: an entry whole, or a word of a comma-free one. */
+	/* A stray is named as the record spells it. */
 	const byShape = () =>
 		entries.flatMap(({ whole, words }) => {
 			const stray = whole.split(/\s+/).filter((w) => NOT_A_PATH.test(w));
