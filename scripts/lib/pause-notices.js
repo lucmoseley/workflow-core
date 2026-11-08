@@ -31,6 +31,7 @@ const {
 	tendPhase,
 } = require("./repo-hold-notices.js");
 const { isClearOwed, readNotice, writeNotice } = require("./repo-holds.js");
+const { scriptPath } = require("./script-path.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
 /**
@@ -116,7 +117,7 @@ function buildPauseCause({ pausedAt, issues, target }) {
 		message: (phase) =>
 			buildNoticeBody(
 				phase === "raise"
-					? `The refill loop paused: no act from ${issues.join(", ")}. It launches nothing until \`node scripts/refill-loop.js set --resume\`.`
+					? `The refill loop paused: no act from ${issues.join(", ")}. It launches nothing until \`node ${scriptPath("refill-loop.js")} set --resume\`.`
 					: `The refill loop's ${name}, on no act from ${issues.join(", ")}, has ended: it launches again.`,
 				marker(phase),
 			),
