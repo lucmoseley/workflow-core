@@ -2493,10 +2493,7 @@ function staleGuards(describedBy, implicitScripts, anchors) {
 	process.exit(0);
 }
 
-/**
- * Why `g` has no digest: untracked, with the command that stages it, or absent.
- * @param {string} g
- */
+/** @param {string} g */
 function whyNoDigest(g) {
 	return !isTreeMember(root, g) && fs.existsSync(path.join(root, g))
 		? `on disk but not in git's index — \`git add ${shellQuote(g)}\``

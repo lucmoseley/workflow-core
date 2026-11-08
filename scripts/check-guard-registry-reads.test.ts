@@ -753,7 +753,7 @@ describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
 	});
 });
 
-describe("a rule's own guard is judged on the commit's tree (#4517)", () => {
+describe("a rule's own guard is judged on git's index, not the disk (#4517)", () => {
 	const guard = "scripts/guard-new.sh";
 	const twoWorktrees = (named = guard) => {
 		const root = committedRepo({
