@@ -230,13 +230,34 @@ it("returns unknown, never green, where it cannot check out, install or start", 
 		kind: "unknown",
 		reason: "exit 1 exited 1 naming no failing file in the tree",
 	});
+});
 
+it("returns green where the sha declares no suite, taking no slot, and runs the Python suite alone where only it is routed (#2412)", async () => {
+	const { log, admit } = admitted();
+	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
 	config({ commands: {} });
-	const undeclared = commit("undeclared");
-	expect(await tester.verdict(undeclared)).toEqual({
-		kind: "unknown",
-		reason: "no test command is declared",
+	expect(await tester.verdict(commit("undeclared"))).toEqual({
+		kind: "green",
 	});
+	expect(log).toEqual([]);
+
+	const pytest = path.join(tmp, "fake-pytest.js");
+	const ran = path.join(tmp, "pytest-argv");
+	fs.writeFileSync(
+		pytest,
+		`require("node:fs").appendFileSync(${JSON.stringify(ran)}, process.argv.slice(2).join(" ") + "\\n");`,
+	);
+	config({ commands: {}, pythonRoutes: { "**/test_*.py": "test" } });
+	const routed = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+		pytest,
+	});
+	expect(await routed.verdict(commit("python only"))).toEqual({
+		kind: "green",
+	});
+	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
 });
 
 it("installs once per lockfile, again only when it changes", async () => {
