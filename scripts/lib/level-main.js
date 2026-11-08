@@ -44,7 +44,12 @@ const { pidLock } = require("./pid-lock.js");
 const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
-const { LOCKFILE, npmCi, stageInstall } = require("./npm-ci-staging.js");
+const {
+	INSTALL_TIMEOUT_MS,
+	LOCKFILE,
+	npmCi,
+	stageInstall,
+} = require("./npm-ci-staging.js");
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
@@ -457,8 +462,9 @@ const levelScript = () =>
 	process.env.WFC_LEVEL_MAIN_SCRIPT ||
 	path.join(__dirname, "..", "level-main.js");
 
-/* Untraced: room for an `npm ci` the pass runs where the lockfile changed. */
-const LEVEL_NOW_TIMEOUT_MS = 15 * 60 * 1000;
+/* Room for the `npm ci` the pass runs where the lockfile changed, plus its
+ * git steps. Untraced: one minute for the git. */
+const LEVEL_NOW_TIMEOUT_MS = INSTALL_TIMEOUT_MS + 60_000;
 
 /**
  * One levelling pass, waited for, in the environment the detached one gets:

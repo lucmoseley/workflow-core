@@ -57,6 +57,7 @@ const {
 } = require("./lib/project-dirs.js");
 const { loopFiles } = require("./lib/refill-files.js");
 const reading = require("./lib/worktree-model-reading.js");
+const { worktreePaths } = require("./lib/worktree-paths.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
@@ -202,10 +203,7 @@ function readMain(root, w) {
  * @param {Window} w
  */
 function readReconcile(root, w) {
-	const worktrees = git(["worktree", "list", "--porcelain"], root)
-		.split("\n")
-		.filter((l) => l.startsWith("worktree "))
-		.map((l) => l.slice("worktree ".length));
+	const worktrees = worktreePaths((args) => git(args, root));
 	const branches = git(
 		["for-each-ref", "--format=%(refname)", "refs/heads/reconcile-*"],
 		root,
