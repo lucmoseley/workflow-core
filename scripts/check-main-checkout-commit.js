@@ -9,8 +9,8 @@
  * Passes in a linked worktree, with the `landing` module off, and in a main
  * checkout not yet cut over (lib/cutover.js), where the shared-tree model's
  * own limb in .husky/pre-commit still holds it on `main`. Passes, too, the
- * root commit, HEAD still unborn: a new repo's commit that starts `main`,
- * which the lander needs to land onto (#2412).
+ * root commit, HEAD still unborn: a new repo's commit that starts `main`
+ * (#2412).
  *
  * IMPLICIT:  on every commit but the root one in a cut-over main checkout, refuses it.
  * JUSTIFIED: fail-safe — a commit there is a local commit the fast-forward cannot keep, and the PreToolUse refusal sees only Claude Code's own calls.

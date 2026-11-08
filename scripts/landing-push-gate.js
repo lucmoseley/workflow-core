@@ -9,8 +9,7 @@
  * git feeds `<local ref> <local sha> <remote ref> <remote sha>` per ref on
  * stdin. A deletion of `main` pushes the all-zero sha, which no ledger holds,
  * so it is refused too. A push creating `main` on a remote that has none, its
- * remote sha all zeros, passes: it is a new repo's first push, and the lander
- * lands onto a `main` that exists (#2412).
+ * remote sha all zeros, passes: it is a new repo's first push (#2412).
  *
  * A sha whose tree is a ledgered sha's tree passes: the suite tested that
  * tree (#1954).
