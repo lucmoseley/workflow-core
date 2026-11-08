@@ -8,14 +8,17 @@
  *
  * Passes in a linked worktree, with the `landing` module off, and in a main
  * checkout not yet cut over (lib/cutover.js), where the shared-tree model's
- * own limb in .husky/pre-commit still holds it on `main`.
+ * own limb in .husky/pre-commit still holds it on `main`. Passes, too, the
+ * root commit, HEAD still unborn: a new repo's commit that starts `main`
+ * (#2412).
  *
- * IMPLICIT:  on every commit in a cut-over main checkout, refuses it.
+ * IMPLICIT:  on every commit but the root one in a cut-over main checkout, refuses it.
  * JUSTIFIED: fail-safe — a commit there is a local commit the fast-forward cannot keep, and the PreToolUse refusal sees only Claude Code's own calls.
  * DEFEAT:    WFC_ALLOW_BRANCH=1, the founder's to set from their own terminal, never an agent's (#916).
  */
 
 const { runCheck } = require("./lib/check.js");
+const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { buildCutCommand, isCutOver } = require("./lib/cutover.js");
 const { gitDirs } = require("./lib/git.js");
 const { checkoutOfCommonDir } = require("./lib/main-checkout.js");
@@ -39,6 +42,8 @@ function run(ctx) {
 		};
 	if (!isCutOver(top))
 		return { okLine: "the main checkout is not yet cut over" };
+	if (readCommitOrBroken("HEAD", top) === null)
+		return { okLine: "HEAD is unborn: this commit starts main" };
 	if (process.env.WFC_ALLOW_BRANCH)
 		return { okLine: "WFC_ALLOW_BRANCH is set: the founder's commit" };
 	ctx.fail("MAIN-CHECKOUT-COMMIT", `a commit in the main checkout ${top}`);

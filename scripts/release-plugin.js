@@ -15,6 +15,9 @@
  * bump unlinked, the reason then on stdout, in the report, alongside every
  * filed one (#242).
  *
+ * Releases the tree it runs in, a linked worktree included, never that
+ * worktree's main checkout (lib/host-root.js `worktreeRoot`, #2412).
+ *
  * HEAD, NEVER THE WORKING TREE. The tree is rendered from `git archive HEAD`,
  * so an uncommitted edit cannot ship. And HEAD must be on `origin/main`
  * (lib/landing-refs.js's VERIFIED_REF): with the `landing` module on, a
@@ -74,7 +77,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { execGit } = require("./lib/git.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { buildTree } = require("./lib/plugin-tree.js");
 const {
 	isMajorBump,
@@ -622,7 +625,7 @@ function main(argv) {
 			.filter(Boolean),
 	};
 	try {
-		const root = hostRoot();
+		const root = worktreeRoot();
 		const { tag, commit, adopterLine } = release(root, {
 			dryRunAdopter: args.dryRunAdopter,
 		});
