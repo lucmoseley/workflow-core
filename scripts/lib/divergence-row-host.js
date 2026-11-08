@@ -72,7 +72,7 @@ const clock = () => {
 function buildHostPorts(env) {
 	return {
 		disabled: env.WFC_NO_DIVERGENCE_LOG === "1",
-		pwd: process.cwd(),
+		sessionDir: (payload) => require("./host-root.js").sessionDir(payload),
 		isDir: (p) => {
 			try {
 				return fs.statSync(p).isDirectory();

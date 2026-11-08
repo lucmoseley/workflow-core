@@ -12,7 +12,7 @@
  *            until some later session starts, and every session meanwhile
  *            builds on a `main` behind its own work.
  * DEFEAT:    turning the `landing` module off; deleting the registration.
- * TREE:      both — resolves the pushed ref in the session's checkout, the hook's cwd, and starts the lander under the host root's config
+ * TREE:      both — resolves the pushed ref in the session's checkout, walked from host-root.js's sessionDir, and starts the lander under the host root's config
  *
  * PostToolUse fires only on a call that exited 0, a failed push reaching
  * PostToolUseFailure instead, where this hook is not registered
@@ -34,6 +34,7 @@
 
 const { readSymbolicName } = require("./lib/git-tree.js");
 const { run } = require("./lib/guard-entry.js");
+const { sessionDir } = require("./lib/host-root.js");
 const { decide } = require("./lib/lander-on-push.js");
 
 run({
@@ -41,5 +42,9 @@ run({
 	noun: "lander start",
 	event: "PostToolUse",
 	decide,
-	ports: () => ({ symbolicName: (tree, src) => readSymbolicName(tree, src) }),
+	/* walkGit seeds from `fallbackCwd`, the hook's own directory unless set. */
+	ports: ({ payload }) => ({
+		fallbackCwd: sessionDir(payload),
+		symbolicName: (tree, src) => readSymbolicName(tree, src),
+	}),
 });
