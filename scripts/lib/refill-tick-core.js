@@ -226,7 +226,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   blockIo: (served: string[]) => BlockIo,
  *   readSwapHold: () => Seen["swapHold"],
  *   readProgress: (l: LoopLaunch, served: string[]) => object,
- *   readLastActAt: (launches: LoopLaunch[], served: string[]) => number|null,
+ *   readLoopLastActAt: (launches: LoopLaunch[], served: string[]) => number|null,
  *   readCause: import("./refill-blocks.js").CauseOf,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
  *   readFreeSlots: () => {slots: number,
@@ -1005,7 +1005,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		dryRun || seen.paused || control.stopRequested
 			? { launches: acted, settled: [] }
 			: blocks.queueLifted(acted, io.readLiftedHolds(roots), seen);
-	const lastActAt = io.readLastActAt(judged, served);
+	const lastActAt = io.readLoopLastActAt(judged, served);
 	const {
 		launches,
 		slots,
