@@ -26,7 +26,8 @@
  * keeps no such reading and has no filer to launch.
  */
 
-const { spawn } = require("node:child_process");
+const { reportOwner } = require("./session-id.js");
+const { OUTLIVE_CEILING_S, spawnOutliving } = require("./user-scope.js");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -113,10 +114,12 @@ function launchFiler(root, dir, nowMs) {
 	try {
 		fs.writeFileSync(log, `launched ${filer} from ${root}\n`);
 		fd = fs.openSync(log, "a");
-		const child = spawn(process.execPath, [filer], {
+		/* Outliving the session-start check that launches it (#4706). */
+		const child = spawnOutliving(process.execPath, [filer], {
 			cwd: root,
-			detached: true,
 			stdio: ["ignore", fd, fd],
+			owner: reportOwner(),
+			ceilingS: OUTLIVE_CEILING_S,
 		});
 		/* An async spawn fault would otherwise throw in the caller. */
 		child.on("error", (e) =>

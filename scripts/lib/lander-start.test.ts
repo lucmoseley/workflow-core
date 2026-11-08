@@ -161,13 +161,15 @@ describe("spawnDetachedRun", () => {
 		},
 	);
 
-	it("starts the lander as no session, rooted at the checkout (#2410)", async () => {
+	it("starts the lander as no session, naming no report owner, rooted at the checkout (#2410, #4706)", async () => {
 		vi.stubEnv("CLAUDE_PROJECT_DIR", "/the/shared/tree");
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "starter");
 		vi.stubEnv("CLAUDE_JOB_DIR", "/the/job");
+		/* What a lander start launched as an outliving job carries. */
+		vi.stubEnv("WFC_REPORT_OWNER", "starter");
 		const { tmp, logged } = await probeRun(
-			"const e = process.env; console.log(JSON.stringify([e.CLAUDE_PROJECT_DIR, e.CLAUDE_CODE_SESSION_ID ?? null, e.CLAUDE_JOB_DIR ?? null]));",
+			"const e = process.env; console.log(JSON.stringify([e.CLAUDE_PROJECT_DIR, e.CLAUDE_CODE_SESSION_ID ?? null, e.CLAUDE_JOB_DIR ?? null, e.WFC_REPORT_OWNER ?? null]));",
 		);
-		expect(logged).toEqual([tmp, null, null]);
+		expect(logged).toEqual([tmp, null, null, null]);
 	});
 });

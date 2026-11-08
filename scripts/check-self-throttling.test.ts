@@ -19,6 +19,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hookIsWired, registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
+import { writeSystemdRun } from "./lib/systemd-run-fake";
 
 const SCRIPT = path.resolve(__dirname, "check-self-throttling.js");
 const HOUR = 36e5;
@@ -235,6 +236,26 @@ describe("--notify", () => {
 		throttled();
 		run(["--notify"]);
 		expect(fs.existsSync(stamp())).toBe(true);
+	});
+
+	/* So a short session's end does not kill the once-a-day walk (#4706). */
+	it("kicks its sweep outside the session's scope, as no session, owned by the starter, capped", async () => {
+		throttled();
+		const fake = writeSystemdRun(fs.mkdtempSync(path.join(dir, "sdr-")));
+		run(["--notify"], {
+			WFC_SYSTEMD_RUN: fake.bin,
+			CLAUDE_CODE_SESSION_ID: "starter",
+			CLAUDE_JOB_DIR: "/the/job",
+		});
+		await vi.waitFor(() => expect(fake.calls()).toHaveLength(1));
+		expect(fake.calls()[0]).toMatchObject({
+			words: "--user --scope --quiet -p RuntimeMaxSec=2700 --",
+			command: expect.stringMatching(/check-self-throttling\.js --refresh$/),
+			sid: "",
+			job: "",
+			owner: "starter",
+		});
+		await waitForFile(state());
 	});
 
 	it("kicks no second sweep while a stamped one is younger than a day", async () => {

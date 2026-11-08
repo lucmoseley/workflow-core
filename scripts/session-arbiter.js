@@ -34,7 +34,7 @@
  * is not given a timeout: any expiry is the timeout mantahostels#104 rejected wearing another
  * name, and it would fire on precisely the long tool calls.
  *
- * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which launches a detached `prune-markers` and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants and issue claims — not just this session's.
+ * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which launches a detached `prune-markers` as no session's process, naming this session as its report owner, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants and issue claims — not just this session's.
  * JUSTIFIED: fail-safe — each record pins a git blob open, so an unswept store grows without bound; a run that cannot tell live from finished deletes nothing.
  * DEFEAT:    `--detach` is the registration's only flag and changes who runs the sweep, never what it sweeps; the sweep always exits 0.
  * TREE:      host — every record it sweeps is the host root's store.
@@ -65,12 +65,11 @@ const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
 /* How this CLI's own output names it, at the plugin root in an install (#1110). */
 
 /**
- * Launch a `prune-markers` of our own, detached, and return 0 at once (mantahostels#1899).
- *
- * setsid for session-start-sweeps.sh's reason: a plain background child stays
- * in the hook shell's process group, so a harness that kills the group on
- * timeout kills the sweep mid-pass — which is the very failure this exists to
- * end. A machine without setsid falls back to a plain detached spawn.
+ * Launch a `prune-markers` of our own through the outliving launch, and return
+ * 0 at once (mantahostels#1899, #4706): in a session of its own, so a harness
+ * that kills the hook's process group on timeout does not take the sweep
+ * mid-pass, and outside this session's scope, so a short session's end does
+ * not either.
  *
  * Never throws and never waits: a session start must not break, or block, on
  * housekeeping nothing in it reads.
@@ -83,17 +82,16 @@ const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
  */
 function detachPrune() {
 	try {
-		const { spawn } = require("node:child_process");
-		const setsid = spawnable("setsid");
-		const child = setsid
-			? spawn("setsid", [process.execPath, __filename, "prune-markers"], {
-					detached: true,
-					stdio: "ignore",
-				})
-			: spawn(process.execPath, [__filename, "prune-markers"], {
-					detached: true,
-					stdio: "ignore",
-				});
+		const {
+			OUTLIVE_CEILING_S,
+			spawnOutliving,
+		} = require("./lib/user-scope.js");
+		const { reportOwner } = require("./lib/session-id.js");
+		const child = spawnOutliving(
+			process.execPath,
+			[__filename, "prune-markers"],
+			{ stdio: "ignore", owner: reportOwner(), ceilingS: OUTLIVE_CEILING_S },
+		);
 		child.unref();
 		/* An ENOENT on the spawn itself surfaces asynchronously, so it is caught
 		 * here rather than by the try above — and swallowed, for the same reason
@@ -102,19 +100,9 @@ function detachPrune() {
 			/* nothing waits on the sweep */
 		});
 	} catch {
-		/* no node, no setsid, no fork budget — the next session start retries */
+		/* no node, no fork budget — the next session start retries */
 	}
 	return 0;
-}
-
-/** Whether `bin` is on PATH, answered without running it. */
-/** @param {string} bin */
-function spawnable(bin) {
-	const { spawnSync } = require("node:child_process");
-	return (
-		spawnSync("command", ["-v", bin], { shell: true, stdio: "ignore" })
-			.status === 0
-	);
 }
 
 /**
@@ -2515,8 +2503,8 @@ function cmdPruneMarkers(detach) {
 	 * that has ended — so it runs against a 10 s hook budget it cannot be
 	 * shown to fit inside. Nothing in the starting session reads a byte of
 	 * this: the sweep prints nothing, and it drains the store for the
-	 * session AFTER this one. The same reasoning, and the same setsid
-	 * mechanics, as session-start-sweeps.sh's (mantahostels#1251).
+	 * session AFTER this one. The same reasoning, and the same outliving
+	 * launch, as session-start-sweeps.sh's (mantahostels#1251, #4706).
 	 */
 	if (detach) return detachPrune();
 	// Which families, and the order the pin-holding ones have to run in:

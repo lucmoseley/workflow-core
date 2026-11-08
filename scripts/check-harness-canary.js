@@ -41,13 +41,13 @@
  * comments only under `--write`, which the hook passes and the probe it
  * launches inherits (#4449).
  *
- * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 (the hook passing --write) and prints it at each start.
+ * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches, as no session's process in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 (the hook passing --write) and prints it at each start.
  * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block. The agent_id probe replaces #1837's hand re-check per release (#2819).
  * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false; `--probe-agent-id` re-reads the binary for a fixed suspected false.
  * TREE:      host — probes the harness from a scratch directory and asks whether the host root is the core
  */
 
-const { spawn, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -66,6 +66,8 @@ const { isCoreRoot } = require("./lib/core-hooks.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { reportOwner } = require("./lib/session-id.js");
+const { OUTLIVE_CEILING_S, spawnOutliving } = require("./lib/user-scope.js");
 
 const PLUGIN = "wfccanary";
 const BARE = `${PLUGIN}:bare`;
@@ -390,16 +392,18 @@ function probeAndRecord(version, which) {
 	}
 }
 
-/** Launch `flag` detached — node's `detached` starts a new session, so a
- * harness killing the hook's group spares it.
+/** Launch `flag` through the outliving launch (#4706): in a session of its
+ * own, so a harness killing the hook's group spares it, and outside this
+ * session's scope, so the session's end does too.
  * @param {"--probe" | "--probe-agent-id"} flag
  * @param {boolean} write passed on, so the probe may comment (#4449) */
 function detachProbe(flag, write) {
 	try {
-		spawn(process.execPath, [__filename, flag, ...(write ? ["--write"] : [])], {
-			detached: true,
-			stdio: "ignore",
-		}).unref();
+		spawnOutliving(
+			process.execPath,
+			[__filename, flag, ...(write ? ["--write"] : [])],
+			{ stdio: "ignore", owner: reportOwner(), ceilingS: OUTLIVE_CEILING_S },
+		).unref();
 	} catch {
 		/* The next session start retries (#2037). */
 	}

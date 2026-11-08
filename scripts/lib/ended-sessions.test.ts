@@ -96,6 +96,16 @@ describe("findEndedSessions", () => {
 		expect(find()).toEqual([]);
 	});
 
+	/* An outliving session-start job (#4706): stripped, owner-tagged, its
+	 * starter gone. */
+	it("never takes one carrying a report owner but no session id, its leader gone", () => {
+		proc(6001, { ppid: 1, argv: "node repo-checks.js", ageS: 600 }, [
+			`CLAUDE_PID=${LEADER}`,
+			`WFC_REPORT_OWNER=${SESSION}`,
+		]);
+		expect(find()).toEqual([]);
+	});
+
 	it("never takes one whose parent is alive and no init: its parent's to end", () => {
 		fixture.proc(6000, { ppid: 1, argv: "bash" });
 		proc(6001, { ppid: 6000, argv: WORKER });

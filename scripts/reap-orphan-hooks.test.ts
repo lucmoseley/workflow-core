@@ -213,63 +213,73 @@ describe("a real orphaned guard", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
+	/** `prepare` shapes the checkout first. */
+	function sweepOrphanHook(
+		args = ["--json"],
+		prepare = () => {
+			/* a checkout as git init leaves it */
+		},
+	) {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
+		spawnSync("git", ["init", "-q", dir]);
+		fs.mkdirSync(path.join(dir, ".claude"));
+		prepare();
+		/* Registered, not a guard: any guard-* orphan is reaped by name, so
+		 * orphan-hooks.test.ts's real case would take this one too. */
+		const name = `reap-fixture-${process.pid}.sh`;
+		fs.writeFileSync(
+			path.join(dir, ".claude", "settings.json"),
+			JSON.stringify({
+				hooks: {
+					SessionStart: [
+						{ hooks: [{ type: "command", command: `bash scripts/${name}` }] },
+					],
+				},
+			}),
+		);
+		const script = path.join(dir, "scripts", name);
+		fs.mkdirSync(path.dirname(script));
+		fs.writeFileSync(script, "sleep 300\n");
+		pid = startOrphan("bash", script);
+		/* Until the fixture's shell execs, its argv is no hook run's. */
+		expect(
+			waitFor(() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script),
+		).toBe(true);
+
+		/* A machine up long enough that the orphan is past the ceiling of
+		 * the registry this run reads: an adopter's, not the core's. */
+		const live = readProcTable("/proc")?.procs ?? new Map();
+		const start = live.get(pid)?.startTicks ?? 0;
+		const adopter = readRegistry(readRunningHooks(dir, { quiet: true }));
+		const fake = makeProcRoot(start / USER_HZ + adopter.ceilingS + 1);
+		try {
+			for (const p of live.values()) if (p.pgid === pid) fake.real(p.pid);
+			/* WSL's session /init, read by argv where it is not pid 1. */
+			const ppid = live.get(pid)?.ppid ?? 0;
+			if (ppid > 1) fake.real(ppid);
+
+			const res = run(
+				args,
+				{
+					WFC_PROC: fake.root,
+					WFC_REAP_FAKE_ROOT: "kill",
+					CLAUDE_PROJECT_DIR: dir,
+				},
+				dir,
+			);
+
+			expect(res.status).toBe(0);
+			expect(waitFor(() => isGroupDead(pid))).toBe(true);
+			return res;
+		} finally {
+			fake.remove();
+		}
+	}
+
 	it.runIf(orphansReapToInit())(
 		"is killed with its group and logged in the canonical checkout's markers",
 		() => {
-			dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
-			spawnSync("git", ["init", "-q", dir]);
-			fs.mkdirSync(path.join(dir, ".claude"));
-			/* Registered, not a guard: any guard-* orphan is reaped by name, so
-			 * orphan-hooks.test.ts's real case would take this one too. */
-			const name = `reap-fixture-${process.pid}.sh`;
-			fs.writeFileSync(
-				path.join(dir, ".claude", "settings.json"),
-				JSON.stringify({
-					hooks: {
-						SessionStart: [
-							{ hooks: [{ type: "command", command: `bash scripts/${name}` }] },
-						],
-					},
-				}),
-			);
-			const script = path.join(dir, "scripts", name);
-			fs.mkdirSync(path.dirname(script));
-			fs.writeFileSync(script, "sleep 300\n");
-			pid = startOrphan("bash", script);
-			/* Until the fixture's shell execs, its argv is no hook run's. */
-			expect(
-				waitFor(
-					() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script,
-				),
-			).toBe(true);
-
-			/* A machine up long enough that the orphan is past the ceiling of
-			 * the registry this run reads: an adopter's, not the core's. */
-			const live = readProcTable("/proc")?.procs ?? new Map();
-			const start = live.get(pid)?.startTicks ?? 0;
-			const adopter = readRegistry(readRunningHooks(dir, { quiet: true }));
-			const fake = makeProcRoot(start / USER_HZ + adopter.ceilingS + 1);
-			try {
-				for (const p of live.values()) if (p.pgid === pid) fake.real(p.pid);
-				/* WSL's session /init, read by argv where it is not pid 1. */
-				const ppid = live.get(pid)?.ppid ?? 0;
-				if (ppid > 1) fake.real(ppid);
-
-				const res = run(
-					["--json"],
-					{
-						WFC_PROC: fake.root,
-						WFC_REAP_FAKE_ROOT: "kill",
-						CLAUDE_PROJECT_DIR: dir,
-					},
-					dir,
-				);
-
-				expect(res.status).toBe(0);
-				expect(waitFor(() => isGroupDead(pid))).toBe(true);
-			} finally {
-				fake.remove();
-			}
+			sweepOrphanHook();
 			const log = path.join(
 				dir,
 				".claude/tmp/markers/.orphan-hook-reaps.jsonl",
@@ -290,6 +300,28 @@ describe("a real orphaned guard", () => {
 			]);
 		},
 	);
+
+	it.runIf(orphansReapToInit())(
+		"says the log write failed, naming the file, and never 'logged', where the markers log cannot be written",
+		() => {
+			const res = sweepOrphanHook(["--notify"], () =>
+				fs.mkdirSync(
+					path.join(dir, ".claude/tmp/markers/.orphan-hook-reaps.jsonl"),
+					{
+						recursive: true,
+					},
+				),
+			);
+			const log = path.join(
+				dir,
+				".claude/tmp/markers/.orphan-hook-reaps.jsonl",
+			);
+			expect(res.stdout).toContain(
+				`Killed, but the log write to ${log} failed`,
+			);
+			expect(res.stdout).not.toContain("logged to");
+		},
+	);
 });
 
 /* The real kill and log of a dead session's process, against a fake root that
@@ -302,66 +334,75 @@ describe("a real process of an ended session", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
+	/** `log` may name `<dir>`, this run's temp checkout. */
+	function sweepEndedSession(log: string, args = ["--json"]) {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
+		spawnSync("git", ["init", "-q", dir]);
+		const res0 = spawnSync(
+			"bash",
+			[
+				"-c",
+				"setsid bash -c 'sleep 300 & wait' </dev/null >/dev/null 2>&1 & echo $!",
+			],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					CLAUDE_CODE_SESSION_ID: "sess-real-ended",
+					/* This worker: live to a real sweep elsewhere on the
+					 * machine, gone from the fake root below. */
+					CLAUDE_PID: String(process.pid),
+				},
+			},
+		);
+		pid = Number(res0.stdout.trim());
+		expect(pid).toBeGreaterThan(1);
+		expect(
+			waitFor(() =>
+				[...(readProcTable("/proc")?.procs.values() ?? [])].some(
+					(p) => p.ppid === pid && p.argv[0] === "sleep",
+				),
+			),
+		).toBe(true);
+		const live = readProcTable("/proc")?.procs ?? new Map();
+		const fake = makeProcRoot();
+		try {
+			for (const p of live.values())
+				if (p.pid === pid || p.ppid === pid) fake.real(p.pid);
+			const ppid = live.get(pid)?.ppid ?? 0;
+			if (ppid > 1) fake.real(ppid);
+
+			const res = run(
+				args,
+				{
+					WFC_PROC: fake.root,
+					WFC_REAP_FAKE_ROOT: "kill",
+					CLAUDE_PROJECT_DIR: dir,
+					WFC_SESSION_REAP_LOG: log.replace("<dir>", dir),
+				},
+				dir,
+			);
+
+			expect(res.status).toBe(0);
+			expect(waitFor(() => isGroupDead(pid))).toBe(true);
+			return res;
+		} finally {
+			fake.remove();
+		}
+	}
+
+	const logLines = (file: string) =>
+		fs
+			.readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+
 	it.runIf(orphansReapToInit())(
 		"is killed with its tree and logged naming its session (#4342)",
 		() => {
-			dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
-			spawnSync("git", ["init", "-q", dir]);
-			const res0 = spawnSync(
-				"bash",
-				[
-					"-c",
-					"setsid bash -c 'sleep 300 & wait' </dev/null >/dev/null 2>&1 & echo $!",
-				],
-				{
-					encoding: "utf8",
-					env: {
-						...process.env,
-						CLAUDE_CODE_SESSION_ID: "sess-real-ended",
-						/* This worker: live to a real sweep elsewhere on the
-						 * machine, gone from the fake root below. */
-						CLAUDE_PID: String(process.pid),
-					},
-				},
-			);
-			pid = Number(res0.stdout.trim());
-			expect(pid).toBeGreaterThan(1);
-			expect(
-				waitFor(() =>
-					[...(readProcTable("/proc")?.procs.values() ?? [])].some(
-						(p) => p.ppid === pid && p.argv[0] === "sleep",
-					),
-				),
-			).toBe(true);
-			const live = readProcTable("/proc")?.procs ?? new Map();
-			const fake = makeProcRoot();
-			try {
-				for (const p of live.values())
-					if (p.pid === pid || p.ppid === pid) fake.real(p.pid);
-				const ppid = live.get(pid)?.ppid ?? 0;
-				if (ppid > 1) fake.real(ppid);
-
-				const res = run(
-					["--json"],
-					{
-						WFC_PROC: fake.root,
-						WFC_REAP_FAKE_ROOT: "kill",
-						CLAUDE_PROJECT_DIR: dir,
-						WFC_SESSION_REAP_LOG: path.join(dir, "session-reaps.jsonl"),
-					},
-					dir,
-				);
-
-				expect(res.status).toBe(0);
-				expect(waitFor(() => isGroupDead(pid))).toBe(true);
-			} finally {
-				fake.remove();
-			}
-			const lines = fs
-				.readFileSync(path.join(dir, "session-reaps.jsonl"), "utf8")
-				.trim()
-				.split("\n")
-				.map((l) => JSON.parse(l));
+			sweepEndedSession("<dir>/session-reaps.jsonl");
+			const lines = logLines(path.join(dir, "session-reaps.jsonl"));
 			expect(lines).toEqual([
 				expect.objectContaining({
 					pid,
@@ -371,6 +412,33 @@ describe("a real process of an ended session", () => {
 				}),
 			]);
 			expect(lines[0].killed).toHaveLength(2);
+		},
+	);
+
+	/* A fresh machine has no ~/.local/state/workflow-core (#4706). */
+	it.runIf(orphansReapToInit())(
+		"makes a missing log directory and writes the line there",
+		() => {
+			const res = sweepEndedSession("<dir>/state/workflow-core/reaps.jsonl", [
+				"--notify",
+			]);
+			const log = path.join(dir, "state/workflow-core/reaps.jsonl");
+			expect(logLines(log)).toEqual([expect.objectContaining({ pid })]);
+			expect(res.stdout).toContain(`Killed, and logged to ${log}.`);
+		},
+	);
+
+	it.runIf(orphansReapToInit())(
+		"says the log write failed, naming the file, and never 'logged', where the line cannot be written",
+		() => {
+			const res = sweepEndedSession("<dir>/.git/HEAD/reaps.jsonl", [
+				"--notify",
+			]);
+			const log = path.join(dir, ".git/HEAD/reaps.jsonl");
+			expect(res.stdout).toContain(
+				`Killed, but the log write to ${log} failed`,
+			);
+			expect(res.stdout).not.toContain("logged to");
 		},
 	);
 });
@@ -412,5 +480,26 @@ describe("a session start after the timer's kills", () => {
 			"2026-11-05T03:00:00.000Z: pid 6001, session sess-gone (leader pid 5000) ended: node forks.js",
 		);
 		expect(second.stdout).not.toContain("sess-gone");
+	});
+
+	it("says it will not read an unreadable kill log, naming it, and still sweeps", () => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-"));
+		spawnSync("git", ["init", "-q", dir]);
+		const log = path.join(dir, ".git/HEAD/session-reaps.jsonl");
+		const res = run(
+			["--notify"],
+			{
+				WFC_PROC: fixture.root,
+				WFC_REAP_FAKE_ROOT: "kill",
+				CLAUDE_PROJECT_DIR: dir,
+				CLAUDE_CODE_SESSION_ID: "sess-now",
+				WFC_SESSION_REAP_LOG: log,
+			},
+			dir,
+		);
+		expect(res.status).toBe(0);
+		expect(res.stdout).toContain(
+			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${log}: `,
+		);
 	});
 });
