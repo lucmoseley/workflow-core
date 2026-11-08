@@ -15,8 +15,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bringCoreFiles } from "./core-owned-files.js";
+import { runInProcess } from "./run-in-process.js";
 import { walkAndCommit } from "./walk-and-commit.js";
 
 let root: string;
@@ -336,6 +337,63 @@ describe("walkAndCommit", () => {
 			"scripts/browse.py",
 		);
 		expect(git(["status", "--porcelain"], root)).toBe("");
+	});
+
+	describe("in an adopter whose guard-registry gate refuses an expired anchor (#4078)", () => {
+		const checker = path.join(__dirname, "..", "check-guard-registry.js");
+		/* Hermetic: the checker judges `root`, not the suite's test host, and
+		 * reads no live session's claims. */
+		const checkerEnv = () => ({
+			...process.env,
+			CLAUDE_PROJECT_DIR: root,
+			WFC_ANCHOR_LOCKS: "[]",
+		});
+		beforeEach(() => {
+			vi.stubEnv("WFC_ANCHOR_LOCKS", "[]");
+			// A tree an older release left: one shim missing, one out of date,
+			// and every shim it has anchored, as init leaves them.
+			fs.rmSync(path.join(root, ".husky/post-merge"));
+			fs.appendFileSync(path.join(root, ".husky/pre-push"), "# older shim\n");
+			const anchored = runInProcess(checker, ["--review", "--sole-writer"], {
+				cwd: root,
+				env: checkerEnv(),
+			});
+			expect(anchored.status).toBe(0);
+			commitAll(root, "an older release's shims, anchored");
+			const hook = path.join(root, ".git/hooks/pre-commit");
+			fs.mkdirSync(path.dirname(hook), { recursive: true });
+			fs.writeFileSync(
+				hook,
+				`#!/bin/sh\nCLAUDE_PROJECT_DIR="$PWD" exec "${process.execPath}" "${checker}" --against HEAD\n`,
+				{ mode: 0o755 },
+			);
+		});
+
+		it("re-anchors the shims it adds and rewrites, and commits the anchors with them", () => {
+			const before = readJson(root, ".claude/guard-registry-anchors.json");
+
+			const lines: string[] = [];
+			const r = walkAndCommit({ root, pluginRoot, out: (l) => lines.push(l) });
+
+			expect(lines.join("\n")).not.toMatch(/refused/);
+			expect(r.action).toBe("committed");
+			expect(git(["status", "--porcelain"], root)).toBe("");
+			const committed = git(["show", "--name-only", "--format=", "HEAD"], root)
+				.trim()
+				.split("\n");
+			expect(committed).toEqual(
+				expect.arrayContaining([
+					".claude/guard-registry-anchors.json",
+					".husky/post-merge",
+					".husky/pre-push",
+				]),
+			);
+			const after = readJson(root, ".claude/guard-registry-anchors.json");
+			expect(before[".husky/post-merge"]).toBeUndefined();
+			expect(after[".husky/post-merge"]).toEqual(expect.any(String));
+			expect(after[".husky/pre-push"]).not.toBe(before[".husky/pre-push"]);
+			expect(after[".husky/pre-commit"]).toBe(before[".husky/pre-commit"]);
+		});
 	});
 
 	it("re-run after a committed walk changes nothing further", () => {

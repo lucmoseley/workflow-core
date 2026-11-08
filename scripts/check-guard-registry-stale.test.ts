@@ -543,7 +543,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(out).toContain(
 			"not anchored scripts/guard-a.sh — scripts/guard-a.sh is dirty and not claimed by this session",
 		);
-		expect(out).toContain("claim it if it is yours");
+		expect(out).toContain("claim scripts/guard-a.sh if yours (");
 		expect(out).not.toContain("Re-run once the holder releases");
 		expect(readAnchors(root)).toEqual(before);
 		reviewIn(root, [], env(ownLocks(root, self)));
@@ -562,6 +562,56 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
 			before["scripts/guard-a.sh"],
 		);
+	});
+
+	it("--own reads a named dirty input as the caller's, though no claim names it (#4078)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const out = reviewIn(
+			root,
+			["scripts/guard-a.sh", "--own", "scripts/guard-a.sh"],
+			env([]),
+		);
+		expect(out).toContain("anchored scripts/guard-a.sh @");
+		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
+			before["scripts/guard-a.sh"],
+		);
+		expect(readAnchors(root)["scripts/guard-b.sh"]).toBe(
+			before["scripts/guard-b.sh"],
+		);
+	});
+
+	it("--own takes no path a live neighbour holds dirty (#4078)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const out = reviewIn(
+			root,
+			["scripts/guard-a.sh", "--own", "scripts/guard-a.sh"],
+			env([lock("scripts/guard-a.sh")]),
+		);
+		expect(out).toContain("not anchored scripts/guard-a.sh");
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("offers no claim for a dirty input the arbiter does not watch, as under .husky/ (#4078)", () => {
+		const root = committedRepo({
+			claude: region("- Hook. **Unenforceable**: `.husky/pre-commit`."),
+			files: { ".husky/pre-commit": "#!/bin/sh\nexit 0\n" },
+		});
+		reviewIn(root, [], env([]));
+		fs.writeFileSync(
+			path.join(root, ".husky/pre-commit"),
+			"#!/bin/sh\nexit 1\n",
+		);
+		const out = reviewIn(root, [".husky/pre-commit"], env([]));
+		expect(out).toContain(
+			"no claim can name .husky/pre-commit, which the arbiter does not watch",
+		);
+		expect(out).not.toContain("claim .husky/pre-commit if yours");
 	});
 
 	it("--sole-writer is refused where another session holds a live claim, or the claims went unread (#3339)", () => {

@@ -52,6 +52,10 @@
  *   node scripts/check-guard-registry.js --review --sole-writer [<path>…]
  *     the same, every dirty input read as the caller's own: for a tree no
  *     session works yet, as init-adopter.js anchors the hooks it just wrote.
+ *   node scripts/check-guard-registry.js --review <path>… --own <path>…
+ *     the same, each --own path read as the caller's though no claim names
+ *     it: for a writer that proved the tree clean before writing, as the
+ *     migration walk anchors the shims it rewrote (#4078).
  *   node scripts/check-guard-registry.js --review --stale
  *     the same over exactly the rows a bare run names stale, listing each
  *     with what it asserts was re-read (#4170).
@@ -1777,9 +1781,9 @@ function guardPathsOf(text) {
 	];
 }
 
-/* Host data, so under the host's .claude/ (#37) — which also keeps the sidecar
- * out of RUNNABLE_PATH_RE below, so it is never anchored on itself. */
-const ANCHORS = ".claude/guard-registry-anchors.json";
+/* Under .claude/, which keeps the sidecar out of RUNNABLE_PATH_RE below, so it
+ * is never anchored on itself. */
+const { ANCHORS } = require("./lib/registry-anchors-path.js");
 
 /*
  * The anchor question is a different one from the Enforced-claim question above,
@@ -3929,7 +3933,7 @@ const buildHeldLine = (h) =>
  * findings, so it has no outcome and never reaches the reporting below.
  */
 /**
- * @param {{ paths: string[], taking: string[], soleWriter: boolean }} request the paths to anchor, those this commit carries though a claim holds them, and whether every dirty input is the caller's
+ * @param {{ paths: string[], taking: string[], own: string[], soleWriter: boolean }} request the paths to anchor, those this commit carries though a claim holds them, those the caller wrote though no claim names them, and whether every dirty input is the caller's
  * @param {Map<string, RuleRef[]>} describedBy
  * @param {Map<string, WiredScript>} implicitScripts
  * @param {Record<string, string>} anchors
@@ -3937,7 +3941,7 @@ const buildHeldLine = (h) =>
  */
 function reanchor(request, describedBy, implicitScripts, anchors) {
 	refuseFailedTreeRead();
-	const { paths: reviewPaths, taking, soleWriter } = request;
+	const { paths: reviewPaths, taking, own, soleWriter } = request;
 	/*
 	 * Re-anchoring asserts a human re-read the rules describing that guard, so
 	 * the command prints them.
@@ -3951,9 +3955,10 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	for (const line of refused) printLine(line);
 	const read = readHeldElsewhere(inputs, ours);
 	const { held, taken, unavailable } = read;
-	const unclaimed = soleWriter
-		? refuseSoleWriter(read)
-		: readUnclaimed(inputs, read, ours);
+	const unclaimed = readCallerUnclaimed(inputs, read, ours, {
+		own,
+		soleWriter,
+	});
 	for (const [p, h] of taken)
 		printLine(
 			`taking ${p} from ${h.holder}${h.dead ? " (GONE)" : ""}'s claim — put it in this commit's pathspec`,
@@ -3975,7 +3980,7 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		skipped: [],
 		anyHeld: false,
 		anyGone: false,
-		anyUnclaimed: false,
+		unclaimedSeen: new Set(),
 		written: 0,
 	};
 
@@ -4000,6 +4005,24 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	const carried = Object.keys(next).length - written;
 	printLine(buildReviewSummary(run, carried).join("\n"));
 	process.exit(0);
+}
+
+/**
+ * The dirty inputs neither a claim of this session's nor the caller's word
+ * covers: none under --sole-writer, and never an --own path.
+ *
+ * @param {string[]} inputs
+ * @param {HeldRead & { unavailable: string | null }} read
+ * @param {Map<string, string>} ours
+ * @param {{ own: string[], soleWriter: boolean }} caller
+ * @returns {Set<string>}
+ */
+function readCallerUnclaimed(inputs, read, ours, { own, soleWriter }) {
+	const unclaimed = soleWriter
+		? refuseSoleWriter(read)
+		: readUnclaimed(inputs, read, ours);
+	for (const p of own) unclaimed.delete(p);
+	return unclaimed;
 }
 
 function refuseFailedTreeRead() {
@@ -4161,7 +4184,7 @@ function readTreeBlobs(sha, paths) {
  *   skipped: string[],
  *   anyHeld: boolean,
  *   anyGone: boolean,
- *   anyUnclaimed: boolean,
+ *   unclaimedSeen: Set<string>,
  *   written: number,
  * }} ReviewRun
  */
@@ -4183,7 +4206,7 @@ function reanchorTarget(run, g) {
 		run.skipped.push(g);
 		run.anyHeld ||= holders.length > 0;
 		run.anyGone ||= holders.some((h) => h.dead);
-		run.anyUnclaimed ||= unclaimed.length > 0;
+		for (const p of unclaimed) run.unclaimedSeen.add(p);
 		/* Carried over rather than dropped: a bare --review starts from an
 		 * empty map, so losing the entry would turn a skip into UNANCHORED. */
 		const anchor = run.anchors[g];
@@ -4240,7 +4263,7 @@ function printDescriptions({ describedBy, implicitScripts }, g) {
  * @returns {string[]}
  */
 function buildReviewSummary(
-	{ written, skipped, anyHeld, anyGone, anyUnclaimed },
+	{ written, skipped, anyHeld, anyGone, unclaimedSeen },
 	carried,
 ) {
 	const lines = [
@@ -4261,14 +4284,37 @@ function buildReviewSummary(
 				? "A holder marked GONE will never release: commit or revert the file."
 				: "Re-run once the holder releases.",
 		);
-	if (anyUnclaimed)
-		lines.push(
-			"A dirty input no claim of this session's covers matches no committed tree: claim it if it is yours " +
-				`(${buildArbiterCommand`claim <path>`}); where the arbiter watches no such path, as under .husky/, the claim records nothing, ` +
-				`so ${COMMIT_THEN_REVIEW}. Else re-anchor in a clean worktree of HEAD outside ` +
-				"this checkout (git worktree add --detach <dir> HEAD) and carry its anchors file back.",
-		);
+	if (unclaimedSeen.size > 0) lines.push(buildUnclaimedLine(unclaimedSeen));
 	return lines;
+}
+
+/**
+ * The way out for dirty inputs no claim of this session's covers. A claim is
+ * offered only for a path the arbiter watches: on any other, as under
+ * .husky/, `claim` exits 0 and records nothing (#4078).
+ *
+ * @param {Set<string>} unclaimed
+ * @returns {string}
+ */
+function buildUnclaimedLine(unclaimed) {
+	const { isWatched } = require("./lib/arbiter-core.js");
+	const paths = [...unclaimed].sort(byCodeUnit);
+	const watched = paths.filter(isWatched);
+	const unwatched = paths.filter((p) => !isWatched(p));
+	const routes = [];
+	if (watched.length > 0)
+		routes.push(
+			`claim ${watched.join(", ")} if yours (${buildArbiterCommand`claim <path>`})`,
+		);
+	if (unwatched.length > 0)
+		routes.push(
+			`no claim can name ${unwatched.join(", ")}, which the arbiter does not watch, so if yours ${COMMIT_THEN_REVIEW}`,
+		);
+	return (
+		`A dirty input no claim of this session's covers matches no committed tree: ${routes.join("; ")}. ` +
+		"Else re-anchor in a clean worktree of HEAD outside this checkout " +
+		"(git worktree add --detach <dir> HEAD) and carry its anchors file back."
+	);
 }
 
 // --- the pre-commit gate ------------------------------------------------------
@@ -4848,17 +4894,17 @@ function reviewIndex(ctx) {
  *
  * @param {Ctx} ctx
  * @param {number} reviewAt
- * @returns {{ named: string[], stale: boolean, taking: string[], soleWriter: boolean } | null}
+ * @returns {{ named: string[], stale: boolean, taking: string[], own: string[], soleWriter: boolean } | null}
  */
 function parseReviewRequest(ctx, reviewAt) {
 	if (reviewAt === -1) {
-		for (const flag of ["--sole-writer", "--stale"])
+		for (const flag of ["--sole-writer", "--stale", "--own"])
 			if (ctx.has(flag)) ctx.usageError(`${flag} only qualifies --review.`);
 		return null;
 	}
 	const after = ctx.argv.slice(reviewAt + 1);
 	const named = after.filter(
-		(a, i) => !a.startsWith("--") && after[i - 1] !== "--taking",
+		(a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(after[i - 1] ?? ""),
 	);
 	const stale = ctx.has("--stale");
 	if (stale && named.length > 0)
@@ -4869,6 +4915,7 @@ function parseReviewRequest(ctx, reviewAt) {
 		named,
 		stale,
 		taking: ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--taking"),
+		own: ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--own"),
 		soleWriter: ctx.has("--sole-writer"),
 	};
 }
@@ -4999,10 +5046,12 @@ function sayFindings(
 		);
 }
 
+const VALUE_FLAGS = ["--root", "--touched-by", "--taking", "--own"];
+
 runCheck({
 	name: "guard-registry",
-	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]… | --review --stale`,
-	valueFlags: ["--root", "--touched-by", "--taking"],
+	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]… [--own <path>]… | --review --stale`,
+	valueFlags: VALUE_FLAGS,
 	/* Whole-tree, not a pathspec: scanRegistry walks CLAUDE.md, AGENTS.md, docs/
 	 * and .claude/ AND every guard path a rule names, which is a scope no list
 	 * here could be kept in step with (mantahostels#1753). */
@@ -5061,6 +5110,7 @@ runCheck({
 						? staleGuards(describedBy, implicitScripts, anchors)
 						: request.named,
 					taking: request.taking,
+					own: request.own,
 					soleWriter: request.soleWriter,
 				},
 				describedBy,

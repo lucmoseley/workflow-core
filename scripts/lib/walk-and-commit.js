@@ -12,7 +12,11 @@
  *      can never be mixed into the founder's own uncommitted work. Dirty:
  *      defer, commit nothing.
  *   2. ONE COMMIT OUT, made by pathspec (never `git add -A`), its body
- *      carrying `stepsOwed`'s additions from this walk alone.
+ *      carrying `stepsOwed`'s additions from this walk alone. The walk
+ *      re-anchors the guard-registry rows of the paths it wrote first, and
+ *      the anchors file rides in the same commit: the shims it adds or
+ *      rewrites would otherwise reach the pre-commit gate UNANCHORED or
+ *      STALE-PROSE and be refused (#4078).
  *   3. NEVER PUSHED. Nothing here ever calls `git push`.
  *   4. A REFUSING COMMIT HALTS THE WALK. The commit is attempted through
  *      the adopter's own hooks (`execFileSync`, no `--no-verify`); a
@@ -42,6 +46,7 @@
  * committed tree, on both the clean and the half-way paths.
  */
 
+const { execFileSync } = require("node:child_process");
 const { execGit } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -52,6 +57,7 @@ const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree.js");
 const { readStepsOwed } = require("./steps-owed.js");
 const { caught } = require("./caught.js");
 const { CONFIG_PATH } = require("./workflow-core-config.js");
+const { ANCHORS } = require("./registry-anchors-path.js");
 
 /**
  * @param {string} root
@@ -243,13 +249,9 @@ function walkAndCommit({
 		stepsBefore.length,
 	);
 
-	const committed = commitPaths({ root, paths: after, message });
-	if (!committed.ok) {
-		say(
-			`migration walk: ${REFUSAL_CAUSE[committed.step]} — ${committed.reason}. Nothing committed; ` +
-				"the walk's output is left in the tree for inspection, and the next " +
-				"session's exit will not retry until it is cleared by hand.",
-		);
+	const fault = anchorAndCommit({ root, written: after, message });
+	if (fault !== null) {
+		say(fault);
 		return { action: "broken", lines };
 	}
 
@@ -260,6 +262,56 @@ function walkAndCommit({
 			: "migration walk: committed housekeeping output (no note verified).",
 	);
 	return { action: "committed", lines };
+}
+
+/**
+ * Re-anchors what the walk wrote, then commits it with the anchors file.
+ * @param {{root: string, written: string[], message: string}} at
+ * @returns {string|null} the line saying why nothing was committed, or null
+ */
+function anchorAndCommit({ root, written, message }) {
+	const left =
+		"Nothing committed; the walk's output is left in the tree for inspection, " +
+		"and the next session's exit will not retry until it is cleared by hand.";
+	const anchorFault = anchorWalkOutput(root, written);
+	if (anchorFault !== null)
+		return `migration walk: re-anchoring the walk's output failed — ${anchorFault}. ${left}`;
+	const paths = readDirtyPaths(root);
+	if (paths === null)
+		return `migration walk: could not read the adopter tree's git status after anchoring. ${left}`;
+	const committed = commitPaths({ root, paths, message });
+	if (!committed.ok)
+		return `migration walk: ${REFUSAL_CAUSE[committed.step]} — ${committed.reason}. ${left}`;
+	return null;
+}
+
+/**
+ * Re-anchors the guard-registry rows of every path the walk wrote, through
+ * the checker this install ships, where the adopter keeps an anchors file
+ * (init writes one). Every dirty path is the walk's own, since the tree was
+ * proven clean before it ran, so each is passed `--own`; a path no rule or
+ * wiring reaches is left alone by the checker.
+ * @param {string} root
+ * @param {string[]} written
+ * @returns {string|null} why anchoring failed, or null
+ */
+function anchorWalkOutput(root, written) {
+	if (!fs.existsSync(path.join(root, ANCHORS))) return null;
+	const checker = path.join(__dirname, "..", "check-guard-registry.js");
+	const own = written.flatMap((p) => ["--own", p]);
+	try {
+		execFileSync(process.execPath, [checker, "--review", ...written, ...own], {
+			cwd: root,
+			/* The checker judges the project dir's tree; the walk's is `root`. */
+			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		return null;
+	} catch (err) {
+		const e = caught(err);
+		return e.stderr || e.stdout || e.message;
+	}
 }
 
 /**
