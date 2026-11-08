@@ -40,9 +40,9 @@ Outside it: a catch that guards more than the one read, such as a rename then a 
 
 ### §LG3 · Path containment goes through the one module — **hard**
 
-**Every code kind but shell.** Code asking whether a path is a given directory or sits beneath it calls `isUnder` or `relativeUnder` in `scripts/lib/is-under.js`; strictly beneath is `relativeUnder`'s truthy answer, or `isUnder` with the path unequal to the root. A hand-written `startsWith(dir + sep)` test, or a `path.relative` answer tested for a leading `..`, is the breach: the first re-spells the module, the second reads a file named `..foo` inside the root as outside (#4021).
+**Every code kind but shell.** Code asking whether a path is a given directory or sits beneath it calls `isUnder` or `relativeUnder` in `scripts/lib/is-under.js`; strictly beneath is `relativeUnder`'s truthy answer, or `isUnder` with the path unequal to the root. A hand-written `startsWith(dir + sep)` test, or a `path.relative` answer tested for a leading `..`, is the breach (#4021).
 
-Outside it: a glob or pathspec match, such as the sensitive-paths match, where `docs/` must not match `docs` (#1654); a prefix test on a name that is no directory.
+Outside it: a glob or pathspec match, such as the sensitive-paths match (#1654); a prefix test on a name that is no directory.
 
 ---
 
