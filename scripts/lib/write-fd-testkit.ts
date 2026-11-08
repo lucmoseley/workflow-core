@@ -9,8 +9,8 @@ import { vi } from "vitest";
 
 /**
  * Every writeFd write to fd 2, one call per writeSync with the text it
- * carried; any other fd's write goes through. Restore with
- * `vi.mocked(fs.writeSync).mockRestore()`.
+ * carried; any other fd's write goes through. Undone by restoreStderr or
+ * vi.restoreAllMocks.
  */
 export const spyStderr = () => {
 	const write = vi.fn((_text: string) => true);
@@ -28,3 +28,6 @@ export const spyStderr = () => {
 	}) as typeof fs.writeSync);
 	return write;
 };
+
+/** Ends the capture spyStderr began. */
+export const restoreStderr = () => vi.mocked(fs.writeSync).mockRestore();

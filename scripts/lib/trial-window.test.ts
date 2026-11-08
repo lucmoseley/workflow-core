@@ -15,16 +15,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-	afterAll,
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	vi,
-} from "vitest";
-import { spyStderr } from "./write-fd-testkit";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const {
 	LADDER,
@@ -310,7 +302,7 @@ describe("reading the file", () => {
 				'"capacityLadderPath" is not a repo-relative path',
 			);
 		} finally {
-			vi.mocked(fs.writeSync).mockRestore();
+			restoreStderr();
 		}
 	});
 

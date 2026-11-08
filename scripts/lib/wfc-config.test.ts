@@ -13,10 +13,10 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commandPath } from "./command-path-testkit";
 import { shellQuote } from "./sh-quote.js";
-import { spyStderr } from "./write-fd-testkit";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const LIB = path.resolve(__dirname, "wfc-config.sh");
 let dir: string;
@@ -582,7 +582,7 @@ describe("parity with the JS reader (#1481)", () => {
 			}
 			return out;
 		} finally {
-			vi.mocked(fs.writeSync).mockRestore();
+			restoreStderr();
 			for (const [k, v] of Object.entries(saved))
 				if (v === undefined) delete process.env[k];
 				else process.env[k] = v;

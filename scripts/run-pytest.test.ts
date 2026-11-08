@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { spyStderr } from "./lib/write-fd-testkit";
+import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 
 const require = createRequire(import.meta.url);
 const { readMarkers } = require("./lib/test-pass-marker.js");
@@ -766,7 +766,7 @@ describe("the suite ceiling (#2702)", () => {
 				stderr: stderr.mock.calls.map(([text]) => text).join(""),
 			};
 		} finally {
-			vi.mocked(fs.writeSync).mockRestore();
+			restoreStderr();
 		}
 	}
 
