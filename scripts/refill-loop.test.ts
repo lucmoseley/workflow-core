@@ -985,7 +985,11 @@ describe("set (#3856)", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-state.json"),
 			JSON.stringify({
-				lastTick: { at, summary: "idle: no free slot", idle: "no free slot" },
+				lastTick: {
+					at,
+					summary: "idle: no free slot",
+					idle: { reason: "no free slot", detail: "" },
+				},
 			}),
 		);
 		const json = JSON.parse((await run("status", "--json")).stdout);
@@ -997,7 +1001,7 @@ describe("set (#3856)", () => {
 			lastTick: {
 				at,
 				summary: "idle: no free slot",
-				idle: "no free slot",
+				idle: { reason: "no free slot", detail: "" },
 				paused: false,
 			},
 		});

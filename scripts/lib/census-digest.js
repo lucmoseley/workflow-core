@@ -19,16 +19,19 @@
  * A NODE GUARD WRAPPER'S DIGEST ALSO HASHES THE CORE AND HOST PORTS IT
  * COMPOSES (#3129): each `./lib/<name>.js` its literal require binds `decide`
  * or `buildHostPorts` from (lib/guard-entry.js's composition root), code and
- * rule files both, an absent one hashing as a marker. guard-entry.js itself
- * is the kit every wrapper runs, so an edit to it expires none. A dispatched
+ * rule files both, an absent one hashing as a marker. A dispatched
  * core's digest hashes the host ports lib/guard-cores.json binds it to (#3167)
  * the same way.
  *
+ * A CORE IN lib/ ALSO HASHES EACH LIB BESIDE IT IT REQUIRES (#4667), code
+ * and rule files both, as a wrapper does its core, KIT_LIBS aside.
+ *
  * DEEPER LIBS FOLD THEIR RULE FILES, NOT THEIR CODE (#3167): every lib the
  * guard, its composed libs and its host reach through relative requires adds
- * the rule files it names. The cores share shell-parse.js, guard-verdict.js
- * and rule-gates.js, so folding deeper code would expire every row on an edit
- * to any of them.
+ * the rule files it names. The cores share KIT_LIBS, so folding deeper code
+ * would expire most rows on an edit to any of them.
+ * Residual: KIT_LIBS is kept by hand. A newly shared, often-edited helper
+ * left off it expires every core requiring it on each edit.
  * Residual: a deeper lib's non-literal ids, an id a sourced lib names, and
  * one built at run time, are unread. A manifest edit
  * alone rebinding a core's host to an existing lib is unread at a ticket's
@@ -59,8 +62,7 @@ const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
 
-/* Matches guard-registry-anchors.json's width: an anchor file is read by
- * people, and a full sha256 per row buys nothing here. */
+/* Matches guard-registry-anchors.json's width. */
 const DIGEST_HEX_LENGTH = 16;
 
 /*
@@ -68,8 +70,7 @@ const DIGEST_HEX_LENGTH = 16;
  * store scripts read and check-instruction-surface.js writes, not a document
  * anybody reads whole. It
  * also keeps it out of the doc-map's mapped scope, where a new tracked document
- * cannot land without its §A row in the same commit — and docs/doc-map.md is
- * the most contended file in the repo (mantahostels#1539).
+ * cannot land without its §A row in the same commit.
  */
 const DEFAULT_ANCHORS = "scripts/instruction-surface-anchors.json";
 
@@ -91,6 +92,13 @@ const LIB_DIR = "lib";
 /* The bindings a wrapper hands lib/guard-entry.js's run, which make the lib
  * it requires them from a composed one. */
 const COMPOSED_BINDINGS = ["decide", "buildHostPorts"];
+/* Libs never folded as composed: they print no guard's text and are edited
+ * near weekly. */
+const KIT_LIBS = new Set([
+	"guard-entry.js",
+	"shell-parse.js",
+	"shell-words.js",
+]);
 /**
  * @typedef {{ root: string, tree: Map<string, string> | null, disk: boolean,
  *   ceiling: import("./git-ceiling.js").GitCeiling }} Snapshot
@@ -514,8 +522,8 @@ function ruleFilesIn(rel, code) {
 }
 
 /**
- * The libs a Node guard wrapper composes: the core and host ports it hands
- * guard-entry's run.
+ * The libs a Node guard composes: a wrapper's core and host ports it hands
+ * guard-entry's run, or each non-kit lib beside a core in lib/ it requires.
  *
  * @param {string} rel
  * @param {string | Buffer} code codeOf's answer
@@ -524,26 +532,35 @@ function ruleFilesIn(rel, code) {
 function composedLibsOf(rel, code) {
 	const dir = libDirOf(rel);
 	if (dir === null) return [];
+	const composes =
+		path.posix.dirname(rel) === dir ? isNonKitLib : bindsComposition;
 	return parseEdges(rel, String(code), { kinds: ["require"] })
 		.filter(
 			(e) =>
-				path.posix.dirname(e.to) === dir &&
-				e.to.endsWith(".js") &&
-				COMPOSED_BINDINGS.some((b) => e.bindings?.includes(b)),
+				path.posix.dirname(e.to) === dir && e.to.endsWith(".js") && composes(e),
 		)
 		.map((e) => e.to);
 }
 
+/** @param {{ to: string }} edge */
+const isNonKitLib = (edge) => !KIT_LIBS.has(path.posix.basename(edge.to));
+
+/** @param {{ bindings?: string[] }} edge */
+const bindsComposition = (edge) =>
+	COMPOSED_BINDINGS.some((b) => edge.bindings?.includes(b));
+
 /**
- * The directory a Node guard at `rel` composes its libs from, or null for
- * any other guard.
+ * The directory a Node guard at `rel` composes its libs from — its own where
+ * it sits in lib/, else the lib/ beside it — or null for any other guard.
  *
  * @param {string} rel
  */
 function libDirOf(rel) {
-	return rel.endsWith(".js")
-		? path.posix.join(path.posix.dirname(rel), LIB_DIR)
-		: null;
+	if (!rel.endsWith(".js")) return null;
+	const dir = path.posix.dirname(rel);
+	return path.posix.basename(dir) === LIB_DIR
+		? dir
+		: path.posix.join(dir, LIB_DIR);
 }
 
 /**
@@ -579,7 +596,9 @@ function readInputs(snap, rel) {
  * @returns {Map<string, string | Buffer | null>}
  */
 function readComposed(snap, rel, code, ruleFiles) {
-	const composed = [...composedLibsOf(rel, code), ...readHosts(snap, rel)];
+	const composed = [
+		...new Set([...composedLibsOf(rel, code), ...readHosts(snap, rel)]),
+	];
 	prefetch(snap, composed);
 	/** @type {Map<string, string | Buffer | null>} */
 	const libs = new Map();
@@ -803,8 +822,8 @@ function isLibFile(file) {
 }
 
 /**
- * The directories `rels`' Node guards can compose a lib from: each wrapper's
- * lib/, and the manifest's where a core's host sits.
+ * The directories `rels`' Node guards can compose a lib from: each libDirOf,
+ * and the manifest's where a core's host sits.
  *
  * @param {string[]} rels
  */

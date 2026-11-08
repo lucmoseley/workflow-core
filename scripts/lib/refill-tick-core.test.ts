@@ -574,9 +574,12 @@ describe("a limit-held launch through the tick (#3735)", () => {
 	it("waits named on its seat while every seat is spent, and a stop names it (#3785)", async () => {
 		const idle = await tickOf(fakeIo(stateOf({ launches: [held] }), spent).io);
 		expect(idle.decision).toMatchObject({
-			idle: expect.stringContaining(
-				"every seat is spent; a limit-held session waits on one",
-			),
+			idle: {
+				reason: "a plan resets",
+				detail: expect.stringContaining(
+					"every seat is spent; a limit-held session waits on one",
+				),
+			},
 		});
 		const stopped = await tickOf(
 			fakeIo(stateOf({ launches: [held] }), spent).io,
@@ -1036,7 +1039,7 @@ describe("the loop's wait on a full week (#3859)", () => {
 		});
 		const waited = await tickOf(full.io);
 		expect(waited.decision).toMatchObject({
-			idle: expect.stringMatching(/^a plan resets/),
+			idle: { reason: "a plan resets", detail: expect.any(String) },
 			planWait: expect.any(Object),
 		});
 		expect(full.disk().stopped).toBeNull();

@@ -582,7 +582,10 @@ describe("a checkout whose shortlist fails (#2561)", () => {
 			}),
 		).toMatchObject({
 			launches: [],
-			idle: "shortlist failed in served: exited 1 FAILED: offline",
+			idle: {
+				reason: "shortlist failed in",
+				detail: " served: exited 1 FAILED: offline",
+			},
 		});
 	});
 
