@@ -42,13 +42,19 @@ function writeState(reason: string, detail = "the detail", at = STOP_AT) {
 }
 
 /** An interactive start unless `jobDir` names a background job's. */
-const run = (args: string[], source = "startup", jobDir = "") =>
+const run = (
+	args: string[],
+	source = "startup",
+	jobDir = "",
+	env: Record<string, string> = {},
+) =>
 	runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			GITHUB_ACTIONS: "",
 			WFC_REFILL_DIR: dir,
 			...buildStartEnv(jobDir),
+			...env,
 		},
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});
@@ -402,18 +408,8 @@ describe("at session start (--notify)", () => {
 		const runAt = (holding: boolean) => {
 			const holder = holding ? spawnLoopHolder(dir) : null;
 			try {
-				return runInProcess(SCRIPT, ["--notify"], {
-					env: {
-						...process.env,
-						GITHUB_ACTIONS: "",
-						WFC_REFILL_DIR: dir,
-						WFC_NOW: new Date(Now).toISOString(),
-						...buildStartEnv(""),
-					},
-					stdin: JSON.stringify({
-						hook_event_name: "SessionStart",
-						source: "startup",
-					}),
+				return run(["--notify"], "startup", "", {
+					WFC_NOW: new Date(Now).toISOString(),
 				});
 			} finally {
 				holder?.kill();
@@ -427,6 +423,7 @@ describe("at session start (--notify)", () => {
 				expect(r.stdout).toContain(
 					"REFILL-LOOP-RESTART-WAIT — the refill loop has waited since a restart at 2026-11-08T11:40:00.000Z",
 				);
+				expect(r.stdout).toContain("Its status:");
 			}
 		});
 
@@ -435,7 +432,9 @@ describe("at session start (--notify)", () => {
 			["of a loop not running", 20, false],
 		])("names none %s", (_name, minutes, holding) => {
 			writeWait(minutes);
-			expect(runAt(holding).stdout).not.toContain("REFILL-LOOP-RESTART-WAIT");
+			const r = runAt(holding);
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toContain("REFILL-LOOP-RESTART-WAIT");
 		});
 	});
 

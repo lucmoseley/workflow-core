@@ -26,7 +26,6 @@ import {
 	bootVerdictOf,
 	holdRun,
 	isEmptyListingTrusted,
-	RESTART_WAIT_ALARM_MS,
 	restartWaitOf,
 	runBootResume,
 	runWatch,
@@ -305,7 +304,7 @@ describe("a same-boot restart (#3971)", () => {
 		expect(isSameBoot(recorded, current)).toBe(same);
 	});
 
-	const unread = { jobStateOf: () => null };
+	const unread = { jobStateOf: () => null, log: () => undefined };
 
 	it("takes a marker from this boot as the restart", () => {
 		expect(
@@ -343,7 +342,10 @@ describe("a tick just before a same-boot restart's marker (#4145)", () => {
 			}),
 			Marker,
 			"b",
-			{ jobStateOf: () => (jobState === null ? null : { state: jobState }) },
+			{
+				jobStateOf: () => (jobState === null ? null : { state: jobState }),
+				log: () => undefined,
+			},
 		);
 	const seen = {
 		agents: [],
@@ -356,7 +358,7 @@ describe("a tick just before a same-boot restart's marker (#4145)", () => {
 	} as never;
 
 	it("reopens a launch that tick finished, and the marker's tick queues it", () => {
-		const state = marked({ finishedAt: Tick });
+		const state = marked({ finishedAt: Tick, leftListing: true });
 		expect(state.launches[0]?.finishedAt).toBeNull();
 		expect(settleBootKilled(state, seen, CLEAR).launches[0]).toHaveProperty(
 			"bootKilled",
@@ -364,17 +366,29 @@ describe("a tick just before a same-boot restart's marker (#4145)", () => {
 	});
 
 	it.each([
-		["one finished by an earlier tick", { finishedAt: Tick - 1 }, {}],
+		[
+			"one finished by an earlier tick",
+			{ finishedAt: Tick - 1, leftListing: true },
+			{},
+		],
 		[
 			"one whose job ended on its own",
 			{ finishedAt: Tick },
 			{ jobState: "done" },
 		],
-		["one parked and stopped", { finishedAt: Tick, parkStopped: Tick }, {}],
-		["with no tick on record", { finishedAt: Tick }, { lastTick: null }],
+		[
+			"one parked and stopped",
+			{ finishedAt: Tick, leftListing: true, parkStopped: Tick },
+			{},
+		],
+		[
+			"with no tick on record",
+			{ finishedAt: Tick, leftListing: true },
+			{ lastTick: null },
+		],
 		[
 			"where the last tick is past the marker",
-			{ finishedAt: START + 1 },
+			{ finishedAt: START + 1, leftListing: true },
 			{ lastTick: START + 1 },
 		],
 	])("reopens none: %s", (_name, over, context) => {
@@ -383,15 +397,16 @@ describe("a tick just before a same-boot restart's marker (#4145)", () => {
 });
 
 describe("restartWaitOf (#4145)", () => {
+	const Bound = 15 * 60_000;
 	it.each([
-		["names a wait past its bound", RESTART_WAIT_ALARM_MS, START],
-		["names none inside it", RESTART_WAIT_ALARM_MS - 1, null],
+		["names a wait past its bound", Bound, START],
+		["names none inside it", Bound - 1, null],
 	])("%s", (_name, waited, since) => {
 		expect(restartWaitOf({ bootedAt: START }, START + waited)).toBe(since);
 	});
 
 	it("names none with no restart waiting", () => {
-		expect(restartWaitOf({}, START + RESTART_WAIT_ALARM_MS)).toBeNull();
+		expect(restartWaitOf({}, START + Bound)).toBeNull();
 	});
 });
 

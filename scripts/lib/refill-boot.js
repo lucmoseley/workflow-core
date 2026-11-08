@@ -7,7 +7,8 @@
  * which jobs the never-started stop spares until they are queued (#3983). And
  * whether a loop just spawned, by a boot or a `start`, came to hold the lock
  * (#4083). And what `boot-resume`, `watch` and `run` write and return around
- * that verdict and that lock (#4356).
+ * that verdict and that lock (#4356). And which launches a manager restart's
+ * marker reopens, and when a restart's wait on the listing alarms (#4145).
  *
  * `boot-resume` runs at each start of the user manager, so on the manager's
  * restart within a boot too (#3963), which sessions in `/init.scope` outlive; and
@@ -22,6 +23,7 @@ const {
 	isBootKilled,
 	isHeld,
 	isLive,
+	launchName,
 	LISTING_GRACE_MS,
 	queueBootKilled,
 } = require("./refill-blocks.js");
@@ -177,27 +179,32 @@ const isEmptyListingTrusted = (
  * `state` as the restart a surviving loop's marker reports leaves it (#3971). The
  * tick queues what the restart killed as after a boot. A tick between the
  * daemon's death and the marker may have read its sessions gone and finished
- * them, so each the last tick finished is reopened, bar one whose job record
- * reads it ended on its own (#4145). Residual: a tick past the marker that a kill
+ * them, so each the last tick finished for leaving the listing is reopened, bar
+ * one whose job record reads it ended on its own (#4145). Residual: a tick past the marker that a kill
  * kept from dropping it hides that last tick, so nothing is reopened.
  * @param {import("./refill-state.js").LoopState} state
  * @param {import("./refill-files.js").ManagerRestart|null} marker
  * @param {string|null} current this boot's id
- * @param {Pick<import("./refill-blocks.js").BlockReads, "jobStateOf">} io
+ * @param {Pick<import("./refill-blocks.js").BlockReads, "jobStateOf"|"log">} io
  * @returns {import("./refill-state.js").LoopState}
  */
 function withManagerRestart(state, marker, current, io) {
 	if (marker === null || !isSameBoot(marker.bootId, current)) return state;
-	const since = state.lastTick?.at ?? Number.POSITIVE_INFINITY;
+	const restarted = { ...state, bootedAt: marker.at, sameBootRestart: true };
+	const lastTickAt = state.lastTick?.at;
+	if (lastTickAt === undefined || lastTickAt > marker.at) return restarted;
 	const launches = state.launches.map((l) => {
-		if (since > marker.at || l.finishedAt === null || l.finishedAt < since)
+		if (!l.leftListing || l.finishedAt === null || l.finishedAt < lastTickAt)
 			return l;
-		const reopened = { ...l, finishedAt: null };
-		return isBootKillCandidate(reopened) && !hasJobEnded(reopened, io)
-			? reopened
-			: l;
+		const { leftListing: _, ...rest } = l;
+		const reopened = { ...rest, finishedAt: null };
+		if (!isBootKillCandidate(reopened) || hasJobEnded(reopened, io)) return l;
+		io.log(
+			`${launchName(l)}, finished just before a manager restart: reopened`,
+		);
+		return reopened;
 	});
-	return { ...state, launches, bootedAt: marker.at, sameBootRestart: true };
+	return { ...restarted, launches };
 }
 
 /* A first guess, stated as one: a manager restart's daemon is back within
@@ -358,7 +365,6 @@ module.exports = {
 	buildFetchFailedLine,
 	holdRun,
 	isEmptyListingTrusted,
-	RESTART_WAIT_ALARM_MS,
 	restartWaitOf,
 	runBootResume,
 	runWatch,

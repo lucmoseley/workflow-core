@@ -94,20 +94,16 @@ function reportNoProgressPause(ctx, control, seen) {
 }
 
 /**
- * A running loop's restart wait past its bound, at every start while it lasts.
  * @param {import("./lib/check").CheckContext} ctx
  * @param {number|null} since restartWaitOf's
  */
 function reportRestartWait(ctx, since) {
 	if (since === null) return;
 	const at = new Date(since).toISOString();
-	ctx.warn(
-		"REFILL-LOOP-RESTART-WAIT",
-		`the refill loop has waited since a restart at ${at} for a listing to read`,
-		{ since: at },
-	);
+	const line = `the refill loop has waited since a restart at ${at} for a session listing to read`;
+	ctx.warn("REFILL-LOOP-RESTART-WAIT", line, { since: at });
 	ctx.sayNotice(
-		`REFILL-LOOP-RESTART-WAIT — the refill loop has waited since a restart at ${at} for a session listing to read, to queue the sessions the restart killed. Until one reads, it counts them as running and resumes none; its log names each refused listing.\n` +
+		`REFILL-LOOP-RESTART-WAIT — ${line}, to queue the sessions the restart killed. Until one reads, it counts them as running and resumes none; its log names each refused listing.\n` +
 			`  Its status: ${STATUS}\n`,
 	);
 }
