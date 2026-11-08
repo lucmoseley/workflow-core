@@ -29,14 +29,17 @@
  * (`keep-hook-shims.js` wires the production ones).
  */
 
+const { SCRIPT_PREFIX } = require("./core-hooks.js");
 const { trimEndRun } = require("./trim-run.js");
 
 const MARK = "wfc hook shim (#2879)";
 const EXCLUDE_BEGIN = `# ${MARK}: managed by scripts/keep-hook-shims.js`;
 const EXCLUDE_END = `# end ${MARK}`;
 
-const SCRIPT_RE =
-	/(?:"\$CLAUDE_PROJECT_DIR"\/|\$\{CLAUDE_PROJECT_DIR\}\/)(scripts\/[\w./-]+\.(?:sh|js))/g;
+const SCRIPT_RE = new RegExp(
+	`(?:${SCRIPT_PREFIX.source})([\\w./-]+\\.(?:sh|js))`,
+	"g",
+);
 
 /**
  * The earliest start in a listing, in ms: +Infinity for none live, and the
@@ -75,7 +78,9 @@ function scriptPaths(text) {
 		.map((h) => h?.command)
 		.filter((c) => typeof c === "string");
 	return commands.flatMap((c) =>
-		[...c.matchAll(SCRIPT_RE)].flatMap((m) => (m[1] ? [m[1]] : [])),
+		[...c.matchAll(SCRIPT_RE)].flatMap((m) =>
+			m[1] ? [`scripts/${m[1]}`] : [],
+		),
 	);
 }
 

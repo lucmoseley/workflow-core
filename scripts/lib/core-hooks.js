@@ -23,14 +23,32 @@ const { shellQuote } = require("./sh-quote.js");
 const SELF_PLUGIN_DIR = "self-plugin";
 const SELF_PLUGIN_HOOKS = `${SELF_PLUGIN_DIR}/hooks/hooks.json`;
 const HOST_SETTINGS = ".claude/settings.json";
+/* The core's own hooks run the MAIN CHECKOUT's scripts/, never the session's
+ * tree, so no unlanded edit judges the session that made it (#4701). The
+ * self-plugin loads in place from `<main checkout>/self-plugin`, so its
+ * plugin root's parent is the main checkout in every session, a worktree's
+ * included (measured 9 Nov 2026). The canary in the settings has no plugin
+ * root, and derives the main checkout from git's common dir. */
+// biome-ignore lint/suspicious/noTemplateCurlyInString: the plugin-root variable Claude Code substitutes, not a JS template
+const MAIN_SCRIPTS = '"${CLAUDE_PLUGIN_ROOT}"/../scripts/';
+const CANARY_MAIN_SCRIPTS =
+	'"$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir)"/../scripts/';
+/** @param {string} text */
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /* The core's scripts/ directory as a hook command spells it, in either form. */
-const SCRIPT_PREFIX =
-	/"\$CLAUDE_PROJECT_DIR"\/scripts\/|\$\{CLAUDE_PROJECT_DIR\}\/scripts\//g;
-/* The self-plugin's guard entry, run through the shim from the pinned guard
- * code (lib/guard-code.js, #4227): the core's own route, which a render
- * spells as the plugin root's scripts/ like any other. */
-const PINNED_GUARD_PREFIX =
-	/"\$CLAUDE_PROJECT_DIR"\/scripts\/run-pinned-guards\.js "\$\{WFC_GUARD_CODE_DIR:-\$HOME\/\.claude\/\.guard-code\}"\.current\/scripts\//g;
+const SCRIPT_PREFIX = new RegExp(
+	`${escapeRe(MAIN_SCRIPTS)}|${escapeRe(CANARY_MAIN_SCRIPTS)}`,
+	"g",
+);
+/* The self-plugin's guard entry, run through the main checkout's shim from
+ * the pinned guard code (lib/guard-code.js, #4227): the core's own route,
+ * which a render spells as the plugin root's scripts/ like any other. */
+const PINNED_GUARD_PREFIX = new RegExp(
+	escapeRe(
+		`${MAIN_SCRIPTS}run-pinned-guards.js "\${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}".current/scripts/`,
+	),
+	"g",
+);
 /* The self-plugin's session-marker writer. It feeds the canary in the core's
  * settings, so it registers in the self-plugin alone (#2438). */
 const MARKER_WRITER = "write-self-plugin-marker.sh";
@@ -50,7 +68,7 @@ const buildSelfMarketplaceEntry = (dir) => ({
 
 /* The one hook the core's settings keeps: a PreToolUse entry with no matcher
  * that refuses a session the self-plugin did not load (#2447). */
-const CANARY_COMMAND = '"$CLAUDE_PROJECT_DIR"/scripts/self-plugin-canary.sh';
+const CANARY_COMMAND = `${CANARY_MAIN_SCRIPTS}self-plugin-canary.sh`;
 
 /**
  * @typedef {{type?: string, command?: string, args?: unknown, if?: string, timeout?: number, async?: boolean, [field: string]: unknown}} Hook
@@ -485,7 +503,9 @@ function flattenHooks(hooks) {
 
 module.exports = {
 	CANARY_COMMAND,
+	CANARY_MAIN_SCRIPTS,
 	HOST_SETTINGS,
+	MAIN_SCRIPTS,
 	MARKER_WRITER,
 	PINNED_GUARD_PREFIX,
 	SCRIPT_PREFIX,

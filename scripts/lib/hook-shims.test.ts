@@ -7,9 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 
+const { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } = require("./core-hooks.js");
 const { keepShims } = require("./hook-shims.js");
 
-/** A hooks file naming each script, alternating the two prefix spellings. */
+/** A hooks file naming each scripts/ file, alternating the two main-checkout
+ * prefix spellings: the self-plugin root's and the canary's git common dir. */
 const hooksNaming = (...scripts: string[]) =>
 	JSON.stringify({
 		hooks: {
@@ -20,8 +22,8 @@ const hooksNaming = (...scripts: string[]) =>
 						type: "command",
 						command:
 							i % 2 === 0
-								? `command -v node >/dev/null 2>&1 || exit 0; node "$CLAUDE_PROJECT_DIR"/${s}`
-								: `\${CLAUDE_PROJECT_DIR}/${s}`,
+								? `command -v node >/dev/null 2>&1 || exit 0; node ${MAIN_SCRIPTS}${s}`
+								: `${CANARY_MAIN_SCRIPTS}${s}`,
 					})),
 				},
 			],
@@ -83,8 +85,8 @@ const REFLOG = [
 ];
 const PORTED = {
 	hooksByRev: {
-		old: hooksNaming("scripts/guard-x.sh"),
-		new: hooksNaming("scripts/guard-x.js"),
+		old: hooksNaming("guard-x.sh"),
+		new: hooksNaming("guard-x.js"),
 	},
 	tracked: ["scripts/guard-x.js"],
 	disk: { "scripts/guard-x.js": "real" },
@@ -126,10 +128,10 @@ describe("keepShims", () => {
 		expect(calls.runs).toBe(1);
 	});
 
-	it("reads both spellings of the project-dir prefix, and shims a .js as node", () => {
+	it("reads both spellings of the main-checkout prefix, and shims a .js as node", () => {
 		const { ports, disk } = fakePorts({
 			hooksByRev: {
-				old: hooksNaming("scripts/guard-a.js", "scripts/guard-b.sh"),
+				old: hooksNaming("guard-a.js", "guard-b.sh"),
 				new: "{}",
 			},
 			agents: startedAt(150),

@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MAIN_SCRIPTS } from "./lib/core-hooks.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const { runInProcess } = require("./lib/run-in-process.js");
@@ -43,7 +44,7 @@ const hooksNaming = (script: string) =>
 					hooks: [
 						{
 							type: "command",
-							command: `\${CLAUDE_PROJECT_DIR}/scripts/${script}`,
+							command: `${MAIN_SCRIPTS}${script}`,
 						},
 					],
 				},

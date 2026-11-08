@@ -127,7 +127,11 @@ const { hostRoot } = require("./lib/host-root.js");
 const { resolveMarketplace } = require("./lib/plugin-state.js");
 const { caught } = require("./lib/caught.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
-const { flattenHooks, readOwnHookSources } = require("./lib/core-hooks.js");
+const {
+	flattenHooks,
+	readOwnHookSources,
+	SCRIPT_PREFIX,
+} = require("./lib/core-hooks.js");
 const { spawnGitSync } = require("./lib/git.js");
 
 /** Resolved once: pinnedOrFirstUsable() stats, and statePath is called per assertion. */
@@ -1782,7 +1786,10 @@ function checkOwnHook(ctx, { event, hook, file }) {
 			? hook.args
 			: undefined;
 	let checked = 0;
-	for (const { rel, direct } of hookPaths(hook.command, args)) {
+	/* The core's own main-checkout spelling names the same repo-relative
+	 * scripts/ a bare one does (lib/core-hooks.js, #4701). */
+	const command = hook.command.replace(SCRIPT_PREFIX, "scripts/");
+	for (const { rel, direct } of hookPaths(command, args)) {
 		checked++;
 		const fault = hookPathFault(path.join(repoRoot(), rel), direct);
 		if (fault)
