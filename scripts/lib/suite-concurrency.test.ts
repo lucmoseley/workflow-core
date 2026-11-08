@@ -1253,9 +1253,7 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	});
 });
 
-/* npm's aliases for `test` and `run` are the same launch (#4032): each draws
- * what `npm test` draws, under the floor and beside a whole suite. */
-describe("reads npm's aliases as the launch `npm test` is", () => {
+describe("reads npm's aliases as the launch `npm test` is (#4032)", () => {
 	/** Under the ~2900 MB whole-suite rung. */
 	const UnderFloorMb = 1000;
 	const drawn = (command: string) => ({
