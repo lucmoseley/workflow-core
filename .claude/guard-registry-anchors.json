@@ -20,7 +20,7 @@
 	"scripts/check-interop-latency.js": "e0ecb9d0eb5c7414",
 	"scripts/check-issue-labels.js": "1626ace780c26c7a",
 	"scripts/check-jev-flags.js": "5e80fd3958b6db2b",
-	"scripts/check-kernel-stall.js": "385fe0aa13c49286",
+	"scripts/check-kernel-stall.js": "48aa3373ce41d932",
 	"scripts/check-lockfile-sync.js": "f3d64cc70037cd64",
 	"scripts/check-main-checkout-commit.js": "71b5548a3344e776",
 	"scripts/check-orphan-wait-loops.js": "4233248b73773eb2",
