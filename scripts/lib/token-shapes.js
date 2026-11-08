@@ -57,6 +57,7 @@
  * sequence (`\e7`, `%1B7`, `^[[1m`), keeps that opening.
  */
 
+const { bracketUnits } = require("./bracket-units.js");
 const { SPACE } = require("./env-file.js");
 
 /**
@@ -123,23 +124,7 @@ const SK_LEAD = buildLead("A-Za-z0-9");
  * a `[…]` class is one character.
  * @param {string} prefix
  */
-const buildPrefix = (prefix) => prefixUnits(prefix).join(`(?:${CONTROL})*`);
-
-/**
- * The units `buildPrefix` joins, read in one pass: a regex alternation
- * backtracks quadratically on a run of unclosed `[` (#3383).
- * @param {string} prefix
- */
-function prefixUnits(prefix) {
-	const units = [];
-	const lastClose = prefix.lastIndexOf("]");
-	for (let i = 0; i < prefix.length; i++) {
-		const end = prefix[i] === "[" && i < lastClose ? prefix.indexOf("]", i) : i;
-		units.push(prefix.slice(i, end + 1));
-		i = end;
-	}
-	return units;
-}
+const buildPrefix = (prefix) => bracketUnits(prefix).join(`(?:${CONTROL})*`);
 
 /**
  * The source for one body character, after any control sequences, that
@@ -382,8 +367,8 @@ function buildMasker(names = [], values = []) {
 			stored = new RegExp(buildStored(names), "g");
 			/* V8 compiles a pattern at its first match, not its construction, once
 			 * for one-byte text and once for two-byte. */
-			stored.test("");
-			stored.test("Ā");
+			// biome-ignore lint/complexity/noVoid: the match is run only to compile the pattern
+			for (const text of ["", "Ā"]) void stored.test(text);
 		} catch (e) {
 			/* Names are identifiers, so size is the one way the pattern fails. V8's
 			 * message quotes the whole source, megabytes of it. */

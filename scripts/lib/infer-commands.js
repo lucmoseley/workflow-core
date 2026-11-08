@@ -23,6 +23,7 @@ const {
 	mapAsWritten,
 	mapBiome,
 } = require("./biome-allowlist.js");
+const { bracketUnits } = require("./bracket-units.js");
 const { caught } = require("./caught.js");
 const {
 	PackageReadError,
@@ -129,12 +130,9 @@ const GLOB_SOURCE = new Map([
  */
 const isBiomeGlob = (word) => {
 	if (!word.glob) return false;
-	const source = path.posix
-		.basename(word.value)
-		.replace(
-			/\[[^\]]*\]|./gs,
-			(c) => GLOB_SOURCE.get(c) ?? (c.length > 1 ? "." : escapeRe(c)),
-		);
+	const source = bracketUnits(path.posix.basename(word.value))
+		.map((c) => GLOB_SOURCE.get(c) ?? (c.length > 1 ? "." : escapeRe(c)))
+		.join("");
 	return new RegExp(`^${source}$`).test("biome");
 };
 

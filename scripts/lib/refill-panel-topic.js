@@ -108,9 +108,17 @@ const buildPrompt = (text, issues) =>
  */
 function parseReplyRefs(reply, names) {
 	const only = names.length === 1 ? names[0] : "";
-	const refs = [...reply.matchAll(/([\w.-]+)?#([1-9]\d*)\b/g)].map(
-		([, repo, number]) => `${repo ?? only}#${number}`,
-	);
+	/* Each run is matched whole, so the search never restarts inside one; a
+	 * reference takes the run it touches as its repo (#4109). */
+	const refs = [];
+	let run = null;
+	for (const m of reply.matchAll(/[\w.-]+|#([1-9]\d*)\b/g)) {
+		if (m[1] === undefined) run = m;
+		else
+			refs.push(
+				`${run && run.index + run[0].length === m.index ? run[0] : only}#${m[1]}`,
+			);
+	}
 	return [...new Set(refs)];
 }
 

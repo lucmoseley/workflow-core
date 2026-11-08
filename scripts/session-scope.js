@@ -78,7 +78,8 @@ const { writeFd } = require("./lib/write-fd.js");
 
 /**
  * @param {string} proc @param {number} pid
- * @returns {string|null} the cgroup path, `0::` stripped
+ * @returns {string|null} the cgroup path of the v2 hierarchy's line,
+ *   `hierarchy-ID:controller-list:cgroup-path` with ID 0 and no controllers
  */
 function readCgroup(proc, pid) {
 	try {
@@ -86,8 +87,12 @@ function readCgroup(proc, pid) {
 			path.join(proc, String(pid), "cgroup"),
 			"utf8",
 		);
-		const line = text.split("\n").find((l) => l.startsWith("0::"));
-		return line ? line.slice(3) : null;
+		for (const line of text.split("\n")) {
+			const fields = line.split(":", 3);
+			if (fields.length === 3 && fields[0] === "0" && fields[1] === "")
+				return line.slice(3);
+		}
+		return null;
 	} catch {
 		return null;
 	}

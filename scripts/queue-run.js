@@ -403,32 +403,51 @@ async function run(words, slot, options, err) {
 		};
 	});
 
-	if (!held) {
-		const outcome = await seat.wait({
-			label: LABEL,
-			...queue,
-			...wait(seat.stamps),
+	const outcome = held
+		? null
+		: await seat.wait({
+				label: LABEL,
+				...queue,
+				...wait(seat.stamps),
+			});
+	if (outcome === "refused") finish(refused(err));
+	else
+		child = spawnCommand(words, {
+			handed: held || !slot ? null : SLOT_ENVS[slot],
+			seat,
+			options,
+			err,
+			finish,
 		});
-		if (outcome === "refused") {
-			finish(refused(err));
-			return done;
-		}
-	}
+	return done;
+}
 
+/**
+ * Start `words`, handing the seat's ticket on in the `handed` variable, and
+ * end with `finish` on its exit status: 127 where it would not start.
+ *
+ * @param {string[]} words
+ * @param {{
+ *   handed: string | null | undefined,
+ *   seat: ReturnType<typeof queueSeat>,
+ *   options: Options,
+ *   err: Out,
+ *   finish: (code: number) => void,
+ * }} launch
+ */
+function spawnCommand(words, { handed, seat, options, err, finish }) {
 	const [command = "", ...args] = words;
-	const handed = held || !slot ? null : SLOT_ENVS[slot];
 	const running = (options.spawnFn ?? spawn)(command, args, {
 		stdio: "inherit",
 		...(handed ? { env: { ...process.env, [handed]: seat.ticket } } : {}),
 	});
-	child = running;
 	running.once("spawn", seat.spawned);
 	running.once("error", (error) => {
 		err.write(`${LABEL}: ${command} would not start — ${error.message}\n`);
 		finish(127);
 	});
 	running.once("exit", (code, signal) => finish(exitStatus(code, signal)));
-	return done;
+	return running;
 }
 
 if (require.main === module)

@@ -341,7 +341,7 @@ const JS_DESTRUCTURE =
 	/(?:\b(?:const|let|var)\s*\{([^{}]*)\}\s*=|\bfunction\b[\w$\s]*\(\s*\{([^{}]*)\}|\(\s*\{([^{}]*)\}\s*\)\s*=>)/g;
 /** `cwd` as a key of a destructuring list: group 1 the alias it binds. */
 const JS_CWD_KEY =
-	/(?:^|,)\s*cwd\s*(?::\s*([A-Za-z_$][\w$]*))?\s*(?:=[^,]*)?(?=,|$)/;
+	/(?:^|,)\s*cwd(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*(?:=[^,]*)?(?=,|$)/;
 /** A parameter defaulting to `process.cwd()`: group 1 its name. */
 const JS_CWD_DEFAULT = /[(,]\s*([A-Za-z_$][\w$]*)\s*=\s*process\.cwd\(\)/g;
 /** Any hook-only spelling, which alone makes a lone file's hook scope worth
