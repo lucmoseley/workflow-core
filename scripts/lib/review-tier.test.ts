@@ -904,6 +904,53 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		}
 	});
 
+	// #4049: only a HEAD with no copy reads as declaring nothing.
+	it("logs a HEAD declaration that will not read, and stays at the tier the staged paths owe", () => {
+		write(".claude/workflow-core.json", "{ not json");
+		git("add", ".claude/workflow-core.json");
+		git("commit", "-qm", "broken declaration");
+		declare([]);
+		git("add", ".claude/workflow-core.json");
+		expect(envelope()).toBeNull();
+		expect(logs.join("\n")).toMatch(
+			/^the declaration at HEAD did not read — a narrowing of it not checked: /m,
+		);
+	});
+
+	describe("the host port's declaration at a revision", () => {
+		const unbornRepo = () => {
+			const unborn = path.join(sb.dir, "unborn");
+			fs.mkdirSync(unborn);
+			execFileSync("git", ["init", "-q", unborn]);
+			execFileSync("git", ["config", "user.email", "t@example.com"], {
+				cwd: unborn,
+			});
+			execFileSync("git", ["config", "user.name", "t"], { cwd: unborn });
+			return unborn;
+		};
+		const portAt = (tree: string) =>
+			require("./review-tier-host.js")
+				.buildHostPorts(tree)
+				.declaredAt(tree, "HEAD");
+
+		it("reads an unborn HEAD as declaring nothing", () => {
+			expect(portAt(unbornRepo())).toBeUndefined();
+		});
+
+		it("throws on an unborn HEAD where git will not run", () => {
+			const unborn = unbornRepo();
+			vi.stubEnv(
+				"WFC_GIT",
+				writeFaultyGit(
+					{ words: ["rev-parse"] },
+					{ exit: 128 },
+					{ under: sb.dir },
+				).git,
+			);
+			expect(() => portAt(unborn)).toThrow();
+		});
+	});
+
 	it("logs a config that will not read, and says nothing", () => {
 		fs.writeFileSync(
 			path.join(sb.repo, ".claude", "workflow-core.json"),
@@ -928,7 +975,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		changedSince: () => [],
 		billed: () => [],
 		declared: () => [{ ...RLS, live: false }],
-		declaredAtHead: () => [{ ...RLS, live: false }],
+		declaredAt: () => [{ ...RLS, live: false }],
 		ruleText: () => {
 			throw new Error("store down");
 		},
@@ -1041,14 +1088,14 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	});
 
 	describe("a change to the declaration that narrows it (#3905)", () => {
-		const Config = ".claude/workflow-core.json";
+		const DeclarationPath = ".claude/workflow-core.json";
 		const narrowing = (declared: unknown) =>
 			decide(
 				"code-review",
 				stubCtx({
-					staged: () => [Config],
+					staged: () => [DeclarationPath],
 					declared: () => declared,
-					declaredAtHead: () => [{ ...RLS, live: false }],
+					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
 			);
 
@@ -1066,13 +1113,31 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			},
 		);
 
+		it("states the escalated tier on a narrowing committed since the session base", () => {
+			const decision = decide(
+				"code-review",
+				stubCtx({
+					session: ME,
+					staged: () => [],
+					sessionBase: () => "BASE",
+					changedSince: () => [DeclarationPath],
+					billed: () => [DeclarationPath],
+					declared: () => [],
+					declaredAt: (_: string, rev: string) =>
+						rev === "BASE" ? [{ ...RLS, live: false }] : [],
+				}) as never,
+			);
+			expect(String(decision?.prelude)).toContain("Tier owed: escalated.");
+			expect(String(decision?.prelude)).toContain(RLS.name);
+		});
+
 		it("adds nothing where the declaration keeps every glob", () => {
 			const decision = decide(
 				"code-review",
 				stubCtx({
-					staged: () => [Config],
+					staged: () => [DeclarationPath],
 					declared: () => [{ ...RLS, live: false }],
-					declaredAtHead: () => [{ ...RLS, live: false }],
+					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
 			);
 			expect(String(decision?.prelude ?? "")).not.toContain("Tier owed");
@@ -1084,7 +1149,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				stubCtx({
 					staged: () => ["app/page.tsx"],
 					declared: () => [],
-					declaredAtHead: () => [{ ...RLS, live: false }],
+					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
 			);
 			expect(decision).toBeNull();
