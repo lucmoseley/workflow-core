@@ -116,6 +116,14 @@ const OTHER_INPUT_CHARS = 100;
  * @typedef {{ type: string, text?: string, file_path?: string }} ContentBlock
  */
 
+/**
+ * One parsed transcript line. `any` because the transcript is Claude Code's
+ * format, which this repo does not define, and each field is guarded where it
+ * is read.
+ *
+ * @typedef {Record<string, any>} TranscriptRecord
+ */
+
 const HOLDER_USAGE = "(--issue <n> | --session <id>) [--interval <s>]";
 const HAND_OFF_USAGE =
 	"usage: rescue-sessions.js hand-off --from <config-dir> --job <short id> [--session <id>] --issue <n> [--issue <n>]…";
@@ -949,7 +957,7 @@ function readLastTurnMarker(transcript) {
 		// takeSample has already stat'd it, so an unreadable transcript is UNKNOWN there.
 		return "";
 	}
-	for (const j of /** @type {Record<string, any>[]} */ (
+	for (const j of /** @type {TranscriptRecord[]} */ (
 		parseJsonl(text).rows
 	).reverse()) {
 		if (isUserPrompt(j)) return "prompt";
@@ -969,7 +977,7 @@ function readLastTurnMarker(transcript) {
 /**
  * A transcript entry that is a person's prompt — not a tool result, and not an
  * injected `<system-reminder>` or hook payload, which open with a tag.
- * @param {any} j
+ * @param {TranscriptRecord} j
  */
 function isUserPrompt(j) {
 	if (j.type !== "user") return false;

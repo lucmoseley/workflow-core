@@ -354,7 +354,9 @@ function scanLine(line, file, onCommand) {
 	if (!line.includes('"Bash"')) return;
 	/* A line that holds no row is skipped and NOT counted: counting a killed
 	 * session's truncated tail as a call would inflate every share's
-	 * denominator. A whole file that will not read IS counted, in `unreadable`. */
+	 * denominator. A whole file that will not read IS counted, in `unreadable`.
+	 * `any`: a transcript is Claude Code's format, which this repo does not
+	 * define, and each field is guarded where it is read. */
 	const rec = /** @type {Record<string, any> | null | undefined} */ (
 		parseJsonlRow(line)
 	);

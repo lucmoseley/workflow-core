@@ -71,6 +71,8 @@ function classifyRecord(raw) {
 	/* An assistant record without a text part adds nothing and ends nothing. */
 	if (!user && !raw.includes('"type":"text"')) return { kind: "skip" };
 	if (user && raw.includes('"tool_result"')) return { kind: "reset" };
+	/* `any`: a transcript is Claude Code's format, which this repo does not
+	 * define, and each field is guarded where it is read. */
 	const rec = /** @type {Record<string, any> | null | undefined} */ (
 		parseJsonlRow(raw)
 	);

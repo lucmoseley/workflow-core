@@ -112,6 +112,7 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { parseEnvelope } = require("./lib/check-envelope.js");
+const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { STANDARDS_DOCS } = require("./lib/primitives-table.js");
@@ -460,9 +461,8 @@ function readTableHistory(root, since, cursor) {
 		try {
 			return git(args);
 		} catch (e) {
-			const { status, stderr } =
-				/** @type {{status?: number, stderr?: string}} */ (e);
-			if (status === 1 || /not a valid/i.test(String(stderr))) return null;
+			const { status, stderr } = caught(e);
+			if (status === 1 || /not a valid/i.test(stderr ?? "")) return null;
 			throw e;
 		}
 	};

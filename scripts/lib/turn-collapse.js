@@ -115,6 +115,8 @@ function corpusFiles(roots) {
 function turnsIn(text) {
 	/** @type {Array<[number, string]>} */
 	const out = [];
+	/* `any`: a transcript is Claude Code's format, which this repo does not
+	 * define, and each field is guarded where it is read. */
 	for (const record of /** @type {Record<string, any>[]} */ (
 		parseJsonl(text).rows
 	)) {

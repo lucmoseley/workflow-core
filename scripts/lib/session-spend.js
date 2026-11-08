@@ -236,7 +236,9 @@ function readFileRequests(file, window) {
 /**
  * The transcript record where it is an assistant turn carrying usage,
  * timestamped inside `window` where one is given; else `null`.
- * @param {Record<string, any>} r
+ * @param {Record<string, any>} r a parsed transcript line; `any` because
+ *   JSON.parse types nothing, and `type` and `message.usage` are checked before
+ *   the record is returned as a UsageRecord
  * @param {{ fromMs: number, toMs: number }} [window]
  * @returns {UsageRecord | null}
  */
