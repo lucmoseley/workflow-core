@@ -300,6 +300,7 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		"  true  ",
 		"true;",
 		"true # end turn",
+		"true;\n# a\n",
 	])("reads %j as inert", (spelling) => {
 		expectSilentAllow(bash(spelling));
 		expectDeny(bash(spelling));
@@ -312,6 +313,8 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		"truex",
 		"exit 1",
 		":; npm run build",
+		"true;\n# a\nb",
+		"true # a\rb\nc",
 	])("leaves %j alone — it does real work", (command) => {
 		expectNotCounted(bash(command));
 		expectNotCounted(bash(command));
