@@ -129,6 +129,16 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 			expect(reason).toContain(DeclarationPath);
 		});
 
+		it("names the escalated tier on an area committed since the start point and dropped from the working copy", () => {
+			declare(["supabase/migrations/**"]);
+			git("add", DeclarationPath);
+			git("commit", "-qm", "declaration", "--", DeclarationPath);
+			declare([]);
+			record(DeclarationPath, ME);
+
+			expect(run("stop") ?? "").toContain("`escalated` review tier is owed");
+		});
+
 		it("stays silent on a change keeping every glob", () => {
 			startAfter(() => declare(["supabase/migrations/**"]));
 			declare(["supabase/migrations/**", "app/money/**"]);

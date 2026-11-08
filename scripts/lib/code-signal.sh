@@ -176,7 +176,8 @@ written_paths() {
 
 # sensitive_match <array name> <base> <ledger file> [<to>] — fills the named
 # array with the paths this session wrote that a declared glob matched, the
-# declaration itself where it narrows an area from its copy at <base>, and
+# declaration itself where it narrows an area from its copy at <base> (and,
+# over the working tree, at HEAD, as the hold and skill load read it), and
 # sets cs_area_names, cs_areas and cs_fault. <to> as code_review_owed's.
 sensitive_match() {
   local -n sm_paths="$1"
@@ -184,19 +185,21 @@ sensitive_match() {
   written=$(written_paths "$base" "$mine" "$to")
   [[ -n "$written" ]] || return 0
   err="$(mktemp 2>/dev/null)" || err=/dev/null
+  local -a narrowing=(--narrowed-from "$base" --narrowed-from HEAD)
+  [[ -z "$to" ]] || narrowing=(--narrowed-from "$base" --narrowed-to "$to")
   match=$(printf '%s\n' "$written" |
-    node "$CS_MATCHER" --stdin --narrowed-from "$base" ${to:+--narrowed-to "$to"} 2>"$err") || rc=$?
+    node "$CS_MATCHER" --stdin "${narrowing[@]}" 2>"$err") || rc=$?
   why="$(head -c "${GL_DETAIL_MAX:-300}" "$err" 2>/dev/null | tr '\n' ' ')"
   [[ "$err" = /dev/null ]] || rm -f "$err"
   case "$rc" in
     0) ;;
     3)
       # shellcheck disable=SC2034  # the caller's to read
-      cs_fault="the declaration at $base or ${to:-the working copy} did not read — a narrowing of it checked only as far as it read: $why"
+      cs_fault="the declaration at $base, ${to:-HEAD or the working copy} did not read — a narrowing of it checked only as far as it read: $why"
       ;;
     *)
       # shellcheck disable=SC2034  # the caller's to read
-      cs_fault="lib/sensitive-paths.js failed — sensitive paths not checked, standard tier assumed"
+      cs_fault="lib/sensitive-paths.js failed — sensitive paths not checked, standard tier assumed: $why"
       return 0
       ;;
   esac

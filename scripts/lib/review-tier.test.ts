@@ -937,7 +937,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			expect(portAt(unbornRepo())).toBeUndefined();
 		});
 
-		it("throws where git will not run, unborn HEAD or not", () => {
+		it("throws on an unborn HEAD where git will not run", () => {
 			const unborn = unbornRepo();
 			vi.stubEnv(
 				"WFC_GIT",
@@ -1088,12 +1088,12 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	});
 
 	describe("a change to the declaration that narrows it (#3905)", () => {
-		const Config = ".claude/workflow-core.json";
+		const DeclarationPath = ".claude/workflow-core.json";
 		const narrowing = (declared: unknown) =>
 			decide(
 				"code-review",
 				stubCtx({
-					staged: () => [Config],
+					staged: () => [DeclarationPath],
 					declared: () => declared,
 					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
@@ -1120,8 +1120,8 @@ describe("the cases a mutant must not survive (#2792)", () => {
 					session: ME,
 					staged: () => [],
 					sessionBase: () => "BASE",
-					changedSince: () => [Config],
-					billed: () => [Config],
+					changedSince: () => [DeclarationPath],
+					billed: () => [DeclarationPath],
 					declared: () => [],
 					declaredAt: (_: string, rev: string) =>
 						rev === "BASE" ? [{ ...RLS, live: false }] : [],
@@ -1135,7 +1135,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			const decision = decide(
 				"code-review",
 				stubCtx({
-					staged: () => [Config],
+					staged: () => [DeclarationPath],
 					declared: () => [{ ...RLS, live: false }],
 					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
