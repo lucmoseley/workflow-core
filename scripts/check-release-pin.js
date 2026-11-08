@@ -43,8 +43,8 @@
  * ON THE SWEEP, A FRESH BUMP IS PENDING, NOT A FAULT (#4675). Every bump
  * lands before its tag can exist, so under --require-remote a pin ahead of
  * every remote tag, committed under PENDING_CUT_HOURS ago, is a SKIP naming
- * when it falls due. A local run, and a tag cut here and never pushed, still
- * fail at once.
+ * when it falls due. A run without the flag, and a tag cut here and never
+ * pushed, still fail at once.
  *
  * AN UNREACHABLE REMOTE GATES UNDER --require-remote, AND ONLY THERE (#263),
  * against lib/check.js's alphabet. The sweep step passes it and nothing else
@@ -474,12 +474,12 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 		});
 	}
 
-	const newest = { tag: newestTag(cut.tags) };
-	if (newest.tag !== null && semverGt(version, tagVersion(newest.tag))) {
+	const newest = newestTag(cut.tags);
+	if (newest !== null && semverGt(version, tagVersion(newest))) {
 		ctx.fail(
 			"VERSION-AHEAD",
-			`plugin.json says ${version}, ahead of ${newest.tag}, the newest tag ${remote} has, but ${name} is pinned to \`${ref}\`, not a tag`,
-			{ ref, version, newest: newest.tag },
+			`plugin.json says ${version}, ahead of ${newest}, the newest tag ${remote} has, but ${name} is pinned to \`${ref}\`, not a tag`,
+			{ ref, version, newest },
 			`version-ahead:${name}`,
 		);
 		/* release-plugin.js's own `release()` refuses to cut unless the
@@ -491,7 +491,7 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 			"  node scripts/release-plugin.js";
 		const remedy = aheadRemedy(ctx, { root, remote, expected, pointRefFirst });
 		ctx.say(
-			`.claude-plugin/plugin.json says ${version}, ahead of ${newest.tag}, the\n` +
+			`.claude-plugin/plugin.json says ${version}, ahead of ${newest}, the\n` +
 				`newest release tag ${remote} has. ${name} is pinned to \`${ref}\` rather than\n` +
 				"a tag, so the pin-mismatch and tag-cut checks above never see this: an\n" +
 				`adopter fetching \`${ref}\` gets the bumped ${version} code with no release\n` +
@@ -507,7 +507,9 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 }
 
 /**
- * When the commit that set `ref` was committed, in epoch seconds. Git records
+ * When the commit that set `ref` was committed, in epoch seconds: the newest
+ * commit changing how often the pin occurs, so a reformat of its line restarts
+ * nothing. Git records
  * no landing time — the lander fast-forwards `main` onto queue tips — so the
  * clock starts at the bump commit, early by the queue's 25–60 min (#2217).
  * `null` in a shallow clone, whose grafted root matches any line, and where
@@ -524,7 +526,8 @@ function readBumpCommittedAt(root, ref) {
 		"log",
 		"-1",
 		"--format=%ct",
-		`-G"ref": *"${ref.replaceAll(".", "\\.")}"`,
+		"--pickaxe-regex",
+		`-S"ref": *"${ref.replaceAll(".", "\\.")}"`,
 		"HEAD",
 		"--",
 		".claude-plugin/marketplace.json",
@@ -552,8 +555,8 @@ function judgePendingCut({ root, ref, newest }) {
 
 /**
  * A tag-pinned entry whose tag the remote lacks: pending, unresolved,
- * unpushed or never cut. Pending is the sweep's alone (`--require-remote`):
- * a local run keeps failing at once, where the reader can cut.
+ * unpushed or never cut. Pending is `--require-remote`'s alone, the sweep's
+ * flag: a run without it keeps failing at once, where the reader can cut.
  * @param {Ctx} ctx
  * @param {{ root: string, remote: string, ref: string, newest: string|null }} pin
  */
@@ -563,9 +566,7 @@ function judgeUnpublishedTag(ctx, { root, remote, ref, newest }) {
 	if (ctx.has("--require-remote") && !cutHere) {
 		const hoursLeft = judgePendingCut({ root, ref, newest });
 		if (hoursLeft !== null) {
-			const remedy = trusted
-				? "  node scripts/release-plugin.js --push"
-				: unresolvedTagRemedy(remote, ref);
+			const remedy = unresolvedTagRemedy(remote, ref);
 			ctx.skip(
 				`${ref} is a bump whose release is pending: ${remote} lacks the tag, and the\n` +
 					`      cut falls due within ${Math.ceil(hoursLeft)}h, after which this fails.\n` +

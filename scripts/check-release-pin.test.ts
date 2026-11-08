@@ -13,6 +13,9 @@
  * It runs in `npm run status` and, with --require-remote, in roadmap-digest.yml:
  * loosen a case and adopters silently stay on an old release because the pin
  * names a tag they cannot fetch.
+ *
+ * Over the 10 s file budget (base §X8): every case spawns the checker, and
+ * each tag or message read re-runs it under --json, against a real remote.
  */
 
 import { execFileSync } from "node:child_process";
@@ -247,6 +250,23 @@ describe("check-release-pin", () => {
 			const r = check("--require-remote");
 			expect(r.status).toBe(1);
 			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
+		});
+
+		it("dates the bump from its own commit, not a later reformat of the pin line", () => {
+			bump(25);
+			const at = path.join(repo, ".claude-plugin", "marketplace.json");
+			fs.writeFileSync(
+				at,
+				JSON.stringify(JSON.parse(fs.readFileSync(at, "utf8")), null, "\t"),
+			);
+			commitAt("reformat", 1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
 		});
 
 		it("fails TAG-UNRESOLVED on a fresh pin that is not ahead of the newest cut tag", () => {
@@ -257,6 +277,8 @@ describe("check-release-pin", () => {
 			expect(r.status).toBe(1);
 			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
 			expect(r.out).not.toContain("pending");
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
 		});
 
 		/* A shallow clone's grafted root matches any line, so its date says
@@ -269,14 +291,9 @@ describe("check-release-pin", () => {
 			const r = check("--require-remote");
 			expect(r.status).toBe(1);
 			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
-		});
-
-		it("names the push-and-cut command where local tags are trustworthy", () => {
-			envOverride = { WFC_NOW: new Date(Now).toISOString() };
-			bump(1);
-			const r = check("--require-remote");
-			expect(r.status).toBe(0);
-			expect(r.out).toContain("node scripts/release-plugin.js --push");
+			// The clone has no remote carrying the marketplace URL, so the push names the URL.
+			expect(r.out).toContain(`git push file://${remote} v1.2.3`);
+			expect(r.out).toContain("release-plugin.js");
 		});
 
 		it("fails TAG-UNPUSHED at once where the tag was cut here, naming the push", () => {
