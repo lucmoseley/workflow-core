@@ -24,11 +24,17 @@ import { MARKERS_REL } from "./marker-root.js";
 import { readHookPersistChars } from "./rule-emission.js";
 
 /**
+ * The manifest the entry dispatches from, named here so a change to it selects
+ * every test running a core through this kit (#4153).
+ */
+const MANIFEST = path.join(__dirname, "guard-cores.json");
+
+/**
  * `event`'s cores, a load fault thrown: the dispatcher would answer it with the
  * row's policy, which reads to a test as that core's own allow or deny (#4125).
  */
 export const loadedCores = (event: string) => {
-	const cores = loadCores(event);
+	const cores = loadCores(event, { manifest: MANIFEST });
 	for (const c of cores)
 		if ("loadFault" in c) throw new Error(`${c.name}: ${c.loadFault}`);
 	return cores;

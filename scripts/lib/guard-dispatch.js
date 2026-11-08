@@ -70,13 +70,12 @@ function runEntry(only) {
 	startEntryClock(event);
 	const tool = toolOf(payload);
 	/* dispatch judges each core again; this filter only spares the load. */
-	const cores = loadCores(
-		event,
-		(row) =>
+	const cores = loadCores(event, {
+		keep: (row) =>
 			isCoreFor(row, tool) &&
 			isAdmitted(row, payload) &&
 			(only === undefined || row.name === only),
-	);
+	});
 	if (
 		only !== undefined &&
 		cores.length === 0 &&

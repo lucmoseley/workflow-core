@@ -24,7 +24,8 @@
  * heading with no such table is a finding.
  *
  * A COUNT IS A NUMBER OR A REASON, never a 0 standing in for one it could not
- * read (#3365).
+ * read (#3365), save a local row whose check SKIPs on an out-of-reach subject,
+ * which adds a silent 0 (parseBreaches, #4149).
  *
  * A ROW CHANGE is keyed by the row's Job cell: a Job only one side of a commit
  * holds was added or removed, and a changed cell under the same Job is a
@@ -261,11 +262,13 @@ async function sumBreaches(rows, countBreaches) {
  * is about the check, not a caller off the primitive, and --warn caps the
  * outcome, never a finding's severity.
  *
- * SKIP reads as its empty findings, so it adds 0: check-host-root SKIPs in any
- * repo shipping no plugin, and one such row must not blank the total (#4119).
- * Residual: a row whose check SKIPs because its subject is out of reach rather
- * than absent, such as GitHub being down (§N4), also adds 0, with its reason
- * dropped.
+ * A SKIP with a findings array adds 0 whatever it holds, as runCheck counts an
+ * unfinished run's findings 0 (#4149); one with none stays unknown.
+ * check-host-root SKIPs in any repo shipping no plugin, and one such row must
+ * not blank the total (#4119).
+ * Residual: every base row's check SKIPs only on an absent subject, but an
+ * adopter's local row whose check SKIPs because its subject is out of reach,
+ * such as GitHub being down (§N4), also adds 0, with its reason dropped.
  *
  * @param {string} stdout
  * @param {number | null} status
@@ -280,11 +283,12 @@ function parseBreaches(stdout, status) {
 		return { unknown: `it printed no --json envelope (exit ${status})` };
 	}
 	if (envelope?.outcome === "BROKEN") return { unknown: "it answered BROKEN" };
-	return Array.isArray(envelope?.findings)
-		? {
-				count: envelope.findings.filter((f) => f?.severity === "FAIL").length,
-			}
-		: { unknown: "its envelope carries no findings array" };
+	if (!Array.isArray(envelope?.findings))
+		return { unknown: "its envelope carries no findings array" };
+	if (envelope.outcome === "SKIP") return { count: 0 };
+	return {
+		count: envelope.findings.filter((f) => f?.severity === "FAIL").length,
+	};
 }
 
 /** @param {Count} c @param {string} noun */
