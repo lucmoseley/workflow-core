@@ -1685,9 +1685,10 @@ describe("the control file", () => {
 	it("reads a launch hold, and an unreadable one as none, since it could never lapse (#4354)", () => {
 		const read = (launchHold: unknown) =>
 			parseControl({ noProgressFrom: 5, launchHold })?.launchHold;
-		const hold = { by: "a manual /pick-next", at: 9, until: 99 };
+		const hold = { holder: "s1", until: 99 };
 		expect(read(hold)).toEqual(hold);
-		expect(read({ by: "x", at: 9 })).toBeUndefined();
+		expect(read({ until: 99 })).toEqual({ holder: null, until: 99 });
+		expect(read({ holder: "s1" })).toBeUndefined();
 		expect(read(true)).toBeUndefined();
 	});
 

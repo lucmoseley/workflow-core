@@ -1133,10 +1133,10 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 			lines: string[];
 			startFrom: unknown;
 		};
-	const hold = { by: "a manual /pick-next", at: 7, until: 7 + 20 * Minute };
+	const hold = { holder: "s1", until: 7 + 20 * Minute };
 
 	it("holds for the minutes asked, naming its end, and starts no process", () => {
-		const plan = set(control, { holdMinutes: 20 }, false);
+		const plan = set(control, { holdMinutes: 20, holder: "s1" }, false);
 		expect(plan.write?.launchHold).toEqual(hold);
 		expect(plan.lines).toEqual([
 			`launches held by a manual /pick-next until ${new Date(hold.until).toISOString()}`,
@@ -1152,6 +1152,21 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 			write: null,
 			lines: ["unchanged: no launch hold"],
 		});
+	});
+
+	it("leaves a live hold another session took, and releases its own or a lapsed one", () => {
+		const held = { ...control, launchHold: hold };
+		expect(set(held, { holdMinutes: null, holder: "s2" })).toMatchObject({
+			write: null,
+			lines: [expect.stringContaining("unchanged: another session's hold")],
+		});
+		expect(
+			set(held, { holdMinutes: null, holder: "s1" }).write,
+		).not.toHaveProperty("launchHold");
+		const lapsed = { ...control, launchHold: { holder: "s1", until: 7 } };
+		expect(
+			set(lapsed, { holdMinutes: null, holder: "s2" }).write,
+		).not.toHaveProperty("launchHold");
 	});
 
 	it("leaves a founder's pause as it stands through a hold and its release", () => {

@@ -65,8 +65,8 @@ const OVERFLOW_SPENT = "every plan seat is weekly-full";
 /* The idle reason of a tick waiting out every plan seat's full week. */
 const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
-/* The idle reason of a tick under a manual dispatcher's launch hold (#4354). */
-const LAUNCH_HELD = "launches held by";
+/* The idle reason of a tick under a manual /pick-next's launch hold (#4354). */
+const LAUNCH_HELD = "launches held by a manual /pick-next";
 /* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* A row a running launch already holds, skipped as any other so an idle
@@ -227,10 +227,11 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 /** @typedef {{root: string, number: number}} PauseIssue */
 
 /**
- * A manual dispatcher's lease on the loop's launches (#4354): who took it, when
- * and until when, ms. A pause is the founder's and outlives its setter; a hold
- * lapses at `until`, so a dispatcher that dies holding one strands nothing.
- * @typedef {{by: string, at: number, until: number}} LaunchHold
+ * A manual /pick-next's lease on the loop's launches (#4354): the session that
+ * took it, null where none was named, and until when, ms. A pause is the
+ * founder's and outlives its setter; a hold lapses at `until`, so a run that
+ * dies holding one strands nothing.
+ * @typedef {{holder: string|null, until: number}} LaunchHold
  */
 
 /**
@@ -242,15 +243,17 @@ const liveLaunchHold = (hold, now) =>
 	hold !== undefined && hold.until > now ? hold : undefined;
 
 /**
- * Whether a tick's launches are barred, by a pause or a live launch hold.
- * @param {TickInput} input
+ * Whether launching is barred, by a pause or a launch hold live at `now`: the
+ * one reading of a bar, for a control or a tick's input alike.
+ * @param {{paused?: Pause, launchHold?: LaunchHold}} barring
+ * @param {number} now
  */
-const isTickBarred = (input) =>
-	input.paused !== undefined || input.launchHold !== undefined;
+const isLaunchBarred = ({ paused, launchHold }, now) =>
+	paused !== undefined || liveLaunchHold(launchHold, now) !== undefined;
 
 /** @param {LaunchHold} hold */
-const buildLaunchHoldIdle = ({ by, until }) =>
-	buildIdle(LAUNCH_HELD, ` ${by} until ${new Date(until).toISOString()}`);
+const buildLaunchHoldIdle = ({ until }) =>
+	buildIdle(LAUNCH_HELD, ` until ${new Date(until).toISOString()}`);
 
 /** @param {LaunchHold} hold */
 const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
@@ -1418,10 +1421,9 @@ module.exports = {
 	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
 	PAUSED,
-	LAUNCH_HELD,
 	buildLaunchHoldText,
 	liveLaunchHold,
-	isTickBarred,
+	isLaunchBarred,
 	QUIET_BENCH_PAUSE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,

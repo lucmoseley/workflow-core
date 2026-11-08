@@ -67,11 +67,12 @@ node scripts/refill-loop.js set --hold-launches 20
 A running loop otherwise launches into the slots this run is measuring and
 judges the gates it is judging (#4354). The hold bars every launch and resume
 while it stands and keeps the loop's housekeeping. It is not a pause: a founder's
-`set --pause` stands through it and its release. It lapses by itself after 20
-minutes — the ~14-minute end-to-end run (`references/measured-figures.md`, "What
-a run costs") plus its launches — so a run that dies holds nothing for long. A
-run still short of §7 at that mark takes it again. A refusal (`the loop was never
-started`) means there is no loop to hold: carry on.
+`set --pause` stands through it and its release. It lapses by itself, so a run
+that dies holds nothing for long: 20 minutes is the ~14-minute measured run to
+§6's dispatch lines (`references/measured-figures.md`, "What a run costs") plus
+an unmeasured 6 for §7's launches. Run the same command again just before §7's
+first launch call, so a slow run's launches stay covered. A refusal (`the loop
+was never started`) means there is no loop to hold: carry on.
 
 ```bash
 node scripts/pick-next.js [--goal <§1's set or form>] [--limit 15] \

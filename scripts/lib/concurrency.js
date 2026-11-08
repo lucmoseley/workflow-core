@@ -34,7 +34,7 @@ const {
 	buildIdleText,
 	buildPauseText,
 	buildLaunchHoldText,
-	isTickBarred,
+	isLaunchBarred,
 	buildPlanWaitText,
 	pickSeat,
 } = require("./refill-decide.js");
@@ -194,7 +194,7 @@ function failingAt({ input, decision, admission }) {
 	return [
 		...policyFailing(input, decision),
 		/* A barred tick reads no admission, so no resource is known to bind. */
-		...(isTickBarred(input) ? [] : resourceFailing(admission)),
+		...(isLaunchBarred(input, input.now) ? [] : resourceFailing(admission)),
 	];
 }
 

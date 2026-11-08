@@ -94,12 +94,13 @@ const NOT_RUNNING = buildNotice(
  * ticked set; `pause`, `--pause`, or false for `--resume`; `goal`, the goal to
  * store, or null for `--clear-goal`; `quietBench`, `--quiet-bench`, or false for
  * `--no-quiet-bench`; `holdMinutes`, `--hold-launches`'s minutes, or null for
- * `--release-launches`.
+ * `--release-launches`; `holder`, the session asking, null where none is named.
  * @typedef {{form: import("./refill-goal.js").GoalForm, text: string,
  *   refs: import("./refill-goal.js").AskedRef[]}} GoalAsk
  * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
  *   tick?: string[], untick?: string[], goal?: GoalAsk|null,
- *   quietBench?: boolean, holdMinutes?: number|null}} SetAsk
+ *   quietBench?: boolean, holdMinutes?: number|null,
+ *   holder?: string|null}} SetAsk
  * @typedef {{running: boolean, now: number,
  *   readExclusionWhy: (root: string) => string|null,
  *   isOptedOut: (root: string) => boolean}} SetContext
@@ -182,7 +183,7 @@ function buildSetPlanJson({ lines, warning }, started) {
  * @returns {SetChange|{refused: Notice}}
  */
 function changeFields(control, ask, context) {
-	const { pause, mode, goal, quietBench, holdMinutes } = ask;
+	const { pause, mode, goal, quietBench, holdMinutes, holder = null } = ask;
 	/** @type {((c: Control) => SetChange|{refused: Notice})[]} */
 	const steps = [
 		...(pause === undefined
@@ -205,7 +206,11 @@ function changeFields(control, ask, context) {
 			? []
 			: [
 					(/** @type {Control} */ c) =>
-						buildLaunchHoldChange(c, holdMinutes, context.now),
+						buildLaunchHoldChange(
+							c,
+							{ minutes: holdMinutes, holder },
+							context.now,
+						),
 				]),
 		/* On every set, not only one naming repos, so no write keeps an opted-out
 		 * tick for a later opt-in to serve unticked (#4188). */
@@ -425,29 +430,39 @@ function buildPauseChange(control, pause, { running, now }) {
 }
 
 /**
- * Only the launch hold changed (#4354): a hold of `minutes` from `now`, which
- * replaces any other, or null to release it. Neither touches a pause, so a
- * dispatcher that holds and releases never lifts the founder's (#2526).
+ * Only the launch hold changed (#4354): `holder`'s hold of `minutes` from
+ * `now`, which takes over any other, or with null minutes its release. A
+ * release leaves a live hold another session took, so overlapping runs never
+ * free each other's launches; residual: the later taker's release frees the
+ * earlier's. Neither touches a pause, so a run that holds and releases never
+ * lifts the founder's (#2526).
  * @param {Control} control
- * @param {number|null} minutes
+ * @param {{minutes: number|null, holder: string|null}} ask
  * @param {number} now
  * @returns {SetChange}
  */
-function buildLaunchHoldChange(control, minutes, now) {
-	const { launchHold: _released, ...rest } = control;
+function buildLaunchHoldChange(control, { minutes, holder }, now) {
+	const { launchHold: held, ...rest } = control;
 	if (minutes !== null) {
-		const launchHold = {
-			by: "a manual /pick-next",
-			at: now,
-			until: now + minutes * 60_000,
-		};
+		const launchHold = { holder, until: now + minutes * 60_000 };
 		return {
 			write: { ...rest, launchHold },
 			lines: [buildLaunchHoldText(launchHold)],
 		};
 	}
-	return control.launchHold === undefined
-		? { write: null, lines: ["unchanged: no launch hold"] }
+	if (held === undefined)
+		return { write: null, lines: ["unchanged: no launch hold"] };
+	const live = liveLaunchHold(held, now);
+	return live &&
+		live.holder !== null &&
+		holder !== null &&
+		live.holder !== holder
+		? {
+				write: null,
+				lines: [
+					`unchanged: another session's hold: ${buildLaunchHoldText(live)}`,
+				],
+			}
 		: { write: rest, lines: ["launch hold released"] };
 }
 

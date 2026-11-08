@@ -169,14 +169,9 @@ function parsePause(raw) {
  * @returns {{launchHold?: import("./refill-decide.js").LaunchHold}}
  */
 function parseLaunchHold(raw) {
-	if (
-		!isRecord(raw) ||
-		typeof raw.by !== "string" ||
-		typeof raw.at !== "number" ||
-		typeof raw.until !== "number"
-	)
-		return {};
-	return { launchHold: { by: raw.by, at: raw.at, until: raw.until } };
+	if (!isRecord(raw) || typeof raw.until !== "number") return {};
+	const holder = typeof raw.holder === "string" ? raw.holder : null;
+	return { launchHold: { holder, until: raw.until } };
 }
 
 /**

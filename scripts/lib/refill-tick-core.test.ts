@@ -20,7 +20,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
-import { LAUNCH_HELD } from "./refill-decide.js";
 import { buildHeldStopText } from "./refill-limits.js";
 import { controlInMode } from "./refill-loop.js";
 import {
@@ -1051,11 +1050,7 @@ describe("a paused tick (#3856)", () => {
 });
 
 describe("a launch hold through the tick (#4354)", () => {
-	const hold = (until: number) => ({
-		by: "a manual /pick-next",
-		at: NOW - MIN,
-		until,
-	});
+	const hold = (until: number) => ({ holder: "s1", until });
 
 	it("keeps the housekeeping, launches nothing and logs the hold as its idle reason", async () => {
 		const gone = record({
@@ -1068,7 +1063,7 @@ describe("a launch hold through the tick (#4354)", () => {
 		const r = await tickOf(io, control({ launchHold: hold(NOW + 20 * MIN) }));
 
 		expect("launches" in r.decision && r.decision.idle?.reason).toBe(
-			LAUNCH_HELD,
+			"launches held by a manual /pick-next",
 		);
 		expect(lines.join("\n")).toContain(
 			`idle: launches held by a manual /pick-next until ${new Date(NOW + 20 * MIN).toISOString()}`,

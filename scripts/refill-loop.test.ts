@@ -1085,17 +1085,27 @@ describe("set (#3856)", () => {
 	it("holds launches and releases them, a founder's pause standing through both (#4354)", async () => {
 		writeControl({ paused });
 		const before = Date.now();
-		const held = await run("set", "--hold-launches", "20");
+		const held = await runEnv(
+			{ CLAUDE_CODE_SESSION_ID: "s1" },
+			"set",
+			"--hold-launches",
+			"20",
+		);
 		expect(held.status).toBe(0);
 		expect(held.stdout).toMatch(
 			/^launches held by a manual \/pick-next until \S+Z$/m,
 		);
 		const { launchHold, ...rest } = readControl();
 		expect(rest).toEqual({ ...plainControl, paused });
-		expect(launchHold.until - launchHold.at).toBe(20 * 60_000);
-		expect(launchHold.at).toBeGreaterThanOrEqual(before);
+		expect(launchHold.holder).toBe("s1");
+		expect(launchHold.until).toBeGreaterThanOrEqual(before + 20 * 60_000);
+		expect(launchHold.until).toBeLessThanOrEqual(Date.now() + 20 * 60_000);
 
-		const released = await run("set", "--release-launches");
+		const released = await runEnv(
+			{ CLAUDE_CODE_SESSION_ID: "s1" },
+			"set",
+			"--release-launches",
+		);
 		expect(released.status).toBe(0);
 		expect(released.stdout).toContain("launch hold released");
 		expect(readControl()).toEqual({ ...plainControl, paused });

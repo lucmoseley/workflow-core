@@ -43,6 +43,7 @@ const {
 	actsRead,
 	awayChangeOf,
 	decideTick,
+	isLaunchBarred,
 	liveLaunchHold,
 	NOTHING_LAUNCHABLE,
 	readParkers,
@@ -482,19 +483,21 @@ function relieve(io, { registry, state, served, now }) {
  * @param {TickIo} io
  * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
  *   registry: RegistryListing, roots: string[],
- *   paused: import("./refill-decide.js").Pause|undefined, held: boolean,
- *   now: number}} tick  `held`, whether a pause or a launch hold bars launching
+ *   paused: import("./refill-decide.js").Pause|undefined, barred: boolean,
+ *   now: number}} tick  `barred`, whether a pause or a launch hold bars launching
  */
 function actOnListing(
 	io,
-	{ declared, agents, registry, roots, paused, held, now },
+	{ declared, agents, registry, roots, paused, barred, now },
 ) {
 	capOverflowSessions(io, declared, agents);
 	io.sendHoldNotices(
 		roots,
 		{
 			agents: noticeAgentsOf(agents, registry),
-			isPaused: held,
+			/* A held loop's slots are quiet by intent, as a paused one's are, so
+			 * a hold restarts the quiet-slot count rather than raising it. */
+			isPaused: barred,
 		},
 		now,
 	);
@@ -576,7 +579,7 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
 
 /**
  * The limit acts made, and what a tick decides its launches on: the free slots
- * and the seats. A paused tick launches nothing, so it reads none of them, and leaves the limit acts, which need them,
+ * and the seats. A barred tick launches nothing, so it reads none of them, and leaves the limit acts, which need them,
  * for the tick after the resume (#3856); a hold its finishes ended is still
  * released, as that tick's `before` no longer shows it holding. The walks'
  * probe stamps are for this read alone: settleTick writes the tick's own. A
@@ -603,7 +606,7 @@ function settleRoom(
 		lastActAt,
 	},
 ) {
-	if (seen.paused) {
+	if (seen.barred) {
 		io.releaseEndedHolds(before, judged, seen.io);
 		return {
 			launches: judged,
@@ -735,7 +738,7 @@ async function decide(io, input, scope) {
  * @param {Seen} seen
  */
 const dueResumes = (control, launches, seen) =>
-	seen.paused && !control.stopRequested
+	seen.barred && !control.stopRequested
 		? []
 		: blocks.resumableOf(launches, seen);
 
@@ -980,7 +983,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const launchHold = control.paused
 		? undefined
 		: liveLaunchHold(control.launchHold, now);
-	const paused = control.paused !== undefined || launchHold !== undefined;
+	const barred = isLaunchBarred(control, now);
 	const roots = landingRoots(served, state.launches);
 	actOnListing(io, {
 		declared,
@@ -988,7 +991,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		registry,
 		roots,
 		paused: control.paused,
-		held: paused,
+		barred,
 		now,
 	});
 	/** @type {Seen} */
@@ -997,7 +1000,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		now,
 		io: io.blockIo(served),
 		swapHold: io.readSwapHold(),
-		paused,
+		barred,
 	};
 	const booted = dryRun ? state : settleBootKilled(state, seen, registry);
 	const listed = judgedLaunches(booted.launches, agents, now, {
@@ -1010,10 +1013,10 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		broken,
 		seen,
 	});
-	/* A dry run, a paused tick or a stopping one sets nothing running, and the
+	/* A dry run, a barred tick or a stopping one sets nothing running, and the
 	 * lifted holds keep for a later tick. */
 	const { launches: judged, settled: liftedSettled } =
-		dryRun || seen.paused || control.stopRequested
+		dryRun || seen.barred || control.stopRequested
 			? { launches: acted, settled: [] }
 			: blocks.queueLifted(acted, io.readLiftedHolds(roots), seen);
 	const lastActAt = io.readLoopLastActAt(judged, served);

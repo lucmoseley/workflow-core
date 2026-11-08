@@ -337,6 +337,8 @@ function parseSetAsk(parsed) {
 		if (isNotice(minutes)) return minutes;
 		ask.holdMinutes = minutes;
 	}
+	if (ask.holdMinutes !== undefined)
+		ask.holder = process.env.CLAUDE_CODE_SESSION_ID || null;
 	/* An untick takes one since opted out, so an opt-out never strands a tick. */
 	for (const [flag, field, refusalOf] of /** @type {const} */ ([
 		["--repos", "repos", readTickRefusal],
@@ -808,6 +810,7 @@ function status({ flags }) {
 	const note = flags["--json"]
 		? (/** @type {string} */ line) => writeFd(2, `${line}\n`)
 		: log;
+	const now = Date.now();
 	const control = readControlFile(note);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
@@ -833,8 +836,8 @@ function status({ flags }) {
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
 					overflow: readOverflowStatus(budgetOf),
-					concurrency: readConcurrencyStatus(Date.now()),
-					now: Date.now(),
+					concurrency: readConcurrencyStatus(now),
+					now,
 				}),
 			),
 		);
@@ -847,14 +850,14 @@ function status({ flags }) {
 		codeSha,
 		served,
 		seats,
-		now: Date.now(),
+		now,
 	}))
 		say(line);
 	for (const line of buildHoldLines(
 		served.length > 0
 			? loop.landingRoots(served, state.launches)
 			: [readCheckout(root)],
-		Date.now(),
+		now,
 	))
 		say(line);
 	sayOverflowLines(control, state, budgetOf);

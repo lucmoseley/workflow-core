@@ -120,7 +120,7 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore  the acts a session
  *   made before a new launch row wakes it, which are not that launch's (#3942)
  * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
- *   swapHold: import("./admission.js").SwapHold, paused?: boolean}} Tick  a
+ *   swapHold: import("./admission.js").SwapHold, barred?: boolean}} Tick  a
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
  *   (#2690) as read this tick; whether launching is barred, by a pause or a
  *   live launch hold (#4354)
@@ -1634,7 +1634,7 @@ const ACTS = {
 	"handoff-relaunch": (l, seen) => handOff(l, seen),
 };
 
-/* The acts that set a session running, which spends allowance, so a paused
+/* The acts that set a session running, which spends allowance, so a barred
  * tick leaves them for the tick after the resume (#3856). */
 const RUNNING_ACTS = new Set(["resume", "handoff-relaunch"]);
 
@@ -1649,7 +1649,7 @@ function actedOn(acts, seen, how) {
 	const acted = new Map();
 	for (const { l, act } of acts) {
 		const handler = ACTS[act];
-		if (handler && !(seen.paused && RUNNING_ACTS.has(act)))
+		if (handler && !(seen.barred && RUNNING_ACTS.has(act)))
 			acted.set(l.jobId, handler(l, seen, how));
 	}
 	return acted;
@@ -1665,14 +1665,14 @@ const withActed = (launches, acted) =>
 
 /**
  * The tick's acts on blocked launches: each typed resume checked, then the
- * table's act on each (blockedActs). A paused tick checks none, as a failed
+ * table's act on each (blockedActs). A barred tick checks none, as a failed
  * check falls back to a resume.
  * @param {LoopLaunch[]} launches markParked's, off `seen`'s listing
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
  */
 function actOnBlocks(launches, mode, seen) {
-	const settled = seen.paused ? launches : settleTyped(launches, seen);
+	const settled = seen.barred ? launches : settleTyped(launches, seen);
 	const acts = blockedActs(settled, mode, seen);
 	return withActed(
 		settled,
@@ -1750,7 +1750,7 @@ function actOnIdle(launches, mode, seen) {
 	const owed = launches.map((l) =>
 		isActionable(l) &&
 		(l.handOffTries !== undefined || isDeadAfterBootResume(l, seen)) &&
-		!seen.paused
+		!seen.barred
 			? handOff(l, seen, true)
 			: l,
 	);

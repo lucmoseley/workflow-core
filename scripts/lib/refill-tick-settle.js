@@ -12,8 +12,7 @@ const {
 	decideTick,
 	isClashSkip,
 	isParkRoutingMode,
-	isTickBarred,
-	liveLaunchHold,
+	isLaunchBarred,
 } = require("./refill-decide.js");
 const { buildErrorText } = require("./caught.js");
 const { buildGoalProgress } = require("./refill-goal.js");
@@ -153,10 +152,8 @@ const isStopRequested = (control) => control?.stopRequested !== false;
  * @param {Control|null} control
  * @param {number} now
  */
-const isLaunchBarred = (control, now) =>
-	isStopRequested(control) ||
-	control?.paused !== undefined ||
-	liveLaunchHold(control?.launchHold, now) !== undefined;
+const isControlBarred = (control, now) =>
+	isStopRequested(control) || isLaunchBarred(control ?? {}, now);
 
 /**
  * What the dispatches did, dispatching each batch in turn after re-reading the
@@ -376,7 +373,7 @@ const resumeDecided = (decision, launches, io, record) =>
 		: io.resumeHeld(
 				decision.resumes,
 				launches,
-				() => isLaunchBarred(io.readControl().control, io.now()),
+				() => isControlBarred(io.readControl().control, io.now()),
 				record,
 			);
 
@@ -513,7 +510,7 @@ function settleTick(
 	} = resumeDecided(decision, judged, io, record);
 	const outcome = launchUntilBarred(
 		buildLaunchBatches(decision, waiting),
-		() => isLaunchBarred(io.readControl().control, io.now()),
+		() => isControlBarred(io.readControl().control, io.now()),
 		(batch) => {
 			record([...afterResumes, ...launchedSoFar], { at: io.now(), batch });
 			const r = io.launchBatch(batch);
@@ -522,7 +519,7 @@ function settleTick(
 		},
 	);
 	const summary = buildTickLine(decision, outcome, {
-		freeSlots: isTickBarred(input) ? null : input.freeSlots,
+		freeSlots: isLaunchBarred(input, input.now) ? null : input.freeSlots,
 		probes,
 		read,
 		resumesDue: dueCount(input),
