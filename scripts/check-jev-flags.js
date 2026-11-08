@@ -29,8 +29,8 @@
  * reversal (#226): it is reported because a schema drift disables the check
  * until someone fixes it here. `refused` is the gateway turning the key away
  * with a 401 or 403, which counts toward neither limb either and is reported
- * because a dead key disables the check until a working one is stored (#4144). Every `skipped-*` outcome is the gate working
- * and is never reported.
+ * because a dead key disables the check until a working one is stored (#4144).
+ * Every `skipped-*` outcome is the gate working and is never reported.
  *
  * A TURN IS NAMED BY ITS SESSION AND ITS TIMESTAMP, and an UNJUDGED FLAG is
  * quoted back in full beneath that line where the guard stored its text
@@ -73,8 +73,6 @@ const REPORTED = new Map([
 		"malformed",
 		{ tag: "JEV-MALFORMED", label: "MALFORMED ", count: "malformed" },
 	],
-	/* The gateway refused the key (#4144): reported so a dead key cannot run
-	 * silent for days, and counted toward neither limb. */
 	["refused", { tag: "JEV-REFUSED", label: "REFUSED   ", count: "refused" }],
 ]);
 

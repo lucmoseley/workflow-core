@@ -58,9 +58,7 @@
  *     nothing announces it live, and such a machine contributes nothing to
  *     #175's trial.
  *   - A 401 or 403 from the gateway is `refused`, never `outage` (#4144):
- *     the key or the account is the fault, and five days of a dead key once
- *     read as 4,710 outages in 934 sessions. It counts toward neither limb,
- *     and `check-jev-flags.js` reports it on `npm run status`.
+ *     the key or the account is the fault. It counts toward neither limb.
  *   - `outage` cannot tell a timeout from an unreachable host from a real 500:
  *     the SDK SYNTHESISES a 500 for a refused connection and for an abort, so
  *     all three arrive alike, and all three mean the same thing to #175's second
@@ -147,8 +145,7 @@ const REFUSED_BUDGET = 1;
 /**
  * The statuses that mean THE GATEWAY REFUSED THE KEY OR THE ACCOUNT: 401 for
  * a key it does not know, 403 for one it will not serve, as at the billing
- * wall (#661). The SDK synthesises only a 500 for a failure of its own, so
- * either status is the gateway's real answer.
+ * wall (#661).
  */
 const REFUSED_STATUSES = new Set([401, 403]);
 
@@ -616,8 +613,6 @@ function isMalformedReply(e) {
 
 /**
  * Did the gateway refuse the key or the account, rather than fail to answer?
- * Read off the rejection's own status, which the SDK carries from the HTTP
- * reply (#4144).
  *
  * @param {unknown} e
  * @returns {boolean}
@@ -782,10 +777,7 @@ function failMalformed(e, { log, sessionId, latencyMs, retries }) {
 		say(MALFORMED_NOTICE);
 }
 
-/**
- * A refused key: logged, and noticed within its budget.
- * @param {FailCtx} ctx
- */
+/** @param {FailCtx} ctx */
 function failRefused({ log, sessionId, latencyMs, retries }) {
 	log({ outcome: "refused", latencyMs, retries });
 	if (

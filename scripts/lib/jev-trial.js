@@ -97,12 +97,8 @@ const OUTAGE_START_MS = Date.parse(OUTAGE_START);
  *   - THE BILLING WALL: every call 403'd because Jev was never in the free
  *     tier and no credits had been bought (#661).
  *   - THE DEAD KEY (#4144): the secrets file held a key the gateway refused
- *     with 401, logged as `outage` before `refused` existed. It opens the
- *     millisecond after the last answered call, 10:03:39.599Z: from there the
- *     log holds 4,710 outages in 934 sessions and no answer, at a median
- *     latency of ~690 ms either side of #3202's landing at 10:57:12Z, which is
- *     a refusal and not a hang. It closes at the first `clear` after the
- *     founder stored the real key.
+ *     with 401. It opens the millisecond after the last answered call and
+ *     closes at the first `clear` after the founder stored the real key.
  *
  * @type {{from: string, to: string, why: string}[]}
  */
@@ -273,8 +269,8 @@ function sessionsInTrial(lines) {
 /**
  * The sessions counted toward limb 2's denominator: those starting after
  * `OUTAGE_START`, judged on their lines outside the voids and other than
- * `refused` (#4144): a refused call is a check that never ran, so a session
- * whose only calls were refused is no evidence the vendor answered. Independent of `TRIAL_START` (#285) — limb 2 has a start
+ * `refused` (#4144), a refused call being a check that never ran.
+ * Independent of `TRIAL_START` (#285) — limb 2 has a start
  * line of its own (see header), so a session need not be in the trial at all
  * to be evidence for limb 2. Exported so `jev-verdict.js --list` marks a turn
  * by the same rule `stand()` counts it by, rather than re-deriving it.
