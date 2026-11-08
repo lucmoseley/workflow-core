@@ -52,7 +52,7 @@ const IDLE_TRIES = 2;
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   bar?: import("./block-cause.js").LimitBar, since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
- *   movePick?: Pick<import("./refill-blocks.js").MoveTarget, "seat"|"keyVar">|null,
+ *   movePick?: Pick<import("./refill-limits.js").MoveTarget, "seat"|"keyVar">|null,
  *   slotFree?: boolean,
  *   dryResumes?: number, heldAt?: number,
  *   lockout?: import("./block-cause.js").Lockout}} Block  `since`,

@@ -327,6 +327,16 @@ function unreadWorktrees(unreadable) {
 	return ` ${unreadable.length} registered worktree(s) git would not read went unjudged: ${unreadable.join(", ")}.`;
 }
 
+/**
+ * The ok line's note on job stores or records that would not read: a dirty
+ * worktree whose owner sits in one is not counted.
+ * @param {string[]} unread
+ */
+function unreadJobs(unread) {
+	if (unread.length === 0) return "";
+	return ` ${unread.length} job store(s) or record(s) would not read, so a dirty worktree's owner may be unknown and the stranded-worktree count short: ${unread.join("; ")}.`;
+}
+
 runCheck({
 	name: "stranded-file-claims",
 	usage: "node check-stranded-file-claims.js [--hours <n>] [--notify] [--json]",
@@ -409,11 +419,17 @@ runCheck({
 		 * matching and its region caveat belong to lib/stranded-count.js (mantahostels#1780).
 		 */
 		const dirty = readDirtyPaths();
-		const worktrees = attributeWorktreeDirt(dirtyTrees.found, { cwds, names });
+		const attributed = attributeWorktreeDirt(dirtyTrees.found, {
+			cwds,
+			names,
+		});
 		const dirt = dirtByTree(dirty, dirtyTrees.found);
 		const isDirty = (/** @type {Stranded} */ s) => isDirtyClaim(dirt, s);
 		const carrying = dirty ? stranded.filter(isDirty) : [];
-		const trees = classifyWorktrees(worktrees, ids, { hours, terminal });
+		const trees = classifyWorktrees(attributed.worktrees, ids, {
+			hours,
+			terminal,
+		});
 		const oldest = oldestHours(stranded);
 
 		const itemised = ctx.notify ? carrying : stranded;
@@ -438,7 +454,7 @@ runCheck({
 		sayClosingAdvice(ctx, { itemised, unreadable });
 
 		return {
-			okLine: `${okLineFor({ stranded, dirty, locks, hours })}${unreadWorktrees(dirtyTrees.unreadable)}`,
+			okLine: `${okLineFor({ stranded, dirty, locks, hours })}${unreadWorktrees(dirtyTrees.unreadable)}${unreadJobs(attributed.unread)}`,
 			noun: "possibly-stranded file claim(s) or worktree(s)",
 			data: {
 				stranded,

@@ -29,8 +29,8 @@ type Decision = { deny: string } | { injectRules: string[] } | null;
 const { decide } = require("./issue-phase-scope.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
-const { buildHostPorts } = require("./issue-phase-scope-host.js") as {
-	buildHostPorts: (root: string) => Record<string, unknown>;
+const { treePorts } = require("./guard-host-ports.js") as {
+	treePorts: (root: string) => object;
 };
 
 let dir: string;
@@ -76,8 +76,7 @@ const run = (command: string, ports: Record<string, unknown> = {}) =>
 			isDir: (p: string) =>
 				fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
 			log: (what: string) => faults.push(what),
-			...buildHostPorts(dir),
-			tree: () => ({ root: dir }),
+			tree: () => treePorts(dir),
 			...ports,
 		}),
 	);
@@ -436,7 +435,18 @@ describe("what it fails open on, and records", () => {
 			"allow",
 		);
 		expect(readFaults()).toEqual([
-			"docs/reference-roadmap.html would not read — issue creation for search-core allowed unchecked",
+			"docs/reference-roadmap.html is unreadable — issue creation allowed unchecked",
+		]);
+	});
+
+	it("allows and records a register that opens but will not read, never as 'no rows'", () => {
+		fs.rmSync(at("docs/called-cards.md"));
+		fs.mkdirSync(at("docs/called-cards.md"));
+		expect(verdict('gh issue create --title "search-core — a thing"')).toBe(
+			"allow",
+		);
+		expect(readFaults()).toEqual([
+			"docs/called-cards.md is unreadable — issue creation for search-core allowed unchecked",
 		]);
 	});
 
@@ -494,20 +504,20 @@ describe("what it fails open on, and records", () => {
 		expect(readFaults()).toEqual([]);
 	});
 
-	it("never asks for the roadmap on a gh api read, so a port that throws refuses none (#3426)", () => {
-		const readable = () => {
-			throw new Error("port down");
+	it("never asks for the roadmap on a gh api read, so a tree that will not resolve refuses none (#3426)", () => {
+		const tree = () => {
+			throw new Error("tree down");
 		};
 		// The REST creation still asks, so the dispatcher's fail-closed path
 		// still reaches it.
 		expect(() =>
 			run('gh api repos/o/r/issues -f title="search-core — a thing"', {
-				readable,
+				tree,
 			}),
-		).toThrow("port down");
-		expect(run("gh api repos/o/r/issues/5", { readable })).toBeNull();
+		).toThrow("tree down");
+		expect(run("gh api repos/o/r/issues/5", { tree })).toBeNull();
 		expect(
-			run('gh api graphql -f query="{viewer{login}}"', { readable }),
+			run('gh api graphql -f query="{viewer{login}}"', { tree }),
 		).toBeNull();
 		expect(readFaults()).toEqual([]);
 	});

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # post-commit — the after-commit notices and this session's own bookkeeping.
 #
-# Eight blocks, none of which can ever block: git ignores post-commit's exit
+# Nine blocks, none of which can ever block: git ignores post-commit's exit
 # status, and every block below degrades to silence rather than to an error.
 #
 #   1. how many local commits are not yet pushed  (mantahostels#316)
@@ -12,10 +12,11 @@
 #   6. recording this commit as this session's own  (#766)
 #   7. keeping the shims live sessions need at hook scripts the shared tree deleted  (#2879)
 #   8. which Review-Tier: line an amend dropped  (#4051)
+#   9. re-pointing a session worktree at the store for a commit's lockfile  (#4702)
 #
-# IMPLICIT:  prints the unpushed count after a commit that leaves any unpushed, what it released and what it kept after a session's commit, a fault notice after a commit that added one or whose comparison could not be read, a one-line note after a merge or a repo's first commit, a census notice after a commit that changed a guard the instruction-surface census measured, a registry notice after a commit that changed a guard whose guard-registry prose was anchored, a notice after an amend that dropped the amended commit's Review-Tier: line, drops this session's whole-file claim on every path the commit touched where all the session's own hunks have landed, records it in the session's commit ledger, and — where a shim exists or a script was deleted since the keeper's last run — writes an exit-0 shim at each hook script a live session's hook lines still name but the main checkout no longer has, and deletes each shim no live session needs.
-# JUSTIFIED: fail-safe — unpushed work and a self-inflicted red are otherwise invisible, and git ignores this hook's exit status; the release drops only a claim of this session's own, only where none of its own hunks is left uncommitted, and a dropped claim is retaken by this session's next write to the file; the record writes only the session's own commit, into its own records; an expired census row or registry anchor is otherwise named only by the daily run, to nobody holding the change; a session started before a port runs its old hook line until it ends, and a deleted script on a fail-closed line refuses every call that line matches.
-# DEFEAT:    no flag or env var for the five reporters; every block but the unpushed count, the shim keeper and the amend notice is skipped mid-replay or when scripts/lib/commit-route.sh is missing, and the release and the record by unsetting CLAUDE_CODE_SESSION_ID; the shim keeper takes no flag and is skipped when scripts/keep-hook-shims.js is missing.
+# IMPLICIT:  prints the unpushed count after a commit that leaves any unpushed, what it released and what it kept after a session's commit, a fault notice after a commit that added one or whose comparison could not be read, a one-line note after a merge or a repo's first commit, a census notice after a commit that changed a guard the instruction-surface census measured, a registry notice after a commit that changed a guard whose guard-registry prose was anchored, a notice after an amend that dropped the amended commit's Review-Tier: line, after a commit that changed package-lock.json, where node_modules links a dependency store the merged lockfile no longer keys re-points it at the store standing for that lockfile or names the attach command where none stands, drops this session's whole-file claim on every path the commit touched where all the session's own hunks have landed, records it in the session's commit ledger, and — where a shim exists or a script was deleted since the keeper's last run — writes an exit-0 shim at each hook script a live session's hook lines still name but the main checkout no longer has, and deletes each shim no live session needs.
+# JUSTIFIED: fail-safe — unpushed work and a self-inflicted red are otherwise invisible, and git ignores this hook's exit status; the release drops only a claim of this session's own, only where none of its own hunks is left uncommitted, and a dropped claim is retaken by this session's next write to the file; the record writes only the session's own commit, into its own records; an expired census row or registry anchor is otherwise named only by the daily run, to nobody holding the change; a session started before a port runs its old hook line until it ends, and a deleted script on a fail-closed line refuses every call that line matches; a worktree left on the old store runs every test and tsc against a tree built for another lockfile.
+# DEFEAT:    no flag or env var for the five reporters; every block but the unpushed count, the shim keeper and the amend notice is skipped mid-replay or when scripts/lib/commit-route.sh is missing, and the release and the record by unsetting CLAUDE_CODE_SESSION_ID; the shim keeper takes no flag and is skipped when scripts/keep-hook-shims.js is missing; the relink takes none and is skipped when scripts/lib/relink-store.sh or scripts/session-checkout.js is missing.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
@@ -330,3 +331,17 @@ report_dropped_review_tier() {
 }
 
 report_dropped_review_tier
+
+# Block 9 (#4702). A commit that changed the lockfile: a conflicted merge's
+# `git commit`, which never fires post-merge, a cherry-pick, a revert, or a
+# commit a rebase replays after its post-checkout linked the base's store.
+relink_changed_lockfile() {
+  git rev-parse -q --verify 'HEAD^' >/dev/null 2>&1 || return 0
+  ! git diff --quiet 'HEAD^' HEAD -- package-lock.json 2>/dev/null || return 0
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  # shellcheck source=scripts/lib/relink-store.sh
+  [ ! -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh" ] || . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh"
+  ! command -v wfc_relink_store >/dev/null 2>&1 || wfc_relink_store "$toplevel"
+}
+
+relink_changed_lockfile

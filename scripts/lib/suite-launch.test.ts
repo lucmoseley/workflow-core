@@ -6,7 +6,7 @@
  * by each guard taking its kind: a suite let past the cap or detached
  * unwatched, or a command that launches nothing refused.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PY_COLLECTED_TEST } from "./test-kind";
 
 const { parseCommand, walkCommands } = require("./shell-parse.js") as {
@@ -22,9 +22,12 @@ const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
 	literal: (w: string, spans: string[]) => { known: boolean; text: string };
 	unwrap: (words: string[], spans: string[]) => { words: string[] };
 };
-const { hasWrapperCall, isOtherRunner, suiteLaunchKind } =
+const { buildIsWrapperScript, isOtherRunner, suiteLaunchKind } =
 	require("./suite-launch.js") as {
-		hasWrapperCall: (body: string | null) => boolean;
+		buildIsWrapperScript: (
+			tree: () => { readText: (rel: string) => string | null },
+			log: (what: string) => void,
+		) => (script: string) => boolean;
 		isOtherRunner: (words: string[], runners: () => string[]) => boolean;
 		suiteLaunchKind: (
 			words: string[],
@@ -43,7 +46,10 @@ const scripts: Record<string, string> = {
 };
 const ports = {
 	runners: () => ["scripts/build-site.js"],
-	isWrapperScript: (s: string) => hasWrapperCall(scripts[s] ?? null),
+	isWrapperScript: buildIsWrapperScript(
+		() => ({ readText: () => JSON.stringify({ scripts }) }),
+		() => undefined,
+	),
 };
 
 /** `kind|script|taken` for each segment of the command, or `none`. */
@@ -177,5 +183,47 @@ describe("isOtherRunner's Python test globs", () => {
 		).toEqual(
 			Object.fromEntries(bases.map((b) => [b, PY_COLLECTED_TEST.test(b)])),
 		);
+	});
+});
+
+describe("buildIsWrapperScript (#4276)", () => {
+	const reader = (readText: (rel: string) => string | null) => {
+		const logs: string[] = [];
+		const tree = vi.fn(() => ({ readText }));
+		return { logs, tree, is: buildIsWrapperScript(tree, (w) => logs.push(w)) };
+	};
+
+	it("reads the npm script's body, resolving the tree once on the first ask", () => {
+		const r = reader(() => JSON.stringify({ scripts }));
+		expect(r.tree).not.toHaveBeenCalled();
+		expect(r.is("test")).toBe(false);
+		expect(r.is("test:changed")).toBe(true);
+		expect(r.tree).toHaveBeenCalledTimes(1);
+	});
+
+	it("answers yes, unlogged, where package.json is absent", () => {
+		const r = reader(() => null);
+		expect(r.is("test")).toBe(true);
+		expect(r.logs).toEqual([]);
+	});
+
+	it("answers yes, logged, where package.json will not read or parse", () => {
+		const unreadable = reader(() => {
+			throw new Error("EACCES");
+		});
+		const unparsed = reader(() => "{");
+		expect(unreadable.is("test")).toBe(true);
+		expect(unparsed.is("test")).toBe(true);
+		expect([...unreadable.logs, ...unparsed.logs]).toHaveLength(2);
+	});
+
+	it("lets a fault resolving the tree propagate, for the core to answer for", () => {
+		const is = buildIsWrapperScript(
+			() => {
+				throw new Error("tree down");
+			},
+			() => undefined,
+		);
+		expect(() => is("test")).toThrow("tree down");
 	});
 });

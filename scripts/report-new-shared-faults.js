@@ -44,6 +44,7 @@ const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 const { NOTICES } = require("./lib/shared-fault-notices.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /** Profile name -> the checker read over the archived `--root` trees: every
  * notice row but doc-map's, which readDocMapEnvelope reads instead. */
@@ -538,7 +539,7 @@ function noticeOf(sha, byProfile) {
 		out.push(`    In full, WARNs and context included: ${full}`);
 	}
 	out.push(
-		`  Re-read this notice after a later commit: node scripts/report-new-shared-faults.js ${sha}`,
+		`  Re-read this notice after a later commit: node ${scriptPath("report-new-shared-faults.js")} ${sha}`,
 	);
 	return { count, lines: out };
 }
@@ -629,8 +630,7 @@ function run(ref, cwd) {
 
 function main() {
 	const { positionals } = parseOrExit(process.argv.slice(2), {
-		usage:
-			"usage: node scripts/report-new-shared-faults.js [<sha>]   (default HEAD)",
+		usage: `usage: node ${scriptPath("report-new-shared-faults.js")} [<sha>]   (default HEAD)`,
 		max: 1,
 	});
 	const ref = positionals[0] || "HEAD";

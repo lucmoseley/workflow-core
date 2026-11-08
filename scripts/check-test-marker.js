@@ -40,10 +40,11 @@ const { parsePushes } = require("./lib/push-refs.js");
 const { pushGateState } = require("./lib/test-gate.js");
 const { readTopLevel } = require("./lib/git-tree.js");
 const { caught } = require("./lib/caught.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 runCheck({
 	name: "test-marker",
-	usage: "printf '%s\\n' \"$refs\" | node scripts/check-test-marker.js",
+	usage: `printf '%s\\n' "$refs" | node ${scriptPath("check-test-marker.js")}`,
 	run(ctx) {
 		let stdin = "";
 		try {

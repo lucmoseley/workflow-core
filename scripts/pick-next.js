@@ -107,7 +107,7 @@ const {
 const { listedSessionIds } = require("./lib/agent-liveness");
 const { readJobs } = require("./lib/hung-jobs");
 const { buildOverloadText } = require("./lib/cpu-sample");
-const { takesLabel } = require("./lib/takes-label");
+const { loneCommandOf, takesLabel } = require("./lib/takes-label");
 const arbiter = require("./lib/arbiter-store");
 const writeSetCache = require("./lib/write-set-cache");
 const writeSetPredict = require("./lib/write-set-predict");
@@ -130,7 +130,10 @@ const {
 	readHostTracker,
 } = require("./lib/refill-repos");
 const { readState } = require("./lib/refill-state.js");
-const { unclosedLaunchOf } = require("./lib/unclosed-launch.js");
+const {
+	buildRowPrompt,
+	unclosedLaunchOf,
+} = require("./lib/unclosed-launch.js");
 const { writeFd } = require("./lib/write-fd.js");
 const conflictGraph = require("./lib/conflict-graph");
 const strandedCount = require("./lib/stranded-count");
@@ -664,7 +667,7 @@ function strandedClaimCount(listed) {
 		dirty: strandedCount.readDirtyPaths(),
 		terminal: listed.terminal,
 		found,
-		worktrees: strandedCount.attributeWorktreeDirt(found, listed),
+		attributed: strandedCount.attributeWorktreeDirt(found, listed),
 	});
 }
 
@@ -929,13 +932,13 @@ function frontierJson(i) {
 
 /**
  * Each frontier row with `unclosedLaunch`: its latest loop launch where that
- * committed and did not close (#3782), else null; the loop's next launch of it
- * checks first whether the work landed. A damaged loop state reads as none, and
- * says so on stderr.
- * @template {{number: number}} R
+ * committed and did not close (#3782), else null; and `prompt`: what a lone
+ * launch of it types, the loop's own (#4351), null where its `takes:` names
+ * no one command. A damaged loop state reads as none, and says so on stderr.
+ * @template {{number: number, takes: string[]}} R
  * @param {R[]} rows
  */
-function withUnclosedLaunch(rows) {
+function withLaunchPrompt(rows) {
 	const { launches } = readState((line) => writeFd(2, `pick-next: ${line}\n`));
 	const root = arbiter.paths.repoRoot();
 	return rows.map((row) => {
@@ -947,6 +950,10 @@ function withUnclosedLaunch(rows) {
 				sessionId: l.sessionId ?? null,
 				acts: l.acts,
 			},
+			prompt:
+				loneCommandOf(row.takes) === null
+					? null
+					: buildRowPrompt({ ...row, root }, launches),
 		};
 	});
 }
@@ -1022,9 +1029,16 @@ function buildPayload(state) {
 		dumped,
 		tracked,
 	} = state;
+	const frontierRows = withLaunchPrompt(pathed.map(frontierJson));
 	return {
 		generatedAt: new Date().toISOString(),
-		summary,
+		summary: {
+			...summary,
+			proposed: summary.proposed.map((/** @type {{number: number}} */ p) => ({
+				...p,
+				prompt: frontierRows.find((f) => f.number === p.number)?.prompt ?? null,
+			})),
+		},
 		/*
 		 * PROVENANCE, because one file holds whatever ran last. A `--repo` run
 		 * reports another tracker and a `--no-log` one dispatched nothing; both
@@ -1069,7 +1083,7 @@ function buildPayload(state) {
 		})),
 		waiting: waitingAll.map(waitingJson),
 		parked: parkedAll.map(parkedJson),
-		frontier: withUnclosedLaunch(pathed.map(frontierJson)),
+		frontier: frontierRows,
 		// Launch candidates in other repos, for lib/refill-frontier.js (#2427).
 		pulledIn: state.pulledIn.rows,
 		pulledInUnread: state.pulledIn.unread,
@@ -1306,7 +1320,7 @@ function renderOwedWork(state) {
 		1,
 		`  stranded claims    ${
 			stranded.ok
-				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work; ${stranded.strandedWorktrees} finished session worktree(s) carrying it`
+				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work; ${stranded.strandedWorktrees ?? "unknown how many (a job store would not read)"} finished session worktree(s) carrying it`
 				: `unknown (${stranded.error})`
 		}  — node ${scriptPath("check-stranded-file-claims.js")}\n`,
 	);
@@ -2198,7 +2212,7 @@ function renderRunSummary(state) {
 		`  ${pad("owed work", 19)}${
 			summary.strandedClaims === null
 				? "unknown stranded claims"
-				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees} stranded worktrees`
+				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees ?? "unknown"} stranded worktrees`
 		}\n`,
 	);
 	printSummaryFlags(summary);

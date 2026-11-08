@@ -13,10 +13,14 @@
  * some other issue reads as having closed this one, and is not caught.
  *
  * Callers: lib/refill-decide.js (the launch prompt), lib/refill-loop.js (what a
- * tick's state keeps), pick-next.js and check-unclosed-launches.js (the report).
+ * tick's state keeps), pick-next.js (the launch prompt, #4351, and the report)
+ * and check-unclosed-launches.js (the report).
  */
 
-const IMPLEMENT_PREFIX = "/implement ";
+const { takesValue } = require("./takes-label.js");
+
+const IMPLEMENT = takesValue("implement");
+const IMPLEMENT_PREFIX = `/${IMPLEMENT} `;
 
 /**
  * @typedef {object} UnclosedRecord
@@ -72,6 +76,23 @@ function unclosedLaunchOf(launches, root, n) {
  * @param {number} n
  */
 const buildVerifyPrompt = (n) =>
-	`/implement ${n} — its last loop launch committed and ended without closing it. Before building anything, find that work (git log --all --grep=#${n}) and read it against the acceptance criteria. Finished: close with that evidence. Not finished: say on the ticket what remains, then build only that.`;
+	`${IMPLEMENT_PREFIX}${n} — its last loop launch committed and ended without closing it. Before building anything, find that work (git log --all --grep=#${n}) and read it against the acceptance criteria. Finished: close with that evidence. Not finished: say on the ticket what remains, then build only that.`;
 
-module.exports = { buildVerifyPrompt, unclosedLaunchOf, unclosedLaunches };
+/**
+ * The prompt a lone row launches on, the loop's and a manual /pick-next's
+ * alike (#4351): its one `takes:` command, checking first whether the work
+ * landed where an `/implement` launch committed and did not close (#3782).
+ * @param {{root: string, number: number, takes: string[]}} row
+ * @param {UnclosedRecord[]} launches in launch order
+ */
+const buildRowPrompt = (row, launches) =>
+	row.takes[0] === IMPLEMENT && unclosedLaunchOf(launches, row.root, row.number)
+		? buildVerifyPrompt(row.number)
+		: `/${row.takes[0]} ${row.number}`;
+
+module.exports = {
+	buildRowPrompt,
+	buildVerifyPrompt,
+	unclosedLaunchOf,
+	unclosedLaunches,
+};

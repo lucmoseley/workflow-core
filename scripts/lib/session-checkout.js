@@ -27,6 +27,14 @@
  * into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
+ * RELINK re-points a worktree whose lockfile a merge, pull or checkout
+ * changed at the store standing for the new one, building none (#4702);
+ * `.husky/post-merge`, `post-checkout` and, on a commit changing the lockfile,
+ * `post-commit` run it, through lib/relink-store.sh. Nothing relinks after a
+ * `git reset`, `stash` or `restore` run by hand: `relink` or `attach` does. A merge's `pre-merge-commit` gates run before it, on the
+ * store linked before the merge: the lander's install keys on the merged
+ * lockfile, and its full suite is what moves `main`.
+ *
  * WARM builds the store for a freshly fetched `origin/main`'s lockfile
  * where none stands, so a cut needs no build of its own (#4318). The refill
  * tick runs it, detached, ahead of its launches, and its dispatcher cuts with
@@ -466,6 +474,49 @@ function attach(cwd, { noBuild = false } = {}) {
 	fs.symlinkSync(path.join(made.store, "node_modules"), tmp, "dir");
 	fs.renameSync(tmp, link);
 	return { dir, store: made.store, built: made.state === "built" };
+}
+
+/**
+ * The store a session worktree's `node_modules` links, or null where it links none.
+ * @param {string} dir
+ * @param {string} storesDir
+ * @returns {string | null}
+ */
+function readLinkedStore(dir, storesDir) {
+	let target;
+	try {
+		target = fs.readlinkSync(path.join(dir, "node_modules"));
+	} catch (err) {
+		/* ENOENT: never attached; EINVAL: a real directory, as the lander's. */
+		if (["ENOENT", "EINVAL"].includes(String(caught(err).code))) return null;
+		throw err;
+	}
+	const store = path.dirname(path.resolve(dir, target));
+	return path.dirname(store) === storesDir ? store : null;
+}
+
+/**
+ * Re-point a worktree whose `node_modules` links a store at the one standing
+ * for the lockfile it now carries (#4702). Builds none, as git hooks run it within
+ * HOOK_LIMIT_MS and a build takes up to INSTALL_TIMEOUT_MS, so a missing store
+ * refuses naming `attach`, which builds it.
+ * @param {string} cwd anywhere in the worktree
+ * @returns {{ dir: string, store: string | null }} the store newly linked, or
+ *   null where the worktree links no store or its link still matches
+ */
+function relink(cwd) {
+	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
+	const storesDir = path.join(rootOf(dir), STORES);
+	const linked = readLinkedStore(dir, storesDir);
+	const lockfile = buildWorktreeSource(dir)(LOCKFILE);
+	if (linked === null || lockfile === null) return { dir, store: null };
+	const key = storeKeyOf(lockfile);
+	if (path.basename(linked) === key) return { dir, store: null };
+	if (!fs.existsSync(path.join(storesDir, key, "node_modules")))
+		throw new CheckoutError(
+			`${dir}'s lockfile changed, and no dependency store stands for it yet (${key}), so its node_modules still links the store built for the old one (${path.basename(linked)}) — run \`node ${scriptPath("session-checkout.js")} attach\` to build that store, up to ${INSTALL_TIMEOUT_MS / 60_000} min`,
+		);
+	return { dir, store: attach(dir, { noBuild: true }).store };
 }
 
 /**
@@ -1042,15 +1093,14 @@ function readWorktreesOrThrow(root) {
 }
 
 /**
- * The session worktrees in `base`, judged by REAP's rules.
- * @param {string} root
- * @param {Pass} pass
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
- * @returns {string[]} every registered worktree still standing
+ * Every job, each cwd a pass leaves its worktree standing for — a live
+ * process's, or a job's not ended or ended under KEEP_MS ago — and each job
+ * store or record that would not read, as readJobCwds names it.
+ * @param {string[]} cwds every live process's cwd
+ * @param {number} now
  */
-function reapWorktrees(root, { cwds, now, record, common }, out) {
-	const registered = readWorktreesOrThrow(root);
-	const jobs = readJobCwds();
+function readOccupied(cwds, now) {
+	const { jobs, unread } = readJobCwds();
 	const occupied = [
 		...cwds,
 		...jobs
@@ -1063,6 +1113,34 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 			)
 			.map((j) => j.cwd),
 	];
+	return { jobs, occupied, unread };
+}
+
+/**
+ * Whether the pass removes no worktree: an unread job store or record may
+ * hold a resumable job in any of them (#4704).
+ * @param {string[]} unread readJobCwds' `unread`
+ * @param {Reaped} out accumulator: each unread path is pushed onto `failed`
+ */
+function holdForUnread(unread, out) {
+	for (const u of unread)
+		out.failed.push(
+			`${u} — a job it holds may be resumable, so no worktree is removed until it reads`,
+		);
+	return unread.length > 0;
+}
+
+/**
+ * The session worktrees in `base`, judged by REAP's rules.
+ * @param {string} root
+ * @param {Pass} pass
+ * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
+ * @returns {string[]} every registered worktree still standing
+ */
+function reapWorktrees(root, { cwds, now, record, common }, out) {
+	const registered = readWorktreesOrThrow(root);
+	const { jobs, occupied, unread } = readOccupied(cwds, now);
+	const held = holdForUnread(unread, out);
 	const live = readLiveOrLog("session-checkout reap");
 	/** @type {string[]} */
 	const standing = [];
@@ -1099,15 +1177,11 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 				standing.push(dir);
 				continue;
 			}
-			recordReaped(
-				{ record, now },
-				dir,
-				jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
-			);
-			const link = path.join(dir, "node_modules");
-			if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
-				fs.unlinkSync(link);
-			git(["worktree", "remove", dir], root);
+			if (held) {
+				standing.push(dir);
+				continue;
+			}
+			removeWorktree(root, dir, { record, now }, jobs);
 			out.removed.push(dir);
 		} catch (err) {
 			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
@@ -1115,6 +1189,26 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 		}
 	}
 	return standing;
+}
+
+/**
+ * Remove `dir` and its store link, first recording each job whose cwd lies in
+ * it, so `reopen` can rebuild it.
+ * @param {string} root
+ * @param {string} dir
+ * @param {Pick<Pass, "record" | "now">} pass
+ * @param {import("./session-worktrees.js").JobCwd[]} jobs
+ */
+function removeWorktree(root, dir, pass, jobs) {
+	recordReaped(
+		pass,
+		dir,
+		jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
+	);
+	const link = path.join(dir, "node_modules");
+	if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
+		fs.unlinkSync(link);
+	git(["worktree", "remove", dir], root);
 }
 
 /**
@@ -1377,7 +1471,8 @@ function reopen(cwd, id) {
 	const root = rootOf(cwd);
 	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
 	const reaped = readReaped(path.join(common, REAPED_RECORD), id);
-	const job = readJobCwds()
+	const { jobs, unread } = readJobCwds();
+	const job = jobs
 		.filter((j) => j.id === id)
 		.sort((a, b) => b.at - a.at)
 		.at(0);
@@ -1387,7 +1482,9 @@ function reopen(cwd, id) {
 	else if (job) found = { seat: job.seat, dir: job.cwd };
 	if (found === null)
 		throw new CheckoutError(
-			`no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
+			unread.length > 0
+				? `no readable seat holds job ${id} and the reaper recorded no worktree for it, but these would not read: ${unread.join("; ")} — fix their access and retry`
+				: `no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
 		);
 	const { seat, dir } = found;
 	if (fs.existsSync(dir)) return { dir, seat, restored: false };
@@ -1409,6 +1506,7 @@ module.exports = {
 	land,
 	launchDir,
 	reap,
+	relink,
 	reopen,
 	STORES,
 	warm,

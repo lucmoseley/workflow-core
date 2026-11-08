@@ -18,8 +18,13 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
+const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
-const { jobStorePath, readJobRecordIn } = require("./job-paths.js");
+const {
+	isAbsentFault,
+	jobStorePath,
+	readJobRecordAt,
+} = require("./job-paths.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 
 /**
@@ -35,7 +40,7 @@ const { isUnder, relativeUnder } = require("./is-under.js");
 /**
  * A job record's id, seat, cwd, session, name and state; null where it names
  * no cwd or session.
- * @param {ReturnType<typeof readJobRecordIn>} job
+ * @param {any} job a job record
  * @param {string} id the job's directory name
  * @param {string} seat the config dir holding it
  * @returns {JobCwd | null}
@@ -56,26 +61,42 @@ function jobCwdOf(job, id, seat) {
 
 /**
  * The id, seat, cwd, session, name and state of every job record on every
- * seat.
- * @returns {JobCwd[]}
+ * seat, and each job store or record that would not read. An absent store
+ * holds no job; one that faults otherwise, EACCES among them, may hold a
+ * resumable one.
+ * @returns {{jobs: JobCwd[], unread: string[]}} `unread` as `<path>: <fault>`
  */
 function readJobCwds() {
 	/** @type {JobCwd[]} */
-	const out = [];
-	for (const seat of configDirs()) {
-		const store = jobStorePath(seat);
-		let ids;
-		try {
-			ids = fs.readdirSync(store);
-		} catch {
-			continue;
-		}
-		for (const id of ids) {
-			const job = jobCwdOf(readJobRecordIn(path.join(store, id)), id, seat);
-			if (job) out.push(job);
-		}
+	const jobs = [];
+	/** @type {string[]} */
+	const unread = [];
+	for (const seat of configDirs()) readSeatJobs(seat, jobs, unread);
+	return { jobs, unread };
+}
+
+/**
+ * @param {string} seat
+ * @param {JobCwd[]} jobs accumulator: each job read is pushed here
+ * @param {string[]} unread accumulator: each store or record that would not
+ *   read is pushed here
+ */
+function readSeatJobs(seat, jobs, unread) {
+	const store = jobStorePath(seat);
+	let ids;
+	try {
+		ids = fs.readdirSync(store);
+	} catch (err) {
+		if (!isAbsentFault(err)) unread.push(`${store}: ${caught(err).message}`);
+		return;
 	}
-	return out;
+	for (const id of ids) {
+		const dir = path.join(store, id);
+		const r = readJobRecordAt(dir);
+		if (r.state === "unreadable") unread.push(`${dir}: ${r.message}`);
+		const job = r.state === "read" ? jobCwdOf(r.data, id, seat) : null;
+		if (job) jobs.push(job);
+	}
 }
 
 /**
@@ -116,17 +137,19 @@ function listedOwners(worktrees, listed) {
 }
 
 /**
- * Each worktree's owner, for those any recorded cwd lies in.
+ * Each worktree's owner, for those any recorded cwd lies in, and readJobCwds'
+ * `unread`: a worktree with no owner may belong to a job in one of those.
  * @param {string[]} worktrees dereferenced, as worktree-paths.js's readLinkedWorktrees gives them
  * @param {ListedCwds} [listed] the oracle read, whose sessions win over job
  *   records
- * @returns {Map<string, Owner>}
+ * @returns {{owners: Map<string, Owner>, unread: string[]}}
  */
 function worktreeOwners(worktrees, listed) {
 	const owners = listedOwners(worktrees, listed);
+	const { jobs, unread } = readJobCwds();
 	/** @type {Map<string, JobCwd>} */
 	const latest = new Map();
-	for (const job of readJobCwds()) {
+	for (const job of jobs) {
 		const wt = worktreeHolding(job.cwd, worktrees);
 		if (!wt || owners.has(wt)) continue;
 		const seen = latest.get(wt);
@@ -134,7 +157,7 @@ function worktreeOwners(worktrees, listed) {
 	}
 	for (const [wt, { sessionId, name }] of latest)
 		owners.set(wt, { sessionId, name });
-	return owners;
+	return { owners, unread };
 }
 
 /**

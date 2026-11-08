@@ -31,6 +31,7 @@ const HOOKS = [
 	".husky/commit-msg",
 	".husky/post-commit",
 	".husky/post-merge",
+	".husky/post-checkout",
 	".husky/pre-push",
 ];
 /* Untraced: far past the 1 s limit plus run-budgeted.js's 10 s KILL grace, so
