@@ -56,22 +56,6 @@ const urlSource = (ref: string) => ({
 	ref,
 });
 
-/** HEAD re-dated `hours` back, so its pin landed that long ago. */
-const ageHead = (hours: number) => {
-	const date = `${Math.floor(Date.now() / 1000 - hours * 3600)} +0000`;
-	execFileSync(
-		"git",
-		["commit", "-q", "--amend", "--no-edit", "--date", date],
-		{
-			cwd: repo,
-			env: { ...process.env, GIT_COMMITTER_DATE: date },
-		},
-	);
-};
-
-/** Past the checker's 24h PENDING_CUT_HOURS, so an absent tag is a fault. */
-const OVERDUE_HOURS = 25;
-
 /** Applied on top of the environment every `check` call runs under. */
 let envOverride: Record<string, string> = {};
 
@@ -175,7 +159,6 @@ describe("check-release-pin", () => {
 	});
 
 	it("fails TAG-UNCUT when the tag exists nowhere, and names the release command", () => {
-		ageHead(OVERDUE_HOURS);
 		const r = check();
 		expect(r.status).toBe(1);
 		expect(r.tags()).toEqual(["TAG-UNCUT"]);
@@ -185,7 +168,6 @@ describe("check-release-pin", () => {
 	/* #264: a runner's local tags are populated FROM the remote it just fetched,
 	 * so `hasLocalTag` can never separate cut-not-pushed from never-cut there. */
 	it("fails TAG-UNRESOLVED, not TAG-UNPUSHED, under GITHUB_ACTIONS even when the tag exists locally, naming both ways out: the push and release-plugin.js", () => {
-		ageHead(OVERDUE_HOURS);
 		git(repo, "tag", "v1.2.3");
 		envOverride = { GITHUB_ACTIONS: "true" };
 		const r = check();
@@ -196,7 +178,6 @@ describe("check-release-pin", () => {
 	});
 
 	it("fails TAG-UNRESOLVED, not TAG-UNCUT, under GITHUB_ACTIONS when the tag exists nowhere, naming both ways out: the push and release-plugin.js", () => {
-		ageHead(OVERDUE_HOURS);
 		envOverride = { GITHUB_ACTIONS: "true" };
 		const r = check();
 		expect(r.status).toBe(1);
@@ -205,73 +186,116 @@ describe("check-release-pin", () => {
 		expect(r.out).toContain("release-plugin.js");
 	});
 
-	/* #4675: release-plugin.js cuts only from a commit main holds, so every
-	 * bump lands before its tag exists. The sweep reads that span as pending. */
-	describe("a landed bump whose tag is not yet cut", () => {
-		const bump = () => {
-			git(repo, "tag", "v1.2.2", "HEAD");
-			git(repo, "push", "-q", "origin", "v1.2.2");
+	describe("#4675: a bump whose tag is not yet cut, on the sweep", () => {
+		/* The checker's clock, pinned so the 24h deadline never rides the wall
+		 * clock on either side. */
+		const Now = Date.parse("2026-11-08T12:00:00Z");
+
+		/** Commits the tree as `msg`, dated `hours` before NOW. */
+		const commitAt = (msg: string, hours: number) => {
+			const date = `${Math.floor(Now / 1000 - hours * 3600)} +0000`;
+			execFileSync("git", ["commit", "-qam", msg, "--date", date], {
+				cwd: repo,
+				env: { ...process.env, GIT_COMMITTER_DATE: date },
+			});
+		};
+
+		const bump = (hours: number) => {
 			writePlugin("1.2.3");
 			writeMarketplace(urlSource("v1.2.3"));
+			commitAt("bump", hours);
 		};
 
 		beforeEach(() => {
 			writePlugin("1.2.2");
 			writeMarketplace(urlSource("v1.2.2"));
-			git(repo, "commit", "-qam", "release 1.2.2");
-			envOverride = { GITHUB_ACTIONS: "true" };
+			commitAt("release 1.2.2", 100);
+			git(repo, "tag", "v1.2.2");
+			git(repo, "push", "-q", "origin", "v1.2.2");
+			envOverride = {
+				GITHUB_ACTIONS: "true",
+				WFC_NOW: new Date(Now).toISOString(),
+			};
 		});
 
-		it("skips as pending under --require-remote, naming the cut and when it falls due", () => {
-			bump();
-			git(repo, "commit", "-qam", "bump");
+		it("skips as pending, naming when the cut falls due and both ways out", () => {
+			bump(1);
 			const r = check("--require-remote");
 			expect(r.status).toBe(0);
 			expect(r.out).toContain("v1.2.3 is a bump whose release is pending");
-			expect(r.out).toContain("due within 24h");
-			expect(r.out).toContain("node scripts/release-plugin.js --push");
+			expect(r.out).toContain("falls due within 23h");
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).toContain("release-plugin.js");
 		});
 
-		it("fails TAG-UNRESOLVED once the bump landed more than 24h ago", () => {
-			bump();
-			git(repo, "commit", "-qam", "bump");
-			ageHead(OVERDUE_HOURS);
+		it("fails TAG-UNRESOLVED once the bump was committed 24h ago or more", () => {
+			bump(24);
 			const r = check("--require-remote");
 			expect(r.status).toBe(1);
 			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+			expect(r.out).not.toContain("pending");
 		});
 
-		it("dates the bump from the merge that landed it, not the bump commit", () => {
-			git(repo, "checkout", "-qb", "queue");
-			bump();
-			git(repo, "commit", "-qam", "bump");
-			ageHead(OVERDUE_HOURS);
-			git(repo, "checkout", "-q", "main");
-			git(repo, "merge", "-q", "--no-ff", "-m", "land", "queue");
+		/* Git records no landing time: the lander fast-forwards main onto queue
+		 * tips, so a later commit over the bump restarts nothing. */
+		it("dates the bump from its own commit, not a later commit over it", () => {
+			bump(25);
+			fs.writeFileSync(path.join(repo, "later.txt"), "x");
+			git(repo, "add", "later.txt");
+			commitAt("later", 1);
 			const r = check("--require-remote");
-			expect(r.status).toBe(0);
-			expect(r.out).toContain("pending");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
 		});
 
 		it("fails TAG-UNRESOLVED on a fresh pin that is not ahead of the newest cut tag", () => {
-			git(repo, "tag", "v1.3.0", "HEAD");
+			git(repo, "tag", "v1.3.0");
 			git(repo, "push", "-q", "origin", "v1.3.0");
-			writePlugin("1.2.3");
-			writeMarketplace(urlSource("v1.2.3"));
-			git(repo, "commit", "-qam", "downgrade");
+			bump(1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
+			expect(r.out).not.toContain("pending");
+		});
+
+		/* A shallow clone's grafted root matches any line, so its date says
+		 * nothing about the bump. */
+		it("fails TAG-UNRESOLVED in a shallow clone, which cannot date the bump", () => {
+			bump(1);
+			const shallow = path.join(dir, "shallow");
+			git(dir, "clone", "-q", "--depth", "1", `file://${repo}`, shallow);
+			repo = shallow;
 			const r = check("--require-remote");
 			expect(r.status).toBe(1);
 			expect(r.tags()).toEqual(["TAG-UNRESOLVED"]);
 		});
 
-		it("fails TAG-UNPUSHED at once where the tag was cut here, local tags being trustworthy", () => {
-			envOverride = {};
-			bump();
-			git(repo, "commit", "-qam", "bump");
+		it("names the push-and-cut command where local tags are trustworthy", () => {
+			envOverride = { WFC_NOW: new Date(Now).toISOString() };
+			bump(1);
+			const r = check("--require-remote");
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("node scripts/release-plugin.js --push");
+		});
+
+		it("fails TAG-UNPUSHED at once where the tag was cut here, naming the push", () => {
+			envOverride = { WFC_NOW: new Date(Now).toISOString() };
+			bump(1);
 			git(repo, "tag", "v1.2.3");
-			const r = check();
+			const r = check("--require-remote");
 			expect(r.status).toBe(1);
 			expect(r.tags()).toEqual(["TAG-UNPUSHED"]);
+			expect(r.out).toContain("git push origin v1.2.3");
+		});
+
+		it("fails TAG-UNCUT at once on a local run, which can cut", () => {
+			envOverride = { WFC_NOW: new Date(Now).toISOString() };
+			bump(1);
+			const r = check();
+			expect(r.status).toBe(1);
+			expect(r.tags()).toEqual(["TAG-UNCUT"]);
+			expect(r.out).toContain("release-plugin.js");
 		});
 	});
 
@@ -362,7 +386,6 @@ describe("check-release-pin", () => {
 	 * gating. The pre-commit stack is not this checker's home, but `npm run
 	 * status` and a hand run both reach the flag. */
 	it("--warn reports the fault without gating", () => {
-		ageHead(OVERDUE_HOURS);
 		const r = check("--warn");
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("never cut");

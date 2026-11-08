@@ -40,10 +40,11 @@
  * ~12 hours — the cron asks for four a day and GitHub delivers late
  * and drops slots (mantahostels#2228), so 6h is the ask, not the lag.
  *
- * A FRESH BUMP IS PENDING, NOT A FAULT (#4675). Every bump lands before its
- * tag can exist, so a pin ahead of every remote tag, set by a commit that
- * landed under PENDING_CUT_HOURS ago, is a SKIP naming when it falls due. A
- * tag cut here and never pushed is no pending cut and fails at once.
+ * ON THE SWEEP, A FRESH BUMP IS PENDING, NOT A FAULT (#4675). Every bump
+ * lands before its tag can exist, so under --require-remote a pin ahead of
+ * every remote tag, committed under PENDING_CUT_HOURS ago, is a SKIP naming
+ * when it falls due. A local run, and a tag cut here and never pushed, still
+ * fail at once.
  *
  * AN UNREACHABLE REMOTE GATES UNDER --require-remote, AND ONLY THERE (#263),
  * against lib/check.js's alphabet. The sweep step passes it and nothing else
@@ -60,7 +61,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { runCheck } = require("./lib/check");
+const { now, runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { caught } = require("./lib/caught.js");
 const { compareVersions } = require("./lib/compare-versions.js");
@@ -113,9 +114,10 @@ function semverParts(v) {
  * nothing here has been profiled. */
 const LS_REMOTE_TIMEOUT_MS = 15_000;
 
-/* How long a landed bump may pin a tag the remote lacks before that reads as
- * a fault (#4675): two delivered sweep intervals of ~12h (mantahostels#2228),
- * so a cut made by the next working session never reads red. A first guess. */
+/* How long after its commit a bump may pin a tag the remote lacks before the
+ * sweep reads it as a fault (#4675): two delivered sweep intervals of ~12h
+ * (mantahostels#2228), so a cut made by the next working session never reads
+ * red. A first guess. */
 const PENDING_CUT_HOURS = 24;
 
 /**
@@ -235,43 +237,17 @@ function readRequiredRemote(ctx, root, name, source) {
 }
 
 /**
- * Whether `remote` publishes `tag`, or the reason the question could not be
- * put — which the caller turns into a SKIP, the remote being the subject.
+ * Every `v<semver>` tag `remote` publishes, or the reason the question could
+ * not be put — which the caller turns into a SKIP, the remote being the
+ * subject. One listing answers both whether the pinned tag is published and
+ * which tag is newest.
  *
  * @param {Ctx} ctx
  * @param {string} root
  * @param {string} remote a remote name or a URL, as git itself accepts either
- * @param {string} tag
- * @returns {{ present: boolean } | { unreachable: string }}
+ * @returns {{ tags: string[] } | { unreachable: string }}
  */
-function tagOnRemote(ctx, root, remote, tag) {
-	try {
-		const out = git(root, ["ls-remote", "--tags", remote, `refs/tags/${tag}`], {
-			timeout: LS_REMOTE_TIMEOUT_MS,
-			/* Never sit on a credential prompt: this runs unattended inside
-			 * `npm run status`, where a prompt is indistinguishable from a hang. */
-			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-		});
-		return { present: out.trim() !== "" };
-	} catch (e) {
-		if (isApparatusFailure(e))
-			ctx.broken(`cannot run git to reach ${remote} — ${parseGitReason(e)}`);
-		return { unreachable: parseGitReason(e) };
-	}
-}
-
-/**
- * The highest `v<semver>` tag `remote` publishes, or the reason the question
- * could not be put — which the caller turns into a SKIP, the remote being the
- * subject. `null` where the remote is reachable but has cut no release tag
- * yet, which is not itself a fault.
- *
- * @param {Ctx} ctx
- * @param {string} root
- * @param {string} remote a remote name or a URL, as git itself accepts either
- * @returns {{ tag: string|null } | { unreachable: string }}
- */
-function readNewestCutTagOnRemote(ctx, root, remote) {
+function readCutTagsOnRemote(ctx, root, remote) {
 	try {
 		const out = git(root, ["ls-remote", "--tags", remote, "refs/tags/v*"], {
 			timeout: LS_REMOTE_TIMEOUT_MS,
@@ -288,19 +264,25 @@ function readNewestCutTagOnRemote(ctx, root, remote) {
 			// Excludes an annotated tag's dereferenced `^{}` line along with anything
 			// else ls-remote's glob let through that is not a release tag.
 			.filter((t) => TAG_RE.test(t));
-		if (tags.length === 0) return { tag: null };
-		return {
-			tag:
-				tags
-					.sort((a, b) => (semverGt(tagVersion(a), tagVersion(b)) ? 1 : -1))
-					.at(-1) ?? null,
-		};
+		return { tags };
 	} catch (e) {
 		if (isApparatusFailure(e))
 			ctx.broken(`cannot run git to reach ${remote} — ${parseGitReason(e)}`);
 		return { unreachable: parseGitReason(e) };
 	}
 }
+
+/**
+ * The highest of `tags`, or `null` where the remote has cut no release tag
+ * yet, which is not itself a fault.
+ *
+ * @param {string[]} tags
+ * @returns {string|null}
+ */
+const newestTag = (tags) =>
+	tags
+		.toSorted((a, b) => (semverGt(tagVersion(a), tagVersion(b)) ? 1 : -1))
+		.at(-1) ?? null;
 
 /**
  * An unreachable remote, reported as the CALLER asked for it.
@@ -482,16 +464,17 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 
 	const remote = readRequiredRemote(ctx, root, name, source);
 
-	const newest = readNewestCutTagOnRemote(ctx, root, remote);
-	if ("unreachable" in newest) {
-		return remoteUnreachable(ctx, remote, newest.unreachable, {
+	const cut = readCutTagsOnRemote(ctx, root, remote);
+	if ("unreachable" in cut) {
+		return remoteUnreachable(ctx, remote, cut.unreachable, {
 			skipLines:
 				`${name} is pinned to \`${ref}\`, which is not a release tag, and ${remote}\n` +
-				`      could not be reached to find the newest cut tag against — ${newest.unreachable}.`,
+				`      could not be reached to find the newest cut tag against — ${cut.unreachable}.`,
 			failLine: `${remote} could not be reached to find the newest cut tag ${name}'s \`${ref}\` pin should be judged against`,
 		});
 	}
 
+	const newest = { tag: newestTag(cut.tags) };
 	if (newest.tag !== null && semverGt(version, tagVersion(newest.tag))) {
 		ctx.fail(
 			"VERSION-AHEAD",
@@ -524,22 +507,23 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 }
 
 /**
- * When the commit that set `ref` reached HEAD's first-parent line, in epoch
- * seconds: the lander's batch merge for a landed bump. `null` where history
- * holds no such commit — a shallow clone or an uncommitted edit.
+ * When the commit that set `ref` was committed, in epoch seconds. Git records
+ * no landing time — the lander fast-forwards `main` onto queue tips — so the
+ * clock starts at the bump commit, early by the queue's 25–60 min (#2217).
+ * `null` in a shallow clone, whose grafted root matches any line, and where
+ * history holds no such commit.
  *
  * @param {string} root
  * @param {string} ref
  * @returns {number|null}
  */
-function readPinLandedAt(root, ref) {
+function readBumpCommittedAt(root, ref) {
+	if (git(root, ["rev-parse", "--is-shallow-repository"]).trim() === "true")
+		return null;
 	const out = git(root, [
 		"log",
 		"-1",
 		"--format=%ct",
-		"--no-patch",
-		"--first-parent",
-		"--diff-merges=first-parent",
 		`-G"ref": *"${ref.replaceAll(".", "\\.")}"`,
 		"HEAD",
 		"--",
@@ -549,43 +533,45 @@ function readPinLandedAt(root, ref) {
 }
 
 /**
- * Whether `ref` is a bump whose own cut is still due: ahead of every tag the
- * remote has cut, set by a commit that landed under PENDING_CUT_HOURS ago.
- * release-plugin.js cuts only from a commit `main` holds, so every bump lands
- * before its tag can exist (#4675).
+ * Hours left before `ref`'s cut falls due, or `null` where it is no pending
+ * cut: not ahead of every tag the remote has cut, or committed
+ * PENDING_CUT_HOURS ago or more. release-plugin.js cuts only from a commit
+ * `main` holds, so every bump lands before its tag can exist (#4675).
  *
- * @param {Ctx} ctx
- * @param {{ root: string, remote: string, ref: string }} pin
- * @returns {{ hoursLeft: number } | null}
+ * @param {{ root: string, ref: string, newest: string|null }} pin
+ * @returns {number|null}
  */
-function readPendingCut(ctx, { root, remote, ref }) {
-	const newest = readNewestCutTagOnRemote(ctx, root, remote);
-	if ("unreachable" in newest) return null;
-	if (newest.tag !== null && !semverGt(tagVersion(ref), tagVersion(newest.tag)))
+function judgePendingCut({ root, ref, newest }) {
+	if (newest !== null && !semverGt(tagVersion(ref), tagVersion(newest)))
 		return null;
-	const landedAt = readPinLandedAt(root, ref);
-	if (landedAt === null) return null;
-	const hoursLeft = PENDING_CUT_HOURS - (Date.now() / 1000 - landedAt) / 3600;
-	return hoursLeft > 0 ? { hoursLeft } : null;
+	const committedAt = readBumpCommittedAt(root, ref);
+	if (committedAt === null) return null;
+	const hoursLeft = PENDING_CUT_HOURS - (now() / 1000 - committedAt) / 3600;
+	return hoursLeft > 0 ? hoursLeft : null;
 }
 
 /**
  * A tag-pinned entry whose tag the remote lacks: pending, unresolved,
- * unpushed or never cut.
+ * unpushed or never cut. Pending is the sweep's alone (`--require-remote`):
+ * a local run keeps failing at once, where the reader can cut.
  * @param {Ctx} ctx
- * @param {{ root: string, remote: string, ref: string }} pin
+ * @param {{ root: string, remote: string, ref: string, newest: string|null }} pin
  */
-function judgeUnpublishedTag(ctx, { root, remote, ref }) {
+function judgeUnpublishedTag(ctx, { root, remote, ref, newest }) {
 	const trusted = hasTrustworthyLocalTags();
 	const cutHere = trusted && hasLocalTag(ctx, root, ref);
-	if (!cutHere) {
-		const pending = readPendingCut(ctx, { root, remote, ref });
-		if (pending)
+	if (ctx.has("--require-remote") && !cutHere) {
+		const hoursLeft = judgePendingCut({ root, ref, newest });
+		if (hoursLeft !== null) {
+			const remedy = trusted
+				? "  node scripts/release-plugin.js --push"
+				: unresolvedTagRemedy(remote, ref);
 			ctx.skip(
-				`${ref} is a bump whose release is pending: ${remote} lacks the tag, and it\n` +
-					`      is due within ${Math.ceil(pending.hoursLeft)}h, after which this fails. Cut and push it:\n` +
-					"        node scripts/release-plugin.js --push",
+				`${ref} is a bump whose release is pending: ${remote} lacks the tag, and the\n` +
+					`      cut falls due within ${Math.ceil(hoursLeft)}h, after which this fails.\n` +
+					remedy.replace(/^/gm, "      "),
 			);
+		}
 	}
 
 	if (!trusted) {
@@ -650,28 +636,33 @@ function judgeTagPin(ctx, { root, name, source, ref }) {
 
 	const remote = readRequiredRemote(ctx, root, name, source);
 
-	const onRemote = tagOnRemote(ctx, root, remote, ref);
+	const cut = readCutTagsOnRemote(ctx, root, remote);
 
-	if ("unreachable" in onRemote) {
+	if ("unreachable" in cut) {
 		/* SKIP or a finding, per remoteUnreachable(). The local tag set answers
 		 * a different question either way and is deliberately not offered as a
 		 * consolation reading — #257's failure was a tag that existed locally. */
-		return remoteUnreachable(ctx, remote, onRemote.unreachable, {
+		return remoteUnreachable(ctx, remote, cut.unreachable, {
 			skipLines:
-				`could not reach ${remote} to check that ${ref} is published — ${onRemote.unreachable}.\n` +
+				`could not reach ${remote} to check that ${ref} is published — ${cut.unreachable}.\n` +
 				"      An adopter fetches from the remote, so this run proves nothing about\n" +
 				"      what adopters can install. Re-run with the network up.",
 			failLine: `${remote} could not be reached to check that ${ref} is published`,
 		});
 	}
 
-	if (onRemote.present) {
+	if (cut.tags.includes(ref)) {
 		return {
 			okLine: `${name} pins ${ref}, and ${remote} has it`,
 		};
 	}
 
-	return judgeUnpublishedTag(ctx, { root, remote, ref });
+	return judgeUnpublishedTag(ctx, {
+		root,
+		remote,
+		ref,
+		newest: newestTag(cut.tags),
+	});
 }
 
 runCheck({
