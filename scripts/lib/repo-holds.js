@@ -975,7 +975,7 @@ const buildBenignRead = (root) => ({
 
 /**
  * What one run of `root`'s guard hook line on `call` fails on, or null where it
- * lets the call through, run from the shared tree's files, never the loop's code
+ * lets the call through, run from the main checkout's files, never the loop's code
  * copy, under the probe's own session id. `isAnyDeny`, whether any deny fails
  * it, as for the benign `Read`; else only one for want of a guard that could
  * judge the call, as a replayed call may be refused on its merits.
@@ -1047,7 +1047,7 @@ function readGuardLoadFailure(root) {
 
 /**
  * What fails of `root`'s shared `.git` and guard entry, or null where the probe
- * passes. `origin` and `main` are the shared tree's.
+ * passes. `origin` and `main` are the main checkout's.
  * @param {string} root
  * @returns {ProbeFailure|null}
  */
@@ -1216,7 +1216,7 @@ function settleHold(root, hold, readFailure, log) {
 		);
 		const closeFailure = closeProbeIssue(
 			hold,
-			"The probe of the shared tree passes again, so its hold has cleared.",
+			"The probe of the main checkout passes again, so its hold has cleared.",
 		);
 		if (closeFailure) log(`repo hold ${hold.id}: ${closeFailure}`);
 	} catch (err) {
@@ -1241,7 +1241,7 @@ function readProbeHold(root) {
  * @param {string} failure
  */
 const buildProbeIssueBody = (root, failure) =>
-	`The refill loop's probe of the shared tree of \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
+	`The refill loop's probe of the main checkout \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
 
 **Failure:** ${failure}
 
@@ -1398,7 +1398,7 @@ function tendOutage(root, failure, now, log) {
  */
 function keepProbeHold(
 	root,
-	{ failureText, isRaiseDue, repair = "the shared tree" },
+	{ failureText, isRaiseDue, repair = "the main checkout" },
 	now,
 	log,
 ) {

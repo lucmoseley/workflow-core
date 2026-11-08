@@ -93,6 +93,7 @@ const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
 const { inferCommands } = require("../../../../scripts/lib/infer-commands.js");
 const {
 	readSubjectModules,
+	START_ON,
 } = require("../../../../scripts/lib/gate-subjects.js");
 const {
 	UNFILLED_DESTINATION,
@@ -425,12 +426,14 @@ function resolveInputs(resume, given, name, saved) {
  * @param {string} cwd
  * @param {string[]} args
  * @param {Buffer} [input]
+ * @param {NodeJS.ProcessEnv} [env]
  */
-const git = (cwd, args, input) =>
+const git = (cwd, args, input, env) =>
 	execGit(args, {
 		cwd,
 		encoding: "utf8",
 		input,
+		env,
 		stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 	}).trim();
 
@@ -603,7 +606,7 @@ function preflight(inp, clone) {
 		repoExists: view !== null,
 		cloneExists: cloneOurs,
 		source,
-		modules: source?.modules ?? [],
+		modules: [...(source?.modules ?? []), ...START_ON],
 	};
 }
 
@@ -866,10 +869,12 @@ function sourceFacts(inp, src) {
 }
 
 /**
- * The copy (#694 items 1–3): the source repo's default branch pushed to
- * origin as `main`, with its tags. A re-run fetches and pushes again; what
- * origin already holds is sent nowhere. A dry run fetches nothing, so it
- * reads the clone as it stands.
+ * The copy (#694 items 1–3): the source repo's default branch made the
+ * clone's `main`, and its tags pushed to origin. `main` waits for the push
+ * step, carrying the skeleton commit with it: pushed alone it would leave
+ * origin a `main` that, with `landing` on, only the queue lander may move
+ * (#4685). A re-run fetches and pushes again; what origin already holds is
+ * sent nowhere. A dry run fetches nothing, so it reads the clone as it stands.
  * @param {Step} step
  * @param {Source} src
  * @returns {string|null} the source commit main is built on; null in a dry
@@ -877,42 +882,32 @@ function sourceFacts(inp, src) {
  */
 function copySource({ inp, clone, env, dry }, src) {
 	const base = dry ? readCopiedBase(clone, src) : fetchSource(inp, clone, src);
-	const unsent = base === null ? null : copyUnsent(clone, base, dry);
-	if (unsent && !unsent.branch && unsent.tags.length === 0)
+	const tags = base === null ? null : readUnsentTags(clone, dry);
+	if (src.copied && tags?.length === 0)
 		report("source repo", SKIPPED, `${inp.source}'s ${src.branch} is main`);
 	else if (dry)
 		report(
 			"source repo",
 			"would",
-			`push ${inp.source}'s ${src.branch} to ${inp.repo} as main, with its tags; upstream fetch-only`,
+			`make ${inp.source}'s ${src.branch} main, pushed with the skeleton commit; push its tags to ${inp.repo}; upstream fetch-only`,
 		);
 	else {
-		const { branch, tags } = /** @type {{branch: boolean, tags: string[]}} */ (
-			unsent
-		);
-		const r = runGit(
-			clone,
-			[
-				"push",
-				"-q",
-				"origin",
-				...(branch ? [`${base}:refs/heads/main`] : []),
-				...tags,
-			],
-			env,
-		);
-		if (r.status !== 0)
-			throw new Stop("the push of the source repo's copy was rejected", {
-				code: 2,
-				output: r.output,
-				manual: `read the rejection above and settle it in ~/${inp.name}`,
-			});
+		const sent = /** @type {string[]} */ (tags);
+		if (sent.length > 0) {
+			const r = runGit(clone, ["push", "-q", "origin", ...sent], env);
+			if (r.status !== 0)
+				throw new Stop("the push of the source repo's tags was rejected", {
+					code: 2,
+					output: r.output,
+					manual: `read the rejection above and settle it in ~/${inp.name}`,
+				});
+		}
 		report(
 			"source repo",
 			"done",
 			[
-				...(branch ? [`${inp.source}'s ${src.branch} pushed as main`] : []),
-				...(tags.length > 0 ? [`${tags.length} tags pushed`] : []),
+				`${inp.source}'s ${src.branch} is main`,
+				...(sent.length > 0 ? [`${sent.length} tags pushed`] : []),
 				"upstream fetch-only",
 			].join(", "),
 		);
@@ -1022,29 +1017,23 @@ const readRemoteRefs = (clone, remote) =>
 	);
 
 /**
- * What of the copy origin lacks: `branch` where its main does not hold
- * `base`, and each tag it lacks — the clone's, and under `dry`, which fetched
+ * Each tag origin lacks — the clone's, and under `dry`, which fetched
  * nothing, upstream's too. A tag the source repo moved after the copy keeps
  * origin's sha, being on origin by name.
  * @param {string} clone
- * @param {string} base
  * @param {boolean} dry
  */
-function copyUnsent(clone, base, dry) {
+function readUnsentTags(clone, dry) {
 	const origin = readRemoteRefs(clone, "origin");
-	const mainSha = origin.get("refs/heads/main");
 	const tags = new Set([
 		...git(clone, ["for-each-ref", "--format=%(refname)", "refs/tags"]).split(
 			"\n",
 		),
 		...(dry ? readRemoteRefs(clone, "upstream").keys() : []),
 	]);
-	return {
-		branch: mainSha === undefined || !isAncestor(clone, base, mainSha),
-		tags: [...tags].filter(
-			(ref) => ref.startsWith("refs/tags/") && !origin.has(ref),
-		),
-	};
+	return [...tags].filter(
+		(ref) => ref.startsWith("refs/tags/") && !origin.has(ref),
+	);
 }
 
 /**
@@ -2070,28 +2059,30 @@ function skeletonCommit(
 	}
 	const { spec } = readSkeletonState(clone);
 	const manual = `open a new tab, run \`${inp.prefix}1\`, fix it in that session, then re-run from workflow-core: ${resumeCmd}`;
-	const add = runGit(clone, ["add", "-N", "--", ...spec], env);
-	if (add.status !== 0)
-		throw new Stop("git add refused the skeleton paths", {
-			code: 2,
-			output: add.output,
-			manual,
-		});
-	const r = runGit(
-		clone,
-		[
-			"commit",
-			"-q",
-			"-m",
-			`Start ${inp.name} on the workflow core`,
-			"-m",
-			`Its first session charts #${map} under the core's rules. The adopted skeleton, pinned to workflow-core ${pre.tag}, written by new-repo.js.`,
-			"--",
-			...spec,
-		],
-		// With no install recorded, the hook shims resolve no core but this one (#1839).
-		noInstall ? { ...env, WORKFLOW_CORE_DIR: CORE } : env,
-	);
+	const message = [
+		"-m",
+		`Start ${inp.name} on the workflow core`,
+		"-m",
+		`Its first session charts #${map} under the core's rules. The adopted skeleton, pinned to workflow-core ${pre.tag}, written by new-repo.js.`,
+	];
+	// With no install recorded, the hook shims resolve no core but this one (#1839).
+	const hookEnv = noInstall ? { ...env, WORKFLOW_CORE_DIR: CORE } : env;
+	/* Beside only for the commit the push creating main carries: once origin
+	 * has a main, the main checkout's own hooks judge the commit. */
+	const beside =
+		revParse(clone, "HEAD") !== null && readOriginMain(clone, false) === null;
+	let r;
+	if (beside) r = commitBeside(clone, spec, message, hookEnv);
+	else {
+		const add = runGit(clone, ["add", "-N", "--", ...spec], env);
+		if (add.status !== 0)
+			throw new Stop("git add refused the skeleton paths", {
+				code: 2,
+				output: add.output,
+				manual,
+			});
+		r = runGit(clone, ["commit", "-q", ...message, "--", ...spec], hookEnv);
+	}
 	if (r.status !== 0)
 		throw new Stop("a hook refused the skeleton commit", {
 			code: 2,
@@ -2100,6 +2091,51 @@ function skeletonCommit(
 		});
 	report("commit", "done", git(clone, ["rev-parse", "--short", "HEAD"]));
 	return true;
+}
+
+/**
+ * The skeleton committed from a linked worktree cut at HEAD, then made the
+ * clone's `main`. A copied repo's HEAD is the source's tip, and with
+ * `landing` on the main checkout takes no commit but the root one
+ * (check-main-checkout-commit.js). The clone's files are already the
+ * commit's, so a mixed reset leaves only its index to follow.
+ * @param {string} clone
+ * @param {string[]} spec the skeleton pathspec
+ * @param {string[]} message the commit's `-m` arguments
+ * @param {NodeJS.ProcessEnv} env the hooks' environment
+ * @returns {{status: number, output: string}}
+ */
+function commitBeside(clone, spec, message, env) {
+	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "new-repo-commit-"));
+	const tree = path.join(scratch, "tree");
+	let added = false;
+	try {
+		const indexEnv = {
+			...process.env,
+			GIT_INDEX_FILE: path.join(scratch, "index"),
+		};
+		git(clone, ["read-tree", "HEAD"], undefined, indexEnv);
+		git(clone, ["add", "-A", "--", ...spec], undefined, indexEnv);
+		const skeletonTree = git(clone, ["write-tree"], undefined, indexEnv);
+		const headSha = git(clone, ["rev-parse", "HEAD"]);
+		git(clone, ["worktree", "add", "-q", "--detach", tree, headSha]);
+		added = true;
+		git(tree, ["read-tree", "-u", "--reset", skeletonTree]);
+		const r = runGit(tree, ["commit", "-q", ...message], {
+			...env,
+			CLAUDE_PROJECT_DIR: tree,
+		});
+		if (r.status !== 0) return r;
+		const skeletonSha = git(tree, ["rev-parse", "HEAD"]);
+		git(clone, ["update-ref", "refs/heads/main", skeletonSha, headSha]);
+		git(clone, ["reset", "-q"]);
+		return r;
+	} finally {
+		if (added)
+			spawnGitSync(["worktree", "remove", "--force", tree], { cwd: clone });
+		fs.rmSync(scratch, { recursive: true, force: true });
+		spawnGitSync(["worktree", "prune"], { cwd: clone });
+	}
 }
 
 /**
