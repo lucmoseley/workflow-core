@@ -3,8 +3,7 @@
  * watch-artefact.js — one backgrounded call that watches a subagent's artefact
  * and exits exactly when the abandon rule says to act (#539, spec #535): two
  * consecutive checks with no growth. Its exit is the background-job
- * notification that wakes the parent, in place of a re-issued timed
- * `sleep <n>; wc -c <artefact>`.
+ * notification that wakes the parent.
  *
  * Usage:
  *   node scripts/watch-artefact.js <path> <interval-seconds> [ceiling-seconds]
@@ -24,18 +23,12 @@
  * Last growth on the verdict line is the check that saw it, not the write
  * itself.
  *
- * THE FIRST-WRITE DEADLINE, 600 S BY DEFAULT, IS MEASURED (#4034). Of 11,132
- * subagents dispatched with an `Artefact:` line on this machine (their
- * transcripts, 2026-11-08), 712 first wrote it after 240 s — two 120 s checks
- * in — 53 after 600 s and 14 after 900 s; the late tail is agents that write
- * only at the end, and those 53, 0.5%, still draw MISSING. Until the file is
- * first seen, no check counts toward any verdict. 600 s is also the
- * ten-minute silent stall the watch is there for. A deadline under two
- * intervals is raised to two, so a never-seen file is absent at two checks
- * at least. Residual: a wrong path, or an agent that never starts, now reads
- * MISSING at 600 s rather than two checks in.
- * A file created at dispatch would not help: the same agents would read
- * STALLED at 240 s instead.
+ * THE FIRST-WRITE DEADLINE, 600 S BY DEFAULT, IS MEASURED (#4034, its figures
+ * there). Until the file is first seen, no check counts toward any verdict. A
+ * deadline under two intervals is raised to two, so a never-seen file is
+ * absent at two checks at least. Residual: about 0.5% of live agents first
+ * write after 600 s and still draw MISSING; a wrong path, or an agent that
+ * never starts, reads MISSING only at the deadline.
  *
  * SIZE, NOT MTIME: a touch without an append is not progress. A size that
  * FALLS counts as progress — a rewrite is the agent working, not stalled.
@@ -50,7 +43,7 @@
  * interval would compare unequal windows, so reaching it reports CEILING
  * unjudged.
  *
- * IT CANNOT TELL A STALLED AGENT FROM A FINISHED ONE — no file shows that.
+ * IT CANNOT TELL A STALLED AGENT FROM A FINISHED ONE.
  *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
