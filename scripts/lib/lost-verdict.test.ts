@@ -159,6 +159,8 @@ describe("a suite run whose verdict was cut from its output", () => {
 	it.each([
 		"node scripts/run-vitest.js scripts/a.test.ts | head -5",
 		"npm test | tail -1",
+		"npm t | tail -1",
+		"npm run-script test | tail -1",
 		"timeout 600 npm run test | tail -1",
 	])("reads the launch %j", (command) => {
 		record(SID, writeLog("own.log", OWN_LOG));

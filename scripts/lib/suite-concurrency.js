@@ -502,8 +502,6 @@ function launchKey(st, given) {
 	const words = [...given];
 	if (words.at(-1) === "--") words.pop();
 	const head = afterSlash(words[0] ?? "");
-	if (head === "npm" && words[1] === "t") words[1] = "test";
-	if (head === "npm" && words[1] === "run-script") words[1] = "run";
 	const launch = launchOf(st, words);
 	const key = launch?.script
 		? [head, "run", launch.script, ...words.slice(launch.taken)]

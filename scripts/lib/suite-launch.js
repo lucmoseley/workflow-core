@@ -3,7 +3,8 @@
  * kind?" (#1528), for the suite guards and scripts/queue-run.js.
  *
  * THE KINDS:
- *   npm-vitest  `npm test`, `npm run test|test:changed`
+ *   npm-vitest  `npm test`, `npm run test|test:changed`, npm's aliases for
+ *               `test` and `run` included
  *   npm-watch   `npm run test:watch`
  *   npm-py      `npm test:py`, `npm run test:py`
  *   wrapper     `node <path>/run-vitest.js`
@@ -15,6 +16,7 @@
  * starts at word `taken`.
  */
 
+const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { PY_COLLECTED_TEST } = require("./test-kind.js");
 const { unwrap } = require("./shell-words.js");
 
@@ -135,19 +137,20 @@ function nodeLaunch(words, ports) {
 }
 
 /**
- * `npm test`, `npm test:py`, or `npm run` one of the suite scripts.
+ * `npm test`, `npm test:py`, or `npm run` one of the suite scripts, each
+ * command word read as npm derefs it (#4032): `npm t`, `npm run-script test`.
  * @param {string[]} words
  * @returns {Launch | null}
  */
 function npmLaunch(words) {
 	const w1 = words[1] ?? "";
-	const bare = w1 === "test" || w1 === "test:py";
-	if (!bare && w1 !== "run") return null;
-	const script = bare ? w1 : (words[2] ?? "");
+	const run = isNpmRun(w1);
+	const bare = w1 === "test:py" ? w1 : (scriptOfNpmCommand(w1) ?? "");
+	const script = run ? (words[2] ?? "") : bare;
 	const kind = Object.hasOwn(SCRIPT_KINDS, script)
 		? SCRIPT_KINDS[script]
 		: undefined;
-	return kind ? { kind, script, taken: bare ? 2 : 3, queued: false } : null;
+	return kind ? { kind, script, taken: run ? 3 : 2, queued: false } : null;
 }
 
 /**
