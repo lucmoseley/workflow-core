@@ -634,7 +634,7 @@ function settleRoom(
 		...walks,
 		...io.probeDueSeats(
 			control.seats,
-			seatTriedAfter(seatTriedAt, walks, io.now()),
+			seatTriedAfter(seatTriedAt, walks, io.now(), { retryUnmoved: false }),
 		),
 	];
 	const overflow = overflowOf(seats);

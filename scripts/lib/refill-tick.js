@@ -29,7 +29,7 @@ const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
-const { readAllowance } = require("./allowance.js");
+const { printsWeek, readAllowance } = require("./allowance.js");
 const { readUsageCache } = require("./usage-cache.js");
 const seatReading = require("./seat-reading.js");
 const { buildTypedAttach } = require("./claude-attach.js");
@@ -301,17 +301,12 @@ function readPrintedUsage(seats) {
 		if (r.failed && r.status !== 3) log(`/usage on ${seat}: ${r.failed}`);
 		usage.set(seat, r.stdout);
 		const cache = readUsageCache(seat);
+		const stampMs = cache.state === "ok" ? cache.fetchedAtMs : null;
 		const outcome = seatReading.probeOutcome(
 			core.parseProbeOutcome(r.stderr, r.failed),
-			{
-				printedWeek:
-					readAllowance({ configDir: seat, usageText: r.stdout }).weekly_all
-						.trust === "fresh",
-				stampMs: cache.state === "ok" ? cache.fetchedAtMs : null,
-				startMs,
-			},
+			{ printedWeek: printsWeek(r.stdout), stampMs, startMs },
 		);
-		probes.push({ seat, outcome });
+		probes.push({ seat, outcome, stampMs });
 	}
 	return { usage, probes };
 }

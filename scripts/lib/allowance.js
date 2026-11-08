@@ -150,6 +150,13 @@ function readAllowance(opts = {}) {
 }
 
 /**
+ * Whether printed `/usage` text carries a week figure.
+ * @param {string} usageText
+ */
+const printsWeek = (usageText) =>
+	parseBar(usageText, KINDS.weekly_all.textPrefix) !== null;
+
+/**
  * Whether a reading can size a launch: every bar fresh or one the account
  * does not report, and at least one fresh (#3758).
  * @param {{ session: Bar, weekly_all: Bar }} result
@@ -266,6 +273,7 @@ function capSet({
 module.exports = {
 	readAllowance,
 	isTrustworthy,
+	printsWeek,
 	sizedPercent,
 	capSet,
 	isWarned,

@@ -26,7 +26,6 @@ import {
 	probeOutcome,
 	readSeat,
 	readSizedSeats,
-	STAMP_UNMOVED,
 	seatsDueRead,
 	seatTriedAfter,
 	sizeParkerSeats,
@@ -427,17 +426,23 @@ describe("the seats due a read for the panel's figures (#4060)", () => {
 		).toEqual({ old: 1, cachedSeat: 2, stopped: NOW, timed: NOW });
 	});
 
-	it("leaves unstamped a probe whose printed week never reached the cache (#4075)", () => {
+	it("reads an unmoved probe once more per cache stamp, then keeps the daily limit (#4075)", () => {
+		const unmoved = [
+			{ seat: "s", outcome: "finished (stamp unmoved)", stampMs: 5 },
+		];
+		const once = seatTriedAfter({ s: 4 }, unmoved, NOW);
+		expect(once).toEqual({ s: 6 });
+		expect(seatTriedAfter(once, unmoved, NOW)).toEqual({ s: NOW });
 		expect(
-			seatTriedAfter({}, [{ seat: "s", outcome: STAMP_UNMOVED }], NOW),
-		).toEqual({});
+			seatTriedAfter({ s: 4 }, unmoved, NOW, { retryUnmoved: false }),
+		).toEqual({ s: NOW });
 	});
 
 	it("marks a finished probe that printed its week with the stamp at or before its start", () => {
 		const outcomeOf = (printedWeek: boolean, stampMs: number | null) =>
 			probeOutcome("finished", { printedWeek, stampMs, startMs: NOW });
-		expect(outcomeOf(true, NOW)).toBe(STAMP_UNMOVED);
-		expect(outcomeOf(true, null)).toBe(STAMP_UNMOVED);
+		expect(outcomeOf(true, NOW)).toBe("finished (stamp unmoved)");
+		expect(outcomeOf(true, null)).toBe("finished (stamp unmoved)");
 		expect(outcomeOf(true, NOW + 1)).toBe("finished");
 		expect(outcomeOf(false, NOW - 1)).toBe("finished");
 		expect(

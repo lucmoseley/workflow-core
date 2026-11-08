@@ -35,7 +35,8 @@ const { hasResetPassed } = require("./usage-cache.js");
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
-/** @typedef {{seat: string, outcome: string}} Probe */
+/** @typedef {{seat: string, outcome: string, stampMs?: number|null}} Probe
+ * `stampMs`, the cache's stamp once it ended. */
 
 const SCRIPTS = path.dirname(__dirname);
 
@@ -281,8 +282,9 @@ const STAMP_UNMOVED = "finished (stamp unmoved)";
 
 /**
  * A probe's outcome, `finished` read as STAMP_UNMOVED where it printed a week
- * figure yet left the cache's stamp at or before its start (#4075). The panel
- * reads the cache alone, so that figure never reaches it.
+ * figure yet left the cache's stamp, or no stamp at all, at or before its
+ * start (#4075). The panel reads the cache alone, so that figure never
+ * reaches it.
  * @param {string} outcome
  * @param {{printedWeek: boolean, stampMs: number|null, startMs: number}} after
  */
@@ -292,18 +294,34 @@ const probeOutcome = (outcome, { printedWeek, stampMs, startMs }) =>
 		: outcome;
 
 /**
- * `triedAt` with each probe that ran stamped `now`, bar a STAMP_UNMOVED one,
- * which the next tick reads again.
+ * `triedAt` with each probe that ran stamped `now`. With `retryUnmoved`, a
+ * STAMP_UNMOVED probe on a seat untried since its cache's stamp is stamped
+ * just past that stamp instead, so the next tick reads it once more: one
+ * retry per stamp, so a cache that never rewrites keeps the daily limit.
  * @param {Record<string, number>} triedAt
  * @param {Probe[]} probes
  * @param {number} now
+ * @param {{retryUnmoved?: boolean}} [opts]  false mid-tick, so a seat the
+ *   walk probed is not probed again that tick
  */
-const seatTriedAfter = (triedAt, probes, now) => ({
+const seatTriedAfter = (
+	triedAt,
+	probes,
+	now,
+	{ retryUnmoved = true } = {},
+) => ({
 	...triedAt,
 	...Object.fromEntries(
 		probes
-			.filter((p) => p.outcome !== "cached" && p.outcome !== STAMP_UNMOVED)
-			.map((p) => [p.seat, now]),
+			.filter((p) => p.outcome !== "cached")
+			.map((p) => {
+				const stamp = p.stampMs ?? 0;
+				const retry =
+					retryUnmoved &&
+					p.outcome === STAMP_UNMOVED &&
+					(triedAt[p.seat] ?? 0) <= stamp;
+				return [p.seat, retry ? stamp + 1 : now];
+			}),
 	),
 });
 
@@ -509,5 +527,4 @@ module.exports = {
 	seatTriedAfter,
 	sizeParkerSeats,
 	sizeResumeSeats,
-	STAMP_UNMOVED,
 };

@@ -103,7 +103,6 @@ import {
 } from "./lib/refill-loop-run-testkit";
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
-import { STAMP_UNMOVED } from "./lib/seat-reading.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache, buildUsageText } from "./lib/usage-probe-fake";
@@ -535,15 +534,15 @@ process.exitCode = ${status};\n`,
 		expect(readLines(at("probes"))).toEqual([at("behind")]);
 	});
 
-	it("reads again on the next tick a probe that printed its week but left the cache's stamp unmoved (#4075)", async () => {
+	it("reads once more a probe that printed its week but left the cache's stamp unmoved, then keeps the daily limit (#4075)", async () => {
 		stubProbe("finished", 0, buildUsageText({ week: 40 }));
 		writeSeats();
+		const started = Date.now();
 		const first = await nextTick();
-		expect(first.stdout).toContain(`${at("behind")}: ${STAMP_UNMOVED}`);
-		expect(readLoopState().seatTriedAt[at("behind")]).toBeUndefined();
-		const once = readLines(at("probes")).length;
+		expect(first.stdout).toContain(`${at("behind")}: finished (stamp unmoved)`);
 		await nextTick();
-		expect(readLines(at("probes")).length).toBeGreaterThan(once);
+		expect(readLines(at("probes"))).toEqual([at("behind"), at("behind")]);
+		expect(readLoopState().seatTriedAt[at("behind")]).toBeGreaterThan(started);
 	});
 });
 
