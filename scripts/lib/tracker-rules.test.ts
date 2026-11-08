@@ -512,7 +512,7 @@ describe("each injected rule still carries the clause it exists for", () => {
 		["`takes:to-tickets`", "/to-tickets <n>"],
 		["`takes:implement`", "/implement <n>"],
 		["`takes:triage`", "/triage <n>"],
-		["`takes:human`", "Done outside Claude Code entirely"],
+		["`takes:human`", "An act only the founder's hands can do"],
 		["`takes:children`", "A container"],
 	])("keeps %s and what it routes to", (value, meaning) => {
 		carries("takes-value-vocabulary", value);

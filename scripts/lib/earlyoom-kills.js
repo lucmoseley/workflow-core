@@ -18,42 +18,61 @@
  * INCIDENT_GAP_MS has passed since its last kill: before then a later kill may
  * still join it, so the filer waits.
  *
+ * A HEADLESS RUN is a kill whose pid, boot and time match a run in
+ * lib/headless-runs.js's store (#4143): same pid, the boot `journalctl
+ * --list-boots` puts the kill in, launched at or before it, the latest such
+ * run where two share them. A killed run records no end, so a pid reused
+ * after it in the same boot still matches.
+ *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
- * as no kills, with `why` set so a caller can say so. WFC_JOURNALCTL injects
+ * as no kills, with `why` set so a caller can say so. A store or boot list
+ * that will not read, or a run on a victim's pid that recorded no boot,
+ * leaves the kills unjoined, with the incident's
+ * `unjoined` saying why. WFC_JOURNALCTL injects
  * the binary (§N7), as check-kernel-stall.js takes it.
  */
 
-const { spawnSync } = require("node:child_process");
+const { caught } = require("./caught.js");
+const { readStoredRuns } = require("./headless-runs.js");
 const {
 	buildProcessSpan,
 	localMinute,
 	readTicketsByPrefix,
 	utcMinute,
 } = require("./incident-tickets.js");
+const {
+	bootKey,
+	readBoots,
+	runJournalctl,
+	toSecond,
+} = require("./journalctl.js");
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path.js");
 
 /** Ruled at #3082 (Q1 → B); untraced. */
 const INCIDENT_GAP_MS = 30 * 60 * 1000;
 
-/* Both as check-kernel-stall.js's journal reader, whose comments derive them:
- * a read is well under 1 s, and an overflow is a failed read, never "no
- * kills". The whole earlyoom journal, 11 Sep to 26 Oct 2026, read 0.8 MB. */
-const READ_TIMEOUT_MS = 5000;
-const MAX_BUFFER = 64 * 1024 * 1024;
-
 const LINE = /^(\S+) \S+ earlyoom\[\d+\]: (.*)$/;
 const SIGNAL =
 	/^sending (SIG\w+) to process (\d+) uid (\d+) "(.*)": badness (-?\d+), VmRSS (\d+) MiB$/;
 const READING = /^mem avail:\s*(\d+) of\s*\d+ MiB .*swap free:\s*(\d+) of/;
 
-/** Hosts, pty hosts and spares read as their version; `claude -p`, `claude agents` and the daemon read `claude` (#3082, #4122). */
-const CLAUDE_HOST = /^(\d+\.\d+\.\d+|claude)$/;
-/** Every node process's comm is `MainThread`, so it counts as a test or build. */
-const TEST_OR_BUILD =
-	/^(MainThread|node|npm|npx|tsc|vitest|esbuild|biome|python3?|pytest)$/;
+/** Hosts, pty hosts and spares read as their version (#3082, #4122). */
+const CLAUDE_HOST = /^\d+\.\d+\.\d+$/;
+/** The daemon, `claude agents` and `claude -p` read `claude` (#4122). */
+const CLAUDE_CLI = /^claude$/;
+/** Every node program's comm is `MainThread`: the refill loop, a test worker, a server (#3759). */
+const NODE_OR_PYTHON = /^(MainThread|node|python3?)$/;
+const TEST_OR_BUILD = /^(npm|npx|tsc|vitest|esbuild|biome|pytest)$/;
 
-const KINDS = /** @type {const} */ (["Claude host", "test or build", "other"]);
+const KINDS = /** @type {const} */ ([
+	"Claude host",
+	"headless run",
+	"claude CLI",
+	"node or python process",
+	"test or build",
+	"other",
+]);
 /** @typedef {typeof KINDS[number]} Kind */
 
 /**
@@ -63,17 +82,21 @@ const KINDS = /** @type {const} */ (["Claude host", "test or build", "other"]);
  * @property {number} uid
  * @property {string} name comm, as earlyoom printed it
  * @property {Kind} kind
+ * @property {string|null} jobId the headless run's, where the kill is one
  * @property {number} badness
  * @property {number} rssMiB
  * @property {number|null} availMiB MemAvailable before the first signal
  * @property {number|null} swapFreeMiB SwapFree then
  * @property {number} signals
- * @typedef {{kills: Kill[], first: string, last: string}} Incident
+ * @typedef {{kills: Kill[], first: string, last: string,
+ *   unjoined: string|null}} Incident
  */
 
 /** @param {string} name @returns {Kind} */
 function kindOf(name) {
 	if (CLAUDE_HOST.test(name)) return "Claude host";
+	if (CLAUDE_CLI.test(name)) return "claude CLI";
+	if (NODE_OR_PYTHON.test(name)) return "node or python process";
 	if (TEST_OR_BUILD.test(name)) return "test or build";
 	return "other";
 }
@@ -112,6 +135,7 @@ function parseSignals(text) {
 			uid: Number(group(3)),
 			name,
 			kind: kindOf(name),
+			jobId: null,
 			badness: Number(group(5)),
 			rssMiB: Number(group(6)),
 			availMiB: reading?.availMiB ?? null,
@@ -136,7 +160,8 @@ function groupIncidents(signals) {
 			const same = open.kills.find((k) => k.pid === s.pid);
 			if (same) same.signals += 1;
 			else open.kills.push({ ...s });
-		} else out.push({ kills: [{ ...s }], first: s.at, last: s.at });
+		} else
+			out.push({ kills: [{ ...s }], first: s.at, last: s.at, unjoined: null });
 	}
 	return out;
 }
@@ -150,30 +175,75 @@ const isOver = (i, now) => now - Date.parse(i.last) > INCIDENT_GAP_MS;
  * @returns {{text: string, why: string|null}}
  */
 function readJournal(sinceMs) {
-	const r = spawnSync(
-		process.env.WFC_JOURNALCTL || "journalctl",
-		[
-			"-u",
-			"earlyoom",
-			"--no-pager",
-			"-o",
-			"short-iso",
-			"--since",
-			`@${Math.floor(sinceMs / 1000)}`,
-		],
-		{
-			encoding: "utf8",
-			timeout: READ_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "pipe"],
-			maxBuffer: MAX_BUFFER,
-		},
-	);
-	if (r.error || r.status !== 0)
+	const { stdout, why } = runJournalctl([
+		"-u",
+		"earlyoom",
+		"--no-pager",
+		"-o",
+		"short-iso",
+		"--since",
+		`@${Math.floor(sinceMs / 1000)}`,
+	]);
+	return {
+		text: stdout,
+		why: why === null ? null : `journalctl -u earlyoom: ${why}`,
+	};
+}
+
+/**
+ * @param {Incident[]} incidents
+ * @returns {Incident[]}
+ */
+function joinHeadlessRuns(incidents) {
+	if (incidents.length === 0) return incidents;
+	/** @param {string} unjoined */
+	const unread = (unjoined) => incidents.map((i) => ({ ...i, unjoined }));
+	let runs;
+	try {
+		runs = readStoredRuns();
+	} catch (err) {
+		return unread(`the headless run store: ${caught(err).message}`);
+	}
+	const { boots, why } = readBoots();
+	if (why !== null) return unread(why);
+	return incidents.map((i) => {
+		/** @type {string[]} */
+		const bootless = [];
+		const kills = i.kills.map((k) => {
+			const at = Date.parse(k.at);
+			const boot = boots.find((b) => b.from <= at && at <= b.to);
+			const onPid = runs.filter(
+				(r) => r.pid === k.pid && toSecond(r.launchedAt) <= at,
+			);
+			for (const r of onPid) if (r.bootId === null) bootless.push(r.jobId);
+			const run = onPid
+				.filter(
+					(r) =>
+						boot !== undefined &&
+						r.bootId !== null &&
+						bootKey(r.bootId) === boot.id,
+				)
+				.reduce(
+					(a, r) => (a === null || r.launchedAt > a.launchedAt ? r : a),
+					/** @type {import("./headless-runs.js").RunRecord|null} */ (null),
+				);
+			return run === null
+				? k
+				: {
+						...k,
+						kind: /** @type {Kind} */ ("headless run"),
+						jobId: run.jobId,
+					};
+		});
 		return {
-			text: "",
-			why: `journalctl -u earlyoom: ${r.error?.message ?? (r.stderr.trim() || `exit ${r.status}`)}`,
+			...i,
+			kills,
+			unjoined:
+				bootless.length === 0
+					? null
+					: `headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")} on a victim's pid recorded no boot`,
 		};
-	return { text: r.stdout, why: null };
+	});
 }
 
 /**
@@ -197,7 +267,9 @@ function readIncidents(sinceMs) {
 			continue;
 		}
 		return {
-			incidents: all.filter((i) => Date.parse(i.last) > sinceMs),
+			incidents: joinHeadlessRuns(
+				all.filter((i) => Date.parse(i.last) > sinceMs),
+			),
 			why: null,
 		};
 	}
@@ -221,11 +293,23 @@ const incidentTitle = (/** @type {Incident} */ i) =>
 /** @param {number|null} v */
 const mib = (v) => (v === null ? "unread" : `${v} MiB`);
 
-/** @param {Kill[]} kills @returns {string} `Claude host 2, test or build 1, other 0` */
+/**
+ * @param {Kill[]} kills
+ * @returns {string} `Claude host 2, headless run 1 (job 03998aa2), other 1`
+ */
 const byKind = (kills) =>
-	KINDS.map((k) => `${k} ${kills.filter((x) => x.kind === k).length}`).join(
-		", ",
-	);
+	KINDS.flatMap((kind) => {
+		const of = kills.filter((x) => x.kind === kind);
+		if (of.length === 0) return [];
+		const jobs = of.flatMap((x) => (x.jobId === null ? [] : [x.jobId]));
+		return [
+			`${kind} ${of.length}${jobs.length > 0 ? ` (${jobs.length === 1 ? "job" : "jobs"} ${jobs.join(", ")})` : ""}`,
+		];
+	}).join(", ");
+
+/** @param {Kill} k */
+const kindCell = (k) =>
+	k.jobId === null ? k.kind : `${k.kind} \`${k.jobId}\``;
 
 /**
  * The incident ticket's body.
@@ -249,7 +333,7 @@ function buildIncidentBody(i) {
 
 earlyoom killed ${i.kills.length} ${i.kills.length === 1 ? "process" : "processes"} between ${localMinute(first)} and ${localMinute(last)} machine time, one incident: kills no more than ${INCIDENT_GAP_MS / 60_000} min apart (#3094).
 
-By kind: ${byKind(i.kills)}. A \`MainThread\` is any node process; a test or build is the likeliest.
+By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included.${i.unjoined === null ? "" : `\n\nNot joined to the headless runs, so a claude CLI kill may be one: ${i.unjoined}.`}
 
 Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
 
@@ -258,7 +342,7 @@ Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.avai
 ${i.kills
 	.map(
 		(k) =>
-			`| ${localTime(new Date(k.at))} | ${k.kind} | ${buildProcessSpan(k.name)} | ${k.pid} | ${k.uid} | ${k.rssMiB} MiB | ${k.badness} | ${mib(k.availMiB)} | ${mib(k.swapFreeMiB)} | ${k.signals} |`,
+			`| ${localTime(new Date(k.at))} | ${kindCell(k)} | ${buildProcessSpan(k.name)} | ${k.pid} | ${k.uid} | ${k.rssMiB} MiB | ${k.badness} | ${mib(k.availMiB)} | ${mib(k.swapFreeMiB)} | ${k.signals} |`,
 	)
 	.join("\n")}
 

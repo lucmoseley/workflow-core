@@ -375,33 +375,24 @@ describe("the CI half of the same gate", () => {
 
 	it("hard-fails, carrying no continue-on-error and no absent-binary escape", () => {
 		// Deliberately unlike the pre-commit half, which warns and passes: a
-		// runner that cannot fetch the tarball has a broken install, not a fresh
+		// runner that cannot pull the image has a broken install, not a fresh
 		// machine (mantahostels#1137).
 		expect(step()).not.toContain("continue-on-error");
 		expect(step()).not.toMatch(/command -v actionlint/);
 	});
 
-	it("pins the download to a version AND a checksum, and verifies before use", () => {
-		const body = step();
-		const version = /ACTIONLINT_VERSION: (\S+)/.exec(body);
-		const sha = /ACTIONLINT_SHA256: ([0-9a-f]{64})\b/.exec(body);
-		expect(
-			version,
-			"the actionlint version is no longer pinned",
-		).not.toBeNull();
-		expect(
-			sha,
-			"the actionlint tarball checksum is no longer pinned",
-		).not.toBeNull();
-		// The URL is built from the pinned version rather than carrying its own
-		// literal, so a bump cannot leave the two disagreeing.
-		expect(body).toContain("$ACTIONLINT_VERSION");
-		expect(body).not.toMatch(
-			new RegExp(`download/v${(version as RegExpExecArray)[1]}`),
+	it("pins the image to a tag AND a digest, and installs it before the step runs", () => {
+		// The digest decides what the pulled bytes may be, whichever host served
+		// them (#4653).
+		const install = /- name: Install actionlint\n((?:.*\n)*?) {6}- name:/.exec(
+			ci,
 		);
-		// Order matters: a `sha256sum -c` after the archive has been unpacked and
-		// run checks a binary already trusted.
-		expect(body.indexOf("sha256sum -c")).toBeGreaterThan(body.indexOf("curl"));
-		expect(body.indexOf("sha256sum -c")).toBeLessThan(body.indexOf("tar -xzf"));
+		expect(install, "no Install actionlint step in ci.yml").not.toBeNull();
+		const body = (install as RegExpExecArray)[1];
+		expect(body).toContain("uses: ./.github/actions/image-binary");
+		expect(body).toMatch(/image: \S+:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}\n/);
+		expect(ci.indexOf("- name: Install actionlint")).toBeLessThan(
+			ci.indexOf("- name: actionlint\n"),
+		);
 	});
 });

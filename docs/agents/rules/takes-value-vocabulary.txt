@@ -5,5 +5,5 @@
 | `takes:to-tickets` | A spec ready to break into tickets. | `/to-tickets <n>` |
 | `takes:implement` | A specified unit of work. | `/implement <n>` |
 | `takes:triage` | Disposition not yet decided. | `/triage <n>` |
-| `takes:human` | Done outside Claude Code entirely. | — |
+| `takes:human` | An act only the founder's hands can do, on no screen a session drives. | — |
 | `takes:children` | A container — open a child instead. | — |

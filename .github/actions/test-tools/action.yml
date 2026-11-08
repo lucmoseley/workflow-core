@@ -12,25 +12,15 @@ runs:
     # tests and the hook gates' real-secret cases — skip where `gitleaks` is
     # not on PATH, and ubuntu-latest ships none (#55). `!cancelled()` like
     # Vitest's own: without it an earlier step's failure skips this install
-    # while Vitest still runs, and those cases skip green. Pinned by version
-    # and checksum on ci.yml's actionlint step's terms; 8.30.1 is also the
-    # version the test fixtures' allowlisted-key comments name. Bump the version
-    # and the sha256 together, from the release's gitleaks_<v>_checksums.txt.
+    # while Vitest still runs, and those cases skip green. Pinned by tag and
+    # digest from gitleaks' own image (image-binary says why); 8.30.1 is also
+    # the version the test fixtures' allowlisted-key comments name.
     - name: Install gitleaks
       if: ${{ !cancelled() }}
-      shell: bash
-      env:
-        GITLEAKS_VERSION: 8.30.1
-        GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-      run: |
-        tgz="$RUNNER_TEMP/gitleaks.tgz"
-        curl -sSfL --retry 3 --retry-all-errors --retry-delay 5 -o "$tgz" \
-          "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-        echo "$GITLEAKS_SHA256  $tgz" | sha256sum -c -
-        mkdir -p "$RUNNER_TEMP/gitleaks-bin"
-        tar -xzf "$tgz" -C "$RUNNER_TEMP/gitleaks-bin" gitleaks
-        "$RUNNER_TEMP/gitleaks-bin/gitleaks" version
-        echo "$RUNNER_TEMP/gitleaks-bin" >> "$GITHUB_PATH"
+      uses: ./.github/actions/image-binary
+      with:
+        image: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+        binary: /usr/bin/gitleaks
 
     # The adopter first-commit tests stage the skeleton's browse.py, and the
     # pre-commit format gate refuses a staged .py path where ruff is absent

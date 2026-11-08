@@ -11,6 +11,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import {
+	ONE_BOOT,
 	readingLine,
 	signalLine,
 	writeFailingJournalctl,
@@ -56,6 +57,7 @@ const run = (argv: string[] = []) =>
 			CLAUDE_PROJECT_DIR: repo(),
 			STUB_DIR: path.join(sb.dir, "gh"),
 			WFC_JOURNALCTL: stub("journalctl"),
+			WFC_REFILL_DIR: path.join(sb.dir, "refill"),
 		},
 	});
 
@@ -80,7 +82,7 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 			expect(c.body).toContain("Standalone: a memory kill incident");
 		}
 		expect(created[0].body).toContain(
-			"By kind: Claude host 1, test or build 1, other 0.",
+			"By kind: Claude host 1, node or python process 1.",
 		);
 		/* The second incident's title resembles the first's: file-issue.js
 		 * refused it once, so it was filed on the re-run naming the first. */
@@ -90,6 +92,24 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 		expect(second.status).toBe(0);
 		expect(second.stdout).toBe("");
 		expect(readCreated()).toHaveLength(2);
+	});
+
+	it("names a victim the headless run store holds as that run, with its job id (#4143)", () => {
+		seed([300]);
+		const runDir = path.join(sb.dir, "refill", ".headless-runs", "0aaaaaaa");
+		fs.mkdirSync(runDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(runDir, "run.json"),
+			JSON.stringify({
+				jobId: "0aaaaaaa",
+				pid: 100,
+				bootId: ONE_BOOT.id,
+				launchedAt: Date.now() - 310 * MIN,
+			}),
+		);
+		expect(run().status).toBe(0);
+		const [created] = readCreated();
+		expect(created.body).toContain("By kind: headless run 1 (job 0aaaaaaa).");
 	});
 
 	it("files nothing for an incident a ticket of its title already covers, open or closed", () => {

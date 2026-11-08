@@ -321,7 +321,7 @@ function renderKillLines({ incidents, tickets, why }, lo, hi) {
 			.filter((i) => killsIn(i).length > 0)
 			.map(
 				(i) =>
-					`- ${quoted(incidentTitle(i))} — ${i.kills.length} ${i.kills.length === 1 ? "kill" : "kills"}: ${byKind(i.kills)} — ${ticketText(i, tickets, hi)}`,
+					`- ${quoted(incidentTitle(i))} — ${i.kills.length} ${i.kills.length === 1 ? "kill" : "kills"}: ${byKind(i.kills)}${i.unjoined === null ? "" : ` — headless runs not joined: ${quoted(i.unjoined)}`} — ${ticketText(i, tickets, hi)}`,
 			),
 	];
 }
