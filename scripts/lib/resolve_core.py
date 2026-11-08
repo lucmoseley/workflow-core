@@ -9,8 +9,12 @@ Python 3.10 or later, because it runs before the core is found.
 
 Same lookup, same variables, same messages as resolve-core.js, whose header
 explains each step: WORKFLOW_CORE_DIR, then WORKFLOW_CORE_CHECKOUT, then the
-installed plugin's install row for the adopter root or, where it has none and
-is a linked worktree, its main checkout. test_resolve_core.py runs
+installed plugin's install row for the adopter root as spelt, else, where the
+root is a checkout's top level, for its main checkout as git spells it, asking
+git only where the root has no row. So a linked worktree resolves through its
+main checkout, and so does a main checkout's root spelt through a symlink or
+with a trailing slash (#4150).
+test_resolve_core.py runs
 both files over the same fixtures and fails on any difference. A value the CLI
 never writes — a non-string ref or install path — fails in both, naming the
 pin, but its message text can differ.
@@ -52,27 +56,28 @@ def _get(value, key):
 def _read_git_roots(**options):
     """resolve-core.js's readGitRoots: (main checkout, top level), or None."""
     try:
-        common, top = (
-            subprocess.run(
-                [
-                    "git",
-                    "rev-parse",
-                    "--path-format=absolute",
-                    "--git-common-dir",
-                    "--show-toplevel",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                **options,
-            )
-            .stdout.strip()
-            .split("\n")
-        )
+        out = subprocess.run(
+            [
+                "git",
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+                "--show-toplevel",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            **options,
+        ).stdout
     except (OSError, subprocess.CalledProcessError, ValueError):
-        # Outside a git tree, or with no git, the caller's own directory is the
-        # only root left (#1274, #4117).
+        # Outside a git tree, with no git, or with a root subprocess refuses (a
+        # NUL byte raises ValueError), the caller's own directory is the only
+        # root left (#1274, #4117).
         return None
+    lines = out.strip().split("\n")
+    if len(lines) < 2:
+        raise RuntimeError(f"git rev-parse printed fewer than two lines: {out}")
+    common, top = lines[:2]
     return (os.path.dirname(common) if os.path.basename(common) == ".git" else top, top)
 
 
@@ -160,12 +165,15 @@ def resolve_core(
             else []
         )
 
-    main = _read_main_checkout(root)
-    own = rows_for(root)
-    rows = own if own or main == root else rows_for(main)
+    rows = rows_for(root)
+    searched = root
+    if not rows:
+        main = _read_main_checkout(root)
+        if main != root:
+            rows = rows_for(main)
+            searched = f"{root} or {main}"
     install_path = _get(rows[-1], "installPath") if rows else None
     if not install_path:
-        searched = root if main == root else f"{root} or {main}"
         fail(f"{unset}, and {record} records no {key} install for {searched}")
     if not isinstance(install_path, str) or not os.path.isdir(install_path):
         fail(f"{record} records {install_path}, which is not a directory")
