@@ -258,7 +258,7 @@ function refuseUncommitted(payload, sid, tree) {
 		sessionId: sid,
 		reason:
 			`This turn ends with ${String(mine.length)} tracked file(s) this session wrote still uncommitted in ${tree}: ${list}. ` +
-			"docs/agents/guard-registry.md §Conventions: a turn never ends with uncommitted work, and the next tool call after any Stop-hook detour is the commit, not the summary. " +
+			"docs/agents/guard-registry.md §Conventions: a turn never ends with uncommitted work. Your next tool call is the commit, not the summary. " +
 			recipe +
 			(tree === hookBlock.repoRoot()
 				? "Never `git add` first, because the main checkout's index is every session's. "
@@ -301,7 +301,7 @@ function refuseHeldClean(payload, sid) {
 		sessionId: sid,
 		reason:
 			`This turn ends \`${name}\` while this session holds ${String(clean.length)} claim(s) on files with no uncommitted change: ${named}. ` +
-			"Its work on them is committed, so each claim guards nothing and refuses every neighbour who wants the file. " +
+			"Its work on them is committed, so each claim guards nothing yet still warns every neighbour who writes the file of a likely merge conflict. " +
 			`Release them: \`${buildArbiterCommand`release-committed ${clean}`}\` — a later write of yours re-takes the claim. ` +
 			"Then re-send the message this turn was going to end on, its status marker and any priced question included — this block discarded it.",
 	});
