@@ -40,6 +40,7 @@ const path = require("node:path");
 const { matchSensitivePaths, narrowedAreas } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { caught } = require("./caught.js");
+const { CONFIG_PATH } = require("./workflow-core-config.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { treeOr } = require("./tree-or.js");
 
@@ -69,8 +70,6 @@ const { treeOr } = require("./tree-or.js");
  * list would push the fragments after it off this call. 3 is a first guess,
  * never measured against the cap. */
 const PATHS_LISTED_MAX = 3;
-
-const DECLARATION = ".claude/workflow-core.json";
 
 /**
  * @param {string} skill
@@ -145,7 +144,7 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
  * @returns {Match}
  */
 function withNarrowing(match, declared, paths, { tree, ctx }) {
-	if (!paths.includes(DECLARATION)) return match;
+	if (!paths.includes(CONFIG_PATH)) return match;
 	const before = ctx.declaredAtHead(tree);
 	const narrowed = narrowedAreas(before, declared);
 	const added = (before ?? [])
@@ -154,7 +153,7 @@ function withNarrowing(match, declared, paths, { tree, ctx }) {
 				narrowed.includes(a.name) &&
 				!match.matched.some((m) => m.name === a.name),
 		)
-		.map(({ globs: _globs, ...area }) => ({ ...area, paths: [DECLARATION] }));
+		.map(({ globs: _globs, ...area }) => ({ ...area, paths: [CONFIG_PATH] }));
 	return added.length === 0
 		? match
 		: { ...match, tier: "escalated", matched: [...match.matched, ...added] };

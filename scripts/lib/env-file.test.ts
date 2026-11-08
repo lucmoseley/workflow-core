@@ -258,6 +258,9 @@ describe("the secrets file's stored names and values (#3821)", () => {
 
 	it("reads a long run of spaces inside a value in linear time", () => {
 		fs.writeFileSync(file, `K=abcd${" ".repeat(2_000_000)}efgh`);
+		/* Crosses the real clock, as no seam counts a regex's backtracking: linear
+		 * here measured 11 ms (8 Nov 2026); quadratic over 2M spaces, unmeasured,
+		 * is some 4e12 steps, so 2000 ms parts the two on any load. */
 		const started = Date.now();
 		expect(readStoredSecrets().names).toEqual(["K"]);
 		expect(Date.now() - started).toBeLessThan(2000);

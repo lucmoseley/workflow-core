@@ -78,10 +78,10 @@ function matchSensitivePaths(declared, paths) {
  * @returns {string[]} names
  */
 function narrowedAreas(before, after) {
-	const now = new Map((after ?? []).map((a) => [a.name, a.globs]));
+	const globsAfter = new Map((after ?? []).map((a) => [a.name, a.globs]));
 	return (before ?? [])
 		.filter(({ name, globs }) => {
-			const kept = now.get(name);
+			const kept = globsAfter.get(name);
 			return kept === undefined || globs.some((g) => !kept.includes(g));
 		})
 		.map((a) => a.name);
@@ -101,29 +101,31 @@ function narrowedAreas(before, after) {
  * @param {string[]} paths
  */
 function printHeld(before, after, paths) {
-	let was;
+	let declaredBefore;
 	try {
-		was = readConfig({ root: before, quiet: true }).sensitivePaths;
+		declaredBefore = readConfig({ root: before, quiet: true }).sensitivePaths;
 	} catch (e) {
 		writeFd(2, `BROKEN: ${caught(e).message}\n`);
 		process.exit(2);
 	}
 	/** @type {SensitivePath[] | undefined} */
-	let now;
+	let declaredAfter;
 	let fault = "";
 	try {
-		now = readConfig({ root: after, quiet: true }).sensitivePaths;
+		declaredAfter = readConfig({ root: after, quiet: true }).sensitivePaths;
 	} catch (e) {
 		fault = `BROKEN: ${caught(e).message}\n`;
 	}
-	const narrowed = paths.includes(CONFIG_PATH) ? narrowedAreas(was, now) : [];
+	const narrowed = paths.includes(CONFIG_PATH)
+		? narrowedAreas(declaredBefore, declaredAfter)
+		: [];
 	if (fault && narrowed.length === 0) {
 		writeFd(2, fault);
 		process.exit(2);
 	}
 	const names = new Set([
-		...matchSensitivePaths(was, paths).matched.map((a) => a.name),
-		...matchSensitivePaths(now, paths).matched.map((a) => a.name),
+		...matchSensitivePaths(declaredBefore, paths).matched.map((a) => a.name),
+		...matchSensitivePaths(declaredAfter, paths).matched.map((a) => a.name),
 		...narrowed,
 	]);
 	writeFd(

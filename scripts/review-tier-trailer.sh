@@ -37,22 +37,25 @@ msg="$1"
 # there, so no stamp is consumed and no fault logged.
 [[ -n "$msg" ]] || exit 0
 
-# dropped <why> [<detail>] — say this commit lands with no trailer, and log it.
-dropped() {
-  echo "prepare-commit-msg: $1, so this commit lands with no Review-Tier: trailer${2:+ ($2)}." >&2
+# fail_open <said> <logged> [<detail>] — print <said>, log <logged>, and pass.
+fail_open() {
+  echo "prepare-commit-msg: $1." >&2
   # shellcheck source=scripts/lib/guard-log.sh
   source "${BASH_SOURCE[0]%/*}/lib/guard-log.sh" 2>/dev/null &&
-    gl_log "review-tier-trailer.sh: $1 — a held commit landed with no Review-Tier: trailer" "${2-}"
+    gl_log "review-tier-trailer.sh: $2" "${3-}"
   exit 0
+}
+
+# dropped <why> [<detail>] — say this commit lands with no trailer, and log it.
+dropped() {
+  fail_open "$1, so this commit lands with no Review-Tier: trailer${2:+ ($2)}" \
+    "$1 — a held commit landed with no Review-Tier: trailer" "${2-}"
 }
 
 # unstripped <why> — a line that may be false stands: say so, and log it.
 unstripped() {
-  echo "prepare-commit-msg: $1, so a Review-Tier: line in the message stands unvouched." >&2
-  # shellcheck source=scripts/lib/guard-log.sh
-  source "${BASH_SOURCE[0]%/*}/lib/guard-log.sh" 2>/dev/null &&
-    gl_log "review-tier-trailer.sh: $1 — a Review-Tier: line stands unvouched"
-  exit 0
+  fail_open "$1, so a Review-Tier: line in the message stands unvouched" \
+    "$1 — a Review-Tier: line stands unvouched"
 }
 
 # vouching_message <route> — the one message whose `Review-Tier:` line this commit
@@ -77,7 +80,6 @@ vouching_message() {
 stripped=""
 strip_unvouched() {
   local status=0 original kept
-  [[ -n "$msg" ]] || return 0
   grep -qiE '^Review-Tier[[:space:]]*:' "$msg" 2>/dev/null || status=$?
   [[ "$status" -ne 1 ]] || return 0
   [[ "$status" -eq 0 ]] || unstripped "could not read the message file $msg"
