@@ -332,7 +332,7 @@ function readCountLine(root) {
 function readEnvelope(script, args, timeout, cwd) {
 	return judgeEnvelope(
 		script,
-		spawnSync(process.execPath, checkerArgv(script, args), {
+		spawnSync(process.execPath, buildCheckerArgv(script, args), {
 			cwd,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -343,27 +343,32 @@ function readEnvelope(script, args, timeout, cwd) {
 }
 
 /**
- * readEnvelope's answer from a checker started now and left running, so the
- * caller's other reads run beside it.
+ * A checker started now and left running, so the caller's other reads run
+ * beside it. Its bound starts at `settle`, not at the start: those reads block
+ * the event loop, so a timer started with the child would fire on a checker
+ * that finished long since, before its output was read. `stop` kills it,
+ * for a caller that throws before settling.
  * @param {string} script
- * @param {number} timeout ms
- * @returns {Promise<{envelope: Record<string, any>, missing: string} | {why: string}>}
  */
-function startEnvelope(script, timeout) {
-	return new Promise((resolve) => {
+function startEnvelope(script) {
+	const stop = new AbortController();
+	/** @type {NodeJS.Timeout | undefined} */
+	let bound;
+	/** @type {number} */
+	let timeout = 0;
+	let ended = false;
+	/** @type {Promise<{envelope: Record<string, any>, missing: string} | {why: string}>} */
+	const answer = new Promise((resolve) => {
 		const child = execFile(
 			process.execPath,
-			checkerArgv(script, []),
-			{ encoding: "utf8", timeout, maxBuffer: CHILD_MAX_BUFFER },
+			buildCheckerArgv(script, []),
+			{ encoding: "utf8", maxBuffer: CHILD_MAX_BUFFER, signal: stop.signal },
 			(error, stdout) => {
-				/* A non-zero exit is the checker's verdict, read off its envelope as
-				 * readEnvelope reads it; only a start, kill or overflow is a failure. */
-				const failed = error && typeof error.code !== "number" ? error : null;
+				ended = true;
+				clearTimeout(bound);
 				resolve(
 					judgeEnvelope(script, {
-						error: failed?.killed
-							? new Error(`killed at its ${timeout} ms bound`)
-							: failed,
+						error: whyStartFailed(error, timeout),
 						stdout,
 						status: child.exitCode,
 					}),
@@ -372,13 +377,37 @@ function startEnvelope(script, timeout) {
 		);
 		child.stdin?.end();
 	});
+	return {
+		/** @param {number} ms */
+		settle(ms) {
+			timeout = ms;
+			if (!ended) bound = setTimeout(() => stop.abort(), ms);
+			return answer;
+		},
+		stop: () => stop.abort(),
+	};
+}
+
+/**
+ * What failed where execFile reports an error, or undefined where the error
+ * is only a non-zero exit: that is the checker's verdict, read off its
+ * envelope as readEnvelope reads it.
+ * @param {import("node:child_process").ExecFileException | null} error
+ * @param {number} timeout ms, the bound `settle` set
+ */
+function whyStartFailed(error, timeout) {
+	if (!error || typeof error.code === "number") return;
+	if (error.name === "AbortError")
+		return new Error(`killed at its ${timeout} ms bound`);
+	if (error.signal) return new Error(`killed by ${error.signal}`);
+	return error;
 }
 
 /**
  * @param {string} script
  * @param {string[]} args
  */
-const checkerArgv = (script, args) => [
+const buildCheckerArgv = (script, args) => [
 	path.join(coreRoot(), "scripts", script),
 	"--json",
 	...args,
@@ -627,9 +656,12 @@ function readConcurrency(now) {
 	};
 }
 
-/** @returns {Promise<import("./lib/morning-review.js").IdleReading>} */
-async function readIdle() {
-	const read = await startEnvelope("check-idle-efforts.js", IDLE_TIMEOUT_MS);
+/**
+ * @param {ReturnType<typeof startEnvelope>} started check-idle-efforts.js
+ * @returns {Promise<import("./lib/morning-review.js").IdleReading>}
+ */
+async function readIdle(started) {
+	const read = await started.settle(IDLE_TIMEOUT_MS);
 	if ("why" in read) return read;
 	const { trackers, loopRunning, damaged } = read.envelope;
 	return Array.isArray(trackers) &&
@@ -639,12 +671,12 @@ async function readIdle() {
 		: { why: read.missing };
 }
 
-/** @returns {Promise<import("./lib/morning-review.js").WslCurrencyReading>} */
-async function readWslCurrency() {
-	const read = await startEnvelope(
-		"check-wsl-currency.js",
-		WSL_CURRENCY_TIMEOUT_MS,
-	);
+/**
+ * @param {ReturnType<typeof startEnvelope>} started check-wsl-currency.js
+ * @returns {Promise<import("./lib/morning-review.js").WslCurrencyReading>}
+ */
+async function readWslCurrency(started) {
+	const read = await started.settle(WSL_CURRENCY_TIMEOUT_MS);
 	if ("why" in read) return read;
 	if (read.envelope.outcome === "SKIP") return null;
 	return Array.isArray(read.envelope.lines)
@@ -801,6 +833,66 @@ async function fileReview(tracker, dryRun) {
 }
 
 /**
+ * Every read of the window, rendered as the review's body.
+ * @param {{tracker: string, since: string, why: string | null, now: Date,
+ *   previous: any, reviews: any[], dryRun: boolean,
+ *   idle: ReturnType<typeof startEnvelope>,
+ *   wslCurrency: ReturnType<typeof startEnvelope>}} at
+ */
+async function renderWindow({
+	tracker,
+	since,
+	why,
+	now,
+	previous,
+	reviews,
+	dryRun,
+	idle,
+	wslCurrency,
+}) {
+	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
+	const home = homeDir();
+	const { included, faulted } = discoverRepos(home);
+	const read = [
+		...included.map((root) => readRepo(root, since, reads, reviews)),
+		...faulted.map((f) => buildFaultedRepo(f, since, reviews)),
+		...carry.buildAbsentRepos({
+			previous,
+			listed: new Set(
+				[...included, ...faulted.map((f) => f.root)].map((root) =>
+					path.basename(root),
+				),
+			),
+			since,
+			nowMs: now.getTime(),
+			readAbsence: (/** @type {string} */ checkout) =>
+				readAbsence(path.join(home, checkout)),
+		}),
+	];
+	const holds = readHoldRoots(included).map((root) =>
+		readOpenHolds(root, now.getTime()),
+	);
+	return review.renderReview({
+		since,
+		now: now.toISOString(),
+		previous: previous?.number ?? null,
+		repos: read.flatMap((r) => (r.reading ? [r.reading] : [])),
+		failed: [
+			...(why === null ? [] : [{ repo: tracker, why }]),
+			...read.flatMap((r) => r.unread),
+			...holds.flatMap((h) => h.unread),
+		],
+		unreadEvents: read.flatMap((r) => r.unreadEvents),
+		holds: holds.flatMap((h) => h.read),
+		kills: readKills(tracker, since),
+		runaways: readRunaways(tracker, since),
+		concurrency: readConcurrency(now.getTime()),
+		idle: await readIdle(idle),
+		wslCurrency: await readWslCurrency(wslCurrency),
+	});
+}
+
+/**
  * Read the window and file its review, unless one carries today's date. The
  * exit code.
  * @param {string} tracker
@@ -830,49 +922,26 @@ async function fileUnlessFiledToday(tracker, dryRun) {
 	}
 	const [previous] = reviews;
 	const { since, why } = review.windowStart(previous, now);
-	const idle = readIdle();
-	const wslCurrency = readWslCurrency();
-
-	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
-	const home = homeDir();
-	const { included, faulted } = discoverRepos(home);
-	const read = [
-		...included.map((root) => readRepo(root, since, reads, reviews)),
-		...faulted.map((f) => buildFaultedRepo(f, since, reviews)),
-		...carry.buildAbsentRepos({
-			previous,
-			listed: new Set(
-				[...included, ...faulted.map((f) => f.root)].map((root) =>
-					path.basename(root),
-				),
-			),
+	const idle = startEnvelope("check-idle-efforts.js");
+	const wslCurrency = startEnvelope("check-wsl-currency.js");
+	/** @type {string} */
+	let body;
+	try {
+		body = await renderWindow({
+			tracker,
 			since,
-			nowMs: now.getTime(),
-			readAbsence: (/** @type {string} */ checkout) =>
-				readAbsence(path.join(home, checkout)),
-		}),
-	];
-	const holds = readHoldRoots(included).map((root) =>
-		readOpenHolds(root, now.getTime()),
-	);
-	const body = review.renderReview({
-		since,
-		now: now.toISOString(),
-		previous: previous?.number ?? null,
-		repos: read.flatMap((r) => (r.reading ? [r.reading] : [])),
-		failed: [
-			...(why === null ? [] : [{ repo: tracker, why }]),
-			...read.flatMap((r) => r.unread),
-			...holds.flatMap((h) => h.unread),
-		],
-		unreadEvents: read.flatMap((r) => r.unreadEvents),
-		holds: holds.flatMap((h) => h.read),
-		kills: readKills(tracker, since),
-		runaways: readRunaways(tracker, since),
-		concurrency: readConcurrency(now.getTime()),
-		idle: await idle,
-		wslCurrency: await wslCurrency,
-	});
+			why,
+			now,
+			previous,
+			reviews,
+			dryRun,
+			idle,
+			wslCurrency,
+		});
+	} finally {
+		idle.stop();
+		wslCurrency.stop();
+	}
 
 	if (dryRun) {
 		io.out(`${title}\n\n${body}`);
