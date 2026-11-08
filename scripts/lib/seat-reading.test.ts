@@ -3,8 +3,8 @@
  * A seat's reading, its cap sizing and the overflow seats' readings
  * (lib/seat-reading.js, #4218), each overflow seat's budget injected. No
  * fixture touches disk but the usage caches the reading cases write, the cap
- * call run on them, and the reads of dispatch-sessions.sh that pin the copies
- * of its cap thresholds and cap-call flags to the script's.
+ * sized on them, and the reads of dispatch-sessions.sh that pin the copies
+ * of its cap thresholds to the script's.
  *
  * Loosen one and failover leaves its order, a full seat reopens before its
  * reset, a stale seat behind a full one is waited on rather than read, the
@@ -20,6 +20,7 @@ import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import { MIN, NOW, row, seat } from "./refill-loop-fixture";
 import { seatIdOf } from "./refill-seats.js";
 import {
+	capFitsOf,
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
@@ -62,40 +63,6 @@ const budget = (over: Record<string, unknown> = {}) => ({
 	exhausted: false,
 	...over,
 });
-
-/**
- * Answer each `allowance.js` child spawned while the env is stubbed with the
- * reply `replies` gives its `--config-dir`, through a preload that runs before
- * the script; returns a reader of each child's script and arguments, in order.
- */
-function stubAllowance(
-	dir: string,
-	replies: Record<string, { stdout: string; status?: number }>,
-) {
-	const preload = path.join(dir, "allowance-stub.cjs");
-	const log = path.join(dir, "allowance-argv.jsonl");
-	fs.writeFileSync(
-		preload,
-		[
-			'const fs = require("node:fs");',
-			"const args = process.argv.slice(2);",
-			`fs.appendFileSync(${JSON.stringify(log)}, \`\${JSON.stringify(process.argv.slice(1))}\\n\`);`,
-			`const reply = ${JSON.stringify(replies)}[args[args.indexOf("--config-dir") + 1]];`,
-			"fs.writeSync(1, reply.stdout);",
-			"process.exit(reply.status ?? 0);",
-		].join("\n"),
-	);
-	vi.stubEnv(
-		"NODE_OPTIONS",
-		`${process.env.NODE_OPTIONS ?? ""} --require ${preload}`.trim(),
-	);
-	return () =>
-		fs
-			.readFileSync(log, "utf8")
-			.trim()
-			.split("\n")
-			.map((l) => JSON.parse(l) as string[]);
-}
 
 describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 	let dir: string;
@@ -696,86 +663,35 @@ describe("the cap's launch count (#2278)", () => {
 		vi.unstubAllEnvs();
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
-	/** capSizer's count of 2 on seat `dir`, its child answering `stdout` and
-	 * exiting `status`, with the lines noted and the child's arguments. */
-	const sizeOn = (stdout: string, status = 0) => {
-		const argvOf = stubAllowance(dir, { [dir]: { stdout, status } });
-		const lines: string[] = [];
-		const fits = capSizer(dir, (l) => lines.push(l))(dir, 2);
-		return { fits, lines, argv: argvOf()[0] };
-	};
-
-	it("passes the flags dispatch-sessions.sh's cap call passes", () => {
-		const sh = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
-			"utf8",
-		);
-		const call = sh.match(/allowance\.js" --json \\\n\s*(--cap[\s\S]*?) 2>/);
-		const flags = (args: string[]) => args.filter((a) => a.startsWith("--"));
-		expect(call).not.toBeNull();
-		const { argv } = sizeOn(JSON.stringify({ cap: { launch: 2 } }));
-		expect(path.basename(argv[0])).toBe("allowance.js");
-		expect(flags(argv).filter((f) => f !== "--config-dir")).toEqual([
-			"--json",
-			...flags(String(call?.[1]).split(/[\s\\]+/)),
-		]);
-	});
-
-	it("reads cap.launch from allowance.js's payload", () => {
-		expect(sizeOn(JSON.stringify({ cap: { launch: 2 } }))).toMatchObject({
+	it("reads the cap's launch, a launch that is the floor's member alone as 0 (#2432), and a cap error as a fault (#2937)", () => {
+		expect(
+			capFitsOf({
+				launch: 2,
+				floored: false,
+				binding: null,
+				warned: [],
+				running: [],
+			}),
+		).toEqual({
 			fits: 2,
-			lines: [],
+		});
+		expect(
+			capFitsOf({
+				launch: 1,
+				floored: true,
+				binding: null,
+				warned: [],
+				running: [],
+			}),
+		).toEqual({
+			fits: 0,
+		});
+		expect(capFitsOf({ launch: 0, error: "cost table unreadable" })).toEqual({
+			fits: null,
+			why: "cost table unreadable",
+			fault: true,
 		});
 	});
-
-	it("reads a launch that is the floor's member alone as 0 (#2432)", () => {
-		expect(
-			sizeOn(JSON.stringify({ cap: { launch: 1, floored: true } })),
-		).toMatchObject({ fits: 0, lines: [] });
-	});
-
-	it.each([
-		{
-			name: "no JSON",
-			stdout: "oops",
-			status: 0,
-			line: "fault: cap on SEAT unsized: allowance.js printed no JSON",
-		},
-		{
-			name: "no JSON from a failed child",
-			stdout: "",
-			status: 2,
-			line: "fault: cap on SEAT unsized: allowance.js printed no JSON (exit 2)",
-		},
-		{
-			name: "no cap, the reading untrusted, its exit 1 no fault (#4286)",
-			stdout: "{}",
-			status: 1,
-			line: "cap on SEAT unsized: no trustworthy allowance reading",
-		},
-		{
-			name: "a cap error",
-			stdout: JSON.stringify({
-				cap: { launch: 0, error: "cost table unreadable" },
-			}),
-			status: 0,
-			line: "fault: cap on SEAT unsized: cost table unreadable",
-		},
-		{
-			name: "a launch that is no integer",
-			stdout: JSON.stringify({ cap: { launch: 1.5 } }),
-			status: 0,
-			line: "fault: cap on SEAT unsized: cap.launch is 1.5",
-		},
-	])(
-		"reads $name as unsized, naming why and whether a fault (#2937)",
-		({ stdout, status, line }) => {
-			expect(sizeOn(stdout, status)).toMatchObject({
-				fits: null,
-				lines: [line.replace("SEAT", dir)],
-			});
-		},
-	);
 
 	it("hands the caller's note a cap it cannot size, as a fault, and sizes it null", () => {
 		const lines: string[] = [];
@@ -794,8 +710,6 @@ describe("the cap's launch count (#2278)", () => {
 		vi.stubEnv("WFC_SESSION_COST_TABLE", path.join(dir, "no-such-table.json"));
 		const lines: string[] = [];
 		expect(capSizer(dir, (l) => lines.push(l))(dir, 1)).toBeNull();
-		/* A trustworthy reading exits 0, so the line names no exit; the cap's
-		 * fault rides in its payload. */
 		expect(lines).toEqual([
 			expect.stringMatching(
 				new RegExp(
@@ -806,30 +720,10 @@ describe("the cap's launch count (#2278)", () => {
 	});
 
 	describe("through decideTick, a seat that fits only the floor's member", () => {
-		/* Seats at these week readings, sized through capSizer, the cap
-		 * allowance.js would print for them; over 97% the running sessions
-		 * are projected 3 points of the week, past 100%. */
+		/* Seats at these week readings, each sized to the cap capOf gives
+		 * them; over 97% the running sessions are projected 3 points of the
+		 * week, past 100%. */
 		const sizedOn = (weeks: Record<string, number>) => {
-			const argvOf = stubAllowance(
-				dir,
-				Object.fromEntries(
-					Object.entries(weeks).map(([name, week]) => [
-						name,
-						{
-							stdout: JSON.stringify({
-								cap: capSet({
-									readings: { session: 10, weekly_all: week },
-									thresholds: { session: 90, weekly_all: 97 },
-									members: 2,
-									runningPoints: { session: 0, weekly_all: 3 },
-									perSessionPoints: { session: 1.5, weekly_all: 0.1 },
-								}),
-							}),
-						},
-					]),
-				),
-			);
-			const noted: string[] = [];
 			const { seats } = readSizedSeats(2, {
 				read: () =>
 					Object.entries(weeks).map(([name, week]) => seat(name, week, 10)),
@@ -837,13 +731,20 @@ describe("the cap's launch count (#2278)", () => {
 					usage: new Map(stale.map((s) => [s, ""])),
 					probes: [],
 				}),
-				sizeOf: capSizer(dir, (l) => noted.push(l)),
+				sizeOf: (name: string, members: number) =>
+					capFitsOf({
+						...capSet({
+							readings: { session: 10, weekly_all: weeks[name] },
+							thresholds: { session: 90, weekly_all: 97 },
+							members,
+							runningPoints: { session: 0, weekly_all: 3 },
+							perSessionPoints: { session: 1.5, weekly_all: 0.1 },
+						}),
+						running: [],
+					}).fits,
 				typedSeat: null,
 				tries: NO_TRIES,
 			});
-			expect(noted).toEqual([]);
-			for (const argv of argvOf())
-				expect(argv[argv.indexOf("--cap") + 1]).toBe("2");
 			return seats;
 		};
 		const tick = (seats: ReturnType<typeof sizedOn>) =>

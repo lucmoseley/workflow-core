@@ -6,21 +6,20 @@
  * (#4218). A seat's identity is lib/refill-seats.js's.
  *
  * The readings and their sizing are pure over their inputs. The reads are
- * readSeat, off lib/allowance.js, and readCap, through the `allowance.js --cap`
- * child dispatch-sessions.sh runs; readSizedSeats takes its read, probe and
+ * readSeat, off lib/allowance.js, and readCap, through lib/allowance-cap.js,
+ * the sizing dispatch-sessions.sh's `allowance.js --cap` call runs; readSizedSeats takes its read, probe and
  * sizing as arguments, and overflowReadings its key budgets, so each caller
  * picks its own: the tick probes stale seats and reads each budget afresh, the
  * status view probes none (#3733) and memoises each key's budget (#4169).
  */
 
-const path = require("node:path");
 const {
 	STALE_MS,
 	isTrustworthy,
 	readAllowance,
 	sizedPercent,
 } = require("./allowance.js");
-const { CHILD_TIMEOUT_MS, spawnChild } = require("./child-spawn.js");
+const { capOf } = require("./allowance-cap.js");
 const { localDate } = require("./morning-review.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const {
@@ -29,7 +28,6 @@ const {
 	hasRoom,
 	orderPlanSeats,
 } = require("./refill-decide.js");
-const { buildCheckoutEnv } = require("./refill-repos.js");
 const { isSameSeat } = require("./refill-seats.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { hasResetPassed } = require("./usage-cache.js");
@@ -38,8 +36,6 @@ const { hasResetPassed } = require("./usage-cache.js");
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
 /** @typedef {{seat: string, outcome: string, stampMs?: number|null}} Probe
  * `stampMs`, the cache's stamp once it ended. */
-
-const SCRIPTS = path.dirname(__dirname);
 
 /* dispatch-sessions.sh's WEEK_CEILING and SESSION_CEILING defaults, the
  * thresholds its cap sizes a launch past; its test pins the two copies
@@ -393,50 +389,16 @@ function overflowReadings(list, plan, budgetOf) {
 }
 
 /**
- * The `allowance.js` arguments dispatch-sessions.sh's cap call passes, for
- * `members` on `seat`; its test pins the flags to the script's.
- * @param {string} seat
- * @param {number} members
- * @param {{week: number, session: number}} ceilings
+ * The cap's launch count from lib/allowance-cap.js's capOf, or why there is
+ * none: the dispatcher refuses on both. A launch that is the floor's member
+ * alone reads 0 (#2425): each tick would otherwise launch one more past the
+ * headroom. A cap that could not be sized off the seat's trustworthy reading
+ * is a fault (#2937).
+ * @param {import("./allowance-cap.js").Cap} cap
+ * @returns {{fits: number} | {fits: null, why: string, fault: true}}
  */
-const capArgs = (seat, members, ceilings) => [
-	"--json",
-	"--config-dir",
-	seat,
-	"--cap",
-	String(members),
-	"--session-threshold",
-	String(ceilings.session),
-	"--week-threshold",
-	String(ceilings.week),
-];
-
-/**
- * The cap's launch count from `allowance.js --json --cap`'s output, or why
- * there is none: the dispatcher refuses on both. A launch that is the floor's
- * member alone reads 0 (#2425): each tick would otherwise launch one more
- * past the headroom. `fault` marks a cap the call could not size, where the
- * seat's reading itself was trustworthy (#2937).
- * @param {string} stdout
- * @returns {{fits: number} | {fits: null, why: string, fault: boolean}}
- */
-function parseCapFits(stdout) {
-	let payload;
-	try {
-		payload = JSON.parse(stdout);
-	} catch {
-		return { fits: null, why: "allowance.js printed no JSON", fault: true };
-	}
-	const cap = payload?.cap;
-	if (!cap)
-		return {
-			fits: null,
-			why: "no trustworthy allowance reading",
-			fault: false,
-		};
-	if (cap.error) return { fits: null, why: String(cap.error), fault: true };
-	if (!Number.isInteger(cap.launch))
-		return { fits: null, why: `cap.launch is ${cap.launch}`, fault: true };
+function capFitsOf(cap) {
+	if ("error" in cap) return { fits: null, why: cap.error, fault: true };
 	return { fits: cap.floored === true ? 0 : cap.launch };
 }
 
@@ -463,11 +425,11 @@ const readSeatReadings = (seats, usage = new Map(), now = Date.now()) =>
 	seats.map((seat) => readSeat(seat, now, usage.get(seat)).reading);
 
 /**
- * How many of `members` the dispatcher's allowance cap launches on `seat`,
- * read through the `allowance.js --cap` call it makes, fed the seat's printed
- * `/usage` as the dispatcher feeds its probe's, run in `root` as the
- * dispatcher runs in the checkout it launches into, so both read that host's
- * cost table (#2937); null where it cannot be sized.
+ * How many of `members` the dispatcher's allowance cap launches on `seat`: the
+ * sizing its `allowance.js --cap` call makes, in this process (#4176), fed the
+ * seat's printed `/usage` as the dispatcher feeds its probe's, off the cost
+ * table and ledger of `root`, the checkout the dispatcher runs in (#2937);
+ * null where it cannot be sized.
  * @param {string|undefined} root
  * @param {string} seat
  * @param {number} members
@@ -482,25 +444,31 @@ function readCap(root, seat, members, usageText) {
 			why: "the loop serves no checkout to size it in",
 			fault: true,
 		};
-	const r = spawnChild(
-		process.execPath,
-		[
-			path.join(SCRIPTS, "allowance.js"),
-			...capArgs(seat, members, ceilingsOf(process.env)),
-		],
-		{
-			timeout: CHILD_TIMEOUT_MS,
-			input: usageText,
-			cwd: root,
-			env: { ...buildCheckoutEnv(root), CLAUDE_CONFIG_DIR: seat },
-		},
-	);
-	const cap = parseCapFits(r.stdout);
-	/* An untrusted reading is allowance.js's exit 1, its payload capless
-	 * (#293 ruling 2, #4286). */
-	if (cap.fits !== null || !r.failed || (!cap.fault && r.status === 1))
-		return cap;
-	return { fits: null, why: `${cap.why} (${r.failed})`, fault: true };
+	const result = readAllowance({ configDir: seat, usageText });
+	/* An untrusted reading is sized by no cap, and is no fault (#293 ruling 2,
+	 * #4286). */
+	if (!isTrustworthy(result))
+		return {
+			fits: null,
+			why: "no trustworthy allowance reading",
+			fault: false,
+		};
+	const ceilings = ceilingsOf(process.env);
+	/* A throw, a transcript that will not read among them, leaves the
+	 * dispatcher's own call unsized: so here, rather than ending the reader. */
+	try {
+		return capFitsOf(
+			capOf(result, {
+				members,
+				sessionThreshold: ceilings.session,
+				weekThreshold: ceilings.week,
+				configDir: seat,
+				root,
+			}),
+		);
+	} catch (err) {
+		return { fits: null, why: `sizing threw: ${String(err)}`, fault: true };
+	}
 }
 
 /**
@@ -528,6 +496,7 @@ const capSizer =
 	};
 
 module.exports = {
+	capFitsOf,
 	capSizer,
 	ceilingsOf,
 	overflowReadings,

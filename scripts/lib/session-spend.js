@@ -161,6 +161,12 @@ function pricedTokens(usage) {
 const SESSION_COST_TABLE = "docs/data/session-cost-table.json";
 /** @param {string} [root] */
 const tablePath = (root = hostRoot()) => path.join(root, SESSION_COST_TABLE);
+/**
+ * The table readCostTable reads by default, for the host `root`.
+ * @param {string} [root]
+ */
+const costTableFile = (root) =>
+	process.env.WFC_SESSION_COST_TABLE || tablePath(root);
 
 /**
  * A listed session with no transcript yet started within this window is a
@@ -399,9 +405,7 @@ function readSessionFiles(mainFile) {
  * @param {string} [file]
  * @returns {CostTable | null}
  */
-function readCostTable(
-	file = process.env.WFC_SESSION_COST_TABLE || tablePath(),
-) {
+function readCostTable(file = costTableFile()) {
 	try {
 		const t = JSON.parse(fs.readFileSync(file, "utf8"));
 		if (
@@ -529,6 +533,7 @@ module.exports = {
 	readCostTableIn,
 	SESSION_COST_TABLE,
 	tablePath,
+	costTableFile,
 	fileSpend,
 	flatUsage,
 	hasUsage,
