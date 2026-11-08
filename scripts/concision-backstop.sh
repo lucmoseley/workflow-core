@@ -232,7 +232,6 @@ if [[ ! -f "$markers_dir/.concision-nagged-$sid" ]] && ! pass_valid "$markers_di
     [[ -n "$prose_fault" ]] &&
       reason+="The marker .claude/tmp/markers/.concision-pass-$sid was rejected — $prose_fault — so it counts as no pass. "
     # The pass runs HERE, in the session that wrote the prose (mantahostels#1143).
-    # Accepted residual: it re-reads this session's own context.
     reason+="This session added roughly $net net words of prose ($files) and has not run a concision pass. Run the concision-pass skill with fixed point $base, then report what was cut. Its closing step, mark-pass.js, writes .claude/tmp/markers/.concision-pass-$sid holding 'base=$base', 'findings=<number of cuts made>' and 'route=in-session'. If every addition is a founder-specified fact, say so, run that closing step with 0 cuts, and finish."
   fi
 fi

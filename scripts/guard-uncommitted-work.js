@@ -26,8 +26,7 @@
  *
  * IT READS THE OUTGOING MESSAGE ON TWO PATHS: the `waiting:` stand-down below
  * (mantahostels#2567), reached only on a turn with dirt to name, and the
- * clean-claim limb's marker check (#3565). mantahostels#872 — Stop hooks not firing
- * at all in one background session — still reaches this guard.
+ * clean-claim limb's marker check (#3565).
  *
  * IT WRITES NO `.hook-ran-` BREADCRUMB, and both paths deliberately read the
  * message without minting one: `hookMessage.readMessageFrom` records on every
@@ -78,7 +77,7 @@
  *            refuses a `result:` or `needs input:` turn while this session
  *            holds a whole-file claim on a clean file.
  * JUSTIFIED: fail-safe — an unattended job that stops mid-edit leaves the work
- *            unrecoverable-by-anyone-else for hours, and the fix is one command.
+ *            unrecoverable-by-anyone-else for hours.
  * DEFEAT:    this file caps the block at six per session (`BLOCK_CAP`, mantahostels#2791),
  *            so a session that genuinely cannot commit — a red pre-commit
  *            gate — is taught and then released rather than
