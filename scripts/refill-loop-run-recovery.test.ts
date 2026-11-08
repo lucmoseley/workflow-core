@@ -217,7 +217,8 @@ process.exit(${handOffExit});\n`,
 		const calls = readLines(at("calls"));
 		expect(calls.length).toBeGreaterThan(0);
 		expect(new Set(calls)).toEqual(new Set([`stop ${Job}`]));
-		expect(launchState().swapHeld).toEqual({
+		expect(launchState().stepResume).toEqual({
+			cause: "swapHeld",
 			at: expect.any(Number),
 			sessionId: "s-job7",
 			cwd: repo,
@@ -233,7 +234,10 @@ process.exit(${handOffExit});\n`,
 		const readState = () =>
 			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
 		const readStillHeld = () =>
-			readState().launches.filter((l: { swapHeld?: unknown }) => l.swapHeld);
+			readState().launches.filter(
+				(l: { stepResume?: { cause: string } }) =>
+					l.stepResume?.cause === "swapHeld",
+			);
 
 		/** The seeded launch, plus one per id in `more`, stopped under the hold,
 		 * each `ages` entry minutes ago, in the same order. */
@@ -246,7 +250,8 @@ process.exit(${handOffExit});\n`,
 				jobId,
 				issues: [7 + i],
 				prompt: `/implement ${7 + i}`,
-				swapHeld: {
+				stepResume: {
+					cause: "swapHeld",
 					at: Date.now() - ages[i] * Min,
 					sessionId: `s-${jobId}`,
 					cwd: repo,
@@ -286,7 +291,7 @@ process.exit(${handOffExit});\n`,
 				/resumed repo \/implement 7, stopped under the swap hold at .*, as its copy/,
 			);
 			expect(readLines(at("calls"))).toEqual([resumeOf("s-job7")]);
-			expect(launchState()).not.toHaveProperty("swapHeld");
+			expect(launchState()).not.toHaveProperty("stepResume");
 			expect(launchState()).toMatchObject({
 				finishedAt: null,
 				jobId: FAKE_COPY,
@@ -312,7 +317,7 @@ process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, s
 			expect(fs.existsSync(at("dispatches"))).toBe(false);
 			expect(readStillHeld()).toEqual([
 				expect.objectContaining({
-					swapHeld: expect.objectContaining({ tries: 0 }),
+					stepResume: expect.objectContaining({ cause: "swapHeld", tries: 0 }),
 				}),
 			]);
 			expect(readLines(at("admission-args"))[1]).toMatch(/--launch/);
@@ -553,7 +558,10 @@ describe("the launches a restart killed (#3880)", () => {
 		`--bg --resume s-${job} --model ${MODEL} ${BOOT_PROMPT.replace("scripts/claim-issue.js", `${scripts}/claim-issue.js`)}`;
 	const readKilled = () =>
 		readState()
-			.launches.filter((l: { bootKilled?: unknown }) => l.bootKilled)
+			.launches.filter(
+				(l: { stepResume?: { cause: string } }) =>
+					l.stepResume?.cause === "bootKilled",
+			)
 			.map((l: { jobId: string }) => l.jobId);
 
 	const buildLaunch = (jobId: string, issue: number, age: number) => ({
@@ -685,7 +693,7 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(readCalls()).toEqual([buildResumeArgs("job8")]);
 		expect(readState().launches[0]).toMatchObject({
 			jobId: "job8",
-			bootKilled: { resumeStartedAt: expect.any(Number) },
+			stepResume: { cause: "bootKilled", resumeStartedAt: expect.any(Number) },
 		});
 		expect(arbiterAs("s-job8", "issue-claims")).toContain("s-job8");
 
@@ -701,7 +709,7 @@ describe("the launches a restart killed (#3880)", () => {
 			copiedFrom: "job8",
 			bootResumedAt: expect.any(Number),
 		});
-		expect(readState().launches[0]).not.toHaveProperty("bootKilled");
+		expect(readState().launches[0]).not.toHaveProperty("stepResume");
 		expect(next.stdout).toMatch(
 			/as its copy c0de7a11 \(found after a kill, the harness's reason lost with it\), which a kill left out of the state: tracking it, not resuming again/,
 		);
@@ -764,7 +772,7 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(readKilled()).toEqual([]);
 			const state = readState();
 			expect(state.launches[0].finishedAt).toBeNull();
-			expect(state.launches[0]).not.toHaveProperty("bootKilled");
+			expect(state.launches[0]).not.toHaveProperty("stepResume");
 			expect(state).toMatchObject({
 				bootedAt: expect.any(Number),
 				sameBootRestart: true,
@@ -900,13 +908,14 @@ describe("the launches a restart killed (#3880)", () => {
 
 		it("is stopped once queued, and still resumed", async () => {
 			writeNeverStarted("job7");
-			const bootKilled = {
+			const stepResume = {
+				cause: "bootKilled",
 				at: Date.now() - 60 * Min,
 				sessionId: "s-job7",
 				cwd: repo,
 				tries: 0,
 			};
-			writeState([{ ...buildLaunch("job7", 7, 60), bootKilled }], false);
+			writeState([{ ...buildLaunch("job7", 7, 60), stepResume }], false);
 			fakeResumeClaude("job7", [LISTED]);
 
 			const stopped = await tickWith(0, () => readStops("job7").length > 0);

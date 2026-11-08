@@ -28,14 +28,8 @@
  *                                        open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
- *                                        overflow rests on; `--json` the code
- *                                        sha, the stop, the pause, the last tick,
- *                                        the mode, when away was switched
- *                                        on and the sessions handed off since,
- *                                        the goal, every candidate
- *                                        checkout, the launch rows, the
- *                                        `seats:` line's fields, each overflow
- *                                        key's budget and burn mode
+ *                                        overflow rests on; `--json`'s fields
+ *                                        in USAGE
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop
@@ -142,7 +136,9 @@ const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { systemctl } = require("./lib/systemd-bins.js");
 const {
+	appendLoopLog,
 	readControlChecked,
+	buildLoopLogLine,
 	readControlFile,
 	withControlLock,
 	writeControlFile,
@@ -382,7 +378,11 @@ function readSeatsView(planSeats, root, budgetOf, callerSeat) {
 	const now = Date.now();
 	const declared = readDeclaredSeats();
 	const ceilings = seatReading.ceilingsOf(process.env);
-	const sizeCap = seatReading.capSizer(root, (line) => writeFd(2, `${line}\n`));
+	const sizeCap = seatReading.capSizer(
+		root,
+		(line) => writeFd(2, `${line}\n`),
+		readAgentsForDisplay,
+	);
 	const seats = planSeats.map((seat) => {
 		const { bars, reading } = seatReading.readSeat(seat, now);
 		return commands.foreseeSeat({
@@ -472,10 +472,8 @@ const bootPorts = (write) => ({
  */
 function bootResume() {
 	const note = (/** @type {string} */ line) => {
-		const stamped = `${new Date().toISOString()} ${line}\n`;
-		writeFd(1, stamped);
-		fs.mkdirSync(path.dirname(files.log), { recursive: true });
-		fs.appendFileSync(files.log, stamped);
+		writeFd(1, buildLoopLogLine(line));
+		appendLoopLog(line);
 	};
 	return runBootResume({
 		...bootPorts(note),
@@ -582,10 +580,7 @@ function start(parsed) {
 function launchFrom(control, scopeText) {
 	const launched = launchLoop();
 	if ("error" in launched) {
-		fs.appendFileSync(
-			files.log,
-			`${new Date().toISOString()} refill loop not started: ${launched.error}\n`,
-		);
+		appendLoopLog(`refill loop not started: ${launched.error}`);
 		return { error: launched.error };
 	}
 	return {

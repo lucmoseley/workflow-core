@@ -1716,8 +1716,12 @@ describe("the repo-file limb (mantahostels#3555)", () => {
 			"draw the flat/silhouette mark variant in Inkscape and save it into `docs/brand_assets/`.",
 		);
 		expect(verdict(call)).toBe("deny");
-		expect(readDenyReason(call)).toContain(repo);
-		expect(readDenyReason(call)).toContain("#3503");
+		const r = readDenyReason(call);
+		expect(r).toContain(repo);
+		expect(r).toContain(
+			"**Outside Claude Code:** draw the flat/silhouette mark",
+		);
+		expect(r).toContain("#3503");
 	});
 
 	it.each([

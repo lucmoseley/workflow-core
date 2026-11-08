@@ -173,9 +173,7 @@ describe("its fail mode", () => {
 		expect(stop(POINTER, { transcript: path.join(dir, "gone") })).toContain(
 			REFUSED,
 		);
-		expect(failOpenLog(config)).toContain(
-			"guard-priced-options standing-round",
-		);
+		expect(failOpenLog(config)).toContain("needs-input-shape standing-round");
 		expect(failOpenLog(config)).toContain("would not be read");
 	});
 

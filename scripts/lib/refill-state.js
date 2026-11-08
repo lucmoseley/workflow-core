@@ -34,7 +34,7 @@ const { readJson, writeJson } = require("./refill-json.js");
  * @property {LoopLaunch[]} launches
  * @property {{at: number, summary: string,
  *   skipped?: import("./refill-decide.js").Skip[],
- *   idle?: string|null, planWait?: import("./refill-decide.js").PlanWait}|null}
+ *   idle?: import("./refill-decide.js").Idle|null, planWait?: import("./refill-decide.js").PlanWait}|null}
  *   lastTick `idle` is decideTick's reason it launched nothing, the idle alarm's
  *   source for it (#3920); `planWait` the allowance wait's, absent on any other
  * @property {{at: number, reason: string, detail: string}|null} stopped
@@ -126,7 +126,12 @@ function parseLastTick(raw) {
 	)
 		return null;
 	const skipped = Array.isArray(raw.skipped) ? raw.skipped.filter(isSkip) : [];
-	const idle = typeof raw.idle === "string" ? raw.idle : null;
+	const idle =
+		isRecord(raw.idle) &&
+		typeof raw.idle.reason === "string" &&
+		typeof raw.idle.detail === "string"
+			? { reason: raw.idle.reason, detail: raw.idle.detail }
+			: null;
 	return {
 		at: raw.at,
 		summary: raw.summary,

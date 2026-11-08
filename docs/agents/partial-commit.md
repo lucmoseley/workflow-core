@@ -19,6 +19,9 @@ and back (#787). `scripts/commit-paths.js --patch` does every step (#801):
     git diff HEAD -U0 -- <path> > .claude/tmp/mine.patch   # then delete the hunks this commit leaves out
     node scripts/commit-paths.js -m "…" --patch .claude/tmp/mine.patch [-- <whole paths>]
 
+Add `--check` to that command to read the gates' verdict on the patch without
+committing it.
+
 Diff against `HEAD`, not the index: the script refuses a patch whose
 `index <old>..` line names a blob other than HEAD's, which is also what stops a
 re-run after the commit landed from adding zero-context lines twice. Files the

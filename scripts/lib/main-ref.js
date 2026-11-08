@@ -15,14 +15,14 @@ const MAIN_REF = "refs/heads/main";
 
 /**
  * @param {string} commonDir  the checkout's shared `.git`
- * @param {number} [timeout]
+ * @param {number} timeout  each caller's own git ceiling: a git with none hangs the caller
  * @returns {"unreadable"|"readable"|"no-ref-file"|"unknown"}
  */
 function readMainState(commonDir, timeout) {
 	if (!fs.existsSync(path.join(commonDir, MAIN_REF))) return "no-ref-file";
 	const r = spawnGitSync(
 		["--git-dir", commonDir, "rev-parse", "--verify", MAIN_REF],
-		{ stdio: "ignore", ...(timeout ? { timeout } : {}) },
+		{ stdio: "ignore", timeout },
 	);
 	if (r.error || r.status === null) return "unknown";
 	return r.status === 0 ? "readable" : "unreadable";

@@ -492,7 +492,7 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			"a restart's killed launches wait on the listing: the listing failed",
 		);
 		expect(disk().bootedAt).toBe(NOW - MIN);
-		expect(disk().launches[0]).not.toHaveProperty("bootKilled");
+		expect(disk().launches[0]).not.toHaveProperty("stepResume");
 		expect(disk().launches[0]?.finishedAt).toBeNull();
 	});
 
@@ -516,10 +516,41 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(blockLines).toContain(
 			"design-vault /implement 42, killed by a restart: due back through the resume step",
 		);
-		expect(disk().launches[0]).toHaveProperty("bootKilled");
+		expect(disk().launches[0]).toHaveProperty("stepResume.cause", "bootKilled");
 		expect(disk().bootedAt).toBeUndefined();
 		expect(disk().sameBootRestart).toBeUndefined();
 		expect(calls).toContain("dropManagerRestart");
+	});
+
+	it("reopens what the tick before the marker finished for leaving the listing, holding it over a refused listing until one reads (#4145)", async () => {
+		const blockLines: string[] = [];
+		const marker = { bootId: "b", at: NOW - MIN };
+		const before = stateOf({
+			launches: [{ ...killed, finishedAt: NOW - 2 * MIN, leftListing: true }],
+			lastTick: { at: NOW - 2 * MIN, summary: "" },
+		});
+		const refused = fakeIo(before, {
+			blockIo: () => bootPorts(blockLines),
+			readManagerRestart: () => marker,
+			readCurrentBootId: () => "b",
+			readListing: () => ({ agents: null, why: "the listing failed" }),
+		});
+		await tickOf(refused.io);
+		expect(blockLines).toContain(
+			"design-vault /implement 42, finished just before a manager restart: reopened",
+		);
+		expect(refused.disk().launches[0]?.finishedAt).toBeNull();
+		expect(refused.disk().bootedAt).toBe(NOW - MIN);
+		expect(refused.calls).toContain("dropManagerRestart");
+		const read = fakeIo(refused.disk(), {
+			blockIo: () => bootPorts(blockLines),
+		});
+		await tickOf(read.io);
+		expect(read.disk().launches[0]).toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
+		expect(read.disk().bootedAt).toBeUndefined();
 	});
 });
 
@@ -546,9 +577,12 @@ describe("a limit-held launch through the tick (#3735)", () => {
 	it("waits named on its seat while every seat is spent, and a stop names it (#3785)", async () => {
 		const idle = await tickOf(fakeIo(stateOf({ launches: [held] }), spent).io);
 		expect(idle.decision).toMatchObject({
-			idle: expect.stringContaining(
-				"every seat is spent; a limit-held session waits on one",
-			),
+			idle: {
+				reason: "a plan resets",
+				detail: expect.stringContaining(
+					"every seat is spent; a limit-held session waits on one",
+				),
+			},
 		});
 		const stopped = await tickOf(
 			fakeIo(stateOf({ launches: [held] }), spent).io,
@@ -1008,7 +1042,7 @@ describe("the loop's wait on a full week (#3859)", () => {
 		});
 		const waited = await tickOf(full.io);
 		expect(waited.decision).toMatchObject({
-			idle: expect.stringMatching(/^a plan resets/),
+			idle: { reason: "a plan resets", detail: expect.any(String) },
 			planWait: expect.any(Object),
 		});
 		expect(full.disk().stopped).toBeNull();

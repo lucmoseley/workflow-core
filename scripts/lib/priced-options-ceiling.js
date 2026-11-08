@@ -150,13 +150,13 @@ function ceilingPlan(live, ceilingAt, afterBatch = () => []) {
 /**
  * Block the turn on `plan.blocking`, charging every counter it spends.
  * @param {CeilingPlan} plan
- * @param {{ sessionId: string, recorders?: Recorder[] }} turn
+ * @param {{ sessionId: string, recorders?: Recorder[], tail?: () => string }} turn
  *   `recorders`, the limbs that keep a record of what they refused, each told
  *   when a block carrying it goes out, and, where it asks, when one without it
- *   does
+ *   does; `tail`, text the block ends with, read only once a block is owed
  * @returns {boolean} whether the block went out
  */
-function blockOn(plan, { sessionId, recorders = [] }) {
+function blockOn(plan, { sessionId, recorders = [], tail = () => "" }) {
 	const { blocking, chargesCeiling, last, shapeLast, ceilingAt } = plan;
 	const [firstBlocking] = blocking;
 	if (!firstBlocking) return false;
@@ -176,7 +176,8 @@ function blockOn(plan, { sessionId, recorders = [] }) {
 				`${MACHINE_DIRECTED}\n\n${reasons.join("\n\n")}` +
 				(chargesCeiling && last ? notices.session : "") +
 				(chargesCeiling && shapeLast ? notices.shapeReserve : "") +
-				(outsideCeiling && ceilingAt(SESSION_MAX) ? notices.outside : ""),
+				(outsideCeiling && ceilingAt(SESSION_MAX) ? notices.outside : "") +
+				tail(),
 		})
 	)
 		return false;

@@ -3,7 +3,9 @@
  * check-refill-loop-stop.js — name, at the next session start, a refill loop
  * that stopped on a damaged control file (#3389) or that the no-progress rule
  * paused (#2014, spec #1995 story 32; #3859), and its first overflow launch
- * after a plan-seat launch, with the plan seats it rested on (#3767).
+ * after a plan-seat launch, with the plan seats it rested on (#3767). And a
+ * running loop whose wait on a listing after a restart has outlasted its bound
+ * (lib/refill-boot.js's restartWaitOf, #4145), at every start while it lasts.
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
@@ -37,14 +39,14 @@
  * context (lib/check.js's screenNotices, #3776). A stamp is written once the
  * notice is out.
  *
- * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's no-progress pause, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file or a stopped loop's damaged control file.
- * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping, its pausing itself or its spending.
+ * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's no-progress pause, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file, a stopped loop's damaged control file or a running loop's overlong restart wait.
+ * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping, its pausing itself, its spending or its sticking in a restart wait.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
  * TREE:      none — judges machine-wide refill-loop state
  */
 
 const fs = require("node:fs");
-const { runCheck } = require("./lib/check");
+const { now: clockNow, runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
@@ -52,6 +54,7 @@ const { NO_PROGRESS_PAUSE, buildPauseText } = require("./lib/refill-decide.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
+const { restartWaitOf } = require("./lib/refill-boot.js");
 const { readState } = require("./lib/refill-state.js");
 const { buildSeatName } = require("./lib/refill-seats.js");
 const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
@@ -88,6 +91,21 @@ function reportNoProgressPause(ctx, control, seen) {
 			`  Its status: ${STATUS}\n`,
 	);
 	return paused.at;
+}
+
+/**
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {number|null} since restartWaitOf's
+ */
+function reportRestartWait(ctx, since) {
+	if (since === null) return;
+	const at = new Date(since).toISOString();
+	const line = `the refill loop has waited since a restart at ${at} for a session listing to read`;
+	ctx.warn("REFILL-LOOP-RESTART-WAIT", line, { since: at });
+	ctx.sayNotice(
+		`REFILL-LOOP-RESTART-WAIT — ${line}, to queue the sessions the restart killed. Until one reads, it counts them as running and resumes none; its log names each refused listing.\n` +
+			`  Its status: ${STATUS}\n`,
+	);
 }
 
 /**
@@ -131,7 +149,9 @@ runCheck({
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
 			ctx.sayNotice(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
-		const { stopped, overflowStart } = readState(reportDamaged);
+		const state = readState(reportDamaged);
+		const { stopped, overflowStart } = state;
+		const running = pidLock(files.pid, "refill-loop.js").holder() !== null;
 		const seen = readSeen(files.stopSeen);
 		const fresh =
 			stopped !== null &&
@@ -140,9 +160,7 @@ runCheck({
 		/* Silent where another line names the damage: a running loop's in
 		 * check-idle-efforts.js, a fresh control-damaged stop's below (#3927). */
 		const control = refillFiles.readControlFile(
-			pidLock(files.pid, "refill-loop.js").holder() !== null || fresh
-				? () => undefined
-				: reportDamaged,
+			running || fresh ? () => undefined : reportDamaged,
 		);
 		if (fresh) {
 			const at = new Date(stopped.at).toISOString();
@@ -168,6 +186,7 @@ runCheck({
 					lines.map((l) => `  ${l}\n`).join(""),
 			);
 		}
+		if (running) reportRestartWait(ctx, restartWaitOf(state, clockNow()));
 		const pauseAt = reportNoProgressPause(ctx, control, seen);
 		const overflowAt = reportOverflowStart(
 			ctx,
@@ -182,8 +201,9 @@ runCheck({
 				if (overflowAt !== null)
 					fs.writeFileSync(files.overflowSeen, `${overflowAt}\n`);
 			},
-			okLine: "no refill loop stop, pause or overflow start to name.",
-			noun: "refill loop stop(s), pause(s), overflow start(s) or damaged file(s)",
+			okLine:
+				"no refill loop stop, pause, overflow start or restart wait to name.",
+			noun: "refill loop stop(s), pause(s), overflow start(s), restart wait(s) or damaged file(s)",
 			data: { stopped, overflowStart },
 		};
 	},

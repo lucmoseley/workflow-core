@@ -673,7 +673,7 @@ async function decide(io, input, scope) {
 	const first = decideTick(input);
 	if (
 		"stop" in first ||
-		(first.idle !== null && first.idle !== NOTHING_LAUNCHABLE)
+		(first.idle !== null && first.idle.reason !== NOTHING_LAUNCHABLE)
 	)
 		return { decision: first, read: null };
 	const served = io.servedRoots(scope);
@@ -939,6 +939,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		settleKilled(io, io.readState(), served),
 		managerRestart,
 		io.readCurrentBootId(),
+		io.blockIo(served),
 	);
 	const registry = io.readRegistry();
 	const broken = relieve(io, { registry, state, served, now });

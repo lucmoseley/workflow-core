@@ -143,10 +143,11 @@ function denyingCoresOn(payload, host) {
 
 /**
  * @param {string} event
+ * @param {string} [file]
  * @returns {CoreRow[]}
  */
-function readDispatchRows(event) {
-	return readManifest()[event] ?? [];
+function readDispatchRows(event, file = MANIFEST) {
+	return readManifest(file)[event] ?? [];
 }
 
 /**

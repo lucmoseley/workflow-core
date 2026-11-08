@@ -429,7 +429,9 @@ describe("buildIdleLines", () => {
 		});
 
 		it("names a reason buildLoopWait does not know, so a new stop cannot read as rank", () => {
-			const line = lineOf(buildLoopWait("a stop added later"));
+			const line = lineOf(
+				buildLoopWait({ reason: "a stop added later", detail: "" }),
+			);
 			expect(line).toContain("a stop added later");
 			expect(line).not.toContain("rank");
 		});
@@ -1180,13 +1182,16 @@ describe("buildIdleReport", () => {
 describe("buildLiveLoopWait, a live loop's reason no rank launches (#3920)", () => {
 	const paused = { by: "founder", at: NOW };
 	const spent = "every seat is spent; a resume is due";
+	const spentIdle = { reason: spent, detail: "" };
 
 	it("names a pause over the last tick's reason", () => {
-		expect(buildLiveLoopWait(paused, spent)).toBe(buildPausedWaitText(paused));
+		expect(buildLiveLoopWait(paused, spentIdle)).toBe(
+			buildPausedWaitText(paused),
+		);
 	});
 
 	it("names the last tick's reason with no pause", () => {
-		expect(buildLiveLoopWait(undefined, spent)).toBe(spent);
+		expect(buildLiveLoopWait(undefined, spentIdle)).toBe(spent);
 	});
 
 	it("names nothing with no pause and no tick", () => {

@@ -129,7 +129,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Printing a `session-arbiter.js` command | `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | `scripts/lib/tracker-ops.js` | §0, its floor table | `scripts/check-arbiter-commands.js` |
 | Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
-| Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH`, in the core from `scripts/lib/gh-stub.ts`, which the release does not ship | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/dispatch-sessions.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
@@ -350,7 +350,7 @@ A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it thr
 
 Every program, library module, hook module and shell script opens with a block comment giving the filename, one line on what it is, then the *why* and the ticket that settled it. A test's header gives one line on what it pins, then the ticket, why the test is built the way it is, and what breaking it costs — for example, that it runs inside a throwaway repository rather than against the real one, and that it is a hard gate in CI, so loosening it loosens CI. Either header's why explains the code as it stands, never a change to it (#2351). A test header need not name itself or its subject, though it may: the runner prints a test's path on every result and failure, and a self-name goes stale on a rename (#1279, #1406).
 
-**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:361` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
+**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:366` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
 
 ### §N3 · The filename prefix is the contract — **hard**
 
@@ -395,7 +395,7 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises nor exits and cites no ticket, so (b) is a duplicate finding there. Whether (a)'s comment gives a reason, and (c), stay review's.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:361-362`) — and `scripts/session-arbiter.js:2398` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:366-362`) — and `scripts/session-arbiter.js:2398` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
@@ -419,7 +419,7 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 *House, Node programs only*: a file that exports uses a single trailing `module.exports = { … }` of named functions, never the `exports.foo =` form — bar a file in a require cycle, which ends on a run of `exports.foo = foo;` lines instead, because a cycle hands a sibling its exports object before the file ends, so replacing that object leaves the sibling a half-filled one (`scripts/lib/arbiter-store.js`'s THE SPLIT RULE, mantahostels#1795).
 
-*House*: the plugin's vars take a `WFC_` prefix — `WFC_GH` for `gh`, `WFC_CLAUDE_BIN` for `claude` (`scripts/lib/claude-bin.js:11`), `WFC_GITLEAKS` for `gitleaks` (`.husky/pre-commit`), `WFC_PS` for `ps` (`scripts/lib/admission.js`), `WFC_PYTHON` for `python3` (`scripts/run-pytest.js`, `scripts/bisect-step.sh`), `WFC_NPM` for `npm` and `WFC_NODE` for `node` (`scripts/bisect-step.sh`), `WFC_CURL` for `curl` (`scripts/lib/npm-install-host.js`) and `WFC_GIT` for `git` (`scripts/lib/git.js`).
+*House*: the plugin's vars take a `WFC_` prefix — `WFC_GH` for `gh`, `WFC_CLAUDE_BIN` for `claude` (`scripts/lib/claude-bin.js:11`), `WFC_GITLEAKS` for `gitleaks` (`.husky/pre-commit`), `WFC_PS` for `ps` (`scripts/lib/admission.js`), `WFC_PYTHON` for `python3` (`scripts/run-pytest.js`, `scripts/bisect-step.sh`), `WFC_NPM` for `npm` and `WFC_NODE` for `node` (`scripts/bisect-step.sh`), `WFC_CURL` for `curl` (`scripts/lib/npm-install-host.js`), `WFC_TMUX` for `tmux` (`scripts/lib/refill-panel-routes.js`) and `WFC_GIT` for `git` (`scripts/lib/git.js`).
 
 **Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (#1616), or, for a module the dispatcher's manifest loads, a `corePath(` call in a file reaching `guard-cores.js` (#4136); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed. And the exemption is **the comment's presence, never its content**: any comment-shaped line silences the finding. A test's or test support's own exports are never scanned.
 

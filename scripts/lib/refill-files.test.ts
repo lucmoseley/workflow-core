@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideTick } from "./refill-decide.js";
 import {
+	appendLoopLog,
 	readControlChecked,
 	withControlLock,
 	writeLoopPause,
@@ -258,5 +259,26 @@ describe("the tick's control read (#3389)", () => {
 			expect(r.control?.scope.goal).toEqual(goal);
 			expect(r.lines).toEqual([]);
 		});
+	});
+});
+
+describe("the loop's log (#4186)", () => {
+	let tmp: string;
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-log-"));
+	});
+	afterEach(() => {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("appends each line stamped, making a missing directory", () => {
+		const dir = path.join(tmp, "not-yet");
+		vi.stubEnv("WFC_REFILL_DIR", dir);
+		appendLoopLog("one");
+		appendLoopLog("two");
+		const text = fs.readFileSync(path.join(dir, ".refill-loop.log"), "utf8");
+		expect(text).toMatch(
+			/^\d{4}-\d\d-\d\dT\S+Z one\n\d{4}-\d\d-\d\dT\S+Z two\n$/,
+		);
 	});
 });

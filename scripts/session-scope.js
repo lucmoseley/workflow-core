@@ -61,11 +61,11 @@ const { procRoot } = require("./lib/proc-root.js");
 const { readProcTable } = require("./lib/proc-table.js");
 const {
 	SLICE,
-	WATCH,
 	attachAll,
 	isSessionProcess,
 	membersOf,
 	unitOf,
+	watcherArgv,
 	watcherOf,
 } = require("./lib/session-scope.js");
 const {
@@ -141,13 +141,7 @@ function startWatcher(unit, leader, startTicks) {
 		`--unit=${watcherOf(unit)}`,
 		`--description=Kill ${unit} once session ${String(leader)} ends`,
 		"--",
-		"sh",
-		"-c",
-		WATCH,
-		"sh",
-		String(leader),
-		String(startTicks),
-		unit,
+		...watcherArgv(leader, startTicks),
 	]);
 }
 

@@ -103,7 +103,7 @@ const headless = require("./headless-runs.js");
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,
- *   startedAt?: number, cwd?: string}} AgentRecord
+ *   startedAt?: number, cwd?: string, founderReply?: true}} AgentRecord
  * @typedef {{agents: AgentRecord[], why?: undefined, readAt?: number}
  *   | {why: string, agents?: undefined, readAt?: undefined}} Listing
  *   `readAt`, ms, when the oracle answered: a shared reading's write time. The
