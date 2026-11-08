@@ -56,6 +56,12 @@ const LIMIT_HELD_WAIT =
 const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 /* The idle reason of a tick whose resumes take every free slot. */
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
+/* The idle reason of a tick whose plan seats are weekly-full and whose
+ * overflow keys are spent. */
+const OVERFLOW_SPENT = "every plan seat is weekly-full";
+/* The idle reason of a tick waiting out every plan seat's full week. */
+const PLAN_RESETS = "a plan resets";
+const PAUSED = "paused by";
 /* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* A row a running launch already holds, skipped as any other so an idle
@@ -252,8 +258,25 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 /** @typedef {{root: string, number: number, why: string}} Skip */
 
 /**
+ * Why a tick launched nothing: `reason` one of the idle reasons above, which
+ * readers match on, and `detail` the text that follows it in the log line, its
+ * joining punctuation included, so buildIdleText gives back that line (#4183).
+ * @typedef {{reason: string, detail: string}} Idle
+ */
+
+/**
+ * @param {string} reason
+ * @param {string} [detail]
+ * @returns {Idle}
+ */
+const buildIdle = (reason, detail = "") => ({ reason, detail });
+
+/** @param {Idle} idle */
+const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
+
+/**
  * @typedef {{stop: StopReason, detail: string}
- *   | {launches: Launch[], skipped: Skip[], idle: string | null,
+ *   | {launches: Launch[], skipped: Skip[], idle: Idle | null,
  *   held: Skip[], resumes: HeldResume[], pause?: Pause,
  *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision `held` is
  *   heldParked's; `resumes` the tick's, oldest first, made ahead of its launches;
@@ -371,7 +394,7 @@ function orderPlanSeats(seats, typedSeat) {
  * the tick waits where not.
  * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat">} input
  * @returns {{seat: string, keyVar?: string, fits: number, reason: SeatReason}
- *   | {seat: null, fits: 0, allCut: boolean, wait: string}}
+ *   | {seat: null, fits: 0, allCut: boolean, wait: Idle|null}}
  */
 function pickSeat({ seats, overflow = [], typedSeat = null }) {
 	const plan = pickPlanSeat(orderPlanSeats(seats, typedSeat));
@@ -383,8 +406,15 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 	if (overflow.length === 0) return plan;
 	if (!plan.allCut) {
 		const open = seats.filter((s) => !s.weekFull).map((s) => s.seat);
-		const wait = `no overflow launch: ${open.join(", ")} not weekly-full`;
-		return { ...plan, wait: [plan.wait, wait].filter(Boolean).join("; ") };
+		const shut = `; no overflow launch: ${open.join(", ")} not weekly-full`;
+		/* A seat not cut holds a wait of its own, so plan.wait is set. */
+		return {
+			...plan,
+			wait: plan.wait && {
+				...plan.wait,
+				detail: `${plan.wait.detail}${shut}`,
+			},
+		};
 	}
 	const open = overflow.find(isFitted);
 	if (open)
@@ -397,7 +427,7 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 		seat: null,
 		fits: 0,
 		allCut: overflow.every((o) => o.spentUntil !== null),
-		wait: `every plan seat is weekly-full; overflow ${overflowHolds(overflow)}`,
+		wait: buildIdle(OVERFLOW_SPENT, `; overflow ${overflowHolds(overflow)}`),
 	};
 }
 
@@ -447,7 +477,7 @@ const overflowHolds = (overflow) => overflow.map(overflowHold).join(", ");
  * finishing reopen the third's headroom (#2432).
  * @param {SizedSeat[]} seats in launch order
  * @returns {{seat: string, fits: number}
- *   | {seat: null, fits: 0, allCut: boolean, wait: string}}
+ *   | {seat: null, fits: 0, allCut: boolean, wait: Idle|null}}
  */
 function pickPlanSeat(seats) {
 	const fiveHour = [];
@@ -464,16 +494,16 @@ function pickPlanSeat(seats) {
 		else noRoom += 1;
 	}
 	/* One reason, as #2362 ruled, whichever hold it is. A 5-hour wait beside it. */
-	const waits = [];
-	if (noRoom > 0) waits.push(NO_PLAN_ROOM);
-	if (fiveHour.length > 0)
-		waits.push(`${FIVE_HOUR_FULL} ${fiveHour.join(", ")}`);
-	return {
-		seat: null,
-		fits: 0,
-		allCut: cut === seats.length,
-		wait: waits.join("; "),
-	};
+	const fiveHourText = ` ${fiveHour.join(", ")}`;
+	/** @type {Idle|null} */
+	let wait = null;
+	if (noRoom > 0)
+		wait = buildIdle(
+			NO_PLAN_ROOM,
+			fiveHour.length > 0 ? `; ${FIVE_HOUR_FULL}${fiveHourText}` : "",
+		);
+	else if (fiveHour.length > 0) wait = buildIdle(FIVE_HOUR_FULL, fiveHourText);
+	return { seat: null, fits: 0, allCut: cut === seats.length, wait };
 }
 
 /**
@@ -973,7 +1003,7 @@ const buildStopDecision = (stop, input) => ({
 });
 
 /**
- * @param {string} idle
+ * @param {Idle} idle
  * @param {Skip[]} held
  * @param {HeldResume[]} resumes
  */
@@ -985,25 +1015,23 @@ const buildIdleDecision = (idle, held, resumes) => ({
 	resumes,
 });
 
-const PAUSE_TEXT_START = "paused by ";
-
 /** @param {PauseIssue} issue */
 const buildPauseIssueText = ({ root, number }) =>
 	`${path.basename(root)}#${number}`;
 
 /** @param {Pause} pause */
-const buildPauseText = ({ by, at, issues = [], why }) =>
-	`${PAUSE_TEXT_START}${by} at ${new Date(at).toISOString()}${
-		issues.length > 0
-			? `: no act from ${issues.map(buildPauseIssueText).join(", ")}`
-			: ""
-	}${why ? `: ${why}` : ""}`;
+const buildPauseIdle = ({ by, at, issues = [], why }) =>
+	buildIdle(
+		PAUSED,
+		` ${by} at ${new Date(at).toISOString()}${
+			issues.length > 0
+				? `: no act from ${issues.map(buildPauseIssueText).join(", ")}`
+				: ""
+		}${why ? `: ${why}` : ""}`,
+	);
 
-/**
- * Whether a tick's idle reason is buildPauseText's.
- * @param {string|null|undefined} idle
- */
-const isPauseText = (idle) => idle?.startsWith(PAUSE_TEXT_START) ?? false;
+/** @param {Pause} pause */
+const buildPauseText = (pause) => buildIdleText(buildPauseIdle(pause));
 
 /**
  * The pause three launched sessions in a row with no act call for, with their
@@ -1036,27 +1064,39 @@ function readPlanWait(seats) {
 }
 
 /** @param {PlanWait} wait */
-const buildPlanWaitText = ({ resets }) =>
-	resets === null
-		? "a plan resets, its time unread"
-		: `a plan resets at ${new Date(resets).toISOString()}`;
+const buildPlanWaitIdle = ({ resets }) =>
+	buildIdle(
+		PLAN_RESETS,
+		resets === null
+			? ", its time unread"
+			: ` at ${new Date(resets).toISOString()}`,
+	);
+
+/** @param {PlanWait} wait */
+const buildPlanWaitText = (wait) => buildIdleText(buildPlanWaitIdle(wait));
 
 /**
  * The idle of a tick with no seat to launch on, the allowance wait leading where
  * every plan seat's week is full, as a session left on a limit or an overflow
  * key's held budget does not change what the loop waits for.
  * @param {TickInput} input
- * @param {string} wait
+ * @param {Idle|null} wait null where every plan seat's week is full
  * @param {Skip[]} held
  * @param {HeldResume[]} resumes
  */
 function buildNoSeatIdle(input, wait, held, resumes) {
-	if (!input.seats.every((s) => s.weekFull))
+	if (wait && !input.seats.every((s) => s.weekFull))
 		return buildIdleDecision(wait, held, resumes);
 	const planWait = readPlanWait(input.seats);
-	const text = buildPlanWaitText(planWait);
+	const idle = buildPlanWaitIdle(planWait);
 	return {
-		...buildIdleDecision(wait ? `${text}; ${wait}` : text, held, resumes),
+		...buildIdleDecision(
+			wait
+				? { ...idle, detail: `${idle.detail}; ${buildIdleText(wait)}` }
+				: idle,
+			held,
+			resumes,
+		),
 		planWait,
 	};
 }
@@ -1081,15 +1121,15 @@ const QUEUE_MOVING_WAITS = [
  * The reason a tick's idle gives for no row launching whatever its rank, or null
  * where rank still decides. Any reason this does not know counts, so a new stop
  * cannot read as rank on the idle alarm (#3920).
- * @param {string|null} idle
+ * @param {Idle|null} idle
  * @returns {string|null}
  */
 const buildLoopWait = (idle) =>
 	idle === null ||
-	QUEUE_MOVING_WAITS.includes(idle) ||
-	idle.startsWith(SHORTLIST_FAILED)
+	QUEUE_MOVING_WAITS.includes(idle.reason) ||
+	idle.reason === SHORTLIST_FAILED
 		? null
-		: idle;
+		: buildIdleText(idle);
 
 /**
  * A stop's detail with what it leaves for the next start to act on.
@@ -1146,7 +1186,7 @@ function decideTick(input) {
 	const requested = requestedStopOf(input);
 	if (requested) return buildStopDecision(requested, input);
 	if (input.paused)
-		return buildIdleDecision(buildPauseText(input.paused), [], []);
+		return buildIdleDecision(buildPauseIdle(input.paused), [], []);
 	return decideUnpaused(input);
 }
 
@@ -1160,14 +1200,16 @@ function decideTick(input) {
 function decideLaunches(input, { free, held, resumes, seatsLeft }) {
 	const launchSlots = free - resumes.length;
 	if (launchSlots === 0)
-		return buildIdleDecision(RESUMES_TAKE_SLOTS, held, resumes);
+		return buildIdleDecision(buildIdle(RESUMES_TAKE_SLOTS), held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat(chargedInput);
 	if (launchPick.seat === null)
 		return buildNoSeatIdle(
 			input,
-			launchPick.wait ||
-				(input.limitHeldLines?.length ? LIMIT_HELD_WAIT : RESUME_DUE_WAIT),
+			launchPick.wait ??
+				buildIdle(
+					input.limitHeldLines?.length ? LIMIT_HELD_WAIT : RESUME_DUE_WAIT,
+				),
 			held,
 			resumes,
 		);
@@ -1184,12 +1226,13 @@ function decideLaunches(input, { free, held, resumes, seatsLeft }) {
 		...out,
 		idle:
 			failed.length > 0
-				? failed
-						.map(
-							(f) => `${SHORTLIST_FAILED} ${path.basename(f.root)}: ${f.error}`,
-						)
-						.join("; ")
-				: NOTHING_LAUNCHABLE,
+				? buildIdle(
+						SHORTLIST_FAILED,
+						` ${failed
+							.map((f) => `${path.basename(f.root)}: ${f.error}`)
+							.join(`; ${SHORTLIST_FAILED} `)}`,
+					)
+				: buildIdle(NOTHING_LAUNCHABLE),
 		held,
 		resumes,
 	};
@@ -1203,7 +1246,7 @@ function decideUnpaused(input) {
 	const stalled = noProgressRun(input);
 	if (stalled) {
 		const pause = buildNoProgressPause(stalled, input.now);
-		return { ...buildIdleDecision(buildPauseText(pause), [], []), pause };
+		return { ...buildIdleDecision(buildPauseIdle(pause), [], []), pause };
 	}
 	const pick = pickSeat(input);
 	/* A session left on a seat's limit or with a resume due has acts still to
@@ -1214,12 +1257,12 @@ function decideUnpaused(input) {
 		!input.limitHeldLines?.length &&
 		!input.resumable?.length
 	)
-		return buildNoSeatIdle(input, "", heldParked(input), []);
+		return buildNoSeatIdle(input, null, heldParked(input), []);
 	const free = input.freeSlots;
 	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
 	 * so an aged cache reads unread and is not why the tick waits (#2362). */
 	const held = heldParked(input);
-	if (free === 0) return buildIdleDecision(NO_FREE_SLOT, held, []);
+	if (free === 0) return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
 		...decideLaunches(input, { free, held, resumes, seatsLeft }),
@@ -1280,12 +1323,13 @@ module.exports = {
 	buildPausedWaitText,
 	buildPlanWaitText,
 	buildLoopWait,
-	isPauseText,
+	buildIdleText,
 	FIVE_HOUR_FULL,
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
+	PAUSED,
 	QUIET_BENCH_PAUSE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,

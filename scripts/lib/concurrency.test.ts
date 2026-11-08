@@ -63,7 +63,11 @@ const input = (over: Record<string, unknown> = {}) => ({
 	overflow: [],
 	...over,
 });
-const idle = (why: string | null) => ({ launches: [], skipped: [], idle: why });
+const idle = (reason: string) => ({
+	launches: [],
+	skipped: [],
+	idle: { reason, detail: "" },
+});
 const admission = (over: Record<string, unknown> = {}) => ({
 	slots: 0,
 	memorySlots: 1,
@@ -408,7 +412,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			name: "reads a pause as the loop not running, no resource known to bind (#3856)",
 			tick: {
 				input: input({ paused: { by: "founder", at: T0 } }),
-				decision: idle("paused by founder"),
+				decision: idle("paused by"),
 				admission: null,
 			},
 			limits: ["loop not running"],
@@ -429,7 +433,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 				decision: {
 					launches: [],
 					skipped: [],
-					idle: "a plan resets, its time unread",
+					idle: { reason: "a plan resets", detail: ", its time unread" },
 					held: [],
 					resumes: [],
 					planWait: { resets: null },
