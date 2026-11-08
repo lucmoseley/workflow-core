@@ -522,8 +522,7 @@ pair it prints may be two tickets stamping one file. And its proposed set drops
 the lower-ranked of every pair, which is right only where the shared file really
 is a substrate. Nothing is refused on it.
 
-**An issue with `unclosedLaunch` set never merges** (#4351): its prompt checks
-first whether its last loop launch's work landed, and names only its own issue.
+**An issue whose `frontier` row carries `unclosedLaunch` never merges** (#4351).
 
 **Merging: several issues, one line, one session.** A candidate merges onto an
 existing dispatch-set member's line when three tests pass together — **same
@@ -872,9 +871,7 @@ scripts/dispatch-sessions.sh <model> "/<skill> <issues>" [<model> "<prompt>" ...
 
 One `<model> <prompt>` pair per §6 line, same order. **A lone issue's prompt is
 its `prompt` in `summary.proposed` (or its `frontier` row), copied as printed —
-never composed** (#4351): it is the refill loop's own, which for an `/implement`
-issue whose last loop launch committed without closing (`unclosedLaunch`) first
-checks whether the work landed. A bundle's prompt is the launch command as
+never composed**, the refill loop's own (#4351). A bundle's prompt is the launch command as
 typed into the agents view — `"/implement 341 353 366"` for the bundle above.
 
 **A two-wave dispatch calls this twice** (§4, §6) — once for wave 1 while the

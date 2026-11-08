@@ -1032,7 +1032,6 @@ function buildPayload(state) {
 	const frontierRows = withLaunchPrompt(pathed.map(frontierJson));
 	return {
 		generatedAt: new Date().toISOString(),
-		/* Each proposed member's lone launch prompt beside its `takes:` (#4351). */
 		summary: {
 			...summary,
 			proposed: summary.proposed.map((/** @type {{number: number}} */ p) => ({
