@@ -28,7 +28,8 @@
  *                                        open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
- *                                        overflow rests on; `--json` that and more, as JSON
+ *                                        overflow rests on; `--json`'s fields
+ *                                        in USAGE
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop

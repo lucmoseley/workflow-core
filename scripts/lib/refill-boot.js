@@ -2,7 +2,12 @@
  * refill-boot.js — whether `refill-loop.js boot-resume` restarts the loop after
  * a distro restart, of any cause (#3878, ruled at #3199), and the line that
  * says why. `refill-loop.js stop` stays the one way to stop it, and the resume
- * writes no control, so it never moves what `start` recorded.
+ * writes no control, so it never moves what `start` recorded. Also what the ticks
+ * after it trust of the listing while its killed launches come back (#3880), and
+ * which jobs the never-started stop spares until they are queued (#3983). And
+ * whether a loop just spawned, by a boot or a `start`, came to hold the lock
+ * (#4083). And what `boot-resume`, `watch` and `run` write and return around
+ * that verdict and that lock (#4356).
  *
  * `boot-resume` runs at each start of the user manager, so on the manager's
  * restart within a boot too (#3963), which sessions in `/init.scope` outlive; and
@@ -28,8 +33,9 @@ const {
 	runHeld,
 } = require("./refill-state.js");
 
-/* First guesses, and stated as ones, against the one boot measured (#4083); a
- * poll costs a few small reads of the pidfile and /proc. */
+/* First guesses, and stated as ones: 30 s allows for a machine far busier than
+ * the one boot measured (#4083); a poll costs a few small reads of the pidfile
+ * and /proc. */
 const LOOP_HOLD_WAIT_MS = 30_000;
 const LOOP_HOLD_POLL_MS = 50;
 

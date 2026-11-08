@@ -53,7 +53,7 @@ Researched: 2026-10-22
 ## Regexes that backtrack
 
 - OWASP: a regex is "evil" when it holds a repeated group whose inside repeats again or has alternatives that overlap, such as `(a+)+$` or `(a|aa)+$`. An input that almost matches can then "hang the system". owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS [standard or field body]
-- A trailing-run pattern such as `\s+$` is quadratic on a long run that does not end the input: the engine restarts it at each character of the run. stackstatus.net/post/147710624694 [named expert]
+- Stack Overflow's 2016 outage: a trailing-run pattern such as `\s+$` is quadratic on a long run that does not end the input: the engine restarts it at each character of the run. stackstatus.net/post/147710624694 [named expert]
 - Thus, on input the script did not write (issue bodies, `gh` output, a transcript): cut a trailing run with `trimEnd()` or a one-pass loop, not with `/x+$/`. Give a quantifier alternatives that cannot both match one character. In a hook, test for a hang with a process timeout, because a regex match blocks and nothing in the same process can stop it. Derived from the two rows above, so it sets no default [unverified]
 
 ## Testing CLI scripts
