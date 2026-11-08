@@ -137,6 +137,7 @@ function withControlLock(write, waitMs) {
  * @param {number} noProgressFrom the count the tick decided it on
  * @param {(line: string) => void} log
  * @param {number} [waitMs] withControlLock's
+ * @returns {boolean} whether `paused` is now the control's
  */
 function writeLoopPause(paused, noProgressFrom, log, waitMs) {
 	const written = withControlLock(() => {
@@ -146,13 +147,15 @@ function writeLoopPause(paused, noProgressFrom, log, waitMs) {
 			control.paused !== undefined ||
 			control.noProgressFrom !== noProgressFrom
 		)
-			return;
+			return false;
 		writeControlFile({ ...control, paused });
+		return true;
 	}, waitMs);
 	if ("busy" in written)
 		log(
 			`pause not written, so the next tick decides it again: ${written.busy}`,
 		);
+	return "done" in written && written.done;
 }
 
 /**

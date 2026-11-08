@@ -119,6 +119,7 @@ const key = (over: object = {}) => ({
 	spentUsd: 142,
 	grantUsd: 400,
 	creditReadAt: null,
+	runningReadAt: null,
 	headroomUsd: 258.5,
 	exhausted: false,
 	noLaunchLeft: false,
@@ -756,7 +757,7 @@ describe("the plan and credit rows", () => {
 	});
 
 	it("says why on one row where the seat file refuses, naming no key", () => {
-		const overflow = [{ seat: "the seat file", why: "it refuses: line 3" }];
+		const overflow = [{ seat: null, why: "it refuses: line 3" }];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
 			["  the seat file  unread: it refuses: line 3", "secondary"],
 		]);
@@ -861,7 +862,7 @@ describe("the plan and credit rows", () => {
 
 	it("gives a key with nothing yet spent as its whole grant, a plan with room", () => {
 		const overflow = [
-			buildOverflowStatus(overflowSeat("~/.claude2"), {
+			buildOverflowStatus(overflowSeat(`${process.env.HOME}/.claude2`), {
 				fit: 10,
 				headroomUsd: 200,
 				settledUsd: 0,
@@ -871,6 +872,7 @@ describe("the plan and credit rows", () => {
 				readAt: null,
 				readFailure: null,
 				lastAttemptAt: null,
+				runningReadAt: null,
 				qUsd: 5,
 				running: 0,
 				cycleStart: AT,
@@ -900,6 +902,27 @@ describe("the plan and credit rows", () => {
 			["  .claude2  ~$258 of $400", "value"],
 			["  Spending now: 2 on credits", "value"],
 		]);
+	});
+
+	it("ages a running count read off a listing older than one poll (#4175)", () => {
+		const spend = (ageMs: number) =>
+			usage({
+				...RUNNING,
+				overflow: [key({ running: 2, runningReadAt: LATER - ageMs })],
+			}).at(-1)?.[0];
+		expect(spend(45_000)).toBe("  Spending now: 2 on credits (45s ago)");
+		expect(spend(2000)).toBe("  Spending now: 2 on credits");
+	});
+
+	it("ages a not-spending verdict off an old listing (#4175)", () => {
+		const seats = { ...planSeats(80), next: null };
+		expect(
+			usage({
+				...RUNNING,
+				seats,
+				overflow: [key({ runningReadAt: LATER - 100_000 })],
+			}).at(-1)?.[0],
+		).toBe("  Not spending: waiting on a plan (1m ago)");
 	});
 
 	describe("a plan's figure (#4059)", () => {
@@ -1003,7 +1026,7 @@ describe("the plan and credit rows", () => {
 			fits: weekFull ? 0 : 1,
 			fresh: true,
 		});
-		const dir = `${process.env.HOME}/.claude2-api`;
+		const dir = `${process.env.HOME}/.claude3`;
 		const declared = {
 			errors: [],
 			seats: [
@@ -1018,6 +1041,7 @@ describe("the plan and credit rows", () => {
 			creditUsd: 200,
 			grantUsd: 200,
 			readAt: null,
+			runningReadAt: null,
 			qUsd: 5,
 			running: 0,
 			cycleStart: AT,

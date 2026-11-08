@@ -57,6 +57,7 @@ const ACTS = {
 	recordListedOverflowSessions: true,
 	stopOverAllowance: true,
 	sendHoldNotices: true,
+	sendPauseNotices: true,
 	unparkAnswered: true,
 	tendClosedParks: true,
 	actOnBlocks: true,
@@ -209,7 +210,9 @@ function fakeIo(
 		readSwapHold: () =>
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
+		sendPauseNotices: recorded("sendPauseNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
+		readLastActAt: () => null,
 		readCause: () => null as never,
 		unparkAnswered: recorded("unparkAnswered", () => undefined),
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
@@ -257,7 +260,7 @@ function fakeIo(
 			started: 0,
 			waiting: false,
 		})),
-		writePause: recorded("writePause", () => undefined),
+		writePause: recorded("writePause", () => true),
 		runReview: recorded("runReview", (lastRunOn) => lastRunOn),
 		updateState: recorded("updateState", onDisk),
 		readOmittedDirs: () => [],
@@ -551,6 +554,41 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			"bootKilled",
 		);
 		expect(read.disk().bootedAt).toBeUndefined();
+	});
+});
+
+describe("the unproven cap through the tick (#4223)", () => {
+	/* Inside the listing's grace, so an empty listing ends none of them. */
+	const running = [1, 2, 3].map((n) =>
+		record({ jobId: `job${n}`, launchedAt: NOW - 30_000 }),
+	);
+	const limitSlotsOf = async (lastActAt: number) => {
+		const handed: number[] = [];
+		const { io } = fakeIo(stateOf({ launches: running }), {
+			readLastActAt: () => lastActAt,
+			readFreeSlots: () => ({ slots: 5, admission: null }),
+			actOnLimits: (judged, _m, { slots }) => {
+				handed.push(slots);
+				return { launches: judged, slots, workingChange: 0 };
+			},
+		});
+		const { decision } = await tickOf(io);
+		return { handed, decision };
+	};
+
+	it("holds the limit resumes and the launches where three run since the last act", async () => {
+		const { handed, decision } = await limitSlotsOf(NOW - MIN);
+		expect(handed).toEqual([0]);
+		expect(decision).toMatchObject({
+			launches: [],
+			idle: { reason: "3 launches since the last act are running" },
+		});
+	});
+
+	it("frees the cap once an act follows them", async () => {
+		const { handed, decision } = await limitSlotsOf(NOW - 1000);
+		expect(handed).toEqual([3]);
+		expect(decision).toMatchObject({ idle: null });
 	});
 });
 
@@ -1088,6 +1126,54 @@ describe("the hold notices' agent read (#3871)", () => {
 		expect(await noticedAgents({ seats: [], faults: [], agents: [] })).toEqual([
 			null,
 		]);
+	});
+});
+
+describe("the pause notices' read of the pause (#4222)", () => {
+	const noticedPauses = async (c: Control) => {
+		const seen: unknown[] = [];
+		const { io } = fakeIo(stateOf(), {
+			sendPauseNotices: (paused) => {
+				seen.push(paused);
+			},
+		});
+		await tickOf(io, c);
+		return seen;
+	};
+
+	it("hands the control's pause, or none, to the pause notices each tick", async () => {
+		const pause = { by: "no-progress", at: 7, issues: [] };
+		expect(await noticedPauses(control({ paused: pause }))).toEqual([pause]);
+		expect(await noticedPauses(control())).toEqual([undefined]);
+	});
+
+	it("sends the raise on the tick that writes a no-progress pause, and none where the write is refused", async () => {
+		const stalledTick = async (isWritten: boolean) => {
+			const sent: unknown[] = [];
+			const finished = [1, 2, 3].map(
+				(n) =>
+					({
+						...record({ sessionId: `s-${n}`, seat: SEAT }),
+						jobId: `j${n}`,
+						launchedAt: NOW - 30 * MIN,
+						finishedAt: NOW - n * MIN,
+						acts: {},
+					}) as Launch,
+			);
+			const { io } = fakeIo(stateOf({ launches: finished }), {
+				writePause: () => isWritten,
+				sendPauseNotices: (paused) => {
+					sent.push(paused);
+				},
+			});
+			await tickOf(io);
+			return sent;
+		};
+		const written = await stalledTick(true);
+		expect(written[0]).toBeUndefined();
+		expect(written).toHaveLength(2);
+		expect(written[1]).toHaveProperty("by", "no-progress");
+		expect(await stalledTick(false)).toEqual([undefined]);
 	});
 });
 

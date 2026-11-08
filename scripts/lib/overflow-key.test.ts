@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildKeyHelper, buildKeySettings } from "./overflow-key.js";
+import { buildKeyHelper, buildOverflowLaunch } from "./overflow-key.js";
 
 const KEY = "sk-fake-overflow-key";
 let dir = "";
@@ -82,20 +82,33 @@ describe("the key helper", () => {
 	});
 });
 
-describe("buildKeySettings, the launch's `--settings` (#3701)", () => {
+describe("buildOverflowLaunch, the launch's `--settings` and stripped environment (#3701)", () => {
 	beforeEach(() => vi.stubEnv("WFC_SECRETS_FILE", secrets));
 	afterEach(() => vi.unstubAllEnvs());
 
-	it("builds the JSON whose helper prints the key", () => {
-		const built = buildKeySettings("WFC_K");
+	it("builds the JSON whose helper prints the key, and drops every key and the caller's session id from the child's environment", () => {
+		const env = {
+			ANTHROPIC_API_KEY: "sk-a",
+			WFC_K: "sk-b",
+			CLAUDE_CODE_SESSION_ID: "the-caller",
+			KEEP: "1",
+		};
+		const built = buildOverflowLaunch("WFC_K", env);
 		if (!("settings" in built)) throw new Error(built.why);
 		const { apiKeyHelper } = JSON.parse(built.settings);
 		expect(apiKeyHelper).toBe(buildKeyHelper("WFC_K", secrets));
 		expect(built.settings).not.toContain("sk-fake");
+		expect(built.unset).toEqual([
+			"ANTHROPIC_API_KEY",
+			"WFC_K",
+			"CLAUDE_CODE_SESSION_ID",
+		]);
+		expect(built.env).toEqual({ KEEP: "1" });
+		expect(env.WFC_K).toBe("sk-b");
 	});
 
 	it("refuses a missing variable before any launch, naming it and holding no value", () => {
-		const built = buildKeySettings("WFC_MISSING");
+		const built = buildOverflowLaunch("WFC_MISSING", {});
 		if (!("why" in built)) throw new Error("built settings for a missing key");
 		expect(built.why).toContain("WFC_MISSING is not set in");
 		expect(built.why).toMatch(

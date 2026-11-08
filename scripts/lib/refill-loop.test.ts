@@ -29,6 +29,7 @@ import {
 	isReviewRunDue,
 	judgedLaunches,
 	landingRoots,
+	lastActOf,
 	limitHoldsOf,
 	parseControl,
 	readActsSoFar,
@@ -318,6 +319,37 @@ describe("the launched session's id (#2311)", () => {
 	});
 });
 
+describe("the loop's last act, for the unproven cap (#4223)", () => {
+	const at: Record<string, number> = { old: 100, mid: 300, now: 200 };
+	const read = (id: string, roots: string[]) => ({
+		at: at[id] ?? null,
+		unreadable: id === "bad" ? roots : [],
+	});
+
+	it("takes the latest act across every launch and each session it ran under", () => {
+		const launches = [
+			record({ sessionId: "now", pastSessionIds: ["mid"] }),
+			record({ sessionId: "old" }),
+			record({}),
+		] as Launch[];
+		expect(lastActOf(launches, () => ["r"], read)).toEqual({
+			at: 300,
+			unread: [],
+		});
+	});
+
+	it("names each store that would not read, reading no act there", () => {
+		const launches = [record({ sessionId: "bad" })] as Launch[];
+		expect(lastActOf(launches, () => ["r1", "r2"], read)).toEqual({
+			at: null,
+			unread: [
+				{ sessionId: "bad", root: "r1" },
+				{ sessionId: "bad", root: "r2" },
+			],
+		});
+	});
+});
+
 describe("a finished launch's progress, from its session's acts ledger (#2312)", () => {
 	const sb = freshSandbox();
 	const other = () => path.join(sb.dir, "other-repo");
@@ -510,6 +542,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 				},
 			],
 			history,
+			lastActAt: null,
 		});
 
 	/** Finishes in order, `j<n>` finishing at NOW - 10 + n, those in `idless`
@@ -622,6 +655,7 @@ function settleOnce(
 				seats,
 				overflow,
 				history: past,
+				lastActAt: null,
 			},
 			decision,
 			state,
@@ -808,7 +842,8 @@ describe("a batch on record before its dispatch (#4180)", () => {
 });
 
 describe("the first overflow launch's record (#3767)", () => {
-	const apiSeat = "/h/.claude3-api";
+	/* The overflow seat on the plan seat's dir, told apart by its key. */
+	const key = "K2";
 	/** When a past launch launched, unless it says otherwise. */
 	const pastAt = NOW - 3_600_000;
 	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({
@@ -824,7 +859,7 @@ describe("the first overflow launch's record (#3767)", () => {
 		fits: null,
 	});
 	const settleOverflowLaunch = (
-		launchSeat: string | null,
+		launch: "overflow" | "plan" | null,
 		past: {
 			seat: string;
 			reason?: string;
@@ -838,7 +873,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	) => {
 		const writes: Tick["state"][] = [];
 		const launches =
-			launchSeat === null
+			launch === null
 				? []
 				: [
 						{
@@ -846,11 +881,10 @@ describe("the first overflow launch's record (#3767)", () => {
 							issues: [1],
 							prompt: "/implement 1",
 							model: "opus" as const,
-							seat: launchSeat,
-							reason:
-								launchSeat === apiSeat
-									? ("overflow" as const)
-									: ("soonest reset" as const),
+							seat: "/h/.claude2",
+							...(launch === "overflow"
+								? { keyVar: key, reason: "overflow" as const }
+								: { reason: "soonest reset" as const }),
 						},
 					];
 		const { lines } = settleOnce(
@@ -887,7 +921,7 @@ describe("the first overflow launch's record (#3767)", () => {
 								...loopStateOf(null),
 								overflowStart: {
 									at: recordedAt,
-									seat: apiSeat,
+									seat: "/h/.claude2",
 									planSeats: [],
 									omitted: [],
 								},
@@ -895,7 +929,15 @@ describe("the first overflow launch's record (#3767)", () => {
 						}),
 				writes,
 				seats: [planSeat("/h/.claude2", 100, true)],
-				overflow: [{ seat: apiSeat, fits: 3, spentUntil: null, why: null }],
+				overflow: [
+					{
+						seat: "/h/.claude2",
+						keyVar: key,
+						fits: 3,
+						spentUntil: null,
+						why: null,
+					},
+				],
 				omitted: ["/h/.claude3"],
 				readOmitted,
 			},
@@ -905,10 +947,11 @@ describe("the first overflow launch's record (#3767)", () => {
 
 	it("records each plan seat's reading and the omitted dirs", () => {
 		expect(
-			settleOverflowLaunch(apiSeat, [{ seat: "/h/.claude2" }]).start,
+			settleOverflowLaunch("overflow", [{ seat: "/h/.claude2" }]).start,
 		).toEqual({
 			at: NOW,
-			seat: apiSeat,
+			seat: "/h/.claude2",
+			keyVar: key,
 			planSeats: [
 				{
 					seat: "/h/.claude2",
@@ -923,22 +966,22 @@ describe("the first overflow launch's record (#3767)", () => {
 
 	it("records nothing on a second overflow launch or a plan-seat launch", () => {
 		const second = settleOverflowLaunch(
-			apiSeat,
-			[{ seat: apiSeat, reason: "overflow" }],
+			"overflow",
+			[{ seat: "/h/.claude2", keyVar: key, reason: "overflow" }],
 			undefined,
 			pastAt,
 		);
 		expect(second.start?.at).toBe(pastAt);
 		expect(second.lines.join("\n")).not.toContain("first overflow launch");
 		expect(
-			settleOverflowLaunch("/h/.claude2", [{ seat: "/h/.claude2" }]).start,
+			settleOverflowLaunch("plan", [{ seat: "/h/.claude2" }]).start,
 		).toBeNull();
 	});
 
 	const movedAt = NOW - 600_000;
 	const moved = {
-		seat: apiSeat,
-		keyVar: "K2",
+		seat: "/h/.claude2",
+		keyVar: key,
 		reason: "moved from ~/.claude2",
 		movedAt,
 	};
@@ -946,7 +989,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	it("records a move onto a key a kill kept out of the tick that made it, dated at the move (#4257)", () => {
 		expect(settleOverflowLaunch(null, [moved]).start).toMatchObject({
 			at: movedAt,
-			seat: apiSeat,
+			seat: "/h/.claude2",
 		});
 	});
 
@@ -964,7 +1007,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	it("records nothing on an overflow launch after a move onto a key, though a plan-seat launch since holds a later place (#4257)", () => {
 		const plan = { seat: "/h/.claude2", launchedAt: NOW - 1_800_000 };
 		const { start, lines } = settleOverflowLaunch(
-			apiSeat,
+			"overflow",
 			[moved, plan],
 			undefined,
 			movedAt,
@@ -976,8 +1019,8 @@ describe("the first overflow launch's record (#3767)", () => {
 	it("records nothing where a session already on a key resumes after a plan-seat launch (#4257)", () => {
 		const plan = { seat: "/h/.claude2", launchedAt: pastAt + 60_000 };
 		const resumed = {
-			seat: apiSeat,
-			keyVar: "K2",
+			seat: "/h/.claude2",
+			keyVar: key,
 			reason: "overflow",
 			relaunchedAt: NOW - 60_000,
 		};
@@ -992,12 +1035,17 @@ describe("the first overflow launch's record (#3767)", () => {
 
 	it("records nothing on an overflow launch whose recorded predecessor on a key has left the state (#4257)", () => {
 		const plan = { seat: "/h/.claude2", launchedAt: pastAt - 60_000 };
-		const { lines } = settleOverflowLaunch(apiSeat, [plan], undefined, pastAt);
+		const { lines } = settleOverflowLaunch(
+			"overflow",
+			[plan],
+			undefined,
+			pastAt,
+		);
 		expect(lines.join("\n")).not.toContain("first overflow launch");
 	});
 
 	it("still writes the state where the credentials scan throws", () => {
-		const { start, lines } = settleOverflowLaunch(apiSeat, [], () => {
+		const { start, lines } = settleOverflowLaunch("overflow", [], () => {
 			throw new Error("EACCES");
 		});
 		expect(start?.omitted).toEqual([]);
@@ -1005,7 +1053,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	});
 
 	it("survives the state file's round trip", () => {
-		const { start } = settleOverflowLaunch(apiSeat, []);
+		const { start } = settleOverflowLaunch("overflow", []);
 		expect(loopStateOf({ overflowStart: start }).overflowStart).toEqual(start);
 		expect(
 			loopStateOf({ overflowStart: { at: "x" } }).overflowStart,
@@ -1046,6 +1094,7 @@ describe("a tick's log line (#2362)", () => {
 				},
 			],
 			history: [],
+			lastActAt: null,
 		});
 		const wait =
 			"idle: the 5-hour bar is full on /s1 until its 5-hour reset 2026-10-18T14:00:00Z";
@@ -1703,6 +1752,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		typedSeat: null,
 		seats: [],
 		history: [],
+		lastActAt: null,
 	} as Tick["input"];
 	/* One repo per pick, so each is its own dispatcher call. */
 	const pick = (n: number) => ({
@@ -2369,6 +2419,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					seats: [],
 					overflow: [],
 					history: [],
+					lastActAt: null,
 					resumable,
 				},
 				decision: {

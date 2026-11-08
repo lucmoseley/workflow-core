@@ -50,6 +50,8 @@ const { stubClaude, baseEnv, readArgvLines, readFakeCalls } = fx;
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const JOB = "0a0b0c0d";
 const seat = () => path.join(fx.dir, ".claude2");
+/* What the dispatcher's lines name the seat by: its dir and key (#4196). */
+const label = () => `${seat()} key=${KEY_VAR}`;
 const secrets = () =>
 	path.join(fx.dir, "config", "workflow-core", "secrets.env");
 
@@ -227,7 +229,7 @@ describe("an overflow seat (#2610)", () => {
 			ANTHROPIC_API_KEY: "sk-in-the-shell",
 		});
 		expect(r.failed).toBeNull();
-		expect(r.out).toContain(`Budget OK: ${seat()} fits 20; headroom $200.00.`);
+		expect(r.out).toContain(`Budget OK: ${label()} fits 20; headroom $200.00.`);
 		expect(r.out).not.toMatch(/Allowance OK|Advisor/);
 		expect(readArgvLines().some((l) => l.includes("--debug-file"))).toBe(false);
 		const [launch, ...more] = readHeadlessLaunches(1);
@@ -330,13 +332,13 @@ describe("an overflow seat (#2610)", () => {
 			CLAUDE_PROJECT_DIR: elsewhere,
 		});
 		expect(r.failed).toBeNull();
-		expect(r.out).toContain(`Budget OK: ${seat()} fits 20; headroom $200.00.`);
+		expect(r.out).toContain(`Budget OK: ${label()} fits 20; headroom $200.00.`);
 	});
 
 	it("cuts the set to the budget's fit in the CAPPED shape, each launch's allowance and budget the headroom left", () => {
 		stub({ headless: "hold" });
 		const r = dispatch(3, { ...overflowEnv(25), WFC_PROC: "/proc" });
-		const capped = `CAPPED: launching 2 of 3 on the overflow budget of ${seat()} (headroom $25.00, $10.00 a session).`;
+		const capped = `CAPPED: launching 2 of 3 on the overflow budget of ${label()} (headroom $25.00, $10.00 a session).`;
 		expect(r.out).toContain(capped);
 		expect(r.launched.map((l) => l.prompt)).toEqual(prompts.slice(0, 2));
 		expect(r.refused).toEqual([{ launch: expect.anything(), reason: capped }]);
@@ -348,7 +350,7 @@ describe("an overflow seat (#2610)", () => {
 	it("refuses a set the budget fits none of, exit 3, in the REFUSED shape", () => {
 		stub();
 		const r = dispatch(2, overflowEnv(5));
-		const refused = `REFUSED: overflow seat ${seat()} fits no session: headroom $5.00 against $10.00 a session ($0.00 held by 0 running).`;
+		const refused = `REFUSED: overflow seat ${label()} fits no session: headroom $5.00 against $10.00 a session ($0.00 held by 0 running).`;
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused.map((x) => x.reason)).toEqual([refused, refused]);
 		expect(readAnyLaunches()).toEqual([]);
@@ -403,7 +405,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused[0]?.reason).toMatch(
 			new RegExp(
-				`^REFUSED: overflow seat ${seat()}: its key is exhausted until \\d{4}-\\d{2}-\\d{2}`,
+				`^REFUSED: overflow seat ${label()}: its key is exhausted until \\d{4}-\\d{2}-\\d{2}`,
 			),
 		);
 		expect(readAnyLaunches()).toEqual([]);
@@ -437,7 +439,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused[0]?.reason).toMatch(
 			new RegExp(
-				`^REFUSED: overflow seat ${seat()}: its key is exhausted until a newer Console reading,`,
+				`^REFUSED: overflow seat ${label()}: its key is exhausted until a newer Console reading,`,
 			),
 		);
 		expect(r.out).toContain("the budget resets at a newer Console reading.");
@@ -453,7 +455,7 @@ describe("an overflow seat (#2610)", () => {
 		});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			`REFUSED: ${seat()} is an overflow seat, which launches Opus alone (#1920); sonnet is not.`,
+			`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); sonnet is not.`,
 		);
 		expect(readArgvLines()).toEqual([]);
 	});
@@ -463,7 +465,7 @@ describe("an overflow seat (#2610)", () => {
 		const r = dispatch(1, overflowEnv(200, { key: false }));
 		expect(r.failed).toBe("exit 2");
 		expect(r.out).toContain(
-			`REFUSED: overflow seat ${seat()}: ${KEY_VAR} is not set in ${secrets()}`,
+			`REFUSED: overflow seat ${label()}: ${KEY_VAR} is not set in ${secrets()}`,
 		);
 		expect(r.launched).toEqual([]);
 		expect(readAnyLaunches()).toEqual([]);
@@ -492,7 +494,7 @@ describe("an overflow seat (#2610)", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(
-			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 --name \$'Overflow \\302\\267 \/implement 341' \/implement\\ 341$/m,
+			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 --name \/implement\\ 341 \/implement\\ 341$/m,
 		);
 		expect(readAnyLaunches()).toEqual([]);
 	});

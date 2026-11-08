@@ -515,6 +515,35 @@ function readActsBy(sessionId, roots) {
 }
 
 /**
+ * When `sessionId` last acted across `roots`' stores, ms: the later of its acts
+ * and commit ledgers' last writes, each an append (#4223); null where it made
+ * none. A ledger that would not stat lists its root in `unreadable`, as
+ * readActsBy's do.
+ * @param {string} sessionId
+ * @param {string[]} roots each a repo's main worktree
+ * @returns {{at: number|null, unreadable: string[]}}
+ */
+function readLastActAt(sessionId, roots) {
+	/** @type {number|null} */
+	let at = null;
+	/** @type {string[]} */
+	const unreadable = [];
+	for (const root of roots)
+		for (const file of [
+			core.paths.actLedger(sessionId, root),
+			core.paths.commitLedger(sessionId, root),
+		])
+			try {
+				at = Math.max(at ?? 0, fs.statSync(file).mtimeMs);
+			} catch (e) {
+				if (caught(e).code === "ENOENT") continue;
+				core.logError(`act time ${sessionId}`, e);
+				if (!unreadable.includes(root)) unreadable.push(root);
+			}
+	return { at, unreadable };
+}
+
+/**
  * The main worktree, under whose state directory `.husky/post-commit` keeps the
  * commit ledgers — or null where git will not say, or where the common dir
  * names no checkout.
@@ -558,6 +587,7 @@ function readOwnersOf(commits, root) {
 
 module.exports = {
 	readActsBy,
+	readLastActAt,
 	readBilledPathsBy,
 	readCommitsBy,
 	readLandedBy,

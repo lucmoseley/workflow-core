@@ -26,7 +26,7 @@
 # lib/headless-sessions.js, since the key's credits cover `claude -p` and not
 # a `--bg` job (#4578): under its plan seat's config dir, handed the key
 # through an `apiKeyHelper` in `--settings` (lib/overflow-key.js), named
-# `Overflow · <prompt>`, capped at the key's headroom, and with no key or
+# after its prompt with the overflow prefix, capped at the key's headroom, and with no key or
 # caller's session id in its environment (#3701, #4580). Its ledger row
 # records the key, its allowance, the headroom at launch, which the refill
 # tick stops it at (#3698), and the session id the launcher printed. Only Opus launches there (#1920). WFC_SEAT_KEY,
@@ -458,6 +458,8 @@ refuse_if_kernel_unhealthy
 # seat's key, readable; that the launch bills its seat — the subscription, or an
 # overflow seat's declared key's helper alone (#2236) — judged in the
 # environment the launch hands its child; and whether burn mode's marker is set.
+# It also prints the seat's label, its dir and an overflow seat's key, which
+# the lines below name it by (#4196).
 seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
 # Why the launches go on this seat, for the ledger: the refill loop names its
 # pick (lib/refill-batch.js); a direct run takes its caller's own seat (#3732).
@@ -474,6 +476,7 @@ gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_ke
 {
   read -r seat_kind burn_state
   read -ra launch_unset
+  read -r seat_label
 } <<<"$gates"
 burn=0
 [[ "$burn_state" == on ]] && burn=1
@@ -496,7 +499,7 @@ if [[ $overflow -eq 1 ]]; then
       opus | opus\[1m\] | claude-opus-5-5\[1m\]) ;;
       *)
         printf 'REFUSED: %s is an overflow seat, which launches Opus alone (#1920); %q is not.\n' \
-          "$seat_dir" "$m" >&2
+          "$seat_label" "$m" >&2
         exit 2
         ;;
     esac
@@ -642,7 +645,7 @@ budget_fields() {
 # Why the seat fits no session, from the fields budget_fields last read.
 no_fit_line() {
   printf 'overflow seat %s fits no session: headroom $%.2f against $%.2f a session ($%.2f held by %s running).' \
-    "$seat_dir" "$headroom" "$q_usd" "$reserved" "$n_running"
+    "$seat_label" "$headroom" "$q_usd" "$reserved" "$n_running"
 }
 # The seat's budget as JSON, or a REFUSED line naming why not and the reason
 # indented under it, on stderr. $1: the REFUSED line's subject.
@@ -650,7 +653,7 @@ read_budget() {
   local out
   if ! out="$(node "$here/lib/overflow-budget.js" --json "$seat_key" 2>&1)" ||
     ! command -v jq >/dev/null 2>&1 || ! jq -e '.fit | numbers' <<<"$out" >/dev/null 2>&1; then
-    printf 'REFUSED: %s: the overflow budget of %s cannot be read:\n' "$1" "$seat_dir" >&2
+    printf 'REFUSED: %s: the overflow budget of %s cannot be read:\n' "$1" "$seat_label" >&2
     printf '%s\n' "${out:-no output}" | sed 's/^/  /' >&2
     command -v jq >/dev/null 2>&1 || printf '  (jq is not installed.)\n' >&2
     return 1
@@ -664,7 +667,7 @@ if [[ $overflow -eq 1 ]]; then
   if ((fit == 0)); then
     if [[ "$exhausted" == "true" ]]; then
       printf 'REFUSED: overflow seat %s: its key is exhausted %s, Anthropic having refused it for credit.\n' \
-        "$seat_dir" "$free_until" >&2
+        "$seat_label" "$free_until" >&2
     else
       printf 'REFUSED: %s\n' "$(no_fit_line)" >&2
     fi
@@ -673,11 +676,11 @@ if [[ $overflow -eq 1 ]]; then
   fi
   if ((fit < $# / 2)); then
     printf 'CAPPED: launching %d of %d on the overflow budget of %s (headroom $%.2f, $%.2f a session).\n' \
-      "$fit" "$(($# / 2))" "$seat_dir" "$headroom" "$q_usd" >&2
+      "$fit" "$(($# / 2))" "$seat_label" "$headroom" "$q_usd" >&2
     keep_first "$fit" "$@"
     set -- "${keep[@]}"
   else
-    printf 'Budget OK: %s fits %d; headroom $%.2f.\n' "$seat_dir" "$fit" "$headroom"
+    printf 'Budget OK: %s fits %d; headroom $%.2f.\n' "$seat_label" "$fit" "$headroom"
   fi
 fi
 
@@ -895,12 +898,11 @@ while [[ $# -gt 0 ]]; do
     fi
   fi
   if [[ $overflow -eq 1 ]]; then
-    # The launcher builds the key's `--settings`; its `--cwd` is the launch
-    # dir the subshell below enters. The name is the one
-    # name-issue-session.sh keeps the prefix of.
+    # The launcher builds the key's `--settings` and prefixes the name; its
+    # `--cwd` is the launch dir the subshell below enters.
     launcher="the headless launcher"
     launch_cmd=("${launch_env[@]}" node "$here/lib/headless-sessions.js" launch
-      --key "$seat_key" --cwd . --budget "$headroom" --name "Overflow · $prompt" "$prompt")
+      --key "$seat_key" --cwd . --budget "$headroom" --name "$prompt" "$prompt")
   else
     args=(--bg)
     # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is

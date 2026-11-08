@@ -377,6 +377,41 @@ describe("the acts ledger (#2308)", () => {
 		});
 	});
 
+	it("dates a session's last act by its later ledger write, none where it made none (#4223)", () => {
+		const quiet = path.join(sb.dir, "other-repo");
+		expect(store.readLastActAt("carol", [sb.repo, quiet])).toEqual({
+			at: null,
+			unreadable: [],
+		});
+		store.recordAct("file owner/repo#9", "carol");
+		store.recordCommit(commitSha, "carol");
+		const actAt = new Date("2026-11-01T10:00:00Z");
+		const commitAt = new Date("2026-11-01T11:00:00Z");
+		fs.utimesSync(store.paths.actLedger("carol", sb.repo), actAt, actAt);
+		fs.utimesSync(
+			store.paths.commitLedger("carol", sb.repo),
+			commitAt,
+			commitAt,
+		);
+		expect(store.readLastActAt("carol", [sb.repo, quiet])).toEqual({
+			at: commitAt.getTime(),
+			unreadable: [],
+		});
+	});
+
+	it("lists a store whose ledgers will not stat as unreadable (#4223)", () => {
+		store.recordAct("file owner/repo#9", "dave");
+		const dir = store.paths.actsDir(sb.repo);
+		fs.chmodSync(dir, 0o000);
+		try {
+			expect(store.readLastActAt("dave", [sb.repo]).unreadable).toEqual(
+				AS_ROOT ? [] : [sb.repo],
+			);
+		} finally {
+			fs.chmodSync(dir, 0o755);
+		}
+	});
+
 	it("is pruned with the commit ledger, sparing a live session", () => {
 		store.recordAct("close owner/repo#1", "alice");
 		store.recordAct("close owner/repo#2", "bob");

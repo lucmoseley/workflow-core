@@ -252,6 +252,7 @@ describe("a seat's reading (#2606)", () => {
 				freeSlots: 2,
 				seats: [{ ...readOn(Stale, session, week), fits: null }],
 				history: [],
+				lastActAt: null,
 			});
 
 		it("waits out a locked seat's cached 100% week whose reset is ahead", () => {
@@ -819,6 +820,7 @@ describe("the cap's launch count (#2278)", () => {
 				freeSlots: 2,
 				seats,
 				history: [],
+				lastActAt: null,
 			});
 
 		it("launches on the next seat with room", () => {
@@ -1012,7 +1014,7 @@ describe("each overflow seat's reading", () => {
 		);
 		expect(out).toEqual([
 			{
-				seat: "the seat file",
+				seat: null,
 				fits: null,
 				spentUntil: null,
 				why: "it refuses: refill-seats:2: missing cycle-day=",

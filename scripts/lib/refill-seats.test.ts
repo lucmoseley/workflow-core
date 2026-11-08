@@ -14,8 +14,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	buildSeatLabel,
 	findOverflowSeat,
 	isSameSeat,
+	overflowSeatsOf,
+	planSeatsOf,
 	readDeclaredSeats,
 	readOmittedDirs,
 	seatIdOf,
@@ -49,7 +52,7 @@ describe("readOmittedDirs (#3767)", () => {
 	it("names config dirs holding credentials that the seat file omits", () => {
 		seatDir(".claude2", true);
 		seatDir(".claude3", true);
-		seatDir(".claude3-api", false);
+		seatDir(".claude4", false);
 		seatDir(".claude-exp", true);
 		seatDir("other", true);
 		fs.writeFileSync(path.join(home, ".claude.json"), "{}");
@@ -245,5 +248,35 @@ describe("unlistedSeats", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", b);
 
 		expect(unlistedSeats([own, b, outside])).toEqual([outside]);
+	});
+});
+
+describe("buildSeatLabel and the kind narrowings (#4196)", () => {
+	const plan = { dir: "/h/.claude2", kind: "plan" as const };
+	const k = (keyVar: string) => ({
+		dir: "/h/.claude2",
+		kind: "overflow" as const,
+		keyVar,
+		grantUsd: 200,
+		cycleDay: 20,
+	});
+
+	it("names two keys on one dir apart, and a plan seat by its dir alone", () => {
+		expect(buildSeatLabel(k("K"))).toBe("/h/.claude2 key=K");
+		expect(buildSeatLabel(k("K2"))).toBe("/h/.claude2 key=K2");
+		expect(buildSeatLabel(plan)).toBe("/h/.claude2");
+		expect(buildSeatLabel({ seat: "~/.claude2", keyVar: "K" })).toBe(
+			"~/.claude2 key=K",
+		);
+	});
+
+	it("names a null seat the seat file", () => {
+		expect(buildSeatLabel({ seat: null })).toBe("the seat file");
+	});
+
+	it("narrows a seat list to each kind, in order", () => {
+		const seats = [k("K"), plan, k("K2")];
+		expect(overflowSeatsOf(seats)).toEqual([k("K"), k("K2")]);
+		expect(planSeatsOf(seats)).toEqual([plan]);
 	});
 });

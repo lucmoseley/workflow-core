@@ -6,16 +6,18 @@
  */
 
 const { describeAge } = require("./proc-table.js");
-const { buildSeatName } = require("./refill-seats.js");
+const { buildSeatLabel, buildSeatName } = require("./refill-seats.js");
 
 /**
  * @typedef {{seat: string, percent: number|null, weekReadAt: number|null,
  *   weekFull: boolean}} PlanSeatBasis a plan seat's weekly bar as read, whatever
  *   its trust, and 0 once its reset has passed; `weekReadAt` null where the
  *   reading has no time
- * @typedef {{at: number, seat: string, planSeats: PlanSeatBasis[],
- *   omitted: string[]}} OverflowStart `seat`, the overflow seat started on;
- *   `omitted`, lib/refill-seats.js's readOmittedDirs at that start
+ * @typedef {{at: number, seat: string, keyVar?: string,
+ *   planSeats: PlanSeatBasis[], omitted: string[]}} OverflowStart `seat` and
+ *   `keyVar`, the overflow seat started on, its key absent from a record
+ *   written before it was kept (#4196); `omitted`, lib/refill-seats.js's
+ *   readOmittedDirs at that start
  */
 
 /** @param {import("./refill-decide.js").SeatReading} s @returns {PlanSeatBasis} */
@@ -102,6 +104,7 @@ function parseOverflowStart(raw) {
 		? {
 				at: r.at,
 				seat: r.seat,
+				...(typeof r.keyVar === "string" ? { keyVar: r.keyVar } : {}),
 				planSeats: r.planSeats.filter(isPlanSeatBasis),
 				omitted: r.omitted.filter((d) => typeof d === "string"),
 			}
@@ -145,9 +148,17 @@ const buildBasisLines = (planSeats, omitted, { at, ageSuffix }) => [
 const buildOverflowStartLines = ({ at, planSeats, omitted }) =>
 	buildBasisLines(planSeats, omitted, { at, ageSuffix: "before it" });
 
+/**
+ * The seat an overflow start was on, as a line names it.
+ * @param {OverflowStart} start
+ */
+const buildStartLabel = (start) =>
+	buildSeatLabel({ ...start, seat: buildSeatName(start.seat) });
+
 module.exports = {
 	buildBasisLines,
 	buildOverflowStartLines,
+	buildStartLabel,
 	firstOverflowStart,
 	parseOverflowStart,
 	planSeatBasisOf,
