@@ -163,9 +163,10 @@ describe("segmentTailMatches", () => {
 });
 
 // A regex match is synchronous, so only a process timeout can stop a
-// backtracking one (#2188): each oracle above takes over 10 s on these
-// texts, a linear read well under one. A `\r` opens a line for `^` but does
-// not end the prefix, so each one is a fresh start.
+// backtracking one (#2188). These texts are sized so NODE_RUN_RE and
+// NODE_VAR_RE overrun the 10 s timeout below and each parser stays far
+// inside it (#4181). A `\r` opens a line for `^` but does not end the
+// prefix, so each one is a fresh start.
 describe("a long line of heads that reach nothing", () => {
 	it.each([
 		["parseNodeRuns", 'node "$/a '.repeat(55_000)],
