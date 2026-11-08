@@ -34,8 +34,7 @@
  *
  * THE GUARD-LOAD PROBE (#4226): a self-plugin host's sessions run the guard hook
  * line its `self-plugin/hooks/hooks.json` registers, so the probe also runs that
- * line on a benign `Read`, as a session would, whatever code it runs (the
- * pinned guard code since #4227). A failure is run once more after
+ * line on a benign `Read`, as a session would, whatever code it runs. A failure is run once more after
  * GUARD_PROBE_RETRY_MS; a second raises the hold on its tick, with no outage
  * window. While it stands, each loop session that parks there is attached to it
  * (attachProbeParks). An adopter loads its guards from its pinned plugin
@@ -43,12 +42,10 @@
  *
  * A LOCKED-OUT SESSION (#4228), one every call of which its guards refused for
  * want of a guard that could judge it, raises the probe hold where none stands
- * and attaches to it, its first refused call kept in its attach file
- * (holdLockedOut). The hold's clear check replays each kept call through the
- * hook line beside the benign `Read`, so a fault that `Read` does not touch
- * keeps the hold. A call is kept in a replay file of its own beside the hold's,
- * written once the hold stands, so it binds the hold before its issue files and
- * the session can attach; a raise clears a stale one, a lift removes them.
+ * and attaches to it (holdLockedOut). Its first refused call is kept in a
+ * replay file beside the hold, written before the hold's issue files, and the
+ * hold's clear check replays each kept call through the hook line beside the
+ * benign `Read`, so a fault that `Read` does not touch keeps the hold.
  *
  * RESIDUAL: during an outage's window launches are withheld with no hold to show
  * for it, so `status` reads no hold open, only the log says why, and no notice is
@@ -226,8 +223,7 @@ const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
  * the step runs the guard hook line it registers. */
 const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
 
-/* What a lockout's hold asks repaired: the refusal names the repair, such as the
- * pinned guard code's roll-back (#4227). */
+/* What a lockout's hold asks repaired. */
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
 
 /* The entry the guard hook line runs, whatever runs it. */
@@ -1147,7 +1143,7 @@ function readHoldReplays(root, id) {
  * @param {string} job
  * @param {RefusedCall} call
  */
-function keepReplay(root, job, call) {
+function keepProbeReplay(root, job, call) {
 	if (!JOB_PATTERN.test(job)) throw new Error(`not a job id: ${job}`);
 	try {
 		fs.writeFileSync(
@@ -1480,7 +1476,7 @@ function holdLockedOut(root, { job, refusal, call }, now, log) {
 	);
 	try {
 		if (readProbeHold(root) === null) return { why: "no probe hold stands" };
-		if (call) keepReplay(root, job, call);
+		if (call) keepProbeReplay(root, job, call);
 		const attached = attachHold(root, PROBE_ID, job);
 		if (attached === null) return { why: "no probe hold stands" };
 		if (attached.hold.issue === null)

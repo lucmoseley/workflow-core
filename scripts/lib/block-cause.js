@@ -15,8 +15,9 @@
  * tool calls a guard refused, at least one for want of a guard that could
  * judge it, writes `needs input:` over a fault no answer of the founder's
  * mends. A session with a passed call reads on as before, its lockout, if any,
- * met after it reached its ticket (#4202's ruling). A session the loop resumed
- * off a hold reads from that resume, so it meets its new fault, not the old.
+ * met after it reached its ticket (#4202's ruling), a call passed before any
+ * other resume included. A session the loop resumed off a hold reads from that
+ * resume only, so it meets its new fault, not the old.
  */
 
 const { isLockoutText } = require("./core-fault.js");
@@ -212,14 +213,12 @@ function resultsOf(tail) {
 
 /** @param {Record<string, any>} row */
 const isHoldResumeRow = (row) =>
-	row.type === "user" && rowText(row).trim() === HOLD_PROMPT;
+	row.type === "user" && rowText(row).trimStart().startsWith(HOLD_PROMPT);
 
 /**
  * The session's lockout, read off its transcript since the loop last resumed
- * it off a hold: its first refusal there for want of a guard that could judge the call,
- * where every call's result there is a hook's refusal. Null where one passed,
- * or none is such a refusal. A session resumed off a lifted hold so reads the
- * fault it meets now, never the one the hold cleared (#4228).
+ * it off a hold: its first refusal there for want of a guard that could judge
+ * the call, where every call's result there is a hook's refusal.
  * @param {Record<string, any>[]} tail
  * @returns {Lockout|null}
  */

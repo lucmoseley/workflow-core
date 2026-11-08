@@ -67,7 +67,7 @@ const PARKED_STATE = "blocked";
  * @typedef {{act: Act, whyEnded?: string, limitParks?: number,
  *   hold?: HoldRef}} ParkWhy  `act`, stop-and-park,
  *   park-at-morning or attach-to-hold; `limitParks`, a limit-cap park's count in
- *   a row, for the marker; `hold`, the repo hold the park is attached to
+ *   a row, for the marker
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {{tries: number, triedAt: number, nextAt: number,
  *   attachAt?: number, heldAt?: number}} Resumes  a launch's resumes after an
@@ -233,8 +233,7 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, lockout: import("./block-cause.js").Lockout,
  *   now: number) => {hold: HoldRef}|{why: string}}
  *   holdLockedOut  attach its locked-out session to its checkout's probe
- *   hold, raised where none stands (lib/repo-holds.js's holdLockedOut): the
- *   hold, else why not
+ *   hold, raised where none stands: the hold, else why not
  * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
  *   each of its issues the `parked` label would not go on, with why
  * @property {(sessionId: string, numbers: number[], record: ParkRecord) =>
@@ -702,8 +701,7 @@ const buildIdleResumeLine = (l, failed) =>
  * The loop log's line for a park it stopped, or could not; `brief`, the
  * issue comment's, each reason cut to its first line, never a stack (#3670).
  * @param {BlockedLaunch & {act?: Act, whyEnded?: string,
- *   hold?: ParkWhy["hold"]}} l  `whyEnded`, why a held session's wait ended;
- *   `hold`, the repo hold it is attached to
+ *   hold?: ParkWhy["hold"]}} l  `whyEnded`, why a held session's wait ended
  * @param {"away"|"normal"} mode
  * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
  *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
@@ -881,8 +879,7 @@ function stopPark(l, why, mode, seen) {
 /**
  * Attach locked-out `l` to its checkout's probe hold, raised where none stands,
  * then stop and park it there, its issues labelled and in its marker for the
- * hold's resume step (#4228). Left as it is, logged, where the attach does not
- * take, for the next tick to retry.
+ * hold's resume step (#4228).
  * @param {BlockedLaunch} l
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
