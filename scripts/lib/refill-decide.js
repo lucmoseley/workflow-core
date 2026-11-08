@@ -1308,11 +1308,12 @@ function decideUnpaused(input) {
 	if (input.freeSlots === 0)
 		return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
 	const room = unprovenRoom(input);
-	const capIdle = buildUnprovenIdle(input.lastActAt);
-	if (room === 0) return buildIdleDecision(capIdle, held, []);
-	const free = Math.min(input.freeSlots, room);
 	const spent =
-		room < input.freeSlots ? capIdle : buildIdle(RESUMES_TAKE_SLOTS);
+		room < input.freeSlots
+			? buildUnprovenIdle(input.lastActAt)
+			: buildIdle(RESUMES_TAKE_SLOTS);
+	if (room === 0) return buildIdleDecision(spent, held, []);
+	const free = Math.min(input.freeSlots, room);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
 		...decideLaunches(input, { free, spent, held, resumes, seatsLeft }),
