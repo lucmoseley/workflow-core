@@ -6,8 +6,7 @@
  * Run in-process on plain strings. Each case points `WFC_REPO_ROOT` and
  * `CLAUDE_PROJECT_DIR` at a temp directory, so the claim markers land there
  * and never in the shared tree; a lapsed claim is seeded by ageing its file's
- * mtime rather than by waiting out the window. A fresh session id per case
- * keeps each first call the claimant.
+ * mtime rather than by waiting out the window.
  *
  * WHAT BREAKING IT COSTS: a session refused at `needs input:` goes back to
  * finding the shape one refusal at a time, a turn and a post per piece, or
@@ -52,7 +51,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The checklist a first claimant prints for `message`. */
 const checklist = (
 	message: string,
 	judged?: Record<string, "met" | "missing">,
@@ -64,7 +62,6 @@ const checklist = (
 		judged,
 	});
 
-/** Each piece's state as the checklist prints it, in its order. */
 const states = (text: string) =>
 	Object.fromEntries(
 		[

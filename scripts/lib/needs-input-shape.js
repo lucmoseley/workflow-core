@@ -8,19 +8,14 @@
  * one refusal at a time. Both guards here end a refusal of that ending with
  * this checklist: every piece owed, each met, missing or not yet judged.
  *
- * IT CHANGES WHAT A REFUSAL SAYS, NEVER WHETHER ONE IS SENT. A piece's state is
- * what the calling guard judged, or what reading the message alone shows
- * missing; it charges no counter.
+ * IT CHANGES WHAT A REFUSAL SAYS, NEVER WHETHER ONE IS SENT.
  *
  * WHICH PARK (`parkKind`) is owned here too, so the checklist and
- * guard-priced-options.js's no-round limb read it the one way: a round; a lone
- * founder hand-over (#926); a pointer at a round still standing (#924); a park
- * on an open repo hold (#3858); or prose, which owes the round it lacks.
+ * guard-priced-options.js's no-round limb read it the one way.
  *
- * ONCE A TURN (`shareChecklist`): the two guards run side by side at Stop, so
- * the first to claim the turn's marker prints the checklist and the other
- * refers to it. Residual: a guard that claims and then fails to write its block
- * leaves the other's reference pointing at nothing.
+ * ONCE A TURN (`shareChecklist`). Residual: a guard that claims the turn and
+ * then fails to write its block leaves the other's reference pointing at
+ * nothing.
  */
 
 const crypto = require("node:crypto");
@@ -192,7 +187,6 @@ const ONCE_BLOCK = "once the `waits on you:` block cites the open issue";
  */
 const PIECES = {
 	research: {
-		/* Required at need: both are heavy, and only a refusal reads them. */
 		how: () =>
 			`research before the round: past rulings, then web or vendor docs, then a fresh subagent, each a tool call, wherever the top two options sit close or the top is priced ${String(require("./close-rivals").LOW_TOP)}% or less; and the round sent no sooner than ${String(require("./round-check").MIN_CALLS)} tool calls after the founder's last message`,
 		judgedBy: PRICED_GUARD,
@@ -278,9 +272,7 @@ const KIND_WORDS = {
 	hold: "a park on a repo hold, which owes no round",
 };
 
-/* A block line naming an item heading, before the status line. */
 const BLOCK_HEADER = /^[ \t]*waits on you:/m;
-/* The status line's issue tail. */
 const REFS_TAIL = /[—–-][ \t]*waits on you:[ \t]*\S/i;
 
 /**
@@ -301,7 +293,6 @@ function lexicalGaps(message, kind) {
 	return gaps;
 }
 
-/* The pieces read on the tracker, each gated on an earlier one. */
 const TRACKED = new Set(["posted", "claimed", "hand-off"]);
 
 /**
