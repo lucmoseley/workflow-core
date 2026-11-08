@@ -19,21 +19,21 @@
  * A NODE GUARD WRAPPER'S DIGEST ALSO HASHES THE CORE AND HOST PORTS IT
  * COMPOSES (#3129): each `./lib/<name>.js` its literal require binds `decide`
  * or `buildHostPorts` from (lib/guard-entry.js's composition root), code and
- * rule files both, an absent one hashing as a marker. guard-entry.js itself
- * is the kit every wrapper runs, so an edit to it expires none. A dispatched
+ * rule files both, an absent one hashing as a marker. A dispatched
  * core's digest hashes the host ports lib/guard-cores.json binds it to (#3167)
  * the same way.
  *
  * A CORE IN lib/ ALSO HASHES EACH LIB BESIDE IT IT REQUIRES (#4667), code
  * and rule files both, as a wrapper does its core: takes-label.js holds the
- * Outside-line text issue-create-label.js's refusals quote. KIT_LIBS, the
- * parsing and verdict helpers most cores share, are left out.
+ * Outside-line text issue-create-label.js's refusals quote. KIT_LIBS are
+ * left out.
  *
  * DEEPER LIBS FOLD THEIR RULE FILES, NOT THEIR CODE (#3167): every lib the
  * guard, its composed libs and its host reach through relative requires adds
- * the rule files it names. The cores share shell-parse.js, guard-verdict.js
- * and rule-gates.js, so folding deeper code would expire every row on an edit
- * to any of them; KIT_LIBS keeps a core's direct require of them out too.
+ * the rule files it names. The cores share KIT_LIBS, so folding deeper code
+ * would expire most rows on an edit to any of them.
+ * Residual: KIT_LIBS is kept by hand. A newly shared, often-edited helper
+ * left off it expires every core requiring it on each edit.
  * Residual: a deeper lib's non-literal ids, an id a sourced lib names, and
  * one built at run time, are unread. A manifest edit
  * alone rebinding a core's host to an existing lib is unread at a ticket's
@@ -96,17 +96,13 @@ const LIB_DIR = "lib";
 /* The bindings a wrapper hands lib/guard-entry.js's run, which make the lib
  * it requires them from a composed one. */
 const COMPOSED_BINDINGS = ["decide", "buildHostPorts"];
-/* The libs most lib/ cores require: an edit to any would expire every row. */
+/* Libs never folded as composed: they print no guard's text, and each saw
+ * 23 to 38 commits in the 3 months to c3c4b32b1, so folding them would
+ * expire most rows near weekly. */
 const KIT_LIBS = new Set([
-	"caught.js",
 	"guard-entry.js",
-	"guard-verdict.js",
-	"is-under.js",
-	"rule-gates.js",
 	"shell-parse.js",
 	"shell-words.js",
-	"tree-or.js",
-	"trim-run.js",
 ]);
 /**
  * @typedef {{ root: string, tree: Map<string, string> | null, disk: boolean,
@@ -541,18 +537,28 @@ function ruleFilesIn(rel, code) {
 function composedLibsOf(rel, code) {
 	const dir = libDirOf(rel);
 	if (dir === null) return [];
-	const inLib = path.posix.dirname(rel) === dir;
+	const composes =
+		path.posix.dirname(rel) === dir ? isNonKitLib : bindsComposition;
 	return parseEdges(rel, String(code), { kinds: ["require"] })
 		.filter(
 			(e) =>
-				path.posix.dirname(e.to) === dir &&
-				e.to.endsWith(".js") &&
-				(inLib
-					? !KIT_LIBS.has(path.posix.basename(e.to))
-					: COMPOSED_BINDINGS.some((b) => e.bindings?.includes(b))),
+				path.posix.dirname(e.to) === dir && e.to.endsWith(".js") && composes(e),
 		)
 		.map((e) => e.to);
 }
+
+/**
+ * A lib/ core's test for a lib beside it: any outside KIT_LIBS.
+ * @param {{ to: string }} edge
+ */
+const isNonKitLib = (edge) => !KIT_LIBS.has(path.posix.basename(edge.to));
+
+/**
+ * A wrapper's test for a lib: it binds what guard-entry's run takes.
+ * @param {{ bindings?: string[] }} edge
+ */
+const bindsComposition = (edge) =>
+	COMPOSED_BINDINGS.some((b) => edge.bindings?.includes(b));
 
 /**
  * The directory a Node guard at `rel` composes its libs from — its own where
@@ -827,8 +833,8 @@ function isLibFile(file) {
 }
 
 /**
- * The directories `rels`' Node guards can compose a lib from: each wrapper's
- * lib/, and the manifest's where a core's host sits.
+ * The directories `rels`' Node guards can compose a lib from: each libDirOf,
+ * and the manifest's where a core's host sits.
  *
  * @param {string[]} rels
  */
