@@ -1331,6 +1331,17 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
 	});
 
+	it("passes over a launch stopped on its seat's limit until a resume restarts it", () => {
+		const stopped = running("s", Act + 1, { limitHeld: {} });
+		const resumed = running("r", Act + 1, {
+			limitHeld: { resumedAt: Act + 2 },
+		});
+		const free = (history: unknown[]) =>
+			launched(tick({ freeSlots: 5, history, lastActAt: Act })).length;
+		expect(free([...sinceAct(2), stopped])).toBe(1);
+		expect(free([...sinceAct(2), resumed])).toBe(0);
+	});
+
 	it("holds every running launch unproven where no act reads", () => {
 		const d = tick({
 			freeSlots: 5,

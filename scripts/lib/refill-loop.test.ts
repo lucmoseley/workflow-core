@@ -29,6 +29,7 @@ import {
 	isReviewRunDue,
 	judgedLaunches,
 	landingRoots,
+	lastActOf,
 	limitHoldsOf,
 	parseControl,
 	readActsSoFar,
@@ -315,6 +316,37 @@ describe("the launched session's id (#2311)", () => {
 	it("keeps the id first captured", () => {
 		const had = record({ jobId: "a", sessionId: "first" });
 		expect(judged([had], [agent("a", "working")])[0].sessionId).toBe("first");
+	});
+});
+
+describe("the loop's last act, for the unproven cap (#4223)", () => {
+	const at: Record<string, number> = { old: 100, mid: 300, now: 200 };
+	const read = (id: string, roots: string[]) => ({
+		at: at[id] ?? null,
+		unreadable: id === "bad" ? roots : [],
+	});
+
+	it("takes the latest act across every launch and each session it ran under", () => {
+		const launches = [
+			record({ sessionId: "now", pastSessionIds: ["mid"] }),
+			record({ sessionId: "old" }),
+			record({}),
+		] as Launch[];
+		expect(lastActOf(launches, () => ["r"], read)).toEqual({
+			at: 300,
+			unread: [],
+		});
+	});
+
+	it("names each store that would not read, reading no act there", () => {
+		const launches = [record({ sessionId: "bad" })] as Launch[];
+		expect(lastActOf(launches, () => ["r1", "r2"], read)).toEqual({
+			at: null,
+			unread: [
+				{ sessionId: "bad", root: "r1" },
+				{ sessionId: "bad", root: "r2" },
+			],
+		});
 	});
 });
 

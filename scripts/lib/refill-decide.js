@@ -140,6 +140,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {number} launchedAt ms
  * @property {number} [relaunchedAt] ms, when a resume last restarted its job
  * @property {string|null} [jobId]
+ * @property {{resumedAt?: number}} [limitHeld] where the loop stopped it on its
+ *   seat's limit, with `resumedAt` once a resume restarted it
  * @property {number|null} finishedAt ms of the tick that saw the finish, not
  *   of the finish itself, used only to order the last three finishes; null
  *   while running
@@ -344,10 +346,10 @@ function noProgressRun({ history, noProgressFrom }) {
 /**
  * How many more launches and resumes may start before an act proves one
  * (#4223): NO_PROGRESS_RUN less the running launches started after
- * `lastActAt`, every one where it is null. A launch the loop stopped for a park
- * runs no session, and one due back this tick is counted as its resume.
- * Residual: one stopped on its seat's limit and not yet resumed still counts.
- * @param {Pick<TickInput, "history"|"lastActAt"|"resumable">} input
+ * `lastActAt`, every one where it is null. One the loop stopped, for a park or
+ * on its seat's limit and not since resumed, runs no session, and one due back
+ * this tick is counted as its resume.
+ * @param {Pick<TickInput, "history"|"lastActAt"> & Partial<Pick<TickInput, "resumable">>} input
  */
 function unprovenRoom({ history, lastActAt, resumable = [] }) {
 	const due = new Set(resumable.map((r) => r.jobId));
@@ -355,6 +357,7 @@ function unprovenRoom({ history, lastActAt, resumable = [] }) {
 		(l) =>
 			l.finishedAt === null &&
 			l.parkStopped === undefined &&
+			!(l.limitHeld && l.limitHeld.resumedAt === undefined) &&
 			!(l.jobId && due.has(l.jobId)) &&
 			(lastActAt === null || startedAt(l) > lastActAt),
 	).length;
@@ -1233,22 +1236,15 @@ function decideTick(input) {
 
 /**
  * The decision once the tick's resumes are taken: their launches, or why none.
- * `capped`, where the unproven cap and not admission sized `free`.
+ * `spent`, the idle where the resumes take every slot of `free`.
  * @param {TickInput} input
- * @param {{free: number, capped: boolean, held: Skip[], resumes: HeldResume[],
+ * @param {{free: number, spent: Idle, held: Skip[], resumes: HeldResume[],
  *   seatsLeft: SizedSeat[]}} taken
  * @returns {Exclude<Decision, {stop: StopReason}>}
  */
-function decideLaunches(input, { free, capped, held, resumes, seatsLeft }) {
+function decideLaunches(input, { free, spent, held, resumes, seatsLeft }) {
 	const launchSlots = free - resumes.length;
-	if (launchSlots === 0)
-		return buildIdleDecision(
-			capped
-				? buildUnprovenIdle(input.lastActAt)
-				: buildIdle(RESUMES_TAKE_SLOTS),
-			held,
-			resumes,
-		);
+	if (launchSlots === 0) return buildIdleDecision(spent, held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat(chargedInput);
 	if (launchPick.seat === null)
@@ -1315,10 +1311,13 @@ function decideUnpaused(input) {
 	if (room === 0)
 		return buildIdleDecision(buildUnprovenIdle(input.lastActAt), held, []);
 	const free = Math.min(input.freeSlots, room);
-	const capped = room < input.freeSlots;
+	const spent =
+		room < input.freeSlots
+			? buildUnprovenIdle(input.lastActAt)
+			: buildIdle(RESUMES_TAKE_SLOTS);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
-		...decideLaunches(input, { free, capped, held, resumes, seatsLeft }),
+		...decideLaunches(input, { free, spent, held, resumes, seatsLeft }),
 		capHeld,
 	};
 }
@@ -1388,6 +1387,7 @@ module.exports = {
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
 	UNPROVEN_CAP,
+	unprovenRoom,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

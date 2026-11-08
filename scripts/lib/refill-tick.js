@@ -528,25 +528,20 @@ function readProgress(l, served) {
 }
 
 /**
- * The latest act any of `launches`' sessions made, ms, from actRootsOf's stores,
- * null where none read (#4223). A store that will not read is logged and counts
- * as no act, so the unproven cap holds.
+ * lib/refill-loop.js's lastActOf over actRootsOf's stores, each unread one
+ * logged.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {string[]} served
- * @returns {number|null}
  */
 function readLoopLastActAt(launches, served) {
-	/** @type {number|null} */
-	let last = null;
-	for (const l of launches)
-		for (const id of new Set([...(l.pastSessionIds ?? []), l.sessionId])) {
-			if (!id) continue;
-			const { at, unreadable } = readLastActAt(id, actRootsOf(l.root, served));
-			for (const root of unreadable)
-				log(`act time of ${id} in ${root} unread: counted as no act`);
-			if (at !== null) last = Math.max(last ?? 0, at);
-		}
-	return last;
+	const { at, unread } = loop.lastActOf(
+		launches,
+		(l) => actRootsOf(l.root, served),
+		readLastActAt,
+	);
+	for (const { sessionId, root } of unread)
+		log(`act time of ${sessionId} in ${root} unread: counted as no act`);
+	return at;
 }
 
 /** lib/refill-blocks.js's CauseOf on the job record and transcript. */

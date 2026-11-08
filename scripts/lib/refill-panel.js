@@ -79,7 +79,7 @@ const WAITING_WORDS = new Map([
 	[NOTHING_LAUNCHABLE, "No ticket ready"],
 	[SHORTLIST_FAILED, "Ticket list failed"],
 	[RESUMES_TAKE_SLOTS, "Resuming paused sessions first"],
-	[UNPROVEN_CAP, "Waiting on a new session's first act"],
+	[UNPROVEN_CAP, "Waiting on any session's next act"],
 	[RESUME_DUE_WAIT, "All plans used up; a resume is due"],
 	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
 ]);
