@@ -182,6 +182,29 @@ function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
 }
 
 /**
+ * The live launches admitted and unspawned besides `pid`'s: those in
+ * `records`, `queueDir`'s own markers, then its peer queues', each with its
+ * queue's name.
+ *
+ * @param {QueueRecord[]} records
+ * @param {string} queueDir
+ * @param {{ pid: number, queueFs: typeof fs, alive: (pid: number) => boolean }} options
+ * @returns {(QueueRecord & { queue: string })[]}
+ */
+function openAdmissions(records, queueDir, { pid, queueFs, alive }) {
+	const queue = path.basename(queueDir);
+	return records
+		.filter(
+			(r) =>
+				r.pid !== pid &&
+				isUnspawnedAdmission(r) &&
+				!isMarkerStale(r, { alive }),
+		)
+		.map((r) => ({ ...r, queue }))
+		.concat(readPeerAdmissions(queueDir, { queueFs, alive }));
+}
+
+/**
  * What the launches in `queueDirs` have yet to draw, in MB (#3416): each live
  * marker stamped `spawned` is charged its peak (`peakMbOf`) less its process
  * tree's PSS, never below 0. MemAvailable counts a launch only as far
@@ -673,14 +696,7 @@ function queueAdmit(
 	if (error) return "admitted";
 	const records = markers.map((m) => m.record);
 	const mine = records.find((r) => r.pid === pid);
-	const rivals = records
-		.filter(
-			(r) =>
-				r.pid !== pid &&
-				isUnspawnedAdmission(r) &&
-				!isMarkerStale(r, { alive }),
-		)
-		.concat(readPeerAdmissions(queueDir, { queueFs, alive }));
+	const rivals = openAdmissions(records, queueDir, { pid, queueFs, alive });
 	if (!mine || rivals.length === 0) return "admitted";
 	stampMarker(file, { admitted: false }, { queueFs });
 	return rivals.some((r) => joinedBefore(r, mine)) ? "behind" : "ahead";
@@ -855,12 +871,11 @@ function readTurn({
 		at: Number.POSITIVE_INFINITY,
 	};
 	const ahead = live.filter((r) => joinedBefore(r, mine));
-	const admissions = [
-		...live
-			.filter((r) => r.pid !== pid && isUnspawnedAdmission(r))
-			.map((r) => ({ ...r, queue: path.basename(queueDir) })),
-		...readPeerAdmissions(queueDir, { queueFs, alive }),
-	].map(({ pid: holder, queue }) => ({ pid: holder, queue }));
+	const admissions = openAdmissions(live, queueDir, {
+		pid,
+		queueFs,
+		alive,
+	}).map(({ pid: holder, queue }) => ({ pid: holder, queue }));
 	const { reasons, passed } = turnOf({
 		waiter: mine.part === true ? "part" : "whole",
 		ahead,
@@ -869,12 +884,13 @@ function readTurn({
 		now: clock(),
 	});
 	if (reasons.length === 0) return { open: true, passed };
+	/* An open admission closes every turn, the waiters ahead's too, so it
+	 * names the hold over them. */
 	return {
 		open: false,
-		hold:
-			reasons[0] === "admitted"
-				? { limb: "admitted", admissions }
-				: { limb: "fifo", pids: ahead.map((r) => r.pid) },
+		hold: reasons.includes("admitted")
+			? { limb: "admitted", admissions }
+			: { limb: "fifo", pids: ahead.map((r) => r.pid) },
 	};
 }
 
@@ -1149,8 +1165,10 @@ function waitLimb(denial, open, turnHold) {
  * A wait's trace of what holds it (#4359): `see` takes each poll's limb, or
  * null where nothing held it, and returns the line to print where the limb or
  * its holder changed; `breakdown` names the time held on each limb, in the
- * order each first held it, the limb holding it now counted to now. A poll's
- * time is its limb's until the next poll.
+ * order each first held it, the limb holding it now counted to now, and the
+ * memory rung's lowest MemAvailable. A poll's time is its limb's until the
+ * next poll. A yield leaves the limb it interrupted current, so the same limb
+ * after it prints no line again.
  *
  * @param {() => number} clock
  */
@@ -1161,6 +1179,8 @@ function limbTrace(clock) {
 	let current = null;
 	let identity = "";
 	let since = clock();
+	/** @type {number | undefined} */
+	let lowestMb;
 	const accrue = () => {
 		const now = clock();
 		if (current)
@@ -1172,15 +1192,26 @@ function limbTrace(clock) {
 		see(hold) {
 			accrue();
 			current = hold;
+			/* A yield prints its own line (`admitOrYield`). */
+			if (hold?.limb === "yielded") return null;
+			if (hold?.limb === "memory" && hold.mb !== undefined)
+				lowestMb = Math.min(lowestMb ?? hold.mb, hold.mb);
 			const next = hold ? `${hold.limb}${limbHolder(hold)}` : "";
 			if (next === identity) return null;
 			identity = next;
-			return hold && hold.limb !== "yielded" ? describeLimb(hold) : null;
+			return hold ? describeLimb(hold) : null;
 		},
 		breakdown() {
 			accrue();
+			const lowest = (/** @type {WaitLimb["limb"]} */ limb) =>
+				limb === "memory" && lowestMb !== undefined
+					? ` (MemAvailable at lowest ${lowestMb} MB)`
+					: "";
 			return [...heldMs]
-				.map(([limb, ms]) => `${Math.round(ms / 1000)}s on ${LIMB_NAMES[limb]}`)
+				.map(
+					([limb, ms]) =>
+						`${Math.round(ms / 1000)}s on ${LIMB_NAMES[limb]}${lowest(limb)}`,
+				)
 				.join(", ");
 		},
 	};
@@ -1304,9 +1335,10 @@ function waitForGate({
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock);
 	/* The breakdown a wait that ends held prints ahead of its last line. */
+	const breakdown = () => (traceLimbs ? trace.breakdown() : "");
 	const sayBreakdown = () => {
-		const spent = trace.breakdown();
-		if (traceLimbs && spent) out.write(`${label}: held ${spent}\n`);
+		const spent = breakdown();
+		if (spent) out.write(`${label}: held ${spent}\n`);
 	};
 	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome @param {HeldLimb} [limb] */
 	const exit = (reason, outcome, limb) => {
@@ -1390,7 +1422,7 @@ function waitForGate({
 		if (!open)
 			return denial?.limb === "memory" ? refuse(denial) : runAnyway(denial);
 		return admitOrYield(() => {
-			const spent = traceLimbs ? trace.breakdown() : "";
+			const spent = breakdown();
 			if (announced)
 				out.write(
 					`${label}: gate opened after ${secs()}s${spent ? ` — held ${spent}` : ""}\n`,

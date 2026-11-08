@@ -998,6 +998,30 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		);
 	});
 
+	it("names the admission, not the waiter ahead it also holds, where both close the turn (#4359)", async () => {
+		const { suite, tsc } = queues();
+		const ahead = joined(tsc.queueDir, 21, 21);
+		expect(suite.seat.stamps.admit()).toBe("admitted");
+		const lines: string[] = [];
+		let polls = 0;
+		await tsc.seat.wait({
+			gate: () => null,
+			traceLimbs: true,
+			label: "q",
+			waiting: "waiting",
+			sleepFn: () => {
+				if (++polls === 1) suite.seat.spawned();
+				else ahead.leave();
+				return Promise.resolve();
+			},
+			out: { write: (line: string) => lines.push(line) },
+		});
+		expect(lines.slice(1, 3)).toEqual([
+			"q: after 0s, held on a launch admitted and not yet up, PID 11 in wfc-suite-queue\n",
+			"q: after 0s, held on the waiters ahead, PID 21\n",
+		]);
+	});
+
 	it("reads no peer for a queue directory of another name", async () => {
 		const { tsc } = queues();
 		const queueDir = qdir();
@@ -1634,7 +1658,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 	});
 
 	describe("tracing the limb that holds it (#4359)", () => {
-		/** A wait on `gates`, one a poll, each poll 10 s apart. */
+		/** A wait on `polls`, one a poll, each poll 10 s apart. */
 		const traced = async (polls: object[], traceLimbs: boolean) => {
 			const lines: string[] = [];
 			let now = 0;
@@ -1667,7 +1691,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 				"q: after 0s, held on the count cap, PID 7\n",
 				"q: after 20s, held on the memory rung, MemAvailable 2000 MB against ~2750 MB\n",
 				"q: after 40s, held on the count cap, PID 8\n",
-				"q: gate opened after 50s — held 30s on the count cap, 20s on the memory rung\n",
+				"q: gate opened after 50s — held 30s on the count cap, 20s on the memory rung (MemAvailable at lowest 2000 MB)\n",
 			]);
 		});
 
@@ -1692,7 +1716,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			expect(lines.slice(0, 3)).toEqual([
 				"q: waiting\n",
 				"q: after 0s, held on the memory rung, MemAvailable 1000 MB against ~2750 MB\n",
-				"q: held 0s on the memory rung\n",
+				"q: held 0s on the memory rung (MemAvailable at lowest 1000 MB)\n",
 			]);
 		});
 	});
