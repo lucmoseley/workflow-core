@@ -402,7 +402,7 @@ def test_resolves_a_root_with_an_exact_install_row_without_spawning_git(
 def test_fails_alike_where_git_prints_fewer_than_two_lines(
     adopter, tmp_path, monkeypatch
 ):
-    """#4150: the Python port no longer swallows what the JS throws on."""
+    """#4150."""
     root, config, _ = adopter()
     _write_json(config / "plugins" / "installed_plugins.json", {"plugins": {}})
     bin_dir = tmp_path / "bin"
