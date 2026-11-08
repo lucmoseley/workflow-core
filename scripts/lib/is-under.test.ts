@@ -40,7 +40,7 @@ describe("relativeUnder", () => {
 		expect(relativeUnder("/r", "/r/a/b")).toBe("a/b");
 	});
 
-	it("holds a name starting with two dots inside the root", () => {
+	it("holds a name starting with two dots inside the root (#4021)", () => {
 		expect(relativeUnder("/r", "/r/..foo")).toBe("..foo");
 	});
 
