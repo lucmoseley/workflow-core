@@ -292,7 +292,7 @@ function noCommandOf(frontier, openChildren) {
  * @property {Graph} graph
  * @property {Issue[]} degraded
  * @property {{why: string|null}} dispatched
- * @property {{ok: boolean, stranded?: number, carrying?: number|null, strandedWorktrees?: number}} stranded
+ * @property {{ok: boolean, stranded?: number, carrying?: number|null, strandedWorktrees?: number|null}} stranded
  * @property {number} noCommandCount
  * @property {number[]} rottedContainers
  */

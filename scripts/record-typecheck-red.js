@@ -16,9 +16,10 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { fromEnv } = require("./lib/session-id.js");
 const { recordRed } = require("./lib/typecheck-red-host.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 const parsed = parseOrCode(process.argv.slice(2), {
-	usage: "Usage: node scripts/record-typecheck-red.js -- <command> < <output>",
+	usage: `Usage: node ${scriptPath("record-typecheck-red.js")} -- <command> < <output>`,
 	min: 1,
 	max: 1,
 });
