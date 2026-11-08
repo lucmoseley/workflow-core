@@ -202,7 +202,7 @@ function readPass(ctx, file) {
 		);
 	if (!isSha(p.sha))
 		ctx.broken(
-			`${file}: pass ${p.date} needs a 40-hex "sha", got ${JSON.stringify(p.sha)}`,
+			`${file}: pass ${p.date} needs a full-sha "sha", got ${JSON.stringify(p.sha)}`,
 		);
 	return /** @type {Pass} */ (p);
 }
