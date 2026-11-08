@@ -269,17 +269,33 @@ function injectArtefact(call, file, watch) {
 }
 
 /**
+ * A leading `~/` read against the home directory, since the watch command
+ * quotes its path and a quoted tilde reaches the watcher literally. Left as
+ * written where the home directory is unset or relative.
+ *
+ * @param {string} file
+ * @param {string | undefined} home
+ * @returns {string}
+ */
+function expandHome(file, home) {
+	if (!file.startsWith("~/") || !home || !path.isAbsolute(home)) return file;
+	return path.join(home, file.slice(2));
+}
+
+/**
  * What the session is told about a call whose prompt names its own usable
  * artefact, or null (#2013).
  *
  * @param {Record<string, unknown>} call the tool_input object
  * @param {(file: string) => string} watch the watch command for a path
+ * @param {string} [home] the home directory a `~/` path names
  * @returns {string|null}
  */
-function buildWatchNote(call, watch) {
+function buildWatchNote(call, watch, home) {
 	if (!isWatchable(call)) return null;
-	const file = artefactPath(call.prompt);
-	if (file === null) return null;
+	const named = artefactPath(call.prompt);
+	if (named === null) return null;
+	const file = expandHome(named, home);
 	return `This dispatch names its artefact: ${file}. ${buildWatchSentence(file, watch)}`;
 }
 
