@@ -205,7 +205,6 @@ const {
 	readMerge,
 	writeCarried,
 } = require("./lib/registry-carry.js");
-const { buildAnchorsText } = require("./lib/registry-anchors-merge.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -1784,7 +1783,11 @@ function guardPathsOf(text) {
 
 /* Under .claude/, which keeps the sidecar out of RUNNABLE_PATH_RE below, so it
  * is never anchored on itself. */
-const { ANCHORS } = require("./lib/registry-anchors-path.js");
+const {
+	ANCHORS,
+	buildAnchorsText,
+	parseRows,
+} = require("./lib/registry-anchors-file.js");
 
 /*
  * The anchor question is a different one from the Enforced-claim question above,
@@ -2047,9 +2050,7 @@ function digestOf(rel, seen = new Set(), inStack = false) {
 
 function loadAnchors() {
 	try {
-		const raw = JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
-		/* Tolerate anything non-object rather than crashing the whole check. */
-		return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+		return parseRows(fs.readFileSync(path.join(root, ANCHORS), "utf8")) ?? {};
 	} catch {
 		return {};
 	}

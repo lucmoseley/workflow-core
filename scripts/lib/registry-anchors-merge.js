@@ -6,40 +6,7 @@
  * an attestation of the merged content, so the gate names it stale and its
  * `--review` re-read writes the right one (#4167, #3935).
  */
-
-/** @param {unknown} v @returns {v is Record<string, string>} */
-const isRows = (v) =>
-	v !== null &&
-	typeof v === "object" &&
-	!Array.isArray(v) &&
-	Object.values(v).every((d) => typeof d === "string");
-
-/**
- * @param {string} text
- * @returns {Record<string, string>|null}
- */
-function parseRows(text) {
-	try {
-		const v = JSON.parse(text);
-		return isRows(v) ? v : null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * The file's bytes, for every writer of it: rows sorted by path,
- * tab-indented, one trailing newline.
- * @param {Record<string, string>} rows
- */
-function buildAnchorsText(rows) {
-	const sorted = Object.fromEntries(
-		Object.keys(rows)
-			.sort()
-			.map((k) => [k, rows[k]]),
-	);
-	return `${JSON.stringify(sorted, null, "\t")}\n`;
-}
+const { buildAnchorsText, parseRows } = require("./registry-anchors-file.js");
 
 /**
  * The three-way merge of the file's three texts, or null where one is not a
@@ -64,4 +31,4 @@ function buildMergedAnchors(base, ours, theirs) {
 	return buildAnchorsText(rows);
 }
 
-module.exports = { buildAnchorsText, buildMergedAnchors, parseRows };
+module.exports = { buildMergedAnchors };
