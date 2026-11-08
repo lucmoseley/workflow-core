@@ -38,6 +38,7 @@ const { gitList } = require("./lib/test-read-edges.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { OUT, hasHead, render } = require("./lib/read-edges-render.js");
 const { shellQuote } = require("./lib/sh-quote.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /**
  * Files this render actually read — every test file `buildManifest` scanned
@@ -223,8 +224,7 @@ function warnUnseen(root, only, unseen) {
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
-	usage:
-		"usage: node scripts/generate-test-read-edges.js [--check | --unseen] [--root <dir>] [--only <path>...]",
+	usage: `usage: node ${scriptPath("generate-test-read-edges.js")} [--check | --unseen] [--root <dir>] [--only <path>...]`,
 	flags: {
 		"--check": "boolean",
 		"--root": "value",

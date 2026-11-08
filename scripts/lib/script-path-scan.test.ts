@@ -30,7 +30,8 @@ describe("guard and lib messages", () => {
 	 * wait-text say, and the issue-body fallback lead deny passes through,
 	 * which ctx.corePaths spells there; the `byHand` commands guard-entry's
 	 * refusal spells; and the status script npm runs from an adopter's root,
-	 * where init and upgrade copy resolve-core.js (#4151). */
+	 * where init and upgrade copy resolve-core.js (#4151); and the rule
+	 * trigger generate-rule-fragments writes into the manifest (#4285). */
 	const exempt = [
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
@@ -44,6 +45,7 @@ describe("guard and lib messages", () => {
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
+		/^\t\t"writing, amending or reading a spec, .*`node scripts\/promote-spec\.js <brief>`",$/,
 	];
 
 	const guardFiles = fs
@@ -112,6 +114,42 @@ describe("guard and lib messages", () => {
 		const shaped = (l: string) =>
 			COMMAND_SHAPED.test(l) || PLAIN_POINTER.test(l);
 		expect(files.flatMap((f) => readBareLines(f, shaped))).toEqual([]);
+	});
+
+	/*
+	 * #4285: every top-level script a shipped git hook runs from the plugin
+	 * root, whose message reaches an adopter's committing session. A plain
+	 * pointer stays unread here: these name source files to read, not run.
+	 */
+	const Husky = path.join(SCRIPTS, "..", ".husky");
+	const gitHookRun = [
+		...new Set(
+			fs
+				.readdirSync(Husky)
+				.filter((f) => isShipped(path.join(SCRIPTS, ".."), `.husky/${f}`))
+				.map((f) => path.join(Husky, f))
+				.flatMap((file) => [
+					...fs
+						.readFileSync(file, "utf8")
+						.matchAll(/WFC_PLUGIN_ROOT[^/]*\/(scripts\/[\w.-]+\.(?:js|sh))/g),
+				])
+				.map((m) => m[1] ?? ""),
+		),
+	];
+
+	/* The floor catches a hook read that found nothing or stopped partway. */
+	it("reads the scripts the shipped git hooks run", () => {
+		expect(gitHookRun).toContain("scripts/report-new-shared-faults.js");
+		expect(gitHookRun.length).toBeGreaterThan(40);
+	});
+
+	it("name no script bare in any script a shipped git hook runs", () => {
+		const files = gitHookRun
+			.map((rel) => path.join(SCRIPTS, "..", rel))
+			.filter((f) => !resolvesWholeText.test(fs.readFileSync(f, "utf8")));
+		expect(
+			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
+		).toEqual([]);
 	});
 
 	/*

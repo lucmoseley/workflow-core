@@ -97,6 +97,7 @@ const {
 	parseLinePins,
 } = require("./lib/standards-pins");
 const { execGit } = require("./lib/git.js");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	MANIFEST_REL,
 	manifestAt,
@@ -121,7 +122,11 @@ const anchorsOf = (doc) => (doc === BASE_DOC ? BASE_ANCHORS : ANCHORS);
  * @param {string} [key]
  */
 const reviewCommand = (doc, key) =>
-	["node scripts/check-code-standards.js --review", doc === DOC ? "" : doc, key]
+	[
+		`node ${scriptPath("check-code-standards.js")} --review`,
+		doc === DOC ? "" : doc,
+		key,
+	]
 		.filter(Boolean)
 		.join(" ");
 

@@ -63,7 +63,9 @@ set -uo pipefail
 here="${BASH_SOURCE[0]%/*}"
 
 if [[ $# -gt 0 ]]; then
-  echo "usage: review-hold-gate.sh   (no arguments; the tree a commit carries is node scripts/commit-paths.js --tree's)" >&2
+  # shellcheck source=scripts/lib/script-path.sh
+  source "$here/lib/script-path.sh"
+  echo "usage: review-hold-gate.sh   (no arguments; the tree a commit carries is node $(script_path commit-paths.js) --tree's)" >&2
   exit 2
 fi
 
