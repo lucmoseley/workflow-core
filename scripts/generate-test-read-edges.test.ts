@@ -41,7 +41,7 @@ const run = (...args: string[]) => {
 	return r.stdout;
 };
 
-const runFailing = (...args: string[]) =>
+const runResult = (...args: string[]) =>
 	runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
 
 const readManifest = () =>
@@ -83,14 +83,14 @@ describe("generate-test-read-edges.js", () => {
 	it("--check passes on a fresh manifest", () => {
 		run();
 		git("add", "-A");
-		expect(runFailing("--check").status).toBe(0);
+		expect(runResult("--check").status).toBe(0);
 	});
 
 	it("--check fails, naming the document, once a new test reads it", () => {
 		run();
 		write("scripts/late.test.ts", `process.cwd(); read("${DOC}");`);
 		git("add", "-A");
-		const { status, stderr } = runFailing("--check");
+		const { status, stderr } = runResult("--check");
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC}: 1 -> 2 reader(s)`);
 		expect(stderr).toContain("npm run gen:test-read-edges");
@@ -100,20 +100,20 @@ describe("generate-test-read-edges.js", () => {
 		run();
 		write("scripts/reader.test.ts", "process.cwd(); // reads nothing now\n");
 		git("add", "-A");
-		const { status, stderr } = runFailing("--check");
+		const { status, stderr } = runResult("--check");
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC}: 1 -> 0 reader(s)`);
 	});
 
 	it("--check passes where the repo has no manifest, as base §0's gate row states (#4117)", () => {
-		const r = runFailing("--check");
+		const r = runResult("--check");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
 	});
 
 	it("--check passes under --only where neither HEAD nor the paths hold a manifest", () => {
 		expect(
-			runFailing("--check", "--only", "scripts/reader.test.ts").status,
+			runResult("--check", "--only", "scripts/reader.test.ts").status,
 		).toBe(0);
 	});
 
@@ -122,7 +122,7 @@ describe("generate-test-read-edges.js", () => {
 		git("add", "-A");
 		git("commit", "-qm", "manifest");
 		git("rm", "-q", OUT);
-		const { status, stderr } = runFailing("--check");
+		const { status, stderr } = runResult("--check");
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC}: 0 -> 1 reader(s)`);
 		expect(stderr).toContain("Regenerate it:");
@@ -131,7 +131,7 @@ describe("generate-test-read-edges.js", () => {
 	it("--check refuses a manifest staged for the first time that is stale", () => {
 		write(OUT, JSON.stringify({ edges: {} }));
 		git("add", "-A");
-		const { status, stderr } = runFailing("--check");
+		const { status, stderr } = runResult("--check");
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC}: 0 -> 1 reader(s)`);
 		expect(stderr).toContain("Regenerate it:");
@@ -142,7 +142,7 @@ describe("generate-test-read-edges.js", () => {
 		write("scripts/late.test.ts", `process.cwd(); read("${DOC}");`);
 		git("add", "-A");
 		const before = fs.readFileSync(path.join(dir, OUT), "utf8");
-		runFailing("--check");
+		runResult("--check");
 		expect(fs.readFileSync(path.join(dir, OUT), "utf8")).toBe(before);
 	});
 
@@ -312,7 +312,7 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		run();
 		git("add", "-A");
 		write("scripts/reader.test.ts", "process.cwd(); // reads nothing now\n");
-		expect(runFailing("--check").status).toBe(0);
+		expect(runResult("--check").status).toBe(0);
 	});
 
 	it("fails where the regenerated manifest sits on disk unstaged, naming the document and its reader count", () => {
@@ -321,7 +321,7 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		write("scripts/late.test.ts", `process.cwd(); read("${DOC}");`);
 		git("add", "scripts/late.test.ts");
 		run();
-		const { status, stderr } = runFailing("--check");
+		const { status, stderr } = runResult("--check");
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC}: 1 -> 2 reader(s)`);
 	});
@@ -357,7 +357,7 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		git("add", "-A");
 		write(DOC2, "a neighbour's new document\n");
 		git("add", "-N", DOC2);
-		expect(runFailing("--check").status).toBe(0);
+		expect(runResult("--check").status).toBe(0);
 	});
 
 	it("drops an intent-to-add entry re-added over a tracked path, as the commit does", () => {
@@ -370,7 +370,7 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		run();
 		git("add", OUT);
 		expect(readManifest()[DOC2]).toEqual(["scripts/reader.test.ts"]);
-		const { status, stderr } = runFailing("--check");
+		const { status, stderr } = runResult("--check");
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC2}: 1 -> 0 reader(s)`);
 	});
@@ -384,12 +384,12 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		git("commit", "-q", "-m", "initial");
 		git("rm", "-q", "--cached", DOC2);
 		git("add", "-N", DOC2);
-		const { stderr } = runFailing("--check");
+		const { stderr } = runResult("--check");
 		const named = /-- --only (.+)\n/.exec(stderr)?.[1];
 		expect(named).toBe(`${DOC2} ${OUT}`);
 		run("--only", ...(named ?? "").split(" "));
 		git("add", OUT);
-		expect(runFailing("--check").status).toBe(0);
+		expect(runResult("--check").status).toBe(0);
 	});
 
 	it("keeps a named new intent-to-add path's edges under --only, as the commit carries its disk bytes", () => {
