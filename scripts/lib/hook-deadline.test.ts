@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type Event = "PreToolUse" | "PostToolUse";
+type Event = "PreToolUse" | "PostToolUse" | "Stop";
 
 interface Deadline {
 	budgetMs: (cap: number, now?: number) => number;
@@ -66,26 +66,43 @@ describe("budgetMs", () => {
 	});
 });
 
+const SELF_HOOKS = path.join(
+	__dirname,
+	"..",
+	"..",
+	"self-plugin",
+	"hooks",
+	"hooks.json",
+);
+const PLUGIN_HOOKS = path.join(__dirname, "..", "..", "hooks", "hooks.json");
+
+/** Half the timeout of each registration in `file` whose command runs `script`. */
+const halfTimeouts = (file: string, script: string) => {
+	const hooks = JSON.parse(fs.readFileSync(file, "utf8")).hooks as Record<
+		string,
+		{ hooks: { command: string; timeout: number }[] }[]
+	>;
+	return Object.fromEntries(
+		Object.entries(hooks).flatMap(([event, groups]) =>
+			groups
+				.flatMap((g) => g.hooks)
+				.filter((h) => h.command.includes(script))
+				.map((h) => [event, (h.timeout * 1000) / 2]),
+		),
+	);
+};
+
 describe("ENTRY_BUDGET_MS", () => {
 	it("is half each dispatcher registration's timeout", () => {
-		const hooks = JSON.parse(
-			fs.readFileSync(
-				path.join(__dirname, "..", "..", "self-plugin", "hooks", "hooks.json"),
-				"utf8",
-			),
-		).hooks as Record<
-			string,
-			{ hooks: { command: string; timeout: number }[] }[]
-		>;
-		const timeouts = Object.fromEntries(
-			Object.entries(hooks).flatMap(([event, groups]) =>
-				groups
-					.flatMap((g) => g.hooks)
-					.filter((h) => h.command.includes("guard-dispatch.js"))
-					.map((h) => [event, (h.timeout * 1000) / 2]),
-			),
-		);
-		expect(d.ENTRY_BUDGET_MS).toEqual(timeouts);
+		const { Stop: _stop, ...dispatcher } = d.ENTRY_BUDGET_MS;
+		expect(dispatcher).toEqual(halfTimeouts(SELF_HOOKS, "guard-dispatch.js"));
+	});
+
+	it("leaves the uncommitted-work guard 3 s of its Stop timeout after its reads", () => {
+		const guard = "guard-uncommitted-work.js";
+		const half = halfTimeouts(SELF_HOOKS, guard);
+		expect(half).toEqual(halfTimeouts(PLUGIN_HOOKS, guard));
+		expect(d.ENTRY_BUDGET_MS.Stop).toBe(half.Stop * 2 - 3000);
 	});
 });
 
