@@ -26,7 +26,7 @@ const {
 const { caught } = require("./caught.js");
 const {
 	PackageReadError,
-	buildPackageReader,
+	buildPackageTree,
 	readPackage,
 } = require("./package-reader.js");
 const {
@@ -55,7 +55,7 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./shell-tokens.js").Word} Word */
 /** @typedef {import("./shell-tokens.js").Token} Token */
 /** @typedef {import("./script-runners.js").Hop} Hop */
-/** @typedef {import("./script-runners.js").PackageTree} PackageTree */
+/** @typedef {import("./package-reader.js").PackageTree} PackageTree */
 /** @typedef {import("./script-runners.js").Placed} Placed */
 /** @typedef {import("./biome-allowlist.js").MappedCommand} MappedCommand */
 
@@ -89,10 +89,7 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
  * @returns {boolean}
  */
 function isLintStagedCommand(root, command) {
-	const tree = {
-		root: path.resolve(root),
-		readCachedPackage: buildPackageReader(),
-	};
+	const tree = buildPackageTree(root);
 	return (
 		walkRunScripts(tree, command, (hop) =>
 			[...placedCommands(hop)].some((placed) =>
@@ -474,10 +471,7 @@ function findElsewhere(placed, top) {
  */
 function classifyCheckStaged(root, command, { inferred }) {
 	if (command.trim().startsWith(BIOME_STAGED_COMMAND)) return { kind: "none" };
-	const tree = {
-		root: path.resolve(root),
-		readCachedPackage: buildPackageReader(),
-	};
+	const tree = buildPackageTree(root);
 	const { root: top, readCachedPackage } = tree;
 	/**
 	 * Evidence this repo runs Biome at all: `biome` written in the hop, or

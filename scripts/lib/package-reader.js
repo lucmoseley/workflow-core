@@ -162,9 +162,26 @@ function findPackageDir(dir, root) {
 	}
 }
 
+/**
+ * @typedef {{ root: string, readCachedPackage: PackageReader }} PackageTree
+ *  `root` the directory a command starts in, which bounds the climb to a
+ *  `package.json`; `readCachedPackage` called at each run found, so a command
+ *  running none reads no `package.json` (#3546).
+ */
+
+/**
+ * A fresh `PackageTree` at `root`, its reader's memo its own.
+ * @param {string} root
+ * @returns {PackageTree}
+ */
+const buildPackageTree = (root) => ({
+	root: path.resolve(root),
+	readCachedPackage: buildPackageReader(),
+});
+
 module.exports = {
 	PackageReadError,
-	buildPackageReader,
+	buildPackageTree,
 	readPackage,
 	findPackageDir,
 	hasPackage,

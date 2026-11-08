@@ -60,6 +60,29 @@ const listing = (...sessionIds: string[]) =>
 		})),
 	);
 
+describe("one seat's own listing (#3512)", () => {
+	it("answers the seat's records where it lists an array", () => {
+		fakeClaude(JSON.stringify([{ id: "abc12345", state: "working" }]));
+		expect(liveness.readSeatListing(dir, 1000)).toEqual({
+			agents: [{ id: "abc12345", state: "working" }],
+		});
+	});
+
+	it("answers why where the listing is not JSON", () => {
+		fakeClaude("not json");
+		expect(liveness.readSeatListing(dir, 1000).why).toContain(
+			"did not return JSON",
+		);
+	});
+
+	it("answers why where the listing is not an array", () => {
+		fakeClaude("{}");
+		expect(liveness.readSeatListing(dir, 1000).why).toContain(
+			"not the expected array",
+		);
+	});
+});
+
 describe("the binary will not run", () => {
 	it("refuses with the spawn error code when there is no such binary", () => {
 		vi.stubEnv("WFC_CLAUDE_BIN", path.join(dir, "no-such-claude"));

@@ -93,8 +93,10 @@ source "$here/lib/code-signal.sh" 2>/dev/null || {
 # shellcheck source=scripts/lib/rule-text.sh
 source "$here/lib/rule-text.sh" 2>/dev/null || {
   gl_log "lib/rule-text.sh did not load — nags named their rule fragments' paths"
+  # lib/rule-text.sh's rule_or_path's fallback half, copied: that file did not load.
   rule_or_path() {
     local where
+    gl_log "rule:$1 unreadable — nag printed its path instead"
     where="$(doc_path "agents/rules/$1.txt" 2>/dev/null)" || where="docs/agents/rules/$1.txt"
     printf '%s %s%s' "$2" "$where" "$3"
   }

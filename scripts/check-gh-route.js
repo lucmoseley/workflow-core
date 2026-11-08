@@ -199,7 +199,9 @@ function findBodyEnd(code, from) {
  */
 function parseHelperDirs(bin, code) {
 	return [...code.matchAll(HELPER)].flatMap((h) => {
-		const name = h[1] ?? requiredGroup(h, 2, HELPER);
+		const name = h[1] ?? h[2];
+		if (name === undefined)
+			throw new Error(`HELPER matched no name in ${JSON.stringify(h[0])}`);
 		const params = splitTopLevel(requiredGroup(h, 3, HELPER)).map((p) => {
 			const at = p.indexOf("=");
 			const id = at < 0 ? p : p.slice(0, at);
