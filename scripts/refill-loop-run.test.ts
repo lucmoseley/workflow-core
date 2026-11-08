@@ -29,7 +29,8 @@
  *   second runner exits S; ticks on a wake line E.
  * - panel (#4060): keeps a failed probe's figure A (usage-probe.js).
  * - dry run (#2611): prints the overflow dispatch E (the dry-run argv), A.
- * - overflow allowance (#3698): stops one past it A (`claude stop`).
+ * - overflow allowance (#3698): stops one past it A (`claude stop`); leaves a
+ *   founder's headless reply, stops a loop resume A (#4174, its group's kill).
  * - Console read (#4071): starts the read A; none where its row will not
  *   write F.
  * - goal (#3864): reads the frontier bare once cleared A (pick-next argv).
@@ -60,12 +61,15 @@ import {
 	buildStopBranch,
 	type Row,
 } from "./lib/agents-stop-fake";
+import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import { ledgerPath, record as recordDispatch } from "./lib/dispatch-ledger.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { parkedPromptOf } from "./lib/loop-prompts.js";
 import { REAL_PROC } from "./lib/proc-root.js";
+import { killGroup, startOrphan } from "./lib/process-fixture";
 import {
 	at,
 	commandFromRepo,
@@ -577,7 +581,6 @@ describe("a dry run with overflow seats (#2611)", () => {
 		expect(r.stdout).toContain(
 			`would run in ${repo} on overflow seat ${overflowSeat()}, each member billed to key=WFC_TEST_KEY: ${dispatch()}`,
 		);
-		// The decision's summary line, which the dry run prints ahead of it.
 		expect(r.stdout).toMatch(/^dry run: /m);
 		expect(readLines(at("dispatches"))).toEqual([]);
 	});
@@ -643,6 +646,52 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 			`stopped overflow session Overflow · job (${job}) on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
 		);
 		expect(readLines(at("stops"))).toEqual([`stop ${job}`]);
+	});
+
+	describe("once it ended on its own, on its next headless run (#4174)", () => {
+		const next = "0000c002";
+		let pid: number;
+
+		/* Its first run ended and left the listing, which holds a plan job
+		 * alone; a `sleep` in a group of its own is the next run, so a stop's
+		 * signal reaches nothing else. */
+		beforeEach(() => {
+			writeClaudeStub(at("claude"), [
+				buildAgentsBranch([buildJobRow("0000c0ff", "working")]),
+				buildStopBranch(at("stops")),
+			]);
+			writeHeadlessRun(dir, job, sessionId, { live: false });
+			writeTranscript(15_000_000);
+			/* 60 s only has to outlast one tick. */
+			pid = startOrphan("sleep", "60");
+			onTestFinished(() => killGroup(pid));
+		});
+
+		const writeNextRun = (over: Record<string, unknown> = {}) =>
+			writeHeadlessRun(dir, next, sessionId, {
+				pid,
+				pgid: pid,
+				procStart: readProcStartOf(pid),
+				...over,
+			});
+
+		it("leaves the founder's reply running, whatever the session spent", async () => {
+			writeNextRun({ founderReply: true });
+			const r = await stoppedTick();
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toMatch(/overflow (session|allowances)/);
+			expect(readProcStartOf(pid)).not.toBeNull();
+		});
+
+		it("stops the loop's resume past it", async () => {
+			writeNextRun();
+			const r = await stoppedTick();
+			expect(r.stdout).toContain(
+				`stopped overflow session ${next} on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
+			);
+			expect(readProcStartOf(pid)).toBeNull();
+			expect(readLines(at("stops"))).toEqual([]);
+		});
 	});
 });
 

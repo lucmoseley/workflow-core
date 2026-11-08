@@ -113,7 +113,7 @@ describe("a primitives checker answering OK", () => {
 		fs.mkdirSync(path.join(adopter, "scripts", "lib"), { recursive: true });
 		fs.writeFileSync(
 			path.join(adopter, "package.json"),
-			withStatusScript("{}\n") as string,
+			withStatusScript("{}\n").body as string,
 		);
 		fs.copyFileSync(
 			path.join(__dirname, "lib", "resolve-core.js"),

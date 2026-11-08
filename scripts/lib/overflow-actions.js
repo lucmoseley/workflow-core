@@ -58,6 +58,7 @@ function sendReply(run, text, headroomOf = readHeadroom) {
 		budgetUsd: Math.min(REPLY_BUDGET_USD, headroom.usd),
 		prompt: text,
 		resume: run.sessionId,
+		founderReply: true,
 	});
 	return "why" in out ? out : { jobId: out.record.jobId };
 }
