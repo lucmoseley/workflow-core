@@ -2,9 +2,7 @@
 /*
  * check-kernel-stall.js — say so when the WSL VM is unhealthy, on either of
  * two signals: an RCU stall on the CURRENT boot (#867), or a frozen scheduler
- * clock right now (#2779). The 4 and 7 Oct 2026 stalls ended the VM within
- * ~20 minutes; the 23 Oct boot ran degraded for 2 h 10 min after its first,
- * until shut down by hand.
+ * clock right now (#2779).
  *
  * Usage:  node scripts/check-kernel-stall.js [--boot <n>] [--notify] [--json]
  *
