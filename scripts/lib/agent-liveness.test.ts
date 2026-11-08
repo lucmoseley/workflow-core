@@ -169,11 +169,16 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		expect(Number(fs.readFileSync(count, "utf8").trim())).toBe(1);
 	});
 
-	it("leaves no child of the oracle behind it (#2665)", async () => {
+	it("leaves no child of the oracle behind it, on any seat's read (#2665)", async () => {
 		// An oracle that backgrounds children, then waits on them. A guess: caps
 		// roomy enough that each read starts its child under load before its cap.
 		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "1000");
 		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "2000");
+		const seat = path.join(dir, "seat-a");
+		fs.mkdirSync(seat);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", seat);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
 		const pids = path.join(dir, "pids");
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
@@ -184,8 +189,9 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		expect(liveness.listedAgents().why).toContain("ETIMEDOUT");
 		const children = fs.readFileSync(pids, "utf8").trim().split("\n");
-		// Two children a call, and two calls: the first and its one retry.
-		expect(children).toHaveLength(4);
+		// Two children a read, two seats a call, and two calls: the first and
+		// its one retry.
+		expect(children).toHaveLength(8);
 		const running = (pid: string) => {
 			try {
 				return !/\) [ZX] /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
