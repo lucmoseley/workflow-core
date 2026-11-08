@@ -276,8 +276,24 @@ function seatsDueRead(seats, { barsOf, triedAt, hasRunSince, now }) {
 	});
 }
 
+/** A `finished` probe whose printed week figure never reached the cache. */
+const STAMP_UNMOVED = "finished (stamp unmoved)";
+
 /**
- * `triedAt` with each probe that ran stamped `now`.
+ * A probe's outcome, `finished` read as STAMP_UNMOVED where it printed a week
+ * figure yet left the cache's stamp at or before its start (#4075). The panel
+ * reads the cache alone, so that figure never reaches it.
+ * @param {string} outcome
+ * @param {{printedWeek: boolean, stampMs: number|null, startMs: number}} after
+ */
+const probeOutcome = (outcome, { printedWeek, stampMs, startMs }) =>
+	outcome === "finished" && printedWeek && (stampMs ?? 0) <= startMs
+		? STAMP_UNMOVED
+		: outcome;
+
+/**
+ * `triedAt` with each probe that ran stamped `now`, bar a STAMP_UNMOVED one,
+ * which the next tick reads again.
  * @param {Record<string, number>} triedAt
  * @param {Probe[]} probes
  * @param {number} now
@@ -285,7 +301,9 @@ function seatsDueRead(seats, { barsOf, triedAt, hasRunSince, now }) {
 const seatTriedAfter = (triedAt, probes, now) => ({
 	...triedAt,
 	...Object.fromEntries(
-		probes.filter((p) => p.outcome !== "cached").map((p) => [p.seat, now]),
+		probes
+			.filter((p) => p.outcome !== "cached" && p.outcome !== STAMP_UNMOVED)
+			.map((p) => [p.seat, now]),
 	),
 });
 
@@ -483,6 +501,7 @@ module.exports = {
 	capSizer,
 	ceilingsOf,
 	overflowReadings,
+	probeOutcome,
 	readSeat,
 	readSeatReadings,
 	readSizedSeats,
@@ -490,4 +509,5 @@ module.exports = {
 	seatTriedAfter,
 	sizeParkerSeats,
 	sizeResumeSeats,
+	STAMP_UNMOVED,
 };

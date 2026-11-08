@@ -30,6 +30,7 @@ const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
 const { readAllowance } = require("./allowance.js");
+const { readUsageCache } = require("./usage-cache.js");
 const seatReading = require("./seat-reading.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught, readLogged } = require("./caught.js");
@@ -290,6 +291,7 @@ function readPrintedUsage(seats) {
 	/** @type {import("./seat-reading.js").Probe[]} */
 	const probes = [];
 	for (const seat of seats) {
+		const startMs = Date.now();
 		const r = runChild(
 			process.execPath,
 			[path.join(SCRIPTS, "usage-probe.js"), "--config-dir", seat],
@@ -298,7 +300,18 @@ function readPrintedUsage(seats) {
 		// Exit 3 is the probe's "none ran, the cache being fresh".
 		if (r.failed && r.status !== 3) log(`/usage on ${seat}: ${r.failed}`);
 		usage.set(seat, r.stdout);
-		probes.push({ seat, outcome: core.parseProbeOutcome(r.stderr, r.failed) });
+		const cache = readUsageCache(seat);
+		const outcome = seatReading.probeOutcome(
+			core.parseProbeOutcome(r.stderr, r.failed),
+			{
+				printedWeek:
+					readAllowance({ configDir: seat, usageText: r.stdout }).weekly_all
+						.trust === "fresh",
+				stampMs: cache.state === "ok" ? cache.fetchedAtMs : null,
+				startMs,
+			},
+		);
+		probes.push({ seat, outcome });
 	}
 	return { usage, probes };
 }

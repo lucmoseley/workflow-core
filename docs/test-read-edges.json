@@ -11474,6 +11474,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/child-spawn.test.ts": [
@@ -29692,6 +29693,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-decide.test.ts": [
@@ -32208,6 +32210,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -39450,6 +39453,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/usage-cache.test.ts": [
