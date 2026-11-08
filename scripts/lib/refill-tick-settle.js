@@ -12,6 +12,7 @@ const {
 	decideTick,
 	isClashSkip,
 	isParkRoutingMode,
+	isLaunchBarred,
 } = require("./refill-decide.js");
 const { buildErrorText } = require("./caught.js");
 const { buildGoalProgress } = require("./refill-goal.js");
@@ -145,28 +146,30 @@ function keptLaunches(launches) {
 const isStopRequested = (control) => control?.stopRequested !== false;
 
 /**
- * Whether a control read mid-tick holds back the tick's next launch: a stop or
- * a pause.
+ * Whether a control read mid-tick holds back the tick's next launch: a stop, a
+ * pause or a launch hold live at `now`, so a hold set mid-tick bars the next
+ * batch (#4354).
  * @param {Control|null} control
+ * @param {number} now
  */
-const isLaunchBarred = (control) =>
-	isStopRequested(control) || control?.paused !== undefined;
+const isControlBarred = (control, now) =>
+	isStopRequested(control) || isLaunchBarred(control ?? {}, now);
 
 /**
  * What the dispatches did, dispatching each batch in turn after re-reading the
- * control, and none once it asks for a stop (#2126) or a pause: one dispatch can
+ * control, and none once it asks for a stop (#2126), a pause or a launch hold: one dispatch can
  * hold the tick for minutes. Residual: a dispatch already running still launches
  * every member.
  * @param {import("./refill-decide.js").Launch[][]} batches
- * @param {() => Control|null} readControl
+ * @param {() => boolean} isBarred whether the control read now bars launching
  * @param {(batch: import("./refill-decide.js").Launch[]) => BatchOutcome} launch
  * @returns {Outcome}
  */
-function launchUntilBarred(batches, readControl, launch) {
+function launchUntilBarred(batches, isBarred, launch) {
 	/** @type {Outcome} */
 	const outcome = { launched: [], refused: [], unreached: [] };
 	for (const [i, batch] of batches.entries()) {
-		if (isLaunchBarred(readControl())) {
+		if (isBarred()) {
 			outcome.unreached = batches.slice(i).flat();
 			break;
 		}
@@ -360,7 +363,8 @@ function recordOverflowStart(input, launches, since, io) {
  * writes the state with the launches as the step leaves each resume.
  * @param {import("./refill-decide.js").Decision} decision
  * @param {LoopLaunch[]} launches
- * @param {{readControl: () => ControlRead, resumeHeld: ResumeHeld}} io
+ * @param {{readControl: () => ControlRead, resumeHeld: ResumeHeld,
+ *   now: () => number}} io
  * @param {(launches: LoopLaunch[]) => void} record
  */
 const resumeDecided = (decision, launches, io, record) =>
@@ -369,7 +373,7 @@ const resumeDecided = (decision, launches, io, record) =>
 		: io.resumeHeld(
 				decision.resumes,
 				launches,
-				() => isLaunchBarred(io.readControl().control),
+				() => isControlBarred(io.readControl().control, io.now()),
 				record,
 			);
 
@@ -506,7 +510,7 @@ function settleTick(
 	} = resumeDecided(decision, judged, io, record);
 	const outcome = launchUntilBarred(
 		buildLaunchBatches(decision, waiting),
-		() => io.readControl().control,
+		() => isControlBarred(io.readControl().control, io.now()),
 		(batch) => {
 			record([...afterResumes, ...launchedSoFar], { at: io.now(), batch });
 			const r = io.launchBatch(batch);
@@ -515,7 +519,7 @@ function settleTick(
 		},
 	);
 	const summary = buildTickLine(decision, outcome, {
-		freeSlots: input.paused ? null : input.freeSlots,
+		freeSlots: isLaunchBarred(input, input.now) ? null : input.freeSlots,
 		probes,
 		read,
 		resumesDue: dueCount(input),

@@ -4,9 +4,12 @@
 # that the self-plugin loaded (#2438, spec #2295).
 #
 # Registered with no matcher, so a session whose id changes at a clear or
-# compact gets a marker under the new one. lib/session-checkout.js's land runs
-# it too, once the session has passed the pre-merge canary, so a merge that
-# moves the marker does not lock the session out (#4565).
+# compact gets a marker under the new one.
+#
+# It and the canary run the main checkout's copies (#4701), so a change to the
+# marker path reaches every running session at its next call, against markers
+# written at their starts: such a change keeps the canary reading the old path
+# until every session started before it has ended.
 #
 # The marker path is lib/self-plugin-marker.sh's, under `.claude/tmp/markers/`
 # resolved from CLAUDE_PROJECT_DIR, a linked worktree's own where the session
@@ -18,7 +21,7 @@
 # A marker it fails to write is recorded through lib/guard-log.sh; the canary
 # then refuses the session's first tool call.
 #
-# IMPLICIT:  writes an empty `.self-plugin-loaded-<session id>` marker under `.claude/tmp/markers/` at every session start, and again at a land that merges origin/main, unasked (#2438, #4565).
+# IMPLICIT:  writes an empty `.self-plugin-loaded-<session id>` marker under `.claude/tmp/markers/` at every session start, unasked (#2438).
 # JUSTIFIED: fail-safe — the marker is the canary's only proof the self-plugin's guards loaded; without it every session is refused.
 # DEFEAT:    none
 # TREE:      host — writes this session's self-plugin marker into the host root's markers

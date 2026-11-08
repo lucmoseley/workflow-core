@@ -35,6 +35,11 @@ const {
 	readSecretKeepingIgnore,
 	secretsFile,
 } = require("./env-file.js");
+const {
+	parseGitFileTarget,
+	readGitFile,
+	readRegistrationCommonDir,
+} = require("./git-file.js");
 const { checkoutOfCommonDir } = require("./main-checkout.js");
 const { throughBootLink } = require("./refill-control-code.js");
 const { scriptPath } = require("./script-path.js");
@@ -87,31 +92,10 @@ function keyCheck(keyVar) {
 function throughMainCheckout(file) {
 	const found = readGitFile(path.dirname(file));
 	if (!found) return null;
-	const gitDir = /^gitdir: (.+)$/m.exec(found.text)?.[1];
-	if (!gitDir) return null;
-	const registration = path.resolve(found.dir, gitDir.trim());
-	if (path.basename(path.dirname(registration)) !== "worktrees") return null;
-	const main = checkoutOfCommonDir(path.dirname(path.dirname(registration)));
+	const registration = parseGitFileTarget(found.dir, found.text);
+	const common = registration && readRegistrationCommonDir(registration);
+	const main = common && checkoutOfCommonDir(common);
 	return main && path.join(main, path.relative(found.dir, file));
-}
-
-/**
- * The nearest `.git` file at or above `start`, and the directory holding it;
- * null where the nearest `.git` is a directory, or there is none.
- * @param {string} start
- * @returns {{dir: string, text: string}|null}
- */
-function readGitFile(start) {
-	for (let dir = start; ; dir = path.dirname(dir)) {
-		try {
-			return { dir, text: fs.readFileSync(path.join(dir, ".git"), "utf8") };
-		} catch (err) {
-			const { code } = caught(err);
-			if (code === "EISDIR") return null;
-			if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
-			if (path.dirname(dir) === dir) return null;
-		}
-	}
 }
 
 /**

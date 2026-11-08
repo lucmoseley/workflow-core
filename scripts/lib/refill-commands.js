@@ -27,6 +27,8 @@ const {
 	buildOverflowHoldText,
 	buildPauseText,
 	buildPausedWaitText,
+	buildLaunchHoldText,
+	liveLaunchHold,
 	QUIET_BENCH_PAUSE,
 	PAUSED,
 	buildIdleText,
@@ -91,12 +93,14 @@ const NOT_RUNNING = buildNotice(
  * The fields a `set` names, each absent where it does not; `repos`, the whole
  * ticked set; `pause`, `--pause`, or false for `--resume`; `goal`, the goal to
  * store, or null for `--clear-goal`; `quietBench`, `--quiet-bench`, or false for
- * `--no-quiet-bench`.
+ * `--no-quiet-bench`; `holdMinutes`, `--hold-launches`'s minutes, or null for
+ * `--release-launches`; `holder`, the session asking, null where none is named.
  * @typedef {{form: import("./refill-goal.js").GoalForm, text: string,
  *   refs: import("./refill-goal.js").AskedRef[]}} GoalAsk
  * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
  *   tick?: string[], untick?: string[], goal?: GoalAsk|null,
- *   quietBench?: boolean}} SetAsk
+ *   quietBench?: boolean, holdMinutes?: number|null,
+ *   holder?: string|null}} SetAsk
  * @typedef {{running: boolean, now: number,
  *   readExclusionWhy: (root: string) => string|null,
  *   isOptedOut: (root: string) => boolean}} SetContext
@@ -179,7 +183,7 @@ function buildSetPlanJson({ lines, warning }, started) {
  * @returns {SetChange|{refused: Notice}}
  */
 function changeFields(control, ask, context) {
-	const { pause, mode, goal, quietBench } = ask;
+	const { pause, mode, goal, quietBench, holdMinutes, holder = null } = ask;
 	/** @type {((c: Control) => SetChange|{refused: Notice})[]} */
 	const steps = [
 		...(pause === undefined
@@ -198,6 +202,16 @@ function changeFields(control, ask, context) {
 		...(quietBench === undefined
 			? []
 			: [(/** @type {Control} */ c) => buildQuietBenchChange(c, quietBench)]),
+		...(holdMinutes === undefined
+			? []
+			: [
+					(/** @type {Control} */ c) =>
+						buildLaunchHoldChange(
+							c,
+							{ minutes: holdMinutes, holder },
+							context.now,
+						),
+				]),
 		/* On every set, not only one naming repos, so no write keeps an opted-out
 		 * tick for a later opt-in to serve unticked (#4188). */
 		(/** @type {Control} */ c) => buildOptOutChange(c, context.isOptedOut),
@@ -413,6 +427,41 @@ function buildPauseChange(control, pause, { running, now }) {
 		},
 		lines: ["not paused", buildCountingLine(now)],
 	};
+}
+
+/**
+ * Only the launch hold changed (#4354): `holder`'s hold of `minutes` from
+ * `now`, which takes over any other, or with null minutes its release. A
+ * release leaves a live hold another session took; residual: the later taker's
+ * release frees the earlier's. Neither touches a pause (#2526).
+ * @param {Control} control
+ * @param {{minutes: number|null, holder: string|null}} ask
+ * @param {number} now
+ * @returns {SetChange}
+ */
+function buildLaunchHoldChange(control, { minutes, holder }, now) {
+	const { launchHold: held, ...rest } = control;
+	if (minutes !== null) {
+		const launchHold = { holder, until: now + minutes * 60_000 };
+		return {
+			write: { ...rest, launchHold },
+			lines: [buildLaunchHoldText(launchHold)],
+		};
+	}
+	if (held === undefined)
+		return { write: null, lines: ["unchanged: no launch hold"] };
+	const live = liveLaunchHold(held, now);
+	return live &&
+		live.holder !== null &&
+		holder !== null &&
+		live.holder !== holder
+		? {
+				write: null,
+				lines: [
+					`unchanged: another session's hold: ${buildLaunchHoldText(live)}`,
+				],
+			}
+		: { write: rest, lines: ["launch hold released"] };
 }
 
 /**
@@ -756,18 +805,20 @@ function buildSeatsLine(view, now) {
 /**
  * The lines naming what a loop serves and on which seats.
  * @param {Control} control
- * @param {{served: string[], running: boolean, seatsLine: string,
+ * @param {{served: string[], running: boolean, seatsLine: string, now: number,
  *   goalProgress?: import("./refill-goal.js").GoalProgress|null}} opts
  *   `served`, scopeRoots's roots; `seatsLine`, buildSeatsLine's; `goalProgress`,
  *   the state's, where the caller read it
  */
 function buildScopeLines(
 	control,
-	{ served, running, seatsLine, goalProgress = null },
+	{ served, running, seatsLine, now, goalProgress = null },
 ) {
 	const { scope } = control;
+	const launchHold = liveLaunchHold(control.launchHold, now);
 	return [
 		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
+		...(launchHold ? [buildLaunchHoldText(launchHold)] : []),
 		`mode:      ${scope.mode}`,
 		...(control.quietBenchOff ? ["quiet bench: off"] : []),
 		`repos:     ${buildRepoNames(served)}`,
@@ -877,7 +928,7 @@ function shownLaunches(control, state) {
  * count's point, and any still running from before it.
  * @param {Control} control
  * @param {LoopState} state
- * @param {{served: string[], running: boolean, seatsLine: string,
+ * @param {{served: string[], running: boolean, seatsLine: string, now: number,
  *   goalProgress: LoopState["goalProgress"]}} opts
  */
 function buildControlLines(control, state, opts) {
@@ -974,6 +1025,7 @@ function buildStatusLines({
 					served,
 					running: pid !== null,
 					seatsLine: buildSeatsLine(seats, now),
+					now,
 					goalProgress: state.goalProgress,
 				})
 			: ["never started on this machine"]),
@@ -1056,7 +1108,8 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
 }
 
 /**
- * `status --json`: whether the loop runs and on what code, its pause and mode,
+ * `status --json`: whether the loop runs and on what code, its pause, its launch
+ * hold where one is live at `now`, and mode,
  * when away was switched on and the sessions handed off since, with no process
  * the stop that ended it or that it died with none, the last tick's summary and waiting reason, every candidate
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
@@ -1069,8 +1122,9 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
  *   candidates: {root: string, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
  *   overflow: (ReturnType<typeof buildOverflowStatus>|{seat: null, why: string})[],
- *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>}} input
- *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
+ *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
+ *   now: number}} input
+ *   `codeSha`, lib/refill-code.js's readRunningCode;
  *   `burnMode`, lib/burn-mode.js's readBurnState
  */
 function buildStatusJson({
@@ -1083,6 +1137,7 @@ function buildStatusJson({
 	burnMode,
 	overflow,
 	concurrency,
+	now,
 }) {
 	const { lastTick } = state;
 	return {
@@ -1092,6 +1147,7 @@ function buildStatusJson({
 		stopRequested: control?.stopRequested ?? false,
 		...readEnding(control, state, pid),
 		paused: control?.paused ?? null,
+		launchHold: liveLaunchHold(control?.launchHold, now) ?? null,
 		lastTick: lastTick && {
 			at: lastTick.at,
 			summary: lastTick.summary,

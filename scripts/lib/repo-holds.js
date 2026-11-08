@@ -10,9 +10,10 @@
  * (lib/refill-dir.js), in a directory keyed on git's common dir. So every
  * worktree of a checkout and the loop read one store, a raise overwrites no
  * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
- * out a hold the founder has yet to answer. RESIDUAL: where git will not name
- * the common dir at all, a worktree keys on its own `.git`, so its holds split
- * from the checkout's until git answers again.
+ * out a hold the founder has yet to answer. Where git will not name the common
+ * dir, a linked worktree keys on the one its `.git` file points at (#4402).
+ * RESIDUAL (#4718): a `.git` file that points nowhere keys on its own path, so its
+ * holds split from the checkout's until it is repaired.
  *
  * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
  * lift racing get one winner and one log line, and the sessions parked on the hold
@@ -84,6 +85,7 @@ const { parseFirstLine } = require("./first-line.js");
 const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
+const { readGitFileCommonDir } = require("./git-file.js");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
@@ -246,16 +248,18 @@ const tickStores = new AsyncLocalStorage();
 
 /**
  * The checkout's store: named for a reader, and hashed because two paths can
- * flatten to one name. A broken `.git` that git will not name still keys on its
- * path, as a probe hold raised on one must be found once it is repaired.
+ * flatten to one name. A broken `.git` that git will not name keys on the
+ * common dir it points at, or else on its own path, as a probe hold raised on
+ * one must be found once it is repaired (#4402).
  * @param {string} root
  */
 function holdsDir(root) {
 	const stores = tickStores.getStore();
 	const known = stores?.get(root);
 	if (known !== undefined) return known;
-	const common = gitCommonDir(root);
-	const key = deref(common ?? path.join(root, ".git"));
+	const common =
+		gitCommonDir(root) ?? readGitFileCommonDir(root) ?? path.join(root, ".git");
+	const key = deref(common);
 	const hash = createHash("sha256").update(key).digest("hex");
 	const dir = refillPath(
 		path.join(
