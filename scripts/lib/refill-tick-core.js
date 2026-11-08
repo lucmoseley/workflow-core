@@ -939,6 +939,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		settleKilled(io, io.readState(), served),
 		managerRestart,
 		io.readCurrentBootId(),
+		io.blockIo(served),
 	);
 	const registry = io.readRegistry();
 	const broken = relieve(io, { registry, state, served, now });
