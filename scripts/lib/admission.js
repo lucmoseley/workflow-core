@@ -60,6 +60,7 @@ const {
 	PS_BIN,
 } = require("./suite-ladder.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
+const { isUnder } = require("./is-under.js");
 const {
 	DEFAULT_SESSION_DRAW,
 	DRAW_Z,
@@ -1031,9 +1032,7 @@ function configDirLabel(pair, configDir, home) {
 			? pair.socket
 			: nodePath.basename(nodePath.dirname(pair.dir));
 	const dir = configDirFrom(configDir.value) || ".";
-	return home && (dir === home || dir.startsWith(`${home}/`))
-		? `~${dir.slice(home.length)}`
-		: dir;
+	return home && isUnder(dir, [home]) ? `~${dir.slice(home.length)}` : dir;
 }
 
 /**

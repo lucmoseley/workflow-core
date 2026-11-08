@@ -14,6 +14,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 const { readBytes } = require("./file-read.js");
+const { isUnder } = require("./is-under.js");
 
 /**
  * `fn` run from `root`, as the bash hook's `cd "$root"` ran the formatters:
@@ -56,7 +57,7 @@ function buildHostPorts(_root, log) {
 				let leaf = abs(root, file);
 				if (fs.lstatSync(leaf).isSymbolicLink()) leaf = fs.realpathSync(leaf);
 				const dir = fs.realpathSync(path.dirname(leaf));
-				return `${dir}/`.startsWith(`${root}/`);
+				return isUnder(dir, [root]);
 			} catch (e) {
 				/* Outside, so nothing is formatted: a write the hook cannot
 				 * place is left as written (mantahostels#103 §6). */

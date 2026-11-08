@@ -57,6 +57,7 @@ const {
 const { bareCitationGrep } = require("./qualify-citations.js");
 const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
+const { isUnder } = require("./is-under.js");
 
 /* digestAt says why sixteen. */
 const DIGEST_HEX_LENGTH = 16;
@@ -657,7 +658,7 @@ function guardsChangedAt(snapOf, rels) {
 	let readers;
 	return (file) => {
 		if (anchored.has(file)) return [file];
-		if (!file.startsWith(`${RULES_DIR}/`) && !isLibFile(file)) return [];
+		if (!isUnder(file, [RULES_DIR]) && !isLibFile(file)) return [];
 		readers ??= inputReaders(snapOf(), rels);
 		return readers.get(file) ?? [];
 	};
