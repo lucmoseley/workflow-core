@@ -2,8 +2,7 @@
  * allowance-cap.js — how many of a set's members launch on a seat under
  * lib/allowance.js's capSet: `allowance.js --cap`'s sizing, which
  * dispatch-sessions.sh reads through that CLI and the refill loop calls here
- * in-process (lib/seat-reading.js's readCap), so both size one figure without
- * the loop starting a child per seat per read (#4176).
+ * in-process (lib/seat-reading.js's readCap, #4176), so both size one figure.
  *
  * Only where a trusted bar is past its threshold does it read the running
  * sessions — one `claude agents --json` call and their own transcripts, no
