@@ -64,12 +64,8 @@ First hold the refill loop's launches, in the same message as the script:
 node scripts/refill-loop.js set --hold-launches 20
 ```
 
-A running loop otherwise launches into the slots this run is measuring and
-judges the gates it is judging (#4354). The hold bars every launch and resume
-while it stands and keeps the loop's housekeeping. It is not a pause: a founder's
-`set --pause` stands through it and its release. It lapses by itself, so a run
-that dies holds nothing for long: 20 minutes is the ~14-minute measured run to
-§6's dispatch lines (`references/measured-figures.md`, "What a run costs") plus
+It keeps a running loop out of this run's slots and gates (#4354). 20 minutes is
+the ~14-minute measured run to §6's dispatch lines (`references/measured-figures.md`, "What a run costs") plus
 an unmeasured 6 for §7's launches. Run the same command again just before §7's
 first launch call, so a slow run's launches stay covered. A refusal (`the loop
 was never started`) means there is no loop to hold: carry on.
@@ -79,8 +75,8 @@ node scripts/pick-next.js [--goal <§1's set or form>] [--limit 15] \
   --dump-bodies "$PWD/.claude/tmp/pick-next-bodies/${CLAUDE_CODE_SESSION_ID:-$$}"
 ```
 
-**Always pass `--dump-bodies`** (mantahostels#409) — it writes one `<n>.md` per open issue,
-at no extra request, for §4 to read. The directory is per session, so two
+**Always pass `--dump-bodies`** (mantahostels#409) — it writes one `<n>.md` per open issue
+for §4 to read. The directory is per session, so two
 concurrent runs never write into each other's, and it is never under the job
 directory, where every band file a subagent appends would draw
 `lib/job-dir-scratch.js`'s warn (#1140).
@@ -89,8 +85,7 @@ directory, where every band file a subagent appends would draw
 you asked for `--json`** — every block the text output printed, machine-readable,
 named on that output's very last line. Read it rather than re-running: the text
 output is far too long to tail (`references/measured-figures.md`, "How long the
-text output runs"), and a reader who tails it and loses the ranking block pays
-a second full run for a report already on disk. **`frontier` in that JSON
+text output runs"). **`frontier` in that JSON
 carries the whole frontier, not the `--limit` slice** (mantahostels#1289) —
 `frontierCount` still agrees with `frontier.length`. `--limit` governs
 only the printed table (`shown` in `--json`).

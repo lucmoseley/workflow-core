@@ -432,10 +432,8 @@ function buildPauseChange(control, pause, { running, now }) {
 /**
  * Only the launch hold changed (#4354): `holder`'s hold of `minutes` from
  * `now`, which takes over any other, or with null minutes its release. A
- * release leaves a live hold another session took, so overlapping runs never
- * free each other's launches; residual: the later taker's release frees the
- * earlier's. Neither touches a pause, so a run that holds and releases never
- * lifts the founder's (#2526).
+ * release leaves a live hold another session took; residual: the later taker's
+ * release frees the earlier's. Neither touches a pause (#2526).
  * @param {Control} control
  * @param {{minutes: number|null, holder: string|null}} ask
  * @param {number} now
@@ -1126,7 +1124,7 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
  *   overflow: (ReturnType<typeof buildOverflowStatus>|{seat: null, why: string})[],
  *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
  *   now: number}} input
- *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
+ *   `codeSha`, lib/refill-code.js's readRunningCode;
  *   `burnMode`, lib/burn-mode.js's readBurnState
  */
 function buildStatusJson({

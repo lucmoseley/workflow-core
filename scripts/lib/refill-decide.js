@@ -176,8 +176,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
  * @property {Pause} [paused] absent where the loop is not paused
- * @property {LaunchHold} [launchHold] a live launch hold, absent where none
- *   is, or where a pause already bars the launches
+ * @property {LaunchHold} [launchHold] live only; absent where a pause already
+ *   bars the launches
  * @property {string|null} [controlDamaged] the control file and why, where it
  *   exists but is not a control
  * @property {MergedRow[]} frontier lib/frontier-order.js's merged ranking
@@ -228,14 +228,11 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 
 /**
  * A manual /pick-next's lease on the loop's launches (#4354): the session that
- * took it, null where none was named, and until when, ms. A pause is the
- * founder's and outlives its setter; a hold lapses at `until`, so a run that
- * dies holding one strands nothing.
+ * took it, null where none was named, and the time it lapses, ms.
  * @typedef {{holder: string|null, until: number}} LaunchHold
  */
 
 /**
- * `hold` where it still holds at `now`, else undefined.
  * @param {LaunchHold|undefined} hold
  * @param {number} now
  */
