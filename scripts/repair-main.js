@@ -46,6 +46,7 @@ const {
 } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
+const { checkoutOfCommonDir } = require("./lib/main-checkout.js");
 const { MAIN_REF, readMainState } = require("./lib/main-ref.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { fromEnv } = require("./lib/session-id.js");
@@ -82,7 +83,7 @@ const say = (line) => writeFd(1, `${line}\n`);
 
 /** @param {string} commonDir */
 function requireBroken(commonDir) {
-	const state = readMainState(commonDir);
+	const state = readMainState(commonDir, GIT_TIMEOUT_MS);
 	if (state !== "unreadable") throw new Refusal(NOT_BROKEN[state]);
 }
 
@@ -176,16 +177,12 @@ function findTarget(commonDir, entries, origins) {
  * Copy the damaged ref and the index into a directory of this run's own, so a
  * second repair in one session keeps the first's.
  * @param {string} commonDir
+ * @param {string} root  the shared tree
  * @param {string} session
  * @returns {string} the directory
  */
-function writeBackup(commonDir, session) {
-	const sessionDir = path.join(
-		path.dirname(commonDir),
-		".claude",
-		"tmp",
-		`git-repair-${session}`,
-	);
+function writeBackup(commonDir, root, session) {
+	const sessionDir = path.join(root, ".claude", "tmp", `git-repair-${session}`);
 	fs.mkdirSync(sessionDir, { recursive: true });
 	const dir = fs.mkdtempSync(path.join(sessionDir, "run-"));
 	fs.copyFileSync(path.join(commonDir, MAIN_REF), path.join(dir, "main"));
@@ -198,11 +195,12 @@ function writeBackup(commonDir, session) {
  * Take git's lock on the ref, prove it still broken under that lock, back up, and
  * rename the target into place.
  * @param {string} commonDir
+ * @param {string} root  the shared tree
  * @param {string} session
  * @param {string} sha
  * @returns {string} the backup directory
  */
-function replaceBrokenRef(commonDir, session, sha) {
+function replaceBrokenRef(commonDir, root, session, sha) {
 	const ref = path.join(commonDir, MAIN_REF);
 	const lock = `${ref}.lock`;
 	try {
@@ -215,7 +213,7 @@ function replaceBrokenRef(commonDir, session, sha) {
 	}
 	try {
 		requireBroken(commonDir);
-		const backup = writeBackup(commonDir, session);
+		const backup = writeBackup(commonDir, root, session);
 		fs.renameSync(lock, ref);
 		return backup;
 	} catch (err) {
@@ -253,7 +251,11 @@ function repair(session) {
 	const commonDir = gitCommonDir(hostRoot());
 	if (!commonDir)
 		throw new Refusal(`git names no shared .git here. ${ASK_FOUNDER}`);
-	const root = path.dirname(commonDir);
+	const root = checkoutOfCommonDir(commonDir);
+	if (!root)
+		throw new Refusal(
+			`the shared .git, ${commonDir}, names no checkout to restore. ${ASK_FOUNDER}`,
+		);
 	requireBroken(commonDir);
 	const head = fs.readFileSync(path.join(commonDir, "HEAD"), "utf8").trim();
 	if (head !== `ref: ${MAIN_REF}`)
@@ -266,7 +268,7 @@ function repair(session) {
 		readOriginShas(commonDir),
 	);
 
-	const backup = replaceBrokenRef(commonDir, session, sha);
+	const backup = replaceBrokenRef(commonDir, root, session, sha);
 	say(`Restored main to ${sha}. Backup of the ref and the index: ${backup}`);
 	const rebuilt = gitOutcome(["read-tree", "HEAD"], [], root);
 	if (rebuilt.ok) {

@@ -357,6 +357,45 @@ exec ${shellQuote(routed)} "$@"
 		expect(readPhases()).toEqual(["raise"]);
 	});
 
+	/* gh.js binds execFileSync at load, so both libs are read fresh over the spy. */
+	it("rolls back a dispatch that threw a null, and retries it next tick (#4192)", () => {
+		raiseProbe();
+		serve();
+		const libs = ["./gh.js", "./repo-hold-notices.js"].map((l) =>
+			require.resolve(l),
+		);
+		const cp = require("node:child_process");
+		const real = cp.execFileSync;
+		const spy = vi
+			.spyOn(cp, "execFileSync")
+			.mockImplementation((...call: unknown[]) => {
+				const args = call[1] as string[];
+				// biome-ignore lint/style/useThrowOnlyError: the null throw is the case under test
+				if (args.includes("workflow") && args.includes("run")) throw null;
+				return real(...call);
+			});
+		const lines: string[] = [];
+		try {
+			for (const lib of libs) delete require.cache[lib];
+			require("./repo-hold-notices.js").tendHoldNotices(
+				[repo],
+				{ agents: IDLE, isPaused: false },
+				NOW,
+				(l: string) => lines.push(l),
+			);
+		} finally {
+			spy.mockRestore();
+			for (const lib of libs) delete require.cache[lib];
+		}
+		expect(lines.join("\n")).toContain(
+			"raise notice not dispatched, the next tick retries",
+		);
+		expect(status()).toContain("notice: raise not sent");
+
+		notices(NOW + MIN);
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
 	it("sends nothing and logs one line with the configuration unset", () => {
 		writeConfig(false);
 		serve();

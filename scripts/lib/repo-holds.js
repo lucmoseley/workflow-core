@@ -132,13 +132,19 @@ const { resolveKey } = require("./workflow-core-config.js");
  * @typedef {{text: string, isOutage: boolean}} ProbeFailure
  */
 
-/* Untraced: a clear check runs inside a tick, which it must not hold for long,
- * and has to span a slow `git fetch`. */
-const CLEAR_CHECK_TIMEOUT_MS = 30_000;
+/* Untraced: the budget of one call a tick makes for a hold or its notice, a clear
+ * check's command, which may run a slow `git fetch`, and each `gh` the holds and
+ * lib/repo-hold-notices.js run, each of which must not hold the tick for long. */
+const TICK_CALL_TIMEOUT_MS = 30_000;
 
 /* How long the runner waits after its TERM before its KILL; a guess, as
  * lib/gate-check.js's is. */
 const CLEAR_CHECK_KILL_AFTER_MS = 5000;
+
+/* The runner itself ends by the budget plus one KILL_AFTER; a second is headroom for
+ * its own start and reap, a guess, past which the runner is the one wedged. */
+const CLEAR_CHECK_SPAWN_TIMEOUT_MS =
+	TICK_CALL_TIMEOUT_MS + 2 * CLEAR_CHECK_KILL_AFTER_MS;
 
 /* A guess: few holds open at once, and short enough to type at `lift`. A
  * repeat would overwrite the hold it repeats. */
@@ -403,32 +409,50 @@ function readHolds(root) {
 	for (const name of names.filter((n) => n.endsWith(".json"))) {
 		const file = path.join(dir, name);
 		try {
-			const value = JSON.parse(fs.readFileSync(file, "utf8"));
-			if (isHold(value, name)) {
-				const noticeFile = path.join(dir, buildNoticeName(value.id));
-				const notice = readNotice(noticeFile);
-				if (notice === UNREAD_NOTICE)
-					unread.push(
-						`${noticeFile}: not its notice state, so it sends none; remove the file`,
-					);
-				holds.push({
-					...value,
-					notice,
-					sessions: [
-						...new Set([
-							...value.sessions,
-							...parseAttachedJobs(names, value.id),
-						]),
-					],
-				});
-			} else unread.push(`${file}: not a hold; ${HOLD_FILE_REMEDY}`);
+			/* Null: lifted between the listing and this read. */
+			const read = readHoldFile(file, name);
+			if (read === null) continue;
+			if ("torn" in read) {
+				unread.push(`${file}: ${read.torn}; ${HOLD_FILE_REMEDY}`);
+				continue;
+			}
+			const { hold } = read;
+			const noticeFile = path.join(dir, buildNoticeName(hold.id));
+			const notice = readNotice(noticeFile);
+			if (notice === UNREAD_NOTICE)
+				unread.push(
+					`${noticeFile}: not its notice state, so it sends none; remove the file`,
+				);
+			holds.push({
+				...hold,
+				notice,
+				sessions: [
+					...new Set([...hold.sessions, ...parseAttachedJobs(names, hold.id)]),
+				],
+			});
 		} catch (err) {
-			/* ENOENT: lifted between the listing and this read. */
-			if (caught(err).code !== "ENOENT")
-				unread.push(`${file}: ${caught(err).message}; ${HOLD_FILE_REMEDY}`);
+			unread.push(`${file}: ${caught(err).message}; ${HOLD_FILE_REMEDY}`);
 		}
 	}
 	return { holds: holds.sort((a, b) => a.raisedAt - b.raisedAt), unread };
+}
+
+/**
+ * The hold a record file holds; `{torn}`, why, where it will not parse or is no hold;
+ * null where the file is gone. Any other failure throws. Its notice is not read.
+ * @param {string} file
+ * @param {string} name  the file's name, which the hold's id must match
+ * @returns {{hold: RepoHold}|{torn: string}|null}
+ */
+function readHoldFile(file, name) {
+	try {
+		const value = JSON.parse(fs.readFileSync(file, "utf8"));
+		return isHold(value, name) ? { hold: value } : { torn: "not a hold" };
+	} catch (err) {
+		if (err instanceof SyntaxError) return { torn: err.message };
+		if (caught(err).code === "ENOENT") return null;
+		throw err;
+	}
 }
 
 /** @param {ClearCheck} check */
@@ -714,23 +738,17 @@ function dropRecordJobs(file, settled) {
  */
 function readLiftedRecord({ dir, id }) {
 	const name = buildHoldFileName(id);
-	try {
-		const value = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-		return isHold(value, name)
-			? { ...value, notice: readNotice(path.join(dir, buildNoticeName(id))) }
-			: null;
-	} catch (err) {
-		if (err instanceof SyntaxError || caught(err).code === "ENOENT")
-			return null;
-		throw err;
-	}
+	const read = readHoldFile(path.join(dir, name), name);
+	return read && "hold" in read
+		? { ...read.hold, notice: readNotice(path.join(dir, buildNoticeName(id))) }
+		: null;
 }
 
 /**
  * Drop what `settled` names of a lifted hold, and the hold once nothing of it is
  * left and its clear notice is done, which needs the record. A failure is logged
- * and the next tick reads it again, which takes up no session twice
- * (lib/refill-blocks.js's queueLifted).
+ * and the record kept for the next tick's resume step to read again (#3863), which
+ * takes up no session twice (lib/refill-blocks.js's queueLifted).
  * @param {LiftedHold} hold
  * @param {string[]} settled  its job ids the tick has taken up
  * @param {Log} log
@@ -792,7 +810,7 @@ function isCommandPassed(hold, command, log) {
 		process.execPath,
 		[
 			RUN_BUDGETED,
-			String(CLEAR_CHECK_TIMEOUT_MS),
+			String(TICK_CALL_TIMEOUT_MS),
 			String(CLEAR_CHECK_KILL_AFTER_MS),
 			"sh",
 			"-c",
@@ -801,7 +819,7 @@ function isCommandPassed(hold, command, log) {
 		{
 			cwd: hold.checkout,
 			env: buildCheckoutEnv(hold.checkout),
-			timeout: CLEAR_CHECK_TIMEOUT_MS + 2 * CLEAR_CHECK_KILL_AFTER_MS,
+			timeout: CLEAR_CHECK_SPAWN_TIMEOUT_MS,
 		},
 	);
 	if (run.error) {
@@ -812,7 +830,7 @@ function isCommandPassed(hold, command, log) {
 	}
 	if (run.status === TIMEOUT_EXIT || run.status === KILLED_EXIT)
 		log(
-			`repo hold ${hold.id}: clear check outlived ${CLEAR_CHECK_TIMEOUT_MS} ms`,
+			`repo hold ${hold.id}: clear check outlived ${TICK_CALL_TIMEOUT_MS} ms`,
 		);
 	return run.status === 0;
 }
@@ -848,7 +866,7 @@ function isIssueClosed(hold, issue, log) {
 				"--jq",
 				".state",
 			],
-			{ timeout: CLEAR_CHECK_TIMEOUT_MS },
+			{ timeout: TICK_CALL_TIMEOUT_MS },
 		);
 		return state.trim() === "CLOSED";
 	} catch (e) {
@@ -989,7 +1007,7 @@ function closeProbeIssue(hold, why) {
 				"--comment",
 				`${why} The refill loop launches into ${hold.checkout} again unless it reads another failure.`,
 			],
-			{ timeout: CLEAR_CHECK_TIMEOUT_MS },
+			{ timeout: TICK_CALL_TIMEOUT_MS },
 		);
 		return null;
 	} catch (e) {
@@ -1051,14 +1069,8 @@ function settleHold(root, hold, readFailure, log) {
  * @returns {RepoHold|null}
  */
 function readProbeHold(root) {
-	try {
-		const value = JSON.parse(fs.readFileSync(holdFile(root, PROBE_ID), "utf8"));
-		return isHold(value, `${PROBE_ID}.json`) ? value : null;
-	} catch (err) {
-		if (err instanceof SyntaxError || caught(err).code === "ENOENT")
-			return null;
-		throw err;
-	}
+	const read = readHoldFile(holdFile(root, PROBE_ID), `${PROBE_ID}.json`);
+	return read && "hold" in read ? read.hold : null;
 }
 
 /**
@@ -1097,7 +1109,7 @@ function readOpenProbeIssue(root, title) {
 				"--json",
 				"number,title",
 			],
-			{ timeout: CLEAR_CHECK_TIMEOUT_MS },
+			{ timeout: TICK_CALL_TIMEOUT_MS },
 		)
 	);
 	return rows.find((r) => r.title === title)?.number ?? null;
@@ -1152,6 +1164,9 @@ function fileProbeIssue(root, hold, failure, log) {
 	writeHold(root, { ...hold, issue: number });
 	log(`repo hold ${hold.id} in ${root}: filed #${number}`);
 }
+
+/* The outage window's decision stays beside its fs, with no core, by #3857's ruling
+ * for this file: the real tick and the CLI test it. */
 
 /**
  * An outage's start off its file; `now` where none is there or no tick has seen it
@@ -1418,6 +1433,7 @@ module.exports = {
 	readStoreRoots,
 	readTickHolds,
 	tendHolds,
+	TICK_CALL_TIMEOUT_MS,
 	withTickStores,
 	writeNotice,
 };

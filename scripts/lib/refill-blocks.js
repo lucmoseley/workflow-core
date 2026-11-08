@@ -16,6 +16,7 @@ const {
 	blockAct,
 	buildLimitParkWhy,
 	holdBoundAt,
+	isFounderWait,
 	nextTryAt,
 	resumeDueAt,
 } = require("./block-act.js");
@@ -1742,9 +1743,6 @@ function queueLifted(launches, lifted, seen) {
  * an unread record is resumed for the same reason. */
 const ENDED_JOB_STATES = new Set(["done", "stopped"]);
 
-/* The blocks that wait on the founder, in a thread his answer resumes (#3584). */
-const FOUNDER_BLOCKS = new Set(["QUESTION", "PERMISSION", "OTHER_DIALOG"]);
-
 /**
  * Whether the saved state alone leaves `l` one a restart may have killed: not
  * already held or being handed off and not waiting on the founder (#3983).
@@ -1755,7 +1753,7 @@ const isBootKillCandidate = (l) =>
 	isActionable(l) &&
 	!isHeld(l) &&
 	l.handOffTries === undefined &&
-	!(l.parked && FOUNDER_BLOCKS.has(l.block?.cause ?? ""));
+	!(l.parked && isFounderWait(l.block?.cause));
 
 /**
  * Whether `l`'s job record reads it ended on its own (ENDED_JOB_STATES).

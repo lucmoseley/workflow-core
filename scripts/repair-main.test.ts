@@ -12,7 +12,8 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GIT_TIMEOUT_MS } from "./lib/git.js";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -358,4 +359,42 @@ it("lists an entry git wrote with no message, as `git update-ref` does", () => {
 	const r = repair();
 	expect(r.status).toBe(0);
 	expect(r.stdout).toContain(`${"c".repeat(40)} (no message)\n`);
+});
+
+/* A wedged git's only outward sign is a repair that never ends, which no test can
+ * wait out; runInProcess loads git.js fresh, so it binds spawnSync over the spy. */
+it("reads main's state under GIT_TIMEOUT_MS at both proofs, never unbounded (#4192)", () => {
+	fs.writeFileSync(refFile, "");
+	const cp = require("node:child_process");
+	const spy = vi.spyOn(cp, "spawnSync");
+	try {
+		expect(repair().status).toBe(0);
+		const reads = spy.mock.calls.filter(([, args]) =>
+			(args as string[]).join(" ").endsWith("--verify refs/heads/main"),
+		);
+		expect(
+			reads.map(([, , opts]) => (opts as { timeout?: number }).timeout),
+		).toEqual([GIT_TIMEOUT_MS, GIT_TIMEOUT_MS]);
+	} finally {
+		spy.mockRestore();
+	}
+});
+
+it("refuses a shared .git that names no checkout, rather than guess the tree from its parent", () => {
+	const separate = path.join(dir, "separate");
+	const store = path.join(dir, "store.git");
+	execFileSync("git", [
+		"init",
+		"-q",
+		"-b",
+		"main",
+		"--separate-git-dir",
+		store,
+		separate,
+	]);
+	const ref = path.join(store, "refs", "heads", "main");
+	fs.mkdirSync(path.dirname(ref), { recursive: true });
+	fs.writeFileSync(ref, "");
+	expectRefused(repair(separate), "names no checkout");
+	expect(fs.readFileSync(ref, "utf8")).toBe("");
 });
