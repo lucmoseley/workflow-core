@@ -17,6 +17,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const {
 	WHOLE_SUITE_MAX,
+	isNextRunnerLine,
 	isVitestRunnerLine,
 	readCarriedWeightOf,
 	readPs,
@@ -29,6 +30,7 @@ const {
 	readStatFields,
 } = require("./proc-stat.js");
 const { shellQuote } = require("./sh-quote.js");
+const { isOtherRunner } = require("./suite-launch.js");
 const { scriptPath } = require("./script-path.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
 const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
@@ -233,18 +235,20 @@ function readClimbMb(
 					!(name === rungQueue && onRung.has(r.pid)),
 			)
 			.map((r) => ({ peakMb: peakMbOf(name, r), pid: r.pid }));
-		const runner = name === rungQueue ? undefined : QUEUE_RUNNERS[name];
-		const bare = runner
-			? unmarked
-					.filter((row) => runner.isRunner(row.args))
-					.map((row) => ({
-						peakMb: peakMbOf(name, runner.sizeOf(row, carriedOf)),
-						pid: row.pid,
-					}))
-			: [];
-		return [...marked, ...bare];
+		return marked;
 	});
-	return charges.reduce(
+	const names = queueDirs.map((dir) => path.basename(dir));
+	const bare = unmarked.flatMap((row) => {
+		const runner = runnerOf(row.args);
+		const charged =
+			runner !== undefined &&
+			(runner.queue === null ||
+				(runner.queue !== rungQueue && names.includes(runner.queue)));
+		return charged
+			? [{ peakMb: runner.peakMbOf(row, carriedOf), pid: row.pid }]
+			: [];
+	});
+	return [...charges, ...bare].reduce(
 		(mb, { peakMb, pid }) =>
 			mb + Math.max(0, peakMb - Math.floor(treePssKb(pid) / 1024)),
 		0,
@@ -260,11 +264,10 @@ function readClimbMb(
  * @returns {Set<number>}
  */
 function readRungPids(runners, rungQueue, parentOf) {
-	const runner = rungQueue === null ? undefined : QUEUE_RUNNERS[rungQueue];
-	if (!runner) return new Set();
+	if (rungQueue === null) return new Set();
 	return new Set(
 		runners
-			.filter((r) => runner.isRunner(r.args))
+			.filter((r) => runnerOf(r.args)?.queue === rungQueue)
 			.flatMap(({ pid }) => [pid, ...readAncestorsOf(pid, { parentOf })]),
 	);
 }
@@ -282,22 +285,94 @@ function logClimbUnread(what, error) {
 	);
 }
 
-/** @type {Record<string, { isRunner: (args: string) => boolean, sizeOf: (row: { pid: number, args: string }, carriedOf: typeof readCarriedWeightOf) => Pick<QueueRecord, "part" | "files"> }>} */
-const QUEUE_RUNNERS = {
-	[QUEUE_NAME]: {
-		isRunner: isVitestRunnerLine,
-		sizeOf: ({ pid, args }, carriedOf) => vitestLineSize(args, carriedOf(pid)),
-	},
-	[TSC_QUEUE_NAME]: { isRunner: isTscRunner, sizeOf: () => ({}) },
-};
+/*
+ * The peaks of the runners on no ladder or slot of the queues' own, each
+ * measured as #3806 measured a part-suite (#4112): the process tree's PSS
+ * sampled each second, 8 Nov 2026, on a loaded machine.
+ *
+ * pytest by xdist workers, 15 runs of two repos' suites: at 0 (`-n 0`), 1, 2,
+ * 4 and 8 (`-n auto`) the highest read 144, 169, 256, 424 and 724 MB. The line
+ * over them, no margin, as a part-suite's.
+ *
+ * `node --test`, one repo's 35-file suite: 363 and 381 MB at its default
+ * concurrency, 323 MB at 1. The only `node --test` suite on the machine.
+ *
+ * `next build`, one site's: 972 and 979 MB cold, 624 MB warm. The only build on
+ * the machine.
+ *
+ * MOVE ONE ONLY WITH A RE-MEASUREMENT. Residual: a suite or site heavier than
+ * the one measured is charged short by the difference; pytest's workers set in
+ * its config's `addopts` are read as none.
+ */
+const PYTEST_BASE_MB = 150;
+const PYTEST_WORKER_MB = 75;
+const NODE_TEST_PEAK_MB = 381;
+const NEXT_BUILD_PEAK_MB = 979;
 
 /**
- * The running `tsc`s and vitest runs in no queue (#3615): a bare launch the
- * guard admitted, or one it never judged, such as a `sh -c "…"`. A hook outlives
- * no launch, so none can leave a marker, and `ps` is what shows them.
- * `readClimbMb` charges each to the queue it would have waited in, so a queued
- * suite pays for an unqueued `tsc`, and never for an unqueued suite, which its
- * ladder rung already counts (`runningSuites`).
+ * The xdist workers a pytest line asks for: `-n`'s value, a CPU each for
+ * `auto` or `logical`, none where it names none.
+ * @param {string} args
+ */
+function pytestWorkersOf(args) {
+	const value = /(?:^| )(?:-n ?|--numprocesses[ =])(\S+)/.exec(args)?.[1];
+	if (value === "auto" || value === "logical") return os.availableParallelism();
+	const workers = Number(value);
+	return Number.isInteger(workers) && workers > 0 ? workers : 0;
+}
+
+/** @param {string} args */
+const isNodeLine = (args) =>
+	/^(\S*\/)?node(js)?$/.test(args.split(" ")[0] ?? "");
+
+/** @param {string} args */
+const isOtherSuiteLine = (args) =>
+	isOtherRunner(args.trim().split(/\s+/), () => []);
+
+/**
+ * The runners `readClimbMb` charges holding no marker, each with the queue
+ * whose gate counts it on its own rung or slot, or null for one no gate
+ * counts, and its peak. A host's declared `suiteRunners` script is no class:
+ * no host on the machine declares one, so it has no measured peak.
+ * @type {{ queue: string | null, isRunner: (args: string) => boolean, peakMbOf: (row: { pid: number, args: string }, carriedOf: typeof readCarriedWeightOf) => number }[]}
+ */
+const RUNNERS = [
+	{
+		queue: QUEUE_NAME,
+		isRunner: isVitestRunnerLine,
+		peakMbOf: ({ pid, args }, carriedOf) =>
+			peakMbOf(QUEUE_NAME, vitestLineSize(args, carriedOf(pid))),
+	},
+	{
+		queue: QUEUE_NAME,
+		isRunner: (args) => isOtherSuiteLine(args) && isNodeLine(args),
+		peakMbOf: () => NODE_TEST_PEAK_MB,
+	},
+	{
+		queue: QUEUE_NAME,
+		isRunner: (args) => isOtherSuiteLine(args) && !isNodeLine(args),
+		peakMbOf: ({ args }) =>
+			PYTEST_BASE_MB + PYTEST_WORKER_MB * pytestWorkersOf(args),
+	},
+	{ queue: TSC_QUEUE_NAME, isRunner: isTscRunner, peakMbOf: () => TSC_PEAK_MB },
+	{
+		queue: null,
+		isRunner: (args) => isNextRunnerLine("build", args),
+		peakMbOf: () => NEXT_BUILD_PEAK_MB,
+	},
+];
+
+/** @param {string} args */
+const runnerOf = (args) => RUNNERS.find((r) => r.isRunner(args));
+
+/**
+ * The running launches of a `RUNNERS` class in no queue (#3615, #4112): a bare
+ * launch the guard admitted, or one it never judged, such as a `sh -c "…"`. A
+ * hook outlives no launch, so none can leave a marker, and `ps` is what shows
+ * them. `readClimbMb` charges each to the queue whose gate counts it, so a
+ * queued suite pays for an unqueued `tsc`, and never for an unqueued suite,
+ * which its ladder rung already counts (`runningSuites`); a `tsc` pays for
+ * both; and every gate pays for a build, which none counts.
  *
  * A RUNNER UNDER A LIVE MARKER'S PID OR ANOTHER RUNNER IS LEFT OUT: the marker
  * is charged already, and an outer runner's charge covers its tree. Markers
@@ -315,8 +390,7 @@ const QUEUE_RUNNERS = {
  *   which does not charge that vitest;
  * - an open watcher is charged a whole suite's rest for as long as it is open,
  *   as its rung is (mantahostels#1927);
- * - a `pytest`, a host's runner or a build is charged nothing, having no measured
- *   peak.
+ * - a host's declared runner is charged nothing, having no measured peak.
  *
  * @param {string[]} queueDirs
  * Returns every runner on `ps` too, which `readClimbMb` matches to markers.
@@ -338,9 +412,7 @@ function readUnmarkedRunners(
 		return none;
 	}
 	const runners = listing.rows.flatMap(({ pid, args }) =>
-		pid !== null && Object.values(QUEUE_RUNNERS).some((q) => q.isRunner(args))
-			? [{ pid, args }]
-			: [],
+		pid !== null && runnerOf(args) ? [{ pid, args }] : [],
 	);
 	if (runners.length === 0) return none;
 	const runnerPids = new Set(runners.map((r) => r.pid));

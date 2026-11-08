@@ -133,7 +133,7 @@ const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
-	WRAPPER_ARGV0,
+	isNextRunnerLine,
 	runningSuites,
 	suiteRungMb,
 } = require("./suite-ladder.js");
@@ -276,20 +276,12 @@ function isNextLaunch(sub, words) {
 }
 
 /**
- * The `next <sub>` runners `ps` shows: the binary's path, so npm's `sh -c next
- * build` and a line merely quoting the words are not counted. A build also
- * counts by the `next-build (v…)` title it sets on itself; a dev server's
- * parent keeps its path for its life, and the `next-server (v…)` title its
- * child takes is `next start`'s too, so it is not read.
+ * The `next <sub>` runners `ps` shows (`isNextRunnerLine`).
  * @param {"build" | "dev"} sub
  * @param {import("./suite-ladder.js").PsRow[]} ps
  */
-function runningNext(sub, ps) {
-	const title = sub === "build" ? "^ *next-build \\(v|" : "";
-	const runner = new RegExp(`${title}([.]bin|/dist/bin)/next ${sub}( |$)`);
-	return ps.filter(({ args }) => runner.test(args) && !WRAPPER_ARGV0.test(args))
-		.length;
-}
+const runningNext = (sub, ps) =>
+	ps.filter(({ args }) => isNextRunnerLine(sub, args)).length;
 
 const SHELL_KEYWORDS = [
 	"do",
