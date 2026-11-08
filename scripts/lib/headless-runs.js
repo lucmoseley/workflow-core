@@ -56,7 +56,7 @@ const CREDIT_REFUSAL = /credit balance is too low|billing_error/i;
  *   leaves to its own `--max-budget-usd` (#4174)
  *
  * @typedef {{id: string, sessionId: string, pid: number, cwd: string,
- *   startedAt: number, state: "working", kind: "headless",
+ *   startedAt: number, state: "working", kind: "headless", seat: string,
  *   founderReply?: true}} HeadlessAgent
  *   shaped as lib/agent-liveness.js's AgentRecord
  *
@@ -123,6 +123,7 @@ function readLiveAgents() {
 			startedAt: r.launchedAt,
 			state: "working",
 			kind: "headless",
+			seat: r.seat,
 			...(r.founderReply ? { founderReply: true } : {}),
 		}));
 }
