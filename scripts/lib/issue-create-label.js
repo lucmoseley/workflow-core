@@ -184,7 +184,7 @@ const {
 	TAKES_VALUES,
 	TRIED_MIN,
 	outsideLineFault,
-	untriedFix,
+	UNTRIED_FAULTS,
 } = require("./takes-label.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -742,29 +742,17 @@ Relabel, and drop the tool and the path from the Outside line if a real outside 
 
 Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels#3555).`,
 		);
-	if (found?.fault === "SURFACE-UNTRIED")
+	if (found?.fault === "SURFACE-UNTRIED" || found?.fault === "REFUSED-UNTRIED")
 		deny(
 			run.ctx,
 			segment,
-			`This ${verb} whose Outside line names a screen a session can drive — a terminal, the agents view, a session or a desktop app: @CMD@
+			`This ${verb} whose Outside line ${UNTRIED_FAULTS[found.fault].says}: @CMD@
 
   ${found.line}
 
-${untriedFix(found.fault)}
+${UNTRIED_FAULTS[found.fault].fix}
 
 Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (#4142, ruled on #3720).`,
-		);
-	if (found?.fault === "REFUSED-UNTRIED")
-		deny(
-			run.ctx,
-			segment,
-			`This ${verb} whose Outside line's only founder act is a refused one: @CMD@
-
-  ${found.line}
-
-${untriedFix(found.fault)}
-
-Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (#4142).`,
 		);
 	if (found?.fault === "NOT-A-FOUNDER-ACT")
 		deny(

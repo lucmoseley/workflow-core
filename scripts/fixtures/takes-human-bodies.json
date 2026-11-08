@@ -251,8 +251,8 @@
 	},
 	{
 		"verdict": "SURFACE-UNTRIED",
-		"reason": "refuses a list word in a desktop app, since no list word passes a screen a session can drive",
-		"body": "**Outside Claude Code:** pay the invoice in the bank's desktop app.\n\n**Close when:** the founder records the outcome here."
+		"reason": "refuses a send typed in a desktop app, a list word a session can do on that screen",
+		"body": "**Outside Claude Code:** send the approved reply from the bank's desktop app.\n\n**Close when:** the founder records the outcome here."
 	},
 	{
 		"verdict": "pass",
@@ -303,5 +303,50 @@
 		"verdict": "pass",
 		"reason": "passes a real send in a later clause, which names someone outside rather than this side",
 		"body": "**Outside Claude Code:** check the booking request, then reply to the hostel with the approved dates.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a founder act a session cannot do on a screen, done in a terminal: #3420's shape",
+		"body": "**Outside Claude Code:** delete the old API keys from the shell profile in a normal terminal.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes OAuth Authorize run from the founder's own terminal",
+		"body": "**Outside Claude Code:** click Authorize on the OAuth screen `gh auth login` opens from your own terminal.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a delete of a token pasted into a session",
+		"body": "**Outside Claude Code:** delete the token you pasted into a Claude session and issue a new one.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses a desktop application spelled in full",
+		"body": "**Outside Claude Code:** send the invoice from your desktop application.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "SURFACE-UNTRIED",
+		"reason": "refuses #3720's agents view in a report-back-free line on a send word alone",
+		"body": "**Outside Claude Code:** message each probe in the agents view.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a send naming back, which is a send to someone outside",
+		"body": "**Outside Claude Code:** read the dashboard, then send the signed form back to the council.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a with-clause naming who it goes to",
+		"body": "**Outside Claude Code:** read the figure, then reply with it to the hostel.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes here not at the clause's end, aimed at an outside site",
+		"body": "**Outside Claude Code:** read the figure — post the review here on Google Maps.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "reads the surface on the act part only, so a report-back clause naming this session does not refuse",
+		"body": "**Outside Claude Code:** sign the lease in person, then reply here in this session.\n\n**Close when:** the founder records the outcome here."
 	}
 ]

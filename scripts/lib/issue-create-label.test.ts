@@ -2106,7 +2106,7 @@ describe("the founder-act limb (#1097)", () => {
 		"REPO-FILE-ACT": "produces a file in this repository",
 		"NOT-A-FOUNDER-ACT": "names none of the founder's own acts",
 		"SURFACE-UNTRIED": "names a screen a session can drive",
-		"REFUSED-UNTRIED": "only founder act is a refused one",
+		"REFUSED-UNTRIED": "names a refused act as its only founder act",
 		"NO-CLOSE-WHEN": "has no **Close when:** line",
 	};
 	const create = (body: string) =>

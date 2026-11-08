@@ -99,9 +99,9 @@ const {
 	TRIED_MIN,
 	TRIED_MIN_ROUTES,
 	outsideLineFault,
-	outsideNamesRefusal,
+	hasRefusedOutsideAct,
 	takesLabel,
-	untriedFix,
+	UNTRIED_FAULTS,
 } = require("./lib/takes-label");
 
 const HUMAN_LABEL = takesLabel("human");
@@ -139,11 +139,11 @@ const HUMAN_FAULTS = {
 	],
 	"SURFACE-UNTRIED": [
 		`takes:human whose Outside line names a screen a session can drive, and whose body lists no ${TRIED_MIN_ROUTES} routes tried`,
-		untriedFix("SURFACE-UNTRIED"),
+		UNTRIED_FAULTS["SURFACE-UNTRIED"].fix,
 	],
 	"REFUSED-UNTRIED": [
 		`takes:human whose Outside line's only founder act is a refused one, and whose body lists no ${TRIED_MIN_ROUTES} calls tried`,
-		untriedFix("REFUSED-UNTRIED"),
+		UNTRIED_FAULTS["REFUSED-UNTRIED"].fix,
 	],
 	"NOT-A-FOUNDER-ACT": [
 		`takes:human whose Outside line names none of the founder's own acts, and whose body lists no ${TRIED_MIN} methods tried`,
@@ -517,7 +517,7 @@ function checkAgentStep(iss, own, raise) {
 	if (
 		own.includes(HUMAN_LABEL) &&
 		body.includes("! gh ") &&
-		!outsideNamesRefusal(body)
+		!hasRefusedOutsideAct(body)
 	)
 		raise(
 			"WARN",

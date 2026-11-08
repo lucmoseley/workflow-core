@@ -109,20 +109,26 @@ const FOUNDER_ACT_WORD =
 const REFUSED_WORD = /^refused$/i;
 
 /* A screen a session can drive (#4142, ruling #3720 Q1 (A)): a terminal, the
- * agents view, a Windows Terminal tab, a session, or a desktop app. No
- * founder-act word passes one, only a Tried: list. A phone app stays the
- * founder's. */
+ * agents view, a Windows Terminal tab, a session, or a desktop app. A phone
+ * app stays the founder's. */
 const SESSION_SURFACE =
-	/(?<![a-z0-9])(agents? view|wc[1-3]|sessions?|terminals?|desktop apps?)(?![a-z0-9])/i;
+	/(?<![a-z0-9])(agents? view|wc[1-3]|sessions?|terminals?|desktop app(?:lication)?s?)(?![a-z0-9])/i;
+/* The list words a session can do on such a screen, which pass none: a
+ * send or call typed there (#3720's `reply`), and a refusal, which owes its
+ * own evidence. Any other list act still passes ("delete the key in a normal
+ * terminal", #3420). */
+const SCREEN_DOABLE =
+	/^(?:send|email|e-mail|message|messaging|reply|replied|replies|post|submit|form|call|phone|phoning|refused)/i;
 
 /* A report-back clause reports to the project, not to anyone outside it,
  * so its verb never passes the line (#4142 item 14). It is a clause after the
- * first, opened by its verb, that names this side: `with` straight after
- * the verb, or me, here, back, or this or the issue, ticket, session or
- * thread. A send to someone outside ("then reply to the hostel") stays. */
+ * first, opened by its verb, aimed at this side: `with` straight after the
+ * verb and no `to`, `me` anywhere, or ending on here or this or the issue,
+ * ticket, session or thread. A send to someone outside ("then reply with it
+ * to the hostel", "post the review here on Google Maps") stays. */
 const CLAUSE_BREAK = /(?:[,;—]\s*|\s+(?=(?:and|then)\s))(?:(?:and|then)\s+)*/gi;
 const REPORT_BACK =
-	/^(?:reply|replies|report|post|comment|log|record|paste|message|note|send|share|tell)\b(?:\s+with\b|[^,;—]*(?<![a-z0-9])(?:me|here|back|(?:this|the) (?:issue|ticket|session|thread))(?![a-z0-9]))/i;
+	/^(?:reply|replies|report|post|comment|log|record|paste|message|note|send|share|tell)\b(?:\s+with\b(?![^,;—]*\bto\b)|[^,;—]*\bme\b|[^,;—]*\b(?:here|(?:this|the) (?:issue|ticket|session|thread))[\s.]*$)/i;
 
 /**
  * The Outside line up to its first report-back clause.
@@ -207,9 +213,14 @@ function outsideLineFault(body) {
 	if (BARRED_ACT.test(line)) return { fault: "BARRED-NOT-IMPOSSIBLE", line };
 	if (REPO_FILE_ACT.test(line)) return { fault: "REPO-FILE-ACT", line };
 	const tried = triedCount(body);
-	if (SESSION_SURFACE.test(line))
+	const act = actPart(line);
+	const words = [
+		...act
+			.replace(new RegExp(SESSION_SURFACE.source, "gi"), " ")
+			.matchAll(FOUNDER_ACT_WORD),
+	].map((m) => m[0]);
+	if (SESSION_SURFACE.test(act) && words.every((w) => SCREEN_DOABLE.test(w)))
 		return tried < TRIED_MIN_ROUTES ? { fault: "SURFACE-UNTRIED", line } : null;
-	const words = [...actPart(line).matchAll(FOUNDER_ACT_WORD)].map((m) => m[0]);
 	if (words.length === 0)
 		return tried < TRIED_MIN ? { fault: "NOT-A-FOUNDER-ACT", line } : null;
 	if (words.every((w) => REFUSED_WORD.test(w)) && tried < TRIED_MIN_ROUTES)
@@ -223,23 +234,24 @@ function outsideLineFault(body) {
  * @param {string} body
  * @returns {boolean}
  */
-const outsideNamesRefusal = (body) =>
+const hasRefusedOutsideAct = (body) =>
 	[...(OUTSIDE_TEXT.exec(body)?.[0] ?? "").matchAll(FOUNDER_ACT_WORD)].some(
 		(m) => REFUSED_WORD.test(m[0]),
 	);
 
-/**
- * The way out of the two faults a `Tried:` list of routes answers, as the
- * guard, file-issue.js and the checker print it.
- * @param {"SURFACE-UNTRIED"|"REFUSED-UNTRIED"} fault
- * @returns {string}
- */
-function untriedFix(fault) {
-	const list = `a **Tried:** line followed directly by at least ${TRIED_MIN_ROUTES} list items`;
-	if (fault === "SURFACE-UNTRIED")
-		return `A session drives these, and no founder-act word passes one. Run the routes the browser-ladder skill names — a private tmux server for a terminal screen; for a desktop app, \`powershell.exe\` and, if the session has it, computer use — and attack the ticket's question, not only the act the body prescribes. Where they fail, add ${list}, one per route you ran and what it showed. Where the founder's only part is a yes or a time, the label is takes:wayfinder: ask, then act.`;
-	return `A refusal reaches the founder only with its evidence: add ${list}, the refused call and a narrower one, each with what the permission check said (\`rule:founder-handover\`, its auto-mode paragraph). Where the narrower call ran, the label is wrong.`;
-}
+/* The two faults a `Tried:` list of routes answers: what each says, and its
+ * way out, as the guard, file-issue.js and the checker print them. */
+const TRIED_LIST = `a **Tried:** line followed directly by at least ${TRIED_MIN_ROUTES} list items`;
+const UNTRIED_FAULTS = {
+	"SURFACE-UNTRIED": {
+		says: "names a screen a session can drive — a terminal, the agents view, a session or a desktop app — and no act a session cannot do there",
+		fix: `Run the browser-ladder skill's routes for that screen; where they fail, add ${TRIED_LIST}, one per route and what it showed (\`rule:takes-label-nuances\`).`,
+	},
+	"REFUSED-UNTRIED": {
+		says: "names a refused act as its only founder act",
+		fix: `Add ${TRIED_LIST}, one per call and what the permission check said (\`rule:founder-handover\`, its auto-mode paragraph).`,
+	},
+};
 
 /**
  * Why `labels` and `body` may not be filed as they stand, or null. Exactly
@@ -273,10 +285,10 @@ function takesRefusal(labels, body) {
 		return `takes:human, but the body names no act performed outside Claude Code. Add it on its own line — **${OUTSIDE_MARKER}** <the act, in plain words>, one of the founder's own acts this message closes on. Or, ${triedWayOut}. If you can honestly write neither, the label is wrong. ${rule} The founder's own acts (#1077): ${acts}`;
 	if (found.fault === "NOT-A-FOUNDER-ACT")
 		return `takes:human, but the Outside line names none of the founder's own acts: "${found.line}". Two ways out: name the act from that list, which this message closes on, on the Outside line, or, ${triedWayOut}. Neither true means an agent can do it, and the label is wrong. ${rule} The acts are (#1077): ${acts}`;
-	if (found.fault === "SURFACE-UNTRIED")
-		return `takes:human, but the Outside line names a screen a session can drive — a terminal, the agents view, a session or a desktop app: "${found.line}". ${untriedFix(found.fault)} ${rule}`;
-	if (found.fault === "REFUSED-UNTRIED")
-		return `takes:human, but the Outside line's only founder act is a refused one: "${found.line}". ${untriedFix(found.fault)} ${rule}`;
+	if (found.fault === "SURFACE-UNTRIED" || found.fault === "REFUSED-UNTRIED") {
+		const { says, fix } = UNTRIED_FAULTS[found.fault];
+		return `takes:human, but the Outside line ${says}: "${found.line}". ${fix} ${rule}`;
+	}
 	if (found.fault === "BARRED-NOT-IMPOSSIBLE")
 		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts. ${rule} The founder's own acts (#1077): ${acts}`;
 	return `takes:human, but the Outside line's act produces a file in this repository: "${found.line}". The file is takes:implement; the founder's review of it is takes:wayfinder. ${rule}`;
@@ -293,10 +305,10 @@ module.exports = {
 	TRIED_MIN,
 	TRIED_MIN_ROUTES,
 	outsideLineFault,
-	outsideNamesRefusal,
+	hasRefusedOutsideAct,
 	takesLabel,
 	takesOf,
 	takesRefusal,
 	takesValue,
-	untriedFix,
+	UNTRIED_FAULTS,
 };
