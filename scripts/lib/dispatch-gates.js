@@ -10,8 +10,9 @@
  * line: the variables every launch's environment drops, and a third: the
  * seat's label (lib/refill-seats.js's buildSeatLabel), which the dispatcher's
  * lines name it by. The variables dropped are the launcher's root
- * (lib/inherited-roots.js) and, on an overflow seat, any key, so the key
- * reaches the child through lib/overflow-key.js's helper alone, which
+ * (lib/inherited-roots.js) and, on an overflow seat, those
+ * lib/overflow-key.js's buildOverflowLaunch names, any key among them, so the
+ * key reaches the child through that file's helper alone, which
  * lib/headless-sessions.js passes in `--settings`. Exits 0. Exits 2 printing `REFUSED:` and why where
  * the seat file refuses the seat, the overflow key cannot be read, or the
  * launch would bill other than its seat (lib/launch-auth.js), judged in the
