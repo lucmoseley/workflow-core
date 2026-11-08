@@ -6,10 +6,11 @@
  * Python code (#465), is copied once and never re-synced.
  *
  * FROZEN: a change to its lookup, its export or its variable names is a major
- * release with a migration note. A linked worktree taking its main checkout's
- * install row is no lookup change: step 3's adopter root already meant the main
- * checkout, and only a throw went (#4117). It requires node builtins only,
- * because it runs before the core is found.
+ * release with a migration note. #4117 reads a linked worktree with no row of
+ * its own taking its main checkout's as no lookup change, a judgement call:
+ * the adopter root means the main checkout (adopterRoot), and an exact row
+ * still wins. It requires node builtins only, because it runs before the core
+ * is found.
  *
  * LOOKUP, first hit wins:
  *   1. WORKFLOW_CORE_DIR — an explicit override, for a test or an unusual layout.

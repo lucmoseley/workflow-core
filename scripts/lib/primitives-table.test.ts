@@ -6,8 +6,9 @@
  * check-primitives.test.ts holds the program's boundary cases.
  *
  * .husky/pre-commit and the release build refuse on this core, so a case
- * loosened here lets a row naming a missing path commit, or a release ship a
- * base row whose file it leaves out.
+ * loosened here lets a row whose path or § id does not resolve, or that
+ * repeats a base row's job, commit, or a release ship a base row whose file
+ * it leaves out.
  */
 
 import { describe, expect, it } from "vitest";

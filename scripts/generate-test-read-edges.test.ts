@@ -35,14 +35,14 @@ const write = (file: string, body: string) => {
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
+const runResult = (...args: string[]) =>
+	runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
+
 const run = (...args: string[]) => {
-	const r = runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
+	const r = runResult(...args);
 	if (r.status !== 0) throw new Error(r.stderr);
 	return r.stdout;
 };
-
-const runResult = (...args: string[]) =>
-	runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
 
 const readManifest = () =>
 	JSON.parse(fs.readFileSync(path.join(dir, OUT), "utf8")).edges;
