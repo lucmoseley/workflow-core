@@ -1103,7 +1103,6 @@ const HELD_LINE = {
  * @typedef {GateDenial | TurnHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
  */
 
-/* Each limb as a wait's trace names it (#4359). */
 const LIMB_NAMES = {
 	count: "the count cap",
 	memory: "the memory rung",
@@ -1118,9 +1117,8 @@ const pidList = (pids) =>
 	pids.length === 0 ? "" : `, PID ${pids.map((p) => p ?? "unread").join(", ")}`;
 
 /**
- * Who a limb names: the PIDs on a count cap or a closed turn, an admission's
- * PID and queue. A memory reading is no identity, so a moving MemAvailable
- * never reads as a new limb.
+ * A memory reading is no identity, so a moving MemAvailable never reads as a
+ * new limb.
  *
  * @param {WaitLimb} hold
  */
@@ -1147,9 +1145,6 @@ function describeLimb(hold) {
 }
 
 /**
- * The limb that held one poll: the gate's denial, else who held the turn shut,
- * else null where the poll opened.
- *
  * @param {GateDenial | null} denial
  * @param {boolean} open
  * @param {() => TurnHold | undefined} turnHold
@@ -1166,8 +1161,7 @@ function waitLimb(denial, open, turnHold) {
  * null where nothing held it, and returns the line to print where the limb or
  * its holder changed; `breakdown` names the time held on each limb, in the
  * order each first held it, the limb holding it now counted to now, and the
- * memory rung's lowest MemAvailable. A poll's time is its limb's until the
- * next poll. A yield leaves the limb it interrupted current, so the same limb
+ * memory rung's lowest MemAvailable. A yield leaves the limb it interrupted current, so the same limb
  * after it prints no line again.
  *
  * @param {() => number} clock
@@ -1285,8 +1279,7 @@ function heldOnClimbMb(denial) {
  * rung (#3416).
  *
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
- * changes, and the time held on each limb as the wait ends (#4359);
- * `turnHold` names who holds a closed turn (`passingTurn`).
+ * changes, and the time held on each limb as the wait ends (#4359).
  *
  * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined }} options
  * @returns {Promise<WaitOutcome>}
@@ -1334,7 +1327,6 @@ function waitForGate({
 	let memoryHeld = false;
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock);
-	/* The breakdown a wait that ends held prints ahead of its last line. */
 	const breakdown = () => (traceLimbs ? trace.breakdown() : "");
 	const sayBreakdown = () => {
 		const spent = breakdown();
