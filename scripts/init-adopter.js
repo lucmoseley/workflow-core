@@ -80,7 +80,7 @@ const {
 	classifyCheckStaged,
 } = require("./lib/infer-commands.js");
 const { BIOME_STAGED_COMMAND } = require("./lib/biome-allowlist.js");
-const { readSubjectModules } = require("./lib/gate-subjects.js");
+const { readSubjectModules, START_ON } = require("./lib/gate-subjects.js");
 const { ghBinary } = require("./lib/gh.js");
 const {
 	findInstallRecord,
@@ -1421,21 +1421,23 @@ function adopt({ values, flags, categories, commands }) {
 /**
  * A first run's modules where --modules names none: each module whose subject
  * the tree already tracks, by the predicate check-gate-switches.js refuses a
- * commit on (#1506). A kept config infers nothing, so a subject landing after
+ * commit on (#1506), and START_ON's beside them. A kept config infers nothing, so a subject landing after
  * the first run is the commit gate's to raise — as is one this could not read
  * the index for, which it warns of rather than refusing the run.
  * @param {string} root
  */
 function readInferredModules(root) {
+	/** @type {string[]} */
+	let found = [];
 	try {
-		return readSubjectModules(root).join(",");
+		found = readSubjectModules(root);
 	} catch (err) {
 		writeFd(
 			1,
 			`WARNING modules none inferred — ${reason(err)}; the commit gate names any the tree needs\n`,
 		);
-		return "";
 	}
+	return [...found, ...START_ON].join(",");
 }
 
 /**

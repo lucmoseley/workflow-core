@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { isCutOver } from "../../../../scripts/lib/cutover.js";
 import {
 	cleanRun,
 	HAS_GITLEAKS,
@@ -35,7 +36,7 @@ newRepoSuite();
 
 describe("new-repo.js copying a source repo", () => {
 	it.skipIf(!HAS_GITLEAKS)(
-		"mirrors the default branch as main with its tags, keeps the source as a fetch-only upstream, keeps init's files trackable, starts with suites, and a second run finds every step done",
+		"mirrors the default branch as main with its tags, keeps the source as a fetch-only upstream, keeps init's files trackable, starts with suites and landing, and a second run finds every step done",
 		() => {
 			const s = sandbox({ source: SOURCE_IGNORE });
 			const r = s.run();
@@ -48,7 +49,7 @@ describe("new-repo.js copying a source repo", () => {
 			for (const step of reported(true))
 				expect(statusOf(r.stdout, step), step).toBe("done");
 			expect(r.stdout).toContain(
-				"source repo    done — octo/surf-lib's trunk pushed as main, 2 tags pushed, upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml",
+				"source repo    done — octo/surf-lib's trunk is main, 2 tags pushed, upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml",
 			);
 			expect(r.stdout).toContain(
 				"gitignore      done — negations appended to .gitignore for CLAUDE.md\n",
@@ -60,7 +61,9 @@ describe("new-repo.js copying a source repo", () => {
 				'source docs    done — 2 registered in docs/doc-map.md §A under "Source repo docs (octo/surf-lib)"\n',
 			);
 			expect(r.stdout).toContain("reconcile      done — #2 under #1\n");
-			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules suites$/m);
+			expect(r.stdout).toMatch(
+				/^init-adopter {3}done — .*, modules suites, landing$/m,
+			);
 
 			// The default branch and tags only: never the stale branch, never a fork.
 			expect(readEndState(s).originRefs).toEqual([
@@ -73,9 +76,14 @@ describe("new-repo.js copying a source repo", () => {
 			expect(s.git("show", "HEAD:lib/tide.js")).toBe(
 				"module.exports = () => 2;",
 			);
+			// The copy and the skeleton went in one push, the one creating main,
+			// the commit made from a worktree since removed (#4685).
 			expect(s.git("rev-parse", "origin/main")).toBe(
 				s.git("rev-parse", "HEAD"),
 			);
+			expect(
+				s.git("worktree", "list", "--porcelain").match(/^worktree /gm),
+			).toHaveLength(1);
 			expect(s.git("config", "--get", "remote.upstream.url")).toBe(
 				`https://github.com/${SOURCE}.git`,
 			);
@@ -104,7 +112,8 @@ describe("new-repo.js copying a source repo", () => {
 					"utf8",
 				),
 			);
-			expect(config.modules).toEqual(["suites"]);
+			expect(config.modules).toEqual(["suites", "landing"]);
+			expect(isCutOver(s.clone)).toBe(true);
 			expect(config.commands.test).toBe("npm run test");
 
 			expect(s.git("show", "HEAD:docs/source/AGENTS.source.md")).toBe(
