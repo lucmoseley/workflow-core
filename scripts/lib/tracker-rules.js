@@ -159,10 +159,10 @@ const writesBody = (words) =>
 const addsAssignee = (words) => hasFlag(words, ["--add-assignee"]);
 
 /* A `gh api` call on an issue's native dependency or sub-issue endpoint. The
- * path is one word, so the test is on the word rather than on the whole
- * command: an endpoint mentioned inside a `--jq` filter or a `-f` field is not
- * a call to it. The word is read unquoted, since `?` is a shell glob and the
- * paged read below is the spelling people quote.
+ * test is on the call's one positional word, its endpoint, so one mentioned in
+ * a `--jq` filter or a `-f` field is not a call to it. That word is read
+ * unquoted, since `?` is a shell glob and the paged read below is the spelling
+ * people quote (#4030).
  *
  * THE QUERY STRING IS WHY THE ARMS ARE UNANCHORED. The read the fragment tells
  * a session to make is the PAGED one — `…/sub_issues?per_page=100`, the
@@ -171,9 +171,19 @@ const addsAssignee = (words) => hasFlag(words, ["--add-assignee"]);
  * DELETE re-root spelling, and `blocking` the other side of the edge. */
 const DEPENDENCY_ENDPOINT =
 	/\/dependencies\/blocked_by|\/dependencies\/blocking|\/sub_issue$|\/sub_issue\?|\/sub_issues/s;
+/* `gh api`'s value-taking flags, from `gh api --help`. */
+const API_VALUE_FLAGS =
+	"--cache -F --field -H --header --hostname --input -q --jq -X --method -p --preview -f --raw-field -t --template";
 /** @type {Predicate} */
-const dependencyEndpoint = (words, { parsed }) =>
-	words.some((w) => DEPENDENCY_ENDPOINT.test(lit(w, parsed.spans)));
+const dependencyEndpoint = (words, { parsed }) => {
+	let endpoint = "";
+	scanFlags(API_VALUE_FLAGS, words.slice(1), (kind, _name, value) => {
+		if (kind !== "arg") return;
+		endpoint = value;
+		return false;
+	});
+	return DEPENDENCY_ENDPOINT.test(lit(endpoint, parsed.spans));
+};
 
 /* A `gh` call sharing its command string with a path under the background
  * job's scratch tree. `gh` reads one fine — the real risk is `$CLAUDE_JOB_DIR`
@@ -218,8 +228,8 @@ const opensNotReady = (words, { parsed, ctx, cmd }) => {
 
 /* A `gh` call that reads check runs, which the token cannot
  * (rule:gh-cli-limits): a `--json` field list naming `statusCheckRollup`, or
- * the REST check-runs endpoint. On the unquoted word, as dependencyEndpoint
- * is, since a field list is often quoted and the parser masks a quoted span. */
+ * the REST check-runs endpoint. On the unquoted word, since a field list is
+ * often quoted and the parser masks a quoted span. */
 const CHECK_RUNS = /statusCheckRollup|\/check-runs/;
 /** @type {Predicate} */
 const readsCheckRuns = (words, { parsed }) =>

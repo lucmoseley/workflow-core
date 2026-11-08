@@ -251,7 +251,7 @@ const MAPPED: [string, string[], string][] = [
 	[
 		'gh api "repos/o/r/issues/2497/sub_issues?per_page=100"',
 		["dependency-edge-false-success"],
-		"the QUOTED paged read, which the parser masks",
+		"the QUOTED paged read, which the parser masks (#4030)",
 	],
 	[
 		"gh api repos/o/r/issues/2497/dependencies/blocking",
@@ -359,6 +359,18 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		const out = emission(bash(command));
 		expect(idsIn(out.additionalContext)).toContain("create-command-shape");
 	});
+
+	it.each([
+		"gh api repos/o/r/issues/1 --jq '.[] | test(\"/sub_issues\")'",
+		"gh api repos/o/r/issues/1 -f note='see /dependencies/blocking'",
+	])(
+		"%s, an endpoint named only in a flag's value, is not a dependency call (#4030)",
+		(command) => {
+			expect(
+				idsIn(emission(bash(command))?.additionalContext ?? ""),
+			).not.toContain("dependency-edge-false-success");
+		},
+	);
 
 	/* Inside a job tree every relative word holding a `/` resolves under it, so
 	 * only a word that can be a body path is judged (#4043). */
