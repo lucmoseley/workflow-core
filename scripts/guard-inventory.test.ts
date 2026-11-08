@@ -270,14 +270,19 @@ describe("the status-line tail", () => {
 		);
 	});
 
-	/* The refusal around the quote is ~2.5 KB (#4035). */
-	it("quotes at most 200 characters of a long tail, under 3,000 B in all", () => {
+	/* Measured against the same refusal quoting a short tail, so the rule text
+	 * printed around the quote may grow (#4035, #4142). */
+	const growth = (long: string, short: string) =>
+		Buffer.byteLength(long) - Buffer.byteLength(short);
+
+	it("quotes at most 200 characters of a long tail", () => {
 		const reason = run(
 			`${ITEM}\n\nresult: done — waits on you: #31${" ".repeat(100_000)}x`,
 		);
+		const short = run(`${ITEM}\n\nresult: done — waits on you: #31 x`);
 		expect(reason).toContain("lists issue refs only");
 		expect(reason).toContain("… (99804 more characters)");
-		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
+		expect(growth(reason, short)).toBeLessThan(400);
 	});
 
 	it("caps a long mismatched ref list the same way", () => {
@@ -285,10 +290,11 @@ describe("the status-line tail", () => {
 		const reason = run(
 			`${ITEM}\n\nresult: done — waits on you: ${refs.join(", ")}`,
 		);
+		const short = run(`${ITEM}\n\nresult: done — waits on you: #100`);
 		expect(reason).toMatch(
 			/the status line's tail lists o\/here#100, .*… \(\d+ more characters\) where the block lists o\/here#31/,
 		);
-		expect(Buffer.byteLength(reason)).toBeLessThan(3000);
+		expect(growth(reason, short)).toBeLessThan(400);
 	});
 
 	it("matches the tail and the block across ref spellings", () => {
