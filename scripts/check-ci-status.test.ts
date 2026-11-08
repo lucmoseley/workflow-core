@@ -1553,9 +1553,7 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 	});
 
 	it("does not aim a bisect at a red issue-card-drift, which never ran the suite", () => {
-		// A weekly report on the tracker, not on the tree. Keying on it printed a
-		// week-wide range and offered a bisect looking for a suite failure that is
-		// not there.
+		// A weekly report on the tracker, not on the tree.
 		setRuns([
 			run_({
 				databaseId: 400,
@@ -1576,6 +1574,64 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 		const r = check(["--notify"]);
 		expect(r.stdout.trim()).toBe("");
 		expect(r.status).toBe(0);
+	});
+
+	it.each(["Named rerun", "Landing quiet 14h", "Queue ref waiting 2h"])(
+		"reports green off CI over a newer red %s at main's sha (#4676)",
+		(workflowName) => {
+			// Named rerun carries main's sha over a queue tree it tested; the two
+			// alarms go red on a stalled queue.
+			setRuns([
+				run_({
+					databaseId: 400,
+					headSha: back(0),
+					workflowName,
+					conclusion: "failure",
+					createdAt: "2026-08-04T15:00:00Z",
+				}),
+				run_({
+					databaseId: 300,
+					headSha: back(0),
+					workflowName: "CI",
+					conclusion: "success",
+					createdAt: "2026-08-04T13:00:00Z",
+				}),
+			]);
+			stubRunsAndJobs([
+				{
+					name: "Named files",
+					conclusion: "failure",
+					steps: [{ name: "Run the named files", conclusion: "failure" }],
+				},
+			]);
+
+			const r = check(["--notify"]);
+			expect(r.stdout.trim()).toBe("");
+			expect(r.status).toBe(0);
+		},
+	);
+
+	it("lists only CI's failure when a red Named rerun shares its sha (#4676)", () => {
+		setRuns([
+			run_({
+				databaseId: 400,
+				headSha: back(0),
+				workflowName: "Named rerun",
+				conclusion: "failure",
+				createdAt: "2026-08-04T15:00:00Z",
+			}),
+			run_({
+				databaseId: 300,
+				headSha: back(0),
+				workflowName: "CI",
+				conclusion: "failure",
+				createdAt: "2026-08-04T13:00:00Z",
+			}),
+		]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain("CI: failure");
+		expect(out).not.toContain("Named rerun");
 	});
 
 	it("reports a workflow it has never heard of, rather than ignoring it", () => {
