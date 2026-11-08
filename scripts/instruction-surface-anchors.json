@@ -301,7 +301,7 @@
 			"source": "#3143, #3201"
 		},
 		"scripts/lib/check-sh-rules.js": {
-			"digest": "e1d9fcb186883bd3",
+			"digest": "e32b79b148c0fc22",
 			"verdict": "at need — injected before the gate runs, the only moment the not-installed reading can be stated. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — carries the binary's location/version, the directive's literal form and the faster command",
 			"source": "#1780"
