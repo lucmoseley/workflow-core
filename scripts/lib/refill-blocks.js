@@ -80,9 +80,11 @@ const PARKED_STATE = "blocked";
  *   hold (#4157)
  * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
  *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
- * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null}} BootKilled  a
- *   session a restart killed mid-work (#3880): `at`, when it was launched, which
- *   sets its turn among the resumes; `sessionId`, null unread
+ * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null,
+ *   flags?: string[]}} BootKilled  a session a restart killed mid-work (#3880):
+ *   `at`, when it was launched, which sets its turn among the resumes;
+ *   `sessionId`, null unread; `flags`, its job's saved launch flags, read on
+ *   the tick it is queued, before any resume removes its job record (#4098)
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -113,8 +115,10 @@ const PARKED_STATE = "blocked";
  *   limitParks?: number, cause?: string}} ParkRecord  what a park marker
  *   records: the seat, job and cwd a normal-mode loop resumes (#3709), a
  *   limit-cap park's count in a row (#3804) and the block's cause
- * @typedef {{sessionId: string|null, cwd: string}} ResumeTarget  a job's
- *   full session id, null unread, and the directory its resume runs in
+ * @typedef {{sessionId: string|null, cwd: string, flags?: string[]}}
+ *   ResumeTarget  a job's full session id, null unread, the directory its
+ *   resume runs in, and the launch flags its job record saved, where it saved
+ *   any (#4098)
  * @typedef {(root: string, sessionId: string) =>
  *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore  the acts a session
  *   made before a new launch row wakes it, which are not that launch's (#3942)
@@ -135,9 +139,11 @@ const PARKED_STATE = "blocked";
  *   a move's seat: on an overflow seat, its key and the allowance the session
  *   takes there, the key's headroom at the move (#3736)
  * @typedef {{failed: string}|{failed: null, jobId: string,
- *   sessionId: string|null, copy: boolean}} Resumed  a `--bg --resume`: why
- *   it failed, else the job it runs on as, its full session id, null unread,
- *   and whether that job is a copy (#2963) rather than the one woken in place
+ *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
+ *   sessionId: string|null, copy: true, why: string}} Resumed  a
+ *   `--bg --resume`: why it failed, else the job it runs on as, its full
+ *   session id, null unread, and whether that job is a copy (#2963), with the
+ *   reason the harness gave for it (#4098), rather than the one woken in place
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
  *   the job a resume started, woken in place or a copy handed what the session
  *   held; why the job store could not tell, or null where it holds neither
@@ -202,6 +208,10 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
+ * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
+ *   {sessionId: string}) => Resumed} resumeOwnId  `claude --bg --resume` of
+ *   a job a restart killed, its record removed first so it keeps its id
+ *   (#4098)
  * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
  *   `l` in place of the launch it was: a resume's stamp before its stop, and its
  *   outcome after (#4180)
@@ -934,6 +944,14 @@ function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
 }
 
 /**
+ * How resume `r` started its job: woken in place, or as a copy with the
+ * reason the harness gave (#4098).
+ * @param {Extract<Resumed, {failed: null}>} r
+ */
+const buildResumedHow = (r) =>
+	r.copy ? `as its copy ${r.jobId} (${r.why})` : "woken in place";
+
+/**
  * One resume, or one that could not be made, logged and commented on `l`'s
  * issues.
  * @param {LoopLaunch} l  after the try
@@ -996,7 +1014,7 @@ function settleFallBack(l, r, { now, io }, { route, again }) {
 	let told = route;
 	if (r.failed === null) {
 		resumed = relaunched(l, r, now);
-		told = `${route}, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`;
+		told = `${route}, ${buildResumedHow(r)}`;
 	}
 	const tried = {
 		...afterFallBack(resumed, now, { failed: r.failed !== null, again }),
@@ -1367,7 +1385,7 @@ function adoptUnrecordedCopy(l, seen) {
 		at,
 	);
 	seen.io.log(
-		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, ${r.copy ? `as its copy ${launch.jobId}` : "woken in place"}, which a kill left out of the state: tracking it, not resuming again`,
+		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, ${buildResumedHow(r)}, which a kill left out of the state: tracking it, not resuming again`,
 	);
 	unparkStepped(l, sessionId, step, seen.io);
 	return launch;
@@ -1392,7 +1410,13 @@ function resumeStepHeld(l, seen) {
 		return { launch: handOff(rest, seen, true), started: false };
 	}
 	const unpark = () => unparkStepped(l, sessionId, step, io);
-	const r = io.resumeStopped(l, prompt, { sessionId, cwd });
+	const r = isBootKilled(l)
+		? io.resumeOwnId(l, prompt, {
+				sessionId,
+				cwd,
+				...(l.bootKilled.flags ? { flags: l.bootKilled.flags } : {}),
+			})
+		: io.resumeStopped(l, prompt, { sessionId, cwd });
 	if (r.failed === null) {
 		const launch = afterStepResume(
 			l,
@@ -1400,9 +1424,7 @@ function resumeStepHeld(l, seen) {
 			{ ...r, fromSessionId: sessionId },
 			now,
 		);
-		io.log(
-			`resumed ${what}, ${why}, by --bg --resume, ${r.copy ? `as its copy ${launch.jobId}` : "woken in place"}`,
-		);
+		io.log(`resumed ${what}, ${why}, by --bg --resume, ${buildResumedHow(r)}`);
 		unpark();
 		return { launch, started: true };
 	}
@@ -1767,14 +1789,20 @@ function queueBootKilled(launches, seen, bootedAt, isSpared = () => false) {
 	return launches.map((l) => {
 		if (isSpared(l) || !isBootKillable(l, seen, bootedAt)) return l;
 		const { block: _, parked: __, ...rest } = l;
-		const { sessionId, cwd } = io.resumeTargetOf(l);
+		const { sessionId, cwd, flags } = io.resumeTargetOf(l);
 		io.log(
 			`${launchName(l)}, killed by a restart: due back through the resume step`,
 		);
 		return {
 			...rest,
 			...(l.block?.cause === "UNKNOWN" ? { blockUnread: true } : {}),
-			bootKilled: { at: l.launchedAt, sessionId, cwd, tries: 0 },
+			bootKilled: {
+				at: l.launchedAt,
+				sessionId,
+				cwd,
+				...(flags ? { flags } : {}),
+				tries: 0,
+			},
 		};
 	});
 }
@@ -2086,7 +2114,7 @@ function settleInPlace(l, r, now, io) {
 		r,
 		now,
 	);
-	const how = r.copy ? `as its copy ${resumed.jobId}` : "woken in place";
+	const how = buildResumedHow(r);
 	io.log(`resumed ${what}: same seat, ${how}`);
 	io.comment(
 		l,
@@ -2230,9 +2258,7 @@ function settleMove(l, target, r, { now, io }) {
 		r,
 		now,
 	);
-	const how = r.copy
-		? `as its copy ${moved.jobId}`
-		: "under its own session id";
+	const how = r.copy ? buildResumedHow(r) : "under its own session id";
 	const charged =
 		target.allowanceUsd === undefined
 			? ""
@@ -2288,7 +2314,7 @@ function settleStarted(l, { at, sessionId, cwd, act }, io) {
 	let r;
 	if (found && !("unread" in found)) {
 		io.log(
-			`${what} started ${found.copy ? `copy ${found.jobId}` : "its job in place"}, which ${killed} left out of the state: tracking it, not resuming again`,
+			`${what} started a job ${buildResumedHow(found)}, which ${killed} left out of the state: tracking it, not resuming again`,
 		);
 		r = { ...found, fromSessionId: sessionId };
 	} else if (io.jobStateOf(l)?.state === "stopped")
@@ -2817,6 +2843,7 @@ module.exports = {
 	LISTING_GRACE_MS,
 	iso,
 	launchName,
+	buildResumedHow,
 	movedOnto,
 	limitWaitOf,
 	markParked,

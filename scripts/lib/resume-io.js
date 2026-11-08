@@ -11,6 +11,7 @@ const { claudeBin } = require("./claude-bin.js");
 const { runTickChild: runChild } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
 const { readOverflowLookup, record } = require("./dispatch-ledger.js");
+const { writeJobName } = require("./job-name.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
 const { findRunSince, readRunAsJob } = require("./headless-runs.js");
 const { launch: launchHeadless } = require("./headless-sessions.js");
@@ -43,6 +44,7 @@ const buildResumeIo = (log) => ({
 	findResumed,
 	copyTranscript,
 	hasJobRecord: (seat, jobId) => fs.existsSync(jobDirPath(seat, jobId)),
+	writeJobName,
 	stop: stopOn,
 	overflowLookup: (root) => readOverflowLookup([root]),
 	recordLaunch: record,

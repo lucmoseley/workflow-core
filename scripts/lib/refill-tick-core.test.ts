@@ -82,6 +82,7 @@ const BLOCK_ACTS = {
 	stop: true,
 	type: true,
 	resumeStopped: true,
+	resumeOwnId: true,
 	adoptResumed: true,
 	writeLaunch: true,
 	stagger: true,

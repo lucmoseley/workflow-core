@@ -11,7 +11,7 @@
  * after an upgrade (`node scripts/record-claude-responses.js`) is what catches it.
  */
 
-/* Every copy note the 2.1.310 binary holds; `[\w-]` leaves the full stop
+/* Every copy note the 2.1.319 binary holds; `[\w-]` leaves the full stop
  * out. */
 const COPY =
 	/started a (?:restricted )?copy (?:of that conversation )?as ([\w-]+)/;
@@ -19,15 +19,18 @@ const WOKE = /woke session ([\w-]+)/;
 const BACKGROUNDED = /backgrounded · ([\w-]+)/;
 
 /**
- * The job a launcher's response names: a copy, else the job woken or continued
- * under its session's id; null where it names none.
+ * The job a launcher's response names: a copy, with the note giving its
+ * reason (#4098), else the job woken or continued under its session's id;
+ * null where it names none.
  * @param {{stdout: string, stderr: string}} response
- * @returns {{jobId: string, copy: boolean}|null}
+ * @returns {{jobId: string, copy: true, why: string}|{jobId: string,
+ *   copy: false}|null}
  */
 function parseResumed({ stdout, stderr }) {
 	const out = `${stdout}${stderr}`;
-	const copy = COPY.exec(out)?.[1];
-	if (copy) return { jobId: copy, copy: true };
+	const note = out.split("\n").find((line) => COPY.test(line));
+	const copy = note && COPY.exec(note)?.[1];
+	if (note && copy) return { jobId: copy, copy: true, why: note.trim() };
 	const own = WOKE.exec(out)?.[1] ?? BACKGROUNDED.exec(out)?.[1];
 	return own ? { jobId: own, copy: false } : null;
 }

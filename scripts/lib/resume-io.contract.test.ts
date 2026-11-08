@@ -19,6 +19,7 @@ import {
 	buildJobRow,
 	buildStopBranch,
 } from "./agents-stop-fake";
+import { buildRmBranch } from "./bg-launch-fake";
 import { parseResumed } from "./bg-resume.js";
 import {
 	buildRekeyedResponse,
@@ -241,6 +242,7 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 	findResumed: (v) => v,
 	copyTranscript: errnoOf,
 	hasJobRecord: (v) => v,
+	writeJobName: errnoOf,
 	stop: (v) => {
 		const r = v as ReturnType<ResumeIo["stop"]>;
 		return {
@@ -325,6 +327,11 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		copy: () => launchAs("copy"),
 		woke: () => launchAs("woke"),
 		continued: () => launchAs("continued"),
+		ownId: () => launchAs("ownId"),
+		removed: () => {
+			writeClaudeStub(bin, [buildRmBranch()]);
+			return io().runClaude(["rm", JOB], { cwd: root, env: seatEnv() });
+		},
 		noJob: () => launchAs(null),
 	},
 	readJobRecord: {
@@ -334,6 +341,14 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		},
 		working: () => {
 			writeJobRecord(JOB, { state: "working", sessionId: SESSION });
+			return io().readJobRecord(seat, JOB);
+		},
+		saved: () => {
+			writeJobRecord(JOB, {
+				state: "working",
+				sessionId: SESSION,
+				respawnFlags: ["--model", "opus"],
+			});
 			return io().readJobRecord(seat, JOB);
 		},
 		stopped: () => {
@@ -381,6 +396,13 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			return io().hasJobRecord(seat, JOB);
 		},
 	},
+	writeJobName: {
+		written: () => {
+			writeJobRecord(JOB, { state: "working", sessionId: SESSION });
+			return io().writeJobName(seat, JOB, "Implement 7: a title");
+		},
+		unwritable: () => io().writeJobName(seat, JOB, "Implement 7: a title"),
+	},
 	stop: {
 		stopped: () => {
 			writeClaudeStub(bin, [buildStopBranch(path.join(dir, "calls"))]);
@@ -388,6 +410,10 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		},
 		noJob: () => {
 			writeClaudeStub(bin, [buildStopBranch(path.join(dir, "calls"), "noJob")]);
+			return io().stop(seat, JOB);
+		},
+		busy: () => {
+			writeClaudeStub(bin, [buildStopBranch(path.join(dir, "calls"), "busy")]);
 			return io().stop(seat, JOB);
 		},
 	},

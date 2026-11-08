@@ -8,7 +8,7 @@
  */
 
 const { hasNothingToRepeat } = require("./loop-prompts.js");
-const { launchName } = require("./refill-blocks.js");
+const { buildResumedHow, launchName } = require("./refill-blocks.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { seatIdOf } = require("./refill-seats.js");
 
@@ -276,7 +276,7 @@ function resumeParked(l, parked, io) {
 	const actsBefore = io.readActsBefore(l.root, parked.resume.sessionId);
 	const r = io.resume(l, parked.resume);
 	if (r.failed !== null) return afresh(r.failed);
-	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
+	io.log(`resumed parked ${launchName(l)}, ${buildResumedHow(r)}`);
 	return recordParkedResume(l, parked.resume, r, {
 		launchedAt: io.now(),
 		actsBefore,
