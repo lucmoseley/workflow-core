@@ -1147,20 +1147,13 @@ function readWorktreesOrThrow(root) {
 
 /**
  * Every job, each cwd a pass leaves its worktree standing for — a live
- * process's, or a job's not ended or ended under KEEP_MS ago — and whether a
- * job store or record would not read. One that would not read may hold a
- * resumable job in any worktree, so the pass removes none while it stands,
- * and names it in `out.failed`.
+ * process's, or a job's not ended or ended under KEEP_MS ago — and each job
+ * store or record that would not read, as readJobCwds names it.
  * @param {string[]} cwds every live process's cwd
  * @param {number} now
- * @param {Reaped} out
  */
-function readOccupied(cwds, now, out) {
+function readOccupied(cwds, now) {
 	const { jobs, unread } = readJobCwds();
-	for (const u of unread)
-		out.failed.push(
-			`${u} — a job it holds may be resumable, so no worktree is removed until it reads`,
-		);
 	const occupied = [
 		...cwds,
 		...jobs
@@ -1173,7 +1166,21 @@ function readOccupied(cwds, now, out) {
 			)
 			.map((j) => j.cwd),
 	];
-	return { jobs, occupied, unread: unread.length > 0 };
+	return { jobs, occupied, unread };
+}
+
+/**
+ * Whether the pass removes no worktree: an unread job store or record may
+ * hold a resumable job in any of them (#4704). Each is named in `out.failed`.
+ * @param {string[]} unread readJobCwds' `unread`
+ * @param {Reaped} out accumulator: each unread path is pushed onto `failed`
+ */
+function holdForUnread(unread, out) {
+	for (const u of unread)
+		out.failed.push(
+			`${u} — a job it holds may be resumable, so no worktree is removed until it reads`,
+		);
+	return unread.length > 0;
 }
 
 /**
@@ -1185,7 +1192,8 @@ function readOccupied(cwds, now, out) {
  */
 function reapWorktrees(root, { cwds, now, record, common }, out) {
 	const registered = readWorktreesOrThrow(root);
-	const { jobs, occupied, unread } = readOccupied(cwds, now, out);
+	const { jobs, occupied, unread } = readOccupied(cwds, now);
+	const held = holdForUnread(unread, out);
 	const live = readLiveOrLog("session-checkout reap");
 	/** @type {string[]} */
 	const standing = [];
@@ -1222,7 +1230,7 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 				standing.push(dir);
 				continue;
 			}
-			if (unread) {
+			if (held) {
 				standing.push(dir);
 				continue;
 			}

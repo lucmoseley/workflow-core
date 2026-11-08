@@ -276,8 +276,12 @@ it("removes no worktree while a job store will not read, naming it (#4704)", () 
 	recordJob("j1", landed, "stopped");
 	fs.chmodSync(path.join(seat, "jobs"), 0o000);
 
-	const r = reap();
-	fs.chmodSync(path.join(seat, "jobs"), 0o755);
+	let r: ReturnType<typeof reap>;
+	try {
+		r = reap();
+	} finally {
+		fs.chmodSync(path.join(seat, "jobs"), 0o755);
+	}
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(

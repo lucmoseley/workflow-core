@@ -884,7 +884,10 @@ const blockIo = (served) => ({
 		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,
 	recordParked,
-	readJobCwd,
+	/* A record that will not read is logged and read as none, never fatal to
+	 * the tick (#4704). */
+	readJobCwd: (seat, jobId) =>
+		readLogged(log, `job ${jobId} on ${seat}`, () => readJobCwd(seat, jobId)),
 	readParkMarkers: readParkMarkersOrNull,
 	findParkTranscript,
 	readMainChain,

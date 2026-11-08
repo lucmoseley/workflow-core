@@ -20,7 +20,11 @@ const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
-const { jobStorePath, readJobRecordIn } = require("./job-paths.js");
+const {
+	isAbsentFault,
+	jobStorePath,
+	readJobRecordAt,
+} = require("./job-paths.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 
 /**
@@ -36,7 +40,7 @@ const { isUnder, relativeUnder } = require("./is-under.js");
 /**
  * A job record's id, seat, cwd, session, name and state; null where it names
  * no cwd or session.
- * @param {ReturnType<typeof readJobRecordIn>} job
+ * @param {any} job a job record; untyped, as the harness owns its schema
  * @param {string} id the job's directory name
  * @param {string} seat the config dir holding it
  * @returns {JobCwd | null}
@@ -67,30 +71,33 @@ function readJobCwds() {
 	const jobs = [];
 	/** @type {string[]} */
 	const unread = [];
-	for (const seat of configDirs()) {
-		const store = jobStorePath(seat);
-		let ids;
-		try {
-			ids = fs.readdirSync(store);
-		} catch (err) {
-			if (/** @type {NodeJS.ErrnoException} */ (err).code !== "ENOENT")
-				unread.push(`${store}: ${caught(err).message}`);
-			continue;
-		}
-		for (const id of ids) {
-			const dir = path.join(store, id);
-			let record;
-			try {
-				record = readJobRecordIn(dir);
-			} catch (err) {
-				unread.push(`${dir}: ${caught(err).message}`);
-				continue;
-			}
-			const job = jobCwdOf(record, id, seat);
-			if (job) jobs.push(job);
-		}
-	}
+	for (const seat of configDirs()) readSeatJobs(seat, jobs, unread);
 	return { jobs, unread };
+}
+
+/**
+ * readJobCwds' read of one seat's job store.
+ * @param {string} seat
+ * @param {JobCwd[]} jobs accumulator: each job read is pushed here
+ * @param {string[]} unread accumulator: each store or record that would not
+ *   read is pushed here
+ */
+function readSeatJobs(seat, jobs, unread) {
+	const store = jobStorePath(seat);
+	let ids;
+	try {
+		ids = fs.readdirSync(store);
+	} catch (err) {
+		if (!isAbsentFault(err)) unread.push(`${store}: ${caught(err).message}`);
+		return;
+	}
+	for (const id of ids) {
+		const dir = path.join(store, id);
+		const r = readJobRecordAt(dir);
+		if (r.state === "unreadable") unread.push(`${dir}: ${r.message}`);
+		const job = r.state === "read" ? jobCwdOf(r.data, id, seat) : null;
+		if (job) jobs.push(job);
+	}
 }
 
 /**

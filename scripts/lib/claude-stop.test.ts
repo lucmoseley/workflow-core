@@ -111,6 +111,21 @@ describe("stopSession", () => {
 		);
 	});
 
+	it("asks a seat whose record will not read after the seat that names the session (#4704)", () => {
+		recordJob(0, "aaaa1111", "someone-else");
+		recordJob(1, "aaaa1111", "s-1");
+		recordJob(2, "aaaa1111", "s-1");
+		const rec = path.join(seats[2], "jobs", "aaaa1111", "state.json");
+		fs.chmodSync(rec, 0o000);
+		seatsAnswering("ok", "noJob", "ok");
+		try {
+			expect(stopSession("aaaa1111", "s-1").ok).toBe(true);
+		} finally {
+			fs.chmodSync(rec, 0o644);
+		}
+		expect(readStopsTaken()).toEqual(["b aaaa1111", "c aaaa1111"]);
+	});
+
 	it("stops nothing where every seat's record names another session", () => {
 		for (const i of [0, 1, 2]) recordJob(i, "aaaa1111", "someone-else");
 		expect(stopSession("aaaa1111", "s-1")).toMatchObject({

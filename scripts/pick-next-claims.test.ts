@@ -521,6 +521,38 @@ describe("owed work (mantahostels#1206)", () => {
 		});
 		expect(r.out).toMatch(/stranded claims\s+1, unknown how many carrying/);
 	});
+
+	/* #4704: a job store that will not read may hold a dirty worktree's owner,
+	 * so the worktree count reads unknown while the claim counts still render. */
+	it("renders the counts with the worktree count unknown where a job store will not read", async () => {
+		kit.oracleSessions = ["self"];
+		const repo = kit.repoRoot as string;
+		const git = (...args: string[]) =>
+			spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+				cwd: repo,
+			});
+		git("commit", "-q", "--allow-empty", "-m", "base");
+		const wt = path.join(kit.dir, "dirty-worktree");
+		git("worktree", "add", "-q", "--detach", wt, "HEAD");
+		fs.writeFileSync(path.join(wt, "half.txt"), "half done");
+		writeJobState("j1", { state: "stopped", sessionId: "dead-1" });
+		const store = path.join(kitHome(), ".claude", "jobs");
+		fs.chmodSync(store, 0o000);
+		let r: Awaited<ReturnType<typeof run>>;
+		try {
+			r = await run({
+				issues: [{ number: 1 }],
+				staleFiles: {
+					a: { path: "scripts/a.js", sessionId: "dead-1", hoursAgo: 24 },
+				},
+			});
+		} finally {
+			fs.chmodSync(store, 0o755);
+		}
+		expect(r.out).toMatch(
+			/stranded claims\s+1, \d+ carrying uncommitted work; unknown how many \(a job store would not read\) finished session worktree/,
+		);
+	});
 });
 
 describe("an assignment is real only where a live session claimed it (mantahostels#645)", () => {

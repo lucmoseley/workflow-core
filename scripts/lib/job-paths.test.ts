@@ -11,7 +11,8 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { readJobRecordIn }: any = createRequire(__filename)("./job-paths.js");
+const { readJobRecordAt, readJobRecordIn }: any =
+	createRequire(__filename)("./job-paths.js");
 
 let tmp: string;
 
@@ -42,4 +43,8 @@ it("throws where the record will not read for any other cause", () => {
 	fs.writeFileSync(path.join(job, "state.json"), "{}");
 	fs.chmodSync(path.join(job, "state.json"), 0o000);
 	expect(() => readJobRecordIn(job)).toThrow(/EACCES/);
+	expect(readJobRecordAt(job)).toMatchObject({
+		state: "unreadable",
+		message: expect.stringContaining("EACCES"),
+	});
 });
