@@ -553,3 +553,25 @@ describe("maskTokens on a stored value wherever it appears (#3821)", () => {
 		});
 	});
 });
+
+describe("maskTokens on a stored value holding a stored name's assignment (#4048)", () => {
+	const line = "ZmFrZWtleW1hZGV1cGZvcnRlc3Q==";
+	const names = ["K", "ZmFrZWtleW1hZGV1cGZvcnRlc3Q"];
+
+	it("masks the value whole, through its line's end, before the name's mask can split it", () => {
+		expect(maskTokens(`(${line}) tail\nnext`, names, [line])).toEqual({
+			text: "([REDACTED:stored]\nnext",
+			count: 1,
+		});
+	});
+
+	it.each([
+		["ending its line", `K=${line}`],
+		["with text after it", `K=${line} tail`],
+	])("counts an assignment whose value it masked once, %s", (_n, text) => {
+		expect(maskTokens(text, names, [line])).toEqual({
+			text: "K=[REDACTED:stored]",
+			count: 1,
+		});
+	});
+});

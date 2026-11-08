@@ -22,9 +22,9 @@
  * THE MASKER READS MORE THAN THAT (#3917): readStoredSecrets also takes a line
  * as dotenv's parser does, a dotted or hyphened name or `NAME: value`, and a
  * quoted value across breaks, commented out line by line or not; and a
- * commented-out `NAME=value`, though no `# NAME: value`, as a comment's
- * `Updated: 2026-11-02` is prose it would mask everywhere. Nothing else reads
- * or writes by this reading.
+ * commented-out `NAME=value`, bar PROSE_VALUE's, and no `# NAME: value`, as a comment's `Updated: 2026-11-02` or
+ * `scope=repository` is prose it would mask everywhere (#4048). Nothing else reads or writes by
+ * this reading.
  *
  * A RETURNED VALUE IS A SECRET: a caller puts it in no log line or message.
  */
@@ -54,9 +54,15 @@ const LINE_END = /\r\n|[\n\r]/;
 const SEPARATOR = /[\u2028\u2029]/;
 
 /* A line as dotenv's LINE reads one (github.com/motdotla/dotenv, lib/main.js),
- * an `=` behind any comment marks. */
+ * an `=` behind any comment marks: the marks, the name, the value. */
 const DOTENV_LINE =
-	/^(?:\s*(?:export\s+)?[\w.-]+:\s+|[\s#]*(?:export\s+)?[\w.-]+\s*=\s*)([^\r\n]*)$/;
+	/^(?:\s*(?:export\s+)?[\w.-]+:\s+|([\s#]*)(?:export\s+)?([\w.-]+)\s*=\s*)([^\r\n]*)$/;
+
+/* Prose in a comment (#4048): one unquoted lower-case word, assigned to a
+ * lower-case name that names no secret. A passphrase holds a space or a hyphen, and a quote may
+ * open a value whose later lines hold the secret. */
+const PROSE_VALUE = /^[a-z]+$/;
+const SECRET_NAME = /pass|pwd|secret|key|token|auth|cred/i;
 
 const BOM = "\uFEFF";
 
@@ -147,10 +153,20 @@ function stripReadingEdge(cut) {
 }
 
 /**
+ * `text` less a comment, from the first `#` after a space on.
+ * @param {string} text
+ * @returns {string}
+ */
+function cutComment(text) {
+	return text.replace(/\s#[\s\S]*/, "");
+}
+
+/**
  * A line's raw right-hand side cut as a hand-writer may mean it, none of it the
  * writer's grammar (#3908): through the first closing quote and through the
  * last where a quote opens it, as a comment may hold one and a value may too;
- * else up to the first `#`. Each goes through stripReadingEdge.
+ * else up to the first `#`, as dotenv reads it, and up to cutComment's, as a
+ * shell does (#4048). Each goes through stripReadingEdge.
  * @param {string} raw
  * @returns {string[]}
  */
@@ -161,7 +177,7 @@ function parseHandWrittenValues(raw) {
 		quote && QUOTES.includes(quote) ? trimmed.indexOf(quote, 1) : -1;
 	const cuts =
 		closes === -1
-			? [trimmed.replace(/#.*/, "")]
+			? [trimmed.replace(/#.*/, ""), cutComment(trimmed)]
 			: [
 					trimmed.slice(1, closes),
 					trimmed.slice(1, trimmed.lastIndexOf(quote)),
@@ -169,24 +185,38 @@ function parseHandWrittenValues(raw) {
 	return cuts.map(stripReadingEdge);
 }
 
+/** @typedef {(text: string, at: number) => boolean} QuoteRule whether the quote at `at` is escaped */
+
+/* The two readings of a quote after backslashes: a shell's, escaped after an
+ * odd run; and dotenv's, whose `\\"` alternative takes one after any run as
+ * escaped (#4048). */
+/** @type {QuoteRule[]} */
+const QUOTE_RULES = [
+	(text, at) => {
+		let before = at;
+		while (before > 0 && text.charAt(before - 1) === "\\") before--;
+		return (at - before) % 2 === 1;
+	},
+	(text, at) => text.charAt(at - 1) === "\\",
+];
+
 /**
- * Where `text` holds `quote` after an even run of backslashes, its first from
- * `from` on, and where after an odd run, its last before that.
+ * Where `text` holds `quote` unescaped by `escaped`, its first from `from` on,
+ * and where escaped, its last before that.
  * @param {string} text
  * @param {string} quote
  * @param {number} from
+ * @param {QuoteRule} escaped
  * @returns {{ closing: number, lastEscaped: number }} -1 for either it lacks
  */
-function findQuotes(text, quote, from) {
+function findQuotes(text, quote, from, escaped) {
 	let lastEscaped = -1;
 	for (
 		let at = text.indexOf(quote, from);
 		at !== -1;
 		at = text.indexOf(quote, at + 1)
 	) {
-		let before = at;
-		while (before > 0 && text.charAt(before - 1) === "\\") before--;
-		if ((at - before) % 2 === 0) return { closing: at, lastEscaped };
+		if (!escaped(text, at)) return { closing: at, lastEscaped };
 		lastEscaped = at;
 	}
 	return { closing: -1, lastEscaped };
@@ -213,13 +243,23 @@ function splitAtBreaks(text) {
 }
 
 /**
- * The right-hand side of a line DOTENV_LINE reads, or null where it reads none.
+ * The right-hand side of a line DOTENV_LINE reads, or null where it reads none
+ * or reads a comment assigning PROSE_VALUE to a name holding a lower-case
+ * letter, as POSIX spells an environment variable's in capitals (XBD 8.1).
  * @param {string} line
  * @returns {string | null}
  */
 function parseDotenvRaw(line) {
 	const m = line.match(DOTENV_LINE);
-	return m ? requiredGroup(m, 1, DOTENV_LINE) : null;
+	if (!m) return null;
+	const raw = requiredGroup(m, 3, DOTENV_LINE);
+	const name = m[2] ?? "";
+	const prose =
+		(m[1]?.includes("#") ?? false) &&
+		/[a-z]/.test(name) &&
+		!SECRET_NAME.test(name) &&
+		PROSE_VALUE.test(raw.trim());
+	return prose ? null : raw;
 }
 
 /* A line's indent, then its comment marks and the spaces between them. */
@@ -272,13 +312,14 @@ function readingsOfSplitValue(parts, commented) {
  * The quote a part opens and leaves open, with what follows it, and whether a
  * comment mark opens the part.
  * @param {string} text
+ * @param {QuoteRule} escaped
  * @returns {{ quote: string, opened: string, commented: boolean } | null}
  */
-function parseOpener(text) {
+function parseOpener(text, escaped) {
 	const trimmed = parseDotenvRaw(text)?.trimStart();
 	const quote = trimmed?.charAt(0);
 	if (!trimmed || !quote || !QUOTES.includes(quote)) return null;
-	if (findQuotes(trimmed, quote, 1).closing !== -1) return null;
+	if (findQuotes(trimmed, quote, 1, escaped).closing !== -1) return null;
 	return {
 		quote,
 		opened: trimmed.slice(1),
@@ -292,15 +333,16 @@ function parseOpener(text) {
  * part closes one, as dotenv's regex backtracks it closes at the last escaped
  * quote; failing that it holds no later part.
  * @param {Part[]} parts
+ * @param {QuoteRule} escaped
  * @returns {string[]}
  */
-function parseSplitValues(parts) {
+function parseSplitValues(parts, escaped) {
 	/** @type {Map<string, { parts: Part[], commented: boolean, fallback: { count: number, last: Part } | null }>} */
 	const open = new Map();
 	const values = [];
 	for (const { lead, text } of parts) {
 		for (const [quote, value] of open) {
-			const { closing, lastEscaped } = findQuotes(text, quote, 0);
+			const { closing, lastEscaped } = findQuotes(text, quote, 0, escaped);
 			if (closing !== -1) {
 				value.parts.push({ lead, text: text.slice(0, closing) });
 				values.push(readingsOfSplitValue(value.parts, value.commented));
@@ -315,7 +357,7 @@ function parseSplitValues(parts) {
 			}
 			value.parts.push({ lead, text });
 		}
-		const opener = parseOpener(text);
+		const opener = parseOpener(text, escaped);
 		if (opener) {
 			open.set(opener.quote, {
 				parts: [{ lead: "", text: opener.opened }],
@@ -340,7 +382,7 @@ function parseSplitValues(parts) {
 
 /**
  * Each unquoted value dotenv reads across a U+2028 or U+2029, whole and part by
- * part.
+ * part, each as written and less cutComment's comment (#4048).
  * @param {string} text the file's text
  * @returns {string[]}
  */
@@ -351,7 +393,9 @@ function parseSeparatedValues(text) {
 		if (raw === null || QUOTES.includes(raw.trimStart().charAt(0) || " ")) {
 			return [];
 		}
-		return [raw, ...raw.split(SEPARATOR)].map(stripReadingEdge);
+		return [raw, ...raw.split(SEPARATOR)]
+			.flatMap((value) => [value, cutComment(value)])
+			.map(stripReadingEdge);
 	});
 }
 
@@ -359,6 +403,23 @@ const EXPANDED_ESCAPES = new Map([
 	["n", "\n"],
 	["r", "\r"],
 ]);
+
+/**
+ * A value as a log may print it: as written; its escapes expanded, and where
+ * that makes breaks, each line of it, as a real break does (#4048); and with
+ * each LF a CRLF.
+ * @param {string} value
+ * @returns {string[]}
+ */
+function buildPrintedForms(value) {
+	const expanded = unescapeValue(value);
+	const parts = expanded === value ? [] : splitAtBreaks(expanded);
+	const lines =
+		parts.length > 1 ? parts.map(({ text }) => stripReadingEdge(text)) : [];
+	return [value, expanded, ...lines].flatMap((form) =>
+		form.includes("\n") ? [form, form.replace(/\r?\n/g, "\r\n")] : [form],
+	);
+}
 
 /**
  * `value` with its backslash escapes expanded, as a shell or dotenv would.
@@ -589,7 +650,7 @@ function readStoredText() {
  * from one read of the file. A line dotenv reads gives its value whole, as
  * readEnvFileValue reads it, and as parseHandWrittenValues cuts it (#3908); one
  * across breaks as parseSplitValues and parseSeparatedValues do (#3917); each
- * with its escapes as written and expanded (#3908).
+ * in every buildPrintedForms form (#3908, #4048).
  * @returns {{ names: string[], values: string[] }} empty where there is no file
  * @throws as readStoredText does
  */
@@ -602,9 +663,9 @@ function readStoredSecrets() {
 		.flatMap((raw) => [unquoteValue(raw), ...parseHandWrittenValues(raw)]);
 	const values = [
 		...whole,
-		...parseSplitValues(parts),
+		...QUOTE_RULES.flatMap((escaped) => parseSplitValues(parts, escaped)),
 		...parseSeparatedValues(text),
-	].flatMap((value) => [value, unescapeValue(value)]);
+	].flatMap(buildPrintedForms);
 	return {
 		names: [...new Set(names)],
 		values: [...new Set(values.filter(Boolean))],
