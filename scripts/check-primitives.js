@@ -42,6 +42,7 @@ const {
 	judgePrimitives,
 	parseBreaches,
 	primitivesOutcome,
+	buildFindingReports,
 } = require("./lib/primitives-table.js");
 const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 
@@ -106,24 +107,6 @@ function readNewHeresies(root) {
 	}
 }
 
-/**
- * Print and record each finding.
- * @param {Ctx} ctx
- * @param {import("./lib/primitives-table.js").Finding[]} findings
- * @param {boolean} inAdopter
- */
-function report(ctx, findings, inAdopter) {
-	for (const f of findings) {
-		const at = `${DOCS[f.side]}${f.line > 0 ? `:${f.line}` : ""}`;
-		const row = f.job ? ` (row "${f.job}")` : "";
-		const pluginsToFix = f.side === "base" && inAdopter;
-		const message = `${at}${row}: ${f.message}${pluginsToFix ? " — the plugin's to fix" : ""}`;
-		ctx.say(`  ${message}`);
-		if (pluginsToFix) ctx.warn("PRIMITIVES", message, { file: DOCS[f.side] });
-		else ctx.fail("PRIMITIVES", message, { file: DOCS[f.side] });
-	}
-}
-
 const main = () =>
 	runCheck({
 		name: "primitives",
@@ -157,7 +140,14 @@ const main = () =>
 				return ctx.broken(
 					`${result.broken} (${path.join(plugin, DOCS.base)}) — nothing was judged`,
 				);
-			report(ctx, result.findings, inAdopter);
+			for (const { message, file, gates } of buildFindingReports(
+				result.findings,
+				inAdopter,
+			)) {
+				ctx.say(`  ${message}`);
+				if (gates) ctx.fail("PRIMITIVES", message, { file });
+				else ctx.warn("PRIMITIVES", message, { file });
+			}
 			/** @param {string | null} countLine */
 			const outcome = (countLine) => {
 				const { okLine, extraLine } = primitivesOutcome({

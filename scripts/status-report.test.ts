@@ -107,7 +107,7 @@ describe("a primitives checker answering OK", () => {
 		expect(r.stdout).not.toContain("nothing to report from");
 	});
 
-	it("prints it through the script an adopter is given, by npm run status (#4151)", () => {
+	it("prints the count line through the script an adopter is given, by npm run status (#4151)", () => {
 		const env = buildCleanCoreEnv();
 		const adopter = path.join(dir, "adopter");
 		fs.mkdirSync(path.join(adopter, "scripts", "lib"), { recursive: true });

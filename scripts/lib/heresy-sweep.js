@@ -2,6 +2,11 @@
  * heresy-sweep.js — when the monthly heresy sweep falls due (#3464, spec
  * #3365) and what a finished one filed (#4039), as a pure core over the
  * tracker's due issues.
+ *
+ * A CORE (base §T7): its one read is the port below.
+ *
+ *   find(state)   the newest due issue in that state, `closed` or `open`, or
+ *                 null where there is none
  */
 
 const { requiredGroup } = require("./regex-group.js");
@@ -24,13 +29,16 @@ const day = (iso) => iso.slice(0, 10);
 
 /**
  * Due SWEEP_DAYS after the newest closed due issue's close, else after the
- * open one's creation, else at once.
+ * open one's creation, else at once. The open issue is asked for only where
+ * none has closed.
  *
- * @param {{ closed: DueIssue | null, open: DueIssue | null }} issues
+ * @param {(state: "closed" | "open") => DueIssue | null} find
  * @param {number} nowMs
  * @returns {Verdict}
  */
-function judgeSweep({ closed, open }, nowMs) {
+function judgeSweep(find, nowMs) {
+	const closed = find("closed");
+	const open = closed ? null : find("open");
 	/** @type {{ at: string, last: string } | null} */
 	let from = null;
 	if (closed?.closedAt)
