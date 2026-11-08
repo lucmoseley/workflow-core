@@ -170,30 +170,12 @@ function fail(msg) {
 	writeFd(2, `status-report: ${msg}\n`);
 }
 
-const { flags } = parseOrExit(process.argv.slice(2), {
-	usage:
-		`usage: node ${scriptPath("status-report.js")} [--only <substring>] [--serial] [--write]\n` +
-		`  e.g. \`node ${scriptPath("status-report.js")} --only gates\``,
-	flags: { "--only": "value", "--serial": "boolean", "--write": "boolean" },
-});
-const onlyValue = flagValue(flags, "--only") ?? null;
-const serial = flags["--serial"] === true;
-const write = flags["--write"] === true;
-
-const selected = onlyValue
-	? CHECKS.filter(([name]) => name.includes(onlyValue))
-	: CHECKS;
-
-if (selected.length === 0) {
-	fail(`no checker matches --only ${String(onlyValue)}`);
-	process.exit(2);
-}
-
 /**
  * @param {readonly [string, string, ...string[]]} entry
+ * @param {boolean} write  pass `--write` on to a checker in WRITERS
  * @returns {Promise<Result>}
  */
-function run(entry) {
+function run(entry, write) {
 	const [name, script, ...args] = entry;
 	return new Promise((resolve) => {
 		const child = spawn(
@@ -253,15 +235,15 @@ function verdict(r) {
 	return null;
 }
 
-async function main() {
-	/** @type {Result[]} */
-	const results = [];
-	if (serial) {
-		for (const c of selected) results.push(await run(c));
-	} else {
-		results.push(...(await pool(selected, POOL_WIDTH, run)));
-	}
-
+/**
+ * The report for a finished run. A checker's body prints unless it answered
+ * OK and is no standing, or answered SKIP; those go to the clean list.
+ *
+ * @param {Result[]} results
+ * @returns {string}
+ */
+function render(results) {
+	let text = "";
 	/** @type {string[]} */
 	const clean = [];
 	for (const r of results) {
@@ -270,19 +252,43 @@ async function main() {
 			clean.push(`${r.name} (${v})`);
 			continue;
 		}
-		writeFd(1, `\n▸ ${r.name}${v ? `  — ${v}` : ""}\n`);
-		writeFd(1, `${r.out || "(no output)"}\n`);
+		text += `\n▸ ${r.name}${v ? `  — ${v}` : ""}\n`;
+		text += `${r.out || "(no output)"}\n`;
 	}
-
 	if (clean.length > 0)
-		writeFd(1, `\nnothing to report from: ${clean.join(", ")}\n`);
-	writeFd(
-		1,
-		`\n${results.length} checker(s) run, ${clean.length} clean. Nothing here is a ticket by itself.\n`,
-	);
+		text += `\nnothing to report from: ${clean.join(", ")}\n`;
+	text += `\n${results.length} checker(s) run, ${clean.length} clean. Nothing here is a ticket by itself.\n`;
+	return text;
 }
 
-module.exports = { main };
+async function main() {
+	const { flags } = parseOrExit(process.argv.slice(2), {
+		usage:
+			`usage: node ${scriptPath("status-report.js")} [--only <substring>] [--serial] [--write]\n` +
+			`  e.g. \`node ${scriptPath("status-report.js")} --only gates\``,
+		flags: { "--only": "value", "--serial": "boolean", "--write": "boolean" },
+	});
+	const onlyValue = flagValue(flags, "--only") ?? null;
+	const write = flags["--write"] === true;
+	const selected = onlyValue
+		? CHECKS.filter(([name]) => name.includes(onlyValue))
+		: CHECKS;
+	if (selected.length === 0) {
+		fail(`no checker matches --only ${String(onlyValue)}`);
+		process.exit(2);
+	}
+
+	/** @type {Result[]} */
+	const results = [];
+	if (flags["--serial"] === true) {
+		for (const c of selected) results.push(await run(c, write));
+	} else {
+		results.push(...(await pool(selected, POOL_WIDTH, (c) => run(c, write))));
+	}
+	writeFd(1, render(results));
+}
+
+module.exports = { main, render, STANDINGS };
 if (require.main === module)
 	main().catch((err) => {
 		fail(err.message);

@@ -3624,7 +3624,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/audit-escape-lines.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -3869,7 +3870,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-always-loaded-pass.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -3903,7 +3905,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-band-drift.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -3921,7 +3924,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-capture-drain.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -3957,7 +3961,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-citation-ceiling.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -3995,7 +4000,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/npm-run-hints.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-cleared-trackers.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4132,7 +4138,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-compaction-backstop.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4176,7 +4183,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-injector-margin-gate.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-context-budget.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4314,7 +4322,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-file-ci-time.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4366,7 +4375,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-gates.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4401,7 +4411,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-ghost-jobs.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4436,7 +4447,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/session-arbiter.test.ts"
+			"scripts/session-arbiter.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-guard-errors.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4556,7 +4568,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-harness-canary.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4572,7 +4585,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-history-trim.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4590,6 +4604,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/check-hook-liveness.test.ts": [
@@ -4640,7 +4655,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-husky-shim.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4657,7 +4673,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-idle-efforts.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4705,7 +4722,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-interop-latency.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4774,7 +4792,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-issue-labels.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4808,7 +4827,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-jev-flags.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4871,6 +4891,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/check-kernel-stall.test.ts": [
@@ -4959,7 +4980,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-manual-freshness.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4975,7 +4997,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-marker-integrity.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5007,7 +5030,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-orphan-reaps.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5040,7 +5064,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-orphaned-edits.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5056,7 +5081,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-output-style.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5072,7 +5098,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-pick-next-model.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5196,7 +5223,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-release-lag.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5212,7 +5240,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-release-pin.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5357,7 +5386,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-scripts-typecheck.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5392,6 +5422,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/check-self-throttling.test.ts": [
@@ -5444,7 +5475,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-skill-body-size.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5494,7 +5526,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-stale-git-locks.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5511,7 +5544,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-stale-suite-queue.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5527,7 +5561,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-stop-guard-outcomes.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5543,7 +5578,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-stranded-file-claims.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5559,7 +5595,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-stray-scratch.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5575,7 +5612,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-suite-margin.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5592,7 +5630,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-suite-size-drift.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5740,7 +5779,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/repo-checks.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-tracker-sweep.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5756,7 +5796,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-unclosed-launches.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5866,7 +5907,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-wsl-currency.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -6093,7 +6135,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/concurrency-readout.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -12432,6 +12475,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -20760,6 +20804,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts",
 			"vitest.setup.test.ts"
@@ -27022,7 +27067,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/lib/pool.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -34177,6 +34223,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -41000,7 +41047,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/link-config-dirs.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/link-config-dirs.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -42775,7 +42823,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/replay-notify-reports.test.ts",
 			"scripts/repo-checks.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/replay-notify-reports.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
