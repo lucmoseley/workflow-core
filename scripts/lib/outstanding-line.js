@@ -717,6 +717,7 @@ function buildRefusalText(verdict) {
 }
 
 module.exports = {
+	COMMENTS_READ,
 	HEX_WORD_RE,
 	hasOutstandingLine,
 	readCanonicalRef,

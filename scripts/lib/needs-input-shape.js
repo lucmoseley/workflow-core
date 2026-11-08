@@ -26,10 +26,12 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught");
 const { failOpenLogger } = require("./fail-open-logger");
 const { HAND_OFF_SHAPE } = require("./hand-off");
 const { INVENTORY } = require("./inventory-format");
 const { markersDir } = require("./marker-root.js");
+const { COMMENTS_READ } = require("./outstanding-line");
 const { requiredGroup } = require("./regex-group");
 const { splitQuestions } = require("./round-marker");
 const { scriptPath } = require("./script-path");
@@ -87,7 +89,7 @@ function isFounderHandover(message) {
 
 /* The fail-open log's second field for the standing-round reader (#924),
  * which fails closed. */
-const FAIL_LOG_STANDING = "guard-priced-options standing-round";
+const FAIL_LOG_STANDING = "needs-input-shape standing-round";
 /* A round named by number on the marker's own line: `Q1 above`. */
 const NAMED_ROUND = /\bQ(\d+)\b/g;
 
@@ -129,7 +131,7 @@ function pointsAtStandingRound(payload, transcript) {
 }
 
 /* The fail-open log's second field for the attached-park reader (#3858). */
-const FAIL_LOG_ATTACHED = "guard-priced-options attached-park";
+const FAIL_LOG_ATTACHED = "needs-input-shape attached-park";
 
 /**
  * Whether a `needs input:` payload parks this job on an open repo hold it is
@@ -190,8 +192,9 @@ const ONCE_BLOCK = "once the `waits on you:` block cites the open issue";
  */
 const PIECES = {
 	research: {
+		/* Required at need: both are heavy, and only a refusal reads them. */
 		how: () =>
-			"research before the round: past rulings, then web or vendor docs, then a fresh subagent, each a tool call, wherever the top two options sit close or the top is priced 65% or less; and the round sent no sooner than 10 tool calls after the founder's last message",
+			`research before the round: past rulings, then web or vendor docs, then a fresh subagent, each a tool call, wherever the top two options sit close or the top is priced ${String(require("./close-rivals").LOW_TOP)}% or less; and the round sent no sooner than ${String(require("./round-check").MIN_CALLS)} tool calls after the founder's last message`,
 		judgedBy: PRICED_GUARD,
 	},
 	round: {
@@ -216,7 +219,7 @@ const PIECES = {
 	},
 	posted: {
 		how: () =>
-			"the round posted as a comment on the open issue that carries the decision, among its newest five comments",
+			`the round posted as a comment on the open issue that carries the decision, among its newest ${String(COMMENTS_READ)} comments`,
 		judgedBy: INVENTORY_GUARD,
 	},
 	claimed: {
@@ -246,28 +249,21 @@ const PIECES = {
 	},
 };
 
+/** @type {PieceId[]} */
+const ROUND_PIECES = [
+	"research",
+	"round",
+	"posted",
+	"claimed",
+	"hand-off",
+	"block",
+	"status",
+	"practice",
+];
 /** @type {Record<ParkKind, PieceId[]>} the pieces each park owes, in writing order */
 const OWED = {
-	round: [
-		"research",
-		"round",
-		"posted",
-		"claimed",
-		"hand-off",
-		"block",
-		"status",
-		"practice",
-	],
-	prose: [
-		"research",
-		"round",
-		"posted",
-		"claimed",
-		"hand-off",
-		"block",
-		"status",
-		"practice",
-	],
+	round: ROUND_PIECES,
+	prose: ROUND_PIECES,
 	handover: ["act", "hand-off", "block", "status", "practice"],
 	pointer: ["pointer", "hand-off", "block", "status", "practice"],
 	hold: ["hold", "claimed", "hand-off", "block", "status", "practice"],
@@ -315,7 +311,7 @@ const TRACKED = new Set(["posted", "claimed", "hand-off"]);
  * @param {(id: PieceId) => Judged | undefined} stateOf
  * @returns {string|undefined}
  */
-function gate(id, kind, stateOf) {
+function waitsOnOf(id, kind, stateOf) {
 	if (kind === "prose" && (id === "research" || TRACKED.has(id)))
 		return ONCE_ROUND;
 	if (!TRACKED.has(id)) return;
@@ -348,7 +344,7 @@ function owedPieces(message, kind, judged = {}) {
 		return {
 			id,
 			state: "unjudged",
-			waitsOn: gate(id, kind, stateOf) ?? piece.judgedBy,
+			waitsOn: waitsOnOf(id, kind, stateOf) ?? piece.judgedBy,
 			how,
 		};
 	});
@@ -384,10 +380,9 @@ const REFERENCE =
  * it, a repeat costing less than none.
  * @param {string} sessionId
  * @param {string} message
- * @param {number} [now]
  * @returns {boolean}
  */
-function claimTurn(sessionId, message, now = Date.now()) {
+function claimTurn(sessionId, message) {
 	const hash = crypto.createHash("sha256").update(message).digest("hex");
 	let file;
 	try {
@@ -403,12 +398,12 @@ function claimTurn(sessionId, message, now = Date.now()) {
 			fs.writeFileSync(file, "", { flag: "wx" });
 			return true;
 		} catch (e) {
-			return /** @type {NodeJS.ErrnoException} */ (e).code !== "EEXIST";
+			return caught(e).code !== "EEXIST";
 		}
 	};
 	if (create()) return true;
 	try {
-		if (now - fs.statSync(file).mtimeMs <= CLAIM_FRESH_MS) return false;
+		if (Date.now() - fs.statSync(file).mtimeMs <= CLAIM_FRESH_MS) return false;
 		/* Stale: one rename succeeds, so one of two racing re-sends re-creates. */
 		const aside = `${file}.${String(process.pid)}`;
 		fs.renameSync(file, aside);
@@ -420,25 +415,23 @@ function claimTurn(sessionId, message, now = Date.now()) {
 }
 
 /**
- * The checklist for a refused `needs input:` ending, or a pointer to the other
- * guard's copy where that guard claimed this turn first.
- * @param {{ sessionId: string, message: string, kind: ParkKind,
- *   judged?: Judgement }} turn
- * @returns {string}
+ * The checklist a refused `needs input:` ending ends with, or a pointer to the
+ * other guard's copy where that guard claimed this turn first.
+ * @param {{ sessionId: string, message: string, payload: string,
+ *   transcript?: string, judged?: Judgement }} turn  `payload`, the
+ *   `needs input:` marker's text after its colon; `judged`, what the calling
+ *   guard judged this turn
+ * @returns {string} the text to append, blank lines first
  */
-function shareChecklist({ sessionId, message, kind, judged }) {
-	return claimTurn(sessionId, message)
-		? renderChecklist(owedPieces(message, kind, judged), kind)
-		: REFERENCE;
+function shareChecklist({ sessionId, message, payload, transcript, judged }) {
+	if (!claimTurn(sessionId, message)) return `\n\n${REFERENCE}`;
+	const kind = parkKind(message, payload, transcript);
+	return `\n\n${renderChecklist(owedPieces(message, kind, judged), kind)}`;
 }
 
 module.exports = {
 	BANG,
-	CLAIM_PREFIX,
 	NAMES_A_LETTER,
-	isFounderHandover,
-	owedPieces,
 	parkKind,
-	renderChecklist,
 	shareChecklist,
 };

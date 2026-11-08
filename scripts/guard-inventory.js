@@ -112,7 +112,7 @@ const { readStrandedFiles } = require("./lib/neighbour-dirt");
 const { sessionTree } = require("./lib/host-root.js");
 const { findOwnHold } = require("./lib/repo-holds");
 const sessionTranscript = require("./lib/session-transcript");
-const { parkKind, shareChecklist } = require("./lib/needs-input-shape");
+const { shareChecklist } = require("./lib/needs-input-shape");
 const { governingMarker } = require("./lib/status-marker");
 const { sinceTime } = require("./lib/tool-calls-since");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
@@ -579,19 +579,31 @@ function parkFault(verdict, pointed, sessionId, payload) {
 /** @typedef {{ piece: "posted" | "claimed" | "hand-off", reason: string }} ParkFault */
 
 /**
- * A park on a repo hold is judged on its own items.
+ * @typedef {{ fault: ParkFault|null, judgedIn: ParkFault["piece"][] }} ParkJudging
+ *   `judgedIn`, the pieces judged in order: the first fault stops the judging,
+ *   so those before it are met and those after it unjudged
+ */
+
+/**
+ * A park on a repo hold is judged on its own items, its claim first.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {ReturnType<typeof ending>} end
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
- * @returns {ParkFault|null}
+ * @returns {ParkJudging}
  */
 function roundlessParkFault(verdict, end, sessionId, payload) {
 	const own = buildHandOffVerdict(verdict, end.payload);
-	const claim = own !== verdict && holdClaimFault(own, sessionId);
-	if (claim) return { piece: "claimed", reason: claim };
+	const onHold = own !== verdict;
+	/** @type {ParkFault["piece"][]} */
+	const judgedIn = onHold ? ["claimed", "hand-off"] : ["hand-off"];
+	const claim = onHold && holdClaimFault(own, sessionId);
+	if (claim) return { fault: { piece: "claimed", reason: claim }, judgedIn };
 	const handOff = parkFault(own, pointedQuestion(end), sessionId, payload);
-	return handOff ? { piece: "hand-off", reason: handOff } : null;
+	return {
+		fault: handOff ? { piece: "hand-off", reason: handOff } : null,
+		judgedIn,
+	};
 }
 
 /**
@@ -761,8 +773,9 @@ function assess(message, end, sessionId, payload) {
 		judged.status = tail.length > 0 ? "missing" : "met";
 	}
 	if (parks && verdict.refusals.length === 0) {
-		const fault = parkFaultOf(verdict, end, question, { sessionId, payload });
-		Object.assign(judged, parkJudgement(fault));
+		const judging = parkFaultOf(verdict, end, question, { sessionId, payload });
+		const { fault } = judging;
+		Object.assign(judged, parkJudgement(judging));
 		if (fault) mine.push({ reason: fault.reason });
 	}
 	const refusals = [...mine, ...verdict.refusals];
@@ -783,27 +796,25 @@ function assess(message, end, sessionId, payload) {
  * @param {ReturnType<typeof ending>} end
  * @param {ReturnType<typeof firstQuestion>} question
  * @param {{ sessionId: string, payload: import("./lib/stop-guard").StopPayload|null }} who
- * @returns {ParkFault|null}
+ * @returns {ParkJudging}
  */
 const parkFaultOf = (verdict, end, question, { sessionId, payload }) =>
 	question === null
 		? roundlessParkFault(verdict, end, sessionId, payload)
-		: roundFault(verdict, question, sessionId, payload);
-
-/* The park pieces in the order they are judged: the first fault stops the
- * judging, so those before it are met and those after it unjudged. */
-/** @type {ParkFault["piece"][]} */
-const PARK_ORDER = ["posted", "claimed", "hand-off"];
+		: {
+				fault: roundFault(verdict, question, sessionId, payload),
+				judgedIn: ["posted", "claimed", "hand-off"],
+			};
 
 /**
- * @param {ParkFault|null} fault
+ * @param {ParkJudging} judging
  * @returns {Judgement}
  */
-function parkJudgement(fault) {
-	const at = fault ? PARK_ORDER.indexOf(fault.piece) : PARK_ORDER.length;
+function parkJudgement({ fault, judgedIn }) {
+	const at = fault ? judgedIn.indexOf(fault.piece) : judgedIn.length;
 	/** @type {Judgement} */
 	const judged = {};
-	for (const piece of PARK_ORDER.slice(0, at)) judged[piece] = "met";
+	for (const piece of judgedIn.slice(0, at)) judged[piece] = "met";
 	if (fault) judged[fault.piece] = "missing";
 	return judged;
 }
@@ -857,8 +868,13 @@ function checklistTail({
 	if (hookBlock.capSpent({ prefix, sessionId, max })) return "";
 	const transcript =
 		sessionTranscript.resolve(payload ?? {}, sessionId) ?? undefined;
-	const kind = parkKind(message, end.payload, transcript);
-	return `\n\n${shareChecklist({ sessionId, message, kind, judged })}`;
+	return shareChecklist({
+		sessionId,
+		message,
+		payload: end.payload,
+		transcript,
+		judged,
+	});
 }
 
 /** @param {{sessionId: string, message: string, payload: import("./lib/stop-guard").StopPayload|null}} ctx */

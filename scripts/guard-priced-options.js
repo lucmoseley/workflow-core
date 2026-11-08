@@ -2234,14 +2234,20 @@ const PIECE_OF = {
 function checklistTail({ sessionId, message, status, transcript }, parts) {
 	const marker = status?.governing;
 	if (marker?.name !== "needs input:") return "";
-	const kind = parkKind(message, marker.payload, transcript);
 	/** @type {import("./lib/needs-input-shape").Judgement} */
-	const judged = kind === "round" ? { research: "met", round: "met" } : {};
+	const judged =
+		splitQuestions(message).length > 0 ? { research: "met", round: "met" } : {};
 	for (const { prefix } of parts) {
 		const piece = PIECE_OF[prefix];
 		if (piece) judged[piece] = "missing";
 	}
-	return `\n\n${shareChecklist({ sessionId, message, kind, judged })}`;
+	return shareChecklist({
+		sessionId,
+		message,
+		payload: marker.payload,
+		transcript,
+		judged,
+	});
 }
 
 /**
