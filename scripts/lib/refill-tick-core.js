@@ -231,7 +231,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *     admission: import("./admission.js").AdmissionJson|null},
  *   readSeats: (seats: string[], slots: number, root: string|undefined,
  *     how: {typedSeat: string|null, sizeAll?: boolean,
- *       triedAt: Record<string, number>}) => SeatsRead,
+ *       tries: {triedAt: Record<string, number>, now: number}}) => SeatsRead,
  *   seatBudget: typeof import("./overflow-budget.js").seatBudget,
  *   capSizer: (root: string|undefined) => Parameters<typeof sizeResumeSeats>[3],
  *   readGateJudgements: () => import("./gate-sweep.js").Judgement[],
@@ -615,7 +615,7 @@ function settleRoom(
 				const read = io.readSeats(control.seats, 1, served[0], {
 					typedSeat,
 					sizeAll: true,
-					triedAt: seatTriedAt,
+					tries: { triedAt: seatTriedAt, now: io.now() },
 				});
 				moveProbes.push(...read.probes);
 				return { seats: read.seats, overflow: overflowOf(read.seats) };
@@ -629,7 +629,13 @@ function settleRoom(
 		control.seats,
 		slots,
 		served[0],
-		{ typedSeat, triedAt: seatTriedAfter(seatTriedAt, moveProbes, io.now()) },
+		{
+			typedSeat,
+			tries: {
+				triedAt: seatTriedAfter(seatTriedAt, moveProbes, io.now()),
+				now: io.now(),
+			},
+		},
 	);
 	const walks = [...moveProbes, ...walked];
 	const probes = [

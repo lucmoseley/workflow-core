@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { capSet, readAllowance } from "./allowance";
+import { capSet, readAllowance, STALE_MS } from "./allowance";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import { MIN, NOW, row, seat } from "./refill-loop-fixture";
 import { seatIdOf } from "./refill-seats.js";
@@ -31,6 +31,8 @@ import {
 	sizeResumeSeats,
 } from "./seat-reading.js";
 import { buildUsageCache } from "./usage-probe-fake";
+
+const NO_TRIES = { triedAt: {}, now: NOW };
 
 const planSeat = (name: string, weekFull: boolean) =>
 	seat(name, weekFull ? FULL : 50, 10);
@@ -323,6 +325,7 @@ function sizedRead(
 		},
 		sizeOf,
 		typedSeat: null,
+		tries: NO_TRIES,
 	});
 	return { probed, seats };
 }
@@ -536,6 +539,7 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 				return s === "a" ? 0 : 2;
 			},
 			typedSeat: null,
+			tries: NO_TRIES,
 		};
 	}
 
@@ -566,17 +570,12 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 });
 
 describe("the launch walk's retry of a seat whose probe failed (#4074)", () => {
-	const Stale = 5 * MIN;
-	/* Seat a is unread, its weekly reading last stamped `readMs` ago, with
-	 * seat b fresh behind it; the seats each probe was asked to refresh. */
-	function walk(readMs: number, triedMs?: number) {
+	/* Seat a is unread, last tried `triedMs` ago, with seat b fresh behind it;
+	 * the seats each probe was asked to refresh. */
+	function walk(triedMs?: number) {
 		const probed: string[][] = [];
-		const a = {
-			...seat("a", null, null),
-			weekRead: { percent: 10, atMs: NOW - readMs },
-		};
 		const { seats } = readSizedSeats(1, {
-			read: () => [a, seat("b", 10, 10)],
+			read: () => [seat("a", null, null), seat("b", 10, 10)],
 			probe: (stale: string[]) => {
 				probed.push(stale);
 				return { usage: new Map(stale.map((s) => [s, ""])), probes: [] };
@@ -591,8 +590,8 @@ describe("the launch walk's retry of a seat whose probe failed (#4074)", () => {
 		return { probed, seats };
 	}
 
-	it("passes over a seat whose try under STALE_MS ago refreshed nothing, falling through to the seat behind", () => {
-		const { probed, seats } = walk(60 * MIN, MIN);
+	it("passes over a seat tried under STALE_MS ago, falling through to the seat behind", () => {
+		const { probed, seats } = walk(MIN);
 		expect(probed).toEqual([]);
 		expect(seats.map((s: { fits: number | null }) => s.fits)).toEqual([
 			null,
@@ -600,14 +599,9 @@ describe("the launch walk's retry of a seat whose probe failed (#4074)", () => {
 		]);
 	});
 
-	it("retries it once that try is STALE_MS old", () => {
-		expect(walk(60 * MIN, Stale).probed).toEqual([["a"]]);
-	});
-
-	it("probes a seat never tried, or whose last try read it", () => {
-		expect(walk(60 * MIN).probed).toEqual([["a"]]);
-		/* Read at the try's start, stale now, the try stamped a minute later. */
-		expect(walk(Stale + 1, Stale - MIN).probed).toEqual([["a"]]);
+	it("probes it once that try is STALE_MS old, or where it was never tried", () => {
+		expect(walk(STALE_MS).probed).toEqual([["a"]]);
+		expect(walk().probed).toEqual([["a"]]);
 	});
 });
 
@@ -629,6 +623,7 @@ describe("a move's seat reading (#3734)", () => {
 				return 1;
 			},
 			typedSeat: "own",
+			tries: NO_TRIES,
 			sizeAll: true,
 		});
 		expect(probed).toEqual([["other"]]);
@@ -655,6 +650,7 @@ describe("a tick's seat read in launch order (#3740)", () => {
 				return 2;
 			},
 			typedSeat: "b",
+			tries: NO_TRIES,
 		});
 		expect(probed).toEqual([["b"]]);
 		expect(asked).toEqual(["b"]);
@@ -814,6 +810,7 @@ describe("the cap's launch count (#2278)", () => {
 				}),
 				sizeOf: capSizer(dir, (l) => noted.push(l)),
 				typedSeat: null,
+				tries: NO_TRIES,
 			});
 			expect(noted).toEqual([]);
 			for (const argv of argvOf())

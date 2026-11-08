@@ -981,7 +981,7 @@ describe("the launch walk's seat tries (#4074)", () => {
 		const tried: Record<string, number>[] = [];
 		const { io } = fakeIo(stateOf({ seatTriedAt: { [Other]: 5 } }), {
 			readSeats: (_seats, _slots, _root, how) => {
-				tried.push(how.triedAt);
+				tried.push(how.tries.triedAt);
 				return {
 					seats: [sized],
 					probes: how.sizeAll ? [{ seat: SEAT, outcome: "failed" }] : [],
