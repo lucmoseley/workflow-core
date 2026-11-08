@@ -19,7 +19,10 @@
  * the tracker, not the tree. `Named rerun` is dispatched on ref `main` with the
  * tree under test as an input, so GitHub stamps `main`'s sha on a queue tree's
  * verdict; the lander reads those runs by title instead (#4676). The two queue
- * alarms run on `main` and go red on a stalled queue, not a faulty tree. */
+ * alarms run on `main` and go red on a stalled queue, not a faulty tree.
+ * Residual: a named rerun of `main`'s own base check no longer keys either
+ * reader, which leaves `main`'s own CI runs to carry its verdict; an alarm's
+ * red reaches only its failure email. */
 const NOT_A_TREE_VERDICT = new Set([
 	"bisect",
 	"Dependency Graph",

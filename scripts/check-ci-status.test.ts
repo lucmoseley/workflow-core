@@ -1608,11 +1608,34 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 			]);
 
 			const r = check(["--notify"]);
+			// Empty: no red report, so no "Ticket for Named files" line either.
 			expect(r.stdout.trim()).toBe("");
-			expect(r.stdout).not.toContain("Ticket for Named files");
 			expect(r.status).toBe(0);
 		},
 	);
+
+	it("lists only CI's failure when a red Named rerun shares its sha (#4676)", () => {
+		setRuns([
+			run_({
+				databaseId: 400,
+				headSha: back(0),
+				workflowName: "Named rerun",
+				conclusion: "failure",
+				createdAt: "2026-08-04T15:00:00Z",
+			}),
+			run_({
+				databaseId: 300,
+				headSha: back(0),
+				workflowName: "CI",
+				conclusion: "failure",
+				createdAt: "2026-08-04T13:00:00Z",
+			}),
+		]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain("CI: failure");
+		expect(out).not.toContain("Named rerun");
+	});
 
 	it("reports a workflow it has never heard of, rather than ignoring it", () => {
 		setRuns([
