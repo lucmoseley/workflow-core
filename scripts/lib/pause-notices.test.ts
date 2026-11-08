@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readText } from "./file-read.js";
 import { readGhAnswer } from "./gh-fake";
 import { printed, stubGhRoutes } from "./gh-stub";
 import { tendPauseNotices } from "./pause-notices.js";
@@ -59,8 +60,10 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const readGhLog = () =>
-	fs.existsSync(at("gh-log")) ? fs.readFileSync(at("gh-log"), "utf8") : "";
+const readGhLog = () => {
+	const read = readText(at("gh-log"));
+	return read.state === "read" ? read.data : "";
+};
 /** The markers of every dispatch so far, in order. */
 const readDispatched = () =>
 	[...readGhLog().matchAll(/<!-- (refill-pause-notice [^>]*) -->/g)].map(
@@ -124,6 +127,7 @@ describe("a no-progress pause's phone notice (#4222)", () => {
 		tick(undefined, NOW + 2 * MIN);
 		tick(undefined, NOW + 20 * MIN);
 		expect(readPhases()).toEqual(["raise", "clear"]);
+		expect(readGhLog().split("silent#5, paging#12")).toHaveLength(3);
 		expect(fs.readdirSync(at("pause-notices"))).toEqual([]);
 	});
 
@@ -132,6 +136,25 @@ describe("a no-progress pause's phone notice (#4222)", () => {
 		tick(undefined, NOW + MIN);
 		tick({ ...noProgress(), at: NOW + 2 * MIN }, NOW + 3 * MIN);
 		expect(readPhases()).toEqual(["raise", "clear", "raise"]);
+	});
+
+	it("reads a torn record as sent, logged, and pages neither raise nor clear", () => {
+		const pause = noProgress();
+		fs.mkdirSync(at("pause-notices"));
+		fs.writeFileSync(at(`pause-notices/${pause.at}.notice`), "{");
+		expect(tick(pause)).toContain("notice record torn, read as sent");
+		tick(pause, NOW + MIN);
+		tick(undefined, NOW + 2 * MIN);
+		expect(readGhLog()).not.toContain("workflow run");
+		expect(fs.readdirSync(at("pause-notices"))).toEqual([]);
+	});
+
+	it("logs a clear given up on a record torn after its raise", () => {
+		const pause = noProgress();
+		tick(pause);
+		fs.writeFileSync(at(`pause-notices/${pause.at}.notice`), "{");
+		expect(tick(undefined, NOW + MIN)).toContain("clear notice lost");
+		expect(readPhases()).toEqual(["raise"]);
 	});
 
 	it("sends nothing for a founder-set pause", () => {

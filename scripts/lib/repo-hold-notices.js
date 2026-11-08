@@ -183,22 +183,27 @@ const buildNoticeBody = (text, marker) =>
 
 /**
  * A hold as its notice's cause.
- * @param {RepoHold & {issue: number}} hold
+ * @param {RepoHold} hold
+ * @param {number} issue  its issue, which stands once a raise is due
  * @returns {NoticeCause}
  */
-const buildHoldCause = (hold) => ({
-	name: `repo hold ${hold.id}`,
-	ref: `repo hold ${hold.id} in ${hold.checkout}`,
-	issue: hold.issue,
-	marker: (phase) => buildNoticeMarker(hold, phase),
-	message: (phase) =>
-		buildNoticeBody(
-			`Repo hold in ${path.basename(hold.checkout)} ${
-				phase === "raise" ? "has halted work" : "has cleared"
-			}: ${hold.act}`,
-			buildNoticeMarker(hold, phase),
-		),
-});
+function buildHoldCause(hold, issue) {
+	/** @param {NoticeName} phase */
+	const marker = (phase) => buildNoticeMarker(hold, phase);
+	return {
+		name: `repo hold ${hold.id}`,
+		ref: `repo hold ${hold.id} in ${hold.checkout}`,
+		issue,
+		marker,
+		message: (phase) =>
+			buildNoticeBody(
+				`Repo hold in ${path.basename(hold.checkout)} ${
+					phase === "raise" ? "has halted work" : "has cleared"
+				}: ${hold.act}`,
+				marker(phase),
+			),
+	};
+}
 
 /**
  * The checkout's last probe page, or null where there is none. A torn record, logged,
@@ -462,7 +467,7 @@ function tendRaise(hold, root, { workedAt, now, log }) {
 			!isProbeCoolingDown(hold, paged.file, now, log)
 		)
 			tendPhase({
-				cause: buildHoldCause({ ...hold, issue: hold.issue }),
+				cause: buildHoldCause(hold, hold.issue),
 				phase: "raise",
 				file,
 				config,
@@ -475,6 +480,17 @@ function tendRaise(hold, root, { workedAt, now, log }) {
 }
 
 /**
+ * Mark a clear notice lost, owed no further.
+ * @param {string} file
+ * @param {number} now
+ */
+const giveUpClear = (file, now) =>
+	writeNotice(file, {
+		...readNotice(file),
+		clear: { at: now, tries: 0, outcome: "lost" },
+	});
+
+/**
  * A lifted hold's clear notice, where one is owed. A record torn since cannot name
  * its issue, so its clear is given up, logged.
  * @param {LiftedHold} lifted
@@ -485,20 +501,22 @@ function tendClear(lifted, { now, log }) {
 	const file = path.join(lifted.dir, buildNoticeName(lifted.id));
 	const hold = readLiftedRecord(lifted);
 	if (hold === null) {
-		writeNotice(file, {
-			...readNotice(file),
-			clear: { at: now, tries: 0, outcome: "lost" },
-		});
+		giveUpClear(file, now);
 		log(
 			`repo hold ${lifted.id}: clear notice lost: its lifted record will not read`,
 		);
 		return;
 	}
+	if (hold.issue === null) {
+		giveUpClear(file, now);
+		log(`repo hold ${lifted.id}: clear notice lost: its record names no issue`);
+		return;
+	}
 	const config = readNoticeConfig(hold.checkout);
 	if (config === null) noteNoticeUnset(hold, "clear", { file, now, log });
-	else if (hold.issue !== null)
+	else
 		tendPhase({
-			cause: buildHoldCause({ ...hold, issue: hold.issue }),
+			cause: buildHoldCause(hold, hold.issue),
 			phase: "clear",
 			file,
 			config,

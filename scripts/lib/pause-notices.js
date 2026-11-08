@@ -20,6 +20,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const {
 	buildPauseIssueText,
 	NO_PROGRESS_PAUSE,
@@ -74,23 +75,26 @@ function findTarget(issues) {
 }
 
 /**
- * The record a pause's notice file keeps, or null where it will not read.
+ * The record a pause's notice file keeps, "absent" where there is none, and
+ * "torn" where it will not read or parse.
  * @param {string} file
- * @returns {PauseRecord|null}
+ * @returns {PauseRecord|"absent"|"torn"}
  */
-function readRecord(file) {
+function readPauseRecord(file) {
+	const read = readText(file);
+	if (read.state === "absent") return "absent";
+	if (read.state === "unreadable") return "torn";
 	try {
-		const value = JSON.parse(fs.readFileSync(file, "utf8"));
+		const value = JSON.parse(read.data);
 		const target = value?.target;
 		return typeof value?.pausedAt === "number" &&
 			Array.isArray(value.issues) &&
 			(target === null ||
 				(typeof target?.root === "string" && typeof target.number === "number"))
 			? { pausedAt: value.pausedAt, issues: value.issues, target }
-			: null;
+			: "torn";
 	} catch (err) {
-		if (caught(err).code === "ENOENT" || err instanceof SyntaxError)
-			return null;
+		if (err instanceof SyntaxError) return "torn";
 		throw err;
 	}
 }
@@ -116,7 +120,7 @@ function buildPauseCause({ pausedAt, issues, target }) {
 			buildNoticeBody(
 				phase === "raise"
 					? `The refill loop paused: no act from ${issues.join(", ")}. It launches nothing until \`node scripts/refill-loop.js set --resume\`.`
-					: `The refill loop's ${name} has ended: it launches again.`,
+					: `The refill loop's ${name}, on no act from ${issues.join(", ")}, has ended: it launches again.`,
 				marker(phase),
 			),
 	};
@@ -124,20 +128,23 @@ function buildPauseCause({ pausedAt, issues, target }) {
 
 /**
  * A live no-progress pause's raise: its record written on first sight, then its
- * phase tended. A pause with nowhere to page logs so once, on that first sight.
+ * phase tended. A pause with nowhere to page logs so once, on that first sight. A
+ * torn record cannot say whether a page went, so it is rewritten as one with
+ * nowhere to page, logged: a second page is the worse fault (#3871).
  * @param {Pause & {issues?: PauseIssue[]}} pause
  * @param {number} now
  * @param {Log} log
  */
 function tendRaise(pause, now, log) {
 	const file = buildNoticeFile(pause.at);
-	let record = readRecord(file);
-	if (record === null) {
+	let record = readPauseRecord(file);
+	if (typeof record === "string") {
 		const issues = pause.issues ?? [];
+		const isTorn = record === "torn";
 		record = {
 			pausedAt: pause.at,
 			issues: issues.map(buildPauseIssueText),
-			target: findTarget(issues),
+			target: isTorn ? null : findTarget(issues),
 		};
 		writeNotice(file, {
 			...record,
@@ -145,7 +152,11 @@ function tendRaise(pause, now, log) {
 			clear: null,
 			isUnsetLogged: record.target === null,
 		});
-		if (record.target === null)
+		if (isTorn)
+			log(
+				`${buildPauseName(pause.at)}: notice record torn, read as sent: ${file}`,
+			);
+		else if (record.target === null)
 			log(
 				`${buildPauseName(pause.at)}: no phone notice, as none of ${
 					record.issues.join(", ") || "its issues"
@@ -169,17 +180,22 @@ function tendRaise(pause, now, log) {
 
 /**
  * An ended pause's clear, where its raise went; its file is removed once nothing
- * is owed, a record that will not read owing nothing.
+ * is owed. A torn record cannot name its issue, so its clear is given up, logged.
  * @param {string} file
+ * @param {number} pausedAt
  * @param {number} now
  * @param {Log} log
  */
-function tendClear(file, now, log) {
-	const record = readRecord(file);
-	const target = record?.target ?? null;
+function tendClear(file, pausedAt, now, log) {
+	const record = readPauseRecord(file);
+	if (record === "torn")
+		log(
+			`${buildPauseName(pausedAt)}: clear notice lost: its record will not read: ${file}`,
+		);
+	const target = typeof record === "string" ? null : record.target;
 	const config = target === null ? null : readNoticeConfig(target.root);
 	if (
-		record === null ||
+		typeof record === "string" ||
 		target === null ||
 		config === null ||
 		!isClearOwed(readNotice(file))
@@ -239,7 +255,7 @@ function tendPauseNotices(paused, now, log) {
 	};
 	for (const { file, pausedAt } of readNoticeFiles(log))
 		if (pausedAt !== live?.at)
-			guarded(pausedAt, () => tendClear(file, now, log));
+			guarded(pausedAt, () => tendClear(file, pausedAt, now, log));
 	if (live !== null) guarded(live.at, () => tendRaise(live, now, log));
 }
 

@@ -286,7 +286,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *     held: LoopLaunch[], seen: Seen,
  *     how: {isStopped: () => boolean, record: (launches: LoopLaunch[]) => void}) =>
  *     {launches: LoopLaunch[], started: number, waiting: boolean},
- *   writePause: (pause: import("./refill-decide.js").Pause, noProgressFrom: number) => void,
+ *   writePause: (pause: import("./refill-decide.js").Pause, noProgressFrom: number) => boolean,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   updateState: (transition: import("./refill-state.js").Transition) => LoopState,
  *   dropSettledLifted: (settled: ReturnType<typeof blocks.queueLifted>["settled"]) => void,
@@ -775,7 +775,11 @@ function settleDecided(
 			launchBatch: (batch) => io.launchBatch(batch, served),
 			resumeHeld: (resumes, held, isStopped, record) =>
 				io.resumeHeld(resumes, held, seen, { isStopped, record }),
-			writePause: (pause) => io.writePause(pause, control.noProgressFrom),
+			/* The raise goes the tick the pause is written, not the next. */
+			writePause: (pause) => {
+				if (io.writePause(pause, control.noProgressFrom))
+					io.sendPauseNotices(pause, input.now);
+			},
 			runReview: io.runReview,
 			updateState: io.updateState,
 			readOmittedDirs: () => io.readOmittedDirs(declared),
@@ -843,7 +847,7 @@ const buildDryActs = (io) => ({
 		started: 0,
 		waiting: false,
 	}),
-	writePause: doNothing,
+	writePause: () => false,
 	runReview: (lastRunOn) => lastRunOn,
 	updateState: (transition) => transition(io.readState()),
 	dropSettledLifted: doNothing,

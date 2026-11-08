@@ -1000,11 +1000,8 @@ const productionIo = {
 	launchBatch: launchOrResume,
 	resumeHeld: (resumes, held, seen, how) =>
 		blocks.resumeHeldLaunches(resumes, held, seen, how),
-	/* The raise goes the tick the pause is written, not the next. */
-	writePause: (pause, noProgressFrom) => {
-		if (writeLoopPause(pause, noProgressFrom, log))
-			tendPauseNotices(pause, Date.now(), log);
-	},
+	writePause: (pause, noProgressFrom) =>
+		writeLoopPause(pause, noProgressFrom, log),
 	runReview,
 	updateState: (transition) => updateState(transition, log),
 	readOmittedDirs,

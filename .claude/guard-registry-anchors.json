@@ -16,7 +16,7 @@
 	"scripts/check-gate-switches.js": "dc5cc9fbd28361a1",
 	"scripts/check-guard-registry.js": "224817fa52b263fe",
 	"scripts/check-harness-canary.js": "77387a1b4dd08ded",
-	"scripts/check-idle-efforts.js": "984f0c1c418828ed",
+	"scripts/check-idle-efforts.js": "9efd266a6b341ec0",
 	"scripts/check-interop-latency.js": "d846a5ec92423168",
 	"scripts/check-issue-labels.js": "8e9e71db97be123d",
 	"scripts/check-jev-flags.js": "2d2eeb14288407e4",
