@@ -15,6 +15,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CORE_FAULT_TEXT } from "./core-fault.js";
 import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
 import { writeFaultyGit } from "./git-fault-fake";
@@ -29,6 +30,7 @@ import {
 	attachProbeParks,
 	buildHoldLines,
 	dropLiftedJobs,
+	holdLockedOut,
 	holdsDir,
 	liftHold,
 	raiseHold,
@@ -579,10 +581,30 @@ ${body}`,
 				? fs.readFileSync(at("guard-runs"), "utf8").split("\n").filter(Boolean)
 				: [];
 
+		/* The probe runs the guard hook line the checkout registers, here one
+		 * that runs the shared tree's own entry. */
 		beforeEach(() => {
 			const hooks = path.join(repo, "self-plugin", "hooks", "hooks.json");
 			fs.mkdirSync(path.dirname(hooks), { recursive: true });
-			fs.writeFileSync(hooks, "{}\n");
+			fs.writeFileSync(
+				hooks,
+				JSON.stringify({
+					hooks: {
+						PreToolUse: [
+							{
+								matcher: "Bash|Read",
+								hooks: [
+									{
+										type: "command",
+										command:
+											'node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js',
+									},
+								],
+							},
+						],
+					},
+				}),
+			);
 		});
 
 		it("reads a deny of its benign Read as a failure", () => {
@@ -636,6 +658,72 @@ process.exit(0);
 			).toHaveLength(1);
 			expect(broken).toEqual([]);
 			expect(status(NOW + MIN)).toContain("holds:     none open");
+		});
+
+		describe("a locked-out session's hold (#4228)", () => {
+			const Fault = `guard-x ${CORE_FAULT_TEXT}, and it fails closed: boom`;
+			/* Refuses a Bash `locked` as a core it could not run would, and a
+			 * Bash `merits` as a healthy guard would; lets all else through. */
+			const Judging = `const p = JSON.parse(fs.readFileSync(0, "utf8"));
+const why = p.tool_name !== "Bash" ? null : p.tool_input.command === "locked" ? ${JSON.stringify(Fault)} : p.tool_input.command === "merits" ? "Refused: rule:x" : null;
+if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } }));
+`;
+			const lockOut = (job: string, command: string) => {
+				const lines: string[] = [];
+				const held = holdLockedOut(
+					repo,
+					{
+						job,
+						refusal: Fault,
+						call: { tool_name: "Bash", tool_input: { command } },
+					},
+					NOW,
+					(l) => lines.push(l),
+				);
+				return { held, text: lines.join("\n") };
+			};
+
+			it("raises the probe hold with the refusal as its step, files its issue, and attaches each session to it", () => {
+				serve();
+				writeGuardEntry(Judging);
+
+				const first = lockOut("job7", "locked");
+				const second = lockOut("job8", "locked");
+
+				expect(first.text).toContain(
+					`repo hold raised: probe in ${repo}: repair the shared tree: guard lockout: ${Fault}`,
+				);
+				expect(first.held).toMatchObject({
+					hold: { id: "probe", issue: ISSUE },
+				});
+				expect(second.text).toMatch(/session job8; 2 attached$/);
+				expect(readFiled()).toHaveLength(1);
+				expect(readHolds(repo).holds[0]?.sessions).toEqual(["job7", "job8"]);
+			});
+
+			it("keeps the hold while a kept call is still refused for want of a guard, though the benign Read passes", () => {
+				serve();
+				writeGuardEntry(Judging);
+				lockOut("job7", "locked");
+
+				const { text } = tick(NOW + MIN);
+
+				expect(text).toContain(
+					`repo hold probe: a kept call still fails: refused a replayed Bash: ${Fault}`,
+				);
+				expect(text).not.toContain("repo hold cleared");
+				expect(readHolds(repo).holds).toHaveLength(1);
+			});
+
+			it("lifts the hold where the kept call is refused only on its merits", () => {
+				serve();
+				writeGuardEntry(Judging);
+				lockOut("job7", "merits");
+
+				const { text } = tick(NOW + MIN);
+
+				expect(text).toContain("repo hold cleared: probe in");
+			});
 		});
 
 		it("runs no step in a checkout with no self-plugin", () => {
