@@ -152,11 +152,9 @@ const rl = readline.createInterface({
 	crlfDelay: Number.POSITIVE_INFINITY,
 });
 rl.on("line", (line) => {
-	const r = /** @type {Record<string, any> | null | undefined} */ (
-		parseJsonlRow(line)
-	);
+	const r = parseJsonlRow(line);
 	if (r === null) return;
-	if (r === undefined) {
+	if (r === undefined || typeof r.s !== "string" || typeof r.c !== "string") {
 		unparsed++;
 		return;
 	}

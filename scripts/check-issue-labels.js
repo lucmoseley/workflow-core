@@ -138,6 +138,10 @@ const HUMAN_FAULTS = {
 		`takes:human whose Outside line names none of the founder's own acts, and whose body lists no ${TRIED_MIN} methods tried`,
 		`name the act from the list in docs/agents/triage-labels.md §\`takes:\`, or add a \`Tried:\` list of at least ${TRIED_MIN} methods run; neither true, an agent can do it — relabel takes:implement (#1077)`,
 	],
+	"OBSERVE-ONLY": [
+		`takes:human whose Outside line's only founder part is to observe a result, and whose body lists no ${TRIED_MIN} methods tried`,
+		`try what \`${scriptPath("lib/rule-text.sh")} observe-first\` names and close on it; only where every route failed, add a \`Tried:\` list of at least ${TRIED_MIN} methods run (#4114)`,
+	],
 	"NO-CLOSE-WHEN": [
 		`takes:human whose body has no \`**${CLOSE_WHEN_MARKER}**\` line saying what finishes it`,
 		`append the line — what finishes it, and what the closing comment records (${scriptPath("lib/rule-text.sh")} founder-deliverable)`,

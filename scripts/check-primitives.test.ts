@@ -286,8 +286,8 @@ describe("check-primitives", () => {
 		});
 	});
 
-	describe("a count it cannot read prints as unknown with its reason, never 0", () => {
-		it("open breaches, where a check prints no envelope", async () => {
+	describe("a count it cannot read", () => {
+		it("prints open breaches as unknown, never 0, naming a check that printed no envelope and its exit", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			write(core, "scripts/check-out.js", "process.exitCode = 2;\n");
@@ -298,7 +298,7 @@ describe("check-primitives", () => {
 			);
 		});
 
-		it("open breaches, where a check answers BROKEN", async () => {
+		it("prints open breaches as unknown, naming a check that answered BROKEN", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			write(core, "scripts/check-out.js", answering("BROKEN"));
@@ -308,7 +308,7 @@ describe("check-primitives", () => {
 			);
 		});
 
-		it("new heresies, where gh cannot be reached", async () => {
+		it("prints new heresies as unknown where gh cannot be reached, saying the tracker did not answer", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const gh = stubGhScript(path.join(dir, "gh"), "", { failing: true });
@@ -319,7 +319,7 @@ describe("check-primitives", () => {
 			);
 		});
 
-		it("new heresies, where the closed sweep carries no Filed line", async () => {
+		it("prints new heresies as unknown where the closed sweep carries no Filed line, naming the issue", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const r = await run(
@@ -334,7 +334,7 @@ describe("check-primitives", () => {
 			);
 		});
 
-		it("new heresies, where the closed sweep's comments cannot be read", async () => {
+		it("prints new heresies as unknown where the closed sweep's comments cannot be read, saying the tracker did not answer", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const gh = stubGhRoutes(path.join(dir, "gh"), {
@@ -362,7 +362,7 @@ describe("check-primitives", () => {
 			);
 		});
 
-		it("new heresies, where no sweep issue has closed", async () => {
+		it("prints new heresies as unknown where no sweep issue has closed, saying so", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const gh = stubGhRoutes(path.join(dir, "gh"), {

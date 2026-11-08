@@ -1815,6 +1815,12 @@ function createPanel({
 const countDrawnRows = (height) => Math.max(height - TOP_ROW + 1, 0);
 
 /**
+ * The fewest terminal rows that draw all `rowCount` rows with no scroll mark.
+ * @param {number} rowCount
+ */
+const countUnscrolledHeight = (rowCount) => rowCount + TOP_ROW - 1;
+
+/**
  * The rows a pane shows, read each time as the rows can shrink, or the pane grow, under
  * a scroll. While rows lie below, the pane's last row says so, unless it is the only one.
  * @param {number} rowCount
@@ -2063,5 +2069,6 @@ module.exports = {
 	buildFrame,
 	findHoverRow,
 	buildRows,
+	countUnscrolledHeight,
 	createPanel,
 };
