@@ -18,6 +18,8 @@ const {
 	awayChangeOf,
 	buildLimitCapText,
 	buildLoopWait,
+	buildIdleText,
+	idleOf,
 	decideTick,
 	pickMoveSeat,
 	readParkers,
@@ -224,7 +226,10 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 		const idle = {
 			launches: [],
 			skipped: [],
-			idle: `paused by founder at ${new Date(NOW - HOUR).toISOString()}`,
+			idle: idleOf(
+				"paused by",
+				` founder at ${new Date(NOW - HOUR).toISOString()}`,
+			),
 			held: [],
 			resumes: [],
 		};
@@ -289,8 +294,9 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 				]),
 			},
 		});
-		expect(d.idle).toContain(": no act from ");
-		expect(d.idle).toContain("mh#9");
+		expect(d.idle?.reason).toBe("paused by");
+		expect(d.idle?.detail).toContain(": no act from ");
+		expect(d.idle?.detail).toContain("mh#9");
 	});
 
 	it.each(["block", "close", "commit", "file", "gate", "relabel", "round"])(
@@ -425,15 +431,17 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 		expect(d).toMatchObject({
 			launches: [],
 			planWait: { resets: earliest },
-			idle: `a plan resets at ${new Date(earliest).toISOString()}`,
+			idle: idleOf("a plan resets", ` at ${new Date(earliest).toISOString()}`),
 		});
-		expect(buildLoopWait(d.idle)).toBe(d.idle);
+		expect(buildLoopWait(d.idle)).toBe(
+			`a plan resets at ${new Date(earliest).toISOString()}`,
+		);
 	});
 
 	it("waits on the allowance with the reset unread where no seat's will parse", () => {
 		expect(tick({ seats: [seat("a", 100, 10)] })).toMatchObject({
 			planWait: { resets: null },
-			idle: "a plan resets, its time unread",
+			idle: idleOf("a plan resets", ", its time unread"),
 		});
 	});
 
@@ -463,17 +471,26 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "the 5-hour bar is full on b until its 5-hour reset 2026-10-18T14:00:00Z",
+			idle: idleOf(
+				"the 5-hour bar is full on",
+				" b until its 5-hour reset 2026-10-18T14:00:00Z",
+			),
 		});
 	});
 
 	it("names a 5-hour wait beside the seat with room that holds the tick", () => {
 		const five = { ...seat("a", 40, 100, null), sessionResets: "3pm" };
 		expect(tick({ seats: [five, seat("b", 98, 5, 0)] })).toMatchObject({
-			idle: "no plan has room right now; the 5-hour bar is full on a until its 5-hour reset 3pm",
+			idle: idleOf(
+				"no plan has room right now",
+				"; the 5-hour bar is full on a until its 5-hour reset 3pm",
+			),
 		});
 		expect(tick({ seats: [five, seat("b", 98, 5, null)] })).toMatchObject({
-			idle: "no plan has room right now; the 5-hour bar is full on a until its 5-hour reset 3pm",
+			idle: idleOf(
+				"no plan has room right now",
+				"; the 5-hour bar is full on a until its 5-hour reset 3pm",
+			),
 		});
 	});
 
@@ -485,7 +502,10 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 			],
 		});
 		expect(d).toMatchObject({
-			idle: "the 5-hour bar is full on a until its 5-hour reset 3pm, b until its 5-hour reset (unread)",
+			idle: idleOf(
+				"the 5-hour bar is full on",
+				" a until its 5-hour reset 3pm, b until its 5-hour reset (unread)",
+			),
 		});
 	});
 
@@ -500,7 +520,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no plan has room right now",
+			idle: idleOf("no plan has room right now"),
 		});
 	});
 });
@@ -539,7 +559,10 @@ describe("decideTick on overflow seats (#2611)", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "the 5-hour bar is full on b until its 5-hour reset 3pm; no overflow launch: b not weekly-full",
+			idle: idleOf(
+				"the 5-hour bar is full on",
+				" b until its 5-hour reset 3pm; no overflow launch: b not weekly-full",
+			),
 		});
 		expect(
 			seats(
@@ -584,7 +607,10 @@ describe("decideTick on overflow seats (#2611)", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "a plan resets, its time unread; every plan seat is weekly-full; overflow x budget held by running sessions, y budget unread (the session cost table is unreadable), z exhausted until 2026-10-28",
+			idle: idleOf(
+				"a plan resets",
+				", its time unread; every plan seat is weekly-full; overflow x budget held by running sessions, y budget unread (the session cost table is unreadable), z exhausted until 2026-10-28",
+			),
 		});
 	});
 
@@ -600,7 +626,7 @@ describe("decideTick on overflow seats (#2611)", () => {
 		).toMatchObject({
 			launches: [],
 			planWait: { resets: null },
-			idle: expect.stringMatching(/^a plan resets/),
+			idle: { reason: "a plan resets", detail: expect.any(String) },
 		});
 	});
 
@@ -747,11 +773,11 @@ describe("decideTick with a limit-held launch (#3735)", () => {
 		expect(held).toMatchObject({
 			launches: [],
 			planWait: { resets: null },
-			idle: expect.stringContaining(
-				"every seat is spent; a limit-held session waits on one",
+			idle: idleOf(
+				"a plan resets",
+				", its time unread; every seat is spent; a limit-held session waits on one",
 			),
 		});
-		expect(held.idle).toMatch(/^a plan resets/);
 	});
 
 	it("leaves every other stop standing", () => {
@@ -861,7 +887,9 @@ describe("decideTick's seat order and reason (#3732)", () => {
 		);
 		const d = tick({ seats: [five, on("b", 3, { fits: 0 })], typedSeat: "a" });
 		expect(d).toMatchObject({ launches: [] });
-		expect(d.idle).toContain("the 5-hour bar is full on a");
+		expect(d.idle && buildIdleText(d.idle)).toContain(
+			"the 5-hour bar is full on a",
+		);
 	});
 
 	it("overflows only once every plan seat is weekly-full, with its reason", () => {
@@ -910,8 +938,10 @@ describe("buildLoopWait, the idle alarm's reason no rank launches (#3920)", () =
 		(_case, over, named) => {
 			const d = tick(over);
 			expect(d.launches).toEqual([]);
-			expect(typeof d.idle).toBe("string");
-			expect(buildLoopWait(d.idle)).toBe(named ? d.idle : null);
+			expect(d.idle).not.toBeNull();
+			expect(buildLoopWait(d.idle)).toBe(
+				named && d.idle ? buildIdleText(d.idle) : null,
+			);
 		},
 	);
 
@@ -950,7 +980,7 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 		expect(jobs(d)).toEqual(["old", "mid"]);
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "resumes take every free slot",
+			idle: idleOf("resumes take every free slot"),
 		});
 		expect(jobs(tick({ freeSlots: 1, resumable: [newest] }))).toEqual(["new"]);
 	});
@@ -958,7 +988,7 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 	it("resumes nothing with no slot free", () => {
 		expect(tick({ freeSlots: 0, resumable: [oldest] })).toMatchObject({
 			resumes: [],
-			idle: "no free slot",
+			idle: idleOf("no free slot"),
 		});
 	});
 
@@ -1131,7 +1161,7 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 				resumable: [oldest],
 			});
 			expect(jobs(d)).toEqual(["old"]);
-			expect(d).toMatchObject({ idle: "resumes take every free slot" });
+			expect(d).toMatchObject({ idle: idleOf("resumes take every free slot") });
 		});
 	});
 
@@ -1142,7 +1172,10 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 		expect(jobs(d)).toEqual(["old"]);
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "a plan resets, its time unread; every seat is spent; a resume is due",
+			idle: idleOf(
+				"a plan resets",
+				", its time unread; every seat is spent; a resume is due",
+			),
 		});
 	});
 
@@ -1166,7 +1199,7 @@ describe("decideTick free slot", () => {
 	it("idles on no free slot where none is free", () => {
 		expect(tick({ freeSlots: 0 })).toMatchObject({
 			launches: [],
-			idle: "no free slot",
+			idle: idleOf("no free slot"),
 		});
 	});
 
@@ -1174,7 +1207,7 @@ describe("decideTick free slot", () => {
 		const unread = [seat("a", null, null, null), seat("b", null, null, null)];
 		expect(tick({ freeSlots: 0, seats: unread })).toMatchObject({
 			launches: [],
-			idle: "no free slot",
+			idle: idleOf("no free slot"),
 		});
 	});
 
@@ -1184,7 +1217,7 @@ describe("decideTick free slot", () => {
 		});
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no plan has room right now",
+			idle: idleOf("no plan has room right now"),
 		});
 	});
 
@@ -1195,7 +1228,7 @@ describe("decideTick free slot", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no plan has room right now",
+			idle: idleOf("no plan has room right now"),
 		});
 	});
 
@@ -1205,15 +1238,21 @@ describe("decideTick free slot", () => {
 		];
 		expect(tick({ frontier: [], failedShortlists })).toMatchObject({
 			launches: [],
-			idle: "shortlist failed in workflow-core: exited 1 FAILED: offline",
+			idle: idleOf(
+				"shortlist failed in",
+				" workflow-core: exited 1 FAILED: offline",
+			),
 		});
 		expect(
 			tick({ frontier: [row("wfc", 1, "human")], failedShortlists }),
 		).toMatchObject({
-			idle: "shortlist failed in workflow-core: exited 1 FAILED: offline",
+			idle: idleOf(
+				"shortlist failed in",
+				" workflow-core: exited 1 FAILED: offline",
+			),
 		});
 		expect(tick({ frontier: [] })).toMatchObject({
-			idle: "nothing launchable",
+			idle: idleOf("nothing launchable"),
 		});
 	});
 
@@ -1232,7 +1271,7 @@ describe("decideTick free slot", () => {
 		});
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no plan has room right now",
+			idle: idleOf("no plan has room right now"),
 		});
 	});
 });
@@ -1612,7 +1651,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			seats: [seat("/s1", 10, 10), seat("/s2", 100, 10)],
 			parkers: [parker()],
 		});
-		expect(d).toMatchObject({ idle: "no free slot", launches: [] });
+		expect(d).toMatchObject({ idle: idleOf("no free slot"), launches: [] });
 		expect(d.held).toEqual([
 			{ root: "wfc", number: 2, why: "parked: its session's seat /s2 is full" },
 		]);

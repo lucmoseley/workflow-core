@@ -504,12 +504,16 @@ describe("check-idle-efforts.js", () => {
 			});
 		});
 
-		const writeLastIdle = (refill: string, idle: string) =>
+		const writeLastIdle = (refill: string, reason: string) =>
 			fs.writeFileSync(
 				path.join(refill, ".refill-loop-state.json"),
 				JSON.stringify({
 					launches: [],
-					lastTick: { at: NOW, summary: `idle: ${idle}`, idle },
+					lastTick: {
+						at: NOW,
+						summary: `idle: ${reason}`,
+						idle: { reason, detail: "" },
+					},
 				}),
 			);
 

@@ -29,7 +29,8 @@ const {
 	buildPauseText,
 	buildPausedWaitText,
 	QUIET_BENCH_PAUSE,
-	isPauseText,
+	PAUSED,
+	buildIdleText,
 	hasRoom,
 	orderPlanSeats,
 	pickSeat,
@@ -674,7 +675,7 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 		pick.seat === null
 			? [...seats, ...overflow].reduce(
 					(text, { seat }) => text.replaceAll(seat, buildDirName(seat)),
-					pick.wait || "every seat is spent",
+					pick.wait ? buildIdleText(pick.wait) : "every seat is spent",
 				)
 			: null;
 	return {
@@ -1095,7 +1096,7 @@ function buildStatusJson({
 			at: lastTick.at,
 			summary: lastTick.summary,
 			idle: lastTick.idle ?? null,
-			paused: isPauseText(lastTick.idle),
+			paused: lastTick.idle?.reason === PAUSED,
 			planWait: lastTick.planWait ?? null,
 		},
 		concurrency,
