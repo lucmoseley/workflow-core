@@ -8,8 +8,9 @@ import fs from "node:fs";
 import { vi } from "vitest";
 
 /**
- * Every fd-2 write, one call per writeSync with the text it carried; any
- * other fd's write goes through. Restored by vi.restoreAllMocks.
+ * Every writeFd write to fd 2, one call per writeSync with the text it
+ * carried; any other fd's write goes through. Restore with
+ * `vi.mocked(fs.writeSync).mockRestore()`.
  */
 export const spyStderr = () => {
 	const write = vi.fn((_text: string) => true);

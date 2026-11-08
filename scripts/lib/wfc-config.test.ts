@@ -16,6 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commandPath } from "./command-path-testkit";
 import { shellQuote } from "./sh-quote.js";
+import { spyStderr } from "./write-fd-testkit";
 
 const LIB = path.resolve(__dirname, "wfc-config.sh");
 let dir: string;
@@ -569,9 +570,7 @@ describe("parity with the JS reader (#1481)", () => {
 		if (row.modulesEnv === undefined) delete process.env.WFC_MODULES;
 		else process.env.WFC_MODULES = row.modulesEnv;
 		// The rows' own malformed keys warn; the answers are what is compared.
-		const stderr = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		spyStderr();
 		try {
 			const out = {} as Answers;
 			for (const [probe, p] of Object.entries(probes)) {
@@ -583,7 +582,7 @@ describe("parity with the JS reader (#1481)", () => {
 			}
 			return out;
 		} finally {
-			stderr.mockRestore();
+			vi.mocked(fs.writeSync).mockRestore();
 			for (const [k, v] of Object.entries(saved))
 				if (v === undefined) delete process.env[k];
 				else process.env[k] = v;

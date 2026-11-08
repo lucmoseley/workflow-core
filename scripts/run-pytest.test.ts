@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+import { spyStderr } from "./lib/write-fd-testkit";
 
 const require = createRequire(import.meta.url);
 const { readMarkers } = require("./lib/test-pass-marker.js");
@@ -753,30 +754,19 @@ describe("the suite ceiling (#2702)", () => {
 		};
 		/* runInProcessAsync captures a whole program's streams; this is one
 		 * module call. */
-		const stderr: Buffer[] = [];
-		const realWriteSync = fs.writeSync;
-		const spy = vi
-			.spyOn(fs, "writeSync")
-			.mockImplementation((fd, data, ...rest) => {
-				if (fd !== 2)
-					// biome-ignore lint/suspicious/noExplicitAny: passthrough to the real overloaded call
-					return (realWriteSync as any)(fd, data, ...rest);
-				// writeFd hands over a Buffer and the offset it has written up to.
-				const chunk = (data as unknown as Buffer).subarray(
-					(rest[0] as number) ?? 0,
-				);
-				stderr.push(chunk);
-				return chunk.length;
-			});
+		const stderr = spyStderr();
 		try {
 			const result = await runPytest([], root, {
 				handOff: path.join(root, "scope.json"),
 				inflightFile: path.join(root, "inflight.json"),
 				schedule,
 			});
-			return { ...result, stderr: Buffer.concat(stderr).toString("utf8") };
+			return {
+				...result,
+				stderr: stderr.mock.calls.map(([text]) => text).join(""),
+			};
 		} finally {
-			spy.mockRestore();
+			vi.mocked(fs.writeSync).mockRestore();
 		}
 	}
 

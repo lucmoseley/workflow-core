@@ -310,7 +310,7 @@ describe("reading the file", () => {
 				'"capacityLadderPath" is not a repo-relative path',
 			);
 		} finally {
-			vi.restoreAllMocks();
+			vi.mocked(fs.writeSync).mockRestore();
 		}
 	});
 
