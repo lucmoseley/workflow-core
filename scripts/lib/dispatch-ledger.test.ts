@@ -111,7 +111,9 @@ describe("readOverflowLookup", () => {
 
 	it("throws on a ledger that will not read, so an unread session never passes for a plan one", () => {
 		fs.mkdirSync(ledgerPath(root), { recursive: true });
-		expect(() => readLookup()).toThrow(/would not read/);
+		expect(() => readLookup()).toThrow(
+			/would not read.*fix that read and re-run/s,
+		);
 	});
 });
 

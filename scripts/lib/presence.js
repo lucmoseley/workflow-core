@@ -20,7 +20,6 @@ const os = require("node:os");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { configDirFrom, seatDir } = require("./config-dir.js");
 const { machineMarkerPath } = require("./machine-marker.js");
-const { planSeatsOf } = require("./refill-seats.js");
 
 /* Untraced: spec #1995's value, not a measurement. */
 const PRESENT_WINDOW_MS = 30 * 60 * 1000;
@@ -64,7 +63,7 @@ function readLastTyped(list, env = process.env) {
 	const at = Date.parse(time);
 	const listed =
 		list.errors.length === 0 &&
-		planSeatsOf(list.seats).some((s) => s.dir === recorded);
+		list.seats.some((s) => s.kind === "plan" && s.dir === recorded);
 	return {
 		at: Number.isNaN(at) ? null : at,
 		seat: recorded && listed ? recorded : null,

@@ -297,7 +297,7 @@ const isOverflowLaunch = (rec) =>
  * A launch record's read failure, with its remedy.
  * @param {unknown} err
  */
-const remedied = (err) =>
+const buildRemediedError = (err) =>
 	new Error(
 		`launch record unreadable: ${caught(err).message} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
 		{ cause: err },
@@ -324,7 +324,7 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 			readEveryRow(root).filter(isOverflowLaunch),
 		);
 	} catch (err) {
-		throw remedied(err);
+		throw buildRemediedError(err);
 	}
 	return ({ jobId, sessionId }) =>
 		launches
@@ -356,7 +356,7 @@ function readEveryOverflowLookup(root) {
 	try {
 		roots = readEveryLedgerRoot(root);
 	} catch (err) {
-		throw remedied(err);
+		throw buildRemediedError(err);
 	}
 	return readOverflowLookup(roots);
 }

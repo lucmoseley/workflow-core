@@ -6,7 +6,7 @@
  */
 
 const { describeAge } = require("./proc-table.js");
-const { buildSeatName } = require("./refill-seats.js");
+const { buildSeatLabel, buildSeatName } = require("./refill-seats.js");
 
 /**
  * @typedef {{seat: string, percent: number|null, weekReadAt: number|null,
@@ -148,9 +148,17 @@ const buildBasisLines = (planSeats, omitted, { at, ageSuffix }) => [
 const buildOverflowStartLines = ({ at, planSeats, omitted }) =>
 	buildBasisLines(planSeats, omitted, { at, ageSuffix: "before it" });
 
+/**
+ * The seat an overflow start was on, as a line names it.
+ * @param {OverflowStart} start
+ */
+const buildStartLabel = (start) =>
+	buildSeatLabel({ ...start, seat: buildSeatName(start.seat) });
+
 module.exports = {
 	buildBasisLines,
 	buildOverflowStartLines,
+	buildStartLabel,
 	firstOverflowStart,
 	parseOverflowStart,
 	planSeatBasisOf,

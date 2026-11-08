@@ -21,6 +21,7 @@ const {
 const {
 	buildBasisLines,
 	buildOverflowStartLines,
+	buildStartLabel,
 } = require("./overflow-notice.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { buildNotice, isNotice } = require("./refill-notice.js");
@@ -1027,7 +1028,7 @@ function buildOverflowBasisLines({
 			: []),
 		...(start
 			? [
-					`last overflow start: ${iso(start.at)} on ${buildSeatLabel({ ...start, seat: buildSeatName(start.seat) })}`,
+					`last overflow start: ${iso(start.at)} on ${buildStartLabel(start)}`,
 					...buildOverflowStartLines(start).map((l) => `  ${l}`),
 				]
 			: []),
