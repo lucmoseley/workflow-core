@@ -24,7 +24,7 @@
  * What decides it is not the price of a parser: a missing entry is preferred
  * to a false one. A false entry makes concision-backstop.sh LOUDER — it bills a
  * session for a diff it does not own, and the nag then sends that session to
- * edit a file a live neighbour holds, the collision guard-file-claim.sh exists
+ * edit a file a live neighbour holds, the collision scripts/lib/file-claim.js exists
  * to refuse.
  *
  * Measured cost of the gap (mantahostels#296, 1,579 transcripts / 789 sessions,

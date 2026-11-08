@@ -92,7 +92,7 @@ export function reviewFixture() {
 		git(tree, "commit", "-qm", rel, "--", rel);
 	};
 
-	/** Credit `rel` to `sid`'s write ledger, as record-write.sh does, run in
+	/** Credit `rel` to `sid`'s write ledger, as the arbiter's `record` does, run in
 	 * `tree` so the line names it (#4457). */
 	const recordWrite = (rel: string, sid = ME, tree = f.shared) =>
 		execFileSync("node", [ARBITER, "record", rel, sid], {
