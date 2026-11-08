@@ -6,8 +6,11 @@
  * Python code (#465), is copied once and never re-synced.
  *
  * FROZEN: a change to its lookup, its export or its variable names is a major
- * release with a migration note. It requires node builtins only, because it
- * runs before the core is found.
+ * release with a migration note. A linked worktree with no row of its own
+ * taking its main checkout's is, on #4117's judgement call, no lookup change:
+ * the adopter root means the main checkout (adopterRoot), and an exact row
+ * still wins. It requires node builtins only, because it runs before the core
+ * is found.
  *
  * LOOKUP, first hit wins:
  *   1. WORKFLOW_CORE_DIR — an explicit override, for a test or an unusual layout.
@@ -76,23 +79,21 @@ function isDir(dir) {
  * null where that is no git checkout. A common dir not named `.git` — a
  * submodule's, a `--separate-git-dir` one — sits outside the tree, so the top
  * level answers for the main checkout there.
- * @param {import("node:child_process").ExecFileSyncOptions} [options]
+ * @param {{cwd?: string, env?: NodeJS.ProcessEnv}} [options]
  * @returns {{main: string, top: string} | null}
  */
-function readGitRoots(options) {
+function readGitRoots({ cwd, env } = {}) {
 	let out;
 	try {
-		out = String(
-			execFileSync(
-				"git",
-				[
-					"rev-parse",
-					"--path-format=absolute",
-					"--git-common-dir",
-					"--show-toplevel",
-				],
-				{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], ...options },
-			),
+		out = execFileSync(
+			"git",
+			[
+				"rev-parse",
+				"--path-format=absolute",
+				"--git-common-dir",
+				"--show-toplevel",
+			],
+			{ cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
 		);
 	} catch {
 		/* Not a git checkout, or no git to ask: the caller's own directory is
@@ -156,7 +157,8 @@ function readPin(root) {
 
 /**
  * The install rows for `root`, else for its main checkout, and what was
- * searched. An exact row spawns no git (#4150).
+ * searched. An exact row spawns no git (#4150). `any` for readJson's reason:
+ * the CLI writes the record, and every row read narrows through `?.`.
  * @param {any} entries
  * @param {string} root
  * @returns {{rows: any[], searched: string}}
