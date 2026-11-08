@@ -885,7 +885,26 @@ function anchorHooks({ root, pluginRoot, dryRun, out }) {
 		out(`would  anchor the seven hooks in ${ANCHORS}`);
 		return true;
 	}
+	/* Intent-to-add first: a hook outside the index has no digest (#4517).
+	 * Only the unignored ones, as git refuses to add an ignored path, and
+	 * only for this run: a mark left behind would hide from the gitignore
+	 * check a hook a later ignore line hides from git. */
+	const git = (/** @type {string[]} */ args) =>
+		String(
+			execGit(args, {
+				cwd: root,
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
+	/** @type {string[]} */
+	let marked = [];
 	try {
+		const hooks = git(["ls-files", "-oz", "--exclude-standard", "--", ".husky"])
+			.split("\0")
+			.filter(Boolean);
+		if (hooks.length > 0) git(["add", "-N", "--", ...hooks]);
+		marked = hooks;
 		/* Every dirty file is init's own, written this run in a tree no session
 		 * works yet, so none carries a claim to read (#3339). */
 		run(root, [process.execPath, registry, "--review", "--sole-writer"], {
@@ -901,6 +920,8 @@ function anchorHooks({ root, pluginRoot, dryRun, out }) {
 			`FAILED anchoring the hooks: ${reason(err)} — the first commit will report seven unread hook headers; clear them with \`node <plugin>/scripts/check-guard-registry.js --review\``,
 		);
 		return false;
+	} finally {
+		if (marked.length > 0) git(["rm", "-q", "--cached", "--", ...marked]);
 	}
 }
 

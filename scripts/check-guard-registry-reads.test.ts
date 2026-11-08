@@ -755,11 +755,10 @@ describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
 
 describe("a rule's own guard is judged on the commit's tree (#4517)", () => {
 	const guard = "scripts/guard-new.sh";
-
-	it("gives the row one verdict and no digest in two worktrees, one holding the guard untracked", () => {
+	const twoWorktrees = (named = guard) => {
 		const root = committedRepo({
 			claude: region(
-				`- New things are refused. **Enforced** (#9): \`${guard}\` denies them.`,
+				`- New things are refused. **Enforced** (#9): \`${named}\` denies them.`,
 			),
 			files: { [SELF_PLUGIN_HOOKS]: hooksWiring(guard) },
 		});
@@ -770,19 +769,51 @@ describe("a rule's own guard is judged on the commit's tree (#4517)", () => {
 		});
 		fs.mkdirSync(path.join(other, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(other, guard), "#!/usr/bin/env bash\n");
-		const verdict = (tree: string) => {
-			const r = run(tree);
-			return {
-				code: r.code,
-				kinds: r.kinds,
-				warned: r.json.warnings.filter((w) => w.guard === guard),
-			};
-		};
+		return { root, other };
+	};
+	const verdict = (r: Result) => ({
+		code: r.code,
+		kinds: r.kinds,
+		warned: r.json.warnings.filter((w) => w.guard === guard),
+	});
 
-		const clean = verdict(root);
-		expect(clean.kinds).toEqual(["BROKEN-CLAIM"]);
-		expect(clean.warned).toEqual([]);
-		expect(verdict(other)).toEqual(clean);
-		expect(run(other).report).toContain(`\`git add ${guard}\``);
+	it("gives the row one verdict and no digest in two worktrees, one holding the guard untracked", () => {
+		const { root, other } = twoWorktrees();
+		const clean = verdict(run(root));
+		const held = run(other);
+
+		expect(clean).toEqual({ code: 1, kinds: ["BROKEN-CLAIM"], warned: [] });
+		expect(verdict(held)).toEqual(clean);
+		expect(held.report).toContain(`\`git add ${guard}\``);
+	});
+
+	it("tells --review to stage an untracked guard rather than calling it absent", () => {
+		const { other } = twoWorktrees();
+
+		expect(reviewIn(other, [guard, "--sole-writer"])).toContain(
+			`skipped ${guard} — on disk but not in git's index — \`git add ${guard}\``,
+		);
+	});
+
+	it("takes the guard once it is in the index, before any commit", () => {
+		const { other } = twoWorktrees();
+		execFileSync("git", ["add", guard], { cwd: other });
+
+		expect(run(other).kinds).not.toContain("BROKEN-CLAIM");
+	});
+
+	it("stays BROKEN-CLAIM for a guard in the index but deleted on disk", () => {
+		const { other } = twoWorktrees();
+		execFileSync("git", ["add", guard], { cwd: other });
+		fs.rmSync(path.join(other, guard));
+
+		expect(run(other).kinds).toEqual(["BROKEN-CLAIM"]);
+	});
+
+	it("takes a directory the rule names where the index holds a file under it", () => {
+		const { other } = twoWorktrees("scripts/");
+		execFileSync("git", ["add", guard], { cwd: other });
+
+		expect(run(other).kinds).not.toContain("BROKEN-CLAIM");
 	});
 });

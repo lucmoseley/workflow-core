@@ -115,15 +115,16 @@ function isTreeMember(base, rel) {
 const dirsOf = new Map();
 
 /**
- * Whether `rel` is in `base`'s tree as a file, or as a directory holding one:
- * the index lists files alone, and a rule may name a directory.
+ * `isTreeMember`, also true of a directory holding a member: the index lists
+ * files alone, and a rule may name a directory.
  *
  * @param {string} base
  * @param {string} rel a path from `base`
  */
-function isTreePath(base, rel) {
+function isTreeFileOrDir(base, rel) {
+	if (isTreeMember(base, rel)) return true;
 	const { index } = treeOf(base);
-	if (!index) return fs.existsSync(path.join(base, rel));
+	if (!index) return false;
 	let dirs = dirsOf.get(index);
 	if (!dirs) {
 		dirs = new Set();
@@ -131,8 +132,7 @@ function isTreePath(base, rel) {
 			for (let d = path.dirname(p); d !== "."; d = path.dirname(d)) dirs.add(d);
 		dirsOf.set(index, dirs);
 	}
-	const key = path.normalize(rel).replace(/\/$/, "");
-	return index.has(key) || dirs.has(key);
+	return dirs.has(path.normalize(rel).replace(/\/$/, ""));
 }
 
-module.exports = { hasOwnGit, isTreeMember, isTreePath, treeOf };
+module.exports = { hasOwnGit, isTreeFileOrDir, isTreeMember, treeOf };

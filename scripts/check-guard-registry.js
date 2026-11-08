@@ -203,9 +203,10 @@ const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
 const {
 	hasOwnGit,
 	isTreeMember,
-	isTreePath,
+	isTreeFileOrDir,
 	treeOf,
 } = require("./lib/tree-members.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const {
 	judgeCarry,
 	readMerge,
@@ -2355,17 +2356,25 @@ function checkNamedPaths(st, file, rule, guards) {
 	for (const g of guards) {
 		/* Under the root, else — where the root is no core tree at all —
 		 * under the CORE's: an adopter's rules name the core's guards, which
-		 * live in the plugin and are never copied into the repo (#5). */
-		if (!isTreePath(root, g) && (rootIsCore() || !isTreePath(CORE_ROOT, g))) {
-			/* Judged on the tree, not the disk (#4517): an un-added guard would
-			 * otherwise pass in the worktree holding it and fail in every other. */
-			const onDisk = fs.existsSync(path.join(root, g));
+		 * live in the plugin and are never copied into the repo (#5). The root
+		 * is judged on its tree and its disk (#4517): an un-added guard would
+		 * otherwise pass in the worktree holding it and fail in every other,
+		 * and a tracked one deleted there stays BROKEN-CLAIM. The core on disk
+		 * alone: a shipped plugin, which inside an adopter's commit hook git's
+		 * exported GIT_INDEX_FILE would answer for out of the adopter's index. */
+		const onDisk = (/** @type {string} */ base) =>
+			fs.existsSync(path.join(base, g));
+		if (
+			!(isTreeFileOrDir(root, g) && onDisk(root)) &&
+			(rootIsCore() || !onDisk(CORE_ROOT))
+		) {
+			const untracked = !isTreeFileOrDir(root, g) && onDisk(root);
 			reportRule(
 				st,
 				"BROKEN-CLAIM",
 				{ file, rule },
-				onDisk
-					? `names \`${g}\`, which is on disk but not in git's index — \`git add ${g}\``
+				untracked
+					? `names \`${g}\`, which is on disk but not in git's index — \`git add ${shellQuote(g)}\``
 					: `names \`${g}\`, which does not exist`,
 			);
 			continue;
@@ -2482,6 +2491,16 @@ function staleGuards(describedBy, implicitScripts, anchors) {
 	if (stale.length > 0) return [...new Set(stale)];
 	printLine(`No stale row: ${ANCHORS} left untouched.`);
 	process.exit(0);
+}
+
+/**
+ * Why `g` has no digest: untracked, with the command that stages it, or absent.
+ * @param {string} g
+ */
+function whyNoDigest(g) {
+	return !isTreeMember(root, g) && fs.existsSync(path.join(root, g))
+		? `on disk but not in git's index — \`git add ${shellQuote(g)}\``
+		: "file does not exist";
 }
 
 /**
@@ -4017,9 +4036,7 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	saveAnchors(next);
 	for (const g of missing)
 		printLine(
-			g in anchors
-				? `dropped ${g} — file does not exist`
-				: `skipped ${g} — file does not exist`,
+			`${g in anchors ? "dropped" : "skipped"} ${g} — ${whyNoDigest(g)}`,
 		);
 	// The count is what this run WROTE, not the file's size (mantahostels#2636).
 	const carried = Object.keys(next).length - written;

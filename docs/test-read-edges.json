@@ -566,12 +566,14 @@
 			"scripts/upgrade.test.ts"
 		],
 		".husky/commit-msg": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/check-commit-subject.test.ts",
 			"scripts/check-weakens-line.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/formatters.test.ts",
@@ -581,9 +583,11 @@
 			"scripts/prepare-commit-msg-gate.test.ts"
 		],
 		".husky/post-checkout": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/hook-bound.test.ts",
@@ -592,6 +596,7 @@
 			"scripts/session-checkout.test.ts"
 		],
 		".husky/post-commit": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/check-citation-tracker.test.ts",
@@ -606,6 +611,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/ci-runs.test.ts",
@@ -650,10 +656,12 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/post-merge": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/hook-bound.test.ts",
@@ -663,9 +671,11 @@
 			"scripts/session-checkout.test.ts"
 		],
 		".husky/pre-applypatch": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/commit-route.test.ts",
@@ -715,6 +725,7 @@
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -775,10 +786,12 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/pre-merge-commit": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/formatters.test.ts",
@@ -799,6 +812,7 @@
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/install-hooks.test.ts",
 			"scripts/landing-push-gate.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -817,10 +831,12 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/prepare-commit-msg": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/formatters.test.ts",
