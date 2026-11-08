@@ -118,7 +118,7 @@ const { lastTurn } = require("./lib/transcript.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { persisting: sharedPersisting } = require("./lib/persist-mode.js");
-const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
+const { reportOwner } = require("./lib/session-id.js");
 /* The judgement and the report, every reading below handed in (#1369). */
 const { DEGRADED, openedRecord, reap } = require("./lib/reaper.js");
 
@@ -473,7 +473,7 @@ function persistReport(notify, outcome, lines, startedMs) {
 		text,
 		durationMs: Date.now() - startedMs,
 		// The session whose start ran this hook, for scripts/deliver-to-session.js (#853).
-		owner: sessionFromEnv(),
+		owner: reportOwner(),
 	});
 	if (wrote) notify.closeRun(CHECKER);
 	// writeFd rather than console.log: this is a hook's pipe, and the run

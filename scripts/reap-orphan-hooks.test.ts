@@ -302,66 +302,75 @@ describe("a real process of an ended session", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
+	/** Start a real orphan of a gone session and sweep it, logging to `log`. */
+	function sweepEndedSession(log: string, args = ["--json"]) {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
+		spawnSync("git", ["init", "-q", dir]);
+		const res0 = spawnSync(
+			"bash",
+			[
+				"-c",
+				"setsid bash -c 'sleep 300 & wait' </dev/null >/dev/null 2>&1 & echo $!",
+			],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					CLAUDE_CODE_SESSION_ID: "sess-real-ended",
+					/* This worker: live to a real sweep elsewhere on the
+					 * machine, gone from the fake root below. */
+					CLAUDE_PID: String(process.pid),
+				},
+			},
+		);
+		pid = Number(res0.stdout.trim());
+		expect(pid).toBeGreaterThan(1);
+		expect(
+			waitFor(() =>
+				[...(readProcTable("/proc")?.procs.values() ?? [])].some(
+					(p) => p.ppid === pid && p.argv[0] === "sleep",
+				),
+			),
+		).toBe(true);
+		const live = readProcTable("/proc")?.procs ?? new Map();
+		const fake = makeProcRoot();
+		try {
+			for (const p of live.values())
+				if (p.pid === pid || p.ppid === pid) fake.real(p.pid);
+			const ppid = live.get(pid)?.ppid ?? 0;
+			if (ppid > 1) fake.real(ppid);
+
+			const res = run(
+				args,
+				{
+					WFC_PROC: fake.root,
+					WFC_REAP_FAKE_ROOT: "kill",
+					CLAUDE_PROJECT_DIR: dir,
+					WFC_SESSION_REAP_LOG: log.replace("<dir>", dir),
+				},
+				dir,
+			);
+
+			expect(res.status).toBe(0);
+			expect(waitFor(() => isGroupDead(pid))).toBe(true);
+			return res;
+		} finally {
+			fake.remove();
+		}
+	}
+
+	const logLines = (file: string) =>
+		fs
+			.readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+
 	it.runIf(orphansReapToInit())(
 		"is killed with its tree and logged naming its session (#4342)",
 		() => {
-			dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
-			spawnSync("git", ["init", "-q", dir]);
-			const res0 = spawnSync(
-				"bash",
-				[
-					"-c",
-					"setsid bash -c 'sleep 300 & wait' </dev/null >/dev/null 2>&1 & echo $!",
-				],
-				{
-					encoding: "utf8",
-					env: {
-						...process.env,
-						CLAUDE_CODE_SESSION_ID: "sess-real-ended",
-						/* This worker: live to a real sweep elsewhere on the
-						 * machine, gone from the fake root below. */
-						CLAUDE_PID: String(process.pid),
-					},
-				},
-			);
-			pid = Number(res0.stdout.trim());
-			expect(pid).toBeGreaterThan(1);
-			expect(
-				waitFor(() =>
-					[...(readProcTable("/proc")?.procs.values() ?? [])].some(
-						(p) => p.ppid === pid && p.argv[0] === "sleep",
-					),
-				),
-			).toBe(true);
-			const live = readProcTable("/proc")?.procs ?? new Map();
-			const fake = makeProcRoot();
-			try {
-				for (const p of live.values())
-					if (p.pid === pid || p.ppid === pid) fake.real(p.pid);
-				const ppid = live.get(pid)?.ppid ?? 0;
-				if (ppid > 1) fake.real(ppid);
-
-				const res = run(
-					["--json"],
-					{
-						WFC_PROC: fake.root,
-						WFC_REAP_FAKE_ROOT: "kill",
-						CLAUDE_PROJECT_DIR: dir,
-						WFC_SESSION_REAP_LOG: path.join(dir, "session-reaps.jsonl"),
-					},
-					dir,
-				);
-
-				expect(res.status).toBe(0);
-				expect(waitFor(() => isGroupDead(pid))).toBe(true);
-			} finally {
-				fake.remove();
-			}
-			const lines = fs
-				.readFileSync(path.join(dir, "session-reaps.jsonl"), "utf8")
-				.trim()
-				.split("\n")
-				.map((l) => JSON.parse(l));
+			sweepEndedSession("<dir>/session-reaps.jsonl");
+			const lines = logLines(path.join(dir, "session-reaps.jsonl"));
 			expect(lines).toEqual([
 				expect.objectContaining({
 					pid,
@@ -371,6 +380,33 @@ describe("a real process of an ended session", () => {
 				}),
 			]);
 			expect(lines[0].killed).toHaveLength(2);
+		},
+	);
+
+	/* A fresh machine has no ~/.local/state/workflow-core (#4706). */
+	it.runIf(orphansReapToInit())(
+		"makes a missing log directory and writes the line there",
+		() => {
+			const res = sweepEndedSession("<dir>/state/workflow-core/reaps.jsonl", [
+				"--notify",
+			]);
+			const log = path.join(dir, "state/workflow-core/reaps.jsonl");
+			expect(logLines(log)).toEqual([expect.objectContaining({ pid })]);
+			expect(res.stdout).toContain(`Killed, and logged to ${log}.`);
+		},
+	);
+
+	it.runIf(orphansReapToInit())(
+		"says the log write failed, naming the file, and never 'logged', where the line cannot be written",
+		() => {
+			const res = sweepEndedSession("<dir>/.git/HEAD/reaps.jsonl", [
+				"--notify",
+			]);
+			const log = path.join(dir, ".git/HEAD/reaps.jsonl");
+			expect(res.stdout).toContain(
+				`Killed, but the log write to ${log} failed`,
+			);
+			expect(res.stdout).not.toContain("logged to");
 		},
 	);
 });

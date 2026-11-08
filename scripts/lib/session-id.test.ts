@@ -59,3 +59,40 @@ describe("the reading side reads the hook payload", () => {
 		expect(sessionId.fromPayload(undefined)).toBe(null);
 	});
 });
+
+/* An outliving job is no session, yet its reports are owed to its starter
+ * (#4706); loosen the order and a daily run's report reaches nobody. */
+describe("the report owner", () => {
+	it("is the carried owner, ahead of the session id", () => {
+		expect(
+			sessionId.reportOwner({
+				WFC_REPORT_OWNER: "starter",
+				CLAUDE_CODE_SESSION_ID: "own",
+			}),
+		).toBe("starter");
+	});
+
+	it("is the session id where no owner is carried", () => {
+		expect(sessionId.reportOwner({ CLAUDE_CODE_SESSION_ID: "own" })).toBe(
+			"own",
+		);
+	});
+
+	it("is null where neither is set", () => {
+		expect(sessionId.reportOwner({ WFC_REPORT_OWNER: "" })).toBe(null);
+	});
+});
+
+describe("forgetSession", () => {
+	it("strips the session id, job dir and report owner, and nothing else", () => {
+		const env: Record<string, string | undefined> = {
+			CLAUDE_CODE_SESSION_ID: "own",
+			CLAUDE_JOB_DIR: "/jobs/x",
+			WFC_REPORT_OWNER: "starter",
+			CLAUDE_PID: "5000",
+		};
+		sessionId.forgetSession(env);
+		expect(env).toEqual({ CLAUDE_PID: "5000" });
+		expect(sessionId.reportOwner(env)).toBe(null);
+	});
+});

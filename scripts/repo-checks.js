@@ -111,7 +111,7 @@ const {
 } = require("./lib/repo-checks-carry");
 const { REPO_CHECKS, entryOf } = require("./lib/repo-checks-registry");
 const { coreRoot, scriptPath } = require("./lib/script-path");
-const { fromEnv: sessionFromEnv } = require("./lib/session-id");
+const { reportOwner } = require("./lib/session-id");
 const {
 	fileOrRefresh,
 	openTrackingIssue,
@@ -585,7 +585,7 @@ function writeNotifyReport(host, jobs, { startMs, result }) {
 		outcome: lines.length === 0 ? "OK" : "WARN",
 		text,
 		stamps,
-		owner: sessionFromEnv(),
+		owner: reportOwner(),
 		maxAgeMs: notify.LONG_STALE_MS,
 	});
 	if (!landed)

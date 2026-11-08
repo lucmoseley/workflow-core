@@ -31,7 +31,8 @@
  * EVERY KILL IS LOGGED, one JSON line in `.orphan-hook-reaps.jsonl` under the
  * canonical checkout's .claude/tmp/markers (lib/orphan-hooks.js's killReaps
  * writes its fields). Lines are kept
- * RETAIN_MS. An unwritable log costs the line, never the kill.
+ * RETAIN_MS. Each log's directory is made first. An unwritable log costs the
+ * line, never the kill, and the report then says the write failed.
  *
  * WFC_PROC REPLACES /proc (lib/proc-root.js). A run against it names
  * what it would kill and kills and logs nothing — unless WFC_REAP_FAKE_ROOT
@@ -46,7 +47,7 @@
  * runs at session start alone. A hook's child running a different script,
  * orphaned with its own parent gone, is not matched while its session lives.
  *
- * IMPLICIT:  at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to `~/.local/state/workflow-core/orphan-session-reaps.jsonl`; names each kill in the session; and at a session start names the kills that log holds that no start in this checkout has named, writing `.orphan-session-reaps-shown` under its markers.
+ * IMPLICIT:  at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to `~/.local/state/workflow-core/orphan-session-reaps.jsonl`, making that directory where it is missing; names each kill in the session; and at a session start names the kills that log holds that no start in this checkout has named, writing `.orphan-session-reaps-shown` under its markers.
  * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a session's worker left spinning at 80% CPU ran for eight hours unseen (2026-11-04, #4333); a run that cannot read /proc kills nothing.
  * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
  * TREE:      host — matches /proc against the hooks the main checkout registers
@@ -100,7 +101,7 @@ const RETAIN_MS = 30 * DAY_MS;
 /**
  * Name each of one part's kills as a finding and in the session.
  * @param {import("./lib/check").Ctx} ctx
- * @param {Array<import("./lib/orphan-hooks.js").Reap & { errors: string[] }>} done
+ * @param {Array<import("./lib/orphan-hooks.js").Reap & { errors: string[], logged: boolean }>} done
  * @param {Part} part
  * @param {{ fixture: boolean, logFile: string|null }} at
  */
@@ -122,8 +123,37 @@ function report(ctx, done, part, { fixture, logFile }) {
 	ctx.say(
 		fixture
 			? "\n  A fixture /proc root: nothing was killed or logged.\n"
-			: `\n  Killed, and logged to ${logFile ?? "nowhere: git names no canonical checkout"}.\n${part.trace}`,
+			: `\n  ${killedLine(done, logFile)}\n${part.trace}`,
 	);
+}
+
+/**
+ * Where a part's kills were recorded: "logged" only for lines written.
+ * @param {Array<{ logged: boolean }>} done @param {string|null} logFile
+ */
+function killedLine(done, logFile) {
+	if (logFile === null)
+		return "Killed, and logged nowhere: git names no canonical checkout.";
+	const unlogged = done.filter((r) => !r.logged).length;
+	if (unlogged === 0) return `Killed, and logged to ${logFile}.`;
+	return unlogged === done.length
+		? `Killed, but the log write to ${logFile} failed: no line records these kills.`
+		: `Killed; the log write to ${logFile} failed for ${unlogged} of ${done.length}, and only the rest are logged.`;
+}
+
+/**
+ * One kill's line appended to `log`, its directory made first, which a fresh
+ * machine's `~/.local/state` lacks (#4706); false where it was not written.
+ * @param {string|null} log @param {Record<string, unknown>} entry
+ */
+function appendLog(log, entry) {
+	if (log === null) return false;
+	try {
+		fs.mkdirSync(path.dirname(log), { recursive: true });
+	} catch {
+		return false;
+	}
+	return appendRetained(log, entry, RETAIN_MS);
 }
 
 /* Under a canonical checkout's markers: the `at` of the newest session kill
@@ -145,7 +175,14 @@ function unseenSessionKills(canonical, log) {
 	} catch {
 		/* none yet */
 	}
-	const rows = (readJsonl(log)?.rows ?? []).filter(
+	let read;
+	try {
+		read = readJsonl(log);
+	} catch {
+		/* An unreadable log names nothing here; the kills still go ahead. */
+		read = null;
+	}
+	const rows = (read?.rows ?? []).filter(
 		(r) => typeof r.at === "string" && r.at > since,
 	);
 	return { rows, stamp };
@@ -232,7 +269,7 @@ runCheck({
 				: killReaps(planned, {
 						root,
 						kill: killPid,
-						log: (entry) => appendRetained(log, entry, RETAIN_MS),
+						log: (entry) => appendLog(log, entry),
 					});
 		const at = { fixture, logFile };
 		/* Read before this run's own kills, which it names itself. */

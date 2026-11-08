@@ -84,7 +84,7 @@ const path = require("node:path");
  * mantahostels#2252 so the two cannot drift. What the mode is and why the gate is spelled
  * as it is: lib/persist-mode.js's header. */
 const { persisting } = require("./persist-mode.js");
-const { fromEnv: sessionFromEnv } = require("./session-id.js");
+const { reportOwner } = require("./session-id.js");
 const { ENVELOPE_FRAME_KEYS } = require("./envelope-frame-keys.js");
 const { isUnder } = require("./is-under.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
@@ -1293,7 +1293,7 @@ function persistCrash(name, summary) {
 		const wrote = notify.writeReport(key, {
 			outcome: "BROKEN",
 			text: `${summary}\n`,
-			owner: sessionFromEnv(),
+			owner: reportOwner(),
 		});
 		// CLOSED ONLY WHERE THE REPORT LANDED. Closing after a failed write
 		// leaves no report AND no open record: the run vanishes, which is
@@ -1811,7 +1811,7 @@ function persistReport(spec, outcome, result, persist) {
 		maxAgeMs: result.maxAgeMs,
 		durationMs: performance.now() - persist.startedAtMono,
 		// The session whose start ran this hook, for scripts/deliver-to-session.js (#853).
-		owner: sessionFromEnv(),
+		owner: reportOwner(),
 	});
 	// Closed only where the report landed, for persistCrash's reason. The
 	// stdout fallback below reaches a hand run alone — the async hook discards

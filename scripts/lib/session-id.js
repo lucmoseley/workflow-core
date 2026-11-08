@@ -33,17 +33,46 @@ function fromPayload(input) {
 	return input?.session_id || null;
 }
 
+/* The session a notify report is owed to, set by the outliving launch on a
+ * job that is no session's process (#4706). */
+const REPORT_OWNER = "WFC_REPORT_OWNER";
+
+/**
+ * The session a notify report names as its owner: the starter an outliving
+ * job carries, else this process's own session. Never read for liveness or
+ * self-exclusion, which want `fromEnv`.
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {string|null}
+ */
+function reportOwner(env = process.env) {
+	return env[REPORT_OWNER] || fromEnv(env);
+}
+
+/** The keys `forgetSession` strips, which lib/detach.sh's `outlive` mirrors. */
+const FORGOTTEN_KEYS = Object.freeze([
+	"CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_JOB_DIR",
+	REPORT_OWNER,
+]);
+
 /**
  * Strip the session identity from `env` in place, for a detached loop that is
  * no session: it outlives the one that started it. Under that one's id the
  * reaper spares the wrong session and admission's liveness self-test refuses
  * every reading once it ends (#2046); under its job dir a child's scratch
- * lands in a directory swept with it.
+ * lands in a directory swept with it; under a report owner its reports reach
+ * whichever session started it (#4706).
  * @param {Record<string, string|undefined>} env
  */
 function forgetSession(env) {
-	delete env.CLAUDE_CODE_SESSION_ID;
-	delete env.CLAUDE_JOB_DIR;
+	for (const key of FORGOTTEN_KEYS) delete env[key];
 }
 
-module.exports = { fromEnv, fromPayload, forgetSession };
+module.exports = {
+	fromEnv,
+	fromPayload,
+	reportOwner,
+	forgetSession,
+	FORGOTTEN_KEYS,
+	REPORT_OWNER,
+};
