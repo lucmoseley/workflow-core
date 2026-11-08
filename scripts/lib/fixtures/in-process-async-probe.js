@@ -15,11 +15,17 @@
  */
 
 const fs = require("node:fs");
+const { sleepSync } = require("../sleep-sync.js");
 const shared = require("./in-process-probe-modes.js");
 
 const [mode, arg] = process.argv.slice(2);
 const say = (/** @type {string} */ text) => fs.writeSync(1, `${text}\n`);
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+/* Kept over run-in-process.js's SETTLE_MS of 200, so the stall outlasts it. */
+const STALL_MS = 400;
+/* Unmeasured guess: under SETTLE_MS, so the close lands inside the settle. */
+const CLOSE_AFTER_MS = 20;
 
 /** @type {Record<string, (argv: string[]) => Promise<number | void>>} */
 const modes = {
@@ -58,6 +64,16 @@ const modes = {
 	},
 	ran: async () => {
 		say("ran once");
+	},
+	/* refill-loop.js's `run` (#4108): a watcher closed, then its loop turn
+	 * stalled past run-in-process.js's SETTLE_MS, as a loaded machine stalls
+	 * one. The timer lands both inside the settle the harness has begun. */
+	"close-watcher-stalled": async () => {
+		const watcher = fs.watch(process.cwd());
+		setTimeout(() => {
+			watcher.close();
+			sleepSync(STALL_MS);
+		}, CLOSE_AFTER_MS);
 	},
 	/* run-in-process.test.ts's takeover cases: a call that outlives the one
 	 * that takes it over as stale. */
