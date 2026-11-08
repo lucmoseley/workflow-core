@@ -6,7 +6,9 @@
  * caller narrow the live set on a partial read and break a live session's claim
  * (lucmoseley/mantahostels#512).
  *
- * A fake `claude` on WFC_CLAUDE_BIN stands in for the daemon. `isListedLive`,
+ * A fake `claude` on WFC_CLAUDE_BIN stands in for the daemon, except where a
+ * case counts the retry's attempts or caps: there `opts.run` stands in for the
+ * read, so no real child races a cap of milliseconds (#4411). `isListedLive`,
  * a pure predicate, is tested in process at the end.
  */
 
@@ -116,29 +118,36 @@ describe("the binary will not run", () => {
 });
 
 /*
- * A `claude` stand-in that HANGS on its first `hangs` calls and answers `body`
- * after that, counting every call in a file. The count is what pins "exactly
- * one retry": a caller that looped would drive it past 2.
+ * A `claude` stand-in that hangs on every call.
  *
- * `exec sleep` matters — execFileSync's timeout signals the process it spawned,
- * and a plain `sleep` would leave the shell to be signalled while the sleep ran
- * on, so the fake would outlive the test.
+ * `exec sleep` matters — the cap signals the process it spawned, and a plain
+ * `sleep` would leave the shell to be signalled while the sleep ran on, so the
+ * fake would outlive the test.
  */
-function hangingClaude(body: string, hangs: number) {
-	const count = path.join(dir, "calls");
-	const bin = writeClaudeStub(
-		path.join(dir, "claude"),
-		[
-			`n=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)`,
-			"n=$((n + 1))",
-			`echo $n > ${shellQuote(count)}`,
-			`[ $n -le ${hangs} ] && exec sleep 30`,
-			`cat <<'EOF'\n${body}\nEOF`,
-		],
-		0,
-	);
+function hangingClaude() {
+	const bin = writeClaudeStub(path.join(dir, "claude"), ["exec sleep 30"]);
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
-	return () => Number(fs.readFileSync(count, "utf8").trim());
+}
+
+/*
+ * A stand-in for runOracle, passed as `opts.run`, that throws `failure` (a
+ * timeout unless given) on its first `hangs` calls and answers a listing after
+ * that, recording each call's cap. The count pins "exactly one retry".
+ */
+function fakeRun(
+	hangs: number,
+	failure: () => Error = () =>
+		Object.assign(new Error("spawnSync /bin/sh ETIMEDOUT"), {
+			code: "ETIMEDOUT",
+		}),
+) {
+	const caps: number[] = [];
+	const run = (_bin: string, timeoutMs: number, dirs: string[]) => {
+		caps.push(timeoutMs);
+		if (caps.length <= hangs) throw failure();
+		return dirs.map(() => listing("aaaa"));
+	};
+	return { caps, run };
 }
 
 describe("the oracle times out (mantahostels#1900)", () => {
@@ -150,54 +159,48 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	});
 
 	it("retries once and answers, so a load spike does not refuse the caller", () => {
-		const calls = hangingClaude(listing("aaaa"), 1);
-		const r = liveness.listedAgents();
+		const { caps, run } = fakeRun(1);
+		const r = liveness.listedAgents({ run });
 		expect(r.why).toBeUndefined();
 		expect(r.agents.map((a: { sessionId: string }) => a.sessionId)).toEqual([
 			"aaaa",
 		]);
-		expect(calls()).toBe(2);
+		expect(caps).toHaveLength(2);
 	});
 
 	it("retries exactly once, never looping", () => {
-		const calls = hangingClaude(listing("aaaa"), 5);
-		liveness.listedAgents();
-		expect(calls()).toBe(2);
+		const { caps, run } = fakeRun(5);
+		liveness.listedAgents({ run });
+		expect(caps).toHaveLength(2);
+	});
+
+	it("gives the retry the longer cap, not the first attempt's", () => {
+		const { caps, run } = fakeRun(5);
+		expect(liveness.listedAgents({ run }).why).toContain(
+			"twice, the retry given 600 ms",
+		);
+		expect(caps).toEqual([300, 600]);
+	});
+
+	it("does not retry a failure that is not a timeout", () => {
+		const { caps, run } = fakeRun(5, () =>
+			Object.assign(new Error("claude agents --json failed"), { status: 3 }),
+		);
+		const r = liveness.listedAgents({ run });
+		expect(r.why).toContain("exit 3");
+		expect(r.why).not.toContain("twice");
+		expect(caps).toHaveLength(1);
 	});
 
 	it("refuses when the retry times out too, naming the longer cap", () => {
-		hangingClaude(listing("aaaa"), 5);
+		// §X9: a process timeout: the one case crossing spawnSync's real cap, so
+		// the fake's ETIMEDOUT above is what a hung child really throws. The fake
+		// sleeps far past both caps, so the cap fires however slowly it starts.
+		hangingClaude();
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("would not run (ETIMEDOUT)");
 		expect(r.why).toContain("twice, the retry given 600 ms");
-	});
-
-	it("gives the retry the longer cap, not the first attempt's", () => {
-		// The fake sleeps far past both caps, so a retry capped at 300 ms would
-		// return before 600 ms elapsed. 300+600 is the floor for the honest path.
-		hangingClaude(listing("aaaa"), 5);
-		const started = Date.now();
-		liveness.listedAgents();
-		// §X9: a process timeout: the caps bound a real hung child, and this floor proves the retry got the longer one.
-		expect(Date.now() - started).toBeGreaterThanOrEqual(850);
-	});
-
-	it("does not retry a failure that is not a timeout", () => {
-		const count = path.join(dir, "calls");
-		const bin = writeClaudeStub(
-			path.join(dir, "claude"),
-			[
-				`n=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)`,
-				`echo $((n + 1)) > ${shellQuote(count)}`,
-			],
-			3,
-		);
-		vi.stubEnv("WFC_CLAUDE_BIN", bin);
-		const r = liveness.listedAgents();
-		expect(r.why).toContain("exit 3");
-		expect(r.why).not.toContain("twice");
-		expect(Number(fs.readFileSync(count, "utf8").trim())).toBe(1);
 	});
 
 	it("leaves no child of the oracle behind it, on any seat's read (#2665)", async () => {
@@ -252,19 +255,18 @@ describe("a hook's time budget (#4115)", () => {
 	it("cuts a hung read to what the budget leaves, and does not retry it", () => {
 		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "5000");
 		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "10000");
-		const calls = hangingClaude(listing("aaaa"), 5);
+		const { caps, run } = fakeRun(5);
 		const { loaded, drop } = withStopClockLeft(
 			["./oracle-cache.js", "./agent-liveness.js"],
 			400,
 		);
 		try {
 			const [, fresh] = loaded;
-			const started = Date.now();
-			const r = fresh.listedAgents();
-			expect(r.why).toContain("inside the hook's time budget");
-			expect(calls()).toBe(1);
-			// §X9: a process timeout: the 400 ms left, not the 5 s cap, bounds the hung child.
-			expect(Date.now() - started).toBeLessThan(5000);
+			expect(fresh.listedAgents({ run }).why).toContain(
+				"inside the hook's time budget",
+			);
+			expect(caps).toHaveLength(1);
+			expect(caps[0]).toBeLessThanOrEqual(400);
 		} finally {
 			drop();
 		}
