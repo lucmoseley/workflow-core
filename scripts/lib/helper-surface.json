@@ -16,6 +16,7 @@
 			"releaseClaim"
 		],
 		"scripts/lib/guard-log.sh": ["gl_log"],
+		"scripts/lib/hook-envelope.js": ["envelope"],
 		"scripts/lib/precommit-gate-harness.js": [
 			"cutGateFragment",
 			"cutGateScript",
@@ -25,6 +26,7 @@
 		],
 		"scripts/lib/precommit-gate.sh": ["staged_gate"],
 		"scripts/lib/project_slug.py": ["slug_for_repo"],
+		"scripts/lib/read-fd.js": ["readFdAll"],
 		"scripts/lib/run-in-process.js": ["runInProcess", "runInProcessAsync"],
 		"scripts/lib/test-ceiling.js": ["TEST_TIMEOUT_MS"],
 		"scripts/lib/write-fd.js": ["writeFd"],

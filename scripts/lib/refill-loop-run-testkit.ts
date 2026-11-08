@@ -126,9 +126,6 @@ const SANDBOX_FILES = [
 	...new Set([
 		"../refill-loop.js",
 		...readProgramLibs("refill-loop.js"),
-		/* Spawned by path, not required: lib/agent-liveness.js runs the listing
-		 * through it, which reads unread without it. */
-		"list-agents.js",
 		/* Read by path: a headless resume's appended contract (#4580). */
 		"headless-contract.md",
 		/* Spawned by path: the resume typed into a live session (#2705). */

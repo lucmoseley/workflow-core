@@ -799,18 +799,20 @@ describe("a tick's store resolution (#4398)", () => {
 		expect(countTickForks((calls) => calls())).toBeGreaterThan(2);
 	});
 
-	it("asks git again on each call where it will not name the common dir, so a repair inside a tick keys anew", () => {
+	it("asks git once a tick where it will not name the common dir, and again on the next, so a repair keys anew", () => {
 		const counter = writeFaultyGit(
 			{ words: ["--git-common-dir"] },
 			{ exit: 128 },
 			{ under: dir },
 		);
 		vi.stubEnv("WFC_GIT", counter.git);
+		const twice = () => {
+			holds.holdsDir(repo);
+			holds.holdsDir(repo);
+		};
 
-		holds.withTickStores(() => {
-			holds.holdsDir(repo);
-			holds.holdsDir(repo);
-		});
+		holds.withTickStores(twice);
+		holds.withTickStores(twice);
 
 		expect(counter.hits()).toBe(2);
 	});

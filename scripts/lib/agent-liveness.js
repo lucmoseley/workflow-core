@@ -71,8 +71,9 @@
  * fault answering `[]` there (#2180) reads as no background session live.
  */
 
-const { execFileSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { sessionDirs } = require("./arbiter-core.js");
 const { realKey } = require("./deref.js");
@@ -80,6 +81,8 @@ const cache = require("./oracle-cache");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
+const { killGroup } = require("./grouped-child.js");
+const { buildSeatEnv } = require("./seat-claude.js");
 const headless = require("./headless-runs.js");
 
 /**
@@ -158,12 +161,46 @@ function capMs(env, fallback) {
 	return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/* Each read runs in a process group of its own, so a capped read kills every
- * child, not the runner alone (#2665). */
-const LIST_AGENTS = path.join(__dirname, "list-agents.js");
+/*
+ * Every dir's read, all at once, as background jobs of one shell: each stdout
+ * to its own file, capped at the output cap by the shell's file-size limit,
+ * then the first failed read's status, else 0. A binary missing, a directory or
+ * not executable exits 127 with the spawn code a direct spawn would give, alone
+ * on stderr; one that passes those checks and still will not start (a missing
+ * shebang interpreter) reads as its exit status instead.
+ *
+ * WHY IN PARALLEL. Serially the reads cost the sum of three or four CLI starts
+ * against the 10 s cap.
+ * WHY A SHELL. A synchronous spawn cannot run children in parallel, and a
+ * second node is the costlier start (#4609).
+ */
+const READ_EVERY_DIR = `
+out=$1 bin=$2 blocks=$3
+shift 3
+case $bin in
+*/*)
+	[ -e "$bin" ] || { printf ENOENT >&2; exit 127; }
+	[ -f "$bin" ] && [ -x "$bin" ] || { printf EACCES >&2; exit 127; } ;;
+*) command -v "$bin" >/dev/null 2>&1 || { printf ENOENT >&2; exit 127; } ;;
+esac
+ulimit -f "$blocks"
+i=0
+pids=
+for dir; do
+	CLAUDE_CONFIG_DIR=$dir "$bin" agents --json >"$out/$i" 2>/dev/null &
+	pids="$pids $!"
+	i=$((i + 1))
+done
+first=0
+for pid in $pids; do
+	wait "$pid"
+	status=$?
+	[ "$first" -ne 0 ] || first=$status
+done
+exit "$first"
+`;
 
-/* A guess: the runner's own ceiling, as a multiple of the cap `runOracle` sets. */
-const BACKSTOP_FACTOR = 2;
+const OVER_CAP_STATUS = 128 + os.constants.signals.SIGXFSZ;
 
 /**
  * The config dirs the oracle is read in: this caller's own, then every other
@@ -188,38 +225,70 @@ function oracleCacheKey(bin = claudeBin(), dirs = oracleDirs()) {
 }
 
 /**
- * One oracle call per dir, all at once and capped together, answering the
- * runner's stdout: a JSON array of each dir's stdout, in `dirs` order.
- * Exported so every other caller of the oracle kills the same groups on its
- * cap.
+ * One oracle call per dir, all at once and capped together, answering each
+ * dir's stdout in `dirs` order. The shell runs in a process group of its own,
+ * killed whole once it ends, so a capped read kills every child it started,
+ * not the shell alone (#2665). Exported so every other caller of the oracle
+ * kills the same group on its cap.
+ *
+ * RESIDUAL: the group is its own, so a kill of this caller's group misses it,
+ * and a caller killed mid-read leaves its reads and their temp dir behind until
+ * each read ends.
  *
  * @param {string} bin
  * @param {number} timeoutMs
  * @param {string[]} dirs
- * @returns {string}
+ * @returns {string[]}
  */
 function runOracle(bin, timeoutMs, dirs) {
+	/* Each job sets its own dir; the first seat's env stands for every seat's. */
+	const [seat] = dirs;
+	if (seat === undefined) throw new Error("runOracle was given no config dir");
+	const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "oracle-"));
+	/* Node honours `detached` on a synchronous spawn, undocumented and missing
+	 * from its types; the suite's leftover-children case fails should that stop. */
+	/** @type {import("node:child_process").SpawnSyncOptionsWithStringEncoding & {detached: boolean}} */
+	const opts = {
+		detached: true,
+		encoding: "utf8",
+		timeout: timeoutMs,
+		stdio: ["ignore", "ignore", "pipe"],
+		env: buildSeatEnv(process.env, seat),
+	};
 	try {
-		return execFileSync(
-			process.execPath,
-			/* This cap fires first, so a timeout reads ETIMEDOUT here and earns the
-			 * retry. */
-			[LIST_AGENTS, String(timeoutMs * BACKSTOP_FACTOR), bin, ...dirs],
-			{
-				encoding: "utf8",
-				timeout: timeoutMs,
-				stdio: ["ignore", "pipe", "pipe"],
-				maxBuffer: CHILD_MAX_BUFFER,
-			},
+		const r = spawnSync(
+			"/bin/sh",
+			[
+				"-c",
+				READ_EVERY_DIR,
+				"sh",
+				outDir,
+				bin,
+				String(Math.floor(CHILD_MAX_BUFFER / 512) + 1),
+				...dirs,
+			],
+			opts,
 		);
-	} catch (e) {
-		/* A binary that would not start is named by its spawn code, as a
-		 * direct spawn names it. */
-		const { status, stderr, code } = caught(e);
-		const spawnCode = String(stderr ?? "").trim();
-		if (!code && status === 127 && /^E[A-Z]+$/.test(spawnCode))
+		if (r.pid) killGroup(r.pid, "SIGKILL");
+		if (r.error) throw r.error;
+		const overCap = Object.assign(new Error("stdout over the buffer cap"), {
+			code: "ENOBUFS",
+		});
+		if (r.status === OVER_CAP_STATUS) throw overCap;
+		const spawnCode = r.stderr.trim();
+		if (r.status === 127 && /^E[A-Z]+$/.test(spawnCode))
 			throw Object.assign(new Error(spawnCode), { code: spawnCode });
-		throw e;
+		if (r.status !== 0)
+			throw Object.assign(new Error(`${bin} agents --json failed`), {
+				status: r.status,
+			});
+		return dirs.map((_, i) => {
+			const file = path.join(outDir, String(i));
+			if (fs.statSync(file).size > CHILD_MAX_BUFFER) throw overCap;
+			return fs.readFileSync(file, "utf8");
+		});
+	} finally {
+		fs.rmSync(outDir, { recursive: true, force: true });
 	}
 }
 
@@ -244,29 +313,21 @@ function parseListing(raw, call) {
 }
 
 /**
- * The runner's per-dir stdouts as one JSON array, the first record per
+ * The per-dir stdouts as one JSON array, the first record per
  * session id kept, unless it is terminal and a later one is not: a session
  * moved between seats reads live though its old seat's dir leads (#3734). `{why}`
  * where any one is not an array. A record with no id is kept for
  * `mergedListing` to judge.
  *
- * @param {string} out  the runner's stdout
+ * @param {string[]} stdouts  runOracle's
  * @param {string} call
  * @returns {{raw: string} | {why: string}}
  */
-function unionOf(out, call) {
-	let raws;
-	try {
-		raws = JSON.parse(out);
-	} catch {
-		raws = null;
-	}
-	if (!Array.isArray(raws) || !raws.every((r) => typeof r === "string"))
-		return { why: `${call} gave no listing per dir` };
+function unionOf(stdouts, call) {
 	/* `any`, as parseListing's records are. */
 	/** @type {any[]} */
 	const all = [];
-	for (const raw of raws) {
+	for (const raw of stdouts) {
 		const parsed = parseListing(raw, call);
 		if ("why" in parsed) return parsed;
 		all.push(...parsed.agents);
