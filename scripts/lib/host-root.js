@@ -148,6 +148,20 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 }
 
 /**
+ * `hostRoot()`, adopted as this process's host: `CLAUDE_PROJECT_DIR` is
+ * pointed at it, so every child the run launches, a shell or Python half or a
+ * raw reader of the variable among them, answers the same main checkout. For a
+ * run launched in a linked worktree that reads the main checkout's stores
+ * (#1555, #4483, #4486).
+ * @returns {string}
+ */
+function adoptHostRoot() {
+	const root = hostRoot();
+	process.env.CLAUDE_PROJECT_DIR = root;
+	return root;
+}
+
+/**
  * The main checkout owning a declared `CLAUDE_PROJECT_DIR`, or that directory
  * itself: where its `.git` is no file, so no linked worktree, and where git
  * will not answer.
@@ -309,6 +323,7 @@ function resolveCommitHost(cwd = process.cwd()) {
 }
 
 module.exports = {
+	adoptHostRoot,
 	gitTopLevel,
 	hostRoot,
 	resolveCommitHost,

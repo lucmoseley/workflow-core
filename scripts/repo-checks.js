@@ -91,7 +91,7 @@ const { errMessage, now } = require("./lib/check");
 const { parseEnvelope } = require("./lib/check-envelope");
 /* Aliased: lib/check.js exports a smaller MAX_BUFFER of its own. */
 const { parseErrLine, MAX_BUFFER: GH_MAX_BUFFER } = require("./lib/gh");
-const { hostRoot } = require("./lib/host-root");
+const { adoptHostRoot } = require("./lib/host-root");
 const {
 	readDeliveredKeys,
 	isCompleted,
@@ -99,7 +99,6 @@ const {
 	judgeKeys,
 	keysOf,
 } = require("./lib/key-delta");
-const { checkoutOfCommonDir } = require("./lib/main-checkout");
 const notify = require("./lib/notify-report");
 const { isCoreHost } = require("./lib/plugin-state");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
@@ -713,33 +712,10 @@ function writeStandingIssue(host, jobs, { file, startMs }) {
 	}
 }
 
-/**
- * The checkout a reading belongs to: the main one where `launched` is a
- * linked worktree of it (#1555). A bare repo or a submodule, whose common
- * directory is not a `.git` beside a checkout, keeps `launched`.
- * @param {string} launched
- * @param {string} gitCommonDir
- * @returns {string}
- */
-function readingRoot(launched, gitCommonDir) {
-	const checkout = checkoutOfCommonDir(gitCommonDir);
-	if (checkout === null) return launched;
-	try {
-		return fs.realpathSync(checkout);
-	} catch (e) {
-		/* Fails open to the launching checkout (#1555): a reading of it beats
-		 * none, and the next day's reading retries the redirect. */
-		logError(WHERE, `could not resolve the main checkout: ${errMessage(e)}`);
-		return launched;
-	}
-}
-
 function main() {
 	try {
-		const launched = hostRoot();
-		const dir = gitCommonDirOrThrow(launched);
-		const root = readingRoot(launched, dir);
-		if (root !== launched) process.env.CLAUDE_PROJECT_DIR = root;
+		const root = adoptHostRoot();
+		const dir = gitCommonDirOrThrow(root);
 		/* The standing issue's gh calls find the tracker from here, as the
 		 * reporters' do from the cwd they are launched in (#1554):
 		 * lib/tracking-issue.js's fileOrRefresh and refresh take no cwd. */

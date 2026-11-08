@@ -146,16 +146,6 @@ const ALLOWED = {
 		reason:
 			"the adopter's bootstrap, run before the core is found, so it cannot require the seam; it wants the main checkout the plugin was installed for, not a worktree's top level, and must answer with no harness variable set (#461)",
 	},
-	"scripts/repo-checks.js": {
-		tags: ["SECOND-SEAM-JS"],
-		reason:
-			"writes the seam, never reads it: it re-points CLAUDE_PROJECT_DIR at the main checkout for itself and every check it launches, so a daily run started in a linked worktree reads and reports for the main one (#1555)",
-	},
-	"scripts/check-orphaned-edits.js": {
-		tags: ["SECOND-SEAM-JS"],
-		reason:
-			"writes the seam, never reads it: it re-points CLAUDE_PROJECT_DIR at the main checkout for the rest of its run, so a session launched in a linked worktree reads the main checkout's stores and does not file that worktree's live dirt as the main checkout's (#4483)",
-	},
 	"scripts/lib/git-tree.js": {
 		tags: ["SECOND-SEAM-JS"],
 		reason:
