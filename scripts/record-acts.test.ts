@@ -16,7 +16,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { freshSandbox, gitRepo, store } from "./lib/arbiter-testkit";
+import { commitAll, freshSandbox, gitRepo, store } from "./lib/arbiter-testkit";
+import { cutWorktree } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	guardOutput,
@@ -47,17 +48,21 @@ const fire = (
 		stderr = "",
 		stdin,
 		env = {},
+		cwd,
 	}: {
 		session?: string | null;
 		stderr?: string;
 		stdin?: string;
 		env?: NodeJS.ProcessEnv;
+		/** The payload's `cwd`, absent from it where unset. */
+		cwd?: string;
 	} = {},
 ) =>
 	guardOutput(
 		"/bin/bash",
 		{
 			...buildBashPayload(command, session),
+			...(cwd === undefined ? {} : { cwd }),
 			hook_event_name: "PostToolUse",
 			tool_response: { stdout: "", stderr },
 		},
@@ -116,6 +121,15 @@ describe("each exit", () => {
 	it("reads a round from a --body-file on disk", () => {
 		fs.writeFileSync(path.join(sb.repo, "c.md"), ROUND);
 		fire("gh issue comment 5 --body-file c.md");
+		expect(readActs()).toEqual(["round owner/repo#5"]);
+	});
+
+	it("reads a --body-file in the payload's linked worktree, recording into the main checkout's store (#4271)", () => {
+		fs.writeFileSync(path.join(sb.repo, "seed"), "");
+		commitAll(sb);
+		const wt = cutWorktree(sb.repo);
+		fs.writeFileSync(path.join(wt, "c.md"), ROUND);
+		fire("gh issue comment 5 --body-file c.md", { cwd: wt });
 		expect(readActs()).toEqual(["round owner/repo#5"]);
 	});
 });

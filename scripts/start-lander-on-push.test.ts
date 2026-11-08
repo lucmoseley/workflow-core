@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { mkScratchDir } from "./lib/git-fixture";
+import { cutWorktree, mkScratchDir } from "./lib/git-fixture";
 import { buildBashPayload, spawnGuard } from "./lib/pretool-guard-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -135,5 +135,26 @@ it("starts nothing after a push to another ref or a dry run, or with the module 
 	 * pushes above made has had its chance to land first. */
 	expect(run("git push origin HEAD:queue/q1").status).toBe(0);
 
+	expect(await launchRecorded()).toHaveLength(1);
+});
+
+it("reads a bare push's branch in the payload's linked worktree, not the main checkout it runs from (#4271)", async () => {
+	const wt = cutWorktree(repo);
+	execFileSync("git", ["switch", "-q", "-c", "queue/q1"], { cwd: wt });
+	fs.writeFileSync(gate, "");
+
+	const r = spawnGuard(
+		HOOK,
+		{ ...buildBashPayload("git push"), cwd: wt },
+		{
+			project: repo,
+			config: path.join(dir, "config"),
+			cwd: repo,
+			env: { PATH: `${stubs}:${process.env.PATH}`, WFC_MODULES: "landing" },
+			timeout: HOOK_TIMEOUT_MS,
+		},
+	);
+
+	expect(r.status, r.stderr).toBe(0);
 	expect(await launchRecorded()).toHaveLength(1);
 });

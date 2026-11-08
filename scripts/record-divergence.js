@@ -20,7 +20,7 @@
  *            established.
  * DEFEAT:    WFC_NO_DIVERGENCE_LOG=1 — recording stops entirely. There is no
  *            partial setting.
- * TREE:      session — counts the refused pull or push's own checkout, the payload's cwd or its `-C`, against its pushed ref; the log lands under that checkout's project slug, which divergence-report.js reads with every other
+ * TREE:      session — counts the refused pull or push's own checkout, host-root.js's sessionDir or its `-C`, against its pushed ref; the log lands under that checkout's project slug, which divergence-report.js reads with every other
  * Overrides (test seams): WFC_PS, WFC_NOW.
  *
  * In no §N3 family: it refuses nothing, and `guard-*` names a hook that can
@@ -67,7 +67,9 @@
  *  - Wired with `if: Bash(git *)`, so it is not run unless the command leads
  *    with `git` — which is why the wrapper blind spot below costs nothing extra:
  *    a `timeout git pull` reaches neither the narrowing nor the walk.
- *  - The command's own cwd is the payload's `.cwd`. A CROSS-REPO `git -C` IS
+ *  - The command's own cwd is the payload's `.cwd`, the hook's own only where
+ *    it carries none; one that is no directory drops the row, so a refusal
+ *    whose cwd was removed goes unrecorded (#4271). A CROSS-REPO `git -C` IS
  *    FOLLOWED, as is a `cd` before the git call, because unfollowed it does not
  *    fail visibly: the row lands under the SESSION's repo with that repo's
  *    counts, so a refusal elsewhere reads as `level` — a state at which a

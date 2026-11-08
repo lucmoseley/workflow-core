@@ -78,7 +78,7 @@
  *            refuses a `result:` or `needs input:` turn while this session
  *            holds a whole-file claim on a clean file.
  * JUSTIFIED: fail-safe — an unattended job that stops mid-edit leaves the work
- *            unrecoverable-by-anyone-else for hours, and the fix is one command.
+ *            unrecoverable-by-anyone-else for hours.
  * DEFEAT:    this file caps the block at six per session (`BLOCK_CAP`, mantahostels#2791),
  *            so a session that genuinely cannot commit — a red pre-commit
  *            gate — is taught and then released rather than
