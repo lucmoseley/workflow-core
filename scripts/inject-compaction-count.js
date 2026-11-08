@@ -60,6 +60,7 @@ const { readClaimedIssues } = require("./lib/arbiter-issue-claims");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
+const { envelope } = require("./lib/hook-envelope.js");
 
 const TRIGGER_PREFIX = ".compaction-trigger-";
 
@@ -177,12 +178,7 @@ function main(raw) {
 	const text = afterCompaction(payload, sid);
 	if (text)
 		process.stdout.write(
-			JSON.stringify({
-				hookSpecificOutput: {
-					hookEventName: "SessionStart",
-					additionalContext: text,
-				},
-			}),
+			JSON.stringify(envelope("SessionStart", { additionalContext: text })),
 		);
 }
 
