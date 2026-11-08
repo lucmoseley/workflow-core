@@ -75,6 +75,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { isCoreHost } = require("./lib/plugin-state");
 const { isCodeApartFromTracker } = require("./lib/workflow-core-config.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /* The host repository's own `.github/workflows` (#1) — never `__dirname`,
  * which in a plugin install names the plugin cache, not the repo whose
@@ -389,7 +390,6 @@ function run(ctx) {
 
 runCheck({
 	name: "check-workflow-permissions",
-	usage:
-		"node scripts/check-workflow-permissions.js [<workflows-dir>] [--warn] [--json]",
+	usage: `node ${scriptPath("check-workflow-permissions.js")} [<workflows-dir>] [--warn] [--json]`,
 	run,
 });

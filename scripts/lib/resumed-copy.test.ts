@@ -143,6 +143,19 @@ describe("findResumed, a copy", () => {
 		expect(find()).toBeNull();
 	});
 
+	it("says it could not tell where a job record will not read (#4704)", () => {
+		writeJob("c0de7a11", "c0de7a11-s");
+		const rec = path.join(seat, "jobs", "c0de7a11", "state.json");
+		fs.chmodSync(rec, 0o000);
+		try {
+			expect(find()).toMatchObject({
+				unread: expect.stringContaining("EACCES"),
+			});
+		} finally {
+			fs.chmodSync(rec, 0o644);
+		}
+	});
+
 	it("says it could not tell where the job store will not read", () => {
 		fs.rmSync(path.join(seat, "jobs"), { recursive: true });
 		fs.writeFileSync(path.join(seat, "jobs"), "");

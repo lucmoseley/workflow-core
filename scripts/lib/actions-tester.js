@@ -148,6 +148,14 @@ const newestRun = (sha, runs) =>
 		.sort((a, b) => b.databaseId - a.databaseId)[0];
 
 /**
+ * Whether a job still runs under a run GitHub has concluded, whatever the
+ * conclusion: one lists `in_progress`, no conclusion, after the run reads
+ * `success` (#4347), and a failed run's log is then partial too.
+ * @param {readonly Job[]} jobs
+ */
+const isUnconcluded = (jobs) => jobs.some((j) => !j.conclusion);
+
+/**
  * Why a successful run's jobs do not show every shard and `Suite passed`
  * passed, or null where they do.
  * @param {Job[]} jobs
@@ -189,16 +197,18 @@ function runVerdict(sha, reads, after) {
 	if (run.attempt <= after || !run.conclusion)
 		return { kind: "pending", run: run.databaseId };
 	const id = run.databaseId;
+	const jobs = reads.jobsOf(id);
+	if (isUnconcluded(jobs)) return { kind: "pending", run: id };
 	if (run.conclusion === "success") {
 		/* GitHub concludes `success` over jobs that all skipped. */
-		const gap = greenGap(reads.jobsOf(id));
+		const gap = greenGap(jobs);
 		return gap === null
 			? { kind: "green", run: id }
 			: { kind: "unknown", reason: `run ${id} passed, but ${gap}` };
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const failed = reads.jobsOf(id).filter((j) => j.conclusion === "failure");
+	const failed = jobs.filter((j) => j.conclusion === "failure");
 	const fault = runnerFault(failed);
 	if (fault !== null)
 		return {
@@ -207,7 +217,7 @@ function runVerdict(sha, reads, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
-	const jobs = failed.map((j) => j.name);
+	const names = failed.map((j) => j.name);
 	/* Every failed job red again at its in-job retry: the lander's own
 	 * re-run would only repeat it, and the files are the retry's alone, the
 	 * first run's failures it cleared dropped (#4545). A red naming no file
@@ -226,7 +236,7 @@ function runVerdict(sha, reads, after) {
 	return {
 		kind: "red",
 		...read,
-		jobs,
+		jobs: names,
 		...(retried ? { retried } : {}),
 	};
 }
@@ -469,9 +479,11 @@ function namedRunVerdict(sha, title, reads) {
 	if (run === undefined) return { kind: "pending", run: null };
 	if (!run.conclusion) return { kind: "pending", run: run.databaseId };
 	const id = run.databaseId;
+	const jobs = reads.jobsOf(id);
+	if (isUnconcluded(jobs)) return { kind: "pending", run: id };
 	if (run.conclusion === "success") {
 		/* GitHub concludes `success` over a job its `if:` skipped. */
-		const job = reads.jobsOf(id).find((j) => j.name === NAMED_JOB);
+		const job = jobs.find((j) => j.name === NAMED_JOB);
 		return job?.conclusion === "success"
 			? { kind: "green" }
 			: {
@@ -542,8 +554,9 @@ const liveNamedReads = (root) => ({
 });
 
 /**
- * The verdict on `files` at `sha` from a dispatched run of them alone; no
- * verdict where the day's cap is spent, unless `isolation` exempts it, or
+ * The verdict on `files` at `sha` from a dispatched run of those its tree
+ * holds alone, green where it holds none; no verdict where the day's cap is
+ * spent, unless `isolation` exempts it, or
  * the dispatch or its run reaches none.
  * @param {{record: string, reads: NamedReads} & Poll} named
  * @param {string} sha
@@ -559,11 +572,25 @@ async function namedVerdict(
 ) {
 	/** @type {(reason: string) => Verdict} */
 	const unknown = (reason) => ({ kind: "unknown", reason });
+	/* A file the tree at `sha` lacks has no test to fail there: the base
+	 * check of a test file new in the tip (#4347). local-tester.js's
+	 * readRunsAt holds the same rule. Residual: a path misnamed by the red that asked reads
+	 * green here, never no verdict. */
+	/** @type {string[]} */
+	let present;
+	try {
+		present = reads.presentAt(sha, files);
+	} catch (err) {
+		return unknown(
+			`tree at ${sha.slice(0, SHORT_SHA)} unread: ${parseErrorText(err)}`,
+		);
+	}
+	if (present.length === 0) return { kind: "green" };
 	if (!isolation && readDispatchesToday(record, now()) >= NAMED_DAILY_CAP)
 		return unknown(`${NAMED_WORKFLOW}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
 	const nonce = crypto.randomUUID();
 	try {
-		reads.dispatch({ sha, files, nonce });
+		reads.dispatch({ sha, files: present, nonce });
 	} catch (err) {
 		return unknown(
 			`${NAMED_WORKFLOW} did not dispatch: ${parseErrorText(err)}`,
@@ -572,7 +599,7 @@ async function namedVerdict(
 	const entry = {
 		at: new Date(now()).toISOString(),
 		sha,
-		files,
+		files: present,
 		nonce,
 		...(isolation ? { isolation } : {}),
 	};

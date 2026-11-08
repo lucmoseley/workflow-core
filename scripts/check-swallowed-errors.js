@@ -43,6 +43,7 @@ const { globMatches } = require("./lib/pathspec-glob.js");
 const { pythonRouteKind } = require("./lib/python-routes.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {import("./lib/workflow-core-config.js").PythonKind} PythonKind */
@@ -207,7 +208,7 @@ function readStagedSources(ctx, paths, isProgram) {
 
 runCheck({
 	name: "swallowed-errors",
-	usage: "node scripts/check-swallowed-errors.js [--all]",
+	usage: `node ${scriptPath("check-swallowed-errors.js")} [--all]`,
 	flags: ["--all"],
 	run(/** @type {Ctx} */ ctx) {
 		const isProgram = buildIsProgram(readConfig().pythonRoutes);

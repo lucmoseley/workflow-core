@@ -334,11 +334,17 @@ function renderRoadmap({ project, categories, version, stamp }) {
 }
 
 /**
- * The hooks whose refusal would stop git: every hook but these three. pre-push
+ * The hooks whose refusal would stop git: every hook but these four. pre-push
  * refuses no push on a checker that cannot run (#1444), and git ignores
- * post-commit's and post-merge's exit, so none refuses where no core resolves.
+ * post-commit's, post-merge's and a finished post-checkout's exit, so none
+ * refuses where no core resolves.
  */
-const FAIL_OPEN_HOOKS = new Set(["pre-push", "post-commit", "post-merge"]);
+const FAIL_OPEN_HOOKS = new Set([
+	"pre-push",
+	"post-commit",
+	"post-merge",
+	"post-checkout",
+]);
 
 /** A line every shim carries, which tells it from an adopter's own hook. */
 const SHIM_MARK = "# workflow-core hook shim:";
@@ -420,6 +426,7 @@ const HOOKS = [
 	"pre-applypatch",
 	"post-commit",
 	"post-merge",
+	"post-checkout",
 	"pre-push",
 ];
 

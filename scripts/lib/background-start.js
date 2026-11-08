@@ -39,8 +39,8 @@ const isBackgroundStart = (env) =>
 	Boolean(env.CLAUDE_JOB_DIR) || isPrintMode(env);
 
 /**
- * Whether a job record is one the founder launched from the agents view. No
- * readable record proves nothing of his (#3772).
+ * Whether a job record is one the founder launched from the agents view. A
+ * missing or torn record proves nothing of his (#3772).
  * @param {ReturnType<typeof readJobRecordIn>} record
  */
 function isHisJobRecord(record) {

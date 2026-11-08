@@ -30,7 +30,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { coreRoot } = require("./lib/script-path.js");
+const { coreRoot, scriptPath } = require("./lib/script-path.js");
 const { isCoreRoot } = require("./lib/core-hooks.js");
 const { caught } = require("./lib/caught.js");
 const { ghJson } = require("./lib/gh.js");
@@ -110,8 +110,7 @@ function readNewHeresies(root) {
 const main = () =>
 	runCheck({
 		name: "primitives",
-		usage:
-			"node scripts/check-primitives.js [--root <dir>] [--paths-only] [--json] [--warn]",
+		usage: `node ${scriptPath("check-primitives.js")} [--root <dir>] [--paths-only] [--json] [--warn]`,
 		valueFlags: ["--root"],
 		flags: ["--paths-only"],
 		run(/** @type {Ctx} */ ctx) {

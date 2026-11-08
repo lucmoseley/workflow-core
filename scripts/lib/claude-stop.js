@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const headless = require("./headless-runs.js");
-const { readJobRecord, shortJobId } = require("./job-paths.js");
+const { jobDirPath, readJobRecordAt, shortJobId } = require("./job-paths.js");
 const { buildSeatEnv, runClaude } = require("./seat-claude.js");
 
 /**
@@ -40,14 +40,16 @@ const STOP_TIMEOUT_MS = 15_000;
  * @param {string} sessionId
  * @param {{jobId?: string, seats?: string[]}} [where]
  * @returns {{seat: string, job: any} | null}  `job` untyped, as
- *   readJobRecord's: the harness owns its schema
+ *   readJobRecordAt's: the harness owns its schema
  */
 function readOwnJob(
 	sessionId,
 	{ jobId = shortJobId(sessionId), seats = configDirs() } = {},
 ) {
 	for (const seat of seats) {
-		const job = readJobRecord(seat, jobId);
+		/* A seat whose record will not read is passed over, not fatal (#4704). */
+		const r = readJobRecordAt(jobDirPath(seat, jobId));
+		const job = r.state === "read" ? r.data : null;
 		if (job?.sessionId === sessionId) return { seat, job };
 	}
 	return null;
@@ -58,6 +60,8 @@ function readOwnJob(
  * this session, then those with no record of it naming anyone — this seat first
  * among them, configDirs() leading with it. A missing record proves nothing, a
  * job dir being cleaned under a session still running (mantahostels#104).
+ *
+ * A seat whose record will not read is one with no record of it (#4704).
  *
  * A SEAT WHOSE RECORD NAMES ANOTHER SESSION IS LEFT OUT: the id there belongs to
  * a different job, which the caller never judged.
@@ -77,7 +81,8 @@ function readSeatsFor(jobId, sessionId) {
 	const unknown = [];
 	for (const seat of configDirs()) {
 		if (!fs.existsSync(seat)) continue;
-		const owner = readJobRecord(seat, jobId)?.sessionId;
+		const r = readJobRecordAt(jobDirPath(seat, jobId));
+		const owner = r.state === "read" ? r.data?.sessionId : undefined;
 		if (owner === sessionId) named.push(seat);
 		else if (typeof owner !== "string" || !owner) unknown.push(seat);
 	}
