@@ -9,7 +9,6 @@ const path = require("node:path");
 
 const { caught } = require("./caught.js");
 
-/* What a read answers where the file is absent or a directory stands there. */
 const ABSENT_CODES = new Set(["ENOENT", "ENOTDIR", "EISDIR"]);
 
 /**
