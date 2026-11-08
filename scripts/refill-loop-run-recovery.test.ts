@@ -3,8 +3,8 @@
  * The refill loop's `run` driven end to end through a restart: the host's
  * restart, boot-resume, the restart's kills, and the resume of a session an
  * API error held. Split from scripts/refill-loop-run.test.ts toward the 60 s
- * per-file limit (#4389), its holds since split to
- * scripts/refill-loop-run-holds.test.ts (#4602); its sandbox is
+ * per-file limit (#4389); the holds' cases are
+ * scripts/refill-loop-run-holds.test.ts's (#4602). Its sandbox is
  * lib/refill-loop-run-testkit.ts's.
  *
  * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
@@ -42,6 +42,7 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import {
 	arbiterAs,
 	at,
+	buildBlockedJobRecord,
 	commandFromRepo,
 	dir,
 	fakeResumeClaude,
@@ -85,19 +86,6 @@ const MEMINFO_HOLD = buildMeminfo({
 	swapTotalMb: 2048,
 	swapFreeMb: 256,
 });
-
-const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
-	JSON.stringify({
-		state: "blocked",
-		detail,
-		tempo: "blocked",
-		inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
-		needs: null,
-		cliVersion: "2.1.309",
-		sessionId: "s-job7",
-		cwd: repo,
-		linkScanPath,
-	});
 
 describe("a session its host restarted that never takes a turn (#2707, #2978)", () => {
 	const Job = "job7";

@@ -6430,6 +6430,7 @@
 			"scripts/lib/claude-attach.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts"
 		],

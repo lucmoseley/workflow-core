@@ -1,3 +1,32 @@
+// @vitest-environment node
+/*
+ * The refill loop's `run` driven end to end through a hold: the repo, probe
+ * and cleared holds with their phone notices, and the resume of a session its
+ * seat's limit held. Split from scripts/refill-loop-run-recovery.test.ts
+ * toward the 60 s per-file limit (#4602); its sandbox is
+ * lib/refill-loop-run-testkit.ts's.
+ *
+ * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
+ * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
+ * this file.
+ *
+ * Loosen it and a fault in the program's own wiring, of its libs, children
+ * and exits, passes unseen (#2851).
+ *
+ * Why each case stays a full tick: refill-loop-run.test.ts's header keys the
+ * codes (A, E, S, F, R).
+ * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
+ *   broken .git A, the other checkout A, the state's probe A, its parked
+ *   resumed A, a stored hold left out of a dry run's preview A (the hold
+ *   store read). Guard entry (#4226): raises and files A, attaches and
+ *   resumes A.
+ * - cleared repo hold (#3863): its raiser and attached resumed off a hand
+ *   lift A (repo-hold.js lift).
+ * - phone notice (#3871): one on raise, one on clear A (gh workflow).
+ * - limit hold (#3735): resumes under its seat A; the ledger hold A and its
+ *   swap A; moved to another plan seat A; onto a key A, its first overflow
+ *   start A.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -17,6 +46,7 @@ import { projectSlug } from "./lib/project-slug.js";
 import {
 	arbiterAs,
 	at,
+	buildBlockedJobRecord,
 	dir,
 	fakeResumeClaude,
 	LISTED,
@@ -43,14 +73,16 @@ import {
 	writeKeyCostTable,
 	writesWokenRecord,
 } from "./lib/refill-loop-run-testkit";
-import { parseHoldId, probedCheckout } from "./lib/repo-hold-fixture";
+import {
+	LOGGED_OUT,
+	parseHoldId,
+	probedCheckout,
+} from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
 refillSandbox();
-
-const LOGGED_OUT = path.join(__dirname, "lib/fixtures/gh/logged-out.json");
 
 /** `job`'s park marker, written `age` minutes ago, listing its issue. */
 const writeParkMarker = (job: string, issue: number, age: number) => {
@@ -60,19 +92,6 @@ const writeParkMarker = (job: string, issue: number, age: number) => {
 	const parkedAt = new Date(Date.now() - age * 60_000);
 	fs.utimesSync(file, parkedAt, parkedAt);
 };
-
-const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
-	JSON.stringify({
-		state: "blocked",
-		detail,
-		tempo: "blocked",
-		inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
-		needs: null,
-		cliVersion: "2.1.309",
-		sessionId: "s-job7",
-		cwd: repo,
-		linkScanPath,
-	});
 
 /** The secrets file vitest.setup.ts points every test at. */
 const keySecrets = () => String(process.env.WFC_SECRETS_FILE);

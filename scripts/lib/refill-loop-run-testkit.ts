@@ -441,6 +441,20 @@ export const launchState = () => readLoopState().launches[0];
 
 export const readStopped = () => readLoopState().stopped;
 
+/** A blocked job's state.json for job7, its detail and link-scan path given. */
+export const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
+	JSON.stringify({
+		state: "blocked",
+		detail,
+		tempo: "blocked",
+		inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
+		needs: null,
+		cliVersion: "2.1.309",
+		sessionId: "s-job7",
+		cwd: repo,
+		linkScanPath,
+	});
+
 /* The served checkout's table, as the tick reads it (#3683): a grant of 2 fits
  * no session, a grant of 200 does. */
 export const writeKeyCostTable = () => writeCostTable(repo, { meanUsd: 4 });
