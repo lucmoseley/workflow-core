@@ -17,6 +17,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { entryStartedAt } = require("./hook-deadline.js");
+const { npmBin } = require("./npm-bin.js");
 
 const NPM_TIMEOUT_MS = 12_000;
 const CURL_MAX_TIME_S = 8;
@@ -67,7 +68,7 @@ function readOrNull(file) {
  * @returns {import("./npm-install.js").NpmInstallPorts}
  */
 function buildHostPorts(root) {
-	const npm = process.env.WFC_NPM || "npm";
+	const npm = npmBin();
 	const curl = process.env.WFC_CURL || "curl";
 	return {
 		readPackageJson: (tree) => {
