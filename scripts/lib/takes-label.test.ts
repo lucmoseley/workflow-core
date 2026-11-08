@@ -2,7 +2,8 @@
 /*
  * Pins that takesLabel and takesValue refuse a value outside the takes: set,
  * naming it, so a script spelling a value the set has dropped fails at load
- * instead of matching no issue (#2193).
+ * instead of matching no issue (#2193), and what takesRefusal prints (#4129,
+ * #4665).
  */
 
 import fs from "node:fs";
@@ -55,5 +56,14 @@ describe("takesRefusal's quote of the Outside line (#4665)", () => {
 		).toContain(
 			'"**Outside Claude Code:** watch the result on the dashboard."',
 		);
+	});
+
+	it("prints an unbolded line from its marker", () => {
+		expect(
+			takesRefusal(
+				["takes:human"],
+				"Outside Claude Code: watch the result on the dashboard.",
+			),
+		).toContain('"Outside Claude Code: watch the result on the dashboard."');
 	});
 });

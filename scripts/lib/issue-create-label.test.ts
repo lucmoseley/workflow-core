@@ -1717,6 +1717,9 @@ describe("the repo-file limb (mantahostels#3555)", () => {
 		);
 		expect(verdict(call)).toBe("deny");
 		expect(readDenyReason(call)).toContain(repo);
+		expect(readDenyReason(call)).toContain(
+			"**Outside Claude Code:** draw the flat/silhouette mark",
+		);
 		expect(readDenyReason(call)).toContain("#3503");
 	});
 
