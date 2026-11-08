@@ -343,8 +343,9 @@ function answerReversals(tracker, dryRun) {
 	}
 }
 
-function main() {
-	const { flags } = parseOrExit(process.argv.slice(2), {
+/** @param {string[]} argv */
+function main(argv = process.argv.slice(2)) {
+	const { flags } = parseOrExit(argv, {
 		usage: USAGE,
 		flags: { "--dry-run": "boolean" },
 	});
@@ -356,4 +357,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { answerReversals };
+module.exports = { answerReversals, main };

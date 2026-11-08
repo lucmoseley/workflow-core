@@ -43,10 +43,11 @@
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
- * Refused for open issues whose titles resemble the review's, it re-runs
- * naming them `--distinct-from`, as check-orphaned-edits.js does: ONCE A DAY
- * above already rules out a second review, and a standing lookalike such as
- * the away-mode spec would otherwise refuse every run.
+ * ONCE A DAY above already rules out a second review, so it names the open
+ * earlier reviews `--distinct-from` up front: while the founder is away they
+ * stay open and would refuse every filing. Refused for any other lookalike,
+ * such as the away-mode spec, it re-runs naming that too, as
+ * check-orphaned-edits.js does.
  *
  * MEMORY KILLS (#3094): the machine's earlyoom kills in the window, by kind,
  * each incident with its ticket — read once from this machine's journal
@@ -72,6 +73,8 @@
  *
  * WSL CURRENCY (#4082): check-wsl-currency.js's `--json` lines, in a section of
  * its own, and none where the checker SKIPs: not WSL.
+ * Both machine-wide checkers start before the repo reads and run beside them
+ * (#4601), so a filing waits on the slower of the two sides, not their sum.
  *
  * KEPT READS (#3765): each repo's count line and each label age, once read,
  * are kept for the day (lib/review-reads.js), so a run killed part way
@@ -95,7 +98,7 @@
  * (lib/refill-tick.js).
  */
 
-const { spawnSync } = require("node:child_process");
+const { execFile, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { answerReversals } = require("./answer-review-reversals.js");
@@ -327,17 +330,66 @@ function readCountLine(root) {
  *   `missing` is the `why` to give where the envelope lacks a field wanted
  */
 function readEnvelope(script, args, timeout, cwd) {
-	const r = spawnSync(
-		process.execPath,
-		[path.join(coreRoot(), "scripts", script), "--json", ...args],
-		{
+	return judgeEnvelope(
+		script,
+		spawnSync(process.execPath, checkerArgv(script, args), {
 			cwd,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 			timeout,
 			maxBuffer: CHILD_MAX_BUFFER,
-		},
+		}),
 	);
+}
+
+/**
+ * readEnvelope's answer from a checker started now and left running, so the
+ * caller's other reads run beside it.
+ * @param {string} script
+ * @param {number} timeout ms
+ * @returns {Promise<{envelope: Record<string, any>, missing: string} | {why: string}>}
+ */
+function startEnvelope(script, timeout) {
+	return new Promise((resolve) => {
+		const child = execFile(
+			process.execPath,
+			checkerArgv(script, []),
+			{ encoding: "utf8", timeout, maxBuffer: CHILD_MAX_BUFFER },
+			(error, stdout) => {
+				/* A non-zero exit is the checker's verdict, read off its envelope as
+				 * readEnvelope reads it; only a start, kill or overflow is a failure. */
+				const failed = error && typeof error.code !== "number" ? error : null;
+				resolve(
+					judgeEnvelope(script, {
+						error: failed?.killed
+							? new Error(`killed at its ${timeout} ms bound`)
+							: failed,
+						stdout,
+						status: child.exitCode,
+					}),
+				);
+			},
+		);
+		child.stdin?.end();
+	});
+}
+
+/**
+ * @param {string} script
+ * @param {string[]} args
+ */
+const checkerArgv = (script, args) => [
+	path.join(coreRoot(), "scripts", script),
+	"--json",
+	...args,
+];
+
+/**
+ * @param {string} script
+ * @param {{error?: Error | null, stdout?: string | null, status: number | null}} r
+ * @returns {{envelope: Record<string, any>, missing: string} | {why: string}}
+ */
+function judgeEnvelope(script, r) {
 	if (r.error) return { why: `${script}: ${r.error.message}` };
 	const envelope = parseEnvelope(r.stdout ?? "");
 	const missing = `${script}: ${envelope?.summary ?? `no --json envelope (exit ${r.status})`}`;
@@ -575,9 +627,9 @@ function readConcurrency(now) {
 	};
 }
 
-/** @returns {import("./lib/morning-review.js").IdleReading} */
-function readIdle() {
-	const read = readEnvelope("check-idle-efforts.js", [], IDLE_TIMEOUT_MS);
+/** @returns {Promise<import("./lib/morning-review.js").IdleReading>} */
+async function readIdle() {
+	const read = await startEnvelope("check-idle-efforts.js", IDLE_TIMEOUT_MS);
 	if ("why" in read) return read;
 	const { trackers, loopRunning, damaged } = read.envelope;
 	return Array.isArray(trackers) &&
@@ -587,11 +639,10 @@ function readIdle() {
 		: { why: read.missing };
 }
 
-/** @returns {import("./lib/morning-review.js").WslCurrencyReading} */
-function readWslCurrency() {
-	const read = readEnvelope(
+/** @returns {Promise<import("./lib/morning-review.js").WslCurrencyReading>} */
+async function readWslCurrency() {
+	const read = await startEnvelope(
 		"check-wsl-currency.js",
-		[],
 		WSL_CURRENCY_TIMEOUT_MS,
 	);
 	if ("why" in read) return read;
@@ -730,7 +781,7 @@ function readTimelineAge(repo, number, label) {
  * @param {string} tracker
  * @param {boolean} dryRun
  */
-function fileReview(tracker, dryRun) {
+async function fileReview(tracker, dryRun) {
 	if (dryRun) return fileUnlessFiledToday(tracker, true);
 	const file = refillPath(FILING_LOCK);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -743,7 +794,7 @@ function fileReview(tracker, dryRun) {
 		return 1;
 	}
 	try {
-		return fileUnlessFiledToday(tracker, false);
+		return await fileUnlessFiledToday(tracker, false);
 	} finally {
 		lock.release();
 	}
@@ -754,8 +805,9 @@ function fileReview(tracker, dryRun) {
  * exit code.
  * @param {string} tracker
  * @param {boolean} dryRun
+ * @returns {Promise<number>}
  */
-function fileUnlessFiledToday(tracker, dryRun) {
+async function fileUnlessFiledToday(tracker, dryRun) {
 	const now = new Date();
 	const title = review.buildReviewTitle(review.localDate(now));
 
@@ -778,6 +830,8 @@ function fileUnlessFiledToday(tracker, dryRun) {
 	}
 	const [previous] = reviews;
 	const { since, why } = review.windowStart(previous, now);
+	const idle = readIdle();
+	const wslCurrency = readWslCurrency();
 
 	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
 	const home = homeDir();
@@ -816,14 +870,17 @@ function fileUnlessFiledToday(tracker, dryRun) {
 		kills: readKills(tracker, since),
 		runaways: readRunaways(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
-		idle: readIdle(),
-		wslCurrency: readWslCurrency(),
+		idle: await idle,
+		wslCurrency: await wslCurrency,
 	});
 
 	if (dryRun) {
 		io.out(`${title}\n\n${body}`);
 		return 0;
 	}
+	const earlier = reviews
+		.filter((i) => i.state === "OPEN")
+		.map((i) => i.number);
 	const filed = fileThrough(
 		[
 			"--title",
@@ -834,6 +891,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 			review.STANDALONE_REASON,
 			"--body-file",
 			"-",
+			...(earlier.length > 0 ? ["--distinct-from", earlier.join(",")] : []),
 		],
 		body,
 		hostRoot(),
@@ -843,8 +901,9 @@ function fileUnlessFiledToday(tracker, dryRun) {
 	return filed.status ?? 1;
 }
 
-function main() {
-	const { flags } = parseOrExit(process.argv.slice(2), {
+/** @param {string[]} argv */
+async function main(argv = process.argv.slice(2)) {
+	const { flags } = parseOrExit(argv, {
 		usage: USAGE,
 		flags: { "--dry-run": "boolean" },
 	});
@@ -853,10 +912,20 @@ function main() {
 	/* A filing that throws still answers before the throw ends the run. */
 	let filed = 1;
 	try {
-		filed = fileReview(tracker, dryRun);
+		filed = await fileReview(tracker, dryRun);
 	} finally {
 		process.exitCode = Math.max(filed, answerReversals(tracker, dryRun));
 	}
 }
 
-if (require.main === module) main();
+module.exports = { main };
+
+if (require.main === module)
+	main().catch((e) => {
+		writeFd(
+			2,
+			`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`,
+		);
+		/* main's finally has already set the answering's code; a failure is no better. */
+		process.exitCode = Math.max(1, Number(process.exitCode ?? 0));
+	});
