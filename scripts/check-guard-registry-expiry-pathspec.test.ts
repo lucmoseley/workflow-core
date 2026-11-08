@@ -165,8 +165,10 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 			hook,
 			"#!/bin/sh\n# IMPLICIT:  a thing.\n# JUSTIFIED: fail-safe.\n# DEFEAT:    none\nexit 0\n",
 		);
+		/* Staged before its review: a guard outside the index has no digest (#4517). */
+		repo.git("add", "--", hookRel);
 		review(repo.root, [hookRel]);
-		repo.git("add", "--", hookRel, ANCHORS);
+		repo.git("add", "--", ANCHORS);
 		repo.git("commit", "-qm", "hook");
 		return { ...repo, hook };
 	}

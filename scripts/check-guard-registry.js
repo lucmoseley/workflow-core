@@ -200,7 +200,12 @@ const { readText } = require("./lib/file-read.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
-const { hasOwnGit, isTreeMember, treeOf } = require("./lib/tree-members.js");
+const {
+	hasOwnGit,
+	isTreeMember,
+	isTreePath,
+	treeOf,
+} = require("./lib/tree-members.js");
 const {
 	judgeCarry,
 	readMerge,
@@ -2017,6 +2022,9 @@ const absentFromTree = new Set();
 function digestOf(rel, seen = new Set(), inStack = false) {
 	if (seen.has(rel)) return null;
 	seen.add(rel);
+	/* A guard outside the tree has no digest, whatever lies on disk at its
+	 * path, so one commit gives one verdict in every worktree (#4517). */
+	if (!isTreeMember(root, rel)) return null;
 	try {
 		const bytes = fs.readFileSync(path.join(root, rel));
 		const text = bytes.toString("utf8");
@@ -2348,15 +2356,17 @@ function checkNamedPaths(st, file, rule, guards) {
 		/* Under the root, else — where the root is no core tree at all —
 		 * under the CORE's: an adopter's rules name the core's guards, which
 		 * live in the plugin and are never copied into the repo (#5). */
-		if (
-			!fs.existsSync(path.join(root, g)) &&
-			(rootIsCore() || !fs.existsSync(path.join(CORE_ROOT, g)))
-		) {
+		if (!isTreePath(root, g) && (rootIsCore() || !isTreePath(CORE_ROOT, g))) {
+			/* Judged on the tree, not the disk (#4517): an un-added guard would
+			 * otherwise pass in the worktree holding it and fail in every other. */
+			const onDisk = fs.existsSync(path.join(root, g));
 			reportRule(
 				st,
 				"BROKEN-CLAIM",
 				{ file, rule },
-				`names \`${g}\`, which does not exist`,
+				onDisk
+					? `names \`${g}\`, which is on disk but not in git's index — \`git add ${g}\``
+					: `names \`${g}\`, which does not exist`,
 			);
 			continue;
 		}
