@@ -99,12 +99,15 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		treeClass: fakeTreeClassifier({ "/repo": "shared" }),
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
-		tree: () => ({ root: "/repo" }),
-		readPackageJson: () => ({
-			path: "/repo/package.json",
-			text: over.pkg === undefined ? JSON.stringify(PKG) : over.pkg,
+		tree: () => ({
+			root: "/repo",
+			readText: (rel: string) => {
+				if (rel === "package.json")
+					return over.pkg === undefined ? JSON.stringify(PKG) : over.pkg;
+				const dep = /^node_modules\/(.+)\/package\.json$/.exec(rel)?.[1];
+				return (dep && over.manifests?.[dep]) ?? null;
+			},
 		}),
-		readManifest: (_root: string, dep: string) => over.manifests?.[dep] ?? null,
 		npmView: (pkg: string): Call => {
 			calls.push(`npm view ${pkg} time.created --json`);
 			return npmViewAnswer(full);
