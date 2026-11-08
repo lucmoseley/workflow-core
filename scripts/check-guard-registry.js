@@ -3594,7 +3594,8 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  * `mine` is every path this session's own claims name, and `othersLive`
  * whether any other session holds a live or unreadable claim here. `mine` is
  * null where the claims went unread or no session is identified, and
- * `othersLive` only where the store went unread (#3339, #3474).
+ * `othersLive` only where the store went unread (#3339, #3474). `heldRead`
+ * says whether `held` was read at all, identified or not (#4078).
  *
  * `WFC_ANCHOR_LOCKS` replaces the claim store with a JSON array of lock
  * records. Unguarded, and deliberately at the store boundary rather than at
@@ -3612,6 +3613,7 @@ function readHeldElsewhere(targets, ours) {
 		taken: new Map(),
 		mine: null,
 		othersLive: null,
+		heldRead: false,
 	};
 	try {
 		const { readTreeSnapshot } = require("./lib/tree-drift.js");
@@ -3636,6 +3638,7 @@ function readHeldElsewhere(targets, ours) {
  *   taken: Map<string, HeldEntry>,
  *   mine: Set<string> | null,
  *   othersLive: boolean | null,
+ *   heldRead: boolean,
  * }} HeldRead
  */
 
@@ -3665,7 +3668,6 @@ function sortClaims(found, snap, wanted, ours) {
 	found.othersLive = locks.some(
 		(l) => l && l.sessionId !== self && (l.unreadable || l.alive),
 	);
-	if (!self) return "this session is unidentified";
 	const { neighbourDirty } = require("./lib/tree-drift.js");
 	const core = require("./lib/arbiter-core.js");
 	const nameFor = core.registryNames();
@@ -3680,6 +3682,9 @@ function sortClaims(found, snap, wanted, ours) {
 		const entry = { holder: nameFor(e.sessionId), dead: e.dead };
 		(ours.has(e.path) ? found.taken : found.held).set(e.path, entry);
 	}
+	/* Held is read for an unidentified caller too, which --own relies on. */
+	found.heldRead = snap !== null;
+	if (!self) return "this session is unidentified";
 	const mine = locks.filter((l) => l?.sessionId === self && !l.unreadable);
 	found.mine = new Set(mine.flatMap((l) => (l.path ? [l.path] : [])));
 	return null;
@@ -4018,11 +4023,26 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
  * @returns {Set<string>}
  */
 function readCallerUnclaimed(inputs, read, ours, { own, soleWriter }) {
+	if (own.length > 0) refuseUnreadOwn(read);
 	const unclaimed = soleWriter
 		? refuseSoleWriter(read)
 		: readUnclaimed(inputs, read, ours);
 	for (const p of own) unclaimed.delete(p);
 	return unclaimed;
+}
+
+/**
+ * The end of the run where --own was given but no neighbour's claim could be
+ * read, so a path one holds dirty would be anchored as the caller's (#4078).
+ *
+ * @param {HeldRead & { unavailable: string | null }} read
+ */
+function refuseUnreadOwn(read) {
+	if (read.heldRead) return;
+	printLine(
+		`--own refused — ${read.unavailable}, so no neighbour's claim on an --own path is known to be absent.`,
+	);
+	process.exit(2);
 }
 
 function refuseFailedTreeRead() {
@@ -4914,11 +4934,21 @@ function parseReviewRequest(ctx, reviewAt) {
 	return {
 		named,
 		stale,
-		taking: ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--taking"),
-		own: ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--own"),
+		taking: valuesOf(ctx, "--taking"),
+		own: valuesOf(ctx, "--own"),
 		soleWriter: ctx.has("--sole-writer"),
 	};
 }
+
+/**
+ * Every value a repeatable value flag carries, in order.
+ *
+ * @param {Ctx} ctx
+ * @param {string} flag
+ * @returns {string[]}
+ */
+const valuesOf = (ctx, flag) =>
+	ctx.argv.filter((_, i) => ctx.argv[i - 1] === flag);
 
 /** The line saying the digests read the disk, not the index. */
 function buildTreeFailureLines() {

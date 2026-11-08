@@ -597,6 +597,23 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(root)).toEqual(before);
 	});
 
+	it("--own is refused where the claims went unread, so a neighbour's hold is unknown (#4078)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const r = runInProcess(
+			path.join(root, "scripts", "check-guard-registry.js"),
+			["--review", "scripts/guard-a.sh", "--own", "scripts/guard-a.sh"],
+			{ env: reviewEnv(root, { ...env([]), WFC_ANCHOR_LOCKS: "null" }) },
+		);
+		expect(r.status).toBe(2);
+		expect(r.stdout).toContain(
+			"--own refused — the claim store would not be read",
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
 	it("offers no claim for a dirty input the arbiter does not watch, as under .husky/ (#4078)", () => {
 		const root = committedRepo({
 			claude: region("- Hook. **Unenforceable**: `.husky/pre-commit`."),

@@ -57,7 +57,6 @@ const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree.js");
 const { readStepsOwed } = require("./steps-owed.js");
 const { caught } = require("./caught.js");
 const { CONFIG_PATH } = require("./workflow-core-config.js");
-const { ANCHORS } = require("./registry-anchors-path.js");
 
 /**
  * @param {string} root
@@ -112,6 +111,16 @@ function readDirtyPaths(root) {
 }
 
 /**
+ * What a failed child said: its stderr, else its stdout — the checker reports
+ * a refusal there — else the error's own message.
+ * @param {unknown} err
+ */
+function reasonOf(err) {
+	const e = caught(err);
+	return e.stderr || e.stdout || e.message;
+}
+
+/**
  * Stages and commits exactly `paths`, by pathspec. `git add` first — a
  * `git commit -- <pathspec>` cannot be trusted alone to pick up a path that
  * was never in the index (#249's fixture found residue that CREATES
@@ -125,11 +134,6 @@ function readDirtyPaths(root) {
  * @returns {{ok: true}|{ok: false, step: "stage"|"commit", reason: string}}
  */
 function commitPaths({ root, paths, message }) {
-	/** @param {unknown} err */
-	const reasonOf = (err) => {
-		const e = caught(err);
-		return e.stderr ?? e.message;
-	};
 	try {
 		git(["add", "--", ...paths], root);
 	} catch (err) {
@@ -273,44 +277,54 @@ function anchorAndCommit({ root, written, message }) {
 	const left =
 		"Nothing committed; the walk's output is left in the tree for inspection, " +
 		"and the next session's exit will not retry until it is cleared by hand.";
-	const anchorFault = anchorWalkOutput(root, written);
-	if (anchorFault !== null)
-		return `migration walk: re-anchoring the walk's output failed — ${anchorFault}. ${left}`;
+	const anchored = anchorWalkOutput(root, written);
+	if (!anchored.ok)
+		return `migration walk: re-anchoring the walk's output failed — ${anchored.reason}. ${left}`;
 	const paths = readDirtyPaths(root);
 	if (paths === null)
 		return `migration walk: could not read the adopter tree's git status after anchoring. ${left}`;
 	const committed = commitPaths({ root, paths, message });
 	if (!committed.ok)
-		return `migration walk: ${REFUSAL_CAUSE[committed.step]} — ${committed.reason}. ${left}`;
+		return [
+			`migration walk: ${REFUSAL_CAUSE[committed.step]} — ${committed.reason}. ${left}`,
+			...anchored.skipped,
+		].join("\n");
 	return null;
 }
 
 /**
  * Re-anchors the guard-registry rows of every path the walk wrote, through
- * the checker this install ships, where the adopter keeps an anchors file
- * (init writes one). Every dirty path is the walk's own, since the tree was
- * proven clean before it ran, so each is passed `--own`; a path no rule or
- * wiring reaches is left alone by the checker.
+ * the checker this install ships. Every dirty path is the walk's own, since
+ * the tree was proven clean before it ran, so each is passed `--own`; a path
+ * no rule or wiring reaches is left alone by the checker. Residual: a process
+ * writing one of those paths between that clean check and this run is
+ * anchored as the walk's.
  * @param {string} root
  * @param {string[]} written
- * @returns {string|null} why anchoring failed, or null
+ * @returns {{ok: true, skipped: string[]}|{ok: false, reason: string}}
+ *   `skipped` the checker's line for each path it would not anchor
  */
 function anchorWalkOutput(root, written) {
-	if (!fs.existsSync(path.join(root, ANCHORS))) return null;
 	const checker = path.join(__dirname, "..", "check-guard-registry.js");
 	const own = written.flatMap((p) => ["--own", p]);
 	try {
-		execFileSync(process.execPath, [checker, "--review", ...written, ...own], {
-			cwd: root,
-			/* The checker judges the project dir's tree; the walk's is `root`. */
-			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return null;
+		const stdout = execFileSync(
+			process.execPath,
+			[checker, "--review", ...written, ...own],
+			{
+				cwd: root,
+				/* The checker judges the project dir's tree; the walk's is `root`. */
+				env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+		);
+		const skipped = stdout
+			.split("\n")
+			.filter((l) => l.startsWith("not anchored "));
+		return { ok: true, skipped };
 	} catch (err) {
-		const e = caught(err);
-		return e.stderr || e.stdout || e.message;
+		return { ok: false, reason: reasonOf(err) };
 	}
 }
 
