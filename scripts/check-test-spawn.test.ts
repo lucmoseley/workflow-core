@@ -14,9 +14,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isShipped } from "./lib/plugin-tree.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-test-spawn.js");
+const CORE = path.resolve(__dirname, "..");
 
 let root: string;
 
@@ -57,12 +59,20 @@ describe("check-test-spawn", () => {
 			"3 spawn(s) of node on the program under test: scripts/a.test.ts:2, scripts/lib/c.test.js:1, .claude/skills/x/b.test.ts:1.",
 		);
 		expect(r.out).toContain(
-			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, `runInProcessAsync` for an async entry, as its scripts/check-cli-args.test.ts does",
+			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, `runInProcessAsync` for an async entry, as its header's contract states; or,",
 		);
 		expect(r.out).toContain(
 			"where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd), state which in a `spawn-kept: <why>` comment on the call or directly above it; for any other reason, say why in that comment in the file's header",
 		);
 		expect(r.out).toContain("FAIL: 3 spawn(s) of node");
+	});
+
+	it("names in its fix only files the release ships, as an adopter reads it (#4182)", () => {
+		test("scripts/a.test.ts", SPAWN);
+		const fix = run().out.match(/Fix: .*/)?.[0] ?? "";
+		const named = fix.match(/scripts\/[\w./-]*\w/g) ?? [];
+		expect(named).toContain("scripts/lib/run-in-process.js");
+		expect(named.filter((rel) => !isShipped(CORE, rel))).toEqual([]);
 	});
 
 	it("FAILs spawn, execFile, exec and execFileSync on node in any quoting, naming each", () => {
