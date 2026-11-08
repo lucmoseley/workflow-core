@@ -8,15 +8,19 @@
  * `docs/effort-guide.md` §Burn mode). The code reviewer is left alone: its
  * dispatch names `opus` and its agent definition's `effort:` outranks the
  * per-model effort this writes (#363).
- * Three surfaces read this file so the mapping is written once:
+ * Four surfaces read this file so the mapping and the plans are written once:
  *
  *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's `model` field
  *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`
- *   scripts/burn-mode.sh               writes Opus 5.5's effort into settings.json
+ *   scripts/burn-mode.sh               writes Opus 5.5's effort into the plans'
+ *                                      settings files, listed by `plans` below
+ *   scripts/refill-loop.js status      readBurnState, for the refill panel
  *
  * The state is one marker file per MACHINE, beside the settings files it is
  * the record for. `on` writes the effort it found into it, so `off` restores
  * what was there rather than assuming the standing default (mantahostels#130).
+ * readBurnState reads the marker and each plan's settings file, so a reader
+ * sees a half-flip the script left.
  *
  * The maps are exact-match on purpose. An `Agent` call takes only the four
  * bare aliases, so a suffix there is impossible; a launch spelling this table
@@ -141,24 +145,37 @@ function remapModel(input) {
 }
 
 /**
- * The plans `scripts/burn-mode.sh` would name, one entry per real file, as the
- * founder names them. A settings.json resolving to nothing is skipped, as there.
+ * The plans' settings files, one entry per real file (#187), as the founder
+ * names them, and the settings.json symlinks that resolve to nothing, skipped.
  * @param {string} home
- * @returns {Map<string, string>} real path to name
+ * @returns {{files: Map<string, string>, dangling: string[]}} `files`, real path to name
  */
 function readPlanFiles(home) {
 	const homeReal = fs.realpathSync(home);
 	/** @type {Map<string, string>} */
 	const files = new Map();
+	/** @type {string[]} */
+	const dangling = [];
 	for (const dir of readPlanDirs(home)) {
+		const file = path.join(dir, "settings.json");
 		try {
-			const real = fs.realpathSync(path.join(dir, "settings.json"));
+			const real = fs.realpathSync(file);
 			files.set(real, path.relative(homeReal, real));
 		} catch (err) {
 			if (caught(err).code !== "ENOENT") throw err;
+			if (isSymlink(file)) dangling.push(file);
 		}
 	}
-	return files;
+	return { files, dangling };
+}
+
+/** @param {string} file */
+function isSymlink(file) {
+	try {
+		return fs.lstatSync(file).isSymbolicLink();
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -190,7 +207,7 @@ function isPlanDisagreeing(file, on) {
 function readBurnState(env = process.env) {
 	try {
 		const on = fs.existsSync(markerPath(env));
-		const disagreeing = [...readPlanFiles(env.HOME ?? "")]
+		const disagreeing = [...readPlanFiles(env.HOME ?? "").files]
 			.filter(([file]) => isPlanDisagreeing(file, on))
 			.map(([, name]) => name);
 		return { on, disagreeing, error: null };
@@ -213,6 +230,9 @@ module.exports = {
  *
  *   launch <model>    prints the launch spelling burn mode substitutes
  *   marker            prints the marker's path; 2 where HOME is unset
+ *   plans             prints each plan's settings file, real and NUL-ended,
+ *                     warning of each that resolves to nothing; 2 where HOME
+ *                     will not list
  *
  * stdout is always a pipe here, so it is written synchronously before the
  * exit — process.stdout.write can be cut off by process.exit on a pipe.
@@ -227,6 +247,24 @@ if (require.main === module) {
 		}
 		if (mode === "marker") {
 			say(markerPath());
+			process.exit(0);
+		}
+		if (mode === "plans") {
+			const home = process.env.HOME ?? "";
+			let listed;
+			try {
+				listed = readPlanFiles(home);
+			} catch (err) {
+				writeFd(2, `burn-mode: ${caught(err).message}\n`);
+				process.exit(2);
+			}
+			const { files, dangling } = listed;
+			for (const file of dangling)
+				writeFd(
+					2,
+					`warning: skipping ${path.relative(home, file)} — it resolves to nothing\n`,
+				);
+			writeFd(1, [...files.keys()].map((f) => `${f}\0`).join(""));
 			process.exit(0);
 		}
 		process.exit(2);

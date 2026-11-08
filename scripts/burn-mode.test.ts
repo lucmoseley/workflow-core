@@ -419,7 +419,7 @@ describe("the plan dirs", () => {
 	it("refuses on, recording nothing, when HOME cannot be read", () => {
 		const r = run("on", path.join(dir, "no-such-home"));
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("plan-dirs:");
+		expect(r.stderr).toContain("burn-mode: ENOENT");
 		expect(fs.existsSync(marker)).toBe(false);
 	});
 });

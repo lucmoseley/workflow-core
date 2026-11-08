@@ -57,34 +57,22 @@ off_effort="$(node -p 'require(process.argv[1]).EFFORT_OFF' "$lib")"
 # serves (docs/environment.md §Shared config is one copy, symlinked), so three
 # paths are one file.
 #
-# The plan dirs come from lib/plan-dirs.js, whose `readdirSync` follows a
-# symlinked HOME: a scan that did not would list no plan at all, and `on` would
-# write an empty record, exiting 0 either way.
+# lib/burn-mode.js's `plans` lists them, the one listing its readBurnState
+# reads too. The plan dirs come from lib/plan-dirs.js, whose `readdirSync`
+# follows a symlinked HOME: a scan that did not would list no plan at all, and
+# `on` would write an empty record, exiting 0 either way.
 #
-# A path `realpath` cannot resolve — a settings.json symlinked to nothing — is
-# NAMED and skipped.
+# A settings.json symlinked to nothing is NAMED, once, by the check below, and
+# skipped.
 #
 # NUL-separated so a HOME with a space survives; a scratch HOME in a test can
 # hold one.
 home_real="$(realpath -- "$HOME")" || home_real="$HOME"
-plan_dirs="$here/lib/plan-dirs.js"
-# Checked once up front: `< <(settings_files)` below hides the scan's exit, so
-# an unreadable HOME would otherwise read as no plans and `on` would write an
-# empty record, exiting 0.
-node "$plan_dirs" "$HOME" >/dev/null || exit 2
-settings_files() {
-  node "$plan_dirs" "$HOME" |
-    while IFS= read -r -d '' d; do
-      f="$d/settings.json"
-      [[ -e "$f" || -L "$f" ]] || continue
-      real="$(realpath -e -- "$f" 2>/dev/null)" ||
-        {
-          echo "warning: skipping ${f#"$HOME"/} — it resolves to nothing" >&2
-          continue
-        }
-      printf '%s\0' "$real"
-    done | sort -zu
-}
+# Checked once up front: `< <(settings_files)` below hides the listing's exit,
+# so an unreadable HOME would otherwise read as no plans and `on` would write
+# an empty record, exiting 0.
+node "$lib" plans >/dev/null || exit 2
+settings_files() { node "$lib" plans 2>/dev/null; }
 # rel <file> — the file as the founder names it, `.claude/settings.json`. A
 # file resolving outside HOME keeps its absolute path.
 rel() { printf '%s' "${1#"$home_real"/}"; }

@@ -374,7 +374,6 @@ module.exports = {
 	buildGoalRead,
 	buildGoalStatus,
 	buildProgressText,
-	buildRefText,
 	buildShortlistGoal,
 	buildGoalRefusal,
 	isRecord,

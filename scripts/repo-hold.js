@@ -14,13 +14,12 @@
  * id, or the hold has no issue yet to attach on; 2 on a command line it refuses.
  */
 
-const fs = require("node:fs");
 const { buildErrorText, caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { parseJobDir } = require("./lib/job-paths.js");
-const { loopFiles } = require("./lib/refill-files.js");
+const { appendLoopLog } = require("./lib/refill-files.js");
 const holds = require("./lib/repo-holds.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { fromEnv } = require("./lib/session-id.js");
@@ -62,7 +61,7 @@ const refuse = (line, code = /** @type {1|2} */ (2)) => {
  */
 function logLine(line) {
 	try {
-		fs.appendFileSync(loopFiles().log, `${new Date().toISOString()} ${line}\n`);
+		appendLoopLog(line);
 	} catch (err) {
 		writeFd(2, `not in the loop's log: ${caught(err).message}\n`);
 	}
