@@ -137,10 +137,8 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
 
 /**
  * `match` plus each area a change to the declaration narrows from HEAD's or
- * from the session base's (lib/sensitive-paths.js's withNarrowing): the hold
- * reads a staged narrowing from HEAD, the Stop nag and push warning a
- * committed one from the base. A copy that will not read is logged and
- * narrows nothing.
+ * the session base's (lib/sensitive-paths.js's withNarrowing), as the Stop
+ * nag reads it. A copy that will not read is logged and narrows nothing.
  * @param {Match} match
  * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
  * @param {string[]} paths
