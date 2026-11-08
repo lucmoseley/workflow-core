@@ -19,7 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAIN_SCRIPTS } from "./lib/core-hooks.js";
+import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";

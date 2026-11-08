@@ -7,7 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-const { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } = require("./core-hooks.js");
+import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./core-hooks-testkit";
+
 const { keepShims } = require("./hook-shims.js");
 
 /** A hooks file naming each scripts/ file, alternating the two main-checkout

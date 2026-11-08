@@ -15,7 +15,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isLockoutText } from "./lib/core-fault.js";
-import { MAIN_SCRIPTS, SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
+import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
+import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { readHookLines } from "./lib/pretool-guard-testkit";
 
 const SHIM = path.join(__dirname, "run-pinned-guards.js");

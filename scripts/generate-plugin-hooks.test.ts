@@ -22,12 +22,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	CANARY_MAIN_SCRIPTS,
-	MAIN_SCRIPTS,
-	MARKER_WRITER,
-	SELF_PLUGIN_HOOKS,
-} from "./lib/core-hooks.js";
+import { MARKER_WRITER, SELF_PLUGIN_HOOKS } from "./lib/core-hooks.js";
+import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { guardDirs, isDenyCapableIn } from "./lib/deny-capable.js";
 import { guardKey } from "./lib/guard-fires.js";
 import { renderAt } from "./lib/plugin-hooks-render.js";
@@ -198,6 +194,12 @@ describe("renderAt", () => {
 			);
 		},
 	);
+
+	it("refuses an exec-form hook, whose quoted plugin root no shell strips (#4701)", () => {
+		expect(() =>
+			shipped({ type: "command", command: `${MAIN_SCRIPTS}a.sh`, args: ["x"] }),
+		).toThrow(/carries args/);
+	});
 
 	it("refuses a source with no hooks", () => {
 		expect(() => render({})).toThrow(/no hooks/);

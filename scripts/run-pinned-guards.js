@@ -6,7 +6,7 @@
  *
  * DEPENDENCY-FREE, node's own modules alone: the hook line runs it from the
  * main checkout, as it runs every other hook (lib/core-hooks.js's
- * MAIN_SCRIPTS, #4701), and the guards from the pinned code, so no fault in a
+ * SCRIPT_PREFIX, #4701), and the guards from the pinned code, so no fault in a
  * shared lib at either can silence its refusal.
  *
  * FAIL-CLOSED STAYS TOTAL. Where the entry is missing or throws while it

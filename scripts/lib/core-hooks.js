@@ -19,6 +19,7 @@ const { mainCheckout } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
 const { execGit } = require("./git.js");
 const { shellQuote } = require("./sh-quote.js");
+const { escapeRe } = require("./shell-words.js");
 
 const SELF_PLUGIN_DIR = "self-plugin";
 const SELF_PLUGIN_HOOKS = `${SELF_PLUGIN_DIR}/hooks/hooks.json`;
@@ -33,13 +34,17 @@ const HOST_SETTINGS = ".claude/settings.json";
 const MAIN_SCRIPTS = '"${CLAUDE_PLUGIN_ROOT}"/../scripts/';
 const CANARY_MAIN_SCRIPTS =
 	'"$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir)"/../scripts/';
-/** @param {string} text */
-const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /* The core's scripts/ directory as a hook command spells it, in either form. */
 const SCRIPT_PREFIX = new RegExp(
 	`${escapeRe(MAIN_SCRIPTS)}|${escapeRe(CANARY_MAIN_SCRIPTS)}`,
 	"g",
 );
+/**
+ * `command` with each main-checkout prefix spelt as the repo-relative
+ * `scripts/` it names.
+ * @param {string} command
+ */
+const toScriptsRel = (command) => command.replace(SCRIPT_PREFIX, "scripts/");
 /* The self-plugin's guard entry, run through the main checkout's shim from
  * the pinned guard code (lib/guard-code.js, #4227): the core's own route,
  * which a render spells as the plugin root's scripts/ like any other. */
@@ -503,9 +508,7 @@ function flattenHooks(hooks) {
 
 module.exports = {
 	CANARY_COMMAND,
-	CANARY_MAIN_SCRIPTS,
 	HOST_SETTINGS,
-	MAIN_SCRIPTS,
 	MARKER_WRITER,
 	PINNED_GUARD_PREFIX,
 	SCRIPT_PREFIX,
@@ -514,6 +517,7 @@ module.exports = {
 	SELF_PLUGIN_ID,
 	SELF_PLUGIN_MARKETPLACE,
 	readRunningHooks,
+	toScriptsRel,
 	flattenHooks,
 	readHostHookSources,
 	readHooksAt,

@@ -28,7 +28,7 @@ bodies are 70–670 lines of bespoke judgement.
      self-plugin's registration, never hand-edited (#1011, #2441).
    - **A hook runs the main checkout's script, spelt
      `"${CLAUDE_PLUGIN_ROOT}"/../scripts/x.sh`, never the session's tree's**
-     (`lib/core-hooks.js`'s `MAIN_SCRIPTS`, #4701). So an edited hook script
+     (`lib/core-hooks.js`'s `SCRIPT_PREFIX`, #4701). So an edited hook script
      reaches no session, its editor's included, until it lands: try it by
      running the script or its test. A `$CLAUDE_PROJECT_DIR` spelling would
      run the session's unlanded copy, and `generate-plugin-hooks.js` refuses

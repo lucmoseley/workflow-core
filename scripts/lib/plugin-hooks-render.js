@@ -70,6 +70,20 @@ function rewriteCommand(command) {
 }
 
 /**
+ * `h` where it carries no `args`: an exec-form hook spawns its command with
+ * no shell, so the quoted plugin root is a literal path that fails ENOENT,
+ * silently (mantahostels#2059).
+ * @param {import("./core-hooks.js").Hook} h
+ */
+function refuseArgs(h) {
+	if (h.args !== undefined)
+		throw new Error(
+			`a hook carries args, which runs it with no shell, so its quoted script path cannot resolve: ${h.command}`,
+		);
+	return h;
+}
+
+/**
  * A registration as the drift report names it: script, event, matcher, `if`.
  * @param {string} guard
  * @param {string} event
@@ -153,7 +167,7 @@ function renderManifest(source, hasEntry) {
 			hooks: (group.hooks ?? []).map((h) =>
 				typeof h.command === "string"
 					? {
-							...h,
+							...refuseArgs(h),
 							command: rewriteCommand(h.command),
 						}
 					: h,
