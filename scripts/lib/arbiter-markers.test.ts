@@ -124,7 +124,7 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 			expect(surviving("held")).toEqual(passPrefixes);
 		});
 
-		it.each(["limitHeld", "swapHeld", "holdCleared", "bootKilled"])(
+		it.each(["limitHeld", "stepResume"])(
 			"keeps the pass markers of a session only %s names",
 			(field) => {
 				markers("nested", true);

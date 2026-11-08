@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The boot unit's installer (#3878) against a fake systemctl at WFC_SYSTEMCTL
- * (#3970) and a fake loginctl on PATH, its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
+ * (#3970) and a fake loginctl at WFC_LOGINCTL, its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
  * can believe the loop returns at boot with the unit disabled or linger off,
  * a unit can run the loop without the installer's seat and PATH, can start from
  * a working copy mid-edit, or a failed boot can leave the loop's log silent. And
@@ -61,6 +61,7 @@ function writeFakes({ enabled = "enabled", linger = "yes" } = {}) {
 const buildInstallEnv = (env: NodeJS.ProcessEnv = {}) => ({
 	PATH: `${at("bin")}:/usr/bin:/bin`,
 	WFC_SYSTEMCTL: systemctl,
+	WFC_LOGINCTL: at("bin/loginctl"),
 	HOME: dir,
 	XDG_CONFIG_HOME: at("config"),
 	SHELL: "/bin/bash",
