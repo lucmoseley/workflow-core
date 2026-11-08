@@ -30,6 +30,7 @@ const {
 	isHookShim,
 	withIgnoreBlock,
 	withStatusScript,
+	STATUS_SCRIPT,
 	settingsKeys,
 	labelPlan,
 	hookRootOf,
@@ -334,16 +335,22 @@ function bringIgnoreBlock(ctx) {
 function bringStatusScript(ctx) {
 	const text = readIfPresent(path.join(ctx.root, "package.json"));
 	if (text === null) return [];
-	let body;
+	let made;
 	try {
-		body = withStatusScript(text);
+		made = withStatusScript(text);
 	} catch (err) {
 		/* A skip, not bringSettings' refusal: the script is a convenience, and a
 		 * throw would stop the upgrade's walk over it (#4151). */
 		ctx.out(`skipped package.json's status script: ${caught(err).message}`);
 		return [];
 	}
-	return body === null ? [] : bringFile(ctx, { rel: "package.json", body });
+	if (made.kept !== null)
+		ctx.out(
+			`kept    package.json's own status script, which prints no primitives count line — the plugin's is: ${STATUS_SCRIPT}`,
+		);
+	return made.next === null
+		? []
+		: bringFile(ctx, { rel: "package.json", body: made.next });
 }
 
 /** @param {Context} ctx */

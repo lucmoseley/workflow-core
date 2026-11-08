@@ -180,11 +180,21 @@ describe("package.json's status script (#4151)", () => {
 		);
 	});
 
-	it("keeps an adopter's own status script", () => {
+	it("keeps an adopter's own status script, saying it prints no count line (#4190)", () => {
 		const own = '{"scripts":{"status":"./mine.sh"}}';
 		write(root, "package.json", own);
-		expect(run().join("\n")).not.toContain("package.json");
+		const said = run().filter((l) => l.includes("package.json"));
+		expect(said).toEqual([
+			`kept    package.json's own status script, which prints no primitives count line — the plugin's is: ${statusScript}`,
+		]);
 		expect(readManifest()).toBe(own);
+	});
+
+	it("says nothing of a status script that is already the plugin's", () => {
+		const current = `{"scripts":{"status":"${statusScript}"}}`;
+		write(root, "package.json", current);
+		expect(run().join("\n")).not.toContain("package.json");
+		expect(readManifest()).toBe(current);
 	});
 
 	it("gives a repo with no package.json none", () => {
