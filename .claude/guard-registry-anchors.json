@@ -56,7 +56,7 @@
 	"scripts/guard-priced-options.js": "370655e1b5c5a54b",
 	"scripts/guard-selection-sum.js": "5ac6f0b494ae55b7",
 	"scripts/guard-session-ceiling.js": "fc60f2e44d4c796a",
-	"scripts/guard-session-id-prose.js": "c524993ec8102a5d",
+	"scripts/guard-session-id-prose.js": "3f07e44e58fc222e",
 	"scripts/guard-typecheck-owed.js": "dc20a03f9208f866",
 	"scripts/guard-uncommitted-work.js": "9717cf6527aac3a5",
 	"scripts/guard-unpushed-commits.js": "6c8089dfc3a2d064",

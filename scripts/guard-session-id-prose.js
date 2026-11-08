@@ -73,7 +73,7 @@ function namedIds(message) {
  */
 function buildRefusal(hits) {
 	return [
-		"THIS REPLY NAMES A SESSION BY ITS ID. Core voice §Comprehension: name a session by its `node scripts/list-sessions.js` name, never its id or pid; an id appears only where a command needs it, inside that command's code span (#2478, #3557).",
+		"THIS REPLY NAMES A SESSION BY ITS ID. Core voice §Comprehension: name a session by its `list-sessions.js` name, never its id or pid; an id appears only where a command needs it, inside that command's code span (#2478, #3557).",
 		"",
 		...hits.map(
 			({ id, name }) =>
