@@ -19,12 +19,12 @@ const { MODEL } = require("./refill-decide.js");
 const { seatIdOf } = require("./refill-seats.js");
 const { buildSeatEnv } = require("./seat-claude.js");
 const { buildErrorText } = require("./caught.js");
-const { movedOnto } = require("./refill-blocks.js");
+const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
-/** @typedef {import("./refill-blocks.js").MoveTarget} MoveTarget */
+/** @typedef {import("./refill-limits.js").MoveTarget} MoveTarget */
 /** @typedef {import("./refill-blocks.js").JobLaunch} JobLaunch */
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /** @typedef {ReturnType<typeof import("./child-spawn.js").spawnChild>} ChildRun */

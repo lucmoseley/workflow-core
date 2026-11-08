@@ -16,14 +16,12 @@
  * outlive.
  */
 
+const { isHeld, isLive, launchName } = require("./refill-block-core.js");
 const {
 	hasJobEnded,
 	isBootKillable,
 	isBootKillCandidate,
-	isHeld,
-	isLive,
 	isStepResumeFor,
-	launchName,
 	LISTING_GRACE_MS,
 	queueBootKilled,
 } = require("./refill-blocks.js");
