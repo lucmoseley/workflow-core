@@ -427,9 +427,8 @@ function addDirClassEdges(scan, source) {
 		 * tree, `""` is every literal segment cancelling out to the anchor's
 		 * own root (e.g. a lone "."). */
 		if (!dirPath) continue;
-		const prefix = `${dirPath}/`;
 		for (const p of scan.tracked)
-			if (isCandidate(scan, p) && p.startsWith(prefix)) scan.found.add(p);
+			if (isCandidate(scan, p) && isUnder(p, [dirPath])) scan.found.add(p);
 	}
 }
 

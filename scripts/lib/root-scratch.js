@@ -79,6 +79,7 @@ const { remedyKind } = require("./scratch-remedy.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { shellQuote } = require("./sh-quote.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {import("./core-contract.js").CoreContext} CoreContext
@@ -165,11 +166,9 @@ function readStrayName(given, ctx, syn) {
 	/* The same fold on the original could land inside a span the placeholder
 	 * stands for, deleting a `.` the session wrote. */
 	const orig = syn ? abs(syn.orig) : p;
-	const prefix = `${tree.root}/`;
-	if (!p.startsWith(prefix)) return null;
-	const name = p.slice(prefix.length);
+	const name = relativeUnder(tree.root, p);
 	/* A slash left means a subdirectory, which is a chosen location. */
-	if (name.includes("/") || !/^\..+$/s.test(name) || name === "..") return null;
+	if (!name || name.includes("/") || !/^\..+$/s.test(name)) return null;
 	if (!isThisRepo(tree.root, ctx)) return null;
 	const ignored = tree.git(["check-ignore", "--", name], [1]);
 	if (!ignored.ok)
@@ -179,7 +178,7 @@ function readStrayName(given, ctx, syn) {
 	if (ignored.out) return null;
 	/* ASKED AS A GLOB where the name is synthetic: `name` carries a
 	 * placeholder no tracked file can hold. */
-	const spec = syn ? abs(syn.glob).slice(prefix.length) : name;
+	const spec = syn ? (relativeUnder(tree.root, abs(syn.glob)) ?? "") : name;
 	const tracked = tree.git(
 		syn
 			? ["ls-files", "--", spec]
@@ -191,7 +190,7 @@ function readStrayName(given, ctx, syn) {
 			`git ls-files could not answer for ${spec} — write allowed unchecked`,
 		);
 	if (tracked.out) return null;
-	return orig.startsWith(prefix) ? orig.slice(prefix.length) : orig;
+	return relativeUnder(tree.root, orig) || orig;
 }
 
 /**
