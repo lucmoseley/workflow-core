@@ -1,12 +1,9 @@
 /*
  * refill-panel-print.js — the panel's frame as the plain text a pane of a given size
- * shows, and the size of every panel running now (#4114). A session checks what the
- * founder would read through `refill-panel.js --print`, never a throwaway script:
- * one status read, drawn at each size asked for.
+ * shows, and the size of every panel running now (#4114).
  *
  * The screen is read off lib/refill-panel.js's own frame, cursor moves and erases
- * applied, so a wrap or a cut the pane would show shows here. One cell per code
- * point: a wide character's second cell is not modelled.
+ * applied. One cell per code point: a wide character's second cell is not modelled.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -30,7 +27,6 @@ const TOKEN =
 	/\u001b\[([0-9;?]*)([@-~])|\u001bP[\s\S]*?\u001b\\|\u001b[\s\S]?|([\s\S])/gu;
 
 /**
- * A blank screen of `height` rows and its cursor.
  * @param {number} height
  */
 function createScreen(height) {
@@ -89,8 +85,7 @@ function buildScreenLines(frame, height) {
 
 /**
  * Every running panel's terminal and its size, read the way `stty -F <tty> size`
- * reads it, and each panel whose terminal would not read, with why: another user's,
- * or one gone mid-read.
+ * reads it, and each panel whose terminal would not read, with why.
  * @param {{root?: string, readSize?: (tty: string) => string}} [deps]
  * @returns {{sizes: PanelSize[], unsized: UnsizedPanel[]}}
  */

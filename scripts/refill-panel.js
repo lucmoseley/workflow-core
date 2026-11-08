@@ -13,7 +13,7 @@
  *
  * `--print` reads status once and prints, as plain text, the screen a pane shows
  * (#4114): at `--columns`, every row unless `--rows` cuts it, or else at each running
- * panel's own size. It is how a session sees what the founder would read.
+ * panel's own size.
  *
  * The route names the split that opened it (lib/refill-panel-routes.js), which is how a
  * click or Esc hands focus back to the agents pane; run by hand, there is none to name.

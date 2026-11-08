@@ -122,8 +122,7 @@ const FOUNDER_ACT_WORD = new RegExp(
 );
 
 /* An Outside line whose job is to observe a result (#4114). With no deed beside it, the
- * founder's part is only to look, and a session that has not tried to read the
- * result itself hands him its own check. */
+ * founder's part is only to look. */
 const OBSERVE_WORD = new RegExp(
 	`${buildWholeWordSource("look|listen|hear|see|watch|observe|notice|confirm|check|read|verify|view|inspect|ensure|make sure")}|(^|[^a-z0-9])(heard|seen|saw|verified|verifies|verifying)($|[^a-z0-9])`,
 	"i",
