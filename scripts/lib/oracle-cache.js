@@ -33,6 +33,7 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { storeConfigDir } = require("./arbiter-core.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught } = require("./caught.js");
+const { budgetMs } = require("./hook-deadline.js");
 
 /*
  * EVERY PATH IS KEYED TO THE ORACLE BINARY AND THE DIRS IT READS
@@ -94,7 +95,8 @@ const ttlMs = () => capMs("WFC_ORACLE_CACHE_TTL_MS", 30_000);
  * its worst case is this figure plus its own read, which agent-liveness.js caps
  * at 30 s (10 s and a 20 s retry). 4 s plus 30 s sits inside the 60 s timeout on
  * check-orphaned-edits.js, the one SessionStart reader under a timeout that
- * bites. guard-uncommitted-work.js's 15 s Stop hook does not fit it (#4115).
+ * bites. A hook under a tighter one starts lib/hook-deadline.js's clock, which
+ * cuts this wait and the read after it to its budget (#4115).
  *
  * SO 4 s STANDS ON THE LEADER'S SPEED ALONE. It catches a warm spawn — 2.75 s
  * at mantahostels#1921, 0.78-1.21 s at #1446 — and lets a cold leader go (8.89 s
@@ -370,7 +372,7 @@ function release(key) {
 function waitForLeader(key, { sleep = trySleep } = {}) {
 	if (isDisabled()) return null;
 	const began = Date.now();
-	const deadline = began + waitMs();
+	const deadline = began + budgetMs(waitMs(), began);
 	const step = pollMs();
 	while (Date.now() < deadline) {
 		if (!sleep(step)) return null;

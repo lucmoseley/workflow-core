@@ -102,6 +102,7 @@ const { readPendingTasks } = require("./lib/pending-tasks");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
+const { startEntryClock } = require("./lib/hook-deadline.js");
 
 /* Six, not the house default of three (mantahostels#2791). 139 of 385 blocked sessions
  * reached the old cap, and 55% of those were still seeing a CHANGING path set
@@ -321,4 +322,9 @@ function judge({ sessionId: sid, payload }) {
 	refuseHeldClean(payload, sid);
 }
 
-if (require.main === module) stopGuard.onPayload({ review: judge });
+if (require.main === module) {
+	/* The oracle read in `readObservedElsewhere` ends inside this hook's 15 s
+	 * timeout, where the harness's kill would end the turn unjudged (#4115). */
+	startEntryClock("Stop");
+	stopGuard.onPayload({ review: judge });
+}
