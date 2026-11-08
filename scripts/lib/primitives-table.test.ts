@@ -209,6 +209,15 @@ describe("parseBreaches", () => {
 		).toEqual({ count: 0 });
 	});
 
+	it("reads a SKIP carrying a FAIL finding as 0 (#4149)", () => {
+		expect(
+			parseBreaches(
+				envelope({ outcome: "SKIP", findings: [{ severity: "FAIL" }] }),
+				0,
+			),
+		).toEqual({ count: 0 });
+	});
+
 	it("keeps a SKIP with no findings array unknown (#4119)", () => {
 		expect(parseBreaches(envelope({ outcome: "SKIP" }), 0)).toEqual({
 			unknown: "its envelope carries no findings array",
