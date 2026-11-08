@@ -2982,6 +2982,9 @@
 		"docs/practice/shell-scripting-and-hooks.md": [
 			"scripts/practice-guard.test.ts"
 		],
+		"docs/practice/technical-documentation.md": [
+			"scripts/practice-guard.test.ts"
+		],
 		"docs/practice/test-design-and-reliability.md": [
 			"scripts/practice-guard.test.ts"
 		],
