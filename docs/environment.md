@@ -322,7 +322,7 @@ A count is admitted by what it needs *resting* in `MemAvailable` immediately bef
 | 2 | **2,549.7** / 2,423.7 | 3,650 MB | 100 / 100 | 309.2 / 309.6% | 0.84 / 0.77 | 0 / 0 MB |
 | 3 | 3,320.8 / **3,576.4** | 4,700 MB | 77–79 / 81–82 | 493.3 / 494.6% | 0.73 / 0.80 | 0 / 0 MB |
 
-All six `baseline_stationary: true` (shifts 0–65.7 MB), `cpu_valid: true`, none aborted, none a `dip_is_lower_bound`, `sessions_live` 1 throughout, walls 842.3–842.9 s. Resting 7,989–8,114 MB. **Each row plateaued**: its lowest `MemAvailable` sample came at 292–368 s and held to the kill (#4606), which is what lets a cut row stand as a lower bound (`isLowerBoundRow`, `scripts/lib/quiet-bench.js`). No row was green: every suite was killed at the ceiling. Raw JSON and per-suite vitest logs under `~/.claude/quiet-bench-runs/2026-11-03T19-53-27.124Z/`; `free -m` and load1 beside each row on #2862.
+All six `baseline_stationary: true` (shifts 0–65.7 MB), `cpu_valid: true`, none aborted, none a `dip_is_lower_bound`, `sessions_live` 1 throughout, walls 842.3–842.9 s. Resting 7,989–8,114 MB. **Each row plateaued**: its lowest `MemAvailable` sample came at 292–368 s and held to the kill (#4606), which is what lets a cut row stand as a lower bound (`isLowerBoundRow`, `scripts/lib/quiet-bench.js`). Raw JSON and per-suite vitest logs under `~/.claude/quiet-bench-runs/2026-11-03T19-53-27.124Z/`; `free -m` and load1 beside each row on #2862.
 
 **#1603's six rows** (16 October 2026, a 485-file suite that ran to its end) set the rungs this run raised: raw dips 943.1 / **1,046.4**, **2,124.4** / 2,112.2 and **2,546.0** / 2,390.5 MB. Their record is on #1603.
 
