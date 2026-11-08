@@ -132,7 +132,6 @@ function main(argv) {
 	let held = null;
 	if (!flag("--no-claim")) {
 		const subject = `${mapPath}#${REGISTER_SECTION}`;
-		// Released only where the arbiter answered 0 (claimDataFile's `claimed`).
 		if (
 			claimDataFile(subject, {
 				claimCmd: value("--claim-cmd"),
