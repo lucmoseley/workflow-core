@@ -6,7 +6,7 @@
  */
 
 const { batchesOf } = require("./refill-batch.js");
-const blocks = require("./refill-blocks.js");
+const { isLive, isStepResume, launchName } = require("./refill-block-core.js");
 const {
 	buildResumeWaitLine,
 	decideTick,
@@ -37,8 +37,6 @@ const {
 	firstOverflowStart,
 	planSeatBasisOf,
 } = require("./overflow-notice.js");
-
-const { isLive, isStepResume, launchName } = blocks;
 
 /** @typedef {import("./refill-loop.js").Control} Control */
 /** @typedef {import("./refill-loop.js").ControlRead} ControlRead */

@@ -6,7 +6,7 @@
  */
 
 const { hasNothingToRepeat } = require("./loop-prompts.js");
-const { buildResumedHow, launchName } = require("./refill-blocks.js");
+const { buildResumedHow, launchName } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { seatIdOf } = require("./refill-seats.js");
 

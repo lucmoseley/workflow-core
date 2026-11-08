@@ -78,8 +78,13 @@ export function build(fx: Fixture): string {
 	if (fx.claude !== undefined)
 		fs.writeFileSync(path.join(root, "CLAUDE.md"), fx.claude);
 	/* A core tree registers its hooks in the self-plugin's file (#2442), which
-	 * the real core always carries. */
-	const files = { [SELF_PLUGIN_HOOKS]: '{"hooks": {}}', ...fx.files };
+	 * the real core always carries; its package.json marks it a checkout, so
+	 * scriptPath() spells a command as a session there runs it (#4285). */
+	const files = {
+		"package.json": "{}",
+		[SELF_PLUGIN_HOOKS]: '{"hooks": {}}',
+		...fx.files,
+	};
 	for (const [rel, body] of Object.entries(files)) {
 		const abs = path.join(root, rel);
 		fs.mkdirSync(path.dirname(abs), { recursive: true });
