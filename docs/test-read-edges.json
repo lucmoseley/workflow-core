@@ -17705,6 +17705,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
 			"scripts/lib/git.test.ts",
