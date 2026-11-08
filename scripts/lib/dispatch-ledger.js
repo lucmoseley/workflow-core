@@ -316,29 +316,38 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 			.pop() ?? null;
 }
 
-/** Every checkout's ledger root, opted out of the loop or not. */
-const readEveryLedgerRoot = () => [
-	...new Set([ledgerRoot(), ...readAdopterCheckouts(homeDir()).included]),
+/**
+ * Every checkout's ledger root, opted out of the loop or not, `root` first.
+ * @param {string} [root]
+ */
+const readEveryLedgerRoot = (root = ledgerRoot()) => [
+	...new Set([root, ...readAdopterCheckouts(homeDir()).included]),
 ];
 
 /**
  * `readOverflowLookup` over every checkout's ledger, for a reading of a key's
  * spend.
+ * @param {string} [root] as readEveryLedgerRoot's
  * @throws where a ledger will not read, or the checkouts cannot be listed
  */
-const readEveryOverflowLookup = () => readOverflowLookup(readEveryLedgerRoot());
+const readEveryOverflowLookup = (root) =>
+	readOverflowLookup(readEveryLedgerRoot(root));
 
 /**
  * `readEveryOverflowLookup` where the seat file declares an overflow seat, or
  * will not read; else a lookup that marks no session overflow, reading no
  * ledger, as a host with no overflow seat has none to tell apart (#4393).
  * @param {import("./refill-seats.js").SeatList} [declared]
+ * @param {string} [root] as readEveryLedgerRoot's
  * @throws as `readEveryOverflowLookup`, where it reads
  */
-function readDeclaredOverflowLookup(declared = readDeclaredSeats()) {
+function readDeclaredOverflowLookup(
+	declared = readDeclaredSeats(),
+	root = ledgerRoot(),
+) {
 	if (!declaresOverflowSeat(declared) && declared.errors.length === 0)
 		return () => null;
-	return readEveryOverflowLookup();
+	return readEveryOverflowLookup(root);
 }
 
 /**
