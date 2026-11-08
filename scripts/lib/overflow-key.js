@@ -35,6 +35,7 @@ const {
 	readSecretKeepingIgnore,
 	secretsFile,
 } = require("./env-file.js");
+const { gitFileTarget } = require("./git-file.js");
 const { checkoutOfCommonDir } = require("./main-checkout.js");
 const { throughBootLink } = require("./refill-control-code.js");
 const { scriptPath } = require("./script-path.js");
@@ -87,9 +88,8 @@ function keyCheck(keyVar) {
 function throughMainCheckout(file) {
 	const found = readGitFile(path.dirname(file));
 	if (!found) return null;
-	const gitDir = /^gitdir: (.+)$/m.exec(found.text)?.[1];
-	if (!gitDir) return null;
-	const registration = path.resolve(found.dir, gitDir.trim());
+	const registration = gitFileTarget(found.dir, found.text);
+	if (!registration) return null;
 	if (path.basename(path.dirname(registration)) !== "worktrees") return null;
 	const main = checkoutOfCommonDir(path.dirname(path.dirname(registration)));
 	return main && path.join(main, path.relative(found.dir, file));
