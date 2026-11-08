@@ -1109,11 +1109,63 @@ describe("a review record in the close comment (#3846)", () => {
 		);
 	});
 
+	/* A seed holding untouched.ts, then a commit changing dir/a.ts and adding
+	 * docs/my file.md. */
+	const buildReplay = () => {
+		gitRepo(sb);
+		fs.mkdirSync(path.join(sb.repo, "dir"));
+		fs.writeFileSync(path.join(sb.repo, "untouched.ts"), "0\n");
+		fs.writeFileSync(path.join(sb.repo, "dir", "a.ts"), "0\n");
+		commitAll(sb, "seed");
+		const base = gitHere("rev-parse", "HEAD");
+		fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(sb.repo, "dir", "a.ts"), "1\n");
+		fs.writeFileSync(path.join(sb.repo, "docs", "my file.md"), "1\n");
+		commitAll(sb, "Change");
+		const landed = gitHere("rev-parse", "HEAD");
+		return (paths: string) =>
+			`**Review findings:** base ${base}, reviewed ${landed}, landed ${landed}, paths ${paths}`;
+	};
+
+	it("refuses a path its replay leaves unchanged with a remedy that, followed, clears it (#4050)", () => {
+		setUp();
+		onTicket(Tier);
+		const record = buildReplay();
+		refused(
+			record("dir/a.ts,untouched.ts"),
+			'write the record with the marker\'s paths= less any of "untouched.ts" it names',
+		);
+		passes(record("dir/a.ts"));
+	});
+
+	it.each([
+		"docs/my file.md",
+		"dir/a.ts,docs/my file.md",
+		"`dir/a.ts`, `docs/my file.md`",
+	])("takes a path holding a space as one path: paths %s (#4050)", (paths) => {
+		setUp();
+		onTicket(Tier);
+		passes(buildReplay()(paths));
+	});
+
+	it("names an entry holding a space whole where no word of it changed (#4050)", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			buildReplay()("dir/a.ts,docs/no file.md"),
+			'whose paths hold "docs/no file.md", no path changed',
+		);
+	});
+
 	it.each([
 		"- Fixed: a leak",
 		"- **FIXED**: a leak",
 		"* FIXED: a leak",
 		"1. FIXED: a leak",
+		"- Fix: a leak",
+		"- Fixes: a leak",
+		"- TICKET #12: a leak",
+		"- Ticket #12: a leak",
 	])("refuses the disposition line %s (#3907)", (line) => {
 		setUp();
 		onTicket(Tier);

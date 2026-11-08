@@ -177,7 +177,8 @@ const {
 	ghJson,
 	unreachableRemedy,
 } = require("./lib/gh");
-const { gitOutcome } = require("./lib/git");
+const { readCommit } = require("./lib/commit-sha");
+const { gitOutcome, gitReader } = require("./lib/git");
 const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
@@ -646,14 +647,10 @@ function addTrailerCommits(commits, reading) {
  * @returns {{ ok: true, sha: string, message: string } | { ok: false, why: string }}
  */
 function readEscapedCommit(s, root) {
-	const resolved = gitOutcome(
-		["rev-parse", "--verify", "--quiet", `${s}^{commit}`],
-		[1],
-		root,
-	);
+	const resolved = readCommit(gitReader(root), s);
 	if (!resolved.ok) return resolved;
-	const sha = resolved.out.trim();
-	if (sha === "") return { ok: true, sha, message: "" };
+	const { sha } = resolved;
+	if (sha === null) return { ok: true, sha: "", message: "" };
 	const read = gitOutcome(["log", "-1", "--format=%B", sha], [], root);
 	return read.ok ? { ok: true, sha, message: read.out } : read;
 }

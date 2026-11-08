@@ -1966,7 +1966,10 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 			expect(stderr).toMatch(/^NOT PATHS: o\/fleet#9 has a record, landed /);
 			for (const entry of entries) expect(stderr).toContain(`"${entry}"`);
 			expect(stderr).toContain(
-				"post a record of the same review with the marker's paths= and no note after them",
+				"post a record of the same review with the marker's paths= less any of ",
+			);
+			expect(stderr).toContain(
+				"it names, as no file changes under them in its replay, and no note after them",
 			);
 			expect(stderr).not.toContain('"scripts/lib/read-hidden.js"');
 			expect(stderr).not.toContain('"scripts/lib/atomic-write.js"');
@@ -2137,6 +2140,10 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 		"- _Fixed_: a leak",
 		"– FIXED: a leak",
 		"• FIXED: a leak",
+		"- Fix: a leak",
+		"- Fixes: a leak",
+		"- TICKET #12: a leak",
+		"- Ticket #12: a leak",
 	])("reports %s as misspelt, counting it 0", (line) => {
 		const { stderr, count } = read(
 			TIER_LINE,
