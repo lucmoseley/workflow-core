@@ -2,11 +2,13 @@
 /*
  * record-claude-responses.js — re-records the installed launcher's responses
  * the refill loop reads, as fixtures:
- *   - scripts/fixtures/bg-resume.json: the three `claude --bg --resume <session
+ *   - scripts/fixtures/bg-resume.json: the four `claude --bg --resume <session
  *     id> "<prompt>"` responses lib/bg-resume.js parses (#2968), of a job
  *     still running, which starts a copy, of a stopped one, which wakes in
- *     place, and of one whose job directory is gone, which continues under
- *     its own id (#3773);
+ *     place, of one whose job directory is gone, which continues under its
+ *     own id (#3773), and of one whose job `claude rm` removed, resumed with
+ *     its name and model, which continues under its own id with that name
+ *     (#4098);
  *   - scripts/fixtures/agents-stop.json: the job's `claude agents --json` rows
  *     as it works, once settled, while a second job waits on its question
  *     (#3005) and while a third waits on a permission prompt (#3008), which
@@ -38,10 +40,11 @@
  * scripts/lib/usage-probe.contract.test.ts`.
  * It launches one throwaway Haiku session and resumes it
  * while it works, then again once stopped, then once more with its job
- * directory deleted, launches a second told to ask one question and a third
+ * directory deleted, then with its job removed and its name and model passed,
+ * launches a second told to ask one question and a third
  * told to run one command it must ask leave for, then a fourth and a fifth
  * with the prompt after their flags, the fifth named, removes that third with
- * `claude rm`, and stops every other job it started, so it spends up to nine short turns. The command never
+ * `claude rm`, and stops every other job it started, so it spends up to ten short turns. The command never
  * runs: the prompt is never answered. The `/usage` probe spends no turn, but
  * first waits up to two minutes for the seat's cache to age into a refresh.
  *
@@ -61,7 +64,7 @@ const {
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 const { sessionTree } = require("./lib/host-root.js");
-const { jobDirPath } = require("./lib/job-paths.js");
+const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const {
@@ -212,6 +215,51 @@ const untilState = async (id, done, fails) =>
 	);
 
 const IDLE_NAME = "a-recorded-launch";
+const OWN_ID_NAME = "a-recorded-resume";
+
+/**
+ * Stop job `original`, remove it with `claude rm`, and resume `sessionId` with
+ * a name and model (#4098): the 2.1.319 binary copies a resume carrying flags
+ * only while a job record exists, so this one continues under its own id,
+ * which must take the name; another answer throws.
+ * @param {string} sessionId
+ * @param {string} original
+ */
+async function resumeRemoved(sessionId, original) {
+	/* The listing drops a job's row for a moment as it starts, which settled
+	 * reads as ended; one stopped while still working stays present to the
+	 * daemon a moment, which a resume reads as running, and copies. */
+	await untilRecord(original, (rec) => rec?.state !== "working");
+	for (const cmd of ["stop", "rm"]) {
+		const r = claude([cmd, original]);
+		if (r.status !== 0)
+			throw new Error(`could not ${cmd} ${original}: ${r.stderr.trim()}`);
+	}
+	const r = resume(sessionId, original, false, [
+		"--name",
+		OWN_ID_NAME,
+		"--model",
+		"haiku",
+	]);
+	await untilRecord(original, (rec) => rec?.name === OWN_ID_NAME);
+	return r;
+}
+
+/**
+ * Until job `id`'s record on this seat satisfies `done`.
+ * @param {string} id
+ * @param {(rec: any) => boolean} done
+ */
+async function untilRecord(id, done) {
+	const by = Date.now() + WAIT_MS;
+	while (!done(readJobRecord(configDir(), id))) {
+		if (Date.now() > by)
+			throw new Error(
+				`job ${id}'s record never read as wanted after ${WAIT_MS} ms`,
+			);
+		await new Promise((wake) => setTimeout(wake, POLL_MS));
+	}
+}
 const NAMED_NAME = "Overflow · a-recorded-launch";
 
 /**
@@ -252,15 +300,16 @@ function launchArgv(argv) {
 }
 
 /**
- * One resume of `sessionId`, its job `original`, which starts a copy where
- * `copy` holds and wakes `original` in place where it does not; another
- * answer throws, since the fixture's ids would be the wrong ones.
+ * One resume of `sessionId`, its job `original`, with `flags`, which starts a
+ * copy where `copy` holds and wakes `original` in place where it does not;
+ * another answer throws, since the fixture's ids would be the wrong ones.
  * @param {string} sessionId
  * @param {string} original
  * @param {boolean} copy
+ * @param {string[]} [flags]
  */
-function resume(sessionId, original, copy) {
-	const r = claude(["--bg", "--resume", sessionId, PROMPT]);
+function resume(sessionId, original, copy, flags = []) {
+	const r = claude(["--bg", "--resume", sessionId, ...flags, PROMPT]);
 	const started = parseResumed(r);
 	if (r.status !== 0 || !started)
 		throw new Error(
@@ -451,6 +500,8 @@ async function main() {
 		fs.rmSync(jobDirPath(configDir(), original), { recursive: true });
 		const continued = resume(working.sessionId, original, false);
 		await settled(continued.startedAs, original);
+		const ownId = await resumeRemoved(working.sessionId, original);
+		await settled(ownId.startedAs, original);
 		const asker = launch(ASK).id;
 		started.push(asker);
 		await untilState(asker, (state) => state === "blocked", "never blocked");
@@ -532,6 +583,7 @@ async function main() {
 				copy: syntheticResponse(copy),
 				woke: syntheticResponse(woke),
 				continued: syntheticResponse(continued),
+				ownId: syntheticResponse(ownId),
 			},
 		});
 		writeFixture(LAUNCH_FIXTURE, {

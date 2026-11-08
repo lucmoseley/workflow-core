@@ -1,13 +1,14 @@
 /*
  * refill-resume.js — the refill loop's resume of a stopped session (#2354 F6,
- * #2963, #3734, #3736, #4147, #4180): `claude --bg --resume`, the job it
- * started judged and confirmed, a copy handed what the session held, a move
- * onto another seat or onto an overflow key recorded. A session on an
- * overflow key resumes headless instead (lib/headless-sessions.js, #4580),
- * since the key's credits cover `claude -p` and not a `--bg` job (#4578). Every read, write and
- * child process goes through the ResumeIo port, whose production adapter is
- * lib/resume-io.js's; lib/refill-blocks.js's acts call these through its
- * BlockIo.
+ * #2963, #3734, #3736, #4147, #4180, #4098): `claude --bg --resume`, the job
+ * it started judged and confirmed, a copy handed what the session held and
+ * its original's row retired, a session a restart killed resumed under its
+ * own id, a move onto another seat or onto an overflow key recorded. A
+ * session on an overflow key resumes headless instead
+ * (lib/headless-sessions.js, #4580), since the key's credits cover `claude -p`
+ * and not a `--bg` job (#4578). Every read, write and child process goes
+ * through the ResumeIo port, whose production adapter is lib/resume-io.js's;
+ * lib/refill-blocks.js's acts call these through its BlockIo.
  */
 
 const { childFailure } = require("./child-failure.js");
@@ -47,6 +48,7 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  *   findResumed: typeof import("./resumed-copy.js").findResumed,
  *   copyTranscript: typeof import("./seat-move.js").copyTranscript,
  *   hasJobRecord: (seat: string, jobId: string) => boolean,
+ *   writeJobName: typeof import("./job-name.js").writeJobName,
  *   stop: (seat: string, jobId: string) => import("./claude-stop.js").StopOutcome,
  *   overflowLookup: (root: string) => OverflowLookup,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
@@ -59,6 +61,9 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  *   moveParkedBy: typeof import("./parked.js").moveParkedBy,
  * }} ResumeIo
  */
+
+/* A copy adoptResumed found: the kill took the launcher's note with it. */
+const ADOPTED_WHY = "found after a kill, the harness's reason lost with it";
 
 /**
  * The resume steps over `io`.
@@ -302,18 +307,21 @@ function resumeSteps(io) {
 	/**
 	 * Hand copy `copy` of session `from` what the session held: on an overflow
 	 * seat its ledger mark, then its issue claims, pass markers and park
-	 * marker. The mark comes first, so a move's copy that will not record, and
-	 * is stopped, takes nothing from the session it leaves held.
+	 * marker, then its name, and retire the original's job row, so one row of
+	 * the work is left to revive (#4098). The mark comes first, so a move's
+	 * copy that will not record, and is stopped, takes nothing from the
+	 * session it leaves held.
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
 	 * @param {string} from
-	 * @param {{jobId: string, sessionId: string|null, cwd: string}} copy
+	 * @param {{jobId: string, sessionId: string|null, cwd: string,
+	 *   why: string}} copy  `why`, the reason the harness gave for the copy
 	 * @param {MoveTarget} [move] a move onto the key, whose allowance the copy,
 	 *   that key's first launch of the session, runs at (#3736)
 	 * @returns {Resumed} failed only where a move's job will not record, and is
 	 *   stopped
 	 */
 	function settleCopy(l, from, copy, move) {
-		const { jobId, sessionId } = copy;
+		const { jobId, sessionId, why } = copy;
 		const unrecorded = recordOnKey(
 			l,
 			from,
@@ -329,7 +337,49 @@ function resumeSteps(io) {
 				`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
 			);
 		moveParked(l, from, copy);
-		return { failed: null, jobId, sessionId, copy: true };
+		nameCopy(l.seat, from, copy);
+		const retired = retireJob(l.seat, from, copy.cwd);
+		if (retired)
+			log(
+				`original ${shortJobId(from)} of copy ${jobId} not retired: ${retired}`,
+			);
+		return { failed: null, jobId, sessionId, copy: true, why };
+	}
+
+	/**
+	 * Give copy `copy` of session `from` the name `from`'s transcript carries,
+	 * which a copy does not take with it (#4098); logged where it will not.
+	 * @param {string} seat
+	 * @param {string} from
+	 * @param {{jobId: string, cwd: string}} copy
+	 */
+	function nameCopy(seat, from, { jobId, cwd }) {
+		const read = io.sessionName(transcriptPath(seat, cwd, from));
+		const name = "name" in read ? read.name : null;
+		const failed = name
+			? io.writeJobName(seat, jobId, name)
+			: `no name read for ${from}${"why" in read ? `: ${read.why}` : ""}`;
+		if (failed) log(`copy ${jobId} of ${from} not named: ${failed}`);
+	}
+
+	/**
+	 * Stop session `sessionId`'s own job on `seat`, the one under its short id,
+	 * and remove its job record (`claude rm`, which keeps transcripts); null
+	 * once no record of it is left, or the record there names another
+	 * session, else why not. A job not confirmed stopped is never removed,
+	 * since `claude rm` drops a live job's row too.
+	 * @param {string} seat
+	 * @param {string} sessionId
+	 * @param {string} cwd
+	 */
+	function retireJob(seat, sessionId, cwd) {
+		const jobId = shortJobId(sessionId);
+		if (!io.hasJobRecord(seat, jobId)) return null;
+		if (io.readJobRecord(seat, jobId)?.sessionId !== sessionId) return null;
+		const stop = io.stop(seat, jobId);
+		if (!stop.ok && !stop.noJob)
+			return `its job ${jobId} not confirmed stopped: ${stop.why}`;
+		return removeJobRecord(seat, sessionId, cwd);
 	}
 
 	/**
@@ -364,12 +414,18 @@ function resumeSteps(io) {
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
-	 * @param {{move?: MoveTarget, name?: string}} [moved] `move`, the target
-	 *   of a move onto `l`'s seat, which `l` already names; `name`, the name
-	 *   the resumed job takes, which left out keeps the session's
+	 * @param {{move?: MoveTarget, name?: string, flags?: string[]}} [moved]
+	 *   `move`, the target of a move onto `l`'s seat, which `l` already names;
+	 *   `name`, the name the resumed job takes, which left out keeps the
+	 *   session's; `flags`, launch flags passed before it
 	 * @returns {Resumed}
 	 */
-	function resumeStopped(l, prompt, { sessionId, cwd }, { move, name } = {}) {
+	function resumeStopped(
+		l,
+		prompt,
+		{ sessionId, cwd },
+		{ move, name, flags = [] } = {},
+	) {
 		if (l.keyVar)
 			return resumeHeadless({ ...l, keyVar: l.keyVar }, prompt, {
 				sessionId,
@@ -382,13 +438,63 @@ function resumeSteps(io) {
 		if (refusal) return { failed: refusal };
 		const nameArgs = name === undefined ? [] : ["-n", name];
 		const r = io.runClaude(
-			["--bg", "--resume", sessionId, ...nameArgs, prompt],
+			["--bg", "--resume", sessionId, ...flags, ...nameArgs, prompt],
 			{
 				cwd,
 				env,
 			},
 		);
 		return settleStarted(l, r, { sessionId, cwd }, move);
+	}
+
+	/**
+	 * Resume `l`'s session, which a restart killed, under its own id (#4098):
+	 * its job's saved launch flags read, the job stopped and its record
+	 * removed, then resumeStopped with those flags. The 2.1.319 harness starts
+	 * a copy of a resume carrying flags only while a job record exists, so one
+	 * removed continues under the session's id with its name and model. A
+	 * record naming another session is left, and the harness copies; a session
+	 * on an overflow key resumes headless, under its id already.
+	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
+	 * @param {string} prompt
+	 * @param {{sessionId: string, cwd: string}} ids
+	 * @returns {Resumed}
+	 */
+	function resumeOwnId(l, prompt, ids) {
+		if (l.keyVar) return resumeStopped(l, prompt, ids);
+		const refusal = io.authRefusal({
+			env: buildSeatEnv(io.env(), l.seat),
+			cwd: ids.cwd,
+		});
+		if (refusal) return { failed: refusal };
+		const flags = readSavedFlags(l, ids);
+		const retired = retireJob(l.seat, ids.sessionId, ids.cwd);
+		if (retired) return { failed: retired };
+		return resumeStopped(l, prompt, ids, { flags });
+	}
+
+	/**
+	 * The launch flags `ids`'s own job record saved (`respawnFlags`), which a
+	 * job continued with no record takes from its resume alone; where it saved
+	 * none, the loop's model and the name `ids`'s transcript carries.
+	 * @param {{seat: string}} l
+	 * @param {{sessionId: string, cwd: string}} ids
+	 * @returns {string[]}
+	 */
+	function readSavedFlags(l, { sessionId, cwd }) {
+		const rec = io.readJobRecord(l.seat, shortJobId(sessionId));
+		const saved = rec?.sessionId === sessionId ? rec.respawnFlags : undefined;
+		if (
+			Array.isArray(saved) &&
+			saved.every((/** @type {unknown} */ f) => typeof f === "string")
+		)
+			return saved;
+		const read = io.sessionName(transcriptPath(l.seat, cwd, sessionId));
+		const name = "name" in read ? read.name : null;
+		log(
+			`no saved launch flags read for ${sessionId}: resumed with the loop's model${name ? " and its transcript's name" : ""}`,
+		);
+		return ["--model", MODEL, ...(name ? ["--name", name] : [])];
 	}
 
 	/**
@@ -469,7 +575,7 @@ function resumeSteps(io) {
 		return settleCopy(
 			l,
 			sessionId,
-			{ jobId, sessionId: copySession, cwd },
+			{ jobId, sessionId: copySession, cwd, why: started.why },
 			move,
 		);
 	}
@@ -496,7 +602,7 @@ function resumeSteps(io) {
 			? settleCopy(
 					l,
 					target.sessionId,
-					{ jobId, sessionId, cwd: target.cwd },
+					{ jobId, sessionId, cwd: target.cwd, why: ADOPTED_WHY },
 					move,
 				)
 			: recordWoken(l, target, { jobId, sessionId }, move);
@@ -582,6 +688,7 @@ function resumeSteps(io) {
 		moveSession,
 		readResumeTarget,
 		removeJobRecord,
+		resumeOwnId,
 		resumeStopped,
 	};
 }

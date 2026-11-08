@@ -28,6 +28,14 @@ export const KEY_VAR = "K2";
 /** The job a headless resume of SESSION runs under. */
 export const HEADLESS_JOB = "0e0e0e0e";
 export const ALLOWANCE_USD = 50;
+/** The launch flags a job's record saves, which its resume under its own id
+ * passes again. */
+export const SAVED_FLAGS = [
+	"--model",
+	"opus",
+	"--name",
+	"Implement 7: a title",
+];
 
 const ran = (stdout: string, stderr = ""): ChildRun => ({
 	status: 0,
@@ -98,12 +106,21 @@ export const ANSWERS = {
 		copy: launched("copy"),
 		woke: launched("woke"),
 		continued: launched("continued"),
+		ownId: launched("ownId"),
+		/* `claude rm`'s answer. */
+		removed: ran(`removed ${JOB}\n`),
 		/* A launcher line naming no job. */
 		noJob: ran("no job named"),
 	},
 	readJobRecord: {
 		copyWorking: { state: "working", sessionId: COPY_SESSION },
 		working: { state: "working", sessionId: SESSION },
+		/* A job a restart killed, its launch flags saved. */
+		saved: {
+			state: "working",
+			sessionId: SESSION,
+			respawnFlags: SAVED_FLAGS,
+		},
 		stopped: { state: "stopped", sessionId: SESSION },
 		otherSession: { state: "working", sessionId: "s-other" },
 		/* No record yet: the resume is not confirmed. */
@@ -116,6 +133,12 @@ export const ANSWERS = {
 			"copying its transcript /a to /b: EISDIR: illegal operation on a directory",
 	},
 	hasJobRecord: { none: false, present: true },
+	writeJobName: {
+		written: null,
+		/* No record to name: the job has gone. */
+		unwritable:
+			"writing /a/state.json: ENOENT: no such file or directory, open '/a/state.json'",
+	},
 	stop: {
 		stopped: { ok: true, said: "stopped" },
 		/* A job that never started, or has gone. */
@@ -125,6 +148,14 @@ export const ANSWERS = {
 			said: `No job matching ${JOB}`,
 			timedOut: false,
 			noJob: true,
+		},
+		/* A stop the daemon would not answer. */
+		busy: {
+			ok: false,
+			why: "exit 1: daemon socket is busy",
+			said: "daemon socket is busy",
+			timedOut: false,
+			noJob: false,
 		},
 	},
 	overflowLookup: {
@@ -164,10 +195,12 @@ export const FAULTS = {
 
 type Answers = typeof ANSWERS;
 type Faults = typeof FAULTS;
+type Pick<P extends keyof Answers> =
+	| keyof Answers[P]
+	| (P extends keyof Faults ? keyof Faults[P] : never);
+/** Each port's answer, or its answers call by call, the last repeating. */
 export type Picks = {
-	[P in keyof Answers]?:
-		| keyof Answers[P]
-		| (P extends keyof Faults ? keyof Faults[P] : never);
+	[P in keyof Answers]?: Pick<P> | Pick<P>[];
 };
 
 export function fakeResumeIo(
@@ -178,9 +211,15 @@ export function fakeResumeIo(
 	const lines: string[] = [];
 	const served = <P extends keyof typeof ANSWERS>(name: P) =>
 		((...args: unknown[]) => {
+			const nth = calls.filter((c) => c.port === name).length;
 			calls.push({ port: name, args });
 			const named: Record<string, unknown> = ANSWERS[name];
-			const pick = String(picks[name] ?? Object.keys(named)[0]);
+			const picked = picks[name] ?? Object.keys(named)[0];
+			const pick = String(
+				Array.isArray(picked)
+					? picked[Math.min(nth, picked.length - 1)]
+					: picked,
+			);
 			const fault = (FAULTS as Record<string, Record<string, string>>)[name]?.[
 				pick
 			];
@@ -199,6 +238,7 @@ export function fakeResumeIo(
 		findResumed: served("findResumed"),
 		copyTranscript: served("copyTranscript"),
 		hasJobRecord: served("hasJobRecord"),
+		writeJobName: served("writeJobName"),
 		stop: served("stop"),
 		overflowLookup: served("overflowLookup"),
 		recordLaunch: served("recordLaunch"),

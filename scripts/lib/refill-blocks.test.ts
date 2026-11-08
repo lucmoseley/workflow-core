@@ -47,6 +47,9 @@ import { buildLimitCapText } from "./refill-decide.js";
 import { judgedLaunches } from "./refill-loop.js";
 import { buildSeatName } from "./refill-seats.js";
 
+/** The reason a test resume gives for starting a copy (#4098). */
+const COPY_WHY = "note: started a copy as copy";
+
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -108,6 +111,7 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 				jobId: `${l.jobId}-copy`,
 				sessionId: "s",
 				copy: true,
+				why: COPY_WHY,
 			};
 		},
 		moveSession: (l, target, _prompt, moved) => {
@@ -162,6 +166,9 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 		writeLaunch: (l) => {
 			started.push(l);
 		},
+		/* The resume under its own id is resumeStopped's, as far as these cases
+		 * read it. */
+		resumeOwnId: (l, prompt, target) => io.resumeStopped(l, prompt, target),
 		...over,
 	};
 	return { io, calls, started };
@@ -652,7 +659,7 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			resumes: tried(1, 2, 2, { attachAt: NOW - 2 * MIN }),
 		});
 		const { out, calls } = blocks([typed], blocked, "normal");
-		const line = `resume 1 of ${RESUME_CAP} after an API error, design-vault /implement 42, by stop and --bg --resume, the typed one unseen, as its copy p-copy; next due ${new Date(NOW + 2 * MIN).toISOString()}`;
+		const line = `resume 1 of ${RESUME_CAP} after an API error, design-vault /implement 42, by stop and --bg --resume, the typed one unseen, as its copy p-copy (${COPY_WHY}); next due ${new Date(NOW + 2 * MIN).toISOString()}`;
 		expect(calls).toEqual([
 			"stop p",
 			"resume p",
@@ -1309,7 +1316,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(r.calls).toEqual([
 				"re-read",
 				"resume job42",
-				"log resumed design-vault /implement 42, stopped under the swap hold at 2026-10-18T11:50:00.000Z, the hold cleared, by --bg --resume, as its copy job42-copy",
+				`log resumed design-vault /implement 42, stopped under the swap hold at 2026-10-18T11:50:00.000Z, the hold cleared, by --bg --resume, as its copy job42-copy (${COPY_WHY})`,
 				"stagger",
 			]);
 			expect(out).not.toHaveProperty("swapHeld");
@@ -2287,6 +2294,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 							jobId: "job99",
 							sessionId: "s2",
 							copy: true,
+							why: COPY_WHY,
 						}),
 					},
 				},
@@ -2655,6 +2663,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 					jobId: "copy1",
 					sessionId: "s-copy",
 					copy: true,
+					why: COPY_WHY,
 				}),
 			},
 		});
@@ -2758,6 +2767,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 							jobId: "copy1",
 							sessionId: "s-copy",
 							copy: true,
+							why: COPY_WHY,
 						};
 					},
 				},
@@ -2827,6 +2837,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 						jobId: "copy1",
 						sessionId: "s-copy",
 						copy: true,
+						why: COPY_WHY,
 					}),
 				},
 			}).launches as Launch[];
@@ -2856,6 +2867,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 						jobId: "copy1",
 						sessionId: "s-copy",
 						copy: true,
+						why: COPY_WHY,
 					}),
 				},
 			}).launches as Launch[];
@@ -3535,7 +3547,13 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 			{
 				resumeStopped: () => {
 					writtenBefore.push(written.length);
-					return { failed: null, jobId: "copy", sessionId: "s2", copy: true };
+					return {
+						failed: null,
+						jobId: "copy",
+						sessionId: "s2",
+						copy: true,
+						why: COPY_WHY,
+					};
 				},
 			},
 			written,
@@ -3554,7 +3572,13 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 		const { out, calls, lines, written } = step(killed(NOW - MIN), {
 			adoptResumed: (_l, _target, at) => {
 				since.push(at);
-				return { failed: null, jobId: "copy", sessionId: "s2", copy: true };
+				return {
+					failed: null,
+					jobId: "copy",
+					sessionId: "s2",
+					copy: true,
+					why: COPY_WHY,
+				};
 			},
 		});
 		expect(since).toEqual([NOW - MIN]);
@@ -3568,7 +3592,37 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 			bootResumedAt: NOW - MIN,
 		});
 		expect(written).toHaveLength(1);
-		expect(lines.join("\n")).toMatch(/as its copy copy, which a kill left out/);
+		expect(lines.join("\n")).toContain(
+			`as its copy copy (${COPY_WHY}), which a kill left out`,
+		);
+	});
+
+	it("resumes it under its own id, never by a plain resume (#4098)", () => {
+		const own: string[] = [];
+		const { calls, lines } = step(killed(), {
+			resumeOwnId: (l, prompt, target) => {
+				own.push(`${l.jobId} ${target.sessionId} ${prompt}`);
+				return { failed: null, jobId: "job42", sessionId: "s", copy: false };
+			},
+		});
+		expect(own).toEqual([`job42 s ${BOOT_PROMPT}`]);
+		expect(calls).not.toContain("resume job42");
+		expect(lines.join("\n")).toMatch(
+			/killed by a restart, by --bg --resume, woken in place/,
+		);
+	});
+
+	it("logs the reason the harness gave for a copy (#4098)", () => {
+		const { lines } = step(killed(), {
+			resumeOwnId: () => ({
+				failed: null,
+				jobId: "copy",
+				sessionId: "s2",
+				copy: true,
+				why: COPY_WHY,
+			}),
+		});
+		expect(lines.join("\n")).toContain(`as its copy copy (${COPY_WHY})`);
 	});
 
 	it("resumes one whose copy the job store could not tell, saying so", () => {
@@ -3896,7 +3950,13 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			const { launches, settled, calls } = settle(apiStarted(), {
 				adoptResumed: (l, target, since) => {
 					looked.push([l.seat, target.sessionId, since]);
-					return { failed: null, jobId: "c-1", sessionId: "s-c", copy: true };
+					return {
+						failed: null,
+						jobId: "c-1",
+						sessionId: "s-c",
+						copy: true,
+						why: COPY_WHY,
+					};
 				},
 			});
 			expect(settled).toBe(true);
@@ -3971,6 +4031,7 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 						jobId: "c-1",
 						sessionId: "s-c",
 						copy: true,
+						why: COPY_WHY,
 					}),
 				},
 			);
@@ -4035,6 +4096,7 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 							jobId: "copy1",
 							sessionId: "s-copy",
 							copy: true,
+							why: COPY_WHY,
 						};
 					},
 				},

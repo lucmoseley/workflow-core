@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export type ResumeKind = "copy" | "woke" | "continued";
+export type ResumeKind = "copy" | "woke" | "continued" | "ownId";
 
 interface Response {
 	resumed: string;

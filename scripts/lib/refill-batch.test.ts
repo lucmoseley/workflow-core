@@ -29,6 +29,9 @@ import {
 	launchOrResume,
 } from "./refill-batch.js";
 
+/** The reason a test resume gives for starting a copy (#4098). */
+const COPY_WHY = "note: started a copy as copy";
+
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
 
 const { readStaggerMs } = require("./refill-batch.js");
@@ -503,6 +506,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			jobId: "j-9",
 			sessionId: "s-copy",
 			copy: true,
+			why: COPY_WHY,
 		}));
 		expect(woken.out.launched[0]).not.toHaveProperty("pastSessionIds");
 		expect(copied.out.launched[0]).toMatchObject({
@@ -590,6 +594,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			jobId: "j-9",
 			sessionId: null,
 			copy: true,
+			why: COPY_WHY,
 		}));
 		expect(fresh).toEqual([]);
 		expect(out.refused).toEqual([]);
@@ -724,7 +729,13 @@ describe("the members of a batch a kill cut off (#4180)", () => {
 
 	it("tracks a parked member's resume the job store shows, writing the ledger row the kill beat", () => {
 		const { launched, recorded, looked } = adopt([parked], {
-			found: { failed: null, jobId: "c-1", sessionId: "s-c", copy: true },
+			found: {
+				failed: null,
+				jobId: "c-1",
+				sessionId: "s-c",
+				copy: true,
+				why: COPY_WHY,
+			},
 		});
 		expect(looked).toEqual([[target, NOW]]);
 		expect(launched).toEqual([

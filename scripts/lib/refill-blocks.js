@@ -135,9 +135,11 @@ const PARKED_STATE = "blocked";
  *   a move's seat: on an overflow seat, its key and the allowance the session
  *   takes there, the key's headroom at the move (#3736)
  * @typedef {{failed: string}|{failed: null, jobId: string,
- *   sessionId: string|null, copy: boolean}} Resumed  a `--bg --resume`: why
- *   it failed, else the job it runs on as, its full session id, null unread,
- *   and whether that job is a copy (#2963) rather than the one woken in place
+ *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
+ *   sessionId: string|null, copy: true, why: string}} Resumed  a
+ *   `--bg --resume`: why it failed, else the job it runs on as, its full
+ *   session id, null unread, and whether that job is a copy (#2963), with the
+ *   reason the harness gave for it (#4098), rather than the one woken in place
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
  *   the job a resume started, woken in place or a copy handed what the session
  *   held; why the job store could not tell, or null where it holds neither
@@ -202,6 +204,10 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
+ * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
+ *   {sessionId: string}) => Resumed} resumeOwnId  `claude --bg --resume` of
+ *   a job a restart killed, its record removed first so it keeps its id
+ *   (#4098)
  * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
  *   `l` in place of the launch it was: a resume's stamp before its stop, and its
  *   outcome after (#4180)
@@ -934,6 +940,14 @@ function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
 }
 
 /**
+ * How resume `r` started its job: woken in place, or as a copy with the
+ * reason the harness gave (#4098).
+ * @param {Extract<Resumed, {failed: null}>} r
+ */
+const buildResumedHow = (r) =>
+	r.copy ? `as its copy ${r.jobId} (${r.why})` : "woken in place";
+
+/**
  * One resume, or one that could not be made, logged and commented on `l`'s
  * issues.
  * @param {LoopLaunch} l  after the try
@@ -996,7 +1010,7 @@ function settleFallBack(l, r, { now, io }, { route, again }) {
 	let told = route;
 	if (r.failed === null) {
 		resumed = relaunched(l, r, now);
-		told = `${route}, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`;
+		told = `${route}, ${buildResumedHow(r)}`;
 	}
 	const tried = {
 		...afterFallBack(resumed, now, { failed: r.failed !== null, again }),
@@ -1367,7 +1381,7 @@ function adoptUnrecordedCopy(l, seen) {
 		at,
 	);
 	seen.io.log(
-		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, ${r.copy ? `as its copy ${launch.jobId}` : "woken in place"}, which a kill left out of the state: tracking it, not resuming again`,
+		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, ${buildResumedHow(r)}, which a kill left out of the state: tracking it, not resuming again`,
 	);
 	unparkStepped(l, sessionId, step, seen.io);
 	return launch;
@@ -1392,7 +1406,9 @@ function resumeStepHeld(l, seen) {
 		return { launch: handOff(rest, seen, true), started: false };
 	}
 	const unpark = () => unparkStepped(l, sessionId, step, io);
-	const r = io.resumeStopped(l, prompt, { sessionId, cwd });
+	const r = isBootKilled(l)
+		? io.resumeOwnId(l, prompt, { sessionId, cwd })
+		: io.resumeStopped(l, prompt, { sessionId, cwd });
 	if (r.failed === null) {
 		const launch = afterStepResume(
 			l,
@@ -1400,9 +1416,7 @@ function resumeStepHeld(l, seen) {
 			{ ...r, fromSessionId: sessionId },
 			now,
 		);
-		io.log(
-			`resumed ${what}, ${why}, by --bg --resume, ${r.copy ? `as its copy ${launch.jobId}` : "woken in place"}`,
-		);
+		io.log(`resumed ${what}, ${why}, by --bg --resume, ${buildResumedHow(r)}`);
 		unpark();
 		return { launch, started: true };
 	}
@@ -2086,7 +2100,7 @@ function settleInPlace(l, r, now, io) {
 		r,
 		now,
 	);
-	const how = r.copy ? `as its copy ${resumed.jobId}` : "woken in place";
+	const how = buildResumedHow(r);
 	io.log(`resumed ${what}: same seat, ${how}`);
 	io.comment(
 		l,
@@ -2230,9 +2244,7 @@ function settleMove(l, target, r, { now, io }) {
 		r,
 		now,
 	);
-	const how = r.copy
-		? `as its copy ${moved.jobId}`
-		: "under its own session id";
+	const how = r.copy ? buildResumedHow(r) : "under its own session id";
 	const charged =
 		target.allowanceUsd === undefined
 			? ""
