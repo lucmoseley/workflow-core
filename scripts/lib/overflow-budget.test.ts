@@ -473,6 +473,16 @@ describe("a listed session", () => {
 		fs.writeFileSync(stub, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
 		expect(budget()).toEqual({ why: expect.stringContaining("agents --json") });
 	});
+
+	it("dates its running count by the listing it was read off (#4175)", () => {
+		const readAt = Date.now() - 90_000;
+		expect(
+			seatBudget({ ...seat, dir: seatDir }, root, () => ({
+				agents: [],
+				readAt,
+			})),
+		).toMatchObject({ running: 0, runningReadAt: readAt });
+	});
 });
 
 describe("a resumed copy's settled spend (#4208)", () => {
@@ -690,6 +700,7 @@ describe("the CLI", () => {
 			exhausted: false,
 			readFailure: null,
 			lastAttemptAt: null,
+			runningReadAt: expect.any(Number),
 		});
 		/* cycle-day=1: whatever the clock, the cycle runs from one 1st at
 		 * local midnight to the next. */

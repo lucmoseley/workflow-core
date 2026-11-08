@@ -1053,6 +1053,7 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
 		exhausted: budget.exhausted,
 		noLaunchLeft: isBudgetSpent(budget),
 		running: budget.running,
+		runningReadAt: budget.runningReadAt,
 	};
 }
 

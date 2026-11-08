@@ -45,6 +45,8 @@ const { budgetMs } = require("./hook-deadline.js");
  * the follower wait. Keyed, a fake shares nothing with the real oracle and
  * nothing with another fake.
  */
+/** @typedef {{raw: string, at: number}} Hit a record's stdout and its write time, ms */
+
 /** @param {string} key */
 const keyOf = (key) =>
 	crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 12);
@@ -152,7 +154,7 @@ function trySleep(ms) {
 }
 
 /**
- * The cached stdout if one was written within the TTL, else null. A hit
+ * The cached stdout and its write time if written within the TTL, else null. A hit
  * standing alone goes to agent-liveness.js's `sharedSessionIds` and
  * `readAgentsForDisplay` only.
  *
@@ -164,11 +166,11 @@ function trySleep(ms) {
  * @param {string} key
  * @param {number} [minAt]
  * @param {number} [maxAgeMs]
- * @returns {string|null}
+ * @returns {Hit|null}
  */
 function readFresh(key, minAt, maxAgeMs) {
 	const rec = freshRecord(key, minAt, maxAgeMs);
-	return typeof rec?.raw === "string" ? rec.raw : null;
+	return typeof rec?.raw === "string" ? { raw: rec.raw, at: rec.at } : null;
 }
 
 /**
@@ -190,7 +192,7 @@ function readRefusal(key) {
  * @param {string} key
  * @param {number} [minAt]
  * @param {number} [maxAgeMs]
- * @returns {{raw?: unknown, why?: unknown} | null}
+ * @returns {{raw?: unknown, why?: unknown, at: number} | null}
  */
 function freshRecord(key, minAt, maxAgeMs = ttlMs()) {
 	if (isDisabled()) return null;
@@ -204,7 +206,7 @@ function freshRecord(key, minAt, maxAgeMs = ttlMs()) {
 		const age = Date.now() - at;
 		if (age < 0 || age > maxAgeMs) return null;
 		if (minAt !== undefined && at < minAt) return null;
-		return rec;
+		return { ...rec, at };
 	} catch {
 		/* ENOENT on the first read of a start, and a partial or unreadable record
 		 * otherwise. Both mean the same thing to a caller — spawn. */
@@ -367,7 +369,7 @@ function release(key) {
  *
  * @param {string} key
  * @param {{ sleep?: (ms: number) => boolean }} [deps]
- * @returns {string|null}
+ * @returns {Hit|null}
  */
 function waitForLeader(key, { sleep = trySleep } = {}) {
 	if (isDisabled()) return null;

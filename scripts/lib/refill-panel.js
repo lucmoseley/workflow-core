@@ -43,6 +43,10 @@ const WHEEL_ROWS = 3;
 const MORE_ABOVE_MARK = "↑ more";
 const MORE_BELOW_MARK = "↓ more";
 
+/* Untraced, a first guess: fast enough that a change elsewhere shows while the
+ * founder looks, and each poll is one short Node process. */
+const POLL_MS = 3000;
+
 /* How long a press's note holds its row before that row's own words return. Untraced:
  * a first guess, long enough to read one line. */
 const NOTE_SHOW_MS = 10_000;
@@ -115,7 +119,7 @@ const ROLE_STYLES = {
  * @typedef {{seat: string, keyVar: string, why: string}
  *   | {seat: null, why: string}
  *   | {seat: string, keyVar: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
- *     creditReadAt: number|null,
+ *     creditReadAt: number|null, runningReadAt: number|null,
  *     noLaunchLeft: boolean, running: number}} OverflowKey
  * @typedef {Exclude<OverflowKey, {why: string}>} ReadKey
  * @typedef {{running: boolean, stopRequested: boolean,
@@ -452,8 +456,7 @@ function buildKeyFigure(
 	/* Running runs' reservations can pass a key's credit. */
 	const usd = exhausted ? 0 : Math.floor(Math.max(headroomUsd, 0));
 	if (creditReadAt === null) return `${exhausted ? "" : "~"}$${usd} ${figure}`;
-	const age = describeAge(Math.max(0, (now - creditReadAt) / 1000));
-	return `$${usd} ${figure} (${age} ago)`;
+	return `$${usd} ${figure} (${describeAgo(creditReadAt, now)})`;
 }
 
 /**
@@ -470,22 +473,52 @@ function buildNotSpendingReason(status, picksKey) {
 }
 
 /**
+ * How long ago `at` was, in seconds under a minute: the running count's age stays
+ * under two minutes (#4175).
+ * @param {number} at ms
+ * @param {number} now
+ */
+function describeAgo(at, now) {
+	const s = Math.floor(Math.max(0, now - at) / 1000);
+	return `${s < 60 ? `${s}s` : describeAge(s)} ago`;
+}
+
+/**
+ * The running count's age, ` (45s ago)`, where the oldest listing a key counted
+ * its sessions off is older than one poll (#4175), else nothing.
+ * @param {ReadKey[]} keys
+ * @param {number} now
+ */
+function buildRunningAge(keys, now) {
+	const dated = keys.flatMap((key) =>
+		key.runningReadAt === null ? [] : [key.runningReadAt],
+	);
+	if (dated.length === 0) return "";
+	const at = Math.min(...dated);
+	return now - at <= POLL_MS ? "" : ` (${describeAgo(at, now)})`;
+}
+
+/**
  * Whether credits are spending (#3958): a session on a key is running, or the seat the
  * picker takes next is a key and the last tick launched rather than idled. Residual:
  * between such a tick's launch and the next status read, this says spending before
  * that session has spent. An unread key
- * could hold running sessions, so it never reads as not spending.
+ * could hold running sessions, so it never reads as not spending. A verdict off the
+ * running count carries that count's age.
  * @param {PanelStatus} status
+ * @param {number} now
  * @returns {{spending: boolean, text: string}}
  */
-function buildSpendState(status) {
+function buildSpendState(status, now) {
 	const { seats, overflow } = status;
-	const running = buildReadKeys(overflow).reduce(
-		(sum, key) => sum + key.running,
-		0,
-	);
+	const keys = buildReadKeys(overflow);
+	const running = keys.reduce((sum, key) => sum + key.running, 0);
+	const age = buildRunningAge(keys, now);
 	if (running > 0)
-		return { spending: true, text: `Spending now: ${running} on credits` };
+		return {
+			spending: true,
+			text: `Spending now: ${running} on credits${age}`,
+		};
 	const picksKey = seats.next?.reason === "overflow";
 	if (isLaunching(status) && picksKey && status.lastTick?.idle === null)
 		return { spending: true, text: "Spending now: plans are full" };
@@ -493,7 +526,7 @@ function buildSpendState(status) {
 		return { spending: false, text: "Spending unknown" };
 	return {
 		spending: false,
-		text: `Not spending: ${buildNotSpendingReason(status, picksKey)}`,
+		text: `Not spending: ${buildNotSpendingReason(status, picksKey)}${age}`,
 	};
 }
 
@@ -546,7 +579,7 @@ function buildPlanRows({ seats }, now) {
  */
 function buildCreditRows(status, now) {
 	if (status.overflow.length === 0) return [];
-	const { spending, text } = buildSpendState(status);
+	const { spending, text } = buildSpendState(status, now);
 	/** @type {Role} */
 	const role = spending ? "value" : "secondary";
 	return [
@@ -2068,6 +2101,7 @@ function buildFrameLine(
 
 module.exports = {
 	ESC,
+	POLL_MS,
 	buildFrame,
 	findHoverRow,
 	countUnscrolledHeight,
