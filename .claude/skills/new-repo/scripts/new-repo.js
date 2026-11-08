@@ -2103,7 +2103,7 @@ function skeletonCommit(
  * @param {string[]} spec the skeleton pathspec
  * @param {string[]} message the commit's `-m` arguments
  * @param {NodeJS.ProcessEnv} env the hooks' environment
- * @returns {{status: number, output: string}} the commit's
+ * @returns {{status: number, output: string}}
  */
 function commitBeside(clone, spec, message, env) {
 	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "new-repo-commit-"));
