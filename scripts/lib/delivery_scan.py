@@ -15,13 +15,14 @@ import subprocess
 from typing import NamedTuple
 
 import transcript_corpus as tc
+from wfc_bin import bin_path
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 
 def git(*args):
     return subprocess.run(
-        ["git", "-C", REPO, *args], capture_output=True, text=True, check=True
+        [bin_path("git"), "-C", REPO, *args], capture_output=True, text=True, check=True
     ).stdout
 
 

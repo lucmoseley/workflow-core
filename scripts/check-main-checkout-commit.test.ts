@@ -64,3 +64,11 @@ it("passes with the `landing` module off, and on the founder's escape", () => {
 	expect(run(main, { WFC_MODULES: "" }).status).toBe(0);
 	expect(run(main, { WFC_ALLOW_BRANCH: "1" }).status).toBe(0);
 });
+
+it("passes the root commit, HEAD still unborn: the commit that starts a new repo's main (#2412)", () => {
+	const fresh = path.join(tmp, "fresh");
+	git(tmp, "init", "-q", "-b", "main", fresh);
+	const r = run(fresh);
+	expect(r.status, r.stdout + r.stderr).toBe(0);
+	expect(r.stdout + r.stderr).toContain("this commit starts main");
+});

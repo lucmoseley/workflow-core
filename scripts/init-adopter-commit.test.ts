@@ -5,6 +5,8 @@
  * init-adopter.test.ts: together they would hold one worker past the per-file
  * limit (#4296). Over the 10 s run-cost budget (base §X8 (5)) by nature: each
  * case runs every gate the hooks arm, and a cheaper commit would test less.
+ * The file's cost grows with its cases: the landing-on skeleton's own commit
+ * (#2412) is one more.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -22,6 +24,7 @@ import {
 	SKELETON_PATHS,
 	upgradeAfterInit,
 } from "./init-adopter-fixture";
+import { isCutOver } from "./lib/cutover.js";
 import { allRegistrations, buildCommandLine } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -95,6 +98,47 @@ describe("the skeleton's first commit", () => {
 			);
 			expect(`${r.stdout}\n${r.stderr}`).not.toMatch(/^(FAIL|BROKEN):/m);
 			expect(r.status).toBe(0);
+		},
+		COMMIT_BUDGET_MS,
+	);
+});
+
+describe("a new repo created with the landing module on (#2412)", () => {
+	it.skipIf(!HAS_GITLEAKS)(
+		"is cut over from the start, hands its sessions the queue rule, and lands its skeleton commit green",
+		() => {
+			const { dir, git } = repo();
+			expect(
+				init(
+					dir,
+					"--founder",
+					"A Founder",
+					"--modules",
+					"landing",
+					"--no-tracker",
+				).status,
+			).toBe(0);
+			expect(
+				JSON.parse(
+					fs.readFileSync(path.join(dir, ".claude/workflow-core.json"), "utf8"),
+				).modules,
+			).toEqual(["landing"]);
+			expect(
+				fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8"),
+			).toContain("A push to your session's queue ref is your own act");
+			expect(isCutOver(dir)).toBe(true);
+			/* The suite's WFC_MODULES holds every module but `landing`, and would
+			 * replace the declared list in the hooks. */
+			const { WFC_MODULES: _suite, ...env } = process.env;
+			const r = commitThroughHooks(
+				dir,
+				"Start the repo: the workflow-core skeleton",
+				SKELETON_PATHS,
+				env,
+			);
+			expect(`${r.stdout}\n${r.stderr}`).not.toMatch(/^(FAIL|BROKEN):/m);
+			expect(r.status, r.stderr).toBe(0);
+			expect(git("status", "--porcelain", "--", ...SKELETON_PATHS)).toBe("");
 		},
 		COMMIT_BUDGET_MS,
 	);

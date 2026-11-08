@@ -54,7 +54,7 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 - **suites** — the test-suite rules: a push warns unless its commit has a certificate. On for a copied repo holding tests or a test command. Any test file also needs its test command declared, whatever this module says.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
-- **landing** — sessions push to a landing branch, and main moves only to a commit the full suite passed. Off until a release turns it on.
+- **landing** — each session works in its own worktree and lands through its own queue ref, and main moves only to a commit the full suite passed. Off in a new repo; a repo already on the core turns it on with the v2.1.0 release's steps.
 
 To switch one on, ask a session in that repo to. It adds the module to the repo's workflow-core settings and re-runs the core's setup, which reads them.
 
