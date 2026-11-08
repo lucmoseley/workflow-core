@@ -6,7 +6,7 @@ read by (#2733, #3216).
 
   python3 scripts/measure-guard-port/hookset.py PreToolUse Bash 'ls -la' > hooks.txt
   python3 scripts/measure-guard-port/bench.py hooks.txt PreToolUse Bash 'ls -la' 15
-  python3 scripts/measure-guard-port/bench.py --paired [--narrowed] [--old-root DIR] [--new-root DIR] \
+  python3 scripts/measure-guard-port/bench.py --paired [--narrowed] [--reread] [--old-root DIR] [--new-root DIR] \
       old.txt new.txt PreToolUse Bash 'ls -la'
 
 Each call starts every command under `/bin/sh -c` at once, writes one hook
@@ -18,7 +18,10 @@ The paired mode runs one old call and one new call back to back, in an order
 a coin flip sets per pair, and reads the median of the new/old ratios for CPU
 and wall with a 95% percentile bootstrap interval: PASS when
 the upper bound is at most 1.03, FAIL when the lower bound is above it, else
-30 more pairs up to 90 and then INCONCLUSIVE, which is never a pass. An
+30 more pairs up to 90 and then INCONCLUSIVE, which is never a pass.
+`--reread` is the one re-read an INCONCLUSIVE gets: a single read of 720
+pairs with no earlier look, whose verdict is final, an INCONCLUSIVE closing the
+gate as wall not resolved, never as a pass (#4664). An
 always-on set passes on CPU and wall; `--narrowed` (an `if`-narrowed guard)
 passes on wall, CPU recorded beside it. Pairing cancels the load both calls
 share, so no load is refused (#3210). The read is REFUSED when a pair's deny
@@ -51,10 +54,12 @@ from host_root import host_root
 from machine import machine_state
 
 SESSION = "bench-2783-0000"
-# Untraced (#3216): the non-inferiority margin, and the batch step and cap.
+# The margin is house (#3232 Q1 (A)); the batch step and cap are untraced (#3216).
 MARGIN = 1.03
 # 30 to start is Kalibera & Jones's and Georges et al.'s count (#3210).
 FIRST, STEP, CAP = 30, 30, 90
+# House (#4664 Q1 (A)): ±2.2-2.4% wide on a no-effect change at load ~20.
+REREAD = 720
 # Duet's replicate count; Kalibera & Jones's floor is 1,000 (#3210).
 RESAMPLES = 10_000
 PR_SET_CHILD_SUBREAPER = 36
@@ -298,10 +303,13 @@ def refusal(pair: tuple[dict, dict]) -> str | None:
     return None
 
 
-def run_paired(call_old, call_new, narrowed: bool, rng: random.Random) -> dict:
+def run_paired(
+    call_old, call_new, narrowed: bool, rng: random.Random, *, reread: bool = False
+) -> dict:
+    first, cap = (REREAD, REREAD) if reread else (FIRST, CAP)
     pairs: list[tuple[dict, dict]] = []
     while True:
-        for _ in range(FIRST if not pairs else STEP):
+        for _ in range(first if not pairs else STEP):
             if rng.random() < 0.5:
                 old = call_old()
                 new = call_new()
@@ -313,7 +321,7 @@ def run_paired(call_old, call_new, narrowed: bool, rng: random.Random) -> dict:
             if why:
                 return {"verdict": "REFUSED", "reason": why, "pairs": len(pairs)}
         read = judge_pairs(pairs, narrowed, rng)
-        if read["verdict"] != "INCONCLUSIVE" or len(pairs) >= CAP:
+        if read["verdict"] != "INCONCLUSIVE" or len(pairs) >= cap:
             return {
                 **read,
                 "pairs": len(pairs),
@@ -345,14 +353,16 @@ def side(root: str, event: str, tool: str, cmd: str) -> tuple[bytes, dict]:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     paired = args[:1] == ["--paired"]
-    narrowed = False
+    narrowed = reread = False
     roots = {"--old-root": host_root(), "--new-root": host_root()}
     if paired:
         args.pop(0)
-        while args and args[0] in ("--narrowed", *roots):
+        while args and args[0] in ("--narrowed", "--reread", *roots):
             flag = args.pop(0)
             if flag == "--narrowed":
                 narrowed = True
+            elif flag == "--reread":
+                reread = True
             elif args:
                 roots[flag] = os.path.realpath(args.pop(0))
     if paired and len(args) == 5:
@@ -376,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
             lambda: one_call(new, new_body, new_env, new_root),
             narrowed,
             random.Random(),
+            reread=reread,
         )
         out["hooks"] = [len(old), len(new)]
     else:
