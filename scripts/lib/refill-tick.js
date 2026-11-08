@@ -992,7 +992,7 @@ const productionIo = {
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
 	readProgress,
-	readLastActAt: readLoopLastActAt,
+	readLoopLastActAt,
 	readCause,
 	unparkAnswered: blocks.unparkAnswered,
 	tendClosedParks,

@@ -210,7 +210,7 @@ function fakeIo(
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
-		readLastActAt: () => null,
+		readLoopLastActAt: () => null,
 		readCause: () => null as never,
 		unparkAnswered: recorded("unparkAnswered", () => undefined),
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
@@ -563,7 +563,7 @@ describe("the unproven cap through the tick (#4223)", () => {
 	const limitSlotsOf = async (lastActAt: number) => {
 		const handed: number[] = [];
 		const { io } = fakeIo(stateOf({ launches: running }), {
-			readLastActAt: () => lastActAt,
+			readLoopLastActAt: () => lastActAt,
 			readFreeSlots: () => ({ slots: 5, admission: null }),
 			actOnLimits: (judged, _m, { slots }) => {
 				handed.push(slots);
