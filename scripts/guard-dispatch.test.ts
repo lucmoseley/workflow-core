@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
 import { readManifestRows } from "./lib/guard-cores.js";
 import {
 	expectShellHooks,
@@ -58,13 +59,16 @@ afterEach(() => {
 
 type Payload = Record<string, unknown>;
 
-/* The hook line runs the entry through the shim from the pinned guard code
- * (#4227): here `project` itself, through a link beside it. */
-const pinnedAt = (project: string) => {
+/* The hook line runs the entry through the main checkout's shim, found from
+ * the self-plugin root the harness sets (#4701), from the pinned guard code
+ * (#4227): here `project` is both, the code through a link beside it. */
+const lineEnvAt = (project: string) => {
 	const code = path.join(project, ".guard-code");
 	if (!fs.existsSync(`${code}.current`))
 		fs.symlinkSync(project, `${code}.current`);
-	return { WFC_GUARD_CODE_DIR: code };
+	const pluginRoot = path.join(project, SELF_PLUGIN_DIR);
+	fs.mkdirSync(pluginRoot, { recursive: true });
+	return { WFC_GUARD_CODE_DIR: code, CLAUDE_PLUGIN_ROOT: pluginRoot };
 };
 
 const spawnLine = (
@@ -80,7 +84,7 @@ const spawnLine = (
 		config,
 		cwd: project,
 		args: ["-c", LINES[0] ?? ""],
-		env: { ...pinnedAt(project), ...env },
+		env: { ...lineEnvAt(project), ...env },
 		stdin,
 	});
 
@@ -329,7 +333,7 @@ describe("each input channel", () => {
 					...process.env,
 					CLAUDE_PROJECT_DIR: dir,
 					CLAUDE_CONFIG_DIR: config,
-					...pinnedAt(dir),
+					...lineEnvAt(dir),
 				},
 			});
 			expect(r.status).toBe(2);

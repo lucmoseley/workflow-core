@@ -127,7 +127,12 @@ const { hostRoot } = require("./lib/host-root.js");
 const { resolveMarketplace } = require("./lib/plugin-state.js");
 const { caught } = require("./lib/caught.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
-const { flattenHooks, readOwnHookSources } = require("./lib/core-hooks.js");
+const {
+	flattenHooks,
+	readOwnHookSources,
+	SELF_PLUGIN_DIR,
+	toScriptsRel,
+} = require("./lib/core-hooks.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -1638,10 +1643,12 @@ const INTERPRETER_RE = /^(node|sh|bash|dash|zsh|python(\d+(\.\d+)?)?)$/;
  * whether the command runs it directly (so it must be executable) or hands it to
  * an interpreter.
  *
- * Tokens are matched on carrying `CLAUDE_PROJECT_DIR` or opening `scripts/`,
- * which is deliberately wider than a `scripts/<name>.sh` shape: a command that
- * says `"$CLAUDE_PROJECT_DIR"/scrpits/guard-wide-read.sh` is exactly the typo this
- * assertion exists to catch, and a shape-matcher would pass it as no path at all.
+ * Tokens are matched on carrying `rootVar` or, for the default, opening
+ * `scripts/`, which is deliberately wider than a `scripts/<name>.sh` shape: a
+ * command that says `"$CLAUDE_PROJECT_DIR"/scrpits/guard-wide-read.sh` is
+ * exactly the typo this assertion exists to catch, and a shape-matcher would
+ * pass it as no path at all. The core's own commands reach it with their
+ * main-checkout prefix spelt bare (lib/core-hooks.js's toScriptsRel, #4701).
  *
  * THE PATH MAY LIVE IN `args`. The exec form's vendor-documented spelling —
  * `"command": "node", "args": ["${CLAUDE_PROJECT_DIR}/scripts/x.js"]` — puts no
@@ -1783,9 +1790,20 @@ function checkOwnHook(ctx, { event, hook, file }) {
 			? hook.args
 			: undefined;
 	let checked = 0;
-	for (const { rel, direct } of hookPaths(hook.command, args)) {
+	/* The core's main-checkout prefix names the repo's own scripts/ (#4701);
+	 * a plugin-root path it does not match, as a typo in it, resolves from
+	 * the self-plugin's directory, where the harness roots it. */
+	const command = toScriptsRel(hook.command);
+	const named = [
+		...hookPaths(command, args).map((p) => ({ ...p, root: repoRoot() })),
+		...hookPaths(command, args, "CLAUDE_PLUGIN_ROOT").map((p) => ({
+			...p,
+			root: path.join(repoRoot(), SELF_PLUGIN_DIR),
+		})),
+	];
+	for (const { rel, direct, root } of named) {
 		checked++;
-		const fault = hookPathFault(path.join(repoRoot(), rel), direct);
+		const fault = hookPathFault(path.join(root, rel), direct);
 		if (fault)
 			reportOwnPathFault(
 				ctx,
