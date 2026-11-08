@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
+import { spyStderr } from "./write-fd-testkit";
 
 const {
 	hostRoot,
@@ -96,27 +97,6 @@ afterEach(() => {
 	vi.restoreAllMocks();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
-
-/**
- * Every write the config makes to stderr, which goes through writeFd's
- * fs.writeSync on fd 2; any other fd's write goes through.
- */
-const spyStderr = () => {
-	const write = vi.fn((_text: string) => true);
-	const real = fs.writeSync;
-	vi.spyOn(fs, "writeSync").mockImplementation(((
-		fd: number,
-		data: Buffer,
-		offset?: number | null,
-		...rest: number[]
-	) => {
-		if (fd !== 2) return real(fd, data, offset, ...rest);
-		const from = offset ?? 0;
-		write(data.subarray(from).toString());
-		return data.length - from;
-	}) as typeof fs.writeSync);
-	return write;
-};
 
 describe("hostRoot", () => {
 	it("is CLAUDE_PROJECT_DIR, symlinks dereferenced", () => {

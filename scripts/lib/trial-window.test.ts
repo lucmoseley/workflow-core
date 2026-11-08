@@ -24,6 +24,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { spyStderr } from "./write-fd-testkit";
 
 const {
 	LADDER,
@@ -294,9 +295,7 @@ describe("reading the file", () => {
 
 	it("opens the default ladder at a rejected capacityLadderPath, and says so once (#406)", () => {
 		hostWith('{"capacityLadderPath": "/abs/ladder.md"}');
-		const write = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		try {
 			atHost(() => {
 				const expected = path.join(
@@ -311,7 +310,7 @@ describe("reading the file", () => {
 				'"capacityLadderPath" is not a repo-relative path',
 			);
 		} finally {
-			write.mockRestore();
+			vi.restoreAllMocks();
 		}
 	});
 
