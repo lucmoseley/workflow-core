@@ -74,7 +74,7 @@
  * WSL CURRENCY (#4082): check-wsl-currency.js's `--json` lines, in a section of
  * its own, and none where the checker SKIPs: not WSL.
  * Both machine-wide checkers start before the repo reads and run beside them
- * (#4601), so a filing waits on the slower of the two sides, not their sum.
+ * (#4601).
  *
  * KEPT READS (#3765): each repo's count line and each label age, once read,
  * are kept for the day (lib/review-reads.js), so a run killed part way
@@ -343,8 +343,7 @@ function readEnvelope(script, args, timeout, cwd) {
 }
 
 /**
- * A checker started now and left running, so the caller's other reads run
- * beside it. Its bound starts at `settle`, not at the start: those reads block
+ * A checker started now and left running. Its bound starts at `settle`, not at the start: those reads block
  * the event loop, so a timer started with the child would fire on a checker
  * that finished long since, before its output was read. `stop` kills it,
  * for a caller that throws before settling.
@@ -390,8 +389,7 @@ function startEnvelope(script) {
 
 /**
  * What failed where execFile reports an error, or undefined where the error
- * is only a non-zero exit: that is the checker's verdict, read off its
- * envelope as readEnvelope reads it.
+ * is only a non-zero exit: that is the checker's verdict.
  * @param {import("node:child_process").ExecFileException | null} error
  * @param {number} timeout ms, the bound `settle` set
  */
@@ -657,7 +655,7 @@ function readConcurrency(now) {
 }
 
 /**
- * @param {ReturnType<typeof startEnvelope>} started check-idle-efforts.js
+ * @param {ReturnType<typeof startEnvelope>} started
  * @returns {Promise<import("./lib/morning-review.js").IdleReading>}
  */
 async function readIdle(started) {
@@ -672,7 +670,7 @@ async function readIdle(started) {
 }
 
 /**
- * @param {ReturnType<typeof startEnvelope>} started check-wsl-currency.js
+ * @param {ReturnType<typeof startEnvelope>} started
  * @returns {Promise<import("./lib/morning-review.js").WslCurrencyReading>}
  */
 async function readWslCurrency(started) {
@@ -833,7 +831,6 @@ async function fileReview(tracker, dryRun) {
 }
 
 /**
- * Every read of the window, rendered as the review's body.
  * @param {{tracker: string, since: string, why: string | null, now: Date,
  *   previous: any, reviews: any[], dryRun: boolean,
  *   idle: ReturnType<typeof startEnvelope>,
