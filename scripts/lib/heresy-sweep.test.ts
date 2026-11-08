@@ -3,9 +3,9 @@
  * Pins when heresy-sweep.js finds a sweep due, over a fake tracker (#3464),
  * and how it reads what a finished sweep filed from the due issue's comments
  * (#4039). report-heresy-sweep-due.test.ts holds the program's boundary cases.
- * Built on a fake tracker port and a fixed clock, so no case reaches `gh` or
- * waits on time. Breaking it files the monthly sweep early, late or never, or
- * misstates check-primitives.js's "new heresies since the last sweep" count,
+ * The due cases run on a fake tracker port and a fixed clock, the parser cases
+ * over literal comment bodies, so no case reaches `gh` or waits on time.
+ * Breaking it files the monthly sweep early, late or never, or misstates check-primitives.js's "new heresies since the last sweep" count,
  * which the morning review carries.
  */
 
