@@ -1984,13 +1984,13 @@
 			]
 		},
 		"C10": {
-			"span": "…, which exits non-zero on a held file",
-			"printedBy": "session-arbiter.js claim, which prints buildDenyReason and exits 1",
+			"span": "…, which warns, and exits 0, on a held file",
+			"printedBy": "session-arbiter.js claim, which prints buildContendedNotice and exits 0",
 			"route": "cli",
 			"needles": [
 				{
-					"id": "claim-refused",
-					"text": ["session-arbiter: ", "is held by session"]
+					"id": "claim-contended",
+					"text": ["session-arbiter: ", "is also held by session"]
 				}
 			]
 		}

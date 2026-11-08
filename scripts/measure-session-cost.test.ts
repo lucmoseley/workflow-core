@@ -15,7 +15,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { arbiterCli, freshSandbox, live } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "measure-session-cost.js");
@@ -156,5 +157,31 @@ describe("measure-session-cost.js", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("no dispatch ledger yet at");
 		expect(r.stderr).toContain("nothing to table");
+	});
+});
+
+describe("the claim --write takes on the table, against the real arbiter (#4403)", () => {
+	const sb = freshSandbox();
+	beforeEach(() => {
+		dir = fs.realpathSync(sb.repo);
+		seat = path.join(dir, "seat");
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "cost-writer");
+	});
+
+	it("writes the table and passes on the warning where a live neighbour holds it too", () => {
+		transcript("aaaaaa11-0000", [turn("r1", "claude-sonnet-5", 100_000)]);
+		ledger(["aaaaaa11"]);
+		const table = path.join(dir, "docs", "data", "session-cost-table.json");
+		live(sb, "cost-holder");
+		expect(arbiterCli(sb).cli(["claim", table, "cost-holder"]).status).toBe(0);
+
+		const r = runInProcess(SCRIPT, ["--write", "--config-dir", seat], {
+			cwd: dir,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WFC_DISPATCH_ROOT: dir },
+		});
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain("is also held by session");
+		expect(r.stderr).toContain("cost-holder");
+		expect(fs.existsSync(table)).toBe(true);
 	});
 });

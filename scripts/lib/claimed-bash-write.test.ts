@@ -425,7 +425,7 @@ describe("the code globs it duplicates from the backstop (mantahostels#2778)", (
 });
 
 describe("the tier prefix test", () => {
-	it("covers every prefix the arbiter's refusing tier holds", () => {
+	it("covers every prefix the arbiter's warned tier holds", () => {
 		// The prefix test only saves the store a read; `isGuarded` is the
 		// authority (lib/bash-write-plan.js's LIMITS). So drift is safe in
 		// one direction only — the prefix list must never be NARROWER than the
@@ -434,9 +434,9 @@ describe("the tier prefix test", () => {
 			path.join(__dirname, "arbiter-core.js"),
 			"utf8",
 		);
-		const refusing = core.match(/^const REFUSING = \[(.*)\];$/m);
-		expect(refusing).not.toBeNull();
-		const tier = [...(refusing?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
+		const warned = core.match(/^const WARNED = \[(.*)\];$/m);
+		expect(warned).not.toBeNull();
+		const tier = [...(warned?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
 			(m) => m[1],
 		);
 		expect(tier.length).toBeGreaterThan(0);

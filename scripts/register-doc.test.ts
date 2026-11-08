@@ -6,7 +6,8 @@
  * that one field (mantahostels#3376, mantahostels#3411, mantahostels#3412).
  *
  * Run in-process against a scratch data file with `--no-claim`, so no case
- * writes the live sidecar or takes an arbiter claim.
+ * writes the live sidecar or takes an arbiter claim — bar the claiming cases,
+ * which stub the arbiter or run it in a sandbox.
  *
  * It is the only sanctioned way to register a document (CLAUDE.md §Ground
  * truth): loosen a case and a malformed or clobbered key reaches the sidecar
@@ -16,7 +17,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { arbiterCli, freshSandbox, live } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -949,18 +951,59 @@ describe("register-doc", () => {
 			);
 		});
 
-		it("refuses with the denial reason, and writes nothing, when the claim is denied", () => {
-			writeStub(1, "held by another session");
+		it("writes anyway, saying why, and releases nothing, when the arbiter refuses the claim", () => {
+			writeStub(2, "unknown region");
+			const { releaseLog, releaseStub } = writeReleaseStub();
 			const r = runClaiming(
 				"docs/x.md",
 				"--class",
 				"free-edit",
 				"--section",
 				"S",
+				"--release-cmd",
+				releaseStub,
 			);
-			expect(r.status).toBe(1);
-			expect(r.out).toContain("held by another session");
-			expect(readData()).toEqual({});
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("unknown region");
+			expect(r.out).toContain("Writing anyway");
+			expect(readData()).toHaveProperty("docs/x.md");
+			expect(fs.existsSync(releaseLog)).toBe(false);
+		});
+	});
+
+	describe("claiming against the real arbiter (#4403)", () => {
+		const sb = freshSandbox();
+
+		it("writes the row and passes on the warning where a live neighbour holds its key too", () => {
+			vi.stubEnv("CLAUDE_CODE_SESSION_ID", "register-writer");
+			const subject = path.join(
+				sb.repo,
+				"docs/doc-map-classes.json#A:docs/x.md",
+			);
+			live(sb, "register-holder");
+			expect(
+				arbiterCli(sb).cli(["claim", subject, "register-holder"]).status,
+			).toBe(0);
+
+			const r = runInProcess(
+				SCRIPT,
+				[
+					...withReader([
+						"docs/x.md",
+						"--class",
+						"free-edit",
+						"--section",
+						"S",
+					]),
+					"--data-file",
+					dataFile,
+				],
+				{ cwd: sb.repo, env: { ...process.env } },
+			);
+			expect(r.status, r.stderr).toBe(0);
+			expect(r.stderr).toContain("is also held by session");
+			expect(r.stderr).toContain("register-holder");
+			expect(readData()).toHaveProperty("docs/x.md");
 		});
 	});
 

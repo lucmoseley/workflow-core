@@ -47,29 +47,25 @@ function parseCliArgs(argv, extraValueFlags = []) {
  * watches Write/Edit only, so a script writing a guarded docs/ path is
  * invisible to it — this is what records the bytes about to be replaced.
  *
- * Fails open by default (mantahostels#1194): a claim the arbiter refuses costs the
- * content record and nothing else, and is never grounds to stop the write.
- * `failClosed: true` is register-doc.js's case — the row it writes is
- * authored, not a derived count, so a held file is refused rather than
- * overwritten.
+ * Fails open (mantahostels#1194): a claim the arbiter refuses costs the
+ * content record and nothing else, and is never grounds to stop the write. A
+ * claim on a file a live neighbour also holds succeeds, and the arbiter's
+ * warning of the likely merge conflict is passed on (#4249, #4403).
  *
  * `generator: true` marks the caller as the §A generator, which is what lets a
  * claim on docs/doc-map.md's derived §A through (mantahostels#2422, and
  * doc-map-regions.js's `isGeneratorOnlyRegion`). It rides AFTER the subject so
  * the subject stays `$1` for a stub standing in for the arbiter.
  *
- * `claimed` says whether the arbiter actually took it, which `ok` cannot: a
- * fail-open refusal is `ok: true` by design, and a caller that released on that
- * would ask the arbiter to drop a claim it never granted (mantahostels#2422).
+ * `claimed` says whether the arbiter actually took it: a caller that released
+ * on a refused claim would ask the arbiter to drop a claim it never granted
+ * (mantahostels#2422).
  *
  * @param {string} dataFile
- * @param {{claimCmd?: string | null, failClosed?: boolean, generator?: boolean}} [opts]
- * @returns {{ok: boolean, claimed: boolean}}
+ * @param {{claimCmd?: string | null, generator?: boolean}} [opts]
+ * @returns {{claimed: boolean}}
  */
-function claimDataFile(
-	dataFile,
-	{ claimCmd, failClosed = false, generator = false } = {},
-) {
+function claimDataFile(dataFile, { claimCmd, generator = false } = {}) {
 	const extra = generator ? ["--generator"] : [];
 	const [cmd, cmdArgs] = claimCmd
 		? [claimCmd, [dataFile, ...extra]]
@@ -83,19 +79,16 @@ function claimDataFile(
 				],
 			];
 	const r = spawnSync(cmd, cmdArgs, { encoding: "utf8" });
-	if (r.status === 0) return { ok: true, claimed: true };
+	if (r.status === 0) {
+		if (r.stderr) process.stderr.write(r.stderr);
+		return { claimed: true };
+	}
 
 	const reason = (r.stderr || r.stdout || "").trim();
-	if (failClosed) {
-		console.error(
-			`cannot claim ${dataFile} — ${reason || "held by another session"}`,
-		);
-		return { ok: false, claimed: false };
-	}
 	console.error(
 		`could not claim ${dataFile} — ${reason || "no reason given"}. Writing anyway; the overwritten bytes were not recorded.`,
 	);
-	return { ok: true, claimed: false };
+	return { claimed: false };
 }
 
 /**
