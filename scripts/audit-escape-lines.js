@@ -36,13 +36,14 @@
  * one JSON line and exits 1 on a thrown error, which no family's contract
  * covers.
  *
- * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, gitleaks-swept, to the Vercel AI Gateway.
+ * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, gitleaks-swept, to the Vercel AI Gateway.
  * JUSTIFIED: fail-safe — it refuses nothing, a missing key, SDK or gitleaks sends nothing, and a store that will not read reports that rather than zeros; #671 made the loosening reversible on this evidence.
  * DEFEAT:    `WFC_ESCAPE_AUDIT=0` for a session stops the batch starting.
  * TREE:      host — judges escape lines in transcripts filed under the host root's project slug
  */
 
-const { spawn } = require("node:child_process");
+const { reportOwner } = require("./lib/session-id.js");
+const { OUTLIVE_CEILING_S, spawnOutliving } = require("./lib/user-scope.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
@@ -287,10 +288,13 @@ function kick(root) {
 	}
 	try {
 		fs.writeFileSync(marker, new Date().toISOString());
-		spawn(process.execPath, [__filename, "--judge", "--root", root], {
+		/* Outliving its session, so a short one's end does not kill the
+		 * judging (#4706). */
+		spawnOutliving(process.execPath, [__filename, "--judge", "--root", root], {
 			cwd: root,
-			detached: true,
 			stdio: "ignore",
+			owner: reportOwner(),
+			ceilingS: OUTLIVE_CEILING_S,
 		}).unref();
 	} catch {
 		/* the next session start tries again (#671) */

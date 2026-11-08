@@ -188,6 +188,7 @@
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/replay-notify-reports.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/upgrade.test.ts"
 		],
 		".claude/skills/THIRD-PARTY-NOTICES.md": [
@@ -2785,6 +2786,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-arch-scan-due.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -3111,6 +3113,7 @@
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
 			"scripts/session-checkout.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"hooks/register.ts": [
@@ -3639,7 +3642,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts"
 		],
 		"scripts/audit-escape-lines.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4906,6 +4910,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -5423,6 +5428,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -8123,6 +8129,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -8721,6 +8728,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -9251,6 +9259,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -9656,6 +9665,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -11185,6 +11195,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
@@ -11303,6 +11314,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -11459,6 +11471,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -12568,6 +12581,7 @@
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -12618,6 +12632,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -12648,6 +12663,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -12746,7 +12762,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts"
 		],
 		"scripts/lib/code-signal.sh": [
 			"scripts/check-guard-errors.test.ts",
@@ -13197,6 +13214,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -14053,6 +14071,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts"
 		],
@@ -14369,6 +14388,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -14463,6 +14483,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -14661,6 +14682,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/detached-run.js": [
@@ -14705,6 +14727,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -18050,6 +18073,7 @@
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -18652,6 +18676,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -19271,7 +19296,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts"
 		],
 		"scripts/lib/guard-entry.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -19996,6 +20022,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/headless-sessions.test.ts": [
@@ -20198,6 +20225,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -21124,6 +21152,7 @@
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts",
@@ -21897,6 +21926,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -22468,6 +22498,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -22878,6 +22909,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -22968,6 +23000,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -23225,6 +23258,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -23324,6 +23358,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -23454,6 +23489,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -23505,6 +23541,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -24141,6 +24178,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -24474,6 +24512,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -25276,6 +25315,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/replay-notify-reports.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -26705,6 +26745,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -27461,6 +27502,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -28117,6 +28159,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -28266,6 +28309,7 @@
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -28341,6 +28385,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -28422,6 +28467,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -28535,6 +28581,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -28612,6 +28659,7 @@
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-arm-test.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -29286,6 +29334,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -29361,6 +29410,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -29410,6 +29460,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -29503,6 +29554,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -31266,6 +31318,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/refill-repos.test.ts": [
@@ -31679,6 +31732,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -31997,6 +32051,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts",
@@ -32395,6 +32450,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -32443,6 +32499,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -32472,6 +32529,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -32741,6 +32799,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -33817,6 +33876,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -34285,6 +34345,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -34757,6 +34818,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -34950,6 +35012,7 @@
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -35693,6 +35756,7 @@
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -35791,6 +35855,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -36682,6 +36747,7 @@
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -36927,6 +36993,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -38226,6 +38293,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -38299,6 +38367,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -38566,6 +38635,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -38664,6 +38734,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pytest.test.ts",
 			"scripts/run-vitest.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -38803,6 +38874,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -39296,6 +39368,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -39507,6 +39580,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -39709,6 +39783,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -40549,6 +40624,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pytest.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
@@ -41341,6 +41417,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts",
@@ -41601,6 +41678,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pytest.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
@@ -43709,6 +43787,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/repo-checks.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -43754,6 +43833,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-arch-scan-due.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -43774,6 +43854,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-close-check-reading.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -43847,6 +43928,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-flip-line-reading.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -43867,6 +43949,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-heresy-sweep-due.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -43994,6 +44077,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-round-check-reading.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -44014,6 +44098,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-suite-queue-wait.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -44106,6 +44191,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/retire-stale-containers.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -44585,10 +44671,17 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-scope.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/session-scope.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/session-start-outliving.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -44603,6 +44696,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -44708,6 +44802,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-lander.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -44728,6 +44823,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-orphan-sweep-timer.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -45426,6 +45522,7 @@
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
 			"scripts/session-checkout.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"skills-lock.json": [
