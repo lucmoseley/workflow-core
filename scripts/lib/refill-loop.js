@@ -2,11 +2,7 @@
  * refill-loop.js — the refill loop's readings shared by its tick and its
  * commands, with no I/O of its own (#2012, spec #1995, #3392): parsing its
  * files' contents, its scope, its launches' acts and the lines `status` names
- * them by. The tick's step order and its own readings are
- * lib/refill-tick-core.js's; the files themselves, lib/refill-files.js's; the
- * state file, lib/refill-state.js's; a seat's reading and sizing,
- * lib/seat-reading.js's; launching a tick's picks, lib/refill-batch.js's; what
- * `start` and `status` print, lib/refill-commands.js's.
+ * them by.
  */
 
 const path = require("node:path");

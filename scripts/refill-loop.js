@@ -28,14 +28,7 @@
  *                                        open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
- *                                        overflow rests on; `--json` the code
- *                                        sha, the stop, the pause, the last tick,
- *                                        the mode, when away was switched
- *                                        on and the sessions handed off since,
- *                                        the goal, every candidate
- *                                        checkout, the launch rows, the
- *                                        `seats:` line's fields, each overflow
- *                                        key's budget and burn mode
+ *                                        overflow rests on; `--json` that and more, as JSON
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop

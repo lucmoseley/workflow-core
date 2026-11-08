@@ -2,9 +2,7 @@
  * refill-batch.js — the refill loop's launch step: a tick's launches grouped
  * into one dispatcher call per repo and seat (#2196), each call run, and its
  * members' records read back from the dispatch ledger, and a parked member
- * resumed in place instead where the decision routed it so (#3621). A module
- * of its own (#3265) so the launch step changes alone and is driven directly,
- * with the spawn, the ledger, the resume and the clock passed in.
+ * resumed in place instead where the decision routed it so (#3621).
  */
 
 const { hasNothingToRepeat } = require("./loop-prompts.js");
@@ -172,11 +170,9 @@ const limitParksOf = (l) =>
 
 /**
  * Launch one batch through the dispatcher: the record of each member it
- * launched, stamped with its own ledger entry's time, each it refused with
- * parseRefusalReason's reason, and the members it tried. The ledger is read after
- * every exit: a non-zero one can follow earlier members' launches, and exit 0
- * covers a dropped member too, so only an entry written for a member's prompt
- * since the call proves its launch.
+ * launched, each it refused with parseRefusalReason's reason, and the members
+ * it tried. The ledger is read after every exit: a non-zero one can follow
+ * earlier members' launches, and exit 0 covers a dropped member too.
  * After a non-zero exit only the launched members count as tried, as the
  * rest may never have been reached and the next tick retries them.
  * A headless launch's session id is fixed at launch, so its record carries it
