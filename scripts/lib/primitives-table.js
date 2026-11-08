@@ -24,8 +24,8 @@
  * heading with no such table is a finding.
  *
  * A COUNT IS A NUMBER OR A REASON, never a 0 standing in for one it could not
- * read (#3365), save a SKIP: a local row whose check SKIPs on an out-of-reach
- * subject adds a silent 0 (parseBreaches).
+ * read (#3365), save a local row whose check SKIPs on an out-of-reach subject,
+ * which adds a silent 0 (parseBreaches, #4149).
  *
  * A ROW CHANGE is keyed by the row's Job cell: a Job only one side of a commit
  * holds was added or removed, and a changed cell under the same Job is a
@@ -262,8 +262,10 @@ async function sumBreaches(rows, countBreaches) {
  * is about the check, not a caller off the primitive, and --warn caps the
  * outcome, never a finding's severity.
  *
- * A SKIP adds 0 whatever findings it carries: check-host-root SKIPs in any
- * repo shipping no plugin, and one such row must not blank the total (#4119).
+ * A SKIP with a findings array adds 0 whatever it holds, as runCheck counts an
+ * unfinished run's findings 0 (#4149); one with none stays unknown.
+ * check-host-root SKIPs in any repo shipping no plugin, and one such row must
+ * not blank the total (#4119).
  * Residual: every base row's check SKIPs only on an absent subject, but an
  * adopter's local row whose check SKIPs because its subject is out of reach,
  * such as GitHub being down (§N4), also adds 0, with its reason dropped.
