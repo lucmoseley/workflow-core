@@ -7,6 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { gh } = require("./gh.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
@@ -43,6 +44,30 @@ function readTextIfAny(file) {
 	}
 }
 
+/* The first words of the line `bench_suite_concurrency.py`'s
+ * `killed_at_ceiling` matches in a suite's log. */
+const CEILING_LINE = /^SUITE CEILING\b/m;
+
+/**
+ * How many of a row's suites the ceiling killed, read from their logs
+ * (`run-<count>-<row>-<suite>.log`), for a row kept before the bench wrote
+ * `ceiling_killed` itself. A log not read leaves it unknown, which no count
+ * takes as a whole run (#4031).
+ * @param {string} dir
+ * @param {import("./quiet-bench.js").BenchRow} row
+ * @param {number} index the row's place in the run
+ * @returns {number|undefined}
+ */
+function readCeilingKilled(dir, row, index) {
+	let killed = 0;
+	for (let i = 0; i < (row.suites ?? 0); i++) {
+		const log = readText(path.join(dir, `run-${row.suites}-${index}-${i}.log`));
+		if (log.state !== "read") return;
+		if (CEILING_LINE.test(log.data)) killed++;
+	}
+	return killed;
+}
+
 /**
  * A run's rows: its `results.json`, which the bench rewrites after each row, so a
  * read through a rewrite reads as none until the next.
@@ -52,12 +77,19 @@ function readTextIfAny(file) {
 function readRunRows(dir) {
 	const text = readTextIfAny(path.join(dir, "results.json"));
 	if (text === null) return [];
+	let rows;
 	try {
-		const rows = JSON.parse(text);
-		return Array.isArray(rows) ? rows : [];
+		rows = JSON.parse(text);
 	} catch {
 		return [];
 	}
+	if (!Array.isArray(rows)) return [];
+	return rows.map(
+		(/** @type {import("./quiet-bench.js").BenchRow} */ row, i) =>
+			row.ceiling_killed === undefined && row.suites !== undefined
+				? { ...row, ceiling_killed: readCeilingKilled(dir, row, i) }
+				: row,
+	);
 }
 
 /**
