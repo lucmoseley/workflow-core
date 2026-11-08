@@ -6,7 +6,9 @@
  * caller narrow the live set on a partial read and break a live session's claim
  * (lucmoseley/mantahostels#512).
  *
- * A fake `claude` on WFC_CLAUDE_BIN stands in for the daemon. `isListedLive`,
+ * A fake `claude` on WFC_CLAUDE_BIN stands in for the daemon, except where a
+ * case counts the retry's attempts or caps: there `opts.run` stands in for the
+ * read, so no real child races a cap of milliseconds (#4411). `isListedLive`,
  * a pure predicate, is tested in process at the end.
  */
 
@@ -128,27 +130,25 @@ function hangingClaude() {
 }
 
 /*
- * A stand-in for spawnUnion's `run` seam that times out on its first `hangs`
- * calls and answers `body` after that, recording each call's cap. The count
- * pins "exactly one retry", and neither it nor the timeout-versus-failure
- * call rides on a real child starting inside a cap of milliseconds (#4411).
+ * A stand-in for runOracle, passed as `opts.run`, that throws `failure` (a
+ * timeout unless given) on its first `hangs` calls and answers a listing after
+ * that, recording each call's cap. The count pins "exactly one retry".
  */
-function fakeRun(hangs: number, body = listing("aaaa")) {
+function fakeRun(
+	hangs: number,
+	failure: () => Error = () =>
+		Object.assign(new Error("spawnSync /bin/sh ETIMEDOUT"), {
+			code: "ETIMEDOUT",
+		}),
+) {
 	const caps: number[] = [];
 	const run = (_bin: string, timeoutMs: number, dirs: string[]) => {
 		caps.push(timeoutMs);
-		if (caps.length <= hangs)
-			throw Object.assign(new Error("spawnSync /bin/sh ETIMEDOUT"), {
-				code: "ETIMEDOUT",
-			});
-		return dirs.map(() => body);
+		if (caps.length <= hangs) throw failure();
+		return dirs.map(() => listing("aaaa"));
 	};
 	return { caps, run };
 }
-
-// biome-ignore lint/suspicious/noExplicitAny: the CJS module's spawnUnion, untyped
-const unionOf = (mod: any, run: unknown) =>
-	mod.spawnUnion("claude", "`claude agents --json`", [dir], run);
 
 describe("the oracle times out (mantahostels#1900)", () => {
 	beforeEach(() => {
@@ -160,36 +160,33 @@ describe("the oracle times out (mantahostels#1900)", () => {
 
 	it("retries once and answers, so a load spike does not refuse the caller", () => {
 		const { caps, run } = fakeRun(1);
-		const r = unionOf(liveness, run);
+		const r = liveness.listedAgents({ run });
 		expect(r.why).toBeUndefined();
-		expect(
-			JSON.parse(r.raw).map((a: { sessionId: string }) => a.sessionId),
-		).toEqual(["aaaa"]);
+		expect(r.agents.map((a: { sessionId: string }) => a.sessionId)).toEqual([
+			"aaaa",
+		]);
 		expect(caps).toHaveLength(2);
 	});
 
 	it("retries exactly once, never looping", () => {
 		const { caps, run } = fakeRun(5);
-		unionOf(liveness, run);
+		liveness.listedAgents({ run });
 		expect(caps).toHaveLength(2);
 	});
 
 	it("gives the retry the longer cap, not the first attempt's", () => {
 		const { caps, run } = fakeRun(5);
-		expect(unionOf(liveness, run).why).toContain(
+		expect(liveness.listedAgents({ run }).why).toContain(
 			"twice, the retry given 600 ms",
 		);
 		expect(caps).toEqual([300, 600]);
 	});
 
 	it("does not retry a failure that is not a timeout", () => {
-		const caps: number[] = [];
-		const r = unionOf(liveness, (_bin: string, timeoutMs: number) => {
-			caps.push(timeoutMs);
-			throw Object.assign(new Error("claude agents --json failed"), {
-				status: 3,
-			});
-		});
+		const { caps, run } = fakeRun(5, () =>
+			Object.assign(new Error("claude agents --json failed"), { status: 3 }),
+		);
+		const r = liveness.listedAgents({ run });
 		expect(r.why).toContain("exit 3");
 		expect(r.why).not.toContain("twice");
 		expect(caps).toHaveLength(1);
@@ -265,7 +262,7 @@ describe("a hook's time budget (#4115)", () => {
 		);
 		try {
 			const [, fresh] = loaded;
-			expect(unionOf(fresh, run).why).toContain(
+			expect(fresh.listedAgents({ run }).why).toContain(
 				"inside the hook's time budget",
 			);
 			expect(caps).toHaveLength(1);
