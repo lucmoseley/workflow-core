@@ -104,6 +104,7 @@ const {
 } = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
 const { sleepSync } = require("./sleep-sync.js");
+const { trimRun } = require("./trim-run.js");
 const {
 	ownQueueRef,
 	pushedRef,
@@ -925,11 +926,11 @@ function recordMoved(root, dir, output) {
  * @returns {string}
  */
 function buildSessionName(prompt) {
-	const slug = prompt
+	const dashed = prompt
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
-		.slice(0, SLUG_MAX)
-		.replace(/^-+|-+$/g, "");
+		.slice(0, SLUG_MAX);
+	const slug = trimRun(dashed, "-");
 	return `${slug || "session"}-${crypto.randomBytes(SUFFIX_BYTES).toString("hex")}`;
 }
 

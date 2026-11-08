@@ -86,7 +86,7 @@ function hasSteps(message, prose) {
 		numbered.length >= MIN_NUMBERED_STEPS ||
 		BANG_LINE.test(message) ||
 		ROUND_MARKER.test(message) ||
-		/^\s*(?:`{3,}|~{3,})/m.test(message)
+		/^[^\S\n\r\u2028\u2029]*(?:`{3,}|~{3,})/m.test(message)
 	);
 }
 
