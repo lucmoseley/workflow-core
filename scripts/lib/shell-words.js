@@ -926,7 +926,7 @@ function gitWords(words, spans) {
  * it: usage prints and dispatches nothing.
  * @param {string[]} words masked
  * @param {string[]} spans
- * @returns {{ args: string[], repo: GhRepo | null } | null}
+ * @returns {GhCall | null}
  */
 function ghWords(words, spans) {
 	const [cmd, ...args] = unwrap(words, spans).words;
@@ -945,15 +945,21 @@ function ghWords(words, spans) {
  */
 
 /**
+ * A `gh` command's words past its own flags, RAW, and the repo they named.
+ * @typedef {{ args: string[], repo: GhRepo | null }} GhCall
+ */
+
+/**
  * Step `gh`'s flags up to the next word not one, keeping the last `-R`/
  * `--repo` value, `repo` where none stands; null where `-R` has none left.
+ * An empty value names no repo, as gh then falls back to GH_REPO.
  * Each flag is judged on its literal, so a quoted or escaped one counts;
  * literal's `known` is ignored for that: a flag carrying an expansion
  * (`--repo=$R`) is still a flag to step over.
  * @param {string[]} words raw
  * @param {string[]} spans
  * @param {GhRepo | null} [repo]
- * @returns {{ args: string[], repo: GhRepo | null } | null}
+ * @returns {GhCall | null}
  */
 function stepGhFlags(words, spans, repo = null) {
 	let args = words;
@@ -965,25 +971,26 @@ function stepGhFlags(words, spans, repo = null) {
 		if (f.text === "-R" || f.text === "--repo") {
 			const value = args[1];
 			if (value === undefined) return null;
-			r = readRepo(literal(value, spans), "");
+			r = valueAfter(literal(value, spans), "");
 			step = 2;
-		} else if (f.text.startsWith("--repo=")) r = readRepo(f, "--repo=");
-		else if (f.text.startsWith("-R")) r = readRepo(f, "-R");
+		} else if (f.text.startsWith("--repo=")) r = valueAfter(f, "--repo=");
+		else if (f.text.startsWith("-R")) r = valueAfter(f, "-R");
 		args = args.slice(step);
 	}
 	return { args, repo: r };
 }
 
 /**
- * A flag word's value, `prefix` cut off its read text.
- * @param {{ text: string, known: boolean }} read
+ * A flag word's value, `prefix` cut off its read text; null where that
+ * leaves it empty.
+ * @param {GhRepo} read
  * @param {string} prefix
- * @returns {GhRepo}
+ * @returns {GhRepo | null}
  */
-const readRepo = ({ text, known }, prefix) => ({
-	text: text.slice(prefix.length),
-	known,
-});
+function valueAfter({ text, known }, prefix) {
+	const value = text.slice(prefix.length);
+	return known && value === "" ? null : { text: value, known };
+}
 
 /** node's own flags that take the next word, which commitPathsArgs steps. */
 const NODE_VALUE_FLAGS = [

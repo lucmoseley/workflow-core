@@ -42,6 +42,8 @@ const { trimEndRun } = require("./trim-run.js");
  * @typedef {import("./kit-context.js").KitContext & ReportPorts} ReportContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
+ * @typedef {import("./shell-words.js").GhRepo} GhRepo
+ * @typedef {import("./shell-words.js").GhCall} GhCall
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
 
@@ -114,9 +116,15 @@ function refuseRepo(run, segment, repo) {
  * @param {string} word
  */
 function captured(run, word) {
-	const { text, known } = literal(word, run.parsed.spans);
-	return known ? trimEndRun(text, "\n") : null;
+	return capturedRead(literal(word, run.parsed.spans));
 }
+
+/**
+ * captured's answer for a word already read.
+ * @param {GhRepo} read
+ */
+const capturedRead = ({ text, known }) =>
+	known ? trimEndRun(text, "\n") : null;
 
 /**
  * Is `spec`, a repo as gh reads it, a github.com repo owned by `anthropics`?
@@ -168,7 +176,7 @@ function noteExport(run, words) {
  * @param {Run} run
  * @param {Command} cmd
  * @param {string} group
- * @param {{ args: string[], repo: import("./shell-words.js").GhRepo | null }} gh
+ * @param {GhCall} gh
  *   ghWords' answer: `repo` the `-R` before `group`, which one after it
  *   overrides
  */
@@ -182,7 +190,7 @@ function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {
 		cmd,
 		args,
 		named: before !== null,
-		repo: before?.known ? trimEndRun(before.text, "\n") : "",
+		repo: (before && capturedRead(before)) ?? "",
 		hidden: before !== null && !before.known,
 	};
 	for (let i = 1; i < args.length; ) {
