@@ -17,6 +17,7 @@ describe("refill-panel.js", () => {
 	it("refuses a missing pid with its usage", () => {
 		const r = run();
 		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("needs a pid");
 		expect(r.stderr).toContain("<agents-view-pid>");
 	});
 
@@ -46,6 +47,17 @@ describe("refill-panel.js", () => {
 	it("exits 0 where the pid is already gone", () => {
 		const gone = spawnSync("true").pid;
 		expect(run(String(gone)).status).toBe(0);
+	});
+
+	it.each([
+		[["--print", "123"], "--print takes no pid"],
+		[["--print", "--columns", "0"], "--columns is not a count: 0"],
+		[["--print", "--rows", "9"], "--rows needs --columns"],
+		[["123", "--columns", "40"], "--columns and --rows go with --print"],
+	])("refuses %j", (args, said) => {
+		const r = run(...args);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(said);
 	});
 
 	it("refuses to open with no terminal", () => {
