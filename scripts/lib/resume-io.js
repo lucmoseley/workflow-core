@@ -7,6 +7,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readLogged } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { runTickChild: runChild } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
@@ -40,7 +41,12 @@ const buildResumeIo = (log) => ({
 	findHeadlessRun: findRunSince,
 	readRunAsJob,
 	runClaude,
-	readJobRecord,
+	/* A record that will not read is logged and read as none, never fatal to
+	 * the tick (#4704). */
+	readJobRecord: (seat, jobId) =>
+		readLogged(log, `job ${jobId} on ${seat}`, () =>
+			readJobRecord(seat, jobId),
+		),
 	findResumed,
 	copyTranscript,
 	hasJobRecord: (seat, jobId) => fs.existsSync(jobDirPath(seat, jobId)),

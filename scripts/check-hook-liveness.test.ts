@@ -26,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { useScratchCore } from "./lib/scratch-core-testkit";
 
@@ -1761,9 +1762,11 @@ describe("check-hook-liveness — the core's self-plugin file paths (#2442)", ()
 	const asCore = (...args: string[]) =>
 		runWithEnv({ WFC_SCRIPT_ROOT: repo }, ...args);
 
-	it("refuses a typo'd command path in the self-plugin file, naming the file to fix", () => {
+	it("refuses a typo'd command path in the self-plugin file, naming the file to fix (#4701)", () => {
 		script("guard-demo.sh");
-		selfPlugin(['"$CLAUDE_PROJECT_DIR"/scrpits/guard-demo.sh']);
+		selfPlugin([
+			`${MAIN_SCRIPTS.replace("scripts/", "scrpits/")}guard-demo.sh`,
+		]);
 
 		const { out, status } = asCore("--only", "self-plugin");
 

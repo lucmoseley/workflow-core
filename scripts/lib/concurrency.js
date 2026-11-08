@@ -33,6 +33,8 @@ const {
 	NOTHING_LAUNCHABLE,
 	buildIdleText,
 	buildPauseText,
+	buildLaunchHoldText,
+	isLaunchBarred,
 	buildPlanWaitText,
 	pickSeat,
 } = require("./refill-decide.js");
@@ -116,6 +118,8 @@ function policyFailing(input, decision) {
 		return [{ limit: LOOP_OFF, why: `stopping: ${decision.detail}` }];
 	const paused = decision.pause ?? input.paused;
 	if (paused) return [{ limit: LOOP_OFF, why: buildPauseText(paused) }];
+	if (input.launchHold)
+		return [{ limit: LOOP_OFF, why: buildLaunchHoldText(input.launchHold) }];
 	if (decision.planWait)
 		return [{ limit: "allowance", why: buildPlanWaitText(decision.planWait) }];
 	/** @type {Failing[]} */
@@ -189,8 +193,8 @@ function resourceFailing(a) {
 function failingAt({ input, decision, admission }) {
 	return [
 		...policyFailing(input, decision),
-		/* A paused tick reads no admission, so no resource is known to bind. */
-		...(input.paused ? [] : resourceFailing(admission)),
+		/* A barred tick reads no admission, so no resource is known to bind. */
+		...(isLaunchBarred(input, input.now) ? [] : resourceFailing(admission)),
 	];
 }
 

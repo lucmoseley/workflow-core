@@ -1,10 +1,13 @@
 /*
  * shortlist-parse.test.ts — the refill loop's read of a shortlist's conflict
  * graph (#4355): each row gets its write-set and held-file overlap, and a
- * shortlist without the graph fails rather than reads clash-free.
+ * shortlist without the graph fails rather than reads clash-free. Holds
+ * lib/shortlist-fake.ts, the shortlist the refill loop's run tests stub, to
+ * what the parser requires (#4358).
  */
 
 import { describe, expect, it } from "vitest";
+import { buildShortlist, buildShortlistRow } from "./shortlist-fake";
 
 const { parseShortlist } = require("./shortlist-parse.js");
 
@@ -53,5 +56,21 @@ describe("parseShortlist's write-sets (#4355)", () => {
 		expect(parseShortlist(shortlist(undefined))).toEqual({
 			error: "unparseable --json: no conflictGraph candidates or inFlight list",
 		});
+	});
+});
+
+describe("the run tests' shortlist fake (#4358)", () => {
+	it("parses its bare default with no error, reading no row", () => {
+		const out = parseShortlist(JSON.stringify(buildShortlist()));
+		expect(out).not.toHaveProperty("error");
+		expect(out.rows).toEqual([]);
+	});
+
+	it("parses a row with no error, reading it back whole with an empty write-set", () => {
+		const out = parseShortlist(
+			JSON.stringify(buildShortlist({ frontier: [buildShortlistRow()] })),
+		);
+		expect(out).not.toHaveProperty("error");
+		expect(out.rows).toEqual([{ ...buildShortlistRow(), writeSet: [] }]);
 	});
 });

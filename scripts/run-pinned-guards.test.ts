@@ -15,6 +15,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isLockoutText } from "./lib/core-fault.js";
+import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
+import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { readHookLines } from "./lib/pretool-guard-testkit";
 
 const SHIM = path.join(__dirname, "run-pinned-guards.js");
@@ -123,9 +125,7 @@ describe("the hook line", () => {
 	const [line] = readHookLines(HOOKS, "scripts/guard-dispatch.js");
 
 	it("runs the guards through the shim from the pinned code", () => {
-		expect(line).toContain(
-			'"$CLAUDE_PROJECT_DIR"/scripts/run-pinned-guards.js ',
-		);
+		expect(line).toContain(`${MAIN_SCRIPTS}run-pinned-guards.js `);
 		expect(line).toMatch(
 			/\.guard-code\}"\.current\/scripts\/guard-dispatch\.js$/,
 		);
@@ -138,6 +138,7 @@ describe("the hook line", () => {
 		fs.cpSync(path.join(CHECKOUT, "scripts"), path.join(main, "scripts"), {
 			recursive: true,
 		});
+		fs.mkdirSync(path.join(main, SELF_PLUGIN_DIR));
 		execFileSync("git", ["init", "--quiet", main]);
 		fs.appendFileSync(path.join(main, "scripts/lib/shell-parse.js"), "}{\n");
 		fs.symlinkSync(CHECKOUT, link);
@@ -157,13 +158,12 @@ describe("the hook line", () => {
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: main,
+					CLAUDE_PLUGIN_ROOT: path.join(main, SELF_PLUGIN_DIR),
 					CLAUDE_CONFIG_DIR: path.join(dir, "config"),
 					WFC_GUARD_CODE_DIR: path.join(dir, ".guard-code"),
 				},
 			});
-		const unpinned = run(
-			`node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js`,
-		);
+		const unpinned = run(`node ${MAIN_SCRIPTS}guard-dispatch.js`);
 		expect(unpinned.stdout).toMatch(/failed to load — fix that module/);
 		const r = run(line ?? "");
 		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
