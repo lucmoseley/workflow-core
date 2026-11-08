@@ -28,7 +28,7 @@ const HOST_SETTINGS = ".claude/settings.json";
  * tree, so no unlanded edit judges the session that made it (#4701). The
  * self-plugin loads in place from `<main checkout>/self-plugin`, so its
  * plugin root's parent is the main checkout in every session, a worktree's
- * included (measured 9 Nov 2026). The canary in the settings has no plugin
+ * included. The canary in the settings has no plugin
  * root, and derives the main checkout from git's common dir. */
 // biome-ignore lint/suspicious/noTemplateCurlyInString: the plugin-root variable Claude Code substitutes, not a JS template
 const MAIN_SCRIPTS = '"${CLAUDE_PLUGIN_ROOT}"/../scripts/';

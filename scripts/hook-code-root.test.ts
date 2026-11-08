@@ -3,8 +3,7 @@
  * Every hook the core registers runs the main checkout's script, never the
  * session's worktree's (#4701, spec #4229 seam 2). The harness hands a
  * worktree session's hooks `CLAUDE_PROJECT_DIR` naming that worktree and
- * `CLAUDE_PLUGIN_ROOT` naming the main checkout's `self-plugin/`, the
- * plugin's in-place home (measured 9 Nov 2026).
+ * `CLAUDE_PLUGIN_ROOT` naming the main checkout's `self-plugin/`.
  *
  * Break it and a session that edits a hook is judged by its own unlanded
  * edit: a weakened guard lets its author through, a broken one locks it out.
@@ -55,7 +54,6 @@ const COPIED = [
 let dir: string;
 let main: string;
 
-/** A fresh linked worktree of `main`, a session's tree. */
 function cutWorktree(name: string) {
 	const at = path.join(main, ".claude", "worktrees", name);
 	spawnSync("git", ["-C", main, "worktree", "add", "-q", "--detach", at]);
@@ -63,7 +61,6 @@ function cutWorktree(name: string) {
 	return at;
 }
 
-/** Runs `command` as the harness runs a hook of a session in `worktree`. */
 function runHook(worktree: string, command: string, input: object) {
 	return spawnSync("sh", ["-c", command], {
 		cwd: worktree,
@@ -115,7 +112,6 @@ describe("every registered hook command", () => {
 		},
 	);
 
-	/* Both spellings, the self-plugin's and the canary's. */
 	const prefixes = [
 		...new Set(
 			registered.flatMap(({ command }) =>
@@ -124,7 +120,7 @@ describe("every registered hook command", () => {
 		),
 	];
 
-	it("spans both spellings, the ones the testkit types out", () =>
+	it("spans both spellings", () =>
 		expect(prefixes.sort()).toEqual(
 			[CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS].sort(),
 		));
