@@ -257,6 +257,14 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 		);
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stderr).toContain("digest-holder");
+		// SKILL.md's clean-then-claim loop retries on this text (#4403).
+		const loop = fs.readFileSync(
+			path.join(SCRIPTS_DIR, "..", "SKILL.md"),
+			"utf8",
+		);
+		const retriesOn = loop.match(/\[\[ \$out != \*"([^"]+)"\* \]\]/)?.[1];
+		expect(retriesOn).toBeTruthy();
+		expect(r.stderr).toContain(retriesOn);
 		expect(fs.existsSync(out)).toBe(true);
 
 		fs.rmSync(home, { recursive: true, force: true });

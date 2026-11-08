@@ -6,7 +6,8 @@
  *
  * The ledger and seats are temp dirs built per test and the script runs
  * in-process as its CLI, so no real ledger or transcript is read and
- * `docs/data/session-cost-table.json` is never written.
+ * `docs/data/session-cost-table.json` is never written. The `--write` case
+ * claims the table from the real arbiter, inside the testkit sandbox.
  *
  * That table is what the capped launch in `scripts/dispatch-sessions.sh`
  * projects running sessions' spend from: a mismatched or mis-filtered row

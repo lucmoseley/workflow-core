@@ -3,7 +3,7 @@
  *
  * Where the state directory lives (`paths`), the one reader and the one writer
  * (`readRecord`, `writeRecord`, `probeRecord`), the fail-open error log, the git
- * shims, the subject vocabulary the guards speak (`splitSubject`, `isGuarded`,
+ * shims, the subject vocabulary the guards speak (`splitSubject`, `isWarned`,
  * `isWatched`), the sessions registry that tells a live session from a finished
  * one, and the age sweeps the families share.
  *
@@ -884,7 +884,7 @@ const under = (prefixes, rel) =>
  * of.
  * @param {string} rel
  */
-function isGuarded(rel) {
+function isWarned(rel) {
 	const p = subjectPath(rel);
 	return under(WARNED, p) && !under(EXEMPT, p);
 }
@@ -1564,7 +1564,7 @@ module.exports = {
 	gitIn,
 	gitRaw,
 	identify,
-	isGuarded,
+	isWarned,
 	isWatched,
 	isReleasable,
 	keyFor,

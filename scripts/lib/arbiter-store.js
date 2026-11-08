@@ -135,7 +135,7 @@ module.exports = {
 	readHeldClean: locksMod.readHeldClean,
 	heldIssues: issues.heldIssues,
 	identify: core.identify,
-	isGuarded: core.isGuarded,
+	isWarned: core.isWarned,
 	isWatched: core.isWatched,
 	isReleasable: core.isReleasable,
 	listIssueClaims: issues.listIssueClaims,

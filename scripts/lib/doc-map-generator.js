@@ -10,6 +10,7 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { writeFd } = require("./write-fd.js");
 
 /** Flags every generator accepts that take a value, so the positional-arg
  * filter skips both the flag and what follows it. */
@@ -57,9 +58,9 @@ function parseCliArgs(argv, extraValueFlags = []) {
  * doc-map-regions.js's `isGeneratorOnlyRegion`). It rides AFTER the subject so
  * the subject stays `$1` for a stub standing in for the arbiter.
  *
- * `claimed` says whether the arbiter actually took it: a caller that released
- * on a refused claim would ask the arbiter to drop a claim it never granted
- * (mantahostels#2422).
+ * `claimed` says the arbiter exited 0, which a contended claim does too, though
+ * it took nothing: a caller releases only on `claimed`, and the arbiter refuses
+ * to release a subject a neighbour holds (mantahostels#2422).
  *
  * @param {string} dataFile
  * @param {{claimCmd?: string | null, generator?: boolean}} [opts]
@@ -80,13 +81,14 @@ function claimDataFile(dataFile, { claimCmd, generator = false } = {}) {
 			];
 	const r = spawnSync(cmd, cmdArgs, { encoding: "utf8" });
 	if (r.status === 0) {
-		if (r.stderr) process.stderr.write(r.stderr);
+		if (r.stderr) writeFd(2, r.stderr);
 		return { claimed: true };
 	}
 
 	const reason = (r.stderr || r.stdout || "").trim();
-	console.error(
-		`could not claim ${dataFile} — ${reason || "no reason given"}. Writing anyway; the overwritten bytes were not recorded.`,
+	writeFd(
+		2,
+		`could not claim ${dataFile} — ${reason || "no reason given"}. Writing anyway; the overwritten bytes were not recorded.\n`,
 	);
 	return { claimed: false };
 }

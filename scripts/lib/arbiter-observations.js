@@ -130,7 +130,7 @@ function readObservation(rel, sessionId) {
  */
 function recordObservation(rel, me, { viaBash = false } = {}) {
 	if (!me?.sessionId || !core.isWatched(rel)) return null;
-	if (core.isGuarded(rel) && !viaBash) return null;
+	if (core.isWarned(rel) && !viaBash) return null;
 
 	// AN OBSERVATION IS WHOLE-FILE, on a regioned path as on any other. Both its
 	// readers are whole-file — park() rewrites the whole file, and a Bash-route

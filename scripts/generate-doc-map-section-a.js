@@ -132,8 +132,7 @@ function main(argv) {
 	let held = null;
 	if (!flag("--no-claim")) {
 		const subject = `${mapPath}#${REGISTER_SECTION}`;
-		// Released only where granted: releasing a claim the arbiter never
-		// granted asks it to drop somebody else's.
+		// Released only where the arbiter answered 0 (claimDataFile's `claimed`).
 		if (
 			claimDataFile(subject, {
 				claimCmd: value("--claim-cmd"),

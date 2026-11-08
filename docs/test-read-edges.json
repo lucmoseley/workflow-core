@@ -41538,6 +41538,7 @@
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/console-credit.test.ts",
+			"scripts/lib/doc-map-generator.test.ts",
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/founder-wording.test.ts",

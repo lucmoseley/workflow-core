@@ -426,7 +426,7 @@ describe("the code globs it duplicates from the backstop (mantahostels#2778)", (
 
 describe("the tier prefix test", () => {
 	it("covers every prefix the arbiter's warned tier holds", () => {
-		// The prefix test only saves the store a read; `isGuarded` is the
+		// The prefix test only saves the store a read; `isWarned` is the
 		// authority (lib/bash-write-plan.js's LIMITS). So drift is safe in
 		// one direction only — the prefix list must never be NARROWER than the
 		// tier, or a real claim goes unannounced.

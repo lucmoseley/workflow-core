@@ -69,7 +69,7 @@ function buildHostPorts() {
 		/** @param {string} p */
 		claimKey: (p) => store().claimKey(p),
 		/** @param {string} rel */
-		isGuarded: (rel) => store().isGuarded(rel),
+		isWarned: (rel) => store().isWarned(rel),
 		/** @param {string} a @param {string} b */
 		subjectsOverlap: (a, b) => store().subjectsOverlap(a, b),
 		/** @param {string} rel @param {string} session */

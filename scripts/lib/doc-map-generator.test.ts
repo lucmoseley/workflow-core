@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * The shared helper's own suite: parseCliArgs and claimDataFile in isolation.
+ * The shared helper's own suite: parseCliArgs and claimDataFile in isolation,
+ * the contended case against the real arbiter in the testkit sandbox.
  * Everything that must go through a spawned generator CLI — the wiring that
  * calls claimDataFile at all — stays in each generator's own *.test.ts.
  *
@@ -14,6 +15,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { arbiterCli, freshSandbox, live } from "./arbiter-testkit";
 import { claimDataFile, parseCliArgs } from "./doc-map-generator";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 describe("parseCliArgs", () => {
 	it("treats a bare argument as positional", () => {
@@ -47,18 +49,15 @@ describe("claimDataFile", () => {
 	 * and nothing else, and is never grounds to stop the write. This is the
 	 * shape check-instruction-surface.js's rebaseline wants. */
 	it("fails open by default, printing why the record was lost", () => {
-		const spy = vi.spyOn(console, "error").mockImplementation(() => {
-			/* kept off the test output; the spy reads it */
-		});
+		const write = spyStderr();
 		const result = claimDataFile("docs/doc-map-classes.json", {
 			claimCmd: "false",
 		});
+		restoreStderr();
+		const said = write.mock.calls.map((c) => c[0]).join("");
 		expect(result.claimed).toBe(false);
-		expect(spy).toHaveBeenCalledWith(
-			expect.stringContaining("could not claim docs/doc-map-classes.json"),
-		);
-		expect(spy).toHaveBeenCalledWith(expect.stringContaining("Writing anyway"));
-		spy.mockRestore();
+		expect(said).toContain("could not claim docs/doc-map-classes.json");
+		expect(said).toContain("Writing anyway");
 	});
 
 	it("passes on the arbiter's warning where a live neighbour holds the file too (#4403)", () => {
@@ -66,12 +65,10 @@ describe("claimDataFile", () => {
 		const file = path.join(sb.repo, "docs/doc-map-classes.json");
 		live(sb, "map-holder");
 		expect(arbiterCli(sb).cli(["claim", file, "map-holder"]).status).toBe(0);
-		const spy = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
+		const write = spyStderr();
 		const result = claimDataFile(file);
-		const said = spy.mock.calls.map((c) => String(c[0])).join("");
-		spy.mockRestore();
+		restoreStderr();
+		const said = write.mock.calls.map((c) => c[0]).join("");
 		expect(result.claimed).toBe(true);
 		expect(said).toContain("is also held by session");
 		expect(said).toContain("map-holder");
