@@ -128,13 +128,16 @@ describe("readDeclaredOverflowLookup (#4393)", () => {
 		expect(lookup({ sessionId: JOB })).toBeNull();
 	});
 
-	it("reads every ledger where the seat file will not read, as a malformed line may be an overflow seat", () => {
-		expect(() =>
+	it("reads every ledger where the seat file will not read, as a malformed line may be an overflow seat, its throw naming the remedy", () => {
+		const read = () =>
 			readDeclaredOverflowLookup({
 				seats: [],
 				errors: ["refill-seats:1: bad"],
-			}),
-		).toThrow(path.join(root, "broken"));
+			});
+		expect(read).toThrow(path.join(root, "broken"));
+		expect(read).toThrow(
+			"— fix that read and re-run: until then an overflow session cannot be told from a plan one",
+		);
 	});
 });
 

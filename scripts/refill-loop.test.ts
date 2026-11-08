@@ -117,7 +117,7 @@ describe("start", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2\n~/.claude2-api api key=K grant=200\n",
+			"~/.claude2\n~/.claude2 api key=K grant=200\n",
 		);
 		const r = await run("start");
 		expect(r.status).toBe(2);
@@ -590,12 +590,12 @@ describe("stop and status", () => {
 		expect(key.why).toBe("the session cost table is unreadable");
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2-api api key=WFC_TEST_KEY grant=200\n",
+			"~/.claude2\n~/.claude2 api key=WFC_TEST_KEY grant=200\n",
 		);
 		const [refusal] = JSON.parse(
 			(await run("status", "--json")).stdout,
 		).overflow;
-		expect(refusal.seat).toBe("the seat file");
+		expect(refusal.seat).toBeNull();
 		expect(refusal.why).toContain("missing cycle-day=");
 	});
 
@@ -782,7 +782,7 @@ describe("stop and status", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n~/.claude3-api api nope\n",
+			"~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n~/.claude2 api nope\n",
 		);
 		const { stdout } = await run("status");
 		expect(stdout).toContain("seat file refuses: ");

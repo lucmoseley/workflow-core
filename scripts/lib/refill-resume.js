@@ -20,7 +20,6 @@ const { seatIdOf } = require("./refill-seats.js");
 const { buildSeatEnv } = require("./seat-claude.js");
 const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-blocks.js");
-const { OVERFLOW_PREFIX } = require("./session-name.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
@@ -29,7 +28,7 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
 /** @typedef {import("./refill-blocks.js").JobLaunch} JobLaunch */
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /** @typedef {ReturnType<typeof import("./child-spawn.js").spawnChild>} ChildRun */
-/** @typedef {ReturnType<typeof import("./dispatch-ledger.js").readOverflowLookup>} OverflowLookup */
+/** @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup */
 
 /**
  * The reads, writes and child processes a resume runs through.
@@ -408,22 +407,17 @@ function resumeSteps(io) {
 
 	/**
 	 * The name `l`'s session takes moved onto a key: the name its row shows,
-	 * else its prompt, after the prefix an overflow launch is named with. A
-	 * copy inherits its session's name, which on a plan seat carries no prefix
-	 * (#4395).
+	 * else its prompt; the headless launcher adds the overflow prefix (#4395).
 	 * @param {JobLaunch} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
-	function overflowNameOf(l, { sessionId, cwd }) {
+	function movedNameOf(l, { sessionId, cwd }) {
 		const read = readTranscriptName(l.seat, cwd, sessionId);
 		if ("why" in read)
 			log(
 				`${sessionId}'s name not read, so named after its prompt: ${read.why}`,
 			);
-		const name = ("name" in read && read.name) || l.prompt;
-		return name.startsWith(OVERFLOW_PREFIX)
-			? name
-			: `${OVERFLOW_PREFIX}${name}`;
+		return ("name" in read && read.name) || l.prompt;
 	}
 
 	/**
@@ -709,7 +703,7 @@ function resumeSteps(io) {
 			io.copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
 			removeJobRecord(seat, sessionId, cwd);
 		if (prepared) return { failed: prepared };
-		const name = target.keyVar ? overflowNameOf(l, ids) : undefined;
+		const name = target.keyVar ? movedNameOf(l, ids) : undefined;
 		const r = resumeStopped(movedOnto(l, target), prompt, ids, {
 			move: target,
 			name,

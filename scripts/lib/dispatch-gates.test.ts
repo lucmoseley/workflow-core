@@ -57,8 +57,10 @@ const gates = (identity: string[], extra: Record<string, string> = {}) =>
 	});
 const ROOTS = "WFC_REPO_ROOT CLAUDE_PROJECT_DIR WFC_DISPATCH_ROOT";
 const overflowLines = () =>
-	`${ROOTS} ANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n`;
-const planLines = (burn = "off") => `plan ${burn}\n${ROOTS}\n`;
+	`${ROOTS} ANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n${seat()} key=K\n`;
+const planLines = (burn = "off", dir = seat()) =>
+	`plan ${burn}\n${ROOTS}\n${dir}\n`;
+const homeClaude = () => path.join(home, ".claude");
 
 describe("the seat kind", () => {
 	it("refuses a call naming no config dir, or an option", () => {
@@ -80,13 +82,13 @@ describe("the seat kind", () => {
 
 	it("takes an undeclared dir as a plan seat", () => {
 		seats("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
-		const r = gates([path.join(home, ".claude")]);
+		const r = gates([homeClaude()]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe(planLines());
+		expect(r.stdout).toBe(planLines("off", homeClaude()));
 	});
 
 	it("refuses a malformed seat file, naming the line", () => {
-		seats("~/.claude2\n~/.claude2-api api key=K grant=200\n");
+		seats("~/.claude2\n~/.claude2 api key=K grant=200\n");
 		const r = gates([seat()]);
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
@@ -144,7 +146,7 @@ describe("the overflow key (#3701)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toContain(
-			`REFUSED: overflow seat ${seat()}: K is not set in ${secrets}`,
+			`REFUSED: overflow seat ${seat()} key=K: K is not set in ${secrets}`,
 		);
 		expect(r.stderr).not.toContain("sk-fake");
 	});
@@ -160,7 +162,7 @@ describe("launch auth (#2236)", () => {
 	});
 
 	it("is not read where the seat gate has already refused", () => {
-		seats("~/.claude2\n~/.claude2-api api key=K grant=200\n");
+		seats("~/.claude2\n~/.claude2 api key=K grant=200\n");
 		const r = gates([seat()], { ANTHROPIC_API_KEY: "k" });
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("the seat file refuses");
@@ -186,6 +188,17 @@ describe("launch auth (#2236)", () => {
 			expect(r.status).toBe(0);
 		});
 
+		it("labels each of two keys on one dir by its key (#4196)", () => {
+			seats(
+				"~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n~/.claude2 api key=K2 grant=100 cycle-day=20\n",
+			);
+			fs.writeFileSync(secrets, "K=sk-fake-overflow\nK2=sk-fake-other\n");
+			const label = (key: string) =>
+				gates([seat(), key]).stdout.trimEnd().split("\n").at(-1);
+			expect(label("K")).toBe(`${seat()} key=K`);
+			expect(label("K2")).toBe(`${seat()} key=K2`);
+		});
+
 		it("still refuses a provider set in the shell", () => {
 			const r = gates([seat(), "K"], { CLAUDE_CODE_USE_BEDROCK: "1" });
 			expect(r.status).toBe(2);
@@ -197,23 +210,23 @@ describe("launch auth (#2236)", () => {
 describe("burn mode", () => {
 	it("reads on while its marker exists", () => {
 		fs.writeFileSync(marker(), "");
-		expect(gates([path.join(home, ".claude")]).stdout).toBe(planLines("on"));
+		expect(gates([homeClaude()]).stdout).toBe(planLines("on", homeClaude()));
 	});
 
 	it("reads off where the marker is not a regular file", () => {
 		fs.mkdirSync(marker());
-		expect(gates([path.join(home, ".claude")]).stdout).toBe(planLines());
+		expect(gates([homeClaude()]).stdout).toBe(planLines("off", homeClaude()));
 	});
 
 	it("reads off, warning, where the marker's path will not resolve", () => {
 		// A relative HOME: burn-mode.js refuses it, while the seat read still
 		// resolves under the case's cwd, the temp home, never the machine's own.
-		const r = gates([path.join(home, ".claude")], {
+		const r = gates([homeClaude()], {
 			WFC_BURN_MARKER: "",
 			HOME: "not-absolute",
 		});
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe(planLines());
+		expect(r.stdout).toBe(planLines("off", homeClaude()));
 		expect(r.stderr).toContain("WARNING: burn-mode marker path unresolved");
 	});
 });

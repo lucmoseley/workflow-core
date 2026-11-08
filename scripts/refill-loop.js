@@ -93,6 +93,8 @@ const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { readAgentsForDisplay } = require("./lib/agent-liveness.js");
 const { planSeatBasisOf } = require("./lib/overflow-notice.js");
 const {
+	overflowSeatsOf,
+	planSeatsOf,
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
@@ -754,12 +756,12 @@ function readOverflowStatus(budgetOf) {
 	if (declared.errors.length > 0)
 		return [
 			{
-				seat: "the seat file",
+				seat: null,
 				why: `it refuses: ${declared.errors.join("; ")}`,
 			},
 		];
-	return declared.seats.flatMap((s) =>
-		s.kind === "overflow" ? [commands.buildOverflowStatus(s, budgetOf(s))] : [],
+	return overflowSeatsOf(declared.seats).map((s) =>
+		commands.buildOverflowStatus(s, budgetOf(s)),
 	);
 }
 
@@ -829,9 +831,7 @@ function status({ flags }) {
 function sayOverflowLines(control, state, budgetOf) {
 	const declared = readDeclaredSeats();
 	for (const error of declared.errors) say(`seat file refuses: ${error}`);
-	const overflow = declared.seats.flatMap((s) =>
-		s.kind === "overflow" ? [s] : [],
-	);
+	const overflow = overflowSeatsOf(declared.seats);
 	for (const seat of overflow) say(buildBudgetLine(seat, budgetOf(seat)));
 	if (overflow.length > 0 && declared.errors.length === 0) {
 		const now = Date.now();
@@ -839,9 +839,7 @@ function sayOverflowLines(control, state, budgetOf) {
 			planSeats: (control?.seats ?? readConfiguredSeats()).map((seat) =>
 				planSeatBasisOf(seatReading.readSeat(seat, now).reading),
 			),
-			filePlanSeats: declared.seats
-				.filter((s) => s.kind === "plan")
-				.map((s) => s.dir),
+			filePlanSeats: planSeatsOf(declared.seats).map((s) => s.dir),
 			omitted: readOmittedDirs(declared),
 			start: state.overflowStart,
 			now,

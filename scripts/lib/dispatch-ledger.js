@@ -165,6 +165,12 @@ function entryHolds(rec, command) {
  */
 
 /**
+ * A session's latest overflow launch, or null for one none records.
+ * @typedef {(session: {jobId?: string|null, sessionId?: string|null}) =>
+ *   OverflowLaunch|null} OverflowLookup
+ */
+
+/**
  * Whether a row counts whatever the window: a launch before its `heldUntil`,
  * and any release, as one aged out would revive the held launch it ended.
  * @param {DispatchRecord|ReleaseRecord} rec
@@ -297,7 +303,7 @@ const isOverflowLaunch = (rec) =>
  * names every checkout (`readEveryOverflowLookup`); the default suits a session
  * asking about itself.
  * @param {string[]} [roots]
- * @returns {(session: {jobId?: string|null, sessionId?: string|null}) => OverflowLaunch|null}
+ * @returns {OverflowLookup}
  * @throws where a ledger will not read: a plan session and an unread overflow
  *   one must not look alike
  */
@@ -339,7 +345,9 @@ const readEveryOverflowLookup = (root) =>
  * ledger, as a host with no overflow seat has none to tell apart (#4393).
  * @param {import("./refill-seats.js").SeatList} [declared]
  * @param {string} [root] as readEveryLedgerRoot's
- * @throws as `readEveryOverflowLookup`, where it reads
+ * @returns {OverflowLookup}
+ * @throws as `readEveryOverflowLookup`, where it reads, its message naming
+ *   the remedy
  */
 function readDeclaredOverflowLookup(
 	declared = readDeclaredSeats(),
@@ -347,7 +355,14 @@ function readDeclaredOverflowLookup(
 ) {
 	if (!declaresOverflowSeat(declared) && declared.errors.length === 0)
 		return () => null;
-	return readEveryOverflowLookup(root);
+	try {
+		return readEveryOverflowLookup(root);
+	} catch (err) {
+		throw new Error(
+			`launch record unreadable: ${caught(err).message} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
+			{ cause: err },
+		);
+	}
 }
 
 /**

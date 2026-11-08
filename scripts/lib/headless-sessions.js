@@ -10,14 +10,18 @@
  * appended to its system prompt, and `--max-budget-usd` and a name where the
  * caller gives them: a resume the refill loop makes of its own run gives no
  * budget, the tick's allowance stop capping it as any overflow run (#3698),
- * and a founder's reply is marked so that stop leaves it (#4174). No `--model`: Opus is the default
- * (mantahostels#1093). `resume` continues a session headless on the same
- * seat and key.
+ * and a founder's reply is marked so that stop leaves it (#4174). The name
+ * takes OVERFLOW_PREFIX, so the run's row says it spends API credits; the
+ * child is handed that prefix pinned to its session id, which
+ * name-issue-session.sh keeps on each rename, and which a session the child
+ * starts, under another id, does not take (#3701). No `--model`: Opus is the
+ * default (mantahostels#1093). `resume` continues a session headless on the
+ * same seat and key.
  *
  * THE KEY reaches the child only through lib/overflow-key.js's
  * `apiKeyHelper` in `--settings`, so no Bash call or hook in the session sees
- * it (#2604 (b)); the child runs without the variables overflowUnset names,
- * nor the launcher's root (lib/inherited-roots.js).
+ * it (#2604 (b)); the child runs without the variables buildOverflowLaunch
+ * names, nor the launcher's root (lib/inherited-roots.js).
  * A key that will not read, or any launch lib/launch-auth.js refuses,
  * refuses the launch by name before anything spawns.
  *
@@ -46,12 +50,18 @@ const {
 } = require("./headless-runs.js");
 const { forgetRoots } = require("./inherited-roots.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const { buildKeySettings, overflowUnset } = require("./overflow-key.js");
+const { buildOverflowLaunch } = require("./overflow-key.js");
 const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
 const CONTRACT = path.join(__dirname, "headless-contract.md");
+
+const OVERFLOW_PREFIX = "Overflow · ";
+
+/** @param {string} name */
+const overflowNameOf = (name) =>
+	name.startsWith(OVERFLOW_PREFIX) ? name : `${OVERFLOW_PREFIX}${name}`;
 
 /** @typedef {import("./headless-runs.js").RunRecord} RunRecord */
 
@@ -77,13 +87,11 @@ function launch({
 	const seat = findOverflowSeat(list, keyVar);
 	if (!seat)
 		return { why: `${keyVar} is not an overflow seat's key in the seat file` };
-	const built = buildKeySettings(seat.keyVar);
-	if ("why" in built) return built;
-	const { settings } = built;
-
 	/** @type {NodeJS.ProcessEnv} */
 	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat.dir };
-	for (const v of overflowUnset(seat.keyVar)) delete env[v];
+	const built = buildOverflowLaunch(seat.keyVar, env);
+	if ("why" in built) return built;
+	const { settings } = built;
 	forgetRoots(env);
 	const bin = claudeBin(env);
 	const refusal = launchAuthRefusal({ bin, env, cwd, settings });
@@ -96,6 +104,8 @@ function launch({
 	const log = path.join(dir, "out.jsonl");
 	const stderr = path.join(dir, "stderr.log");
 	const sessionId = resume ?? crypto.randomUUID();
+	env.WFC_NAME_PREFIX = OVERFLOW_PREFIX;
+	env.WFC_NAME_PREFIX_SESSION = sessionId;
 
 	const out = fs.openSync(log, "a");
 	const err = fs.openSync(stderr, "a");
@@ -113,7 +123,7 @@ function launch({
 				: ["--max-budget-usd", String(budgetUsd)]),
 			"--settings",
 			settings,
-			...(name === undefined ? [] : ["-n", name]),
+			...(name === undefined ? [] : ["-n", overflowNameOf(name)]),
 			"--append-system-prompt",
 			fs.readFileSync(CONTRACT, "utf8"),
 			prompt,
