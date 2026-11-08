@@ -192,6 +192,20 @@ describe("release-plugin", () => {
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
+	it("releases the linked worktree it runs in, never its main checkout's dirty tree (#2412)", () => {
+		landed();
+		const wt = path.join(path.dirname(dir), "wt");
+		git("worktree", "add", "-q", "--detach", wt);
+		write("stray.txt", "a neighbour's scratch\n");
+		const r = runInProcess(SCRIPT, [], {
+			cwd: wt,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+		});
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(git("tag", "--list")).toBe("v2.3.4");
+	});
+
 	it("refuses while migrations/hold.txt stands at HEAD, quoting it and tagging nothing (#4252)", () => {
 		write("migrations/hold.txt", "Held until the rollout ships.\n");
 		git("add", "--all");
