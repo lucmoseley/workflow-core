@@ -20,8 +20,10 @@ and wall with a 95% percentile bootstrap interval: PASS when
 the upper bound is at most 1.03, FAIL when the lower bound is above it, else
 30 more pairs up to 90 and then INCONCLUSIVE, which is never a pass.
 `--reread` is the one re-read an INCONCLUSIVE gets: a single read of 720
-pairs with no earlier look, whose verdict is final, an INCONCLUSIVE closing the
-gate as wall not resolved, never as a pass (#4664). An
+pairs with no earlier look, whose verdict is final (#4664). Its INCONCLUSIVE
+with CPU PASS closes the gate as wall not resolved at 3%, no FAIL, never as a
+pass. Residual: nothing checks that a read is a first re-read, so one use per
+gate is the caller's. An
 always-on set passes on CPU and wall; `--narrowed` (an `if`-narrowed guard)
 passes on wall, CPU recorded beside it. Pairing cancels the load both calls
 share, so no load is refused (#3210). The read is REFUSED when a pair's deny
@@ -58,7 +60,7 @@ SESSION = "bench-2783-0000"
 MARGIN = 1.03
 # 30 to start is Kalibera & Jones's and Georges et al.'s count (#3210).
 FIRST, STEP, CAP = 30, 30, 90
-# House (#4664 Q1 (A)): ±2.2-2.4% wide on a no-effect change at load ~20.
+# House (#4664 Q1 (A)).
 REREAD = 720
 # Duet's replicate count; Kalibera & Jones's floor is 1,000 (#3210).
 RESAMPLES = 10_000
