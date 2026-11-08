@@ -322,31 +322,42 @@ function maskValues(text, values) {
 }
 
 /**
- * `text` with every token-shaped substring, the value of an assignment to any
- * of `names`, and every one of `values` long enough to tell from prose,
- * replaced by `[REDACTED:<rule>]`. Shapes apply in list order: `sk-ant-` is
+ * The masker for one secrets file: a function giving `text` with every
+ * token-shaped substring, the value of an assignment to any of `names`, and
+ * every one of `values` long enough to tell from prose, replaced by
+ * `[REDACTED:<rule>]`, and how many. Shapes apply in list order: `sk-ant-` is
  * named before the bare `sk-` rule can claim it, and the shapes whose bodies
  * hold `_` or `-` run before the lead-free ones, which would otherwise split
  * them at an `hf_` or `ghp_` inside.
- * @param {string} text
+ *
+ * THROWS, naming the count, where the names make a pattern too large to
+ * compile: each character carries the control-sequence pattern, so about 90
+ * names of 20 characters reach V8's limit (#4047). Built before a writer opens
+ * its output, so that fault leaves the output as it was.
  * @param {string[]} [names] the secrets file's names, from
  *   `lib/env-file.js`'s `readStoredSecrets`: identifiers, put in the pattern as
  *   they are
  * @param {string[]} [values] the secrets file's values, from
  *   `lib/env-file.js`'s `readStoredSecrets`
- * @returns {{ text: string, count: number }}
+ * @returns {(text: string) => { text: string, count: number }}
  */
-function maskTokens(text, names = [], values = []) {
-	let count = 0;
-	let out = text;
+function buildMasker(names = [], values = []) {
+	let stored = null;
 	if (names.length > 0) {
-		out = out.replace(
-			new RegExp(buildStored(names), "g"),
-			(_match, name, gap) => {
-				count++;
-				return `${name}${gap}[REDACTED:stored]`;
-			},
-		);
+		try {
+			stored = new RegExp(buildStored(names), "g");
+			/* V8 compiles a pattern at its first match, not its construction, once
+			 * for one-byte text and once for two-byte. */
+			stored.test("");
+			stored.test("Ā");
+		} catch (e) {
+			/* Names are identifiers, so size is the one way the pattern fails. V8's
+			 * message quotes the whole source, megabytes of it. */
+			throw new Error(
+				`the secrets file's ${names.length} names make a masking pattern too large to compile`,
+				{ cause: e },
+			);
+		}
 	}
 	/* Longest first, so a value inside another leaves no tail of it. A value
 	 * holding a token goes before the shapes, which would take that token and
@@ -356,16 +367,33 @@ function maskTokens(text, names = [], values = []) {
 		.filter((value) => value.length >= MIN_BARE_VALUE)
 		.sort((a, b) => b.length - a.length);
 	const holdingToken = bare.filter((value) => maskShapes(value).count > 0);
-	const first = maskValues(out, holdingToken);
-	const shaped = maskShapes(first.text);
-	const rest = maskValues(
-		shaped.text,
-		bare.filter((value) => !holdingToken.includes(value)),
-	);
-	return {
-		text: rest.text,
-		count: count + first.count + shaped.count + rest.count,
+	const plain = bare.filter((value) => !holdingToken.includes(value));
+	return (text) => {
+		let count = 0;
+		const out = stored
+			? text.replace(stored, (_match, name, gap) => {
+					count++;
+					return `${name}${gap}[REDACTED:stored]`;
+				})
+			: text;
+		const first = maskValues(out, holdingToken);
+		const shaped = maskShapes(first.text);
+		const rest = maskValues(shaped.text, plain);
+		return {
+			text: rest.text,
+			count: count + first.count + shaped.count + rest.count,
+		};
 	};
 }
 
-module.exports = { maskTokens };
+/**
+ * `buildMasker(names, values)` applied once to `text`.
+ * @param {string} text
+ * @param {string[]} [names]
+ * @param {string[]} [values]
+ * @returns {{ text: string, count: number }}
+ */
+const maskTokens = (text, names = [], values = []) =>
+	buildMasker(names, values)(text);
+
+module.exports = { buildMasker, maskTokens };

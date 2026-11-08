@@ -50,6 +50,56 @@ function asidePid(base, name) {
 }
 
 /**
+ * A fresh aside for `file` in this process.
+ * @param {string} file
+ */
+const newAside = (file) =>
+	asidePath(file, process.pid, crypto.randomBytes(4).toString("hex"));
+
+/**
+ * Replace `file` with what `write` writes to the fd it is handed, in one step,
+ * for output too large to hold whole (#4047). A file it replaces keeps its
+ * permission bits. A fault at any step, `write`'s own included, removes the
+ * aside and RETHROWS, leaving `file` as it was.
+ * @param {string} file
+ * @param {(fd: number) => void} write
+ */
+function writeStreamAtomic(file, write) {
+	const aside = newAside(file);
+	try {
+		const fd = fs.openSync(aside, "wx");
+		try {
+			const prior = statMode(file);
+			if (prior !== null) fs.fchmodSync(fd, prior);
+			write(fd);
+		} finally {
+			fs.closeSync(fd);
+		}
+		fs.renameSync(aside, file);
+	} catch (e) {
+		try {
+			fs.rmSync(aside, { force: true });
+		} catch {
+			/* the write's own fault is the one to report */
+		}
+		throw e;
+	}
+}
+
+/**
+ * @param {string} file
+ * @returns {number | null} its permission bits, or null where none is there
+ */
+function statMode(file) {
+	try {
+		return fs.statSync(file).mode & 0o7777;
+	} catch {
+		/* Nothing to replace: the aside keeps the umask's mode. */
+		return null;
+	}
+}
+
+/**
  * Replace `file` with `data` in one step. A fault at any step removes the aside
  * and RETHROWS, leaving `file` as it was.
  * @param {string} file
@@ -58,11 +108,7 @@ function asidePid(base, name) {
  */
 function writeFileAtomic(file, data, options = {}) {
 	if (options.mkdir) fs.mkdirSync(path.dirname(file), { recursive: true });
-	const aside = asidePath(
-		file,
-		process.pid,
-		crypto.randomBytes(4).toString("hex"),
-	);
+	const aside = newAside(file);
 	try {
 		fs.writeFileSync(aside, data, { flag: "wx", mode: options.mode });
 		// writeFile's mode is filtered through the umask; chmod is not.
@@ -79,4 +125,4 @@ function writeFileAtomic(file, data, options = {}) {
 	}
 }
 
-module.exports = { asidePath, asidePid, writeFileAtomic };
+module.exports = { asidePath, asidePid, writeFileAtomic, writeStreamAtomic };

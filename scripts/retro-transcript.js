@@ -40,9 +40,10 @@
  * before the per-item cut, so a token straddling it leaves no fragment.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a scratch writer. Exit 0
- * written, printing the output path, line count and any masked count; 1 the log
- * or the secrets file unreadable, which leaves the output as it was; 2 bad usage
- * or a refused output path.
+ * written, printing the output path, line count and any masked count; 1 the log,
+ * a subagent log or the secrets file unreadable, or the secrets file's names too
+ * many to compile, each of which leaves the output as it was; 2 bad usage or a
+ * refused output path.
  */
 
 const fs = require("node:fs");
@@ -53,8 +54,9 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
 const { isLoopPrompt } = require("./lib/loop-prompts");
-const { maskTokens } = require("./lib/token-shapes");
-const { readStoredSecrets } = require("./lib/env-file.js");
+const { buildMasker } = require("./lib/token-shapes");
+const { writeStreamAtomic } = require("./lib/atomic-write.js");
+const { readStoredSecrets, secretsFile } = require("./lib/env-file.js");
 const {
 	STOP_FEEDBACK,
 	parseContentText,
@@ -100,17 +102,16 @@ const LIMIT = {
 /* Substrings masked so far, reported in the stdout summary. */
 let masked = 0;
 
-/* The secrets file's names and values, both masked: read by `main` before it
- * opens the output. */
-/** @type {{ names: string[], values: string[] } | undefined} */
-let storedSecrets;
+/* The secrets file's masker, built by `main` before it opens the output. */
+/** @type {((text: string) => { text: string, count: number }) | undefined} */
+let masker;
 
 /**
  * @param {string} text
  */
 function mask(text) {
-	if (!storedSecrets) throw new Error("mask ran before main read the secrets");
-	const result = maskTokens(text, storedSecrets.names, storedSecrets.values);
+	if (!masker) throw new Error("mask ran before main built the masker");
+	const result = masker(text);
 	masked += result.count;
 	return result.text;
 }
@@ -126,13 +127,24 @@ function short(value, limit) {
 	return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+/* A log that would not open: a subagent log can be a dangling link (#4047). */
+class UnreadableLog extends Error {}
+
 /**
  * Every line of a file, with its 1-based number, read CHUNK bytes at a time.
  * @param {string} file
  * @returns {Generator<{ n: number, line: string }>}
  */
 function* readLines(file) {
-	const fd = fs.openSync(file, "r");
+	let fd;
+	try {
+		fd = fs.openSync(file, "r");
+	} catch (e) {
+		const { code, message } = caught(e);
+		throw new UnreadableLog(`cannot read ${file} (${code ?? message})`, {
+			cause: e,
+		});
+	}
 	const buf = Buffer.alloc(CHUNK);
 	const decoder = new StringDecoder("utf8");
 	let carry = "";
@@ -413,21 +425,46 @@ function readSubagentsOf(log) {
 	return found;
 }
 
+/* Links followed before a path is refused as a loop: Linux's own limit (#4047). */
+const MAX_LINKS = 40;
+
 /**
  * `file` with symlinks dereferenced as far as it exists: a path not yet made is
  * resolved through its nearest existing ancestor, so a refused one is never
- * created.
+ * created, and a dangling link through its target, which an open would create.
+ * Throws on a link loop.
  * @param {string} file
+ * @param {number} [links]  links followed so far
+ * @returns {string}
  */
-function readRealPath(file) {
+function readRealPath(file, links = 0) {
 	/** @type {string[]} */
 	const rest = [];
 	let at = file;
 	while (!fs.existsSync(at) && path.dirname(at) !== at) {
+		if (isLink(at)) {
+			if (links >= MAX_LINKS) throw new Error(`${file} is a symlink loop`);
+			const target = path.resolve(
+				fs.realpathSync(path.dirname(at)),
+				fs.readlinkSync(at),
+			);
+			return path.join(readRealPath(target, links + 1), ...rest);
+		}
 		rest.unshift(path.basename(at));
 		at = path.dirname(at);
 	}
 	return path.join(fs.realpathSync(at), ...rest);
+}
+
+/** @param {string} at */
+function isLink(at) {
+	try {
+		return fs.lstatSync(at).isSymbolicLink();
+	} catch {
+		/* Nothing there to follow: the caller walks up to an ancestor, whose real
+		 * path the containment check still judges. */
+		return false;
+	}
 }
 
 /**
@@ -448,7 +485,12 @@ function outputPath(root, log, requested) {
 			);
 	fs.mkdirSync(scratch, { recursive: true });
 	/* Real paths on both sides, so a symlink out of .claude/tmp/ is no way out. */
-	const real = readRealPath(out);
+	let real;
+	try {
+		real = readRealPath(out);
+	} catch (e) {
+		return { refused: caught(e).message };
+	}
 	if (!relativeUnder(fs.realpathSync(scratch), real))
 		return { refused: `${out} is outside ${scratch}${path.sep}` };
 	try {
@@ -549,17 +591,21 @@ function main() {
 	try {
 		const { names, values } = readStoredSecrets();
 		/* An object's text reaches `mask` JSON-escaped, so a value does both ways. */
-		storedSecrets = {
+		masker = buildMasker(
 			names,
-			values: values.flatMap((v) => [v, JSON.stringify(v).slice(1, -1)]),
-		};
+			values.flatMap((v) => [v, JSON.stringify(v).slice(1, -1)]),
+		);
 	} catch (e) {
-		writeFd(2, `retro-transcript: refused: ${caught(e).message}\n`);
+		writeFd(
+			2,
+			`retro-transcript: refused: ${caught(e).message}. Fix or trim ${secretsFile()}, then rerun.\n`,
+		);
 		process.exit(1);
 	}
 
 	const subagents = readSubagentsOf(log);
-	const fd = fs.openSync(target.out, "w");
+	/** The aside's fd, set once `writeStreamAtomic` opens it. */
+	let fd = -1;
 	let written = 0;
 	let skipped = 0;
 	/** @param {string} text */
@@ -627,17 +673,28 @@ function main() {
 		emit(`${indent}${at} └ end subagent ${sub.agent}`);
 	};
 
+	/* Written aside and renamed over the output once whole, so a fault midway
+	 * leaves the output as it was (#4047). A killed run leaves its aside in
+	 * .claude/tmp/, to the 24-hour sweep. */
 	try {
-		const last = walk(log, "main", 0, "");
-		for (const sub of [...subagents.values()])
-			fold(
-				sub,
-				0,
-				`L${last}`,
-				" — its dispatching call is in no log read here",
-			);
-	} finally {
-		fs.closeSync(fd);
+		writeStreamAtomic(target.out, (opened) => {
+			fd = opened;
+			const last = walk(log, "main", 0, "");
+			for (const sub of [...subagents.values()])
+				fold(
+					sub,
+					0,
+					`L${last}`,
+					" — its dispatching call is in no log read here",
+				);
+		});
+	} catch (e) {
+		if (!(e instanceof UnreadableLog)) throw e;
+		writeFd(
+			2,
+			`retro-transcript: ${e.message}. ${target.out} is as it was. Repair or remove that log, then rerun.\n`,
+		);
+		process.exit(1);
 	}
 	writeFd(
 		1,
