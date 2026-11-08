@@ -487,18 +487,21 @@ function readListing(opts) {
 
 /**
  * Every dir's oracle read, unioned, as `{raw}` — or `{why}` where it would not
- * run or one dir's answer is not a listing.
+ * run or one dir's answer is not a listing. `run` is the read; the suite
+ * passes a fake so the retry's count and caps do not ride on a real child
+ * starting inside a cap (#4411).
  * @param {string} bin
  * @param {string} call
  * @param {string[]} dirs
+ * @param {typeof runOracle} [run]
  * @returns {{raw: string} | {why: string}}
  */
-function spawnUnion(bin, call, dirs) {
+function spawnUnion(bin, call, dirs, run = runOracle) {
 	let out;
 	const firstCapMs = oracleTimeoutMs();
 	const firstMs = budgetMs(firstCapMs);
 	try {
-		out = runOracle(bin, firstMs, dirs);
+		out = run(bin, firstMs, dirs);
 	} catch (e) {
 		const why = wouldNotRun(call, e);
 		if (caught(e).code !== "ETIMEDOUT") return { why };
@@ -508,7 +511,7 @@ function spawnUnion(bin, call, dirs) {
 		// a loop here would wedge the SessionStart hook the cap protects.
 		const retryMs = budgetMs(oracleRetryTimeoutMs());
 		try {
-			out = runOracle(bin, retryMs, dirs);
+			out = run(bin, retryMs, dirs);
 		} catch (again) {
 			return {
 				why: `${wouldNotRun(call, again)} — twice, the retry given ${retryMs} ms`,
@@ -1014,6 +1017,7 @@ module.exports = {
 	oracleCacheKey,
 	readSeatListing,
 	sharedSessionIds,
+	spawnUnion,
 	sweepSessionIds,
 	TERMINAL_STATES,
 };
