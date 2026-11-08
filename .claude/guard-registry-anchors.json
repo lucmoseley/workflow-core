@@ -41,7 +41,7 @@
 	"scripts/check-workflow-permissions.js": "67e9fef9689dc933",
 	"scripts/claim-issue.js": "ed652bd799283197",
 	"scripts/clear-rule-latch.sh": "4868c69561b34a06",
-	"scripts/commit-paths.js": "c625fb5ccf460eaf",
+	"scripts/commit-paths.js": "7e1a4bf3495b954c",
 	"scripts/concision-backstop.sh": "b6963baecf082460",
 	"scripts/cutover-main-checkout.js": "1d7981de3cb96759",
 	"scripts/guard-automode-refusal.js": "2e48e0f1ea571af5",
