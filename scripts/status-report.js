@@ -80,6 +80,8 @@ const POOL_WIDTH = 4;
  * reads one comment page per ticket closed in its window, so it is among the
  * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
  * lag past its threshold: here every reading is a standing.
+ * `landing-switch-on` (#4688) also runs at SessionStart, which prints only a
+ * FAIL: here an OK or SKIP shows too.
  * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
  * reaper, which kills.
  *
@@ -115,6 +117,7 @@ const CHECKS = [
 	["marker-integrity", "check-marker-integrity.js"],
 	["release-pin", "check-release-pin.js"],
 	["release-lag", "check-release-lag.js"],
+	["landing-switch-on", "check-landing-switch-on.js"],
 	["band-drift", "check-band-drift.js"],
 	["citation-ceiling", "check-citation-ceiling.js"],
 	["orphaned-edits", "check-orphaned-edits.js"],
