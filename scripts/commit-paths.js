@@ -10,12 +10,13 @@
  *   node scripts/commit-paths.js --tree [--patch <file>] -- <path>...
  *   node scripts/commit-paths.js --check [--patch <file>] [-m <message> | -F <file|->] -- <path>...
  *
- * --TREE (#1695) prints the tree that commit would carry on today's HEAD,
- * built by the same private-index code and refused on the same grounds, and
- * writes nothing — save that a set changing nothing prints HEAD's own tree,
- * so a change already committed can still be named (#4288): the one computation of a pathspec commit's tree, which the
- * review hold's `tree=` and the `refs/reviewed/` pin both take. It takes no
- * message, runs no tests, and logs no outcome line.
+ * --TREE (#1695) prints the tree that commit would carry on today's HEAD —
+ * the one computation of a pathspec commit's tree, which the review hold's
+ * `tree=` and the `refs/reviewed/` pin both take — and writes nothing. It is
+ * built by the same private-index code and refused on the same grounds, save
+ * that a set changing nothing prints HEAD's own tree, so a change already
+ * committed can still be named (#4288). It takes no message, runs no tests,
+ * and logs no outcome line.
  *
  * --CHECK (#4207) gives the verdict that commit would get and makes none: it
  * builds the same private index, runs the same pre-lock gates, test run and
@@ -1683,9 +1684,9 @@ function buildCommitIndex({ index, specs, toAdd }) {
  * HEAD and none is new. An unborn branch has no HEAD to compare against; git
  * decides there.
  * @param {string[]} paths
- * @param {boolean} refuseUnchanged
+ * @param {{refuseUnchanged: boolean}} mode
  */
-function prepareWhole(paths, refuseUnchanged) {
+function prepareWhole(paths, { refuseUnchanged }) {
 	const toAdd = classify(paths);
 	const specs = paths.map(literal);
 	if (
@@ -1710,7 +1711,9 @@ function prepareWhole(paths, refuseUnchanged) {
  */
 function printTree(whole, cut) {
 	const { index } = sweptRunFiles();
-	buildPrivateIndex(whole, cut, index, false);
+	// An unsaved or mistyped path prints HEAD's tree rather than refusing:
+	// the review hold's tree= comparison catches it at commit, not this (#4288).
+	buildPrivateIndex(whole, cut, index, { refuseUnchanged: false });
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
 		fail(`git could not write the tree (${r.stderr.trim()}).`, 2);
@@ -1728,7 +1731,9 @@ function printTree(whole, cut) {
  */
 function checkCommit(whole, cut, message) {
 	const files = sweptRunFiles();
-	const { base, build } = buildPrivateIndex(whole, cut, files.index, true);
+	const { base, build } = buildPrivateIndex(whole, cut, files.index, {
+		refuseUnchanged: true,
+	});
 	const stampEnv = preLockRun(() => files, build);
 	armStampRemoval(files);
 	runCommitHooks(files, base, stampEnv, message);
@@ -1749,10 +1754,10 @@ function checkCommit(whole, cut, message) {
  * @param {string[]} whole
  * @param {string|null} cut
  * @param {string} index
- * @param {boolean} refuseUnchanged
+ * @param {{refuseUnchanged: boolean}} mode
  * @returns {{base: string|null, build: (index: string) => void}}
  */
-function buildPrivateIndex(whole, cut, index, refuseUnchanged) {
+function buildPrivateIndex(whole, cut, index, { refuseUnchanged }) {
 	if (cut !== null) {
 		const { patch, root, sections } = preparePatch(cut, whole);
 		const patchBuild = {
@@ -1769,7 +1774,7 @@ function buildPrivateIndex(whole, cut, index, refuseUnchanged) {
 			build: (i) => buildIndex({ ...patchBuild, index: i }, base),
 		};
 	}
-	const { toAdd, specs } = prepareWhole(whole, refuseUnchanged);
+	const { toAdd, specs } = prepareWhole(whole, { refuseUnchanged });
 	const base = hasHeadCommit()
 		? git(["rev-parse", "HEAD"]).stdout.trim()
 		: null;
@@ -1797,7 +1802,7 @@ function main() {
 	if (check) checkCommit(paths, patch, message);
 	if (patch !== null) commitPatch(message, patch, paths);
 
-	const { toAdd, specs } = prepareWhole(paths, true);
+	const { toAdd, specs } = prepareWhole(paths, { refuseUnchanged: true });
 
 	const stampEnv = preLockRun(sweptRunFiles, (index) =>
 		buildCommitIndex({ index, specs, toAdd }),
