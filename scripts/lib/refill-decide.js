@@ -61,7 +61,6 @@ const RESUMES_TAKE_SLOTS = "resumes take every free slot";
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
 /* The idle reason of a tick waiting out every plan seat's full week. */
 const PLAN_RESETS = "a plan resets";
-/* The idle reason of a paused loop's tick. */
 const PAUSED = "paused by";
 /* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
