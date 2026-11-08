@@ -16,7 +16,10 @@ import {
 } from "./landing-wait.js";
 
 type ShaState = "landed" | "pending" | "dropped" | "left";
-type Step = Record<string, ShaState> | { fault: number };
+type Step = Record<string, ShaState> | { fault: number; network: boolean };
+
+const NET = { fault: 1, network: true };
+const LEDGER = { fault: 1, network: false };
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -28,7 +31,7 @@ const scripted = (...steps: Step[]) => {
 	const read = () => {
 		const step = steps[Math.min(reads++, steps.length - 1)];
 		if ("fault" in step && typeof step.fault === "number")
-			return { fault: step.fault };
+			return { fault: step.fault, network: step.network === true };
 		const states = new Map(Object.entries(step as Record<string, ShaState>));
 		return { lines: [`read ${reads}`], states };
 	};
@@ -119,22 +122,30 @@ it("exits on its bound, under the 15-minute Bash wait, still queued", () => {
 });
 
 it("stops on a failed first read with its exit code", () => {
-	const s = scripted({ fault: 1 });
+	const s = scripted(NET);
 	expect(waitForLanding(s.read, s.io)).toEqual({ kind: "fault", code: 1 });
 	expect(s.reads()).toBe(1);
 });
 
-it("retries a read that fails mid-wait, and lands on the next good one", () => {
-	const s = scripted({ [A]: "pending" }, { fault: 1 }, { [A]: "landed" });
+it("retries a read that fails on the network mid-wait, and lands on the next good one", () => {
+	const s = scripted({ [A]: "pending" }, NET, { [A]: "landed" });
 
 	expect(waitForLanding(s.read, s.io).kind).toBe("landed");
 	expect(s.reads()).toBe(3);
 });
 
-it("returns a mid-wait fault still failing at the bound", () => {
-	const s = scripted({ [A]: "pending" }, { fault: 1 });
+it("returns a mid-wait network fault still failing at the bound", () => {
+	const s = scripted({ [A]: "pending" }, NET);
 
 	expect(waitForLanding(s.read, s.io)).toEqual({ kind: "fault", code: 1 });
+	expect(s.reads()).toBeGreaterThan(2);
+});
+
+it("stops at once on a mid-wait fault no retry fixes", () => {
+	const s = scripted({ [A]: "pending" }, LEDGER, { [A]: "landed" });
+
+	expect(waitForLanding(s.read, s.io)).toEqual({ kind: "fault", code: 1 });
+	expect(s.reads()).toBe(2);
 });
 
 it.each([

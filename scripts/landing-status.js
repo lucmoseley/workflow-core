@@ -12,8 +12,7 @@
  *
  * `--wait` re-reads until every sha the session had queued has landed or been
  * dropped, or a bound under the 15-minute Bash wait, then prints the last
- * reading and a `wait:` line naming which (lib/landing-wait.js). A session
- * runs it backgrounded, so the harness tells it the moment the lander is done.
+ * reading and a `wait:` line naming which (lib/landing-wait.js).
  *
  * Joins no §N3 family: it gates nothing and is no hook.
  *
@@ -45,6 +44,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { isNetworkFault } = require("./lib/network-fault.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const {
 	WAIT_BOUND_MS,
@@ -120,13 +120,11 @@ function main(argv = process.argv.slice(2)) {
 }
 
 /**
- * One reading of the session's commits, then its queue ref's stays and the
- * queue's line off one read of the remote and the queue log: the report's
- * lines and each sha's state, or the exit code of a read that failed, named
- * on stderr.
+ * One reading of the session's landing route, or the exit code of a read
+ * that failed, named on stderr.
  * @param {string} root
  * @param {string} sessionId
- * @returns {Reading|{fault: number}}
+ * @returns {Reading|import("./lib/landing-wait.js").Fault}
  */
 function readLanding(root, sessionId) {
 	const ledgerRoot = arbiterLedger.ledgerRoot();
@@ -137,7 +135,7 @@ function readLanding(root, sessionId) {
 		fail(
 			`the commit ledger of session ${sessionId} would not read; no state claimed`,
 		);
-		return { fault: 1 };
+		return { fault: 1, network: false };
 	}
 	/** @type {string[]} */
 	const lines = [];
@@ -161,7 +159,7 @@ function readLanding(root, sessionId) {
 			fail(
 				`could not read origin's main and queue refs: ${String(e.stderr || e.message).trim()}\nNo state claimed. Check \`git fetch origin\` works.`,
 			);
-			return { fault: 1 };
+			return { fault: 1, network: isNetworkFault(err) };
 		}
 	try {
 		const refs = queueGit(root).refs();

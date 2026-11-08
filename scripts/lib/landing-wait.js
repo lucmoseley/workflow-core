@@ -1,11 +1,10 @@
 /*
  * landing-wait.js — `landing-status.js --wait`'s loop (#4617): re-read the
  * session's landing state until nothing it had queued is still queued, or a
- * bound, so a session backgrounds one call in place of guessing a timer.
+ * bound.
  *
  * A sha is pending while its commit reads queued, or its queue-ref stay reads
- * queued, testing or unknown between them. Once none is pending, each sha
- * pending at the start has landed, or it has not, and so was dropped.
+ * queued, testing or unknown between them.
  */
 
 const { short } = require("./lander-git.js");
@@ -20,7 +19,8 @@ const WAIT_POLL_MS = 20_000;
  * @typedef {"landed"|"pending"|"dropped"|"left"} ShaState `left`: a commit
  *   that reads unpushed, so off every queue ref and off `main`
  * @typedef {{lines: string[], states: ReadonlyMap<string, ShaState>}} Reading
- * @typedef {{fault: number}} Fault a read that failed, its exit code; the
+ * @typedef {{fault: number, network: boolean}} Fault a read that failed, its
+ *   exit code, and whether on the network or the remote's own fault; the
  *   reader has named why on stderr
  * @typedef {{kind: "idle"|"landed"|"bound", reading: Reading, ms: number}
  *   | {kind: "dropped", reading: Reading, ms: number, shas: string[]}
@@ -61,8 +61,10 @@ const pendingOf = (states) =>
 	[...states].filter(([, s]) => s === "pending").map(([sha]) => sha);
 
 /**
- * A failed read after the first is retried at the next poll, and returned
- * only where it is still failing at the bound.
+ * A read failing on the network after the first is retried at the next poll,
+ * and returned only where it is still failing at the bound: a blip mid-wait
+ * would otherwise end it with nothing landed or dropped. Any other fault no
+ * retry fixes, so it ends the wait at once.
  * @param {() => Reading|Fault} read
  * @param {{sleep: (ms: number) => void, elapsed: () => number}} io
  *   `elapsed` counts ms from the call
@@ -74,26 +76,25 @@ function waitForLanding(read, io) {
 	let reading = first;
 	const started = pendingOf(reading.states);
 	if (started.length === 0) return { kind: "idle", reading, ms: io.elapsed() };
-	/** @type {Fault|null} */
-	let fault = null;
-	for (;;) {
-		if (io.elapsed() + WAIT_POLL_MS > WAIT_BOUND_MS)
-			return fault
-				? { kind: "fault", code: fault.fault }
-				: { kind: "bound", reading, ms: io.elapsed() };
+	/** @type {Reading|Fault} */
+	let last = first;
+	while (io.elapsed() + WAIT_POLL_MS <= WAIT_BOUND_MS) {
 		io.sleep(WAIT_POLL_MS);
-		const next = read();
-		fault = "fault" in next ? next : null;
-		if ("fault" in next) continue;
-		reading = next;
+		last = read();
+		if ("fault" in last) {
+			if (!last.network) break;
+			continue;
+		}
+		reading = last;
 		if (pendingOf(reading.states).length === 0)
 			return settled(started, reading, io.elapsed());
 	}
+	return "fault" in last
+		? { kind: "fault", code: last.fault }
+		: { kind: "bound", reading, ms: io.elapsed() };
 }
 
 /**
- * How a wait with nothing left pending ended: dropped where any sha pending
- * at the start did not land.
  * @param {string[]} started
  * @param {Reading} reading
  * @param {number} ms
@@ -115,10 +116,7 @@ const minSec = (ms) => {
 	return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
 };
 
-/**
- * The wait's last line, naming how it ended.
- * @param {Exclude<Outcome, {kind: "fault"}>} o
- */
+/** @param {Exclude<Outcome, {kind: "fault"}>} o */
 function buildWaitLine(o) {
 	switch (o.kind) {
 		case "idle":
