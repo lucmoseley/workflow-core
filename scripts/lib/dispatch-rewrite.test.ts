@@ -130,6 +130,7 @@ describe("the composed rewrite", () => {
 				"0.1",
 			]);
 			expect(r.stdout).toMatch(/^STALLED /);
+			expect(r.status).toBe(3);
 		} finally {
 			fs.rmSync(home, { recursive: true, force: true });
 		}

@@ -28,8 +28,12 @@
  * subagents dispatched with an `Artefact:` line on this machine (their
  * transcripts, 2026-11-08), 712 first wrote it after 240 s — two 120 s checks
  * in — 53 after 600 s and 14 after 900 s; the late tail is agents that write
- * only at the end. Until the file is first seen, no check counts toward any
- * verdict. 600 s is also the ten-minute silent stall the watch is there for.
+ * only at the end, and those 53, 0.5%, still draw MISSING. Until the file is
+ * first seen, no check counts toward any verdict. 600 s is also the
+ * ten-minute silent stall the watch is there for. A deadline under two
+ * intervals is raised to two, so a never-seen file is absent at two checks
+ * at least. Residual: a wrong path, or an agent that never starts, now reads
+ * MISSING at 600 s rather than two checks in.
  * A file created at dispatch would not help: the same agents would read
  * STALLED at 240 s instead.
  *
@@ -156,7 +160,7 @@ class SizeTrack {
  * @param {number} fallback seconds, where the argument is not given
  * @returns {number} milliseconds
  */
-const optionalMs = (raw, name, fallback) =>
+const parseOptionalMs = (raw, name, fallback) =>
 	(raw === undefined ? fallback : parseSeconds(String(raw), name)) * 1000;
 
 function readArgs() {
@@ -167,14 +171,18 @@ function readArgs() {
 	});
 	const [file, rawInterval, rawCeiling] = positionals;
 	if (!file) refuse("no artefact path");
+	const intervalMs = parseSeconds(rawInterval, "interval") * 1000;
 	return {
 		file,
-		intervalMs: parseSeconds(rawInterval, "interval") * 1000,
-		ceilingMs: optionalMs(rawCeiling, "ceiling", DEFAULT_CEILING_S),
-		firstWriteMs: optionalMs(
-			flags["--first-write"],
-			"first-write",
-			DEFAULT_FIRST_WRITE_S,
+		intervalMs,
+		ceilingMs: parseOptionalMs(rawCeiling, "ceiling", DEFAULT_CEILING_S),
+		firstWriteMs: Math.max(
+			parseOptionalMs(
+				flags["--first-write"],
+				"first-write",
+				DEFAULT_FIRST_WRITE_S,
+			),
+			2 * intervalMs,
 		),
 	};
 }
