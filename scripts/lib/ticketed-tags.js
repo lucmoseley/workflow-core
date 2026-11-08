@@ -23,9 +23,11 @@ const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
 /* A finding ticketed here: the word then the issue it went to, as in
  * `TICKETED #4491`, `**TICKETED** (#4491)`, `TICKETED on #4491`,
  * `TICKETED → owner/repo#7` or an issue URL, and not one an earlier pass
- * ticketed. */
+ * ticketed. The separator is taken whole (`(?=(…))\k<…>`, an atomic group),
+ * and an owner may start in its trailing `_`/`-` run, so no run is re-split at
+ * every length (#4109). */
 const TICKETING =
-	/(?<!(?:previously|already|earlier)\s+)(?<![A-Za-z])TICKETED[\s,:;*_`(\u2014\u2013\u2192>-]*(?:(?:on|in|as|under|to)\s+)?(?:[\w.-]+\/[\w.-]+#\d|#\d|https?:\/\/\S+\/issues\/\d)/;
+	/TICKETED(?<!(?:previously|already|earlier)\s+TICKETED)(?<![A-Za-z]TICKETED)(?=(?<sep>[\s,:;*_`(\u2014\u2013\u2192>-]*))\k<sep>(?:(?:(?:on|in|as|under|to)\s+)?(?:[\w.-]+\/[\w.-]+#\d|#\d|https?:\/\/\S+\/issues\/\d)|(?<=[_-])[\w.-]*\/[\w.-]+#\d)/;
 const HEADS = new RegExp(`${REVIEWED_THROUGH.source}|${TICKETED.source}`);
 const TAG =
 	/\bclaimed by\s+\S|\bneeds its own design:\s*\S|\bexposed, not caused\b/i;

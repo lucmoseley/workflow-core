@@ -59,7 +59,9 @@ const FORM_HEAD = /\*\*(?:Review findings|Review tier|Escaped defect):\*\*/;
 /* At any indent or behind a list marker, as a fence under a bullet is. Residual:
  * a block indented four spaces with no fence reads as text, a record indented
  * under a list being one. */
-const FENCE_LINE = /^\s*(?:[-*+]\s+)?(`{3,}|~{3,})(.*)$/;
+/* Each run is taken whole, never backed into, as a shorter one leaves `(.*)$`
+ * the same line break to fail on (#4109). */
+const FENCE_LINE = /^\s*(?:[-*+]\s+)?(`{3,}(?!`)|~{3,}(?!~))(.*)$/;
 const QUOTE_LINE = /^ {0,3}>/;
 /* A closed backtick span, a closed quoted one, its single quote touching no
  * word so an apostrophe opens none, or a backtick opening straight onto a head

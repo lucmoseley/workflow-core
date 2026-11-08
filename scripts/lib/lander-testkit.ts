@@ -115,7 +115,7 @@ export const stubTester = (code: number, failing = "") => {
 		script,
 		`#!/bin/sh\nprintf '%s' ${shellQuote(failing)}\nexit ${code}\n`,
 	);
-	fs.chmodSync(script, 0o755);
+	fs.chmodSync(script, 0o700);
 	return script;
 };
 
@@ -126,7 +126,7 @@ export const stubRedWhile = (name: string, alongside?: string) => {
 		script,
 		`#!/bin/sh\nif git cat-file -e "$1:"${shellQuote(`${name}.txt`)} 2>/dev/null${alongside ? ` && git cat-file -e "$1:"${shellQuote(`${alongside}.txt`)} 2>/dev/null` : ""}; then echo ${shellQuote(`scripts/${name}.test.ts`)}; exit 1; fi\nexit 0\n`,
 	);
-	fs.chmodSync(script, 0o755);
+	fs.chmodSync(script, 0o700);
 	return script;
 };
 

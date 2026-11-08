@@ -23,7 +23,13 @@ function readJsonOutcome(file) {
 		return code === "ENOENT"
 			? { found: false, value: null, damage: null }
 			: /* One line: JSON.parse's message can quote a multi-line source (#3814). */
-				{ found: true, value: null, damage: message.replace(/\s*\n\s*/g, " ") };
+				{
+					found: true,
+					value: null,
+					damage: message.replace(/\s+/g, (run) =>
+						run.includes("\n") ? " " : run,
+					),
+				};
 	}
 }
 

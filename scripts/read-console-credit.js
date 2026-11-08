@@ -75,12 +75,15 @@ function parseChildRun(child, planDir) {
 	return parseConsoleRead(child.stdout, readSeatAccount(planDir));
 }
 
+/** @type {Deps} */
+const DEFAULT_DEPS = { runChild: runChromeChild };
+
 /**
  * @param {string[]} args
  * @param {Deps} [deps]
  * @returns {number}
  */
-function main(args, deps = { runChild: runChromeChild }) {
+function main(args, deps = DEFAULT_DEPS) {
 	/** @type {string[]} */
 	let positionals = [];
 	try {

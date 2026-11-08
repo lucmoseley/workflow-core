@@ -170,10 +170,8 @@ export type Picks = {
 		| (P extends keyof Faults ? keyof Faults[P] : never);
 };
 
-export function fakeResumeIo(
-	picks: Picks = {},
-	env: NodeJS.ProcessEnv = { PATH: "/bin" },
-) {
+export function fakeResumeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
+	const processEnv = env ?? { PATH: "/bin" };
 	const calls: { port: string; args: unknown[] }[] = [];
 	const lines: string[] = [];
 	const served = <P extends keyof typeof ANSWERS>(name: P) =>
@@ -189,7 +187,7 @@ export function fakeResumeIo(
 		}) as ResumeIo[P];
 	const io: ResumeIo = {
 		log: (line) => lines.push(line),
-		env: () => env,
+		env: () => processEnv,
 		authRefusal: served("authRefusal"),
 		launchHeadless: served("launchHeadless"),
 		findHeadlessRun: served("findHeadlessRun"),
