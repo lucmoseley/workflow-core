@@ -34,6 +34,7 @@ const {
 } = require("./landing-refs.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
+const { worktreePaths } = require("./worktree-paths.js");
 
 const BRANCH = "main";
 const SHARED_MERGE = `refs/heads/${LANDING_BRANCH}`;
@@ -87,10 +88,8 @@ function realOr(p) {
  */
 function linkedWorktrees(root, git) {
 	const home = realOr(root);
-	return git(["worktree", "list", "--porcelain"])
-		.split("\n")
-		.filter((l) => l.startsWith("worktree "))
-		.map((l) => realOr(l.slice("worktree ".length)))
+	return worktreePaths(git)
+		.map(realOr)
 		.filter((d) => d !== home);
 }
 

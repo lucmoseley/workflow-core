@@ -42,6 +42,8 @@ const { trimEndRun } = require("./trim-run.js");
  * @typedef {import("./kit-context.js").KitContext & ReportPorts} ReportContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
+ * @typedef {import("./shell-words.js").GhRepo} GhRepo
+ * @typedef {import("./shell-words.js").GhCall} GhCall
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
 
@@ -114,9 +116,15 @@ function refuseRepo(run, segment, repo) {
  * @param {string} word
  */
 function captured(run, word) {
-	const { text, known } = literal(word, run.parsed.spans);
-	return known ? trimEndRun(text, "\n") : null;
+	return capturedRead(literal(word, run.parsed.spans));
 }
+
+/**
+ * captured's answer for a word already read.
+ * @param {GhRepo} read
+ */
+const capturedRead = ({ text, known }) =>
+	known ? trimEndRun(text, "\n") : null;
 
 /**
  * Is `spec`, a repo as gh reads it, a github.com repo owned by `anthropics`?
@@ -149,8 +157,7 @@ function judge(run, cmd) {
 	const gh = ghWords(cmd.words, run.parsed.spans);
 	if (!gh) return;
 	const group = captured(run, gh.args[0] ?? "");
-	if (group === "issue" || group === "pr")
-		judgeFlagForm(run, cmd, group, gh.args.slice(1));
+	if (group === "issue" || group === "pr") judgeFlagForm(run, cmd, group, gh);
 	else if (group === "api") judgeApi(run, cmd, gh.args.slice(1));
 }
 
@@ -169,13 +176,23 @@ function noteExport(run, words) {
  * @param {Run} run
  * @param {Command} cmd
  * @param {string} group
- * @param {string[]} args
+ * @param {GhCall} gh
+ *   ghWords' answer: `repo` the `-R` before `group`, which one after it
+ *   overrides
  */
-function judgeFlagForm(run, cmd, group, args) {
+function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {
+	const args = words.slice(1);
 	const sub = captured(run, args[0] ?? "");
 	if (!sub || READS.has(`${group}:${sub}`)) return;
 	/** @type {Scan} */
-	const scan = { run, cmd, args, named: false, repo: "", hidden: false };
+	const scan = {
+		run,
+		cmd,
+		args,
+		named: before !== null,
+		repo: (before && capturedRead(before)) ?? "",
+		hidden: before !== null && !before.known,
+	};
 	for (let i = 1; i < args.length; ) {
 		const step = readArg(scan, i);
 		if (step === 0) break;
@@ -222,17 +239,18 @@ const SHORT_REPO_RE = /^-R(.+)$/s;
 
 /**
  * A `-R`/`--repo` at `i`, in any of its three spellings: how many words it
- * took, 0 where it ran out of words, null where `word` is no repo flag.
+ * took, 0 where it ran out of words, null where `word` is no repo flag. An
+ * empty value names no repo, as gh then falls back to GH_REPO (#4268).
  * @param {Scan} scan accumulator: named, repo and hidden are set by a repo flag
  * @param {number} i
  * @param {string} word
  */
 function readRepoFlag(scan, i, word) {
 	if (word === "-R" || word === "--repo") {
-		scan.named = true;
 		const next = captured(scan.run, scan.args[i + 1] ?? "");
 		if (next === null) scan.hidden = true;
 		else scan.repo = next;
+		scan.named = scan.repo !== "" || scan.hidden;
 		return i + 1 < scan.args.length ? 2 : 0;
 	}
 	const long = LONG_REPO_RE.exec(word);
@@ -240,7 +258,7 @@ function readRepoFlag(scan, i, word) {
 	if (long) scan.repo = requiredGroup(long, 1, LONG_REPO_RE);
 	else if (short) scan.repo = requiredGroup(short, 1, SHORT_REPO_RE);
 	else return null;
-	scan.named = true;
+	scan.named = scan.repo !== "" || scan.hidden;
 	return 1;
 }
 

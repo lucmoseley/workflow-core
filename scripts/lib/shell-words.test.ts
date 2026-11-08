@@ -167,16 +167,38 @@ describe("ghWords (#772)", () => {
 		]);
 	});
 
+	/** The repo ghWords kept, as `text`, `?text` where unknown, or `none`. */
+	const repoOf = (command: string) =>
+		one(command, (c, spans) => {
+			const r = ghWords(c.words, spans)?.repo;
+			return r ? `${r.known ? "" : "?"}${r.text}` : "none";
+		});
+
 	it.each([
 		["gh -R o/r pr create", "o/r"],
 		["gh --repo o/r pr create", "o/r"],
 		["gh --repo=o/r pr create", "o/r"],
 		["gh -Ro/r pr create", "o/r"],
-		["gh pr create", ""],
+		["gh -R o/r --repo=p/q pr create", "p/q"],
+		["gh pr create", "none"],
+		// An empty value names none: gh falls back to GH_REPO (#4268).
+		["gh --repo= pr create", "none"],
+		[`gh -R "" pr create`, "none"],
+		["gh -R o/r --repo= pr create", "none"],
+		// Quoted or escaped, the flag reads as the unquoted one (#4268).
+		[`gh "--repo=o/r" pr create`, "o/r"],
+		[`gh '-Ro/r' pr create`, "o/r"],
+		[`gh -R"o/r" pr create`, "o/r"],
+		[`gh "-R"o/r pr create`, "o/r"],
+		["gh \\-Ro/r pr list", "o/r"],
+		["gh -R 'o/r' pr create", "o/r"],
+		// An expansion in it, quoted or not, stays unknown.
+		["gh --repo=$R pr create", "?$R"],
+		[`gh "--repo=$R" pr create`, "?$R"],
+		[`gh "-R$R" pr create`, "?$R"],
+		[`gh '--repo=$R' pr create`, "$R"],
 	])("keeps the repo %s stepped over", (command, repo) => {
-		expect(one(command, (c, spans) => ghWords(c.words, spans)?.repo)).toBe(
-			repo,
-		);
+		expect(repoOf(command)).toBe(repo);
 	});
 
 	it("answers nothing where -R has no value left", () => {
@@ -397,6 +419,19 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 
 	it("reads \\' inside env -S's single quotes as a quote (#4046)", () => {
 		expect(strip(`env -S "'it\\\\'s'"`).words).toEqual(["it's"]);
+	});
+
+	it.each([
+		[`env -S 'flock /l -c "\\ngit push"'`, "flock -c"],
+		[`env -S 'watch "\\n  \\ngit push"'`, "watch, past a whitespace-only line"],
+		[`env -S 'flock /l -c "# note\\ngit push"'`, "past a comment line"],
+		[`env -S 'flock /l -c "git push # x\\ntrue"'`, "stopping at its first"],
+	])("reads %s's first command past its blank lines (%s, #4281)", (command) => {
+		expect(strip(command).words).toEqual(["git", "push"]);
+	});
+
+	it("answers no words for a -c string of blank lines alone (#4281)", () => {
+		expect(strip(`env -S 'flock /l -c "\\n\\n"'`).words).toEqual([]);
 	});
 
 	it("answers no words for flock -c with no string after it (#4046)", () => {

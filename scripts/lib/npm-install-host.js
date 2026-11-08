@@ -15,6 +15,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { entryStartedAt } = require("./hook-deadline.js");
 const { npmBin } = require("./npm-bin.js");
@@ -60,7 +61,7 @@ function buildHostPorts(root) {
 			} catch (err) {
 				/* Absent, or no link: nothing links there (#4255). Any other
 				 * fault throws, and the entry refuses on the record. */
-				const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+				const code = caught(err).code;
 				if (code === "ENOENT" || code === "EINVAL") return null;
 				throw err;
 			}

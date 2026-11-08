@@ -1632,6 +1632,20 @@
 				}
 			]
 		},
+		"check-landing-switch-on.js --notify": {
+			"needles": [
+				{
+					"id": "landing-off",
+					"kind": "notice",
+					"text": "so every session here shares one unguarded tree"
+				},
+				{
+					"id": "not-cut-over",
+					"kind": "notice",
+					"text": "so sessions there still share one unguarded tree"
+				}
+			]
+		},
 		"check-release-lag.js --notify": {
 			"needles": [
 				{

@@ -31,7 +31,10 @@ const UNREAD_ALIAS = "unread alias";
 
 /**
  * `git config -z --get-regexp ^alias\\.`'s output as a table: the last of a name
- * wins.
+ * wins. A dotted name leaves both its head and itself unread (#4277): git 2.43
+ * runs `alias.a.b` as `git a.b`, and `alias..x` as `git .x`, where the head is
+ * the subsection form #4009 names. Residual: a plain `alias.a` beside
+ * `alias.a.b` reads as unread too.
  * @param {string} out
  * @returns {FileAliases}
  */
@@ -44,8 +47,10 @@ function parseFileAliases(out) {
 		if (!key.toLowerCase().startsWith("alias.")) continue;
 		const full = aliasNameOf(key);
 		const dot = full.indexOf(".");
-		const name = dot < 0 ? full : full.slice(0, dot);
-		aliases.set(name, nl < 0 || dot >= 0 ? null : entry.slice(nl + 1));
+		if (dot >= 0) {
+			aliases.set(full.slice(0, dot), null);
+			aliases.set(full, null);
+		} else aliases.set(full, nl < 0 ? null : entry.slice(nl + 1));
 	}
 	return aliases;
 }

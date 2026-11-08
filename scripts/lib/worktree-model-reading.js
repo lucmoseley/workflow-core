@@ -9,7 +9,7 @@
 
 const { MOVED_LINE } = require("./land-refusal.js");
 const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
-const { relativeUnder } = require("./is-under.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -44,6 +44,8 @@ const WEEK_MS = 7 * 24 * 60 * 60_000;
 /* #4229's prediction, from #4166's replay: pushes that find `landing` moved
  * and so merge first, a week, at W = 15 to 60 min. */
 const PREDICTED_MERGES = { low: 491, high: 587 };
+/* #4166's replay of the same week on the shared checkout: merges a push made
+ * after finding `landing` moved. */
 const SHARED_MERGES = 436;
 /* Enough paths to act on; the count carries the rest. */
 const LISTED_PATHS = 20;
@@ -283,7 +285,7 @@ function repoPath(root, file) {
 	if (!rel) return null;
 	const inWorktree = /^\.claude\/worktrees\/[^/]+\/(.+)$/.exec(rel);
 	if (inWorktree) return group(inWorktree, 1);
-	return rel.startsWith(".claude/worktrees/") ? null : rel;
+	return isUnder(rel, [".claude/worktrees"]) ? null : rel;
 }
 
 /**
