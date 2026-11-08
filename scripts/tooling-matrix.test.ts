@@ -758,7 +758,9 @@ describe("§W — which gate runs it in CI", () => {
 		const install = action.indexOf("name: Install gitleaks");
 		expect(install).toBeGreaterThan(-1);
 		expect(action.slice(install).split("\n")[1]).toContain("!cancelled()");
-		expect(action).toMatch(/GITLEAKS_SHA256: [0-9a-f]{64}/);
+		expect(action).toMatch(
+			/image: ghcr\.io\/gitleaks\/gitleaks:v[\d.]+@sha256:[0-9a-f]{64}\n/,
+		);
 	});
 });
 
