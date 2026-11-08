@@ -8,7 +8,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { blankComments, scanJs, stripComments } from "./strip-comments.js";
+import {
+	blankComments,
+	blankInert,
+	scanJs,
+	stripComments,
+} from "./strip-comments.js";
 
 describe("stripComments", () => {
 	it("drops line and block comments and keeps a comment opener inside a string", () => {
@@ -50,6 +55,16 @@ describe("blankComments", () => {
 			'const ROOT = path.join(__dirname, "..", "..");',
 		].join("\n");
 		expect(blankComments(source)).toBe(source.replace("// x", "    "));
+	});
+});
+
+describe("blankInert", () => {
+	it("blanks comments, strings, templates and regex literals, keeping offsets and line breaks", () => {
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
+		const source = 'f("x", `a\n${b}`, /c/); // d\ng()';
+		const out = blankInert(source);
+		expect(out).toBe("f(   ,   \n     ,    );     \ng()");
+		expect(out).toHaveLength(source.length);
 	});
 });
 

@@ -17,9 +17,17 @@ const { trimEndRun } = require("./trim-run.js");
 /**
  * The prefix a blanked quoted span is written as: each outermost span becomes
  * `${QUOTED}<index>\x01`, its text kept at `spans[index]` behind its quote
- * character (mantahostels#183).
+ * character (mantahostels#183). A `\x01` typed outside every quote is a BARE
+ * span, kept as written with no quote, so no typed text reads as a sentinel
+ * (#4278).
  */
 const QUOTED = "\x01QSTR\x01";
+
+/** The byte a sentinel opens and closes on. */
+const SENTINEL_BYTE = "\x01";
+
+/** @param {string} recorded a span as recorded */
+const isBareSpan = (recorded) => !["'", '"'].includes(recorded.charAt(0));
 
 /** @param {string} s */
 const hasExpansion = (s) => s.includes("$") || s.includes("`");
@@ -209,7 +217,8 @@ function literal(word, spans) {
 		}
 		const span = recorded.slice(1);
 		/* A single-quoted span is literal whatever it holds. */
-		if (recorded.charAt(0) === "'") append(span, "\0".repeat(span.length));
+		if (isBareSpan(recorded)) readOn(recorded, false);
+		else if (recorded.charAt(0) === "'") append(span, "\0".repeat(span.length));
 		else readOn(span, true);
 		return { text: "", stepPast: true };
 	});
@@ -1287,8 +1296,10 @@ function gitValueFlags(sub) {
 
 module.exports = {
 	QUOTED,
+	SENTINEL_BYTE,
 	absolute,
 	hasExpansion,
+	isBareSpan,
 	isGlobPattern,
 	escapeRe,
 	readSentinels,

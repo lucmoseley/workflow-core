@@ -40,6 +40,7 @@ const { runCheck, now } = require("./lib/check");
 const { getPoolFiles } = require("./lib/always-loaded-pool");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
+const { FULL_SHA } = require("./lib/commit-sha.js");
 
 const RECORD_FILE = "docs/always-loaded-passes.json";
 
@@ -83,7 +84,7 @@ const EXCLUDED = "docs/doc-map.md";
 /** @param {string} s */
 const isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 /** @param {string} s */
-const isSha = (s) => typeof s === "string" && /^[0-9a-f]{40}$/.test(s);
+const isSha = (s) => typeof s === "string" && FULL_SHA.test(s);
 
 /**
  * `date` advanced by `months`, as a YYYY-MM-DD string.
@@ -201,7 +202,7 @@ function readPass(ctx, file) {
 		);
 	if (!isSha(p.sha))
 		ctx.broken(
-			`${file}: pass ${p.date} needs a 40-hex "sha", got ${JSON.stringify(p.sha)}`,
+			`${file}: pass ${p.date} needs a full-sha "sha", got ${JSON.stringify(p.sha)}`,
 		);
 	return /** @type {Pass} */ (p);
 }

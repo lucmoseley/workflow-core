@@ -95,7 +95,8 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-arbiter-commands.js` | a printed `session-arbiter.js` command, or a `scriptPath()` of the arbiter, spelt by hand rather than through `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-clock-copies.js` | a program reading `WFC_NOW` itself rather than `now()` in `scripts/lib/check.js`, with no `clock-kept: <why>` comment | a commit staging a `scripts/` program, judging the whole repo |
-| `scripts/check-report-programs.js` | a `report-*` program writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd`, or building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
+| `scripts/check-report-programs.js` | a `report-*` program building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
+| `scripts/check-program-output.js` | a program calling `process.exit`, or any `report-*`, writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd`, with no `console-kept: <why>` comment (§N6) | a commit staging a `scripts/` or `.claude/skills/*/scripts/` program, judging the whole repo |
 | `scripts/check-gh-route.js` | a `gh` call off `scripts/lib/gh.js` and `WFC_GH`, or a `claude` call off `scripts/lib/claude-bin.js` and `WFC_CLAUDE_BIN`: a second var, a Node program's own spawn, a bare shell call, or a test's stub on `PATH` (§X2, §N7) | a commit staging `scripts/`, `.claude/skills/`, `.husky/` or `hooks/`, judging the whole repo |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js`, `scripts/check-test-env-writes.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity; a test anywhere writing or deleting `process.env` directly rather than through `vi.stubEnv` | a commit staging `scripts/` code, or for the last any test file or `scripts/` `.ts` helper, each judging the whole repo |
 | `scripts/check-precommit-exit.js` | a checker line in `.husky/pre-commit` or `.husky/pre-commit.local` exiting 1 on its failure, turning its BROKEN into a finding (§N4) | a commit staging either file, reading the index |
@@ -121,6 +122,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 |---|---|---|---|---|
 | Keeping a new program's decisions out of its I/O | a core taking every read through injected ports, and a shell that builds the adapters, delegates to the core and turns its outcome into output and an exit | `scripts/lib/primitives-table.js`, behind `scripts/check-primitives.js` | §0, its Core and Shell; §T7, §X11 | Standards axis criterion |
 | Ending a guard's hook call with a decision | `scripts/lib/guard-entry.js`'s `run`, the core returning a decision | `scripts/guard-failed-call-rules.js` | §S4 | Standards axis criterion |
+| Building a hook's JSON output | `envelope` in `scripts/lib/hook-envelope.js` | `scripts/inject-compaction-count.js` | §G12 | Standards axis criterion |
 | A checker's outcome, report and exit | `runCheck` in `scripts/lib/check.js` and its five-outcome alphabet | `scripts/check-cli-args.js` | §N3, §N4 | Standards axis criterion |
 | Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
 | Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
@@ -130,8 +132,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/dispatch-sessions.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
-| Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
-| Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
+| Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/lib/run-in-process.js`, its header's contract | §X3 | `scripts/check-test-spawn.js` |
 | A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh`; a literal `exit 2` where the hook reads a probe's or lister's output, since a crash's own code may be 1 | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
@@ -252,6 +253,14 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 *House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
 
 **The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/inject-tracker-docs.sh`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `ultra`, `gh_empty_result_rule` and the `standards` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
+
+### §G12 · A hook's JSON output is built by one builder, never an object literal of its own — **hard**
+
+**Program and hook module.** The harness drops a misspelt event name or output key without an error, so a hook's `hookSpecificOutput` and `PostToolUse` decision are built by one builder, and a hook spelling either as an object literal of its own is the breach.
+
+*House, Node programs only*: that builder is `envelope` in `scripts/lib/hook-envelope.js` (#4025).
+
+**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/inject-tracker-docs.sh` does, since a Node process per run would cost more than the copy.
 
 ---
 
@@ -394,7 +403,7 @@ Node programs. On any path whose output precedes a `process.exit` **and** whose 
 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
-*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why. A `report-*` writes every path through it, a terminal-only one included (#3454).
+*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why. A program calling `process.exit` keeps a `console` or std-stream write only on a terminal-only path, marked `console-kept: <why>` on its line or the line above (#4018). A `report-*` writes every path through it, a terminal-only one included (#3454).
 
 *House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` stays only where a comment says why. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
