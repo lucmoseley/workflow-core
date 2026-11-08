@@ -5,7 +5,7 @@
 
 /**
  * `gh` over one tracker's incident tickets (`tickets.json`), logging every
- * call to `calls.log`. A create appends to `tickets.json`, so a second run
+ * call to `calls.log`. A create fails while `fail-create` exists, and otherwise appends to `tickets.json`, so a second run
  * sees the first's ticket. The similar-title list holds the tickets among
  * enough unrelated titles that an earlier incident's scores above the cut.
  */
@@ -24,6 +24,7 @@ if (a[0] === "issue" && a[1] === "list") say([
 	...read("tickets.json"),
 	...Array.from({ length: 100 }, (_, i) => ({ number: i + 1, title: "Fix widget " + i, state: "CLOSED" })),
 ]);
+if (a[0] === "issue" && a[1] === "create" && fs.existsSync(f("fail-create"))) { process.stderr.write("HTTP 422\\n"); process.exit(1); }
 if (a[0] === "issue" && a[1] === "create") {
 	const tickets = read("tickets.json");
 	const number = 900 + tickets.length;

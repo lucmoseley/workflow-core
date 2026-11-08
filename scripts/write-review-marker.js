@@ -52,7 +52,7 @@ const path = require("node:path");
 const { isListedLive, listedSessionIds } = require("./lib/agent-liveness.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { commitSha } = require("./lib/commit-sha.js");
+const { FULL_SHA, commitSha } = require("./lib/commit-sha.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { resolveCommitHost, worktreeRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
@@ -259,7 +259,7 @@ function repoRelative(root, paths) {
  */
 function treeOrFail(r, what, remedy) {
 	const tree = String(r.stdout ?? "").trim();
-	if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(tree))
+	if (r.status !== 0 || !FULL_SHA.test(tree))
 		fail(
 			`${what} failed (exit ${r.status}): ${String(r.stderr ?? "").trim()}${remedy ? ` ${remedy}` : ""} Nothing written.`,
 			1,

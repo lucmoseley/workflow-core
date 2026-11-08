@@ -482,8 +482,9 @@ const DERIVE_PER_LINE = 12;
  */
 const printOverflow = (total, label) => {
 	if (total > WRITE_SET_PRINT_CAP)
-		console.log(
-			`  ... and ${total - WRITE_SET_PRINT_CAP} more ${label} — --json carries every one.`,
+		writeFd(
+			1,
+			`  ... and ${total - WRITE_SET_PRINT_CAP} more ${label} — --json carries every one.\n`,
 		);
 };
 
@@ -1172,14 +1173,16 @@ function renderCounts(state) {
 		goalSet: asked,
 		ownRepo,
 	} = state;
-	console.log(
+	writeFd(
+		1,
 		`\nOPEN ISSUES: ${enriched.length}   TAKEABLE NOW: ${frontier.length}${
 			limit && frontier.length > limit ? `   (showing ${limit})` : ""
-		}${degraded.length > 0 ? `   (${degraded.length} unread, see DEGRADED)` : ""}`,
+		}${degraded.length > 0 ? `   (${degraded.length} unread, see DEGRADED)` : ""}\n`,
 	);
 	if (asked !== null)
-		console.log(
-			`GOAL SET (${asked.members.length}): ${asked.members.map((m) => refLabel(m, ownRepo)).join(", ") || "none open"}`,
+		writeFd(
+			1,
+			`GOAL SET (${asked.members.length}): ${asked.members.map((m) => refLabel(m, ownRepo)).join(", ") || "none open"}\n`,
 		);
 }
 
@@ -1188,18 +1191,21 @@ function printCpuLimb(admission) {
 	/* The HOLD below already counts it (#834); this line names the limb. */
 	const load = admission.load;
 	if (load.overloaded)
-		console.log(
-			`  cpu load           ${buildOverloadText(load)} — dispatch refuses each launch until it falls`,
+		writeFd(
+			1,
+			`  cpu load           ${buildOverloadText(load)} — dispatch refuses each launch until it falls\n`,
 		);
 	/* Unknown is never calm (mantahostels#1206): the check fails open on it. */ else if (
 		load.load1 === null
 	)
-		console.log(
-			"  cpu load           unknown — /proc/loadavg unreadable, so no launch is held on load",
+		writeFd(
+			1,
+			"  cpu load           unknown — /proc/loadavg unreadable, so no launch is held on load\n",
 		);
 	if (admission.cpu.full)
-		console.log(
-			`  cpu sessions       ${buildSessionCeilingText(admission.cpu)} — dispatch refuses each launch until one ends`,
+		writeFd(
+			1,
+			`  cpu sessions       ${buildSessionCeilingText(admission.cpu)} — dispatch refuses each launch until one ends\n`,
 		);
 }
 
@@ -1215,15 +1221,17 @@ function printReclaimable(reclaimable) {
 	 * size, and is why no footprint figure is quoted here.
 	 */
 	if (!reclaimable.ok)
-		console.log(
-			`  reclaimable        unknown (${reclaimable.error}) — some of the memory counted spent above may already be free`,
+		writeFd(
+			1,
+			`  reclaimable        unknown (${reclaimable.error}) — some of the memory counted spent above may already be free\n`,
 		);
 	else if (reclaimable.count > 0)
-		console.log(
+		writeFd(
+			1,
 			`  reclaimable        ${reclaimable.count} finished session${
 				reclaimable.count === 1 ? "" : "s"
 			} still resident, holding memory counted as spent above` +
-				"\n                     `node scripts/reap-finished-sessions.js` stops those past its grace window now and reports the MB returned; the next session start does it anyway",
+				"\n                     `node scripts/reap-finished-sessions.js` stops those past its grace window now and reports the MB returned; the next session start does it anyway\n",
 		);
 }
 
@@ -1245,11 +1253,13 @@ function renderAdmission(state) {
 		(mem.ok && procs.ok) || floorRead.problem
 			? buildSessionFloorLine(floorRead, admission)
 			: null;
-	console.log("\nADMISSION — measured headroom, not a fixed slot count\n");
-	console.log(
-		`  available memory   ${mem.ok ? `${mem.mb} MB` : `unknown (${mem.error})`}`,
+	writeFd(1, "\nADMISSION — measured headroom, not a fixed slot count\n\n");
+	writeFd(
+		1,
+		`  available memory   ${mem.ok ? `${mem.mb} MB` : `unknown (${mem.error})`}\n`,
 	);
-	console.log(
+	writeFd(
+		1,
 		`  live sessions      ${
 			procs.ok
 				? `${procs.sessions} alongside this one`
@@ -1258,26 +1268,29 @@ function renderAdmission(state) {
 			procs.processes === null
 				? ` (process count unavailable: ${procs.processesError})`
 				: ` (${procs.processes} claude processes, which include orphans)`
-		}`,
+		}\n`,
 	);
 	printCpuLimb(admission);
 	printReclaimable(reclaimable);
-	console.log(`  session draw       ${buildSessionDrawLine(host)}`);
-	if (floorLine) console.log(`  session floor      ${floorLine}`);
-	console.log(`  live draw          ${buildLiveDrawLine(live)}`);
-	console.log(
-		`  free slots         ${admission.freeSlots === null ? "unknown" : admission.freeSlots}`,
+	writeFd(1, `  session draw       ${buildSessionDrawLine(host)}\n`);
+	if (floorLine) writeFd(1, `  session floor      ${floorLine}\n`);
+	writeFd(1, `  live draw          ${buildLiveDrawLine(live)}\n`);
+	writeFd(
+		1,
+		`  free slots         ${admission.freeSlots === null ? "unknown" : admission.freeSlots}\n`,
 	);
-	console.log(`  DISPATCHABLE FLOOR: ${dispatchableFloor}`);
-	console.log(
-		`\n  ${admission.admit ? "START ONE NOW" : "HOLD"} — ${admission.reason}.`,
+	writeFd(1, `  DISPATCHABLE FLOOR: ${dispatchableFloor}\n`);
+	writeFd(
+		1,
+		`\n  ${admission.admit ? "START ONE NOW" : "HOLD"} — ${admission.reason}.\n`,
 	);
-	console.log(
+	writeFd(
+		1,
 		`\n${buildMemoryBreakdownLines(memory)
 			.map((l) => `  ${l}`)
-			.join("\n")}`,
+			.join("\n")}\n`,
 	);
-	console.log();
+	writeFd(1, "\n");
 }
 
 /** @param {State} state */
@@ -1288,15 +1301,16 @@ function renderOwedWork(state) {
 	 * ranks. A count that could not be read prints as unknown, never as
 	 * zero (mantahostels#1206).
 	 */
-	console.log("OWED WORK — report only, never a filter or a sort input\n");
-	console.log(
+	writeFd(1, "OWED WORK — report only, never a filter or a sort input\n\n");
+	writeFd(
+		1,
 		`  stranded claims    ${
 			stranded.ok
 				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work; ${stranded.strandedWorktrees} finished session worktree(s) carrying it`
 				: `unknown (${stranded.error})`
-		}  — node ${scriptPath("check-stranded-file-claims.js")}`,
+		}  — node ${scriptPath("check-stranded-file-claims.js")}\n`,
 	);
-	console.log();
+	writeFd(1, "\n");
 }
 
 /**
@@ -1323,38 +1337,40 @@ function goalCell(i) {
 function renderShortlist(state) {
 	const { shown } = state;
 	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("CLOSES", 8)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
-	console.log(`${header}TITLE`);
+	writeFd(1, `${header}TITLE\n`);
 	// The title column is cut at 42 characters below.
-	console.log("-".repeat(header.length + 42));
+	writeFd(1, `${"-".repeat(header.length + 42)}\n`);
 	for (const i of shown)
-		console.log(
+		writeFd(
+			1,
 			`${pad(`#${i.number}`, 6)}${pad(urgentCell(i), 5)}${pad(
 				goalCell(i),
 				6,
 			)}${pad(waitCell(i), 6)}${pad(i.depth, 7)}${pad(i.closes, 8)}${pad(i.reach, 7)}${pad(
 				i.collision ? "w" : "-",
 				6,
-			)}${pad(i.group, 16)}${pad(takesCell(i.takes), 12)}${String(i.title).slice(0, 42)}`,
+			)}${pad(i.group, 16)}${pad(takesCell(i.takes), 12)}${String(i.title).slice(0, 42)}\n`,
 		);
 }
 
 /** @param {State} state */
 function renderCollisions(state) {
-	for (const line of collisionBlockLines(state)) console.log(line);
+	for (const line of collisionBlockLines(state)) writeFd(1, `${line}\n`);
 }
 
 /** @param {State} state */
 function renderDocMapQueue(state) {
 	const { docMapQueue } = state;
 	if (docMapQueue.length > 0)
-		console.log(
+		writeFd(
+			1,
 			`\nDOC-MAP QUEUE (${docMapQueue.length}) — bodies naming a §B entry, so they` +
 				" likely write\n`docs/doc-map.md` at the END of their run. That is a STAMP," +
 				" not a substrate:\nsharing it disqualifies nobody (mantahostels#422): a write there to a" +
 				" file a neighbour\nholds goes ahead with a merge-conflict warning (#4249). Read down to" +
 				" the admission\nfigure, never just the top:\n" +
 				`  ${docMapQueue.map((n) => `#${n}`).join(", ")}\n` +
-				"Advisory: nothing is refused on a prediction.",
+				"Advisory: nothing is refused on a prediction.\n",
 		);
 }
 
@@ -1362,13 +1378,15 @@ function renderDocMapQueue(state) {
 function renderRetroBundles(state) {
 	const { retroBundles: launches } = state;
 	if (launches.length > 0) {
-		console.log(
+		writeFd(
+			1,
 			`\nRETRO TRIAGE BUNDLES (${launches.length}) — retro-sweep findings, at most ${RETRO_BUNDLE_CAP} to a\n` +
-				"session (#1105). Each is one §6 line and one §7 prompt; no file disqualifies a member:",
+				"session (#1105). Each is one §6 line and one §7 prompt; no file disqualifies a member:\n",
 		);
 		for (const b of launches)
-			console.log(
-				`  **${b.issues.join(", ")}** - ${RETRO_LABEL} · ${b.model}    → "${b.prompt}"`,
+			writeFd(
+				1,
+				`  **${b.issues.join(", ")}** - ${RETRO_LABEL} · ${b.model}    → "${b.prompt}"\n`,
 			);
 	}
 }
@@ -1376,14 +1394,16 @@ function renderRetroBundles(state) {
 /** @param {State["graph"]} graph */
 function printGraphInFlight(graph) {
 	if (graph.inFlight.length > 0) {
-		console.log("\n  ruled out by a running session:");
+		writeFd(1, "\n  ruled out by a running session:\n");
 		for (const r of graph.inFlight.slice(0, GRAPH_PRINT_CAP))
-			console.log(
-				`    #${r.candidate} — ${sessionName(r.session)} holds ${r.paths.join(", ")}`,
+			writeFd(
+				1,
+				`    #${r.candidate} — ${sessionName(r.session)} holds ${r.paths.join(", ")}\n`,
 			);
 		if (graph.inFlight.length > GRAPH_PRINT_CAP)
-			console.log(
-				`    ... and ${graph.inFlight.length - GRAPH_PRINT_CAP} more — --json carries every one.`,
+			writeFd(
+				1,
+				`    ... and ${graph.inFlight.length - GRAPH_PRINT_CAP} more — --json carries every one.\n`,
 			);
 	}
 }
@@ -1391,21 +1411,27 @@ function printGraphInFlight(graph) {
 /** @param {State["graph"]} graph */
 function printGraphConflicts(graph) {
 	if (graph.conflicts.length > 0) {
-		console.log(
-			`\n  ${graph.conflicts.length} candidate pair${graph.conflicts.length === 1 ? " names" : "s name"} one file, by file:`,
+		writeFd(
+			1,
+			`\n  ${graph.conflicts.length} candidate pair${graph.conflicts.length === 1 ? " names" : "s name"} one file, by file:\n`,
 		);
 		for (const f of graph.conflictsByFile.slice(0, GRAPH_FILE_CAP))
-			console.log(`    ${f.path} — ${f.pairs} pair${f.pairs === 1 ? "" : "s"}`);
-		if (graph.conflictsByFile.length > GRAPH_FILE_CAP)
-			console.log(
-				`    ... and ${graph.conflictsByFile.length - GRAPH_FILE_CAP} more files — --json carries every one.`,
+			writeFd(
+				1,
+				`    ${f.path} — ${f.pairs} pair${f.pairs === 1 ? "" : "s"}\n`,
 			);
-		console.log("  the pairs themselves:");
+		if (graph.conflictsByFile.length > GRAPH_FILE_CAP)
+			writeFd(
+				1,
+				`    ... and ${graph.conflictsByFile.length - GRAPH_FILE_CAP} more files — --json carries every one.\n`,
+			);
+		writeFd(1, "  the pairs themselves:\n");
 		for (const c of graph.conflicts.slice(0, GRAPH_PRINT_CAP))
-			console.log(`    #${c.a} <-> #${c.b} on ${c.paths.join(", ")}`);
+			writeFd(1, `    #${c.a} <-> #${c.b} on ${c.paths.join(", ")}\n`);
 		if (graph.conflicts.length > GRAPH_PRINT_CAP)
-			console.log(
-				`    ... and ${graph.conflicts.length - GRAPH_PRINT_CAP} more pairs — --json carries every one.`,
+			writeFd(
+				1,
+				`    ... and ${graph.conflicts.length - GRAPH_PRINT_CAP} more pairs — --json carries every one.\n`,
 			);
 	}
 }
@@ -1415,29 +1441,33 @@ function printGraphStamps(graph) {
 	// Summary, never a list: these pairs run together, so naming each one would
 	// bury the pairs that do not (.claude/skills/pick-next/SKILL.md).
 	if (graph.stampSharing.pairs)
-		console.log(
+		writeFd(
+			1,
 			`\n  ${graph.stampSharing.pairs} pair${graph.stampSharing.pairs === 1 ? " shares" : "s share"} only ${graph.stampSharing.paths.join(", ")} — a STAMP, so they run\n` +
-				"  together and none is a conflict.",
+				"  together and none is a conflict.\n",
 		);
 	if (graph.stampQueued.length > 0)
-		console.log(
-			`  ${graph.stampQueued.length} candidate${graph.stampQueued.length === 1 ? " queues" : "s queue"} behind a held stamp — designed, not a conflict.`,
+		writeFd(
+			1,
+			`  ${graph.stampQueued.length} candidate${graph.stampQueued.length === 1 ? " queues" : "s queue"} behind a held stamp — designed, not a conflict.\n`,
 		);
 }
 
 /** @param {State["graph"]} graph */
 function printGraphMergeable(graph) {
 	if (graph.mergeable.length > 0) {
-		console.log(
+		writeFd(
+			1,
 			"\n  merge-test pairs — same file and both sized small, which is TWO of the\n" +
 				"  three limbs (mantahostels#503). The third, disjoint edit targets (§B15 vs §B17), is\n" +
-				"  yours from the band read:",
+				"  yours from the band read:\n",
 		);
 		for (const m of graph.mergeable.slice(0, GRAPH_PRINT_CAP))
-			console.log(`    #${m.a} + #${m.b} on ${m.paths.join(", ")}`);
+			writeFd(1, `    #${m.a} + #${m.b} on ${m.paths.join(", ")}\n`);
 		if (graph.mergeable.length > GRAPH_PRINT_CAP)
-			console.log(
-				`    ... and ${graph.mergeable.length - GRAPH_PRINT_CAP} more — --json carries every one.`,
+			writeFd(
+				1,
+				`    ... and ${graph.mergeable.length - GRAPH_PRINT_CAP} more — --json carries every one.\n`,
 			);
 	}
 }
@@ -1449,20 +1479,23 @@ function printGraphNominations(graph) {
 	 * and §4 acts on the count either way.
 	 */
 	if (graph.candidates.length > 0) {
-		console.log(
+		writeFd(
+			1,
 			`\n  BAND-READ NOMINATIONS (${graph.nominated.length}) — §4 derives a SIZE for these and no\n` +
 				"  others (mantahostels#1484); it still reads the whole tie band to order it. Each has no\n" +
 				"  size and shares a non-stamp path with another candidate, so it is the only\n" +
 				"  kind whose size can still change the merge test above. Refuse and reorder\n" +
-				"  nothing on it (mantahostels#588).",
+				"  nothing on it (mantahostels#588).\n",
 		);
 		for (const n of graph.nominated.slice(0, GRAPH_PRINT_CAP))
-			console.log(
-				`    #${n.number} on ${n.paths.join(", ")} — with ${n.with.map((/** @type {number} */ w) => `#${w}`).join(", ")}`,
+			writeFd(
+				1,
+				`    #${n.number} on ${n.paths.join(", ")} — with ${n.with.map((/** @type {number} */ w) => `#${w}`).join(", ")}\n`,
 			);
 		if (graph.nominated.length > GRAPH_PRINT_CAP)
-			console.log(
-				`    ... and ${graph.nominated.length - GRAPH_PRINT_CAP} more — --json carries every one.`,
+			writeFd(
+				1,
+				`    ... and ${graph.nominated.length - GRAPH_PRINT_CAP} more — --json carries every one.\n`,
 			);
 	}
 }
@@ -1479,23 +1512,29 @@ function printWriteSetSources(graph) {
 		(/** @type {any} */ c) => c.unrevalidated,
 	).length;
 	if (bodySourced || grepSourced || unrevalidated)
-		console.log(
-			`\n  ${bodySourced + grepSourced} of ${graph.candidates.length} write-sets above are the body's backticked\n` +
+		writeFd(
+			1,
+			`${
+				`\n  ${bodySourced + grepSourced} of ${graph.candidates.length} write-sets above are the body's backticked\n` +
 				"  paths rather than a band read's — the floor, not a judgement" +
-				(grepSourced
-					? `\n  (${grepSourced} PROVISIONAL, so absent from the merge test above).`
-					: ".") +
+				(
+					grepSourced
+						? `\n  (${grepSourced} PROVISIONAL, so absent from the merge test above).`
+						: "."
+				) +
 				(unrevalidated
 					? ` ${unrevalidated} warm\n  entr${unrevalidated === 1 ? "y is" : "ies are"} unrevalidated (git could not list the tree).`
-					: ""),
+					: "")
+			}\n`,
 		);
 }
 
 /** @param {State["graph"]} graph */
 function printProposedSet(graph) {
-	console.log(
+	writeFd(
+		1,
 		`\n  PROPOSED DISJOINT SET (${graph.proposed.length}) — greedy down the ranking above:\n` +
-			`    ${graph.proposed.length > 0 ? graph.proposed.map((/** @type {number} */ n) => `#${n}`).join(", ") : "empty"}`,
+			`    ${graph.proposed.length > 0 ? graph.proposed.map((/** @type {number} */ n) => `#${n}`).join(", ") : "empty"}\n`,
 	);
 	// Re-spelled from the row: the stored reason carries the untruncated name.
 	const inFlightOf = new Map(
@@ -1503,60 +1542,68 @@ function printProposedSet(graph) {
 	);
 	for (const d of graph.dropped.slice(0, GRAPH_PRINT_CAP)) {
 		const r = inFlightOf.get(d.number);
-		console.log(
+		writeFd(
+			1,
 			`    not in it: #${d.number} — ${
 				r ? `${sessionName(r.session)} holds ${r.paths.join(", ")}` : d.why
-			}`,
+			}\n`,
 		);
 	}
 	if (graph.dropped.length > GRAPH_PRINT_CAP)
-		console.log(
-			`    ... and ${graph.dropped.length - GRAPH_PRINT_CAP} more left out — --json carries every one.`,
+		writeFd(
+			1,
+			`    ... and ${graph.dropped.length - GRAPH_PRINT_CAP} more left out — --json carries every one.\n`,
 		);
 }
 
 /** @param {State} state */
 function renderConflictGraph(state) {
 	const { graph, bandReadRequired } = state;
-	console.log(
+	writeFd(
+		1,
 		"\nSUBSTRATE-CONFLICT GRAPH — which candidates cannot run alongside which,\n" +
 			"and on which file. Advisory: naming one file is NOT a substrate call —\n" +
 			"whether the work lives there or merely stamps it at the end is yours\n" +
 			"(pick-next SKILL.md §5). Nothing here is refused; the set below is a\n" +
-			"candidate for that test, never its verdict.",
+			"candidate for that test, never its verdict.\n",
 	);
 	printGraphInFlight(graph);
 	printGraphConflicts(graph);
 	printGraphStamps(graph);
 	printGraphMergeable(graph);
 	printGraphNominations(graph);
-	console.log(
-		bandReadRequired
-			? "\n  BAND READ REQUIRED THIS RUN — nominated (above) and/or cold (see WRITE-SET\n" +
+	writeFd(
+		1,
+		`${
+			bandReadRequired
+				? "\n  BAND READ REQUIRED THIS RUN — nominated (above) and/or cold (see WRITE-SET\n" +
 					"  CACHE below) entries are non-empty."
-			: "\n  NO BAND READ REQUIRED THIS RUN (mantahostels#1485) — nothing nominated, nothing cold.\n" +
+				: "\n  NO BAND READ REQUIRED THIS RUN (mantahostels#1485) — nothing nominated, nothing cold.\n" +
 					"  §4's band-read stage is skipped outright: accept the provisional\n" +
 					"  write-sets as given and go straight to §5 — any merge-test pairs above\n" +
 					"  still merge on their already-known sizes; skipping only means no further\n" +
-					"  candidate can acquire one.",
+					"  candidate can acquire one."
+		}\n`,
 	);
 	printWriteSetSources(graph);
 	if (graph.noWriteSet.length > 0)
-		console.log(
+		writeFd(
+			1,
 			`\n  no write-set predicted, so absent from every line above (${graph.noWriteSet.length}):\n` +
 				`    ${chunk(
 					graph.noWriteSet.map((/** @type {number} */ n) => `#${n}`),
 					DERIVE_PER_LINE,
-				).join("\n    ")}`,
+				).join("\n    ")}\n`,
 		);
 	printProposedSet(graph);
 	if (graph.heldDegraded)
-		console.log(
+		writeFd(
+			1,
 			`\n  CLAIMS DEGRADED — ${graph.heldDegraded.why}.\n  ${
 				graph.heldDegraded.kept
 					? "Every claim was kept rather than dropped on a partial read, so a file\n  named above may be free."
 					: "No file claim was read, so a candidate a live session is writing may sit\n  in the proposed set."
-			}`,
+			}\n`,
 		);
 }
 
@@ -1576,7 +1623,8 @@ function renderWriteSetCache(state) {
 		cacheState.provisional.length > 0 ||
 		cacheState.cold.length > 0
 	) {
-		console.log(
+		writeFd(
+			1,
 			`\nWRITE-SET CACHE (${writeSetCache.CACHE_SUBDIR}) — ${cacheState.warm.length} warm, ` +
 				`${cacheState.provisional.length} provisional, ${cacheState.cold.length} to derive` +
 				(cachePruned.removed.length > 0
@@ -1584,27 +1632,28 @@ function renderWriteSetCache(state) {
 					: "") +
 				"\nA PROVISIONAL row is this run's own grep over the body (mantahostels#1001), never an\n" +
 				"agent's judgement. Band-read one where you need its size; refuse nothing\n" +
-				"on one (mantahostels#588).\n",
+				"on one (mantahostels#588).\n\n",
 		);
 		for (const w of cacheState.warm.slice(0, WRITE_SET_PRINT_CAP))
-			console.log(warmRow(w));
+			writeFd(1, `${warmRow(w)}\n`);
 		printOverflow(cacheState.warm.length, "warm");
 		for (const w of cacheState.provisional.slice(0, WRITE_SET_PRINT_CAP))
-			console.log(provisionalRow(w));
+			writeFd(1, `${provisionalRow(w)}\n`);
 		printOverflow(cacheState.provisional.length, "provisional");
 		if (cacheState.cold.length > 0)
-			console.log(
+			writeFd(
+				1,
 				`  derive ${chunk(
 					cacheState.cold.map((/** @type {any} */ c) => `#${c.number}`),
 					DERIVE_PER_LINE,
 				).join("\n         ")}\n` +
 					"  Store each back: node scripts/pick-next-cache.js put <n> --body-hash <hex>\n" +
-					"  --json carries each hash; --dump-bodies writes it into the dumped file.",
+					"  --json carries each hash; --dump-bodies writes it into the dumped file.\n",
 			);
 		// Why a miss stayed a miss — a `wayfinder:map` issue, an unlistable tree, an
 		// unwritable store.
 		for (const sk of cacheState.skipped.slice(0, WRITE_SET_PRINT_CAP))
-			console.log(`  not predicted: #${sk.number} — ${sk.why}`);
+			writeFd(1, `  not predicted: #${sk.number} — ${sk.why}\n`);
 		printOverflow(cacheState.skipped.length, "not predicted");
 	}
 }
@@ -1616,8 +1665,9 @@ function renderWarmLogged(state) {
 	// and a failure nobody is told about is how a fortnight of collection ends up
 	// empty.
 	if (warmLogged?.ok === false)
-		console.log(
-			`\nThis run went unrecorded for mantahostels#628's warm fraction: ${warmLogged.error}`,
+		writeFd(
+			1,
+			`\nThis run went unrecorded for mantahostels#628's warm fraction: ${warmLogged.error}\n`,
 		);
 }
 
@@ -1625,10 +1675,13 @@ function renderWarmLogged(state) {
 function renderDumped(state) {
 	const { dumped } = state;
 	if (dumped)
-		console.log(
-			dumped.ok
-				? `\nBODIES DUMPED — ${dumped.count} to ${dumped.dir}, from the list call already made.\nRead the band read's bodies from there, never with \`gh issue view\`.`
-				: `\nBODIES — could not dump to ${dumped.dir}: ${dumped.error}\n  The shortlist above is unaffected.`,
+		writeFd(
+			1,
+			`${
+				dumped.ok
+					? `\nBODIES DUMPED — ${dumped.count} to ${dumped.dir}, from the list call already made.\nRead the band read's bodies from there, never with \`gh issue view\`.`
+					: `\nBODIES — could not dump to ${dumped.dir}: ${dumped.error}\n  The shortlist above is unaffected.`
+			}\n`,
 		);
 }
 
@@ -1666,11 +1719,12 @@ function renderUrgent(state) {
 	// applied it and when, never a write.
 	const urgentShown = enriched.filter((i) => i.urgent);
 	if (urgentShown.length > 0) {
-		console.log(
-			"\nURGENT (holds until the issue closes or the label comes off)\n",
+		writeFd(
+			1,
+			"\nURGENT (holds until the issue closes or the label comes off)\n\n",
 		);
 		for (const i of urgentShown)
-			console.log(`  #${i.number}  ${urgencySources(i).join("; ")}`);
+			writeFd(1, `  #${i.number}  ${urgencySources(i).join("; ")}\n`);
 	}
 }
 
@@ -1678,8 +1732,9 @@ function renderUrgent(state) {
 function renderWaiting(state) {
 	const { waitingAll } = state;
 	if (waitingAll.length > 0) {
-		console.log(
-			`\nWAITING ON SOMEONE OUTSIDE THE PROJECT — ranked up from ${WAITING_STALL_DAYS}d, never down\n`,
+		writeFd(
+			1,
+			`\nWAITING ON SOMEONE OUTSIDE THE PROJECT — ranked up from ${WAITING_STALL_DAYS}d, never down\n\n`,
 		);
 		for (const i of waitingAll) {
 			const age = i.wait.unknown
@@ -1687,13 +1742,15 @@ function renderWaiting(state) {
 				: `${Math.floor(i.wait.ageDays)}d, since ${i.wait.appliedAt} by ${i.wait.appliedBy}${
 						i.wait.stalled ? " — STALLED, ranked up" : ""
 					}`;
-			console.log(
-				`  #${i.number}  ${age}${i.excluded ? `\n    not in the shortlist: ${i.excluded} — chase it anyway` : ""}`,
+			writeFd(
+				1,
+				`  #${i.number}  ${age}${i.excluded ? `\n    not in the shortlist: ${i.excluded} — chase it anyway` : ""}\n`,
 			);
 		}
-		console.log(
+		writeFd(
+			1,
 			"\n  The label goes on by hand at the moment the work is handed off, and\n" +
-				"  comes off by hand when it lands.",
+				"  comes off by hand when it lands.\n",
 		);
 	}
 }
@@ -1702,28 +1759,31 @@ function renderWaiting(state) {
 function renderParked(state) {
 	const { parkedAll } = state;
 	if (parkedAll.length === 0) return;
-	console.log(
-		"\nPARKED — a question round, or a session the refill loop stopped, waits on the founder\n",
+	writeFd(
+		1,
+		"\nPARKED — a question round, or a session the refill loop stopped, waits on the founder\n\n",
 	);
 	for (const i of parkedAll) {
 		const age = i.parked.unknown
 			? `age unknown (${i.parked.error})`
 			: `${Math.floor(i.parked.ageDays)}d, since ${i.parked.appliedAt}`;
-		console.log(`  #${i.number}  ${age}  ${String(i.title).slice(0, 50)}`);
+		writeFd(1, `  #${i.number}  ${age}  ${String(i.title).slice(0, 50)}\n`);
 	}
-	console.log(
+	writeFd(
+		1,
 		"\n  Choosable here. An away-mode refill loop skips it; a normal-mode one resumes" +
 			"\n  it ahead of new work, oldest park first." +
 			"\n  A loop-stopped park's cause is commented on its ticket. Cleared when the\n" +
-			"  founder types in the parked session, or a session claims the issue.",
+			"  founder types in the parked session, or a session claims the issue.\n",
 	);
 }
 
 /** @param {State["gatedAll"][number]} i */
 function printGatedRow(i) {
 	if (i.gateConflict) {
-		console.log(
-			`  #${i.number}  TWO GATE LINES, a date and a condition — GATING NOTHING, in the batch as normal; delete one`,
+		writeFd(
+			1,
+			`  #${i.number}  TWO GATE LINES, a date and a condition — GATING NOTHING, in the batch as normal; delete one\n`,
 		);
 		return;
 	}
@@ -1737,17 +1797,20 @@ function printGatedRow(i) {
 			line = `  #${i.number}  held until ${i.gate.iso}, ${i.gate.daysLeft}d left — ${why}`;
 		else
 			line = `  #${i.number}  LAPSED ${i.gate.iso} — back in the batch, act or re-gate (${why})`;
-		console.log(line);
+		writeFd(1, `${line}\n`);
 		return;
 	}
 	// `gatedAll` carries `i.gate || i.gateOn`; the `i.gate` branch above
 	// having fallen through proves this one non-null.
 	const gateOn = i.gateOn;
 	if (!gateOn) return;
-	console.log(
-		gateOn.malformed
-			? `  #${i.number}  MALFORMED GATE (${gateOn.reason}) \`${gateOn.raw}\` — GATING NOTHING, in the batch as normal`
-			: `  #${i.number}  held on ${gateOn.condition} — check: ${gateOn.command || "none stated"} — abandon if: ${gateOn.abandonIf}`,
+	writeFd(
+		1,
+		`${
+			gateOn.malformed
+				? `  #${i.number}  MALFORMED GATE (${gateOn.reason}) \`${gateOn.raw}\` — GATING NOTHING, in the batch as normal`
+				: `  #${i.number}  held on ${gateOn.condition} — check: ${gateOn.command || "none stated"} — abandon if: ${gateOn.abandonIf}`
+		}\n`,
 	);
 }
 
@@ -1755,19 +1818,21 @@ function printGatedRow(i) {
 function renderGated(state) {
 	const { gatedAll } = state;
 	if (gatedAll.length > 0) {
-		console.log(
+		writeFd(
+			1,
 			"\nGATED BY A LINE IN THE BODY — `**Gated until:** YYYY-MM-DD — why`, or\n" +
-				"`**Gated on:** <condition> — check: <command> — abandon if: <clause>`\n",
+				"`**Gated on:** <condition> — check: <command> — abandon if: <clause>`\n\n",
 		);
 		for (const i of gatedAll) {
 			printGatedRow(i);
 		}
-		console.log("\n  Move the date or delete the line; nothing expires it.");
-		console.log(
+		writeFd(1, "\n  Move the date or delete the line; nothing expires it.\n");
+		writeFd(
+			1,
 			"  The `check:` on a condition gate is yours to run and judge: run\n" +
 				"  `check-gates.js --issue <n>`, and on met comment the evidence and strip\n" +
 				"  the marker. The refill loop also sweeps them, launching `/triage <n>`\n" +
-				"  on a changed reading. `abandon if:` alone retires one unmet.",
+				"  on a changed reading. `abandon if:` alone retires one unmet.\n",
 		);
 	}
 }
@@ -1780,20 +1845,24 @@ function printProseBlockedRow(i) {
 		...unreadable.map((u) => `${u.ref} unreadable, held (${u.error})`),
 	].filter(Boolean);
 	if (named.length > 0)
-		console.log(
-			`  #${i.number}  names ${named.join(", ")} — ` +
+		writeFd(
+			1,
+			`${
+				`  #${i.number}  names ${named.join(", ")} — ` +
 				(verdicts.length > 0
 					? verdicts.join("; ")
-					: "every named issue is closed, resolved"),
+					: "every named issue is closed, resolved")
+			}\n`,
 		);
 	/*
 	 * NAMES NO NUMBER (mantahostels#927). Nothing here resolves against the open
 	 * list, so it prints the sentence rather than a verdict.
 	 */
 	for (const raw of i.proseBlocked.unparsed)
-		console.log(
+		writeFd(
+			1,
 			`  #${i.number}  NAMES NO ISSUE NUMBER — read it before dispatching:\n` +
-				`           ${raw.length > 160 ? `${raw.slice(0, 157)}...` : raw}`,
+				`           ${raw.length > 160 ? `${raw.slice(0, 157)}...` : raw}\n`,
 		);
 }
 
@@ -1801,11 +1870,12 @@ function printProseBlockedRow(i) {
 function renderProseBlocked(state) {
 	const { proseBlockedAll } = state;
 	if (proseBlockedAll.length > 0) {
-		console.log(
+		writeFd(
+			1,
 			"\nPROSE SELF-GATES — `**Blocked on** #<n>` in the body, this repo's resolved\n" +
 				"against the open list this run already fetched (mantahostels#1289). Folded into\n" +
 				"`blocked by` above where still open or unreadable; a closed one in this\n" +
-				"repo needed no read.\n",
+				"repo needed no read.\n\n",
 		);
 		for (const i of proseBlockedAll) {
 			printProseBlockedRow(i);
@@ -1834,18 +1904,21 @@ const PULLED_TITLE_CHARS = 80 - 11;
 function renderPulledIn(state) {
 	const { rows, unread } = state.pulledIn;
 	if (rows.length === 0 && unread.length === 0) return;
-	console.log(
+	writeFd(
+		1,
 		"\nPULLED IN FROM OTHER REPOS — open, unblocked, and holding an issue here out\n" +
-			"through the blocked-by chain; launched from its own checkout (#2427)\n",
+			"through the blocked-by chain; launched from its own checkout (#2427)\n\n",
 	);
 	for (const r of rows)
-		console.log(
+		writeFd(
+			1,
 			`  ${r.repo}#${r.number}  ${pulledTiers(r)}reach ${r.reach}  holds ${r.holds.join(", ")}` +
-				`${r.held ? `  HELD OUTSIDE THE LOOP: ${r.held}` : ""}\n           ${String(r.title).slice(0, PULLED_TITLE_CHARS)}`,
+				`${r.held ? `  HELD OUTSIDE THE LOOP: ${r.held}` : ""}\n           ${String(r.title).slice(0, PULLED_TITLE_CHARS)}\n`,
 		);
 	for (const u of unread)
-		console.log(
-			`  ${u.ref}  blockers unread, not offered: ${u.error}\n           holds ${u.holds.join(", ")}`,
+		writeFd(
+			1,
+			`  ${u.ref}  blockers unread, not offered: ${u.error}\n           holds ${u.holds.join(", ")}\n`,
 		);
 }
 
@@ -1854,10 +1927,11 @@ function renderEmptyBody(state) {
 	const { frontier } = state;
 	const emptyBodied = emptyBodiedOf(frontier);
 	if (emptyBodied.length > 0) {
-		console.log(
-			"\nEMPTY BODY — on the frontier with nothing to work from; most likely a failed\ncreate, so check for a duplicate before taking it (mantahostels#3443)\n",
+		writeFd(
+			1,
+			"\nEMPTY BODY — on the frontier with nothing to work from; most likely a failed\ncreate, so check for a duplicate before taking it (mantahostels#3443)\n\n",
 		);
-		for (const i of emptyBodied) console.log(`  #${i.number}  ${i.title}`);
+		for (const i of emptyBodied) writeFd(1, `  #${i.number}  ${i.title}\n`);
 	}
 }
 
@@ -1865,23 +1939,26 @@ function renderEmptyBody(state) {
 function renderDegraded(state) {
 	const { degraded, repo } = state;
 	if (degraded.length > 0) {
-		console.log(
-			`\nDEGRADED (${degraded.length}) — readiness unknown, held out of the shortlist\n`,
+		writeFd(
+			1,
+			`\nDEGRADED (${degraded.length}) — readiness unknown, held out of the shortlist\n\n`,
 		);
 		const { expanded, collapsed } = groupByRepeatedError(degraded, (i) =>
 			String(i.depsUnknown),
 		);
 		for (const i of expanded)
-			console.log(
-				`  #${i.number}  ${String(i.title).slice(0, 60)}\n    ${i.depsUnknown}`,
+			writeFd(
+				1,
+				`  #${i.number}  ${String(i.title).slice(0, 60)}\n    ${i.depsUnknown}\n`,
 			);
-		for (const g of collapsed) console.log(buildCollapsedFailureLine(g));
-		console.log(
+		for (const g of collapsed) writeFd(1, `${buildCollapsedFailureLine(g)}\n`);
+		writeFd(
+			1,
 			"\n  These may or may not be takeable, and every REACH above is a lower\n" +
 				"  bound: edges into a degraded issue are invisible, so whatever blocks\n" +
 				"  one is under-ranked. Check by hand before concluding the shortlist is\n" +
 				"  the whole frontier, or that its order is right:\n" +
-				`    gh api repos/${repo}/issues/<n>/dependencies/blocked_by`,
+				`    gh api repos/${repo}/issues/<n>/dependencies/blocked_by\n`,
 		);
 	}
 }
@@ -1897,17 +1974,20 @@ function renderAssignedUnclaimed(state) {
 	 */
 	const assignedUnclaimed = enriched.filter((i) => i.assignedUnclaimed);
 	if (assignedUnclaimed.length > 0) {
-		console.log(
-			`\nASSIGNED BUT UNCLAIMED (${assignedUnclaimed.length}) — treated as takeable\n`,
+		writeFd(
+			1,
+			`\nASSIGNED BUT UNCLAIMED (${assignedUnclaimed.length}) — treated as takeable\n\n`,
 		);
 		for (const i of assignedUnclaimed.sort((a, b) => a.number - b.number))
-			console.log(
-				`  #${i.number}  ${i.assignees.join(", ")}  ${String(i.title).slice(0, 50)}`,
+			writeFd(
+				1,
+				`  #${i.number}  ${i.assignees.join(", ")}  ${String(i.title).slice(0, 50)}\n`,
 			);
-		console.log(
+		writeFd(
+			1,
 			"\n  No live session recorded a claim on these, so the assignee is taken to\n" +
 				"  be a finished session's leftover. A session that IS on one of these\n" +
-				`  should have run:  ${buildArbiterCommand`claim-issue <n>`}`,
+				`  should have run:  ${buildArbiterCommand`claim-issue <n>`}\n`,
 		);
 	}
 }
@@ -1916,12 +1996,14 @@ function renderAssignedUnclaimed(state) {
 function renderClaimsDegraded(state) {
 	const { claims, parentHeld } = state;
 	if (claims.why)
-		console.log(
-			`\nCLAIMS DEGRADED — ${claims.why}.\n  ${buildClaimsDegradedAdvice(claims)}`,
+		writeFd(
+			1,
+			`\nCLAIMS DEGRADED — ${claims.why}.\n  ${buildClaimsDegradedAdvice(claims)}\n`,
 		);
 	for (const why of parentHeld.unread)
-		console.log(
-			`\nWARN: ${why}.\n  Its children are shown as takeable whether or not a session holds it.`,
+		writeFd(
+			1,
+			`\nWARN: ${why}.\n  Its children are shown as takeable whether or not a session holds it.\n`,
 		);
 }
 
@@ -1940,8 +2022,9 @@ function renderDispatched(state) {
 		.filter((i) => i.dispatchHeld)
 		.sort((a, b) => a.number - b.number);
 	if (dispatchedShown.length > 0) {
-		console.log(
-			`\nALREADY DISPATCHED (${dispatchedShown.length}) — held out of the frontier, not offered\n`,
+		writeFd(
+			1,
+			`\nALREADY DISPATCHED (${dispatchedShown.length}) — held out of the frontier, not offered\n\n`,
 		);
 		for (const i of dispatchedShown) {
 			const rec = i.dispatchRec;
@@ -1951,22 +2034,25 @@ function renderDispatched(state) {
 			// pad() pads a short label but never truncates a long one (mantahostels#3488
 			// Standards, the "finished: <detail>" case) — `pad(…, 14) + " "`
 			// keeps a separator even where the cell overruns the column.
-			console.log(
-				`  #${i.number}  ${dispatchAge(rec, Date.now())}  ${pad(livenessCell, 14)} ${String(i.title).slice(0, 40)}`,
+			writeFd(
+				1,
+				`  #${i.number}  ${dispatchAge(rec, Date.now())}  ${pad(livenessCell, 14)} ${String(i.title).slice(0, 40)}\n`,
 			);
 		}
-		console.log(
+		writeFd(
+			1,
 			"\n  scripts/dispatch-sessions.sh drops any set member running the same command on one of these\n" +
 				`  for ${DISPATCH_WINDOW_HOURS}h after launching it (mantahostels#1337, #752), alive or not, so a set built on one loses\n` +
 				"  that member and gains nothing back. A relabelled issue is not held. Past a stale entry:\n" +
-				"    scripts/dispatch-sessions.sh --force ...",
+				"    scripts/dispatch-sessions.sh --force ...\n",
 		);
 	}
 	if (dispatched.why)
-		console.log(
+		writeFd(
+			1,
 			`\nDISPATCH LEDGER DEGRADED — ${dispatched.why}.\n` +
 				`  Nothing was excluded on it, so an issue launched in the last ${DISPATCH_WINDOW_HOURS}h may be\n` +
-				"  shown as takeable and then dropped at launch.",
+				"  shown as takeable and then dropped at launch.\n",
 		);
 	return dispatchedShown;
 }
@@ -1977,24 +2063,27 @@ function renderDispatched(state) {
  */
 function renderExcluded(state, dispatchedShown) {
 	const { enriched } = state;
-	console.log("\nEXCLUDED\n");
+	writeFd(1, "\nEXCLUDED\n\n");
 	for (const i of enriched
 		// The dispatched ones have a block of their own above, so printing them
 		// here too would report the same exclusion twice (mantahostels#1528).
 		.filter((x) => x.excluded && !x.dispatchHeld)
 		.sort((a, b) => a.number - b.number))
-		console.log(
-			`${pad(`#${i.number}`, 6)}${pad(i.group, 16)}${pad(i.excluded, 40)}${String(i.title).slice(0, 40)}`,
+		writeFd(
+			1,
+			`${pad(`#${i.number}`, 6)}${pad(i.group, 16)}${pad(i.excluded, 40)}${String(i.title).slice(0, 40)}\n`,
 		);
 	if (dispatchedShown.length > 0)
-		console.log(
-			`\n  ${dispatchedShown.length} more excluded as already dispatched — ALREADY DISPATCHED, above.`,
+		writeFd(
+			1,
+			`\n  ${dispatchedShown.length} more excluded as already dispatched — ALREADY DISPATCHED, above.\n`,
 		);
 }
 
 /** @param {State} state */
 function renderNotProposed(state) {
-	for (const line of notProposedLines(notLaunchedOf(state))) console.log(line);
+	for (const line of notProposedLines(notLaunchedOf(state)))
+		writeFd(1, `${line}\n`);
 }
 
 /** @param {State["summary"]} summary */
@@ -2009,16 +2098,19 @@ function printSummaryFlags(summary) {
 	 * prints only where it applies.
 	 */
 	if (summary.reclaimableUnknown)
-		console.log(
-			`  ${pad("reclaimable", 19)}unknown (${summary.reclaimableUnknown}) — headroom may be understated and nothing here can say by how much`,
+		writeFd(
+			1,
+			`  ${pad("reclaimable", 19)}unknown (${summary.reclaimableUnknown}) — headroom may be understated and nothing here can say by how much\n`,
 		);
 	else if ((summary.reclaimable ?? 0) > 0)
-		console.log(
-			`  ${pad("reclaimable", 19)}${summary.reclaimable} finished session${summary.reclaimable === 1 ? "" : "s"} still resident — headroom understated`,
+		writeFd(
+			1,
+			`  ${pad("reclaimable", 19)}${summary.reclaimable} finished session${summary.reclaimable === 1 ? "" : "s"} still resident — headroom understated\n`,
 		);
 	if (summary.degraded)
-		console.log(
-			`  ${pad("degraded", 19)}${summary.degraded} readiness unknown — the shortlist is not the whole frontier`,
+		writeFd(
+			1,
+			`  ${pad("degraded", 19)}${summary.degraded} readiness unknown — the shortlist is not the whole frontier\n`,
 		);
 	/*
 	 * Printed even at zero where the ledger read, unlike the rows around it:
@@ -2026,20 +2118,23 @@ function printSummaryFlags(summary) {
 	 * reconciling `frontier` against the tracker needs to see it was applied.
 	 */
 	if (summary.dispatchHeldUnknown)
-		console.log(
-			`  ${pad("dispatched", 19)}unknown (${summary.dispatchHeldUnknown}) — the frontier may hold issues the launcher will drop`,
+		writeFd(
+			1,
+			`  ${pad("dispatched", 19)}unknown (${summary.dispatchHeldUnknown}) — the frontier may hold issues the launcher will drop\n`,
 		);
 	else
-		console.log(
-			`  ${pad("dispatched", 19)}${summary.dispatchHeld} held out on a launch in the last ${DISPATCH_WINDOW_HOURS}h`,
+		writeFd(
+			1,
+			`  ${pad("dispatched", 19)}${summary.dispatchHeld} held out on a launch in the last ${DISPATCH_WINDOW_HOURS}h\n`,
 		);
 	// Over the whole frontier, never the shown slice: an issue below the
 	// `--limit` cut can still be a proposed member (mantahostels#3363).
 	if (summary.labelDefects.length > 0)
-		console.log(
+		writeFd(
+			1,
 			`  ${pad("labelling", 19)}${summary.labelDefects
 				.map((/** @type {any} */ d) => `#${d.number} (${takesCell(d.takes)})`)
-				.join(", ")} — node ${scriptPath("check-issue-labels.js")}`,
+				.join(", ")} — node ${scriptPath("check-issue-labels.js")}\n`,
 		);
 }
 
@@ -2050,57 +2145,61 @@ function renderRunSummary(state) {
 	 * Counted from the blocks above, and printed after them: a reader who tails
 	 * this output lands here, and §6's message is what they write next.
 	 */
-	console.log("\nRUN SUMMARY — the figures §6's message is written from\n");
-	console.log(`  ${pad("open issues", 19)}${summary.openIssues}`);
-	console.log(
-		`  ${pad("frontier", 19)}${summary.frontierCount} — §5's accounting denominator, never the shown slice`,
+	writeFd(1, "\nRUN SUMMARY — the figures §6's message is written from\n\n");
+	writeFd(1, `  ${pad("open issues", 19)}${summary.openIssues}\n`);
+	writeFd(
+		1,
+		`  ${pad("frontier", 19)}${summary.frontierCount} — §5's accounting denominator, never the shown slice\n`,
 	);
-	console.log(`  ${pad("shown", 19)}${summary.shown}`);
-	console.log(
-		`  ${pad("open tally", 19)}${buildOpenTallyLine(openTallyOf(state))}`,
+	writeFd(1, `  ${pad("shown", 19)}${summary.shown}\n`);
+	writeFd(
+		1,
+		`  ${pad("open tally", 19)}${buildOpenTallyLine(openTallyOf(state))}\n`,
 	);
 	/*
 	 * Printed at zero too, unlike the silent-at-zero rows further down: §6's
 	 * line carries this term whether or not it is 0.
 	 */
-	console.log(
-		`  ${pad("no command", 19)}${summary.noCommand} — §5's third term: takes:human, plus a rotted takes:children container`,
+	writeFd(
+		1,
+		`  ${pad("no command", 19)}${summary.noCommand} — §5's third term: takes:human, plus a rotted takes:children container\n`,
 	);
 	if (summary.rottedContainers.length > 0)
-		console.log(
+		writeFd(
+			1,
 			`  ${pad("", 19)}rotted containers: ${summary.rottedContainers
 				.map((/** @type {number} */ n) => `#${n}`)
 				.join(
 					", ",
-				)} — takes:children with no open child left; retag them, node ${scriptPath("check-issue-labels.js")}`,
+				)} — takes:children with no open child left; retag them, node ${scriptPath("check-issue-labels.js")}\n`,
 		);
-	console.log(
+	writeFd(
+		1,
 		`  ${pad("admission", 19)}${summary.admit ? "START ONE NOW" : "HOLD"} — ${
 			summary.freeSlots === null
 				? "free slots unknown"
 				: `${summary.freeSlots} free slot(s)`
-		}, as of this run — re-read it with node scripts/admission.js before starting anything (mantahostels#1144)`,
+		}, as of this run — re-read it with node scripts/admission.js before starting anything (mantahostels#1144)\n`,
 	);
-	console.log(
-		`  ${pad("write-sets", 19)}${summary.writeSets.warm} warm, ${summary.writeSets.provisional} provisional, ${summary.writeSets.cold} to derive`,
+	writeFd(
+		1,
+		`  ${pad("write-sets", 19)}${summary.writeSets.warm} warm, ${summary.writeSets.provisional} provisional, ${summary.writeSets.cold} to derive\n`,
 	);
-	console.log(
-		// A count, never the list: the numbers run to a line long enough to bury
-		// every row under it, and the block above already prints them.
+	writeFd(
+		1,
 		`  ${pad("proposed set", 19)}${
 			summary.proposed.length > 0
 				? `${summary.proposed.length} candidate${summary.proposed.length === 1 ? "" : "s"} — the numbers are in the graph block above, and each member's takes: and write-set in \`summary.proposed\``
 				: "empty"
-		}`,
+		}\n`,
 	);
-	console.log(
-		// `carrying` is null two ways, and saying "unknown how many carrying"
-		// where the count itself was never read claims git was asked.
+	writeFd(
+		1,
 		`  ${pad("owed work", 19)}${
 			summary.strandedClaims === null
 				? "unknown stranded claims"
 				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees} stranded worktrees`
-		}`,
+		}\n`,
 	);
 	printSummaryFlags(summary);
 }
@@ -2114,12 +2213,18 @@ function renderFooter(snapshot) {
 	 * The failure line prescribes the `--json` re-run the skill otherwise bars —
 	 * with no file on disk, that re-run is the only copy.
 	 */
-	console.log("\nAdvisory only; nothing here was written back to the tracker.");
+	writeFd(
+		1,
+		"\nAdvisory only; nothing here was written back to the tracker.\n",
+	);
 
-	console.log(
-		snapshot.ok
-			? `\nFULL JSON OF THIS RUN: ${snapshot.file}\n  Every block above, machine-readable. Read it rather than re-running for --json.\n  Check its generatedAt and repo before trusting it: a --no-log or --repo run overwrites this same file.`
-			: `\nFULL JSON NOT WRITTEN — ${snapshot.error}\n  ${snapshot.file} holds an older run or none, so a --json re-run is the only copy.`,
+	writeFd(
+		1,
+		`${
+			snapshot.ok
+				? `\nFULL JSON OF THIS RUN: ${snapshot.file}\n  Every block above, machine-readable. Read it rather than re-running for --json.\n  Check its generatedAt and repo before trusting it: a --no-log or --repo run overwrites this same file.`
+				: `\nFULL JSON NOT WRITTEN — ${snapshot.error}\n  ${snapshot.file} holds an older run or none, so a --json re-run is the only copy.`
+		}\n`,
 	);
 }
 
@@ -2181,8 +2286,9 @@ async function listOpenIssuesOrExit() {
 				(parseGhFailureReason(e) === "unreachable"
 					? `        ${unreachableRemedy(e)}\n`
 					: "        GitHub was reachable — this is a fault in the query, not your auth.\n");
-		console.error(
-			`${why}        No shortlist produced — do not read this as an empty frontier.`,
+		writeFd(
+			2,
+			`${why}        No shortlist produced — do not read this as an empty frontier.\n`,
 		);
 		process.exit(1);
 	}
@@ -2729,7 +2835,7 @@ async function main() {
 	const snapshot = writeRunSnapshot(payload);
 
 	if (asJson) {
-		console.log(JSON.stringify(payload, null, 2));
+		writeFd(1, `${JSON.stringify(payload, null, 2)}\n`);
 		return;
 	}
 
@@ -2745,7 +2851,7 @@ module.exports = { main };
 
 if (require.main === module) {
 	main().catch((e) => {
-		console.error(`FAILED: ${parseErrLine(e)}`);
+		writeFd(2, `FAILED: ${parseErrLine(e)}\n`);
 		process.exit(1);
 	});
 }

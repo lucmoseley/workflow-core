@@ -14,18 +14,20 @@
  * sample this writes: mantahostels#2854's 33% and 46% were reported only after reading it.
  */
 const fs = require("node:fs");
+const { writeFd } = require("../lib/write-fd.js");
 const { parseRows, writesSomething } = require("./lib.js");
 
 const [, , firesPath, samplePath] = process.argv;
 if (!firesPath || !samplePath) {
-	console.error("usage: classify-false-warns.js <fires.jsonl> <sample60.txt>");
+	writeFd(2, "usage: classify-false-warns.js <fires.jsonl> <sample60.txt>\n");
 	process.exit(2);
 }
 
 const { rows, unparsed } = parseRows(fs.readFileSync(firesPath, "utf8"));
 const readOnly = rows.filter((r) => !writesSomething(r.c));
-console.log(
-	JSON.stringify(
+writeFd(
+	1,
+	`${JSON.stringify(
 		{
 			firings: rows.length,
 			unparsedLines: unparsed,
@@ -35,7 +37,7 @@ console.log(
 		},
 		null,
 		2,
-	),
+	)}\n`,
 );
 
 /*

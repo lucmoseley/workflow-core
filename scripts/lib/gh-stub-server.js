@@ -23,6 +23,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./write-fd.js");
 const net = require("node:net");
 const vm = require("node:vm");
 const { shellQuote } = require("./sh-quote.js");
@@ -148,7 +149,7 @@ function serve(handlerFile) {
 		const at = server.address();
 		if (at === null || typeof at === "string")
 			throw new Error("gh-stub-server: no TCP port");
-		process.stdout.write(`${at.port}\n`);
+		writeFd(1, `${at.port}\n`);
 	});
 	process.stdin.on("end", () => process.exit(0));
 	process.stdin.resume();

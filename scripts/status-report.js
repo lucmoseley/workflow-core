@@ -270,14 +270,15 @@ async function main() {
 			clean.push(`${r.name} (${v})`);
 			continue;
 		}
-		console.log(`\n▸ ${r.name}${v ? `  — ${v}` : ""}`);
-		console.log(r.out || "(no output)");
+		writeFd(1, `\n▸ ${r.name}${v ? `  — ${v}` : ""}\n`);
+		writeFd(1, `${r.out || "(no output)"}\n`);
 	}
 
 	if (clean.length > 0)
-		console.log(`\nnothing to report from: ${clean.join(", ")}`);
-	console.log(
-		`\n${results.length} checker(s) run, ${clean.length} clean. Nothing here is a ticket by itself.`,
+		writeFd(1, `\nnothing to report from: ${clean.join(", ")}\n`);
+	writeFd(
+		1,
+		`\n${results.length} checker(s) run, ${clean.length} clean. Nothing here is a ticket by itself.\n`,
 	);
 }
 

@@ -71,6 +71,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const { basename } = require("node:path");
 const { runCheck } = require("./lib/check");
 const { parseErrLine, gh } = require("./lib/gh");
@@ -473,7 +474,8 @@ function recordMain(opts) {
 				: {}),
 		})
 	) {
-		process.stderr.write(
+		writeFd(
+			2,
 			"WARNING: could not write the dispatch ledger — a resumed session will not\n" +
 				"  know this set was launched (mantahostels#1337).\n" +
 				(opts.overflowKey

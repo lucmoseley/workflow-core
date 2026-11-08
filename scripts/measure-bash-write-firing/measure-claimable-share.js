@@ -12,6 +12,7 @@
  * adds over the nine routes alone.
  */
 const fs = require("node:fs");
+const { writeFd } = require("../lib/write-fd.js");
 const {
 	claimable,
 	parseRows,
@@ -21,8 +22,9 @@ const {
 
 const [, , allPath, marginalPath] = process.argv;
 if (!allPath || !marginalPath) {
-	console.error(
-		"usage: measure-claimable-share.js <all-fires.jsonl> <marginal-fires.jsonl>",
+	writeFd(
+		2,
+		"usage: measure-claimable-share.js <all-fires.jsonl> <marginal-fires.jsonl>\n",
 	);
 	process.exit(2);
 }
@@ -36,9 +38,9 @@ for (const [name, f] of corpora) {
 	const { rows, unparsed } = parseRows(fs.readFileSync(f, "utf8"));
 	const withClaimable = rows.filter((r) => quotedTokens(r.c).some(claimable));
 	const readOnly = withClaimable.filter((r) => !writesSomething(r.c));
-	console.log(
-		name,
-		JSON.stringify({
+	writeFd(
+		1,
+		`${name} ${JSON.stringify({
 			firings: rows.length,
 			unparsedLines: unparsed,
 			withClaimableCandidate: withClaimable.length,
@@ -47,6 +49,6 @@ for (const [name, f] of corpora) {
 			falseWarnRate: +(
 				readOnly.length / Math.max(1, withClaimable.length)
 			).toFixed(3),
-		}),
+		})}\n`,
 	);
 }

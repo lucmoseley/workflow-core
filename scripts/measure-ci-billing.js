@@ -34,6 +34,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 
@@ -303,15 +304,17 @@ async function commitLog(since, until) {
  */
 function printShare(heading, rows, label, minPct = 1) {
 	const { shown, tail } = foldShareRows(rows, minPct);
-	console.log(`\n  ${heading.padEnd(30)}  jobs  billed   share`);
+	writeFd(1, `\n  ${heading.padEnd(30)}  jobs  billed   share\n`);
 	for (const r of shown) {
-		console.log(
-			`  ${label(r).slice(0, 30).padEnd(30)}  ${String(r.jobs).padStart(4)}  ${String(r.billed).padStart(6)}  ${`${r.pct.toFixed(1)}%`.padStart(6)}`,
+		writeFd(
+			1,
+			`  ${label(r).slice(0, 30).padEnd(30)}  ${String(r.jobs).padStart(4)}  ${String(r.billed).padStart(6)}  ${`${r.pct.toFixed(1)}%`.padStart(6)}\n`,
 		);
 	}
 	if (tail) {
-		console.log(
-			`  ${`other (${tail.count} under ${minPct}%)`.padEnd(30)}  ${String(tail.jobs).padStart(4)}  ${String(tail.billed).padStart(6)}  ${`${tail.pct.toFixed(1)}%`.padStart(6)}`,
+		writeFd(
+			1,
+			`  ${`other (${tail.count} under ${minPct}%)`.padEnd(30)}  ${String(tail.jobs).padStart(4)}  ${String(tail.billed).padStart(6)}  ${`${tail.pct.toFixed(1)}%`.padStart(6)}\n`,
 		);
 	}
 }
@@ -456,20 +459,22 @@ async function commitsPerPush(since, until, scoped) {
  */
 function printCommitsPerPush(pushCommits, gitError) {
 	if (pushCommits) {
-		console.log(
-			`  commits ${pushCommits.commits} over ${pushCommits.pushes} matched pushes  mean ${pushCommits.mean.toFixed(2)}/push  median ${pushCommits.median}  single-commit ${pushCommits.singleCommitShare.toFixed(0)}%  docs-only ${pushCommits.docsOnlyShare.toFixed(1)}%`,
+		writeFd(
+			1,
+			`  commits ${pushCommits.commits} over ${pushCommits.pushes} matched pushes  mean ${pushCommits.mean.toFixed(2)}/push  median ${pushCommits.median}  single-commit ${pushCommits.singleCommitShare.toFixed(0)}%  docs-only ${pushCommits.docsOnlyShare.toFixed(1)}%\n`,
 		);
 		if (
 			pushCommits.missingHeads ||
 			pushCommits.unclassified ||
 			pushCommits.truncatedFirstPush
 		) {
-			console.log(
-				`    (${pushCommits.missingHeads} push heads not in this checkout's history, ${pushCommits.unclassified} pushes with no file list, ${pushCommits.unpushedCommits} commits after the last push head, ${pushCommits.truncatedFirstPush} first push dropped as cut by the window)`,
+			writeFd(
+				1,
+				`    (${pushCommits.missingHeads} push heads not in this checkout's history, ${pushCommits.unclassified} pushes with no file list, ${pushCommits.unpushedCommits} commits after the last push head, ${pushCommits.truncatedFirstPush} first push dropped as cut by the window)\n`,
 			);
 		}
 	} else if (gitError) {
-		console.log(`  ⚠ commits-per-push unavailable: ${gitError}`);
+		writeFd(1, `  ⚠ commits-per-push unavailable: ${gitError}\n`);
 	}
 }
 
@@ -478,8 +483,9 @@ async function main() {
 	const { since } = args;
 	const { until, clamped } = finalWindow(since, args.until);
 	if (clamped) {
-		console.log(
-			`  note: --until ${args.until} clamped to ${until}; later days have not finished billing`,
+		writeFd(
+			1,
+			`  note: --until ${args.until} clamped to ${until}; later days have not finished billing\n`,
 		);
 	}
 	/** @type {CacheOpts} */
@@ -530,8 +536,9 @@ async function main() {
 		: { pushCommits: null, gitError: null };
 
 	if (args.json) {
-		console.log(
-			JSON.stringify(
+		writeFd(
+			1,
+			`${JSON.stringify(
 				{
 					args,
 					spanDays,
@@ -548,48 +555,58 @@ async function main() {
 				},
 				null,
 				2,
-			),
+			)}\n`,
 		);
 		return;
 	}
 
-	console.log(
-		`${args.branch} ${since}..${until}  (${spanDays.toFixed(2)} days, attempts=${args.attempts}${args.excludeEvents.length > 0 ? `, minus ${args.excludeEvents.join("/")} runs` : ""})`,
+	writeFd(
+		1,
+		`${args.branch} ${since}..${until}  (${spanDays.toFixed(2)} days, attempts=${args.attempts}${args.excludeEvents.length > 0 ? `, minus ${args.excludeEvents.join("/")} runs` : ""})\n`,
 	);
 	if (truncated) {
-		console.log(
-			`  ⚠ TRUNCATED: GitHub returned ${runs.length} of ${totalCount} runs — every figure below is a floor. Over the 1,000-run cap on ${truncatedDays.join(", ")}, which a day at a time should not reach; check whether that day really ran that much.`,
+		writeFd(
+			1,
+			`  ⚠ TRUNCATED: GitHub returned ${runs.length} of ${totalCount} runs — every figure below is a floor. Over the 1,000-run cap on ${truncatedDays.join(", ")}, which a day at a time should not reach; check whether that day really ran that much.\n`,
 		);
 	}
 	if (duplicates) {
-		console.log(
-			`  ⚠ ${duplicates} run(s) came back on more than one day and were counted once; the per-day windows are overlapping.`,
+		writeFd(
+			1,
+			`  ⚠ ${duplicates} run(s) came back on more than one day and were counted once; the per-day windows are overlapping.\n`,
 		);
 	}
 	if (inFlightSkipped) {
-		console.log(
-			`  ⚠ ${inFlightSkipped} response(s) covered runs that had not finished, so those were not cached — the billed and actual minutes below are a floor, and a re-run will fetch them again.`,
+		writeFd(
+			1,
+			`  ⚠ ${inFlightSkipped} response(s) covered runs that had not finished, so those were not cached — the billed and actual minutes below are a floor, and a re-run will fetch them again.\n`,
 		);
 	}
-	console.log(
-		`  runs ${summary.runs}  jobs ${summary.jobs}  actual ${summary.actual.toFixed(1)} min  billed ${summary.billed} min  ratio ${summary.ratio.toFixed(2)}x`,
+	writeFd(
+		1,
+		`  runs ${summary.runs}  jobs ${summary.jobs}  actual ${summary.actual.toFixed(1)} min  billed ${summary.billed} min  ratio ${summary.ratio.toFixed(2)}x\n`,
 	);
-	console.log(
-		`  unfinished jobs ${summary.unfinished}  skipped jobs ${summary.skipped}`,
+	writeFd(
+		1,
+		`  unfinished jobs ${summary.unfinished}  skipped jobs ${summary.skipped}\n`,
 	);
-	console.log(
-		`  pushes ${summary.pushes}  billed/push ${summary.billedPerPush.toFixed(2)}  pushes/day ${projection.pushesPerDay.toFixed(1)}`,
+	writeFd(
+		1,
+		`  pushes ${summary.pushes}  billed/push ${summary.billedPerPush.toFixed(2)}  pushes/day ${projection.pushesPerDay.toFixed(1)}\n`,
 	);
-	console.log(
-		`  projected ${projection.perMonth.toFixed(0)} billed min / 30-day month — ${projection.usedPct.toFixed(0)}% of ${projection.allowance}`,
+	writeFd(
+		1,
+		`  projected ${projection.perMonth.toFixed(0)} billed min / 30-day month — ${projection.usedPct.toFixed(0)}% of ${projection.allowance}\n`,
 	);
 	if (band) {
-		console.log(
-			`  95% band on the daily mean (n=${band.n} days) ${band.lo.toFixed(1)}–${band.hi.toFixed(1)} min/day — ${band.monthlyLo.toFixed(0)}–${band.monthlyHi.toFixed(0)} a month`,
+		writeFd(
+			1,
+			`  95% band on the daily mean (n=${band.n} days) ${band.lo.toFixed(1)}–${band.hi.toFixed(1)} min/day — ${band.monthlyLo.toFixed(0)}–${band.monthlyHi.toFixed(0)} a month\n`,
 		);
 	}
-	console.log(
-		`  runs with a second attempt ${summary.rerunRuns} of ${summary.runs}`,
+	writeFd(
+		1,
+		`  runs with a second attempt ${summary.rerunRuns} of ${summary.runs}\n`,
 	);
 	printCommitsPerPush(pushCommits, gitError);
 
@@ -601,10 +618,11 @@ async function main() {
 	 * census has to see, and it can be well under the 1% the other tables fold
 	 * away (mantahostels#677). */
 	printShare("event", summary.perEvent, (e) => e.event, 0);
-	console.log("\n  day         runs  jobs  billed  pushes");
+	writeFd(1, "\n  day         runs  jobs  billed  pushes\n");
 	for (const d of summary.perDay) {
-		console.log(
-			`  ${d.day}  ${String(d.runs).padStart(4)}  ${String(d.jobs).padStart(4)}  ${String(d.billed).padStart(6)}  ${String(d.pushes).padStart(6)}`,
+		writeFd(
+			1,
+			`  ${d.day}  ${String(d.runs).padStart(4)}  ${String(d.jobs).padStart(4)}  ${String(d.billed).padStart(6)}  ${String(d.pushes).padStart(6)}\n`,
 		);
 	}
 }
@@ -614,7 +632,7 @@ if (require.main === module) {
 		if (e instanceof CliExit) process.exit(printExit(e));
 		/* parseErrLine, not e.message: execFile puts the whole argv in the message,
 		 * so a token in the command line would be echoed to the terminal. */
-		console.error(parseErrLine(e));
+		writeFd(2, `${parseErrLine(e)}\n`);
 		process.exit(1);
 	});
 }

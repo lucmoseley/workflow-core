@@ -22,6 +22,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const cache = require("./lib/write-set-cache");
 const { hostRoot } = require("./lib/host-root.js");
 const { CliExit, flagValue, parse, printExit } = require("./lib/cli-args");
@@ -68,7 +69,7 @@ try {
  * @returns {never}
  */
 const die = (msg) => {
-	console.error(`FAILED: ${msg}`);
+	writeFd(2, `FAILED: ${msg}\n`);
 	process.exit(1);
 };
 
@@ -143,8 +144,9 @@ function put(n) {
 		gist: flagValue(parsed.flags, "--gist"),
 	});
 	if (!r.ok) die(`could not write the entry: ${r.error}`);
-	console.log(
-		`stored #${n}: ${writeSet.length} path${writeSet.length === 1 ? "" : "s"} -> ${r.path}`,
+	writeFd(
+		1,
+		`stored #${n}: ${writeSet.length} path${writeSet.length === 1 ? "" : "s"} -> ${r.path}\n`,
 	);
 }
 
@@ -152,10 +154,10 @@ function put(n) {
 function get(n) {
 	const entry = cache.readEntry(REPO_ROOT, n);
 	if (!entry) {
-		console.log(`no entry for #${n}`);
+		writeFd(1, `no entry for #${n}\n`);
 		return;
 	}
-	console.log(JSON.stringify(entry, null, 2));
+	writeFd(1, `${JSON.stringify(entry, null, 2)}\n`);
 }
 
 function listAll() {
@@ -163,7 +165,7 @@ function listAll() {
 	try {
 		names = fs.readdirSync(cache.cacheDir(REPO_ROOT));
 	} catch {
-		console.log("no store yet — nothing has been derived.");
+		writeFd(1, "no store yet — nothing has been derived.\n");
 		return;
 	}
 	const entries = names
@@ -172,10 +174,11 @@ function listAll() {
 		.map((m) => cache.readEntry(REPO_ROOT, Number(m[1])))
 		.filter((e) => e !== null)
 		.sort((a, b) => a.issue - b.issue);
-	console.log(`${entries.length} cached write-set(s):`);
+	writeFd(1, `${entries.length} cached write-set(s):\n`);
 	for (const e of entries)
-		console.log(
-			`  #${e.issue}  ${e.writeSet.length} path(s)  ${e.sizeBand ?? "-"}  ${e.derivedAt}  ${e.gist ?? ""}`,
+		writeFd(
+			1,
+			`  #${e.issue}  ${e.writeSet.length} path(s)  ${e.sizeBand ?? "-"}  ${e.derivedAt}  ${e.gist ?? ""}\n`,
 		);
 }
 

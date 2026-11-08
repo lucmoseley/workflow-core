@@ -248,14 +248,16 @@ function stripComments(source) {
 }
 
 /**
- * `source` with every comment blanked to spaces, its line breaks kept, so an
- * offset or line number in the result is the one in `source` (#3634).
+ * `source` with each of `ranges`, in order, blanked to spaces and its line
+ * breaks kept, so an offset or line number in the result is the one in
+ * `source` (#3634).
  * @param {string} source
+ * @param {[number, number][]} ranges
  */
-function blankComments(source) {
+function blankRanges(source, ranges) {
 	let out = "";
 	let from = 0;
-	for (const [start, end] of scanJs(source).comments) {
+	for (const [start, end] of ranges) {
 		out +=
 			source.slice(from, start) +
 			source.slice(start, end).replace(/[^\n]/g, " ");
@@ -264,4 +266,14 @@ function blankComments(source) {
 	return out + source.slice(from);
 }
 
-module.exports = { blankComments, scanJs, stripComments };
+/** `source` with every comment blanked. @param {string} source */
+const blankComments = (source) => blankRanges(source, scanJs(source).comments);
+
+/**
+ * `source` with every stretch that is not code — comments, strings, templates
+ * and regex literals — blanked, a template's `${…}` with it.
+ * @param {string} source
+ */
+const blankInert = (source) => blankRanges(source, scanJs(source).inert);
+
+module.exports = { blankComments, blankInert, scanJs, stripComments };

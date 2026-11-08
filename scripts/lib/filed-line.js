@@ -19,16 +19,26 @@ const FILED_LINE = /^Filed #(\d+): \S+$/m;
 /**
  * The filed-issue line of what file-issue.js printed, and its number.
  * @param {string} stdout
+ * @returns {{line: string, n: number} | null} null where it printed none
+ */
+function findFiledLine(stdout) {
+	const m = FILED_LINE.exec(stdout);
+	return m === null ? null : { line: m[0], n: Number(m[1]) };
+}
+
+/**
+ * {@link findFiledLine}, for a caller that cannot go on without the number.
+ * @param {string} stdout
  * @returns {{line: string, n: number}}
  * @throws {Error} where it printed none
  */
 function parseFiledLine(stdout) {
-	const m = FILED_LINE.exec(stdout);
-	if (m === null)
+	const filed = findFiledLine(stdout);
+	if (filed === null)
 		throw new Error(
 			`file-issue exited 0 but printed no Filed #<n> line: ${stdout.trim().split("\n")[0] ?? ""}`,
 		);
-	return { line: m[0], n: Number(m[1]) };
+	return filed;
 }
 
-module.exports = { buildFiledLine, parseFiledLine };
+module.exports = { buildFiledLine, findFiledLine, parseFiledLine };
