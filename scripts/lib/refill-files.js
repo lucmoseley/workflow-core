@@ -48,22 +48,21 @@ function loopFiles() {
 }
 
 /**
+ * A line as the loop's log holds it: stamped, and ended. The loop's own stdout
+ * is that log, so its lines take this too.
  * @param {string} line
- * @param {number} [at]
  */
-const buildLoopLine = (line, at = Date.now()) =>
-	`${new Date(at).toISOString()} ${line}`;
+const buildLoopLogLine = (line) => `${new Date().toISOString()} ${line}\n`;
 
 /**
- * Append a stamped line to the loop's log, its directory made where missing. A
- * failure throws, for each writer to say what it costs.
+ * Appends `line`, stamped, to the loop's log, making its directory where none
+ * is. Throws where it will not write.
  * @param {string} line
- * @param {number} [at]
  */
-function appendLoopLog(line, at = Date.now()) {
-	const { log } = loopFiles();
-	fs.mkdirSync(path.dirname(log), { recursive: true });
-	fs.appendFileSync(log, `${buildLoopLine(line, at)}\n`);
+function appendLoopLog(line) {
+	const file = loopFiles().log;
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.appendFileSync(file, buildLoopLogLine(line));
 }
 
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
@@ -188,6 +187,7 @@ function dropManagerRestart(read, log) {
 
 module.exports = {
 	appendLoopLog,
+	buildLoopLogLine,
 	dropManagerRestart,
 	readManagerRestart,
 	writeManagerRestart,
@@ -198,5 +198,4 @@ module.exports = {
 	writeControlFile,
 	writeLoopPause,
 	readControlFile,
-	buildLoopLine,
 };

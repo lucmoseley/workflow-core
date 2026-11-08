@@ -173,7 +173,8 @@ const QUERY =
  * A live loop's LoopReading.loopWait: a pause outranks the last tick's reason, as
  * that tick may have settled before it (#3920).
  * @param {import("./refill-decide.js").Pause|null|undefined} paused its control's
- * @param {string|null|undefined} lastIdle its last tick's idle reason
+ * @param {import("./refill-decide.js").Idle|null|undefined} lastIdle its last
+ *   tick's idle reason
  * @returns {string|null}
  */
 const buildLiveLoopWait = (paused, lastIdle) =>

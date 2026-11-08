@@ -138,8 +138,8 @@ const { systemctl } = require("./lib/systemd-bins.js");
 const {
 	appendLoopLog,
 	readControlChecked,
+	buildLoopLogLine,
 	readControlFile,
-	buildLoopLine,
 	withControlLock,
 	writeControlFile,
 	writeManagerRestart,
@@ -378,7 +378,11 @@ function readSeatsView(planSeats, root, budgetOf, callerSeat) {
 	const now = Date.now();
 	const declared = readDeclaredSeats();
 	const ceilings = seatReading.ceilingsOf(process.env);
-	const sizeCap = seatReading.capSizer(root, (line) => writeFd(2, `${line}\n`));
+	const sizeCap = seatReading.capSizer(
+		root,
+		(line) => writeFd(2, `${line}\n`),
+		readAgentsForDisplay,
+	);
 	const seats = planSeats.map((seat) => {
 		const { bars, reading } = seatReading.readSeat(seat, now);
 		return commands.foreseeSeat({
@@ -468,9 +472,8 @@ const bootPorts = (write) => ({
  */
 function bootResume() {
 	const note = (/** @type {string} */ line) => {
-		const at = Date.now();
-		writeFd(1, `${buildLoopLine(line, at)}\n`);
-		appendLoopLog(line, at);
+		writeFd(1, buildLoopLogLine(line));
+		appendLoopLog(line);
 	};
 	return runBootResume({
 		...bootPorts(note),

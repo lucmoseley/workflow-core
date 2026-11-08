@@ -267,7 +267,7 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 		const r = touched(root);
 		expect(r.code).toBe(2);
 		expect(JSON.stringify(r.json)).toContain(
-			`${ANCHORS} at HEAD is not a JSON object; restore it, re-anchor with  node scripts/check-guard-registry.js --review`,
+			`${ANCHORS} at HEAD is not a JSON object of digests; restore it, re-anchor with  node scripts/check-guard-registry.js --review`,
 		);
 	});
 

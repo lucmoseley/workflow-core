@@ -126,7 +126,7 @@ const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./lib/git.js");
 
 const EXPLICIT = "--command";
 const SETTINGS = ".claude/settings.json";
-const { ANCHORS } = require("./lib/registry-anchors-path.js");
+const { ANCHORS } = require("./lib/registry-anchors-file.js");
 
 /** The doc-map sidecars every adopter carries, each with its day-one text. */
 const SIDECARS = {

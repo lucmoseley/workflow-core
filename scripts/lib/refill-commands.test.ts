@@ -19,11 +19,7 @@ import {
 	planSet,
 	planStart,
 } from "./refill-commands.js";
-import {
-	buildPausedWaitText,
-	buildPauseText,
-	QUIET_BENCH_PAUSE,
-} from "./refill-decide.js";
+import { buildPausedWaitText, QUIET_BENCH_PAUSE } from "./refill-decide.js";
 import {
 	away,
 	DV,
@@ -572,20 +568,24 @@ describe("status --json for the panel (#3873)", () => {
 
 	it("carries the code sha, and the last tick's summary and waiting reason", () => {
 		const json = jsonOf({
-			lastTick: { at: 5, summary: "idle: no free slot", idle: "no free slot" },
+			lastTick: {
+				at: 5,
+				summary: "idle: no free slot",
+				idle: { reason: "no free slot", detail: "" },
+			},
 		});
 		expect(json.codeSha).toBe("abc1234");
 		expect(json.lastTick).toEqual({
 			at: 5,
 			summary: "idle: no free slot",
-			idle: "no free slot",
+			idle: { reason: "no free slot", detail: "" },
 			paused: false,
 			planWait: null,
 		});
 	});
 
 	it("marks a tick that idled on a pause, and says no stop is asked with no control", () => {
-		const idle = buildPauseText({ by: "founder", at: 7 });
+		const idle = { reason: "paused by", detail: " founder" };
 		const json = jsonOf({ lastTick: { at: 5, summary: "s", idle } });
 		expect(json.lastTick?.paused).toBe(true);
 		expect(json.stopRequested).toBe(false);
@@ -594,7 +594,12 @@ describe("status --json for the panel (#3873)", () => {
 	it("carries the last tick's allowance wait, so the panel shows a full week's (#3859)", () => {
 		const planWait = { resets: NOW + 60 * MIN };
 		const json = jsonOf({
-			lastTick: { at: 5, summary: "s", idle: "a plan resets", planWait },
+			lastTick: {
+				at: 5,
+				summary: "s",
+				idle: { reason: "a plan resets", detail: "" },
+				planWait,
+			},
 		});
 		expect(json.lastTick?.planWait).toEqual(planWait);
 	});

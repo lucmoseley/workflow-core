@@ -3,8 +3,8 @@
  * A seat's reading, its cap sizing and the overflow seats' readings
  * (lib/seat-reading.js, #4218), each overflow seat's budget injected. No
  * fixture touches disk but the usage caches the reading cases write, the cap
- * call run on them, and the reads of dispatch-sessions.sh that pin the copies
- * of its cap thresholds and cap-call flags to the script's.
+ * sized on them, and the reads of dispatch-sessions.sh that pin the copies
+ * of its cap thresholds to the script's.
  *
  * Loosen one and failover leaves its order, a full seat reopens before its
  * reset, a stale seat behind a full one is waited on rather than read, the
@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { capSet, readAllowance, STALE_MS } from "./allowance";
+import { readAllowance, STALE_MS } from "./allowance";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import { MIN, NOW, row, seat } from "./refill-loop-fixture";
 import { seatIdOf } from "./refill-seats.js";
@@ -62,40 +62,6 @@ const budget = (over: Record<string, unknown> = {}) => ({
 	exhausted: false,
 	...over,
 });
-
-/**
- * Answer each `allowance.js` child spawned while the env is stubbed with the
- * reply `replies` gives its `--config-dir`, through a preload that runs before
- * the script; returns a reader of each child's script and arguments, in order.
- */
-function stubAllowance(
-	dir: string,
-	replies: Record<string, { stdout: string; status?: number }>,
-) {
-	const preload = path.join(dir, "allowance-stub.cjs");
-	const log = path.join(dir, "allowance-argv.jsonl");
-	fs.writeFileSync(
-		preload,
-		[
-			'const fs = require("node:fs");',
-			"const args = process.argv.slice(2);",
-			`fs.appendFileSync(${JSON.stringify(log)}, \`\${JSON.stringify(process.argv.slice(1))}\\n\`);`,
-			`const reply = ${JSON.stringify(replies)}[args[args.indexOf("--config-dir") + 1]];`,
-			"fs.writeSync(1, reply.stdout);",
-			"process.exit(reply.status ?? 0);",
-		].join("\n"),
-	);
-	vi.stubEnv(
-		"NODE_OPTIONS",
-		`${process.env.NODE_OPTIONS ?? ""} --require ${preload}`.trim(),
-	);
-	return () =>
-		fs
-			.readFileSync(log, "utf8")
-			.trim()
-			.split("\n")
-			.map((l) => JSON.parse(l) as string[]);
-}
 
 describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 	let dir: string;
@@ -296,13 +262,16 @@ describe("a seat's reading (#2606)", () => {
 
 		it("waits, unread, on a cached 100% week whose reset has passed", () => {
 			expect(tickOn([30, Ahead], [100, Passed])).toMatchObject({
-				idle: "no plan has room right now",
+				idle: { reason: "no plan has room right now", detail: "" },
 			});
 		});
 
 		it("names a locked seat's cached 5-hour wait and its reset", () => {
 			expect(tickOn([100, Ahead], [40, Ahead])).toMatchObject({
-				idle: `the 5-hour bar is full on ${dir} until its 5-hour reset ${Ahead}`,
+				idle: {
+					reason: "the 5-hour bar is full on",
+					detail: ` ${dir} until its 5-hour reset ${Ahead}`,
+				},
 			});
 		});
 	});
@@ -691,91 +660,85 @@ describe("the cap's launch count (#2278)", () => {
 	let dir: string;
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seat-cap-"));
+		/* No seat file, so no overflow seat and no ledger read (#4393). */
+		vi.stubEnv("HOME", dir);
+		/* A $100-mean table, all of a session landing within an hour: one
+		 * running session projects 5.4 points of the week. */
+		const table = path.join(dir, "table.json");
+		fs.writeFileSync(
+			table,
+			JSON.stringify({
+				n: 1,
+				meanUsd: 100,
+				quantilesUsd: [1, 100, 300],
+				tailRemainderUsd: 5,
+				landedByHours: [[1, 1]],
+			}),
+		);
+		vi.stubEnv("WFC_SESSION_COST_TABLE", table);
 	});
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
-	/** capSizer's count of 2 on seat `dir`, its child answering `stdout` and
-	 * exiting `status`, with the lines noted and the child's arguments. */
-	const sizeOn = (stdout: string, status = 0) => {
-		const argvOf = stubAllowance(dir, { [dir]: { stdout, status } });
+	/** A seat dir under `dir` whose fresh cache reads `week`, its 5-hour bar
+	 * at 10%, the week resetting two days out. */
+	const seatAt = (name: string, week: number) => {
+		const seatDir = path.join(dir, name);
+		fs.mkdirSync(seatDir);
+		const now = Date.now();
+		fs.writeFileSync(
+			path.join(seatDir, ".claude.json"),
+			JSON.stringify(
+				buildUsageCache({ session: 10, week }, now, {
+					resetsAt: { week: new Date(now + 2 * 24 * 60 * MIN).toISOString() },
+				}),
+			),
+		);
+		return seatDir;
+	};
+	/** A listing of one session just launched, with no transcript yet. */
+	const oneRunning = () =>
+		vi.fn(() => ({
+			agents: [{ sessionId: "s-1", state: "running", startedAt: Date.now() }],
+		}));
+	/** capSizer in `dir`, its listing `readAgents`, with the lines noted. */
+	const sizerWith = (readAgents: () => unknown) => {
 		const lines: string[] = [];
-		const fits = capSizer(dir, (l) => lines.push(l))(dir, 2);
-		return { fits, lines, argv: argvOf()[0] };
+		const sizeOf = capSizer(
+			dir,
+			(l) => lines.push(l),
+			readAgents as Parameters<typeof capSizer>[2],
+		);
+		return { sizeOf, lines };
 	};
 
-	it("passes the flags dispatch-sessions.sh's cap call passes", () => {
-		const sh = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
-			"utf8",
-		);
-		const call = sh.match(/allowance\.js" --json \\\n\s*(--cap[\s\S]*?) 2>/);
-		const flags = (args: string[]) => args.filter((a) => a.startsWith("--"));
-		expect(call).not.toBeNull();
-		const { argv } = sizeOn(JSON.stringify({ cap: { launch: 2 } }));
-		expect(path.basename(argv[0])).toBe("allowance.js");
-		expect(flags(argv).filter((f) => f !== "--config-dir")).toEqual([
-			"--json",
-			...flags(String(call?.[1]).split(/[\s\\]+/)),
+	it("launches the whole set below both ceilings, reading no listing", () => {
+		const readAgents = oneRunning();
+		const { sizeOf, lines } = sizerWith(readAgents);
+		expect(sizeOf(seatAt("s", 10), 2)).toBe(2);
+		expect(lines).toEqual([]);
+		expect(readAgents).not.toHaveBeenCalled();
+	});
+
+	it("reads a launch that is the floor's member alone as 0, the running session read off the listing it is handed (#2432)", () => {
+		const readAgents = oneRunning();
+		const { sizeOf, lines } = sizerWith(readAgents);
+		expect(sizeOf(seatAt("s", 98), 2)).toBe(0);
+		expect(lines).toEqual([]);
+		expect(readAgents).toHaveBeenCalledOnce();
+	});
+
+	it("reads a sizing that throws as a fault, sized null, rather than ending the reader", () => {
+		const { sizeOf, lines } = sizerWith(() => {
+			throw new Error("boom");
+		});
+		const s = seatAt("s", 98);
+		expect(sizeOf(s, 2)).toBeNull();
+		expect(lines).toEqual([
+			`fault: cap on ${s} unsized: sizing threw: Error: boom`,
 		]);
 	});
-
-	it("reads cap.launch from allowance.js's payload", () => {
-		expect(sizeOn(JSON.stringify({ cap: { launch: 2 } }))).toMatchObject({
-			fits: 2,
-			lines: [],
-		});
-	});
-
-	it("reads a launch that is the floor's member alone as 0 (#2432)", () => {
-		expect(
-			sizeOn(JSON.stringify({ cap: { launch: 1, floored: true } })),
-		).toMatchObject({ fits: 0, lines: [] });
-	});
-
-	it.each([
-		{
-			name: "no JSON",
-			stdout: "oops",
-			status: 0,
-			line: "fault: cap on SEAT unsized: allowance.js printed no JSON",
-		},
-		{
-			name: "no JSON from a failed child",
-			stdout: "",
-			status: 2,
-			line: "fault: cap on SEAT unsized: allowance.js printed no JSON (exit 2)",
-		},
-		{
-			name: "no cap, the reading untrusted, its exit 1 no fault (#4286)",
-			stdout: "{}",
-			status: 1,
-			line: "cap on SEAT unsized: no trustworthy allowance reading",
-		},
-		{
-			name: "a cap error",
-			stdout: JSON.stringify({
-				cap: { launch: 0, error: "cost table unreadable" },
-			}),
-			status: 0,
-			line: "fault: cap on SEAT unsized: cost table unreadable",
-		},
-		{
-			name: "a launch that is no integer",
-			stdout: JSON.stringify({ cap: { launch: 1.5 } }),
-			status: 0,
-			line: "fault: cap on SEAT unsized: cap.launch is 1.5",
-		},
-	])(
-		"reads $name as unsized, naming why and whether a fault (#2937)",
-		({ stdout, status, line }) => {
-			expect(sizeOn(stdout, status)).toMatchObject({
-				fits: null,
-				lines: [line.replace("SEAT", dir)],
-			});
-		},
-	);
 
 	it("hands the caller's note a cap it cannot size, as a fault, and sizes it null", () => {
 		const lines: string[] = [];
@@ -787,66 +750,64 @@ describe("the cap's launch count (#2278)", () => {
 
 	it("reads a checkout with no cost table as a fault, not a full seat, naming allowance.js's own why (#2937)", () => {
 		/* Past the week ceiling, so the cap reads the cost table. */
-		fs.writeFileSync(
-			path.join(dir, ".claude.json"),
-			JSON.stringify(buildUsageCache({ session: 10, week: 98 }, Date.now())),
-		);
+		const s = seatAt("s", 98);
 		vi.stubEnv("WFC_SESSION_COST_TABLE", path.join(dir, "no-such-table.json"));
 		const lines: string[] = [];
-		expect(capSizer(dir, (l) => lines.push(l))(dir, 1)).toBeNull();
-		/* A trustworthy reading exits 0, so the line names no exit; the cap's
-		 * fault rides in its payload. */
+		expect(capSizer(dir, (l) => lines.push(l))(s, 1)).toBeNull();
 		expect(lines).toEqual([
 			expect.stringMatching(
 				new RegExp(
-					`^fault: cap on ${dir} unsized: the session cost table is unreadable — build it: \\S+ \\S+measure-session-cost\\.js --write$`,
+					`^fault: cap on ${s} unsized: the session cost table is unreadable — build it: \\S+ \\S+measure-session-cost\\.js --write$`,
 				),
 			),
 		]);
 	});
 
+	it("sizes on the inputs dispatch-sessions.sh's cap call passes: the members and the two thresholds", () => {
+		const sh = fs.readFileSync(
+			path.join(__dirname, "..", "dispatch-sessions.sh"),
+			"utf8",
+		);
+		const call = sh.match(/allowance\.js" --json \\\n\s*(--cap[\s\S]*?) 2>/);
+		expect(call).not.toBeNull();
+		expect(
+			String(call?.[1])
+				.split(/[\s\\]+/)
+				.filter((a) => a.startsWith("--")),
+		).toEqual(["--cap", "--session-threshold", "--week-threshold"]);
+	});
+
 	describe("through decideTick, a seat that fits only the floor's member", () => {
-		/* Seats at these week readings, sized through capSizer, the cap
-		 * allowance.js would print for them; over 97% the running sessions
-		 * are projected 3 points of the week, past 100%. */
+		/* Seats at these week readings, sized through capSizer with one
+		 * session running: past the 97% ceiling it projects 5.4 points of the
+		 * week, past 100%. */
 		const sizedOn = (weeks: Record<string, number>) => {
-			const argvOf = stubAllowance(
-				dir,
-				Object.fromEntries(
-					Object.entries(weeks).map(([name, week]) => [
-						name,
-						{
-							stdout: JSON.stringify({
-								cap: capSet({
-									readings: { session: 10, weekly_all: week },
-									thresholds: { session: 90, weekly_all: 97 },
-									members: 2,
-									runningPoints: { session: 0, weekly_all: 3 },
-									perSessionPoints: { session: 1.5, weekly_all: 0.1 },
-								}),
-							}),
-						},
-					]),
-				),
+			const dirs = Object.fromEntries(
+				Object.entries(weeks).map(([name, week]) => [name, seatAt(name, week)]),
 			);
-			const noted: string[] = [];
+			const { sizeOf, lines } = sizerWith(oneRunning());
+			const sized: number[] = [];
 			const { seats } = readSizedSeats(2, {
 				read: () =>
-					Object.entries(weeks).map(([name, week]) => seat(name, week, 10)),
+					Object.entries(weeks).map(([name, week]) =>
+						seat(dirs[name], week, 10),
+					),
 				probe: (stale: string[]) => ({
 					usage: new Map(stale.map((s) => [s, ""])),
 					probes: [],
 				}),
-				sizeOf: capSizer(dir, (l) => noted.push(l)),
+				sizeOf: (s: string, members: number) => {
+					sized.push(members);
+					return sizeOf(s, members);
+				},
 				typedSeat: null,
 				tries: NO_TRIES,
 			});
-			expect(noted).toEqual([]);
-			for (const argv of argvOf())
-				expect(argv[argv.indexOf("--cap") + 1]).toBe("2");
-			return seats;
+			expect(lines).toEqual([]);
+			expect(new Set(sized)).toEqual(new Set([2]));
+			return { seats, dirs };
 		};
-		const tick = (seats: ReturnType<typeof sizedOn>) =>
+		const tick = (seats: ReturnType<typeof sizedOn>["seats"]) =>
 			decideTick({
 				now: NOW,
 				mode: "away" as const,
@@ -861,17 +822,18 @@ describe("the cap's launch count (#2278)", () => {
 			});
 
 		it("launches on the next seat with room", () => {
-			expect(tick(sizedOn({ s1: 98, s2: 10 }))).toMatchObject({
-				launches: [{ seat: "s2" }, { seat: "s2" }],
+			const { seats, dirs } = sizedOn({ s1: 98, s2: 10 });
+			expect(tick(seats)).toMatchObject({
+				launches: [{ seat: dirs.s2 }, { seat: dirs.s2 }],
 			});
 		});
 
 		it("waits without stopping where every seat with room fits only the floor", () => {
-			const d = tick(sizedOn({ s1: 98, s2: 98 }));
+			const d = tick(sizedOn({ s1: 98, s2: 98 }).seats);
 			expect(d).not.toHaveProperty("stop");
 			expect(d).toMatchObject({
 				launches: [],
-				idle: "no plan has room right now",
+				idle: { reason: "no plan has room right now", detail: "" },
 			});
 		});
 	});

@@ -302,10 +302,19 @@ describe("off", () => {
 		fs.symlinkSync("./gone.json", settings(".claude2"));
 		const r = run("on");
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain(".claude2/settings.json");
+		expect(r.stderr.split(".claude2/settings.json")).toHaveLength(2);
 		expect(effortOf(".claude")).toBe("high");
 		expect(run("off").status).toBe(0);
 		expect(effortOf(".claude")).toBe("medium");
+	});
+
+	it("names and skips a plan whose settings.json loops", () => {
+		fs.rmSync(settings(".claude2"));
+		fs.symlinkSync("settings.json", settings(".claude2"));
+		const r = run("on");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(".claude2/settings.json");
+		expect(effortOf(".claude")).toBe("high");
 	});
 
 	it("is idempotent — off when already off still exits 0", () => {
@@ -419,7 +428,9 @@ describe("the plan dirs", () => {
 	it("refuses on, recording nothing, when HOME cannot be read", () => {
 		const r = run("on", path.join(dir, "no-such-home"));
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("plan-dirs:");
+		expect(r.stderr).toContain(
+			`burn-mode: cannot list the plans under ${path.join(dir, "no-such-home")}`,
+		);
 		expect(fs.existsSync(marker)).toBe(false);
 	});
 });

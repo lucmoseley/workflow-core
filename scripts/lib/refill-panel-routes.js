@@ -17,6 +17,11 @@ const USUAL_VIEW_COLUMNS = 156;
 const MOST_SHARE = 0.5;
 const WINDOWS_TERMINAL = "windows-terminal";
 const TMUX = "tmux";
+/* The tmux binary: WFC_TMUX, else `tmux` on the child's PATH (§N7). Read from the env the child runs under.
+ * cmd.exe and wt.exe take no var: no test stubs them, the routes skip either where absent, and Windows
+ * resolves wt.exe inside `cmd.exe /c`, where a Linux path could not name it (#4186). */
+/** @param {Record<string, string | undefined>} env */
+const tmuxBin = (env) => env.WFC_TMUX || "tmux";
 const WT_IN_THIS_WINDOW = ["/c", "wt.exe", "-w", "0"];
 const MOVE_FOCUS_LEFT = ["move-focus", "left"];
 
@@ -66,7 +71,7 @@ function buildRoutes({ env, isOnPath, node, panel, pid, viewColumns }) {
 	if (env.TMUX)
 		routes.push({
 			name: TMUX,
-			file: "tmux",
+			file: tmuxBin(env),
 			args: [
 				"split-window",
 				...(env.TMUX_PANE ? ["-t", env.TMUX_PANE] : []),
@@ -96,12 +101,10 @@ function buildFocusReturn(route, viewEnv, ownEnv) {
 			args: [...WT_IN_THIS_WINDOW, ...MOVE_FOCUS_LEFT],
 			env: viewEnv,
 		};
-	if (route === TMUX)
-		return {
-			file: "tmux",
-			args: ["select-pane", "-L"],
-			env: { ...viewEnv, TMUX_PANE: ownEnv.TMUX_PANE },
-		};
+	if (route === TMUX) {
+		const env = { ...viewEnv, TMUX_PANE: ownEnv.TMUX_PANE };
+		return { file: tmuxBin(env), args: ["select-pane", "-L"], env };
+	}
 	return null;
 }
 

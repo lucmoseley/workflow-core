@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
-const { buildAnchorsText, parseRows } = require("./registry-anchors-merge.js");
+const { buildAnchorsText, parseRows } = require("./registry-anchors-file.js");
 
 const CARRIED_KINDS = new Set(["UNANCHORED", "STALE-PROSE"]);
 
