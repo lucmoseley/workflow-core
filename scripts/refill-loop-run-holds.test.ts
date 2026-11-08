@@ -10,6 +10,9 @@
  * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
  * this file.
  *
+ * Over §X8 (5)'s 10 s budget: each case drives real ticks, some ten of the
+ * loop's own children apiece, none a fixture or a wait to cut (#4602).
+ *
  * Loosen it and a fault in the program's own wiring, of its libs, children
  * and exits, passes unseen (#2851).
  *
