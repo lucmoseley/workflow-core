@@ -26,7 +26,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeProcRoot, type ProcSpec } from "./lib/proc-fake";
+import { USER_HZ } from "./lib/proc-table.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { WATCH, watcherArgv } from "./lib/session-scope.js";
 
 const SCRIPT = path.join(__dirname, "check-orphan-wait-loops.js");
 
@@ -145,7 +147,7 @@ describe("check-orphan-wait-loops", () => {
 	/* The `sleep` half of the predicate on its own. Without this fixture only
 	 * dropping the WHOLE predicate is caught, and widening the check to every
 	 * `while` orphan — a `while read` pipeline, a `while true` service — would
-	 * ship silently and flood the session start (mantahostels#2043, review). */
+	 * ship silently and flood the session start (mantahostels#2043). */
 	it("does not report a while loop that never sleeps (mantahostels#2043)", () => {
 		proc(4242, { argv: "/bin/bash -c while read l; do echo $l; done" });
 
@@ -198,7 +200,7 @@ describe("check-orphan-wait-loops", () => {
 
 	/* hidepid=2 and a hardened container: the root lists pids and none of them
 	 * reads. An empty table here would be a false all-clear over a machine the
-	 * run never saw (mantahostels#2043, review). */
+	 * run never saw (mantahostels#2043). */
 	it("skips a root that lists processes of which none reads (mantahostels#2043)", () => {
 		for (const pid of [4242, 4243]) fs.mkdirSync(path.join(root, String(pid)));
 
@@ -250,6 +252,63 @@ describe("check-orphan-wait-loops", () => {
 		expect(run("--notify").out).toContain("pid 4242");
 	});
 
+	/* A session-scope watcher sits under `systemd --user` by design and waits on
+	 * its session's leader; the check reads that leader's pid and start time out
+	 * of the watcher's argv. */
+	describe("a session-scope watcher (#4670)", () => {
+		const Leader = 660_083;
+		const LeaderAgeS = 3600;
+		const startOf = (ageS: number) =>
+			Math.round((fixture.uptime - ageS) * USER_HZ);
+
+		function watcher(start: number, script = WATCH) {
+			proc(231, { argv: "/usr/lib/systemd/systemd --user" });
+			proc(4242, {
+				ppid: 231,
+				argv: [
+					"/usr/bin/sh",
+					...watcherArgv(Leader, start)
+						.slice(1)
+						.map((word) => (word === WATCH ? script : word)),
+				],
+			});
+		}
+
+		it("is not reported while its leader lives", () => {
+			proc(Leader, { ppid: 900, argv: "claude bg-spare", ageS: LeaderAgeS });
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphanCount).toBe(0);
+		});
+
+		it("is reported once its leader is gone", () => {
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
+
+		it("is reported once its leader is a zombie", () => {
+			proc(Leader, { ppid: 900, state: "Z", ageS: LeaderAgeS });
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
+
+		it("is not reported while its leader lives, though started from an older WATCH", () => {
+			proc(Leader, { ppid: 900, argv: "claude bg-spare", ageS: LeaderAgeS });
+			watcher(startOf(LeaderAgeS), "p=$1\nwhile alive; do sleep 5; done");
+
+			expect(json().orphanCount).toBe(0);
+		});
+
+		it("is reported once its leader's pid is reused", () => {
+			proc(Leader, { ppid: 900, argv: "claude bg-spare", ageS: 60 });
+			watcher(startOf(LeaderAgeS));
+
+			expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+		});
+	});
+
 	it("never names its own process, even where its entry matches every test", () => {
 		proc(process.pid);
 
@@ -260,7 +319,7 @@ describe("check-orphan-wait-loops", () => {
 	});
 
 	/* The ancestor walk, not just the self case: the check's own parent shell is
-	 * an orphan matching every criterion, and is still not named (mantahostels#2043, review). */
+	 * an orphan matching every criterion, and is still not named (mantahostels#2043). */
 	it("never names an ancestor of its own process (mantahostels#2043)", () => {
 		const parent = 987_654;
 		proc(process.pid, {

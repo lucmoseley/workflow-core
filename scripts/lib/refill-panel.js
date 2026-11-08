@@ -616,7 +616,7 @@ const isLaunching = ({ running, stopRequested, paused }) =>
  * @param {PanelView} view
  * @returns {"on"|"off"|"pending"|"unknown"}
  */
-function buildSwitchState({ status, presses }) {
+function buildLoopState({ status, presses }) {
 	if (presses.loop.pending) return "pending";
 	if (!status) return "unknown";
 	return isLaunching(status) ? "on" : "off";
@@ -1029,7 +1029,7 @@ function buildUnwrappedRows(view, now) {
  * @returns {Row[]}
  */
 function buildUnpointedRows(view, now) {
-	const state = buildSwitchState(view);
+	const state = buildLoopState(view);
 	return [
 		{
 			text: `Refill loop  ${SWITCH_TEXT[state]}`,
@@ -1070,7 +1070,7 @@ function buildUnpointedRows(view, now) {
  * settings. No press ever stops the process.
  * @param {PanelView} view
  */
-function buildPress({ status, presses }) {
+function buildLoopPress({ status, presses }) {
 	if (presses.loop.pending || !status) return null;
 	if (status.paused) return { argv: ["set", "--resume"], on: true };
 	if (isLaunching(status)) return { argv: ["set", "--pause"], on: false };
@@ -1766,7 +1766,7 @@ function createPanel({
 		const control = row?.control;
 		if (control === undefined) {
 			if (row?.presses === "loop")
-				await runLoopPress(buildPress(view), view.presses.loop);
+				await runLoopPress(buildLoopPress(view), view.presses.loop);
 			return;
 		}
 		switch (control.id) {
@@ -1783,7 +1783,7 @@ function createPanel({
 				cancelResolve();
 				break;
 			case "loop":
-				await runLoopPress(buildPress(view), view.presses.loop);
+				await runLoopPress(buildLoopPress(view), view.presses.loop);
 				break;
 			case "away":
 				await runLoopPress(buildAwayPress(view), view.presses.away);
@@ -2067,7 +2067,6 @@ module.exports = {
 	ESC,
 	buildFrame,
 	findHoverRow,
-	buildRows,
 	countUnscrolledHeight,
 	createPanel,
 };

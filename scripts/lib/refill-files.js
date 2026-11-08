@@ -47,6 +47,24 @@ function loopFiles() {
 	};
 }
 
+/**
+ * A line as the loop's log holds it: stamped, and ended. The loop's own stdout
+ * is that log, so its lines take this too.
+ * @param {string} line
+ */
+const buildLoopLogLine = (line) => `${new Date().toISOString()} ${line}\n`;
+
+/**
+ * Appends `line`, stamped, to the loop's log, making its directory where none
+ * is. Throws where it will not write.
+ * @param {string} line
+ */
+function appendLoopLog(line) {
+	const file = loopFiles().log;
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.appendFileSync(file, buildLoopLogLine(line));
+}
+
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
 const REVIEW_RUNNER = "refill-review-run.js";
 
@@ -171,6 +189,8 @@ function dropManagerRestart(read, log) {
 }
 
 module.exports = {
+	appendLoopLog,
+	buildLoopLogLine,
 	dropManagerRestart,
 	readManagerRestart,
 	writeManagerRestart,
