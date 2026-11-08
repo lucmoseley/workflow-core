@@ -9,12 +9,19 @@ description: Puts the pinned shellcheck on $GITHUB_PATH.
 # removes a variable; do not cite #118 as proof they differ.
 #
 # Taken from PyPI's shellcheck-py wheel, which ships koalaman's static
-# release binary, installed hash-pinned as test-tools' ruff is. Not from the
-# koalaman release asset: it served 504s for hours and stalled the landing
-# queue (#4653). The hash is the manylinux x86_64 wheel's, from PyPI's
-# shellcheck-py/<v>/json — re-take it on a bump, and bump ~/.local/bin's
-# aarch64 binary in the same pass (docs/agents/rules/shellcheck-not-installed.txt
-# owns the local side).
+# release binary, installed hash-pinned as test-tools' ruff is, because
+# koalaman's GitHub release host has failed for hours at a time (#4653). The
+# pin sits here, not in requirements-dev.txt as ruff's does: shellcheck-py
+# publishes no Linux aarch64 wheel, so `--only-binary :all:` would break that
+# file's install on this machine. The hash is the manylinux x86_64 wheel's,
+# from PyPI's shellcheck-py/<v>/json — re-take it on a bump, and bump
+# ~/.local/bin's aarch64 binary in the same pass
+# (docs/agents/rules/shellcheck-not-installed.txt owns the local side).
+#
+# Residual: the hash is PyPI's own, so trust rests on PyPI and the
+# shellcheck-py repackager rather than on koalaman; nothing compares the
+# wheel's binary with koalaman's tarball; and the pin installs on x86_64
+# runners only.
 #
 # On `$GITHUB_PATH`, so every later step runs it: Vitest's adopter
 # first-commit tests run the real pre-commit shellcheck gate, and under the
