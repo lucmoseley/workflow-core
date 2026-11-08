@@ -116,7 +116,7 @@ A gate that skips here refuses nothing, so a finding it would have refused is no
 
 ## Primitives
 
-Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). A base row's Exemplar and Enforcing check paths resolve at the plugin root, so each names a file the release ships, never a test, and the release build refuses one it does not; local rows' resolve at the host root. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
+Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). A base row's Exemplar and Enforcing check paths resolve at the plugin root, so each names a file the release ships, and the release build refuses one it does not; local rows' resolve at the host root. An exemplar is therefore never a test: the "Running a program under test" row names the primitive itself, and the `gh` and `claude` rows' stubbing halves have none. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
