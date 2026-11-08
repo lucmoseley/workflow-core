@@ -56,6 +56,7 @@ const run = (argv: string[] = []) =>
 			CLAUDE_PROJECT_DIR: repo(),
 			STUB_DIR: path.join(sb.dir, "gh"),
 			WFC_JOURNALCTL: stub("journalctl"),
+			WFC_REFILL_DIR: path.join(sb.dir, "refill"),
 		},
 	});
 
@@ -80,7 +81,7 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 			expect(c.body).toContain("Standalone: a memory kill incident");
 		}
 		expect(created[0].body).toContain(
-			"By kind: Claude host 1, test or build 1, other 0.",
+			"By kind: Claude host 1, node or python process 1.",
 		);
 		/* The second incident's title resembles the first's: file-issue.js
 		 * refused it once, so it was filed on the re-run naming the first. */

@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	ONE_BOOT,
 	otherLine,
 	readingLine,
 	signalLine,
@@ -45,6 +46,7 @@ let dir: string;
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-kills-"));
 	vi.stubEnv("WFC_JOURNALCTL", writeJournalctl(dir, JOURNAL));
+	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -60,7 +62,7 @@ describe("readIncidents (#3094)", () => {
 			first.kills.map((k: { pid: number; kind: string }) => [k.pid, k.kind]),
 		).toEqual([
 			[2_151_820, "other"],
-			[658_446, "test or build"],
+			[658_446, "node or python process"],
 			[369_866, "Claude host"],
 		]);
 		expect(first.kills[1]).toMatchObject({
@@ -87,7 +89,11 @@ describe("readIncidents (#3094)", () => {
 			`journalctl -u earlyoom --no-pager -o short-iso --since @${ms / 1000}`;
 		expect(
 			fs.readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n"),
-		).toEqual([read(T0 - 8 * MIN), read(T0 - 30 * MIN)]);
+		).toEqual([
+			read(T0 - 8 * MIN),
+			read(T0 - 30 * MIN),
+			"journalctl --list-boots --no-pager -o json",
+		]);
 	});
 
 	it("drops an incident wholly before the window", () => {
@@ -114,12 +120,15 @@ describe("buildIncidentBody and incidentTitle (#3094)", () => {
 		const body = kills.buildIncidentBody(first);
 		expect(body).toContain("earlyoom killed 3 processes between");
 		expect(body).toContain("kills no more than 30 min apart");
-		expect(body).toContain("By kind: Claude host 1, test or build 1, other 1.");
+		expect(body).toContain(
+			"By kind: Claude host 1, node or python process 1, other 1.",
+		);
+		expect(body).not.toContain("Not joined");
 		expect(body).toContain(
 			"Lowest MemAvailable before a kill: 768 MiB, SwapFree 0 MiB.",
 		);
 		expect(body).toMatch(
-			/\| test or build \| `MainThread` \| 658446 \| 1000 \| 983 MiB \| 741 \| 768 MiB \| 0 MiB \| 2 \|/,
+			/\| node or python process \| `MainThread` \| 658446 \| 1000 \| 983 MiB \| 741 \| 768 MiB \| 0 MiB \| 2 \|/,
 		);
 		expect(basisFaults(body)).toEqual([]);
 		expect(kills.buildIncidentBody(second)).toContain("| `a?b?c` |");
@@ -130,5 +139,117 @@ describe("buildIncidentBody and incidentTitle (#3094)", () => {
 		expect(kills.incidentTitle(first)).toBe(
 			"Memory kill incident from 2026-10-25 19:56 UTC",
 		);
+	});
+});
+
+describe("headless runs among the kills (#4143)", () => {
+	const Pid = 4242;
+	const OtherBoot = "fedcba9876543210fedcba9876543210";
+	/** Kills of comm `claude` on PID: `at` each, in ONE_BOOT unless `boots` says. */
+	function seed(
+		at: number[],
+		runs: { jobId: string; launchedAt: number; bootId?: string | null }[],
+		boots: (typeof ONE_BOOT)[] | null = [ONE_BOOT],
+	) {
+		vi.stubEnv(
+			"WFC_JOURNALCTL",
+			writeJournalctl(
+				path.join(dir, "join"),
+				at.flatMap((ms) => [readingLine(ms), signalLine(ms, Pid, "claude")]),
+				boots,
+			),
+		);
+		for (const r of runs) {
+			const runDir = path.join(dir, "refill", ".headless-runs", r.jobId);
+			fs.mkdirSync(runDir, { recursive: true });
+			fs.writeFileSync(
+				path.join(runDir, "run.json"),
+				JSON.stringify({
+					jobId: r.jobId,
+					sessionId: "s",
+					pid: Pid,
+					procStart: "1",
+					/* /proc's boot_id, dashed as the launcher records it. */
+					bootId:
+						r.bootId === undefined
+							? ONE_BOOT.id.replace(
+									/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
+									"$1-$2-$3-$4-$5",
+								)
+							: r.bootId,
+					pgid: Pid,
+					launchedAt: r.launchedAt,
+				}),
+			);
+		}
+	}
+	const victims = () =>
+		kills
+			.readIncidents(T0 - 60 * MIN)
+			.incidents.flatMap(
+				(i: { kills: { kind: string; jobId: string | null }[] }) =>
+					i.kills.map((k) => [k.kind, k.jobId]),
+			);
+
+	it("names a kill whose pid, boot and time match a stored run as that headless run, in the ticket and its kind count", () => {
+		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN }]);
+		const { incidents } = kills.readIncidents(T0 - 60 * MIN);
+		expect(victims()).toEqual([["headless run", "0aaaaaaa"]]);
+		const body = kills.buildIncidentBody(incidents[0]);
+		expect(body).toContain("By kind: headless run 1 (job 0aaaaaaa).");
+		expect(body).toMatch(/\| headless run `0aaaaaaa` \| `claude` \| 4242 \|/);
+		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("takes the run launched latest before the kill where two share the pid", () => {
+		seed(
+			[T0],
+			[
+				{ jobId: "0aaaaaaa", launchedAt: T0 - 50 * MIN },
+				{ jobId: "0bbbbbbb", launchedAt: T0 - 5 * MIN },
+				{ jobId: "0ccccccc", launchedAt: T0 + 5 * MIN },
+			],
+		);
+		expect(victims()).toEqual([["headless run", "0bbbbbbb"]]);
+	});
+
+	it("leaves a reused pid unmatched: a kill before the run's launch, or in another boot", () => {
+		seed(
+			[T0, T0 + 65 * MIN],
+			[{ jobId: "0aaaaaaa", launchedAt: T0 + 5 * MIN }],
+			[
+				{ id: OtherBoot, from: 0, to: T0 + 60 * MIN },
+				{ ...ONE_BOOT, from: T0 + 61 * MIN },
+			],
+		);
+		/* T0: before the launch, and in a boot the run never saw. */
+		expect(victims()).toEqual([
+			["claude CLI", null],
+			["headless run", "0aaaaaaa"],
+		]);
+		seed(
+			[T0],
+			[{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN, bootId: OtherBoot }],
+		);
+		expect(victims()).toEqual([["claude CLI", null]]);
+	});
+
+	it("says the kills were not joined where the store or the boot list will not read, never as no headless victim", () => {
+		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN }], null);
+		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
+		expect(i.kills[0].kind).toBe("claude CLI");
+		expect(i.unjoined).toBe("journalctl --list-boots: no boots");
+		expect(kills.buildIncidentBody(i)).toContain(
+			"Not joined to the headless runs, so a claude CLI kill may be one: journalctl --list-boots: no boots.",
+		);
+
+		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN }]);
+		fs.writeFileSync(
+			path.join(dir, "refill", ".headless-runs", "0aaaaaaa", "run.json"),
+			"{",
+		);
+		const [j] = kills.readIncidents(T0 - 60 * MIN).incidents;
+		expect(j.kills[0].kind).toBe("claude CLI");
+		expect(j.unjoined).toMatch(/^the headless run store: /);
 	});
 });

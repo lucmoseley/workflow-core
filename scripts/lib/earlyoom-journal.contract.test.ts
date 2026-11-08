@@ -33,7 +33,7 @@ import {
 import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
-const { readIncidents } = require("./earlyoom-kills.js");
+const { readBoots, readIncidents } = require("./earlyoom-kills.js");
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 const MIN = 60 * 1000;
@@ -106,14 +106,19 @@ interface Side {
 	empty: string;
 	/** check-kernel-stall.js's --json outcome, and the `-k` lines it read. */
 	kernel: { outcome: string; lines: string[] };
+	/** readBoots' reading of `--list-boots -o json`. */
+	boots: {
+		boots: { id: string; from: number; to: number }[];
+		why: string | null;
+	};
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /**
- * A journalctl in `dir` that runs `bin` and keeps each read's stdout. Its
- * path, and a reader of the reads it kept.
+ * A journalctl in `dir` that runs `bin` and keeps each journal read's stdout,
+ * and not a `--list-boots` one's. Its path, and a reader of the reads it kept.
  */
 function tap(name: string, bin: string) {
 	const at = path.join(dir, name);
@@ -130,7 +135,8 @@ const r = require("node:child_process").spawnSync(${JSON.stringify(bin)}, proces
 });
 if (r.error) process.stderr.write(r.error.message);
 const dir = ${JSON.stringify(reads)};
-fs.writeFileSync(dir + "/" + fs.readdirSync(dir).length, r.stdout ?? "");
+if (!process.argv.includes("--list-boots"))
+	fs.writeFileSync(dir + "/" + fs.readdirSync(dir).length, r.stdout ?? "");
 process.stdout.write(r.stdout ?? "");
 process.exitCode = r.status ?? 1;
 `,
@@ -175,6 +181,8 @@ function readSide(
 ): { side?: Side; why?: string } {
 	const t = tap(name, bin);
 	vi.stubEnv("WFC_JOURNALCTL", t.at);
+	/* The headless run store is not this contract's: an empty one. */
+	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
 	const { incidents, why } = readIncidents(Date.now() - WINDOW_MS);
 	if (why !== null) return { why };
 	/* readIncidents widens its read until it holds every incident whole:
@@ -188,6 +196,7 @@ function readSide(
 			kills: incidents.flatMap((i: { kills: Kill[] }) => i.kills),
 			empty: t.last().trim(),
 			kernel: readKernel(kernelBin, name),
+			boots: readBoots(),
 		},
 	};
 }
@@ -313,6 +322,20 @@ const CASES: Case[] = [
 			for (const l of stamped) {
 				expect(l).toMatch(KERNEL);
 				expect(Number.isNaN(Date.parse(l.split(" ")[0] ?? ""))).toBe(false);
+			}
+		},
+	},
+	{
+		name: "the boot list reads as boots, each a 32-hex id over a span, oldest first",
+		check({ boots: { boots, why } }: Side) {
+			expect(why).toBeNull();
+			expect(boots.length).toBeGreaterThan(0);
+			let after = Number.NEGATIVE_INFINITY;
+			for (const b of boots) {
+				expect(b.id).toMatch(/^[0-9a-f]{32}$/);
+				expect(b.from).toBeGreaterThan(after);
+				expect(b.to).toBeGreaterThanOrEqual(b.from);
+				after = b.to;
 			}
 		},
 	},
