@@ -380,7 +380,7 @@ it("reads main's state under GIT_TIMEOUT_MS at both proofs, never unbounded (#41
 	}
 });
 
-it("refuses a shared .git that names no checkout, rather than guess the tree from its parent", () => {
+it("refuses a shared .git that names no checkout, rather than guess the tree from its parent (#4192)", () => {
 	const separate = path.join(dir, "separate");
 	const store = path.join(dir, "store.git");
 	execFileSync("git", [

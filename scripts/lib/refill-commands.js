@@ -15,6 +15,8 @@ const {
 	isResuming,
 	iso,
 	nextResumeAt,
+	stepKindOf,
+	UNSETTLED_STEP_KINDS,
 } = require("./refill-blocks.js");
 const {
 	buildBasisLines,
@@ -776,7 +778,7 @@ function buildScopeLines(
 /**
  * Where a launch stands, for `status`.
  * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|import("./refill-blocks.js").StepCause|"limit-held"|"resumed-idle"
+ *   |"resuming"|string|"limit-held"|"resumed-idle"
  *   |"parked"|"running"}
  *   LaunchKind
  * @param {LoopLaunch} l
@@ -788,7 +790,7 @@ function launchKindOf(l) {
 	if (l.handOffTries !== undefined) return "hand-off-owed";
 	if (l.finishedAt !== null) return "finished";
 	if (isResuming(l)) return "resuming";
-	if (l.stepResume) return l.stepResume.cause;
+	if (l.stepResume) return stepKindOf(l.stepResume);
 	if (isLimitHeld(l)) return "limit-held";
 	if (l.idleSince !== undefined) return "resumed-idle";
 	return l.parked ? "parked" : "running";
@@ -800,7 +802,7 @@ const UNSETTLED = new Set([
 	"park-stopped",
 	"hand-off-owed",
 	"resuming",
-	"swapHeld",
+	...UNSETTLED_STEP_KINDS,
 	"limit-held",
 	"resumed-idle",
 	"parked",
@@ -809,7 +811,7 @@ const UNSETTLED = new Set([
 /** @param {LoopLaunch} l */
 function launchStateOf(l) {
 	const kind = launchKindOf(l);
-	if (l.stepResume && kind === l.stepResume.cause)
+	if (l.stepResume && kind === stepKindOf(l.stepResume))
 		return buildStepStatus(l.stepResume);
 	switch (kind) {
 		case "park-stopped":

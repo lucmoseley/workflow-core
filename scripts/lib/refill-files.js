@@ -48,11 +48,10 @@ function loopFiles() {
 }
 
 /**
- * A line as the loop's log carries it, stamped with its time.
  * @param {string} line
  * @param {number} [at]
  */
-const stampLoopLine = (line, at = Date.now()) =>
+const buildLoopLine = (line, at = Date.now()) =>
 	`${new Date(at).toISOString()} ${line}`;
 
 /**
@@ -64,7 +63,7 @@ const stampLoopLine = (line, at = Date.now()) =>
 function appendLoopLog(line, at = Date.now()) {
 	const { log } = loopFiles();
 	fs.mkdirSync(path.dirname(log), { recursive: true });
-	fs.appendFileSync(log, `${stampLoopLine(line, at)}\n`);
+	fs.appendFileSync(log, `${buildLoopLine(line, at)}\n`);
 }
 
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
@@ -199,5 +198,5 @@ module.exports = {
 	writeControlFile,
 	writeLoopPause,
 	readControlFile,
-	stampLoopLine,
+	buildLoopLine,
 };

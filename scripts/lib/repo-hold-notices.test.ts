@@ -357,7 +357,8 @@ exec ${shellQuote(routed)} "$@"
 		expect(readPhases()).toEqual(["raise"]);
 	});
 
-	/* gh.js binds execFileSync at load, so both libs are read fresh over the spy. */
+	/* A stub at WFC_GH can only exit, never make execFileSync throw a non-Error, so
+	 * this spies; gh.js binds execFileSync at load, so both libs are read fresh. */
 	it("rolls back a dispatch that threw a null, and retries it next tick (#4192)", () => {
 		raiseProbe();
 		serve();

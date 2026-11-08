@@ -291,7 +291,7 @@ process.exit(${handOffExit});\n`,
 				/resumed repo \/implement 7, stopped under the swap hold at .*, as its copy/,
 			);
 			expect(readLines(at("calls"))).toEqual([resumeOf("s-job7")]);
-			expect(launchState()).not.toHaveProperty("stepResume.cause", "swapHeld");
+			expect(launchState()).not.toHaveProperty("stepResume");
 			expect(launchState()).toMatchObject({
 				finishedAt: null,
 				jobId: FAKE_COPY,
@@ -709,10 +709,7 @@ describe("the launches a restart killed (#3880)", () => {
 			copiedFrom: "job8",
 			bootResumedAt: expect.any(Number),
 		});
-		expect(readState().launches[0]).not.toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
-		);
+		expect(readState().launches[0]).not.toHaveProperty("stepResume");
 		expect(next.stdout).toMatch(
 			/as its copy c0de7a11 \(found after a kill, the harness's reason lost with it\), which a kill left out of the state: tracking it, not resuming again/,
 		);
@@ -775,10 +772,7 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(readKilled()).toEqual([]);
 			const state = readState();
 			expect(state.launches[0].finishedAt).toBeNull();
-			expect(state.launches[0]).not.toHaveProperty(
-				"stepResume.cause",
-				"bootKilled",
-			);
+			expect(state.launches[0]).not.toHaveProperty("stepResume");
 			expect(state).toMatchObject({
 				bootedAt: expect.any(Number),
 				sameBootRestart: true,

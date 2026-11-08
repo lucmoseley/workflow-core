@@ -139,7 +139,7 @@ const {
 	appendLoopLog,
 	readControlChecked,
 	readControlFile,
-	stampLoopLine,
+	buildLoopLine,
 	withControlLock,
 	writeControlFile,
 	writeManagerRestart,
@@ -469,7 +469,7 @@ const bootPorts = (write) => ({
 function bootResume() {
 	const note = (/** @type {string} */ line) => {
 		const at = Date.now();
-		writeFd(1, `${stampLoopLine(line, at)}\n`);
+		writeFd(1, `${buildLoopLine(line, at)}\n`);
 		appendLoopLog(line, at);
 	};
 	return runBootResume({

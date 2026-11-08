@@ -221,19 +221,13 @@ describe("settleBootKilled, a same-boot restart (#4139)", () => {
 			...CLEAR,
 			agents: [{ id: "x", sessionId: "s" }],
 		} as never);
-		expect(settled.launches[0]).not.toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
-		);
+		expect(settled.launches[0]).not.toHaveProperty("stepResume");
 		expect(settled).not.toHaveProperty("bootedAt");
 	});
 
 	it("leaves a launch inside the grace to a later tick, the wait standing", () => {
 		const settled = settle({ launchedAt: now - 1000 });
-		expect(settled.launches[0]).not.toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
-		);
+		expect(settled.launches[0]).not.toHaveProperty("stepResume");
 		expect(settled).toMatchObject({ bootedAt: now, sameBootRestart: true });
 	});
 
@@ -277,18 +271,12 @@ describe("settleBootKilled, a boot (#3880)", () => {
 
 	it("leaves the launches and the wait as they were where the listing is unread", () => {
 		const settled = settle(null, START);
-		expect(settled.launches[0]).not.toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
-		);
+		expect(settled.launches[0]).not.toHaveProperty("stepResume");
 		expect(settled.bootedAt).toBe(START);
 	});
 
 	it("queues nothing with no boot unsettled", () => {
-		expect(settle([]).launches[0]).not.toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
-		);
+		expect(settle([]).launches[0]).not.toHaveProperty("stepResume");
 	});
 });
 

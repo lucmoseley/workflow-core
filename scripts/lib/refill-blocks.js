@@ -336,7 +336,6 @@ const isResuming = (l) =>
 const isStepResume = (l) => l.stepResume !== undefined;
 
 /**
- * Whether `l`'s stopped session waits on the tick's resume step for `cause`.
  * @template {LoopLaunch} L
  * @template {StepCause} C
  * @param {L} l
@@ -1234,9 +1233,11 @@ function holdIdle(b, { agents, now, io, swapHold }) {
  * `isParked`, whether it waits parked, so its resume unparks it;
  * `watchesTurn`, whether the launch is watched from its resume for a turn
  * (isIdleSinceBootResume); `resume`, its `--bg --resume`; `status`, its state
- * in `status`.
+ * in `status`, under `kind`; `isUnsettled`, whether `status` lists it past its
+ * launch window.
  * @template {StepCause} C
- * @typedef {{what: (l: LoopLaunch, held: StepResume<C>) => string,
+ * @typedef {{kind: string, isUnsettled: boolean,
+ *   what: (l: LoopLaunch, held: StepResume<C>) => string,
  *   why: string, prompt: (l: LoopLaunch) => string, isParked: boolean,
  *   watchesTurn: boolean,
  *   resume: (io: BlockIo, step: {l: JobLaunch, prompt: string,
@@ -1245,31 +1246,41 @@ function holdIdle(b, { agents, now, io, swapHold }) {
  *   status: (held: StepResume<C>) => string}} StepCauseRow
  */
 
+/** @type {StepCauseRow<"swapHeld"|"holdCleared">["resume"]} */
+const resumeStopped = (io, { l, prompt, target }) =>
+	io.resumeStopped(l, prompt, target);
+
 /** @type {{[C in StepCause]: StepCauseRow<C>}} */
 const STEP_CAUSES = {
 	swapHeld: {
+		kind: "swap-held",
+		isUnsettled: true,
 		what: (l, held) =>
 			`${launchName(l)}, stopped under the swap hold at ${iso(held.at)}`,
 		why: "the hold cleared",
 		prompt: (l) => resumePromptOf(l, IDLE_PROMPT),
 		isParked: false,
 		watchesTurn: false,
-		resume: (io, { l, prompt, target }) => io.resumeStopped(l, prompt, target),
+		resume: resumeStopped,
 		status: (held) =>
 			`stopped under the swap hold since ${iso(held.at)}, resumed through admission once it clears`,
 	},
 	holdCleared: {
+		kind: "hold-cleared",
+		isUnsettled: false,
 		what: (l, held) =>
 			`${launchName(l)}, parked at ${iso(held.at)} on repo hold ${held.hold}`,
 		why: "the hold cleared",
 		prompt: () => HOLD_PROMPT,
 		isParked: true,
 		watchesTurn: false,
-		resume: (io, { l, prompt, target }) => io.resumeStopped(l, prompt, target),
+		resume: resumeStopped,
 		status: (held) =>
 			`parked on repo hold ${held.hold}, since cleared, resumed through admission`,
 	},
 	bootKilled: {
+		kind: "boot-killed",
+		isUnsettled: false,
 		what: (l) => `${launchName(l)}, launched at ${iso(l.launchedAt)}`,
 		why: "killed by a restart",
 		prompt: (l) => resumePromptOf(l, BOOT_PROMPT),
@@ -1285,7 +1296,6 @@ const STEP_CAUSES = {
 };
 
 /**
- * `held`'s STEP_CAUSES row.
  * @template {StepCause} C
  * @param {StepResume<C>} held
  * @returns {StepCauseRow<C>}
@@ -1293,10 +1303,19 @@ const STEP_CAUSES = {
 const stepCauseOf = (held) => STEP_CAUSES[held.cause];
 
 /**
- * `held`'s state, as `status` lists it.
  * @param {StepResume} held
  */
 const buildStepStatus = (held) => stepCauseOf(held).status(held);
+
+/**
+ * @param {StepResume} held
+ */
+const stepKindOf = (held) => stepCauseOf(held).kind;
+
+/* The step kinds `status` lists past its launch window. */
+const UNSETTLED_STEP_KINDS = Object.values(STEP_CAUSES)
+	.filter((row) => row.isUnsettled)
+	.map((row) => row.kind);
 
 /**
  * `held`'s row with `l` and its hold bound, for the resume step.
@@ -2888,6 +2907,8 @@ module.exports = {
 	isBootKillable,
 	isStepResume,
 	buildStepStatus,
+	stepKindOf,
+	UNSETTLED_STEP_KINDS,
 	isStepResumeFor,
 	LISTING_GRACE_MS,
 	iso,

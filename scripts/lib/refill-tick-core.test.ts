@@ -492,10 +492,7 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			"a restart's killed launches wait on the listing: the listing failed",
 		);
 		expect(disk().bootedAt).toBe(NOW - MIN);
-		expect(disk().launches[0]).not.toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
-		);
+		expect(disk().launches[0]).not.toHaveProperty("stepResume");
 		expect(disk().launches[0]?.finishedAt).toBeNull();
 	});
 
