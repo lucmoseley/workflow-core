@@ -12,9 +12,8 @@
  *      can never be mixed into the founder's own uncommitted work. Dirty:
  *      defer, commit nothing.
  *   2. ONE COMMIT OUT, made by pathspec (never `git add -A`), its body
- *      carrying `stepsOwed`'s additions from this walk alone. The walk
- *      re-anchors the guard-registry rows of the paths it wrote first, and
- *      the anchors file rides in the same commit: the shims it adds or
+ *      carrying `stepsOwed`'s additions from this walk alone, and the
+ *      anchors file re-anchored for the paths it wrote: the shims it adds or
  *      rewrites would otherwise reach the pre-commit gate UNANCHORED or
  *      STALE-PROSE and be refused (#4078).
  *   3. NEVER PUSHED. Nothing here ever calls `git push`.
@@ -269,7 +268,6 @@ function walkAndCommit({
 }
 
 /**
- * Re-anchors what the walk wrote, then commits it with the anchors file.
  * @param {{root: string, written: string[], message: string}} at
  * @returns {string|null} the line saying why nothing was committed, or null
  */
@@ -295,8 +293,7 @@ function anchorAndCommit({ root, written, message }) {
 /**
  * Re-anchors the guard-registry rows of every path the walk wrote, through
  * the checker this install ships. Every dirty path is the walk's own, since
- * the tree was proven clean before it ran, so each is passed `--own`; a path
- * no rule or wiring reaches is left alone by the checker. Residual: a process
+ * the tree was proven clean before it ran, so each is passed `--own`. Residual: a process
  * writing one of those paths between that clean check and this run is
  * anchored as the walk's.
  * @param {string} root

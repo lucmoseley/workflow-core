@@ -4033,7 +4033,7 @@ function readCallerUnclaimed(inputs, read, ours, { own, soleWriter }) {
 
 /**
  * The end of the run where --own was given but no neighbour's claim could be
- * read, so a path one holds dirty would be anchored as the caller's (#4078).
+ * read (#4078).
  *
  * @param {HeldRead & { unavailable: string | null }} read
  */
@@ -4924,7 +4924,8 @@ function parseReviewRequest(ctx, reviewAt) {
 	}
 	const after = ctx.argv.slice(reviewAt + 1);
 	const named = after.filter(
-		(a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(after[i - 1] ?? ""),
+		(a, i) =>
+			!a.startsWith("--") && !REVIEW_VALUE_FLAGS.includes(after[i - 1] ?? ""),
 	);
 	const stale = ctx.has("--stale");
 	if (stale && named.length > 0)
@@ -4939,6 +4940,9 @@ function parseReviewRequest(ctx, reviewAt) {
 		soleWriter: ctx.has("--sole-writer"),
 	};
 }
+
+/** The value flags that qualify --review, whose values are no target path. */
+const REVIEW_VALUE_FLAGS = ["--taking", "--own"];
 
 /**
  * Every value a repeatable value flag carries, in order.
@@ -5076,12 +5080,10 @@ function sayFindings(
 		);
 }
 
-const VALUE_FLAGS = ["--root", "--touched-by", "--taking", "--own"];
-
 runCheck({
 	name: "guard-registry",
 	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]… [--own <path>]… | --review --stale`,
-	valueFlags: VALUE_FLAGS,
+	valueFlags: ["--root", "--touched-by", "--taking", "--own"],
 	/* Whole-tree, not a pathspec: scanRegistry walks CLAUDE.md, AGENTS.md, docs/
 	 * and .claude/ AND every guard path a rule names, which is a scope no list
 	 * here could be kept in step with (mantahostels#1753). */
