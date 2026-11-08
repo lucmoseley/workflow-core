@@ -58,6 +58,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { caught } = require("./lib/caught.js");
+const { compareVersions } = require("./lib/compare-versions.js");
 const { execGit } = require("./lib/git.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -87,11 +88,7 @@ const FETCH_REMOTE_RE = /^(\S+)\s+(\S+)\s+\(fetch\)$/;
  * @returns {boolean} whether `a` is a later semver than `b`
  */
 function semverGt(a, b) {
-	const [a1, a2, a3] = semverParts(a);
-	const [b1, b2, b3] = semverParts(b);
-	if (a1 !== b1) return a1 > b1;
-	if (a2 !== b2) return a2 > b2;
-	return a3 > b3;
+	return compareVersions(semverParts(a), semverParts(b)) > 0;
 }
 
 /**

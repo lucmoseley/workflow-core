@@ -33,6 +33,7 @@ const { readInstalledRecord } = require("./plugin-record.js");
 const { appendStepsOwed } = require("./steps-owed.js");
 const { formatConfigJson } = require("./config-json.js");
 const { caught } = require("./caught.js");
+const { compareVersions } = require("./compare-versions.js");
 
 /**
  * @param {string} v `v1.2.3` or `1.2.3`
@@ -47,11 +48,7 @@ function semver(v) {
 }
 
 /** @param {string} a @param {string} b */
-function semverCompare(a, b) {
-	const [am, ai, ap] = semver(a);
-	const [bm, bi, bp] = semver(b);
-	return am - bm || ai - bi || ap - bp;
-}
+const semverCompare = (a, b) => compareVersions(semver(a), semver(b));
 
 /**
  * @param {string} root
