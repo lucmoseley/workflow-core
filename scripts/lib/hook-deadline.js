@@ -5,8 +5,7 @@
  * cut every git and gh call to what is left: a read ends inside the budget
  * however many cores read before it, where the harness's kill at the
  * registration's timeout would refuse a PreToolUse call unexplained through
- * `"onFailure": "block"`. guard-uncommitted-work.js starts it at Stop, where
- * the kill ended 28 turns in 56k unjudged on the guard's own reads (#4115):
+ * `"onFailure": "block"`. guard-uncommitted-work.js starts it at Stop (#4115):
  * its git reads are cut as the dispatcher's are, and lib/agent-liveness.js
  * cuts its oracle read too. Unstarted, as in a test calling a core in process
  * or a hook of its own, the cap stands alone.
@@ -19,8 +18,7 @@
  * which runs from the same start (lib/npm-install.js).
  *
  * At Stop, guard-uncommitted-work.js's 15 s less 3 s for the one block write
- * after its reads. Measured at #4115: half would cut the reads of 85 turns
- * whose own work ran 7.5-15 s and finished; 12 s cuts 12. */
+ * after its reads, a margin chosen on #4115's measurement. */
 const ENTRY_BUDGET_MS = { PreToolUse: 30_000, PostToolUse: 7500, Stop: 12_000 };
 
 /** @type {number | null} */
