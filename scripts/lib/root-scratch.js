@@ -79,7 +79,7 @@ const { remedyKind } = require("./scratch-remedy.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { shellQuote } = require("./sh-quote.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
-const { relativeUnder } = require("./is-under.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {import("./core-contract.js").CoreContext} CoreContext
@@ -178,7 +178,8 @@ function readStrayName(given, ctx, syn) {
 	if (ignored.out) return null;
 	/* ASKED AS A GLOB where the name is synthetic: `name` carries a
 	 * placeholder no tracked file can hold. */
-	const spec = syn ? (relativeUnder(tree.root, abs(syn.glob)) ?? "") : name;
+	const cut = tree.root.length + 1;
+	const spec = syn ? abs(syn.glob).slice(cut) : name;
 	const tracked = tree.git(
 		syn
 			? ["ls-files", "--", spec]
@@ -190,7 +191,8 @@ function readStrayName(given, ctx, syn) {
 			`git ls-files could not answer for ${spec} — write allowed unchecked`,
 		);
 	if (tracked.out) return null;
-	return relativeUnder(tree.root, orig) || orig;
+	/* Cut, never normalised: the original's spans are the session's own. */
+	return isUnder(orig, [tree.root]) ? orig.slice(cut) : orig;
 }
 
 /**
