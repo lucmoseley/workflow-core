@@ -262,6 +262,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *   stopOverAllowance: (declared: DeclaredSeats, agents: AgentRecord[]|null) => string[],
  *   sendHoldNotices: (roots: string[],
  *     seen: {agents: AgentRecord[]|null, isPaused: boolean}, now: number) => void,
+ *   sendPauseNotices: (paused: import("./refill-decide.js").Pause|undefined,
+ *     now: number) => void,
  *   unparkAnswered: (roots: string[], seen: Seen) => void,
  *   tendClosedParks: (served: string[]) => void,
  *   actOnBlocks: (listed: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
@@ -473,19 +475,23 @@ function relieve(io, { registry, state, served, now }) {
 
 /**
  * A real tick's acts off its listing: each overflow session past its allowance
- * stopped, then each repo hold's notice sent.
+ * stopped, then each repo hold's notice and the pause's sent.
  * @param {TickIo} io
  * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
- *   registry: RegistryListing, roots: string[], paused: boolean,
- *   now: number}} tick
+ *   registry: RegistryListing, roots: string[],
+ *   paused: import("./refill-decide.js").Pause|undefined, now: number}} tick
  */
 function actOnListing(io, { declared, agents, registry, roots, paused, now }) {
 	capOverflowSessions(io, declared, agents);
 	io.sendHoldNotices(
 		roots,
-		{ agents: noticeAgentsOf(agents, registry), isPaused: paused },
+		{
+			agents: noticeAgentsOf(agents, registry),
+			isPaused: paused !== undefined,
+		},
 		now,
 	);
+	io.sendPauseNotices(paused, now);
 }
 
 /**
@@ -816,6 +822,7 @@ const buildDryActs = (io) => ({
 	recordListedOverflowSessions: doNothing,
 	stopOverAllowance: () => [],
 	sendHoldNotices: doNothing,
+	sendPauseNotices: doNothing,
 	unparkAnswered: doNothing,
 	tendClosedParks: doNothing,
 	actOnBlocks: (listed) => listed,
@@ -950,7 +957,14 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		for (const line of buildDriftLines(agents, registry.agents)) io.log(line);
 	const paused = control.paused !== undefined;
 	const roots = landingRoots(served, state.launches);
-	actOnListing(io, { declared, agents, registry, roots, paused, now });
+	actOnListing(io, {
+		declared,
+		agents,
+		registry,
+		roots,
+		paused: control.paused,
+		now,
+	});
 	/** @type {Seen} */
 	const seen = {
 		agents,

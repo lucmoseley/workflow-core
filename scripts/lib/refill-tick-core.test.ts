@@ -57,6 +57,7 @@ const ACTS = {
 	recordListedOverflowSessions: true,
 	stopOverAllowance: true,
 	sendHoldNotices: true,
+	sendPauseNotices: true,
 	unparkAnswered: true,
 	tendClosedParks: true,
 	actOnBlocks: true,
@@ -209,6 +210,7 @@ function fakeIo(
 		readSwapHold: () =>
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
+		sendPauseNotices: recorded("sendPauseNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
 		readCause: () => null as never,
 		unparkAnswered: recorded("unparkAnswered", () => undefined),
@@ -1085,6 +1087,25 @@ describe("the hold notices' agent read (#3871)", () => {
 		expect(await noticedAgents({ seats: [], faults: [], agents: [] })).toEqual([
 			null,
 		]);
+	});
+});
+
+describe("the pause notices' read of the pause (#4222)", () => {
+	const noticedPauses = async (c: Control) => {
+		const seen: unknown[] = [];
+		const { io } = fakeIo(stateOf(), {
+			sendPauseNotices: (paused) => {
+				seen.push(paused);
+			},
+		});
+		await tickOf(io, c);
+		return seen;
+	};
+
+	it("hands the control's pause, or none, to the pause notices each tick", async () => {
+		const pause = { by: "no-progress", at: 7, issues: [] };
+		expect(await noticedPauses(control({ paused: pause }))).toEqual([pause]);
+		expect(await noticedPauses(control())).toEqual([undefined]);
 	});
 });
 

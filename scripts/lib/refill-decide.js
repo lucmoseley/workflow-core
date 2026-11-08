@@ -1319,6 +1319,7 @@ module.exports = {
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildResumeWaitLine,
+	buildPauseIssueText,
 	buildPauseText,
 	buildPausedWaitText,
 	buildPlanWaitText,

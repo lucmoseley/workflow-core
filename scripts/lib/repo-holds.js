@@ -1408,6 +1408,7 @@ module.exports = {
 	dropLiftedJobs,
 	findOwnHold,
 	holdsDir,
+	isClearOwed,
 	liftHold,
 	raiseHold,
 	readCheckout,
