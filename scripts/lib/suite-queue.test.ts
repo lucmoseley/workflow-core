@@ -1691,8 +1691,101 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 				"q: after 0s, held on the count cap, PID 7\n",
 				"q: after 20s, held on the memory rung, MemAvailable 2000 MB against ~2750 MB\n",
 				"q: after 40s, held on the count cap, PID 8\n",
-				"q: gate opened after 50s — held 30s on the count cap, 20s on the memory rung (MemAvailable at lowest 2000 MB)\n",
+				"q: gate opened after 50s — held 30s on the count cap, 20s on the memory rung; MemAvailable at lowest 2000 MB\n",
 			]);
+		});
+
+		it("names every limb failing on the poll, not the gate's first alone", async () => {
+			const lines: string[] = [];
+			let turns = 0;
+			await waitForGate({
+				gate: () =>
+					turns < 1
+						? { limb: "count", pids: [7], memory: { mb: 2000, rungMb: 2750 } }
+						: null,
+				turn: () => turns++ > 0,
+				admit: noQueue,
+				sleepFn: () => Promise.resolve(),
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			expect(lines[1]).toBe(
+				"q: after 0s, held on the count cap, PID 7; also on the memory rung, MemAvailable 2000 MB against ~2750 MB; also on the queue's turn\n",
+			);
+		});
+
+		it("rounds the breakdown so its parts sum to the whole", async () => {
+			const lines: string[] = [];
+			let now = 0;
+			const polls: object[] = [{ limb: "count" }, { limb: "memory" }];
+			await waitForGate({
+				gate: () => polls.shift() ?? null,
+				admit: noQueue,
+				clock: () => now,
+				sleepFn: () => {
+					now += 1500;
+					return Promise.resolve();
+				},
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			expect(lines.at(-1)).toBe(
+				"q: gate opened after 3s — held 2s on the count cap, 1s on the memory rung\n",
+			);
+		});
+
+		it("sums the parts to the printed whole where the float sum would not, counting the first stretch to its limb", async () => {
+			const lines: string[] = [];
+			let now = 0;
+			const steps = [1003, 2377];
+			const polls: object[] = [
+				{ limb: "count" },
+				{ limb: "memory" },
+				{ limb: "count", pids: [9] },
+			];
+			await waitForGate({
+				gate: () => {
+					if (now === 0) now = 120;
+					return polls.shift() ?? null;
+				},
+				admit: noQueue,
+				clock: () => now,
+				sleepFn: () => {
+					now += steps.shift() ?? 0;
+					return Promise.resolve();
+				},
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			// 120 + 1003 + 2377 ms: 3.5 s prints as 4, the float sum as 3.
+			expect(lines.at(-1)).toBe(
+				"q: gate opened after 4s — held 1s on the count cap, 3s on the memory rung\n",
+			);
+		});
+
+		it("keeps the lowest MemAvailable a count-cap poll read beside it", async () => {
+			const lines: string[] = [];
+			const polls: object[] = [
+				{ limb: "count", pids: [7], memory: { mb: 1800, rungMb: 2750 } },
+			];
+			await waitForGate({
+				gate: () => polls.shift() ?? null,
+				admit: noQueue,
+				sleepFn: () => Promise.resolve(),
+				out: { write: (line: string) => lines.push(line) },
+				label: "q",
+				waiting: "waiting",
+				traceLimbs: true,
+			});
+			expect(lines.at(-1)).toMatch(
+				/^q: gate opened after 0s — held 0s on the count cap; MemAvailable at lowest 1800 MB\n$/,
+			);
 		});
 
 		it("prints none of it untraced", async () => {
@@ -1716,7 +1809,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			expect(lines.slice(0, 3)).toEqual([
 				"q: waiting\n",
 				"q: after 0s, held on the memory rung, MemAvailable 1000 MB against ~2750 MB\n",
-				"q: held 0s on the memory rung (MemAvailable at lowest 1000 MB)\n",
+				"q: held 0s on the memory rung; MemAvailable at lowest 1000 MB\n",
 			]);
 		});
 	});

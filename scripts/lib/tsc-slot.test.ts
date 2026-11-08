@@ -15,6 +15,7 @@ const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
 	) => {
 		limb: string;
 		pids?: (number | null)[];
+		memory?: { mb: number; rungMb: number; climbMb?: number };
 		mb?: number;
 		rungMb?: number;
 		climbMb?: number;
@@ -63,6 +64,12 @@ describe("lib/tsc-slot.js", () => {
 			rows("bash -l"),
 			2749,
 			{ limb: "memory", mb: 2749, rungMb: 2750 },
+		],
+		[
+			"one running under the rung, naming both (#4359)",
+			[{ pid: 4242, args: "node /r/node_modules/.bin/tsc" }],
+			2749,
+			{ limb: "count", pids: [4242], memory: { mb: 2749, rungMb: 2750 } },
 		],
 		["neither", rows("bash -l"), 2750, null],
 		["`ps` and MemAvailable both unread", null, null, null],

@@ -40,7 +40,9 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * where the gate read them (#4359), or its memory rung, with the reading and
  * the rung where the guard gave them, and what the other queue's launches have
  * yet to draw where the gate charged it (#3416).
- * @typedef {{ limb: "count", pids?: (number | null)[] } | { limb: "memory", mb?: number, rungMb?: number, climbMb?: number }} GateDenial
+ * A count denial carries the memory reading where the rung fails too (#4359).
+ * @typedef {{ mb?: number, rungMb?: number, climbMb?: number }} MemoryReading
+ * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading)} GateDenial
  */
 /**
  * Why a turn is closed, by whom (#4359): `fifo`, the waiters joined ahead,
@@ -1157,22 +1159,77 @@ function waitLimb(denial, open, turnHold) {
 }
 
 /**
+ * Every limb besides `denial`'s that fails this poll too, the gate's order
+ * hiding them (#4359): the memory rung under a count cap, and the turn.
+ * Reading the turn here sweeps stale markers as `readTurn` does on any poll,
+ * so a traced wait sweeps on denied polls too; nothing it sweeps is live.
+ *
+ * @param {GateDenial} denial
+ * @param {() => boolean} turn
+ * @param {() => TurnHold | undefined} turnHold
+ * @returns {WaitLimb[]}
+ */
+function readAlsoHeld(denial, turn, turnHold) {
+	/** @type {WaitLimb[]} */
+	const also =
+		denial.limb === "count" && denial.memory
+			? [{ limb: "memory", ...denial.memory }]
+			: [];
+	if (!turn()) also.push(turnHold() ?? { limb: "turn" });
+	return also;
+}
+
+/**
+ * Whole seconds per limb, summing to `wholeSecs` (largest remainder).
+ *
+ * @param {[WaitLimb["limb"], number][]} parts  each limb's milliseconds
+ * @param {number} wholeSecs
+ * @returns {[WaitLimb["limb"], number][]}
+ */
+function roundedSecs(parts, wholeSecs) {
+	const whole = parts.map(([, ms]) => Math.floor(ms / 1000));
+	const short = wholeSecs - whole.reduce((sum, n) => sum + n, 0);
+	const byRemainder = parts
+		.map(([, ms], i) => ({ i, rest: ms % 1000 }))
+		.sort((x, y) => y.rest - x.rest)
+		.slice(0, Math.max(0, short));
+	for (const { i } of byRemainder) whole[i] = (whole[i] ?? 0) + 1;
+	return parts.map(([limb], i) => [limb, whole[i] ?? 0]);
+}
+
+/**
+ * @param {WaitLimb[]} limbs
+ * @param {number | undefined} lowest  the lowest MemAvailable read so far
+ * @returns {number | undefined}
+ */
+function lowestReading(limbs, lowest) {
+	let low = lowest;
+	for (const limb of limbs)
+		if (limb.limb === "memory" && limb.mb !== undefined)
+			low = Math.min(low ?? limb.mb, limb.mb);
+	return low;
+}
+
+/**
  * A wait's trace of what holds it (#4359): `see` takes each poll's limb, or
- * null where nothing held it, and returns the line to print where the limb or
- * its holder changed; `breakdown` names the time held on each limb, in the
- * order each first held it, the limb holding it now counted to now, and the
- * memory rung's lowest MemAvailable. A yield leaves the limb it interrupted current, so the same limb
- * after it prints no line again.
+ * null where nothing held it, with the other limbs failing that poll, and
+ * returns the line to print where any of them or their holders changed;
+ * `breakdown` names the time on each limb from `started`, in the order each
+ * first held it, the limb holding it now counted to now, then the lowest
+ * MemAvailable any poll read. A yield's time is its own, and leaves the
+ * printed limbs alone, so the limb after it prints no line again.
  *
  * @param {() => number} clock
+ * @param {number} started
  */
-function limbTrace(clock) {
+function limbTrace(clock, started) {
 	/** @type {Map<WaitLimb["limb"], number>} */
 	const heldMs = new Map();
 	/** @type {WaitLimb | null} */
 	let current = null;
 	let identity = "";
-	let since = clock();
+	let since = started;
+	let first = true;
 	/** @type {number | undefined} */
 	let lowestMb;
 	const accrue = () => {
@@ -1182,31 +1239,41 @@ function limbTrace(clock) {
 		since = now;
 	};
 	return {
-		/** @param {WaitLimb | null} hold @returns {string | null} */
-		see(hold) {
+		/**
+		 * @param {WaitLimb | null} hold
+		 * @param {WaitLimb[]} [also]  the other limbs failing this poll
+		 * @returns {string | null}
+		 */
+		see(hold, also = []) {
+			if (first) {
+				/* The wait's first stretch is its first limb's. */
+				first = false;
+				current = hold;
+			}
 			accrue();
 			current = hold;
 			/* A yield prints its own line (`admitOrYield`). */
-			if (hold?.limb === "yielded") return null;
-			if (hold?.limb === "memory" && hold.mb !== undefined)
-				lowestMb = Math.min(lowestMb ?? hold.mb, hold.mb);
-			const next = hold ? `${hold.limb}${limbHolder(hold)}` : "";
+			if (!hold || hold.limb === "yielded") {
+				if (!hold) identity = "";
+				return null;
+			}
+			const held = [hold, ...also];
+			lowestMb = lowestReading(held, lowestMb);
+			const next = held
+				.map((limb) => `${limb.limb}${limbHolder(limb)}`)
+				.join(";");
 			if (next === identity) return null;
 			identity = next;
-			return hold ? describeLimb(hold) : null;
+			return held.map(describeLimb).join("; also on ");
 		},
-		breakdown() {
+		/** @param {number} wholeSecs  the wait's length, as its lines print it */
+		breakdown(wholeSecs) {
 			accrue();
-			const lowest = (/** @type {WaitLimb["limb"]} */ limb) =>
-				limb === "memory" && lowestMb !== undefined
-					? ` (MemAvailable at lowest ${lowestMb} MB)`
-					: "";
-			return [...heldMs]
-				.map(
-					([limb, ms]) =>
-						`${Math.round(ms / 1000)}s on ${LIMB_NAMES[limb]}${lowest(limb)}`,
-				)
+			const spent = roundedSecs([...heldMs], wholeSecs)
+				.map(([limb, secs]) => `${secs}s on ${LIMB_NAMES[limb]}`)
 				.join(", ");
+			if (!spent || lowestMb === undefined) return spent;
+			return `${spent}; MemAvailable at lowest ${lowestMb} MB`;
 		},
 	};
 }
@@ -1326,8 +1393,8 @@ function waitForGate({
 	let held = false;
 	let memoryHeld = false;
 	let climbHeldMb = 0;
-	const trace = limbTrace(clock);
-	const breakdown = () => (traceLimbs ? trace.breakdown() : "");
+	const trace = limbTrace(clock, started);
+	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
 	const sayBreakdown = () => {
 		const spent = breakdown();
 		if (spent) out.write(`${label}: held ${spent}\n`);
@@ -1356,9 +1423,11 @@ function waitForGate({
 		held = false;
 		return sleepFn(pollMs).then(step);
 	};
-	/** @param {WaitLimb | null} limb */
-	const see = (limb) => {
-		const line = trace.see(limb);
+	/** @param {GateDenial | null} denial @param {boolean} open */
+	const see = (denial, open) => {
+		const also =
+			traceLimbs && denial ? readAlsoHeld(denial, turn, turnHold) : [];
+		const line = trace.see(waitLimb(denial, open, turnHold), also);
 		if (!traceLimbs || !line) return;
 		announce();
 		out.write(`${label}: after ${secs()}s, held on ${line}\n`);
@@ -1371,7 +1440,7 @@ function waitForGate({
 	const admitOrYield = (launch, atOnce) => {
 		const admission = admit();
 		if (admission === "admitted") return launch();
-		see({ limb: "yielded" });
+		trace.see({ limb: "yielded" });
 		out.write(
 			`${label}: another launch was admitted on the same poll — yielding to it (#2622)\n`,
 		);
@@ -1438,7 +1507,7 @@ function waitForGate({
 			onMemoryHeld(memoryHeld);
 		}
 		const open = !denial && turn();
-		see(waitLimb(denial, open, turnHold));
+		see(denial, open);
 		if (!open && clock() - started >= timeoutMs)
 			return part ? proceed(denial, false) : refuse(denial);
 		if (open) return proceed(denial, true);
