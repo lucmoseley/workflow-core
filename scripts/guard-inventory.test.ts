@@ -1411,6 +1411,92 @@ describe("failing open", () => {
 	});
 });
 
+describe("the checklist of every piece a `needs input:` ending owes (#4206)", () => {
+	const Head = "EVERY PIECE THIS `needs input:` ENDING OWES";
+	const Pointer = "in the other Stop refusal this turn";
+	const Bare = "Done.\n\nneeds input: which parser ships first";
+	const priced = (message: string) =>
+		readStopGuardReason(PRICED, {
+			dir,
+			sid,
+			message,
+			job: true,
+			env: { WFC_GH: gh },
+		});
+	const count = (text: string, needle: string) => text.split(needle).length - 1;
+	const listOf = (reason: string) => reason.slice(reason.indexOf(Head));
+
+	it("names every piece of a bare ending at once, missing or not yet judged, and both guards print it once between them", () => {
+		const inventory = run(Bare);
+		const pricedReason = priced(Bare);
+		expect(inventory).toContain("carries no `waits on you:` block");
+		expect(pricedReason).toContain("no `\u2753 **Qn**` round");
+		const both = `${inventory}\n${pricedReason}`;
+		expect(count(both, Head)).toBe(1);
+		expect(count(both, Pointer)).toBe(1);
+		const list = listOf(inventory);
+		for (const piece of [
+			"research",
+			"round",
+			"posted",
+			"claimed",
+			"hand-off",
+			"block",
+			"status",
+			"practice",
+		])
+			expect(list).toMatch(
+				new RegExp(`\\*\\*${piece}\\*\\* — (MISSING|not yet judged)`),
+			);
+		expect(list).not.toContain("— met.");
+	});
+
+	it("passes both guards once every piece it names is written, in one re-send", () => {
+		expect(run(Bare)).toContain(Head);
+		serve({ r0: { n31: issue("OPEN", [POSTED]) } });
+		claim(31);
+		expect(run(NEEDS_INPUT)).toBe("");
+		expect(priced(NEEDS_INPUT)).toBe("");
+	});
+
+	it("shows what the refusing guard judged met, and the one piece still missing", () => {
+		serve({ r0: { n31: issue("OPEN", [POSTED]) } });
+		const list = listOf(run(NEEDS_INPUT));
+		expect(list).toContain("**posted** — met.");
+		expect(list).toContain("**claimed** — MISSING");
+		expect(list).toContain("**block** — met.");
+		expect(list).toMatch(/\*\*hand-off\*\* — not yet judged \(guard-inventory/);
+	});
+
+	it("prints the guard-priced-options.js copy where that guard claims the turn first", () => {
+		expect(priced(Bare)).toContain(Head);
+		expect(run(Bare)).toContain(Pointer);
+	});
+
+	it("gives a founder hand-over its own shape, judging only its hand-off", () => {
+		serve({ r0: { n31: issue("OPEN", []) } });
+		const list = listOf(
+			run(
+				"Run this:\n\n! gh auth login\n\nSend back what it prints.\n\nwaits on you:\n- #31 (run the login)\n\nneeds input: the login — waits on you: #31",
+			),
+		);
+		expect(list).toContain("a founder hand-over");
+		expect(list).toContain("**act** — met.");
+		expect(list).toContain("**hand-off** — MISSING");
+		expect(list).not.toContain("**round**");
+		expect(list).not.toContain("**claimed**");
+	});
+
+	it("leaves a refused `result:` or `waiting:` ending without it", () => {
+		const result = run("Done.\n\nresult: done");
+		expect(result).not.toBe("");
+		expect(result).not.toContain(Head);
+		const waiting = priced("Done.\n\nwaiting:");
+		expect(waiting).not.toBe("");
+		expect(waiting).not.toContain(Head);
+	});
+});
+
 describe("beside guard-priced-options.js, unchanged (#913 Q7)", () => {
 	const priced = (message: string) =>
 		readStopGuardReason(PRICED, {

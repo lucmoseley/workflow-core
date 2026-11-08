@@ -1,7 +1,8 @@
 /*
  * session-scope.js (lib) — the decisions behind scripts/session-scope.js
  * (#4341), its caller: which processes move with a session, how a refused
- * attach is retried, and the watcher script that kills the scope. No I/O:
+ * attach is retried, and the watcher script that kills the scope, whose argv
+ * check-orphan-wait-loops.js also reads (#4670). No I/O:
  * each read and call arrives as a port.
  */
 
@@ -148,9 +149,41 @@ while left && [ $i -lt ${GRACE_S} ]; do sleep 1; i=$((i + 1)); done
 exit 0
 `;
 
+/**
+ * The watcher's command for `leader`, started at `startTicks`:
+ * `sh -c WATCH sh <pid> <start> <unit>`.
+ * @param {number} leader @param {number} startTicks
+ */
+const watcherArgv = (leader, startTicks) => [
+	"sh",
+	"-c",
+	WATCH,
+	"sh",
+	String(leader),
+	String(startTicks),
+	unitOf(leader, startTicks),
+];
+
+/**
+ * The leader a watcher's argv waits on, `{pid, startTicks}`, or null where
+ * `argv` is not one watcherArgv built, sh at whatever path the service
+ * resolved. Known by its unit, not its script text, so a watcher started from
+ * an older WATCH still matches.
+ * @param {string[]} argv
+ */
+function parseWatcherArgv(argv) {
+	if (argv.length !== 7 || argv[1] !== "-c") return null;
+	const pid = Number(argv[4]);
+	const startTicks = Number(argv[5]);
+	if (!Number.isInteger(pid) || !Number.isInteger(startTicks)) return null;
+	return argv[6] === unitOf(pid, startTicks) ? { pid, startTicks } : null;
+}
+
 module.exports = {
 	SLICE,
 	WATCH,
+	watcherArgv,
+	parseWatcherArgv,
 	unitOf,
 	watcherOf,
 	isSessionProcess,

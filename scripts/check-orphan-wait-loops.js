@@ -32,6 +32,12 @@
  *   3. ELAPSED OVER THE THRESHOLD, which from the sweep's vantage point already
  *      does boundedness's work.
  *
+ * ONE EXCEPTION: a session-scope watcher (lib/session-scope.js's WATCH) runs
+ * under `systemd --user` by design and waits on its session's leader. While
+ * that leader's pid still reads with the start time in the watcher's argv the
+ * wait is in progress, not orphaned (#4670); once the leader is gone or its pid
+ * reused, the watcher is reported like any other loop.
+ *
  * IT RE-REPORTS ON EVERY SESSION START while the loop still runs, deliberately
  * unlike check-ghost-jobs.js, which stamps each ghost and reports it once. A
  * ghost job is a record to retire; an orphaned loop is a live process consuming
@@ -79,6 +85,7 @@ const {
 } = require("./lib/proc-table.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { parseWatcherArgv } = require("./lib/session-scope.js");
 
 /* The threshold, a judgement and not a measurement (mantahostels#2012). */
 const ORPHAN_AFTER_MINUTES = 30;
@@ -121,6 +128,19 @@ function shorten(argv) {
 }
 
 /**
+ * Whether `proc` is a session-scope watcher whose leader is still the process
+ * it was started for.
+ * @param {import("./lib/proc-table.js").Proc} proc
+ * @param {Map<number, import("./lib/proc-table.js").Proc>} table
+ */
+function isLiveLeaderWatcher(proc, table) {
+	const leader = parseWatcherArgv(proc.argv);
+	return (
+		leader !== null && table.get(leader.pid)?.startTicks === leader.startTicks
+	);
+}
+
+/**
  * @typedef {{ pid: number, ageMinutes: number, argv: string, kill: string }} Orphan
  */
 
@@ -141,6 +161,7 @@ function findOrphans(table, mine, { bootAgo, minutes }) {
 		if (!isInit(proc.ppid, table.get(proc.ppid)?.argv[0])) continue;
 		const argv = proc.argv.join(" ");
 		if (!isWaitLoop(argv)) continue;
+		if (isLiveLeaderWatcher(proc, table)) continue;
 		const ageMinutes = ageSeconds(proc, bootAgo) / 60;
 		if (ageMinutes < minutes) {
 			young++;

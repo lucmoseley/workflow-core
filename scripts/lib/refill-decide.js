@@ -853,7 +853,7 @@ const spendSeatFit = (seats, seat) =>
  * @param {number} slots
  */
 function takeResumes({ resumable = [], holds, seats }, slots) {
-	const stopped = buildProbeHeldRoots(holds);
+	const probeHeldRoots = buildProbeHeldRoots(holds);
 	/** @type {HeldResume[]} */
 	const resumes = [];
 	/** @type {HeldResume[]} */
@@ -861,7 +861,7 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
 	let seatsLeft = seats;
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
-		if (stopped.has(r.root)) continue;
+		if (probeHeldRoots.has(r.root)) continue;
 		const planSeat = seatsLeft.find((s) => isSameSeat(r, s));
 		if (planSeat?.fits === 0) {
 			capHeld.push(r);
@@ -915,11 +915,11 @@ function fill(
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
-	const stopped = buildProbeHeldRoots(holds);
+	const probeHeldRoots = buildProbeHeldRoots(holds);
 	/** Why `number` in `root` launches nothing whatever its row reads, or null.
 	 * @param {string} root @param {number} number */
 	const buildHeldWhy = (root, number) => {
-		if (stopped.has(root)) return PROBE_HELD;
+		if (probeHeldRoots.has(root)) return PROBE_HELD;
 		return taken.has(key(root, number)) ? ALREADY_RUNNING : null;
 	};
 	/* A resume is held to its own seat's cap, which the pick seat's fits does

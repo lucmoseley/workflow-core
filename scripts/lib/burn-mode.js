@@ -8,11 +8,14 @@
  * `docs/effort-guide.md` §Burn mode). The code reviewer is left alone: its
  * dispatch names `opus` and its agent definition's `effort:` outranks the
  * per-model effort this writes (#363).
- * Three surfaces read this file so the mapping is written once:
+ * These read this file so the mapping and the plans are written once:
  *
  *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's `model` field
  *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`
- *   scripts/burn-mode.sh               writes Opus 5.5's effort into settings.json
+ *   scripts/burn-mode.sh               writes Opus 5.5's effort into the plans'
+ *                                      settings files, listed by `plans` below
+ *   scripts/lib/dispatch-gates.js      reads the marker's path
+ *   scripts/refill-loop.js status      readBurnState, for the refill panel
  *
  * The state is one marker file per MACHINE, beside the settings files it is
  * the record for. `on` writes the effort it found into it, so `off` restores
@@ -20,8 +23,7 @@
  *
  * The maps are exact-match on purpose. An `Agent` call takes only the four
  * bare aliases, so a suffix there is impossible; a launch spelling this table
- * does not know passes through unchanged rather than being guessed at, which
- * is the safe direction — an unmapped spelling costs what it always cost.
+ * does not know passes through unchanged rather than being guessed at.
  */
 
 const fs = require("node:fs");
@@ -74,12 +76,7 @@ const LAUNCH = new Map([
  * Where the marker lives. `WFC_BURN_MARKER` overrides, so a test never
  * touches the machine's real switch; otherwise `~/.claude/.burn-mode`.
  *
- * ONE SWITCH PER MACHINE, not per checkout (#127), because the settings.json
- * half it gates is machine-wide and the two must not differ in scope.
- *
- * NO MIGRATION SHIM: no marker existed at the old path anywhere on the
- * machine when this landed, and nothing here reads it now, so a leftover is
- * ignored.
+ * ONE SWITCH PER MACHINE, not per checkout (#127).
  *
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}
@@ -141,24 +138,38 @@ function remapModel(input) {
 }
 
 /**
- * The plans `scripts/burn-mode.sh` would name, one entry per real file, as the
- * founder names them. A settings.json resolving to nothing is skipped, as there.
+ * The plans' settings files, one entry per real file (#187), as the founder
+ * names them, and those present that resolve to nothing, skipped: a dangling
+ * or looping symlink, or one that will not read.
  * @param {string} home
- * @returns {Map<string, string>} real path to name
+ * @returns {{files: Map<string, string>, dangling: string[]}} `files`, real path to name
  */
 function readPlanFiles(home) {
 	const homeReal = fs.realpathSync(home);
 	/** @type {Map<string, string>} */
 	const files = new Map();
+	/** @type {string[]} */
+	const dangling = [];
 	for (const dir of readPlanDirs(home)) {
+		const file = path.join(dir, "settings.json");
 		try {
-			const real = fs.realpathSync(path.join(dir, "settings.json"));
+			const real = fs.realpathSync(file);
 			files.set(real, path.relative(homeReal, real));
-		} catch (err) {
-			if (caught(err).code !== "ENOENT") throw err;
+		} catch {
+			if (isPresent(file)) dangling.push(file);
 		}
 	}
-	return files;
+	return { files, dangling };
+}
+
+/** @param {string} file */
+function isPresent(file) {
+	try {
+		fs.lstatSync(file);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -190,7 +201,7 @@ function isPlanDisagreeing(file, on) {
 function readBurnState(env = process.env) {
 	try {
 		const on = fs.existsSync(markerPath(env));
-		const disagreeing = [...readPlanFiles(env.HOME ?? "")]
+		const disagreeing = [...readPlanFiles(env.HOME ?? "").files]
 			.filter(([file]) => isPlanDisagreeing(file, on))
 			.map(([, name]) => name);
 		return { on, disagreeing, error: null };
@@ -213,6 +224,9 @@ module.exports = {
  *
  *   launch <model>    prints the launch spelling burn mode substitutes
  *   marker            prints the marker's path; 2 where HOME is unset
+ *   plans [--quiet]   prints each plan's settings file, real and NUL-ended,
+ *                     warning of each that resolves to nothing unless quiet;
+ *                     2 where HOME will not list
  *
  * stdout is always a pipe here, so it is written synchronously before the
  * exit — process.stdout.write can be cut off by process.exit on a pipe.
@@ -227,6 +241,27 @@ if (require.main === module) {
 		}
 		if (mode === "marker") {
 			say(markerPath());
+			process.exit(0);
+		}
+		if (mode === "plans") {
+			const home = process.env.HOME ?? "";
+			let listed;
+			try {
+				listed = readPlanFiles(home);
+			} catch (err) {
+				writeFd(
+					2,
+					`burn-mode: cannot list the plans under ${home}: ${caught(err).message}\n`,
+				);
+				process.exit(2);
+			}
+			const { files, dangling } = listed;
+			for (const file of arg === "--quiet" ? [] : dangling)
+				writeFd(
+					2,
+					`warning: skipping ${path.relative(home, file)} — it resolves to nothing\n`,
+				);
+			writeFd(1, [...files.keys()].map((f) => `${f}\0`).join(""));
 			process.exit(0);
 		}
 		process.exit(2);

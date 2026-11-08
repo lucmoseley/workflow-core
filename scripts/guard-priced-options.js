@@ -356,7 +356,12 @@
  * `npm run check:guard-errors` prints under `npm run status`. TWO LIMBS
  * REFUSE INSTEAD, EXCEPTING THEM FROM THE NEXT PARAGRAPH: the standing-round
  * pointer (#924) and the attached park (#3858) keep the round owed, logged
- * (`pointsAtStandingRound`, `isAttachedPark`).
+ * (`lib/needs-input-shape.js`'s `parkKind`).
+ *
+ * A BLOCK ON A BACKGROUND JOB'S `needs input:` ENDING ENDS WITH THE CHECKLIST
+ * (#4206) lib/needs-input-shape.js renders — every piece that ending owes,
+ * this guard's limbs marking the research, the round and the status line —
+ * printed once a turn between this guard and guard-inventory.js.
  *
  * EVERY FAILURE PATH IS SILENT AND EXITS 0 — breaking a session is worse than
  * missing one.
@@ -478,6 +483,12 @@ const {
 	resolveKey,
 } = require("./lib/workflow-core-config");
 const { failOpenLogger } = require("./lib/fail-open-logger");
+const {
+	BANG,
+	NAMES_A_LETTER,
+	parkKind,
+	shareChecklist,
+} = require("./lib/needs-input-shape");
 
 const {
 	SESSION_PREFIX,
@@ -597,7 +608,6 @@ const NUMBERED_ITEM = /^\s{0,3}\d+[.)]\s+\S/;
 /* The recommendation line. The founder replies with a letter, so the
  * recommendation names one. */
 const RECOMMENDATION = /^\s{0,3}\u27a1/u;
-const NAMES_A_LETTER = /\([A-Z]\)/;
 const BULLET_ITEM = /^\s{0,3}[-*+]\s+\S/;
 
 /**
@@ -806,9 +816,6 @@ function defectsIn(block) {
 	];
 }
 
-/* A pasteable `!` command's opening, which every pattern reading one is built
- * from (#936); `![` opens a Markdown image, not a command. */
-const BANG = /!\s*[^\s`[]/.source;
 /* The same, first in a fenced block. */
 const FENCED_BANG = String.raw`\x60{3}[^\n]*\n\s*${BANG}`;
 
@@ -1911,52 +1918,6 @@ function emptyStatusMarker(status) {
 	return "";
 }
 
-/* A pasteable `!` line, bare, inline-coded or inside a fence. */
-const HANDOVER_BANG = new RegExp(String.raw`^\s{0,3}\x60?${BANG}`);
-const FENCE = /^\s{0,3}```/;
-/* What `rule:founder-handover`'s third step asks for — what to send back, or
- * what the session then checks (#926). Lexical, so a send-back phrased
- * otherwise is refused and the session rewords it. The 30- and 40-character
- * reaches are chosen, not measured, on `BACK_REFERENCE`'s terms. */
-const SEND_BACK = new RegExp(
-	[
-		String.raw`\b(?:send|paste)\b[^.\n]{0,30}\bback\b`,
-		String.raw`\b(?:reply|tell me|let me know)\b`,
-		String.raw`\bonce (?:it|that|the \w+) (?:prints|shows|lands|returns|finishes)\b`,
-		String.raw`\b(?:I['’]ll|I will|I then|then I)\b[^.\n]{0,40}?\b(?:check|verify|confirm|read|re-?run|finish|commit|close)\b`,
-	].join("|"),
-	"i",
-);
-
-/**
- * Whether a message ends in a founder hand-over: at least one literal act — a
- * `!` line, or a fenced block of literal text — with a send-back line after
- * the last of them. Lines inside a fence are never read as the send-back.
- *
- * TWO RESIDUALS. Any fenced block counts as an act, so quoted output followed
- * by "let me know" passes. And nothing bounds the prose between the last act
- * and the send-back, so a decision put in unlettered prose there passes too —
- * `needsInputWithoutRound` voids the exemption on a letter, never on prose.
- *
- * @param {string} message the outgoing assistant message
- * @returns {boolean}
- */
-function isFounderHandover(message) {
-	let inFence = false;
-	let lastAct = -1;
-	let lastSendBack = -1;
-	const lines = String(message).split("\n");
-	for (const [at, line] of lines.entries()) {
-		if (FENCE.test(line)) {
-			if (inFence) lastAct = at;
-			inFence = !inFence;
-		} else if (inFence) continue;
-		else if (HANDOVER_BANG.test(line)) lastAct = at;
-		else if (SEND_BACK.test(line)) lastSendBack = at;
-	}
-	return lastAct >= 0 && lastSendBack > lastAct;
-}
-
 /**
  * A THIRTEENTH REFUSAL, ON THE SCOPE THE OTHER TWELVE INHERIT (mantahostels#2583): a
  * background job ending on `needs input:` with no round at all. The founder
@@ -1976,7 +1937,7 @@ function isFounderHandover(message) {
  * joined reason, accepted for the separate counter.
  *
  * ONE EXEMPTION (#926): a message whose only pending item is one founder act,
- * handed over in `isFounderHandover`'s shape, passes. Any `(A)`-style letter
+ * handed over in `lib/needs-input-shape.js`'s `isFounderHandover` shape, passes. Any `(A)`-style letter
  * voids it, on its own line, in a bullet or mid-prose, so a real decision
  * written beside a `!` line is still refused.
  *
@@ -1997,10 +1958,7 @@ function needsInputWithoutRound(message, status, transcript) {
 	const marker = status.governing;
 	if (marker?.name !== "needs input:") return "";
 
-	if (!NAMES_A_LETTER.test(message) && isFounderHandover(message)) return "";
-	if (pointsAtStandingRound(marker.payload, transcript)) return "";
-	if (!NAMES_A_LETTER.test(message) && isAttachedPark(marker.payload))
-		return "";
+	if (parkKind(message, marker.payload, transcript) !== "prose") return "";
 
 	return (
 		"This turn ends a background job on `needs input:` with no `\u2753 **Qn**` " +
@@ -2028,69 +1986,6 @@ function needsInputWithoutRound(message, status, transcript) {
 		"`result:` where nothing waits on the founder, `waiting:` where something " +
 		"you launched will wake this session."
 	);
-}
-
-/* The fail-open log's second field for the standing-round reader (#924),
- * which fails closed. */
-const FAIL_LOG_STANDING = "guard-priced-options standing-round";
-/* A round named by number on the marker's own line: `Q1 above`. */
-const NAMED_ROUND = /\bQ(\d+)\b/g;
-
-/**
- * Whether a `needs input:` payload points at rounds still standing (#924):
- * it names at least one `Q<n>`, and every one it names was opened in the
- * assistant's text since the founder last spoke, in a turn no Stop hook sent
- * back (`lib/tool-calls-since.js`).
- *
- * IT FAILS CLOSED, LOGGED — unlike `waitingUnverified`, which fails open. A
- * missed pointer costs a re-printed round; a pointer let through wrongly ends
- * the job on a round the founder already answered or never saw.
- *
- * RESIDUAL: a `❓ **Qn**` line quoted in an earlier message, fenced or not,
- * counts as posted.
- *
- * @param {string} payload the governing marker's text after its colon
- * @param {string} [transcript] the session's transcript path
- * @returns {boolean}
- */
-function pointsAtStandingRound(payload, transcript) {
-	const named = [...payload.matchAll(NAMED_ROUND)].map((m) =>
-		requiredGroup(m, 1, NAMED_ROUND),
-	);
-	if (named.length === 0 || !transcript) return false;
-	const log = failOpenLogger(FAIL_LOG_STANDING);
-	let rounds;
-	try {
-		rounds = require("./lib/tool-calls-since").standingRounds(transcript);
-	} catch (e) {
-		log?.(`transcript would not be read at ${transcript}: ${e} — refused`);
-		return false;
-	}
-	if (rounds === null) {
-		log?.(`transcript parsed to no records at ${transcript} — refused`);
-		return false;
-	}
-	return named.every((n) => rounds.includes(n));
-}
-
-/* The fail-open log's second field for the attached-park reader (#3858). */
-const FAIL_LOG_ATTACHED = "guard-priced-options attached-park";
-
-/**
- * Whether a `needs input:` payload parks this job on an open repo hold it is
- * attached to (#3858). Fails closed, logged, on `pointsAtStandingRound`'s terms:
- * a missed park costs a round the founder may already hold; a park let through
- * wrongly ends the job with its question asked nowhere.
- * @param {string} payload the governing marker's text after its colon
- * @returns {boolean}
- */
-function isAttachedPark(payload) {
-	try {
-		return require("./lib/repo-holds").findOwnHold(payload) !== null;
-	} catch (e) {
-		failOpenLogger(FAIL_LOG_ATTACHED)?.(`holds would not read: ${e} — refused`);
-		return false;
-	}
 }
 
 /* The fail-open log's second field for the waiting-verification limb, which
@@ -2309,6 +2204,52 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
 
 /** @typedef {import("./lib/priced-options-ceiling").Part} Part */
 
+/** @type {Record<string, "research" | "round" | "status">} each limb's piece of a `needs input:` ending */
+const PIECE_OF = {
+	[CLOSE_RIVALS_PREFIX]: "research",
+	[ROUND_CHECK_PREFIX]: "research",
+	[RESEARCH_LADDER_PREFIX]: "research",
+	[SHAPE_PREFIX]: "round",
+	[NEEDS_INPUT_ROUND_PREFIX]: "round",
+	[FOUNDER_ACT_PREFIX]: "round",
+	[ACTOR_ONLY_PREFIX]: "round",
+	[MISSING_NEEDS_INPUT_PREFIX]: "status",
+	[EMPTY_MARKER_PREFIX]: "status",
+	[COMPLETED_WHILE_WAITING_PREFIX]: "status",
+	[NEEDS_INPUT_UNDERCUT_PREFIX]: "status",
+	[NEEDS_INPUT_MISPLACED_PREFIX]: "status",
+};
+
+/**
+ * The checklist a refused `needs input:` ending ends with (#4206), judged on
+ * every part this turn earned, a part past its cap included; "" for any other
+ * ending. This guard judges a round's research and shape met where no limb
+ * refused them, and the status line only ever missing — its tail is
+ * guard-inventory.js's to pass.
+ * @param {{ sessionId: string, message: string, status: StatusReading | null,
+ *   transcript?: string }} turn
+ * @param {Part[]} parts
+ * @returns {string}
+ */
+function checklistTail({ sessionId, message, status, transcript }, parts) {
+	const marker = status?.governing;
+	if (marker?.name !== "needs input:") return "";
+	/** @type {import("./lib/needs-input-shape").Judgement} */
+	const judged =
+		splitQuestions(message).length > 0 ? { research: "met", round: "met" } : {};
+	for (const { prefix } of parts) {
+		const piece = PIECE_OF[prefix];
+		if (piece) judged[piece] = "missing";
+	}
+	return shareChecklist({
+		sessionId,
+		message,
+		payload: marker.payload,
+		transcript,
+		judged,
+	});
+}
+
 /**
  * The whole of this guard's judgement on one turn; `lib/stop-guard.js` owns
  * everything around it.
@@ -2400,6 +2341,8 @@ function judge({ sessionId, message, payload }) {
 		blockOn(ceilingPlan(live, ceilingAt, afterBatch), {
 			sessionId,
 			recorders: [close, close.ladder, roundCheck],
+			tail: () =>
+				checklistTail({ sessionId, message, status, transcript }, parts),
 		})
 	)
 		return;

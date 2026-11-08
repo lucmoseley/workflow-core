@@ -136,7 +136,9 @@ const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { systemctl } = require("./lib/systemd-bins.js");
 const {
+	appendLoopLog,
 	readControlChecked,
+	buildLoopLogLine,
 	readControlFile,
 	withControlLock,
 	writeControlFile,
@@ -470,10 +472,8 @@ const bootPorts = (write) => ({
  */
 function bootResume() {
 	const note = (/** @type {string} */ line) => {
-		const stamped = `${new Date().toISOString()} ${line}\n`;
-		writeFd(1, stamped);
-		fs.mkdirSync(path.dirname(files.log), { recursive: true });
-		fs.appendFileSync(files.log, stamped);
+		writeFd(1, buildLoopLogLine(line));
+		appendLoopLog(line);
 	};
 	return runBootResume({
 		...bootPorts(note),
@@ -580,10 +580,7 @@ function start(parsed) {
 function launchFrom(control, scopeText) {
 	const launched = launchLoop();
 	if ("error" in launched) {
-		fs.appendFileSync(
-			files.log,
-			`${new Date().toISOString()} refill loop not started: ${launched.error}\n`,
-		);
+		appendLoopLog(`refill loop not started: ${launched.error}`);
 		return { error: launched.error };
 	}
 	return {
