@@ -153,8 +153,7 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 /**
  * `hostRoot()`, adopted as this process's host: `CLAUDE_PROJECT_DIR` is
  * pointed at it, so every child the run launches, a shell or Python half or a
- * raw reader of the variable among them, answers the same main checkout. For a
- * run launched in a linked worktree that reads the main checkout's stores
+ * raw reader of the variable among them, answers the same main checkout
  * (#1555, #4483, #4486). The working-directory limb's fail-open guess is
  * never adopted: the declared limb would keep it unasked for the rest of the
  * run, and only a git read that succeeded is memoised.

@@ -9,9 +9,6 @@
  * the worktree's copy differing from the shared tree's; the runners' cases
  * read the worktree's own config.
  *
- * Break it and a test run inside a worktree passes or fails on the shared
- * tree's files.
- *
  * The seam's cases are spawned, not required in-process: it reads
  * `CLAUDE_PROJECT_DIR` and memoises on cwd, and the suite's own process must
  * keep both. The runners' run through `runInProcessAsync`, which restores
@@ -289,7 +286,6 @@ describe("the host seam", () => {
 			expect(readFromCommitHost(tree, undefined)).toBe("septree\n");
 		});
 
-		/* The answer there may be a store the hook never reads (#3830, #3906). */
 		it("answers the working directory in a bare repository, which has no top level, and says so on stderr", () => {
 			const bare = path.join(dir, "bare.git");
 			spawnSync("git", ["init", "-q", "--bare", bare]);
