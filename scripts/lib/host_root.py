@@ -19,6 +19,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from wfc_bin import bin_path
+
 
 def host_root(cwd: str | None = None) -> str:
     """The host repository's root, as an absolute path."""
@@ -42,7 +44,7 @@ def _owning_checkout(here: str) -> str:
         top, common = (
             subprocess.run(
                 [
-                    "git",
+                    bin_path("git"),
                     "rev-parse",
                     "--path-format=absolute",
                     "--show-toplevel",

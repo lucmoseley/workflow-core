@@ -8,7 +8,7 @@ than one per script, so the var names live in one table (#1298).
 import os
 
 # Base §N7's house names, one var per binary.
-VARS = {"gh": "WFC_GH", "claude": "WFC_CLAUDE_BIN", "ps": "WFC_PS"}
+VARS = {"gh": "WFC_GH", "claude": "WFC_CLAUDE_BIN", "ps": "WFC_PS", "git": "WFC_GIT"}
 
 
 def bin_path(name):

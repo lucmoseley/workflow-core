@@ -21,7 +21,7 @@ const { withoutStamps } = require("./stamp-paths.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
 /* Three finishes in a row with no progress pause the loop (#1920, #3859), and
- * as many launches since the last act are all that run unproven (#4223). */
+ * as many launches since the last act are all that run unproven (#4200, #4223). */
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
@@ -345,7 +345,8 @@ function noProgressRun({ history, noProgressFrom }) {
 /**
  * How many more launches and resumes may start before an act proves one
  * (#4223): NO_PROGRESS_RUN less the running launches started after
- * `lastActAt`, every one where it is null. One the loop stopped, for a park or
+ * `lastActAt`, every one where it is null, a launch with no job yet among them
+ * (so not refill-blocks' isActionable). One the loop stopped, for a park or
  * on its seat's limit and not since resumed, runs no session, and one due back
  * this tick is counted as its resume.
  * @param {Pick<TickInput, "history"|"lastActAt"> & Partial<Pick<TickInput, "resumable">>} input
@@ -1307,13 +1308,12 @@ function decideUnpaused(input) {
 	if (input.freeSlots === 0)
 		return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
 	const room = unprovenRoom(input);
-	if (room === 0)
-		return buildIdleDecision(buildUnprovenIdle(input.lastActAt), held, []);
-	const free = Math.min(input.freeSlots, room);
 	const spent =
 		room < input.freeSlots
 			? buildUnprovenIdle(input.lastActAt)
 			: buildIdle(RESUMES_TAKE_SLOTS);
+	if (room === 0) return buildIdleDecision(spent, held, []);
+	const free = Math.min(input.freeSlots, room);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
 		...decideLaunches(input, { free, spent, held, resumes, seatsLeft }),

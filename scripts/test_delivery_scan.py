@@ -3,7 +3,8 @@ read classifier both delivery-cost scanners share (#1322, #1351, #947): a skip
 miscounted, a result dropped or a read misfiled here misreports both. In
 process; the reader's cases run over transcripts written to conftest's temp
 seat roots rather than the real corpus, so a count is exact, and the unreadable
-case is #1274's counted-not-fatal rule."""
+case is #1274's counted-not-fatal rule. git() runs a `stub_bin` git at
+WFC_GIT, so a pass proves the call took that route (#4262)."""
 
 import os
 import sys
@@ -123,3 +124,10 @@ def test_growth_is_the_least_squares_slope_per_day():
         == 200.0
     )
     assert ds.growth_per_day({"2026-08-20": 100}) == 0.0
+
+
+def test_git_output_comes_from_the_git_at_wfc_git(monkeypatch, stub_bin):
+    git, calls = stub_bin("git", "out\n")
+    monkeypatch.setenv("WFC_GIT", git)
+    assert ds.git("status") == "out\n"
+    assert calls() == [f"-C {ds.REPO} status"]

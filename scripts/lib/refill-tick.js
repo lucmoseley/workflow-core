@@ -1000,7 +1000,7 @@ const productionIo = {
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
 	sendPauseNotices: (paused, now) => tendPauseNotices(paused, now, log),
 	readProgress,
-	readLastActAt: readLoopLastActAt,
+	readLoopLastActAt,
 	readCause,
 	unparkAnswered: blocks.unparkAnswered,
 	tendClosedParks,

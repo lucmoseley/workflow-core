@@ -2,7 +2,7 @@
 
 `bench` exists so every test in test_bench_suite_concurrency.py takes the
 harness as `bench` (#1277). `stub_bin` is the §N7 seam: a program's `WFC_GH`,
-`WFC_CLAUDE_BIN` or `WFC_PS` pointed at a real executable, never a patched
+`WFC_CLAUDE_BIN`, `WFC_PS` or `WFC_GIT` pointed at a real executable, never a patched
 `subprocess` (#1278). `seat_roots` is transcript_corpus.py's: its seats pointed at temp config
 dirs by the env it reads, never a patched module global (#1275). `corpus` and
 `unkeyed` are the transcript scanners' tests' own, written once (#1297).

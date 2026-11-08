@@ -8,7 +8,8 @@
  *
  * git feeds `<local ref> <local sha> <remote ref> <remote sha>` per ref on
  * stdin. A deletion of `main` pushes the all-zero sha, which no ledger holds,
- * so it is refused too.
+ * so it is refused too. A push creating `main` on a remote that has none, its
+ * remote sha all zeros, passes: it is a new repo's first push (#2412).
  *
  * A sha whose tree is a ledgered sha's tree passes: the suite tested that
  * tree (#1954).
@@ -34,7 +35,7 @@ const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { fileLedger, queueLanderFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const { parseRefLines } = require("./lib/push-refs.js");
+const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
 	buildUnchecked,
 	isModuleOnAtHead,
@@ -49,12 +50,20 @@ const MAIN = `refs/heads/${VERIFIED_BRANCH}`;
 const unchecked = buildUnchecked("landing-push-gate", "push to main");
 
 /**
- * The local shas the ref list pushes to `main`, a deletion's zeros included.
+ * Whether the line creates `main` on a remote that has none.
+ * @param {import("./lib/push-refs.js").RefLine} line
+ */
+const createsMain = ({ sha, remoteSha }) =>
+	remoteSha !== undefined && isZeroSha(remoteSha) && !isZeroSha(sha);
+
+/**
+ * The local shas the ref list pushes to an existing `main`, a deletion's
+ * zeros included.
  * @param {string} stdin
  */
 const parseMainPushes = (stdin) =>
 	parseRefLines(stdin)
-		.filter(({ remoteRef }) => remoteRef === MAIN)
+		.filter((line) => line.remoteRef === MAIN && !createsMain(line))
 		.map(({ sha }) => sha);
 
 /**
