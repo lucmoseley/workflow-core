@@ -33,6 +33,7 @@ const { readInstalledRecord } = require("./plugin-record.js");
 const { appendStepsOwed } = require("./steps-owed.js");
 const { formatConfigJson } = require("./config-json.js");
 const { caught } = require("./caught.js");
+const { compareVersions } = require("./compare-versions.js");
 
 /**
  * @param {string} v `v1.2.3` or `1.2.3`
@@ -47,11 +48,7 @@ function semver(v) {
 }
 
 /** @param {string} a @param {string} b */
-function semverCompare(a, b) {
-	const [am, ai, ap] = semver(a);
-	const [bm, bi, bp] = semver(b);
-	return am - bm || ai - bi || ap - bp;
-}
+const semverCompare = (a, b) => compareVersions(semver(a), semver(b));
 
 /**
  * @param {string} root
@@ -575,10 +572,9 @@ function probeNotes({
 	walkCeiling,
 }) {
 	/* Semver-shaped pins only. `semverCompare` reads a SHA beginning with a
-	 * digit as a version — `3f9a2c1` parses as 3.0.0 — and a branch name as
-	 * NaN, so an unfixed ref would put notes on the wrong side of a floor that
-	 * means nothing. #251 left that hole open on the in-range side; the probe
-	 * does not widen it. */
+	 * digit as a version — `3f9a2c1` parses as 3.0.0 — so an unfixed ref
+	 * would put notes on the wrong side of a floor that means nothing. #251
+	 * left that hole open on the in-range side; the probe does not widen it. */
 	const pinIsTag =
 		typeof pinned === "string" && /^v?\d+\.\d+\.\d+$/.test(pinned);
 

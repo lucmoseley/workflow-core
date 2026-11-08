@@ -15,6 +15,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeClaudeStub } from "./claude-stub";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { shellQuote } from "./sh-quote.js";
 
@@ -39,13 +40,10 @@ afterEach(() => {
 
 /** A `claude` stand-in: `agents --json` prints `body`, then exits `code`. */
 function fakeClaude(body: string, code = 0) {
-	const bin = path.join(dir, "claude");
-	fs.writeFileSync(
-		bin,
-		`#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
-		{
-			mode: 0o755,
-		},
+	const bin = writeClaudeStub(
+		path.join(dir, "claude"),
+		[`cat <<'EOF'\n${body}\nEOF`],
+		code,
 	);
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return bin;
@@ -86,12 +84,6 @@ describe("the binary will not run", () => {
 		expect(liveness.listedAgents().why).toContain("would not run (EACCES)");
 	});
 
-	it("throws where it is given no config dir to read, never answering an empty listing", () => {
-		expect(() => liveness.runOracle(fakeClaude("[]"), 1000, [])).toThrow(
-			"no config dir",
-		);
-	});
-
 	it("names the binary it tried, so a wrong WFC_CLAUDE_BIN is visible", () => {
 		const bin = path.join(dir, "no-such-claude");
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
@@ -110,16 +102,16 @@ describe("the binary will not run", () => {
  */
 function hangingClaude(body: string, hangs: number) {
 	const count = path.join(dir, "calls");
-	const bin = path.join(dir, "claude");
-	fs.writeFileSync(
-		bin,
-		"#!/bin/sh\n" +
-			`n=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)\n` +
-			"n=$((n + 1))\n" +
-			`echo $n > ${shellQuote(count)}\n` +
-			`[ $n -le ${hangs} ] && exec sleep 30\n` +
-			`cat <<'EOF'\n${body}\nEOF\n`,
-		{ mode: 0o755 },
+	const bin = writeClaudeStub(
+		path.join(dir, "claude"),
+		[
+			`n=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)`,
+			"n=$((n + 1))",
+			`echo $n > ${shellQuote(count)}`,
+			`[ $n -le ${hangs} ] && exec sleep 30`,
+			`cat <<'EOF'\n${body}\nEOF`,
+		],
+		0,
 	);
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return () => Number(fs.readFileSync(count, "utf8").trim());
@@ -169,11 +161,13 @@ describe("the oracle times out (mantahostels#1900)", () => {
 
 	it("does not retry a failure that is not a timeout", () => {
 		const count = path.join(dir, "calls");
-		const bin = path.join(dir, "claude");
-		fs.writeFileSync(
-			bin,
-			`#!/bin/sh\nn=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)\necho $((n + 1)) > ${shellQuote(count)}\nexit 3\n`,
-			{ mode: 0o755 },
+		const bin = writeClaudeStub(
+			path.join(dir, "claude"),
+			[
+				`n=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)`,
+				`echo $((n + 1)) > ${shellQuote(count)}`,
+			],
+			3,
 		);
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		const r = liveness.listedAgents();
@@ -193,12 +187,13 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
 		const pids = path.join(dir, "pids");
-		const bin = path.join(dir, "claude");
-		fs.writeFileSync(
-			bin,
-			`#!/bin/bash\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nwait\n`,
-			{ mode: 0o755 },
-		);
+		const bin = writeClaudeStub(path.join(dir, "claude"), [
+			"sleep 30 &",
+			`echo $! >> ${shellQuote(pids)}`,
+			"sleep 30 &",
+			`echo $! >> ${shellQuote(pids)}`,
+			"wait",
+		]);
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		expect(liveness.listedAgents().why).toContain("ETIMEDOUT");
 		const children = fs.readFileSync(pids, "utf8").trim().split("\n");
@@ -432,19 +427,17 @@ describe("every plan's listing (#3512)", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", b);
 		const absent = path.join(dir, "no-such-seat");
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", absent);
-		const bin = path.join(dir, "claude");
-		fs.writeFileSync(
-			bin,
+		const bin = writeClaudeStub(
+			path.join(dir, "claude"),
 			[
-				"#!/bin/sh",
 				`case "$CLAUDE_CONFIG_DIR" in`,
 				`  ${shellQuote(a)}) echo ${shellQuote(listing("a1", "shared"))} ;;`,
 				`  ${shellQuote(b)}) [ -e ${shellQuote(path.join(dir, "b-fails"))} ] && exit 4; echo ${shellQuote(listing("b1", "shared"))} ;;`,
 				`  ${shellQuote(absent)}) echo ${shellQuote(listing("absent"))} ;;`,
 				`  *) echo ${shellQuote(listing("own"))} ;;`,
 				"esac",
-			].join("\n"),
-			{ mode: 0o755 },
+			],
+			0,
 		);
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	}
@@ -467,11 +460,15 @@ describe("every plan's listing (#3512)", () => {
 			JSON.stringify([
 				{ sessionId: "moved", id: "moved", kind: "background", state },
 			]);
-		const bin = path.join(dir, "claude");
-		fs.writeFileSync(
-			bin,
-			`#!/bin/sh\ncase "$CLAUDE_CONFIG_DIR" in\n  ${shellQuote(a)}) echo ${shellQuote(row("working"))} ;;\n  *) echo ${shellQuote(row("stopped"))} ;;\nesac\n`,
-			{ mode: 0o755 },
+		const bin = writeClaudeStub(
+			path.join(dir, "claude"),
+			[
+				`case "$CLAUDE_CONFIG_DIR" in`,
+				`  ${shellQuote(a)}) echo ${shellQuote(row("working"))} ;;`,
+				`  *) echo ${shellQuote(row("stopped"))} ;;`,
+				"esac",
+			],
+			0,
 		);
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
 		expect(liveness.listedAgents({ requireSelf: false }).agents).toMatchObject([

@@ -72,7 +72,10 @@ const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { isTerminalAgent } = require("./lib/agent-liveness.js");
 const { forgetSession } = require("./lib/session-id.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const {
+	CHILD_ERROR_CHARS,
+	CHILD_MAX_BUFFER,
+} = require("./lib/child-buffer.js");
 const { stopOn } = require("./lib/claude-stop.js");
 const { buildSeatEnv, runClaude } = require("./lib/seat-claude.js");
 const { claudeBin } = require("./lib/claude-bin.js");
@@ -115,8 +118,6 @@ const admissionCli = () =>
 const SCORER = path.join(__dirname, "score-session-breaches.js");
 /** `A=<rev>@<config dir>`, as `--arm` takes it. */
 const ARM_SPEC = /^([^=]+)=([^@]+)@(.+)$/;
-/** Of a child's output, enough to name its error in one line; a guess. */
-const ERROR_CHARS = 200;
 /**
  * `run`'s clock, monotonic so a wall-clock step neither fires the limit early
  * nor holds it off. `WFC_ARM_CLOCK_STEP_MS` stands a test's clock in for it,
@@ -492,7 +493,7 @@ function prepare(run, { issues, nodeModules }) {
 		// A builder that exits 0 without its record is a builder bug (#2045).
 		return {
 			ok: false,
-			why: `the builder printed no task record: ${built.stdout.slice(0, ERROR_CHARS)}`,
+			why: `the builder printed no task record: ${built.stdout.slice(0, CHILD_ERROR_CHARS)}`,
 		};
 	}
 	const repo = fs.realpathSync(task.sandbox.repo);
@@ -573,7 +574,7 @@ function readAdmissionSlots() {
 	} catch {
 		return {
 			slots: 0,
-			why: `admission printed no reading (exit ${r.status}): ${r.stderr.trim().slice(0, ERROR_CHARS)}`,
+			why: `admission printed no reading (exit ${r.status}): ${r.stderr.trim().slice(0, CHILD_ERROR_CHARS)}`,
 		};
 	}
 }
