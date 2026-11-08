@@ -124,17 +124,19 @@ describe("the directories npm's selectors run in", () => {
 			});
 		});
 
-		it.each([
-			// The command measured, then the flags and `--prefix` it gives.
-			["-ws", ["pkgs/a"], "-ws", ""],
-			["-ws --prefix .", ["pkgs/a/sub"], "-ws", "."],
-			[
-				"--no-workspaces --workspaces",
-				["pkgs/a"],
-				"--no-workspaces --workspaces",
-				"",
-			],
-		])("npm %s runs in %j", (_measured, dirs, flags, prefix) => {
+		const rows: [string, string, string[]][] = [
+			["-ws", "", ["pkgs/a"]],
+			["-ws", ".", ["pkgs/a/sub"]],
+			["--no-workspaces --workspaces", "", ["pkgs/a"]],
+		];
+		it.each(
+			rows.map(([flags, prefix, dirs]) => ({
+				line: prefix ? `${flags} --prefix ${prefix}` : flags,
+				flags,
+				prefix,
+				dirs,
+			})),
+		)("npm $line runs in $dirs", ({ flags, prefix, dirs }) => {
 			expect(select(nested, flags, "pkgs/a", prefix)).toEqual(dirs);
 		});
 	});
