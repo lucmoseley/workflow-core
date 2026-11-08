@@ -59,7 +59,8 @@ const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
 
-/* digestAt says why sixteen. */
+/* Matches guard-registry-anchors.json's width: an anchor file is read by
+ * people, and a full sha256 per row buys nothing here. */
 const DIGEST_HEX_LENGTH = 16;
 
 /*
@@ -594,9 +595,8 @@ function readComposed(snap, rel, code, ruleFiles) {
 }
 
 /**
- * The census digest of `rel` at `rev`, or null where it is gone. Sixteen hex
- * characters, matching guard-registry-anchors.json's width: an anchor file is
- * read by people, and a full sha256 per row buys nothing here.
+ * The census digest of `rel` at `rev`, DIGEST_HEX_LENGTH hex characters, or
+ * null where it is gone.
  *
  * @param {string} root
  * @param {string} rel

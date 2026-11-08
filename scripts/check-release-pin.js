@@ -58,6 +58,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { caught } = require("./lib/caught.js");
+const { compareVersions } = require("./lib/compare-versions.js");
 const { execGit } = require("./lib/git.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -69,9 +70,8 @@ const TAG_RE = /^v\d+\.\d+\.\d+$/;
 /**
  * A bare `plugin.json` version in the same three-numeric-part shape a
  * release tag requires. `semverGt` needs this: an unparsed part becomes
- * `NaN`, and `NaN !== n` reads as "not equal" while `NaN > n` reads `false`
- * either way round, so a malformed version would silently compare as NOT
- * ahead rather than surface as the fault it is.
+ * `NaN`, which compares as NOT ahead either way round, so a malformed
+ * version would pass silently rather than surface as the fault it is.
  */
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 
@@ -87,11 +87,7 @@ const FETCH_REMOTE_RE = /^(\S+)\s+(\S+)\s+\(fetch\)$/;
  * @returns {boolean} whether `a` is a later semver than `b`
  */
 function semverGt(a, b) {
-	const [a1, a2, a3] = semverParts(a);
-	const [b1, b2, b3] = semverParts(b);
-	if (a1 !== b1) return a1 > b1;
-	if (a2 !== b2) return a2 > b2;
-	return a3 > b3;
+	return compareVersions(semverParts(a), semverParts(b)) > 0;
 }
 
 /**

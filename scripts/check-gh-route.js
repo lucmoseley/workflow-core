@@ -41,6 +41,7 @@ const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { readWorktreeHead, shellFiles } = require("./lib/formatters.js");
 const { blankComments } = require("./lib/strip-comments.js");
+const { requiredGroup } = require("./lib/regex-group.js");
 const { isTestKind } = require("./lib/test-kind.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -82,7 +83,7 @@ const ROOTS = ["scripts", ".claude/skills", ".husky", "hooks"];
  * }} spec
  * @returns {Route}
  */
-function route({
+function buildRoute({
 	bin,
 	envVar,
 	primitive,
@@ -123,7 +124,7 @@ function route({
 }
 
 const ROUTES = [
-	route({
+	buildRoute({
 		bin: "gh",
 		envVar: "WFC_GH",
 		primitive: "scripts/lib/gh.js",
@@ -135,7 +136,7 @@ const ROUTES = [
 		shellExemplar: "scripts/link-sub-issue.sh",
 		stubExemplar: "scripts/check-issue-orphans.test.ts",
 	}),
-	route({
+	buildRoute({
 		bin: "claude",
 		envVar: "WFC_CLAUDE_BIN",
 		primitive: "scripts/lib/claude-bin.js",
@@ -156,7 +157,7 @@ const HELPER =
  * `text` split at its commas outside brackets.
  * @param {string} text
  */
-function topLevel(text) {
+function splitTopLevel(text) {
 	/** @type {string[]} */
 	const parts = [""];
 	let depth = 0;
@@ -175,10 +176,10 @@ function topLevel(text) {
  * @param {string} code
  * @param {number} from
  */
-function bodyEnd(code, from) {
+function findBodyEnd(code, from) {
 	let depth = 0;
 	for (let i = from; i < code.length; i++) {
-		const ch = code[i] ?? "";
+		const ch = code.charAt(i);
 		if ("([{".includes(ch)) depth++;
 		else if (")]}".includes(ch)) {
 			depth--;
@@ -196,10 +197,12 @@ function bodyEnd(code, from) {
  * @param {string} code
  * @returns {string[]}
  */
-function helperDirs(bin, code) {
+function parseHelperDirs(bin, code) {
 	return [...code.matchAll(HELPER)].flatMap((h) => {
-		const name = h[1] ?? h[2] ?? "";
-		const params = topLevel(h[3] ?? "").map((p) => {
+		const name = h[1] ?? h[2];
+		if (name === undefined)
+			throw new Error(`HELPER matched no name in ${JSON.stringify(h[0])}`);
+		const params = splitTopLevel(requiredGroup(h, 3, HELPER)).map((p) => {
 			const at = p.indexOf("=");
 			const id = at < 0 ? p : p.slice(0, at);
 			return {
@@ -212,13 +215,13 @@ function helperDirs(bin, code) {
 		const called = new RegExp(`\\b${name}\\s*\\(\\s*(["'\`])${bin}\\1`);
 		if (!called.test(code)) return [];
 		const start = (h.index ?? 0) + h[0].length;
-		const body = code.slice(start, bodyEnd(code, start));
+		const body = code.slice(start, findBodyEnd(code, start));
 		const join = new RegExp(
 			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*${first.replace(/\$/g, "\\$")}\\s*\\)`,
 			"g",
 		);
 		return [...body.matchAll(join)].map((m) => {
-			const dir = m[1] ?? "";
+			const dir = requiredGroup(m, 1, join);
 			return params.find((p) => p.id === dir)?.fallback || dir;
 		});
 	});
@@ -263,7 +266,8 @@ function shapeOf({ r, rel, kind, binDirs }, line) {
 	)
 		return "NODE-COPY";
 	for (const m of line.matchAll(PATH_PREPEND))
-		if (binDirs.has(normal(m[1] ?? ""))) return "PATH-STUB";
+		if (binDirs.has(normal(requiredGroup(m, 1, PATH_PREPEND))))
+			return "PATH-STUB";
 	return null;
 }
 
@@ -284,8 +288,9 @@ function routeFindings(r, rel, kind, { raw, code }) {
 	const binDirs = new Set();
 	if (kind === "test" || TS_FILE.test(rel)) {
 		const text = code.join("\n");
-		for (const m of text.matchAll(r.joinBin)) binDirs.add(normal(m[1] ?? ""));
-		for (const dir of helperDirs(r.bin, text)) binDirs.add(normal(dir));
+		for (const m of text.matchAll(r.joinBin))
+			binDirs.add(normal(requiredGroup(m, 1, r.joinBin)));
+		for (const dir of parseHelperDirs(r.bin, text)) binDirs.add(normal(dir));
 	}
 	const at = { r, rel, kind, binDirs };
 	/** @type {Found[]} */

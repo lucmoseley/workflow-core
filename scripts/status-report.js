@@ -38,6 +38,7 @@ const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pool } = require("./lib/pool.js");
+const { render } = require("./lib/status-render.js");
 
 /* Core content: every checker below ships beside this script, so its path is
  * named from THIS DIRECTORY (#1) — a plugin install keeps it beside the
@@ -144,56 +145,19 @@ const CHECKS = [
  */
 const WRITERS = new Set(["band-drift", "history-trim", "orphaned-edits"]);
 
-/**
- * Checkers whose clean run IS the report — a standing to read, not a finding —
- * so their body is printed even under an `OK:` line. A SKIP is no clean run:
- * it stays with the clean list.
- */
-const STANDINGS = new Set([
-	"escape-audit",
-	"primitives",
-	"wsl-currency",
-	"compaction-backstop",
-	"release-lag",
-]);
-
-/**
- * @typedef {object} Result
- * @property {string} name
- * @property {number | null} code   exit status, or null where a signal killed it
- * @property {string | null} signal
- * @property {string} out           stdout and stderr, merged in arrival order
- */
+/** @typedef {import("./lib/status-render.js").Result} Result */
 
 /** @param {string} msg */
 function fail(msg) {
 	writeFd(2, `status-report: ${msg}\n`);
 }
 
-const { flags } = parseOrExit(process.argv.slice(2), {
-	usage:
-		`usage: node ${scriptPath("status-report.js")} [--only <substring>] [--serial] [--write]\n` +
-		`  e.g. \`node ${scriptPath("status-report.js")} --only gates\``,
-	flags: { "--only": "value", "--serial": "boolean", "--write": "boolean" },
-});
-const onlyValue = flagValue(flags, "--only") ?? null;
-const serial = flags["--serial"] === true;
-const write = flags["--write"] === true;
-
-const selected = onlyValue
-	? CHECKS.filter(([name]) => name.includes(onlyValue))
-	: CHECKS;
-
-if (selected.length === 0) {
-	fail(`no checker matches --only ${String(onlyValue)}`);
-	process.exit(2);
-}
-
 /**
  * @param {readonly [string, string, ...string[]]} entry
+ * @param {boolean} write  pass `--write` on to a checker in WRITERS
  * @returns {Promise<Result>}
  */
-function run(entry) {
+function run(entry, write) {
 	const [name, script, ...args] = entry;
 	return new Promise((resolve) => {
 		const child = spawn(
@@ -237,49 +201,31 @@ function run(entry) {
 	});
 }
 
-/**
- * A checker whose last line is its own `OK:` or `SKIP:` summary found nothing,
- * and its body is dropped rather than printed. So did a `--notify` run that
- * printed nothing at all.
- *
- * @param {Result} r
- */
-function verdict(r) {
-	const last = r.out.split("\n").pop() ?? "";
-	if (r.signal) return `killed by ${r.signal}`;
-	if (r.code === 0 && r.out === "") return "OK";
-	if (/^OK:/.test(last)) return "OK";
-	if (/^SKIP:/.test(last)) return "SKIP";
-	return null;
-}
-
 async function main() {
+	const { flags } = parseOrExit(process.argv.slice(2), {
+		usage:
+			`usage: node ${scriptPath("status-report.js")} [--only <substring>] [--serial] [--write]\n` +
+			`  e.g. \`node ${scriptPath("status-report.js")} --only gates\``,
+		flags: { "--only": "value", "--serial": "boolean", "--write": "boolean" },
+	});
+	const onlyValue = flagValue(flags, "--only") ?? null;
+	const write = flags["--write"] === true;
+	const selected = onlyValue
+		? CHECKS.filter(([name]) => name.includes(onlyValue))
+		: CHECKS;
+	if (selected.length === 0) {
+		fail(`no checker matches --only ${String(onlyValue)}`);
+		process.exit(2);
+	}
+
 	/** @type {Result[]} */
 	const results = [];
-	if (serial) {
-		for (const c of selected) results.push(await run(c));
+	if (flags["--serial"] === true) {
+		for (const c of selected) results.push(await run(c, write));
 	} else {
-		results.push(...(await pool(selected, POOL_WIDTH, run)));
+		results.push(...(await pool(selected, POOL_WIDTH, (c) => run(c, write))));
 	}
-
-	/** @type {string[]} */
-	const clean = [];
-	for (const r of results) {
-		const v = verdict(r);
-		if (v === "SKIP" || (v === "OK" && !STANDINGS.has(r.name))) {
-			clean.push(`${r.name} (${v})`);
-			continue;
-		}
-		writeFd(1, `\n▸ ${r.name}${v ? `  — ${v}` : ""}\n`);
-		writeFd(1, `${r.out || "(no output)"}\n`);
-	}
-
-	if (clean.length > 0)
-		writeFd(1, `\nnothing to report from: ${clean.join(", ")}\n`);
-	writeFd(
-		1,
-		`\n${results.length} checker(s) run, ${clean.length} clean. Nothing here is a ticket by itself.\n`,
-	);
+	writeFd(1, render(results));
 }
 
 module.exports = { main };

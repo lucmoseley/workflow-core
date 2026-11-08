@@ -56,6 +56,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { runCheck } = require("./lib/check");
 const { probeAgentId } = require("./lib/agent-id-probe.js");
 const { caught } = require("./lib/caught.js");
+const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseJsonl } = require("./lib/jsonl.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
@@ -75,9 +76,6 @@ const PROBE_TIMEOUT_MS = 180_000;
 
 /** Between tries of a probe that could not run. A guess, not a measurement. */
 const RETRY_MS = 6 * 3_600_000;
-
-/** Of a failed `claude -p`'s output, enough to name the error in one line; a guess. */
-const ERROR_CHARS = 200;
 
 const statePath = () => path.join(configDir(), "wfc-harness-canary.json");
 const lockPath = () => path.join(configDir(), "wfc-harness-canary.lock");
@@ -291,7 +289,7 @@ function probe(version) {
 		if (r.error) return verdictOf("unprobed", [r.error.message]);
 		if (r.status !== 0)
 			return verdictOf("unprobed", [
-				`\`claude -p\` exited ${r.status}: ${(r.stderr || r.stdout || "").trim().slice(0, ERROR_CHARS)}`,
+				`\`claude -p\` exited ${r.status}: ${(r.stderr || r.stdout || "").trim().slice(0, CHILD_ERROR_CHARS)}`,
 			]);
 		const t = transcript
 			? parseTranscript(fs.readFileSync(transcript, "utf8"))

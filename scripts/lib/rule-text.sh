@@ -252,6 +252,22 @@ rule_text() {
   printf '%s' "$text"
 }
 
+# rule_or_path <id> <lead-in> <tail> — rule fragment <id>'s text, else
+# "<lead-in> <its path><tail>", for a nag that must still point somewhere
+# when the store is unreadable (#3439). It logs the miss through the caller's
+# gl_log where one is defined.
+rule_or_path() {
+  local text where
+  text="$(rule_text "$1" 2>/dev/null)"
+  if [[ -n "$text" ]]; then
+    printf '%s' "$text"
+    return
+  fi
+  declare -F gl_log >/dev/null && gl_log "rule:$1 unreadable — nag printed its path instead"
+  where="$(doc_path "agents/rules/$1.txt" 2>/dev/null)" || where="docs/agents/rules/$1.txt"
+  printf '%s %s%s' "$2" "$where" "$3"
+}
+
 # rule-text.js's expandCommands (#742): `{command:<name>}` becomes the host's
 # declared commands.<name>, or push_check's default (#814), and a line naming
 # one with neither is dropped whole. Built left to right, so a command holding the placeholder's own
