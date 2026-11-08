@@ -13,17 +13,16 @@
  * each refill tick stops a listed session whose spend, with its chain of
  * resumed copies' (#4195), has reached the allowance its launch recorded, with
  * `claude stop` on the seat's dir, which keeps the conversation. Each chain is
- * capped once, so a founder's reply to it afterwards runs uncapped (spec #3691
- * §Out of Scope). Residual: one that
- * ended on its own, reaped before a tick saw it, carries no mark, so the
- * first reply that takes it past its allowance is stopped once (#4174).
+ * capped once, and a founder's reply to it runs uncapped (spec #3691 §Out of
+ * Scope): his reply is a headless run of its own, which its run record marks
+ * (lib/overflow-actions.js, #4174), and the loop's resumes are not.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
-const { CREDIT_REFUSAL } = require("./headless-runs.js");
+const { CREDIT_REFUSAL, readRun } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { stopOn } = require("./claude-stop.js");
@@ -491,13 +490,23 @@ const settleChainsOnce = (ledger) =>
 	ledger.map((e) => ({ ...e, costUsd: chainShareOf(e) }));
 
 /**
+ * Whether listed `a` is a founder's reply: a headless run its record marks.
+ * @param {import("./agent-liveness.js").AgentRecord} a
+ */
+const isFounderReply = (a) =>
+	a.kind === "headless" &&
+	a.id !== undefined &&
+	readRun(a.id)?.founderReply === true;
+
+/**
  * The key's listed background sessions and headless runs whose chain's spend
- * has reached the allowance their launch recorded. An `ended` one is past it but no longer
- * running: capped without a stop.
+ * has reached the allowance their launch recorded, a founder's reply aside. An
+ * `ended` one is past it but no longer running: capped without a stop.
  * @param {OverflowSeat} seat
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
  * @param {OverflowLookup} lookup
- * @throws where a transcript or the ledger cannot be read
+ * @throws where a transcript, the ledger or a listed run's record cannot be
+ *   read
  */
 function readOverAllowance(seat, agents, lookup) {
 	const spent = chainSpendOf(lookup, priceSessions(seat, lookup));
@@ -509,7 +518,8 @@ function readOverAllowance(seat, agents, lookup) {
 	return agents.flatMap((a) => {
 		if (
 			!LAUNCHED_KINDS.has(a.kind ?? "") ||
-			capped.has(chainRootOf(lookup, a.sessionId))
+			capped.has(chainRootOf(lookup, a.sessionId)) ||
+			isFounderReply(a)
 		)
 			return [];
 		const launch = lookup({ jobId: a.id, sessionId: a.sessionId });
