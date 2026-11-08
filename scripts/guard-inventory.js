@@ -43,6 +43,11 @@
  *     a live neighbour's claimed files aside. A park on a repo hold (#3858) cites
  *     that hold's issue and its own ticket, whose hand-off this limb reads.
  *
+ * THE CHECKLIST (#4206): either block on a background job's `needs input:`
+ * ending ends with lib/needs-input-shape.js's list of every piece that ending
+ * owes, this guard's own verdicts marking theirs met or missing. It changes
+ * what a refusal says, never whether one goes out.
+ *
  * DRAFT AND ACT (#989, ruled at #913), ON A SECOND COUNTER, `max: 1`: where
  * an owed block reads `waits on you: nothing`, the session's main-chain
  * transcript is scanned for one response holding a draft — a fence, or
@@ -107,6 +112,7 @@ const { readStrandedFiles } = require("./lib/neighbour-dirt");
 const { sessionTree } = require("./lib/host-root.js");
 const { findOwnHold } = require("./lib/repo-holds");
 const sessionTranscript = require("./lib/session-transcript");
+const { parkKind, shareChecklist } = require("./lib/needs-input-shape");
 const { governingMarker } = require("./lib/status-marker");
 const { sinceTime } = require("./lib/tool-calls-since");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
@@ -570,20 +576,22 @@ function parkFault(verdict, pointed, sessionId, payload) {
 	);
 }
 
+/** @typedef {{ piece: "posted" | "claimed" | "hand-off", reason: string }} ParkFault */
+
 /**
  * A park on a repo hold is judged on its own items.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {ReturnType<typeof ending>} end
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
- * @returns {string} the fault, or ""
+ * @returns {ParkFault|null}
  */
 function roundlessParkFault(verdict, end, sessionId, payload) {
 	const own = buildHandOffVerdict(verdict, end.payload);
-	return (
-		(own !== verdict && holdClaimFault(own, sessionId)) ||
-		parkFault(own, pointedQuestion(end), sessionId, payload)
-	);
+	const claim = own !== verdict && holdClaimFault(own, sessionId);
+	if (claim) return { piece: "claimed", reason: claim };
+	const handOff = parkFault(own, pointedQuestion(end), sessionId, payload);
+	return handOff ? { piece: "hand-off", reason: handOff } : null;
 }
 
 /**
@@ -591,16 +599,16 @@ function roundlessParkFault(verdict, end, sessionId, payload) {
  * @param {{number: string, title: string}} question
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
- * @returns {string} the fault, or "" where the round is posted on an issue
- *   this session claims, or either is unreadable
+ * @returns {ParkFault|null} null where the round is posted on an issue this
+ *   session claims with its hand-off, or either is unreadable
  */
 function roundFault(verdict, question, sessionId, payload) {
 	const { number, title } = question;
 	const holders = roundHolders(verdict, question);
 	if (holders.length > 0) {
 		const unclaimed = claimOwedOn(holders, sessionId);
-		if (unclaimed.length === 0)
-			return (
+		if (unclaimed.length === 0) {
+			const reason =
 				staleHandOffFault(
 					newestHandOff(verdict, holders),
 					sessionId,
@@ -612,13 +620,20 @@ function roundFault(verdict, question, sessionId, payload) {
 					number,
 					sessionId,
 					sessionTree(payload ?? {}),
-				)
-			);
-		return `this \`needs input:\` ending's round sits on #${unclaimed.join(", #")}, which this session holds no claim on, so \`/pick-next\` lists it as free work and a second session re-asks the round (#1066) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again. Where it refuses on a live holder, that session is already asking: stop and report the collision`;
+				);
+			return reason ? { piece: "hand-off", reason } : null;
+		}
+		return {
+			piece: "claimed",
+			reason: `this \`needs input:\` ending's round sits on #${unclaimed.join(", #")}, which this session holds no claim on, so \`/pick-next\` lists it as free work and a second session re-asks the round (#1066) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again. Where it refuses on a live holder, that session is already asking: stop and report the collision`,
+		};
 	}
 	/* An issue whose comments could not be read may hold it (#958: fail open). */
-	if (hasUnchecked(verdict)) return "";
-	return `this \`needs input:\` ending asks a question round, but no issue the block cites holds it among its newest five comments — post the round (\`❓ **Q${number}** ${title}\` through its options) as a comment on the issue that carries the decision, and list that issue: \`- #N (answer Q${number}, round posted on the issue)\``;
+	if (hasUnchecked(verdict)) return null;
+	return {
+		piece: "posted",
+		reason: `this \`needs input:\` ending asks a question round, but no issue the block cites holds it among its newest five comments — post the round (\`❓ **Q${number}** ${title}\` through its options) as a comment on the issue that carries the decision, and list that issue: \`- #N (answer Q${number}, round posted on the issue)\``,
+	};
 }
 
 /* The most of a refused tail the refusal quotes, so a pasted wall of text
@@ -695,42 +710,60 @@ function placementFaults(end) {
 }
 
 /**
+ * `assess` on an ending with no block: refused where one is owed.
+ * @param {ReturnType<typeof ending>} end
+ * @param {boolean} owed
+ * @returns {ReturnType<typeof assess>}
+ */
+function blocklessAssessment(end, owed) {
+	if (!owed) return { faults: "", verdict: null, question: null, judged: {} };
+	const faults = buildRefusalText({
+		...judge("", { grammar: "block", shapeOnly: true }),
+		refusals: [
+			{
+				reason: `this \`${end.marker}\` ending in a background job carries no \`waits on you:\` block (plain, never bold or quoted)`,
+			},
+		],
+	});
+	return {
+		faults,
+		verdict: null,
+		question: null,
+		judged: { block: "missing" },
+	};
+}
+
+/**
  * Every fault this ending carries, rendered — "" where it passes — with the
- * verdict and the round's first question it was judged on, null where none.
+ * verdict and the round's first question it was judged on, null where none,
+ * and the pieces of a `needs input:` ending it judged (lib/needs-input-shape.js).
  * @param {string} message
  * @param {ReturnType<typeof ending>} end  the message's block and status line
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload  null where
  *   the caller holds none: the transcript is then looked up by session id
- * @returns {{faults: string, verdict: import("./lib/outstanding-line").Verdict|null, question: ReturnType<typeof firstQuestion>}}
+ * @returns {{faults: string, verdict: import("./lib/outstanding-line").Verdict|null, question: ReturnType<typeof firstQuestion>, judged: Judgement}}
  */
 function assess(message, end, sessionId, payload) {
 	const owed = isOwed(end);
-	if (end.header < 0) {
-		if (!owed) return { faults: "", verdict: null, question: null };
-		const faults = buildRefusalText({
-			...judge("", { grammar: "block", shapeOnly: true }),
-			refusals: [
-				{
-					reason: `this \`${end.marker}\` ending in a background job carries no \`waits on you:\` block (plain, never bold or quoted)`,
-				},
-			],
-		});
-		return { faults, verdict: null, question: null };
-	}
+	if (end.header < 0) return blocklessAssessment(end, owed);
+	/** @type {Judgement} */
+	const judged = {};
 	const mine = placementFaults(end);
 	const parks = owed && end.marker === "needs input:";
 	const question = parks ? firstQuestion(message) : null;
 	const verdict = judge(end.body, { grammar: "block", comments: parks });
-	if (owed)
-		for (const reason of tailFaults(end.payload, verdict))
-			mine.push({ reason });
+	judged.block =
+		mine.length > 0 || verdict.refusals.length > 0 ? "missing" : "met";
+	if (owed) {
+		const tail = tailFaults(end.payload, verdict);
+		for (const reason of tail) mine.push({ reason });
+		judged.status = tail.length > 0 ? "missing" : "met";
+	}
 	if (parks && verdict.refusals.length === 0) {
-		const reason =
-			question === null
-				? roundlessParkFault(verdict, end, sessionId, payload)
-				: roundFault(verdict, question, sessionId, payload);
-		if (reason) mine.push({ reason });
+		const fault = parkFaultOf(verdict, end, question, { sessionId, payload });
+		Object.assign(judged, parkJudgement(fault));
+		if (fault) mine.push({ reason: fault.reason });
 	}
 	const refusals = [...mine, ...verdict.refusals];
 	return {
@@ -738,7 +771,41 @@ function assess(message, end, sessionId, payload) {
 			refusals.length > 0 ? buildRefusalText({ ...verdict, refusals }) : "",
 		verdict,
 		question,
+		judged,
 	};
+}
+
+/** @typedef {import("./lib/needs-input-shape").Judgement} Judgement */
+
+/**
+ * A `needs input:` park's first fault: on its round where it asks one.
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {ReturnType<typeof ending>} end
+ * @param {ReturnType<typeof firstQuestion>} question
+ * @param {{ sessionId: string, payload: import("./lib/stop-guard").StopPayload|null }} who
+ * @returns {ParkFault|null}
+ */
+const parkFaultOf = (verdict, end, question, { sessionId, payload }) =>
+	question === null
+		? roundlessParkFault(verdict, end, sessionId, payload)
+		: roundFault(verdict, question, sessionId, payload);
+
+/* The park pieces in the order they are judged: the first fault stops the
+ * judging, so those before it are met and those after it unjudged. */
+/** @type {ParkFault["piece"][]} */
+const PARK_ORDER = ["posted", "claimed", "hand-off"];
+
+/**
+ * @param {ParkFault|null} fault
+ * @returns {Judgement}
+ */
+function parkJudgement(fault) {
+	const at = fault ? PARK_ORDER.indexOf(fault.piece) : PARK_ORDER.length;
+	/** @type {Judgement} */
+	const judged = {};
+	for (const piece of PARK_ORDER.slice(0, at)) judged[piece] = "met";
+	if (fault) judged[fault.piece] = "missing";
+	return judged;
 }
 
 /**
@@ -766,17 +833,46 @@ function hasPassingInventory(message, sessionId) {
 	return end.header >= 0 && refusal(message, end, sessionId, null) === "";
 }
 
+const INVENTORY_PREFIX = ".inventory-nagged-";
+const DRAFT_PREFIX = ".inventory-draft-nagged-";
+
+/**
+ * The checklist a refused `needs input:` ending in a background job ends with
+ * (#4206), read only once the refusal is sure to go out; "" for any other.
+ * @param {{ sessionId: string, message: string, end: ReturnType<typeof ending>,
+ *   payload: import("./lib/stop-guard").StopPayload|null, judged: Judgement,
+ *   prefix: string, max?: number }} turn
+ * @returns {string}
+ */
+function checklistTail({
+	sessionId,
+	message,
+	end,
+	payload,
+	judged,
+	prefix,
+	max,
+}) {
+	if (!isOwed(end) || end.marker !== "needs input:") return "";
+	if (hookBlock.capSpent({ prefix, sessionId, max })) return "";
+	const transcript =
+		sessionTranscript.resolve(payload ?? {}, sessionId) ?? undefined;
+	const kind = parkKind(message, end.payload, transcript);
+	return `\n\n${shareChecklist({ sessionId, message, kind, judged })}`;
+}
+
 /** @param {{sessionId: string, message: string, payload: import("./lib/stop-guard").StopPayload|null}} ctx */
 function review({ sessionId, message, payload }) {
 	const end = ending(message);
 	const owed = isOwed(end);
-	const faults = refusal(message, end, sessionId, payload);
+	const { faults, judged } = assess(message, end, sessionId, payload);
+	const turn = { sessionId, message, end, payload, judged };
 	if (
 		faults &&
 		hookBlock.blockStop({
-			prefix: ".inventory-nagged-",
+			prefix: INVENTORY_PREFIX,
 			sessionId,
-			reason: `${LEAD}\n\n${faults}\n${PLACEMENT}\n\n${readDeliverableRule("guard-inventory")}`,
+			reason: `${LEAD}\n\n${faults}\n${PLACEMENT}\n\n${readDeliverableRule("guard-inventory")}${checklistTail({ ...turn, prefix: INVENTORY_PREFIX })}`,
 		})
 	)
 		return;
@@ -784,9 +880,9 @@ function review({ sessionId, message, payload }) {
 	const act = draftActSentence(sessionTurns(payload, sessionId, message));
 	if (!act) return;
 	hookBlock.blockStop({
-		prefix: ".inventory-draft-nagged-",
+		prefix: DRAFT_PREFIX,
 		sessionId,
-		reason: `${LEAD}\n\nThis ending says ${INVENTORY.nothingText}, but this session handed the founder a draft and told them to act on it:\n\n> ${act}\n\nIf it is still the founder's to do, list the open issue that carries it, in the block and the status-line tail, filing one now with the draft verbatim where none does. If it is done, end again: this refuses once a session.\n\n${readDeliverableRule("guard-inventory")}`,
+		reason: `${LEAD}\n\nThis ending says ${INVENTORY.nothingText}, but this session handed the founder a draft and told them to act on it:\n\n> ${act}\n\nIf it is still the founder's to do, list the open issue that carries it, in the block and the status-line tail, filing one now with the draft verbatim where none does. If it is done, end again: this refuses once a session.\n\n${readDeliverableRule("guard-inventory")}${checklistTail({ ...turn, prefix: DRAFT_PREFIX, max: 1 })}`,
 		max: 1,
 	});
 }
