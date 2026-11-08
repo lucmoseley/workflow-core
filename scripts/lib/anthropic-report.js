@@ -149,8 +149,7 @@ function judge(run, cmd) {
 	const gh = ghWords(cmd.words, run.parsed.spans);
 	if (!gh) return;
 	const group = captured(run, gh.args[0] ?? "");
-	if (group === "issue" || group === "pr")
-		judgeFlagForm(run, cmd, group, gh.args.slice(1));
+	if (group === "issue" || group === "pr") judgeFlagForm(run, cmd, group, gh);
 	else if (group === "api") judgeApi(run, cmd, gh.args.slice(1));
 }
 
@@ -169,13 +168,23 @@ function noteExport(run, words) {
  * @param {Run} run
  * @param {Command} cmd
  * @param {string} group
- * @param {string[]} args
+ * @param {{ args: string[], repo: import("./shell-words.js").GhRepo | null }} gh
+ *   ghWords' answer: `repo` the `-R` before `group`, which one after it
+ *   overrides
  */
-function judgeFlagForm(run, cmd, group, args) {
+function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {
+	const args = words.slice(1);
 	const sub = captured(run, args[0] ?? "");
 	if (!sub || READS.has(`${group}:${sub}`)) return;
 	/** @type {Scan} */
-	const scan = { run, cmd, args, named: false, repo: "", hidden: false };
+	const scan = {
+		run,
+		cmd,
+		args,
+		named: before !== null,
+		repo: before?.known ? trimEndRun(before.text, "\n") : "",
+		hidden: before !== null && !before.known,
+	};
 	for (let i = 1; i < args.length; ) {
 		const step = readArg(scan, i);
 		if (step === 0) break;

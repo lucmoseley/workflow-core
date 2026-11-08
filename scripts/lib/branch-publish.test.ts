@@ -141,6 +141,10 @@ describe("a merge of a Dependabot pull request is denied with the Dependabot rul
 		["gh -Ro/r pr merge 12", "pr view 12 -R o/r --json"],
 		["gh pr -R o/r merge 12", "pr view 12 -R o/r --json"],
 		["gh pr --repo=o/r merge 12", "pr view 12 -R o/r --json"],
+		// Quoted or escaped, the flag reads as the unquoted one (#4268).
+		[`gh "-Ro/r" pr merge 12`, "pr view 12 -R o/r --json"],
+		["gh \\-Ro/r pr merge 12", "pr view 12 -R o/r --json"],
+		[`gh pr "--repo=o/r" merge 12`, "pr view 12 -R o/r --json"],
 		["gh pr merge -b 'a body' 12 --repo o/r", "pr view 12 -R o/r --json"],
 		["gh pr merge --squash", "pr view --json"],
 		[

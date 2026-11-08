@@ -121,6 +121,12 @@ describe("a write it refuses", () => {
 		'env GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
 		'GH_REPO=anthropics/claude-code gh api repos/{owner}/{repo}/issues -f title="x"',
 		'export GH_REPO=anthropics/claude-code && gh issue create --title "x" --body "y"',
+		// gh's own -R before the command word, in each spelling (#4268).
+		'gh -R anthropics/claude-code issue create --title "x" --body "y"',
+		'gh --repo=anthropics/claude-code pr create --title "x" --body "y"',
+		'gh "--repo=anthropics/claude-code" issue create --title "x" --body "y"',
+		'gh "-Ranthropics/claude-code" issue comment 5 --body "x"',
+		'gh \\-Ranthropics/claude-code issue comment 5 --body "x"',
 	])("refuses it, printing the rule: %s", (call) => {
 		const reason = readDenyReason(call);
 		expect(reason).toContain("This writes to an Anthropic repo");

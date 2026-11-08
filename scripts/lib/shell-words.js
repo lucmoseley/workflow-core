@@ -918,59 +918,72 @@ function gitWords(words, spans) {
 /**
  * One command's words from `gh`'s command word on, RAW, each still to be read
  * through literal (#772): `{ args, repo }`, `repo` the `-R`/`--repo` value
- * stepped over, raw, or "". Stepped over first: any launcher wrapper, a path to
- * the binary, and `gh`'s own flags before the command word, of which only
- * `-R`/`--repo` takes a value.
+ * stepped over, as stepGhFlags reads it. Stepped over first: any launcher
+ * wrapper, a path to the binary, and `gh`'s own flags before the command
+ * word, of which only `-R`/`--repo` takes a value.
  *
  * Null where the command is not `gh`, or where `--help`/`-h` stands anywhere in
  * it: usage prints and dispatches nothing.
  * @param {string[]} words masked
  * @param {string[]} spans
- * @returns {{ args: string[], repo: string } | null}
+ * @returns {{ args: string[], repo: GhRepo | null } | null}
  */
 function ghWords(words, spans) {
 	const [cmd, ...args] = unwrap(words, spans).words;
 	if (cmd === undefined || !isGhCommand(literal(cmd, spans).text)) return null;
 	const read = (/** @type {string} */ w) => literal(w, spans).text;
 	if (args.some((w) => read(w) === "--help" || read(w) === "-h")) return null;
-	return stepGhFlags(args, read);
+	return stepGhFlags(args, spans);
 }
 
 /**
- * Step `gh`'s own flags before the command word, keeping a `-R`/`--repo`
- * value; null where `-R` has none left. literal's `known` is ignored: a flag
- * carrying an expansion (`--repo=$R`) is still a flag to step over.
- * @param {string[]} words
- * @param {(w: string) => string} read
- * @returns {{ args: string[], repo: string } | null}
+ * A `-R`/`--repo` value as read: `text` as literal reads it, `known` false
+ * where any of it could not be. Read, not raw: an attached value's prefix may
+ * sit inside a quoted span or behind an escape, which no raw cut can split
+ * (#4268).
+ * @typedef {{ text: string, known: boolean }} GhRepo
  */
-function stepGhFlags(words, read) {
+
+/**
+ * Step `gh`'s flags up to the next word not one, keeping the last `-R`/
+ * `--repo` value, `repo` where none stands; null where `-R` has none left.
+ * Each flag is judged on its literal, so a quoted or escaped one counts;
+ * literal's `known` is ignored for that: a flag carrying an expansion
+ * (`--repo=$R`) is still a flag to step over.
+ * @param {string[]} words raw
+ * @param {string[]} spans
+ * @param {GhRepo | null} [repo]
+ * @returns {{ args: string[], repo: GhRepo | null } | null}
+ */
+function stepGhFlags(words, spans, repo = null) {
 	let args = words;
-	let repo = "";
+	let r = repo;
 	for (let raw = args[0]; raw !== undefined; raw = args[0]) {
-		const f = read(raw);
-		if (!f.startsWith("-")) break;
+		const f = literal(raw, spans);
+		if (!f.text.startsWith("-")) break;
 		let step = 1;
-		if (f === "-R" || f === "--repo") {
+		if (f.text === "-R" || f.text === "--repo") {
 			const value = args[1];
 			if (value === undefined) return null;
-			repo = value;
+			r = readRepo(literal(value, spans), "");
 			step = 2;
-		} else if (f.startsWith("--repo=")) repo = stripPrefix(raw, "--repo=");
-		else if (f.startsWith("-R")) repo = stripPrefix(raw, "-R");
+		} else if (f.text.startsWith("--repo=")) r = readRepo(f, "--repo=");
+		else if (f.text.startsWith("-R")) r = readRepo(f, "-R");
 		args = args.slice(step);
 	}
-	return { args, repo };
+	return { args, repo: r };
 }
 
 /**
- * `${w#prefix}`: `w` with `prefix` off its front where it stands there. The
- * test is on the literal, the cut on the raw word.
- * @param {string} w
+ * A flag word's value, `prefix` cut off its read text.
+ * @param {{ text: string, known: boolean }} read
  * @param {string} prefix
+ * @returns {GhRepo}
  */
-const stripPrefix = (w, prefix) =>
-	w.startsWith(prefix) ? w.slice(prefix.length) : w;
+const readRepo = ({ text, known }, prefix) => ({
+	text: text.slice(prefix.length),
+	known,
+});
 
 /** node's own flags that take the next word, which commitPathsArgs steps. */
 const NODE_VALUE_FLAGS = [
@@ -1312,6 +1325,7 @@ module.exports = {
 	isGitValueOption,
 	gitWords,
 	ghWords,
+	stepGhFlags,
 	commitPathsArgs,
 	commitPathsParse,
 	findStarts,
