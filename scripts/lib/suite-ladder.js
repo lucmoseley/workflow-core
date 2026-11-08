@@ -159,6 +159,23 @@ const isVitestRunnerLine = (line) =>
 	!VITEST_LIST.test(line);
 
 /**
+ * Whether a `ps` line is a `next <sub>` runner: the binary's path, so npm's `sh
+ * -c next build` and a line merely quoting the words are not counted. A build
+ * also counts by the `next-build (v…)` title it sets on itself; a dev server's
+ * parent keeps its path for its life, and the `next-server (v…)` title its
+ * child takes is `next start`'s too, so it is not read.
+ * @param {"build" | "dev"} sub
+ * @param {string} line
+ */
+function isNextRunnerLine(sub, line) {
+	const title = sub === "build" ? "^ *next-build \\(v|" : "";
+	return (
+		new RegExp(`${title}([.]bin|/dist/bin)/next ${sub}( |$)`).test(line) &&
+		!WRAPPER_ARGV0.test(line)
+	);
+}
+
+/**
  * @typedef {object} Running
  * @property {number} total the runs going
  * @property {number} watchers how many of them are vitest watchers
@@ -280,7 +297,7 @@ module.exports = {
 	SUITE_RESTING_MB,
 	SUITE_GATE_MB,
 	SUITE_LADDER_MEASURED_AT,
-	WRAPPER_ARGV0,
+	isNextRunnerLine,
 	isVitestRunnerLine,
 	runningSuites,
 	readCarriedWeightOf,
