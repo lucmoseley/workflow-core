@@ -1,9 +1,9 @@
 /*
  * job-name.js — a name written onto a background job's record, the row
  * `claude agents` lists it under (#4098). The harness gives hooks no rename
- * call, so this writes `name` and `nameSource` into its state.json, as
- * name-issue-session.sh does; the daemon merges its own writes onto what is
- * on disk, and `nameSource: "user"` is the one value its auto-namer leaves.
+ * call, so this writes `name` and `nameSource` into its state.json; the
+ * daemon merges its own writes onto what is on disk, and
+ * `nameSource: "user"` is the one value its auto-namer leaves.
  *
  * Residual: a daemon write that read the record before this one and lands
  * after it puts the old name back.

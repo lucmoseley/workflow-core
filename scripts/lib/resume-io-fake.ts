@@ -109,7 +109,6 @@ export const ANSWERS = {
 		ownId: launched("ownId"),
 		/* `claude rm`'s answer. */
 		removed: ran(`removed ${JOB}\n`),
-		/* A launcher line naming no job. */
 		noJob: ran("no job named"),
 	},
 	readJobRecord: {
@@ -135,7 +134,6 @@ export const ANSWERS = {
 	hasJobRecord: { none: false, present: true },
 	writeJobName: {
 		written: null,
-		/* No record to name: the job has gone. */
 		unwritable:
 			"writing /a/state.json: ENOENT: no such file or directory, open '/a/state.json'",
 	},
@@ -149,7 +147,6 @@ export const ANSWERS = {
 			timedOut: false,
 			noJob: true,
 		},
-		/* A stop the daemon would not answer. */
 		busy: {
 			ok: false,
 			why: "exit 1: daemon socket is busy",

@@ -475,9 +475,8 @@ function resumeSteps(io) {
 	 * Resume `l`'s session, which a restart killed, under its own id (#4098):
 	 * its job's saved launch flags taken from `ids`, as read before any try
 	 * removed its record, else read now, the job stopped and its record
-	 * removed, then resumeStopped with those flags. A resume that failed may
-	 * still be starting, so it is stopped, as moveSession's is. The 2.1.319 harness starts
-	 * a copy of a resume carrying flags only while a job record exists, so one
+	 * removed, then resumeStopped with those flags, stopped again where it
+	 * failed. The 2.1.319 harness starts a copy of a resume carrying flags only while a job record exists, so one
 	 * removed continues under the session's id with its name and model. A
 	 * record naming another session is left, and the harness copies; a session
 	 * on an overflow key resumes headless, under its id already.
@@ -518,8 +517,7 @@ function resumeSteps(io) {
 
 	/**
 	 * The launch flags to resume `ids` under its own id with: those its own job
-	 * record saved (`respawnFlags`), which a job continued with no record takes
-	 * from its resume alone; where it saved none, the loop's model and the name
+	 * record saved (`respawnFlags`); where it saved none, the loop's model and the name
 	 * `ids`'s transcript carries.
 	 * @param {{seat: string}} l
 	 * @param {{sessionId: string, cwd: string}} ids

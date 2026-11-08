@@ -164,8 +164,6 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 		writeLaunch: (l) => {
 			started.push(l);
 		},
-		/* The resume under its own id is resumeStopped's, as far as these cases
-		 * read it. */
 		resumeOwnId: (l, prompt, target) => io.resumeStopped(l, prompt, target),
 		...over,
 	};
