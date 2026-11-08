@@ -58,7 +58,7 @@
 	"scripts/guard-session-ceiling.js": "0cbf5fb543f84554",
 	"scripts/guard-session-id-prose.js": "c9d74fba319ae68e",
 	"scripts/guard-typecheck-owed.js": "f180894edfbe0990",
-	"scripts/guard-uncommitted-work.js": "4c7535c7b5ef03da",
+	"scripts/guard-uncommitted-work.js": "f9333010b56c4594",
 	"scripts/guard-unpushed-commits.js": "53de49783cc44ad9",
 	"scripts/inject-compaction-count.js": "b035916c16197a0c",
 	"scripts/inject-founder-wording.js": "702b35ab69a765ad",
