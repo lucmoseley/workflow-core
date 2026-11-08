@@ -1553,9 +1553,7 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 	});
 
 	it("does not aim a bisect at a red issue-card-drift, which never ran the suite", () => {
-		// A weekly report on the tracker, not on the tree. Keying on it printed a
-		// week-wide range and offered a bisect looking for a suite failure that is
-		// not there.
+		// A weekly report on the tracker, not on the tree.
 		setRuns([
 			run_({
 				databaseId: 400,
@@ -1582,7 +1580,7 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 		"reports green off CI over a newer red %s at main's sha (#4676)",
 		(workflowName) => {
 			// Named rerun carries main's sha over a queue tree it tested; the two
-			// alarms go red on a stalled queue. Neither judged main's tree.
+			// alarms go red on a stalled queue.
 			setRuns([
 				run_({
 					databaseId: 400,
@@ -1608,7 +1606,6 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 			]);
 
 			const r = check(["--notify"]);
-			// Empty: no red report, so no "Ticket for Named files" line either.
 			expect(r.stdout.trim()).toBe("");
 			expect(r.status).toBe(0);
 		},

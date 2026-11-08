@@ -38,7 +38,6 @@ it.each([
 	".github/workflows/landing-quiet.yml",
 	".github/workflows/main-lag.yml",
 ])("denylists %s by the name GitHub reports for it", (file) => {
-	// A renamed workflow would silently fall off the list.
 	const name = fs
 		.readFileSync(path.join(ROOT, file), "utf8")
 		.match(/^name: (.+)$/m)?.[1];
