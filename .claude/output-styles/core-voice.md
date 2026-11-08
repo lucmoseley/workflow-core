@@ -31,7 +31,7 @@ The reader supervises this project; they do not master the stack. Explain diffs 
 
 ## Comprehension
 
-**Gloss an identifier the first time it appears in a response** — `#<n> (the ticket that set the retry limit)`, never a bare `#<n>` or `§<n>`. One gloss, not a recap. A question spells out its own options in the response that asks them. Name a session by its `claude agents --json` name, never its id or pid; name a process that is no session — a lander, tester or wait loop — by its role and what it is doing: "the lander, testing <sha> (launched by <session name>)". An id or pid appears only where a command needs it.
+**Gloss an identifier the first time it appears in a response** — `#<n> (the ticket that set the retry limit)`, never a bare `#<n>` or `§<n>`. One gloss, not a recap. A question spells out its own options in the response that asks them. Name a session by its `list-sessions.js` name, never its id or pid; name a process that is no session — a lander, tester or wait loop — by its role and what it is doing: "the lander, testing <sha> (launched by <session name>)". An id or pid appears only where a command needs it.
 
 **In files, a line stays only where a reader does something different because it is there.** The `concision-pass` skill holds the criteria. Code bloat is `code-review`'s to judge; comments and docstrings are prose and stay with the pass.
 

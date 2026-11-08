@@ -39,6 +39,7 @@ const { runTickChild: runChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
+	DEFAULT_WINDOW_HOURS,
 	readRecentEntries,
 	record: recordLaunch,
 	recordListedSessionIds,
@@ -135,8 +136,6 @@ const { writeFd } = require("./write-fd.js");
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
-/* The ledger's own hour, ample for one dispatcher call. */
-const LEDGER_WINDOW_HOURS = 1;
 
 const SCRIPTS = path.dirname(__dirname);
 /* The checkout the loop's own scripts sit in, workflow-core's, whose tracker
@@ -178,9 +177,10 @@ function reapFinished(dryRun) {
 /**
  * Stop the working jobs with no live process and no transcript past the grace
  * (lib/refill-tick-core.js's stopNeverStarted, #2467): admission charges each a
- * full session until it goes. The log lines. `spared` go unjudged (#3983).
+ * full session until it goes. `spared` go unjudged (#3983).
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @param {Set<string>} spared
+ * @returns {string[]} the log lines
  */
 function stopNeverStarted(registry, spared) {
 	const jobs = readJobs()?.filter((j) => !spared.has(j.job)) ?? null;
@@ -373,7 +373,7 @@ function launchBatch(batch) {
 				env: call.env,
 				timeout: call.timeout,
 			}),
-		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
+		entriesOf: (root) => readRecentEntries(root, DEFAULT_WINDOW_HOURS).entries,
 		sessionOf: readHeadlessSession,
 		now: Date.now,
 	});
@@ -642,7 +642,8 @@ const writeLaunch = (l) => updateState(launchRecorded(l), log);
 const adoptKilledLaunches = (state, served) =>
 	core.settleLaunching(state, (launching) => {
 		const launched = refillBatch.adoptLaunching(launching, {
-			entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
+			entriesOf: (root) =>
+				readRecentEntries(root, DEFAULT_WINDOW_HOURS).entries,
 			sessionOf: readHeadlessSession,
 			readActsBefore: buildActsBeforeReader(served),
 			recordLaunch,
