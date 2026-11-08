@@ -25,7 +25,7 @@ import {
 	writeHeadlessFake,
 } from "./lib/headless-run-fake";
 import type { RunRecord } from "./lib/headless-runs.js";
-import { writeHeadlessRun } from "./lib/headless-runs-testkit";
+import { headlessStore, writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { readHeadroom, sendReply, stopRun } from "./lib/overflow-actions.js";
 import { openViewer } from "./lib/overflow-viewer.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -326,15 +326,15 @@ describe("a reply", () => {
 		});
 		t.type(" ", "blue", ENTER);
 		t.close();
-		expect(t.frame().at(-2)).toMatch(
-			/^sent: \/implement 7 resumed as job [0-9a-f]{8}$/,
+		const sent = /^sent: \/implement 7 resumed as job ([0-9a-f]{8})$/.exec(
+			t.frame().at(-2) ?? "",
 		);
+		expect(sent).not.toBeNull();
 		/* Marked, so the tick's allowance stop leaves it (#4174). */
-		const job = /job ([0-9a-f]{8})$/.exec(t.frame().at(-2) ?? "")?.[1] ?? "";
 		expect(
 			JSON.parse(
 				fs.readFileSync(
-					path.join(refill, ".headless-runs", job, "run.json"),
+					path.join(headlessStore(refill), sent?.[1] ?? "", "run.json"),
 					"utf8",
 				),
 			).founderReply,
