@@ -757,7 +757,7 @@ describe("the plan and credit rows", () => {
 	});
 
 	it("says why on one row where the seat file refuses, naming no key", () => {
-		const overflow = [{ seat: "the seat file", why: "it refuses: line 3" }];
+		const overflow = [{ seat: null, why: "it refuses: line 3" }];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
 			["  the seat file  unread: it refuses: line 3", "secondary"],
 		]);
@@ -862,7 +862,7 @@ describe("the plan and credit rows", () => {
 
 	it("gives a key with nothing yet spent as its whole grant, a plan with room", () => {
 		const overflow = [
-			buildOverflowStatus(overflowSeat("~/.claude2"), {
+			buildOverflowStatus(overflowSeat(`${process.env.HOME}/.claude2`), {
 				fit: 10,
 				headroomUsd: 200,
 				settledUsd: 0,
@@ -1026,7 +1026,7 @@ describe("the plan and credit rows", () => {
 			fits: weekFull ? 0 : 1,
 			fresh: true,
 		});
-		const dir = `${process.env.HOME}/.claude2-api`;
+		const dir = `${process.env.HOME}/.claude3`;
 		const declared = {
 			errors: [],
 			seats: [
