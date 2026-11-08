@@ -105,7 +105,6 @@ describe("messages a shipped script prints", () => {
 	const resolvesWholeText =
 		/require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
-	/** Bare lines in each script `rels` names whose text skips a resolver. */
 	function bareLinesPastResolver(
 		rels: string[],
 		shaped: (line: string) => boolean,
@@ -129,7 +128,7 @@ describe("messages a shipped script prints", () => {
 
 	/*
 	 * #4285: every top-level script a shipped git hook runs from the plugin
-	 * root, whose message reaches an adopter's committing session. A plain
+	 * root. A plain
 	 * pointer stays unread here: these name source files to read, not run.
 	 */
 	const huskyDir = path.join(SCRIPTS, "..", ".husky");
