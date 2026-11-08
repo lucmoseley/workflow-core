@@ -33,6 +33,8 @@ const { caught } = require("./lib/caught");
 const { writeFd } = require("./lib/write-fd");
 const { proseAsk } = require("./lib/secret-ask");
 
+/** @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord */
+
 const CLI = {
 	usage:
 		"usage: node scripts/measure-secret-ask.js [--dir <projects dir>]… [--until <YYYY-MM-DD>] [--json]",
@@ -71,9 +73,7 @@ function classifyRecord(raw) {
 	/* An assistant record without a text part adds nothing and ends nothing. */
 	if (!user && !raw.includes('"type":"text"')) return { kind: "skip" };
 	if (user && raw.includes('"tool_result"')) return { kind: "reset" };
-	/* `any`: a transcript is Claude Code's format, which this repo does not
-	 * define, and each field is guarded where it is read. */
-	const rec = /** @type {Record<string, any> | null | undefined} */ (
+	const rec = /** @type {TranscriptRecord | null | undefined} */ (
 		parseJsonlRow(raw)
 	);
 	if (!rec || rec.isSidechain) return { kind: "skip" };

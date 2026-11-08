@@ -24,6 +24,8 @@ const { parseJsonl } = require("./jsonl.js");
 const { configDirs } = require("./arbiter-store");
 const { readSeatProjectDirs } = require("./project-dirs");
 
+/** @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord */
+
 const HOUR_MS = 36e5;
 const DAY_MS = 864e5;
 
@@ -115,9 +117,7 @@ function corpusFiles(roots) {
 function turnsIn(text) {
 	/** @type {Array<[number, string]>} */
 	const out = [];
-	/* `any`: a transcript is Claude Code's format, which this repo does not
-	 * define, and each field is guarded where it is read. */
-	for (const record of /** @type {Record<string, any>[]} */ (
+	for (const record of /** @type {TranscriptRecord[]} */ (
 		parseJsonl(text).rows
 	)) {
 		if (record.type !== "assistant") continue;

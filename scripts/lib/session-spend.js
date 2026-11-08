@@ -23,6 +23,8 @@ const { hostRoot } = require("./host-root");
 const { parseJsonl } = require("./jsonl.js");
 const { findTranscript, subagentDirOf } = require("./transcript");
 
+/** @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord */
+
 /**
  * $/Mtok: fresh input, output, 5-minute cache write, 1-hour cache write, cache
  * read.
@@ -236,9 +238,7 @@ function readFileRequests(file, window) {
 /**
  * The transcript record where it is an assistant turn carrying usage,
  * timestamped inside `window` where one is given; else `null`.
- * @param {Record<string, any>} r a parsed transcript line; `any` because
- *   JSON.parse types nothing, and `type` and `message.usage` are checked before
- *   the record is returned as a UsageRecord
+ * @param {TranscriptRecord} r
  * @param {{ fromMs: number, toMs: number }} [window]
  * @returns {UsageRecord | null}
  */

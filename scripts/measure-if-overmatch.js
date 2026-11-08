@@ -64,6 +64,8 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 
 const { unwrapped } = require("./lib/issue-phase-scope");
 
+/** @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord */
+
 /** @param {string} word */
 const basename = (word) => word.slice(word.lastIndexOf("/") + 1);
 
@@ -354,10 +356,8 @@ function scanLine(line, file, onCommand) {
 	if (!line.includes('"Bash"')) return;
 	/* A line that holds no row is skipped and NOT counted: counting a killed
 	 * session's truncated tail as a call would inflate every share's
-	 * denominator. A whole file that will not read IS counted, in `unreadable`.
-	 * `any`: a transcript is Claude Code's format, which this repo does not
-	 * define, and each field is guarded where it is read. */
-	const rec = /** @type {Record<string, any> | null | undefined} */ (
+	 * denominator. A whole file that will not read IS counted, in `unreadable`. */
+	const rec = /** @type {TranscriptRecord | null | undefined} */ (
 		parseJsonlRow(line)
 	);
 	const content = rec?.message?.content;

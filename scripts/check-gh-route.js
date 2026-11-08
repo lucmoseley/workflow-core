@@ -233,7 +233,7 @@ const PATH_PREPEND =
 const TS_FILE = /\.[cm]?tsx?$/;
 
 /** @param {string} expr */
-const normaliseDir = (expr) =>
+const normaliseDirExpr = (expr) =>
 	expr.replace(/^path\.join\((.*)\)$/s, "$1").replace(/\s+/g, "");
 
 /**
@@ -266,7 +266,7 @@ function shapeOf({ r, rel, kind, binDirs }, line) {
 	)
 		return "NODE-COPY";
 	for (const m of line.matchAll(PATH_PREPEND))
-		if (binDirs.has(normaliseDir(requiredGroup(m, 1, PATH_PREPEND))))
+		if (binDirs.has(normaliseDirExpr(requiredGroup(m, 1, PATH_PREPEND))))
 			return "PATH-STUB";
 	return null;
 }
@@ -289,9 +289,9 @@ function routeFindings(r, rel, kind, { raw, code }) {
 	if (kind === "test" || TS_FILE.test(rel)) {
 		const text = code.join("\n");
 		for (const m of text.matchAll(r.joinBin))
-			binDirs.add(normaliseDir(requiredGroup(m, 1, r.joinBin)));
+			binDirs.add(normaliseDirExpr(requiredGroup(m, 1, r.joinBin)));
 		for (const dir of parseHelperDirs(r.bin, text))
-			binDirs.add(normaliseDir(dir));
+			binDirs.add(normaliseDirExpr(dir));
 	}
 	const at = { r, rel, kind, binDirs };
 	/** @type {Found[]} */
