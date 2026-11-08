@@ -6,7 +6,12 @@
  * images fit; a terminal that never answers keeps them.
  */
 
-const { buildFrame, findHoverRow, createPanel } = require("./refill-panel.js");
+const {
+	POLL_MS,
+	buildFrame,
+	findHoverRow,
+	createPanel,
+} = require("./refill-panel.js");
 const { ESC, createInputReader } = require("./refill-panel-input.js");
 const {
 	DEFAULT_COLUMNS,
@@ -24,9 +29,7 @@ const HOVER_ON = `${ESC}[?1003h`;
 const SCREEN_OFF = `${ESC}[?1004l${ESC}[?1003l${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
 
-/* Untraced, first guesses: fast enough that a change elsewhere shows while the
- * founder looks, and each poll is one short Node process. */
-const POLL_MS = 3000;
+/* Untraced, a first guess. */
 const WATCH_MS = 1000;
 
 /**

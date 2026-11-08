@@ -120,6 +120,7 @@ const key = (over: object = {}) => ({
 	spentUsd: 142,
 	grantUsd: 400,
 	creditReadAt: null,
+	runningReadAt: null,
 	headroomUsd: 258.5,
 	exhausted: false,
 	noLaunchLeft: false,
@@ -847,6 +848,7 @@ describe("the plan and credit rows", () => {
 				readAt: null,
 				readFailure: null,
 				lastAttemptAt: null,
+				runningReadAt: null,
 				qUsd: 5,
 				running: 0,
 				cycleStart: AT,
@@ -876,6 +878,27 @@ describe("the plan and credit rows", () => {
 			["  .claude2  ~$258 of $400", "value"],
 			["  Spending now: 2 on credits", "value"],
 		]);
+	});
+
+	it("ages a running count read off a listing older than one poll (#4175)", () => {
+		const spend = (ageMs: number) =>
+			usage({
+				...RUNNING,
+				overflow: [key({ running: 2, runningReadAt: LATER - ageMs })],
+			}).at(-1)?.[0];
+		expect(spend(45_000)).toBe("  Spending now: 2 on credits (45s ago)");
+		expect(spend(2000)).toBe("  Spending now: 2 on credits");
+	});
+
+	it("ages a not-spending verdict off an old listing (#4175)", () => {
+		const seats = { ...planSeats(80), next: null };
+		expect(
+			usage({
+				...RUNNING,
+				seats,
+				overflow: [key({ runningReadAt: LATER - 100_000 })],
+			}).at(-1)?.[0],
+		).toBe("  Not spending: waiting on a plan (1m ago)");
 	});
 
 	describe("a plan's figure (#4059)", () => {
@@ -994,6 +1017,7 @@ describe("the plan and credit rows", () => {
 			creditUsd: 200,
 			grantUsd: 200,
 			readAt: null,
+			runningReadAt: null,
 			qUsd: 5,
 			running: 0,
 			cycleStart: AT,

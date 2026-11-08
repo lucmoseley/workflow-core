@@ -229,6 +229,14 @@ describe("the shown reading the refill panel polls (#4169)", () => {
 		expect(fake.spawns()).toBe(0);
 	});
 
+	it("dates a served reading by its write, not the read (#4175)", () => {
+		const fake = countingClaude(listing("a"));
+		aged(fake.bin, 60_000);
+		const { readAt } = liveness.readAgentsForDisplay();
+		expect(Date.now() - readAt).toBeGreaterThanOrEqual(60_000);
+		expect(Date.now() - readAt).toBeLessThan(61_000);
+	});
+
 	it("spawns past its own age", () => {
 		const fake = countingClaude(listing("a", "b"));
 		aged(fake.bin, 121_000);

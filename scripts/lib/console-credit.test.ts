@@ -154,6 +154,7 @@ describe("isConsoleReadDue", () => {
 		exhausted: false,
 		readFailure: null,
 		lastAttemptAt: null,
+		runningReadAt: null,
 	};
 	const seat = (over: object = {}) =>
 		({

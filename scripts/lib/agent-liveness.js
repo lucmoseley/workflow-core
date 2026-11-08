@@ -104,8 +104,9 @@ const headless = require("./headless-runs.js");
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,
  *   startedAt?: number, cwd?: string}} AgentRecord
- * @typedef {{agents: AgentRecord[], why?: undefined}
- *   | {why: string, agents?: undefined}} Listing
+ * @typedef {{agents: AgentRecord[], why?: undefined, readAt?: number}
+ *   | {why: string, agents?: undefined, readAt?: undefined}} Listing
+ *   `readAt`, ms, when the oracle answered: a shared reading's write time
  * @typedef {{why: string, ids?: undefined, names?: undefined,
  *   finished?: undefined, terminal?: undefined, pids?: undefined,
  *   cwds?: undefined, states?: undefined, kinds?: undefined}} SessionsRefused
@@ -420,12 +421,15 @@ function readListing(opts) {
 	const dirs = oracleDirs();
 	const key = oracleCacheKey(bin, dirs);
 
+	/** @param {Listing} answer @param {number} at */
+	const dated = (answer, at) =>
+		answer.agents ? { agents: answer.agents, readAt: at } : answer;
 	/* A plain hit for the shared and shown readers alone (module header). */
-	/** @param {string|null} cached */
+	/** @param {import("./oracle-cache.js").Hit|null} cached */
 	const served = (cached) => {
 		if (cached === null) return null;
-		const answer = classifyRaw(cached, call, opts, runs.agents);
-		return answer.why ? null : answer;
+		const answer = classifyRaw(cached.raw, call, opts, runs.agents);
+		return answer.why ? null : dated(answer, cached.at);
 	};
 	if (opts?.shared || opts?.shownAgeMs !== undefined) {
 		const hit = served(cache.readFresh(key, undefined, opts.shownAgeMs));
@@ -468,7 +472,7 @@ function readListing(opts) {
 		if (leading) cache.release(key);
 	}
 
-	return classifyRaw(raw, call, opts, runs.agents);
+	return dated(classifyRaw(raw, call, opts, runs.agents), Date.now());
 }
 
 /**
