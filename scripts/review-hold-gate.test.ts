@@ -1648,6 +1648,21 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			expect(trailers()).toBe(value);
 		});
 
+		it("says an amend whose message leaves out a reviewed commit's trailer drops it (#4051)", () => {
+			write(SECRET, "new\n");
+			git("add", "--", SECRET);
+			const tree = git("write-tree");
+			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+			expect(commit([]).status).toBe(0);
+			expect(trailers()).not.toBe("");
+			const r = hookedGit(["commit", "--amend", "-qm", "reworded"]);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain(
+				"leaves out the Review-Tier: line HEAD carries",
+			);
+			expect(trailers()).toBe("");
+		});
+
 		it("strips one a reword adds to a commit carrying none", () => {
 			write(PLAIN, "new\n");
 			expect(commit([PLAIN]).status).toBe(0);

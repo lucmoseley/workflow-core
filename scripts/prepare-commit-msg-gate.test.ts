@@ -20,7 +20,7 @@
  * (`docs/agents/guard-authoring.md` §The proving discipline).
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1147,12 +1147,28 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		expect(r.output).toContain("the hold refused this pick");
 	});
 
-	it("passes where the hold is missing", () => {
+	it("passes where the hold is missing, saying so and logging it (#4051)", () => {
 		const p = probe();
 		const pick = sideCommit(p, "f.txt");
 		fs.rmSync(path.join(p.root, HOLD));
-		const r = attempt(p.root, "cherry-pick", pick);
-		expect(r.code).toBe(0);
+		for (const rel of ["scripts/lib/guard-log.sh", "scripts/lib/guard-root.sh"])
+			fs.copyFileSync(path.join(ROOT, rel), path.join(p.root, rel));
+		const config = mkScratchDir("prepare-commit-msg-config-");
+		temps.push(config);
+		const r = spawnSync("git", ["cherry-pick", pick], {
+			cwd: p.root,
+			encoding: "utf8",
+			env: { ...process.env, CLAUDE_CONFIG_DIR: config },
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("this cherry-pick went unchecked");
+		const logs = fs
+			.readdirSync(config, { recursive: true, encoding: "utf8" })
+			.filter((f) => f.endsWith("guard-errors.log"))
+			.map((f) => fs.readFileSync(path.join(config, f), "utf8"));
+		expect(logs.join("")).toMatch(
+			/\tprepare-commit-msg\treview-hold-gate\.sh is missing — this cherry-pick went unchecked for a sensitive-path review\n$/,
+		);
 	});
 
 	it("takes no hold on a rebase", () => {

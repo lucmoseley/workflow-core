@@ -4,7 +4,7 @@
 # commit's own record of its sensitive-path review (#3664, spec #1612
 # §Disposition and records, Reach).
 #
-# IMPLICIT:  removes every `Review-Tier:` line from the message but one a cherry-pick's picked commit carries or, on an unchanged tree, HEAD's, saying so on stderr where the commit then goes on with none (#3906). Consumes this session's stamp scripts/review-hold-gate.sh leaves on a pass (scripts/lib/review-tier-stamp.sh names it). Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file.
+# IMPLICIT:  removes every `Review-Tier:` line from the message but one a cherry-pick's picked commit carries or, on an unchanged tree, HEAD's, saying so on stderr where the commit then goes on with none (#3906), and says so too where the message leaves that one line out (#4051). Consumes this session's stamp scripts/review-hold-gate.sh leaves on a pass (scripts/lib/review-tier-stamp.sh names it). Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file.
 # JUSTIFIED: reach — scripts/report-remeasure-due.js counts a commit by it where no `**Review findings:**` comment names it.
 # DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal and `HUSKY=0`.
 #
@@ -92,13 +92,23 @@ strip_unvouched() {
   stripped=1
 }
 
-# On a commit that goes on with no trailer, says the strip took one away.
+# On a commit that goes on with no trailer, says the strip took one away, and
+# that a message given in place of the vouching one left its line out, as
+# `git commit --amend -m` on a reviewed commit does (#4051).
 wrote=""
 # shellcheck disable=SC2329  # run by the EXIT trap below
 say_stripped() {
   local status=$?
-  if [[ "$status" -eq 0 && -n "$stripped" && -z "$wrote" ]]; then
+  [[ "$status" -eq 0 && -z "$wrote" ]] || return 0
+  if [[ -n "$stripped" ]]; then
     echo "prepare-commit-msg: removed the message's Review-Tier: line, as no review of this commit is recorded; only the review hold writes one." >&2
+  fi
+  grep -qiE '^Review-Tier[[:space:]]*:' "$msg" 2>/dev/null && return 0
+  grep -qiE '^Review-Tier[[:space:]]*:' <<<"$(vouching_message "$route")" || return 0
+  if [[ "$route" == cherry-pick ]]; then
+    echo "prepare-commit-msg: this message leaves out the Review-Tier: line the picked commit carries, so this commit lands with no record of that review; give the message the line to keep it." >&2
+  else
+    echo "prepare-commit-msg: this message leaves out the Review-Tier: line HEAD carries, on HEAD's own tree, so an amend drops HEAD's record of its review; give the message the line to keep it." >&2
   fi
 }
 trap say_stripped EXIT
