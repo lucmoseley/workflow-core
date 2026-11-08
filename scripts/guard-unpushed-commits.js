@@ -35,8 +35,7 @@
  * commit ledger names no tree, so a commit the session made there from a `cd`
  * is ledgered all the same. The main checkout's read counts as pushed what
  * the session's own pushed ref holds, so a main checkout fast-forwarded onto
- * the session's pushed branch is not warned of; and a commit both HEADs reach
- * is named once, under the session's own tree.
+ * the session's pushed branch is not warned of.
  *
  * A `waiting:` TURN IS PASSED OVER, and marks nothing seen, so the warning
  * lands on the turn that ends the work rather than on the hand-off before it —
