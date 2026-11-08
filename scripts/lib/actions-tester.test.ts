@@ -263,6 +263,27 @@ it.each([
 	},
 );
 
+it.each([
+	["a shard", [...shards("success", ""), SUITE_PASSED]],
+	[
+		"Suite passed",
+		[
+			...shards("success", "success"),
+			{ name: "Suite passed", conclusion: null },
+		],
+	],
+])(
+	"waits out a concluded run whose %s job still runs, never reading it as unknown (#4347)",
+	async (_, early) => {
+		const r = reads([() => [run(1, "success")]]);
+		let n = 0;
+		r.jobsOf = () =>
+			n++ === 0 ? early : [...shards("success", "success"), SUITE_PASSED];
+		expect(await verdictOf(r)).toEqual({ kind: "green", run: 1 });
+		expect(n).toBe(2);
+	},
+);
+
 it("waits out an unfinished run and returns its verdict", async () => {
 	const r = reads([() => [], () => [run(1, null)], () => [run(1, "success")]]);
 	expect(await verdictOf(r)).toEqual({ kind: "green", run: 1 });
@@ -467,6 +488,31 @@ it("dispatches the named files at the sha and reads its own run's green, naming 
 			nonce: expect.any(String),
 		},
 	]);
+});
+
+it("waits out a named run concluded with its job still running (#4347)", async () => {
+	const r = fakeNamedReads({ conclusion: "success" });
+	let n = 0;
+	r.reads.jobsOf = () => [
+		{ name: "Named files", conclusion: n++ === 0 ? "" : "success" },
+	];
+	expect(await askNamed(r)).toEqual({ kind: "green" });
+	expect(n).toBe(2);
+});
+
+it("judges only the files the tree at the sha holds, green with no dispatch where it holds none (#4347)", async () => {
+	const absent = fakeNamedReads({ conclusion: "failure" });
+	absent.reads.presentAt = () => [];
+	expect(await askNamed(absent)).toEqual({ kind: "green" });
+	expect(absent.dispatched).toEqual([]);
+	const unread = fakeNamedReads({ conclusion: "success" });
+	unread.reads.presentAt = () => {
+		throw new Error("fatal: not a tree object");
+	};
+	const v = await askNamed(unread);
+	expect(v).toMatchObject({ kind: "unknown" });
+	expect(v.kind === "unknown" && v.reason).toMatch(/tree at a+ unread/);
+	expect(unread.dispatched).toEqual([]);
 });
 
 it("reads a failed named run as red on the tree's failing files, and one naming none as no verdict (#3764)", async () => {
@@ -951,35 +997,31 @@ it("reads lander/batch-<k> and lander/iso-suite-* runs through gh, the lander re
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 	git(tmp, "init", "-q", "--bare", remote);
 	git(tmp, "clone", "-q", remote, work);
-	git(
-		work,
-		"-c",
-		"user.name=t",
-		"-c",
-		"user.email=t@t",
-		"commit",
-		"-q",
-		"--allow-empty",
-		"-m",
-		"a",
-	);
+	fs.mkdirSync(path.join(work, "scripts/lib"), { recursive: true });
+	fs.writeFileSync(path.join(work, "scripts/lib/a.test.ts"), "");
+	git(work, "add", ".");
+	const commit = (m: string) =>
+		git(
+			work,
+			"-c",
+			"user.name=t",
+			"-c",
+			"user.email=t@t",
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			m,
+		);
+	commit("a");
 	const iso = git(work, "rev-parse", "HEAD");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-1");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-suite-0");
-	git(
-		work,
-		"-c",
-		"user.name=t",
-		"-c",
-		"user.email=t@t",
-		"commit",
-		"-q",
-		"--allow-empty",
-		"-m",
-		"b",
-	);
+	commit("b");
 	const batch = git(work, "rev-parse", "HEAD");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/batch-1");
+	commit("c");
+	const unheld = git(work, "rev-parse", "HEAD");
 	const cancelFile = path.join(tmp, "cancelled");
 	const nonceFile = path.join(tmp, "nonce");
 	const answers = {
@@ -1030,7 +1072,7 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 		kind: "green",
 		run: 3,
 	});
-	expect(await tester.verdict(OTHER, ["scripts/lib/a.test.ts"])).toEqual({
+	expect(await tester.verdict(unheld, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});

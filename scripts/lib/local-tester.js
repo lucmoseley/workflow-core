@@ -507,7 +507,8 @@ function rerunsOf(files, test, python) {
 /**
  * The commands a run takes at `dir`, one group per suite slot: the declared
  * `full_test`, else `test`, and the Python runner where the config routes a
- * Python test path; with `files`, `rerunsOf`'s runs. A declared
+ * Python test path; with `files`, `rerunsOf`'s runs of those `dir` holds,
+ * and no group where it holds none. A declared
  * `fullTestShards` splits the whole run into that many `--shard=k/n` groups,
  * each under its own suite ceiling, the Python runner joining the last
  * (#2996). Where neither `full_test` nor `test` is declared, the Python runner
@@ -540,7 +541,12 @@ function readRunsAt(dir, pytest, files) {
 		label: `node ${path.basename(pytest)}`,
 	};
 	if (files.length > 0) {
-		const runs = rerunsOf(files, test, routesPython && python);
+		/* A file the tree lacks has no test to fail here: the base check of a
+		 * test file new in the tip, which vitest, run on it alone, exits 1 on
+		 * naming no file (#4347). */
+		const held = files.filter((f) => fs.existsSync(path.join(dir, f)));
+		if (held.length === 0) return [];
+		const runs = rerunsOf(held, test, routesPython && python);
 		return typeof runs === "string" ? runs : [runs];
 	}
 	/* A bare run in this clean worktree selects no touched test (#3508). */
