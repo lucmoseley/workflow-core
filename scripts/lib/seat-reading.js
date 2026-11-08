@@ -277,14 +277,12 @@ function seatsDueRead(seats, { barsOf, triedAt, hasRunSince, now }) {
 	});
 }
 
-/** A `finished` probe whose printed week figure never reached the cache. */
 const STAMP_UNMOVED = "finished (stamp unmoved)";
 
 /**
  * A probe's outcome, `finished` read as STAMP_UNMOVED where it printed a week
  * figure yet left the cache's stamp, or no stamp at all, at or before its
- * start (#4075). The panel reads the cache alone, so that figure never
- * reaches it.
+ * start (#4075).
  * @param {string} outcome
  * @param {{printedWeek: boolean, stampMs: number|null, startMs: number}} after
  */
