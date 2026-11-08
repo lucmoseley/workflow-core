@@ -80,14 +80,15 @@ function gateOutcome(dir, keyVar) {
 			why: `the seat file refuses (seat ${dir}):\n${why.map((w) => `  ${w}\n`).join("")}`,
 		};
 	}
-	const env = { ...process.env };
+	let env = process.env;
 	/** @type {{settings: string, unset: string[]} | undefined} */
 	let overflow;
 	if (seat.kind === "overflow") {
 		const built = buildOverflowLaunch(seat.keyVar, env);
 		if ("why" in built)
 			return { why: `overflow seat ${buildSeatLabel(seat)}: ${built.why}\n` };
-		overflow = built;
+		({ env } = built);
+		overflow = { settings: built.settings, unset: built.unset };
 	}
 	const auth = launchAuthRefusal({
 		bin: claudeBin(env),

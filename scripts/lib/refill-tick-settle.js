@@ -23,7 +23,7 @@ const {
 	launchesSince,
 	summaryOf,
 } = require("./refill-loop.js");
-const { buildSeatName } = require("./refill-seats.js");
+const { buildSeatLabel, buildSeatName } = require("./refill-seats.js");
 const {
 	batchLaunching,
 	lateStopped,
@@ -339,11 +339,12 @@ function recordOverflowStart(input, launches, since, io) {
 	const start = {
 		at: first.at,
 		seat: first.launch.seat,
+		...(first.launch.keyVar ? { keyVar: first.launch.keyVar } : {}),
 		planSeats: input.seats.map(planSeatBasisOf),
 		omitted,
 	};
 	io.log(
-		`first overflow launch on ${buildSeatName(first.launch.seat)}: ${buildOverflowStartLines(start).join("; ")}`,
+		`first overflow launch on ${buildSeatLabel({ ...start, seat: buildSeatName(start.seat) })}: ${buildOverflowStartLines(start).join("; ")}`,
 	);
 	return start;
 }

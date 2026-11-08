@@ -103,18 +103,17 @@ describe("buildOverflowLaunch, the launch's `--settings` and stripped environmen
 			"WFC_K",
 			"CLAUDE_CODE_SESSION_ID",
 		]);
-		expect(env).toEqual({ KEEP: "1" });
+		expect(built.env).toEqual({ KEEP: "1" });
+		expect(env.WFC_K).toBe("sk-b");
 	});
 
-	it("refuses a missing variable before any launch, naming it, holding no value and leaving the environment", () => {
-		const env = { ANTHROPIC_API_KEY: "sk-a" };
-		const built = buildOverflowLaunch("WFC_MISSING", env);
+	it("refuses a missing variable before any launch, naming it and holding no value", () => {
+		const built = buildOverflowLaunch("WFC_MISSING", {});
 		if (!("why" in built)) throw new Error("built settings for a missing key");
 		expect(built.why).toContain("WFC_MISSING is not set in");
 		expect(built.why).toMatch(
 			/set it with `node \S*write-secret\.js WFC_MISSING`/,
 		);
 		expect(built.why).not.toContain("sk-fake");
-		expect(env).toEqual({ ANTHROPIC_API_KEY: "sk-a" });
 	});
 });

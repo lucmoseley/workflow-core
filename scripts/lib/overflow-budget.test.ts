@@ -731,7 +731,7 @@ describe("the CLI", () => {
 		const r = cli("WFC_TEST_KEY");
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		const prefix = `overflow ${seatDir}: `;
+		const prefix = `overflow ${seatDir} key=WFC_TEST_KEY: `;
 		expect(r.stdout.startsWith(prefix)).toBe(true);
 		expect(r.stdout.slice(prefix.length)).toMatch(
 			/^fits 45; headroom \$180\.00 \(\$0\.00 held by 0 running\); spent \$20\.00 of \$200\.00 since \d{4}-\d{2}-01; resets \d{4}-\d{2}-01\n$/,
@@ -788,7 +788,7 @@ describe("the status line", () => {
 			},
 		});
 		expect(r.stdout.trim()).toBe(
-			`overflow ${seatDir}: fits 42; headroom $170.02 ($0.00 held by 0 running); $170.02 of $200.00 on the Console at 2026-11-03T04:00:00.000Z, $0.00 spent since; expires 2099-12-01; last Console read failed: Chrome is closed`,
+			`overflow ${seatDir} key=WFC_TEST_KEY: fits 42; headroom $170.02 ($0.00 held by 0 running); $170.02 of $200.00 on the Console at 2026-11-03T04:00:00.000Z, $0.00 spent since; expires 2099-12-01; last Console read failed: Chrome is closed`,
 		);
 	});
 });
@@ -830,7 +830,7 @@ describe("the per-session cap (#3698)", () => {
 	it("stops a session past its allowance under its seat's dir, naming spend and allowance", () => {
 		appendTranscript(recordLaunch("0000a001"), buildModelTurn(15_000_000));
 		expect(stopOverAllowance(declared(), [listed("0000a001")])).toEqual([
-			`stopped overflow session Overflow · job 0000a001 (0000a001) on ${seatDir}: spent $60.00 of its $50.00 allowance`,
+			`stopped overflow session Overflow · job 0000a001 (0000a001) on ${seatDir} key=WFC_TEST_KEY: spent $60.00 of its $50.00 allowance`,
 		]);
 		expect(readStops()).toEqual([`${seatDir} stop 0000a001`]);
 	});
@@ -853,7 +853,7 @@ describe("the per-session cap (#3698)", () => {
 					{ ...listed("0000a005"), kind: "headless" },
 				]),
 			).toEqual([
-				`stopped overflow session Overflow · job 0000a005 (0000a005) on ${seatDir}: spent $60.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000a005 (0000a005) on ${seatDir} key=WFC_TEST_KEY: spent $60.00 of its $50.00 allowance`,
 			]);
 			expect(readStops()).toEqual([]);
 			expect(readProcStartOf(pid)).toBeNull();
@@ -925,7 +925,7 @@ describe("the per-session cap (#3698)", () => {
 				buildModelTurn(8_000_000, "r3"),
 			);
 			expect(stopOverAllowance(declared(), [listed("0000d001")])).toEqual([
-				`stopped overflow session Overflow · job 0000d001 (0000d001) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000d001 (0000d001) on ${seatDir} key=WFC_TEST_KEY: spent $52.00 of its $50.00 allowance`,
 			]);
 		});
 
@@ -997,7 +997,7 @@ describe("the per-session cap (#3698)", () => {
 					listed("0000c002"),
 				]),
 			).toEqual([
-				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir} key=WFC_TEST_KEY: spent $52.00 of its $50.00 allowance`,
 			]);
 			expect(readStops()).toEqual([`${seatDir} stop 0000c002`]);
 		});
@@ -1018,7 +1018,7 @@ describe("the per-session cap (#3698)", () => {
 				buildModelTurn(3_500_000, "r2"),
 			);
 			expect(stopOverAllowance(declared(), [listed("0000c003")])).toEqual([
-				`stopped overflow session Overflow · job 0000c003 (0000c003) on ${seatDir}: spent $50.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000c003 (0000c003) on ${seatDir} key=WFC_TEST_KEY: spent $50.00 of its $50.00 allowance`,
 			]);
 			expect(readStops()).toEqual([`${seatDir} stop 0000c003`]);
 		});
@@ -1036,7 +1036,7 @@ describe("the per-session cap (#3698)", () => {
 			});
 			appendTranscript(copy, buildModelTurn(3_000_000, "r2"));
 			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([
-				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir} key=WFC_TEST_KEY: spent $52.00 of its $50.00 allowance`,
 			]);
 		});
 
@@ -1067,7 +1067,7 @@ describe("the per-session cap (#3698)", () => {
 			const copy = recordLaunch("0000c002", { copyOf: parent });
 			appendTranscript(copy, idless, buildModelTurn(3_000_000, "r2"));
 			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([
-				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir} key=WFC_TEST_KEY: spent $52.00 of its $50.00 allowance`,
 			]);
 		});
 
@@ -1100,7 +1100,7 @@ describe("the per-session cap (#3698)", () => {
 		});
 		appendTranscript(id, buildModelTurn(15_000_000));
 		expect(stopOverAllowance(declared(), [listed("0000a005")])).toEqual([
-			`overflow session Overflow · job 0000a005 (0000a005) on ${seatDir} unjudged: its launch records no allowance`,
+			`overflow session Overflow · job 0000a005 (0000a005) on ${seatDir} key=WFC_TEST_KEY unjudged: its launch records no allowance`,
 		]);
 		expect(readStops()).toEqual([]);
 	});

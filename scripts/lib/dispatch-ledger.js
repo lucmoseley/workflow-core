@@ -294,6 +294,16 @@ const isOverflowLaunch = (rec) =>
 	/** @type {{kind?: unknown}} */ (rec).kind === "overflow";
 
 /**
+ * A launch record's read failure, with its remedy.
+ * @param {unknown} err
+ */
+const remedied = (err) =>
+	new Error(
+		`launch record unreadable: ${caught(err).message} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
+		{ cause: err },
+	);
+
+/**
  * The one answer to "is this session overflow, on which key, with what
  * allowance" (#3694): a lookup over every overflow launch in `roots`' ledgers,
  * any age, released or not, as credits stay spent. A session's latest such
@@ -308,9 +318,14 @@ const isOverflowLaunch = (rec) =>
  *   one must not look alike
  */
 function readOverflowLookup(roots = [ledgerRoot()]) {
-	const launches = roots.flatMap((root) =>
-		readEveryRow(root).filter(isOverflowLaunch),
-	);
+	let launches;
+	try {
+		launches = roots.flatMap((root) =>
+			readEveryRow(root).filter(isOverflowLaunch),
+		);
+	} catch (err) {
+		throw remedied(err);
+	}
 	return ({ jobId, sessionId }) =>
 		launches
 			.filter(
@@ -336,8 +351,15 @@ const readEveryLedgerRoot = (root = ledgerRoot()) => [
  * @param {string} [root] as readEveryLedgerRoot's
  * @throws where a ledger will not read, or the checkouts cannot be listed
  */
-const readEveryOverflowLookup = (root) =>
-	readOverflowLookup(readEveryLedgerRoot(root));
+function readEveryOverflowLookup(root) {
+	let roots;
+	try {
+		roots = readEveryLedgerRoot(root);
+	} catch (err) {
+		throw remedied(err);
+	}
+	return readOverflowLookup(roots);
+}
 
 /**
  * `readEveryOverflowLookup` where the seat file declares an overflow seat, or
@@ -346,8 +368,7 @@ const readEveryOverflowLookup = (root) =>
  * @param {import("./refill-seats.js").SeatList} [declared]
  * @param {string} [root] as readEveryLedgerRoot's
  * @returns {OverflowLookup}
- * @throws as `readEveryOverflowLookup`, where it reads, its message naming
- *   the remedy
+ * @throws as `readEveryOverflowLookup`, where it reads
  */
 function readDeclaredOverflowLookup(
 	declared = readDeclaredSeats(),
@@ -355,14 +376,7 @@ function readDeclaredOverflowLookup(
 ) {
 	if (!declaresOverflowSeat(declared) && declared.errors.length === 0)
 		return () => null;
-	try {
-		return readEveryOverflowLookup(root);
-	} catch (err) {
-		throw new Error(
-			`launch record unreadable: ${caught(err).message} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
-			{ cause: err },
-		);
-	}
+	return readEveryOverflowLookup(root);
 }
 
 /**

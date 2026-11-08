@@ -604,7 +604,11 @@ describe("stop and status", () => {
 		const r = await run("status");
 		const line = r.stdout
 			.split("\n")
-			.find((l) => l.startsWith(`overflow ${path.join(dir, ".claude3")}: `));
+			.find((l) =>
+				l.startsWith(
+					`overflow ${path.join(dir, ".claude3")} key=WFC_TEST_KEY: `,
+				),
+			);
 		expect(line?.slice(line.indexOf(": ") + 2)).toMatch(
 			/^fits 50; headroom \$200\.00 \(\$0\.00 held by 0 running\); spent \$0\.00 of \$200\.00 since \d{4}-\d{2}-20; resets \d{4}-\d{2}-20$/,
 		);

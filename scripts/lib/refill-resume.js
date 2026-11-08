@@ -411,7 +411,7 @@ function resumeSteps(io) {
 	 * @param {JobLaunch} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
-	function movedNameOf(l, { sessionId, cwd }) {
+	function readMovedName(l, { sessionId, cwd }) {
 		const read = readTranscriptName(l.seat, cwd, sessionId);
 		if ("why" in read)
 			log(
@@ -703,7 +703,7 @@ function resumeSteps(io) {
 			io.copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
 			removeJobRecord(seat, sessionId, cwd);
 		if (prepared) return { failed: prepared };
-		const name = target.keyVar ? movedNameOf(l, ids) : undefined;
+		const name = target.keyVar ? readMovedName(l, ids) : undefined;
 		const r = resumeStopped(movedOnto(l, target), prompt, ids, {
 			move: target,
 			name,

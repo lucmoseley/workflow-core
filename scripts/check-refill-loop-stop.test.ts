@@ -70,6 +70,7 @@ describe("the first overflow launch (#3767)", () => {
 				overflowStart: {
 					at,
 					seat: path.join(home, ".claude2"),
+					keyVar: "K2",
 					planSeats: [
 						{
 							seat: path.join(home, ".claude2"),
@@ -102,7 +103,7 @@ describe("the first overflow launch (#3767)", () => {
 		expect(JSON.parse(stdout).systemMessage).toContain("REFILL-LOOP-OVERFLOW");
 		expect(stdout).toContain("Its status:");
 		expect(stdout).toContain("2026-11-01T09:00:00.000Z");
-		expect(stdout).toContain("plan-seat launch, on ~/.claude2.");
+		expect(stdout).toContain("plan-seat launch, on ~/.claude2 key=K2.");
 		expect(stdout).toContain(
 			"~/.claude2: 100% of the week, read 2m before it, weekly-full",
 		);

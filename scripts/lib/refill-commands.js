@@ -1027,7 +1027,7 @@ function buildOverflowBasisLines({
 			: []),
 		...(start
 			? [
-					`last overflow start: ${iso(start.at)} on ${buildSeatName(start.seat)}`,
+					`last overflow start: ${iso(start.at)} on ${buildSeatLabel({ ...start, seat: buildSeatName(start.seat) })}`,
 					...buildOverflowStartLines(start).map((l) => `  ${l}`),
 				]
 			: []),

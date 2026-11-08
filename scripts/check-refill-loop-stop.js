@@ -56,7 +56,7 @@ const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
 const { restartWaitOf } = require("./lib/refill-boot.js");
 const { readState } = require("./lib/refill-state.js");
-const { buildSeatName } = require("./lib/refill-seats.js");
+const { buildSeatLabel, buildSeatName } = require("./lib/refill-seats.js");
 const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
 
 /** @param {string} file */
@@ -117,7 +117,7 @@ function reportRestartWait(ctx, since) {
 function reportOverflowStart(ctx, start, seenFile) {
 	if (start === null || start.at <= readSeen(seenFile)) return null;
 	const at = new Date(start.at).toISOString();
-	const seat = buildSeatName(start.seat);
+	const seat = buildSeatLabel({ ...start, seat: buildSeatName(start.seat) });
 	ctx.warn(
 		"REFILL-LOOP-OVERFLOW",
 		`the refill loop began spending API credits on ${seat} at ${at}`,

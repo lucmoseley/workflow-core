@@ -60,7 +60,7 @@ const CONTRACT = path.join(__dirname, "headless-contract.md");
 const OVERFLOW_PREFIX = "Overflow · ";
 
 /** @param {string} name */
-const overflowNameOf = (name) =>
+const buildOverflowName = (name) =>
 	name.startsWith(OVERFLOW_PREFIX) ? name : `${OVERFLOW_PREFIX}${name}`;
 
 /** @typedef {import("./headless-runs.js").RunRecord} RunRecord */
@@ -87,11 +87,12 @@ function launch({
 	const seat = findOverflowSeat(list, keyVar);
 	if (!seat)
 		return { why: `${keyVar} is not an overflow seat's key in the seat file` };
-	/** @type {NodeJS.ProcessEnv} */
-	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat.dir };
-	const built = buildOverflowLaunch(seat.keyVar, env);
+	const built = buildOverflowLaunch(seat.keyVar, {
+		...process.env,
+		CLAUDE_CONFIG_DIR: seat.dir,
+	});
 	if ("why" in built) return built;
-	const { settings } = built;
+	const { settings, env } = built;
 	forgetRoots(env);
 	const bin = claudeBin(env);
 	const refusal = launchAuthRefusal({ bin, env, cwd, settings });
@@ -123,7 +124,7 @@ function launch({
 				: ["--max-budget-usd", String(budgetUsd)]),
 			"--settings",
 			settings,
-			...(name === undefined ? [] : ["-n", overflowNameOf(name)]),
+			...(name === undefined ? [] : ["-n", buildOverflowName(name)]),
 			"--append-system-prompt",
 			fs.readFileSync(CONTRACT, "utf8"),
 			prompt,

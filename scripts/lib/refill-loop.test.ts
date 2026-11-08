@@ -809,7 +809,7 @@ describe("a batch on record before its dispatch (#4180)", () => {
 
 describe("the first overflow launch's record (#3767)", () => {
 	/* The overflow seat on the plan seat's dir, told apart by its key. */
-	const Key = "K2";
+	const key = "K2";
 	/** When a past launch launched, unless it says otherwise. */
 	const pastAt = NOW - 3_600_000;
 	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({
@@ -849,7 +849,7 @@ describe("the first overflow launch's record (#3767)", () => {
 							model: "opus" as const,
 							seat: "/h/.claude2",
 							...(launch === "overflow"
-								? { keyVar: Key, reason: "overflow" as const }
+								? { keyVar: key, reason: "overflow" as const }
 								: { reason: "soonest reset" as const }),
 						},
 					];
@@ -898,7 +898,7 @@ describe("the first overflow launch's record (#3767)", () => {
 				overflow: [
 					{
 						seat: "/h/.claude2",
-						keyVar: Key,
+						keyVar: key,
 						fits: 3,
 						spentUntil: null,
 						why: null,
@@ -917,6 +917,7 @@ describe("the first overflow launch's record (#3767)", () => {
 		).toEqual({
 			at: NOW,
 			seat: "/h/.claude2",
+			keyVar: key,
 			planSeats: [
 				{
 					seat: "/h/.claude2",
@@ -932,7 +933,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	it("records nothing on a second overflow launch or a plan-seat launch", () => {
 		const second = settleOverflowLaunch(
 			"overflow",
-			[{ seat: "/h/.claude2", keyVar: Key, reason: "overflow" }],
+			[{ seat: "/h/.claude2", keyVar: key, reason: "overflow" }],
 			undefined,
 			pastAt,
 		);
@@ -946,7 +947,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	const movedAt = NOW - 600_000;
 	const moved = {
 		seat: "/h/.claude2",
-		keyVar: Key,
+		keyVar: key,
 		reason: "moved from ~/.claude2",
 		movedAt,
 	};
@@ -985,7 +986,7 @@ describe("the first overflow launch's record (#3767)", () => {
 		const plan = { seat: "/h/.claude2", launchedAt: pastAt + 60_000 };
 		const resumed = {
 			seat: "/h/.claude2",
-			keyVar: Key,
+			keyVar: key,
 			reason: "overflow",
 			relaunchedAt: NOW - 60_000,
 		};

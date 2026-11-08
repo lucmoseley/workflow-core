@@ -837,7 +837,7 @@ describe("the plan and credit rows", () => {
 
 	it("gives a key with nothing yet spent as its whole grant, a plan with room", () => {
 		const overflow = [
-			buildOverflowStatus(overflowSeat("~/.claude2"), {
+			buildOverflowStatus(overflowSeat(`${process.env.HOME}/.claude2`), {
 				fit: 10,
 				headroomUsd: 200,
 				settledUsd: 0,
@@ -979,7 +979,7 @@ describe("the plan and credit rows", () => {
 			fits: weekFull ? 0 : 1,
 			fresh: true,
 		});
-		const dir = `${process.env.HOME}/.claude2`;
+		const dir = `${process.env.HOME}/.claude3`;
 		const declared = {
 			errors: [],
 			seats: [

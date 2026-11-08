@@ -169,20 +169,22 @@ function buildKeySettings(keyVar) {
 }
 
 /**
- * An overflow launch's `--settings` and the variables its child runs
- * without, deleted from `env`, the child's: any key, which would outrank the
+ * An overflow launch's `--settings`, and `env` without the variables its
+ * child runs without, which `unset` names: any key, which would outrank the
  * helper, and the caller's session id, which would make the child claim to
- * be the caller. Why not where the settings will not build, `env` untouched.
+ * be the caller. Why not where the settings will not build.
  * @param {string} keyVar
  * @param {NodeJS.ProcessEnv} env
- * @returns {{settings: string, unset: string[]}|{why: string}}
+ * @returns {{settings: string, unset: string[], env: NodeJS.ProcessEnv}
+ *   |{why: string}}
  */
 function buildOverflowLaunch(keyVar, env) {
 	const built = buildKeySettings(keyVar);
 	if ("why" in built) return built;
 	const unset = ["ANTHROPIC_API_KEY", keyVar, "CLAUDE_CODE_SESSION_ID"];
-	for (const name of unset) delete env[name];
-	return { settings: built.settings, unset };
+	const stripped = { ...env };
+	for (const name of unset) delete stripped[name];
+	return { settings: built.settings, unset, env: stripped };
 }
 
 module.exports = { buildKeyHelper, buildOverflowLaunch };
