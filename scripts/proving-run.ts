@@ -28,6 +28,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
 import { Session } from "./proving-session";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -79,13 +80,11 @@ export class Arena {
 
 	/**
 	 * A fake `gh` at WFC_GH, so a script that calls `gh` can run without a
-	 * network call or a real issue number.
-	 * `body` is the script's shell body — it decides the exit code and stdout.
+	 * network call or a real issue number: gh-stub's `stubGhRoutes`, serving
+	 * `routes` and, where `log` is given, appending each call's argv to it.
 	 */
-	ghStub(body: string) {
-		const stub = path.join(this.dir, "gh-stub");
-		fs.writeFileSync(stub, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
-		this.extraEnv.WFC_GH = stub;
+	ghStub(routes: Record<string, RouteAnswer>, { log }: { log?: string } = {}) {
+		this.extraEnv.WFC_GH = stubGhRoutes(this.dir, routes, { log }).gh;
 		return this;
 	}
 

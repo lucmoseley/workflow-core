@@ -27,7 +27,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { shellQuote } from "./lib/sh-quote.js";
+import { printed } from "./lib/gh-stub";
 import { Arena } from "./proving-run";
 import { GUARDS, guardExists } from "./proving-session";
 
@@ -238,7 +238,7 @@ describe("mantahostels#60/mantahostels#73 — mutual deadlock on uncommitted edi
 			// A gh call on every guarded write would put ~1s on every edit any
 			// session makes to docs/.
 			const marker = path.join(a.dir, "gh-was-called");
-			a.ghStub(`touch ${shellQuote(marker)}; echo '{"state":"OPEN"}'`);
+			a.ghStub({ "*": printed('{"state":"OPEN"}\n') }, { log: marker });
 
 			const r = alice.runGuard(
 				GUARDS.fileClaim,
