@@ -81,10 +81,10 @@ function main() {
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
 		);
-		env.PATH = (process.env.PATH ?? "")
-			.split(path.delimiter)
-			.map((dir) => path.resolve(dir))
-			.join(path.delimiter);
+		if (process.env.PATH !== undefined)
+			env.PATH = process.env.PATH.split(path.delimiter)
+				.map((dir) => path.resolve(dir))
+				.join(path.delimiter);
 		git(["init", "-q", tree], "making the extracted tree a repo", env);
 
 		const r = spawnSync(

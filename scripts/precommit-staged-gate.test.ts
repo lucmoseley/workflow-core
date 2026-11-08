@@ -195,19 +195,31 @@ describe("the pre-commit Biome gate", () => {
 
 	// A main checkout's hook PATH names its bin relatively, as husky's own does;
 	// Biome runs in the extracted tree, where that relative entry finds nothing
-	// unless resolved first (#4079).
-	it("finds Biome through a relative PATH entry, as in a main checkout", () => {
-		const repo = fixture({ "scripts/mine.ts": WELL_FORMATTED });
+	// unless resolved first.
+	function runRelative(repo: string): { code: number; output: string } {
 		fs.mkdirSync(path.join(repo, "node_modules", ".bin"), { recursive: true });
 		fs.symlinkSync(
 			path.join(ROOT, "node_modules", ".bin", "biome"),
 			path.join(repo, "node_modules", ".bin", "biome"),
 		);
 		const relativePath = `./node_modules/.bin:${path.dirname(process.execPath)}:/usr/bin:/bin`;
+		return runAdopted(repo, { PATH: relativePath });
+	}
 
-		const { code, output } = runAdopted(repo, { PATH: relativePath });
+	it("passes a clean blob through a relative PATH entry, as in a main checkout (#4079)", () => {
+		const { code, output } = runRelative(
+			fixture({ "scripts/mine.ts": WELL_FORMATTED }),
+		);
 		expect(output).not.toContain("would not start");
 		expect(code).toBe(0);
+	});
+
+	it("refuses a broken blob through a relative PATH entry, naming it (#4079)", () => {
+		const { code, output } = runRelative(
+			fixture({ "scripts/mine.ts": BADLY_FORMATTED }),
+		);
+		expect(code).toBe(1);
+		expect(output).toContain("scripts/mine.ts");
 	});
 
 	it("passes that blob through an adopter's inferred check_staged (#2540)", () => {
