@@ -196,6 +196,7 @@ const {
 } = require("./lib/touched-by.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
+const { readText } = require("./lib/file-read.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
@@ -1783,7 +1784,11 @@ function guardPathsOf(text) {
 
 /* Under .claude/, which keeps the sidecar out of RUNNABLE_PATH_RE below, so it
  * is never anchored on itself. */
-const { ANCHORS } = require("./lib/registry-anchors-path.js");
+const {
+	ANCHORS,
+	buildAnchorsText,
+	parseRows,
+} = require("./lib/registry-anchors-file.js");
 
 /*
  * The anchor question is a different one from the Enforced-claim question above,
@@ -2044,29 +2049,28 @@ function digestOf(rel, seen = new Set(), inStack = false) {
 	}
 }
 
+/**
+ * The working tree's anchors, none where the file is absent. A file there that
+ * is not a JSON object of digests refuses the run: read as empty, a targeted
+ * `--review` would write back its named rows alone and erase the rest (#4177).
+ */
 function loadAnchors() {
-	try {
-		const raw = JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
-		/* Tolerate anything non-object rather than crashing the whole check. */
-		return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-	} catch {
-		return {};
-	}
+	const read = readText(path.join(root, ANCHORS));
+	if (read.state === "absent") return {};
+	if (read.state === "unreadable")
+		throw brokenError(`cannot read ${ANCHORS}: ${read.message}`);
+	const rows = parseRows(read.data);
+	if (rows) return rows;
+	throw brokenError(
+		`${ANCHORS} is not a JSON object of digests; restore it from git, or delete it and re-anchor every guard with a bare  node scripts/check-guard-registry.js --review.`,
+	);
 }
 
 /** @param {Record<string, string>} anchors */
 function saveAnchors(anchors) {
 	/* A host with no .claude/ yet has nowhere to write the first anchor. */
 	fs.mkdirSync(path.dirname(path.join(root, ANCHORS)), { recursive: true });
-	const sorted = Object.fromEntries(
-		Object.keys(anchors)
-			.sort()
-			.map((k) => [k, anchors[k]]),
-	);
-	fs.writeFileSync(
-		path.join(root, ANCHORS),
-		`${JSON.stringify(sorted, null, "\t")}\n`,
-	);
+	fs.writeFileSync(path.join(root, ANCHORS), buildAnchorsText(anchors));
 }
 
 // --- checking ---------------------------------------------------------------
@@ -4703,16 +4707,12 @@ function readAnchorsAt(ctx, ceiling, rev) {
 		]),
 	);
 	const wayOut = `restore it, re-anchor with  node scripts/check-guard-registry.js --review  and commit ${ANCHORS}.`;
-	let raw;
-	try {
-		raw = JSON.parse(text);
-	} catch (e) {
-		return ctx.broken(
-			`${ANCHORS} at ${rev} is not JSON: ${caught(e).message}; ${wayOut}`,
-		);
-	}
-	if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
-	return ctx.broken(`${ANCHORS} at ${rev} is not a JSON object; ${wayOut}`);
+	return (
+		parseRows(text) ??
+		ctx.broken(
+			`${ANCHORS} at ${rev} is not a JSON object of digests; ${wayOut}`,
+		)
+	);
 }
 
 /**

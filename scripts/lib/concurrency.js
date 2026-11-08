@@ -31,6 +31,7 @@ const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const {
 	NOTHING_LAUNCHABLE,
+	buildIdleText,
 	buildPauseText,
 	buildPlanWaitText,
 	pickSeat,
@@ -119,14 +120,17 @@ function policyFailing(input, decision) {
 		return [{ limit: "allowance", why: buildPlanWaitText(decision.planWait) }];
 	/** @type {Failing[]} */
 	const out = [];
-	if (decision.idle === NOTHING_LAUNCHABLE)
+	if (decision.idle?.reason === NOTHING_LAUNCHABLE)
 		out.push({
 			limit: "empty frontier",
 			why: "nothing in the frontier is launchable",
 		});
 	const pick = input.freeSlots > 0 ? pickSeat(input) : null;
 	if (pick && pick.seat === null)
-		out.push({ limit: "allowance", why: pick.wait || "no seat fits" });
+		out.push({
+			limit: "allowance",
+			why: pick.wait ? buildIdleText(pick.wait) : "no seat fits",
+		});
 	return out;
 }
 

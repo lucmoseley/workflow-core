@@ -31,19 +31,17 @@ const { isTestKind } = require("./test-kind.js");
  */
 
 /**
- * `calls` names what a Node program calls from the
- * primitive, `stubWith` how a test stubs the binary, and the exemplars a
- * Node, shell and test file on the route.
+ * `calls` names what a Node program calls from the primitive, and the
+ * exemplars a Node and a shell file on the route, as the base primitives row
+ * names them: each a file the release ships.
  * @param {{
  *   bin: string,
  *   envVar: string,
  *   primitive: string,
  *   secondVar: RegExp,
  *   calls: string,
- *   stubWith: string,
  *   exemplar: string,
  *   shellExemplar: string,
- *   stubExemplar: string,
  * }} spec
  * @returns {Route}
  */
@@ -53,10 +51,8 @@ function buildRoute({
 	primitive,
 	secondVar,
 	calls,
-	stubWith,
 	exemplar,
 	shellExemplar,
-	stubExemplar,
 }) {
 	return {
 		bin,
@@ -66,7 +62,7 @@ function buildRoute({
 			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
 			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: <why>\` where \`${bin}\` is only text.`,
-			"PATH-STUB": `point ${envVar} at the stub${stubWith}, as ${stubExemplar} does.`,
+			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,
 		exempt: new RegExp(`${bin}-route-exempt:\\s*\\w`),
@@ -94,11 +90,8 @@ const ROUTES = [
 		primitive: "scripts/lib/gh.js",
 		secondVar: /\bWFC_\w+_GH\b/,
 		calls: "`gh`, `ghJson` or their kin",
-		stubWith:
-			", with `stubGhScript` or `stubGhRoutes` from scripts/lib/gh-stub.ts",
 		exemplar: "scripts/check-issue-orphans.js",
 		shellExemplar: "scripts/link-sub-issue.sh",
-		stubExemplar: "scripts/check-issue-orphans.test.ts",
 	}),
 	buildRoute({
 		bin: "claude",
@@ -106,10 +99,8 @@ const ROUTES = [
 		primitive: "scripts/lib/claude-bin.js",
 		secondVar: /\bWFC_\w+_CLAUDE(?:_BIN)?\b/,
 		calls: "`claudeBin()`",
-		stubWith: "",
 		exemplar: "scripts/run-mod-tests.js",
 		shellExemplar: "scripts/dispatch-sessions.sh",
-		stubExemplar: "scripts/run-mod-tests.test.ts",
 	}),
 ];
 

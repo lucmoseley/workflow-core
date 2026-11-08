@@ -11,6 +11,7 @@ const { REVIEW_HOUR, localDate } = require("./morning-review.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const {
 	EXPLICIT_STOP_DETAIL,
+	buildIdleText,
 	startedAt,
 	UNREAD,
 } = require("./refill-decide.js");
@@ -530,7 +531,7 @@ const buildLaunchLine = (launches) =>
 function summaryOf(d) {
 	if ("stop" in d) return `stop: ${d.stop} — ${d.detail}`;
 	if (d.launches.length > 0) return buildLaunchLine(d.launches);
-	return `idle: ${d.idle}`;
+	return `idle: ${d.idle ? buildIdleText(d.idle) : ""}`;
 }
 
 /**

@@ -114,6 +114,42 @@ const writeBaseline = (over: Record<string, unknown> = {}) => {
 	}
 };
 
+const LIB_CORE = "scripts/lib/issue-create-label.js";
+const TAKES_LABEL = "scripts/lib/takes-label.js";
+
+const anchorLibCore = () => {
+	write(
+		LIB_CORE,
+		'const { TRIED_WAY } = require("./takes-label.js");\nconst { parseCommand } = require("./shell-parse.js");\nmodule.exports = { decide: (c) => parseCommand(c) && { deny: TRIED_WAY } };\n',
+	);
+	write(
+		TAKES_LABEL,
+		'module.exports = { TRIED_WAY: "List what you tried." };\n',
+	);
+	write(
+		"scripts/lib/shell-parse.js",
+		"module.exports = { parseCommand: (c) => c };\n",
+	);
+	write(
+		BASELINE,
+		JSON.stringify(
+			baseline({
+				guards: {
+					...baseline().guards,
+					[LIB_CORE]: {
+						digest: "",
+						verdict: "at need",
+						selfSufficient: "yes",
+					},
+				},
+			}),
+			null,
+			"\t",
+		),
+	);
+	run("--rebaseline", "--no-claim");
+};
+
 const run = (...args: string[]) => {
 	// Off, not inherited: a real Actions run sets it globally, and this
 	// suite runs inside one — runCheck's ::error:: annotation, added off
@@ -1115,6 +1151,39 @@ describe("the behavioural verdicts", () => {
 		});
 	});
 
+	describe("a core in lib/ folds the libs beside it it requires, kit libs aside (#4667)", () => {
+		it("expires the core on a code edit to scripts/lib/takes-label.js", () => {
+			anchorLibCore();
+			write(
+				TAKES_LABEL,
+				'module.exports = { TRIED_WAY: "List the ways you tried." };\n',
+			);
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toMatch(
+				/GUARD-CHANGED\s+scripts\/lib\/issue-create-label\.js/,
+			);
+		});
+
+		it("expires nothing on a comment-only edit to it", () => {
+			anchorLibCore();
+			write(
+				TAKES_LABEL,
+				'// why\nmodule.exports = { TRIED_WAY: "List what you tried." };\n',
+			);
+			expect(run().out).not.toMatch(/GUARD-CHANGED/);
+		});
+
+		it("expires nothing on a code edit to a kit lib it requires", () => {
+			anchorLibCore();
+			write(
+				"scripts/lib/shell-parse.js",
+				"module.exports = { parseCommand: (c) => c.trim() };\n",
+			);
+			expect(run().out).not.toMatch(/GUARD-CHANGED/);
+		});
+	});
+
 	it("warns GUARD-GONE when a guard the census measured has gone, naming it", () => {
 		writeBaseline();
 		fs.rmSync(path.join(dir, "scripts/guard-one.sh"));
@@ -1662,6 +1731,21 @@ describe("reading git rather than the working tree", () => {
 				"scripts/guard-three.js (through scripts/lib/three.js)",
 			);
 			expect(r.out).toContain("--rebaseline --only scripts/guard-three.js");
+		});
+
+		it("names a measured lib/ core whose sibling lib the commit changed (#4667)", () => {
+			anchorLibCore();
+			commit("anchor");
+			write(
+				TAKES_LABEL,
+				'module.exports = { TRIED_WAY: "List the ways you tried." };\n',
+			);
+			commit("change the sibling");
+			const r = run("--touched-by", "HEAD");
+			expect(r.out).toContain(
+				`${LIB_CORE} (through scripts/lib/takes-label.js)`,
+			);
+			expect(r.out).toContain(`--rebaseline --only ${LIB_CORE}`);
 		});
 
 		it("says nothing where the commit reworded a rule file no measured guard prints (#1914)", () => {

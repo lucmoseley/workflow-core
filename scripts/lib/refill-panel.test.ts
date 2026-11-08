@@ -61,7 +61,7 @@ const RUNNING = {
 	lastTick: {
 		at: AT,
 		summary: "idle: nothing launchable",
-		idle: "nothing launchable",
+		idle: { reason: "nothing launchable", detail: "" },
 		paused: false,
 	},
 	concurrency: { working: 9, ceiling: 9 },
@@ -78,7 +78,7 @@ const WAITING_ROW = "No ticket ready";
 const PAUSED_TICK = {
 	at: LATER,
 	summary: "idle: paused by founder",
-	idle: "paused by founder",
+	idle: { reason: "paused by", detail: " founder" },
 	paused: true,
 };
 const PAUSED_BY_FOUNDER = {
@@ -110,7 +110,7 @@ const STALLED = {
 const planWaitTick = (resets: number | null) => ({
 	at: AT,
 	summary: "idle",
-	idle: "a plan resets at 2026-11-02T18:40:00.000Z",
+	idle: { reason: "a plan resets", detail: " at 2026-11-02T18:40:00.000Z" },
 	paused: false,
 	planWait: { resets },
 });
@@ -266,8 +266,8 @@ describe("the panel's rows", () => {
 	});
 
 	it("leaves the waiting row blank on no free slot, which the count already says", () => {
-		const idle = "no free slot";
-		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
+		const idle = { reason: "no free slot", detail: "" };
+		const lastTick = { at: AT, summary: "", idle, paused: false };
 		const rows = rowsOf({ status: { ...RUNNING, lastTick } });
 		expect(rows[2].text).toBe(RUNNING_COUNT);
 		expect(rows[3].text).toBe("");
@@ -303,34 +303,44 @@ describe("the panel's rows", () => {
 	});
 
 	it.each([
-		["no plan has room right now", "No plan room"],
-		["the 5-hour bar is full on ~/.claude3", "5-hour limit full"],
-		["nothing launchable", "No ticket ready"],
-		["shortlist failed in wc: boom", "Ticket list failed"],
-		["resumes take every free slot", "Resuming paused sessions first"],
+		["no plan has room right now", "", "No plan room"],
+		["the 5-hour bar is full on", " ~/.claude3", "5-hour limit full"],
+		["nothing launchable", "", "No ticket ready"],
+		["shortlist failed in", " wc: boom", "Ticket list failed"],
+		["resumes take every free slot", "", "Resuming paused sessions first"],
 		[
 			"every seat is spent; a resume is due",
+			"",
 			"All plans used up; a resume is due",
 		],
 		[
 			"every seat is spent; a limit-held session waits on one",
+			"",
 			"All plans used up; a session waits",
 		],
 		[
-			"no plan has room right now; no overflow launch: ~/.claude2 not weekly-full",
+			"no plan has room right now",
+			"; no overflow launch: ~/.claude2 not weekly-full",
 			"No plan room",
 		],
-	])("says %s in the founder's words", (idle, words) => {
-		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
+	])("says %s in the founder's words", (reason, detail, words) => {
+		const lastTick = {
+			at: AT,
+			summary: "",
+			idle: { reason, detail },
+			paused: false,
+		};
 		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(words);
 	});
 
-	it("falls back to an unmapped reason's first clause", () => {
-		const idle = "a reason unmapped; and more";
-		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
-		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(
-			"a reason unmapped",
-		);
+	it.each([
+		["an unmapped reason", "a reason unmapped"],
+		["one opening with a mapped reason's text", "nothing launchable yet"],
+		["one opening with no free slot's text", "no free slot on any seat"],
+	])("draws %s as itself, without its detail", (_case, reason) => {
+		const idle = { reason, detail: "; and more" };
+		const lastTick = { at: AT, summary: "", idle, paused: false };
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(reason);
 	});
 
 	it("gives the idle reason once in the block", () => {
@@ -838,7 +848,10 @@ describe("the plan and credit rows", () => {
 
 	it("says not spending on a key the picker takes where the last tick idled", () => {
 		const status = { ...RUNNING, seats: ON_KEY_SEATS, overflow: [key()] };
-		expect(status.lastTick.idle).toBe("nothing launchable");
+		expect(status.lastTick.idle).toEqual({
+			reason: "nothing launchable",
+			detail: "",
+		});
 		expect(usage(status).slice(3)).toEqual([
 			["API credits left", "secondary"],
 			["  .claude2  ~$258 of $400", "secondary"],
@@ -1090,9 +1103,14 @@ describe("the panel's colours", () => {
 });
 
 describe("the panel's frame", () => {
-	const tickOf = (idle: string) => ({
+	const tickOf = (reason: string) => ({
 		...RUNNING,
-		lastTick: { at: AT, summary: "", idle, paused: false },
+		lastTick: {
+			at: AT,
+			summary: "",
+			idle: { reason, detail: "" },
+			paused: false,
+		},
 	});
 
 	it("wraps a long row whole at its word boundaries", () => {
