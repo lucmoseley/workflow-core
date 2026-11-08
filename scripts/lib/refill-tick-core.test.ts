@@ -975,6 +975,28 @@ describe("a paused tick (#3856)", () => {
 	});
 });
 
+describe("the launch walk's seat tries (#4074)", () => {
+	it("hands each walk the state file's tries, the launch walk the move walk's this tick too", async () => {
+		const Other = "/home/u/.claude4";
+		const tried: Record<string, number>[] = [];
+		const { io } = fakeIo(stateOf({ seatTriedAt: { [Other]: 5 } }), {
+			readSeats: (_seats, _slots, _root, how) => {
+				tried.push(how.triedAt);
+				return {
+					seats: [sized],
+					probes: how.sizeAll ? [{ seat: SEAT, outcome: "failed" }] : [],
+				};
+			},
+			actOnLimits: (judged, _m, { slots, readMoveSeats }) => {
+				readMoveSeats();
+				return { launches: judged, slots, workingChange: 0 };
+			},
+		});
+		await tickOf(io);
+		expect(tried).toEqual([{ [Other]: 5 }, { [Other]: 5, [SEAT]: NOW }]);
+	});
+});
+
 describe("the loop's wait on a full week (#3859)", () => {
 	it("idles on the plan's reset with its wait on record, then launches once the bar resets", async () => {
 		const full = fakeIo(stateOf(), {

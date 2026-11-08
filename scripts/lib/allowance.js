@@ -270,4 +270,5 @@ module.exports = {
 	capSet,
 	isWarned,
 	POINTS_PER_USD,
+	STALE_MS,
 };

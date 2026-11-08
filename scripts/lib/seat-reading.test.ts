@@ -565,6 +565,52 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 	});
 });
 
+describe("the launch walk's retry of a seat whose probe failed (#4074)", () => {
+	const Stale = 5 * MIN;
+	/* Seat a is unread, its weekly reading last stamped `readMs` ago, with
+	 * seat b fresh behind it; the seats each probe was asked to refresh. */
+	function walk(readMs: number, triedMs?: number) {
+		const probed: string[][] = [];
+		const a = {
+			...seat("a", null, null),
+			weekRead: { percent: 10, atMs: NOW - readMs },
+		};
+		const { seats } = readSizedSeats(1, {
+			read: () => [a, seat("b", 10, 10)],
+			probe: (stale: string[]) => {
+				probed.push(stale);
+				return { usage: new Map(stale.map((s) => [s, ""])), probes: [] };
+			},
+			sizeOf: () => 1,
+			typedSeat: null,
+			tries: {
+				triedAt: triedMs === undefined ? {} : { a: NOW - triedMs },
+				now: NOW,
+			},
+		});
+		return { probed, seats };
+	}
+
+	it("passes over a seat whose try under STALE_MS ago refreshed nothing, falling through to the seat behind", () => {
+		const { probed, seats } = walk(60 * MIN, MIN);
+		expect(probed).toEqual([]);
+		expect(seats.map((s: { fits: number | null }) => s.fits)).toEqual([
+			null,
+			1,
+		]);
+	});
+
+	it("retries it once that try is STALE_MS old", () => {
+		expect(walk(60 * MIN, Stale).probed).toEqual([["a"]]);
+	});
+
+	it("probes a seat never tried, or whose last try read it", () => {
+		expect(walk(60 * MIN).probed).toEqual([["a"]]);
+		/* Read at the try's start, stale now, the try stamped a minute later. */
+		expect(walk(Stale + 1, Stale - MIN).probed).toEqual([["a"]]);
+	});
+});
+
 describe("a move's seat reading (#3734)", () => {
 	it("probes and sizes every seat with room, past the first, the move passing its own seat over", () => {
 		const probed: string[][] = [];

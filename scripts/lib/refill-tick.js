@@ -312,16 +312,23 @@ function readPrintedUsage(seats) {
  * @param {string[]} seats in seat-file order
  * @param {number} slots
  * @param {string|undefined} root
- * @param {{typedSeat: string|null, sizeAll?: boolean}} how  `sizeAll`, each
- *   seat with room sized, for a move
+ * @param {{typedSeat: string|null, sizeAll?: boolean,
+ *   triedAt: Record<string, number>}} how  `sizeAll`, each seat with room
+ *   sized, for a move; `triedAt`, when each seat was last probed
  */
-function readSeats(seats, slots, root, { typedSeat, sizeAll = false }) {
+function readSeats(
+	seats,
+	slots,
+	root,
+	{ typedSeat, sizeAll = false, triedAt },
+) {
 	return seatReading.readSizedSeats(slots, {
 		read: (usage) => seatReading.readSeatReadings(seats, usage),
 		probe: readPrintedUsage,
 		sizeOf: seatReading.capSizer(root, log),
 		typedSeat,
 		sizeAll,
+		tries: { triedAt, now: Date.now() },
 	});
 }
 

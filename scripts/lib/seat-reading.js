@@ -15,6 +15,7 @@
 
 const path = require("node:path");
 const {
+	STALE_MS,
 	isTrustworthy,
 	readAllowance,
 	sizedPercent,
@@ -105,17 +106,21 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
  * The stale seats to refresh: those ahead of the first fresh seat with room,
  * so failover keeps its order and a stale seat behind a full one is read
  * rather than waited on. A seat the cap sized 0 is passed as a full one is; a
- * seat with a full bar is passed unread, that bar reopening only at its reset.
+ * seat with a full bar is passed unread, that bar reopening only at its reset;
+ * so is a seat `isRetryDue` holds back, as its failed probe left it (#4074).
  * With `sizeAll`, every stale seat, a move weighing them all.
  * @param {(SeatReading & {fits?: number|null})[]} readings in failover order
  * @param {boolean} sizeAll
+ * @param {(r: SeatReading) => boolean} isRetryDue
  */
-function seatsToRefresh(readings, sizeAll) {
+function seatsToRefresh(readings, sizeAll, isRetryDue) {
 	/** @type {string[]} */
 	const stale = [];
 	for (const r of readings) {
 		if (r.weekFull || r.sessionFull) continue;
-		if (r.week === null || r.session === null) stale.push(r.seat);
+		if (r.week === null || r.session === null) {
+			if (isRetryDue(r)) stale.push(r.seat);
+		}
 		// Not fitsLaunch: an unsized seat with room ends the walk, the tick waiting on it.
 		else if (!sizeAll && hasRoom(r) && r.fits !== 0) break;
 	}
@@ -196,7 +201,9 @@ const sizeParkerSeats = (seats, parkers, sizeOf) =>
  * (#3732): the stale seats ahead of the first one free to launch are
  * refreshed by `/usage` first, then those behind a seat the cap sizes 0, so
  * the fall-through reaches them (#2432). Each seat is probed and sized at
- * most once; with no slot free nothing is refreshed or sized.
+ * most once; with no slot free nothing is refreshed or sized. A seat whose
+ * last try refreshed nothing is retried once that try is STALE_MS old, the
+ * rate a seat whose probe reads is refreshed at (#4074).
  * @param {number} slots
  * @param {{
  *   read: (usage: Map<string, string>) => SeatReading[],
@@ -204,15 +211,17 @@ const sizeParkerSeats = (seats, parkers, sizeOf) =>
  *   sizeOf: (seat: string, members: number, usageText: string) => number|null,
  *   typedSeat: string|null,
  *   sizeAll?: boolean,
+ *   tries?: {triedAt: Record<string, number>, now: number},
  * }} io `read` takes each refreshed seat's printed `/usage` and returns the
  *   seats in seat-file order; `typedSeat` is the seat the founder last typed
  *   on, null where none is recorded; `sizeAll`, each seat with room read and
- *   sized, not only up to the first
+ *   sized, not only up to the first; `tries`, when each seat was last probed
+ *   (the state file's `seatTriedAt`), none where omitted
  * @returns {{seats: SizedSeat[], probes: Probe[]}}
  */
 function readSizedSeats(
 	slots,
-	{ read, probe, sizeOf, typedSeat, sizeAll = false },
+	{ read, probe, sizeOf, typedSeat, sizeAll = false, tries },
 ) {
 	/** @type {Map<string, string>} */
 	const usage = new Map();
@@ -230,8 +239,10 @@ function readSizedSeats(
 		return sized;
 	};
 	const readOrdered = () => orderPlanSeats(read(usage), typedSeat);
+	const isRetryDue = (/** @type {SeatReading} */ r) =>
+		!tries || isRetryDueAt(r, tries.triedAt[r.seat], tries.now);
 	let readings = readOrdered();
-	let stale = slots > 0 ? seatsToRefresh(readings, sizeAll) : [];
+	let stale = slots > 0 ? seatsToRefresh(readings, sizeAll, isRetryDue) : [];
 	for (;;) {
 		if (stale.length > 0) {
 			const printed = probe(stale);
@@ -242,11 +253,27 @@ function readSizedSeats(
 		const sized = sizedSeats(readings, slots, sizeOnce, sizeAll);
 		stale =
 			slots > 0
-				? seatsToRefresh(sized, sizeAll).filter((seat) => !usage.has(seat))
+				? seatsToRefresh(sized, sizeAll, isRetryDue).filter(
+						(seat) => !usage.has(seat),
+					)
 				: [];
 		if (stale.length === 0) return { seats: sized, probes };
 	}
 }
+
+/**
+ * Whether an unread seat is due a probe: never tried, its last try is
+ * STALE_MS old, or that try refreshed its weekly reading. A try that read
+ * stamps the reading at or after the try's start; one that failed leaves it
+ * over STALE_MS before the try, as it stood when the try was due.
+ * @param {SeatReading} r
+ * @param {number|undefined} triedAt
+ * @param {number} now
+ */
+const isRetryDueAt = (r, triedAt, now) =>
+	triedAt === undefined ||
+	now - triedAt >= STALE_MS ||
+	triedAt - (r.weekRead.atMs ?? 0) <= STALE_MS;
 
 /**
  * The seats to read for the panel's figures, apart from the launch walk and
