@@ -262,13 +262,16 @@ describe("a seat's reading (#2606)", () => {
 
 		it("waits, unread, on a cached 100% week whose reset has passed", () => {
 			expect(tickOn([30, Ahead], [100, Passed])).toMatchObject({
-				idle: "no plan has room right now",
+				idle: { reason: "no plan has room right now", detail: "" },
 			});
 		});
 
 		it("names a locked seat's cached 5-hour wait and its reset", () => {
 			expect(tickOn([100, Ahead], [40, Ahead])).toMatchObject({
-				idle: `the 5-hour bar is full on ${dir} until its 5-hour reset ${Ahead}`,
+				idle: {
+					reason: "the 5-hour bar is full on",
+					detail: ` ${dir} until its 5-hour reset ${Ahead}`,
+				},
 			});
 		});
 	});
@@ -830,7 +833,7 @@ describe("the cap's launch count (#2278)", () => {
 			expect(d).not.toHaveProperty("stop");
 			expect(d).toMatchObject({
 				launches: [],
-				idle: "no plan has room right now",
+				idle: { reason: "no plan has room right now", detail: "" },
 			});
 		});
 	});

@@ -550,10 +550,10 @@ describe("a seat's name (#3732)", () => {
 
 type Tick = Parameters<typeof settleTick>[0];
 type Io = Parameters<typeof settleTick>[1];
-const idle = (why: string) => ({
+const idle = (reason: string, detail = "") => ({
 	launches: [],
 	skipped: [],
-	idle: why,
+	idle: { reason, detail },
 	held: [],
 	resumes: [],
 });
@@ -1082,7 +1082,7 @@ describe("a tick's log line (#2362)", () => {
 				skip(2470, "already running"),
 				skip(2471, "takes:triage+implement"),
 			],
-			idle: "nothing launchable",
+			idle: { reason: "nothing launchable", detail: "" },
 			held: [],
 			resumes: [],
 		};
@@ -1130,9 +1130,12 @@ describe("a tick's log line (#2362)", () => {
 	describe("the tick's idle reason, the idle alarm's source (#3920)", () => {
 		it("carries any reason decideTick gives through a state round trip", () => {
 			const writes: Tick["state"][] = [];
-			logged(idle("a stop no list names"), 3, [], { writes });
+			logged(idle("a stop no list names", "; and why"), 3, [], { writes });
 			const { lastTick } = loopStateOf(JSON.parse(JSON.stringify(writes[0])));
-			expect(lastTick?.idle).toBe("a stop no list names");
+			expect(lastTick?.idle).toEqual({
+				reason: "a stop no list names",
+				detail: "; and why",
+			});
 		});
 
 		it("reads none where the tick launched", () => {
@@ -1163,7 +1166,8 @@ describe("a tick's log line (#2362)", () => {
 
 		it.each([
 			["a state file written before it", undefined],
-			["a non-string", 7],
+			["a bare string", "nothing launchable"],
+			["a reason with no detail", { reason: "nothing launchable" }],
 		])("reads none from %s", (_case, value) => {
 			expect(
 				loopStateOf({ lastTick: { at: NOW, summary: "s", idle: value } })
@@ -1258,7 +1262,7 @@ describe("a tick's log line (#2362)", () => {
 				skip(2, "clashes on b.js held by Implement 8"),
 				skip(3, "parked"),
 			],
-			idle: "nothing launchable",
+			idle: { reason: "nothing launchable", detail: "" },
 			held: [],
 			resumes: [],
 		};
@@ -1318,7 +1322,7 @@ describe("a tick's log line (#2362)", () => {
 		const none = {
 			launches: [],
 			skipped: [],
-			idle: "nothing launchable",
+			idle: { reason: "nothing launchable", detail: "" },
 			held: [],
 			resumes: [],
 		};
@@ -1849,7 +1853,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 				decision: {
 					launches: [],
 					skipped: [],
-					idle: "paused by founder",
+					idle: { reason: "paused by", detail: " founder" },
 					held: [],
 					resumes: [],
 				},
@@ -2339,9 +2343,15 @@ describe("a resume the tick's step left held (#3855)", () => {
 		jobId: "j1",
 		launchedAt: NOW - 90,
 		finishedAt: null,
-		swapHeld: { at: NOW - 60, sessionId: "s1", cwd: "/r", tries: 0 },
+		stepResume: {
+			cause: "swapHeld" as const,
+			at: NOW - 60,
+			sessionId: "s1",
+			cwd: "/r",
+			tries: 0,
+		},
 	};
-	const { swapHeld: _, ...running } = heldLaunch;
+	const { stepResume: _, ...running } = heldLaunch;
 	const startedAsCopy = {
 		launches: [{ ...running, jobId: "j1-copy" }],
 		started: 1,

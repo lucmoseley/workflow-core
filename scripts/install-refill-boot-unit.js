@@ -27,7 +27,7 @@ const { bootProgram } = require("./lib/refill-code.js");
 const { loopFiles } = require("./lib/refill-files.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { systemctl } = require("./lib/systemd-bins.js");
+const { loginctl, systemctl } = require("./lib/systemd-bins.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "refill-loop-boot.service";
@@ -118,14 +118,14 @@ function install() {
 	const watch = reload.error
 		? reload
 		: runCommand(systemctl(), ["--user", "enable", "--now", WATCH_TIMER]);
-	const linger = runCommand("loginctl", ["enable-linger", user]);
+	const linger = runCommand(loginctl(), ["enable-linger", user]);
 	const enabled = runCommand(systemctl(), ["--user", "is-enabled", UNIT]);
 	const watchEnabled = runCommand(systemctl(), [
 		"--user",
 		"is-enabled",
 		WATCH_TIMER,
 	]);
-	const lingerRead = runCommand("loginctl", [
+	const lingerRead = runCommand(loginctl(), [
 		"show-user",
 		user,
 		"--property=Linger",

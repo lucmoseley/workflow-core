@@ -103,6 +103,7 @@ const {
 	readManagerRestart,
 	REVIEW_RUNNER,
 	readControlChecked,
+	buildLoopLogLine,
 	withControlLock,
 	writeControlFile,
 	writeLoopPause,
@@ -154,7 +155,7 @@ const readIncluded = () => discoverRepos(homeDir()).included;
 const say = (line) => writeFd(1, `${line}\n`);
 
 /** @param {string} line */
-const log = (line) => say(`${new Date().toISOString()} ${line}`);
+const log = (line) => writeFd(1, buildLoopLogLine(line));
 
 const readControl = () => readControlChecked(log);
 
