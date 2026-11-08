@@ -102,7 +102,7 @@
 
 const { normAbs, parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, programSource } = require("./shell-words.js");
-const { treeOr } = require("./tree-or.js");
+const { treeOrHost } = require("./tree-or.js");
 const { isScratch } = require("./scratch-dir.js");
 const { relativeUnder } = require("./is-under.js");
 
@@ -522,7 +522,7 @@ function lazyTreeOrHost(ctx) {
 	/** @type {Tree | undefined} */
 	let tree;
 	return () => {
-		tree ??= treeOr(ctx, ctx);
+		tree ??= treeOrHost(ctx);
 		return tree;
 	};
 }

@@ -36,4 +36,34 @@ function treeOr(ctx, fallback) {
 	}
 }
 
-module.exports = { TreeUnresolved, treeOr };
+/**
+ * The session's tree, else the host root's own tree ports, which the
+ * dispatcher hands every core beside `tree`.
+ * @param {import("./guard-host-ports.js").TreePorts
+ *   & { tree: () => import("./guard-host-ports.js").TreePorts }} ctx
+ * @returns {import("./guard-host-ports.js").TreePorts}
+ */
+const treeOrHost = (ctx) =>
+	treeOr(ctx, {
+		root: ctx.root,
+		git: ctx.git,
+		readText: ctx.readText,
+		repoRel: ctx.repoRel,
+	});
+
+/**
+ * A file's text in `tree`, null where it is absent or will not read: the
+ * fail-open read of a core that allows, logged, on either.
+ * @param {Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
+ * @param {string} rel
+ * @returns {string | null}
+ */
+function readOrNull(tree, rel) {
+	try {
+		return tree.readText(rel);
+	} catch {
+		return null;
+	}
+}
+
+module.exports = { TreeUnresolved, readOrNull, treeOr, treeOrHost };

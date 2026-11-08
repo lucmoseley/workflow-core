@@ -149,11 +149,12 @@ const {
 	isOtherRunner,
 	npmScriptOf,
 	suiteLaunchKind,
+	wrapperScriptOf,
 } = require("./suite-launch.js");
 const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
-const { treeOr } = require("./tree-or.js");
+const { treeOrHost } = require("./tree-or.js");
 
 /**
  * @typedef {import("./suite-launch.js").Launch} Launch
@@ -174,9 +175,6 @@ const { treeOr } = require("./tree-or.js");
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
  *   the judged launch's own carried weight, where the queue asks for it
  * @property {() => string[]} runners the host's declared `suiteRunners`
- * @property {(script: string, tree: string) => boolean} isWrapperScript
- *   whether the npm script of the tree at `tree`, the session's (#4242), runs
- *   run-vitest.js; yes where it cannot be read
  * @property {() => string | null} declaredTest the host's `commands.test`
  * @property {(argv: string[], tree: string) => { plain: boolean } | { fault: string }} fullLaunchPlain
  *   whether a `--full` launch's argv is plain and the read graph renders from
@@ -191,15 +189,14 @@ const { treeOr } = require("./tree-or.js");
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
  *   session: string,
- *   root: string,
- *   tree: () => Pick<import("./guard-host-ports.js").TreePorts, "root">,
- * }} Ctx the kit's context, the part this core reads, and its own ports;
- *   `tree` the session's, whose npm scripts and read graph are read (#4242),
- *   else the host's at `root`
+ *   tree: () => import("./guard-host-ports.js").TreePorts,
+ * } & import("./guard-host-ports.js").TreePorts} Ctx the kit's context, the
+ *   part this core reads, and its own ports; `tree` the session's, whose npm
+ *   scripts and read graph are read (#4242), else the host's own tree ports
  */
 
 /** @param {Ctx} ctx @returns {string} */
-const treeRoot = (ctx) => treeOr(ctx, ctx).root;
+const treeRoot = (ctx) => treeOrHost(ctx).root;
 
 /* The id the plain-`--full` limb latches under (#181), in the `warn.<id>`
  * namespace and never a rule-text id: the limb composes its own wording. */
@@ -422,7 +419,12 @@ function buildState(command, parsed, ctx) {
 				runners ??= ctx.runners();
 				return runners;
 			},
-			isWrapperScript: (script) => ctx.isWrapperScript(script, treeRoot(ctx)),
+			/* The tree resolved on the first npm script asked about, never on a
+			 * call naming none. */
+			isWrapperScript: wrapperScriptOf(
+				(rel) => treeOrHost(ctx).readText(rel),
+				ctx.log,
+			),
 		},
 		readPs: () => {
 			if (ps === undefined) ps = ctx.psRows();

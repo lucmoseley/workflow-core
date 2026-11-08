@@ -202,6 +202,36 @@ function isQueueable(words, ports) {
  */
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
+/**
+ * LaunchPorts' `isWrapperScript` over one tree's package.json, read on first
+ * ask through `readText`: null where absent, a throw where unreadable. An
+ * absent, unreadable or unparsed package.json answers yes, the unreadable one
+ * logged.
+ * @param {(rel: string) => string | null} readText
+ * @param {(what: string) => void} log
+ * @returns {LaunchPorts["isWrapperScript"]}
+ */
+function wrapperScriptOf(readText, log) {
+	/** @type {Record<string, unknown> | null | undefined} */
+	let scripts;
+	return (script) => {
+		if (scripts === undefined) {
+			try {
+				const text = readText("package.json");
+				scripts = text === null ? null : (JSON.parse(text)?.scripts ?? {});
+			} catch {
+				log(
+					`package.json unreadable — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
+				);
+				scripts = null;
+			}
+		}
+		if (!scripts) return true;
+		const body = scripts[script];
+		return hasWrapperCall(typeof body === "string" ? body : null);
+	};
+}
+
 module.exports = {
 	afterSlash,
 	isOtherRunner,
@@ -209,4 +239,5 @@ module.exports = {
 	suiteLaunchKind,
 	isQueueable,
 	hasWrapperCall,
+	wrapperScriptOf,
 };

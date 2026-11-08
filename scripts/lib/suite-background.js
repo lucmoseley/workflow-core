@@ -133,16 +133,17 @@ const {
 	parseCommand,
 	walkCommands,
 } = require("./shell-parse.js");
-const { afterSlash, suiteLaunchKind } = require("./suite-launch.js");
+const {
+	afterSlash,
+	suiteLaunchKind,
+	wrapperScriptOf,
+} = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} BackgroundPorts
  * @property {() => string[]} runners the host's declared `suiteRunners`
- * @property {(script: string, tree: string) => boolean} isWrapperScript
- *   whether the npm script of the tree at `tree`, the session's (#4242), runs
- *   run-vitest.js; yes where it cannot be read
  * @typedef {import("./core-contract.js").CoreContext & BackgroundPorts} Ctx
  */
 
@@ -329,7 +330,12 @@ function decide(command, ctx) {
 	/** @type {import("./suite-launch.js").LaunchPorts} */
 	const launchPorts = {
 		runners: ctx.runners,
-		isWrapperScript: (script) => ctx.isWrapperScript(script, ctx.tree().root),
+		/* Whether an npm script runs run-vitest.js is the session's tree's
+		 * package.json's to say (#4242), read on the first script asked about. */
+		isWrapperScript: wrapperScriptOf(
+			(rel) => ctx.tree().readText(rel),
+			ctx.log,
+		),
 	};
 	let foundSuite = false;
 	let escaped = false;

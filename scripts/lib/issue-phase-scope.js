@@ -54,11 +54,9 @@
  *    are RECORDED (mantahostels#147) for check-guard-errors.js to report
  *    under `npm run status`.
  *
- * A CORE: it does no I/O; lib/issue-phase-scope-host.js builds its ports.
- *
- * THE SESSION'S TREE (#4242): the roadmap and the register are read in the
- * session's tree, the linked worktree it runs in, never the host root's
- * working copies.
+ * THE SESSION'S TREE (#4242): the roadmap and the register are read through
+ * the session's tree ports, the linked worktree it runs in, never the host
+ * root's working copies.
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
  * fail-open, which is logged and lets the whole call through unjudged.
@@ -73,6 +71,7 @@ const { deny, open, walkVerdict } = require("./guard-verdict.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { BASH_SPACE, parseCommand } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
+const { readOrNull } = require("./tree-or.js");
 const { trimRun } = require("./trim-run.js");
 const {
 	commandName,
@@ -82,13 +81,7 @@ const {
 } = require("./shell-words.js");
 
 /**
- * @typedef {object} PhasePorts
- * @property {(tree: string, rel: string) => boolean} readable whether the
- *   file at `rel`, relative to the tree rooted at `tree`, can be opened for
- *   reading
- * @property {(tree: string, rel: string) => string} readFile its text;
- *   throws where it cannot be read
- * @typedef {import("./kit-context.js").KitContext & PhasePorts
+ * @typedef {import("./kit-context.js").KitContext
  *   & Pick<import("./core-contract.js").CoreContext, "tree">} PhaseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
@@ -180,7 +173,9 @@ function judge(run, cmd) {
  * @param {Run} run
  */
 function openIfRoadmapUnreadable(run) {
-	if (!run.ctx.readable(run.ctx.tree().root, ROADMAP))
+	if (run.roadmap === undefined)
+		run.roadmap = readOrNull(run.ctx.tree(), ROADMAP);
+	if (run.roadmap === null)
 		open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
@@ -325,44 +320,25 @@ function cardOf(title) {
 
 /**
  * A card's phase digit, null where the roadmap names no such card — the
- * prefix was never a card reference. A roadmap that will not read is
- * recorded, never collapsed into "no such card".
- * @param {Run} run accumulator: roadmap is read into it once a call
+ * prefix was never a card reference. Every creation has read the roadmap,
+ * and opened on one that would not read, before its title is judged.
+ * @param {Run} run
  * @param {string} card
  */
 function phaseOf(run, card) {
-	if (run.roadmap === undefined) {
-		try {
-			run.roadmap = run.ctx.readFile(run.ctx.tree().root, ROADMAP);
-		} catch {
-			run.roadmap = null;
-		}
-	}
-	if (run.roadmap === null)
-		open(
-			run.ctx,
-			`${ROADMAP} would not read — issue creation for ${card} allowed unchecked`,
-		);
 	const re = new RegExp(`id:"${card}",p:([0-9])`);
-	const hit = re.exec(run.roadmap);
+	const hit = re.exec(run.roadmap ?? "");
 	return hit ? requiredGroup(hit, 1, re) : null;
 }
 
 /**
  * Whether the founder has called a card. Only rows BETWEEN the two markers
  * are read, so the format example in the register's own prose is not a live
- * row. A register that passes the readable check and still will not read is
- * read as holding no rows.
- * @param {Run} run
+ * row.
+ * @param {string} text the register
  * @param {string} card
  */
-function isCalled(run, card) {
-	let text = "";
-	try {
-		text = run.ctx.readFile(run.ctx.tree().root, REGISTER);
-	} catch {
-		/* no rows */
-	}
+function isCalled(text, card) {
 	let inside = false;
 	for (const line of text.split("\n")) {
 		if (line.includes("called-cards:begin")) {
@@ -386,12 +362,13 @@ function judgeTitle(run, segment, title) {
 	if (card === null) return;
 	const phase = phaseOf(run, card);
 	if (phase === null || phase === "0") return;
-	if (!run.ctx.readable(run.ctx.tree().root, REGISTER))
+	const register = readOrNull(run.ctx.tree(), REGISTER);
+	if (register === null)
 		open(
 			run.ctx,
 			`${REGISTER} is unreadable — issue creation for ${card} allowed unchecked`,
 		);
-	if (isCalled(run, card)) return;
+	if (isCalled(register, card)) return;
 	deny(run.ctx, segment, uncalledReason(card, phase));
 }
 

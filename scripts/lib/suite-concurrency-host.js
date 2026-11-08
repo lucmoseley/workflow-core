@@ -14,7 +14,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { readAvailableMb } = require("./meminfo.js");
-const { hasWrapperCall } = require("./suite-launch.js");
+const { wrapperScriptOf } = require("./suite-launch.js");
 const { STANDDOWN_LOG } = require("./suite-concurrency.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
 
@@ -23,53 +23,6 @@ const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
  * @returns {string}
  */
 const now = () => `${new Date().toISOString().slice(0, 19)}.000Z`;
-
-/**
- * @param {{ root: string, log: (what: string, detail?: string) => void }} env
- * @returns {(script: string) => boolean}
- */
-function buildIsWrapperScript({ root, log }) {
-	/** @type {Record<string, unknown> | null | undefined} */
-	let scripts;
-	return (script) => {
-		if (scripts === undefined) {
-			const pkg = path.join(root, "package.json");
-			try {
-				scripts = fs.existsSync(pkg)
-					? (JSON.parse(fs.readFileSync(pkg, "utf8"))?.scripts ?? {})
-					: null;
-			} catch {
-				log(
-					`package.json unreadable — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
-				);
-				scripts = null;
-			}
-		}
-		if (!scripts) return true;
-		const body = scripts[script];
-		return hasWrapperCall(typeof body === "string" ? body : null);
-	};
-}
-
-/**
- * Whether the npm script `script` of the tree at `tree` runs run-vitest.js:
- * the package.json read is the session's tree's, the one its `npm run`
- * runs (#4242), each tree's read once.
- * @param {(what: string, detail?: string) => void} log
- * @returns {(script: string, tree: string) => boolean}
- */
-function buildTreeIsWrapperScript(log) {
-	/** @type {Map<string, (script: string) => boolean>} */
-	const byTree = new Map();
-	return (script, tree) => {
-		let read = byTree.get(tree);
-		if (!read) {
-			read = buildIsWrapperScript({ root: tree, log });
-			byTree.set(tree, read);
-		}
-		return read(script);
-	};
-}
 
 /**
  * The host's declared runners and npm scripts, the two ports
@@ -88,7 +41,10 @@ function buildLaunchPorts({ root, log }) {
 				return [];
 			}
 		},
-		isWrapperScript: buildIsWrapperScript({ root, log }),
+		isWrapperScript: wrapperScriptOf(
+			require("./guard-host-ports.js").treePorts(root).readText,
+			log,
+		),
 	};
 }
 
@@ -111,7 +67,6 @@ function buildHostPorts(root, log) {
 		},
 		carriedOf: readCarriedWeightOf,
 		runners: buildLaunchPorts({ root, log }).runners,
-		isWrapperScript: buildTreeIsWrapperScript(log),
 		declaredTest: () => {
 			try {
 				return readCommandFor("test", { root });
@@ -170,6 +125,7 @@ function readGate(command, root, weight = null, climbMb = 0) {
 	};
 	const { decide } = require("./suite-concurrency.js");
 	const { kitContext, sharedReaders } = require("./kit-context.js");
+	const { treePorts } = require("./guard-host-ports.js");
 	const env = { root: host, payload: { cwd: host }, log };
 	const ctx = kitContext(env, sharedReaders(host, log));
 	const { WFC_SUITE_CONCURRENT: _escape, ...vars } = ctx.vars;
@@ -179,13 +135,12 @@ function readGate(command, root, weight = null, climbMb = 0) {
 		told: () => true,
 		readLatch: () => "",
 		session: "",
-		root: host,
+		...treePorts(host),
 		...buildHostPorts(host, log),
 		climbMb: () => climbMb,
 		launchWeight: weight,
-		tree: () => ({
-			root: root ?? require("./host-root.js").sessionTree({}) ?? host,
-		}),
+		tree: () =>
+			treePorts(root ?? require("./host-root.js").sessionTree({}) ?? host),
 		/* Never asked: `told` answers yes, so the limb is never weighed. */
 		fullLaunchPlain: () => ({ plain: false }),
 	});
@@ -197,5 +152,4 @@ module.exports = {
 	buildHostPorts,
 	buildLaunchPorts,
 	readGate,
-	buildTreeIsWrapperScript,
 };
