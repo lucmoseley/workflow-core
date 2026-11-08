@@ -91,7 +91,8 @@ const { buildSeatName } = require("./refill-seats.js");
  * a new launch, the acts that session had already made (#3942).
  * `nothingToRepeat`, on one parked on an API error or a limit (#3949). `keyVar`,
  * the overflow seat it runs on (#4147); `movedAt`, when a limit last moved it
- * to another seat (#4257).
+ * to another seat (#4257). `leftListing`, on a finish the listing's absence
+ * made, as a manager restart reopens only those (#4145).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -107,7 +108,7 @@ const { buildSeatName } = require("./refill-seats.js");
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, movedAt?: number, pastSessionIds?: string[],
- *   resumeStarted?: import("./refill-blocks.js").ResumeStarted,
+ *   resumeStarted?: import("./refill-blocks.js").ResumeStarted, leftListing?: true,
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
@@ -613,7 +614,9 @@ function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
 	const listed = withSessionIds(launches, agents);
 	const done = new Set(newlyFinished(listed, agents, now));
 	const judged = listed.map((l) =>
-		done.has(l) ? { ...l, ...progressOf(l), finishedAt: now } : l,
+		done.has(l)
+			? { ...l, ...progressOf(l), finishedAt: now, leftListing: true }
+			: l,
 	);
 	return markParked(judged, agents, causeOf, now);
 }
