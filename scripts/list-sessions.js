@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /*
  * list-sessions.js — every plan's sessions on this machine, read-only (#4224).
- * `claude agents --json` lists only its own CLAUDE_CONFIG_DIR's, which hid a
- * session on another plan from #4200's diagnosis.
+ * `claude agents --json` lists only its own CLAUDE_CONFIG_DIR's.
  *
  *   node scripts/list-sessions.js [--json]
  *
@@ -12,8 +11,7 @@
  * on. A dir or store that will not read is printed with its reason, and the
  * exit is 1; every other dir still prints.
  *
- * A session moved between seats shows under each dir that lists it, its state
- * telling which is current.
+ * A session moved between seats shows under each dir that lists it.
  *
  * `--json` prints `{rows, failures}`: each row `{configDir, sessionId, id,
  * name, state, kind, cwd}`, each failure `{configDir, why}`, `configDir`
@@ -50,7 +48,6 @@ const buildRow = (configDir, a) => ({
 });
 
 /**
- * Every plan's listing as rows and failures, each tagged with its config dir.
  * @returns {{rows: Row[], failures: {configDir: string|null, why: string}[]}}
  */
 function readRows() {

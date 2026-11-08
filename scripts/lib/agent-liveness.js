@@ -1,8 +1,8 @@
 /*
  * agent-liveness.js — the one reader of `claude agents --json`, the only
- * documented interface that says which sessions are live (mantahostels#318 fixed it as the
- * oracle). The finished-session reaper and the refill loop's never-started
- * stop read lib/registry-agents.js instead, which needs no CLI (#2665).
+ * documented interface that says which sessions are live. The
+ * finished-session reaper and the refill loop's never-started stop read
+ * lib/registry-agents.js instead, which needs no CLI (#2665).
  *
  * THIS HEADER OWNS THE ~465 ms FIGURE, and every other statement of it in
  * `scripts/` restates this line. Measured at mantahostels#317. A site citing
@@ -405,7 +405,6 @@ function failure(e) {
 }
 
 /**
- * The refusal for an oracle call that threw rather than answered.
  * @param {string} call
  * @param {unknown} e
  * @returns {string}
@@ -612,8 +611,6 @@ const hasSessionId = (a) =>
 	Boolean(a) && typeof a.sessionId === "string" && a.sessionId !== "";
 
 /**
- * The live headless runs as `{agents}`, or `{why}` where the store will not
- * read.
  * @returns {{agents: AgentRecord[]} | {why: string}}
  */
 function readHeadlessRuns() {
