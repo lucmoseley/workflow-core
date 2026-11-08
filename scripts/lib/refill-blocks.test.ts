@@ -1105,7 +1105,13 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const held = (over = {}) =>
 			record({
 				idleSince: restartedAt,
-				swapHeld: { at: NOW - 10 * MIN, sessionId: "s42", cwd: "/c", tries: 0 },
+				stepResume: {
+					cause: "swapHeld",
+					at: NOW - 10 * MIN,
+					sessionId: "s42",
+					cwd: "/c",
+					tries: 0,
+				},
 				...over,
 			});
 
@@ -1119,7 +1125,8 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				"stop job42",
 				`log stopped ${why}, until the hold clears`,
 			]);
-			expect(r.out?.swapHeld).toEqual({
+			expect(r.out?.stepResume).toEqual({
+				cause: "swapHeld",
 				at: NOW,
 				sessionId: "s",
 				cwd: "/",
@@ -1138,7 +1145,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			});
 			expect(r.calls.slice(0, 2)).toEqual(["stop job42", "hand-off job42"]);
 			expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
-			expect(r.out).not.toHaveProperty("swapHeld");
+			expect(r.out).not.toHaveProperty("stepResume.cause", "swapHeld");
 		});
 
 		it("leaves the typed resume unchanged outside the hold", () => {
@@ -1147,7 +1154,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(early.out?.idleSince).toBe(restartedAt);
 			const due = idle(record(), 5, { agents: listed });
 			expect(due.calls[0]).toBe("type job42");
-			expect(due.out).not.toHaveProperty("swapHeld");
+			expect(due.out).not.toHaveProperty("stepResume.cause", "swapHeld");
 		});
 
 		it("logs a stop that fails, holds nothing and tries again next tick", () => {
@@ -1161,7 +1168,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				};
 				const r = idle(record(), null, { agents: listed, io, swapHold: Hold });
 				expect(logs(r.calls)).toEqual([`could not stop ${why}: ${fail.why}`]);
-				expect(r.out).not.toHaveProperty("swapHeld");
+				expect(r.out).not.toHaveProperty("stepResume.cause", "swapHeld");
 				expect(isHeld(r.out as Launch)).toBe(false);
 				const again = idle(r.out as Launch, null, {
 					agents: listed,
@@ -1169,7 +1176,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 					swapHold: Hold,
 				});
 				expect(again.calls[0]).toBe("stop job42");
-				expect(again.out?.swapHeld?.at).toBe(NOW);
+				expect(again.out?.stepResume?.at).toBe(NOW);
 			}
 		});
 
@@ -1229,7 +1236,8 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const heldAs = (jobId: string, ago: number, tries = 0) =>
 			held({
 				jobId,
-				swapHeld: {
+				stepResume: {
+					cause: "swapHeld",
 					at: NOW - ago * MIN,
 					sessionId: `s-${jobId}`,
 					cwd: "/c",
@@ -1315,7 +1323,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				`log resumed design-vault /implement 42, stopped under the swap hold at 2026-10-18T11:50:00.000Z, the hold cleared, by --bg --resume, as its copy job42-copy (${COPY_WHY})`,
 				"stagger",
 			]);
-			expect(out).not.toHaveProperty("swapHeld");
+			expect(out).not.toHaveProperty("stepResume.cause", "swapHeld");
 			expect(out).toMatchObject({
 				jobId: "job42-copy",
 				copiedFrom: "job42",
@@ -1341,7 +1349,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 					unknown,
 					NOW,
 				);
-				expect(out).not.toHaveProperty("swapHeld");
+				expect(out).not.toHaveProperty("stepResume.cause", "swapHeld");
 			}
 			const [still] = markParked(
 				[held()],
@@ -1377,7 +1385,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			};
 			const stopped = [agent("job42", "stopped")];
 			const first = resumeDue([held()], { agents: stopped, io });
-			expect(first.launches[0].swapHeld?.tries).toBe(1);
+			expect(first.launches[0].stepResume?.tries).toBe(1);
 			expect(first.launches[0].finishedAt).toBeNull();
 			expect(first.started).toBe(0);
 			const last = resumeDue([heldAs("job42", 10, 2)], { agents: stopped, io });
@@ -1387,7 +1395,10 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				finishedAt: NOW,
 				handedOff: NOW,
 			});
-			expect(last.launches[0]).not.toHaveProperty("swapHeld");
+			expect(last.launches[0]).not.toHaveProperty(
+				"stepResume.cause",
+				"swapHeld",
+			);
 			expect(last.started).toBe(0);
 		});
 	});
@@ -3189,14 +3200,21 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		expect(out.launches[0]).toMatchObject({
 			jobId: "p",
 			finishedAt: null,
-			holdCleared: { sessionId: "s-p", cwd: "/repo", tries: 0, hold: "abc" },
+			stepResume: {
+				cause: "holdCleared",
+				sessionId: "s-p",
+				cwd: "/repo",
+				tries: 0,
+				hold: "abc",
+			},
 		});
 	});
 
 	const due = () =>
 		record({
 			jobId: "p",
-			holdCleared: {
+			stepResume: {
+				cause: "holdCleared",
 				at: NOW - MIN,
 				sessionId: "s-p",
 				cwd: "/repo",
@@ -3214,7 +3232,10 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 			swapHold: NO_HOLD,
 		});
 		expect(out.launches[0]).toMatchObject({ finishedAt: NOW });
-		expect(out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(out.launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"holdCleared",
+		);
 		expect(logs(calls).join("\n")).toContain(
 			"on repo hold abc: its park marker no longer lists its issues",
 		);
@@ -3244,7 +3265,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 			}),
 		]);
 		expect(out.launches[0]).toMatchObject({ finishedAt: null });
-		expect(out.launches[0]).toHaveProperty("holdCleared");
+		expect(out.launches[0]).toHaveProperty("stepResume.cause", "holdCleared");
 		expect(out.launches[0]).not.toHaveProperty("parkStopped");
 		expect(out.launches[0]).not.toHaveProperty("nothingToRepeat");
 	});
@@ -3254,7 +3275,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		const newer = record({ jobId: "p", root: "/repo", finishedAt: NOW - MIN });
 		const { out } = queueOn([older, newer]);
 		expect(out.launches[0]).toBe(older);
-		expect(out.launches[1]).toHaveProperty("holdCleared");
+		expect(out.launches[1]).toHaveProperty("stepResume.cause", "holdCleared");
 		const { io, calls } = fakeIo();
 		const seen = {
 			agents: [agent("other", "working")],
@@ -3277,7 +3298,10 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		const handed = queueOn([
 			record({ jobId: "p", handedOff: NOW, finishedAt: NOW }),
 		]);
-		expect(handed.out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(handed.out.launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"holdCleared",
+		);
 		expect(handed.out.settled).toEqual([{ hold, jobs: ["p"] }]);
 
 		const held = queueOn([
@@ -3352,13 +3376,20 @@ describe("queueBootKilled (#3880)", () => {
 
 	it("leaves one launched since the restart, which the listing may not yet show (#3971)", () => {
 		expect(killedOf(record({ launchedAt: NOW + 1 }))).not.toHaveProperty(
+			"stepResume.cause",
 			"bootKilled",
 		);
 	});
 
 	it("queues one the listing no longer shows, with its launch's time and target", () => {
 		expect(killedOf(record())).toMatchObject({
-			bootKilled: { at: NOW - 10 * MIN, sessionId: "s", cwd: "/", tries: 0 },
+			stepResume: {
+				cause: "bootKilled",
+				at: NOW - 10 * MIN,
+				sessionId: "s",
+				cwd: "/",
+				tries: 0,
+			},
 		});
 	});
 
@@ -3368,7 +3399,7 @@ describe("queueBootKilled (#3880)", () => {
 			killedOf(record(), {
 				resumeTargetOf: () => ({ sessionId: "s", cwd: "/", flags }),
 			}),
-		).toMatchObject({ bootKilled: { flags } });
+		).toMatchObject({ stepResume: { cause: "bootKilled", flags } });
 	});
 
 	it.each(["done", "stopped"])(
@@ -3376,25 +3407,31 @@ describe("queueBootKilled (#3880)", () => {
 		(state) => {
 			expect(
 				killedOf(record(), { jobStateOf: () => ({ state }) }),
-			).not.toHaveProperty("bootKilled");
+			).not.toHaveProperty("stepResume.cause", "bootKilled");
 		},
 	);
 
 	it("leaves one still live in the listing", () => {
 		expect(
 			killedOf(record(), {}, [agent("job42", "working")]),
-		).not.toHaveProperty("bootKilled");
+		).not.toHaveProperty("stepResume.cause", "bootKilled");
 	});
 
 	it.each(["failed", null])("queues a job that reads %s", (state) => {
 		const jobStateOf = () => (state ? { state } : null);
-		expect(killedOf(record(), { jobStateOf })).toHaveProperty("bootKilled");
+		expect(killedOf(record(), { jobStateOf })).toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 	});
 
 	it.each(["QUESTION", "PERMISSION", "OTHER_DIALOG"])(
 		"leaves one blocked on %s, waiting on the founder",
 		(cause) => {
-			expect(killedOf(blockedOn(cause))).not.toHaveProperty("bootKilled");
+			expect(killedOf(blockedOn(cause))).not.toHaveProperty(
+				"stepResume.cause",
+				"bootKilled",
+			);
 		},
 	);
 
@@ -3402,7 +3439,7 @@ describe("queueBootKilled (#3880)", () => {
 		"queues one blocked on %s, its block gone",
 		(cause) => {
 			const out = killedOf(blockedOn(cause));
-			expect(out).toHaveProperty("bootKilled");
+			expect(out).toHaveProperty("stepResume.cause", "bootKilled");
 			expect(out).not.toHaveProperty("block");
 			expect(out).not.toHaveProperty("parked");
 		},
@@ -3457,8 +3494,16 @@ describe("queueBootKilled (#3880)", () => {
 	});
 
 	it("asks one marked unread what it waits on after the swap hold (#3980)", () => {
-		const swapHeld = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
-		const { prompts } = resumedWith([record({ blockUnread: true, swapHeld })]);
+		const stepResume = {
+			cause: "swapHeld",
+			at: NOW,
+			sessionId: "s",
+			cwd: "/",
+			tries: 0,
+		} as const;
+		const { prompts } = resumedWith([
+			record({ blockUnread: true, stepResume }),
+		]);
 		expect(prompts).toEqual([BOOT_UNREAD_PROMPT]);
 	});
 
@@ -3472,7 +3517,7 @@ describe("queueBootKilled (#3880)", () => {
 			const { prompts, out } = resumedWith([blockedOn(cause)]);
 			expect(prompts).toEqual(wanted);
 			if (wanted.length === 0) {
-				expect(out[0]).not.toHaveProperty("bootKilled");
+				expect(out[0]).not.toHaveProperty("stepResume.cause", "bootKilled");
 				return;
 			}
 			expect(out[0]).toMatchObject({ bootResumedAt: NOW });
@@ -3481,9 +3526,19 @@ describe("queueBootKilled (#3880)", () => {
 	);
 
 	it("leaves one already held or owed a hand-off", () => {
-		const swapHeld = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
-		expect(killedOf(record({ swapHeld }))).not.toHaveProperty("bootKilled");
+		const stepResume = {
+			cause: "swapHeld",
+			at: NOW,
+			sessionId: "s",
+			cwd: "/",
+			tries: 0,
+		} as const;
+		expect(killedOf(record({ stepResume }))).not.toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 		expect(killedOf(record({ handOffTries: 1 }))).not.toHaveProperty(
+			"stepResume.cause",
 			"bootKilled",
 		);
 	});
@@ -3500,7 +3555,7 @@ describe("queueBootKilled (#3880)", () => {
 		};
 		const queued = queueBootKilled([record()], seen, NOW);
 		expect(calls).not.toContain("hand-off job42");
-		expect(queued[0]).toHaveProperty("bootKilled");
+		expect(queued[0]).toHaveProperty("stepResume.cause", "bootKilled");
 		const r = resumeHeldLaunches(resumableOf(queued, seen), queued, seen, {
 			isStopped: () => false,
 			record: unrecorded,
@@ -3516,7 +3571,8 @@ describe("queueBootKilled (#3880)", () => {
 describe("the resume step across a kill before the state write (#4157)", () => {
 	const killed = (stamp?: number) =>
 		record({
-			bootKilled: {
+			stepResume: {
+				cause: "bootKilled",
 				at: NOW - MIN,
 				sessionId: "s",
 				cwd: "/",
@@ -3564,12 +3620,15 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 			written,
 		);
 		expect(writtenBefore).toEqual([1]);
-		expect(written[0]?.[0]?.bootKilled?.resumeStartedAt).toBe(NOW);
+		expect(written[0]?.[0]?.stepResume?.resumeStartedAt).toBe(NOW);
 		expect(written[1]?.[0]).toMatchObject({
 			jobId: "copy",
 			copiedFrom: "job42",
 		});
-		expect(written[1]?.[0]).not.toHaveProperty("bootKilled");
+		expect(written[1]?.[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 	});
 
 	it("tracks a copy found since the recorded resume, and starts none", () => {
@@ -3621,12 +3680,18 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 		const flags = ["--model", "opus"];
 		const seen: unknown[] = [];
 		const l = killed();
-		step({ ...l, bootKilled: { ...l.bootKilled, flags } } as Launch, {
-			resumeOwnId: (_l, _prompt, target) => {
-				seen.push(target.flags);
-				return { failed: "exit 1" };
+		step(
+			{
+				...l,
+				stepResume: { cause: "bootKilled", ...l.stepResume, flags },
+			} as Launch,
+			{
+				resumeOwnId: (_l, _prompt, target) => {
+					seen.push(target.flags);
+					return { failed: "exit 1" };
+				},
 			},
-		});
+		);
 		expect(seen).toEqual([flags]);
 	});
 
@@ -3669,7 +3734,10 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 		const { out, calls, lines } = step(killed(NOW - MIN));
 		expect(calls).toContain("resume job42");
 		expect(out.started).toBe(1);
-		expect(out.launches[0]).not.toHaveProperty("bootKilled");
+		expect(out.launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 		expect(lines.join("\n")).not.toContain("is unread");
 	});
 
@@ -3680,12 +3748,18 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 		expect(first.lines).toContain(
 			`could not resume ${what}, try 1 of 3: exit 1`,
 		);
-		expect(first.out.launches[0]?.bootKilled?.tries).toBe(1);
+		expect(first.out.launches[0]?.stepResume?.tries).toBe(1);
 		expect(first.calls).not.toContain("hand-off job42");
 
 		const third = step(
 			record({
-				bootKilled: { at: NOW - MIN, sessionId: "s", cwd: "/", tries: 2 },
+				stepResume: {
+					cause: "bootKilled",
+					at: NOW - MIN,
+					sessionId: "s",
+					cwd: "/",
+					tries: 2,
+				},
 			}),
 			failing,
 		);
@@ -3697,7 +3771,10 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 			finishedAt: NOW,
 			handedOff: NOW,
 		});
-		expect(third.out.launches[0]).not.toHaveProperty("bootKilled");
+		expect(third.out.launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 	});
 });
 
@@ -3705,7 +3782,8 @@ describe("the resume step for a session parked on a cleared repo hold (#3863)", 
 	const parked = (tries: number) =>
 		record({
 			sessionId: "s-p",
-			holdCleared: {
+			stepResume: {
+				cause: "holdCleared",
 				at: NOW - MIN,
 				sessionId: "s-p",
 				cwd: "/",
@@ -3748,7 +3826,10 @@ describe("the resume step for a session parked on a cleared repo hold (#3863)", 
 			jobId: "job42-copy",
 			copiedFrom: "job42",
 		});
-		expect(out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(out.launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"holdCleared",
+		);
 		expect(unparked).toEqual(["s-p 42"]);
 	});
 
@@ -3756,7 +3837,7 @@ describe("the resume step for a session parked on a cleared repo hold (#3863)", 
 		const failing = { resumeStopped: () => ({ failed: "exit 1" }) } as never;
 		const first = step(parked(0), failing);
 		expect(first.lines.join("\n")).toMatch(/could not resume .*try 1 of 3/);
-		expect(first.out.launches[0]?.holdCleared?.tries).toBe(1);
+		expect(first.out.launches[0]?.stepResume?.tries).toBe(1);
 		expect(first.unparked).toEqual([]);
 
 		const third = step(parked(2), failing);
@@ -3766,7 +3847,10 @@ describe("the resume step for a session parked on a cleared repo hold (#3863)", 
 			finishedAt: NOW,
 			handedOff: NOW,
 		});
-		expect(third.out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(third.out.launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"holdCleared",
+		);
 		expect(third.unparked).toEqual(["s-p 42"]);
 	});
 });
@@ -4288,7 +4372,7 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			[hold],
 			tick(io, [agent("other", "working")]),
 		);
-		expect(launches[0]?.holdCleared?.cwd).toBe(Own);
+		expect(launches[0]?.stepResume?.cwd).toBe(Own);
 		expectStepFromOwn(launches[0]);
 	});
 
@@ -4331,7 +4415,7 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 				},
 			},
 		);
-		expect(held?.swapHeld?.cwd).toBe(Own);
+		expect(held?.stepResume?.cwd).toBe(Own);
 		expectStepFromOwn(held as Launch);
 	});
 
@@ -4342,7 +4426,7 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			tick(io, [agent("other", "working")]),
 			NOW,
 		);
-		expect(queued?.bootKilled?.cwd).toBe(Own);
+		expect(queued?.stepResume?.cwd).toBe(Own);
 		expectStepFromOwn(queued as Launch);
 	});
 

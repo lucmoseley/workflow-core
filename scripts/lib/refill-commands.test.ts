@@ -338,15 +338,27 @@ describe("the launch lines status shows (#2850)", () => {
 	});
 
 	it("shows a launch a restart killed (#3880)", () => {
-		const bootKilled = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
-		expect(statusOf([record({ bootKilled })])).toContain(
+		const stepResume = {
+			cause: "bootKilled",
+			at: NOW,
+			sessionId: "s",
+			cwd: "/",
+			tries: 0,
+		} as const;
+		expect(statusOf([record({ stepResume })])).toContain(
 			"killed by a restart, resumed through admission",
 		);
 	});
 
 	it("shows a launch stopped under the swap hold, and when (#3093)", () => {
-		const swapHeld = { at: NOW - 6 * MIN, sessionId: "s", cwd: "/", tries: 0 };
-		expect(statusOf([record({ swapHeld })])).toContain(
+		const stepResume = {
+			cause: "swapHeld",
+			at: NOW - 6 * MIN,
+			sessionId: "s",
+			cwd: "/",
+			tries: 0,
+		} as const;
+		expect(statusOf([record({ stepResume })])).toContain(
 			"stopped under the swap hold since 2026-10-18T11:54:00.000Z, resumed through admission once it clears",
 		);
 	});

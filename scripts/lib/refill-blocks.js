@@ -73,19 +73,26 @@ const PARKED_STATE = "blocked";
  * @typedef {{tries: number, triedAt: number}} IdleResumes  its typed
  *   resumes while resumed-idle (#2659), cleared once it takes a turn
  * @typedef {{at: number, sessionId: string, cwd: string, tries: number,
- *   resumeStartedAt?: number}} SwapHeld  a resumed-idle session the loop
- *   stopped under the swap hold (#3093): when, the session and directory its
- *   resume runs in, read before the stop, and the resumes since tried that
- *   failed. `resumeStartedAt`, on every step hold, when the step ran `--bg
- *   --resume` on it, on record before the launcher runs and gone with the
- *   hold (#4157)
- * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
- *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
- * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null,
- *   flags?: string[]}} BootKilled  a session a restart killed mid-work (#3880):
- *   `at`, when it was launched, which sets its turn among the resumes;
- *   `sessionId`, null unread; `flags`, its job's saved launch flags, read on
- *   the tick it is queued, before any resume removes its job record (#4098)
+ *   resumeStartedAt?: number}} StepHeld  a stopped session due back through
+ *   the tick's resume step: when, the session and directory its resume runs
+ *   in, and the resumes since tried that failed. `resumeStartedAt`, when the
+ *   step ran `--bg --resume` on it, on record before the launcher runs and
+ *   gone with the hold (#4157)
+ * @typedef {{
+ *   swapHeld: StepHeld,
+ *   holdCleared: StepHeld & {hold: string},
+ *   bootKilled: Omit<StepHeld, "sessionId"> & {sessionId: string|null,
+ *     flags?: string[]},
+ * }} StepPayloads  each step-resume cause's record (STEP_CAUSES).
+ *   `swapHeld`, a resumed-idle session the loop stopped under the swap hold
+ *   (#3093), `at` the stop, its session read before it. `holdCleared`, a
+ *   session parked on a repo hold since cleared (#3863): `at`, when it
+ *   parked, and `hold`, that hold's id. `bootKilled`, a session a restart
+ *   killed mid-work (#3880): `at`, when it was launched, which sets its turn
+ *   among the resumes; `sessionId`, null unread; `flags`, its job's saved
+ *   launch flags, read on the tick it is queued, before any resume removes its
+ *   job record (#4098)
+ * @typedef {keyof StepPayloads} StepCause
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -158,6 +165,15 @@ const PARKED_STATE = "blocked";
  *   ResumeStarted  a stop and `--bg --resume` of `sessionId` from `cwd` the
  *   loop made at `at` (#4180)
  */
+
+/**
+ * A launch's step-resume record, its `cause` naming its STEP_CAUSES row; one
+ * cause's alone where `C` names it.
+ * @template {StepCause} [C=StepCause]
+ * @typedef {{[K in C]: {cause: K} & StepPayloads[K]}[C]} StepResume
+ */
+
+/** @typedef {JobLaunch & {stepResume: StepResume}} SteppedLaunch */
 
 /**
  * The program's reads for the acts on blocked and resumed-idle launches. A
@@ -312,35 +328,22 @@ const isResuming = (l) =>
 	l.parkStopped === undefined;
 
 /**
- * Whether the loop stopped `l`'s resumed-idle session under the swap hold
- * (#3093).
- * @param {LoopLaunch} l
- * @returns {l is LoopLaunch & {swapHeld: SwapHeld}}
- */
-const isSwapHeld = (l) => l.swapHeld !== undefined;
-
-/**
- * Whether `l`'s session is parked on a repo hold since lifted, due back through
- * the resume step (#3863).
- * @param {LoopLaunch} l
- * @returns {l is LoopLaunch & {holdCleared: HoldCleared}}
- */
-const isHoldCleared = (l) => l.holdCleared !== undefined;
-
-/**
- * Whether `l`'s session, killed by a restart, is due back through the resume step
- * (#3880).
- * @param {LoopLaunch} l
- * @returns {l is LoopLaunch & {bootKilled: BootKilled}}
- */
-const isBootKilled = (l) => l.bootKilled !== undefined;
-
-/**
  * Whether `l`'s stopped session waits on the tick's resume step.
- * @param {LoopLaunch} l
+ * @template {LoopLaunch} L
+ * @param {L} l
+ * @returns {l is L & {stepResume: StepResume}}
  */
-const isStepResume = (l) =>
-	isSwapHeld(l) || isHoldCleared(l) || isBootKilled(l);
+const isStepResume = (l) => l.stepResume !== undefined;
+
+/**
+ * Whether `l`'s stopped session waits on the tick's resume step for `cause`.
+ * @template {LoopLaunch} L
+ * @template {StepCause} C
+ * @param {L} l
+ * @param {C} cause
+ * @returns {l is L & {stepResume: StepResume<C>}}
+ */
+const isStepResumeFor = (l, cause) => l.stepResume?.cause === cause;
 
 /**
  * Whether the loop stopped `l`'s session on its seat's limit (#3735).
@@ -427,14 +430,7 @@ function markParked(launches, agents, causeOf, now) {
 			causeOf(l, row);
 			return l;
 		}
-		const {
-			block: _,
-			swapHeld: __,
-			limitHeld: ___,
-			holdCleared: ____,
-			bootKilled: _____,
-			...rest
-		} = l;
+		const { block: _, stepResume: __, limitHeld: ___, ...rest } = l;
 		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
 		const reading = causeOf(l, row);
 		return {
@@ -1226,71 +1222,124 @@ function holdIdle(b, { agents, now, io, swapHold }) {
 	}
 	io.log(`stopped ${what}, until the hold clears`);
 	const { idleSince: __, ...stopped } = l;
-	return { ...stopped, swapHeld: { at: now, sessionId, cwd, tries: 0 } };
+	return {
+		...stopped,
+		stepResume: { cause: "swapHeld", at: now, sessionId, cwd, tries: 0 },
+	};
 }
 
-/** @param {LoopLaunch & {swapHeld: SwapHeld}} l */
-const buildSwapHeldText = (l) =>
-	`${launchName(l)}, stopped under the swap hold at ${iso(l.swapHeld.at)}`;
+/**
+ * The resume step's handling of one cause: `what`, the launch as its lines
+ * name it; `why`, what brings it back; `prompt`, what its resume types;
+ * `isParked`, whether it waits parked, so its resume unparks it;
+ * `watchesTurn`, whether the launch is watched from its resume for a turn
+ * (isIdleSinceBootResume); `resume`, its `--bg --resume`; `status`, its state
+ * in `status`.
+ * @template {StepCause} C
+ * @typedef {{what: (l: LoopLaunch, held: StepResume<C>) => string,
+ *   why: string, prompt: (l: LoopLaunch) => string, isParked: boolean,
+ *   watchesTurn: boolean,
+ *   resume: (io: BlockIo, step: {l: JobLaunch, prompt: string,
+ *     target: ResumeTarget & {sessionId: string}, held: StepResume<C>}) =>
+ *     Resumed,
+ *   status: (held: StepResume<C>) => string}} StepCauseRow
+ */
 
-/** @param {LoopLaunch & {holdCleared: HoldCleared}} l */
-const buildHoldClearedText = (l) =>
-	`${launchName(l)}, parked at ${iso(l.holdCleared.at)} on repo hold ${l.holdCleared.hold}`;
+/** @type {{[C in StepCause]: StepCauseRow<C>}} */
+const STEP_CAUSES = {
+	swapHeld: {
+		what: (l, held) =>
+			`${launchName(l)}, stopped under the swap hold at ${iso(held.at)}`,
+		why: "the hold cleared",
+		prompt: (l) => resumePromptOf(l, IDLE_PROMPT),
+		isParked: false,
+		watchesTurn: false,
+		resume: (io, { l, prompt, target }) => io.resumeStopped(l, prompt, target),
+		status: (held) =>
+			`stopped under the swap hold since ${iso(held.at)}, resumed through admission once it clears`,
+	},
+	holdCleared: {
+		what: (l, held) =>
+			`${launchName(l)}, parked at ${iso(held.at)} on repo hold ${held.hold}`,
+		why: "the hold cleared",
+		prompt: () => HOLD_PROMPT,
+		isParked: true,
+		watchesTurn: false,
+		resume: (io, { l, prompt, target }) => io.resumeStopped(l, prompt, target),
+		status: (held) =>
+			`parked on repo hold ${held.hold}, since cleared, resumed through admission`,
+	},
+	bootKilled: {
+		what: (l) => `${launchName(l)}, launched at ${iso(l.launchedAt)}`,
+		why: "killed by a restart",
+		prompt: (l) => resumePromptOf(l, BOOT_PROMPT),
+		isParked: false,
+		watchesTurn: true,
+		resume: (io, { l, prompt, target, held }) =>
+			io.resumeOwnId(l, prompt, {
+				...target,
+				...(held.flags ? { flags: held.flags } : {}),
+			}),
+		status: () => "killed by a restart, resumed through admission",
+	},
+};
 
 /**
- * What the resume step needs of `l`: `why`, what brings it back; `withStarted`,
- * `l` with its hold's resume stamped `at`.
+ * `held`'s STEP_CAUSES row.
+ * @template {StepCause} C
+ * @param {StepResume<C>} held
+ * @returns {StepCauseRow<C>}
+ */
+const stepCauseOf = (held) => STEP_CAUSES[held.cause];
+
+/**
+ * `held`'s state, as `status` lists it.
+ * @param {StepResume} held
+ */
+const buildStepStatus = (held) => stepCauseOf(held).status(held);
+
+/**
+ * `held`'s row with `l` and its hold bound, for the resume step.
+ * @template {StepCause} C
+ * @param {StepResume<C>} held
  * @param {JobLaunch} l
- * @returns {{held: SwapHeld|BootKilled, what: string, why: string, prompt: string,
- *   isParked: boolean, rest: JobLaunch, withTries: (tries: number) => JobLaunch,
- *   withStarted: (at: number) => JobLaunch}}
+ */
+function bindStepCause(held, l) {
+	const row = stepCauseOf(held);
+	const prompt = row.prompt(l);
+	return {
+		what: row.what(l, held),
+		why: row.why,
+		prompt,
+		isParked: row.isParked,
+		watchesTurn: row.watchesTurn,
+		/**
+		 * @param {BlockIo} io
+		 * @param {ResumeTarget & {sessionId: string}} target
+		 */
+		resume: (io, target) => row.resume(io, { l, prompt, target, held }),
+	};
+}
+
+/**
+ * What the resume step needs of `l`: its cause's handling with its hold bound,
+ * `rest`, `l` off its hold; `withStarted`, `l` with its hold's resume stamped
+ * `at`.
+ * @param {SteppedLaunch} l
  */
 function stepResumeOf(l) {
-	if (isBootKilled(l)) {
-		const { bootKilled, ...rest } = l;
-		return {
-			held: bootKilled,
-			what: `${launchName(l)}, launched at ${iso(l.launchedAt)}`,
-			why: "killed by a restart",
-			prompt: resumePromptOf(l, BOOT_PROMPT),
-			isParked: false,
-			rest,
-			withTries: (tries) => ({ ...l, bootKilled: { ...bootKilled, tries } }),
-			withStarted: (at) => ({
-				...l,
-				bootKilled: { ...bootKilled, resumeStartedAt: at },
-			}),
-		};
-	}
-	if (isSwapHeld(l)) {
-		const { swapHeld, ...rest } = l;
-		return {
-			held: swapHeld,
-			what: buildSwapHeldText(l),
-			why: "the hold cleared",
-			prompt: resumePromptOf(l, IDLE_PROMPT),
-			isParked: false,
-			rest,
-			withTries: (tries) => ({ ...l, swapHeld: { ...swapHeld, tries } }),
-			withStarted: (at) => ({
-				...l,
-				swapHeld: { ...swapHeld, resumeStartedAt: at },
-			}),
-		};
-	}
-	const { holdCleared, ...rest } =
-		/** @type {JobLaunch & {holdCleared: HoldCleared}} */ (l);
+	const held = l.stepResume;
+	const { stepResume: _, ...rest } = l;
 	return {
-		held: holdCleared,
-		what: buildHoldClearedText({ ...l, holdCleared }),
-		why: "the hold cleared",
-		prompt: HOLD_PROMPT,
-		isParked: true,
-		rest,
-		withTries: (tries) => ({ ...l, holdCleared: { ...holdCleared, tries } }),
+		...bindStepCause(held, l),
+		held,
+		/** @type {JobLaunch} */ rest,
+		/** @param {number} tries @returns {JobLaunch} */
+		withTries: (tries) => ({ ...l, stepResume: { ...held, tries } }),
+		/** @param {number} at @returns {JobLaunch} */
 		withStarted: (at) => ({
 			...l,
-			holdCleared: { ...holdCleared, resumeStartedAt: at },
+			stepResume: { ...held, resumeStartedAt: at },
 		}),
 	};
 }
@@ -1326,18 +1375,18 @@ function resumableOf(launches, { agents, io, swapHold }) {
 }
 
 /**
- * `l` after its step resume `r` of session `from` at `at`, `rest` being `l` off
- * its hold: one a restart killed is watched from the resume for a turn, however
- * many holds it meets on the way (isIdleSinceBootResume).
+ * `l` after its step resume `r` of session `from` at `at`: one a restart killed
+ * is watched from the resume for a turn, however many holds it meets on the way
+ * (isIdleSinceBootResume).
  * @param {JobLaunch} l
- * @param {JobLaunch} rest
+ * @param {ReturnType<typeof stepResumeOf>} step
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} r
  * @param {number} at
  * @returns {LoopLaunch}
  */
-function afterStepResume(l, rest, r, at) {
+function afterStepResume(l, { rest, watchesTurn }, r, at) {
 	const resumed = relaunched(rest, r, at);
-	return isBootKilled(l) || l.bootResumedAt !== undefined
+	return watchesTurn || l.bootResumedAt !== undefined
 		? { ...resumed, bootResumedAt: at }
 		: resumed;
 }
@@ -1362,13 +1411,13 @@ function unparkStepped(l, sessionId, { isParked, what }, io) {
  * recorded it (#4157); null where it carries no such resume or no job is found,
  * so the step resumes it.
  * Where the job store will not tell, that is logged and the step resumes it too.
- * @param {JobLaunch} l
+ * @param {SteppedLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch|null}
  */
 function adoptUnrecordedCopy(l, seen) {
 	const step = stepResumeOf(l);
-	const { held, what, why, rest } = step;
+	const { held, what, why } = step;
 	const { sessionId, cwd, resumeStartedAt: at } = held;
 	if (at === undefined || !sessionId) return null;
 	const r = seen.io.adoptResumed(l, { sessionId, cwd }, at);
@@ -1381,7 +1430,7 @@ function adoptUnrecordedCopy(l, seen) {
 	}
 	const launch = afterStepResume(
 		l,
-		rest,
+		step,
 		{ ...r, fromSessionId: sessionId },
 		at,
 	);
@@ -1397,31 +1446,25 @@ function adoptUnrecordedCopy(l, seen) {
  * whose resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
  * failures is handed off instead. One parked on a repo hold no longer waits on the
  * founder either way, so its `parked` label and marker go.
- * @param {JobLaunch} l
+ * @param {SteppedLaunch} l
  * @param {Tick} seen
  * @returns {{launch: LoopLaunch, started: boolean}}
  */
 function resumeStepHeld(l, seen) {
 	const { now, io } = seen;
 	const step = stepResumeOf(l);
-	const { held, what, why, prompt, rest, withTries } = step;
+	const { held, what, why, rest, withTries } = step;
 	const { sessionId, cwd } = held;
 	if (!sessionId) {
 		io.log(`${what}, ${why}: no session id read to resume it by`);
 		return { launch: handOff(rest, seen, true), started: false };
 	}
 	const unpark = () => unparkStepped(l, sessionId, step, io);
-	const r = isBootKilled(l)
-		? io.resumeOwnId(l, prompt, {
-				sessionId,
-				cwd,
-				...(l.bootKilled.flags ? { flags: l.bootKilled.flags } : {}),
-			})
-		: io.resumeStopped(l, prompt, { sessionId, cwd });
+	const r = step.resume(io, { sessionId, cwd });
 	if (r.failed === null) {
 		const launch = afterStepResume(
 			l,
-			rest,
+			step,
 			{ ...r, fromSessionId: sessionId },
 			now,
 		);
@@ -1527,7 +1570,7 @@ function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
 	let started = 0;
 	let waiting = false;
 	for (const { jobId, line } of resumes) {
-		const l = launches.find((x) => x.jobId === jobId && isStepResume(x));
+		const l = launches.filter(isStepResume).find((x) => x.jobId === jobId);
 		if (!l || !isActionable(l) || isStopped()) break;
 		const adopted = adoptUnrecordedCopy(l, seen);
 		if (adopted) {
@@ -1602,7 +1645,8 @@ function buildClearedLaunch(job, marker, hold, from) {
 		issues: [...new Set([...base.issues, ...marker.issues])],
 		jobId: job,
 		finishedAt: null,
-		holdCleared: {
+		stepResume: {
+			cause: "holdCleared",
 			at: marker.writtenAt,
 			sessionId: marker.sessionId,
 			cwd: marker.job?.cwd ?? hold.root,
@@ -1631,7 +1675,8 @@ function buildClearedLaunch(job, marker, hold, from) {
  */
 function judgeClearedJob(job, hold, { launches, markers }, { agents, io }) {
 	const known = launches.findLast((l) => l.jobId === job);
-	if (known && isHoldCleared(known)) return { isSettled: true };
+	if (known && isStepResumeFor(known, "holdCleared"))
+		return { isSettled: true };
 	const row = agents?.find((a) => a.id === job);
 	const isBlocked = row?.state === PARKED_STATE;
 	const marker =
@@ -1704,17 +1749,14 @@ function queueLifted(launches, lifted, seen) {
 		return fresh;
 	};
 	let next = launches.map((l) => {
-		if (!isActionable(l) || !isHoldCleared(l)) return l;
+		if (!isActionable(l) || !isStepResumeFor(l, "holdCleared")) return l;
 		const markers = readMarkersIn(l.root);
-		if (
-			!markers ||
-			markers.some((m) => m.sessionId === l.holdCleared.sessionId)
-		)
+		if (!markers || markers.some((m) => m.sessionId === l.stepResume.sessionId))
 			return l;
 		io.log(
-			`not resuming ${buildHoldClearedText(l)}: its park marker no longer lists its issues`,
+			`not resuming ${STEP_CAUSES.holdCleared.what(l, l.stepResume)}: its park marker no longer lists its issues`,
 		);
-		const { holdCleared: _, ...rest } = l;
+		const { stepResume: _, ...rest } = l;
 		return { ...rest, ...io.progressOf(rest), finishedAt: now };
 	});
 	const settled = lifted.flatMap((hold) => {
@@ -1802,7 +1844,8 @@ function queueBootKilled(launches, seen, bootedAt, isSpared = () => false) {
 		return {
 			...rest,
 			...(l.block?.cause === "UNKNOWN" ? { blockUnread: true } : {}),
-			bootKilled: {
+			stepResume: {
+				cause: "bootKilled",
 				at: l.launchedAt,
 				sessionId,
 				cwd,
@@ -2840,13 +2883,12 @@ module.exports = {
 	isLimitHeld,
 	isLive,
 	isResuming,
-	isHoldCleared,
 	hasJobEnded,
 	isBootKillCandidate,
 	isBootKillable,
-	isBootKilled,
 	isStepResume,
-	isSwapHeld,
+	buildStepStatus,
+	isStepResumeFor,
 	LISTING_GRACE_MS,
 	iso,
 	launchName,

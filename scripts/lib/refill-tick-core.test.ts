@@ -492,7 +492,10 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			"a restart's killed launches wait on the listing: the listing failed",
 		);
 		expect(disk().bootedAt).toBe(NOW - MIN);
-		expect(disk().launches[0]).not.toHaveProperty("bootKilled");
+		expect(disk().launches[0]).not.toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 		expect(disk().launches[0]?.finishedAt).toBeNull();
 	});
 
@@ -516,7 +519,7 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(blockLines).toContain(
 			"design-vault /implement 42, killed by a restart: due back through the resume step",
 		);
-		expect(disk().launches[0]).toHaveProperty("bootKilled");
+		expect(disk().launches[0]).toHaveProperty("stepResume.cause", "bootKilled");
 		expect(disk().bootedAt).toBeUndefined();
 		expect(disk().sameBootRestart).toBeUndefined();
 		expect(calls).toContain("dropManagerRestart");
@@ -546,7 +549,10 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			blockIo: () => bootPorts(blockLines),
 		});
 		await tickOf(read.io);
-		expect(read.disk().launches[0]).toHaveProperty("bootKilled");
+		expect(read.disk().launches[0]).toHaveProperty(
+			"stepResume.cause",
+			"bootKilled",
+		);
 		expect(read.disk().bootedAt).toBeUndefined();
 	});
 });
