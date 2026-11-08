@@ -581,7 +581,6 @@ describe("a dry run with overflow seats (#2611)", () => {
 		expect(r.stdout).toContain(
 			`would run in ${repo} on overflow seat ${overflowSeat()}, each member billed to key=WFC_TEST_KEY: ${dispatch()}`,
 		);
-		// The decision's summary line, which the dry run prints ahead of it.
 		expect(r.stdout).toMatch(/^dry run: /m);
 		expect(readLines(at("dispatches"))).toEqual([]);
 	});
@@ -662,6 +661,8 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 				buildStopBranch(at("stops")),
 			]);
 			writeHeadlessRun(dir, job, sessionId, { live: false });
+			writeTranscript(15_000_000);
+			/* 60 s only has to outlast one tick. */
 			pid = startOrphan("sleep", "60");
 			onTestFinished(() => killGroup(pid));
 		});
@@ -675,7 +676,6 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 			});
 
 		it("leaves the founder's reply running, whatever the session spent", async () => {
-			writeTranscript(15_000_000);
 			writeNextRun({ founderReply: true });
 			const r = await stoppedTick();
 			expect(r.status).toBe(0);
@@ -684,7 +684,6 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 		});
 
 		it("stops the loop's resume past it", async () => {
-			writeTranscript(15_000_000);
 			writeNextRun();
 			const r = await stoppedTick();
 			expect(r.stdout).toContain(

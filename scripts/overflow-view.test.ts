@@ -330,7 +330,7 @@ describe("a reply", () => {
 			/^sent: \/implement 7 resumed as job [0-9a-f]{8}$/,
 		);
 		/* Marked, so the tick's allowance stop leaves it (#4174). */
-		const job = t.frame().at(-2)?.split(" ").at(-1) ?? "";
+		const job = /job ([0-9a-f]{8})$/.exec(t.frame().at(-2) ?? "")?.[1] ?? "";
 		expect(
 			JSON.parse(
 				fs.readFileSync(
