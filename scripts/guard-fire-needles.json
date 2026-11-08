@@ -1707,7 +1707,7 @@
 				}
 			]
 		},
-		"check-orphaned-edits.js --notify --write": {
+		"check-orphaned-edits.js --notify --write --hourly": {
 			"needles": [],
 			"silent": "Files each orphaned edit's triage issue and prints nothing; the report is read on npm run status (#2038)."
 		},
