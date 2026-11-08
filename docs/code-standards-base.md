@@ -188,7 +188,7 @@ The fixes, best first: the test drives the program end to end through `run-in-pr
 
 Three kinds of export are not test-only:
 
-- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:447` does — *"module.exports = { main };"*.
+- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:431` does — *"module.exports = { main };"*.
 - **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js:2` is *"the machinery the .husky/pre-commit gate suites share"*.
 - **A module built ahead of its caller**, whose opening comment names that caller and its ticket on a line spelt `Unbuilt caller: <caller> (#N)`.
 

@@ -3,7 +3,8 @@
  * kind?" (#1528), for the suite guards and scripts/queue-run.js.
  *
  * THE KINDS:
- *   npm-vitest  `npm test`, `npm run test|test:changed`
+ *   npm-vitest  `npm test`, `npm run test|test:changed`, npm's aliases for
+ *               `test` and `run` included
  *   npm-watch   `npm run test:watch`
  *   npm-py      `npm test:py`, `npm run test:py`
  *   wrapper     `node <path>/run-vitest.js`
@@ -15,6 +16,7 @@
  * starts at word `taken`.
  */
 
+const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { PY_COLLECTED_TEST } = require("./test-kind.js");
 const { unwrap } = require("./shell-words.js");
 
@@ -135,19 +137,32 @@ function nodeLaunch(words, ports) {
 }
 
 /**
+ * The npm script the words run, and how many words name it, each command
+ * word read as npm derefs it (#4032): `npm t`, `npm run-script x`. Null
+ * where they run no script.
+ * @param {string[]} words
+ * @returns {{ script: string, taken: number } | null}
+ */
+function npmScriptOf(words) {
+	if (afterSlash(words[0] ?? "") !== "npm") return null;
+	const w1 = words[1] ?? "";
+	if (isNpmRun(w1)) return words[2] ? { script: words[2], taken: 3 } : null;
+	const script = w1 === "test:py" ? w1 : scriptOfNpmCommand(w1);
+	return script ? { script, taken: 2 } : null;
+}
+
+/**
  * `npm test`, `npm test:py`, or `npm run` one of the suite scripts.
  * @param {string[]} words
  * @returns {Launch | null}
  */
 function npmLaunch(words) {
-	const w1 = words[1] ?? "";
-	const bare = w1 === "test" || w1 === "test:py";
-	if (!bare && w1 !== "run") return null;
-	const script = bare ? w1 : (words[2] ?? "");
-	const kind = Object.hasOwn(SCRIPT_KINDS, script)
-		? SCRIPT_KINDS[script]
-		: undefined;
-	return kind ? { kind, script, taken: bare ? 2 : 3, queued: false } : null;
+	const run = npmScriptOf(words);
+	const kind =
+		run && Object.hasOwn(SCRIPT_KINDS, run.script)
+			? SCRIPT_KINDS[run.script]
+			: undefined;
+	return run && kind ? { kind, ...run, queued: false } : null;
 }
 
 /**
@@ -190,6 +205,7 @@ const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 module.exports = {
 	afterSlash,
 	isOtherRunner,
+	npmScriptOf,
 	suiteLaunchKind,
 	isQueueable,
 	hasWrapperCall,

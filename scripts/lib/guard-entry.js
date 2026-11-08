@@ -310,7 +310,7 @@ function refuseUnreadable(e, { name, log, prelude }) {
 	return {
 		deny: refusal(
 			e instanceof RuleMissing
-				? `${name}: ${e.brief} This refusal holds whatever the guard's failure policy, until the fragment is restored: \`git pull\`, or revert the change that removed it (mantahostels#1762).`
+				? `${name}: ${e.brief} This refusal holds whatever the guard's failure policy, until the fragment is restored from origin/main, or the change that removed it is reverted (mantahostels#1762).`
 				: `${name}: ${msg}`,
 			prelude,
 		),
