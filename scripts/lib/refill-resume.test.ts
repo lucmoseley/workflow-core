@@ -62,6 +62,13 @@ describe("readResumeTarget", () => {
 		).toEqual(IDS);
 	});
 
+	it("carries the launch flags its job record saved (#4098)", () => {
+		const { steps } = fakeIo({ readJobRecord: "saved" });
+		expect(
+			steps.readResumeTarget({ ...LAUNCH, jobId: JOB } as unknown as JobLaunch),
+		).toEqual({ ...IDS, flags: SAVED_FLAGS });
+	});
+
 	it("reads no job record for a launch naming no job, its target the checkout", () => {
 		const { steps, callsTo } = fakeIo({ readJobRecord: "working" });
 		expect(
@@ -275,6 +282,38 @@ describe("resumeOwnId (#4098)", () => {
 			[SEAT, FAKE_COPY, ANSWERS.sessionName.named.name],
 		]);
 		expect(callsTo("stop")).toEqual([[SEAT, JOB]]);
+	});
+
+	it("takes the flags read before an earlier try removed its record over any read now", () => {
+		const flags = ["--model", "sonnet"];
+		const { steps, callsTo, lines } = fakeIo({
+			readJobRecord: "working",
+			runClaude: "ownId",
+		});
+		steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
+		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			...flags,
+			PROMPT,
+		]);
+		expect(lines.join("\n")).not.toContain("no saved launch flags");
+	});
+
+	it("stops what a failed resume may still be starting under its id", () => {
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: "saved",
+			hasJobRecord: ["present", "present", "none"],
+			runClaude: ["removed", "noJob"],
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS).failed).toContain(
+			"the launcher never said what it started",
+		);
+		expect(callsTo("stop")).toEqual([
+			[SEAT, JOB],
+			[SEAT, JOB],
+		]);
 	});
 
 	it("resumes nothing where the killed job is not confirmed stopped", () => {

@@ -62,6 +62,20 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  * }} ResumeIo
  */
 
+/**
+ * The launch flags job record `rec` saved (`respawnFlags`), null where it
+ * saved none.
+ * @param {import("./launch-record.js").LaunchRecord|null} rec
+ * @returns {string[]|null}
+ */
+function savedFlagsOf(rec) {
+	const saved = rec?.respawnFlags;
+	return Array.isArray(saved) &&
+		saved.every((/** @type {unknown} */ f) => typeof f === "string")
+		? saved
+		: null;
+}
+
 /* A copy adoptResumed found: the kill took the launcher's note with it. */
 const ADOPTED_WHY = "found after a kill, the harness's reason lost with it";
 
@@ -347,6 +361,16 @@ function resumeSteps(io) {
 	}
 
 	/**
+	 * The name session `sessionId`'s transcript on `seat` carries
+	 * (lib/session-name.js's readSessionName).
+	 * @param {string} seat
+	 * @param {string} cwd
+	 * @param {string} sessionId
+	 */
+	const readTranscriptName = (seat, cwd, sessionId) =>
+		io.sessionName(transcriptPath(seat, cwd, sessionId));
+
+	/**
 	 * Give copy `copy` of session `from` the name `from`'s transcript carries,
 	 * which a copy does not take with it (#4098); logged where it will not.
 	 * @param {string} seat
@@ -354,7 +378,7 @@ function resumeSteps(io) {
 	 * @param {{jobId: string, cwd: string}} copy
 	 */
 	function nameCopy(seat, from, { jobId, cwd }) {
-		const read = io.sessionName(transcriptPath(seat, cwd, from));
+		const read = readTranscriptName(seat, cwd, from);
 		const name = "name" in read ? read.name : null;
 		const failed = name
 			? io.writeJobName(seat, jobId, name)
@@ -391,7 +415,7 @@ function resumeSteps(io) {
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
 	function overflowNameOf(l, { sessionId, cwd }) {
-		const read = io.sessionName(transcriptPath(l.seat, cwd, sessionId));
+		const read = readTranscriptName(l.seat, cwd, sessionId);
 		if ("why" in read)
 			log(
 				`${sessionId}'s name not read, so named after its prompt: ${read.why}`,
@@ -449,15 +473,17 @@ function resumeSteps(io) {
 
 	/**
 	 * Resume `l`'s session, which a restart killed, under its own id (#4098):
-	 * its job's saved launch flags read, the job stopped and its record
-	 * removed, then resumeStopped with those flags. The 2.1.319 harness starts
+	 * its job's saved launch flags taken from `ids`, as read before any try
+	 * removed its record, else read now, the job stopped and its record
+	 * removed, then resumeStopped with those flags. A resume that failed may
+	 * still be starting, so it is stopped, as moveSession's is. The 2.1.319 harness starts
 	 * a copy of a resume carrying flags only while a job record exists, so one
 	 * removed continues under the session's id with its name and model. A
 	 * record naming another session is left, and the harness copies; a session
 	 * on an overflow key resumes headless, under its id already.
 	 * @param {{root: string, issues: number[], seat: string, keyVar?: string}} l
 	 * @param {string} prompt
-	 * @param {{sessionId: string, cwd: string}} ids
+	 * @param {{sessionId: string, cwd: string, flags?: string[]}} ids
 	 * @returns {Resumed}
 	 */
 	function resumeOwnId(l, prompt, ids) {
@@ -467,29 +493,43 @@ function resumeSteps(io) {
 			cwd: ids.cwd,
 		});
 		if (refusal) return { failed: refusal };
-		const flags = readSavedFlags(l, ids);
+		const flags = ids.flags ?? resumeFlagsOf(l, ids);
 		const retired = retireJob(l.seat, ids.sessionId, ids.cwd);
 		if (retired) return { failed: retired };
-		return resumeStopped(l, prompt, ids, { flags });
+		const r = resumeStopped(l, prompt, ids, { flags });
+		if (r.failed !== null) stopFailed(l.seat, ids.sessionId);
+		return r;
 	}
 
 	/**
-	 * The launch flags `ids`'s own job record saved (`respawnFlags`), which a
-	 * job continued with no record takes from its resume alone; where it saved
-	 * none, the loop's model and the name `ids`'s transcript carries.
+	 * Stop what a failed resume of session `sessionId` on `seat` may still be
+	 * starting under its id, so two live processes never share it; logged
+	 * where it will not stop.
+	 * @param {string} seat
+	 * @param {string} sessionId
+	 */
+	function stopFailed(seat, sessionId) {
+		const stop = io.stop(seat, shortJobId(sessionId));
+		if (!stop.ok && !stop.noJob)
+			log(
+				`could not stop ${shortJobId(sessionId)}'s failed resume: ${stop.why}`,
+			);
+	}
+
+	/**
+	 * The launch flags to resume `ids` under its own id with: those its own job
+	 * record saved (`respawnFlags`), which a job continued with no record takes
+	 * from its resume alone; where it saved none, the loop's model and the name
+	 * `ids`'s transcript carries.
 	 * @param {{seat: string}} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 * @returns {string[]}
 	 */
-	function readSavedFlags(l, { sessionId, cwd }) {
+	function resumeFlagsOf(l, { sessionId, cwd }) {
 		const rec = io.readJobRecord(l.seat, shortJobId(sessionId));
-		const saved = rec?.sessionId === sessionId ? rec.respawnFlags : undefined;
-		if (
-			Array.isArray(saved) &&
-			saved.every((/** @type {unknown} */ f) => typeof f === "string")
-		)
-			return saved;
-		const read = io.sessionName(transcriptPath(l.seat, cwd, sessionId));
+		const saved = rec?.sessionId === sessionId ? savedFlagsOf(rec) : null;
+		if (saved) return saved;
+		const read = readTranscriptName(l.seat, cwd, sessionId);
 		const name = "name" in read ? read.name : null;
 		log(
 			`no saved launch flags read for ${sessionId}: resumed with the loop's model${name ? " and its transcript's name" : ""}`,
@@ -531,18 +571,20 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * `l`'s full session id, the listing's else its job record's, and its job's
-	 * cwd, else its checkout.
+	 * `l`'s full session id, the listing's else its job record's, its job's
+	 * cwd, else its checkout, and the launch flags its job record saved.
 	 * @param {JobLaunch} l
 	 * @returns {import("./refill-blocks.js").ResumeTarget}
 	 */
 	function readResumeTarget(l) {
 		const job = readLaunchRecord(l);
+		const flags = savedFlagsOf(job);
 		return {
 			sessionId:
 				l.sessionId ??
 				(typeof job?.sessionId === "string" ? job.sessionId : null),
 			cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
+			...(flags ? { flags } : {}),
 		};
 	}
 
@@ -675,11 +717,7 @@ function resumeSteps(io) {
 			name,
 		});
 		if (r.failed === null) return r;
-		const stop = io.stop(seat, shortJobId(sessionId));
-		if (!stop.ok && !stop.noJob)
-			log(
-				`could not stop ${shortJobId(sessionId)}'s failed resume: ${stop.why}`,
-			);
+		stopFailed(seat, sessionId);
 		return r;
 	}
 

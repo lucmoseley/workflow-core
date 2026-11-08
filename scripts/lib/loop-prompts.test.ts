@@ -52,4 +52,10 @@ describe("a session a restart killed mid-work (#4098)", () => {
 		);
 		expect(BOOT_PROMPT).toContain("where it refuses on a live holder");
 	});
+
+	it("asks one killed on an unread block to re-claim only where it continues", () => {
+		expect(BOOT_UNREAD_PROMPT).toContain(
+			"Where you continue, first re-run `node scripts/claim-issue.js <n>`",
+		);
+	});
 });

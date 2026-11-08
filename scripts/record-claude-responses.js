@@ -183,14 +183,26 @@ function synthetic(row) {
  * @param {string} fails
  * @returns {Promise<Row|undefined>}
  */
-async function until(id, kept, done, fails) {
+const until = (id, kept, done, fails) =>
+	pollUntil(() => listRowKeepingShape(id, kept), done, `job ${id} ${fails}`);
+
+/**
+ * Poll `probe` until its answer meets `done`, and return that answer; throws
+ * `fails` after WAIT_MS.
+ * @template T
+ * @param {() => T} probe
+ * @param {(answer: T) => boolean} done
+ * @param {string} fails
+ * @returns {Promise<T>}
+ */
+async function pollUntil(probe, done, fails) {
 	const by = Date.now() + WAIT_MS;
 	while (Date.now() < by) {
-		const row = listRowKeepingShape(id, kept);
-		if (done(row)) return row;
+		const answer = probe();
+		if (done(answer)) return answer;
 		await new Promise((wake) => setTimeout(wake, POLL_MS));
 	}
-	throw new Error(`job ${id} ${fails} after ${WAIT_MS} ms`);
+	throw new Error(`${fails} after ${WAIT_MS} ms`);
 }
 
 /**
@@ -217,6 +229,8 @@ const untilState = async (id, done, fails) =>
 const IDLE_NAME = "a-recorded-launch";
 const OWN_ID_NAME = "a-recorded-resume";
 
+const NAMED_NAME = "Overflow · a-recorded-launch";
+
 /**
  * Stop job `original`, remove it with `claude rm`, and resume `sessionId` with
  * a name and model (#4098): the 2.1.319 binary copies a resume carrying flags
@@ -229,7 +243,11 @@ async function resumeRemoved(sessionId, original) {
 	/* The listing drops a job's row for a moment as it starts, which settled
 	 * reads as ended; one stopped while still working stays present to the
 	 * daemon a moment, which a resume reads as running, and copies. */
-	await untilRecord(original, (rec) => rec?.state !== "working");
+	await untilRecord(
+		original,
+		(rec) => rec?.state !== "working",
+		"still working",
+	);
 	for (const cmd of ["stop", "rm"]) {
 		const r = claude([cmd, original]);
 		if (r.status !== 0)
@@ -241,26 +259,22 @@ async function resumeRemoved(sessionId, original) {
 		"--model",
 		"haiku",
 	]);
-	await untilRecord(original, (rec) => rec?.name === OWN_ID_NAME);
+	await untilRecord(
+		original,
+		(rec) => rec?.name === OWN_ID_NAME,
+		`never took the name ${OWN_ID_NAME}`,
+	);
 	return r;
 }
 
 /**
- * Until job `id`'s record on this seat satisfies `done`.
+ * Until job `id`'s record on this seat meets `done`.
  * @param {string} id
- * @param {(rec: any) => boolean} done
+ * @param {(rec: {state?: unknown, name?: unknown}|null) => boolean} done
+ * @param {string} fails
  */
-async function untilRecord(id, done) {
-	const by = Date.now() + WAIT_MS;
-	while (!done(readJobRecord(configDir(), id))) {
-		if (Date.now() > by)
-			throw new Error(
-				`job ${id}'s record never read as wanted after ${WAIT_MS} ms`,
-			);
-		await new Promise((wake) => setTimeout(wake, POLL_MS));
-	}
-}
-const NAMED_NAME = "Overflow · a-recorded-launch";
+const untilRecord = (id, done, fails) =>
+	pollUntil(() => readJobRecord(configDir(), id), done, `job ${id} ${fails}`);
 
 /**
  * `claude --bg --model haiku [...flags] -- <prompt>`, and the job id it

@@ -195,12 +195,12 @@ export const FAULTS = {
 
 type Answers = typeof ANSWERS;
 type Faults = typeof FAULTS;
-type Pick<P extends keyof Answers> =
+type AnswerPick<P extends keyof Answers> =
 	| keyof Answers[P]
 	| (P extends keyof Faults ? keyof Faults[P] : never);
 /** Each port's answer, or its answers call by call, the last repeating. */
 export type Picks = {
-	[P in keyof Answers]?: Pick<P> | Pick<P>[];
+	[P in keyof Answers]?: AnswerPick<P> | AnswerPick<P>[];
 };
 
 export function fakeResumeIo(

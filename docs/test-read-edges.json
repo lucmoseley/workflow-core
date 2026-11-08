@@ -6456,6 +6456,8 @@
 		"scripts/fixtures/bg-resume.json": [
 			"scripts/lib/bg-resume.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/refill-batch.test.ts",
+			"scripts/lib/refill-blocks.test.ts",
 			"scripts/lib/refill-resume-worktree.test.ts",
 			"scripts/lib/refill-resume.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",

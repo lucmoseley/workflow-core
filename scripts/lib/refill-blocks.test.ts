@@ -9,6 +9,7 @@
  * time, or misreports what it did.
  */
 import { describe, expect, it } from "vitest";
+import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
 import {
 	hasTurnedSince,
@@ -46,9 +47,6 @@ import {
 import { buildLimitCapText } from "./refill-decide.js";
 import { judgedLaunches } from "./refill-loop.js";
 import { buildSeatName } from "./refill-seats.js";
-
-/** The reason a test resume gives for starting a copy (#4098). */
-const COPY_WHY = "note: started a copy as copy";
 
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
@@ -3366,6 +3364,15 @@ describe("queueBootKilled (#3880)", () => {
 		});
 	});
 
+	it("keeps the launch flags its job record saved, before any resume removes it (#4098)", () => {
+		const flags = ["--model", "opus", "--name", "Implement 42: a title"];
+		expect(
+			killedOf(record(), {
+				resumeTargetOf: () => ({ sessionId: "s", cwd: "/", flags }),
+			}),
+		).toMatchObject({ bootKilled: { flags } });
+	});
+
 	it.each(["done", "stopped"])(
 		"leaves a job that reads %s, ended by itself",
 		(state) => {
@@ -3610,6 +3617,19 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 		expect(lines.join("\n")).toMatch(
 			/killed by a restart, by --bg --resume, woken in place/,
 		);
+	});
+
+	it("hands the resume the flags read when it was queued (#4098)", () => {
+		const flags = ["--model", "opus"];
+		const seen: unknown[] = [];
+		const l = killed();
+		step({ ...l, bootKilled: { ...l.bootKilled, flags } } as Launch, {
+			resumeOwnId: (_l, _prompt, target) => {
+				seen.push(target.flags);
+				return { failed: "exit 1" };
+			},
+		});
+		expect(seen).toEqual([flags]);
 	});
 
 	it("logs the reason the harness gave for a copy (#4098)", () => {
@@ -3973,7 +3993,7 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			expect(launches[0]).not.toHaveProperty("resumeStarted");
 			expect(launches[0]?.resumes).not.toHaveProperty("heldAt");
 			expect(logs(calls).join("\n")).toMatch(
-				/resume at 2026-10-18T11:59:00.000Z started copy c-1, which a kill came between it and the state write left out of the state: tracking it, not resuming again/,
+				/resume at 2026-10-18T11:59:00.000Z started a job as its copy c-1 \(note: started a copy as copy\), which a kill came between it and the state write left out of the state: tracking it, not resuming again/,
 			);
 		});
 

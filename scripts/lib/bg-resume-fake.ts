@@ -28,6 +28,8 @@ export const recorded: {
 );
 
 export const FAKE_COPY = "c0de7a11";
+/** The reason a test resume gives for starting a copy (#4098). */
+export const COPY_WHY = "note: started a copy as copy";
 
 export function buildRekeyedResponse(
 	kind: ResumeKind,

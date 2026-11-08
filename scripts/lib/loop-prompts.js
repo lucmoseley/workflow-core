@@ -35,7 +35,7 @@ const PARK_STEPS =
 /* A parked session resumed by a normal-mode loop (#3621). */
 const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. ${PARK_STEPS}`;
 /* A session a restart killed on a block the loop could not read (#3980). */
-const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was blocked, and the loop could not read on what, so you may be waiting on the founder. ${LOST} ${PARK_STEPS} Where you continue, first check whether your last tool call already took effect.`;
+const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was blocked, and the loop could not read on what, so you may be waiting on the founder. ${LOST} ${PARK_STEPS} Where you continue, first re-run \`node ${scriptPath("claim-issue.js")} <n>\` on each issue you hold, since a copy or the original of this session may be live beside you: where it refuses on a live holder, that session carries the work, so make no other tool call and end your turn saying so. Then check whether your last tool call already took effect.`;
 /* A session the loop stopped on a permission prompt, whose prompt went with the
  * stop (#3949). */
 const PARKED_PERMISSION_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop stopped you on a permission prompt and the founder may be back. Repeat the tool call that raised it, a subagent's by making it yourself, so the prompt comes back to him, then continue your task. Where you cannot repeat it, post a \`**Hand-off:**\` on the issue saying why, hand him the call as a literal \`!\` line or fenced text and what to send back, and end \`needs input: <the call> — waits on you: #N\` under your \`waits on you:\` block.`;

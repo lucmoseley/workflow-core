@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { COPY_WHY } from "./bg-resume-fake";
 import { readRecentEntries } from "./dispatch-ledger.js";
 import {
 	adoptLaunching,
@@ -28,9 +29,6 @@ import {
 	launchBatch,
 	launchOrResume,
 } from "./refill-batch.js";
-
-/** The reason a test resume gives for starting a copy (#4098). */
-const COPY_WHY = "note: started a copy as copy";
 
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
 
@@ -534,7 +532,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		});
 		expect(out.launched.map((l) => l.jobId)).toEqual(["j-9", "fresh"]);
 		expect(lines).toEqual([
-			"resumed parked design-vault /implement 1 as job j-9",
+			"resumed parked design-vault /implement 1, woken in place",
 		]);
 	});
 
