@@ -249,6 +249,11 @@ const MAPPED: [string, string[], string][] = [
 		"the PAGED read, whose query string an end-anchored arm would miss",
 	],
 	[
+		'gh api "repos/o/r/issues/2497/sub_issues?per_page=100"',
+		["dependency-edge-false-success"],
+		"the QUOTED paged read, which the parser masks",
+	],
+	[
 		"gh api repos/o/r/issues/2497/dependencies/blocking",
 		["dependency-edge-false-success"],
 		"the other side of the dependency edge",
