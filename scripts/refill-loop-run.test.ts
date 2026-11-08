@@ -5,9 +5,10 @@
  * run()'s exit on a returned stop or a stop's wake. Its sandbox is
  * lib/refill-loop-run-testkit.ts's. The cwd-outside-every-checkout case runs
  * the real allowance.js, as only it reads the host's cost table (#2937).
- * Restarts, holds and the resumes of a held session are
- * scripts/refill-loop-run-recovery.test.ts's, split off toward the 60 s
- * per-file limit (#4389).
+ * Restarts and an API error's resume are
+ * scripts/refill-loop-run-recovery.test.ts's (#4389), and holds and a limit
+ * hold's resume scripts/refill-loop-run-holds.test.ts's (#4602), split off
+ * toward the 60 s per-file limit.
  *
  * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
  * answers from "scripts/fixtures/claude-attach.json": a re-recording selects

@@ -5,7 +5,7 @@
  * so far as its comment on the issue, as the workflow would. Where a case needs a
  * hold raised, filed or cleared as a tick would, it runs lib/repo-holds.js's
  * tendHolds over a real checkout. The tick's wiring of the notice, its one
- * dispatch adapter crossed, is refill-loop-run-recovery.test.ts's (#4314).
+ * dispatch adapter crossed, is refill-loop-run-holds.test.ts's (#4314).
  *
  * Broken, a hold that stops every launch reaches nobody's phone (#3871), or a
  * notice repeats every tick.
