@@ -75,7 +75,7 @@ const SPEC = {
 function fixture(pluginHooks: object = {}) {
 	const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cut-")));
 	made.push(base);
-	/* The space is what makes the printed-command cases pin #3975's shellQuote; a plain word passes unquoted. */
+	/* The space is what makes "stops after the tag with the way back…" pin #3975's shellQuote; a plain path passes unquoted. */
 	const dir = path.join(base, "the adopter");
 	const plugin = path.join(base, "plugin");
 	fs.mkdirSync(dir);
