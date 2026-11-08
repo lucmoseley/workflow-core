@@ -3,9 +3,10 @@
  * lib/npm-options.js's `npmCanon`, npm 11.16.0's option parser in Node, and
  * the exact-match lookups npx makes instead, `shorthandExact` and `boolExact`
  * (#563, #571, #1972), pinned over one fixture set, and `isNpmRun`'s deref of
- * `run` (#3627). lib/suite-concurrency.js
- * reads with it whether `npm … run <name>` launches a build or a dev server,
- * and lib/npm-install.js the install and the npx argv it judges.
+ * `run` (#3627), and `parseNpmArgv`'s operands at the words that hold them
+ * (#4070). lib/suite-concurrency.js reads with `npmCanon` whether
+ * `npm … run <name>` launches a build or a dev server, and lib/npm-install.js
+ * the install and the npx argv it judges.
  *
  * A drift lets a second `next build` spelt with npm's own flags through, or
  * takes a flag's value for the script name and refuses an unrelated command
@@ -14,14 +15,24 @@
 
 import { describe, expect, it } from "vitest";
 
-const { boolExact, isNpmRun, npmCanon, scriptOfNpmCommand, shorthandExact } =
-	require("./npm-options.js") as {
-		boolExact: (flag: string) => boolean;
-		isNpmRun: (word: string) => boolean;
-		scriptOfNpmCommand: (word: string) => string | undefined;
-		npmCanon: (argv: string[]) => string[];
-		shorthandExact: (key: string) => string[] | null;
+const {
+	boolExact,
+	isNpmRun,
+	npmCanon,
+	parseNpmArgv,
+	scriptOfNpmCommand,
+	shorthandExact,
+} = require("./npm-options.js") as {
+	boolExact: (flag: string) => boolean;
+	parseNpmArgv: (argv: { value: string; at: number }[]) => {
+		options: string[];
+		operands: { value: string; from: { at: number } }[];
 	};
+	isNpmRun: (word: string) => boolean;
+	scriptOfNpmCommand: (word: string) => string | undefined;
+	npmCanon: (argv: string[]) => string[];
+	shorthandExact: (key: string) => string[] | null;
+};
 
 const CANON_CASES: [string[], string[]][] = [
 	[
@@ -281,5 +292,38 @@ describe("the exact-match lookups npx makes (#1972)", () => {
 describe("npmCanon", () => {
 	it.each(CANON_CASES)("canonicalises %j to %j", (argv, canon) => {
 		expect(npmCanon(argv)).toEqual(canon);
+	});
+});
+
+describe("parseNpmArgv", () => {
+	it.each([
+		// An option whose value spells the operand is not where it stands (#4070).
+		["--prefix=test test", [["test", 1]]],
+		[
+			"--silent=x x",
+			[
+				["x", 0],
+				["x", 1],
+			],
+		],
+		[
+			"-s=x run y",
+			[
+				["x", 0],
+				["run", 1],
+				["y", 2],
+			],
+		],
+		[
+			"-w web run -- --x",
+			[
+				["run", 2],
+				["--x", 4],
+			],
+		],
+	])("places %j's operands at %j", (line, placed) => {
+		const argv = line.split(" ").map((value, at) => ({ value, at }));
+		const { operands } = parseNpmArgv(argv);
+		expect(operands.map(({ value, from }) => [value, from.at])).toEqual(placed);
 	});
 });
