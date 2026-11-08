@@ -180,15 +180,22 @@ written_paths() {
 # sets cs_area_names, cs_areas and cs_fault. <to> as code_review_owed's.
 sensitive_match() {
   local -n sm_paths="$1"
-  local base="$2" mine="$3" to="${4:-}" written match rc=0
+  local base="$2" mine="$3" to="${4:-}" written match rc=0 err why
   written=$(written_paths "$base" "$mine" "$to")
   [[ -n "$written" ]] || return 0
-  match=$(printf '%s\n' "$written" | node "$CS_MATCHER" --stdin --narrowed-from "$base" 2>/dev/null) || rc=$?
-  # shellcheck disable=SC2034  # the caller's to read
+  err="$(mktemp 2>/dev/null)" || err=/dev/null
+  match=$(printf '%s\n' "$written" |
+    node "$CS_MATCHER" --stdin --narrowed-from "$base" ${to:+--narrowed-to "$to"} 2>"$err") || rc=$?
+  why="$(head -c "${GL_DETAIL_MAX:-300}" "$err" 2>/dev/null | tr '\n' ' ')"
+  [[ "$err" = /dev/null ]] || rm -f "$err"
   case "$rc" in
     0) ;;
-    3) cs_fault="the declaration at $base did not read — a narrowing of it not checked" ;;
+    3)
+      # shellcheck disable=SC2034  # the caller's to read
+      cs_fault="the declaration at $base or ${to:-the working copy} did not read — a narrowing of it checked only as far as it read: $why"
+      ;;
     *)
+      # shellcheck disable=SC2034  # the caller's to read
       cs_fault="lib/sensitive-paths.js failed — sensitive paths not checked, standard tier assumed"
       return 0
       ;;

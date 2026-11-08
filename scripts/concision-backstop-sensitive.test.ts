@@ -101,11 +101,11 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 
 	// #4049: the hold refuses a narrowing under the area's name, so the nag owes it too.
 	describe("a change narrowing the declaration since the start point", () => {
-		const Config = ".claude/workflow-core.json";
+		const DeclarationPath = ".claude/workflow-core.json";
 		const startAfter = (body: () => void) => {
 			body();
-			git("add", Config);
-			git("commit", "-qm", "declaration", "--", Config);
+			git("add", DeclarationPath);
+			git("commit", "-qm", "declaration", "--", DeclarationPath);
 			fs.writeFileSync(
 				path.join(markersDir(), `.concision-base-${ME}`),
 				git("rev-parse", "HEAD").trim(),
@@ -116,35 +116,35 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 			["dropping the glob", () => declare([])],
 			[
 				"declaring none",
-				() => write(Config, JSON.stringify({ sensitivePaths: [] })),
+				() => write(DeclarationPath, JSON.stringify({ sensitivePaths: [] })),
 			],
 		])("names the escalated tier and the area on %s", (_, narrow) => {
 			startAfter(() => declare(["supabase/migrations/**"]));
 			narrow();
-			record(Config, ME);
+			record(DeclarationPath, ME);
 
 			const reason = run("stop") ?? "";
 			expect(reason).toContain("`escalated` review tier is owed");
 			expect(reason).toContain("declared sensitive paths (RLS)");
-			expect(reason).toContain(Config);
+			expect(reason).toContain(DeclarationPath);
 		});
 
 		it("stays silent on a change keeping every glob", () => {
 			startAfter(() => declare(["supabase/migrations/**"]));
 			declare(["supabase/migrations/**", "app/money/**"]);
-			record(Config, ME);
+			record(DeclarationPath, ME);
 
 			expect(run("stop")).toBeNull();
 		});
 
 		it("logs a start-point copy that will not read", () => {
-			startAfter(() => write(Config, "{ not json"));
+			startAfter(() => write(DeclarationPath, "{ not json"));
 			declare([]);
-			record(Config, ME);
+			record(DeclarationPath, ME);
 
 			run("stop");
 			expect(readGuardErrorsLog(cfg)).toContain(
-				"did not read — a narrowing of it not checked",
+				"did not read — a narrowing of it checked only as far as it read: BROKEN: ",
 			);
 		});
 	});

@@ -12,7 +12,7 @@
  * long areas list pushes the review rules, not the tier, past the preview
  * (#1619), as inject-tracker-docs.sh's typed route does.
  *
- * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the session's tree — the linked worktree of the root's repository the session runs in, else the root — against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
+ * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the session's tree — the linked worktree of the root's repository the session runs in, else the root — against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's or the session base's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
  * JUSTIFIED: fail-safe — a change to a sensitive path reviewed at the standard tier misses the defects that cost money or leak data, and the vendored skill cannot carry the tier (spec #1612).
  * DEFEAT: any array value of `sensitivePaths`, `[]` included, silences the undeclared line; `scripts/clear-rule-latch.sh` clears the fragments' latch; listing `inject-review-tier` under the host's `disabled` silences it whole.
  *
@@ -39,6 +39,7 @@
 const path = require("node:path");
 const { matchSensitivePaths, withNarrowing } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
+const { CONFIG_PATH } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { treeOr } = require("./tree-or.js");
@@ -52,7 +53,7 @@ const { treeOr } = require("./tree-or.js");
  *   changedSince: (tree: string, base: string) => string[] | null,
  *   billed: (sid: string, tree: string) => string[] | null,
  *   declared: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
- *   declaredAtHead: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
+ *   declaredAt: (tree: string, rev: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
  * }} TierPorts git's absolute common dir of a directory, null where git
  *   will not say; a tree's staged paths, null where git will not say; the
  *   session's start point, placed on that tree's HEAD, null where none is
@@ -61,7 +62,8 @@ const { treeOr } = require("./tree-or.js");
  *   session wrote or its own commits touched, null where its write ledger
  *   will not read; and the host's
  *   `sensitivePaths`, throwing where its config will not read; and those at
- *   HEAD, undefined where HEAD holds no copy, throwing where it will not read
+ *   a revision, undefined where it holds no copy or names no commit, throwing
+ *   where it will not read
  * @typedef {import("./core-contract.js").CoreContext & TierPorts} TierContext
  */
 
@@ -69,8 +71,6 @@ const { treeOr } = require("./tree-or.js");
  * list would push the fragments after it off this call. 3 is a first guess,
  * never measured against the cap. */
 const PATHS_LISTED_MAX = 3;
-
-const DECLARATION = ".claude/workflow-core.json";
 
 /**
  * @param {string} skill
@@ -92,7 +92,8 @@ function decide(skill, ctx) {
 		return null;
 
 	const tree = treeOf(ctx);
-	const paths = [...stagedIn(tree, ctx), ...ownChanges(tree, ctx)];
+	const base = sessionBaseIn(tree, ctx);
+	const paths = [...stagedIn(tree, ctx), ...ownChanges(tree, base, ctx)];
 	/* A config warning is the config reader's to report, not this core's. */
 	let declared;
 	try {
@@ -103,11 +104,11 @@ function decide(skill, ctx) {
 		);
 		return null;
 	}
-	const match = narrowedFromHead(
+	const match = narrowedSince(
 		matchSensitivePaths(declared, paths),
 		declared,
 		paths,
-		{ tree, ctx },
+		{ tree, base, ctx },
 	);
 
 	/* Unlatched, so every review is told until the key exists (spec #1612
@@ -135,28 +136,34 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
 }
 
 /**
- * `match` plus each area a change to the declaration narrows from HEAD's
- * (lib/sensitive-paths.js's withNarrowing). A HEAD copy that will not read is
- * logged and narrows nothing.
+ * `match` plus each area a change to the declaration narrows from HEAD's or
+ * from the session base's (lib/sensitive-paths.js's withNarrowing): the hold
+ * reads a staged narrowing from HEAD, the Stop nag and push warning a
+ * committed one from the base. A copy that will not read is logged and
+ * narrows nothing.
  * @param {Match} match
  * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
  * @param {string[]} paths
- * @param {{ tree: string, ctx: TierContext }} at the tree whose HEAD the
- *   declaration is read at
+ * @param {{ tree: string, base: string | null, ctx: TierContext }} at the
+ *   tree the declaration is read in, and the session base
  * @returns {Match}
  */
-function narrowedFromHead(match, declared, paths, { tree, ctx }) {
-	if (!paths.includes(DECLARATION)) return match;
-	let before;
-	try {
-		before = ctx.declaredAtHead(tree);
-	} catch (e) {
-		ctx.log(
-			`the declaration at HEAD did not read — a narrowing of it not checked: ${caught(e).message}`,
-		);
-		return match;
+function narrowedSince(match, declared, paths, { tree, base, ctx }) {
+	if (!paths.includes(CONFIG_PATH)) return match;
+	let out = match;
+	for (const rev of base === null ? ["HEAD"] : ["HEAD", base]) {
+		let before;
+		try {
+			before = ctx.declaredAt(tree, rev);
+		} catch (e) {
+			ctx.log(
+				`the declaration at ${rev} did not read — a narrowing of it not checked: ${caught(e).message}`,
+			);
+			continue;
+		}
+		out = withNarrowing(out, before, declared, paths);
 	}
-	return withNarrowing(match, before, declared, paths);
+	return out;
 }
 
 /**
@@ -255,26 +262,35 @@ function stagedIn(tree, ctx) {
 }
 
 /**
- * This session's own changes since its base in its tree, or none where the
- * base or the write ledger will not read: unattributable, they are billed to
- * nobody.
+ * This session's base placed on its tree's HEAD, or null where none is
+ * recorded or git overran, the overrun logged (#3446).
  * @param {string} tree
  * @param {TierContext} ctx
+ * @returns {string | null}
  */
-function ownChanges(tree, ctx) {
-	if (!ctx.session) return [];
-	/* No base yet is a session that has recorded none, not a fault. */
-	let base;
+function sessionBaseIn(tree, ctx) {
+	if (!ctx.session) return null;
 	try {
-		base = ctx.sessionBase(ctx.session, tree);
+		return ctx.sessionBase(ctx.session, tree);
 	} catch (e) {
-		/* git overran: the fail-open is recorded (#3446). */
 		ctx.log(
 			`this session's base did not place — its unstaged changes left unmatched: ${caught(e).message}`,
 		);
-		return [];
+		return null;
 	}
-	if (base === null) return [];
+}
+
+/**
+ * This session's own changes since `base` in its tree, or none where there is
+ * no base or the write ledger will not read: unattributable, they are billed
+ * to nobody.
+ * @param {string} tree
+ * @param {string | null} base
+ * @param {TierContext} ctx
+ */
+function ownChanges(tree, base, ctx) {
+	/* No base yet is a session that has recorded none, not a fault. */
+	if (base === null || !ctx.session) return [];
 	const ledger = ctx.billed(ctx.session, tree);
 	if (ledger === null) {
 		ctx.log(

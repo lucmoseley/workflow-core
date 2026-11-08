@@ -10,9 +10,9 @@
  * RUN AS A SCRIPT it prints the match as JSON for the host's config, or with
  * `--names` the matched areas' names one per line, exit 0; a config warning
  * reaches stderr and never changes the exit. `--narrowed-from <rev>` adds each
- * area the declaration narrows from its copy at <rev>; exit 3 is that copy
- * not reading, the match printed without it and the fault on stderr. Exit 2
- * is a config that will not read, or bad usage. `--held <before> <after>` prints
+ * area the declaration narrows from its copy at <rev>; exit 3 is either copy
+ * not reading, the match printed as far as it could be read and the fault on
+ * stderr. Exit 2 is a config that will not read, or bad usage. `--held <before> <after>` prints
  * every area the pre-commit hold reads off two roots' configs at once, so the
  * hold starts node once a commit (#4512): exit 0, or 3 with the after copy's
  * fault on stderr; exit 2 where it cannot judge.
@@ -166,6 +166,46 @@ function printHeld(before, after, paths) {
 	}
 }
 
+/**
+ * `--narrowed-from`'s two copies, read in the working directory's own tree,
+ * which in a linked worktree is not the host root: `before` at `since`, null
+ * where it will not read; `after` at `to`, else the working copy, read as
+ * declaring nothing where it will not parse, as the hold reads it (#3905).
+ * `fault` names either failure, else "".
+ * @param {string} since
+ * @param {string | true | undefined} to
+ */
+function narrowedInTree(since, to) {
+	const { gitTopLevel } = require("./host-root.js");
+	let root = process.cwd();
+	try {
+		root = gitTopLevel(root);
+	} catch {
+		/* No top level: the working directory is the tree, as readConfig's
+		 * own root falls back to it. */
+	}
+	let fault = "";
+	/** @type {SensitivePath[] | undefined | null} */
+	let before = null;
+	try {
+		before = readConfig({ root, rev: since, quiet: true }).sensitivePaths;
+	} catch (e) {
+		fault = `BROKEN: ${caught(e).message}\n`;
+	}
+	/** @type {SensitivePath[] | undefined} */
+	let after;
+	try {
+		after = readConfig({
+			root,
+			...(typeof to === "string" ? { rev: to } : {}),
+			quiet: true,
+		}).sensitivePaths;
+	} catch (e) {
+		fault += `BROKEN: ${caught(e).message}\n`;
+	}
+	return { before, after, fault };
+}
+
 /** @param {number} fd */
 const readPaths = (fd) =>
 	readFdAll(fd)
@@ -174,13 +214,14 @@ const readPaths = (fd) =>
 		.filter((l) => l !== "");
 
 const USAGE =
-	"usage: node sensitive-paths.js [--stdin] [--names] [--narrowed-from <rev>] [<path>...]\n" +
+	"usage: node sensitive-paths.js [--stdin] [--names] [--narrowed-from <rev> [--narrowed-to <rev>]] [<path>...]\n" +
 	"       node sensitive-paths.js --held <before root> <after root>\n" +
 	"  The declared sensitive paths the given repo-relative paths touch, as JSON.\n" +
 	"  --stdin  read further paths from stdin, one per line or NUL-separated;\n" +
 	"           git quotes an unusual name, so pipe `git diff --name-only -z`\n" +
 	"  --names  print only the names of the areas whose globs matched, one per line\n" +
-	"  --narrowed-from <rev>  add each area the declaration narrows from its copy at <rev>\n" +
+	"  --narrowed-from <rev>  add each area the declaration narrows from its copy at <rev>,\n" +
+	"           to the working copy in this directory's tree, or to its copy at --narrowed-to\n" +
 	"  --held   the areas the pre-commit hold holds stdin's paths under, one per line\n";
 
 if (require.main === module) {
@@ -192,6 +233,7 @@ if (require.main === module) {
 			"--names": "boolean",
 			"--held": "boolean",
 			"--narrowed-from": "value",
+			"--narrowed-to": "value",
 		},
 		max: Number.POSITIVE_INFINITY,
 	});
@@ -217,12 +259,10 @@ if (require.main === module) {
 	const since = flags["--narrowed-from"];
 	let fault = "";
 	if (typeof since === "string" && paths.includes(CONFIG_PATH)) {
-		try {
-			const was = readConfig({ rev: since, quiet: true }).sensitivePaths;
-			match = withNarrowing(match, was, config.sensitivePaths, paths);
-		} catch (e) {
-			fault = `BROKEN: ${caught(e).message}\n`;
-		}
+		const narrowing = narrowedInTree(since, flags["--narrowed-to"]);
+		fault = narrowing.fault;
+		if (narrowing.before !== null)
+			match = withNarrowing(match, narrowing.before, narrowing.after, paths);
 	}
 	writeFd(
 		1,
@@ -236,4 +276,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = { matchSensitivePaths, narrowedAreas, withNarrowing };
+module.exports = { matchSensitivePaths, withNarrowing };

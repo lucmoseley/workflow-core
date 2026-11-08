@@ -117,16 +117,20 @@ function buildHostPorts(root) {
 				root: tree,
 				quiet: true,
 			}).sensitivePaths,
-		/* readConfig reads a HEAD with no copy as declaring nothing; it throws
-		 * on an unborn HEAD too, which holds no copy (#3905), so that one
-		 * throw alone is swallowed and the core logs any other (#4049). */
-		declaredAtHead: (tree) => {
+		/* readConfig reads a revision with no copy as declaring nothing, and
+		 * throws on one naming no commit, an unborn HEAD's case. That throw
+		 * alone is swallowed, told from a git that will not run by its
+		 * answering for the repository; the core logs any other (#4049). */
+		declaredAt: (tree, rev) => {
 			const { readConfig } = require("./workflow-core-config.js");
 			try {
-				return readConfig({ root: tree, rev: "HEAD", quiet: true })
-					.sensitivePaths;
+				return readConfig({ root: tree, rev, quiet: true }).sensitivePaths;
 			} catch (e) {
-				if (git(tree, ["rev-parse", "--verify", "-q", "HEAD"]) === null) return;
+				if (
+					git(tree, ["rev-parse", "--git-dir"]) !== null &&
+					git(tree, ["rev-parse", "--verify", "-q", `${rev}^{commit}`]) === null
+				)
+					return;
 				throw e;
 			}
 		},

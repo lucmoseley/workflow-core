@@ -917,16 +917,38 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		);
 	});
 
-	it("reads an unborn HEAD as declaring nothing, unlogged, in the host port", () => {
-		const unborn = path.join(sb.dir, "unborn");
-		fs.mkdirSync(unborn);
-		execFileSync("git", ["init", "-q", unborn]);
-		execFileSync("git", ["config", "user.email", "t@example.com"], {
-			cwd: unborn,
+	describe("the host port's declaration at a revision", () => {
+		const unbornRepo = () => {
+			const unborn = path.join(sb.dir, "unborn");
+			fs.mkdirSync(unborn);
+			execFileSync("git", ["init", "-q", unborn]);
+			execFileSync("git", ["config", "user.email", "t@example.com"], {
+				cwd: unborn,
+			});
+			execFileSync("git", ["config", "user.name", "t"], { cwd: unborn });
+			return unborn;
+		};
+		const portAt = (tree: string) =>
+			require("./review-tier-host.js")
+				.buildHostPorts(tree)
+				.declaredAt(tree, "HEAD");
+
+		it("reads an unborn HEAD as declaring nothing", () => {
+			expect(portAt(unbornRepo())).toBeUndefined();
 		});
-		execFileSync("git", ["config", "user.name", "t"], { cwd: unborn });
-		const ports = require("./review-tier-host.js").buildHostPorts(unborn);
-		expect(ports.declaredAtHead(unborn)).toBeUndefined();
+
+		it("throws where git will not run, unborn HEAD or not", () => {
+			const unborn = unbornRepo();
+			vi.stubEnv(
+				"WFC_GIT",
+				writeFaultyGit(
+					{ words: ["rev-parse"] },
+					{ exit: 128 },
+					{ under: sb.dir },
+				).git,
+			);
+			expect(() => portAt(unborn)).toThrow();
+		});
 	});
 
 	it("logs a config that will not read, and says nothing", () => {
@@ -953,7 +975,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		changedSince: () => [],
 		billed: () => [],
 		declared: () => [{ ...RLS, live: false }],
-		declaredAtHead: () => [{ ...RLS, live: false }],
+		declaredAt: () => [{ ...RLS, live: false }],
 		ruleText: () => {
 			throw new Error("store down");
 		},
@@ -1073,7 +1095,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				stubCtx({
 					staged: () => [Config],
 					declared: () => declared,
-					declaredAtHead: () => [{ ...RLS, live: false }],
+					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
 			);
 
@@ -1091,13 +1113,31 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			},
 		);
 
+		it("states the escalated tier on a narrowing committed since the session base", () => {
+			const decision = decide(
+				"code-review",
+				stubCtx({
+					session: ME,
+					staged: () => [],
+					sessionBase: () => "BASE",
+					changedSince: () => [Config],
+					billed: () => [Config],
+					declared: () => [],
+					declaredAt: (_: string, rev: string) =>
+						rev === "BASE" ? [{ ...RLS, live: false }] : [],
+				}) as never,
+			);
+			expect(String(decision?.prelude)).toContain("Tier owed: escalated.");
+			expect(String(decision?.prelude)).toContain(RLS.name);
+		});
+
 		it("adds nothing where the declaration keeps every glob", () => {
 			const decision = decide(
 				"code-review",
 				stubCtx({
 					staged: () => [Config],
 					declared: () => [{ ...RLS, live: false }],
-					declaredAtHead: () => [{ ...RLS, live: false }],
+					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
 			);
 			expect(String(decision?.prelude ?? "")).not.toContain("Tier owed");
@@ -1109,7 +1149,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				stubCtx({
 					staged: () => ["app/page.tsx"],
 					declared: () => [],
-					declaredAtHead: () => [{ ...RLS, live: false }],
+					declaredAt: () => [{ ...RLS, live: false }],
 				}) as never,
 			);
 			expect(decision).toBeNull();
