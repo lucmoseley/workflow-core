@@ -505,6 +505,25 @@ it("judges only the files the tree at the sha holds, green with no dispatch wher
 	absent.reads.presentAt = () => [];
 	expect(await askNamed(absent)).toEqual({ kind: "green" });
 	expect(absent.dispatched).toEqual([]);
+	const some = fakeNamedReads({ conclusion: "success" });
+	const ask = queueTester({
+		root: namedRoot(),
+		reads: {
+			...some.reads,
+			presentAt: (_: string, files: string[]) =>
+				files.filter((f) => f === "scripts/lib/a.test.ts"),
+			rerun: () => undefined,
+			repush: () => true,
+			landerRefs: () => [{ branch: "lander/iso-1", sha: SHA }],
+			runsOn: () => [],
+			cancel: () => undefined,
+		},
+		...clock(),
+	}).verdict(SHA, ["scripts/lib/a.test.ts", "scripts/new.test.ts"]);
+	expect(await ask).toEqual({ kind: "green" });
+	expect(some.dispatched.map((d) => d.files)).toEqual([
+		["scripts/lib/a.test.ts"],
+	]);
 	const unread = fakeNamedReads({ conclusion: "success" });
 	unread.reads.presentAt = () => {
 		throw new Error("fatal: not a tree object");

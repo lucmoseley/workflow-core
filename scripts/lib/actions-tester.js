@@ -148,8 +148,9 @@ const newestRun = (sha, runs) =>
 		.sort((a, b) => b.databaseId - a.databaseId)[0];
 
 /**
- * Whether a job still runs under a run GitHub has concluded: it lists one
- * `in_progress`, no conclusion, after the run reads `success` (#4347).
+ * Whether a job still runs under a run GitHub has concluded, whatever the
+ * conclusion: one lists `in_progress`, no conclusion, after the run reads
+ * `success` (#4347), and a failed run's log is then partial too.
  * @param {readonly Job[]} jobs
  */
 const isUnconcluded = (jobs) => jobs.some((j) => !j.conclusion);
@@ -196,18 +197,18 @@ function runVerdict(sha, reads, after) {
 	if (run.attempt <= after || !run.conclusion)
 		return { kind: "pending", run: run.databaseId };
 	const id = run.databaseId;
-	const all = reads.jobsOf(id);
-	if (isUnconcluded(all)) return { kind: "pending", run: id };
+	const jobs = reads.jobsOf(id);
+	if (isUnconcluded(jobs)) return { kind: "pending", run: id };
 	if (run.conclusion === "success") {
 		/* GitHub concludes `success` over jobs that all skipped. */
-		const gap = greenGap(all);
+		const gap = greenGap(jobs);
 		return gap === null
 			? { kind: "green", run: id }
 			: { kind: "unknown", reason: `run ${id} passed, but ${gap}` };
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const failed = all.filter((j) => j.conclusion === "failure");
+	const failed = jobs.filter((j) => j.conclusion === "failure");
 	const fault = runnerFault(failed);
 	if (fault !== null)
 		return {
@@ -216,7 +217,7 @@ function runVerdict(sha, reads, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
-	const jobs = failed.map((j) => j.name);
+	const names = failed.map((j) => j.name);
 	/* Every failed job red again at its in-job retry: the lander's own
 	 * re-run would only repeat it, and the files are the retry's alone, the
 	 * first run's failures it cleared dropped (#4545). A red naming no file
@@ -235,7 +236,7 @@ function runVerdict(sha, reads, after) {
 	return {
 		kind: "red",
 		...read,
-		jobs,
+		jobs: names,
 		...(retried ? { retried } : {}),
 	};
 }
@@ -572,7 +573,9 @@ async function namedVerdict(
 	const unknown = (reason) => ({ kind: "unknown", reason });
 	/* A file the tree at `sha` lacks has no test to fail there: the base
 	 * check of a test file new in the tip, which vitest, run on it alone,
-	 * exits 1 on naming no file (#4347). */
+	 * exits 1 on naming no file (#4347). local-tester.js's readRunsAt holds
+	 * the same rule. Residual: a path misnamed by the red that asked reads
+	 * green here, never no verdict. */
 	/** @type {string[]} */
 	let present;
 	try {
