@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The repo root, in the one spelling every guard uses (mantahostels#1905), and
-# the Claude Code config dir beside it (#2095).
+# The repo root, in the one spelling every guard uses (mantahostels#1905), the
+# session's own tree (#4271), and the Claude Code config dir beside them (#2095).
 #
-# SOURCED, NEVER RUN. Three functions, no state, no dependencies.
+# SOURCED, NEVER RUN. Four functions, no state, no dependencies.
 #
 # WHY ITS OWN FILE, rather than a function in guard-log.sh: that is a call
 # site, so a helper there is unreachable from something below it, and a hook
@@ -62,6 +62,20 @@ gr_root() {
   [[ "$root" == / ]] || root="${root%/}"
   real="$(gr_physical "$root")" && root="$real"
   printf '%s' "$root"
+}
+
+# gr_session_tree <cwd> — host-root.js's sessionTree(): the git top level of
+# the hook input's <cwd> where it is absolute, else of $PWD, symlinks
+# dereferenced. Non-zero,
+# printing nothing, where git names no top level — never the host, which
+# gr_root answers. Silent, as this file's every function is: the caller logs
+# its fail-open, having the gl_log this file cannot source.
+gr_session_tree() {
+  local dir="$PWD" top real
+  [[ "${1-}" == /* ]] && dir="$1"
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "$top" ]] || return 1
+  real="$(gr_physical "$top")" && top="$real"
+  printf '%s' "$top"
 }
 
 # gr_physical <dir> — <dir> with its symlinks dereferenced by `cd -P`. Non-zero,
