@@ -247,7 +247,7 @@ describe("headless runs among the kills (#4143)", () => {
 		);
 	});
 
-	it("says the kills were not joined where the store or the boot list will not read, never as no headless victim", () => {
+	it("says the kills were not joined where the store or the boot list will not read", () => {
 		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN }], null);
 		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
 		expect(i.kills[0].kind).toBe("claude CLI");

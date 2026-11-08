@@ -33,10 +33,10 @@ function runJournalctl(args) {
 	return { stdout: r.stdout, why: null };
 }
 
-/** @param {number} ms floored to the second, as the journal's times are */
+/** @param {number} ms floored to the second */
 const toSecond = (ms) => Math.floor(ms / 1000) * 1000;
 
-/** @typedef {{id: string, from: number, to: number}} Boot ms, to the second */
+/** @typedef {{id: string, from: number, to: number}} Boot ms */
 
 /**
  * The journal's boots, or why they could not be read. An entry missing its id

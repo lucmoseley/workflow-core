@@ -21,16 +21,14 @@
  * A HEADLESS RUN is a kill whose pid, boot and time match a run in
  * lib/headless-runs.js's store (#4143): same pid, the boot `journalctl
  * --list-boots` puts the kill in, launched at or before it, the latest such
- * run where two share them. A pid reused in another boot, or before the run's
- * launch, does not match. Within one boot a pid comes back only after
- * pid_max (4,194,304 here) forks, so the residual is a reuse of a dead run's
- * pid that late in the same boot.
+ * run where two share them. A killed run records no end, so a pid reused
+ * after it in the same boot still matches.
  *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
  * that will not read, or a run on a victim's pid that recorded no boot,
  * leaves the kills unjoined, with the incident's
- * `unjoined` saying why, never as no headless victims. WFC_JOURNALCTL injects
+ * `unjoined` saying why. WFC_JOURNALCTL injects
  * the binary (§N7), as check-kernel-stall.js takes it.
  */
 
@@ -91,8 +89,7 @@ const KINDS = /** @type {const} */ ([
  * @property {number|null} swapFreeMiB SwapFree then
  * @property {number} signals
  * @typedef {{kills: Kill[], first: string, last: string,
- *   unjoined: string|null}} Incident unjoined: why the kills were not joined
- *   to the headless runs
+ *   unjoined: string|null}} Incident
  */
 
 /** @param {string} name @returns {Kind} */
@@ -194,9 +191,6 @@ function readJournal(sinceMs) {
 }
 
 /**
- * Each kill that is a stored headless run takes that kind and its job id; where
- * the store or the boots will not read, or a run on a kill's pid recorded no
- * boot, the incident says why instead.
  * @param {Incident[]} incidents
  * @returns {Incident[]}
  */
@@ -300,7 +294,6 @@ const incidentTitle = (/** @type {Incident} */ i) =>
 const mib = (v) => (v === null ? "unread" : `${v} MiB`);
 
 /**
- * Each kind that has a kill, with its count, and each headless run's job id.
  * @param {Kill[]} kills
  * @returns {string} `Claude host 2, headless run 1 (job 03998aa2), other 1`
  */
@@ -340,7 +333,7 @@ function buildIncidentBody(i) {
 
 earlyoom killed ${i.kills.length} ${i.kills.length === 1 ? "process" : "processes"} between ${localMinute(first)} and ${localMinute(last)} machine time, one incident: kills no more than ${INCIDENT_GAP_MS / 60_000} min apart (#3094).
 
-By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store, matched on pid, boot and launch time; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included.${i.unjoined === null ? "" : `\n\nNot joined to the headless runs, so a claude CLI kill may be one: ${i.unjoined}.`}
+By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included.${i.unjoined === null ? "" : `\n\nNot joined to the headless runs, so a claude CLI kill may be one: ${i.unjoined}.`}
 
 Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
 
