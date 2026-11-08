@@ -20,7 +20,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
-import { buildHeldStopText } from "./refill-blocks.js";
+import { buildHeldStopText } from "./refill-limits.js";
 import { controlInMode } from "./refill-loop.js";
 import {
 	type Launch,

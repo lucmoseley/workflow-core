@@ -42,7 +42,7 @@ const { reviewSuffix } = require("./review-suffix.js");
 const { CONFIG_PATH } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
-const { treeOr } = require("./tree-or.js");
+const { treeOrHost } = require("./tree-or.js");
 
 /**
  * @typedef {import("./sensitive-paths.js").Match} Match
@@ -231,7 +231,7 @@ function tierDecision(prelude, notLive, globless) {
  * @returns {string}
  */
 function treeOf(ctx) {
-	const { root } = treeOr(ctx, ctx);
+	const { root } = treeOrHost(ctx);
 	if (root === ctx.root) return root;
 	/* A git before 2.31 rejects --path-format (#2529). */
 	const common = ctx.commonDir(root);

@@ -304,7 +304,6 @@
 			"tools": "Bash",
 			"failure": "closed",
 			"tree": "session",
-			"host": "issue-phase-scope-host.js",
 			"if": ["Bash(*gh *)"]
 		},
 		{

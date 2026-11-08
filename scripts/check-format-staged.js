@@ -36,6 +36,7 @@ const {
 const { caught } = require("./lib/caught.js");
 const { readBlob, spawn, readStagedDiff } = require("./lib/staged");
 const { relativeUnder } = require("./lib/is-under.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /**
@@ -154,7 +155,7 @@ function shfmtPath() {
 
 runCheck({
 	name: "format-staged",
-	usage: "node scripts/check-format-staged.js [--skip-shell] [--skip-python]",
+	usage: `node ${scriptPath("check-format-staged.js")} [--skip-shell] [--skip-python]`,
 	flags: ["--skip-shell", "--skip-python"],
 	run(/** @type {Ctx} */ ctx) {
 		const paths = readStagedDiff(ctx, ["--name-only", "--diff-filter=ACMR"]);

@@ -25,7 +25,7 @@
  * DEFEAT:    none — the formatters' own ignore rules (ruff's `ruffExclude` among them) and a file outside the repo root (#96) are the only exclusions.
  */
 
-const { treeOr } = require("./tree-or.js");
+const { treeOrHost } = require("./tree-or.js");
 const { relativeUnder } = require("./is-under.js");
 
 /* What Biome formats, and so what a checkout without it leaves unformatted. */
@@ -75,7 +75,7 @@ function decide(written, ctx) {
 	/* Formatted in the session's tree, by its own Biome and config: in a
 	 * linked worktree, the worktree's (#4242). Only a file inside it: one in
 	 * another repo belongs to that repo's formatter or none (#96). */
-	const root = file === "" ? ctx.root : treeOr(ctx, ctx).root;
+	const root = file === "" ? ctx.root : treeOrHost(ctx).root;
 	const inside = file !== "" && ctx.inRoot(root, file);
 	const before = inside ? ctx.digest(root, file) : null;
 	const biome = inside && ctx.hasBiome(root);

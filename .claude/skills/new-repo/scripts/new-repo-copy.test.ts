@@ -38,11 +38,11 @@ describe("new-repo.js copying a source repo", () => {
 		const r = s.run("--dry-run");
 		expect(r.status, r.stdout + r.stderr).toBe(0);
 		expect(r.stdout).toContain(
-			"source repo    would — push octo/surf-lib's trunk to lucmoseley/tides as main, with its tags; upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml — GitHub Actions runs them in lucmoseley/tides on their own triggers\n",
+			"source repo    would — make octo/surf-lib's trunk main, pushed with the skeleton commit; push its tags to lucmoseley/tides; upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml — GitHub Actions runs them in lucmoseley/tides on their own triggers\n",
 		);
-		expect(r.stdout).toContain("--modules suites ");
+		expect(r.stdout).toContain("--modules suites,landing ");
 		expect(r.stdout).toContain(
-			"modules        suites\n  commands: test: npm run test (package.json)\n",
+			"modules        suites, landing\n  commands: test: npm run test (package.json)\n",
 		);
 		expect(r.stdout).toContain(
 			"set aside      would — move AGENTS.md to docs/source/AGENTS.source.md, move .husky/pre-commit to .husky/pre-commit.local\n",

@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
- * The regression #343 exists for: a guard or lib message that tells a session
- * to RUN a script by a bare path, read over this repo's real scripts. It sits
+ * The regression #343 exists for: a guard, lib, hook-wired or git-hook-run
+ * script's message that tells a session to RUN a script by a bare path, read
+ * over this repo's real scripts. It sits
  * apart from `script-path.test.ts` so that file's unit cases do not read the
  * scripts tree (#1900).
  *
@@ -22,7 +23,7 @@ const { isShipped } = require("./plugin-tree") as {
 	isShipped: (root: string, rel: string) => boolean;
 };
 
-describe("guard and lib messages", () => {
+describe("messages a shipped script prints", () => {
 	/* Data a test reads, never printed; the CI and push-check commands,
 	 * which rewriteRuleCommands spells at the plugin root before printing; and
 	 * the arbiter command claim-warning prints, and the
@@ -30,7 +31,8 @@ describe("guard and lib messages", () => {
 	 * wait-text say, and the issue-body fallback lead deny passes through,
 	 * which ctx.corePaths spells there; the `byHand` commands guard-entry's
 	 * refusal spells; and the status script npm runs from an adopter's root,
-	 * where init and upgrade copy resolve-core.js (#4151). */
+	 * where init and upgrade copy resolve-core.js (#4151); and the rule
+	 * trigger generate-rule-fragments writes into the manifest (#4285). */
 	const exempt = [
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
@@ -44,6 +46,7 @@ describe("guard and lib messages", () => {
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
+		/^\t\t"writing, amending or reading a spec, .*`node scripts\/promote-spec\.js <brief>`",$/,
 	];
 
 	const guardFiles = fs
@@ -96,22 +99,67 @@ describe("guard and lib messages", () => {
 			),
 		),
 	];
+	/* A read that found nothing or stopped partway lists far fewer: each list
+	 * held 54 or more at #4285. */
+	const ScriptListFloor = 40;
 	const resolvesWholeText =
 		/require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
-	/* The floor catches a manifest read that found nothing or stopped partway. */
+	function bareLinesPastResolver(
+		rels: string[],
+		shaped: (line: string) => boolean,
+	) {
+		return rels
+			.map((rel) => path.join(SCRIPTS, "..", rel))
+			.filter((f) => !resolvesWholeText.test(fs.readFileSync(f, "utf8")))
+			.flatMap((f) => readBareLines(f, shaped));
+	}
+
 	it("reads the hook-wired scripts from both manifests", () => {
 		expect(wired).toContain("scripts/session-arbiter.js");
-		expect(wired.length).toBeGreaterThan(40);
+		expect(wired.length).toBeGreaterThan(ScriptListFloor);
 	});
 
 	it("name no script bare in any hook-wired script printing past a resolver", () => {
-		const files = wired
-			.map((rel) => path.join(SCRIPTS, "..", rel))
-			.filter((f) => !resolvesWholeText.test(fs.readFileSync(f, "utf8")));
 		const shaped = (l: string) =>
 			COMMAND_SHAPED.test(l) || PLAIN_POINTER.test(l);
-		expect(files.flatMap((f) => readBareLines(f, shaped))).toEqual([]);
+		expect(bareLinesPastResolver(wired, shaped)).toEqual([]);
+	});
+
+	/*
+	 * #4285: every top-level script a shipped git hook runs from the plugin
+	 * root. A plain
+	 * pointer stays unread here: these name source files to read, not run.
+	 */
+	const huskyDir = path.join(SCRIPTS, "..", ".husky");
+	const gitHookRun = [
+		...new Set(
+			fs
+				.readdirSync(huskyDir)
+				.filter((f) => isShipped(path.join(SCRIPTS, ".."), `.husky/${f}`))
+				.map((f) => path.join(huskyDir, f))
+				/* husky's own `.husky/_/`, where installed, is no hook. */
+				.filter((file) => fs.statSync(file).isFile())
+				.flatMap((file) => [
+					...fs
+						.readFileSync(file, "utf8")
+						.matchAll(
+							/WFC_PLUGIN_ROOT(?::-[^}]*)?\}?"?\/(scripts\/[\w.-]+\.(?:js|sh))/g,
+						),
+				])
+				.map((m) => m[1] ?? ""),
+		),
+	];
+
+	it("reads the scripts the shipped git hooks run", () => {
+		expect(gitHookRun).toContain("scripts/report-new-shared-faults.js");
+		expect(gitHookRun.length).toBeGreaterThan(ScriptListFloor);
+	});
+
+	it("name no script bare in any script a shipped git hook runs", () => {
+		expect(
+			bareLinesPastResolver(gitHookRun, (l) => COMMAND_SHAPED.test(l)),
+		).toEqual([]);
 	});
 
 	/*

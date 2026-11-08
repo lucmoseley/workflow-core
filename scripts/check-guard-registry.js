@@ -2062,7 +2062,7 @@ function loadAnchors() {
 	const rows = parseRows(read.data);
 	if (rows) return rows;
 	throw brokenError(
-		`${ANCHORS} is not a JSON object of digests; restore it from git, or delete it and re-anchor every guard with a bare  node scripts/check-guard-registry.js --review.`,
+		`${ANCHORS} is not a JSON object of digests; restore it from git, or delete it and re-anchor every guard with a bare  ${reviewCommand()}.`,
 	);
 }
 
@@ -3044,6 +3044,7 @@ const {
 } = require("./lib/rule-emission-calls.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { readMergeHeadLines } = require("./lib/merge-heads.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 /* Where an emitter can live. Guards and their libs sit under scripts/; a hook
  * command under .claude/ is wired the same way and may print a rule too. */
@@ -3541,7 +3542,7 @@ function manifestFindings({ manifest, fragments, printedBy, indexed }) {
 				detail:
 					`the manifest names rule id "${id}", which resolves to no fragment in ` +
 					`${RULES_DIR}/. A session told to fetch it gets the accessor's refusal. ` +
-					"Re-render with `node scripts/generate-rule-fragments.js`.",
+					`Re-render with \`node ${scriptPath("generate-rule-fragments.js")}\`.`,
 			});
 		if (typeof entry?.trigger !== "string" || !entry.trigger.trim())
 			findings.push({
@@ -4371,9 +4372,12 @@ const staleOf = (f) => {
 	return item?.[REFUSES_COMMIT] ? item : null;
 };
 
+/** The re-anchor command, before any path it takes. */
+const reviewCommand = () =>
+	`node ${scriptPath("check-guard-registry.js")} --review`;
+
 /** @param {string} guard */
-const buildReviewLine = (guard) =>
-	`node scripts/check-guard-registry.js --review ${guard}`;
+const buildReviewLine = (guard) => `${reviewCommand()} ${guard}`;
 
 /**
  * The faults this commit adds that refuse it, and the way out of the stale
@@ -4706,7 +4710,7 @@ function readAnchorsAt(ctx, ceiling, rev) {
 			`${rev}:${ANCHORS}`,
 		]),
 	);
-	const wayOut = `restore it, re-anchor with  node scripts/check-guard-registry.js --review  and commit ${ANCHORS}.`;
+	const wayOut = `restore it, re-anchor with  ${reviewCommand()}  and commit ${ANCHORS}.`;
 	return (
 		parseRows(text) ??
 		ctx.broken(
@@ -4867,7 +4871,7 @@ function runTouched(ctx) {
 		"  Once your changes are done, re-read each rule above against the guard as it now is, " +
 			"correct any sentence that is no longer true — and for a guard gone, the rules naming it, " +
 			"anchoring its new path where it moved — re-anchor that guard alone with  " +
-			"node scripts/check-guard-registry.js --review <guard-path>  (a gone path's anchor is dropped) " +
+			`${buildReviewLine("<guard-path>")}  (a gone path's anchor is dropped) ` +
 			`and commit ${ANCHORS}.`,
 	);
 	return {
@@ -4998,7 +5002,7 @@ function sayWarnings(ctx, warnings) {
 		ctx.say(
 			`${staleCount} guard(s) whose registry prose may have gone stale.\n` +
 				"  Re-read each rule above against its guard, then clear it with\n" +
-				"  node scripts/check-guard-registry.js --review <guard-path>,\n" +
+				`  ${buildReviewLine("<guard-path>")},\n` +
 				"  or every one at once with --review --stale.\n" +
 				"  Warnings here; .husky/pre-commit refuses the commit that adds one.\n",
 		);

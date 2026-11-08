@@ -4,7 +4,7 @@
 
 ## What it does
 
-For an empty repo, you end with a private GitHub repo under your account, cloned into your home folder; the workflow core adopted in it, pinned to the core's newest release so it can upgrade itself; its first wayfinder map, holding your idea word for word with the destination left for the first session; the Project section of its CLAUDE.md filled from the one-liner you approved; three launch aliases in ~/.bashrc, one per plan; and all of it committed and pushed. No modules are on.
+For an empty repo, you end with a private GitHub repo under your account, cloned into your home folder; the workflow core adopted in it, pinned to the core's newest release so it can upgrade itself; its first wayfinder map, holding your idea word for word with the destination left for the first session; the Project section of its CLAUDE.md filled from the one-liner you approved; three launch aliases in ~/.bashrc, one per plan; and all of it committed and pushed. Only the landing module is on.
 
 For a copied repo, the same, starting from a copy of a source repo — someone else's repo you build on. Only its default branch, renamed main, and its tags come across, never a fork, so your copy is private even when the source repo is public. The source repo stays reachable for pulling, never for pushing. Its own agent instructions are set aside where no session loads them, with a ticket on the map to decide what comes back; its own pre-commit checks keep running after the core's; its documents are registered as the source repo's. Where its tests are found, their gate starts on. Its licence and any workflows that will run in your repo are reported.
 
@@ -29,7 +29,7 @@ Then comes one confirmation: a dry run that makes every check first and shows wh
 
 A report with one line per step, each done, skipped, repaired or STOPPED. Then the ~/.bashrc block with its line range — written, or kept as it was where you already had one; a line telling you to open a new terminal tab and which alias to type there, the one for the plan you are on; and the first prompt, ready to paste into that new session. That session fills the map in.
 
-An empty repo starts with no modules and no test command. Once its first test, roadmap, manual or site lands, its next commit is refused until the matching switch is set, so no gate waits on anyone remembering it.
+An empty repo starts with only the landing module on and no test command. Once its first test, roadmap, manual or site lands, its next commit is refused until the matching switch is set, so no gate waits on anyone remembering it.
 
 ## When it stops part-way
 
@@ -47,14 +47,14 @@ Where the new repo's own checks refuse its first commit, open a new tab, type th
 
 ## Changing modules later
 
-A module switches on extra rules and gates. Each needs documents or tests a new repo does not have yet, which is why an empty repo starts with them off. A copied repo starts with each one on whose subject it already holds. Once a subject lands, a commit is refused until its switch is set.
+A module switches on extra rules and gates. Every one but landing needs documents or tests a new repo does not have yet, which is why an empty repo starts with them off. A copied repo starts with each one on whose subject it already holds, and landing. Once a subject lands, a commit is refused until its switch is set.
 
 - **roadmap** — the roadmap page and its digest, changed only through the roadmap-edit skill. On once the roadmap page exists.
 - **governance** — the document map's figure registry and the operating manual. On once the manual or a figure-registry entry exists.
 - **suites** — the test-suite rules: a push warns unless its commit has a certificate. On for a copied repo holding tests or a test command. Any test file also needs its test command declared, whatever this module says.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
-- **landing** — each session works in its own worktree and lands through its own queue ref, and main moves only to a commit the full suite passed. Off in a new repo; a repo already on the core turns it on with the v2.1.0 release's steps.
+- **landing** — each session works in its own worktree and lands through its own queue ref, and main moves only to a commit the full suite passed. On in every new repo from the start; a repo already on the core turns it on with the v2.1.0 release's steps.
 
 To switch one on, ask a session in that repo to. It adds the module to the repo's workflow-core settings and re-runs the core's setup, which reads them.
 

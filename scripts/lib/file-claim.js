@@ -109,7 +109,7 @@
 const { caught } = require("./caught.js");
 const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
-const { treeOr } = require("./tree-or.js");
+const { treeOrHost } = require("./tree-or.js");
 const { isScratch } = require("./scratch-dir.js");
 const { relativeUnder } = require("./is-under.js");
 
@@ -390,7 +390,7 @@ function decide(file, ctx) {
 	/* The rules follow the path in the session's tree, so a linked worktree's
 	 * write is read by its own spelling there (#4242); the claim is keyed by
 	 * the same spelling, in the host's store (#4397). */
-	const tree = treeOr(ctx, ctx);
+	const tree = treeOrHost(ctx);
 	const rel = (relativeUnder(tree.root, file) || file).replace(/^\.\//, "");
 	/* Scratch skips the arbiter, so no arbiter-fault line is logged for it. */
 	if (isScratch(rel)) return null;

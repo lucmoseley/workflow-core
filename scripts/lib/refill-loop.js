@@ -15,15 +15,13 @@ const {
 	startedAt,
 	UNREAD,
 } = require("./refill-decide.js");
+const { isHeld, isLive, launchName } = require("./refill-block-core.js");
 const {
 	buildChildLine,
-	isHeld,
-	isLive,
-	launchName,
-	limitWaitOf,
 	LISTING_GRACE_MS,
 	markParked,
 } = require("./refill-blocks.js");
+const { limitWaitOf } = require("./refill-limits.js");
 const { isRecord, parseGoal, parseStrings } = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 
@@ -98,8 +96,8 @@ const { buildSeatName } = require("./refill-seats.js");
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
  *   stepResume?: import("./refill-blocks.js").StepResume, bootResumedAt?: number,
  *   blockUnread?: true,
- *   limitHeld?: import("./refill-blocks.js").LimitHeld,
- *   limitResumes?: import("./refill-blocks.js").LimitResumes,
+ *   limitHeld?: import("./refill-limits.js").LimitHeld,
+ *   limitResumes?: import("./refill-limits.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, movedAt?: number, pastSessionIds?: string[],

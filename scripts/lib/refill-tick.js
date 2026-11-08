@@ -117,7 +117,9 @@ const {
 	updateState,
 } = require("./refill-state.js");
 const refillBatch = require("./refill-batch.js");
+const { iso, launchName } = require("./refill-block-core.js");
 const blocks = require("./refill-blocks.js");
+const limits = require("./refill-limits.js");
 const {
 	attachProbeParks,
 	holdLockedOut,
@@ -674,7 +676,7 @@ const adoptKilledLaunches = (state, served) =>
 		});
 		for (const l of launched)
 			log(
-				`${blocks.launchName(l)}'s launch at ${blocks.iso(launching.at)} started job ${l.jobId}, which a kill left out of the state: tracking it`,
+				`${launchName(l)}'s launch at ${iso(launching.at)} started job ${l.jobId}, which a kill left out of the state: tracking it`,
 			);
 		gates.dropTried(files.gates, launched, log);
 		return launched;
@@ -826,7 +828,7 @@ function readIdleSince(l) {
 	const since = resumedIdleSince({ job, rows });
 	if (since === "unread" && l.idleResumes)
 		log(
-			`resumed-idle records unread for ${blocks.launchName(l)}: its idle count held`,
+			`resumed-idle records unread for ${launchName(l)}: its idle count held`,
 		);
 	return since;
 }
@@ -1014,9 +1016,9 @@ const productionIo = {
 	attachProbeParks: (broken, launches) =>
 		attachProbeParks(broken, launches, log),
 	readLiftedHolds: (roots) => readLiftedHolds(roots, log),
-	releaseEndedHolds: blocks.releaseEndedHolds,
+	releaseEndedHolds: limits.releaseEndedHolds,
 	readFreeSlots,
-	actOnLimits: blocks.actOnLimits,
+	actOnLimits: limits.actOnLimits,
 	readSeats,
 	probeDueSeats,
 	seatBudget,

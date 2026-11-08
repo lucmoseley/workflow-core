@@ -8,16 +8,14 @@
 const path = require("node:path");
 const { sizedPercent } = require("./allowance.js");
 const { RESUME_CAP } = require("./block-act.js");
+const { isLimitHeld, isResuming, iso } = require("./refill-block-core.js");
 const {
-	buildLimitText,
 	buildStepStatus,
-	isLimitHeld,
-	isResuming,
-	iso,
 	nextResumeAt,
 	stepKindOf,
 	UNSETTLED_STEP_KINDS,
 } = require("./refill-blocks.js");
+const { buildLimitText } = require("./refill-limits.js");
 const {
 	buildBasisLines,
 	buildOverflowStartLines,
@@ -838,7 +836,7 @@ function launchStateOf(l) {
 			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
 		}
 		case "limit-held": {
-			const held = /** @type {import("./refill-blocks.js").LimitHeld} */ (
+			const held = /** @type {import("./refill-limits.js").LimitHeld} */ (
 				l.limitHeld
 			);
 			return held.resumedAt === undefined

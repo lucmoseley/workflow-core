@@ -10,11 +10,13 @@
  *   node scripts/commit-paths.js --tree [--patch <file>] -- <path>...
  *   node scripts/commit-paths.js --check [--patch <file>] [-m <message> | -F <file|->] -- <path>...
  *
- * --TREE (#1695) prints the tree that commit would carry on today's HEAD,
- * built by the same private-index code and refused on the same grounds, and
- * writes nothing: the one computation of a pathspec commit's tree, which the
- * review hold's `tree=` and the `refs/reviewed/` pin both take. It takes no
- * message, runs no tests, and logs no outcome line.
+ * --TREE (#1695) prints the tree that commit would carry on today's HEAD —
+ * the one computation of a pathspec commit's tree, which the review hold's
+ * `tree=` and the `refs/reviewed/` pin both take — and writes nothing. It is
+ * built by the same private-index code and refused on the same grounds, save
+ * that a set changing nothing prints HEAD's own tree, so a change already
+ * committed can still be named (#4288). It takes no message, runs no tests,
+ * and logs no outcome line.
  *
  * --CHECK (#4207) gives the verdict that commit would get and makes none: it
  * builds the same private index, runs the same pre-lock gates, test run and
@@ -112,7 +114,8 @@
  * exits extend the tracker scripts' alphabet (spec #528) instead. Exits: 0
  * committed, or under --tree printed, or under --check every gate passed; 2
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
- * with untracked files or no tracked ones, nothing to commit, a patch not cut
+ * with untracked files or no tracked ones, nothing to commit — never under
+ * --tree, which prints HEAD's tree there — a patch not cut
  * against HEAD, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
  * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or under --check a hook refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
@@ -751,7 +754,14 @@ function commitPatch(message, cut, whole) {
 	const files = sweptRunFiles();
 	const { index } = files;
 
-	const patchBuild = { index, whole, root, patch, sections };
+	const patchBuild = {
+		index,
+		whole,
+		root,
+		patch,
+		sections,
+		refuseUnchanged: true,
+	};
 	const base = buildOnHead(patchBuild);
 	// A refused rebuild exits, nothing written, rather than falling back to
 	// the hook (#1653).
@@ -1113,7 +1123,7 @@ function refuseWholeInPatch(whole, patched) {
 }
 
 /**
- * @typedef {{index: string, whole: string[], root: string, patch: string, sections: PatchSection[]}} PatchBuild
+ * @typedef {{index: string, whole: string[], root: string, patch: string, sections: PatchSection[], refuseUnchanged: boolean}} PatchBuild
  */
 
 /**
@@ -1129,11 +1139,15 @@ function buildOnHead(b) {
 
 /**
  * The private index: `base`, the whole paths as on disk, and the patch
- * applied; refuses where any step fails or nothing would change.
+ * applied; refuses where any step fails, or nothing would change and
+ * `refuseUnchanged` is set.
  * @param {PatchBuild} b
  * @param {string} base
  */
-function buildIndex({ index, whole, root, patch, sections }, base) {
+function buildIndex(
+	{ index, whole, root, patch, sections, refuseUnchanged },
+	base,
+) {
 	fs.rmSync(index, { force: true });
 	const tree = git(["read-tree", base], index);
 	if (tree.status !== 0)
@@ -1176,7 +1190,10 @@ function buildIndex({ index, whole, root, patch, sections }, base) {
 			`the patch does not apply to HEAD (${r.stderr.trim()}). Cut it from \`git diff HEAD -U0 -- <path>\`, which diffs against HEAD rather than the index. Nothing written.`,
 			2,
 		);
-	if (git(["diff", "--cached", "--quiet", base], index).status === 0)
+	if (
+		refuseUnchanged &&
+		git(["diff", "--cached", "--quiet", base], index).status === 0
+	)
 		fail(
 			"nothing to commit — the patch and paths leave HEAD as it is. Nothing written.",
 			2,
@@ -1663,14 +1680,17 @@ function buildCommitIndex({ index, specs, toAdd }) {
 
 /**
  * The named paths as git pathspecs, and the ones to intent-add; refuses where
- * any cannot be committed, or where every one matches HEAD and none is new.
- * An unborn branch has no HEAD to compare against; git decides there.
+ * any cannot be committed, or, with `refuseUnchanged`, where every one matches
+ * HEAD and none is new. An unborn branch has no HEAD to compare against; git
+ * decides there.
  * @param {string[]} paths
+ * @param {{refuseUnchanged: boolean}} mode
  */
-function prepareWhole(paths) {
+function prepareWhole(paths, { refuseUnchanged }) {
 	const toAdd = classify(paths);
 	const specs = paths.map(literal);
 	if (
+		refuseUnchanged &&
 		toAdd.length === 0 &&
 		hasHeadCommit() &&
 		git(["diff", "--quiet", "HEAD", "--", ...specs]).status === 0
@@ -1684,14 +1704,17 @@ function prepareWhole(paths) {
 
 /**
  * --tree: print the tree the commit of `whole`, with `cut` applied where
- * given, would carry.
+ * given, would carry; HEAD's own where that changes nothing.
  * @param {string[]} whole
  * @param {string|null} cut
  * @returns {never}
  */
 function printTree(whole, cut) {
 	const { index } = sweptRunFiles();
-	buildPrivateIndex(whole, cut, index);
+	// An unsaved or mistyped path prints HEAD's tree rather than refusing:
+	// the commit's own nothing-to-commit refusal catches it, and on a held
+	// commit the review hold's tree= comparison too (#4288).
+	buildPrivateIndex(whole, cut, index, { refuseUnchanged: false });
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
 		fail(`git could not write the tree (${r.stderr.trim()}).`, 2);
@@ -1709,7 +1732,9 @@ function printTree(whole, cut) {
  */
 function checkCommit(whole, cut, message) {
 	const files = sweptRunFiles();
-	const { base, build } = buildPrivateIndex(whole, cut, files.index);
+	const { base, build } = buildPrivateIndex(whole, cut, files.index, {
+		refuseUnchanged: true,
+	});
 	const stampEnv = preLockRun(() => files, build);
 	armStampRemoval(files);
 	runCommitHooks(files, base, stampEnv, message);
@@ -1724,24 +1749,33 @@ function checkCommit(whole, cut, message) {
 }
 
 /**
- * The private index built as the commit's would be, refusing as it would; the
- * HEAD it is built on (null on an unborn branch), and its rebuild.
+ * The private index built as the commit's would be, refusing as it would —
+ * an unchanged set only where `refuseUnchanged` is set; the HEAD it is built
+ * on (null on an unborn branch), and its rebuild.
  * @param {string[]} whole
  * @param {string|null} cut
  * @param {string} index
+ * @param {{refuseUnchanged: boolean}} mode
  * @returns {{base: string|null, build: (index: string) => void}}
  */
-function buildPrivateIndex(whole, cut, index) {
+function buildPrivateIndex(whole, cut, index, { refuseUnchanged }) {
 	if (cut !== null) {
 		const { patch, root, sections } = preparePatch(cut, whole);
-		const patchBuild = { index, whole, root, patch, sections };
+		const patchBuild = {
+			index,
+			whole,
+			root,
+			patch,
+			sections,
+			refuseUnchanged,
+		};
 		const base = buildOnHead(patchBuild);
 		return {
 			base,
 			build: (i) => buildIndex({ ...patchBuild, index: i }, base),
 		};
 	}
-	const { toAdd, specs } = prepareWhole(whole);
+	const { toAdd, specs } = prepareWhole(whole, { refuseUnchanged });
 	const base = hasHeadCommit()
 		? git(["rev-parse", "HEAD"]).stdout.trim()
 		: null;
@@ -1769,7 +1803,7 @@ function main() {
 	if (check) checkCommit(paths, patch, message);
 	if (patch !== null) commitPatch(message, patch, paths);
 
-	const { toAdd, specs } = prepareWhole(paths);
+	const { toAdd, specs } = prepareWhole(paths, { refuseUnchanged: true });
 
 	const stampEnv = preLockRun(sweptRunFiles, (index) =>
 		buildCommitIndex({ index, specs, toAdd }),

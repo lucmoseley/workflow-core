@@ -6,8 +6,8 @@
  * Usage:
  *   node check-gate-switches.js [--json] [--warn]
  *
- * A gate over a missing document checks nothing, so a new repo starts with no
- * module and no commands — but only because this refuses the first commit
+ * A gate over a missing document checks nothing, so a new repo starts with
+ * none of these modules and no commands — but only because this refuses the first commit
  * after the subject lands. The four subjects, found by lib/gate-subjects.js,
  * which init-adopter.js and /new-repo read too:
  *
