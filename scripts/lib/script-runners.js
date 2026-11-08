@@ -164,13 +164,13 @@ function parseEqFormValue(word, flags) {
  */
 function parseNpmWords(words) {
 	const { options, operands } = parseNpmArgv(
-		words.map((word, at) => ({ value: word.value, word, at })),
+		words.map((held, at) => ({ value: held.value, held, at })),
 	);
 	return {
 		options,
-		operands: operands.map(({ value, from: { word, at } }) => {
-			const raw = word.value === value ? word.raw : value;
-			return { at, word: { ...word, value, raw, quoted: false } };
+		operands: operands.map(({ value, from: { held, at } }) => {
+			const raw = held.value === value ? held.raw : value;
+			return { at, word: { ...held, value, raw, quoted: false } };
 		}),
 	};
 }

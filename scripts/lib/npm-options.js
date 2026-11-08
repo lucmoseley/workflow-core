@@ -288,23 +288,23 @@ function takes(kind, flag, next) {
  * @returns {string[]}
  */
 const npmCanon = (argv) =>
-	canonFrom(argv.map((value) => ({ value }))).map(({ word }) => word);
+	canonFrom(argv.map((value) => ({ value }))).map(({ value }) => value);
 
 /**
  * `npmCanon`'s words, each with the argv word it was read off: a shorthand's
  * expansion, and a value given after `=`, from the word that held them.
  * @template {{value: string}} W
  * @param {W[]} argv
- * @returns {{word: string, from: W}[]}
+ * @returns {{value: string, from: W}[]}
  */
 function canonFrom(argv) {
-	const args = argv.map((from) => ({ word: from.value, from }));
+	const args = argv.map((from) => ({ value: from.value, from }));
 	/** @type {typeof args} */
 	const canon = [];
 	for (let a = args.shift(); a !== undefined; a = args.shift()) {
-		if (/^--+$/.test(a.word))
-			return [...canon, { word: "--", from: a.from }, ...args];
-		if (/^-./s.test(a.word)) canonOption(a, args, canon);
+		if (/^--+$/.test(a.value))
+			return [...canon, { value: "--", from: a.from }, ...args];
+		if (/^-./s.test(a.value)) canonOption(a, args, canon);
 		else canon.push(a);
 	}
 	return canon;
@@ -315,32 +315,32 @@ function canonFrom(argv) {
  * `args` expanded, anything else pushed as its full `--<config>`, taking the
  * next word as its value where npm would.
  * @template W
- * @param {{word: string, from: W}} option
- * @param {{word: string, from: W}[]} args accumulator: the words still to read,
+ * @param {{value: string, from: W}} option
+ * @param {{value: string, from: W}[]} args accumulator: the words still to read,
  *   its value word taken off the front
- * @param {{word: string, from: W}[]} canon accumulator: the canonical words, this
+ * @param {{value: string, from: W}[]} canon accumulator: the canonical words, this
  *   option's pushed
  */
-function canonOption({ word, from }, args, canon) {
+function canonOption({ value: word, from }, args, canon) {
 	const eqAt = word.indexOf("=");
 	const eq = eqAt >= 0;
 	const val = eq ? word.slice(eqAt + 1) : "";
 	const key = (eq ? word.slice(0, eqAt) : word).replace(/^-+/, "");
 	const exp = shorthand(key);
-	const at = (/** @type {string} */ w) => ({ word: w, from });
+	const fromThisWord = (/** @type {string} */ value) => ({ value, from });
 	if (exp !== null) {
-		args.unshift(...[...exp, ...(eq ? [val] : [])].map(at));
+		args.unshift(...[...exp, ...(eq ? [val] : [])].map(fromThisWord));
 		return;
 	}
 	const { flag, kind } = optionOf(key, eq);
 	/* nopt reads an `=` word as the next argument, under the same look-ahead:
 	 * `--save-dev=pkg` installs `pkg` (#559). */
-	if (eq) args.unshift(at(val));
+	if (eq) args.unshift(fromThisWord(val));
 	const next = args[0];
-	if (next !== undefined && takes(kind, flag, next.word)) {
-		canon.push(at(`${flag}=${next.word}`));
+	if (next !== undefined && takes(kind, flag, next.value)) {
+		canon.push(fromThisWord(`${flag}=${next.value}`));
 		args.shift();
-	} else canon.push(at(kind === "value" ? `${flag}=` : flag));
+	} else canon.push(fromThisWord(kind === "value" ? `${flag}=` : flag));
 }
 
 /**
@@ -379,19 +379,19 @@ function optionOf(given, eq) {
  */
 function parseNpmArgv(argv) {
 	const canon = canonFrom(argv);
-	const cut = canon.findIndex(({ word }) => word === "--");
+	const cut = canon.findIndex(({ value }) => value === "--");
 	const before = cut < 0 ? canon : canon.slice(0, cut);
 	return {
-		options: before.filter(isOption).map(({ word }) => word),
+		options: before.filter(isOption).map(({ value }) => value),
 		operands: [
 			...before.filter((c) => !isOption(c)),
 			...(cut < 0 ? [] : canon.slice(cut + 1)),
-		].map(({ word, from }) => ({ value: word, from })),
+		],
 	};
 }
 
-/** @param {{word: string}} canon */
-const isOption = ({ word }) => word.startsWith("-");
+/** @param {{value: string}} canon */
+const isOption = ({ value }) => value.startsWith("-");
 
 /**
  * Whether `word` is npm's `run` command as npm 11.16.0's cmd-list derefs it:

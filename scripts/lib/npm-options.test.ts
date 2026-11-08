@@ -3,10 +3,10 @@
  * lib/npm-options.js's `npmCanon`, npm 11.16.0's option parser in Node, and
  * the exact-match lookups npx makes instead, `shorthandExact` and `boolExact`
  * (#563, #571, #1972), pinned over one fixture set, and `isNpmRun`'s deref of
- * `run` (#3627), and `parseNpmArgv`'s operands at the words that hold them.
- * lib/suite-concurrency.js
- * reads with it whether `npm … run <name>` launches a build or a dev server,
- * and lib/npm-install.js the install and the npx argv it judges.
+ * `run` (#3627), and `parseNpmArgv`'s operands at the words that hold them
+ * (#4070). lib/suite-concurrency.js reads with `npmCanon` whether
+ * `npm … run <name>` launches a build or a dev server, and lib/npm-install.js
+ * the install and the npx argv it judges.
  *
  * A drift lets a second `next build` spelt with npm's own flags through, or
  * takes a flag's value for the script name and refuses an unrelated command
@@ -297,7 +297,7 @@ describe("npmCanon", () => {
 
 describe("parseNpmArgv", () => {
 	it.each([
-		// An option whose value spells the operand is not where it stands.
+		// An option whose value spells the operand is not where it stands (#4070).
 		["--prefix=test test", [["test", 1]]],
 		[
 			"--silent=x x",
