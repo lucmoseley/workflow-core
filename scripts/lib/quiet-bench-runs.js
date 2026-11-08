@@ -70,8 +70,7 @@ function readCeilingKilled(dir, row, index) {
 
 /**
  * A run's rows: its `results.json`, which the bench rewrites after each row, so a
- * read through a rewrite reads as none until the next. A kept run is read, never
- * rewritten.
+ * read through a rewrite reads as none until the next.
  * @param {string} dir
  * @returns {import("./quiet-bench.js").BenchRow[]}
  */

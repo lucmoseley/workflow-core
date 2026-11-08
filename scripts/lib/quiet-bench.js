@@ -21,7 +21,7 @@ const ROWS_PER_COUNT = 2;
 /* The bar the bench's `--require-quiet` refuses above. */
 const QUIET_SESSIONS = 3;
 
-/* The whole-suite re-measure: the route waits on its blockers (#4608). */
+/* #4607, the whole-suite re-measure. */
 const LADDER_BENCH = {
 	issue: 4607,
 	script: path.join("scripts", "bench_suite_concurrency.py"),
@@ -350,8 +350,7 @@ const isRunBounded = (rows) =>
 const reachedCeiling = (rows) => rows.some((r) => (r.ceiling_killed ?? 0) > 0);
 
 /**
- * Whether a kept run already answers the ladder as it stands. A lower-bound row
- * is ceiling-killed, so a bounded run is among those that reached the ceiling.
+ * Whether a kept run already answers the ladder as it stands.
  * @param {KeptRun} run
  */
 const isRunAnswering = ({ ladder, rows }) =>
