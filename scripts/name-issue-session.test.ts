@@ -22,7 +22,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { shellQuote } from "./lib/sh-quote.js";
+import { GH_LOGGED_OUT } from "./lib/gh-fake";
+import { printed, stubGhRoutes, stubGhScript } from "./lib/gh-stub";
 
 const HOOK = path.resolve(__dirname, "name-issue-session.sh");
 const { compactPayloads, compactTranscripts, SUBAGENT_JUST_COMPACTED } =
@@ -40,28 +41,16 @@ afterEach(() => {
 });
 
 /** A `gh` stub, for WFC_GH. `mode: "slow"` never returns, standing in for the
- * loaded machine that provoked the timeout; `"fail"` is an unauthenticated or
- * deleted-issue lookup.
+ * loaded machine that provoked the timeout; `"fail"` is gh-fake's logged-out
+ * answer, standing in for any failed lookup.
  *
- * The stub records its own argv: the title is fetched for exactly one of the
- * issues given, and a stub answering every number identically would let
- * `titled by the last` pass the test named for `titled by the first`. */
+ * The `ok` and `fail` stubs record their argv: the title is fetched for exactly
+ * one of the issues given, and a stub answering every number identically would
+ * let `titled by the last` pass the test named for `titled by the first`. */
 function stubGh(mode: "ok" | "slow" | "fail"): string {
-	const bin = path.join(dir, "bin");
-	fs.mkdirSync(bin, { recursive: true });
-	const bodies: Record<typeof mode, string> = {
-		ok: `printf '%s\\n' ${shellQuote(TITLE)}`,
-		slow: "sleep 120",
-		fail: "exit 1",
-	};
-	const body = bodies[mode];
-	const gh = path.join(bin, "gh");
-	fs.writeFileSync(
-		gh,
-		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(argvLog())}\n${body}\n`,
-		{ mode: 0o755 },
-	);
-	return gh;
+	if (mode === "slow") return stubGhScript(dir, "#!/bin/sh\nsleep 120\n").gh;
+	const answer = mode === "ok" ? printed(`${TITLE}\n`) : GH_LOGGED_OUT;
+	return stubGhRoutes(dir, { "*": answer }, { log: argvLog() }).gh;
 }
 
 function argvLog(): string {
@@ -405,10 +394,7 @@ describe("an interactive session is found in the registry CLAUDE_CONFIG_DIR name
 describe("a long title is truncated rather than filling the list column", () => {
 	/** Drive the hook with a gh that returns this exact title. */
 	function withTitle(title: string, env: Record<string, string> = {}): string {
-		const gh = path.join(dir, "gh-long");
-		fs.writeFileSync(gh, `#!/bin/sh\nprintf '%s\\n' ${shellQuote(title)}\n`, {
-			mode: 0o755,
-		});
+		const { gh } = stubGhRoutes(dir, { "*": printed(`${title}\n`) });
 		const jobDir = fs.mkdtempSync(path.join(dir, "job-trunc-"));
 		fs.writeFileSync(
 			path.join(jobDir, "state.json"),

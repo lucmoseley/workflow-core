@@ -82,9 +82,9 @@ const RULE_ARG_RE = /["']?(?:rule:)?([a-z0-9]+(?:-[a-z0-9]+)*)["']?/g;
 
 /**
  * The DIRECT accessor call — a shell hook's `rule_text <id>`, or
- * concision-backstop.sh's `rule_or_path <id>`, which wraps it with a logged
- * pointer fallback (#3439) — which splices the fragment into text the hook
- * composes itself.
+ * `rule_or_path <id>`, lib/rule-text.sh's wrapper of it with a logged pointer
+ * fallback (#3439) — which splices the fragment into text the hook composes
+ * itself.
  *
  * UNANCHORED: the call sits inside a condition rather than at the head of its
  * own statement. The cost is that a mention in a comment matches, which

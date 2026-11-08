@@ -228,8 +228,7 @@ function oracleCacheKey(bin = claudeBin(), dirs = oracleDirs()) {
  * One oracle call per dir, all at once and capped together, answering each
  * dir's stdout in `dirs` order. The shell runs in a process group of its own,
  * killed whole once it ends, so a capped read kills every child it started,
- * not the shell alone (#2665). Exported so every other caller of the oracle
- * kills the same group on its cap.
+ * not the shell alone (#2665).
  *
  * RESIDUAL: the group is its own, so a kill of this caller's group misses it,
  * and a caller killed mid-read leaves its reads and their temp dir behind until
@@ -310,6 +309,23 @@ function parseListing(raw, call) {
 	if (!Array.isArray(agents))
 		return { why: `${call} returned ${typeof agents}, not the expected array` };
 	return { agents };
+}
+
+/**
+ * One seat's own listing, read in `dir` alone, as `parseListing` answers it.
+ * A caller asking which of one plan's sessions are live reads this, never the
+ * union `listedAgents` takes, since only within its own seat does a session
+ * missing from the listing read dead (#3512). Throws where the read would not
+ * run, as `runOracle` does.
+ * @param {string} dir
+ * @param {number} timeoutMs
+ * @returns {ReturnType<typeof parseListing>}
+ */
+function readSeatListing(dir, timeoutMs) {
+	const [raw] = runOracle(claudeBin(), timeoutMs, [dir]);
+	if (raw === undefined)
+		throw new Error(`runOracle answered no stdout for its one dir, ${dir}`);
+	return parseListing(raw, oracleCall());
 }
 
 /**
@@ -939,7 +955,7 @@ module.exports = {
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,
-	runOracle,
+	readSeatListing,
 	sharedSessionIds,
 	sweepSessionIds,
 	TERMINAL_STATES,

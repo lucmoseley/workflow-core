@@ -12,8 +12,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { caught } from "./caught.js";
+import { type RouteAnswer, stubGhRoutes } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
-import { shellQuote } from "./sh-quote.js";
 import { sleepSync } from "./sleep-sync.js";
 
 // The arbiter is CommonJS and stays that way — it is spawned as a plain node
@@ -91,9 +91,9 @@ const BELT = path.join(__dirname, "arbiter-belt");
  * WITHOUT THIS THE SUITE READS THE MACHINE (mantahostels#1902). A case reaching
  * the liveness oracle without a shim of its own runs the real `claude` over the
  * founder's three live session registries, asking which sessions are running
- * RIGHT NOW, and answers differently minute to minute. `WFC_GH` is unset there,
- * falling every `gh` call back on the real `gh`. NEITHER BINARY IS REACHABLE
- * IN CI, so a green CI run says nothing about this.
+ * RIGHT NOW, and answers differently minute to minute. Without this, `WFC_GH`
+ * is unset too, falling every `gh` call back on the real `gh`. NEITHER BINARY
+ * IS REACHABLE IN CI, so a green CI run says nothing about this.
  *
  * THE AGENTS STUB LISTS THE CALLER AND NOBODY ELSE, which is what the real
  * oracle said. An empty array is NOT that: `agent-liveness.js` reads `[]` as a
@@ -356,31 +356,16 @@ export function finished(sb: Sandbox, sessionId: string) {
 }
 
 /**
- * A `gh` stand-in wired through WFC_GH, and a count of its
- * invocations.
+ * A `gh` stand-in wired through WFC_GH, serving `routes` as gh-stub's
+ * `stubGhRoutes` does and logging each call's argv for `ghCalls`.
  */
-export function fakeGh(sb: Sandbox, body: string) {
-	const bin = path.join(sb.dir, "gh-fake");
-	fs.writeFileSync(
-		bin,
-		`#!/bin/sh\necho "$*" >> ${shellQuote(path.join(sb.dir, "gh-calls"))}\n${body}\n`,
-	);
-	fs.chmodSync(bin, 0o755);
-	vi.stubEnv("WFC_GH", bin);
+export function fakeGh(sb: Sandbox, routes: Record<string, RouteAnswer>) {
+	const { gh } = stubGhRoutes(sb.dir, routes, {
+		log: path.join(sb.dir, "gh-calls"),
+	});
+	vi.stubEnv("WFC_GH", gh);
+	return gh;
 }
-
-/**
- * A `gh` stand-in for the batched sweep: `gh issue list --state closed --json
- * number` answers with exactly `closed`, and nothing else is answered at all.
- */
-export const ghClosedList = (sb: Sandbox, closed: number[]) =>
-	fakeGh(
-		sb,
-		`echo ${shellQuote(JSON.stringify(closed.map((number) => ({ number }))))}`,
-	);
-
-export const ghAnswers = (sb: Sandbox, state: string) =>
-	fakeGh(sb, `echo ${shellQuote(`{"state":"${state}"}`)}`);
 
 /**
  * The argv of every gh call, in order. Assert on the argv, never on the count:

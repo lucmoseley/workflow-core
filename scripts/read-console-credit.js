@@ -29,13 +29,12 @@ const {
 	findOverflowSeat,
 	readDeclaredSeats,
 } = require("./lib/refill-seats.js");
+const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /* A guess: past claude-child.js's own limit, so that limit is what kills the child. */
 const CHILD_TIMEOUT_MS = CHROME_TIMEOUT_MS_A_PAGE + 30_000;
-/* A guess: enough of a refusal to name it, in a one-line log row. */
-const WHY_MAX_CHARS = 200;
 const PROMPT_FILE = path.join(__dirname, "lib", "console-credit-prompt.txt");
 
 /**
@@ -69,7 +68,7 @@ function parseChildRun(child, planDir) {
 	if (child.status !== 0) {
 		const firstLine = child.stderr.trim().replace(/\n[\s\S]*/, "");
 		return {
-			why: `the Chrome child failed: ${firstLine.slice(0, WHY_MAX_CHARS) || `exit ${child.status}`}`,
+			why: `the Chrome child failed: ${firstLine.slice(0, CHILD_ERROR_CHARS) || `exit ${child.status}`}`,
 		};
 	}
 	return parseConsoleRead(child.stdout, readSeatAccount(planDir));
