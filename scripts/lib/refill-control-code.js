@@ -22,6 +22,7 @@ const { pidLock } = require("./pid-lock.js");
 const { linkOf } = require("./pinned-code.js");
 const { procRoot } = require("./proc-root.js");
 const { refillPath } = require("./refill-dir.js");
+const { relativeUnder } = require("./is-under.js");
 
 const PROGRAM_NAME = "refill-loop.js";
 const PROGRAM = path.join("scripts", PROGRAM_NAME);
@@ -53,8 +54,9 @@ function throughBootLink(file) {
 		if (isGone(err)) return null;
 		throw err;
 	}
-	if (!file.startsWith(`${realCodeDir}${path.sep}`)) return null;
-	const [, ...inTip] = path.relative(realCodeDir, file).split(path.sep);
+	const rel = relativeUnder(realCodeDir, file);
+	if (!rel) return null;
+	const [, ...inTip] = rel.split(path.sep);
 	return path.join(bootLinkOf(codeDir), ...inTip);
 }
 

@@ -171,6 +171,7 @@ const {
 	readUntrackedFiles,
 } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
+const { relativeUnder } = require("./lib/is-under.js");
 const {
 	QUEUE_FLAG,
 	FULL_FLAG,
@@ -1558,10 +1559,7 @@ function isolatedArgvRefusal(argv, root) {
 			"Name a ref (`--changed HEAD~1`), or drop --isolated.\n\n"
 		);
 	const escaping = argv.filter(
-		(word) =>
-			path.isAbsolute(word) &&
-			!path.relative(root, word).startsWith("..") &&
-			path.relative(root, word) !== "",
+		(word) => path.isAbsolute(word) && Boolean(relativeUnder(root, word)),
 	);
 	if (escaping.length > 0)
 		return (

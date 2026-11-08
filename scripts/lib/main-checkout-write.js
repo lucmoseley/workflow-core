@@ -44,6 +44,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 const {
 	absolute,
 	literal,
@@ -195,9 +196,9 @@ function existingDir(p) {
  */
 function refusedPath(p, ctx, dir = false) {
 	const abs = path.resolve(p);
-	const rel = path.relative(ctx.root, abs) || (dir ? "." : "");
-	if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return null;
-	if (rel === ".git" || rel.startsWith(`.git${path.sep}`)) return null;
+	const under = relativeUnder(ctx.root, abs);
+	const rel = under === "" && dir ? "." : under;
+	if (!rel || isUnder(rel, [".git"], path.sep)) return null;
 	const cls = ctx.treeClass(existingDir(abs));
 	if (cls === "unknown")
 		throw new GitUnanswered(
