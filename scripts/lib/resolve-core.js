@@ -6,8 +6,8 @@
  * Python code (#465), is copied once and never re-synced.
  *
  * FROZEN: a change to its lookup, its export or its variable names is a major
- * release with a migration note. #4117 reads a linked worktree with no row of
- * its own taking its main checkout's as no lookup change, a judgement call:
+ * release with a migration note. A linked worktree with no row of its own
+ * taking its main checkout's is, on #4117's judgement call, no lookup change:
  * the adopter root means the main checkout (adopterRoot), and an exact row
  * still wins. It requires node builtins only, because it runs before the core
  * is found.
