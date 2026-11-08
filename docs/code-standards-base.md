@@ -254,9 +254,11 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 **The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/inject-tracker-docs.sh`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `ultra`, `gh_empty_result_rule` and the `standards` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
 
-### §G12 · A Node hook's JSON output is built by `envelope` — **hard**
+### §G12 · A hook's JSON output is built by one builder, never an object literal of its own — **hard**
 
-**Program and hook module.** The harness drops a misspelt event name or output key without an error, so the shape lives once: `envelope` in `scripts/lib/hook-envelope.js` builds every `hookSpecificOutput` and every `PostToolUse` decision (#4025). A Node hook spelling either as an object literal of its own is the breach.
+**Program and hook module.** The harness drops a misspelt event name or output key without an error, so a hook's `hookSpecificOutput` and `PostToolUse` decision are built by one builder, and a hook spelling either as an object literal of its own is the breach.
+
+*House, Node programs only*: that builder is `envelope` in `scripts/lib/hook-envelope.js` (#4025).
 
 **Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/inject-tracker-docs.sh` does, since a Node process per run would cost more than the copy.
 
