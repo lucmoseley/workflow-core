@@ -18,7 +18,7 @@
  * patching a live export, which §X2 bars.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const sessionId = require("./session-id.js");
 
@@ -40,14 +40,8 @@ describe("the minting side reads the Bash environment", () => {
 	});
 
 	it("defaults to this process's environment", () => {
-		const had = process.env.CLAUDE_CODE_SESSION_ID;
-		process.env.CLAUDE_CODE_SESSION_ID = "sess-from-process";
-		try {
-			expect(sessionId.fromEnv()).toBe("sess-from-process");
-		} finally {
-			if (had === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
-			else process.env.CLAUDE_CODE_SESSION_ID = had;
-		}
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "sess-from-process");
+		expect(sessionId.fromEnv()).toBe("sess-from-process");
 	});
 });
 

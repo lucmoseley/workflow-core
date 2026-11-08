@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs, seatEnv } from "./lib/seat-testkit";
 import { buildUsageCache, type ScopedBar } from "./lib/usage-probe-fake";
@@ -250,65 +250,53 @@ describe("reading the seats", () => {
 describe("the daily reading", () => {
 	it("records once and then throttles inside 24h", () => {
 		const history = path.join(home, "h.jsonl");
-		process.env.WFC_SEAT_HISTORY = history;
-		try {
-			seat(".claude", { sevenDay: 50, resetsAt: FAR });
-			const seats = readSeats(NOW, seatDirs(home));
-			expect(recordReading(seats, NOW)).toBe("recorded");
-			expect(recordReading(seats, NOW + 6 * HOUR)).toBe("throttled");
-			expect(recordReading(seats, NOW + 25 * HOUR)).toBe("recorded");
-			const lines = fs
-				.readFileSync(history, "utf8")
-				.trim()
-				.split("\n")
-				.map((l) => JSON.parse(l));
-			expect(lines).toHaveLength(2);
-			// The co-indicator is recorded and nothing triggers on it (mantahostels#1737).
-			expect(lines[0]).toHaveProperty("commits24h");
-		} finally {
-			delete process.env.WFC_SEAT_HISTORY;
-		}
+		vi.stubEnv("WFC_SEAT_HISTORY", history);
+		seat(".claude", { sevenDay: 50, resetsAt: FAR });
+		const seats = readSeats(NOW, seatDirs(home));
+		expect(recordReading(seats, NOW)).toBe("recorded");
+		expect(recordReading(seats, NOW + 6 * HOUR)).toBe("throttled");
+		expect(recordReading(seats, NOW + 25 * HOUR)).toBe("recorded");
+		const lines = fs
+			.readFileSync(history, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(lines).toHaveLength(2);
+		// The co-indicator is recorded and nothing triggers on it (mantahostels#1737).
+		expect(lines[0]).toHaveProperty("commits24h");
 	});
 
 	it("records a dormant seat's row with its own staleness (mantahostels#2697)", () => {
 		const history = path.join(home, "h2.jsonl");
-		process.env.WFC_SEAT_HISTORY = history;
-		try {
-			seat(".claude", { sevenDay: 50, resetsAt: FAR });
-			// The seat has not run since NOW - HOUR (fixture default); a reading
-			// taken a day later carries that same cache forward.
-			const seats = readSeats(NOW + 25 * HOUR, seatDirs(home));
-			recordReading(seats, NOW + 25 * HOUR);
-			const [line] = fs
-				.readFileSync(history, "utf8")
-				.trim()
-				.split("\n")
-				.map((l) => JSON.parse(l));
-			expect(line.seats[0].staleHours).toBe(26);
-		} finally {
-			delete process.env.WFC_SEAT_HISTORY;
-		}
+		vi.stubEnv("WFC_SEAT_HISTORY", history);
+		seat(".claude", { sevenDay: 50, resetsAt: FAR });
+		// The seat has not run since NOW - HOUR (fixture default); a reading
+		// taken a day later carries that same cache forward.
+		const seats = readSeats(NOW + 25 * HOUR, seatDirs(home));
+		recordReading(seats, NOW + 25 * HOUR);
+		const [line] = fs
+			.readFileSync(history, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(line.seats[0].staleHours).toBe(26);
 	});
 
 	it("records an unread seat's staleHours as null, never as 0 (mantahostels#2697)", () => {
 		const history = path.join(home, "h3.jsonl");
-		process.env.WFC_SEAT_HISTORY = history;
-		try {
-			seat(".claude", null);
-			seat(".claude2", { sevenDay: 50, resetsAt: FAR });
-			const seats = readSeats(NOW, seatDirs(home));
-			recordReading(seats, NOW);
-			const [line] = fs
-				.readFileSync(history, "utf8")
-				.trim()
-				.split("\n")
-				.map((l) => JSON.parse(l));
-			const [unread, live] = line.seats;
-			expect(unread.staleHours).toBeNull();
-			expect(live.staleHours).toBe(1);
-		} finally {
-			delete process.env.WFC_SEAT_HISTORY;
-		}
+		vi.stubEnv("WFC_SEAT_HISTORY", history);
+		seat(".claude", null);
+		seat(".claude2", { sevenDay: 50, resetsAt: FAR });
+		const seats = readSeats(NOW, seatDirs(home));
+		recordReading(seats, NOW);
+		const [line] = fs
+			.readFileSync(history, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		const [unread, live] = line.seats;
+		expect(unread.staleHours).toBeNull();
+		expect(live.staleHours).toBe(1);
 	});
 });
 
@@ -319,13 +307,9 @@ describe("the rung-1 limb", () => {
 			p,
 			`## Re-assessment\n\n### Re-assessment log\n\n${log}\n`,
 		);
-		process.env.WFC_LADDER = p;
+		vi.stubEnv("WFC_LADDER", p);
 		return p;
 	};
-
-	afterEach(() => {
-		delete process.env.WFC_LADDER;
-	});
 
 	it("reads an empty log as rung 1 unapplied", () => {
 		ladder("None yet.");
@@ -361,7 +345,7 @@ describe("the rung-1 limb", () => {
 				"None yet.",
 			].join("\n"),
 		);
-		process.env.WFC_LADDER = p;
+		vi.stubEnv("WFC_LADDER", p);
 		expect(rungOneLogged()).toBe(false);
 	});
 

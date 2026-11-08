@@ -78,16 +78,12 @@ describe("the outside-ceiling tier", () => {
 /* Points the marker root at a fresh directory, so blockOn's counters start at 0. */
 function useMarkerRoot() {
 	let root: string;
-	let saved: string | undefined;
 	beforeEach(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "ceiling-"));
 		fs.mkdirSync(markersDir(root), { recursive: true });
-		saved = process.env.WFC_REPO_ROOT;
-		process.env.WFC_REPO_ROOT = root;
+		vi.stubEnv("WFC_REPO_ROOT", root);
 	});
 	afterEach(() => {
-		if (saved === undefined) delete process.env.WFC_REPO_ROOT;
-		else process.env.WFC_REPO_ROOT = saved;
 		fs.rmSync(root, { recursive: true, force: true });
 		vi.restoreAllMocks();
 	});

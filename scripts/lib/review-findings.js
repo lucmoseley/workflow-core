@@ -11,6 +11,7 @@ const { gitOutcome, gitReader } = require("./git.js");
 const { requiredGroup } = require("./regex-group.js");
 const { rulePointer } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
+const { isUnder } = require("./is-under.js");
 
 const HEX_RUN = "[0-9a-f]{7,40}";
 const SHA = `\`?(${HEX_RUN})(?![0-9a-z])\`?`;
@@ -423,7 +424,7 @@ function readStrayPaths(r, root) {
 	}
 	return entries.filter((e) => {
 		const entry = e.replace(/^\.\//, "").replace(/\/$/, "");
-		return !changed.some((c) => c === entry || c.startsWith(`${entry}/`));
+		return !changed.some((c) => isUnder(c, [entry]));
 	});
 }
 

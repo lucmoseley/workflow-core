@@ -36,9 +36,6 @@ const temps: string[] = [];
 afterEach(() => {
 	for (const t of temps.splice(0))
 		fs.rmSync(t, { recursive: true, force: true });
-	delete process.env.WFC_RULES_DIR;
-	delete process.env.WFC_RULES_FALLBACK_DIR;
-	delete process.env.WFC_SCRIPT_ROOT;
 });
 
 /** A throwaway store, `id` → fragment body, returned as its absolute path. */
@@ -47,7 +44,7 @@ function store(fragments: Record<string, string>): string {
 	temps.push(dir);
 	for (const [name, body] of Object.entries(fragments))
 		fs.writeFileSync(path.join(dir, name), body);
-	process.env.WFC_RULES_DIR = dir;
+	vi.stubEnv("WFC_RULES_DIR", dir);
 	return dir;
 }
 
@@ -356,7 +353,7 @@ describe("enumerating the store", () => {
 
 	it("a store directory that does not exist is empty, not an error", () => {
 		const dir = store({});
-		process.env.WFC_RULES_DIR = path.join(dir, "absent");
+		vi.stubEnv("WFC_RULES_DIR", path.join(dir, "absent"));
 		expect(lib.readRuleIds()).toEqual([]);
 		expect(sh(path.join(dir, "absent"), "--ids").code).toBe(0);
 	});
@@ -372,8 +369,8 @@ describe("layering the host's store over the core's", () => {
 			"core.txt": "core text\n",
 			"both.txt": "core loses\n",
 		});
-		process.env.WFC_RULES_DIR = host;
-		process.env.WFC_RULES_FALLBACK_DIR = core;
+		vi.stubEnv("WFC_RULES_DIR", host);
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", core);
 		return { host, core };
 	}
 	const shLayered = (host: string, core: string, ...args: string[]) => {
@@ -414,7 +411,7 @@ describe("layering the host's store over the core's", () => {
 
 	it("an override with no fallback named inherits nothing", () => {
 		const { host } = layered();
-		delete process.env.WFC_RULES_FALLBACK_DIR;
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", undefined);
 		expect(lib.readRuleIds()).toEqual(["both", "mine"]);
 		expect(sh(host, "core").code).not.toBe(0);
 	});
@@ -460,14 +457,14 @@ describe("qualifying a core fragment's citations outside the core (#416)", () =>
 	function layers() {
 		const host = store({ "mine.txt": "Mine (#12).\n" });
 		const core = store({ "core.txt": citing });
-		process.env.WFC_RULES_DIR = host;
-		process.env.WFC_RULES_FALLBACK_DIR = core;
+		vi.stubEnv("WFC_RULES_DIR", host);
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", core);
 	}
 	/** An install: a core root holding no package.json. */
 	function install() {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-install-"));
 		temps.push(root);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 	}
 	const shNow = (...args: string[]) =>
 		spawnSync("bash", [SH, ...args], { encoding: "utf8", env: process.env });
@@ -565,7 +562,7 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 	it("a fallback spelled differently from the primary dedupes in both", () => {
 		const host = store({ "a.txt": "x" });
 		const spelling = `${host}/../${path.basename(host)}/`;
-		process.env.WFC_RULES_FALLBACK_DIR = spelling;
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", spelling);
 		expect(() => lib.readRuleText("absent")).toThrow(`(looked in ${host})`);
 		const r = shEnv(
 			{ WFC_RULES_DIR: host, WFC_RULES_FALLBACK_DIR: spelling },
@@ -604,7 +601,7 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 	it("a layer that is a file, not a directory, refuses in both, naming the layer", () => {
 		const host = store({ "a.txt": "x" });
 		const file = path.join(host, "a.txt");
-		process.env.WFC_RULES_FALLBACK_DIR = file;
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", file);
 		expect(() => lib.readRuleIds()).toThrow(/ENOTDIR/);
 		const r = shEnv(
 			{ WFC_RULES_DIR: host, WFC_RULES_FALLBACK_DIR: file },
@@ -621,8 +618,8 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 		() => {
 			const host = store({ "a.txt": "x" });
 			const locked = store({ "b.txt": "y" });
-			process.env.WFC_RULES_DIR = host;
-			process.env.WFC_RULES_FALLBACK_DIR = locked;
+			vi.stubEnv("WFC_RULES_DIR", host);
+			vi.stubEnv("WFC_RULES_FALLBACK_DIR", locked);
 			fs.chmodSync(locked, 0o000);
 			try {
 				expect(() => lib.readRuleIds()).toThrow(/EACCES/);
@@ -689,12 +686,6 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 });
 
 describe("{command:<name>} names the host's own command (#742)", () => {
-	const declared = process.env.CLAUDE_PROJECT_DIR;
-	afterEach(() => {
-		if (declared === undefined) delete process.env.CLAUDE_PROJECT_DIR;
-		else process.env.CLAUDE_PROJECT_DIR = declared;
-	});
-
 	/** A host root declaring `commands`, or no config at all for null. */
 	function host(commands: Record<string, string> | null) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-host-"));
@@ -706,7 +697,7 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 				JSON.stringify({ contract: 1, commands }),
 			);
 		}
-		process.env.CLAUDE_PROJECT_DIR = dir;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 	}
 
 	function both(id: string) {
@@ -824,7 +815,7 @@ describe("{rule:<id>} holds a sentence another fragment owns (#4129)", () => {
 		const fallback = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-core-"));
 		temps.push(fallback);
 		fs.writeFileSync(path.join(fallback, "part.txt"), "from the core.\n");
-		process.env.WFC_RULES_FALLBACK_DIR = fallback;
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", fallback);
 		const dir = store({ "whole.txt": "Said {rule:part}\n" });
 		expect(lib.readRuleText("whole")).toBe("Said from the core.");
 		expect(sh(dir, "whole").out).toBe("Said from the core.\n");
@@ -869,7 +860,7 @@ describe("{rule:<id>} holds a sentence another fragment owns (#4129)", () => {
 		["founder-deliverable", "close-when-line"],
 		["issue-takes-label", "takes-label-unrouted"],
 	])("%s in the live store holds %s's text", (whole, part) => {
-		delete process.env.WFC_RULES_DIR;
+		vi.stubEnv("WFC_RULES_DIR", undefined);
 		expect(lib.readRuleText(whole)).toContain(lib.readRuleText(part));
 		expect(lib.readRuleText(whole)).not.toContain("{rule:");
 	});
@@ -895,7 +886,7 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 	});
 
 	it("answers the lead in the fallback template where the store cannot be read at all (#772)", () => {
-		process.env.WFC_RULES_DIR = path.join(store({}), "gone");
+		vi.stubEnv("WFC_RULES_DIR", path.join(store({}), "gone"));
 		expect(lib.readRuleTextOr("a-rule", "Short", "guard-x")).toBe(
 			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Read that file before doing anything else.",
 		);
@@ -942,7 +933,7 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		store({});
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-install-"));
 		temps.push(root);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		expect(lib.readRuleTextOr("rule:a-rule", "Short", "guard-x")).toContain(
 			`read from ${root}/docs/agents/rules/a-rule.txt.`,
 		);

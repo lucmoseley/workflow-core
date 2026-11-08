@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -357,30 +357,16 @@ describe("queue-run.js", () => {
 	});
 	describe("--tsc, the machine-wide type-check slot (#3163)", () => {
 		const typecheck = ["--tsc", "--", "sh", "-c", "tsc --noEmit"];
-		const envKeys = [
-			"WFC_PS",
-			"WFC_MEMINFO",
-			"TMPDIR",
-			"WFC_TSC_NO_WAIT",
-			"WFC_TSC_SLOT",
-		] as const;
-		const saved: Partial<Record<(typeof envKeys)[number], string>> = {};
 		beforeEach(() => {
-			for (const k of envKeys) saved[k] = process.env[k];
-			delete process.env.WFC_TSC_SLOT;
-		});
-		afterEach(() => {
-			for (const k of envKeys)
-				if (saved[k] === undefined) delete process.env[k];
-				else process.env[k] = saved[k];
+			vi.stubEnv("WFC_TSC_SLOT", undefined);
 		});
 
 		/** The machine the real gate reads: `ps` lines and MemAvailable. */
 		const machine = (dir: string, lines: string[], mb: number) => {
-			process.env.WFC_PS = writePsStub(dir, lines, { name: "ps-tsc" });
+			vi.stubEnv("WFC_PS", writePsStub(dir, lines, { name: "ps-tsc" }));
 			const meminfo = path.join(dir, "meminfo");
 			fs.writeFileSync(meminfo, `MemAvailable:    ${mb * 1024} kB\n`);
-			process.env.WFC_MEMINFO = meminfo;
+			vi.stubEnv("WFC_MEMINFO", meminfo);
 		};
 
 		/** The fixture's options less its injected turn and gate, so the
@@ -441,7 +427,7 @@ describe("queue-run.js", () => {
 
 		describe("under WFC_TSC_NO_WAIT, one try at the slot (#3278)", () => {
 			beforeEach(() => {
-				process.env.WFC_TSC_NO_WAIT = "1";
+				vi.stubEnv("WFC_TSC_NO_WAIT", "1");
 			});
 
 			it.each([
@@ -518,7 +504,7 @@ describe("queue-run.js", () => {
 			it("exits 75 while a suite is starting, and runs once it is up", async () => {
 				const f = fixture();
 				machine(f.dir, ["bash -l"], 9000);
-				process.env.TMPDIR = f.dir;
+				vi.stubEnv("TMPDIR", f.dir);
 				const suites = path.join(f.dir, "wfc-suite-queue");
 				fs.mkdirSync(suites);
 				const suite = path.join(suites, `wfc-suite-queue-${process.ppid}.json`);
@@ -584,7 +570,7 @@ describe("queue-run.js", () => {
 		it("queues apart from the suites, so a waiting suite never holds it", async () => {
 			const f = fixture();
 			machine(f.dir, ["bash -l"], 9000);
-			process.env.TMPDIR = f.dir;
+			vi.stubEnv("TMPDIR", f.dir);
 			const suites = path.join(f.dir, "wfc-suite-queue");
 			fs.mkdirSync(suites);
 			fs.writeFileSync(

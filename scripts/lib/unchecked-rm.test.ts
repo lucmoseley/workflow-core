@@ -13,7 +13,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
@@ -396,7 +396,7 @@ describe("from a linked worktree, its latch and rule are the main checkout's (#4
 	const plantRule = (tree: string, id: string, text: string) => {
 		/* The suite pins every read to the plugin's store (vitest.setup.ts);
 		 * lifted, a checkout's own store is read first. */
-		process.env.WFC_RULES_DIR = "";
+		vi.stubEnv("WFC_RULES_DIR", "");
 		const rules = path.join(tree, "docs", "agents", "rules");
 		fs.mkdirSync(rules, { recursive: true });
 		fs.writeFileSync(path.join(rules, `${id}.txt`), `${text}\n`);

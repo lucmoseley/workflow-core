@@ -9,6 +9,7 @@
  */
 
 const { absolute } = require("./shell-words.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 
 /** @typedef {{ pwd: string, jobDir: string }} Where */
 
@@ -33,8 +34,7 @@ function isJobDir(p, { pwd, jobDir }) {
 	if (p.includes("CLAUDE_JOB_DIR")) return true;
 	if (!p.includes("/")) return false;
 	const abs = absolute(p, pwd);
-	/* A trailing slash on both sides keeps a sibling sharing the prefix out. */
-	if (jobDir && `${abs}/`.startsWith(`${trimSlash(jobDir)}/`)) return true;
+	if (jobDir && isUnder(abs, [trimSlash(jobDir)])) return true;
 	/* The shape, for a hook environment that did not carry the variable. */
 	return SHAPE_RE.test(abs);
 }
@@ -54,9 +54,8 @@ function jobRel(p, { pwd, jobDir }) {
 	if (byVar) return byVar[1] ?? null;
 	if (!p.includes("/")) return null;
 	const abs = absolute(p, pwd);
-	const root = `${trimSlash(jobDir)}/`;
-	if (jobDir && abs.startsWith(root) && abs.length > root.length)
-		return abs.slice(root.length);
+	const rel = jobDir ? relativeUnder(jobDir, abs) : null;
+	if (rel) return rel;
 	return SHAPE_REL_RE.exec(abs)?.[1] ?? null;
 }
 

@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	materialisePlugin,
 	predictedRefConflict,
@@ -27,7 +27,6 @@ import {
 import { shellQuote } from "./sh-quote.js";
 
 let made: string[] = [];
-let origConfigDir: string | undefined;
 
 /**
  * A stub `claude` that logs its own argv and CLAUDE_CONFIG_DIR, one line per
@@ -45,20 +44,14 @@ function stubClaude(log: string) {
 	return bin;
 }
 
-beforeEach(() => {
-	origConfigDir = process.env.CLAUDE_CONFIG_DIR;
-});
-
 afterEach(() => {
-	if (origConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-	else process.env.CLAUDE_CONFIG_DIR = origConfigDir;
 	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
 	made = [];
 });
 
 describe("materialisePlugin's CLAUDE_CONFIG_DIR isolation (#117)", () => {
 	it("leaves CLAUDE_CONFIG_DIR exactly as the calling session set it, with no configDir passed", () => {
-		process.env.CLAUDE_CONFIG_DIR = "/tmp/some-dev-session/.claude3";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/tmp/some-dev-session/.claude3");
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-root-"));
 		made.push(root);
 		const log = path.join(root, "calls.log");
@@ -79,7 +72,7 @@ describe("materialisePlugin's CLAUDE_CONFIG_DIR isolation (#117)", () => {
 	});
 
 	it("falls through to the real ~/.claude where the session sets no override", () => {
-		delete process.env.CLAUDE_CONFIG_DIR;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", undefined);
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-root-"));
 		made.push(root);
 		const log = path.join(root, "calls.log");
@@ -98,7 +91,7 @@ describe("materialisePlugin's CLAUDE_CONFIG_DIR isolation (#117)", () => {
 	});
 
 	it("honours an explicit configDir over the session's own, on all three calls", () => {
-		process.env.CLAUDE_CONFIG_DIR = "/tmp/some-dev-session/.claude3";
+		vi.stubEnv("CLAUDE_CONFIG_DIR", "/tmp/some-dev-session/.claude3");
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-root-"));
 		made.push(root);
 		const throwaway = fs.mkdtempSync(
@@ -138,7 +131,7 @@ describe("materialisePlugin's CLAUDE_CONFIG_DIR isolation (#117)", () => {
 		const before = registries.map((f) =>
 			fs.readFileSync(path.join(sessionConfig, "plugins", f)),
 		);
-		process.env.CLAUDE_CONFIG_DIR = sessionConfig;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", sessionConfig);
 
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-root-"));
 		made.push(root);

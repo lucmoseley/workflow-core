@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	otherLine,
 	readingLine,
@@ -42,14 +42,11 @@ const JOURNAL = [
 ];
 
 let dir: string;
-const saved = process.env.WFC_JOURNALCTL;
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-kills-"));
-	process.env.WFC_JOURNALCTL = writeJournalctl(dir, JOURNAL);
+	vi.stubEnv("WFC_JOURNALCTL", writeJournalctl(dir, JOURNAL));
 });
 afterEach(() => {
-	if (saved === undefined) delete process.env.WFC_JOURNALCTL;
-	else process.env.WFC_JOURNALCTL = saved;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -100,8 +97,9 @@ describe("readIncidents (#3094)", () => {
 	});
 
 	it("reads no kills, saying why, where journalctl fails", () => {
-		process.env.WFC_JOURNALCTL = writeFailingJournalctl(
-			path.join(dir, "failing"),
+		vi.stubEnv(
+			"WFC_JOURNALCTL",
+			writeFailingJournalctl(path.join(dir, "failing")),
 		);
 		expect(kills.readIncidents(0)).toEqual({
 			incidents: [],

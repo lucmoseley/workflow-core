@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -99,9 +99,9 @@ beforeEach(() => {
 		.toString()
 		.trim();
 	g("commit", "-q", "--allow-empty", "-m", "next");
-	process.env.WFC_REPO_DIR = sb.repo;
-	process.env.WFC_NOW = NOW;
-	delete process.env.WFC_NOTIFY_PERSIST;
+	vi.stubEnv("WFC_REPO_DIR", sb.repo);
+	vi.stubEnv("WFC_NOW", NOW);
+	vi.stubEnv("WFC_NOTIFY_PERSIST", undefined);
 	write("workflows.json", [
 		{
 			name: "scheduled-checks",
@@ -113,21 +113,24 @@ beforeEach(() => {
 	sweepsCurrent();
 	/* The gate's query asks for `updatedAt`; the check's never does. The
 	 * `hang` file stalls every call but the gate's. */
-	process.env.WFC_GH = stubGhScript(
-		sb.dir,
-		"#!/bin/sh\n" +
-			`echo "$*" >> ${shellQuote(file("calls"))}\n` +
-			`case "$*" in *updatedAt*) exec cat ${shellQuote(file("runs.json"))};; esac\n` +
-			`[ -f ${shellQuote(file("hang"))} ] && sleep 3\n` +
-			'[ "$1" = "workflow" ] && [ "$2" = "run" ] && exit 0\n' +
-			'[ "$1" = "issue" ] && exec echo "[]"\n' +
-			'for a in "$@"; do\n' +
-			'  [ "$a" = "view" ] && exit 1\n' +
-			`  [ "$a" = "workflow" ] && exec cat ${shellQuote(file("workflows.json"))}\n` +
-			`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(file("sweeps.json"))}\n` +
-			"done\n" +
-			`exec cat ${shellQuote(file("runs.json"))}\n`,
-	).gh;
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhScript(
+			sb.dir,
+			"#!/bin/sh\n" +
+				`echo "$*" >> ${shellQuote(file("calls"))}\n` +
+				`case "$*" in *updatedAt*) exec cat ${shellQuote(file("runs.json"))};; esac\n` +
+				`[ -f ${shellQuote(file("hang"))} ] && sleep 3\n` +
+				'[ "$1" = "workflow" ] && [ "$2" = "run" ] && exit 0\n' +
+				'[ "$1" = "issue" ] && exec echo "[]"\n' +
+				'for a in "$@"; do\n' +
+				'  [ "$a" = "view" ] && exit 1\n' +
+				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(file("workflows.json"))}\n` +
+				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(file("sweeps.json"))}\n` +
+				"done\n" +
+				`exec cat ${shellQuote(file("runs.json"))}\n`,
+		).gh,
+	);
 });
 
 describe("the CI re-check (#856)", () => {
@@ -199,13 +202,13 @@ describe("the CI re-check (#856)", () => {
 	it("delivers nothing from a timed-out check, and asks again next time", () => {
 		setRuns([run_({ conclusion: "failure" })]);
 		fs.writeFileSync(file("hang"), "");
-		process.env.WFC_RECHECK_TIMEOUT_MS = "300";
+		vi.stubEnv("WFC_RECHECK_TIMEOUT_MS", "300");
 		const timedOut = deliver();
 		expect(timedOut.out).toBe("");
 		expect(timedOut.status).toBe(0);
 
 		fs.rmSync(file("hang"));
-		delete process.env.WFC_RECHECK_TIMEOUT_MS;
+		vi.stubEnv("WFC_RECHECK_TIMEOUT_MS", undefined);
 		expect(deliver().out).toContain("CI is red");
 	});
 
@@ -278,10 +281,10 @@ describe("the CI re-check (#856)", () => {
 	it("records nothing seen when the check skips, so a red is not lost", () => {
 		// A spent budget: the check skips, exiting 0 with nothing printed.
 		setRuns([run_({ conclusion: "failure" })]);
-		process.env.WFC_NOTIFY_BUDGET_MS = "1";
+		vi.stubEnv("WFC_NOTIFY_BUDGET_MS", "1");
 		expect(deliver().out).toBe("");
 
-		delete process.env.WFC_NOTIFY_BUDGET_MS;
+		vi.stubEnv("WFC_NOTIFY_BUDGET_MS", undefined);
 		expect(deliver().out).toContain("CI is red");
 	});
 

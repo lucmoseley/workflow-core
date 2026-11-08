@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { COMMAND_SHAPED, PLAIN_POINTER } from "./script-path-testkit";
 import { shellQuote } from "./sh-quote.js";
 
@@ -33,9 +33,6 @@ const temps: string[] = [];
 afterEach(() => {
 	for (const t of temps.splice(0))
 		fs.rmSync(t, { recursive: true, force: true });
-	delete process.env.WFC_SCRIPT_ROOT;
-	delete process.env.WFC_RULES_DIR;
-	delete process.env.WFC_RULES_FALLBACK_DIR;
 });
 
 /** A throwaway plugin install holding `files` under scripts/. */
@@ -163,7 +160,7 @@ describe("the bash twins' own directory", () => {
 describe("in a plugin install", () => {
 	it("names a script under the plugin root", () => {
 		const root = install(["session-arbiter.js"]);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		const want = `${root}/scripts/session-arbiter.js`;
 		expect(lib.scriptPath("session-arbiter.js")).toBe(want);
 		expect(
@@ -173,7 +170,7 @@ describe("in a plugin install", () => {
 
 	it("names a doc under the plugin root (#1010)", () => {
 		const root = install([]);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		const want = `${root}/docs/agents/issue-tracker.md`;
 		expect(lib.docPath("agents/issue-tracker.md")).toBe(want);
 		expect(
@@ -184,7 +181,7 @@ describe("in a plugin install", () => {
 	it("names any core file absolute from a checkout the cwd is outside (#2234)", () => {
 		const root = install([]);
 		fs.writeFileSync(path.join(root, "package.json"), "{}");
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		expect(lib.corePath(".claude/skills/x/scripts/y.js")).toBe(
 			`${root}/.claude/skills/x/scripts/y.js`,
 		);
@@ -192,7 +189,7 @@ describe("in a plugin install", () => {
 
 	it("names any core file under the plugin root (#2234)", () => {
 		const root = install([]);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		expect(lib.corePath(".claude/skills/x/scripts/y.js")).toBe(
 			`${root}/.claude/skills/x/scripts/y.js`,
 		);
@@ -200,7 +197,7 @@ describe("in a plugin install", () => {
 
 	it("quotes a doc under a root a shell would split", () => {
 		const root = install([], "doc path '");
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		const got = lib.docPath("agents/t.md");
 		expect(got.startsWith("'")).toBe(true);
 		expect(bash("doc_path agents/t.md", { WFC_SCRIPT_ROOT: root })).toBe(got);
@@ -208,7 +205,7 @@ describe("in a plugin install", () => {
 
 	it("spells a paste line's script at the plugin root, in both twins", () => {
 		const root = install(["write-secret.js"]);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		const text = "node {script:write-secret.js} X";
 		const want = `node ${lib.scriptPath("write-secret.js")} X`;
 		expect(lib.expandPastePaths(text, "/h")).toBe(want);
@@ -219,7 +216,7 @@ describe("in a plugin install", () => {
 
 	it("quotes a root a shell would split", () => {
 		const root = install(["x.sh"], "script path '");
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		const got = lib.scriptPath("x.sh");
 		expect(got.startsWith("'")).toBe(true);
 		expect(bash("script_path x.sh", { WFC_SCRIPT_ROOT: root })).toBe(got);
@@ -254,7 +251,7 @@ describe("in a plugin install", () => {
 
 	it.each(cases)("resolves %j, both twins alike", (text, want) => {
 		const root = install(["a.js", "lib/b.sh"]);
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		expect(lib.resolveScriptPaths(text)).toBe(want(root));
 		expect(bash("resolve_script_paths", { WFC_SCRIPT_ROOT: root }, text)).toBe(
 			want(root),
@@ -290,7 +287,7 @@ describe("in a plugin install", () => {
 		fs.mkdirSync(path.join(root, "docs", "agents"), { recursive: true });
 		fs.writeFileSync(path.join(root, "docs", "agents", "t.md"), "");
 		fs.writeFileSync(path.join(root, "docs", "env.md"), "");
-		process.env.WFC_SCRIPT_ROOT = root;
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 		expect(lib.resolveScriptPaths(text)).toBe(want(root));
 		expect(bash("resolve_script_paths", { WFC_SCRIPT_ROOT: root }, text)).toBe(
 			want(root),
@@ -306,7 +303,8 @@ describe("in a plugin install", () => {
 			"Route it through `node scripts/issue-body.js append`.\n",
 		);
 		const env = { WFC_SCRIPT_ROOT: root, WFC_RULES_DIR: rules };
-		Object.assign(process.env, env);
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
+		vi.stubEnv("WFC_RULES_DIR", rules);
 		const want = `Route it through \`node ${root}/scripts/issue-body.js append\`.`;
 		expect(ruleTextLib.readRuleText("demo")).toBe(want);
 		const r = spawnSync("bash", [RULE_SH, "demo"], {

@@ -27,21 +27,20 @@ const notify: any = createRequire(__filename)("./notify-report.js");
 const arbiterStore: any = createRequire(__filename)("./arbiter-store.js");
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "notify-report-"));
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "claude");
-	process.env.CLAUDE_PROJECT_DIR = path.join(dir, "repo");
-	delete process.env.WFC_CLAUDE_CONFIG_A;
-	delete process.env.WFC_CLAUDE_CONFIG_B;
-	delete process.env.WFC_CLAUDE_CONFIG_C;
-	fs.mkdirSync(process.env.CLAUDE_PROJECT_DIR, { recursive: true });
+	const repo = path.join(dir, "repo");
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "claude"));
+	vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
+	fs.mkdirSync(repo, { recursive: true });
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 describe("write / read round-trip", () => {
@@ -322,11 +321,11 @@ describe("cross-config-dir resolution", () => {
 		const first = path.join(dir, "seat-z");
 		const claudeB = path.join(dir, "claude2");
 		const claudeC = path.join(dir, "claude3");
-		process.env.WFC_CLAUDE_CONFIG_A = first;
-		process.env.WFC_CLAUDE_CONFIG_B = claudeB;
-		process.env.WFC_CLAUDE_CONFIG_C = claudeC;
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", first);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", claudeB);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", claudeC);
 
-		process.env.CLAUDE_CONFIG_DIR = claudeC;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", claudeC);
 		const writtenAt = notify.base();
 		expect(writtenAt).toBe(
 			path.join(arbiterStore.stateDir(), "notify-reports"),
@@ -334,7 +333,7 @@ describe("cross-config-dir resolution", () => {
 		expect(writtenAt.startsWith(`${first}${path.sep}`)).toBe(true);
 		notify.writeReport("check-example", { outcome: "OK", text: "from C" });
 
-		process.env.CLAUDE_CONFIG_DIR = claudeB;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", claudeB);
 		expect(notify.base()).toBe(writtenAt);
 		expect(notify.readReport("check-example").text).toBe("from C");
 	});
@@ -347,16 +346,16 @@ describe("an unwritable store", () => {
 		fs.mkdirSync(sealed, { recursive: true, mode: 0o555 });
 		const claudeB = path.join(dir, "claude2");
 		const claudeC = path.join(dir, "claude3");
-		process.env.WFC_CLAUDE_CONFIG_A = path.join(sealed, "claude");
-		process.env.WFC_CLAUDE_CONFIG_B = claudeB;
-		process.env.WFC_CLAUDE_CONFIG_C = claudeC;
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", path.join(sealed, "claude"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", claudeB);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", claudeC);
 
-		process.env.CLAUDE_CONFIG_DIR = claudeC;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", claudeC);
 		const writtenAt = notify.base();
 		expect(writtenAt.startsWith(`${claudeB}${path.sep}`)).toBe(true);
 		expect(notify.writeReport("check-example", { outcome: "OK" })).toBe(true);
 
-		process.env.CLAUDE_CONFIG_DIR = claudeB;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", claudeB);
 		expect(notify.base()).toBe(writtenAt);
 		expect(notify.readReport("check-example")).not.toBeNull();
 	});
@@ -375,10 +374,10 @@ describe("degradation on failure", () => {
 		// single-plan fallback candidates (.claude2, .claude3) are otherwise
 		// writable via their own creatable parent, which would silently pick
 		// one of those instead of exercising the failure path this test wants.
-		process.env.CLAUDE_CONFIG_DIR = path.join(root, "claude");
-		process.env.WFC_CLAUDE_CONFIG_A = path.join(root, "claude");
-		process.env.WFC_CLAUDE_CONFIG_B = path.join(root, "claude2");
-		process.env.WFC_CLAUDE_CONFIG_C = path.join(root, "claude3");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(root, "claude"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", path.join(root, "claude"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(root, "claude2"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(root, "claude3"));
 		expect(() =>
 			notify.writeReport("check-example", { outcome: "OK" }),
 		).not.toThrow();

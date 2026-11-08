@@ -9,6 +9,7 @@
 
 const { MOVED_LINE } = require("./land-refusal.js");
 const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
+const { relativeUnder } = require("./is-under.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -277,8 +278,9 @@ function landingOutcome(span) {
  * @returns {string | null}
  */
 function repoPath(root, file) {
-	if (typeof file !== "string" || !file.startsWith(`${root}/`)) return null;
-	const rel = file.slice(root.length + 1);
+	if (typeof file !== "string") return null;
+	const rel = relativeUnder(root, file);
+	if (!rel) return null;
 	const inWorktree = /^\.claude\/worktrees\/[^/]+\/(.+)$/.exec(rel);
 	if (inWorktree) return group(inWorktree, 1);
 	return rel.startsWith(".claude/worktrees/") ? null : rel;

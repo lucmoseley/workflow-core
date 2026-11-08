@@ -23,6 +23,7 @@ The core's own primitives, beside the base's table.
 | Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
 | Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
+| Setting an environment variable in a test | `vi.stubEnv`, `undefined` to unset, undone before each test by `unstubEnvs: true` in `vitest.config.ts` | `scripts/lib/wait-loop.test.ts` | §X2 | `scripts/check-test-env-writes.js` |
 
 ## Local rules
 

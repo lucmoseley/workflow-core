@@ -105,6 +105,7 @@ const REPEATED_BY: Record<string, string | null> = {
 	"scripts/gen-roadmap-digest.js": "gen-roadmap-digest.js",
 	"scripts/check-guard-test-isolation.js": "check-guard-test-isolation.js",
 	"scripts/check-git-fixture-identity.js": "check-git-fixture-identity.js",
+	"scripts/check-test-env-writes.js": "check-test-env-writes.js",
 	"scripts/check-website-copy.js": "npm run check:copy",
 	"scripts/check-skill-frontmatter.js": "check-skill-frontmatter.js",
 	"scripts/check-workflow-permissions.js": "check-workflow-permissions.js",

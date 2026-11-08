@@ -9,7 +9,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 it("installs no process handler on load, so a suite launch's program can require it (#2493)", () => {
 	const r = spawnSync(
@@ -114,8 +114,7 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 		fs.writeFileSync(path.join(bin, "git"), "#!/bin/sh\nexec sleep 30\n", {
 			mode: 0o755,
 		});
-		const Path = process.env.PATH;
-		process.env.PATH = `${bin}${path.delimiter}${Path}`;
+		vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH}`);
 		/* Crosses the real clock: the guarantee is spawnSync's own kill, which
 		 * no seam reaches. Any timeout under the stub's 30 s sleep fires, and
 		 * 200 ms keeps the case cheap. */
@@ -138,7 +137,6 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 			expect(isOutcomeError(batched)).toBe(true);
 			expect(String(batched)).toMatch(/cat-file failed/);
 		} finally {
-			process.env.PATH = Path;
 			fs.rmSync(bin, { recursive: true, force: true });
 		}
 	});

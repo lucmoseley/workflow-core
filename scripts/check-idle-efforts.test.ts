@@ -693,26 +693,27 @@ describe("at session start (--notify, #3644)", () => {
 	const notify: any = createRequire(__filename)("./lib/notify-report.js");
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 	const delivery: any = createRequire(__filename)("./lib/delivery-stamp.js");
-	const savedEnv = { ...process.env };
 	const oneIdle = { "o/core": [node(3)] };
 	const stampPath = () => path.join(notify.base(), "idle-efforts.notified");
+	/** The background-start env for a job at `jobDir`, or a plain start for none. */
+	const stubStart = (jobDir?: string) => {
+		for (const [k, v] of Object.entries(buildStartEnv(jobDir)))
+			vi.stubEnv(k, v);
+	};
 
 	/* Mirrored onto this process, so it and the run agree on where reports
 	 * and delivery stamps live. */
 	beforeEach(() => {
 		const config = path.join(dir, "config");
 		const second = path.join(dir, "second");
-		process.env.CLAUDE_CONFIG_DIR = config;
-		process.env.CLAUDE_PROJECT_DIR = dir;
-		process.env.WFC_CLAUDE_CONFIG_A = config;
-		process.env.WFC_CLAUDE_CONFIG_B = second;
-		process.env.WFC_CLAUDE_CONFIG_C = second;
-		process.env.WFC_NOTIFY_PERSIST = "";
-		Object.assign(process.env, buildStartEnv());
+		vi.stubEnv("CLAUDE_CONFIG_DIR", config);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", config);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", second);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", second);
+		vi.stubEnv("WFC_NOTIFY_PERSIST", "");
+		stubStart();
 		checkout("core", "o/core");
-	});
-	afterEach(() => {
-		process.env = { ...savedEnv };
 	});
 
 	it("names a finding once a day, and again the next day, with the loop stopped", async () => {
@@ -851,13 +852,13 @@ describe("at session start (--notify, #3644)", () => {
 		});
 
 		it("names it at a background job's start but stamps nothing, leaving it for the founder's", async () => {
-			Object.assign(process.env, buildStartEnv(path.join(dir, "job")));
+			stubStart(path.join(dir, "job"));
 			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
 				STOP_LINE,
 			);
 			expect(fs.existsSync(stampPath())).toBe(false);
 
-			Object.assign(process.env, buildStartEnv());
+			stubStart();
 			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
 				STOP_LINE,
 			);
@@ -871,7 +872,7 @@ describe("at session start (--notify, #3644)", () => {
 		});
 
 		it("prints it again through the real reader the next day, its text unchanged", async () => {
-			process.env.WFC_NOTIFY_PERSIST = "1";
+			vi.stubEnv("WFC_NOTIFY_PERSIST", "1");
 			const replay = () => {
 				const r = runInProcess(
 					path.join(__dirname, "replay-notify-reports.js"),
@@ -903,7 +904,7 @@ describe("at session start (--notify, #3644)", () => {
 		});
 
 		it("reaches the persisted report for the reader to stamp", async () => {
-			process.env.WFC_NOTIFY_PERSIST = "1";
+			vi.stubEnv("WFC_NOTIFY_PERSIST", "1");
 			await run(nothingIdle, ["--notify"]);
 			const shown = notify.readReport("idle-efforts");
 			expect(shown.outcome).toBe("WARN");
@@ -934,12 +935,12 @@ describe("at session start (--notify, #3644)", () => {
 	});
 
 	it("names an unseen finding at a background job's start but stamps nothing, leaving it for the founder's start (#3725)", async () => {
-		Object.assign(process.env, buildStartEnv(path.join(dir, "job")));
+		stubStart(path.join(dir, "job"));
 		const job = await run(oneIdle, ["--notify"]);
 		expect(job.stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(false);
 
-		Object.assign(process.env, buildStartEnv());
+		stubStart();
 		expect((await run(oneIdle, ["--notify"])).stdout).toContain(
 			"o/core: 1 idle past 2 days",
 		);
@@ -948,18 +949,15 @@ describe("at session start (--notify, #3644)", () => {
 
 	it("names and stamps a finding at a job he launched from the agents view (#3772)", async () => {
 		const job = writeJobRecord(path.join(dir, "his"), "claude");
-		Object.assign(process.env, buildStartEnv(job));
+		stubStart(job);
 		const { stdout } = await run(oneIdle, ["--notify"]);
-		Object.assign(process.env, buildStartEnv());
+		stubStart();
 		expect(stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(true);
 	});
 
 	it("stamps nothing at a resume of his own job, which the loop may have woken, and stamps at its start (#3841)", async () => {
-		Object.assign(
-			process.env,
-			buildStartEnv(writeJobRecord(path.join(dir, "his"), "claude")),
-		);
+		stubStart(writeJobRecord(path.join(dir, "his"), "claude"));
 		const resume = await run(oneIdle, ["--notify"], "resume");
 		expect(resume.stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(false);
@@ -971,7 +969,7 @@ describe("at session start (--notify, #3644)", () => {
 
 	describe("under persist mode", () => {
 		beforeEach(() => {
-			process.env.WFC_NOTIFY_PERSIST = "1";
+			vi.stubEnv("WFC_NOTIFY_PERSIST", "1");
 		});
 
 		it("carries the signature for the reader, and reports again until the reader stamps it", async () => {

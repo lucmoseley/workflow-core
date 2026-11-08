@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeAdopterCheckout } from "./claim-store-testkit";
 
 const { openDescendants, resolveGoal } = require("./goal-set.js");
@@ -68,15 +68,12 @@ describe("resolveGoal (#4382)", () => {
 	}));
 	const graph = { ownRepo: OWN };
 	let home = "";
-	let savedHome: string | undefined;
 	beforeEach(() => {
 		home = fs.mkdtempSync(path.join(os.tmpdir(), "goal-set-"));
 		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
-		savedHome = process.env.HOME;
-		process.env.HOME = home;
+		vi.stubEnv("HOME", home);
 	});
 	afterEach(() => {
-		process.env.HOME = savedHome;
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 	/** The production lookup, the run's own checkout `r` under the temp HOME. */

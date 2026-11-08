@@ -17,7 +17,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 
 const require_ = createRequire(__filename);
@@ -34,7 +34,6 @@ const SCRIPT = path.resolve(__dirname, "deliver-to-session.js");
 const REPLAY = path.resolve(__dirname, "replay-notify-reports.js");
 
 let dir = "";
-const savedEnv = { ...process.env };
 
 const run = (script: string, args: string[], session: string | null) => {
 	const env = { ...process.env };
@@ -71,19 +70,19 @@ const replayState = () =>
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "deliver-to-session-"));
-	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "claude");
-	process.env.CLAUDE_PROJECT_DIR = path.join(dir, "repo");
-	delete process.env.WFC_CLAUDE_CONFIG_A;
-	delete process.env.WFC_CLAUDE_CONFIG_B;
-	delete process.env.WFC_CLAUDE_CONFIG_C;
-	delete process.env.WFC_NOTIFY_PERSIST;
-	fs.mkdirSync(process.env.CLAUDE_PROJECT_DIR, { recursive: true });
+	const repo = path.join(dir, "repo");
+	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "claude"));
+	vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
+	vi.stubEnv("WFC_NOTIFY_PERSIST", undefined);
+	fs.mkdirSync(repo, { recursive: true });
 	fs.mkdirSync(notify.base(), { recursive: true });
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 describe("owned reports", () => {
@@ -153,7 +152,7 @@ describe("owned reports", () => {
 		expect(replayState()).toEqual(before);
 
 		// The next session start is shown what it would have been with no delivery.
-		process.env.WFC_NOW = new Date().toISOString();
+		vi.stubEnv("WFC_NOW", new Date().toISOString());
 		const after = run(REPLAY, ["--notify"], "next").out;
 		fs.rmSync(notify.base(), { recursive: true });
 		fs.cpSync(pristine, notify.base(), { recursive: true });

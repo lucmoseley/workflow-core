@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readProcStartOf } from "./arbiter-proc.js";
 import {
 	ADMITTED_AUTH,
@@ -46,7 +46,6 @@ let secrets: string;
 let target: string;
 let fakeOut: string;
 let seat: string;
-const saved = process.env.WFC_REFILL_DIR;
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "headless-"));
@@ -74,7 +73,7 @@ beforeEach(() => {
 		buildHeadlessBranch(path.join(tmp, "claude-p")),
 	]);
 	fakeMode("hold");
-	process.env.WFC_REFILL_DIR = refill;
+	vi.stubEnv("WFC_REFILL_DIR", refill);
 });
 
 afterEach(async () => {
@@ -83,8 +82,6 @@ afterEach(async () => {
 		await stop(job, { graceMs: 0 });
 	const seen = readSeenOrNull();
 	if (seen?.grandchild) killQuietly(seen.grandchild);
-	if (saved === undefined) delete process.env.WFC_REFILL_DIR;
-	else process.env.WFC_REFILL_DIR = saved;
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -264,22 +261,15 @@ describe("launch", () => {
 	});
 
 	it("leaves the key out of the launching process's own environment", async () => {
-		const before = { ...process.env };
-		Object.assign(process.env, env());
-		try {
-			const launched = launchRun({
-				keyVar: KEY_VAR,
-				cwd: target,
-				budgetUsd: 1,
-				prompt: "/implement 7",
-			});
-			expect("record" in launched).toBe(true);
-			expect(Object.values(process.env)).not.toContain(KEY);
-		} finally {
-			for (const k of Object.keys(process.env))
-				if (!(k in before)) delete process.env[k];
-			Object.assign(process.env, before);
-		}
+		for (const [k, v] of Object.entries(env())) vi.stubEnv(k, v);
+		const launched = launchRun({
+			keyVar: KEY_VAR,
+			cwd: target,
+			budgetUsd: 1,
+			prompt: "/implement 7",
+		});
+		expect("record" in launched).toBe(true);
+		expect(Object.values(process.env)).not.toContain(KEY);
 		await until(() => readSeenOrNull() !== null);
 		expect(readSeenOrNull()?.helped).toBe(KEY);
 	});

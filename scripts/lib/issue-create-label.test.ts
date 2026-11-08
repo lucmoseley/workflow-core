@@ -676,13 +676,12 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 			path.join(rules, "takes-label-unrouted.txt"),
 			"UNROUTED.\n",
 		);
-		process.env.WFC_RULES_DIR = rules;
+		vi.stubEnv("WFC_RULES_DIR", rules);
 		try {
 			expect(said(mutation('title:"t",labelIds:["LA_kwDOx"]'))).toContain(
 				"naming the command that opens it. UNROUTED.",
 			);
 		} finally {
-			delete process.env.WFC_RULES_DIR;
 			fs.rmSync(rules, { recursive: true, force: true });
 		}
 	});
@@ -2048,11 +2047,10 @@ describe("the Close-when limb (#983)", () => {
 	it("takes the line it asks for from the rule store (#4129)", () => {
 		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "close-when-rules-"));
 		fs.writeFileSync(path.join(rules, "close-when-line.txt"), "CLOSE LINE.\n");
-		process.env.WFC_RULES_DIR = rules;
+		vi.stubEnv("WFC_RULES_DIR", rules);
 		try {
 			expect(readDenyReason(create(act))).toContain("  CLOSE LINE.\n");
 		} finally {
-			delete process.env.WFC_RULES_DIR;
 			fs.rmSync(rules, { recursive: true, force: true });
 		}
 	});

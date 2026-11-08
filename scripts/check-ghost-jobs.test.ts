@@ -24,7 +24,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -480,20 +480,17 @@ describe("check-ghost-jobs", () => {
 	describe("under persist mode", () => {
 		// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 		const notify: any = createRequire(__filename)("./lib/notify-report.js");
-		const savedEnv = { ...process.env };
 
 		/** The env the child gets, mirrored onto this process so the two agree
 		 *  on where reports and stamps live. */
 		beforeEach(() => {
-			process.env.CLAUDE_CONFIG_DIR = dir;
-			process.env.CLAUDE_PROJECT_DIR = path.join(dir, "repo");
-			process.env.WFC_CLAUDE_CONFIG_A = dir;
-			process.env.WFC_CLAUDE_CONFIG_B = second;
-			process.env.WFC_CLAUDE_CONFIG_C = second;
-			fs.mkdirSync(process.env.CLAUDE_PROJECT_DIR, { recursive: true });
-		});
-		afterEach(() => {
-			process.env = { ...savedEnv };
+			vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
+			const repo = path.join(dir, "repo");
+			vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+			vi.stubEnv("WFC_CLAUDE_CONFIG_A", dir);
+			vi.stubEnv("WFC_CLAUDE_CONFIG_B", second);
+			vi.stubEnv("WFC_CLAUDE_CONFIG_C", second);
+			fs.mkdirSync(repo, { recursive: true });
 		});
 
 		const persist = (...args: string[]) =>

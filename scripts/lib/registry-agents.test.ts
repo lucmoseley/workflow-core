@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const load = createRequire(__filename);
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -23,24 +23,20 @@ const { readProcStartOf }: any = load("./arbiter-proc.js");
 let root = "";
 let seatA = "";
 let seatB = "";
-const savedEnv = { ...process.env };
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "registry-agents-"));
 	seatA = path.join(root, "a");
 	seatB = path.join(root, "b");
-	Object.assign(process.env, {
-		CLAUDE_CONFIG_DIR: seatA,
-		WFC_CLAUDE_CONFIG_A: seatA,
-		WFC_CLAUDE_CONFIG_B: seatB,
-		WFC_CLAUDE_CONFIG_C: seatB,
-		WFC_REFILL_DIR: path.join(root, "refill"),
-	});
+	vi.stubEnv("CLAUDE_CONFIG_DIR", seatA);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_A", seatA);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_B", seatB);
+	vi.stubEnv("WFC_CLAUDE_CONFIG_C", seatB);
+	vi.stubEnv("WFC_REFILL_DIR", path.join(root, "refill"));
 });
 
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
-	process.env = { ...savedEnv };
 });
 
 /** A registry entry on `seat` for this very process, with `over` on top. */

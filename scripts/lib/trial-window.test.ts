@@ -264,23 +264,9 @@ describe("reading the file", () => {
 	/** Runs `fn` with the host root at `dir` and no `WFC_LADDER` seam, so
 	 *  LADDER() resolves through the host config. */
 	const atHost = (fn: () => void) => {
-		const saved = {
-			project: process.env.CLAUDE_PROJECT_DIR,
-			ladder: process.env.WFC_LADDER,
-		};
-		process.env.CLAUDE_PROJECT_DIR = dir;
-		delete process.env.WFC_LADDER;
-		try {
-			fn();
-		} finally {
-			for (const [k, env] of [
-				["project", "CLAUDE_PROJECT_DIR"],
-				["ladder", "WFC_LADDER"],
-			] as const) {
-				if (saved[k] === undefined) delete process.env[env];
-				else process.env[env] = saved[k];
-			}
-		}
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+		vi.stubEnv("WFC_LADDER", undefined);
+		fn();
 	};
 
 	it("opens the ladder at the host's declared capacityLadderPath (#401)", () => {

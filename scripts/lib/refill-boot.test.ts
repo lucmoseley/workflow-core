@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	awaitLoopHold,
 	bootSparedJobs,
@@ -379,15 +379,11 @@ describe("awaitLoopHold (#4083)", () => {
  * faked. */
 describe("boot-resume, watch and run's hold, on their ports (#4356)", () => {
 	let dir = "";
-	let before: string | undefined;
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-boot-"));
-		before = process.env.WFC_REFILL_DIR;
-		process.env.WFC_REFILL_DIR = dir;
+		vi.stubEnv("WFC_REFILL_DIR", dir);
 	});
 	afterEach(() => {
-		if (before === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = before;
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 	const at = (name: string) => path.join(dir, name);

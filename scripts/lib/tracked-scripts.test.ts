@@ -60,6 +60,20 @@ describe("readTrackedScripts on --root", () => {
 		});
 	});
 
+	it("lists the whole tree's files on an empty top", () => {
+		write("scripts/a.test.ts");
+		write(".claude/skills/s/b.test.ts");
+		write("c.test.ts");
+		write("docs/d.js");
+		said = [];
+		expect(
+			readTrackedScripts(ctx(dir), (rel: string) => rel.endsWith(".ts"), ""),
+		).toEqual({
+			root: dir,
+			files: [".claude/skills/s/b.test.ts", "c.test.ts", "scripts/a.test.ts"],
+		});
+	});
+
 	it("is BROKEN on a missing root, never an empty set", () => {
 		expect(() => read(path.join(dir, "missing"))).toThrow(
 			/^BROKEN could not read .*missing: .*No scripts\/ files read\.$/,
