@@ -207,8 +207,7 @@ const REVIEW_TIER_STAMP = path.join(__dirname, "lib", "review-tier-stamp.sh");
 
 /**
  * --check's private index and git directory, set by armStampRemoval once its
- * hooks may run and read by finish, through removeHookStamps, however the run
- * ends.
+ * hooks may run.
  * @type {{index: string, gitDir: string}|null}
  */
 let checkedIndex = null;
@@ -222,8 +221,7 @@ const armStampRemoval = ({ index }) => {
  * --check: removes each stamp the hooks leave keyed to the private index's
  * tree — pre-commit's stand-down stamp (mantahostels#1705) and this session's
  * review-hold stamp (#3664) — which a commit's prepare-commit-msg would have
- * consumed. One holding another tree is a neighbour commit's, and stays. Each
- * stamp it cannot judge is named, as one a later commit may stand down on.
+ * consumed. One holding another tree is a neighbour commit's, and stays.
  */
 function removeHookStamps() {
 	if (!checkedIndex) return;
@@ -785,8 +783,7 @@ function commitPatch(message, cut, whole) {
  * from it; a private index takes no lock on the worktree's, so a second commit
  * running alongside in the same worktree overwrites it and each lands under
  * the other's message. Here it lives in this run's own file. The hooks run as
- * runCommitHooks runs them; post-commit is left owed to runPostCommit. The
- * message is signed where `commit.gpgSign` says. The ref update names `base`
+ * runCommitHooks runs them; post-commit is left owed to runPostCommit. The ref update names `base`
  * as HEAD's old value, so a HEAD another commit in this worktree moved since
  * the index was built refuses, nothing written.
  * @param {string} message
@@ -844,8 +841,7 @@ function stdoutOrRefuse(r) {
 /**
  * The hooks git's commit runs before it writes the commit object, over the
  * private index: pre-commit, then — unless `message` is "" — prepare-commit-msg
- * `<file> message` and commit-msg `<file>`, each seeing the private index and
- * `GIT_EDITOR=:`. The tree is the index as pre-commit leaves it, refused where
+ * `<file> message` and commit-msg `<file>`. The tree is the index as pre-commit leaves it, refused where
  * it matches the base's. The message is cleaned by `commit.cleanup` as `-m`'s
  * is, before the hooks see it and again after.
  * @param {RunFiles} files
@@ -1705,8 +1701,7 @@ function printTree(whole, cut) {
 
 /**
  * --check: the verdict a commit of `whole`, with `cut` applied where given and
- * `message` where not "", would get — its pre-lock runs, then its hooks over
- * the private index — stopping before the commit object.
+ * `message` where not "", would get.
  * @param {string[]} whole
  * @param {string|null} cut
  * @param {string} message

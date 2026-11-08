@@ -1105,7 +1105,6 @@ describe("git's own refusals — exit 3, relayed", () => {
 	});
 });
 
-/** The outcome log whole, "" where none is written yet. */
 const readLog = () => {
 	const read = readText(store.paths.commitPathsLog());
 	if (read.state === "unreadable") throw read.error;
@@ -1183,7 +1182,6 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 
 describe("--check: the verdict a commit would get, nothing written (#4207)", () => {
 	const runs = () => path.join(sb.dir, "pre-commit-runs");
-	/** How many times the fixture pre-commit has run. */
 	const countRuns = () => {
 		const read = readText(runs());
 		if (read.state === "unreadable") throw read.error;
@@ -1221,7 +1219,7 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 			...process.env,
 			CLAUDE_CODE_SESSION_ID: Sid,
 		});
-	/** Everything a check may not move: the outcome log, the git log, the status, the index, the git directory's files. */
+	/** Everything a check may not move. */
 	const snapshot = () => [
 		readLog(),
 		git("log", "--format=%H"),
@@ -1296,7 +1294,6 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 		expect(snapshot()).toEqual(before);
 	});
 
-	/** A patch adding a line to a.md, written beside the repo. */
 	const patchOf = (text: string) => {
 		write("a.md", text);
 		const patch = path.join(sb.dir, "check.patch");
