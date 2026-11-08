@@ -35,6 +35,7 @@ const {
 } = require("./lib/formatters");
 const { caught } = require("./lib/caught.js");
 const { readBlob, spawn, readStagedDiff } = require("./lib/staged");
+const { relativeUnder } = require("./lib/is-under.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /**
@@ -148,8 +149,7 @@ function readRunDeath(run) {
 /** check-shfmt.js, relative inside the repo, absolute from an adopter's plugin cache. */
 function shfmtPath() {
 	const abs = path.join(__dirname, "check-shfmt.js");
-	const rel = path.relative(process.cwd(), abs);
-	return rel.startsWith("..") ? abs : rel;
+	return relativeUnder(process.cwd(), abs) ?? abs;
 }
 
 runCheck({

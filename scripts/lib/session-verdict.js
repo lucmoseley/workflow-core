@@ -23,6 +23,7 @@ const markerLib = require("./test-pass-marker.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
 const { pushGateState } = require("./test-gate.js");
+const { relativeUnder } = require("./is-under.js");
 
 const { shortSha } = markerLib;
 
@@ -307,8 +308,7 @@ function buildLastRedNote(root, log) {
 	 * path outside the root, or already relative, is printed as it stands. */
 	const files = red.files.map((f) => {
 		if (!path.isAbsolute(f)) return f;
-		const rel = path.relative(root, f);
-		return rel && !rel.startsWith("..") ? rel : f;
+		return relativeUnder(root, f) || f;
 	});
 	const shown = files.slice(0, markerLib.MAX_LISTED_FILES);
 	const more = files.length - shown.length;

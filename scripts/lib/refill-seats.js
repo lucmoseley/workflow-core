@@ -26,6 +26,7 @@ const { caught } = require("./caught.js");
 const { realKey } = require("./deref.js");
 const { configDir, seatDir } = require("./config-dir.js");
 const { homeDir } = require("./refill-repos.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {{dir: string, kind: "plan"}} PlanSeat
@@ -255,10 +256,8 @@ function readConfiguredSeats() {
  * @param {string} [home]
  */
 function buildSeatName(seat, home = homeDir()) {
-	const rel = path.relative(home, seat);
-	return rel && !rel.startsWith("..") && !path.isAbsolute(rel)
-		? `~/${rel}`
-		: seat;
+	const rel = relativeUnder(home, seat);
+	return rel ? `~/${rel}` : seat;
 }
 
 /**

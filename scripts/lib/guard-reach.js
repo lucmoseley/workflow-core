@@ -24,6 +24,7 @@ const {
 	RULE_ARG_RE,
 } = require("./rule-emission-calls.js");
 const { RULES_DIR } = require("./rule-text.js");
+const { isUnder } = require("./is-under.js");
 
 /** The dispatcher's kit, which loads its cores by manifest path (#2786). */
 const DISPATCH_KIT = "scripts/lib/guard-dispatch.js";
@@ -169,7 +170,7 @@ function parseSourced(dir, text, isFile) {
 			const tail = sourcedTail(requiredGroup(m, 1, SOURCE_RE));
 			if (tail === null) continue;
 			const to = pick(sourceCandidates(dir, tail), isFile);
-			if (!to.startsWith("..") && !out.includes(to)) out.push(to);
+			if (!isUnder(to, [".."]) && !out.includes(to)) out.push(to);
 		}
 	return out;
 }
@@ -337,7 +338,7 @@ function parseLaunches(rel, dir, text, isFile) {
 			? [path.posix.join(dir, tail), root]
 			: [root];
 		const hit = candidates.find(
-			(c) => !c.startsWith("..") && c !== rel && isFile(c),
+			(c) => !isUnder(c, [".."]) && c !== rel && isFile(c),
 		);
 		if (hit) out.add(hit);
 	}

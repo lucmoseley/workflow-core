@@ -20,6 +20,7 @@ const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
 const { deref } = require("./deref.js");
 const { jobStorePath, readJobRecordIn } = require("./job-paths.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {{sessionId: string, name: string|null}} Owner
@@ -87,7 +88,7 @@ function worktreeHolding(cwd, worktrees) {
 	let best = null;
 	for (const wt of worktrees)
 		if (
-			(cwd === wt || cwd.startsWith(`${wt}${path.sep}`)) &&
+			isUnder(cwd, [wt], path.sep) &&
 			(best === null || wt.length > best.length)
 		)
 			best = wt;
@@ -144,8 +145,7 @@ function worktreeOwners(worktrees, listed) {
  * @returns {string}
  */
 function worktreeLabel(root, wt) {
-	const rel = path.relative(deref(root), wt);
-	return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : wt;
+	return relativeUnder(deref(root), wt) || wt;
 }
 
 module.exports = {
