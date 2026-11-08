@@ -975,7 +975,7 @@ const buildBenignRead = (root) => ({
 
 /**
  * What one run of `root`'s guard hook line on `call` fails on, or null where it
- * lets the call through, run from the shared tree's files, never the loop's code
+ * lets the call through, run from the main checkout's files, never the loop's code
  * copy, under the probe's own session id. `isAnyDeny`, whether any deny fails
  * it, as for the benign `Read`; else only one for want of a guard that could
  * judge the call, as a replayed call may be refused on its merits.
@@ -1047,7 +1047,7 @@ function readGuardLoadFailure(root) {
 
 /**
  * What fails of `root`'s shared `.git` and guard entry, or null where the probe
- * passes. `origin` and `main` are the shared tree's.
+ * passes. `origin` and `main` are the main checkout's.
  * @param {string} root
  * @returns {ProbeFailure|null}
  */
