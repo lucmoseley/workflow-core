@@ -421,6 +421,19 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 		expect(strip(`env -S "'it\\\\'s'"`).words).toEqual(["it's"]);
 	});
 
+	it.each([
+		[`env -S 'flock /l -c "\\ngit push"'`, "flock -c"],
+		[`env -S 'watch "\\n  \\ngit push"'`, "watch, past a whitespace-only line"],
+		[`env -S 'flock /l -c "# note\\ngit push"'`, "past a comment line"],
+		[`env -S 'flock /l -c "git push # x\\ntrue"'`, "stopping at its first"],
+	])("reads %s's first command past its blank lines (%s, #4281)", (command) => {
+		expect(strip(command).words).toEqual(["git", "push"]);
+	});
+
+	it("answers no words for a -c string of blank lines alone (#4281)", () => {
+		expect(strip(`env -S 'flock /l -c "\\n\\n"'`).words).toEqual([]);
+	});
+
 	it("answers no words for flock -c with no string after it (#4046)", () => {
 		expect(strip("flock /l -c").words).toEqual([]);
 	});

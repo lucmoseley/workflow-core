@@ -103,6 +103,7 @@ const {
 	worktreeLabel,
 } = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
+const { requiredGroup } = require("./regex-group.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { trimRun } = require("./trim-run.js");
 const {
@@ -136,6 +137,8 @@ const SLUG_MAX = 40;
 const SUFFIX_BYTES = 3;
 /* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
 const FETCH_TRIES = 3;
+/* Untraced: a fetch retry's and a store-lock wait's pause, short beside the
+ * second-scale fetch and the minutes-scale `npm ci` either waits on. */
 const POLL_MS = 1000;
 /* The timeout `.claude/settings.json` gives the canary and
  * self-plugin/hooks/hooks.json its marker writer. */
@@ -1398,9 +1401,10 @@ function prune(root) {
 	if (r.error) throw r.error;
 	if (r.status !== 0)
 		throw new Error(`git worktree prune exited ${r.status}: ${r.stderr}`);
-	return [
-		...`${r.stdout}${r.stderr}`.matchAll(/^Removing worktrees\/([^:]+):/gm),
-	].map((m) => m[1] ?? "");
+	const removing = /^Removing worktrees\/([^:]+):/gm;
+	return [...`${r.stdout}${r.stderr}`.matchAll(removing)].map((m) =>
+		requiredGroup(m, 1, removing),
+	);
 }
 
 /**

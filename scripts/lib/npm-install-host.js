@@ -15,6 +15,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { entryStartedAt } = require("./hook-deadline.js");
 const { npmBin } = require("./npm-bin.js");
@@ -44,26 +45,8 @@ function call(program, args, timeoutMs) {
 }
 
 /**
- * A file's text, null where it is absent or will not read. The core logs a
- * null package.json and allows, since every package would otherwise read as
- * new, and a null manifest leaves the bin's owner unread (lib/npm-install.js
- * LIMITS; mantahostels#103 §6, #4132).
- * @param {string} file
- * @returns {string | null}
- */
-function readOrNull(file) {
-	try {
-		return fs.readFileSync(file, "utf8");
-	} catch {
-		/* Absent and unreadable alike: the core's logged allow, above. */
-		return null;
-	}
-}
-
-/**
- * The two file reads take the session's tree from the core (#4242): the
- * install edits that tree's package.json, and its `npx` resolves there. The
- * dependency stores are the host root's.
+ * The dependency stores are the host root's; the session tree's package.json
+ * and manifests the core reads through its tree ports (#4242).
  * @param {string} root the host root
  * @returns {import("./npm-install.js").NpmInstallPorts}
  */
@@ -71,10 +54,6 @@ function buildHostPorts(root) {
 	const npm = npmBin();
 	const curl = process.env.WFC_CURL || "curl";
 	return {
-		readPackageJson: (tree) => {
-			const pkg = path.join(tree, "package.json");
-			return { path: pkg, text: readOrNull(pkg) };
-		},
 		pathExists: (p) => fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined,
 		linkTarget: (p) => {
 			try {
@@ -82,7 +61,7 @@ function buildHostPorts(root) {
 			} catch (err) {
 				/* Absent, or no link: nothing links there (#4255). Any other
 				 * fault throws, and the entry refuses on the record. */
-				const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+				const code = caught(err).code;
 				if (code === "ENOENT" || code === "EINVAL") return null;
 				throw err;
 			}
@@ -90,8 +69,6 @@ function buildHostPorts(root) {
 		/* Loaded on a judged write only: the module brings the lander and git
 		 * with it (#4269). */
 		storesDir: () => path.join(root, require("./session-checkout.js").STORES),
-		readManifest: (tree, dep) =>
-			readOrNull(path.join(tree, "node_modules", dep, "package.json")),
 		npmView: (name) =>
 			call(npm, ["view", name, "time.created", "--json"], NPM_TIMEOUT_MS),
 		downloads: (name) =>

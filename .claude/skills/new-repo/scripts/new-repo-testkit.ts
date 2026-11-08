@@ -544,7 +544,8 @@ function copyByHand(s: Sandbox) {
 	);
 	s.git("fetch", "-q", "upstream", "+refs/tags/*:refs/tags/*");
 	s.git("checkout", "-q", "--no-track", "-B", "main", "upstream/trunk");
-	s.git("push", "-q", "origin", "main", "v1", "v2");
+	// main waits for the push step, which carries the skeleton commit (#4685).
+	s.git("push", "-q", "origin", "v1", "v2");
 }
 
 /** The set-aside step done by hand: the source repo's own files moved. */
@@ -611,7 +612,7 @@ const steps = (copy: boolean): Step[] => [
 					"--project",
 					"tides",
 					"--modules",
-					copy ? "suites" : "",
+					copy ? "suites,landing" : "landing",
 					"--marketplace-ref",
 					// The sandbox's newest tag, which the script passes too.
 					"v1.10.0",

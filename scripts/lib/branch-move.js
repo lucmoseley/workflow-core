@@ -140,14 +140,13 @@ function decide(command, ctx) {
 		},
 	);
 	if (refusal !== null) return { deny: refusal };
-	if (!ruleSubject) return null;
-	/* With `landing` on, the line naming the cutover rides with it (#2409),
-	 * until the cutover removes that upstream. */
+	/* Once cut over, the rule's shared-tree recipe binds no session: each works
+	 * in the worktree the checkout module cut it (#4248). */
+	if (!ruleSubject || readCutOverOnce()) return null;
+	/* With `landing` on, the line naming the cutover rides with it (#2409). */
 	return {
 		injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-		skip: readCutOverOnce()
-			? ["branch-shared-tree-landing"]
-			: [...ruleModule(ctx, "landing", ["branch-shared-tree-landing"])],
+		skip: [...ruleModule(ctx, "landing", ["branch-shared-tree-landing"])],
 	};
 }
 

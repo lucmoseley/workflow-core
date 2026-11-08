@@ -205,6 +205,9 @@ function sessionTree(input) {
 	try {
 		return gitTopLevel(sessionDir(input));
 	} catch {
+		/* Null, never the host: the dispatcher then allows the core unchecked
+		 * (TreeUnresolved, lib/tree-or.js, #4242), where the host's tree would
+		 * judge the main checkout's state as this session's (#4234). */
 		return null;
 	}
 }
@@ -285,8 +288,8 @@ function resolveCommitHost(cwd = process.cwd()) {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
-		if (gitDir !== common && path.basename(common) === ".git")
-			return deref(path.dirname(common));
+		const owner = checkoutOfCommonDir(common);
+		if (gitDir !== common && owner !== null) return deref(owner);
 		return gitTopLevel(cwd);
 	} catch (e) {
 		const answer = deref(cwd);
