@@ -26,7 +26,8 @@
  *
  * IT READS THE OUTGOING MESSAGE ON TWO PATHS: the `waiting:` stand-down below
  * (mantahostels#2567), reached only on a turn with dirt to name, and the
- * clean-claim limb's marker check (#3565).
+ * clean-claim limb's marker check (#3565). mantahostels#872 — Stop hooks not firing
+ * at all in one background session — still reaches this guard.
  *
  * IT WRITES NO `.hook-ran-` BREADCRUMB, and both paths deliberately read the
  * message without minting one: `hookMessage.readMessageFrom` records on every
