@@ -21,7 +21,7 @@
 	"scripts/check-issue-labels.js": "8e9e71db97be123d",
 	"scripts/check-jev-flags.js": "d88d1de31ff2306b",
 	"scripts/check-kernel-stall.js": "82089522652937c6",
-	"scripts/check-landing-switch-on.js": "4998aa46bfa0a7a3",
+	"scripts/check-landing-switch-on.js": "e35d024f0b9dd00d",
 	"scripts/check-lockfile-sync.js": "6e62f2accd6b46fd",
 	"scripts/check-main-checkout-commit.js": "30fad85ccffc807d",
 	"scripts/check-orphan-wait-loops.js": "a2a97589129f3335",

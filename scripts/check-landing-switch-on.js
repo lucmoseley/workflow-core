@@ -52,29 +52,29 @@ runCheck({
 			try {
 				return moduleOn("landing", { root });
 			} catch (e) {
-				return ctx.skip(
+				return ctx.broken(
 					`${root}'s .claude/workflow-core.json will not read: ${caught(e).message}`,
 				);
 			}
 		})();
-		const cutOver = landingOn
-			? readCutOver(gitReader(root, GIT_TIMEOUT_MS))
-			: null;
 		const judged = judgeSwitchOn(
-			{ version, landingOn, cutOver },
+			{
+				version,
+				landingOn,
+				cutOver: () => readCutOver(gitReader(root, GIT_TIMEOUT_MS)),
+			},
 			{
 				note: corePath(NOTE),
 				cutoverCommand: `node ${scriptPath("cutover-main-checkout.js")}`,
 				stepsCommand: `node ${scriptPath("steps-owed.js")} list`,
 			},
 		);
-		const data = { version, landingOn, cutOver, state: judged.state };
-		if (judged.state === "before" || judged.state === "unread")
-			return ctx.skip(judged.line);
-		if (judged.state === "ok") return { okLine: judged.line, data };
-		const tag = judged.state === "off" ? "LANDING-OFF" : "NOT-CUT-OVER";
-		ctx.fail(tag, judged.line, data);
-		ctx.say(`${tag} — ${judged.line}`);
+		const data = { version, landingOn };
+		if (judged.outcome === "broken") return ctx.broken(judged.line);
+		if (judged.outcome === "skip") return ctx.skip(judged.line);
+		if (judged.outcome === "ok") return { okLine: judged.line, data };
+		ctx.fail(judged.tag, judged.line, data);
+		ctx.say(`${judged.tag} — ${judged.line}`);
 		return { noun: "shared-tree exposure(s)", data };
 	},
 });

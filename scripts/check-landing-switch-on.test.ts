@@ -70,7 +70,9 @@ describe("check-landing-switch-on.js (#4688)", () => {
 
 	it("fails a later release running landing off too", () => {
 		setUp("2.3.1", [], null);
-		expect(check().stderr).toContain("LANDING-OFF");
+		const r = check();
+		expect(r.stderr).toContain("LANDING-OFF");
+		expect(r.status).toBe(1);
 	});
 
 	it("fails landing on but not cut over, naming cutover-main-checkout.js", () => {
@@ -92,13 +94,51 @@ describe("check-landing-switch-on.js (#4688)", () => {
 		setUp("2.0.1", [], "main");
 		const r = check();
 		expect(r.stderr).toContain("SKIP:");
+		expect(r.stderr).toContain("2.0.1 predates v2.1.0");
 		expect(r.status).toBe(0);
 	});
 
-	it("prints the FAIL at SessionStart and nothing once cut over", () => {
+	it("prints each FAIL at SessionStart and nothing once cut over", () => {
 		setUp("2.1.0", [], "main");
 		expect(check("--notify").stdout).toContain("LANDING-OFF");
+		setUp("2.1.0", ["landing"], "landing");
+		expect(check("--notify").stdout).toContain("NOT-CUT-OVER");
 		setUp("2.1.0", ["landing"], "main");
 		expect(check("--notify").stdout).toBe("");
+	});
+
+	it("reports the judgement under --json", () => {
+		setUp("2.1.0", [], "main");
+		const out = JSON.parse(check("--json").stdout);
+		expect(out).toMatchObject({
+			outcome: "FAIL",
+			version: "2.1.0",
+			landingOn: false,
+		});
+	});
+
+	it("is broken on a core whose version is no x.y.z", () => {
+		setUp("next", [], "main");
+		const r = check();
+		expect(r.stderr).toContain('"next" is no x.y.z');
+		expect(r.status).toBe(2);
+	});
+
+	it("is broken where the repo's config will not read", () => {
+		setUp("2.1.0", [], "main");
+		fs.writeFileSync(path.join(repo, ".claude", "workflow-core.json"), "{");
+		const r = check();
+		expect(r.stderr).toContain("workflow-core.json will not read");
+		expect(r.status).toBe(2);
+	});
+
+	it("is listed in npm run status", () => {
+		const status = fs.readFileSync(
+			path.join(__dirname, "status-report.js"),
+			"utf8",
+		);
+		expect(status).toContain(
+			'["landing-switch-on", "check-landing-switch-on.js"]',
+		);
 	});
 });
