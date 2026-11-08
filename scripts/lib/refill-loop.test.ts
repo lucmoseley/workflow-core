@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AS_ROOT, freshSandbox, store } from "./arbiter-testkit";
 import { buildStatusLines } from "./refill-commands.js";
 import { decideTick } from "./refill-decide.js";
@@ -2133,16 +2133,13 @@ describe("when a tick files the morning review (#2017)", () => {
 
 describe("a job that never started (#2467)", () => {
 	let home: string;
-	const saved = process.env.CLAUDE_CONFIG_DIR;
 
 	beforeEach(() => {
 		home = fs.mkdtempSync(path.join(os.tmpdir(), "refill-ghost-"));
-		process.env.CLAUDE_CONFIG_DIR = path.join(home, ".claude");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(home, ".claude"));
 	});
 
 	afterEach(() => {
-		if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-		else process.env.CLAUDE_CONFIG_DIR = saved;
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 
@@ -2234,15 +2231,9 @@ describe("a job that never started (#2467)", () => {
 	});
 
 	it("never stops the job of the session it runs in", () => {
-		const ownSession = process.env.CLAUDE_CODE_SESSION_ID;
-		process.env.CLAUDE_CODE_SESSION_ID = "s-ghost";
-		try {
-			const r = run(registry(live), [job("a02186db", "s-ghost", 31)]);
-			expect(r.stopped).toEqual([]);
-		} finally {
-			if (ownSession === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
-			else process.env.CLAUDE_CODE_SESSION_ID = ownSession;
-		}
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "s-ghost");
+		const r = run(registry(live), [job("a02186db", "s-ghost", 31)]);
+		expect(r.stopped).toEqual([]);
 	});
 
 	it("leaves a job inside the grace, one with a live process, one not working, and one with a transcript", () => {

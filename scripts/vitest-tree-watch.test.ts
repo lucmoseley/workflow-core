@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commitAll, freshSandbox, gitRepo } from "./lib/arbiter-testkit";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
@@ -25,7 +25,7 @@ const { FAIL_STORE } = markerLib;
 const { fillRunReport, takeRunReport } = require("./lib/suite-handoff.js");
 
 const sb = freshSandbox(() => {
-	process.env.CLAUDE_CODE_SESSION_ID = "me";
+	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 });
 
 /*

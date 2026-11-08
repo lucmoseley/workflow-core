@@ -23,7 +23,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
 import { AS_ROOT, registerSession } from "./lib/arbiter-testkit";
@@ -623,17 +623,15 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 
 	/** `owner`'s own baseline on `rel`, taken without a claim (mantahostels#363). */
 	function observe(rel: string, owner: string) {
-		const before = [
-			process.env.CLAUDE_PROJECT_DIR,
-			process.env.CLAUDE_CONFIG_DIR,
-		];
-		process.env.CLAUDE_PROJECT_DIR = root;
-		process.env.CLAUDE_CONFIG_DIR = path.join(root, ".claude-home");
+		const { CLAUDE_PROJECT_DIR, CLAUDE_CONFIG_DIR } = process.env;
+		vi.stubEnv("CLAUDE_PROJECT_DIR", root);
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(root, ".claude-home"));
 		try {
 			const sha = arbiter.recordObservation(rel, { sessionId: owner });
 			expect(sha, `no observation was minted for ${rel}`).not.toBeNull();
 		} finally {
-			[process.env.CLAUDE_PROJECT_DIR, process.env.CLAUDE_CONFIG_DIR] = before;
+			vi.stubEnv("CLAUDE_PROJECT_DIR", CLAUDE_PROJECT_DIR);
+			vi.stubEnv("CLAUDE_CONFIG_DIR", CLAUDE_CONFIG_DIR);
 		}
 	}
 

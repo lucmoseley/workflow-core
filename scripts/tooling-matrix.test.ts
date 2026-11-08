@@ -822,11 +822,12 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		expect(hook).toMatch(call);
 	});
 
-	it("names the three test-isolation checkers in one row, all three still run", () => {
+	it("names the four test-isolation checkers in one row, all four still run", () => {
 		for (const checker of [
 			"check-guard-test-isolation",
 			"check-host-root-test-isolation",
 			"check-git-fixture-identity",
+			"check-test-env-writes",
 		]) {
 			expect(floor).toContain(`scripts/${checker}.js`);
 			expect(hook).toMatch(new RegExp(`${checker}\\.js --against HEAD`));

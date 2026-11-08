@@ -38,7 +38,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useScratchCore } from "./scratch-core-testkit";
 
 const require_ = createRequire(__filename);
@@ -167,15 +167,13 @@ describe("the producer table against another wiring", () => {
 	 * — reads as if it were still in force for a producer it no longer
 	 * matches. */
 	let root = "";
-	let restoreCore: () => void;
 	beforeEach(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "persist-replay-"));
 		fs.mkdirSync(path.join(root, ".claude"));
-		restoreCore = useScratchCore(root);
+		useScratchCore(root);
 	});
 	afterEach(() => {
 		fs.rmSync(root, { recursive: true, force: true });
-		restoreCore();
 	});
 
 	const wire = (...scripts: string[]) =>
@@ -415,7 +413,6 @@ describe("parkStamps", () => {
 	 * standing finding nobody had been shown. */
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 	const stamps: any = require_("./delivery-stamp.js");
-	const savedEnv = { ...process.env };
 	let sandbox = "";
 
 	beforeEach(() => {
@@ -427,10 +424,9 @@ describe("parkStamps", () => {
 			"WFC_CLAUDE_CONFIG_B",
 			"WFC_CLAUDE_CONFIG_C",
 		])
-			process.env[v] = sandbox;
+			vi.stubEnv(v, sandbox);
 	});
 	afterEach(() => {
-		process.env = { ...savedEnv };
 		fs.rmSync(sandbox, { recursive: true, force: true });
 	});
 

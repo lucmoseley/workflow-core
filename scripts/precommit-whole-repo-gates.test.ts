@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Pins the whole-repo pre-commit gates (mantahostels#1753) — guard-registry,
- * guard-test-isolation, git-fixture-identity, jsonl-reads, report-programs, cli-args, test-spawn and gh-route — exercised as the
+ * guard-test-isolation, git-fixture-identity, test-env-writes, jsonl-reads, report-programs, cli-args, test-spawn and gh-route — exercised as the
  * shell they are: each one call, `--against HEAD` for a direction-gated gate
  * and `--index` for a whole-tree one, refusing with the checker's own exit code,
  * and, for a direction-gated one, the `--root` each side of the comparison is
@@ -52,6 +52,13 @@ const GATES = [
 		profile: "git-fixture-identity",
 		checker: "scripts/check-git-fixture-identity.js",
 		staged: "scripts/a.test.ts",
+		args: "--against HEAD",
+	},
+	{
+		profile: "test-env-writes",
+		checker: "scripts/check-test-env-writes.js",
+		// A helper alone, not a test: test-kind.test.ts pins the test-file arm.
+		staged: "scripts/lib/a-testkit.ts",
 		args: "--against HEAD",
 	},
 	{

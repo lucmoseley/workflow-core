@@ -16,7 +16,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const require_ = createRequire(__filename);
@@ -60,13 +60,13 @@ const compactionSet = () =>
 const setKeys = () =>
 	fs.readFileSync(compactionSet(), "utf8").trim().split("\n");
 
-const sandboxEnv = () => ({
-	...process.env,
+const sandboxVars = () => ({
 	CLAUDE_CONFIG_DIR: dir,
 	CLAUDE_PROJECT_DIR: dir,
 	WFC_REPO_ROOT: dir,
 	WFC_DISPATCH_ROOT: dir,
 });
+const sandboxEnv = () => ({ ...process.env, ...sandboxVars() });
 
 const exec = (script: string, payload: object) => {
 	const r = runInProcess(script, [], {
@@ -199,14 +199,15 @@ describe("a subagent's compaction leaves the parent's count as it was", () => {
 /* The claim the session took with claim-issue.js, recorded in the sandbox's
  * store as the hook will read it. */
 const claim = (issue: number) => {
-	const saved = process.env;
-	process.env = sandboxEnv();
+	const vars = Object.entries(sandboxVars());
+	const saved = vars.map(([k]) => [k, process.env[k]] as const);
+	for (const [k, v] of vars) vi.stubEnv(k, v);
 	try {
 		require_("./lib/arbiter-issue-claims.js").claimIssue(issue, {
 			sessionId: sid,
 		});
 	} finally {
-		process.env = saved;
+		for (const [k, v] of saved) vi.stubEnv(k, v);
 	}
 };
 const stateFile = (issue: number) =>

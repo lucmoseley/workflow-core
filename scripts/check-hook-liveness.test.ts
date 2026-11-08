@@ -407,11 +407,9 @@ describe("check-hook-liveness — the census", () => {
 	 * a stand-in core keeps the live core's out of every case. The host has
 	 * no settings file until a case wires a hook, and --notify stays silent
 	 * on it (#2462). */
-	let restoreCore: () => void;
 	beforeEach(() => {
-		restoreCore = useScratchCore(path.dirname(dir));
+		useScratchCore(path.dirname(dir));
 	});
-	afterEach(() => restoreCore());
 
 	it("reports a hook whose failures dominate, at the zero-success floor", () => {
 		transcript(dir, "s1", failures(WIRED, 60));

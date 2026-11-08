@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -21,16 +21,8 @@ const LEDGER = "docs/pool-admission-ledger.json";
 const INJECTED = "docs/agents/issue-tracker.md";
 
 let dir: string;
-const saved: Record<string, string | undefined> = {};
-const PINNED = [
-	"WFC_INJECTOR_FILE",
-	"WFC_RULES_FALLBACK_DIR",
-	"WFC_GH",
-	"CLAUDE_PROJECT_DIR",
-];
 
 beforeEach(() => {
-	for (const k of PINNED) saved[k] = process.env[k];
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-admission-"));
 	fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
 	fs.mkdirSync(path.join(dir, "docs", "agents"), { recursive: true });
@@ -39,22 +31,21 @@ beforeEach(() => {
 		`#!/usr/bin/env bash\nDOCS=(${INJECTED})\nheader="fixture"\n`,
 	);
 	fs.writeFileSync(path.join(dir, INJECTED), "x");
-	process.env.WFC_INJECTOR_FILE = path.join(
-		dir,
-		"scripts",
-		"inject-tracker-docs.sh",
+	vi.stubEnv(
+		"WFC_INJECTOR_FILE",
+		path.join(dir, "scripts", "inject-tracker-docs.sh"),
 	);
-	process.env.WFC_RULES_FALLBACK_DIR = fs.mkdtempSync(path.join(dir, "rules-"));
+	vi.stubEnv(
+		"WFC_RULES_FALLBACK_DIR",
+		fs.mkdtempSync(path.join(dir, "rules-")),
+	);
 	/* No ticket lookup reaches the real tracker. */
-	process.env.WFC_GH = stubGhScript(dir, "#!/bin/sh\nexit 1\n").gh;
-	delete process.env.CLAUDE_PROJECT_DIR;
+	vi.stubEnv("WFC_GH", stubGhScript(dir, "#!/bin/sh\nexit 1\n").gh);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 	config(true);
 });
 
 afterEach(() => {
-	for (const k of PINNED)
-		if (saved[k] === undefined) delete process.env[k];
-		else process.env[k] = saved[k];
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -280,10 +271,13 @@ describe("the admission gate at --against HEAD", () => {
 
 	it("looks the ticket states up on the index side alone, so an --against run makes one GraphQL call", () => {
 		const calls = path.join(dir, "gh-calls");
-		process.env.WFC_GH = stubGhScript(
-			dir,
-			`#!/bin/sh\necho x >> ${shellQuote(calls)}\necho '{"data":{"repository":{"i2013":{"state":"CLOSED"}}}}'\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				dir,
+				`#!/bin/sh\necho x >> ${shellQuote(calls)}\necho '{"data":{"repository":{"i2013":{"state":"CLOSED"}}}}'\n`,
+			).gh,
+		);
 		claude(KEPT);
 		ledger({
 			headline: "Keep the tree on `main`.",
@@ -318,10 +312,13 @@ describe("the admission gate at --against HEAD", () => {
 	});
 
 	it("prints the rule count, and reports a trigger entry whose ticket has closed while its rule is still in the pool, never refusing on it", () => {
-		process.env.WFC_GH = stubGhScript(
-			dir,
-			`#!/bin/sh\necho '{"data":{"repository":{"i2013":{"state":"CLOSED"},"i2015":{"state":"OPEN"}}}}'\n`,
-		).gh;
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				dir,
+				`#!/bin/sh\necho '{"data":{"repository":{"i2013":{"state":"CLOSED"},"i2015":{"state":"OPEN"}}}}'\n`,
+			).gh,
+		);
 		claude(KEPT, ADDED);
 		ledger(
 			{ headline: "Keep the tree on `main`.", route: "trigger", ticket: 2013 },

@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
@@ -56,7 +56,7 @@ describe("a commit from a worktree reads the host's rule layer at the main check
 	/* The suite pins every rule read to the core's layer (vitest.setup.ts);
 	 * unpinned, a read takes the host's layer first. */
 	const refusal = () => {
-		delete process.env.WFC_RULES_DIR;
+		vi.stubEnv("WFC_RULES_DIR", undefined);
 		return (
 			runCore(
 				"guard-commit-form",

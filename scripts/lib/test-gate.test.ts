@@ -14,20 +14,17 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process.js";
 import { pushGateState } from "./test-gate.js";
 
 const dirs: string[] = [];
 /* WFC_MODULES replaces the declared module list, so a value inherited from
  * the shell would decide `suites` instead of each case's own config. */
-const priorModules = process.env.WFC_MODULES;
 beforeEach(() => {
-	delete process.env.WFC_MODULES;
+	vi.stubEnv("WFC_MODULES", undefined);
 });
 afterEach(() => {
-	if (priorModules === undefined) delete process.env.WFC_MODULES;
-	else process.env.WFC_MODULES = priorModules;
 	while (dirs.length > 0)
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });

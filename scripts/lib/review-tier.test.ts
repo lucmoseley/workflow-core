@@ -24,7 +24,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
@@ -363,11 +363,14 @@ describe("a session in a linked worktree (#2386)", () => {
 	 * lib/git.js reads on every call (base §N7).
 	 */
 	const oldGitAt = (at: string) => {
-		process.env.WFC_GIT = writeFaultyGit(
-			{ argPrefix: "--path-format=" },
-			{ script: `[ "$(pwd -P)" = ${shellQuote(at)} ] && exit 129` },
-			{ under: sb.dir },
-		).git;
+		vi.stubEnv(
+			"WFC_GIT",
+			writeFaultyGit(
+				{ argPrefix: "--path-format=" },
+				{ script: `[ "$(pwd -P)" = ${shellQuote(at)} ] && exit 129` },
+				{ under: sb.dir },
+			).git,
+		);
 	};
 
 	it("logs a failed common-dir read in the worktree, and matches the root alone (#2529)", () => {
@@ -504,10 +507,10 @@ describe("the byte budget (#1619)", () => {
 					path.resolve(__dirname, "..", "..", sub),
 					path.join(root, sub),
 				);
-			process.env.WFC_SCRIPT_ROOT = root;
+			vi.stubEnv("WFC_SCRIPT_ROOT", root);
 			installed = envelope() ?? "";
 		} finally {
-			delete process.env.WFC_SCRIPT_ROOT;
+			vi.stubEnv("WFC_SCRIPT_ROOT", undefined);
 			fs.rmSync(temp, { recursive: true, force: true });
 		}
 		expect(installed).toContain(`${root}/`);
@@ -854,11 +857,14 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	it("logs a staged listing git fails, and states no tier (#3446)", () => {
 		declare([RLS]);
 		stage(SQL);
-		process.env.WFC_GIT = writeFaultyGit(
-			{ words: ["diff", "--cached"] },
-			{ exit: 128 },
-			{ under: sb.dir },
-		).git;
+		vi.stubEnv(
+			"WFC_GIT",
+			writeFaultyGit(
+				{ words: ["diff", "--cached"] },
+				{ exit: 128 },
+				{ under: sb.dir },
+			).git,
+		);
 		expect(envelope()).toBeNull();
 		expect(logs).toContain(
 			`git diff --cached failed in ${sb.repo} — its staged paths left unmatched`,

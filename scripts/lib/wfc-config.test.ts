@@ -561,13 +561,8 @@ describe("parity with the JS reader (#1481)", () => {
 	};
 
 	const jsAnswers = (row: Row, asks: Asks): Answers => {
-		const saved = {
-			WFC_MODULES: process.env.WFC_MODULES,
-			WFC_OUTPUT_STYLE: process.env.WFC_OUTPUT_STYLE,
-		};
-		delete process.env.WFC_OUTPUT_STYLE;
-		if (row.modulesEnv === undefined) delete process.env.WFC_MODULES;
-		else process.env.WFC_MODULES = row.modulesEnv;
+		vi.stubEnv("WFC_OUTPUT_STYLE", undefined);
+		vi.stubEnv("WFC_MODULES", row.modulesEnv);
 		// The rows' own malformed keys warn; the answers are what is compared.
 		const stderr = vi
 			.spyOn(process.stderr, "write")
@@ -584,9 +579,6 @@ describe("parity with the JS reader (#1481)", () => {
 			return out;
 		} finally {
 			stderr.mockRestore();
-			for (const [k, v] of Object.entries(saved))
-				if (v === undefined) delete process.env[k];
-				else process.env[k] = v;
 		}
 	};
 

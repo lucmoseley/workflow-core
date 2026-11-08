@@ -388,6 +388,7 @@ describe("a test that runs a Node guard entry (#2898)", () => {
 				"scripts/lib/arbiter-testkit.ts",
 				`export function freshSandbox() {\n\tbeforeEach(() => {\n\t\t${body}\n\t});\n}\nexport const other = () => {};\n`,
 			);
+		const setsConfigDir = 'vi.stubEnv("CLAUDE_CONFIG_DIR", home);';
 		const test = (call: string, env = "{ ...process.env }") =>
 			track(
 				"scripts/guard-n.test.ts",
@@ -399,28 +400,28 @@ describe("a test that runs a Node guard entry (#2898)", () => {
 
 		it("passes where it calls the helper and spreads process.env", () => {
 			nodeGuard("guard-n.js");
-			kit("process.env.CLAUDE_CONFIG_DIR = home;");
+			kit(setsConfigDir);
 			test("const sb = freshSandbox();");
 			expect(run().status).toBe(0);
 		});
 
 		it("fails where the assignment is only a comment", () => {
 			nodeGuard("guard-n.js");
-			kit("// process.env.CLAUDE_CONFIG_DIR = home;");
+			kit(`// ${setsConfigDir}`);
 			test("const sb = freshSandbox();");
 			expect(run().status).toBe(1);
 		});
 
 		it("fails where it imports the helper but calls only another export", () => {
 			nodeGuard("guard-n.js");
-			kit("process.env.CLAUDE_CONFIG_DIR = home;");
+			kit(setsConfigDir);
 			test("other();");
 			expect(run().status).toBe(1);
 		});
 
 		it("fails where no spawn spreads process.env", () => {
 			nodeGuard("guard-n.js");
-			kit("process.env.CLAUDE_CONFIG_DIR = home;");
+			kit(setsConfigDir);
 			test("const sb = freshSandbox();", "{ PATH: p }");
 			expect(run().status).toBe(1);
 		});

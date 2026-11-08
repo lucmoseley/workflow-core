@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { FULL, NOTHING_LAUNCHABLE } = require("./refill-decide.js");
 const {
@@ -661,11 +661,10 @@ describe("what status --json carries for the panel (#4062)", () => {
 
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "concurrency-status-"));
-		process.env.WFC_REFILL_DIR = dir;
+		vi.stubEnv("WFC_REFILL_DIR", dir);
 	});
 
 	afterEach(() => {
-		delete process.env.WFC_REFILL_DIR;
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 

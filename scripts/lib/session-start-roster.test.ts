@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	allRegistrations,
 	buildCommandLine,
@@ -32,17 +32,15 @@ const lib: any = require("./session-start-roster");
 const ruleEmission: any = require("./rule-emission");
 
 let dir = "";
-let restoreCore: () => void;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-start-roster-"));
 	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
-	restoreCore = useScratchCore(dir);
+	useScratchCore(dir);
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	restoreCore();
 });
 
 const write = (settings: unknown) =>
@@ -314,7 +312,7 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 	 * this can only regress-guard the parse and the walk, never the
 	 * args-join — that discrimination is the fixture case's alone. */
 	it("names exactly the SessionStart registrations both markers reach, over the real registration", () => {
-		delete process.env.WFC_SCRIPT_ROOT;
+		vi.stubEnv("WFC_SCRIPT_ROOT", undefined);
 		const settings = readCoreHooks();
 		const wired = allRegistrations(settings)
 			.filter((r) => r.event === "SessionStart")

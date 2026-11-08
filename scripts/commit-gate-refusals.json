@@ -145,6 +145,12 @@
 			"lines": ["with no identity set for it, so it fails on a runner"]
 		},
 		{
+			"id": "test-env-writes",
+			"lines": [
+				"which unstubEnvs never restores, so the change outlives its case"
+			]
+		},
+		{
 			"id": "host-root",
 			"lines": [
 				{

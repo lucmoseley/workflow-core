@@ -17,7 +17,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { hookIsWired, readCoreHooks } from "./hook-wiring";
 import { readShellConst } from "./shell-const-testkit";
@@ -504,18 +504,12 @@ describe("ruleModule (#449) and ruleUnlessModule (#2409, #2785)", () => {
 		"] };",
 	].join("\n");
 	const reach = (modules: string) => {
-		const before = process.env.WFC_MODULES;
-		process.env.WFC_MODULES = modules;
-		try {
-			return figures(
-				{ Bash: ["scripts/guard-mod.js"] },
-				{ "scripts/guard-mod.js": src },
-				{ lead: "l".repeat(100), mid: "m".repeat(200), old: "o".repeat(400) },
-			);
-		} finally {
-			if (before === undefined) delete process.env.WFC_MODULES;
-			else process.env.WFC_MODULES = before;
-		}
+		vi.stubEnv("WFC_MODULES", modules);
+		return figures(
+			{ Bash: ["scripts/guard-mod.js"] },
+			{ "scripts/guard-mod.js": src },
+			{ lead: "l".repeat(100), mid: "m".repeat(200), old: "o".repeat(400) },
+		);
 	};
 
 	it("charges the module's ids and leaves out its unless-ids where the host has it on", () => {
@@ -531,22 +525,16 @@ describe("ruleModule (#449) and ruleUnlessModule (#2409, #2785)", () => {
 	});
 
 	it("reads a gate written as the skip key's whole value", () => {
-		const before = process.env.WFC_MODULES;
-		process.env.WFC_MODULES = "landing";
-		try {
-			const r = figures(
-				{ Bash: ["scripts/guard-mod.js"] },
-				{
-					"scripts/guard-mod.js":
-						'return {\n\tinjectRules: ["old"],\n\tskip: ruleUnlessModule(ctx, "landing", ["old"]),\n};\n',
-				},
-				{ old: "o".repeat(400) },
-			);
-			expect(r.ratchet.ids).not.toContain("old");
-		} finally {
-			if (before === undefined) delete process.env.WFC_MODULES;
-			else process.env.WFC_MODULES = before;
-		}
+		vi.stubEnv("WFC_MODULES", "landing");
+		const r = figures(
+			{ Bash: ["scripts/guard-mod.js"] },
+			{
+				"scripts/guard-mod.js":
+					'return {\n\tinjectRules: ["old"],\n\tskip: ruleUnlessModule(ctx, "landing", ["old"]),\n};\n',
+			},
+			{ old: "o".repeat(400) },
+		);
+		expect(r.ratchet.ids).not.toContain("old");
 	});
 
 	it("throws on a module the core does not know, naming the guard and the module", () => {
@@ -1568,12 +1556,8 @@ describe("the core layer beneath the store (#101)", () => {
 
 	it("inherits no ambient fallback where the option is omitted, and restores it after", () => {
 		const ambient = store({ "core-only": "c".repeat(7) });
-		process.env.WFC_RULES_FALLBACK_DIR = ambient;
-		try {
-			expect(() => figures(wiring, sources, {})).toThrow(/core-only/);
-			expect(process.env.WFC_RULES_FALLBACK_DIR).toBe(ambient);
-		} finally {
-			delete process.env.WFC_RULES_FALLBACK_DIR;
-		}
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", ambient);
+		expect(() => figures(wiring, sources, {})).toThrow(/core-only/);
+		expect(process.env.WFC_RULES_FALLBACK_DIR).toBe(ambient);
 	});
 });

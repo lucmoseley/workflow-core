@@ -7,20 +7,17 @@ import os from "node:os";
 import path from "node:path";
 import { REFILL_STATE_FILE } from "./refill-dir.js";
 import { type LoopState, readState } from "./refill-state.js";
+import { withStubbedEnv } from "./scoped-env";
 
 export function loopStateOf(
 	raw: unknown,
 	log: (line: string) => void = () => undefined,
 ): LoopState {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-state-of-"));
-	const before = process.env.WFC_REFILL_DIR;
 	try {
 		fs.writeFileSync(path.join(dir, REFILL_STATE_FILE), JSON.stringify(raw));
-		process.env.WFC_REFILL_DIR = dir;
-		return readState(log);
+		return withStubbedEnv({ WFC_REFILL_DIR: dir }, () => readState(log));
 	} finally {
-		if (before === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = before;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 }

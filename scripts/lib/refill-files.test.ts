@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideTick } from "./refill-decide.js";
 import {
 	readControlChecked,
@@ -47,7 +47,6 @@ describe("a loop file's read (#3380)", () => {
 });
 
 describe("the loop's own pause (#3859)", () => {
-	const saved = process.env.WFC_REFILL_DIR;
 	const From = 5;
 	const pause = { by: "no-progress", at: 9, issues: [] };
 	let tmp: string;
@@ -66,11 +65,9 @@ describe("the loop's own pause (#3859)", () => {
 	const stored = () => JSON.parse(fs.readFileSync(control(), "utf8"));
 	beforeEach(() => {
 		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-pause-"));
-		process.env.WFC_REFILL_DIR = tmp;
+		vi.stubEnv("WFC_REFILL_DIR", tmp);
 	});
 	afterEach(() => {
-		if (saved === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = saved;
 		fs.rmSync(tmp, { recursive: true, force: true });
 	});
 
@@ -114,15 +111,12 @@ describe("the loop's own pause (#3859)", () => {
 });
 
 describe("the control lock (#3856)", () => {
-	const saved = process.env.WFC_REFILL_DIR;
 	let tmp: string;
 	beforeEach(() => {
 		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-lock-"));
-		process.env.WFC_REFILL_DIR = tmp;
+		vi.stubEnv("WFC_REFILL_DIR", tmp);
 	});
 	afterEach(() => {
-		if (saved === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = saved;
 		fs.rmSync(tmp, { recursive: true, force: true });
 	});
 
@@ -163,14 +157,11 @@ describe("the control lock (#3856)", () => {
 
 describe("the tick's control read (#3389)", () => {
 	let tmp: string;
-	const saved = process.env.WFC_REFILL_DIR;
 	beforeEach(() => {
 		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-control-"));
-		process.env.WFC_REFILL_DIR = tmp;
+		vi.stubEnv("WFC_REFILL_DIR", tmp);
 	});
 	afterEach(() => {
-		if (saved === undefined) delete process.env.WFC_REFILL_DIR;
-		else process.env.WFC_REFILL_DIR = saved;
 		fs.rmSync(tmp, { recursive: true, force: true });
 	});
 	const file = () => path.join(tmp, ".refill-loop-control.json");

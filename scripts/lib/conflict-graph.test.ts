@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const graph = require("./conflict-graph.js");
 const arbiter = require("./arbiter-store.js");
@@ -376,33 +376,14 @@ describe("reading the live file claims", () => {
 		);
 	};
 
-	/*
-	 * Saved and restored, never assigned `undefined` — that stores the literal
-	 * string "undefined", which every reader here treats as a real value.
-	 */
-	const vars = [
-		"CLAUDE_CONFIG_DIR",
-		"CLAUDE_PROJECT_DIR",
-		"CLAUDE_CODE_SESSION_ID",
-	] as const;
-	let saved: Record<string, string | undefined>;
-	const restore = () => {
-		for (const v of vars) {
-			if (saved[v] === undefined) delete process.env[v];
-			else process.env[v] = saved[v];
-		}
-	};
-
 	beforeEach(() => {
-		saved = Object.fromEntries(vars.map((v) => [v, process.env[v]]));
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "conflict-graph-"));
 		repo = path.join(dir, "repo");
-		process.env.CLAUDE_CONFIG_DIR = dir;
-		process.env.CLAUDE_PROJECT_DIR = repo;
-		delete process.env.CLAUDE_CODE_SESSION_ID;
+		vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 	});
 	afterEach(() => {
-		restore();
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -471,7 +452,7 @@ describe("reading the live file claims", () => {
 	it("does not count this run's own claims as a hold", () => {
 		lock("scripts/mine.js", "me");
 		lock("scripts/theirs.js", "other");
-		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const held = graph.readHeldFiles({ ids: new Set(["me", "other"]) });
 		expect(held.files.map((f: { path: string }) => f.path)).toEqual([
 			"scripts/theirs.js",
