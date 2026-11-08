@@ -106,13 +106,13 @@ const { JS_SPEC, jsSpecifier } = require("./code-edges.js");
 const { surfaceClosureFaults } = require("./surface-closure.js");
 const { requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
-const { parseBasePaths } = require("./primitives-table.js");
+const { STANDARDS_DOCS, parseBasePaths } = require("./primitives-table.js");
+const { readText } = require("./file-read.js");
 const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
 const { isCollectedTestOrConftest } = require("./test-kind.js");
 const { noticeFaults } = require("./vendored-notices.js");
 const { trimStartRun } = require("./trim-run.js");
 
-const STANDARDS_BASE = "docs/code-standards-base.md";
 const COPIED = [
 	".claude-plugin/plugin.json",
 	/* `claude plugin marketplace add <url>#<tag>` fetches THAT tag's tree
@@ -135,7 +135,7 @@ const COPIED = [
 	"docs/environment.md",
 	/* The standards base, read at runtime: every review route hands it over
 	 * from here, beside the host's own local file, which never ships (#967). */
-	STANDARDS_BASE,
+	STANDARDS_DOCS.base,
 	".husky",
 	/* The Python gate's rule set, which .husky/pre-commit hands ruff by
 	 * --config in an adopter carrying none of its own (#106). */
@@ -655,12 +655,11 @@ function isShipped(root, rel) {
  * The base's line pins into a file the release leaves behind, or into none it
  * can name (#961).
  * @param {string} root
+ * @param {string} text the base's text
  * @returns {string[]} one fault naming every such pin, or none
  */
-function baseLinePinFaults(root) {
-	const doc = path.join(root, STANDARDS_BASE);
-	if (!fs.existsSync(doc)) return [];
-	const stranded = parseLinePins(fs.readFileSync(doc, "utf8")).flatMap((p) => {
+function baseLinePinFaults(root, text) {
+	const stranded = parseLinePins(text).flatMap((p) => {
 		const why = baseLinePinFault(root, p, (rel) => isShipped(root, rel));
 		return why
 			? [
@@ -671,27 +670,49 @@ function baseLinePinFaults(root) {
 	return stranded.length === 0
 		? []
 		: [
-				`${STANDARDS_BASE} carries line pins the release refuses, so an adopter reading it finds no evidence: ${stranded.join("; ")} — ${BASE_LINE_PIN_REMEDY} (#961)`,
+				`${STANDARDS_DOCS.base} carries line pins the release refuses, so an adopter reading it finds no evidence: ${stranded.join("; ")} — ${BASE_LINE_PIN_REMEDY} (#961)`,
 			];
 }
 
 /**
  * The base primitives table's paths the release does not carry, which an
- * adopter's check-primitives would warn on as the plugin's to fix (#4156).
+ * adopter's check-primitives would warn on as the plugin's to fix (#4156), or
+ * the table's own fault where it cannot be read (#4189).
  * @param {string} root
+ * @param {string} text the base's text
  * @returns {string[]} one fault naming every such path, or none
  */
-function basePrimitivesFaults(root) {
-	const doc = path.join(root, STANDARDS_BASE);
-	if (!fs.existsSync(doc)) return [];
-	const unshipped = parseBasePaths(fs.readFileSync(doc, "utf8"))
+function basePrimitivesFaults(root, text) {
+	const parsed = parseBasePaths(text);
+	if ("unreadable" in parsed)
+		return [
+			`${STANDARDS_DOCS.base}'s primitives table cannot be read, so no row's paths were judged: ${parsed.unreadable} (#4189)`,
+		];
+	const unshipped = parsed.paths
 		.filter(({ rel }) => !isShipped(root, rel))
 		.map(({ line, rel }) => `\`${rel}\` (line ${line})`);
 	return unshipped.length === 0
 		? []
 		: [
-				`${STANDARDS_BASE}'s primitives table names paths the release does not carry: ${unshipped.join("; ")} — name a file the release ships (#4156)`,
+				`${STANDARDS_DOCS.base}'s primitives table names paths the release does not carry: ${unshipped.join("; ")} — name a file the release ships (#4156)`,
 			];
+}
+
+/**
+ * The standards base's faults, read once: its line pins and its primitives
+ * table. A tree with no base has none.
+ * @param {string} root
+ * @returns {string[]}
+ */
+function baseFaults(root) {
+	const read = readText(path.join(root, STANDARDS_DOCS.base));
+	if (read.state === "absent") return [];
+	if (read.state === "unreadable") throw read.error;
+	const text = read.data;
+	return [
+		...baseLinePinFaults(root, text),
+		...basePrimitivesFaults(root, text),
+	];
 }
 
 /**
@@ -890,8 +911,7 @@ function buildTree(root, out) {
 		faults.push(...contract.faults);
 		if (contract.text !== null)
 			faults.push(...citationFaults(contract.text, HOST_CONTRACT));
-		faults.push(...baseLinePinFaults(root));
-		faults.push(...basePrimitivesFaults(root));
+		faults.push(...baseFaults(root));
 		faults.push(...surfaceClosureFaults(root, out));
 		faults.push(...noticeFaults(root));
 		if (faults.length > 0) throw new Error(faults.join("\n"));

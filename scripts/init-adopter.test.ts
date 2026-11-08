@@ -1393,14 +1393,11 @@ describe("a complete day-one config (#715)", () => {
 	it("maps an inferred write-flag script with --write dropped, printing the note and leaving the script as written (#2773)", () => {
 		const { dir } = repo();
 		const script = "biome check --staged --write --no-errors-on-unmatched";
-		write(
-			dir,
-			"package.json",
-			JSON.stringify({
-				scripts: { "check:staged": script },
-				devDependencies: { "@biomejs/biome": "2.5.15" },
-			}),
-		);
+		const pkg = {
+			scripts: { "check:staged": script },
+			devDependencies: { "@biomejs/biome": "2.5.15" },
+		};
+		write(dir, "package.json", JSON.stringify(pkg));
 		const r = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(r.status).toBe(0);
 		expect(readConfig(dir).commands.check_staged).toBe(
@@ -1410,9 +1407,14 @@ describe("a complete day-one config (#715)", () => {
 			/^commands .*check_staged: node "\$WFC_PLUGIN_ROOT"\/scripts\/biome-staged\.js --no-errors-on-unmatched \(inferred from package\.json — auto-fix on commit dropped; /m,
 		);
 		expect(
-			JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
-				.scripts["check:staged"],
-		).toBe(script);
+			JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")),
+		).toEqual({
+			...pkg,
+			scripts: {
+				...pkg.scripts,
+				status: "node scripts/lib/resolve-core.js scripts/status-report.js",
+			},
+		});
 	});
 
 	it.each([

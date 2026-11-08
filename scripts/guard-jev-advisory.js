@@ -57,6 +57,8 @@
  *     probe tells that from a real finding and logs `why: "unswept"`, but
  *     nothing announces it live, and such a machine contributes nothing to
  *     #175's trial.
+ *   - A 401 or 403 from the gateway is `refused`, never `outage` (#4144):
+ *     the key or the account is the fault. It counts toward neither limb.
  *   - `outage` cannot tell a timeout from an unreachable host from a real 500:
  *     the SDK SYNTHESISES a 500 for a refused connection and for an abort, so
  *     all three arrive alike, and all three mean the same thing to #175's second
@@ -132,6 +134,20 @@ const OUTAGE_BUDGET = 1;
  * budget nor the outage budget (#226).
  */
 const MALFORMED_BUDGET = 1;
+
+/**
+ * The refused notice's cap, on a fourth counter: a dead key spends neither the
+ * warn budget nor the outage budget (#4144). ONE, as the outage notice's: a
+ * dead key stays dead for the session, so a second notice says nothing new.
+ */
+const REFUSED_BUDGET = 1;
+
+/**
+ * The statuses that mean THE GATEWAY REFUSED THE KEY OR THE ACCOUNT: 401 for
+ * a key it does not know, 403 for one it will not serve, as at the billing
+ * wall (#661).
+ */
+const REFUSED_STATUSES = new Set([401, 403]);
 
 /** `MalformedReply`'s own name, matched the same way as the SDK's below. */
 const MALFORMED_REPLY_NAME = "JevMalformedReply";
@@ -322,7 +338,7 @@ const LOG_CAP_BYTES = 2_097_152;
  *
  * @typedef {"skipped-marker"|"skipped-disabled"|"skipped-budget"|
  *   "skipped-no-sdk"|"skipped-redaction"|
- *   "flagged"|"clear"|"outage"|"malformed"} Outcome
+ *   "flagged"|"clear"|"outage"|"malformed"|"refused"} Outcome
  */
 const OUTCOMES = [
 	"skipped-marker",
@@ -334,6 +350,7 @@ const OUTCOMES = [
 	"clear",
 	"outage",
 	"malformed",
+	"refused",
 ];
 
 /** The outcomes that reached the vendor, and so carry `questionHash`. */
@@ -391,6 +408,15 @@ const MALFORMED_NOTICE =
 	"in a shape it cannot read, so the check is not running and its silence is " +
 	"not a clean bill of health. This is a repo fix, not an outage, and it does " +
 	"not count toward the adoption's reversal (#175). Said once; nothing is refused.";
+
+/** What the founder reads, once a session, when the gateway refuses the key. */
+const REFUSED_NOTICE =
+	"JEV ADVISORY — the plain-prose choice check's vendor refused its key this " +
+	"session (401 or 403), so the check is not running and its silence is not a " +
+	"clean bill of health. Store a working key with " +
+	`node ${scriptPath("write-secret.js")} ${KEY_VAR}. Not an outage, and it does not ` +
+	"count toward the adoption's reversal (#175). Said once; nothing is blocked, " +
+	"and the turn stands.";
 
 /**
  * The master switch, in the two spellings this file can see. Fails OPEN, in
@@ -586,6 +612,17 @@ function isMalformedReply(e) {
 }
 
 /**
+ * Did the gateway refuse the key or the account, rather than fail to answer?
+ *
+ * @param {unknown} e
+ * @returns {boolean}
+ */
+function isRefusedKey(e) {
+	const status = /** @type {Record<string, unknown>} */ (e)?.statusCode;
+	return typeof status === "number" && REFUSED_STATUSES.has(status);
+}
+
+/**
  * The local pre-flight gate, in #200's order, first hit wins.
  *
  * Returns the outcome to log, or a null outcome and the key to call with where
@@ -713,7 +750,7 @@ function say(text) {
  *   latencyMs: number, retries: number}} FailCtx
  */
 
-/* The two `charge` calls, in failMalformed() and failOutage(), are spelled out
+/* The three `charge` calls, in failMalformed(), failRefused() and failOutage(), are spelled out
  * rather than shared with a prefix passed in: `lib/hook-block.test.ts` reads
  * counter prefixes off literal call sites, and a prefix built at run time is a
  * counter it cannot sweep. */
@@ -738,6 +775,19 @@ function failMalformed(e, { log, sessionId, latencyMs, retries }) {
 		})
 	)
 		say(MALFORMED_NOTICE);
+}
+
+/** @param {FailCtx} ctx */
+function failRefused({ log, sessionId, latencyMs, retries }) {
+	log({ outcome: "refused", latencyMs, retries });
+	if (
+		hookBlock.charge({
+			prefix: ".jev-advisory-refused-",
+			sessionId,
+			max: REFUSED_BUDGET,
+		})
+	)
+		say(REFUSED_NOTICE);
 }
 
 /**
@@ -781,6 +831,10 @@ async function askWithRetries({
 			const latencyMs = Date.now() - started;
 			if (isMalformedReply(e)) {
 				failMalformed(e, { log, sessionId, latencyMs, retries });
+				return null;
+			}
+			if (isRefusedKey(e)) {
+				failRefused({ log, sessionId, latencyMs, retries });
 				return null;
 			}
 			/* THE CLOCK TELLS THE ABORT FROM EVERY OTHER FAILURE, not the error:
