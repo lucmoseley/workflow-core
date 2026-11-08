@@ -11,6 +11,24 @@ export const ISSUE = 77;
 export const NOW = 1_800_000_000_000;
 export const MIN = 60_000;
 
+/* A self-plugin hooks.json whose guard hook line runs the checkout's own
+ * scripts/guard-dispatch.js, for the guard-load probe to run (#4226, #4228). */
+export const GUARD_HOOKS_JSON = JSON.stringify({
+	hooks: {
+		PreToolUse: [
+			{
+				matcher: "Bash|Read",
+				hooks: [
+					{
+						type: "command",
+						command: 'node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js',
+					},
+				],
+			},
+		],
+	},
+});
+
 /* The id in the line `repo-hold.js raise` prints. */
 export const parseHoldId = (stdout: string) => {
 	const id = /raised: ([0-9a-f]+) /.exec(stdout)?.[1];

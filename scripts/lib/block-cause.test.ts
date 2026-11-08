@@ -20,7 +20,7 @@ import {
 	hasRepliedSince,
 	resumedIdleSince,
 } from "./block-cause.js";
-import { API_PROMPT } from "./loop-prompts.js";
+import { API_PROMPT, HOLD_PROMPT } from "./loop-prompts.js";
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
@@ -124,6 +124,154 @@ describe("a question the harness poses (rule 4)", () => {
 		expect(
 			cause(row(), job({ state: "working", needs: "approve plan" })),
 		).toEqual({ cause: "QUESTION" });
+	});
+});
+
+describe("a session locked out by its guards (#4228)", () => {
+	/* The 3 Nov refusal's shape, read off session 321a3802's transcript. */
+	const Refusal =
+		"guard-anthropic-report could not judge this call, and it fails closed: Lexer is not defined";
+	const call = (id: string, command: string) => ({
+		type: "assistant",
+		isSidechain: false,
+		message: {
+			content: [{ type: "tool_use", id, name: "Bash", input: { command } }],
+		},
+	});
+	const result = (id: string, content: unknown, isError = true) => ({
+		type: "user",
+		isSidechain: false,
+		message: {
+			content: [
+				{ type: "tool_result", tool_use_id: id, content, is_error: isError },
+			],
+		},
+	});
+	const refused = (id: string) =>
+		result(id, `PreToolUse:Bash hook error: ${Refusal}\n\nguard-x ${Refusal}`);
+	const asked = {
+		type: "assistant",
+		isSidechain: false,
+		message: {
+			content: [
+				{ type: "text", text: "needs input: guards refuse every call" },
+			],
+		},
+	};
+	const waiting = row({ status: "waiting", waitingFor: "input needed" });
+
+	it("reads only fail-closed refusals then needs input: as LOCKED_OUT, keeping the first refusal and its call", () => {
+		const locked = [
+			call("t1", "node scripts/claim-issue.js 7"),
+			refused("t1"),
+			call("t2", "ls"),
+			refused("t2"),
+			asked,
+		];
+		expect(cause(waiting, job(), locked)).toEqual({
+			cause: "LOCKED_OUT",
+			lockout: {
+				refusal: Refusal,
+				call: {
+					tool_name: "Bash",
+					tool_input: { command: "node scripts/claim-issue.js 7" },
+				},
+			},
+		});
+	});
+
+	it("reads a passed call before the refusal as QUESTION", () => {
+		const reached = [
+			call("t1", "ls"),
+			result("t1", "README.md", false),
+			call("t2", "ls"),
+			refused("t2"),
+			asked,
+		];
+		expect(cause(waiting, job(), reached)).toEqual({ cause: "QUESTION" });
+	});
+
+	it("reads refusals none of which is a fault's as QUESTION", () => {
+		const denied = [
+			call("t1", "rm -rf x"),
+			result("t1", "PreToolUse:Bash hook error: Refused: rule:x"),
+			asked,
+		];
+		expect(cause(waiting, job(), denied)).toEqual({ cause: "QUESTION" });
+	});
+
+	it("keeps no call where the refused one is not in the transcript", () => {
+		expect(cause(waiting, job(), [refused("t9"), asked])).toEqual({
+			cause: "LOCKED_OUT",
+			lockout: { refusal: Refusal, call: null },
+		});
+	});
+
+	it("reads a passed call before any other loop prompt as QUESTION", () => {
+		const reached = [
+			call("t0", "ls"),
+			result("t0", "README.md", false),
+			{
+				type: "user",
+				isSidechain: false,
+				message: { content: API_PROMPT },
+			},
+			call("t1", "git status"),
+			refused("t1"),
+			asked,
+		];
+		expect(cause(waiting, job(), reached)).toEqual({ cause: "QUESTION" });
+	});
+
+	describe("after the loop resumed it off the hold", () => {
+		const resumed = [
+			call("t1", "node scripts/claim-issue.js 7"),
+			refused("t1"),
+			asked,
+			{
+				type: "user",
+				isSidechain: false,
+				message: { content: HOLD_PROMPT },
+			},
+		];
+
+		it("reads the refusal and call it meets since, not the cleared one's", () => {
+			const relocked = [
+				...resumed,
+				call("t2", "git status"),
+				result("t2", "PreToolUse:Bash hook error: Guard code missing: no x"),
+				asked,
+			];
+			expect(cause(waiting, job(), relocked)).toEqual({
+				cause: "LOCKED_OUT",
+				lockout: {
+					refusal: "Guard code missing: no x",
+					call: { tool_name: "Bash", tool_input: { command: "git status" } },
+				},
+			});
+		});
+
+		it("reads QUESTION where it has called nothing since", () => {
+			expect(cause(waiting, job(), [...resumed, asked])).toEqual({
+				cause: "QUESTION",
+			});
+		});
+	});
+
+	it("reads the shim's exit-2 refusal past the command the harness names", () => {
+		const shim = [
+			call("t1", "ls"),
+			result("t1", [
+				{
+					type: "text",
+					text: 'PreToolUse:Bash hook error: [node "$CLAUDE_PROJECT_DIR"/scripts/run-pinned-guards.js x]: Guard code missing: no x\nThe repair',
+				},
+			]),
+		];
+		expect(cause(waiting, job(), shim)).toMatchObject({
+			cause: "LOCKED_OUT",
+			lockout: { refusal: "Guard code missing: no x" },
+		});
 	});
 });
 
