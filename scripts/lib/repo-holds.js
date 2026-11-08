@@ -61,6 +61,8 @@
  * A HOLD'S NOTICE STATE (#3871; lib/repo-hold-notices.js sends) is a file of its own
  * beside the hold's, as an attach is and for the same reason, and goes under
  * `lifted/` with it, the record outliving the lift until the clear notice is done.
+ * When a checkout's probe hold last paged is a file beside its holds that no raise
+ * or lift touches, as a probe hold that comes back is a new hold (#4148).
  */
 
 const { AsyncLocalStorage } = require("node:async_hooks");
@@ -296,6 +298,14 @@ const parseAttachedJobs = (names, id) =>
  * @param {string} id
  */
 const buildNoticeName = (id) => `${id}.notice`;
+
+/**
+ * The file naming when `root`'s probe hold last paged; neither a hold's name nor an
+ * attach's.
+ * @param {string} root
+ */
+const buildProbePagedFile = (root) =>
+	path.join(holdsDir(root), `${PROBE_ID}.paged`);
 
 /** @param {unknown} value */
 const isNoticePhase = (value) => {
@@ -1393,6 +1403,7 @@ module.exports = {
 	buildAttachedLine,
 	buildHoldLines,
 	buildNoticeText,
+	buildProbePagedFile,
 	buildRaisedLine,
 	dropLiftedJobs,
 	findOwnHold,
