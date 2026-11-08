@@ -19,10 +19,6 @@
  *
  * Joins no §N3 family: a run whose filing or reply failed on gh exits 1, so
  * the loop that runs it retries.
- *
- * Callers: the refill loop's detached review runner
- * (scripts/refill-review-run.js), started on a tick that files no review
- * (lib/refill-tick.js), and file-morning-review.js, after its filing.
  */
 
 const fs = require("node:fs");

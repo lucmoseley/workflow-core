@@ -1,8 +1,6 @@
 /*
  * shortlist-parse.js — a pick-next shortlist's `--json` output as the refill
  * loop reads it (#4355).
- *
- * Caller: lib/refill-frontier.js's readShortlist
  */
 
 const { caught } = require("./caught.js");

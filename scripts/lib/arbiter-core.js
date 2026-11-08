@@ -3,7 +3,7 @@
  *
  * Where the state directory lives (`paths`), the one reader and the one writer
  * (`readRecord`, `writeRecord`, `probeRecord`), the fail-open error log, the git
- * shims, the subject vocabulary the guards speak (`splitSubject`, `isGuarded`,
+ * shims, the subject vocabulary the guards speak (`splitSubject`, `isWarned`,
  * `isWatched`), the sessions registry that tells a live session from a finished
  * one, and the age sweeps the families share.
  *
@@ -685,18 +685,19 @@ function firstSay(sessionId, message) {
  * Paths the arbiter covers, in two tiers (mantahostels#287). mantahostels#103 ruled a prefix rule, not
  * a hand-listed hot set. The measurement behind the split is mantahostels#287.
  *
- *   REFUSING. A write to a file another live session holds is denied. Files
- *   that coordinate work, where git's merge machinery has nothing to merge.
+ *   WARNED. A write to a file another live session holds goes ahead, warned
+ *   of the likely merge conflict (#4249). Files that coordinate work, where
+ *   git's merge machinery has nothing to merge.
  *
- *   DETECT_ONLY. Nothing is ever refused; a claim only records what the file
+ *   DETECT_ONLY. Nothing is ever warned of; a claim only records what the file
  *   held, so a clobber is caught after the fact (the recorder is mantahostels#295).
  *   scripts/ is here because that is where the measured risk lives, while the
- *   cost of refusing there is unmeasured.
+ *   cost of warning there is unmeasured.
  *
  * EXEMPT names the paths inside either tier that are outside the arbiter
  * entirely.
  */
-const REFUSING = ["docs/", ".claude/", "CLAUDE.md", "AGENTS.md"];
+const WARNED = ["docs/", ".claude/", "CLAUDE.md", "AGENTS.md"];
 const DETECT_ONLY = ["scripts/"];
 
 /**
@@ -879,22 +880,23 @@ const under = (prefixes, rel) =>
 	prefixes.some((p) => (p.endsWith("/") ? rel.startsWith(p) : rel === p));
 
 /**
- * The refusing tier: the only paths a write is ever denied on.
+ * The warned tier: the only paths a write to a neighbour's held file is warned
+ * of.
  * @param {string} rel
  */
-function isGuarded(rel) {
+function isWarned(rel) {
 	const p = subjectPath(rel);
-	return under(REFUSING, p) && !under(EXEMPT, p);
+	return under(WARNED, p) && !under(EXEMPT, p);
 }
 
 /**
- * Either tier — what a claim is recorded against, refused or not.
+ * Either tier — what a claim is recorded against, warned of or not.
  * @param {string} rel
  */
 function isWatched(rel) {
 	const p = subjectPath(rel);
 	if (under(EXEMPT, p)) return false;
-	return under(REFUSING, p) || under(DETECT_ONLY, p);
+	return under(WARNED, p) || under(DETECT_ONLY, p);
 }
 
 /**
@@ -1562,7 +1564,7 @@ module.exports = {
 	gitIn,
 	gitRaw,
 	identify,
-	isGuarded,
+	isWarned,
 	isWatched,
 	isReleasable,
 	keyFor,
@@ -1577,7 +1579,7 @@ module.exports = {
 	readRecord,
 	readRecordOrFlag,
 	readRecordOrLog,
-	REFUSING,
+	WARNED,
 	registryLookup,
 	registryNames,
 	claimKey,

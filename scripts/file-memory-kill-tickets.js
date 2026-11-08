@@ -21,8 +21,6 @@
  * unreadable journal included (said on stderr: earlyoom's log is subject, not
  * apparatus); 1 where a filing or the tracker read failed; 2 on a command line
  * it refuses.
- *
- * Caller: the refill loop, every tick (scripts/refill-loop.js).
  */
 
 const path = require("node:path");

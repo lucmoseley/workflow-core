@@ -20,8 +20,6 @@
  * chain depth (#3222). A pulled-in issue whose repo has no checkout here is
  * returned under `held`, never launched, as is one its own shortlist does
  * not return (claimed or gated).
- *
- * Caller: lib/refill-tick.js's tick.
  */
 
 const path = require("node:path");

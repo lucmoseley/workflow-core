@@ -39,8 +39,6 @@
  * Prints nothing where nothing was fired or failed. Exit codes: 0 on a pass;
  * 1 where the runs, the marker or the budget would not read, or the dispatch
  * failed.
- *
- * Caller: the refill loop, every tick (lib/refill-tick.js's runMachineChild).
  */
 
 const fs = require("node:fs");

@@ -92,10 +92,6 @@
  * filing failed on gh or found the filing lock held exits 1, and one file-issue.js refused exits
  * with its code, so the loop that runs it can tell a filing from a failure.
  * The exit code is the worse of the filing's and the answering's.
- *
- * Caller: the refill loop's detached review runner
- * (scripts/refill-review-run.js), started on its first tick after 07:00
- * (lib/refill-tick.js).
  */
 
 const { execFile, spawnSync } = require("node:child_process");

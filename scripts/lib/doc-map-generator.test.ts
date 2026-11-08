@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * The shared helper's own suite: parseCliArgs and claimDataFile in isolation.
+ * The shared helper's own suite: parseCliArgs and claimDataFile in isolation,
+ * the contended case against the real arbiter in the testkit sandbox.
  * Everything that must go through a spawned generator CLI — the wiring that
  * calls claimDataFile at all — stays in each generator's own *.test.ts.
  *
@@ -10,8 +11,11 @@
  * lose the record of why its claim failed.
  */
 
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { arbiterCli, freshSandbox, live } from "./arbiter-testkit";
 import { claimDataFile, parseCliArgs } from "./doc-map-generator";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 describe("parseCliArgs", () => {
 	it("treats a bare argument as positional", () => {
@@ -39,48 +43,34 @@ describe("parseCliArgs", () => {
 });
 
 describe("claimDataFile", () => {
+	const sb = freshSandbox();
+
 	/* Fails open (mantahostels#1194): a claim the arbiter refuses costs the content record
 	 * and nothing else, and is never grounds to stop the write. This is the
 	 * shape check-instruction-surface.js's rebaseline wants. */
 	it("fails open by default, printing why the record was lost", () => {
-		const spy = vi.spyOn(console, "error").mockImplementation(() => {
-			/* kept off the test output; the spy reads it */
-		});
+		const write = spyStderr();
 		const result = claimDataFile("docs/doc-map-classes.json", {
 			claimCmd: "false",
 		});
-		expect(result.ok).toBe(true);
-		expect(spy).toHaveBeenCalledWith(
-			expect.stringContaining("could not claim docs/doc-map-classes.json"),
-		);
-		expect(spy).toHaveBeenCalledWith(expect.stringContaining("Writing anyway"));
-		spy.mockRestore();
+		restoreStderr();
+		const said = write.mock.calls.map((c) => c[0]).join("");
+		expect(result.claimed).toBe(false);
+		expect(said).toContain("could not claim docs/doc-map-classes.json");
+		expect(said).toContain("Writing anyway");
 	});
 
-	/* register-doc.js's case: the row it writes is authored, not a derived
-	 * count, so a held file is refused rather than overwritten. */
-	it("fails closed when asked to, naming the file it cannot claim, without the fail-open wording", () => {
-		const spy = vi.spyOn(console, "error").mockImplementation(() => {
-			/* kept off the test output; the spy reads it */
-		});
-		const result = claimDataFile("docs/doc-map-superseded.json", {
-			claimCmd: "false",
-			failClosed: true,
-		});
-		expect(result.ok).toBe(false);
-		expect(spy).toHaveBeenCalledWith(
-			expect.stringContaining("cannot claim docs/doc-map-superseded.json"),
-		);
-		expect(spy).not.toHaveBeenCalledWith(
-			expect.stringContaining("Writing anyway"),
-		);
-		spy.mockRestore();
-	});
-
-	it("reports ok on a successful claim, in either mode", () => {
-		expect(claimDataFile("x.json", { claimCmd: "true" }).ok).toBe(true);
-		expect(
-			claimDataFile("x.json", { claimCmd: "true", failClosed: true }).ok,
-		).toBe(true);
+	it("passes on the arbiter's warning where a live neighbour holds the file too (#4403)", () => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "map-writer");
+		const file = path.join(sb.repo, "docs/doc-map-classes.json");
+		live(sb, "map-holder");
+		expect(arbiterCli(sb).cli(["claim", file, "map-holder"]).status).toBe(0);
+		const write = spyStderr();
+		const result = claimDataFile(file);
+		restoreStderr();
+		const said = write.mock.calls.map((c) => c[0]).join("");
+		expect(result.claimed).toBe(true);
+		expect(said).toContain("is also held by session");
+		expect(said).toContain("map-holder");
 	});
 });

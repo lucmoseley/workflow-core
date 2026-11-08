@@ -17,8 +17,6 @@
  * Prints nothing where there is nothing to file. Exit codes: 0 on a pass, an
  * unreadable log included (said on stderr); 1 where a filing or the tracker read
  * failed; 2 on a command line it refuses.
- *
- * Caller: the refill loop, every tick (scripts/refill-loop.js).
  */
 
 const path = require("node:path");

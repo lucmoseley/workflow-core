@@ -49,6 +49,11 @@ import {
 	it,
 	vi,
 } from "vitest";
+import {
+	arbiterCli,
+	freshSandbox,
+	live as liveSession,
+} from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { writeEnviron } from "./lib/proc-fake";
@@ -7809,18 +7814,51 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		expect(got.out).toContain("brought up to date");
 	});
 
-	it("leaves the shared copy alone, saying so, where a neighbour's edit sits in it or the claim is refused", () => {
+	it("leaves the shared copy alone, saying so, where a neighbour's edit sits in it or the claim fails", () => {
 		const edited = trees("stale", "a neighbour's edit");
 		expect(freshen(edited).err).toContain(
 			"holds an edit this run was not given",
 		);
 		expect(read(edited.home)).toBe("a neighbour's edit");
 		expect(read(edited.root)).toContain('"docs/a.md"');
-		const held = trees("stale", "stale");
+		const failed = trees("stale", "stale");
 		expect(
-			freshen(held, () => ({ ok: false, why: "held by X" })).err,
-		).toContain("held by X");
-		expect(read(held.home)).toBe("stale");
+			freshen(failed, () => ({ ok: false, why: "the arbiter exited 2" })).err,
+		).toContain("the arbiter exited 2");
+		expect(read(failed.home)).toBe("stale");
+	});
+
+	describe("against the real arbiter (#4403)", () => {
+		const sb = freshSandbox();
+
+		it("writes the shared copy and passes on the warning where a live neighbour holds it too", () => {
+			const root = mkScratchDir("freshen-overlay-");
+			dirs.push(root);
+			for (const dir of [root, sb.repo]) {
+				fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+				fs.writeFileSync(path.join(dir, EDGES_FILE), "stale");
+			}
+			liveSession(sb, "edges-holder");
+			expect(
+				arbiterCli(sb).cli([
+					"claim",
+					path.join(sb.repo, EDGES_FILE),
+					"edges-holder",
+				]).status,
+			).toBe(0);
+
+			const err: string[] = [];
+			freshenManifest(rendered, {
+				root,
+				home: sb.repo,
+				session: "edges-writer",
+				out: { write: () => true },
+				err: { write: (t: string) => err.push(t) },
+			});
+			expect(err.join("")).toContain("is also held by session");
+			expect(err.join("")).toContain("edges-holder");
+			expect(read(sb.repo)).toBe(read(root));
+		});
 	});
 
 	it("writes nothing and takes no claim where the overlay's copy is already current", () => {
