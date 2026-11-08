@@ -355,8 +355,9 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify --write || true",
-						"timeout": 60
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify --write --hourly || true",
+						"timeout": 60,
+						"async": true
 					},
 					{
 						"type": "command",

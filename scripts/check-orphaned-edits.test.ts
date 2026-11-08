@@ -360,6 +360,46 @@ describe("check-orphaned-edits", () => {
 		expect(entry.timeout * 1000).toBe(Number(budget?.replaceAll("_", "")));
 	});
 
+	describe("--hourly, the SessionStart run's throttle (#4367)", () => {
+		const stamp = () => path.join(sb.repo, ".git", "orphaned-edits-walked");
+		const ageStamp = (minutes: number) => {
+			const at = new Date(Date.now() - minutes * 60_000);
+			fs.utimesSync(stamp(), at, at);
+		};
+
+		it("skips the walk inside the hour of the last one", async () => {
+			await run(["--hourly"], true);
+			expect(fs.existsSync(stamp())).toBe(true);
+			dirty("a.txt", 30);
+			ageStamp(59);
+
+			const r = await run(["--hourly", "--json"]);
+			expect(JSON.parse(r.stdout)).toMatchObject({
+				walked: false,
+				minutesSinceWalk: 59,
+			});
+			expect(readFilings()).toEqual([]);
+		});
+
+		it("walks once the hour has passed, and stamps again", async () => {
+			await run(["--hourly"], true);
+			dirty("a.txt", 30);
+			ageStamp(61);
+
+			await run(["--hourly"], true);
+			expect(readFilings()).toHaveLength(1);
+			expect(Date.now() - fs.statSync(stamp()).mtimeMs).toBeLessThan(HOUR);
+		});
+
+		it("never throttles a run without it", async () => {
+			await run(["--hourly"], true);
+			dirty("a.txt", 30);
+
+			await run();
+			expect(readFilings()).toHaveLength(1);
+		});
+	});
+
 	it("leaves an interrupted filing alone rather than filing it again", async () => {
 		dirty("a.txt", 30);
 		await run();
