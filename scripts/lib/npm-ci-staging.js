@@ -12,7 +12,7 @@ const path = require("node:path");
 const { npmBin } = require("./npm-bin.js");
 
 const LOCKFILE = "package-lock.json";
-/* What `npm ci` reads besides the lockfile; `.npmrc` only where present. */
+/* What `npm ci` reads besides the lockfile. */
 const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
 /* Untraced: room for a cold `npm ci` over a slow link. */
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
@@ -43,8 +43,7 @@ function npmCi(dir) {
 }
 
 /**
- * Write `source`'s manifests into `staging`, created where absent, and
- * install there.
+ * Write `source`'s manifests into `staging` and install there.
  * @param {string} staging
  * @param {ManifestSource} source
  * @param {Install} [install]
