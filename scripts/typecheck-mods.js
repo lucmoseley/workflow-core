@@ -28,6 +28,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { compareVersions } = require("./lib/compare-versions.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /* npm runs a script from the package root; a pre-commit run there is the
@@ -48,11 +49,10 @@ const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 const WRITTEN_BY = /^\/\/ Written by Claude Code (\d+\.\d+\.\d+)\./;
 
 /** @param {string} a @param {string} b both matching VERSION */
-function compareVersions(a, b) {
-	const [, ...x] = VERSION.exec(a) ?? [];
-	const [, ...y] = VERSION.exec(b) ?? [];
-	const d = x.map((n, i) => Number(n) - Number(y[i])).find((n) => n !== 0);
-	return d ?? 0;
+function compareVersionText(a, b) {
+	const parts = (/** @type {string} */ v) =>
+		(VERSION.exec(v) ?? []).slice(1).map(Number);
+	return compareVersions(parts(a), parts(b));
 }
 
 /** @param {string} dir a directory's entries; none where it does not exist */
@@ -76,7 +76,7 @@ function newestSkillTypes(skillsDir) {
 	let best = null;
 	for (const version of readEntries(skillsDir)) {
 		if (!VERSION.test(version)) continue;
-		if (best && compareVersions(version, best.version) <= 0) continue;
+		if (best && compareVersionText(version, best.version) <= 0) continue;
 		const file = readEntries(path.join(skillsDir, version))
 			.map((hash) =>
 				path.join(
@@ -102,7 +102,7 @@ function syncEngineTypes(mod, source) {
 	const dest = path.join(ROOT, mod, ENGINE_TYPES);
 	if (fs.existsSync(dest)) {
 		const have = WRITTEN_BY.exec(fs.readFileSync(dest, "utf8"))?.[1];
-		if (!source || (have && compareVersions(have, source.version) >= 0))
+		if (!source || (have && compareVersionText(have, source.version) >= 0))
 			return true;
 	} else if (!source) return false;
 	fs.mkdirSync(path.dirname(dest), { recursive: true });

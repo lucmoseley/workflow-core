@@ -516,6 +516,25 @@ describe("upgrade", () => {
 		expect(readJson(root, ".claude/workflow-core.json").contract).toBe(3);
 	});
 
+	it("walks no note against a branch-name pin, which orders against no tag (#4091)", () => {
+		writeJson(pluginRoot, ".claude-plugin/plugin.json", {
+			name: "workflow-core",
+			version: "3.0.0",
+		});
+		write(
+			pluginRoot,
+			"migrations/v2.1.0.md",
+			note("v2.1.0", { contract: 2 }, "true"),
+		);
+		const settings = readJson(root, ".claude/settings.json");
+		settings.extraKnownMarketplaces.wc.source.ref = "main";
+		writeJson(root, ".claude/settings.json", settings);
+
+		const lines: string[] = [];
+		upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
+		expect(lines.filter((l) => l.startsWith("applying "))).toEqual([]);
+	});
+
 	it("floors a directory-sourced install with no walkedTo at installed, walking nothing yet, with no pin fabricated (#244)", () => {
 		writeJson(root, ".claude/settings.json", {
 			enabledPlugins: { "workflow-core@wc": true },
