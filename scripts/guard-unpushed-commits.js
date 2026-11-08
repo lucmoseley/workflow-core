@@ -33,8 +33,10 @@
  *
  * A WORKTREE SESSION'S HEAD IS READ, THEN THE MAIN CHECKOUT'S (#4272): the
  * commit ledger names no tree, so a commit the session made there from a `cd`
- * is ledgered all the same. A main checkout cut over to the worktree model
- * takes no commit (#4248), so there the second read finds none.
+ * is ledgered all the same. The main checkout's read counts as pushed what
+ * the session's own pushed ref holds, so a main checkout fast-forwarded onto
+ * the session's pushed branch is not warned of; and a commit both HEADs reach
+ * is named once, under the session's own tree.
  *
  * A `waiting:` TURN IS PASSED OVER, and marks nothing seen, so the warning
  * lands on the turn that ends the work rather than on the hand-off before it —
@@ -140,14 +142,18 @@ function readCommitLedger(sid) {
  * the ref's name — or null where there is nothing to say or git would not
  * answer.
  * @param {string} sid
- * @param {string} tree the session's checkout
+ * @param {string} tree the checkout whose HEAD is read
+ * @param {string[]} [pushedElsewhere] further refs whose commits count as pushed
  * @returns {{ref: string, commits: string[]}|null}
  */
-function readUnpushedMine(sid, tree) {
+function readUnpushedMine(sid, tree, pushedElsewhere = []) {
 	const mine = readCommitLedger(sid);
 	if (mine === null || mine.length === 0) return null;
 	const ref = readUnpushedRef({ root: REPO_ROOT, tree });
-	const ahead = gitRead(["rev-list", `${ref}..HEAD`], tree);
+	const ahead = gitRead(
+		["rev-list", "HEAD", "--not", ref, ...pushedElsewhere],
+		tree,
+	);
 	if (ahead === null) return null;
 	const own = new Set(mine);
 	const commits = ahead.split("\n").filter((c) => own.has(c));
@@ -202,11 +208,24 @@ function buildPushStep(ref) {
 }
 
 /**
+ * `dir` with its symlinks resolved, or as given where it does not resolve.
+ * @param {string} dir
+ */
+function resolved(dir) {
+	try {
+		return fs.realpathSync(dir);
+	} catch {
+		return dir;
+	}
+}
+
+/**
  * One checkout's paragraph of the warning: the count and the commits.
  * @param {{tree: string, ref: string, commits: string[]}} found
- * @param {string} where "" for the session's own tree, else " in <checkout>"
+ * @param {boolean} own whether `tree` is the session's own, named by no label
  */
-function describeUnpushed({ tree, ref, commits }, where) {
+function describeUnpushed({ tree, ref, commits }, own) {
+	const where = own ? "" : ` in the main checkout (${tree})`;
 	const named = commits.slice(0, NAMED_MAX);
 	const lines =
 		gitRead(["show", "-s", "--format=%h %s", ...named], tree)
@@ -223,17 +242,36 @@ function describeUnpushed({ tree, ref, commits }, where) {
 }
 
 /**
+ * This session's unpushed commits in its own tree, then in the main checkout,
+ * each commit under the first checkout that reaches it.
+ * @param {string} sid
+ * @param {string} tree the session's checkout
+ * @returns {{tree: string, ref: string, commits: string[]}[]}
+ */
+function readUnpushedEach(sid, tree) {
+	/* `sessionTree` resolves symlinks and the host root need not, so the two
+	 * are compared resolved. */
+	const host = resolved(REPO_ROOT);
+	const sessionRef = readUnpushedRef({ root: REPO_ROOT, tree });
+	const found = [];
+	const named = new Set();
+	for (const t of tree === host ? [tree] : [tree, host]) {
+		const f = readUnpushedMine(sid, t, t === tree ? [] : [sessionRef]);
+		const fresh = f?.commits.filter((c) => !named.has(c)) ?? [];
+		for (const c of fresh) named.add(c);
+		if (f && fresh.length > 0)
+			found.push({ tree: t, ref: f.ref, commits: fresh });
+	}
+	return found;
+}
+
+/**
  * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
  */
 function judge({ sessionId: sid, payload }) {
 	const tree = sessionTree(payload);
 	if (tree === null) return;
-	const found = (tree === REPO_ROOT ? [tree] : [tree, REPO_ROOT]).flatMap(
-		(t) => {
-			const f = readUnpushedMine(sid, t);
-			return f ? [{ tree: t, ...f }] : [];
-		},
-	);
+	const found = readUnpushedEach(sid, tree);
 	const commits = found.flatMap((f) => f.commits);
 	if (commits.length === 0) return;
 	const seen = readSeen(sid);
@@ -247,14 +285,7 @@ function judge({ sessionId: sid, payload }) {
 		sessionId: sid,
 		reason:
 			"A warning, not a refusal — the next stop passes. " +
-			found
-				.map((f) =>
-					describeUnpushed(
-						f,
-						f.tree === tree ? "" : ` in the main checkout (${f.tree})`,
-					),
-				)
-				.join("") +
+			found.map((f) => describeUnpushed(f, f.tree === tree)).join("") +
 			[...new Set(found.map((f) => buildPushStep(f.ref)))]
 				.map((step) => `${step} `)
 				.join("") +

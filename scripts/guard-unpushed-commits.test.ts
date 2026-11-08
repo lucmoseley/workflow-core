@@ -176,6 +176,27 @@ describe("the session's own worktree, then the main checkout (#4243, #4272)", ()
 		expect(reason.indexOf("in wt")).toBeLessThan(reason.indexOf("in main"));
 		expect(reason.split("The push is your own act").length).toBe(2);
 	});
+
+	it("names a commit both HEADs reach once, under the worktree", () => {
+		ledger([commit("on both")]);
+		const reason = runIn(cutWorktree(root))?.reason ?? "";
+		expect(reason).toContain(
+			"1 commit(s) this session made are not on origin/main",
+		);
+		expect(reason).not.toContain("in the main checkout");
+	});
+
+	it("passes on a main checkout fast-forwarded onto the session's pushed branch", () => {
+		const wt = cutWorktree(root);
+		const inWt = (...args: string[]) =>
+			execFileSync("git", args, { cwd: wt, encoding: "utf8" }).trim();
+		inWt("switch", "-q", "-c", "spike/x");
+		inWt("commit", "-q", "--allow-empty", "-m", "pushed from wt");
+		inWt("push", "-q", "-u", "origin", "spike/x");
+		git("merge", "-q", "--ff-only", "spike/x");
+		ledger([inWt("rev-parse", "HEAD")]);
+		expect(runIn(wt)).toBeNull();
+	});
 });
 
 describe("the warning", () => {
