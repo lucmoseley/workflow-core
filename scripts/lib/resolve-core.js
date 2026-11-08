@@ -18,11 +18,14 @@
  *      The workflow steps: docs/agents/helper-surface.md.
  *   3. The installed plugin: the last `workflow-core@<marketplace>` row of
  *      `<config>/plugins/installed_plugins.json` whose `projectPath` is the
- *      adopter root or, where it has none and is a linked worktree, its main checkout, the
- *      marketplace read from the pin in the root's
- *      `.claude/settings.json` — the read plugin-state.js makes. `<config>` is
- *      CLAUDE_CONFIG_DIR, else ~/.claude, so a git hook or an npm script run
- *      outside any session resolves too.
+ *      adopter root as spelt, else, where the root is a checkout's top level,
+ *      that checkout's main checkout as git spells it, the marketplace read
+ *      from the pin in the root's `.claude/settings.json` — the read
+ *      plugin-state.js makes. git is asked only where the root as spelt has no
+ *      row. So a linked worktree resolves through its main checkout, and so
+ *      does a main checkout's root spelt through a symlink or with a trailing
+ *      slash (#4150). `<config>` is CLAUDE_CONFIG_DIR, else ~/.claude, so a
+ *      git hook or an npm script run outside any session resolves too.
  * A variable that is set but names no directory fails rather than falling
  * through: it was set to be used.
  *
@@ -153,9 +156,9 @@ function readPin(root) {
 }
 
 /**
- * The install rows for `root`, else for its main checkout, and what was searched.
- * `any` for readJson's reason: the CLI writes the record, and every row read
- * narrows through `?.`.
+ * The install rows for `root`, else for its main checkout, and what was
+ * searched. An exact row spawns no git (#4150). `any` for readJson's reason:
+ * the CLI writes the record, and every row read narrows through `?.`.
  * @param {any} entries
  * @param {string} root
  * @returns {{rows: any[], searched: string}}
@@ -166,14 +169,12 @@ function readInstallRows(entries, root) {
 		Array.isArray(entries)
 			? entries.filter((row) => row?.projectPath === tree)
 			: [];
-	const main = readMainCheckout(root);
 	const own = rowsFor(root);
+	if (own.length > 0) return { rows: own, searched: root };
+	const main = readMainCheckout(root);
 	return main === root
-		? { rows: own, searched: root }
-		: {
-				rows: own.length > 0 ? own : rowsFor(main),
-				searched: `${root} or ${main}`,
-			};
+		? { rows: [], searched: root }
+		: { rows: rowsFor(main), searched: `${root} or ${main}` };
 }
 
 /**
