@@ -1141,18 +1141,17 @@ function readHoldReplays(root, id) {
 }
 
 /**
- * Keep `call` beside `root`'s hold `id` for its clear check's replay, under
+ * Keep `call` beside `root`'s probe hold for its clear check's replay, under
  * job `job`, the first a job asks kept.
  * @param {string} root
- * @param {string} id
  * @param {string} job
  * @param {RefusedCall} call
  */
-function keepReplay(root, id, job, call) {
+function keepReplay(root, job, call) {
 	if (!JOB_PATTERN.test(job)) throw new Error(`not a job id: ${job}`);
 	try {
 		fs.writeFileSync(
-			path.join(holdsDir(root), `${buildReplayPrefix(id)}${job}`),
+			path.join(holdsDir(root), `${buildReplayPrefix(PROBE_ID)}${job}`),
 			JSON.stringify(call),
 			{ flag: "wx" },
 		);
@@ -1481,7 +1480,7 @@ function holdLockedOut(root, { job, refusal, call }, now, log) {
 	);
 	try {
 		if (readProbeHold(root) === null) return { why: "no probe hold stands" };
-		if (call) keepReplay(root, PROBE_ID, job, call);
+		if (call) keepReplay(root, job, call);
 		const attached = attachHold(root, PROBE_ID, job);
 		if (attached === null) return { why: "no probe hold stands" };
 		if (attached.hold.issue === null)

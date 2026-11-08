@@ -235,6 +235,22 @@ describe("a session locked out by its guards (#4228)", () => {
 			});
 		});
 
+		it("reads a passed call before any other loop prompt as QUESTION", () => {
+			const reached = [
+				call("t0", "ls"),
+				result("t0", "README.md", false),
+				{
+					type: "user",
+					isSidechain: false,
+					message: { content: API_PROMPT },
+				},
+				call("t1", "git status"),
+				refused("t1"),
+				asked,
+			];
+			expect(cause(waiting, job(), reached)).toEqual({ cause: "QUESTION" });
+		});
+
 		it("reads QUESTION where it has called nothing since", () => {
 			expect(cause(waiting, job(), [...resumed, asked])).toEqual({
 				cause: "QUESTION",

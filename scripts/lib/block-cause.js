@@ -15,13 +15,14 @@
  * tool calls a guard refused, at least one for want of a guard that could
  * judge it, writes `needs input:` over a fault no answer of the founder's
  * mends. A session with a passed call reads on as before, its lockout, if any,
- * met after it reached its ticket (#4202's ruling).
+ * met after it reached its ticket (#4202's ruling). A session the loop resumed
+ * off a hold reads from that resume, so it meets its new fault, not the old.
  */
 
 const { isLockoutText } = require("./core-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
-const { isLoopPrompt } = require("./loop-prompts.js");
+const { HOLD_PROMPT } = require("./loop-prompts.js");
 const { parseStatus } = require("./status-marker.js");
 
 /* Below it the transcript carries no `permissionDecision` (#2358 F8). */
@@ -164,6 +165,10 @@ const textOf = (row) =>
 		.map((b) => b.text)
 		.join("\n");
 
+/** @param {Record<string, any>} row */
+const rowText = (row) =>
+	typeof row.message?.content === "string" ? row.message.content : textOf(row);
+
 /* The head the harness gives a call a PreToolUse hook refused, and the
  * command an exit-2 refusal's text names after it. */
 const REFUSAL_HEAD = /^PreToolUse:\S+ hook error: (\[[^\]\n]*\]: )?/;
@@ -206,17 +211,12 @@ function resultsOf(tail) {
 }
 
 /** @param {Record<string, any>} row */
-const isResumeRow = (row) =>
-	row.type === "user" &&
-	isLoopPrompt(
-		typeof row.message?.content === "string"
-			? row.message.content
-			: textOf(row),
-	);
+const isHoldResumeRow = (row) =>
+	row.type === "user" && rowText(row).trim() === HOLD_PROMPT;
 
 /**
  * The session's lockout, read off its transcript since the loop last resumed
- * it: its first refusal there for want of a guard that could judge the call,
+ * it off a hold: its first refusal there for want of a guard that could judge the call,
  * where every call's result there is a hook's refusal. Null where one passed,
  * or none is such a refusal. A session resumed off a lifted hold so reads the
  * fault it meets now, never the one the hold cleared (#4228).
@@ -224,7 +224,9 @@ const isResumeRow = (row) =>
  * @returns {Lockout|null}
  */
 function lockoutOf(tail) {
-	const results = resultsOf(tail.slice(tail.findLastIndex(isResumeRow) + 1));
+	const results = resultsOf(
+		tail.slice(tail.findLastIndex(isHoldResumeRow) + 1),
+	);
 	if (!results.every((r) => REFUSAL_HEAD.test(r.text))) return null;
 	const first = results.find((r) => isLockoutText(r.text));
 	return first
@@ -359,10 +361,6 @@ const RESTART_PROMPT =
 	"Continue from where you left off. Note: this session was automatically restarted";
 const RESTART_SHELL =
 	"Background shell command didn't finish before the previous session ended";
-
-/** @param {Record<string, any>} row */
-const rowText = (row) =>
-	typeof row.message?.content === "string" ? row.message.content : textOf(row);
 
 /** @param {unknown} row */
 function isRestartRow(row) {
