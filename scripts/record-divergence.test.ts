@@ -36,7 +36,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { projectSlug } from "./lib/project-slug.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -271,6 +271,31 @@ describe("record-divergence.js", () => {
 			WFC_NOW: "2026-10-25T01:02:03.987Z",
 		});
 		expect(readRows()[0][0]).toBe("2026-10-25T01:02:03.000Z");
+	});
+
+	it("counts the payload's linked worktree, not the main checkout the hook runs from (#4271)", () => {
+		const main = repoWith("seam", 2, 3);
+		const wt = cutWorktree(main);
+		git(wt, "reset", "-q", "--hard", "origin/main");
+		git(wt, "commit", "--allow-empty", "--no-verify", "-m", "wt");
+		const r = runInProcess(RECORDER, [], {
+			stdin: JSON.stringify({
+				tool_name: "Bash",
+				cwd: wt,
+				tool_input: { command: "git pull --ff-only" },
+				tool_response: FF_REFUSAL,
+			}),
+			cwd: main,
+			env: {
+				...process.env,
+				CLAUDE_CONFIG_DIR: config,
+				CLAUDE_PROJECT_DIR: main,
+			},
+		});
+		expect(r.status).toBe(0);
+		expect(readRows().map((row) => row.slice(1, 6))).toEqual([
+			["seam", "pull", "1", "0", "ahead"],
+		]);
 	});
 
 	it("files a `git -C` refusal under the repo it was refused in", () => {

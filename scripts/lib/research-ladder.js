@@ -157,7 +157,7 @@ function isRulingsCommand(command, corpus) {
 			const gh = found ? null : ghWords(cmd.words, parsed.spans);
 			if (!gh) return;
 			const [sub, verb, ...args] = gh.args.map(read);
-			if (gh.repo) args.push("--repo", read(gh.repo));
+			if (gh.repo) args.push("--repo", gh.repo.text);
 			found =
 				(sub === "issue" && verb === "list" && isRulingsList(args, corpus)) ||
 				(sub === "search" &&

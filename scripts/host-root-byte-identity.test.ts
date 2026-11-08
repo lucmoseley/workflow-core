@@ -185,3 +185,59 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 		expect(got).toEqual({ js: expected(), sh: expected(), py: expected() });
 	});
 });
+
+describe("sessionTree() and gr_session_tree agree (#4271)", () => {
+	/** Each half's answer for a payload `cwd` (none where undefined), run from
+	 * `from` with CLAUDE_PROJECT_DIR on the main checkout; "" for no tree. */
+	const readTrees = (from: string, cwd: string | undefined) => {
+		const opts = { cwd: from, env: envWith(repo), encoding: "utf8" as const };
+		const input = cwd === undefined ? {} : { cwd };
+		const js = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`process.stdout.write(require(${JSON.stringify(path.join(LIB, "host-root.js"))}).sessionTree(${JSON.stringify(input)}) ?? "")`,
+			],
+			opts,
+		);
+		const sh = spawnSync(
+			"bash",
+			[
+				"-c",
+				`source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_session_tree ${shellQuote(cwd ?? "")}`,
+			],
+			{ ...opts, env: { ...opts.env, PWD: from } },
+		);
+		for (const r of [js, sh]) expect(r.stderr).toBe("");
+		return { js: js.stdout, sh: sh.stdout };
+	};
+
+	const cases: [string, () => [string, string | undefined], () => string][] = [
+		[
+			"a cwd in a linked worktree's subdirectory",
+			() => [repo, path.join(linked, "sub")],
+			() => linked,
+		],
+		[
+			"a cwd reaching a linked worktree through a symlink",
+			() => [repo, path.join(linkedLink, "sub")],
+			() => linked,
+		],
+		["a cwd in the main checkout", () => [linked, repo], () => repo],
+		[
+			"no cwd, from a linked worktree",
+			() => [path.join(linked, "sub"), undefined],
+			() => linked,
+		],
+		[
+			"a cwd outside any repository, never the main checkout",
+			() => [repo, path.join(tmp, "nowhere")],
+			() => "",
+		],
+	];
+
+	it.each(cases)("%s", (_name, input, expected) => {
+		const [from, cwd] = input();
+		expect(readTrees(from, cwd)).toEqual({ js: expected(), sh: expected() });
+	});
+});

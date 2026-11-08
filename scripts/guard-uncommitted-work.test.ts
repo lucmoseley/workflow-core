@@ -283,14 +283,7 @@ describe("untracked scratch is out (mantahostels#1555)", () => {
 		fs.writeFileSync(path.join(root, "scratch.md"), "notes\n");
 		expect(run().blocked).toBe(false);
 	});
-});
 
-/* `scripts/lib/root-scratch.test.ts` covers the stray-scratch rule, at
- * `PreToolUse` (mantahostels#2340). What stays here is the one case this
- * guard's deleted limb leaves — that a turn with strays and no tracked dirt
- * says nothing at all, which is the mutation a half-done deletion would leave
- * passing. */
-describe("the deleted stray-scratch limb", () => {
 	it("is silent on untracked scratch at the repo root", () => {
 		fs.writeFileSync(path.join(root, ".i0.out"), "captured\n");
 		const r = run();
@@ -455,7 +448,7 @@ describe("the concision backstop's markers buy no exemption", () => {
 			ledger(["tracked.md"]);
 			dirty("tracked.md");
 			// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-			// uncommitted" — this only proves the nag marker changes nothing.
+			// uncommitted".
 			fs.writeFileSync(path.join(root, `.${kind}-nagged-${sid}`), "");
 			expect(run().blocked).toBe(true);
 		},
@@ -523,7 +516,7 @@ describe("the block is bounded (lib/hook-block.js)", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
 		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted" — this test is only about the six-call bound.
+		// uncommitted".
 		for (let i = 0; i < 6; i++) expect(run().blocked).toBe(true);
 		expect(run().blocked).toBe(false);
 	});
@@ -562,8 +555,7 @@ describe("a live neighbour's claim subtracts the path", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
 		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted" — this proves a same-session claim is not exempt,
-		// not a different block reason.
+		// uncommitted".
 		claim("tracked.md", sid);
 		expect(run().blocked).toBe(true);
 	});

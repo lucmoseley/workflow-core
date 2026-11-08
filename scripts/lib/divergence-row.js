@@ -40,8 +40,8 @@ const MARKERS = [
 /**
  * @typedef {object} DivergencePorts
  * @property {boolean} disabled WFC_NO_DIVERGENCE_LOG is set: no row at all
- * @property {string} pwd the hook's own directory, for a payload with no
- *   usable cwd
+ * @property {(payload: Record<string, unknown>) => string} sessionDir the
+ *   directory the refused call ran in, lib/host-root.js's `sessionDir`
  * @property {(p: string) => boolean} isDir
  * @property {(dir: string) => string | null} toplevel `git rev-parse
  *   --show-toplevel` in `dir`
@@ -166,10 +166,11 @@ function readCounts(counts) {
 const flat = (s) => s.replace(/[\t\r\n]/g, " ");
 
 /**
- * The command, the refusal string matched and the payload's cwd, where the
- * payload is a Bash call whose output carries a refusal; null otherwise.
+ * The command, the refusal string matched and the payload, where the payload
+ * is a Bash call whose output carries a refusal; null otherwise.
  * @param {unknown} payload
- * @returns {{ command: string, marker: string, cwd: unknown } | null}
+ * @returns {{ command: string, marker: string,
+ *   payload: Record<string, unknown> } | null}
  */
 function readRefusal(payload) {
 	if (!payload || typeof payload !== "object" || Array.isArray(payload))
@@ -182,7 +183,7 @@ function readRefusal(payload) {
 	const command = input?.command;
 	if (typeof command !== "string" || !command) return null;
 	const marker = markerIn(outputOf(p));
-	return marker ? { command, marker, cwd: p.cwd } : null;
+	return marker ? { command, marker, payload: p } : null;
 }
 
 /** @param {string} out */
@@ -211,14 +212,15 @@ function divergenceRow(payload, ports) {
 	if (ports.disabled) return null;
 	const refusal = readRefusal(payload);
 	if (!refusal) return null;
-	const { cwd: given } = refusal;
-	const cwd =
-		typeof given === "string" && given && ports.isDir(given)
-			? given
-			: ports.pwd;
-	const call = firstRefusable(refusal.command, cwd, ports.isDir);
-	/* A tree that is no directory has no top level either: git answers for
-	 * neither. */
+	const call = firstRefusable(
+		refusal.command,
+		ports.sessionDir(refusal.payload),
+		ports.isDir,
+	);
+	/* A tree that is no directory, the session's own included, has no top
+	 * level either: git answers for neither. Residual: a refusal whose cwd
+	 * was removed goes unrecorded, rather than filed under the hook's own
+	 * repo (#4271). */
 	if (!call?.tree) return null;
 	return rowAt(call.tree, call.kind, refusal.marker, ports);
 }
