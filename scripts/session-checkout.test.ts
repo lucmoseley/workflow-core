@@ -587,7 +587,7 @@ it("lands a worktree: merges the moved origin/main, the merge commit running pre
 		`pushed ${head} to queue/one, origin/main merged in first`,
 	);
 	expect(r.stderr).toContain(
-		"It has not landed: the queue lander moves main to it once the full suite passes. Read its outcome, once, with `node scripts/landing-status.js`.",
+		"It has not landed: the queue lander moves main to it once the full suite passes. Wait on its outcome with `node scripts/landing-status.js --wait`, run in the background (`run_in_background`): it exits the moment the lander lands or drops it, so no timer is guessed.",
 	);
 	const started = `SKIP: a lander is already running (pid ${landerHolder?.pid})`;
 	expect(r.stderr).toContain(started);
