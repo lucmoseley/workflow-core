@@ -92,6 +92,17 @@ process.env.WFC_CLAUDE_CONFIG_B = path.join(testConfigDir, "no-seat-b");
 process.env.WFC_CLAUDE_CONFIG_C = path.join(testConfigDir, "no-seat-c");
 
 /*
+ * NO TEST READS THIS MACHINE'S MEMWATCH LOG (#4557): the suite gate, the
+ * type-check slot and admission hold on its Windows reading, so a guard run
+ * through its real ports would answer to the machine's memory. Pinned to a path
+ * that does not exist, which reads as no memwatch; an override, as above.
+ */
+process.env.MEMWATCH_MINUTE_LOG = path.join(
+	testConfigDir,
+	"no-memwatch-minute.jsonl",
+);
+
+/*
  * NO TEST REACHES THE SESSION'S HOST THROUGH CLAUDE_PROJECT_DIR (#3334).
  * Pointed at an empty dir that is no repository, a test that drops its pin, or
  * reaches hostRoot() in process, is red in CI and locally alike. An override,

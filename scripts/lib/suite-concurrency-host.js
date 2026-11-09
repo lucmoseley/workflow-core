@@ -4,7 +4,8 @@
  * apart (lib/suite-concurrency-hook-host.js adds the hook's), and the queue's
  * in-process read of the same gate (lib/suite-queue.js's gateDenies).
  *
- * THE SEAMS. WFC_MEMINFO and WFC_PS stand in for /proc/meminfo and `ps`.
+ * THE SEAMS. WFC_MEMINFO and WFC_PS stand in for /proc/meminfo and `ps`,
+ * MEMWATCH_MINUTE_LOG for memwatch's minute log (#4557).
  *
  * Every read fails open (mantahostels#103 §6): a config, command or rule it
  * cannot read reads as none (#2795).
@@ -14,6 +15,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { readAvailableMb } = require("./meminfo.js");
+const { readWindowsMemory } = require("./windows-memory.js");
 const { treePorts } = require("./guard-host-ports.js");
 const { buildIsWrapperScript } = require("./suite-launch.js");
 const { STANDDOWN_LOG } = require("./suite-concurrency.js");
@@ -69,6 +71,7 @@ function buildHostPorts(root, log) {
 			const read = readAvailableMb();
 			return read.ok ? read.mb : null;
 		},
+		windowsMemory: () => readWindowsMemory(),
 		psRows: () => {
 			const ps = readPs();
 			return ps.ok ? ps.rows : null;
