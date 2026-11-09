@@ -757,6 +757,33 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 			]);
 		});
 
+		it("waits while an older `tsc` the climb holds is stamped, and runs once it spawns (#4766)", async () => {
+			const queueDir = path.join(qdir(), "wfc-suite-queue");
+			fs.mkdirSync(queueDir);
+			const o = seated({ queueDir, gate: () => false });
+			const tsc = queueSeat({
+				queue: {
+					queueDir: path.join(path.dirname(queueDir), "wfc-tsc-queue"),
+					pid: 22,
+					clock: () => 0,
+					alive: () => true,
+				},
+			});
+			tsc.stamps.onClimbStamp(true);
+			const held: boolean[] = [];
+			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
+				...o,
+				sleepFn: () => {
+					held.push(true);
+					tsc.spawned();
+					return Promise.resolve();
+				},
+			});
+			tsc.leave();
+			expect(held).toEqual([true]);
+			expect(calls).toHaveLength(1);
+		});
+
 		it("queues a whole suite as any other, the seat being part", async () => {
 			const o = seated({ root: wholeRepo(), gate: () => false });
 			const calls = await run(["--queue", SHARED_FLAG], o);

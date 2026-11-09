@@ -947,6 +947,40 @@ function readTurn({
 }
 
 /**
+ * A held seat's turn (#4766): closed while the other queue holds an older
+ * waiter the climb charge holds (`readPeerClimbHeld`), and on nothing else, a
+ * seat skipping its own queue's order (#2918). So a loop of runs inside one
+ * seat yields between runs to an older `tsc`, as a queued turn does (#4760).
+ * Fails open on a queue directory that cannot be read, as `readTurn` does.
+ *
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive }} [options]
+ * @returns {{ turn: () => boolean, turnHold: () => TurnHold | undefined }}
+ */
+function peerClimbTurn({
+	queueDir = defaultQueueDir(),
+	queueFs = fs,
+	pid = process.pid,
+	alive = pidAlive,
+} = {}) {
+	/** @type {{ pid: number, queue: string }[]} */
+	let holders = [];
+	return {
+		turn: () => {
+			const { markers, error } = readMarkers(queueDir, queueFs);
+			if (error) return true;
+			const mine = markers.find(({ record }) => record.pid === pid)?.record ?? {
+				pid,
+				at: Number.POSITIVE_INFINITY,
+			};
+			holders = readPeerClimbHeld(queueDir, mine, { queueFs, alive });
+			return holders.length === 0;
+		},
+		turnHold: () =>
+			holders.length > 0 ? { limb: "peer", holders } : undefined,
+	};
+}
+
+/**
  * Why a turn is closed: a whole suite or a part-suite
  * held behind the waiters ahead of it, a `tsc` behind its own queue's, or
  * another launch admitted and unspawned, or an older waiter in the other
@@ -1811,6 +1845,7 @@ module.exports = {
 	readQueuesClimbMb,
 	gateDenies,
 	waitForGate,
+	peerClimbTurn,
 	queueSeat,
 	armSeatSignals,
 };
