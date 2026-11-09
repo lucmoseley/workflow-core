@@ -201,7 +201,7 @@ function configDir(args) {
 	// os.homedir() rather than $HOME, which an `env -i` invocation leaves unset.
 	const resolved = expandHome(d, os.homedir());
 	if (resolved === null)
-		die(`cannot expand ${d}: the home directory is not absolute`);
+		die(`cannot expand ${d}: the home directory is unset or not absolute`);
 	if (!fs.existsSync(jobStorePath(resolved))) {
 		die(`${resolved} has no jobs/ directory — is that a Claude config dir?`);
 	}

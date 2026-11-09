@@ -25,7 +25,7 @@ const {
 	commandName,
 	isGitValueOption,
 } = require("./shell-words.js");
-const { expandHome } = require("./home-path.js");
+const { expandTildeWord } = require("./home-path.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 const { Lexer, SPACE } = require("./shell-lexer.js");
 const {
@@ -958,8 +958,7 @@ function pathArg(word, scope) {
  */
 function expandTilde(word, scope) {
 	if (!word.startsWith("~")) return word;
-	const out = expandHome(word, expandVars("$HOME", scope));
-	return out === word ? null : out;
+	return expandTildeWord(word, expandVars("$HOME", scope));
 }
 
 /**

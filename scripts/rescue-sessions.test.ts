@@ -216,6 +216,14 @@ describe("argument parsing", () => {
 		expect(res.stderr).toContain("unknown flag: --from");
 	});
 
+	it("refuses a --from ~/ it cannot expand, where HOME is not absolute (#4611)", () => {
+		const res = runInProcess(SCRIPT, ["snapshot", "--from", "~/.claude3"], {
+			env: { ...process.env, HOME: "rel/home" },
+		});
+		expect(res.status).toBe(2);
+		expect(res.stderr).toContain("unset or not absolute");
+	});
+
 	it("refuses a value flag with nothing after it, naming the flag", () => {
 		const res = runInProcess(SCRIPT, ["snapshot", "--out"]);
 		expect(res.status).toBe(2);

@@ -468,6 +468,10 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 			"cd=/start",
 			"gh=/home/u/n",
 		]);
+		// A quoted span after the ~ keeps its `..` unfolded (#4611).
+		expect(
+			cwds('cd ~/"a/b"/.. && gh x', "/start", { HOME: "/home/u" }).at(-1),
+		).toBe("gh=/home/u/a/b/..");
 		// Quoted, the ~ is a directory of that name.
 		expect(cwds("cd '~' && gh x").at(-1)).toBe("gh=/start/~");
 	});

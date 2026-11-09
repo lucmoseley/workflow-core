@@ -34,7 +34,8 @@ function configDirFrom(value, home = os.homedir()) {
 
 /**
  * A config dir in the form `~/.claude/refill-seats` entries take, so two
- * spellings of one dir compare equal.
+ * spellings of one dir compare equal. Where `home` is not absolute a `~/` path
+ * stays literal and resolves under the cwd, matching no seat (#4611).
  * @param {string} p @param {string} home
  */
 function seatDir(p, home) {
