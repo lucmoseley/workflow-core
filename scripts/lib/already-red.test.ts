@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Whether a red run's failures were already red on its base (#3624), judged
- * off the red store and the certificate store seeded in a throwaway
+ * off the red store, the certificate store and the pass store's per-file
+ * rows (#4790) seeded in a throwaway
  * repository, against its real git. Loosen a case and a
  * session reads its own breakage as a neighbour's, or reruns a suite to
  * attribute a red the record already attributes.
@@ -21,6 +22,7 @@ const {
 	readRedEvidence,
 } = require("./already-red.js");
 const { EDGES_FILE, record, recordFailure } = require("./test-pass-marker.js");
+const { record: recordFiles } = require("./pass-store.js");
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -193,6 +195,64 @@ describe("a red run's failures judged against its base (#3624)", () => {
 		).toBe(
 			"  This run recorded no base, so no failure could be checked against one (#3624).",
 		);
+	});
+});
+
+/** A pass-store row of TEST at `at`, off the working tree as it stands. */
+function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
+	recordFiles(
+		{
+			sha: git(dir, "rev-parse", "HEAD"),
+			at,
+			tree: null,
+			root: dir,
+			files: [{ file: TEST, outcome, imports: ["a.js"] }],
+			shared: [],
+			clean: true,
+			drifted: [],
+		},
+		{ storeRoot: dir, lander: false },
+	);
+}
+
+describe("the pass store's per-file rows as evidence (#4790)", () => {
+	/* Inside the store's retention, and lexically between the red store's
+	 * "1" and the run's `later`, as evidence is before the run it classes. */
+	const recent = new Date(Date.now() - 60_000).toISOString();
+	const later = "3";
+
+	it("marks a failure already red where an earlier failing row holds at the base", () => {
+		const { dir, base } = repo();
+		fileRow(dir, recent, "fail");
+		const mine = commit(dir, "b.js");
+
+		expect(
+			linesFor(dir, run({ dir, ...mine, at: later, failed: true, base })),
+		).toContain("ALREADY RED");
+	});
+
+	it("lets a newer passing row supersede an older red", () => {
+		const { dir, base } = repo();
+		const elsewhere = commit(dir, "b.js");
+		recordFailure(run({ dir, ...elsewhere, at: "1", failed: true }), {
+			root: dir,
+		});
+		fileRow(dir, recent, "pass");
+
+		expect(
+			linesFor(dir, run({ dir, ...elsewhere, at: later, failed: true, base })),
+		).toContain("NEW");
+	});
+
+	it("takes no row whose inputs the base differs in", () => {
+		const { dir, base } = repo();
+		fs.appendFileSync(path.join(dir, "a.js"), "uncommitted\n");
+		fileRow(dir, recent, "fail");
+		const mine = commit(dir, "a.js");
+
+		expect(
+			linesFor(dir, run({ dir, ...mine, at: later, failed: true, base })),
+		).toContain("NEW");
 	});
 });
 

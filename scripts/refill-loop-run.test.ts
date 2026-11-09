@@ -697,6 +697,40 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 			expect(readProcStartOf(pid)).toBeNull();
 			expect(readLines(at("stops"))).toEqual([]);
 		});
+
+		/* US$40 of its own, then a reply's US$15 between the reply's launch
+		 * and the loop's resume. */
+		it("leaves the loop's resume running past it on a reply's spend alone (#4668)", async () => {
+			const t = (hhmm: string) => `2026-01-01T${hhmm}:00.000Z`;
+			const request = (id: string, stamp: string, inputTokens: number) =>
+				JSON.stringify({
+					type: "assistant",
+					requestId: id,
+					timestamp: stamp,
+					message: {
+						model: "claude-opus-5-5",
+						usage: { input_tokens: inputTokens },
+					},
+				});
+			fs.writeFileSync(
+				path.join(overflowSeat(), "projects", "-fixture", `${sessionId}.jsonl`),
+				`${request("r1", t("00:00"), 10_000_000)}\n${request("r2", t("01:30"), 3_750_000)}\n`,
+			);
+			writeHeadlessRun(dir, "0000c003", sessionId, {
+				live: false,
+				keyVar: "WFC_TEST_KEY",
+				founderReply: true,
+				launchedAt: Date.parse(t("01:00")),
+			});
+			writeNextRun({
+				keyVar: "WFC_TEST_KEY",
+				launchedAt: Date.parse(t("02:00")),
+			});
+			const r = await stoppedTick();
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toMatch(/overflow (session|allowances)/);
+			expect(readProcStartOf(pid)).not.toBeNull();
+		});
 	});
 });
 

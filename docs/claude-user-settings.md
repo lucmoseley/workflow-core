@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **8 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **10 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -37,9 +37,12 @@ tool if a deny ever matters.
 
 ```json
 {
+  "cleanupPeriodDays": 365,
   "env": {
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
-    "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS": "60000"
+    "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS": "60000",
+    "CLAUDE_CODE_RETRY_WATCHDOG": "1",
+    "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS": "1"
   },
   "includeCoAuthoredBy": false,
   "permissions": {
@@ -203,7 +206,7 @@ tool if a deny ever matters.
     ]
   },
   "autoConnectIde": false,
-  "cleanupPeriodDays": 365
+  "tui": "fullscreen"
 }
 ```
 

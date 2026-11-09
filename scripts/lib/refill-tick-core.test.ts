@@ -62,6 +62,7 @@ const ACTS = {
 	tendClosedParks: true,
 	actOnBlocks: true,
 	actOnIdle: true,
+	actOnOutside: true,
 	releaseAwayParks: true,
 	attachProbeParks: true,
 	actOnLimits: true,
@@ -98,6 +99,7 @@ const BLOCK_ACTS = {
 	comment: true,
 	postHandOff: true,
 	release: true,
+	writeOutside: true,
 } satisfies Record<keyof BlockActs, true>;
 
 const SEAT = "/home/u/.claude3";
@@ -220,6 +222,7 @@ function fakeIo(
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
 		actOnBlocks: recorded("actOnBlocks", (listed) => listed),
 		actOnIdle: recorded("actOnIdle", (launches) => launches),
+		actOnOutside: recorded("actOnOutside", () => undefined),
 		releaseAwayParks: recorded("releaseAwayParks", (launches) => launches),
 		attachProbeParks: recorded("attachProbeParks", () => undefined),
 		readLiftedHolds: recorded("readLiftedHolds", () => []),

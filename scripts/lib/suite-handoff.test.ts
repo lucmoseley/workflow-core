@@ -166,6 +166,7 @@ describe("the run report", () => {
 		machineEnd: { jiffies: { user: 2 }, total: 2, load1: null },
 		endedAtMs: 2000,
 		slowest: [{ file: "a.test.ts", seconds: 1 }],
+		files: { results: [], shared: [], clean: true },
 	};
 
 	it("gives one take every field filled, and a second take nothing", () => {
@@ -179,6 +180,7 @@ describe("the run report", () => {
 		fillRunReport({ scope: filled.scope as never });
 		fillRunReport({ attestation: filled.attestation as never });
 		fillRunReport({ slowest: filled.slowest });
+		fillRunReport({ files: filled.files });
 		expect(takeRunReport()).toEqual(filled);
 		expect(Object.values(takeRunReport()).every((v) => v === null)).toBe(true);
 	});

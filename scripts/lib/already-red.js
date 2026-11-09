@@ -4,8 +4,9 @@
  * which route records which base.
  *
  * THE EVIDENCE IS WHAT IS ALREADY ON RECORD, never a run of its own:
- * the red store's earlier runs, any session's, and the certificate store's,
- * each judged at the base BY CONTENT (`holdsTestByTree`): the tree the run
+ * the red store's earlier runs, any session's, the certificate store's, and
+ * the pass store's per-file rows (lib/pass-store.js, #4790), each judged at
+ * the base BY CONTENT (`holdsTestByTree`): the tree the run
  * read against the base's, never the sha stamped on it, so a red its own
  * uncommitted files caused is no evidence about the base. The newest that
  * holds decides.
@@ -19,6 +20,7 @@ const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 const {
 	DEFAULT_SUITE,
+	gitReader,
 	holdsTestByTree,
 	readFailures,
 	readMarkers,
@@ -30,6 +32,7 @@ const {
 const { GIT_TIMEOUT_MS } = require("./git.js");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
+const { heldAtSha } = require("./pass-store.js");
 
 /* Untraced: how many runs naming a failing file are judged, newest first. */
 const MAX_WALKED = 100;
@@ -42,8 +45,9 @@ const WORKTREE = /^\.claude\/worktrees\/[^/]+\//;
  * @typedef {{sha: string, at: string|null}} RedOnBase
  * @typedef {{file: string, red: RedOnBase|null}} Classified
  * @typedef {{m: Marker, red: boolean}} Evidence a run on record
- * @typedef {{reds: Marker[], certificates: Marker[]}} OnRecord
- *   the evidence on record, as `readRedEvidence` reads it
+ * @typedef {{reds: Marker[], certificates: Marker[], storeRoot?: string|null}} OnRecord
+ *   the evidence on record, as `readRedEvidence` reads it: `storeRoot` is
+ *   the checkout whose pass store's rows are read too
  * @typedef {{base: string|null, files: Classified[], allAlreadyRed: boolean}} Classing
  *   `allAlreadyRed` where the run recorded a base and every failure is already red on it
  */
@@ -74,7 +78,7 @@ function toRepoPath(file, root) {
  * @param {{root: string, execFn?: typeof execFileSync}} options
  * @returns {Classing|null}
  */
-function classifyFailures(run, { reds, certificates }, options) {
+function classifyFailures(run, { reds, certificates, storeRoot }, options) {
 	const failing = (run.scope?.failures ?? []).map((f) =>
 		toRepoPath(f.file, options.root),
 	);
@@ -97,18 +101,41 @@ function classifyFailures(run, { reds, certificates }, options) {
 		.filter(({ m }) => suiteOf(m) === DEFAULT_SUITE && isBefore(m))
 		.sort((a, b) => String(b.m.at ?? "").localeCompare(String(a.m.at ?? "")));
 
+	const rows = heldAtSha(failing, {
+		storeRoot: storeRoot ?? null,
+		sha: base,
+		before: String(run.at ?? ""),
+		git: gitReader(gitOpts).git,
+	});
+
 	/** @type {Classified[]} */
 	const files = failing.map((file) => {
 		const held = newestFirst
 			.filter(({ m, red }) => (red ? hasFailed : hasRun)(m, file, options.root))
 			.slice(0, MAX_WALKED)
 			.find(({ m }) => holdsTestByTree(m, file, base, gitOpts));
+		const newest = newerOf(
+			held ? { sha: held.m.sha, at: held.m.at ?? null, red: held.red } : null,
+			rows.get(file) ?? null,
+		);
 		return {
 			file,
-			red: held?.red ? { sha: held.m.sha, at: held.m.at ?? null } : null,
+			red: newest?.red ? { sha: newest.sha, at: newest.at } : null,
 		};
 	});
 	return { base, files, allAlreadyRed: files.every((f) => f.red !== null) };
+}
+
+/**
+ * The newer of a marker's and a pass-store row's evidence on one file.
+ * @typedef {{sha: string, at: string|null, red: boolean}} Held
+ * @param {Held|null} a
+ * @param {Held|null} b
+ * @returns {Held|null}
+ */
+function newerOf(a, b) {
+	if (!a || !b) return a ?? b;
+	return String(b.at ?? "") > String(a.at ?? "") ? b : a;
 }
 
 /**
@@ -141,6 +168,7 @@ const boundedExec = /** @type {typeof execFileSync} */ (
 const readRedEvidence = (root) => ({
 	reds: readFailures({ root }),
 	certificates: readMarkers({ root }),
+	storeRoot: root,
 });
 
 /**

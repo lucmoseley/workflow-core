@@ -23,7 +23,8 @@ const { ALARM_NAMES } = require("./queue-alarms.js");
  * verdict; the lander reads those runs by title instead (#4676). The two queue
  * alarms run on `main` and go red on a stalled queue, not a faulty tree;
  * lib/queue-alarms.js reads their red for the morning review and the refill
- * loop's alarm ticket (#4772).
+ * loop's alarm ticket (#4772). `Warm caches` runs on `main` to save a cache,
+ * testing nothing (#4661).
  * Residual: a named rerun of `main`'s own base check no longer keys either
  * reader, which leaves `main`'s own CI runs to carry its verdict. */
 const NOT_A_TREE_VERDICT = new Set([
@@ -31,6 +32,7 @@ const NOT_A_TREE_VERDICT = new Set([
 	"Dependency Graph",
 	"issue-card-drift",
 	"Named rerun",
+	"Warm caches",
 	...ALARM_NAMES,
 ]);
 

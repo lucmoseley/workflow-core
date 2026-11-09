@@ -6,7 +6,8 @@
  * the seat's dir, which keeps the conversation. Each chain is capped once, and
  * a founder's reply to it runs uncapped (spec #3691 §Out of Scope): the reply
  * is a headless run of its own, which its run record marks
- * (lib/overflow-actions.js, #4174); the loop's resumes carry no mark.
+ * (lib/overflow-actions.js, #4174), and its spend stays off the chain's figure
+ * (#4668); the loop's resumes carry no mark.
  */
 
 const fs = require("node:fs");
@@ -17,7 +18,11 @@ const { stopOn } = require("./claude-stop.js");
 const { readEveryOverflowLookup } = require("./dispatch-ledger.js");
 const { shortJobId } = require("./job-paths.js");
 const { readJsonl } = require("./jsonl.js");
-const { dollars, priceSessions } = require("./overflow-budget.js");
+const {
+	dollars,
+	priceSessions,
+	readReplyUsd,
+} = require("./overflow-budget.js");
 const { chainRootOf, chainSpendOf } = require("./overflow-budget-core.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildSeatLabel, overflowSeatsOf } = require("./refill-seats.js");
@@ -37,7 +42,8 @@ const cappedFile = (seat) =>
 
 /**
  * The key's listed background sessions and headless runs whose chain's spend
- * has reached the allowance their launch recorded, a founder's reply aside,
+ * has reached the allowance their launch recorded, a founder's reply and its
+ * spend aside,
  * once priceSessions has priced the key's ledger again. An `ended` one is past
  * it but no longer running: capped without a stop.
  * @param {OverflowSeat} seat
@@ -46,7 +52,11 @@ const cappedFile = (seat) =>
  * @throws where a transcript or the ledger cannot be read, written or locked
  */
 function priceOverAllowance(seat, agents, lookup) {
-	const spent = chainSpendOf(lookup, priceSessions(seat, lookup));
+	const spent = chainSpendOf(
+		lookup,
+		priceSessions(seat, lookup),
+		readReplyUsd(seat),
+	);
 	const capped = new Set(
 		(readJsonl(cappedFile(seat))?.rows ?? []).map((r) =>
 			chainRootOf(lookup, String(r.sessionId)),

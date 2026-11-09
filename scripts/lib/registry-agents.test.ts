@@ -80,6 +80,7 @@ describe("registryAgents", () => {
 					kind: "background",
 					startedAt: 1,
 					state: "done",
+					seat: seatA,
 				},
 			],
 			faults: [],
@@ -87,15 +88,19 @@ describe("registryAgents", () => {
 		});
 	});
 
-	it("reads every seat, each session's state off its own seat", () => {
+	it("reads every seat, each session's state off its own seat, which it names", () => {
 		entry(seatA, "1.json");
 		entry(seatB, "2.json", { sessionId: "s-2" });
 		job(seatA, "aaaa0001", { sessionId: "s-1", state: "done" });
 		job(seatB, "aaaa0001", { sessionId: "s-2", state: "working" });
 		const states = readRegistryAgents().agents.map(
-			(a: { sessionId: string; state: string }) => `${a.sessionId} ${a.state}`,
+			(a: { sessionId: string; state: string; seat: string }) =>
+				`${a.sessionId} ${a.state} ${a.seat}`,
 		);
-		expect(states.sort()).toEqual(["s-1 done", "s-2 working"]);
+		expect(states.sort()).toEqual([
+			`s-1 done ${seatA}`,
+			`s-2 working ${seatB}`,
+		]);
 	});
 
 	it("drops an entry whose process is not the one it recorded", () => {

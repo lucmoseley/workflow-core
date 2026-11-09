@@ -36,6 +36,7 @@ interface Verdict {
 	unread?: string;
 }
 
+const { foldCached } = require("./pass-store.js");
 const { judge } = require("./unasked-rerun.js") as {
 	judge: (
 		input: { sessionId: string; cwd?: string; command?: string },
@@ -431,6 +432,42 @@ describe("over the real adapter, where selection and certificates must agree on 
 			treeAtEnd: tree,
 		});
 		expect(refused(real("npm run test:changed"))).toContain("RUN-C");
+	});
+
+	it("refuses over a HEAD a run that cached the test reading its change attests, held by content (#4790)", () => {
+		const dir = fx.f.project;
+		fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, "docs/test-read-edges.json"),
+			JSON.stringify({ edges: { "a.js": ["a.test.ts"] } }),
+		);
+		for (const f of ["a.js", "a.test.ts"])
+			fs.writeFileSync(path.join(dir, f), `${f}\n`);
+		fx.git("add", "--", "docs", "a.js", "a.test.ts");
+		fx.git("commit", "-q", "-m", "mine");
+		const sha = fx.git("rev-parse", "HEAD");
+		/* A run that ran nothing: the manifest's reader of a.js is attested
+		 * only as the file it cached. */
+		fx.writeStore({
+			...fx.narrowedOn(sha, [], "RUN-K"),
+			...foldCached(
+				{
+					closure: [],
+					selected: [],
+					changedPaths: ["a.js", "a.test.ts", "docs/test-read-edges.json"],
+					imports: {},
+					roots: [],
+				},
+				[
+					{
+						file: "a.test.ts",
+						reads: ["a.test.ts", "a.js"],
+						source: { sha, at: "K0", tree: null },
+					},
+				],
+			),
+		});
+		expect(refused(real("npm run test"))).toContain("RUN-K");
 	});
 
 	it("refuses on the session's own commit alone, a neighbour's on top left out", () => {
