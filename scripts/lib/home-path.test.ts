@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { expandHome, expandTildeWord } from "./home-path.js";
 
-describe("expandHome (#4611)", () => {
+describe("expandHome", () => {
 	it("reads a leading ~/ and a bare ~ against an absolute home", () => {
 		expect(expandHome("~/a/b.md", "/home/u")).toBe("/home/u/a/b.md");
 		expect(expandHome("~", "/home/u")).toBe("/home/u");
@@ -39,7 +39,7 @@ describe("expandHome (#4611)", () => {
 	});
 });
 
-describe("expandTildeWord (#4611)", () => {
+describe("expandTildeWord", () => {
 	it("refuses ~user and an unexpandable ~, passes other words through", () => {
 		expect(expandTildeWord("~user/x", "/home/u")).toBeNull();
 		expect(expandTildeWord("~/x", undefined)).toBeNull();
