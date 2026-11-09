@@ -1,7 +1,0 @@
-[Unit]
-Description=Drop the guest page cache when Windows runs short (#4759)
-
-[Service]
-Type=oneshot
-# The system python: root has no nvm node, and the script needs only the stdlib.
-ExecStart=/usr/bin/python3 -I "@SCRIPT@" tick --minute-log "@MINUTE_LOG@" --drop-log "@DROP_LOG@"
