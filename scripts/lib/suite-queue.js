@@ -1011,8 +1011,7 @@ function readTurn({
  * `windowsHeld`, at any age. Each waiter's Windows need is its own draw, so a
  * smaller one can fit the free memory a larger head cannot. The hold refuses
  * the head at its bound rather than running it, so holding younger waiters
- * back gains it nothing; on 9 Nov 2026 the readings a 2-file run fitted came
- * 18 to 37 minutes into the head's wait, past PART_PASS_AGE_MS.
+ * back gains it nothing.
  *
  * Residual: the stamp is a poll old, so a part-suite may pass one whose
  * memory freed since; and a drop that will not write leaves the stamp, letting

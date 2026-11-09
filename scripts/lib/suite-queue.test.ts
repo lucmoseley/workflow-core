@@ -664,8 +664,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 	});
 
 	describe("the Windows-held stamp an older part-suite's wait writes (#4782)", () => {
-		/* 9 Nov 2026: the head waited out its 40 minutes on the Windows hold
-		 * while Windows' free memory cleared the 2-file run behind it. */
 		const late = 5 * PART_PASS_AGE_MS;
 		/* One Windows reading, each run judged on its own workers' draw. */
 		const windowsGate = (workers: number) => () => {
