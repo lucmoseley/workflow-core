@@ -1888,16 +1888,17 @@ const REAP_INFLIGHT_MS = 300_000;
  * cancelled hook dies — so a reap cancelled THERE is cancelled there again
  * next start and the line never prints.
  *
- * `deaths` IS THE SIGNAL THAT SURVIVES BOTH. `scripts/reap-finished-sessions.js`'s
- * `openRun` carries a count of consecutive un-closed opens forward in the row
+ * `deaths` IS THE SIGNAL THAT SURVIVES BOTH. lib/reaper.js's `openedRecord`
+ * carries a count of consecutive un-closed opens forward in the row
  * itself, across the very reopens that erase `startedAt`'s own age — so a
  * single read of `row.deaths` here says what no single read of `row.startedAt`
  * ever could. Reported once it reaches `REAP_LIVE_DEATHS_TO_REPORT`, kept apart
- * from `open` above: the two ask different questions of the same row. The count
- * ages from `openedSince`, not `startedAt`, and a close resets it to zero —
- * lib/detached-run.js's `deathCount` gives each limb. A healthy `live` close
- * takes about 5 s (5.1 s measured, mantahostels#1952), so a row still open at
- * the next start is not a run merely running long.
+ * from `open` above: the two ask different questions of the same row. A death
+ * counts only once a whole grace has passed since `openedSince`, not
+ * `startedAt`, at most one per grace window, and a close resets the count to
+ * zero — lib/detached-run.js's `deathCount` gives each limb. A healthy `live`
+ * close takes about 5 s (5.1 s measured, mantahostels#1952), so a row still
+ * open a whole grace later is not a run merely running long.
  *
  * `live` ONLY, THOUGH `openRun` CARRIES `deaths` FOR EITHER MODE. `dry` is not
  * reopened at every session start, so `open`'s own age check already catches
