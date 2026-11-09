@@ -835,7 +835,7 @@ function readMainChain(file, who) {
 /**
  * Every main-chain row of `l`'s transcript, at the path its job record
  * `job` names; null, logged where the file will not read.
- * @param {{jobId: string|null}} l
+ * @param {import("./refill-blocks.js").SessionRef} l
  * @param {unknown} job
  * @returns {Record<string, unknown>[]|null}
  */

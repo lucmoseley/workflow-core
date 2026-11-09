@@ -172,15 +172,15 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @property {() => string|null} admitResume  the dispatcher's per-member
  *   memory, load and session-ceiling re-read: null where it admits one more
  *   session, else why not
- * @property {(l: JobLaunch) => {state?: unknown, detail?: unknown}|null}
+ * @property {(l: SessionRef) => {state?: unknown, detail?: unknown}|null}
  *   jobStateOf  its job's state.json, null unread
  * @property {(l: SessionRef) => unknown[]|null} readTimeline  its job's
  *   timeline rows, null unread
  * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
  *   idleSince  lib/block-cause.js's resumedIdleSince on its records
- * @property {(l: JobLaunch, at: number) => boolean} hasTurnedSince
+ * @property {(l: SessionRef, at: number) => boolean} hasTurnedSince
  *   lib/block-cause.js's hasTurnedSince on its transcript, false unread
- * @property {(l: JobLaunch, at: number) => boolean|null} hasRepliedSince
+ * @property {(l: SessionRef, at: number) => boolean|null} hasRepliedSince
  *   lib/block-cause.js's hasRepliedSince on its transcript, null unread
  * @property {(seat: string, jobId: string) => string|null} readJobCwd  the cwd
  *   job `jobId`'s record on `seat` names, null where it names none
@@ -224,8 +224,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   `prompt` into the live session
  * @property {(l: SessionRef & {issues?: number[]}, prompt: string,
  *   target: ResumeTarget & {sessionId: string}) => Resumed} resumeStopped
- *   `claude --bg --resume` of the stopped job, the claims on `issues` moved
- *   to any copy it starts
+ *   `claude --bg --resume` of the stopped job, the claims on `issues`, none
+ *   where absent, moved to any copy it starts
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeOwnId  `claude --bg --resume` of
  *   a job a restart killed, its record removed first so it keeps its id

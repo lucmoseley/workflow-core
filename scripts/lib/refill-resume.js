@@ -28,9 +28,10 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
 /** @typedef {import("./refill-blocks.js").JobLaunch} JobLaunch */
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /**
- * @typedef {{root: string, seat: string, keyVar?: string, issues?: number[]}}
- *   Resumable  the session a resume runs on: its checkout, its seat and any
- *   overflow key, and the issues whose claims follow a copy, none where absent
+ * @typedef {Pick<import("./refill-blocks.js").SessionRef, "root"|"seat"|"keyVar">
+ *   & {issues: number[]}} Resumable  the session a resume runs on: its
+ *   checkout, its seat and any overflow key, and the issues whose claims
+ *   follow a copy
  */
 /** @typedef {ReturnType<typeof import("./child-spawn.js").spawnChild>} ChildRun */
 /** @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup */
@@ -98,7 +99,7 @@ function resumeSteps(io) {
 	 * @param {string} from
 	 * @param {string} to
 	 */
-	function moveClaims({ root, issues = [] }, from, to) {
+	function moveClaims({ root, issues }, from, to) {
 		for (const n of issues) {
 			const r = io.moveIssueClaim(root, n, from, to);
 			if (r.failed)
@@ -116,7 +117,7 @@ function resumeSteps(io) {
 	 * @param {{sessionId: string|null, jobId: string, cwd: string}} copy
 	 */
 	function moveParked(
-		{ root, issues = [], seat, keyVar },
+		{ root, issues, seat, keyVar },
 		from,
 		{ sessionId, jobId, cwd },
 	) {
@@ -432,8 +433,9 @@ function resumeSteps(io) {
 	 * claims (#2963, #2968). The resume counts where the launcher named the
 	 * job it started (lib/bg-resume.js) and that job's state.json does not
 	 * read failed; a later tick judges the resumed turn. A session on an
-	 * overflow key resumes headless instead (resumeHeadless).
-	 * @param {Resumable} l
+	 * overflow key resumes headless instead (resumeHeadless). A session the
+	 * loop did not launch names no issues, and a copy of it moves no claims.
+	 * @param {Omit<Resumable, "issues"> & {issues?: number[]}} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {{move?: MoveTarget, name?: string, flags?: string[]}} [moved]
@@ -443,11 +445,12 @@ function resumeSteps(io) {
 	 * @returns {Resumed}
 	 */
 	function resumeStopped(
-		l,
+		session,
 		prompt,
 		{ sessionId, cwd },
 		{ move, name, flags = [] } = {},
 	) {
+		const l = { ...session, issues: session.issues ?? [] };
 		if (l.keyVar)
 			return resumeHeadless({ ...l, keyVar: l.keyVar }, prompt, {
 				sessionId,

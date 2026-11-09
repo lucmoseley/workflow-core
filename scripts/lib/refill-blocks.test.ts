@@ -1275,8 +1275,8 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			const [out] = markParked(
 				[held()],
 				[bare],
-				(_l, row) => {
-					read.push(row);
+				(_l, row, name) => {
+					read.push(row, name);
 					return {
 						cause: "UNKNOWN",
 						why: "row carries neither status nor state",
@@ -1285,7 +1285,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				NOW,
 			);
 			expect(out).toEqual(held());
-			expect(read).toEqual([bare]);
+			expect(read).toEqual([bare, "design-vault /implement 42"]);
 		});
 
 		it("keeps one whose resume failed held for the next tick, and hands it off at the third failure", () => {
