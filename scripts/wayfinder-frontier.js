@@ -37,7 +37,7 @@
  * the body-GATED, print the rest in map order.
  *
  * THE TYPE FILTER (#579): only a decision ticket belongs on the frontier, and a
- * decision ticket carries a `wayfinder:` label — any, as `check-issue-labels.js`'s
+ * decision ticket carries a `wayfinder:` label — any, as `lib/decision-labels.js`'s
  * `isRouteStep` reads it, so a nested map stays. A child without one — a
  * `kind:spec` whose work sits on its tickets, a `kind:brief` awaiting its spec,
  * or a child nobody typed — is dropped and named on stderr, so a missing label
@@ -73,6 +73,7 @@ const { blockedByMany } = require("./lib/blocked-by-batch");
 const { resolveGate } = require("./lib/issue-gate");
 const store = require("./lib/arbiter-store");
 const { execGit } = require("./lib/git.js");
+const { isRouteStep } = require("./lib/decision-labels.js");
 
 /** @param {string} msg */
 const say = (msg) => process.stderr.write(`wayfinder-frontier: ${msg}\n`);
@@ -200,7 +201,9 @@ async function openChildren(map) {
 function untypedChildren(children) {
 	const untyped = new Set();
 	for (const { number, labels } of children) {
-		if (labels.some((l) => l.startsWith("wayfinder:"))) continue;
+		// A route step, not a decision ticket: `takes:wayfinder` without a
+		// `wayfinder:<type>` is a child nobody typed, named below.
+		if (isRouteStep(labels)) continue;
 		untyped.add(number);
 		if (labels.includes("kind:spec"))
 			say(

@@ -134,6 +134,7 @@ const {
 	hasSessionCompactionsLine,
 } = require("./lib/compaction-set.js");
 const { caught } = require("./lib/caught.js");
+const { decisionMarks, isDecisionTicket } = require("./lib/decision-labels.js");
 const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
@@ -276,12 +277,9 @@ const REPLY_SKIP = buildLineRe(
  * @param {Issue} issue
  */
 function checkPracticeKindOrFail(comment, issue) {
-	const marks = issue.labels.filter(
-		(l) => l === "takes:wayfinder" || l.startsWith("wayfinder:"),
-	);
-	if (marks.length > 0 && REPLY_SKIP.test(comment))
+	if (isDecisionTicket(issue.labels) && REPLY_SKIP.test(comment))
 		io.fail(
-			`#${issue.number} is a decision ticket (${marks.join(", ")}), and its **Practice:** line declares "skipped — a reply that only answers a question". A decision ticket's resolution is a decision, not a reply: run the research pass ("**Practice:** ran — <note>"), cite a current note ("**Practice:** covered — <note>, <Researched date>"), or name another exempt kind that fits. Nothing written.`,
+			`#${issue.number} is a decision ticket (${decisionMarks(issue.labels).join(", ")}), and its **Practice:** line declares "skipped — a reply that only answers a question". A decision ticket's resolution is a decision, not a reply: run the research pass ("**Practice:** ran — <note>"), cite a current note ("**Practice:** covered — <note>, <Researched date>"), or name another exempt kind that fits. Nothing written.`,
 			2,
 		);
 }
