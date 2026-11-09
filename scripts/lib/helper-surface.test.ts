@@ -196,6 +196,13 @@ describe("the helper-surface commands", () => {
 				expect([...seen].sort()).toEqual(Object.keys(cmd.exit).sort()),
 		};
 	};
+	/** git in `cwd`, under a fixture identity. */
+	const gitIn =
+		(cwd: string) =>
+		(...args: string[]) =>
+			spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+				cwd,
+			});
 	/** argv in the manifest's positional order, from values keyed by name. */
 	const argvOf = (cmd: Command, byName: Record<string, string>) =>
 		cmd.positionals.map((p) => byName[p.name]);
@@ -284,7 +291,9 @@ describe("the helper-surface commands", () => {
 	/*
 	 * A stand-in `biome` on PATH records the argv it was handed and exits
 	 * with the code it is told to. With no stand-in on PATH, `biome` will not
-	 * start.
+	 * start. On PATH, not a §N7 var: the manifest promises a PATH lookup, so
+	 * the lookup is the contract under test, and the stand-in plays no part
+	 * of Biome's own behaviour for a §G7 contract test to hold.
 	 */
 	it("scripts/biome-staged.js hands its argv to biome check, and keeps its exit codes", () => {
 		const cmd = manifest.commands["scripts/biome-staged.js"];
@@ -306,12 +315,7 @@ describe("the helper-surface commands", () => {
 			const noBiome = (process.env.PATH ?? "")
 				.split(path.delimiter)
 				.filter((d) => d && !fs.existsSync(path.join(d, "biome")));
-			const git = (...args: string[]) =>
-				spawnSync(
-					"git",
-					["-c", "user.name=t", "-c", "user.email=t@t", ...args],
-					{ cwd: repo },
-				);
+			const git = gitIn(repo);
 			git("init", "-q");
 			const codes = exitCodes();
 			const check = (withStandIn: boolean, biomeExit = "0") => {
@@ -336,6 +340,7 @@ describe("the helper-surface commands", () => {
 				"check\n--max-diagnostics=5\na.js\n",
 			);
 			expect(check(true, "1").status).toBe(1);
+			expect(check(true, "3").status).toBe(1);
 			expect(check(false).status).toBe(2);
 			codes.expectListed(cmd);
 		} finally {
@@ -465,12 +470,7 @@ describe("the helper-surface commands", () => {
 		expect(cmd.flags.map((f) => f.name)).toEqual(["--seed"]);
 		const dir = tmp();
 		try {
-			const git = (...args: string[]) =>
-				spawnSync(
-					"git",
-					["-c", "user.name=t", "-c", "user.email=t@t", ...args],
-					{ cwd: dir },
-				);
+			const git = gitIn(dir);
 			git("init", "-q");
 			const put = (rel: string, text: string) => {
 				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });

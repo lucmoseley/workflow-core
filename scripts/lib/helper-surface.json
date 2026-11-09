@@ -46,7 +46,7 @@
 			"flags": [],
 			"exit": {
 				"0": "the commit adds, modifies or retypes no path, or `biome check` passed",
-				"1": "`biome check` failed; Biome's own report says why",
+				"1": "`biome check` exited non-zero or was killed; Biome's own report says why",
 				"2": "git could not extract the index, or `biome` would not start"
 			}
 		},
