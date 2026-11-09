@@ -175,9 +175,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * catching a second boundary (#1337). And the relaunch publishes BEFORE the
 		 * kill: killed first, the old watcher could wake before the
 		 * republish and record the old run's own true kill, which shares
-		 * this name and `started` and so reads as the false one. Residual:
-		 * the pin also freezes the watcher's WATCH_CEILING_S deadline, which
-		 * this case never needs. */
+		 * this name and `started` and so reads as the false one. */
 		const pinnedClockEnv = env({ WFC_BG_NOW: "1700000000" });
 
 		const { pid: firstPid } = spawnDetached(
@@ -710,6 +708,28 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		await waitFor(
 			"the group and the tree to die",
 			() => isDead(readPid("group")) && isDead(readPid("child")),
+		);
+		expect(
+			readJsonLines(join(root, "kills.jsonl")).map((l) => l.reason),
+		).toEqual(["ceiling"]);
+	});
+
+	it("kills a queued run whose deadline file lands only after three polls found none (#4774)", async () => {
+		/* A queued suite spawns, and writes its deadline file, long after
+		 * launch: the watcher must still be polling when it lands. */
+		const late = wedged("late", 1);
+		late[4] = `sleep ${THREE_BEATS_S}; ${late[4]}`;
+		const child = spawn(SCRIPT, late, {
+			env: env({ WFC_BG_CEILING_GRACE_S: "0" }),
+		});
+		try {
+			await waitFor("the run's status", () => runFile("late", "status") !== "");
+		} finally {
+			child.kill("SIGKILL");
+		}
+
+		expect(check("late").stdout).toMatch(
+			/^DONE exit=137 ceiling-kill: bg-run killed it 0s past its suite deadline$/m,
 		);
 		expect(
 			readJsonLines(join(root, "kills.jsonl")).map((l) => l.reason),

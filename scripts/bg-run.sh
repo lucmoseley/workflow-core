@@ -91,7 +91,7 @@
 # identically to "no jobs ran".
 #
 # IT COUNTS LAUNCHES, NOT SURVIVALS, and the difference is the bias. A kill line
-# is written by a later `check` or by the watcher inside its 2-hour ceiling, so a
+# is written by the watcher or by a later `check`, so a
 # launch with no kill line means the kill was UNOBSERVED, not that the run lived
 # — and every route by which a kill goes unrecorded makes the escape look more
 # effective than it is. Read a rate off this as a LOWER bound on kills. A run
@@ -113,6 +113,15 @@
 # runner's own timer's clock, which a host suspend does not advance; the wall
 # clock steps forward on resume, and would kill a run for time it never spent
 # (#2886).
+#
+# THE BACKSTOP'S RESIDUAL (#4774): four test seams, each unset in production,
+# can keep it from firing — WFC_BG_MONO pinned short of the deadline, a
+# WFC_BG_HEARTBEAT_S or WFC_BG_WATCH_FORK_DELAY_S long enough to outlast it,
+# and a PATH with no `setsid`, which starts no watcher. None raises the
+# ceiling: the runner's own timer still kills the run, and only a wedged
+# runner escapes. They stay unconfined because any marker that confined them
+# would be one more value the same caller sets, and a caller that sets them
+# can as easily run the suite without bg-run at all.
 #
 # Usage:
 #   scripts/bg-run.sh run <name> <command> [args...]
@@ -172,14 +181,6 @@ MEMINFO="${WFC_BG_MEMINFO:-/proc/meminfo}"
 # guess, not a measurement — wide enough to cover a real worker pool (single
 # digits to low tens) with headroom.
 MAX_DESCENDANTS="${WFC_BG_MAX_DESCENDANTS:-500}"
-# How long the detached watcher (mantahostels#2691) polls before giving up on a run that
-# neither finished nor was ever seen to die — a fixed ceiling, not a `while
-# true`, per CLAUDE.md's wait-loop rule (mantahostels#2012): a run that outlives this
-# just goes back to being recorded only if a session later calls `check`.
-# 7200 (2h) is a guess: wide against the minutes-not-hours suite runs this
-# machine sees, narrow enough that an abandoned watcher does not accumulate for
-# a whole session's lifetime.
-WATCH_CEILING_S="${WFC_BG_WATCH_CEILING_S:-7200}"
 # How long past a suite runner's deadline the watcher waits before killing the
 # run itself (#2704): the runner's 14-minute ceiling plus this is #2667's 15.
 # Lower only, as the ceiling is, so no setting stretches the hold.
@@ -1107,8 +1108,15 @@ record_kill() {
 # the beat file's staleness: checking `status` before `kill -0` on every pass
 # means a run that finishes cleanly can never be seen as killed, however the
 # two events interleave, since cmd_run always writes `status` before the
-# process that would make `kill -0 "$parent"` fail. Bounded by WATCH_CEILING_S,
-# or, while the run's suite deadline is pending, by that deadline's kill.
+# process that would make `kill -0 "$parent"` fail.
+#
+# BOUNDED BY $parent'S LIFE, NOT BY WALL TIME (#4774), as the toucher's loop
+# is: each pass ends the watcher on `status`, on $parent's death, or on the
+# ceiling kill. A wall-clock bound, the wait-loop rule's usual ceiling
+# (mantahostels#2012), ended the watcher of a queued suite before its runner
+# spawned and wrote the deadline file, which left that run no backstop. The
+# rule's concern is a loop that outlives its purpose; this one's purpose is
+# $parent, so it cannot.
 #
 # CARRIES ITS OWN RUN TOKEN (mantahostels#2691; the token at mantahostels#3147): `run <name>` on a name
 # already alive renames aside and republishes `$dir` (cmd_run), which the OLD
@@ -1144,9 +1152,7 @@ cmd_watch() {
   # WATCH_READY_S, `$tmp` is already published away and the touch fails, unread.
   : >"$ready" 2>/dev/null
   WFC_BG_KILL_LOG="$(kill_log_path)"
-  local watch_until mono_unread_logged=""
-  clock_now
-  watch_until=$((clock_s + WATCH_CEILING_S))
+  local mono_unread_logged=""
   while :; do
     [[ -f "$dir/status" ]] && exit 0
     if ! kill -0 "$parent" 2>/dev/null; then
@@ -1170,7 +1176,6 @@ cmd_watch() {
       record_kill . "$name" "stale-beat" "$beat"
       exit 0
     fi
-    clock_now
     if read_deadline "$dir/deadline-$launched_for"; then
       if mono_now; then
         [[ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ]] &&
@@ -1180,8 +1185,6 @@ cmd_watch() {
         [[ -n "$mono_unread_logged" ]] || note_mono_unread "$dir" "$launched_for"
         mono_unread_logged=1
       fi
-    elif [[ "$clock_s" -ge "$watch_until" ]]; then
-      exit 0
     fi
     sleep "$HEARTBEAT_S"
   done

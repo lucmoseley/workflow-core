@@ -6473,6 +6473,22 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/fault-bench.service.template": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/fault-bench.timer.template": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/fault_bench.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/file-issue.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/file-issue.test.ts",
@@ -45810,6 +45826,12 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/test_drop_guest_cache.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/test_fault_bench.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
