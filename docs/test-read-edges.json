@@ -3246,7 +3246,7 @@
 			"scripts/lib/migration-note.test.ts",
 			"scripts/upgrade.test.ts"
 		],
-		"migrations/v2.1.1.md": [
+		"migrations/v2.2.0.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
 		"package-lock.json": [
@@ -3753,6 +3753,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-declared-commands.test.ts",

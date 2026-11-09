@@ -77,6 +77,8 @@ Set the resolver's variable on the job and add these steps after the adopter's o
 
 The manifest's `commands` lists the core scripts whose argv is promised, beside `entryPoints`; an unlisted script's argv may change in any release. Spawn a listed one from the resolved core, never a copy: `spawnSync(process.execPath, [path.join(resolveCore(), "scripts/register-doc.js"), …])`, or the resolver's script form, `node scripts/lib/resolve-core.js scripts/register-doc.js …`, which exits as the script did.
 
+A migration note's `[act]` step that has an adopter write a core command into its own code or config — a hook, a test, an npm script, a `.claude/workflow-core.json` command — names a listed command, as the `check_staged` steps name `biome-staged.js` (#4616). A command a step has someone run once by hand, such as a breach lister, stays unlisted: they run it while reading the step, so a changed argv fails in front of them, not in an unattended call.
+
 The seven husky hooks and the commands `.claude/workflow-core.md` and `.claude/workflow-core.reference.md` name run core scripts too, but each hook is a shim running the resolved core's own (#1839), and `init` and `upgrade` render the rules file from the release they call, so their argv is internal and unlisted (#663). An adopter's own forwarder that passes a session's argv straight to a core script is left with no caller once `upgrade` has spelled the rules file's commands at the plugin (#654): delete it then.
 
 Each entry is the command's **argv contract**:

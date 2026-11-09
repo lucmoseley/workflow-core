@@ -203,6 +203,7 @@ describe("the helper-surface commands", () => {
 	it("lists a probe below for every command, and every command for a probe", () => {
 		expect(Object.keys(manifest.commands).sort()).toEqual(
 			[
+				"scripts/biome-staged.js",
 				"scripts/checker-new-faults.js",
 				"scripts/lib/formatters.js",
 				"scripts/lib/run-cost-report.js",
@@ -279,6 +280,68 @@ describe("the helper-surface commands", () => {
 		},
 		TEST_TIMEOUT_MS,
 	);
+
+	/*
+	 * A stand-in `biome` on PATH records the argv it was handed and exits
+	 * with the code it is told to. With no stand-in on PATH, `biome` will not
+	 * start.
+	 */
+	it("scripts/biome-staged.js hands its argv to biome check, and keeps its exit codes", () => {
+		const cmd = manifest.commands["scripts/biome-staged.js"];
+		expect(cmd.positionals.map((p) => p.name)).toEqual(["biome-args"]);
+		expect(cmd.flags).toEqual([]);
+		const dir = tmp();
+		try {
+			const repo = path.join(dir, "repo");
+			const bin = path.join(dir, "bin");
+			fs.mkdirSync(repo);
+			fs.mkdirSync(bin);
+			const argvFile = path.join(dir, "argv");
+			fs.writeFileSync(
+				path.join(bin, "biome"),
+				`#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\nexit "$BIOME_EXIT"\n`,
+				{ mode: 0o755 },
+			);
+			// git and tar stay reachable; any real biome does not.
+			const noBiome = (process.env.PATH ?? "")
+				.split(path.delimiter)
+				.filter((d) => d && !fs.existsSync(path.join(d, "biome")));
+			const git = (...args: string[]) =>
+				spawnSync(
+					"git",
+					["-c", "user.name=t", "-c", "user.email=t@t", ...args],
+					{ cwd: repo },
+				);
+			git("init", "-q");
+			const codes = exitCodes();
+			const check = (withStandIn: boolean, biomeExit = "0") => {
+				const r = run("scripts/biome-staged.js", ["--max-diagnostics=5"], {
+					cwd: repo,
+					env: {
+						...process.env,
+						PATH: [...(withStandIn ? [bin] : []), ...noBiome].join(
+							path.delimiter,
+						),
+						BIOME_EXIT: biomeExit,
+					},
+				});
+				codes.add(r.status);
+				return r;
+			};
+			expect(check(false).status).toBe(0);
+			fs.writeFileSync(path.join(repo, "a.js"), "export const a = 1;\n");
+			git("add", "a.js");
+			expect(check(true, "0").status).toBe(0);
+			expect(fs.readFileSync(argvFile, "utf8")).toBe(
+				"check\n--max-diagnostics=5\na.js\n",
+			);
+			expect(check(true, "1").status).toBe(1);
+			expect(check(false).status).toBe(2);
+			codes.expectListed(cmd);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
 
 	it("scripts/checker-new-faults.js keeps its positional order, profile values and exit codes", () => {
 		const cmd = manifest.commands["scripts/checker-new-faults.js"];
