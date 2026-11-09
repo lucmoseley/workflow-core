@@ -117,7 +117,7 @@ describe("queue-run.js", () => {
 		]);
 	});
 
-	it("stamps its marker with its runner's measured peak, a host's runner none (#4648)", async () => {
+	it("stamps its marker with its runner's measured peak (#4648)", async () => {
 		const f = fixture();
 		const chargeOf = async (words: string[]) => {
 			const done = main(["--", ...words], f.options());

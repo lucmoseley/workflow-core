@@ -1821,6 +1821,14 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			expect(climbOn(tscDir, underSuite)).toBe(SUITE_PEAK_MB - 400);
 		});
 
+		it("charges a queued pytest once, on its marker's stamp (#4648)", () => {
+			const { suiteDir, tscDir } = queues();
+			const chargeMb = queuedRunnerPeakMb(["pytest", "-n", "2"]);
+			joined(suiteDir, 50, 0, { chargeMb }).spawned();
+			const m = machine({ 33: "pytest -n 2" }, { 33: 50 });
+			expect(climbOn(tscDir, { ...m, treePssKb: () => 0 })).toBe(150 + 2 * 75);
+		});
+
 		it("charges a runner whose marker's holder is dead", () => {
 			const { suiteDir, tscDir } = queues();
 			spawnedIn(tscDir, 40);
