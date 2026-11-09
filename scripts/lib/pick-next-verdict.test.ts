@@ -231,7 +231,7 @@ describe("why an issue is held out of the frontier", () => {
 		expect(v.of(832).excluded).toBe("blocked by #831 (prose only)");
 	});
 
-	it("excludes an open issue with an open child, whatever its labels", async () => {
+	it("excludes an unlabelled open issue with an open child", async () => {
 		const v = await verdictOf({
 			issues: [
 				{ number: 40 },
@@ -241,6 +241,39 @@ describe("why an issue is held out of the frontier", () => {
 		});
 		expect(v.order).toEqual([78, 83]);
 		expect(v.of(40).excluded).toBe("container — 2 open children");
+	});
+
+	it("holds a takes:children and a takes:wayfinder issue with an open child as containers (#4767)", async () => {
+		const v = await verdictOf({
+			issues: [
+				{ number: 40, labels: ["takes:children"] },
+				{ number: 41, parent: 40 },
+				{ number: 50, labels: ["takes:wayfinder"] },
+				{ number: 51, parent: 50 },
+			],
+		});
+		expect(v.of(40).excluded).toBe("container — 1 open children");
+		expect(v.of(50).excluded).toBe("container — 1 open children");
+	});
+
+	it("offers a takes:to-spec map whose open children are blocked or gated (#4767)", async () => {
+		const v = await verdictOf({
+			issues: [
+				{ number: 2809, labels: ["takes:to-spec"] },
+				{ number: 2726 },
+				{ number: 2827, parent: 2809 },
+				{
+					number: 2828,
+					parent: 2809,
+					body: "**Gated until:** 2099-01-01 — later",
+				},
+			],
+			deps: { 2827: [{ number: 2726, state: "open" }] },
+		});
+		expect(v.of(2809).excluded).toBeNull();
+		expect(v.order).toContain(2809);
+		expect(v.of(2827).exclusionCategory).toBe("blocked");
+		expect(v.of(2828).exclusionCategory).toBe("gated");
 	});
 
 	it("holds a map back on its summary where its sub-issues cannot be read, saying so (#3658)", async () => {

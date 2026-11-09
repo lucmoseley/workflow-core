@@ -34,6 +34,7 @@ import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
 import { TSC_PEAK_MB, tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
+import { windowsNeedMb, windowsShortfall } from "./windows-memory";
 
 const {
 	isMarkerStale,
@@ -401,6 +402,7 @@ describe("turnOf, the turn's rule (#4260)", () => {
 		part?: boolean;
 		spawned?: boolean;
 		memoryHeld?: boolean;
+		windowsHeld?: boolean;
 	}
 	const turn = (
 		{
@@ -511,6 +513,23 @@ describe("turnOf, the turn's rule (#4260)", () => {
 				expect(
 					reasons({ waiter: "part", ahead: [held] }, { partPass: false }),
 				).toEqual(["fifo-part"]);
+			});
+		});
+
+		describe("passing an older part-suite the Windows-memory hold keeps out (#4782)", () => {
+			const held = { ...partAhead, windowsHeld: true };
+
+			it("passes it at any age, the memory rung's bound not applying", () => {
+				expect(
+					turn({ waiter: "part", ahead: [held], now: 5 * PART_PASS_AGE_MS }),
+				).toEqual({ reasons: [], passed: 1 });
+			});
+
+			it("passes none with the switch off, and never for a whole suite", () => {
+				expect(
+					reasons({ waiter: "part", ahead: [held] }, { partPass: false }),
+				).toEqual(["fifo-part"]);
+				expect(reasons({ ahead: [held] })).toEqual(["fifo-whole"]);
 			});
 		});
 	});
@@ -641,6 +660,67 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			expect(await turnOpen({ queueDir, pid: 99, clock: () => 2000 })).toBe(
 				false,
 			);
+		});
+	});
+
+	describe("the Windows-held stamp an older part-suite's wait writes (#4782)", () => {
+		const late = 5 * PART_PASS_AGE_MS;
+		/* One Windows reading, each run judged on its own workers' draw. */
+		const windowsGate = (workers: number) => () => {
+			const short = windowsShortfall(
+				{ state: "fresh", mb: 1700, ageS: 0 },
+				windowsNeedMb(suiteRungMb(workers) - suiteRungMb(0)),
+			);
+			return short ? { limb: "windows" as const, ...short } : null;
+		};
+		/** A 6-file head held on `headGate`, and a 1-file run behind it. */
+		const headHeldOn = async (headGate: () => object | null) => {
+			const queueDir = qdir();
+			const head = joined(queueDir, 11, 0, { weight: weighed(6) });
+			joined(queueDir, 99, 1000, { weight: weighed(1) });
+			let t = 0;
+			let behind: object | undefined;
+			const outcome = await head.wait({
+				gate: headGate as never,
+				clock: () => t,
+				timeoutMs: late,
+				sleepFn: async () => {
+					behind = await polled(
+						{ queueDir, pid: 99, clock: () => late },
+						{ gate: windowsGate(1) },
+					);
+					t = late;
+				},
+				out: { write: () => true },
+			});
+			return { outcome, behind };
+		};
+
+		it("admits a smaller part-suite that fits past a head the hold keeps out, past the memory age bound", async () => {
+			expect(await headHeldOn(windowsGate(6))).toEqual({
+				outcome: "refused",
+				behind: { reason: "opened", passed: 1 },
+			});
+		});
+
+		it("holds it behind a head the memory rung keeps out that long", async () => {
+			const { behind } = await headHeldOn(() => ({
+				limb: "memory",
+				mb: 1000,
+				rungMb: 2000,
+			}));
+			expect(behind).toMatchObject({ reason: "refused" });
+		});
+
+		it("drops the stamp once the hold frees it", () => {
+			const queueDir = qdir();
+			const head = joined(queueDir, 11, 0, { weight: PART });
+			const read = () =>
+				JSON.parse(fs.readFileSync(head.ticket, "utf8")).windowsHeld;
+			head.stamps.onWindowsHeld(true);
+			expect(read()).toBe(true);
+			head.stamps.onWindowsHeld(false);
+			expect(read()).toBeUndefined();
 		});
 	});
 
