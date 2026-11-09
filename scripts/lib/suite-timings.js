@@ -3,8 +3,9 @@
  * out, from one report or every report under a directory as one sharded
  * Actions run's shards upload them (`vitest-report-*`, #2413); rows in,
  * percentile shares out; and the CSV serialisation between them.
- * `readReports` reads the filesystem and `downloadReports` GitHub; the rest
- * are pure (#4320). `scripts/suite-timings.js` is the CLI over it.
+ * `readReports` reads the filesystem, and `downloadReports` and `readNewestRun`
+ * GitHub; the rest are pure (#4320). `scripts/suite-timings.js` is the CLI
+ * over it, and `scripts/lib/latest-timings.js` this machine's copy.
  *
  * It exists so the suite-file-timings note's percentile table can be
  * recomputed rather than merely quoted (mantahostels#2039), docs/agents/guard-registry.md §Conventions resting
@@ -20,12 +21,20 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { gh } = require("./gh.js");
+const { gh, ghJson, retryingOnceSync } = require("./gh.js");
+const { resolveKey } = require("./workflow-core-config.js");
 
-/* The committed CI per-file record (#2413). */
-const CI_RECORD = "docs/data/ci-shard-timings.csv";
+/* scheduled-checks.yml carries the `lander/batch-*` push trigger, as it calls
+ * every job `main`'s sweep judges by; its green runs are the timings' source. */
+const SUITE_WORKFLOW = "scheduled-checks.yml";
+
+/* Candidates tried for reports, newest first. Untraced: a green run
+ * uploads its reports, so past the first few none is coming. */
+const SOURCES_TRIED = 5;
+const RUNS_LISTED = 30;
 
 /** Metadata lines are `# key: value` above the header row. */
 const META_PREFIX = "# ";
@@ -178,6 +187,67 @@ function timingSources(runs, before) {
 }
 
 /**
+ * @template T
+ * @param {() => T} read
+ * @returns {T}
+ */
+function readOrThrow(read) {
+	const r = retryingOnceSync(read);
+	if (!r.ok) throw new Error(r.error);
+	return r.out;
+}
+
+/**
+ * @param {string} root
+ * @returns {string}
+ */
+function readSuiteRepo(root) {
+	const configured = resolveKey("codeRepo", { root });
+	const repo =
+		(typeof configured === "string" && configured) ||
+		process.env.GITHUB_REPOSITORY;
+	if (!repo) throw new Error("no codeRepo configured and no GITHUB_REPOSITORY");
+	return repo;
+}
+
+/**
+ * The newest green suite run finished before `before`, and its rows, made
+ * relative to `root`; null where none of the newest SOURCES_TRIED holds
+ * reports. A run `held` names comes back undownloaded, its rows null. Throws
+ * where GitHub fails twice.
+ * @param {string} repo
+ * @param {number} before ms since the epoch
+ * @param {string} root
+ * @param {(run: number) => boolean} [held]
+ * @returns {{ run: number, sha: string, rows: ReturnType<typeof readReports>|null }|null}
+ */
+function readNewestRun(repo, before, root, held = () => false) {
+	const iso = new Date(before).toISOString().replace(/\.\d{3}Z$/, "Z");
+	/** @type {(ListedRun & { head_sha: string })[]} */
+	const runs = readOrThrow(
+		() =>
+			ghJson([
+				"api",
+				`repos/${repo}/actions/workflows/${SUITE_WORKFLOW}/runs?status=success&exclude_pull_requests=true&per_page=${RUNS_LISTED}&created=%3C${iso}`,
+			]).workflow_runs,
+	);
+	const sha = new Map(runs.map((r) => [r.id, r.head_sha]));
+	const work = fs.mkdtempSync(path.join(os.tmpdir(), "suite-timings-"));
+	try {
+		for (const run of timingSources(runs, before).slice(0, SOURCES_TRIED)) {
+			if (held(run)) return { run, sha: sha.get(run) ?? "", rows: null };
+			const dir = path.join(work, String(run));
+			if (!readOrThrow(() => downloadReports(String(run), dir))) continue;
+			const rows = readReports(dir, root);
+			if (rows.length > 0) return { run, sha: sha.get(run) ?? "", rows };
+		}
+		return null;
+	} finally {
+		fs.rmSync(work, { recursive: true, force: true });
+	}
+}
+
+/**
  * Median and cumulative share of file-seconds at each slice.
  *
  * Untimed rows are excluded from the total and the slices, and counted
@@ -310,8 +380,11 @@ function parseMeta(pairs) {
 }
 
 module.exports = {
-	CI_RECORD,
+	SUITE_WORKFLOW,
 	downloadReports,
+	readNewestRun,
+	readOrThrow,
+	readSuiteRepo,
 	timingSources,
 	reportRoot,
 	rowsFrom,

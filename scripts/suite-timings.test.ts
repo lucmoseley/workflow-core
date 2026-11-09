@@ -177,10 +177,7 @@ describe("shares", () => {
 describe("latest (#4574)", () => {
 	const Planning = "900";
 	const Created = "2026-11-06T10:00:00Z";
-	const Record = readFileSync(
-		join(REPO, "docs/data/ci-shard-timings.csv"),
-		"utf8",
-	);
+	const Empty = "# run: none\nfile,seconds,tests,status\n";
 
 	/* A run listing, each run's reports and the planning run's creation, as
 	 * the API and `gh run download` answer them. `reports` maps a run id to
@@ -286,16 +283,17 @@ exit(1);`,
 		expect(readFileSync(target, "utf8")).toContain("# run: 1\n");
 	});
 
-	it("writes the committed record where GitHub fails, saying so", () => {
+	it("writes an empty dataset where GitHub fails, saying so", () => {
 		const gh = stub([], {}, true);
 		const target = join(dir, "out.csv");
 		const r = latest(gh, target);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("no run read (HTTP 502: Bad Gateway)");
-		expect(readFileSync(target, "utf8")).toBe(Record);
+		expect(r.stderr).toContain("this shard plans by file count");
+		expect(readFileSync(target, "utf8")).toBe(Empty);
 	});
 
-	it("writes the committed record where no green run holds reports", () => {
+	it("writes an empty dataset where no green run holds reports", () => {
 		const gh = stub(
 			[
 				{
@@ -309,7 +307,7 @@ exit(1);`,
 		const target = join(dir, "out.csv");
 		const r = latest(gh, target);
 		expect(r.status).toBe(0);
-		expect(readFileSync(target, "utf8")).toBe(Record);
+		expect(readFileSync(target, "utf8")).toBe(Empty);
 	});
 });
 

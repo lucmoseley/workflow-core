@@ -25,6 +25,11 @@
  * so CFS weighs every session together against the lander's scope as one
  * sibling, as #2956 had it, not each session as a sibling of its own.
  *
+ * THE BOUND. The scope is made with lib's MEMORY_BOUND, so a runaway child
+ * is OOM-killed inside its own session before earlyoom's machine-wide line
+ * is reached (#4590). The user manager takes its `OOMPolicy` only at
+ * creation, so a scope made before the bound stays unbound.
+ *
  * THE KILL. A scope outlives its first process (#4334 P5), and a session can
  * end with no SessionEnd (`claude stop` kills `bg-spare` and its pty host,
  * probed on #4341), and `/clear` fires SessionEnd while the process lives on.
@@ -60,6 +65,7 @@ const { readEnvironVar } = require("./lib/proc-environ.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readProcTable } = require("./lib/proc-table.js");
 const {
+	MEMORY_BOUND,
 	SLICE,
 	attachAll,
 	isSessionProcess,
@@ -190,7 +196,7 @@ function adopt(env) {
 		"ssa(sv)a(sa(sv))",
 		unit,
 		"fail",
-		"4",
+		String(4 + MEMORY_BOUND.length),
 		"PIDs",
 		"au",
 		"1",
@@ -204,6 +210,7 @@ function adopt(env) {
 		"Description",
 		"s",
 		description,
+		...MEMORY_BOUND.flat(),
 		"0",
 	]);
 	if (!started.ok)

@@ -96,7 +96,8 @@ esac
 #
 # --against HEAD is the whole gate (mantahostels#1801, mantahostels#1833). scripts/lib/check.js reads
 # the INDEX and HEAD, each materialised, and refuses only on a fault this commit
-# ADDS: an unstaged rule edit is not visible to it at all.
+# ADDS: an unstaged rule edit is not visible to it at all. Mid-merge, a fault a
+# merged-in head already on `main` carries is inherited too (#4582).
 # Its exit code is the checker's own
 # alphabet: 1 a fault this commit adds, 2 a comparison that could not answer, and
 # both refuse. The checker's own report streams past on the way, so a session
