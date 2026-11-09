@@ -7,6 +7,8 @@
  * The live case reads the real file, a free call. Breaking it costs the
  * loop's swap hold: a fake the parser reads otherwise than the real file
  * passes a refill-loop-run test the loop fails.
+ * The breakdown keys feed memwatch's minute line (#4641); their reader's
+ * real-file case is in memwatch-pair.test.ts.
  */
 import fs from "node:fs";
 import os from "node:os";

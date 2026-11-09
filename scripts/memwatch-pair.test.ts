@@ -6,7 +6,8 @@
 // Drives the two home-directory watchdog scripts (~/memcheck.sh, ~/memwatch.sh)
 // from outside, per mantahostels#544's testing decisions: fabricated sources in, printed
 // output asserted. Skips wherever the scripts are absent — CI runners carry
-// neither.
+// neither. Many cases wait out real 1-2 s passes, so the file runs ~50 s
+// against the 10 s budget; #4804 tracks the speed-up.
 // Break it and `memcheck`, where CLAUDE.md sends a session whose build died
 // with no error, reports a threshold or a culprit the watchdog never used.
 import { execFileSync, spawn } from "node:child_process";
