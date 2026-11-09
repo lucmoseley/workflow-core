@@ -79,12 +79,8 @@ const SCRATCH = path.join(".claude", "tmp");
 const CHUNK = 1 << 20;
 
 /**
- * @typedef {Record<string, any>} LogRecord  one parsed log line. `any`: the log
- *   is Claude Code's format, which this repo does not define, so a narrower
- *   type would assert a shape nothing guarantees.
- * @typedef {Record<string, any>} ContentBlock  one block of a message's
- *   `content` array — text, tool_use or tool_result. `any` for LogRecord's
- *   reason: the block is that same undefined format, one level down.
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
  * @typedef {{ file: string, agent: string, description: string }} Subagent
  */
 
@@ -174,7 +170,7 @@ const isFounder = (kind) => kind === undefined || kind === "human";
 /**
  * A tool call's input, shortened to what identifies it.
  * @param {string} name
- * @param {LogRecord} input
+ * @param {TranscriptBlock["input"]} input
  */
 function toolInput(name, input) {
 	if (name === "Bash") return input.command ?? "";
@@ -194,7 +190,7 @@ function toolInput(name, input) {
  * The reduced items of one parsed record: `[label, text]` pairs, plus the id of
  * each tool call it makes so a subagent can be folded under it.
  *
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @param {"main" | "subagent"} tier
  * @returns {Reduced}
  */
@@ -205,7 +201,7 @@ function reduce(record, tier) {
 
 /**
  * Tool results, Stop hook feedback and the founder's prompt.
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @param {"main" | "subagent"} tier
  * @returns {Reduced}
  */
@@ -233,7 +229,7 @@ function reduceUser(record, tier) {
 }
 
 /**
- * @param {ContentBlock[]} content
+ * @param {TranscriptBlock[]} content
  * @returns {[string, string][]}
  */
 function resultItems(content) {
@@ -248,7 +244,7 @@ function resultItems(content) {
 }
 
 /**
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @returns {Reduced}
  */
 function reduceAssistant(record) {
@@ -278,7 +274,7 @@ function reduceAssistant(record) {
 }
 
 /**
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @returns {Reduced}
  */
 function reduceSystem(record) {
@@ -312,13 +308,13 @@ function reduceSystem(record) {
 }
 
 /**
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  */
 const stopSummaryCounts = (record) =>
 	record.preventedContinuation || (record.hookErrors?.length ?? 0) > 0;
 
 /**
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @returns {Reduced}
  */
 function reduceAttachment(record) {
@@ -359,19 +355,19 @@ function reduceAttachment(record) {
 	return { items, toolIds: [] };
 }
 
-/** @param {LogRecord} a  an attachment */
+/** @param {TranscriptRecord["attachment"]} a */
 const isPromptQueued = (a) =>
 	a.type === "queued_command" && a.commandMode === "prompt";
 
-/** @param {LogRecord} a  an attachment */
+/** @param {TranscriptRecord["attachment"]} a */
 const isLoopQueued = (a) =>
 	isPromptQueued(a) && isLoopPrompt(parseContentText(a.prompt));
 
-/** @param {LogRecord} a  an attachment */
+/** @param {TranscriptRecord["attachment"]} a */
 const isFounderQueued = (a) =>
 	isPromptQueued(a) && !isLoopQueued(a) && isFounder(a.origin?.kind);
 
-/** @type {Map<unknown, (record: LogRecord, tier: "main" | "subagent") => Reduced>} */
+/** @type {Map<unknown, (record: TranscriptRecord, tier: "main" | "subagent") => Reduced>} */
 const REDUCERS = new Map([
 	["user", reduceUser],
 	["assistant", reduceAssistant],
@@ -407,7 +403,7 @@ function readSubagentsOf(log) {
 		if (!m) continue;
 		const stem = requiredGroup(m, 1, AGENT_LOG);
 		const file = path.join(dir, name);
-		/** @type {LogRecord} */
+		/** @type {{ toolUseId?: string, description?: string }} the subagent's `.meta.json`, no transcript line */
 		let meta = {};
 		try {
 			meta = JSON.parse(
@@ -516,7 +512,7 @@ function outputPath(root, log, requested) {
  * @param {string} file
  * @param {"main" | "subagent"} tier
  * @param {() => void} onUnparseable
- * @returns {Generator<{ n: number, record: LogRecord | null }>}
+ * @returns {Generator<{ n: number, record: TranscriptRecord | null }>}
  */
 function* records(file, tier, onUnparseable) {
 	for (const { n, line } of readLines(file))
@@ -527,10 +523,10 @@ function* records(file, tier, onUnparseable) {
  * @param {string} line
  * @param {"main" | "subagent"} tier
  * @param {() => void} onUnparseable
- * @returns {LogRecord | null}
+ * @returns {TranscriptRecord | null}
  */
 function parseLine(line, tier, onUnparseable) {
-	const record = /** @type {LogRecord | null | undefined} */ (
+	const record = /** @type {TranscriptRecord | null | undefined} */ (
 		parseJsonlRow(line)
 	);
 	if (record === null) return null;

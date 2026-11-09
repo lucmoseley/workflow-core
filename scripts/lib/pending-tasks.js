@@ -125,10 +125,8 @@ function callName(part) {
 }
 
 /**
- * @typedef {any} TranscriptRecord One parsed transcript line. `any` because
- * JSON.parse types nothing and each field is read and guarded where it is used.
- * @typedef {any} ContentBlock One block of a record's `message.content`,
- * `any` for the same reason: its shape varies by `type`, checked before use.
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
@@ -216,8 +214,8 @@ function readRecord(census, rec) {
  * Records a `tool_result`, and the launch it reveals where a Bash call overran
  * its timeout or a Skill call forked.
  * @param {Census} census accumulator: the result, and any launch it reveals, are recorded in it
- * @param {ContentBlock} part
- * @param {any} toolUseResult the record's structured result field: `any` for the reason TranscriptRecord is
+ * @param {TranscriptBlock} part
+ * @param {TranscriptRecord["toolUseResult"]} toolUseResult the record's structured result field
  */
 function readResult(census, part, toolUseResult) {
 	const id = part.tool_use_id;
@@ -260,7 +258,7 @@ function readResult(census, part, toolUseResult) {
  * @param {Census} census accumulator: the handle is recorded in it
  * @param {string} id the result's tool-use id
  * @param {string} text the result's text
- * @param {any} toolUseResult as readResult takes it
+ * @param {TranscriptRecord["toolUseResult"]} toolUseResult
  */
 function readHandle(census, id, text, toolUseResult) {
 	const handle =
@@ -279,7 +277,7 @@ function readHandle(census, id, text, toolUseResult) {
  * result is in the corpus, where every failure is `is_error`.
  * @param {Census} census accumulator: the stopped handle is recorded in it
  * @param {string} text the result's text
- * @param {any} toolUseResult as readResult takes it
+ * @param {TranscriptRecord["toolUseResult"]} toolUseResult
  */
 function readStop(census, text, toolUseResult) {
 	const stopped = toolUseResult?.task_id ?? STOPPED.exec(text)?.[1];
@@ -290,7 +288,7 @@ function readStop(census, text, toolUseResult) {
  * Records a `tool_use`: its name, and a launch where it is one.
  * @param {Census} census accumulator: a Bash or Skill call's name, and any launch,
  *   are recorded in it
- * @param {ContentBlock} part
+ * @param {TranscriptBlock} part
  */
 function readCall(census, part) {
 	const name = callName(part);
