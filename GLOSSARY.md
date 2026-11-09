@@ -177,7 +177,7 @@ A recurring agent pass over one repo's code and docs that looks for heresies not
 _Avoid_: architecture scan (it hunts deepening, not copied patterns), audit, review (one diff, not the standing tree)
 
 **Drop**:
-A queue member the queue lander removes without landing, for a red test run, a gate's refusal or a conflict with `main`. It goes back to its owning session; only a branch whose owning session has stopped working gets a ticket, one per branch.
+A queue member the queue lander removes without landing, for a red test run, a gate's refusal or a conflict with `main`.
 _Avoid_: ejection, rejection, failed landing, hand-back (a session's report to the founder)
 
 **Owning session**:
