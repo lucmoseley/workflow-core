@@ -226,7 +226,27 @@ describe("launch", () => {
 		);
 		expect(seen.helped).toBe(KEY);
 		expect(seen.env.CLAUDE_CONFIG_DIR).toBe(seat);
-		expect(seen.argv.at(-1)).toBe("the answer");
+		expect(seen.argv.slice(-2)).toEqual(["--", "the answer"]);
+	});
+
+	it("passes a dash-led prompt to claude after `--`, never as an option (#4671)", async () => {
+		const r = await cli([
+			"launch",
+			"--key",
+			KEY_VAR,
+			"--cwd",
+			target,
+			"--budget",
+			"3",
+			"--name=- go with (A)",
+			"--",
+			"- go with (A)",
+		]);
+		expect(r.status).toBe(0);
+		await until(() => readSeenOrNull() !== null);
+		const seen = readSeenOrNull();
+		if (!seen) throw new Error("fake never ran");
+		expect(seen.argv.slice(-2)).toEqual(["--", "- go with (A)"]);
 	});
 
 	it("hands the key through the settings' apiKeyHelper alone: in neither the child's environment nor the caller's", async () => {
