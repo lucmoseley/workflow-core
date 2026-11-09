@@ -175,8 +175,9 @@ describe("messages a shipped script prints", () => {
 		...guardFiles,
 		...libNames
 			/* The release render, the doc-map classifier, the test read map, the
-			 * primitives tables' file paths and the /implement carve-out list
-			 * hold these paths as data, never as a
+			 * primitives tables' file paths, the /implement carve-out list and
+			 * the pre-commit gate registry's staged fixtures hold these paths as
+			 * data, never as a
 			 * pointer printed to a session; main-rewind.js's text reaches one
 			 * only through branch-publish.js's and pull-form.js's corePaths. */
 			.filter(
@@ -188,6 +189,7 @@ describe("messages a shipped script prints", () => {
 						"primitives-table.js",
 						"implement-carveout.js",
 						"main-rewind.js",
+						"precommit-gates.js",
 					].includes(f),
 			)
 			.map((f) => path.join(__dirname, f)),
