@@ -13,6 +13,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -27,7 +28,7 @@ def _ts(t):
     return datetime.fromtimestamp(t, UTC).strftime("%Y-%m-%dT%H:%M:%S+0000")
 
 
-class FakeCgroup:
+class FakeCgroup(g.Cgroup):
     """A cgroup whose stall and refault counters grow at a set rate per second of
     the fake clock, plus whatever a step adds; each reclaim write takes 0.4 s."""
 
@@ -40,6 +41,7 @@ class FakeCgroup:
         self.refaults_per_s = 500
         self.writes = []
         self.eagain_on = None
+        self.fail_on = None
         self.step_stall = 0
         self.step_refaults = 0
 
@@ -54,6 +56,8 @@ class FakeCgroup:
     def reclaim(self, nbytes):
         self.writes.append(nbytes)
         self.sleep(0.4)
+        if len(self.writes) == self.fail_on:
+            raise OSError(errno.EBUSY, "Device or resource busy")
         if len(self.writes) == self.eagain_on:
             self.file -= nbytes // 2
             raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
@@ -66,6 +70,16 @@ class FakeCgroup:
 
     def stall_us(self):
         return self.stall
+
+
+class Box(NamedTuple):
+    """`line` appends a minute line, `tick` fires the timer once against `cg`,
+    `records` reads the pass log back."""
+
+    line: object
+    tick: object
+    records: object
+    cg: FakeCgroup
 
 
 @pytest.fixture
@@ -109,7 +123,7 @@ def box(tmp_path):
             else []
         )
 
-    return line, tick, records, cg
+    return Box(line, tick, records, cg)
 
 
 def test_a_pass_reclaims_the_deficit_in_steps(box):
@@ -136,6 +150,31 @@ def test_eagain_ends_the_pass(box):
     rec = records()[0]
     assert rec["stop"] == "eagain"
     assert rec["reclaimed_bytes"] == 384 * MIB
+
+
+def test_another_write_error_logs_the_pass_then_raises(box):
+    line, tick, records, cg = box
+    cg.fail_on = 3
+    line(T0, 952)
+    with pytest.raises(OSError):
+        tick(T0 + 10)
+    rec = records()[0]
+    assert rec["stop"] == "EBUSY"
+    assert rec["asked_bytes"] == 768 * MIB
+    assert rec["reclaimed_bytes"] == 512 * MIB
+
+
+def test_a_sample_taken_before_the_freed_pages_reach_windows_is_no_after(box):
+    line, tick, records, _cg = box
+    line(T0, 900)
+    tick(T0 + 10)
+    # The pass ran 3 s (1 s baseline, five 0.4 s steps), so its pages reach
+    # Windows at T0 + 15; a sample taken at T0 + 14 predates them.
+    line(T0 + 60, 900, age=46)
+    assert tick(T0 + 61) == []
+    line(T0 + 120, 2600, age=104)
+    assert tick(T0 + 121) == ["after"]
+    assert records()[-1]["win_avail_mb"] == 2600
 
 
 def test_a_rise_in_memory_stall_ends_the_pass(box):
@@ -239,6 +278,26 @@ def test_the_cgroup_reader_parses_the_kernel_files(tmp_path):
     assert (tmp_path / "memory.reclaim").read_text() == "268435456 swappiness=0"
 
 
+LIVE_CGROUP = g.user_cgroup()
+
+
+@pytest.mark.skipif(
+    not (LIVE_CGROUP / "memory.stat").exists(), reason="no user cgroup here"
+)
+def test_the_readers_parse_the_live_cgroup_and_meminfo():
+    # Reads only: a mark and MemFree, no reclaim write.
+    start = g.Cgroup(LIVE_CGROUP).mark(lambda: 0.0)
+    assert start.stall_us >= 0
+    assert start.refaults >= 0
+    assert g.mem_free_mb("/proc/meminfo") > 0
+
+
+def test_a_minute_line_with_an_unreadable_ts_is_no_reading_and_says_so(capsys):
+    line = {"ts": "yesterday", "win_avail_mb": 900, "win_age_s": 5}
+    assert g.win_sample(line) is None
+    assert "unreadable minute-line ts" in capsys.readouterr().err
+
+
 def test_report_counts_minutes_under_the_trigger(box, tmp_path):
     line, _tick, _records, _cg = box
     line(T0, 1500, psi=1.0)
@@ -266,6 +325,7 @@ def test_cli_tick_with_no_minute_log_does_nothing(tmp_path):
         text=True,
     )
     assert run.returncode == 0, run.stderr
+    assert "no minute log" in run.stderr
     assert not (tmp_path / "log").exists()
 
 
@@ -285,6 +345,10 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
     assert done.returncode == 0, done.stderr
     installed = home / ".local/lib/workflow-core/guest_reclaim.py"
     assert installed.read_text() == (HERE / "guest_reclaim.py").read_text()
+    # The copy reads the minute log through its own lib/ at run time.
+    assert (home / ".local/lib/workflow-core/lib/memwatch_minute.py").read_text() == (
+        HERE / "lib/memwatch_minute.py"
+    ).read_text()
     units = home / ".config/systemd/user"
     # Rendered from scripts/guest-reclaim.service.template and scripts/guest-reclaim.timer.template.
     service = (units / "guest-reclaim.service").read_text()
