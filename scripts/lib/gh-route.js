@@ -11,6 +11,7 @@
 
 const { blankComments } = require("./strip-comments.js");
 const { requiredGroup } = require("./regex-group.js");
+const { cutAt } = require("./cut-at.js");
 const { isTestKind } = require("./test-kind.js");
 
 /**
@@ -145,6 +146,18 @@ function findBodyEnd(code, from) {
 }
 
 /**
+ * A parameter's name, its type annotation and optional mark cut: `dir?: string`
+ * and `dir: string` both give `dir`.
+ * @param {string} param
+ * @returns {string}
+ */
+function paramName(param) {
+	if (!param.includes(":")) return param;
+	const [head] = cutAt(param, ":");
+	return head.endsWith("?") ? head.slice(0, -1) : head;
+}
+
+/**
  * The directories local helpers join their first parameter onto, a directory
  * that is itself a parameter read off its default, for each helper a call
  * passes `bin` first.
@@ -161,7 +174,7 @@ function parseHelperDirs(bin, code) {
 			const at = p.indexOf("=");
 			const id = at < 0 ? p : p.slice(0, at);
 			return {
-				id: id.replace(/[?]?:.*$/s, "").trim(),
+				id: paramName(id).trim(),
 				fallback: at < 0 ? "" : p.slice(at + 1).trim(),
 			};
 		});

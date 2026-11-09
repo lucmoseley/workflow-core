@@ -1,5 +1,6 @@
 /*
- * cut-at.js — a string split at its first separator, as two strings (#1344).
+ * cut-at.js — a string split at its first separator, as two strings (#1344),
+ * or the text before a pattern's first match (#4642).
  *
  * `s.split(sep)[0]` and `const [head, ...rest] = s.split(sep)` read as
  * `string | undefined` under `noUncheckedIndexedAccess`, though split always
@@ -18,4 +19,15 @@ function cutAt(s, sep) {
 	return i === -1 ? [s, ""] : [s.slice(0, i), s.slice(i + sep.length)];
 }
 
-module.exports = { cutAt };
+/**
+ * `s` up to the first match of `re`, or all of `s` where nothing matches.
+ * @param {string} s
+ * @param {RegExp} re a non-global pattern
+ * @returns {string}
+ */
+function beforeMatch(s, re) {
+	const i = s.search(re);
+	return i === -1 ? s : s.slice(0, i);
+}
+
+module.exports = { beforeMatch, cutAt };

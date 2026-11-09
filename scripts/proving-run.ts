@@ -28,7 +28,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { type RouteAnswer, stubGhHandler, stubGhRoutes } from "./lib/gh-stub";
 import { Session } from "./proving-session";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -123,17 +123,16 @@ export class Arena {
 		}
 		this.issueStore = path.join(this.dir, "issue-body.md");
 		fs.writeFileSync(this.issueStore, initialBody);
-		const stub = path.join(this.dir, "gh-issue-stub");
-		fs.writeFileSync(
-			stub,
-			`#!/usr/bin/env node
-const fs = require("node:fs");
+		/* A gh started per call, not served: a view's delay must not stall the
+		 * racing writers' other calls (gh-stub.ts's stubGhHandler). */
+		this.extraEnv.WFC_GH = stubGhHandler(
+			path.join(this.dir, "gh-issue-stub"),
+			`const fs = require("node:fs");
 // The two reaches outside the sandbox: the repo's shared synchronous pause
 // and its atomic writer.
 const { sleepSync } = require(${JSON.stringify(path.join(REPO_ROOT, "scripts", "lib", "sleep-sync.js"))});
 const { writeFileAtomic } = require(${JSON.stringify(path.join(REPO_ROOT, "scripts", "lib", "atomic-write.js"))});
-const store = process.env.WFC_ISSUE_STUB_STORE;
-const a = process.argv.slice(2);
+const store = env.WFC_ISSUE_STUB_STORE;
 
 const put = (text) => writeFileAtomic(store, text);
 
@@ -142,7 +141,7 @@ const put = (text) => writeFileAtomic(store, text);
  * stub from many processes at once, where a read-modify-write counter would
  * race.
  */
-const cfg = process.env.WFC_ISSUE_STUB_INTRUDE;
+const cfg = env.WFC_ISSUE_STUB_INTRUDE;
 let call = 0;
 if (cfg) {
 	const counter = store + ".calls";
@@ -155,26 +154,23 @@ const intrude = () => {
 	if (cfg && call === JSON.parse(cfg).afterCall) put(JSON.parse(cfg).body);
 };
 
-if (a[0] === "issue" && a[1] === "view") {
+if (argv[0] === "issue" && argv[1] === "view") {
 	const seen = fs.readFileSync(store, "utf8");
-	const delay = Number(process.env.WFC_ISSUE_STUB_VIEW_DELAY_MS) || 0;
+	const delay = Number(env.WFC_ISSUE_STUB_VIEW_DELAY_MS) || 0;
 	if (delay) sleepSync(delay);
 	intrude();
-	process.stdout.write(JSON.stringify({ body: seen }));
-	process.exit(0);
+	out(JSON.stringify({ body: seen }));
+	exit(0);
 }
-if (a[0] === "issue" && a[1] === "edit") {
-	const i = a.indexOf("--body-file");
-	put(fs.readFileSync(a[i + 1], "utf8"));
+if (argv[0] === "issue" && argv[1] === "edit") {
+	put(fs.readFileSync(argv[argv.indexOf("--body-file") + 1], "utf8"));
 	intrude();
-	process.exit(0);
+	exit(0);
 }
-process.stderr.write("gh stub: unsupported call: " + a.join(" ") + "\\n");
-process.exit(1);
+err("gh stub: unsupported call: " + argv.join(" ") + "\\n");
+exit(1);
 `,
-			{ mode: 0o755 },
-		);
-		this.extraEnv.WFC_GH = stub;
+		).gh;
 		this.extraEnv.WFC_ISSUE_STUB_STORE = this.issueStore;
 		return this;
 	}

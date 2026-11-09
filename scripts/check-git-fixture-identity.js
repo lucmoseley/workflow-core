@@ -82,7 +82,7 @@ const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
-const { requiredGroup } = require("./lib/regex-group.js");
+const { escapeRe, requiredGroup } = require("./lib/regex-group.js");
 
 /** The comment that drops a file, with its reason: `git-identity-exempt: <why>`. */
 const EXEMPT = /git-identity-exempt:[ \t]*[A-Za-z0-9]/;
@@ -127,6 +127,7 @@ const EXEC_ARRAY_CALL = new RegExp(
 );
 const CWD_VAR = new RegExp(`\\bcwd:\\s*(${REPO_VAR})`);
 /** `git init`'s directory, where the array ends on a bare variable. */
+// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const INIT_PATH_VAR = new RegExp(`,\\s*(${REPO_VAR})\\s*,?\\s*$`);
 
 /**
@@ -204,7 +205,7 @@ function hasKeyedTokenEvidence(
 	/** @type {RegExp} */ token,
 ) {
 	if (key === "__default__") return token.test(text);
-	const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+	const re = new RegExp(`\\b${escapeRe(key)}\\b`);
 	return statements(text).some((stmt) => re.test(stmt) && token.test(stmt));
 }
 

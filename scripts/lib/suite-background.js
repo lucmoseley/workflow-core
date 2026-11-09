@@ -188,6 +188,7 @@ const DETACH_REWRITES = /** @type {const} */ ([
 	],
 	[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
 	[/&/g, ";"],
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
 	[new RegExp(`${SP}+$`), ""],
 ]);
 

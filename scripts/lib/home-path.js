@@ -7,6 +7,7 @@
  */
 
 const path = require("node:path");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * A leading `~` or `~/` read against `home`, concatenated as the shell does and
@@ -22,7 +23,7 @@ const path = require("node:path");
 function expandHome(p, home) {
 	if (p !== "~" && !p.startsWith("~/")) return p;
 	if (!home || !path.isAbsolute(home)) return null;
-	return home.replace(/\/+$/, "") + p.slice(1) || "/";
+	return trimEndRun(home, "/") + p.slice(1) || "/";
 }
 
 /**

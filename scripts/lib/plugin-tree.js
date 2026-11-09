@@ -104,7 +104,7 @@ const {
 } = require("./standards-pins.js");
 const { JS_SPEC, jsSpecifier } = require("./code-edges.js");
 const { surfaceClosureFaults } = require("./surface-closure.js");
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
 const { STANDARDS_DOCS, parseBasePaths } = require("./primitives-table.js");
 const { readText } = require("./file-read.js");
@@ -360,8 +360,7 @@ function readModOf(root, rel, shape = MOD_TS) {
  * @returns {string} a pattern matching `name` in either quote, the quote
  *   captured
  */
-const quotedName = (name) =>
-	`(["'])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`;
+const quotedName = (name) => `(["'])${escapeRe(name)}\\1`;
 
 /**
  * Where a comment or string starting at `i` ends.

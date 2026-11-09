@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { escapeRe } from "./regex-group.js";
 import { shellQuote } from "./sh-quote.js";
 
 const SH = path.join(__dirname, "rule-text.sh");
@@ -226,7 +227,7 @@ describe("accepting the prefixed spelling the trigger indexes hand out", () => {
 			store({ "commit-pathspec.txt": PATHSPEC });
 			expect(() => lib.readRuleText(id)).toThrow(/is not a rule id/);
 			expect(() => lib.readRuleText(id)).toThrow(
-				new RegExp(`"${id.replace(/\./g, "\\.")}"`),
+				new RegExp(`"${escapeRe(id)}"`),
 			);
 		});
 

@@ -29,6 +29,7 @@ const VAR = "WFC_NOW";
 const READ_SHAPES = [
 	new RegExp(`\\.${VAR}\\b`),
 	new RegExp(`\\[\\s*(["'\`])${VAR}\\1\\s*\\]`),
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	new RegExp(`\\{[^}]*\\b${VAR}\\b[^}]*\\}\\s*=(?![=>])`),
 ];
 const KEPT = /clock-kept:\s*\w/;

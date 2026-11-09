@@ -102,7 +102,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
-const { requiredGroup } = require("./lib/regex-group");
+const { escapeRe, requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
 const { readHookCode } = require("./lib/hook-code.js");
 const { isJsExt } = require("./lib/test-kind.js");
@@ -332,6 +332,7 @@ const JS_CWD_DEFAULT = /[(,]\s*([A-Za-z_$][\w$]*)\s*=\s*process\.cwd\(\)/g;
 /** Any hook-only spelling, which alone makes a lone file's hook scope worth
  * computing. */
 const HOOK_ROOT_ANY = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	[...HOOK_ROOT_CALLS, String.raw`\bcwd\b`].join("|"),
 );
 
@@ -503,9 +504,6 @@ function parseBoundNames(text) {
 		}
 	return out;
 }
-
-/** @param {string} s */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * The spellings of every root a core file must not be reached through in

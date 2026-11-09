@@ -1,6 +1,7 @@
 /*
- * regex-group.js — reads a capture group the pattern guarantees is present
- * (#1336, #1341).
+ * regex-group.js — the regex primitives: a literal escaped into a pattern
+ * (#4644), and a capture group the pattern guarantees is present (#1336,
+ * #1341).
  *
  * Under `noUncheckedIndexedAccess` every `m[1]` is `string | undefined`. Where
  * the group sits on every path through the pattern, a match without it is a
@@ -44,4 +45,11 @@ function requiredGroup(m, n, re) {
 	return g;
 }
 
-module.exports = { requiredGroup };
+/**
+ * A literal string as the regex source that matches it, `/` escaped too so
+ * the source also stands inside a `/…/` literal.
+ * @param {string} s
+ */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+
+module.exports = { escapeRe, requiredGroup };
