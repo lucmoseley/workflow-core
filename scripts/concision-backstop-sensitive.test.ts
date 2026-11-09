@@ -9,14 +9,17 @@
  * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	BACKSTOP,
 	BIG_CODE,
 	backstopFixture,
 	cfg,
 	dir,
+	env,
 	git,
 	gitAt,
 	ME,
@@ -27,6 +30,7 @@ import {
 	run,
 	write,
 } from "./lib/concision-backstop-testkit";
+import { cutWorktree } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 
 backstopFixture();
@@ -271,6 +275,40 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 			expect(reason).toContain("`escalated` review tier is owed");
 			expect(reason).toContain(rel);
 			expect(reason).toContain("was rejected — its tier= is 'standard'");
+		});
+
+		// #4615: the globs matched are the session tree's, as skill load reads them.
+		it("names a worktree's own declared areas, not the shared tree's", () => {
+			declare(["supabase/migrations/**"]);
+			const wt = cutWorktree(repo);
+			fs.mkdirSync(path.join(wt, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(wt, ".claude", "workflow-core.json"),
+				JSON.stringify({
+					sensitivePaths: [
+						{ name: "money", description: "payments", globs: ["app/money/**"] },
+					],
+				}),
+			);
+			for (const rel of [
+				"supabase/migrations/001_rls.sql",
+				"app/money/pay.ts",
+			]) {
+				fs.mkdirSync(path.dirname(path.join(wt, rel)), { recursive: true });
+				fs.writeFileSync(path.join(wt, rel), policy);
+				record(rel, ME, wt);
+			}
+			const r = spawnSync(BACKSTOP, ["stop"], {
+				cwd: wt,
+				encoding: "utf8",
+				input: JSON.stringify({ session_id: ME, cwd: wt }),
+				env: env(),
+			});
+			const reason = r.stdout?.trim()
+				? (JSON.parse(r.stdout).reason as string)
+				: "";
+			expect(reason).toContain("declared sensitive paths (money)");
+			expect(reason).not.toContain("RLS");
 		});
 
 		it.each([

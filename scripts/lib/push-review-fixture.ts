@@ -131,19 +131,22 @@ export function reviewFixture() {
 			ledgerHead(tree, arbiterEnv(sid)),
 		marker: (body: string) =>
 			fs.writeFileSync(path.join(markers(), `.codereview-pass-${ME}`), body),
-		declareRls: () =>
+		/** Declare one area over `globs` in `tree`'s working copy. */
+		declareRls: (
+			tree = f.shared,
+			name = "RLS",
+			globs = ["supabase/migrations/**"],
+		) => {
+			fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
 			fs.writeFileSync(
-				path.join(f.shared, ".claude", "workflow-core.json"),
+				path.join(tree, ".claude", "workflow-core.json"),
 				JSON.stringify({
 					sensitivePaths: [
-						{
-							name: "RLS",
-							description: "who may read or write what",
-							globs: ["supabase/migrations/**"],
-						},
+						{ name, description: "who may read or write what", globs },
 					],
 				}),
-			),
+			);
+		},
 		owed: (tree = f.shared) =>
 			reviewOwed({
 				sessionId: ME,

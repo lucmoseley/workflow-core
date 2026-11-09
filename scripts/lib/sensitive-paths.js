@@ -7,7 +7,9 @@
  * GLOBS MATCH AS `git diff -- ':(glob)<glob>'` DOES, through
  * lib/pathspec-glob.js, whose semantics this file's suite checks against git.
  *
- * RUN AS A SCRIPT it prints the match as JSON for the host's config, or with
+ * RUN AS A SCRIPT it prints the match as JSON for the config in the session's
+ * tree — the working directory's linked worktree of the host, else the host,
+ * as skill load reads it (#4615) — or with
  * `--names` the matched areas' names one per line, exit 0; a config warning
  * reaches stderr and never changes the exit. `--narrowed-from <rev>`, which
  * repeats, adds each area the declaration narrows from its copy at <rev>;
@@ -168,21 +170,14 @@ function printHeld(before, after, paths) {
 }
 
 /**
- * `--narrowed-from`'s copies, read in the working directory's own tree, which
- * in a linked worktree is not the host root: `befores`, one per revision in
+ * `--narrowed-from`'s copies in `root`: `befores`, one per revision in
  * `since` that reads; `after` at `to`, else the working copy, read as
  * declaring nothing where it will not parse, as the hold reads it (#3905).
+ * @param {string} root
  * @param {string[]} since
  * @param {string | true | undefined} to
  */
-function readNarrowingCopies(since, to) {
-	const { gitTopLevel } = require("./host-root.js");
-	let root = process.cwd();
-	try {
-		root = gitTopLevel(root);
-	} catch {
-		/* No top level: the working directory is the tree. */
-	}
+function readNarrowingCopies(root, since, to) {
 	let fault = "";
 	/** @type {(SensitivePath[] | undefined)[]} */
 	const befores = [];
@@ -249,9 +244,10 @@ if (require.main === module) {
 	}
 	const paths = [...positionals];
 	if (flags["--stdin"]) paths.push(...readPaths(0));
+	const root = require("./host-root.js").worktreeRoot();
 	let config;
 	try {
-		config = readConfig();
+		config = readConfig({ root });
 	} catch (e) {
 		writeFd(2, `BROKEN: ${caught(e).message}\n`);
 		process.exit(2);
@@ -260,7 +256,7 @@ if (require.main === module) {
 	const since = lists["--narrowed-from"] ?? [];
 	let fault = "";
 	if (since.length > 0 && paths.includes(CONFIG_PATH)) {
-		const copies = readNarrowingCopies(since, flags["--narrowed-to"]);
+		const copies = readNarrowingCopies(root, since, flags["--narrowed-to"]);
 		fault = copies.fault;
 		for (const before of copies.befores)
 			match = withNarrowing(match, before, copies.after, paths);
