@@ -52,8 +52,7 @@ const OUTSIDE_FILE = ".refill-outside.json";
  *   typed into it since this stop; `capped`, its resumes reached the cap,
  *   after which the loop leaves this stop alone; `held`, the session the
  *   loop stopped whose `--bg --resume` failed, resumed when next due;
- *   `unretired`, the originals of its copies whose jobs would not retire,
- *   retired on later ticks (#4829), the record kept until they are
+ *   `unretired`, the originals of its copies whose jobs would not retire
  */
 
 /**
@@ -321,8 +320,7 @@ function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
 
 /**
  * `o` with each original of its copies that would not retire tried again
- * (lib/refill-retire.js); one out of tries is logged, as the loop comments
- * on no outside session.
+ * (lib/refill-retire.js); one out of tries is logged.
  * @param {Outside} o
  * @param {Tick["io"]} io
  * @returns {Outside}
