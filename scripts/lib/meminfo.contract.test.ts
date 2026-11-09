@@ -13,7 +13,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { readSwapHold } from "./admission.js";
-import { buildMeminfo, MEMINFO_KEYS } from "./meminfo-fake";
+import {
+	buildMeminfo,
+	MEMINFO_BREAKDOWN_KEYS,
+	MEMINFO_KEYS,
+} from "./meminfo-fake";
 
 const REAL = "/proc/meminfo";
 function readFake(text: string) {
@@ -32,12 +36,11 @@ describe("the meminfo fake against the real file (#3093)", () => {
 		"writes each of its lines in the real file's shape",
 		() => {
 			const real = fs.readFileSync(REAL, "utf8");
-			const fake = buildMeminfo({
-				availableMb: 1,
-				swapTotalMb: 1,
-				swapFreeMb: 1,
-			});
-			for (const key of MEMINFO_KEYS) {
+			const fake = buildMeminfo(
+				{ availableMb: 1, swapTotalMb: 1, swapFreeMb: 1 },
+				Object.fromEntries(MEMINFO_BREAKDOWN_KEYS.map((k) => [k, 1])),
+			);
+			for (const key of [...MEMINFO_KEYS, ...MEMINFO_BREAKDOWN_KEYS]) {
 				const shape = new RegExp(`^${key}:\\s+\\d+ kB$`, "m");
 				expect(real).toMatch(shape);
 				expect(fake).toMatch(shape);

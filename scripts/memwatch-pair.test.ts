@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -232,6 +233,15 @@ describe.skipIf(!present)("memwatch incident block", () => {
  * trigger fires, so a quiet hour still leaves rows.
  */
 describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
+	// Memory no process listing shows, from /proc/meminfo (#4641).
+	const meminfoFields = [
+		"anon_mb",
+		"shmem_mb",
+		"slab_unreclaim_mb",
+		"kernel_stack_mb",
+		"page_tables_mb",
+		"unevictable_mb",
+	];
 	function quietPass(name: string, env: Record<string, string> = {}) {
 		const minute = path.join(tmp, `${name}.jsonl`);
 		const log = path.join(tmp, `${name}.log`);
@@ -270,12 +280,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			"psi_io_some",
 			"psi_io_full",
 			"mem_avail_mb",
-			"anon_mb",
-			"shmem_mb",
-			"slab_unreclaim_mb",
-			"kernel_stack_mb",
-			"page_tables_mb",
-			"unevictable_mb",
+			...meminfoFields,
 			"cpu_busy_pct",
 			"cpu_sys_pct",
 			"procs",
@@ -308,33 +313,27 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(row.refault_file).toBeNull();
 		expect(row.swap_used_mb).toBeGreaterThanOrEqual(0);
 		expect(row.uptime_s).toBeGreaterThan(0);
+		// The real kernel reports every breakdown key.
+		for (const k of meminfoFields) expect(typeof row[k]).toBe("number");
 		// The test's own node process is running.
 		expect(row.node).toBeGreaterThan(0);
 	});
 
-	// Memory no process listing shows, named by /proc/meminfo (#4641).
-	const meminfoFields = [
-		"anon_mb",
-		"shmem_mb",
-		"slab_unreclaim_mb",
-		"kernel_stack_mb",
-		"page_tables_mb",
-		"unevictable_mb",
-	];
 	it("carries the meminfo breakdown in whole MB", () => {
 		const meminfo = path.join(tmp, "meminfo");
 		fs.writeFileSync(
 			meminfo,
-			[
-				"MemAvailable:    2048000 kB",
-				"AnonPages:       3145728 kB",
-				"Shmem:           1048576 kB",
-				"SUnreclaim:       204900 kB",
-				"KernelStack:       20480 kB",
-				"PageTables:        51200 kB",
-				"Unevictable:        1023 kB",
-				"",
-			].join("\n"),
+			buildMeminfo(
+				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
+				{
+					AnonPages: 3_145_728,
+					Shmem: 1_048_576,
+					SUnreclaim: 204_900,
+					KernelStack: 20_480,
+					PageTables: 51_200,
+					Unevictable: 1023,
+				},
+			),
 		);
 		const { lines } = quietPass("minute-meminfo", {
 			MEMWATCH_MEMINFO: meminfo,
@@ -348,7 +347,13 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 
 	it("writes null for a meminfo key the kernel does not report", () => {
 		const meminfo = path.join(tmp, "meminfo-sparse");
-		fs.writeFileSync(meminfo, "MemAvailable:    2048000 kB\nShmem: 1024 kB\n");
+		fs.writeFileSync(
+			meminfo,
+			buildMeminfo(
+				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
+				{ Shmem: 1024 },
+			),
+		);
 		const { lines } = quietPass("minute-meminfo-sparse", {
 			MEMWATCH_MEMINFO: meminfo,
 		});
