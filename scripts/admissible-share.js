@@ -8,7 +8,7 @@
  * per-run and per-sha — see "THE UNIT" below — over the marker stores'
  * `test:changed` launches, refusing to headline any of them below a
  * 20-sample floor; and (mantahostels#3211) a full-runs-a-day rate split by why the run
- * was full (`flag`, `stale-manifest`, `dependency-root`, `expansion-failed`,
+ * was full (`flag`, `stale-manifest`, `dependency-root`,
  * `unknown`), the reading mantahostels#3154's rethink trigger — `flag` above 18/day over
  * any 7-day window — is read against. Unlike the two shares, this rate is
  * NOT floored at 20 samples: a single-digit count over a short window is
@@ -254,7 +254,7 @@ function earliestAt({ markers, failures }) {
 }
 
 /**
- * Which of the four mantahostels#3207 reasons a full run's scope names — absent or
+ * Which of the three mantahostels#3207 reasons a full run's scope names — absent or
  * forged (not one of `FULL_REASONS`) reads as `"unknown"`, never as `"flag"`
  * (the ticket's AC-2).
  * @param {import("./lib/test-pass-marker.js").Marker} m

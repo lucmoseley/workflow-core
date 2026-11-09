@@ -78,7 +78,7 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   skipped: number, nameFilter?: string|null,
  *   fileFilters?: string[], changed?: string|boolean|null, admissible?: boolean,
  *   viaChanged?: boolean, touched?: boolean, resolvedFiles?: number,
- *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root"|"expansion-failed",
+ *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
  *   shard?: {index: number, count: number},
  *   failures?: {file: string, tests: string[]}[], errors?: number}} Scope
@@ -161,18 +161,12 @@ const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
 const RETEST_FLAG = "--retest";
 
 /**
- * The four reasons `scope.full` can carry (mantahostels#3207): `"flag"` for a session's
- * own `--full`, the two the default narrowing escalates itself to where it
+ * The three reasons `scope.full` can carry (mantahostels#3207): `"flag"` for a session's
+ * own `--full`, and the two the default narrowing escalates itself to where it
  * would be worthless (mantahostels#3208) — lib/changed-selection.js's
- * `findDefaultEscalationReason` — and `"expansion-failed"`, which older rows in
- * the store carry and `scripts/admissible-share.js` still counts.
+ * `findDefaultEscalationReason`.
  */
-const FULL_REASONS = [
-	"flag",
-	"stale-manifest",
-	"dependency-root",
-	"expansion-failed",
-];
+const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
 
 /**
  * The six values `--full=<cause>` accepts (#182): a session satisfying the push

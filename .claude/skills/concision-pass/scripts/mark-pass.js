@@ -26,9 +26,10 @@ const path = require("node:path");
 const { writeFileAtomic } = require("../../../../scripts/lib/atomic-write.js");
 const { markersDir } = require("../../../../scripts/lib/marker-root.js");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
+const { readCommit } = require("../../../../scripts/lib/commit-sha.js");
 const {
-	execGit,
 	gitCommonDirOrThrow,
+	gitReader,
 } = require("../../../../scripts/lib/git.js");
 
 const USAGE =
@@ -49,14 +50,6 @@ function die(msg) {
 /** @param {unknown} err */
 function parseErrorFirstLine(err) {
 	return String(err instanceof Error ? err.message : err).split("\n")[0];
-}
-
-/** @param {string[]} args */
-function git(args) {
-	return execGit(args, {
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-	}).trim();
 }
 
 /**
@@ -113,11 +106,9 @@ function readSessionBase(dir, sid, fallback) {
 		die(
 			"no .concision-base for this session — pass --base <the step-1 fixed point>.",
 		);
-	try {
-		return git(["rev-parse", "--verify", "--quiet", `${fallback}^{commit}`]);
-	} catch {
-		return die(`--base '${fallback}' is not a commit git can resolve.`);
-	}
+	const r = readCommit(gitReader(), fallback);
+	if (!r.ok) return die(`git would not resolve --base '${fallback}': ${r.why}`);
+	return r.sha ?? die(`--base '${fallback}' is not a commit git can resolve.`);
 }
 
 function main() {
