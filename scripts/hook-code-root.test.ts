@@ -7,6 +7,9 @@
  *
  * Break it and a session that edits a hook is judged by its own unlanded
  * edit: a weakened guard lets its author through, a broken one locks it out.
+ *
+ * It also pins the canary line's own registration, its type, onFailure and
+ * timeout, which the harness reads from the session's worktree (#4745).
  */
 
 import { spawnSync } from "node:child_process";
@@ -15,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	CANARY_COMMAND,
 	flattenHooks,
 	MARKER_WRITER,
 	SCRIPT_PREFIX,
@@ -136,19 +140,21 @@ describe("every registered hook command", () => {
 	);
 });
 
-describe("an edited hook script in the session's worktree (#4701)", () => {
-	const writer = registered.find(({ command }) =>
-		command.includes(MARKER_WRITER),
-	);
-	const canary = String(
-		registered.find(({ file }) => file === SETTINGS)?.command,
-	);
-	const bash = {
-		hook_event_name: "PreToolUse",
-		tool_name: "Bash",
-		tool_input: { command: "ls" },
-	};
+const canaryLine = registered.find(
+	({ file, command }) => file === SETTINGS && command === CANARY_COMMAND,
+);
+const canary = String(canaryLine?.command);
+const writer = registered.find(({ command }) =>
+	command.includes(MARKER_WRITER),
+);
+const bash = {
+	hook_event_name: "PreToolUse",
+	tool_name: "Bash",
+	tool_input: { command: "ls" },
+};
+const sessionStart = { hook_event_name: "SessionStart", source: "startup" };
 
+describe("an edited hook script in the session's worktree (#4701)", () => {
 	it("does not change the canary's verdict, either way (#4701)", () => {
 		expect(writer).toBeDefined();
 		const worktree = cutWorktree("edited");
@@ -167,10 +173,7 @@ describe("an edited hook script in the session's worktree (#4701)", () => {
 			`\n! claude plugin marketplace add ${shellQuote(`${main}/self-plugin`)} --scope user\n`,
 		);
 
-		const start = runHook(worktree, String(writer?.command), {
-			hook_event_name: "SessionStart",
-			source: "startup",
-		});
+		const start = runHook(worktree, String(writer?.command), sessionStart);
 		expect(start.status).toBe(0);
 		fs.writeFileSync(
 			path.join(worktree, "scripts", "self-plugin-canary.sh"),
@@ -187,32 +190,29 @@ describe("an edited hook script in the session's worktree (#4701)", () => {
  * moves, on this whole suite green. So a canary line that cannot reach both
  * verdicts in time fails here, before any session reads it (#4745). */
 describe("the canary registration the harness reads", () => {
-	const line = registered.find(({ file }) => file === SETTINGS);
-
 	it("is a command hook that reaches both verdicts inside its timeout (#4745)", () => {
-		expect(line).toMatchObject({ type: "command", onFailure: "block" });
+		expect(canaryLine).toMatchObject({
+			type: "command",
+			onFailure: "block",
+			timeout: expect.any(Number),
+		});
 		const worktree = cutWorktree("timed");
+		/* Wall-clock, as the harness kills the hook at its registered timeout
+		 * and the line runs in `sh`, where no clock seam reaches. */
 		const timed = () => {
 			const at = performance.now();
-			const r = runHook(worktree, String(line?.command), {
-				hook_event_name: "PreToolUse",
-				tool_name: "Bash",
-				tool_input: { command: "ls" },
-			});
-			return { status: r.status, ms: performance.now() - at };
+			const r = runHook(worktree, canary, bash);
+			return { ...r, ms: performance.now() - at };
 		};
 		const refused = timed();
-		const writer = registered.find(({ command }) =>
-			command.includes(MARKER_WRITER),
-		);
-		runHook(worktree, String(writer?.command), {
-			hook_event_name: "SessionStart",
-			source: "startup",
-		});
+		runHook(worktree, String(writer?.command), sessionStart);
 		const allowed = timed();
-		expect([refused.status, allowed.status]).toEqual([2, 0]);
+		expect(refused.status).toBe(2);
+		expect(refused.stderr).toContain("the wfc-self self-plugin did not load");
+		expect(allowed.status).toBe(0);
+		expect(allowed.stderr).toBe("");
 		expect(Math.max(refused.ms, allowed.ms)).toBeLessThan(
-			Number(line?.timeout) * 1000,
+			Number(canaryLine?.timeout) * 1000,
 		);
 	});
 });
