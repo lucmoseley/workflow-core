@@ -48,7 +48,7 @@
 # IMPLICIT:  records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code changed or a declared sensitive path written or narrowed from the declaration; in an /implement session either nag ends with rule:implement-closing-steps, the only place a session meets those steps (#2031).
 # JUSTIFIED: fail-safe — both are closing steps, and a session that has finished writing has no reason left of its own to run them.
 # DEFEAT:    none — each signal fires once per session, the code signal again only on new news (above), and is cleared by doing the pass, not by a switch.
-# TREE:      both — base and diffs from the session's tree; markers, the write ledger and the standards files from the host root.
+# TREE:      both — base, diffs and the sensitive-path declaration from the session's tree; markers, the write ledger and the standards files from the host root.
 
 set -uo pipefail
 

@@ -25,6 +25,7 @@ const {
 	ledgerHead,
 	marker,
 	recordWrite,
+	declareArea,
 	declareRls,
 	owed,
 } = reviewFixture();
@@ -188,13 +189,30 @@ describe("what the adapter answers (#1163)", () => {
 	// #1748: the hold refuses nothing in a worktree, so this warn is its only signal.
 	it("reads an escalated range committed in a worktree from there, rejecting a standard review's marker", () => {
 		const rel = "supabase/migrations/001_rls.sql";
-		declareRls();
+		declareRls(f.worktree);
 		commitBy(rel, "create policy p on t;\n", ME, f.worktree);
 		marker(`base=${f.base}\nfindings=2\ntier=standard\nareas=RLS\n`);
 		const o = owed(f.worktree);
 		expect(o?.files).toBe(rel);
 		expect(o?.tier).toBe("escalated");
 		expect(o?.passFault).toContain("its tier= is 'standard'");
+	});
+
+	// #4615: the globs matched are the session tree's, as skill load reads them.
+	it("matches a worktree's own declared globs, not the shared tree's", () => {
+		declareRls();
+		declareArea(f.worktree, "money", ["app/money/**"]);
+		commitBy(
+			"supabase/migrations/001_rls.sql",
+			"create policy p on t;\n",
+			ME,
+			f.worktree,
+		);
+		commitBy("app/money/pay.ts", "export const pay = 1;\n", ME, f.worktree);
+		const o = owed(f.worktree);
+		expect(o?.tier).toBe("escalated");
+		expect(o?.tierLine).toContain("declared sensitive paths (money)");
+		expect(o?.tierLine).not.toContain("RLS");
 	});
 
 	// #1840 F1: a staged review's base= is newer than the start point, and only

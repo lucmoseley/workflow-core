@@ -426,6 +426,33 @@ const GLOBS = [
 	"sc[r]ipts/q.js",
 ];
 
+describe("sensitive-paths — the tree read (#4615)", () => {
+	it("reads the working directory's own repository, not a host it is unrelated to", () => {
+		const other = path.join(dir, "other");
+		const hooks = path.join(dir, "hooks");
+		fs.mkdirSync(hooks);
+		initGitRepo(other, hooks);
+		const decl = path.join(".claude", "workflow-core.json");
+		fs.mkdirSync(path.join(other, ".claude"));
+		fs.writeFileSync(
+			path.join(other, decl),
+			JSON.stringify({ contract: 1, founder: "F", sensitivePaths: [MONEY] }),
+		);
+		execFileSync("git", ["add", decl], { cwd: other });
+		execFileSync("git", ["commit", "-qm", "declare"], { cwd: other });
+		const out = runInProcess(
+			SCRIPT,
+			["--stdin", "--names", "--narrowed-from", "HEAD"],
+			{
+				cwd: other,
+				env: { ...process.env, CLAUDE_PROJECT_DIR: host([RLS]) },
+				stdin: `${decl}\nlib/pricing/a.ts\nsupabase/migrations/1.sql\n`,
+			},
+		);
+		expect([out.status, out.stdout, out.stderr]).toEqual([0, "money\n", ""]);
+	});
+});
+
 describe("sensitive-paths — parity with git's :(glob) pathspec", () => {
 	it("matches every case exactly as git diff does", () => {
 		const root = path.join(dir, "repo");
