@@ -118,16 +118,23 @@ function listLiveSessions() {
 }
 
 /**
- * Run a canary or writer for one session, as its hook would.
+ * Run a canary or writer for one session, as its hook would. The plugin root
+ * is the main checkout's self-plugin: the only one the current canary vouches
+ * for (#4712), so a re-mark records no root the session did not already have.
  * @param {string} script
  * @param {LiveSession} s
+ * @param {string} root the main checkout
  * @returns {{ ok: boolean, said: string }}
  */
-function runHook(script, s) {
+function runHook(script, s, root) {
 	const r = spawnSync("bash", [script], {
 		cwd: s.cwd,
 		input: JSON.stringify({ session_id: s.sessionId }),
-		env: { ...process.env, CLAUDE_PROJECT_DIR: s.cwd },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: s.cwd,
+			CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
+		},
 		encoding: "utf8",
 		timeout: HOOK_TIMEOUT_MS,
 	});
@@ -170,7 +177,7 @@ function vouchedSessions(root, listed) {
 	for (const s of listed) {
 		if (ids.has(s.sessionId) || !isUnder(deref(s.cwd), trees)) continue;
 		ids.add(s.sessionId);
-		if (runHook(current, s).ok) sessions.push(s);
+		if (runHook(current, s, root).ok) sessions.push(s);
 	}
 	return { sessions };
 }
@@ -178,16 +185,17 @@ function vouchedSessions(root, listed) {
 /**
  * Re-mark each session with the writer under `scratch`, then check it with the
  * canary there: those it would still refuse.
+ * @param {string} root
  * @param {string} scratch
  * @param {LiveSession[]} sessions
  * @returns {Stranded[]}
  */
-function remarkEach(scratch, sessions) {
+function remarkEach(root, scratch, sessions) {
 	/** @type {Stranded[]} */
 	const stranded = [];
 	for (const s of sessions) {
-		runHook(path.join(scratch, WRITER), s);
-		const check = runHook(path.join(scratch, CANARY), s);
+		runHook(path.join(scratch, WRITER), s, root);
+		const check = runHook(path.join(scratch, CANARY), s, root);
 		if (!check.ok)
 			stranded.push({
 				sessionId: s.sessionId,
@@ -225,7 +233,7 @@ function remarkForCanary(
 	fs.rmSync(scratch, { recursive: true, force: true });
 	try {
 		writeTree(after.files, scratch);
-		const stranded = remarkEach(scratch, vouched.sessions);
+		const stranded = remarkEach(root, scratch, vouched.sessions);
 		return stranded.length > 0 ? { stranded } : null;
 	} finally {
 		fs.rmSync(scratch, { recursive: true, force: true });

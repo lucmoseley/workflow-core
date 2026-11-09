@@ -427,6 +427,7 @@ const hook = (script: string, sessionId: string) =>
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
+			CLAUDE_PLUGIN_ROOT: path.join(main, "self-plugin"),
 			CLAUDE_PROJECT_DIR: worktree,
 		},
 		encoding: "utf8",
@@ -455,9 +456,13 @@ it("re-marks a live session before a fast-forward that moves its marker path, so
 		status: "forwarded",
 		head: moved,
 	});
+	/* The pass's writer records the main checkout's self-plugin (#4712). */
 	expect(
-		fs.readdirSync(path.join(worktree, ".claude", "tmp", "markers")),
-	).toContain(".self-plugin-v2-s-old");
+		fs.readFileSync(
+			path.join(worktree, ".claude", "tmp", "markers", ".self-plugin-v2-s-old"),
+			"utf8",
+		),
+	).toBe(path.join(main, "self-plugin"));
 	expect(fs.readFileSync(writerLog(), "utf8")).toBe(`${worktree}\n`);
 	expect(canaryPasses("s-old")).toBe(true);
 });

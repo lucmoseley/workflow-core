@@ -8,8 +8,11 @@
 #
 # ALLOWS a call when this input's session has a marker (lib/self-plugin-marker.sh),
 # which scripts/write-self-plugin-marker.sh writes at the self-plugin's
-# SessionStart. A subagent's calls carry its parent's session id, so it is
-# covered.
+# SessionStart, and the CLAUDE_PLUGIN_ROOT the marker records is the main
+# checkout's self-plugin (#4712). Every self-plugin hook runs from that root's
+# parent (#4701), so a root anywhere else, a worktree's copy or the plugin
+# cache, runs every guard from another tree's scripts. A subagent's calls carry
+# its parent's session id, so it is covered.
 #
 # FAILS CLOSED, unlike every other guard here (mantahostels#103 §6): an
 # unreadable input, an empty session id, a missing jq or an unresolved root
@@ -25,26 +28,35 @@
 # cannot load a repo-declared plugin's hooks (#1892), so it is refused like any
 # unguarded session.
 #
-# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent
-# JUSTIFIED: fail-safe — a session the self-plugin did not load would otherwise run with no guards and nothing said
+# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent or names a root other than the main checkout's self-plugin
+# JUSTIFIED: fail-safe — a session the self-plugin did not load, or loaded from another tree, would otherwise run with no guards or another tree's, and nothing said
 # DEFEAT: none
-# TREE:   host — checks this session's self-plugin marker in the host root's markers
+# TREE:   host — checks this session's self-plugin marker in the host root's markers against the main checkout
 
 set -uo pipefail
 
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 fault=""
+# The root a marker records where it is not the main checkout's self-plugin.
+loaded=""
+
+# main_checkout — the parent of git's common dir for CLAUDE_PROJECT_DIR,
+# symlinks resolved, never a worktree: a marketplace registered at a worktree
+# breaks once the worktree is deleted (#2461). DUPLICATED BY HAND from
+# lib/main-checkout.js's mainCheckout, since this runs with no node. Prints
+# nothing where git names no common dir ending in .git.
+main_checkout() {
+  local at="${CLAUDE_PROJECT_DIR:-}" common
+  [[ -n "$at" ]] || at="$(gr_root)"
+  common="$(git -C "$at" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" &&
+    [[ "$common" == */.git ]] && gr_physical "${common%/.git}"
+}
 
 # shellcheck disable=SC2329 # invoked by the EXIT trap below, which shellcheck does not follow
 refuse() {
-  local root common main="" dir word setup quoter_fault=""
-  # The main checkout, never a worktree: a marketplace registered at a
-  # worktree breaks once the worktree is deleted (#2461). DUPLICATED BY HAND
-  # from lib/main-checkout.js's mainCheckout, since this runs with no node.
-  root="$(gr_root 2>/dev/null)" &&
-    common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" &&
-    [[ "$common" == */.git ]] && main="${common%/.git}"
+  local main dir word setup quoter_fault=""
+  main="$(main_checkout 2>/dev/null)"
   main="${main:-<absolute path to the main checkout>}"
   dir="$main/self-plugin"
   # shellcheck source=scripts/lib/script-path.sh
@@ -59,10 +71,20 @@ refuse() {
   # DUPLICATED BY HAND as lib/core-hooks.js's selfPluginSetup.
   setup="claude plugin marketplace add $word --scope user"
   [[ -n "$fault" ]] && printf 'The self-plugin canary could not check this session (%s), so it refuses as if the self-plugin had not loaded.\n\n' "$fault" >&2
-  cat >&2 <<EOF
+  if [[ -n "$loaded" ]]; then
+    cat >&2 <<EOF
+Refused: the wfc-self self-plugin loaded in this session from $loaded, not from the main checkout's $dir, so this session's hooks are running another tree's scripts.
+
+Have the founder run this once per machine, so the marketplace names the main checkout:
+EOF
+  else
+    cat >&2 <<EOF
 Refused: the wfc-self self-plugin did not load in this session, so none of workflow-core's guards are running here. They register from self-plugin/hooks/hooks.json, which loads only once its marketplace is set up on this machine.
 
 Have the founder run this once per machine:
+EOF
+  fi
+  cat >&2 <<EOF
 
 ! $setup
 
@@ -86,6 +108,20 @@ spm_marker_path marker || {
   exit
 }
 [[ -e "$marker" ]] || exit
+body="$(<"$marker")" 2>/dev/null || {
+  fault="$marker unreadable"
+  exit
+}
+main="$(main_checkout)"
+[[ -n "$main" ]] || {
+  fault="git named no main checkout for this session's project directory"
+  exit
+}
+body="${body%/}"
+if [[ "${body##*/}" != self-plugin || "$(gr_physical "${body%/*}")" != "$main" ]]; then
+  loaded="${body:-no recorded root (an empty marker)}"
+  exit
+fi
 
 trap - EXIT
 exit 0
