@@ -9,7 +9,9 @@
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
  * job list shows as needs input (#4689). Where the founder has typed into it
- * since its stop the loop leaves that stop alone.
+ * since its stop the loop leaves that stop alone. Where its fallback started
+ * a copy whose original would not retire, each tick tries that retirement
+ * again as for a launch's copy (#4829), keeping the record until it is done.
  *
  * Its records live in their own file, OUTSIDE_FILE, as they are no launches:
  * nothing that counts, ranks or finishes launches reads them.
@@ -21,12 +23,15 @@ const {
 	blockedIdsOf,
 	buildResumedHow,
 	iso,
+	withUnretired,
 } = require("./refill-block-core.js");
 const {
 	isTakenSinceStop,
 	netGateOf,
 	typedVerdict,
 } = require("./refill-blocks.js");
+const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
+const { shortJobId } = require("./job-paths.js");
 
 const OUTSIDE_FILE = ".refill-outside.json";
 
@@ -35,17 +40,19 @@ const OUTSIDE_FILE = ".refill-outside.json";
  * @typedef {import("./refill-blocks.js").Tick} Tick
  * @typedef {import("./refill-blocks.js").JobLaunch} JobLaunch
  * @typedef {import("./refill-blocks.js").CauseOf} CauseOf
+ * @typedef {import("./refill-blocks.js").Unretired} Unretired
  * @typedef {{seat: string, jobId: string, name: string, cwd: string,
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
  *   nextAt?: number, attachAt?: number, handsOff?: true, capped?: true,
- *   held?: {sessionId: string, cwd: string}}}
+ *   held?: {sessionId: string, cwd: string}, unretired?: Unretired[]}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
  *   `attachAt`, a typed resume not yet seen arrive; `handsOff`, the founder
  *   typed into it since this stop; `capped`, its resumes reached the cap,
  *   after which the loop leaves this stop alone; `held`, the session the
- *   loop stopped whose `--bg --resume` failed, resumed when next due
+ *   loop stopped whose `--bg --resume` failed, resumed when next due;
+ *   `unretired`, the originals of its copies whose jobs would not retire
  */
 
 /**
@@ -78,6 +85,27 @@ function betweenStops(o) {
 	if (o.capped) return null;
 	const { since: _, attachAt: __, handsOff: ___, held: ____, ...rest } = o;
 	return rest;
+}
+
+/**
+ * `o` kept only for its unretired originals: between stops, afresh where it
+ * was capped.
+ * @param {Outside} o
+ * @returns {Outside}
+ */
+function retiringOnly(o) {
+	const { seat, jobId, name, cwd, sessionId, unretired } = o;
+	return (
+		betweenStops(o) ?? {
+			seat,
+			jobId,
+			name,
+			cwd,
+			sessionId,
+			tries: 0,
+			unretired,
+		}
+	);
 }
 
 /**
@@ -129,7 +157,10 @@ function relaunch(o, target, { io }) {
 	}
 	io.log(`resumed ${nameOf(o)} by --bg --resume, ${buildResumedHow(r)}`);
 	const { held: _, ...rest } = o;
-	return { ...rest, jobId: r.jobId, sessionId: r.sessionId ?? o.sessionId };
+	return withUnretired(
+		{ ...rest, jobId: r.jobId, sessionId: r.sessionId ?? o.sessionId },
+		r,
+	);
 }
 
 /**
@@ -288,39 +319,77 @@ function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
 }
 
 /**
+ * `o` with each original of its copies that would not retire tried again
+ * (lib/refill-retire.js); one out of tries is logged.
+ * @param {Outside} o
+ * @param {Tick["io"]} io
+ * @returns {Outside}
+ */
+const withOriginalsRetried = (o, io) =>
+	withRetried(o, nameOf(o), io, (u, original, failed) =>
+		io.log(`${nameOf(o)}: ${buildGiveUpFix(u, original, failed)}`),
+	);
+
+/**
  * The tick's resumes of the background sessions on every seat the registry
- * lists live that no launch in `launches` is (#4815): each blocked on a
- * transient API error taken up and acted on, every record of one no longer
- * listed dropped, save one the loop stopped and holds for a retry (retryHeld).
- * None off an unread listing, which cannot tell blocked from working; a
- * barred tick types nothing.
+ * lists live that no launch in `launches` is (#4815): each copy's unretired
+ * original tried again (#4829), each session blocked on a transient API error
+ * taken up and acted on, every record of one no longer listed dropped, save
+ * one the loop stopped and holds for a retry (retryHeld), and any record kept
+ * while an original of its copy is unretired. Only the retirements off an
+ * unread listing, which cannot tell blocked from working; a barred tick types
+ * nothing.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {AgentRecord[]} registry  the registry listing's agents
  * @param {CauseOf} causeOf
  * @param {Tick} seen
  */
 function actOnOutside(launches, registry, causeOf, seen) {
-	if (!seen.agents) return;
-	const known = new Set(
-		launches.flatMap((l) => [l.jobId, l.copiedFrom].filter(Boolean)),
-	);
-	const blocked = blockedIdsOf(seen.agents);
 	const had = seen.io.readOutside();
+	const retried = had.map((o) => withOriginalsRetried(o, seen.io));
+	const { agents } = seen;
+	const kept = agents
+		? turnOutside(retried, { launches, registry, causeOf, agents }, seen)
+		: retried;
+	if (JSON.stringify(kept) !== JSON.stringify(had)) seen.io.writeOutside(kept);
+}
+
+/**
+ * The records `had` after the tick's acts on the listed sessions.
+ * @param {Outside[]} had
+ * @param {{launches: import("./refill-loop.js").LoopLaunch[],
+ *   registry: AgentRecord[], causeOf: CauseOf, agents: AgentRecord[]}}
+ *   listing  `agents`, the tick's read listing
+ * @param {Tick} seen
+ * @returns {Outside[]}
+ */
+function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
+	const known = new Set([
+		...launches.flatMap((l) => [l.jobId, l.copiedFrom].filter(Boolean)),
+		...had.flatMap((o) =>
+			(o.unretired ?? []).map((u) => shortJobId(u.sessionId)),
+		),
+	]);
+	const blocked = blockedIdsOf(agents);
 	const byJob = new Map(had.map((o) => [`${o.seat}\0${o.jobId}`, o]));
-	/** @type {(Outside|null)[]} */
+	/** @type {Outside[]} */
 	const next = [];
+	/** @param {Outside|null} turned @param {Outside} o */
+	const keep = (turned, o) => {
+		const k = turned ?? (o.unretired ? retiringOnly(o) : null);
+		if (k) next.push(k);
+	};
 	for (const row of registry) {
 		const fresh = takenUp(row, seen.now);
 		if (!fresh || known.has(fresh.jobId)) continue;
 		const key = `${fresh.seat}\0${fresh.jobId}`;
 		const o = byJob.get(key);
 		byJob.delete(key);
-		next.push(listedTurn(o, fresh, { row, blocked, causeOf }, seen));
+		keep(listedTurn(o, fresh, { row, blocked, causeOf }, seen), o ?? fresh);
 	}
 	for (const o of byJob.values())
-		if (o.held) next.push(retryHeld({ ...o, held: o.held }, seen));
-	const kept = next.filter((o) => o !== null);
-	if (JSON.stringify(kept) !== JSON.stringify(had)) seen.io.writeOutside(kept);
+		keep(o.held ? retryHeld({ ...o, held: o.held }, seen) : null, o);
+	return next;
 }
 
 module.exports = { OUTSIDE_FILE, actOnOutside };

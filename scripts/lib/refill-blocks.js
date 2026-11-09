@@ -129,6 +129,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   copyJobId: string, tries: number}} Unretired  a copy's original whose job
  *   would not stop or leave the job store (#4646): its seat, session and cwd,
  *   the copy it left, and the retirements tried
+ * @typedef {{unretired?: Unretired[]}} HasUnretired  a launch or an outside
+ *   session's record, either of which carries its copies' unretired originals
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: true, why: string,

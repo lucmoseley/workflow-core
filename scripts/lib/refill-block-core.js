@@ -286,8 +286,9 @@ function relaunched(l, resumed, now, { tookSlot }) {
 
 /**
  * `l` with copy `r`'s original, where its job would not retire, added to
- * those a later tick retries (lib/refill-retire.js's retireOriginals, #4646).
- * @template {LoopLaunch} L
+ * those a later tick retries (lib/refill-retire.js, #4646): a launch, or an
+ * outside session's record (#4829).
+ * @template {import("./refill-blocks.js").HasUnretired} L
  * @param {L} l
  * @param {Extract<Resumed, {failed: null}>} r
  * @returns {L}

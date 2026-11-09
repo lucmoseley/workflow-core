@@ -322,26 +322,23 @@ function recordParkedResume(l, target, r, { launchedAt, actsBefore, io }) {
  * @returns {import("./refill-loop.js").LoopLaunch}
  */
 function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
-	return withUnretired(
-		{
-			root: l.root,
-			issues: l.issues,
-			prompt: l.prompt,
-			seat: target.seat,
-			reason: "parked session's seat",
-			jobId: r.jobId,
-			launchedAt,
-			finishedAt: null,
-			...(r.sessionId ? { sessionId: r.sessionId } : {}),
-			...(r.copy ? { pastSessionIds: [target.sessionId] } : {}),
-			actsBefore,
-			...(hasNothingToRepeat(target.parkCause)
-				? { nothingToRepeat: true }
-				: {}),
-			...limitParksOf(l),
-		},
-		r,
-	);
+	/** @type {import("./refill-loop.js").LoopLaunch} */
+	const record = {
+		root: l.root,
+		issues: l.issues,
+		prompt: l.prompt,
+		seat: target.seat,
+		reason: "parked session's seat",
+		jobId: r.jobId,
+		launchedAt,
+		finishedAt: null,
+		...(r.sessionId ? { sessionId: r.sessionId } : {}),
+		...(r.copy ? { pastSessionIds: [target.sessionId] } : {}),
+		actsBefore,
+		...(hasNothingToRepeat(target.parkCause) ? { nothingToRepeat: true } : {}),
+		...limitParksOf(l),
+	};
+	return withUnretired(record, r);
 }
 
 /**
