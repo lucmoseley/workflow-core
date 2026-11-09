@@ -112,11 +112,10 @@ const headless = require("./headless-runs.js");
  *   headless runs merged in are read now, so they may be fresher than it.
  * @typedef {{why: string, ids?: undefined, names?: undefined,
  *   finished?: undefined, terminal?: undefined, pids?: undefined,
- *   cwds?: undefined, states?: undefined, kinds?: undefined}} SessionsRefused
+ *   cwds?: undefined}} SessionsRefused
  * @typedef {{why?: undefined, ids: Set<string>, names: Map<string, string>,
  *   finished: Set<string>, terminal: Set<string>,
  *   pids: Map<string, number>, cwds: Map<string, string>,
- *   states: Map<string, string>, kinds: Map<string, string>,
  *   unvouched?: boolean}} SessionsListed
  * @typedef {SessionsRefused|SessionsListed} ListedSessions
  * @typedef {(bin: string, timeoutMs: number, dirs: string[]) => string[]} RunOracle
@@ -848,24 +847,17 @@ function agentFieldMaps(agents) {
 	const pids = new Map();
 	/** @type {Map<string, string>} */
 	const cwds = new Map();
-	/** @type {Map<string, string>} */
-	const states = new Map();
-	/** @type {Map<string, string>} */
-	const kinds = new Map();
 	for (const a of agents) {
 		if (a.name) names.set(a.sessionId, a.name);
 		if (a.pid) pids.set(a.sessionId, a.pid);
-		if (a.state) states.set(a.sessionId, a.state);
-		if (a.kind) kinds.set(a.sessionId, a.kind);
 		cwds.set(a.sessionId, a.cwd ?? "");
 	}
-	return { names, pids, cwds, states, kinds };
+	return { names, pids, cwds };
 }
 
 /**
  * The session ids `claude agents --json` lists, as `{ids}` — with `names`
- * mapping each to its display name, `pids` mapping each to its pid, `states`
- * and `kinds` each to the oracle's own field,
+ * mapping each to its display name, `pids` mapping each to its pid,
  * `finished` holding the subset that has FINISHED but is still resident, and
  * `terminal` the wider subset that has stopped working however it ended
  * (mantahostels#2774) — or `{why}`, the sentence explaining why nothing can be said.
@@ -919,9 +911,7 @@ function sessionIdsOf(opts, how = {}) {
 			 * rather than leaving it to a TypeError raised further down. */
 			if (!listed.agents)
 				throw new TypeError("answered with neither agents nor a why");
-			const { names, pids, cwds, states, kinds } = agentFieldMaps(
-				listed.agents,
-			);
+			const { names, pids, cwds } = agentFieldMaps(listed.agents);
 			return {
 				ids: new Set(listed.agents.map((a) => a.sessionId)),
 				/* Of these readers only `admissionSessionIds` lets an empty listing through, taken
@@ -953,10 +943,6 @@ function sessionIdsOf(opts, how = {}) {
 				/* Each session's cwd, "" where the oracle gave none, for the repo
 				 * whose session draw admission charges it (#2221). */
 				cwds,
-				/* Each session's own `state` and `kind`, for the memory breakdown's
-				 * finished-but-resident row (#588). */
-				states,
-				kinds,
 			};
 		},
 		how,

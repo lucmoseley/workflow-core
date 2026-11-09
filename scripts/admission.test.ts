@@ -306,8 +306,6 @@ describe("slot arithmetic", () => {
 });
 
 describe("the swap hold (#2690)", () => {
-	afterEach(() => vi.unstubAllEnvs());
-
 	const holdAt = (
 		mb: number,
 		swap: { totalMb: number; freeMb: number } | null,

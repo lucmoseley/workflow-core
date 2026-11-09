@@ -273,10 +273,10 @@ function readHungJobs(listed) {
  * @returns {number}
  */
 function writeJson({ verdict, hungJobs, allowance, memory }) {
-	// `hungJobs` and `allowanceWarning` ride alongside
-	// `verdict` rather than inside it: `verdict` is `lib/admission.js#strictAdmission`'s own return
-	// shape, and widening it here would drift the two from what that lib's
-	// own tests assert.
+	// `hungJobs` and `allowanceWarning` ride alongside `verdict` rather than
+	// inside it: `verdict` is `lib/admission.js#strictAdmission`'s own return
+	// shape, and widening it here would drift the two from what that lib's own
+	// tests assert.
 	writeFd(
 		1,
 		`${JSON.stringify({ ...verdict, hungJobs, allowanceWarning: allowance.warning, memory }, null, 2)}\n`,
