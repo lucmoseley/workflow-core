@@ -110,6 +110,7 @@ const CHECKS = [
 	["suite-size", "check-suite-size-drift.js"],
 	["suite-margin", "check-suite-margin.js"],
 	["file-ci-time", "check-file-ci-time.js"],
+	["pass-store", "check-pass-store.js"],
 	["pick-next-model", "check-pick-next-model.js"],
 	["history-trim", "check-history-trim.js"],
 	["gates", "check-gates.js"],
