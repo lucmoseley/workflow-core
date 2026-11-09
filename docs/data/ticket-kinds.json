@@ -1,0 +1,27 @@
+[
+	{
+		"id": "whole-spec-review-round",
+		"meaning": "A whole-spec or spec-axis review round's findings, filed as tickets round after round (#4627 §3.1).",
+		"firstSeen": "2026-11-08"
+	},
+	{
+		"id": "concision-pre-existing",
+		"meaning": "A concision pass's ticket on pre-existing text it met while working (#4627 §3.2).",
+		"firstSeen": "2026-11-08"
+	},
+	{
+		"id": "orphaned-edit",
+		"meaning": "An orphaned-edit ticket: a main-checkout or worktree edit no session claims (#4627 §3.3).",
+		"firstSeen": "2026-11-08"
+	},
+	{
+		"id": "lander-drop",
+		"meaning": "A lander ticket for a queue member it dropped, held or reverted: another ticket's commit did not land (#4627 §3.4).",
+		"firstSeen": "2026-11-08"
+	},
+	{
+		"id": "found-in-passing",
+		"meaning": "A defect a session met in passing while working another ticket (#4627 §3.7).",
+		"firstSeen": "2026-11-08"
+	}
+]

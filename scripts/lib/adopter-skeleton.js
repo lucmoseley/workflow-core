@@ -23,6 +23,7 @@ const path = require("node:path");
 const { MODULES, COMMANDS, CONTRACT } = require("./workflow-core-config.js");
 const { formatConfigJson, isObject } = require("./config-json.js");
 const { requiredGroup } = require("./regex-group.js");
+const { ORIGIN_LABELS } = require("./issue-origin.js");
 const { caught } = require("./caught.js");
 const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
@@ -655,6 +656,7 @@ const CORE_LABELS = [
 		description:
 			"Implemented by a session at Opus --effort low. Provenance, not state; nothing routes on it.",
 	},
+	...ORIGIN_LABELS,
 ];
 
 const GATED_LABELS = {

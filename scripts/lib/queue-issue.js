@@ -47,6 +47,7 @@ const LABELS = [URGENT_LABEL, "bug", takesLabel("implement"), "kind:ticket"];
  * @property {string} standalone why it sits under no parent
  * @property {string} noun what a refresh line calls it
  * @property {string} subject what a refusal names it filed for
+ * @property {string} origin the filing flow, file-issue.js's `--origin`
  */
 
 /**
@@ -61,7 +62,7 @@ function queueIssueFiler({
 	refresh,
 	addLabels,
 }) {
-	return ({ title, standalone, noun, subject }, text) => {
+	return ({ title, standalone, noun, subject, origin }, text) => {
 		const body = `${text.trimEnd()}\n\n${buildStandaloneLine(standalone)}\n`;
 		const found = openIssue(title);
 		if (found !== null) {
@@ -77,6 +78,9 @@ function queueIssueFiler({
 				...LABELS.flatMap((l) => ["--label", l]),
 				"--standalone",
 				standalone,
+				"--origin",
+				origin,
+				"--no-fault",
 				...(listed.length > 0
 					? ["--distinct-from", listed.map((c) => c.number).join(",")]
 					: []),

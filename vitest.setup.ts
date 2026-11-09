@@ -35,6 +35,11 @@ for (const name of [
  * suite's marker. */
 delete process.env.WFC_LANDER_RUN;
 
+/* The files the suite's own launch cached (#4790) are its reporter's, not a
+ * case's: a reporter a case drives would fold them into its certificate.
+ * Deleted in the worker, so vitest's own process still reads them. */
+delete process.env.WFC_PASS_STORE_CACHED;
+
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
  * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on

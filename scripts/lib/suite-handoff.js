@@ -172,7 +172,9 @@ function readCarriedWeight(pid, proc = procRoot()) {
  * What the reporters hand the teardown: the verdict, the scope, the
  * attestation (#189), both halves of the time and CPU brackets
  * (mantahostels#1953), and the in-flight reporter's slowest files (#2770).
- * The field names are `markerFrom`'s own.
+ * The field names are `markerFrom`'s own, but `files`: each file's own
+ * verdict for the pass store (lib/pass-store.js, #4790), which no marker
+ * carries.
  *
  * @typedef {{
  *   outcome: boolean|null,
@@ -184,6 +186,8 @@ function readCarriedWeight(pid, proc = procRoot()) {
  *   machineEnd: import("./cpu-sample.js").CpuSample|null,
  *   endedAtMs: number|null,
  *   slowest: import("./test-file-timings.js").SlowFile[]|null,
+ *   files: {results: import("./pass-store.js").FileResult[], shared: string[],
+ *     clean: boolean}|null,
  * }} RunReport
  */
 
@@ -198,6 +202,7 @@ const buildEmptyReport = () => ({
 	machineEnd: null,
 	endedAtMs: null,
 	slowest: null,
+	files: null,
 });
 
 let report = buildEmptyReport();

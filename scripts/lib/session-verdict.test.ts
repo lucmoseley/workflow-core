@@ -21,6 +21,7 @@ import { runInProcess } from "./run-in-process";
 const req = createRequire(__filename);
 const { sessionVerdict } = req("./session-verdict.js");
 const { markersDir } = req("./marker-root.js");
+const { foldCached } = req("./pass-store.js");
 const { projectSlug } = req("./project-slug.js");
 
 const SID = "me";
@@ -160,6 +161,42 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 	it("is attested once a marker names that commit, dirty tree and all", () => {
 		const sha = commitFile("a.txt");
 		writeMarkerStore([certificate(sha)]);
+
+		expect(verdict()).toEqual({ state: "attested", at: sha });
+	});
+
+	it("is attested by a run that cached the test reading its change, held by content (#4790)", () => {
+		fs.mkdirSync(path.join(dir, "docs"));
+		fs.writeFileSync(
+			path.join(dir, "docs/test-read-edges.json"),
+			JSON.stringify({ edges: { "a.js": ["a.test.ts"] } }),
+		);
+		fs.writeFileSync(path.join(dir, "a.js"), "a\n");
+		git("add", "docs", "a.js");
+		const sha = commitFile("a.test.ts");
+		/* A run that ran nothing: the manifest's reader of a.js is attested
+		 * only as the file it cached. */
+		writeMarkerStore([
+			JSON.stringify({
+				...JSON.parse(narrowed(sha, "a.js")),
+				...foldCached(
+					{
+						closure: [],
+						selected: [],
+						changedPaths: ["a.js", "a.test.ts", "docs/test-read-edges.json"],
+						imports: {},
+						roots: [],
+					},
+					[
+						{
+							file: "a.test.ts",
+							reads: ["a.test.ts", "a.js"],
+							source: { sha, at: "K0", tree: null },
+						},
+					],
+				),
+			}),
+		]);
 
 		expect(verdict()).toEqual({ state: "attested", at: sha });
 	});

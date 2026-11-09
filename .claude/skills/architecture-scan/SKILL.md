@@ -118,7 +118,7 @@ node scripts/file-issue.js \
   --title "Architecture scan, <UTC date>: <one-line summary>" \
   --label wayfinder:map --label takes:wayfinder \
   --standalone "Architecture scan (spec lucmoseley/workflow-core-tracker#1348)" \
-  --body-file "$R/map.md"
+  --origin architecture-scan --no-fault --body-file "$R/map.md"
 ```
 
 Exit 1 is a `gh` call that did not land: read its message before re-running,
@@ -156,7 +156,7 @@ Deepen the modules this scan's accepted candidates name.
 ```
 node scripts/file-issue.js --title "<the deepening, and the friction it removes>" \
   --label wayfinder:grilling --label takes:wayfinder --parent <map> \
-  --body-file "$R/candidate-<k>.md"
+  --origin architecture-scan --no-fault --body-file "$R/candidate-<k>.md"
 ```
 
 Each body opens with the line `Architecture scan candidate (<owner/name>#<map>)`,
@@ -194,8 +194,14 @@ Propose no interfaces.
 node scripts/file-issue.js --title "<the fix, and the fault it stops>" \
   --label <takes:implement | takes:triage> \
   --standalone "Architecture scan finding (<owner/name>#<map>)" \
+  --origin architecture-scan (--fault-signature "$R/defect-<k>.sig.json" | --no-fault) \
   --body-file "$R/defect-<k>.md"
 ```
+
+A defect that recurs in sessions takes `--fault-signature`, its file shaped as
+`scripts/lib/fault-signature.js` says, its `case` the transcript line that
+showed it; one that leaves no trace takes `"signature": null` with a `why`.
+A defect read off the code alone, never seen recur, is `--no-fault`.
 
 `takes:implement` where the fix is fully specified, `takes:triage` where it is
 not. The standalone line is what the next run's §2 searches for. Then list

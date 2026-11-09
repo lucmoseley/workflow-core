@@ -99,8 +99,9 @@ const headless = require("./headless-runs.js");
  * where no live session predates its mtime.
  *
  * `kind: "headless"` marks a run lib/headless-runs.js listed, which
- * `claude stop` cannot reach: lib/claude-stop.js stops it by its group. Its
- * `seat` is the config dir it runs under.
+ * `claude stop` cannot reach: lib/claude-stop.js stops it by its group.
+ * `seat` is the config dir it runs under, set on a headless run and on a
+ * lib/registry-agents.js row.
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,

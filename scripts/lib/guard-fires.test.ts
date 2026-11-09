@@ -30,6 +30,7 @@ const {
 	fireSpans,
 	transcriptFires,
 	transcriptMentions,
+	transcriptMatches,
 	tally,
 	readTranscriptFiles,
 	sessionKeyFor,
@@ -539,6 +540,51 @@ describe("transcriptMentions", () => {
 			"2026-08-20T10:00:00.000Z",
 			"2026-08-21T10:00:00.000Z",
 		]);
+	});
+});
+
+describe("transcriptMatches — the regex route", () => {
+	const line = (o: unknown) => JSON.stringify(o);
+	const said = (uuid: string, at: string, text: string, sidechain = false) =>
+		line({
+			type: "user",
+			uuid,
+			timestamp: at,
+			isSidechain: sidechain,
+			message: { content: [{ type: "text", text }] },
+		});
+
+	it("gives one hit per matching record, at its own time, against the text as written", () => {
+		const text = [
+			said("u1", "2026-08-20T10:00:00.000Z", 'lander dropped "q/7"\nretry'),
+			said("u2", "2026-08-20T11:00:00.000Z", "nothing here"),
+			said(
+				"u3",
+				"2026-08-21T10:00:00.000Z",
+				"lander dropped q/8 twice, lander dropped",
+			),
+		].join("\n");
+		expect(transcriptMatches(text, /lander dropped "?q\/\d/, "main")).toEqual([
+			{ at: "2026-08-20T10:00:00.000Z" },
+			{ at: "2026-08-21T10:00:00.000Z" },
+		]);
+	});
+
+	it("respects the tier: a main read skips a subagent's inline turn, a subagent read keeps it", () => {
+		const text = said("u1", "2026-08-20T10:00:00.000Z", "stall seen", true);
+		expect(transcriptMatches(text, /stall seen/, "main")).toEqual([]);
+		expect(transcriptMatches(text, /stall seen/, "subagent")).toHaveLength(1);
+	});
+
+	it("reads a global pattern from the start of every string, leaving the caller's lastIndex alone", () => {
+		const text = [
+			said("u1", "2026-08-20T10:00:00.000Z", "x boom"),
+			said("u2", "2026-08-20T11:00:00.000Z", "boom"),
+		].join("\n");
+		const re = /boom/g;
+		re.lastIndex = 3;
+		expect(transcriptMatches(text, re, "main")).toHaveLength(2);
+		expect(re.lastIndex).toBe(3);
 	});
 });
 

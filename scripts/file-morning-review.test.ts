@@ -129,7 +129,10 @@ describe("file-morning-review.js (#2011)", () => {
 		const [issue, ...more] = readCreated();
 		expect(more).toHaveLength(0);
 		expect(issue.title).toBe(TODAY);
-		expect(issue.labels).toEqual(["takes:wayfinder"]);
+		expect(issue.labels).toEqual([
+			"takes:wayfinder",
+			"origin:morning-review-script",
+		]);
 		expect(issue.body).toMatch(/^## Question\n/);
 		expect(issue.body).toContain("from #5, the previous review issue");
 		expect(issue.body).toContain("1. acme/wfc#2 — `Inside the window`");

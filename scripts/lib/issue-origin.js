@@ -1,0 +1,68 @@
+/*
+ * issue-origin.js — the fixed list of filing flows file-issue.js requires as
+ * `--origin`, and the `origin:<class>` label each stamps, so the weekly
+ * ticket-mix review counts origins without a model (#4796, #4629).
+ *
+ * A new flow takes a new entry here; the
+ * labels reach each adopter through lib/adopter-skeleton.js's label plan.
+ */
+
+const ORIGINS = /** @type {const} */ ([
+	"wayfinder",
+	"to-spec",
+	"to-tickets-child",
+	"code-review",
+	"concision-pass",
+	"ruling-impl",
+	"found-in-passing",
+	"follow-up",
+	"measure-census",
+	"triage",
+	"audit",
+	"incident",
+	"heresy-sweep",
+	"architecture-scan",
+	"retro",
+	"ci-red",
+	"lander-script",
+	"orphaned-edit-script",
+	"morning-review-script",
+	"release-bump",
+	"repo-checks-script",
+	"founder",
+]);
+
+const ORIGIN_PREFIX = "origin:";
+
+/** @param {string} origin */
+const originLabel = (origin) => `${ORIGIN_PREFIX}${origin}`;
+
+/** @param {string} v @returns {boolean} */
+const isOrigin = (v) => /** @type {readonly string[]} */ (ORIGINS).includes(v);
+
+/**
+ * The origin a label set carries, or null.
+ * @param {string[]} labels
+ * @returns {string|null}
+ */
+function originOfLabels(labels) {
+	for (const l of labels)
+		if (l.startsWith(ORIGIN_PREFIX) && isOrigin(l.slice(ORIGIN_PREFIX.length)))
+			return l.slice(ORIGIN_PREFIX.length);
+	return null;
+}
+
+/** @type {{name: string, color: string, description: string}[]} */
+const ORIGIN_LABELS = ORIGINS.map((o) => ({
+	name: originLabel(o),
+	color: "EDEDED",
+	description: `Filed by the ${o} flow — file-issue.js --origin ${o}.`,
+}));
+
+module.exports = {
+	ORIGINS,
+	ORIGIN_LABELS,
+	isOrigin,
+	originLabel,
+	originOfLabels,
+};

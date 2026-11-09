@@ -78,7 +78,7 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 		expect(created).toHaveLength(2);
 		for (const c of created) {
 			expect(c.title).toMatch(/^Memory kill incident from /);
-			expect(c.labels).toEqual(["takes:triage"]);
+			expect(c.labels).toEqual(["takes:triage", "origin:incident"]);
 			expect(c.body).toContain("Standalone: a memory kill incident");
 		}
 		expect(created[0].body).toContain(

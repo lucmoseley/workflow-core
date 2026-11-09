@@ -19,7 +19,7 @@
  * records no scope, which reads as unknown at the push (mantahostels#1230), and says so on
  * stdout so the unknown met hours later is traceable to this run.
  *
- * IMPLICIT:  records every suite run's verdict, scope and closure for the globalSetup teardown to stamp into the pre-push marker, writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.
+ * IMPLICIT:  records every suite run's verdict, scope and closure, the files the launcher's pass store cached folded in, for the globalSetup teardown to stamp into the pre-push marker, and each file's own verdict and imports for the pass store (#4790), writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.
  * JUSTIFIED: fail-safe — that marker is the only thing keyed to a sha (mantahostels#910), and any doubt leaves no certificate.
  * DEFEAT:    none — naming any reporter replaces the default set, so dropping it means editing vitest.config.ts.
  */
@@ -43,25 +43,12 @@ const {
 	EDGES_FILE,
 	docsReadBy,
 	fullAttestationOf,
+	CLOSURE_ROOTS,
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
 const { relativeUnder } = require("./lib/is-under.js");
-
-/*
- * The dependency-graph roots every narrowed closure carries (#189): what the
- * selection rests on without a graph edge to show it — `package.json`,
- * vitest's own force-rerun trigger — so a sha differing from the tree read
- * only there is never cleared by a narrowed certificate. The vitest config
- * file joins them at run time, resolved off the instance rather than spelled
- * here; a sibling `vite.config.*` the instance did not load is outside the
- * closure.
- *
- * NOT THE MANIFEST (#799, #795): it matters only through the documents it
- * maps to the run's tests, so `holdsAt` re-reads it at the sha judged,
- * off the `selected` list recorded beside the closure.
- */
-const CLOSURE_ROOTS = ["package.json"];
+const { foldCached, readCachedHandoff } = require("./lib/pass-store.js");
 
 /**
  * Who writes the marker for a run that selected NOTHING (#189 §6). Vitest
@@ -83,6 +70,13 @@ interface ModuleNodeLike {
 	importedModules: Iterable<ModuleNodeLike>;
 }
 
+interface ModuleGraphLike {
+	getModuleById: (id: string) => ModuleNodeLike | undefined;
+}
+
+const graphOf = (module: TestModuleLike) =>
+	module.project?.vite?.environments?.ssr?.moduleGraph;
+
 interface TestModuleLike {
 	moduleId?: string;
 	project?: {
@@ -90,9 +84,7 @@ interface TestModuleLike {
 			environments?: Record<
 				string,
 				{
-					moduleGraph?: {
-						getModuleById: (id: string) => ModuleNodeLike | undefined;
-					};
+					moduleGraph?: ModuleGraphLike;
 				}
 			>;
 		};
@@ -173,6 +165,39 @@ function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
 	};
 }
 
+/**
+ * Each file's own outcome — a fail where any test failed or the file errored
+ * outside a test — and the in-repo files its graph reaches, the file left
+ * out. A file run under two pools merges its two walks.
+ */
+function fileVerdicts(
+	testModules: TestModuleLike[],
+	paths: { inside: (file: string) => boolean; rel: (file: string) => string },
+) {
+	const files = new Map<string, { failed: boolean; imports: Set<string> }>();
+	for (const module of testModules) {
+		if (!module.moduleId) continue;
+		const test = paths.rel(module.moduleId);
+		const entry = files.get(test) ?? { failed: false, imports: new Set() };
+		addImportClosure(
+			graphOf(module)?.getModuleById(module.moduleId),
+			entry.imports,
+			paths,
+		);
+		entry.imports.delete(test);
+		const tests = [...module.children.allTests()];
+		entry.failed ||=
+			(module.errors?.() ?? []).length > 0 ||
+			tests.some((t) => t.result?.().state === "failed");
+		files.set(test, entry);
+	}
+	return [...files].map(([file, { failed, imports }]) => ({
+		file,
+		outcome: failed ? ("fail" as const) : ("pass" as const),
+		imports: [...imports].sort(),
+	}));
+}
+
 export default class TestPassReporter {
 	private vitest: {
 		config?: {
@@ -180,6 +205,9 @@ export default class TestPassReporter {
 			changed?: string | boolean;
 			root?: string;
 			shard?: { index: number; count: number };
+			setupFiles?: string[];
+			bail?: number;
+			update?: unknown;
 		};
 		vite?: { config?: { configFile?: string | false } };
 		filenamePattern?: readonly string[];
@@ -280,6 +308,8 @@ export default class TestPassReporter {
 			/* as above */
 		}
 
+		this.handFiles(testModules as TestModuleLike[], unhandledErrors, reason);
+
 		if (testModules.length === 0) {
 			try {
 				await writeEmptyRunMarker(this.vitest?.config?.root);
@@ -314,6 +344,9 @@ export default class TestPassReporter {
 	 * only against the fake graph the tests drive: a narrowed `npm run test` on
 	 * this checkout stamped a 161-path closure through this walk (#189).
 	 *
+	 * The files the launcher's pass store cached fold in as selected tests
+	 * whose imports are their source rows' reads (#4790).
+	 *
 	 * Throws where the manifest cannot be read or is malformed: a closure missing its
 	 * manifest half would attest a sha it never read.
 	 */
@@ -335,7 +368,7 @@ export default class TestPassReporter {
 			if (!module.moduleId) continue;
 			const test = rel(module.moduleId);
 			const reached = imports.get(test) ?? new Set<string>();
-			const graph = module.project?.vite?.environments?.ssr?.moduleGraph;
+			const graph = graphOf(module);
 			addImportClosure(graph?.getModuleById(module.moduleId), reached, {
 				inside,
 				rel,
@@ -352,22 +385,92 @@ export default class TestPassReporter {
 		);
 		if (!docs) throw new Error(`${EDGES_FILE} is not {edges: {doc: [test]}}`);
 		for (const doc of docs) closure.add(doc);
-		const roots = new Set(CLOSURE_ROOTS);
+		/* `CLOSURE_ROOTS`, with the vitest config file resolved off the
+		 * instance: a sibling `vite.config.*` it did not load is outside the
+		 * closure. NOT THE MANIFEST (#799, #795): it matters only through the
+		 * documents it maps to the run's tests, so `holdsAt` re-reads it at
+		 * the sha judged, off the `selected` list recorded beside the closure. */
+		const roots = new Set<string>(CLOSURE_ROOTS);
 		const configFile = this.vitest?.vite?.config?.configFile;
 		if (configFile && inside(configFile)) roots.add(rel(configFile));
 		for (const r of roots) closure.add(r);
 		const launch = readLaunch();
+		return foldCached(
+			{
+				closure: [...closure].sort(),
+				selected: [...selected].sort(),
+				changedPaths: launch.changedPaths,
+				base: launch.base,
+				imports: Object.fromEntries(
+					[...imports]
+						.sort(([a], [b]) => a.localeCompare(b))
+						.map(([test, reached]) => [test, [...reached].sort()]),
+				),
+				roots: [...roots].sort(),
+			},
+			readCachedHandoff(),
+		);
+	}
+
+	private handFiles(
+		testModules: TestModuleLike[],
+		unhandledErrors: readonly unknown[],
+		reason: string | undefined,
+	) {
+		try {
+			fillRunReport({
+				files: this.describeFiles(testModules, unhandledErrors.length, reason),
+			});
+		} catch (error) {
+			try {
+				process.stdout.write(
+					`FILE RESULTS UNRECORDED (#4790) — no file of this run can be skipped on its result later: ${error}\n`,
+				);
+			} catch {
+				/* a broken pipe at the end of a green run is not a red run */
+			}
+		}
+	}
+
+	/**
+	 * The config file
+	 * and its `setupFiles` closure every file's verdict rests on, and whether
+	 * the per-file verdicts can be trusted at all: not where the run was
+	 * interrupted, errored outside its files, or ran part of a file — a name
+	 * filter, a bail, or a snapshot update.
+	 */
+	private describeFiles(
+		testModules: TestModuleLike[],
+		unhandled: number,
+		reason: string | undefined,
+	) {
+		const config = this.vitest?.config;
+		const root = config?.root;
+		if (!root) return null;
+		const paths = {
+			rel: (file: string) =>
+				path.relative(root, file).split(path.sep).join("/"),
+			inside: (file: string) => relativeUnder(root, file) !== null,
+		};
+		const graph = testModules.map(graphOf).find(Boolean);
+		const shared = new Set<string>();
+		const configFile = this.vitest?.vite?.config?.configFile;
+		if (configFile && paths.inside(configFile))
+			shared.add(paths.rel(configFile));
+		for (const setup of (config?.setupFiles ?? []).filter(paths.inside)) {
+			shared.add(paths.rel(setup));
+			addImportClosure(graph?.getModuleById(setup), shared, paths);
+		}
+		const update = config?.update;
 		return {
-			closure: [...closure].sort(),
-			selected: [...selected].sort(),
-			changedPaths: launch.changedPaths,
-			base: launch.base,
-			imports: Object.fromEntries(
-				[...imports]
-					.sort(([a], [b]) => a.localeCompare(b))
-					.map(([test, reached]) => [test, [...reached].sort()]),
-			),
-			roots: [...roots].sort(),
+			results: fileVerdicts(testModules, paths),
+			shared: [...shared].sort(),
+			clean:
+				(reason === "passed" || reason === "failed") &&
+				unhandled === 0 &&
+				!config?.testNamePattern &&
+				!config?.bail &&
+				!(update && update !== "none"),
 		};
 	}
 

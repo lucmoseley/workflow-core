@@ -23,6 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { foldCached } from "./lib/pass-store.js";
 import { runInProcess } from "./lib/run-in-process";
 import { storePath } from "./lib/test-pass-marker.js";
 
@@ -224,6 +225,41 @@ describe("check-test-marker", () => {
 		expect(r.stderr).not.toMatch(/push again/i);
 		expect(r.stderr).toMatch(
 			/WARN: 1 pushed commit\(s\) no certificate is shown to attest\n$/,
+		);
+	});
+
+	it("counts a file the pass store cached as a test its run selected, held by content (#4790)", () => {
+		const { dir, root } = repo();
+		fs.mkdirSync(path.join(dir, "docs"));
+		fs.writeFileSync(
+			path.join(dir, "docs/test-read-edges.json"),
+			JSON.stringify({ edges: { "a.js": ["a.test.ts"] } }),
+		);
+		git(dir, "add", "docs");
+		const sha = commitTouching(dir, "a.js", "a.test.ts");
+		/* A run that ran nothing: the manifest's reader of a.js is attested
+		 * only as the file it cached. */
+		writeStore(dir, {
+			...narrowedOn(dir, sha, [], "K"),
+			...foldCached(
+				{
+					closure: [],
+					selected: [],
+					changedPaths: ["a.js", "a.test.ts", "docs/test-read-edges.json"],
+					imports: {},
+					roots: [],
+				},
+				[
+					{
+						file: "a.test.ts",
+						reads: ["a.test.ts", "a.js"],
+						source: { sha, at: "K0", tree: null },
+					},
+				],
+			),
+		});
+		expect(run(dir, buildRefLine(sha, root)).stderr.endsWith(ATTESTED)).toBe(
+			true,
 		);
 	});
 

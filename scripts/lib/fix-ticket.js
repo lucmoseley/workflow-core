@@ -246,6 +246,9 @@ function fileTicket(deps, t) {
 				"--label",
 				"kind:ticket",
 				...placement,
+				"--origin",
+				"lander-script",
+				"--no-fault",
 				...distinct,
 				...(checked.length > 0
 					? ["--size-line-checked", checked.join(",")]

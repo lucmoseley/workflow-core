@@ -66,6 +66,7 @@ const { landingOn, VERIFIED_REF } = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
+const { readTreeIds, sameContent } = require("./content-ids.js");
 
 /**
  * One run as either store records it, and how much of the suite it covered.
@@ -92,6 +93,7 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   treeAtEnd?: string, sessionId?: string|null, lander?: boolean, argv?: string[],
  *   closure?: "*"|string[], selected?: string[], changedPaths?: string[],
  *   imports?: Record<string, string[]>, roots?: string[],
+ *   cached?: CachedSource[],
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
@@ -100,7 +102,9 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
- *   imports?: Record<string, string[]>, roots?: string[]}} Attestation
+ *   imports?: Record<string, string[]>, roots?: string[],
+ *   cached?: CachedSource[]}} Attestation
+ * @typedef {{file: string, sha: string, at: string}} CachedSource
  * @typedef {{root?: string|null, execFn?: typeof execProgram,
  *   cache?: Map<string, string>}} GitOptions
  * @typedef {GitOptions & {countedPaths?: Set<string>|null}} JudgeOptions
@@ -167,6 +171,14 @@ const RETEST_FLAG = "--retest";
  * `findDefaultEscalationReason`.
  */
 const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
+
+/*
+ * The dependency-graph roots every narrowed closure carries (#189): what the
+ * selection rests on without a graph edge to show it — `package.json`,
+ * vitest's own force-rerun trigger — so a sha differing from the tree read
+ * only there is never cleared by a narrowed certificate.
+ */
+const CLOSURE_ROOTS = ["package.json"];
 
 /**
  * The six values `--full=<cause>` accepts (#182): a session satisfying the push
@@ -648,11 +660,12 @@ function fullAttestationOf({ base }) {
  * beside any closure, so a full red can be classed against it (#3646), and
  * beside a narrowed one the well-formed fields saying what narrowed it.
  * @param {Attestation|null} attestation
- * @returns {Pick<Marker, "closure"|"selected"|"changedPaths"|"base"|"imports"|"roots">}
+ * @returns {Pick<Marker, "closure"|"selected"|"changedPaths"|"base"|"imports"|"roots"|"cached">}
  */
 function attestedFields(attestation) {
 	if (!attestation || !isClosure(attestation.closure)) return {};
-	const { closure, selected, changedPaths, base, imports, roots } = attestation;
+	const { closure, selected, changedPaths, base, imports, roots, cached } =
+		attestation;
 	const based = typeof base === "string" && base ? { base } : {};
 	if (closure === "*") return { closure, ...based };
 	return {
@@ -661,6 +674,7 @@ function attestedFields(attestation) {
 		...(Array.isArray(changedPaths) ? { changedPaths } : {}),
 		...based,
 		...(isImportMap(imports) && isStringList(roots) ? { imports, roots } : {}),
+		...(Array.isArray(cached) ? { cached } : {}),
 	};
 }
 
@@ -1262,8 +1276,9 @@ function testsHeldAt(m, view) {
  * Whether `m`'s verdict on `test` holds at `sha` BY CONTENT ALONE (#3624):
  * the tree the run read against `sha`'s, never the sha stamped on it, which
  * is HEAD and says nothing of the uncommitted files the run also read. Test
- * by test where the run recorded its imports (`testsHeldAt`'s reads), else
- * `holdsAt`'s whole-run judgement. A run recording no tree, and every git
+ * by test where the run recorded its imports (`testsHeldAt`'s reads, judged
+ * by lib/content-ids.js, the judge the pass store shares), else `holdsAt`'s
+ * whole-run judgement. A run recording no tree, and every git
  * fault, holds nothing.
  *
  * @param {Marker} m
@@ -1280,14 +1295,17 @@ function holdsTestByTree(m, test, sha, options = {}) {
 	if (!root) return false;
 	try {
 		const view = shaView(sha, { git, countedPaths: null });
-		const touched = view.touched(m.treeAtEnd);
 		const reads = [
 			test,
 			...m.imports[test],
 			...(view.docsOf().get(test) ?? []),
 			...m.roots,
 		];
-		return !reads.some((p) => touched.has(p));
+		return sameContent(
+			reads,
+			readTreeIds(git, m.treeAtEnd, reads),
+			readTreeIds(git, `${sha}^{tree}`, reads),
+		);
 	} catch {
 		return false;
 	}
@@ -2130,6 +2148,8 @@ function dirtyWarning(sha, marker, suite = DEFAULT_SUITE) {
 }
 
 module.exports = {
+	CLOSURE_ROOTS,
+	ARCHIVE_MS,
 	STORE,
 	EDGES_FILE,
 	FAIL_STORE,
@@ -2153,6 +2173,7 @@ module.exports = {
 	fullAttestationOf,
 	isUnnarrowedScope,
 	holdsAt,
+	gitReader,
 	holdsTestByTree,
 	docsReadBy,
 	attestationOf,

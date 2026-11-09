@@ -28,7 +28,7 @@ const {
 	readAgentsForBudget,
 	readAgentsForDisplay,
 } = require("./agent-liveness.js");
-const { CREDIT_REFUSAL } = require("./headless-runs.js");
+const { CREDIT_REFUSAL, readStoredRuns } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { consoleLogFile, readConsoleLog } = require("./console-credit.js");
@@ -50,9 +50,11 @@ const {
 	budgetOf,
 	offKeyOf,
 	readSharedUsd,
+	replyWindowsOf,
 	settleChainsOnce,
 } = require("./overflow-budget-core.js");
 const {
+	fileSpend,
 	SESSION_COST_TABLE,
 	readChainSpendUsd,
 	readCostTableIn,
@@ -122,6 +124,10 @@ function readTranscripts(dir) {
 		file,
 	}));
 }
+
+/** @param {{sessionId: string, file: string}[]} transcripts */
+const filesBySession = (transcripts) =>
+	new Map(transcripts.map((t) => [t.sessionId, t.file]));
 
 /**
  * The session's transcripts' size, and their latest write.
@@ -234,7 +240,7 @@ function priceSessions(seat, lookup) {
 			});
 			changed = true;
 		}
-		const files = new Map(transcripts.map((t) => [t.sessionId, t.file]));
+		const files = filesBySession(transcripts);
 		for (const [row, sharedUsd] of readSharedUsd(
 			lookup,
 			ledger.values(),
@@ -254,6 +260,34 @@ function priceSessions(seat, lookup) {
 	} finally {
 		lock.release();
 	}
+}
+
+/**
+ * What the founder's replies on the key spent, by the session each resumed
+ * (#4668), over replyWindowsOf's windows. A request with no timestamp counts
+ * as the session's own.
+ * @param {OverflowSeat} seat
+ * @returns {Map<string, number>}
+ * @throws where the run store or a transcript dir cannot be read
+ */
+function readReplyUsd(seat) {
+	const windows = replyWindowsOf(
+		readStoredRuns().filter((r) => r.keyVar === seat.keyVar),
+	);
+	/** @type {Map<string, number>} */
+	const usd = new Map();
+	if (windows.length === 0) return usd;
+	const files = filesBySession(readTranscripts(seat.dir));
+	for (const { sessionId, ...window } of windows) {
+		const file = files.get(sessionId);
+		if (file === undefined) continue;
+		const spent = readSessionFiles(file).reduce(
+			(t, f) => t + fileSpend(f, { window }).usd,
+			0,
+		);
+		usd.set(sessionId, (usd.get(sessionId) ?? 0) + spent);
+	}
+	return usd;
 }
 
 /**
@@ -531,6 +565,7 @@ module.exports = {
 	buildBudgetLine,
 	dollars,
 	priceSessions,
+	readReplyUsd,
 	seatBudget,
 	shownSeatBudget,
 };

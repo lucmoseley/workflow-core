@@ -18,6 +18,7 @@ import {
 	isBudgetSpent,
 	offKeyOf,
 	readSharedUsd,
+	replyWindowsOf,
 	settleChainsOnce,
 } from "./overflow-budget-core.js";
 
@@ -343,5 +344,40 @@ describe("the chain of resumed copies", () => {
 			b: 14,
 			d: 5,
 		});
+	});
+
+	it("takes a founder's reply spend off its chain's figure once (#4668)", () => {
+		const ledger = [row("a", 8), row("b", 12, 6), row("d", 5)];
+		const replies = new Map([
+			["a", 3],
+			["d", 2],
+		]);
+		expect(Object.fromEntries(chainSpendOf(lookup, ledger, replies))).toEqual({
+			a: 11,
+			b: 11,
+			d: 3,
+		});
+	});
+
+	it("spans a reply from its launch to just before its session's next run (#4668)", () => {
+		const run = (sessionId: string, launchedAt: number, founderReply = false) =>
+			({
+				sessionId,
+				launchedAt,
+				...(founderReply ? { founderReply: true } : {}),
+			}) as never;
+		expect(
+			replyWindowsOf([
+				run("a", 10),
+				run("a", 20, true),
+				run("b", 25),
+				run("a", 40),
+				run("a", 30),
+				run("a", 50, true),
+			]),
+		).toEqual([
+			{ sessionId: "a", fromMs: 20, toMs: 29 },
+			{ sessionId: "a", fromMs: 50, toMs: Number.POSITIVE_INFINITY },
+		]);
 	});
 });

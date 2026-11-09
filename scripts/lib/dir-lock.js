@@ -5,7 +5,9 @@
  * takes it for the recorder's writes and the guard's alike.
  *
  * Waits up to LOCK_WAIT_MS, then runs `fn` unserialised, as `flock -w` failing
- * did: a store write is never skipped for want of the lock. A lock older than
+ * did: a store write is never skipped for want of the lock. `fn` is told
+ * whether it holds the lock, for a step only safe under it (lib/retained-jsonl.js's
+ * prune). A lock older than
  * LOCK_STALE_MS is a crashed holder's and is taken over.
  */
 
@@ -27,7 +29,7 @@ const POLL_MS = 5;
 /**
  * @template T
  * @param {string} lock the lock directory's path
- * @param {() => T} fn
+ * @param {(held: boolean) => T} fn
  * @param {() => number} [now]
  * @returns {T}
  */
@@ -49,7 +51,7 @@ function withDirLock(lock, fn, now = Date.now) {
 		else sleepSync(POLL_MS);
 	}
 	try {
-		return fn();
+		return fn(held);
 	} finally {
 		if (held) fs.rmSync(lock, { recursive: true, force: true });
 	}

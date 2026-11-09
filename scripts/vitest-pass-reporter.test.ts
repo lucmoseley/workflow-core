@@ -25,6 +25,9 @@ import TestPassReporter from "./vitest-pass-reporter.js";
 const { readMarkers, readFailures } = createRequire(import.meta.url)(
 	"./lib/test-pass-marker.js",
 );
+const { CACHED_ENV, writeCachedHandoff } = createRequire(import.meta.url)(
+	"./lib/pass-store.js",
+);
 const { takeRunReport, fillRunReport } = createRequire(import.meta.url)(
 	"./lib/suite-handoff.js",
 );
@@ -751,6 +754,93 @@ describe("the closure the reporter records (#189)", () => {
 			roots: ["package.json", "vitest.config.ts"],
 		});
 	});
+
+	it("folds the files the launcher cached in as selected tests reading their source rows' inputs (#4790)", async () => {
+		const graph: Record<string, Node> = {};
+		const { withProject } = scratch({}, graph);
+		const id = path.join(root, "a.test.ts");
+		graph[id] = node(id);
+		const handoff = path.join(root, "cached.json");
+		const source = {
+			sha: "c".repeat(40),
+			at: "2026-11-09T10:00:00.000Z",
+			tree: null,
+		};
+		const env = writeCachedHandoff(
+			[{ file: "b.test.ts", reads: ["b.test.ts", "lib/b.js"], source }],
+			handoff,
+		);
+		vi.stubEnv(CACHED_ENV, env[CACHED_ENV]);
+		const r = new TestPassReporter();
+		r.onInit(vitest());
+		stubLaunch({ changedPaths: [], base: null });
+		await captured(() => run(r, [withProject(id, ["passed"])]));
+		expect(takeRunReport().attestation).toMatchObject({
+			closure: expect.arrayContaining(["a.test.ts", "b.test.ts", "lib/b.js"]),
+			selected: ["a.test.ts", "b.test.ts"],
+			imports: { "a.test.ts": [], "b.test.ts": ["lib/b.js"] },
+			cached: [{ file: "b.test.ts", sha: source.sha, at: source.at }],
+		});
+	});
+
+	it("hands the pass store each file's own outcome and imports, and the config and setup closure (#4790)", async () => {
+		const graph: Record<string, Node> = {};
+		const { withProject } = scratch({}, graph);
+		const a = path.join(root, "a.test.ts");
+		const setup = path.join(root, "vitest.setup.ts");
+		graph[a] = node(a, node(path.join(root, "lib", "helper.ts")));
+		graph[setup] = node(setup, node(path.join(root, "lib", "env.ts")));
+		const r = new TestPassReporter();
+		r.onInit(
+			vitest({
+				config: { testNamePattern: undefined, root, setupFiles: [setup] },
+			}),
+		);
+		await captured(() =>
+			run(
+				r,
+				[
+					withProject(a, ["passed", "skipped"]),
+					withProject(path.join(root, "b.test.ts"), ["passed", "failed"]),
+				],
+				"failed",
+			),
+		);
+		expect(takeRunReport().files).toEqual({
+			results: [
+				{ file: "a.test.ts", outcome: "pass", imports: ["lib/helper.ts"] },
+				{ file: "b.test.ts", outcome: "fail", imports: [] },
+			],
+			shared: ["lib/env.ts", "vitest.config.ts", "vitest.setup.ts"],
+			clean: true,
+		});
+	});
+
+	it.each([
+		["interrupted", "interrupted", [], {}],
+		["errored outside its files", "failed", [new Error("boom")], {}],
+		["filtered by name", "passed", [], { testNamePattern: "only this" }],
+		["stopped by a bail", "failed", [], { bail: 1 }],
+		["updating snapshots", "passed", [], { update: true }],
+	])(
+		"marks a run %s as untrusted per file (#4790)",
+		async (_name, reason, errors, config) => {
+			const { withProject } = scratch({});
+			const r = new TestPassReporter();
+			r.onInit(
+				vitest({ config: { testNamePattern: undefined, root, ...config } }),
+			);
+			await captured(() =>
+				run(
+					r,
+					[withProject(path.join(root, "a.test.ts"), ["passed"])],
+					reason,
+					errors,
+				),
+			);
+			expect(takeRunReport().files.clean).toBe(false);
+		},
+	);
 
 	it("carries the manifest where a selected test reads it, as no root does (#799)", async () => {
 		const { withProject } = scratch({

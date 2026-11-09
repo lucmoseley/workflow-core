@@ -898,7 +898,7 @@ while [[ $# -gt 0 ]]; do
     # `--cwd` is the launch dir the subshell below enters.
     launcher="the headless launcher"
     launch_cmd=("${launch_env[@]}" node "$here/lib/headless-sessions.js" launch
-      --key "$seat_key" --cwd . --budget "$headroom" --name "$prompt" "$prompt")
+      --key "$seat_key" --cwd . --budget "$headroom" --name="$prompt" -- "$prompt")
   else
     args=(--bg)
     # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
