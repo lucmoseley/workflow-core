@@ -25,14 +25,17 @@ export const recorded: {
 /**
  * The `attach` branch of a bash `claude` stub, logging to `log`. The typed
  * line is taken at once, which the contract does not hold: the loop's
- * timeline check catches a line the harness never takes. Off a terminal the
- * fake exits 0, as the recording does, so the tests' `typed <prompt>` log
- * assertions are the check on an attach with no pty.
+ * timeline check catches a line the harness never takes. The bracketed-paste
+ * frame pty_type.py sends is taken off, as the harness's input box does. Off
+ * a terminal the fake exits 0, as the recording does, so the tests'
+ * `typed <prompt>` log assertions are the check on an attach with no pty.
  */
 export function buildAttachBranch(log: string) {
 	const to = shellQuote(log);
 	return `if [ "$1" = "attach" ]; then
   [ -t 0 ] || exit ${recorded.responses.offTerminal.status}
-  echo "$*" >> ${to}; printf '> '; IFS= read -r line; echo "typed $line" >> ${to}; exit 0
+  echo "$*" >> ${to}; printf '> '; IFS= read -r line
+  line=\${line#$'\\e[200~'}; line=\${line%$'\\e[201~'}
+  echo "typed $line" >> ${to}; exit 0
 fi`;
 }

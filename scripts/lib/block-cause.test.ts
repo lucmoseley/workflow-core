@@ -17,7 +17,9 @@ import { describe, expect, it } from "vitest";
 import {
 	blockCause,
 	hasEndedUnblocked,
+	hasFounderTypedSinceApiStop,
 	hasRepliedSince,
+	promptsAfterApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { API_PROMPT, HOLD_PROMPT } from "./loop-prompts.js";
@@ -344,6 +346,24 @@ describe("an API error", () => {
 		expect(
 			cause(row(), job({ detail: null, needs: null }), [
 				apiErrorRow("server_error", "API Error: 500 Internal server error"),
+			]),
+		).toEqual(transient);
+	});
+
+	it("reads the retry watchdog's run-out, a connection error after its retries, as transient (#4815)", () => {
+		const transient = { cause: "API_ERROR", sub: "transient" };
+		expect(
+			cause(
+				row(),
+				job({
+					detail: "API Error: Connection error.",
+					needs: "API unavailable — retry",
+				}),
+			),
+		).toEqual(transient);
+		expect(
+			cause(row(), job({ detail: null, needs: null }), [
+				apiErrorRow("unknown", "API Error: Connection error."),
 			]),
 		).toEqual(transient);
 	});
@@ -842,5 +862,54 @@ describe("hasEndedUnblocked (#3940)", () => {
 
 	it("reads a transcript with no turn as blocked", () => {
 		expect(ended({ type: "system" })).toBe(false);
+	});
+});
+
+describe("the prompts a session took after its API-error stop (#4815)", () => {
+	const at = (min: number) =>
+		new Date(Date.UTC(2026, 10, 8, 12, min)).toISOString();
+	const stop = (min: number) => ({
+		...apiErrorRow("unknown", "API Error: Connection error."),
+		timestamp: at(min),
+	});
+	const typed = (min: number, text: string) => ({
+		type: "user",
+		isSidechain: false,
+		timestamp: at(min),
+		message: { content: text },
+	});
+
+	it("reads each prompt after the newest stop, a tool result and an earlier prompt aside", () => {
+		const rows = [
+			typed(0, "fix it"),
+			stop(1),
+			typed(2, API_PROMPT),
+			stop(3),
+			{ ...toolResult, timestamp: at(4) },
+			typed(5, "resume"),
+		];
+		expect(promptsAfterApiStop(rows)).toEqual(["resume"]);
+		expect(promptsAfterApiStop(rows.slice(0, 4))).toEqual([]);
+	});
+
+	it("is null unread or with no stop", () => {
+		expect(promptsAfterApiStop(null)).toBeNull();
+		expect(promptsAfterApiStop([typed(0, "hi")])).toBeNull();
+	});
+
+	it("counts the founder's typing, never the loop's or the harness's", () => {
+		expect(hasFounderTypedSinceApiStop([stop(1), typed(2, "resume")])).toBe(
+			true,
+		);
+		expect(
+			hasFounderTypedSinceApiStop([
+				stop(1),
+				typed(2, API_PROMPT),
+				typed(3, "<task-notification>done</task-notification>"),
+			]),
+		).toBe(false);
+		expect(hasFounderTypedSinceApiStop([typed(2, "resume"), stop(3)])).toBe(
+			false,
+		);
 	});
 });

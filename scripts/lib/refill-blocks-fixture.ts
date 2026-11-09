@@ -6,7 +6,7 @@
  * is built on (agents-stop, bg-resume, resume-io) carry their own contracts.
  */
 import { COPY_WHY } from "./bg-resume-fake";
-import { actOnBlocks } from "./refill-blocks.js";
+import { actOnBlocks, logNetWaits } from "./refill-blocks.js";
 
 export const MIN = 60 * 1000;
 export const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -14,6 +14,7 @@ export const NOW = Date.parse("2026-10-18T12:00:00Z");
 export type Launch = import("./refill-loop.js").LoopLaunch;
 export type BlockIo = import("./refill-blocks.js").BlockIo;
 export type Agents = import("./refill-blocks.js").Tick["agents"];
+export type Outside = import("./refill-outside.js").Outside;
 
 export const NO_HOLD: import("./admission.js").SwapHold = { held: false };
 
@@ -43,6 +44,8 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 	const calls: string[] = [];
 	/* Each launch writeLaunch wrote, its resume on record (#4180). */
 	const started: Launch[] = [];
+	/* lib/refill-outside.js's records, as its file would hold them. */
+	let outside: Outside[] = [];
 	const io: BlockIo = {
 		stop: (_, id) => {
 			calls.push(`stop ${id}`);
@@ -121,6 +124,16 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 			started.push(l);
 		},
 		resumeOwnId: (l, prompt, target) => io.resumeStopped(l, prompt, target),
+		probeNetwork: () => {
+			calls.push("probe");
+			return null;
+		},
+		isResumedSinceStop: () => false,
+		hasFounderTypedSinceStop: () => false,
+		readOutside: () => outside,
+		writeOutside: (records) => {
+			outside = records;
+		},
 		...over,
 	};
 	return { io, calls, started };
@@ -140,14 +153,14 @@ export function blocks(
 	}: { now?: number; io?: Partial<BlockIo>; barred?: boolean } = {},
 ) {
 	const { io, calls } = fakeIo(over);
-	return {
-		out: actOnBlocks(launches, mode, {
-			agents,
-			now,
-			io,
-			swapHold: NO_HOLD,
-			...(barred ? { barred } : {}),
-		}),
-		calls,
+	const seen = {
+		agents,
+		now,
+		io,
+		swapHold: NO_HOLD,
+		...(barred ? { barred } : {}),
 	};
+	const out = actOnBlocks(launches, mode, seen);
+	logNetWaits(seen);
+	return { out, calls };
 }

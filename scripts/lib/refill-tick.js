@@ -32,6 +32,7 @@ const { projectSlug } = require("./project-slug.js");
 const { printsWeek, readAllowance } = require("./allowance.js");
 const { readUsageCache } = require("./usage-cache.js");
 const seatReading = require("./seat-reading.js");
+const { probeNetwork } = require("./net-probe.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught, readLogged } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
@@ -50,6 +51,8 @@ const { readSwapHold } = require("./admission.js");
 const {
 	resumedIdleSince,
 	hasRepliedSince,
+	promptsAfterApiStop,
+	hasFounderTypedSinceApiStop,
 	hasTurnedSince,
 } = require("./block-cause.js");
 const { stopOn } = require("./claude-stop.js");
@@ -110,7 +113,9 @@ const {
 	writeControlFile,
 	writeLoopPause,
 } = require("./refill-files.js");
-const { readJson } = require("./refill-json.js");
+const { readJson, writeJson } = require("./refill-json.js");
+const { OUTSIDE_FILE, actOnOutside } = require("./refill-outside.js");
+const { refillPath } = require("./refill-dir.js");
 const {
 	launchRecorded,
 	ledgerJobOf,
@@ -653,6 +658,28 @@ function typeResume(l, prompt) {
 	);
 }
 
+/**
+ * lib/refill-outside.js's records, none where the file is absent or is no
+ * list (BlockReads' readOutside).
+ * @returns {import("./refill-outside.js").Outside[]}
+ */
+function readOutside() {
+	const raw = readJson(refillPath(OUTSIDE_FILE), log);
+	return Array.isArray(raw) ? raw : [];
+}
+
+/**
+ * Whether `l`'s session took a prompt after its API-error stop (BlockReads'
+ * isResumedSinceStop, #4815).
+ * @param {import("./refill-blocks.js").JobLaunch} l
+ */
+function isResumedSinceStop(l) {
+	const job = readJobRecordOf(l);
+	if (/** @type {{tempo?: unknown}|null} */ (job)?.tempo === "active")
+		return true;
+	return (promptsAfterApiStop(readTranscriptRows(l, job))?.length ?? 0) > 0;
+}
+
 /** @param {import("./refill-loop.js").LoopLaunch} l */
 const writeLaunch = (l) => updateState(launchRecorded(l), log);
 
@@ -883,6 +910,12 @@ const blockIo = (served) => ({
 		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	hasRepliedSince: (l, at) =>
 		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
+	probeNetwork,
+	isResumedSinceStop: (l) => isResumedSinceStop(l),
+	hasFounderTypedSinceStop: (l) =>
+		hasFounderTypedSinceApiStop(readTranscriptRows(l, readJobRecordOf(l))),
+	readOutside,
+	writeOutside: (records) => writeJson(refillPath(OUTSIDE_FILE), records),
 	holdLockedOut: (l, { refusal, call }, now) =>
 		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,
@@ -1012,6 +1045,8 @@ const productionIo = {
 	tendClosedParks,
 	actOnBlocks: blocks.actOnBlocks,
 	actOnIdle: blocks.actOnIdle,
+	actOnOutside: (launches, registry, seen) =>
+		actOnOutside(launches, registry, readCause, seen),
 	releaseAwayParks: (launches, mode, served, seen) =>
 		blocks.releaseAwayParks(launches, mode, served, seen.io),
 	attachProbeParks: (broken, launches) =>

@@ -120,10 +120,12 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore  the acts a session
  *   made before a new launch row wakes it, which are not that launch's (#3942)
  * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
- *   swapHold: import("./admission.js").SwapHold, barred?: boolean}} Tick  a
+ *   swapHold: import("./admission.js").SwapHold, barred?: boolean,
+ *   net?: NetGate}} Tick  a
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
  *   (#2690) as read this tick; whether launching is barred, by a pause or a
- *   live launch hold (#4354)
+ *   live launch hold (#4354); its network gate, made on the first ask
+ *   (netGateOf)
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: true, why: string}} Resumed  a
@@ -182,6 +184,18 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
  *   progress fields, logged
  * @property {ReadActsBefore} readActsBefore
+ * @property {() => string|null} probeNetwork  lib/net-probe.js's: null where
+ *   the API host is reachable, else why not
+ * @property {(l: JobLaunch) => boolean} isResumedSinceStop  whether its
+ *   session took a prompt after its API-error stop: its job's `tempo` reads
+ *   `active`, or lib/block-cause.js's promptsAfterApiStop reads one; false
+ *   unread
+ * @property {() => import("./refill-outside.js").Outside[]} readOutside
+ *   lib/refill-outside.js's records, none where its file is absent or will
+ *   not read
+ * @property {(l: JobLaunch) => boolean|null} hasFounderTypedSinceStop
+ *   lib/block-cause.js's hasFounderTypedSinceApiStop on its transcript, null
+ *   unread
  * @property {(line: string) => void} log
  */
 
@@ -238,6 +252,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   postHandOff  `rescue-sessions.js` run with `args` in `root`'s checkout
  * @property {(ledger: {jobId: string, root: string}) => boolean} release  the
  *   dispatch-ledger hold of job `jobId`; whether it went
+ * @property {(records: import("./refill-outside.js").Outside[]) => void}
+ *   writeOutside  lib/refill-outside.js's records, in place of its file's
  */
 
 /** @typedef {BlockReads & BlockActs} BlockIo */
@@ -277,6 +293,50 @@ const buildChildLine = (label, ran) =>
  * @returns {l is L & {stepResume: StepResume<C>}}
  */
 const isStepResumeFor = (l, cause) => l.stepResume?.cause === cause;
+
+/**
+ * @typedef {{admit: (name: string) => boolean, waitedLine: () => string|null}}
+ *   NetGate  a tick's one network probe (#4815): `admit`, whether a due
+ *   resume named `name` may go ahead, the probe run on the first ask; and the
+ *   log line naming each that waited, null where none did
+ */
+
+/**
+ * Tick `seen`'s NetGate, made on the first ask and kept on `seen`, so one
+ * probe serves the tick.
+ * @param {Tick} seen
+ * @returns {NetGate}
+ */
+function netGateOf(seen) {
+	if (seen.net) return seen.net;
+	/** @type {string|null|undefined} */
+	let why;
+	/** @type {string[]} */
+	const waited = [];
+	const gate = {
+		admit: (/** @type {string} */ name) => {
+			if (why === undefined) why = seen.io.probeNetwork();
+			if (why !== null) waited.push(name);
+			return why === null;
+		},
+		waitedLine: () =>
+			waited.length === 0
+				? null
+				: `the API host is unreachable (${why}), so these due resumes wait for the next tick, no try spent: ${waited.join(", ")}`,
+	};
+	seen.net = gate;
+	return gate;
+}
+
+/**
+ * Log the due resumes tick `seen` held back for the network, once a tick
+ * (#4815).
+ * @param {Tick} seen
+ */
+function logNetWaits(seen) {
+	const line = seen.net?.waitedLine();
+	if (line) seen.io.log(line);
+}
 
 /**
  * `l`'s block with its resume record, as lib/block-act.js reads it.
@@ -709,8 +769,10 @@ function afterFallBack(l, now, { failed, again }) {
 
 /**
  * Resume `l`'s API-error stop by stop and `--bg --resume`, never off an
- * unread listing ("doubt never stops a session"). One whose resume failed
- * is held, its `heldAt` set, for the next on the schedule.
+ * unread listing ("doubt never stops a session"), nor where its session took a
+ * prompt since the stop, the founder's own resume or a typed one the arrival
+ * check missed, which would make two sessions of one (#4815). One whose
+ * resume failed is held, its `heldAt` set, for the next on the schedule.
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @param {{route: string, again: boolean}} how  how the resume is told in
@@ -726,6 +788,14 @@ function fallBack(l, seen, { route, again }) {
 			seen.io,
 		);
 		return l;
+	}
+	if (seen.io.isResumedSinceStop(l)) {
+		seen.io.log(
+			`${launchName(l)}'s session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
+		);
+		if (!l.resumes) return l;
+		const { heldAt: _, ...resumes } = l.resumes;
+		return { ...l, resumes };
 	}
 	const act = /** @type {const} */ ({ kind: "api", route, again });
 	const out = settleFallBack(l, relaunchResume(l, act, seen), seen, act);
@@ -759,7 +829,7 @@ function settleFallBack(l, r, { now, io }, { route, again }) {
 /**
  * The launches with each API-error resume typed a tick ago checked (#2359's
  * route): where its line never reached the timeline, the same try falls back
- * to stop and `--bg --resume`. None off an unread listing, which could not
+ * to stop and `--bg --resume`, once the network is up (#4815). None off an unread listing, which could not
  * tell the session's state, the fallback being a stop.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
@@ -784,6 +854,7 @@ function settleTyped(launches, seen) {
 			isResumeArrived(at, API_PROMPT, io.readTimeline(settled))
 		)
 			return settled;
+		if (!netGateOf(seen).admit(launchName(l))) return l;
 		return fallBack(settled, seen, {
 			route: `${FALLBACK_ROUTE}, the typed one unseen`,
 			again: true,
@@ -802,13 +873,15 @@ const isLiveIn = (l, agents) =>
 /**
  * Resume `l`'s API-error stop (#2705): typed into its session where it is
  * live or the listing is unread; else, or where the typing failed, by
- * fallBack.
+ * fallBack. Never while the network is down: the resume waits for a tick that
+ * finds it up, no try spent (#4815).
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch}
  */
 function makeResume(l, seen) {
 	const { agents, now, io } = seen;
+	if (!netGateOf(seen).admit(launchName(l))) return l;
 	const live = isLiveIn(l, agents);
 	const typeFailed = live ? io.type(l, API_PROMPT) : null;
 	if (typeFailed)
@@ -1842,8 +1915,12 @@ function causeReader(io) {
 }
 
 module.exports = {
+	ATTACH_VERDICT_MS,
+	isResumeArrived,
 	causeReader,
 	actOnBlocks,
+	logNetWaits,
+	netGateOf,
 	actOnIdle,
 	unparkAnswered,
 	buildChildLine,
