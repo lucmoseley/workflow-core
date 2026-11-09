@@ -12,16 +12,11 @@
  * still standing is filed again, which refreshes the open ticket.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
-const { writeFileAtomic } = require("./atomic-write.js");
 const { scriptPath } = require("./script-path.js");
 const { buildCrossingLines, formatHoursMin } = require("./queue-gauge.js");
-const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
-const {
-	QUEUE_ALERT_TITLES: TITLES,
-	readTicketRecord,
-} = require("./queue-tickets.js");
+const { QUEUE_ALERT_TITLES: TITLES } = require("./queue-tickets.js");
+const { recordTicket } = require("./record-ticket.js");
 
 /**
  * @typedef {"age"|"depth"} Crossing
@@ -46,21 +41,15 @@ function alertStep(record, crossed) {
 	};
 }
 
-/**
- * The crossings on record; null where none is, "torn" where it will not
- * parse. A read failing for any reason but absence throws.
- * @param {string} file
- * @returns {AlertRecord|null|"torn"}
- */
-const readAlertRecord = (file) =>
-	readTicketRecord(file, (rec) => {
-		const { age, depth } = /** @type {{age?: unknown, depth?: unknown}} */ (
-			rec ?? {}
-		);
-		return typeof age === "boolean" && typeof depth === "boolean"
-			? { age, depth }
-			: null;
-	});
+/** @param {unknown} rec @returns {AlertRecord|null} */
+function parseAlertRecord(rec) {
+	const { age, depth } = /** @type {{age?: unknown, depth?: unknown}} */ (
+		rec ?? {}
+	);
+	return typeof age === "boolean" && typeof depth === "boolean"
+		? { age, depth }
+		: null;
+}
 
 /**
  * @param {Crossing} kind
@@ -105,54 +94,46 @@ function buildRearmComment(kind, g) {
  *   naming what it did
  */
 function queueAlertTender(deps, markers) {
-	const file = queueIssueFiler(deps);
-	const close = queueIssueCloser(deps);
-	const recordFile = path.join(markers, RECORD);
+	const ticket = recordTicket(deps, {
+		record: path.join(markers, RECORD),
+		parse: parseAlertRecord,
+		noun: "queue alert",
+		standalone:
+			"The queue alert tracks the landing queue, not one ticket's work.",
+		subject: "the queue's crossing",
+		/* Fail-open, as the stall ticket's record: a crossing still standing
+		 * is filed again, and a ticket open over a queue back within its
+		 * limit stays open until its next crossing. */
+		tornNote: "; an open queue alert stays open until its next crossing",
+	});
 	return (g, c) => {
 		/** @type {string[]} */
 		const said = [];
-		const read = readAlertRecord(recordFile);
-		if (read === "torn") {
-			/* Fail-open, as the stall ticket's record: a crossing still standing
-			 * is filed again, and a ticket open over a queue back within its
-			 * limit stays open until its next crossing. */
-			fs.rmSync(recordFile, { force: true });
-			said.push(
-				`queue alert: ${recordFile} would not parse and is dropped; an open queue alert stays open until its next crossing.`,
-			);
-		}
-		const record =
+		const read = ticket.read(said);
+		let record =
 			read === null || read === "torn" ? { age: false, depth: false } : read;
 		const lines = buildCrossingLines(c, g.baseline);
 		const { fire, rearm } = alertStep(record, {
 			age: c.age !== null,
 			depth: c.depth !== null,
 		});
-		const save = () =>
-			writeFileAtomic(recordFile, `${JSON.stringify(record)}\n`, {
-				mkdir: true,
-			});
 		for (const kind of fire) {
-			said.push(
-				file(
-					{
-						title: TITLES[kind],
-						standalone:
-							"The queue alert tracks the landing queue, not one ticket's work.",
-						noun: "queue alert",
-						subject: "the queue's crossing",
-					},
-					buildAlertBody(kind, lines[kind] ?? "", g),
-				),
+			record = { ...record, [kind]: true };
+			ticket.file(
+				TITLES[kind],
+				buildAlertBody(kind, lines[kind] ?? "", g),
+				record,
+				said,
 			);
-			record[kind] = true;
-			save();
 		}
 		for (const kind of rearm) {
-			const closed = close(TITLES[kind], () => buildRearmComment(kind, g));
-			if (closed !== null) said.push(`queue alert: closed #${closed}.`);
-			record[kind] = false;
-			save();
+			record = { ...record, [kind]: false };
+			ticket.close(
+				TITLES[kind],
+				() => buildRearmComment(kind, g),
+				record,
+				said,
+			);
 		}
 		return said;
 	};

@@ -13,13 +13,11 @@
  * filed from another checkout of the same repo is closed only by that one.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
-const { writeFileAtomic } = require("./atomic-write.js");
 const { STALL_MS } = require("./landing-stall.js");
 const { formatHoursMin } = require("./queue-gauge.js");
-const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
-const { STALL_TITLE: TITLE, readTicketRecord } = require("./queue-tickets.js");
+const { STALL_TITLE: TITLE } = require("./queue-tickets.js");
+const { recordTicket } = require("./record-ticket.js");
 
 /**
  * @typedef {object} Stall
@@ -44,47 +42,23 @@ The lander's log: \`.lander.log\` in the checkout's markers directory.
 `;
 }
 
-/**
- * @param {import("./queue-issue.js").QueueIssueDeps} deps
- * @returns {(s: Stall) => string}
- */
-function stallTicketFiler(deps) {
-	const file = queueIssueFiler(deps);
-	return (s) =>
-		file(
-			{
-				title: TITLE,
-				standalone:
-					"The stall ticket tracks the landing queue, not one ticket's work.",
-				noun: "stall ticket",
-				subject: "the stalled queue",
-			},
-			buildStallBody(s),
-		);
-}
-
 const RECORD = ".landing-stall-ticket.json";
 
 /**
- * @typedef {{main: string, since: number}} StallRecord `main`'s sha and last
- *   move when the ticket was filed
+ * @typedef {{main: string, movedAt: string}} StallRecord `main`'s sha and
+ *   last move when the ticket was filed
  */
 
-/**
- * The stall on record; null where none is, "torn" where the file will not
- * parse. A read failing for any reason but absence throws.
- * @param {string} file
- * @returns {StallRecord|null|"torn"}
- */
-function readStallRecord(file) {
-	return readTicketRecord(file, (rec) => {
-		const { main, movedAt } =
-			/** @type {{main?: unknown, movedAt?: unknown}} */ (rec ?? {});
-		const since = Date.parse(String(movedAt));
-		return typeof main === "string" && Number.isFinite(since)
-			? { main, since }
-			: null;
-	});
+/** @param {unknown} rec @returns {StallRecord|null} */
+function parseStallRecord(rec) {
+	const { main, movedAt } = /** @type {{main?: unknown, movedAt?: unknown}} */ (
+		rec ?? {}
+	);
+	return typeof main === "string" &&
+		typeof movedAt === "string" &&
+		Number.isFinite(Date.parse(movedAt))
+		? { main, movedAt }
+		: null;
 }
 
 /**
@@ -110,36 +84,38 @@ function buildCloseComment(main, movedAt, since) {
  *   stall: Stall|null}) => string[]} the lines naming what it did
  */
 function stallTicketTender(deps, markers) {
-	const file = stallTicketFiler(deps);
-	const close = queueIssueCloser(deps);
-	const recordFile = path.join(markers, RECORD);
+	const ticket = recordTicket(deps, {
+		record: path.join(markers, RECORD),
+		parse: parseStallRecord,
+		noun: "stall ticket",
+		standalone:
+			"The stall ticket tracks the landing queue, not one ticket's work.",
+		subject: "the stalled queue",
+		/* Fail-open (#4443): the ticket stays open, and the next stall's
+		 * filing refreshes it and writes a fresh record. */
+		tornNote: "; an open stall ticket stays open until the next stall",
+	});
 	return ({ main, movedAt, stall }) => {
 		/** @type {string[]} */
-		const lines = [];
-		const rec = readStallRecord(recordFile);
-		if (rec === "torn") {
-			/* Fail-open (#4443): the ticket stays open, and the next stall's
-			 * filing refreshes it and writes a fresh record. */
-			fs.rmSync(recordFile, { force: true });
-			lines.push(
-				`stall ticket: ${recordFile} would not parse and is dropped; an open stall ticket stays open until the next stall.`,
-			);
-		} else if (rec !== null && main !== null && main !== rec.main) {
-			const closed = close(TITLE, () =>
-				buildCloseComment(main, movedAt, rec.since),
-			);
-			fs.rmSync(recordFile, { force: true });
-			if (closed !== null) lines.push(`stall ticket: closed #${closed}.`);
-		}
-		if (stall !== null && main !== null) {
-			lines.push(file(stall));
-			writeFileAtomic(
-				recordFile,
-				`${JSON.stringify({ main, movedAt: stall.movedAt })}\n`,
-				{ mkdir: true },
+		const said = [];
+		const rec = ticket.read(said);
+		if (rec !== null && rec !== "torn" && main !== null && main !== rec.main) {
+			const since = Date.parse(rec.movedAt);
+			ticket.close(
+				TITLE,
+				() => buildCloseComment(main, movedAt, since),
+				null,
+				said,
 			);
 		}
-		return lines;
+		if (stall !== null && main !== null)
+			ticket.file(
+				TITLE,
+				buildStallBody(stall),
+				{ main, movedAt: stall.movedAt },
+				said,
+			);
+		return said;
 	};
 }
 
