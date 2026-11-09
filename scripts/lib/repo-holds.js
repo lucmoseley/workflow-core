@@ -229,9 +229,11 @@ function guardProbeRetryMs() {
 /* The probe's own, so it leaves no latch on a real session. */
 const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
 
+const SELF_PLUGIN_DIR = "self-plugin";
+
 /* The probe's `Read` names it, as it is tracked wherever the step runs, and
  * the step runs the guard hook line it registers. */
-const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
+const SELF_PLUGIN_HOOKS = path.join(SELF_PLUGIN_DIR, "hooks", "hooks.json");
 
 /* What a lockout's hold asks repaired. */
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
@@ -1041,7 +1043,7 @@ function readHookOutput(stdout) {
  * @returns {ProbeFailure|null}
  */
 function readGuardLoadFailure(root) {
-	if (!fs.existsSync(path.join(root, "self-plugin"))) return null;
+	if (!fs.existsSync(path.join(root, SELF_PLUGIN_DIR))) return null;
 	const read = buildBenignRead(root);
 	if (readGuardRunFailure(root, read, true) === null) return null;
 	sleepSync(guardProbeRetryMs());
