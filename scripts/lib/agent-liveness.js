@@ -1012,6 +1012,7 @@ function sweepSessionIds(opts, starter) {
 }
 
 module.exports = {
+	DISPLAY_MAX_AGE_MS,
 	capMs,
 	claudeBin,
 	isFinishedAgent,

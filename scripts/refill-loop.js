@@ -90,7 +90,10 @@ const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
-const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
+const {
+	buildBudgetLine,
+	shownSeatBudget,
+} = require("./lib/overflow-budget.js");
 const { readAgentsForDisplay } = require("./lib/agent-liveness.js");
 const { planSeatBasisOf } = require("./lib/overflow-notice.js");
 const {
@@ -763,22 +766,22 @@ function refuseUsage(refusal) {
 
 /**
  * @typedef {(seat: import("./lib/refill-seats.js").OverflowSeat) =>
- *   ReturnType<typeof seatBudget>} BudgetOf
+ *   ReturnType<typeof shownSeatBudget>} BudgetOf
  */
 
 /**
  * Each key's budget for a reader only shown it — `status`, and `start`'s and
- * `set`'s seats line — read once per key and off the shared listing (#4169):
- * the panel polls `status --json` every few seconds.
+ * `set`'s seats line — read once per key, off the shared listing (#4169) and
+ * the last budget kept (#4669): the panel polls `status --json` every few
+ * seconds.
  * @param {string|undefined} root
  * @returns {BudgetOf}
  */
 function buildShownBudgets(root) {
-	/** @type {Map<string, ReturnType<typeof seatBudget>>} */
+	/** @type {Map<string, ReturnType<typeof shownSeatBudget>>} */
 	const read = new Map();
 	return (seat) => {
-		const budget =
-			read.get(seat.keyVar) ?? seatBudget(seat, root, readAgentsForDisplay);
+		const budget = read.get(seat.keyVar) ?? shownSeatBudget(seat, root);
 		read.set(seat.keyVar, budget);
 		return budget;
 	};
