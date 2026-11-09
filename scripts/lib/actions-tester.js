@@ -14,7 +14,12 @@
  * A failed run where a job failed at a step that only readies the runner
  * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
  * jobs are rerun, up to `RUNNER_RERUNS` times, and the last attempt still
- * failing so is no verdict, never a red to isolate.
+ * failing so is no verdict, never a red to isolate. A failed run whose
+ * listed jobs all passed but `Suite passed`, as when GitHub never created
+ * some of them, judges no code either: its ref is pushed again once and
+ * only a newer run judged, a second such run, or none, no verdict (#4827).
+ * Residual: where GitHub keeps failing to create jobs, the lander exits on
+ * that no verdict, never dropping a member.
  *
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
@@ -124,7 +129,8 @@ const RUNNER_RERUNS = 2;
  *   at `sha`; false where it moved
  * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
- *   | {kind: "runner", run: number, attempt: number, reason: string}} SuiteRunVerdict
+ *   | {kind: "runner", run: number, attempt: number, reason: string}
+ *   | {kind: "jobless", run: number, reason: string}} SuiteRunVerdict
  * @typedef {{databaseId: number, displayTitle: string,
  *   conclusion: string|null}} NamedRun
  * @typedef {Pick<Reads, "jobsOf" | "failedLogOf" | "presentAt"> & {
@@ -216,6 +222,22 @@ function runVerdict(sha, reads, after) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
+	/* `Suite passed` fails beside any job not passing, a never-created one
+	 * included. A cancelled or timed-out job is a red, a hang being the
+	 * code's. */
+	if (
+		jobs.every(
+			(j) =>
+				j.name === SUITE_PASSED_JOB ||
+				j.conclusion === "success" ||
+				j.conclusion === "skipped",
+		)
+	)
+		return {
+			kind: "jobless",
+			run: id,
+			reason: `run ${id} failed listing no failed job, which judges no code`,
+		};
 	const failed = jobs.filter((j) => j.conclusion === "failure");
 	const fault = runnerFault(failed);
 	if (fault !== null)
@@ -504,16 +526,39 @@ function settle(v) {
  * @param {string} sha
  * @param {number} after
  * @param {{reads: Reads, branch: string} & Poll} suite
- * @param {number} [reruns] attempts started for a runner that failed to ready
+ * @param {{reruns?: number, repushed?: boolean}} [ask] `reruns` attempts
+ *   started for a runner that failed to ready; `repushed` the branch was
+ *   pushed again for this ask
  * @returns {Promise<Verdict>}
  */
-async function suiteVerdict(sha, after, suite, reruns = 0) {
+async function suiteVerdict(
+	sha,
+	after,
+	suite,
+	{ reruns = 0, repushed = false } = {},
+) {
 	const { reads } = suite;
 	const v = await pollRun(
 		() => runVerdict(sha, reads, after),
 		unreadable,
 		suite,
 	);
+	if (v.kind === "jobless") {
+		if (repushed)
+			return {
+				kind: "unknown",
+				reason: `${v.reason}, after ${suite.branch} was pushed again`,
+			};
+		/* A run at the sha was listed, so none after the push is GitHub's
+		 * fault, never the tree firing none (#4571). */
+		const next = await repushedVerdict(sha, suite, v.run);
+		return next.kind === "red" && next.noRun
+			? {
+					kind: "unknown",
+					reason: `${v.reason}, and no run followed ${suite.branch} pushed again`,
+				}
+			: next;
+	}
 	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
 		return {
@@ -524,9 +569,9 @@ async function suiteVerdict(sha, after, suite, reruns = 0) {
 		reads.rerun(v.run);
 	} catch (err) {
 		if (!isRerunRefused(err)) return unreadable(err);
-		return repushedVerdict(sha, suite, [{ databaseId: v.run }], reruns + 1);
+		return repushedVerdict(sha, suite, v.run, reruns + 1);
 	}
-	return suiteVerdict(sha, v.attempt, suite, reruns + 1);
+	return suiteVerdict(sha, v.attempt, suite, { reruns: reruns + 1, repushed });
 }
 
 /**
@@ -836,7 +881,7 @@ async function rerunVerdict(sha, files, on, named) {
 			reads.rerun(run.databaseId);
 		} catch (err) {
 			if (!isRerunRefused(err)) return unreadable(err);
-			return repushedVerdict(sha, on, listed);
+			return repushedVerdict(sha, on, newestId(listed));
 		}
 		return suiteVerdict(sha, run.attempt, on);
 	}
@@ -844,8 +889,8 @@ async function rerunVerdict(sha, files, on, named) {
 		return run === undefined
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
-	if (run !== undefined) return repushedVerdict(sha, on, listed);
-	const v = await newerVerdict(sha, on, listed);
+	if (run !== undefined) return repushedVerdict(sha, on, newestId(listed));
+	const v = await newerVerdict(sha, on, newestId(listed));
 	if (v.kind !== "red" || !v.noRun) return v;
 	/** @type {Run[]} */
 	let again;
@@ -854,32 +899,34 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return repushedVerdict(sha, on, again);
+	return repushedVerdict(sha, on, newestId(again));
 }
+
+/** @param {readonly Pick<Run, "databaseId">[]} listed */
+const newestId = (listed) => Math.max(0, ...listed.map((r) => r.databaseId));
 
 /**
  * `newerVerdict` once `on`'s branch is pushed again at `sha`.
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
- * @param {readonly Pick<Run, "databaseId">[]} listed
+ * @param {number} bound
  * @param {number} [reruns]
  * @returns {Promise<Verdict>}
  */
-const repushedVerdict = async (sha, on, listed, reruns = 0) =>
-	repushFailure(on, sha) ?? newerVerdict(sha, on, listed, reruns);
+const repushedVerdict = async (sha, on, bound, reruns = 0) =>
+	repushFailure(on, sha) ??
+	newerVerdict(sha, on, bound, { reruns, repushed: true });
 
 /**
- * The whole suite at `sha` read off a run on `on`'s branch newer than every
- * one in `listed`.
+ * The whole suite at `sha` read off a run on `on`'s branch newer than run
+ * `bound`.
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
- * @param {readonly Pick<Run, "databaseId">[]} listed
- * @param {number} [reruns] attempts already started for a runner that
- *   failed to ready
+ * @param {number} bound
+ * @param {{reruns?: number, repushed?: boolean}} [ask] as `suiteVerdict`'s
  * @returns {Promise<Verdict>}
  */
-function newerVerdict(sha, on, listed, reruns = 0) {
-	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
+function newerVerdict(sha, on, bound, ask) {
 	const { reads } = on;
 	return suiteVerdict(
 		sha,
@@ -891,7 +938,7 @@ function newerVerdict(sha, on, listed, reruns = 0) {
 				runs: () => reads.runs().filter((r) => r.databaseId > bound),
 			},
 		},
-		reruns,
+		ask,
 	);
 }
 
