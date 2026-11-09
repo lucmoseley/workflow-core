@@ -70,7 +70,9 @@
  *
  * A comment owes a `**Practice:**` line, the Leading practice declaration
  * (#2325, spec #2258). **Enforced** here for a non-empty line only; its
- * form is unchecked.
+ * form is unchecked, save that a decision ticket — `takes:wayfinder` or any
+ * `wayfinder:` label — may not declare `skipped` as a reply that only answers
+ * a question: its resolution is a decision (#4495, #4535).
  *
  * Residual: `**Bound:**`, `**Values:**` and `**Practice:**` are held here
  * alone, so a hand close through the guard-issue-close core owes none of them.
@@ -91,7 +93,7 @@
 
 const fs = require("node:fs");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
-const { hasLine } = require("./lib/marker-line.js");
+const { buildLineRe, hasLine } = require("./lib/marker-line.js");
 const { writeFd } = require("./lib/write-fd.js");
 const issueBody = require("./issue-body.js");
 const { parseErrLine, gh } = require("./lib/gh.js");
@@ -258,6 +260,30 @@ function checkCommentOrFail(comment, notPlanned) {
 	)
 		io.fail(
 			'the comment names a commit sha but has no **Door:** line reading two-way or one-way — "**Door:** two-way — <what undoing it takes>", or "**Door:** one-way — <which entry on the one-way list in docs/agents/issue-tracker.md>; <what undoing it takes, or that it cannot be undone>". Only a --reason "not planned" close is exempt. Nothing written.',
+			2,
+		);
+}
+
+/* The global CLAUDE.md §The practice gate's exempt kind, as written there. */
+const REPLY_SKIP = buildLineRe(
+	"Practice",
+	"skipped\\b[^\\n]*\\ba reply that only answers a question",
+	"im",
+);
+
+/**
+ * Refuses a decision ticket's close that declares its practice skipped as a
+ * reply that only answers a question (#4535).
+ * @param {string} comment
+ * @param {Issue} issue
+ */
+function checkPracticeKindOrFail(comment, issue) {
+	const marks = issue.labels.filter(
+		(l) => l === "takes:wayfinder" || l.startsWith("wayfinder:"),
+	);
+	if (marks.length > 0 && REPLY_SKIP.test(comment))
+		io.fail(
+			`#${issue.number} is a decision ticket (${marks.join(", ")}), and its **Practice:** line declares "skipped — a reply that only answers a question". A decision ticket's resolution is a decision, not a reply: run the research pass ("**Practice:** ran — <note>"), cite a current note ("**Practice:** covered — <note>, <Researched date>"), or name another exempt kind that fits. Nothing written.`,
 			2,
 		);
 }
@@ -547,6 +573,7 @@ function main() {
 	}
 
 	if (!notPlanned) {
+		checkPracticeKindOrFail(comment, issue);
 		checkCompletableOrFail(issue, n);
 		checkCensusOrFail(comment, n);
 		checkLandedOrFail(comment, n);

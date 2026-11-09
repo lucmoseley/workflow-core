@@ -421,6 +421,44 @@ describe("refusals, all before any write", () => {
 		untouched();
 	});
 
+	describe("a decision ticket's reply-only Practice skip (#4535)", () => {
+		const skipped = (kind: string) =>
+			`Done.\n\n**Bound:** read it all.\n**Practice:** skipped — ${kind}\n**Values:** none\n**Outstanding:** none.\n`;
+
+		it.each([
+			["takes:wayfinder", ["takes:wayfinder", "kind:ticket"]],
+			["a wayfinder: label", ["wayfinder:grilling", "kind:ticket"]],
+		])(
+			"refuses one on an issue labelled %s, leaving it untouched",
+			(_, labels) => {
+				setUp({ labels });
+				const r = run(
+					DECISION,
+					skipped("a reply that only answers a question"),
+				);
+				expect(r.status).toBe(2);
+				expect(r.stderr).toContain(
+					"A decision ticket's resolution is a decision, not a reply",
+				);
+				untouched();
+			},
+		);
+
+		it("passes another exempt kind on a decision ticket", () => {
+			setUp({ labels: ["takes:wayfinder", "kind:ticket"] });
+			const r = run(DECISION, skipped("a revert"));
+			expect(r.stderr).not.toContain("not a reply");
+			expect(r.status).toBe(0);
+		});
+
+		it("passes the reply-only kind on a build ticket", () => {
+			setUp();
+			const r = run(DECISION, skipped("a reply that only answers a question"));
+			expect(r.stderr).not.toContain("not a reply");
+			expect(r.status).toBe(0);
+		});
+	});
+
 	describe("a whole-spec review's TICKETED lines (#4492)", () => {
 		const review = (finding: string) =>
 			`## Whole-spec review\n\n1. **Duplicated Code, ${finding}** The filter is spelt out at 8 sites.\n2. **§N7, FIXED \`a3ffe7ad6\`.** Moved.\n\n${TRAILER}none\n**Door:** two-way — revert a3ffe7ad6.\n**Outstanding:** #600 (the filter).\n\n**Reviewed through:** 39ebdf38e279f005d505ab6780242507818865d9\n`;
