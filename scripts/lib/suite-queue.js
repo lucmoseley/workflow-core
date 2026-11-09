@@ -93,14 +93,17 @@ function defaultQueueDir() {
  * The queues admitting against one MemAvailable reading, the suite queue and
  * the type-check slot's (#3203), each with the peak a launch in it is charged
  * on the other's rung while it climbs (#3416). A whole suite's is the highest
- * of six `npm run test -- --full --shared --shard=k/2` runs, three of each
- * shard, 9 Nov 2026 at c8ddd878a on a loaded machine, each run's process
- * tree PSS sampled each second from its spawn: 1,208-1,929 MB (#4592). A
- * shard, since an unsharded whole run meets the 840 s suite ceiling halfway
- * and each shard queues under its own marker. The lander record's whole runs,
- * 28 Oct - 5 Nov, peaked at most 1,820 MB on any day but 4 Nov; that day's
- * 2,087-2,627 MB was its tree, which reproduced at 2,632-2,743 MB. No margin,
- * the rung holding DRAW_MARGIN_MB. MOVE IT ONLY WITH A RE-MEASUREMENT.
+ * of six `npm run test -- --full=<cause> --shared --shard=k/2` runs, three of
+ * each shard, 9 Nov 2026 at c8ddd878a on a loaded machine, each run's process
+ * tree PSS sampled each second from its spawn: 1,208-1,929 MB (#4592), the
+ * highest from a run the 840 s suite ceiling killed at 921 s, 499 s after its
+ * peak. Shards, since an unsharded run meets the ceiling about halfway. The
+ * lander record's whole runs, 28 Oct - 5 Nov, peaked at most 1,820 MB on any
+ * day but 4 Nov; that day's 2,087-2,627 MB was its tree, which reproduced at
+ * 2,632-2,743 MB, the file that drove it unnamed. No margin, the rung holding
+ * DRAW_MARGIN_MB. MOVE IT ONLY WITH A RE-MEASUREMENT.
+ * Residual: an unsharded run, charged this, is unmeasured; a tree regressing
+ * as 4 Nov's did is charged ~800 MB short; a spike between samples, short.
  */
 /** @type {Record<string, number>} */
 const PEAK_MB = { [QUEUE_NAME]: 1929, [TSC_QUEUE_NAME]: TSC_PEAK_MB };
