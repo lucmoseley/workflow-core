@@ -507,6 +507,22 @@ describe("no hand-off in any band (#1178 Q1 (A) and Q4 (B))", () => {
 			"A review's fix-here findings are part of that unit: ticketing one does not finish it",
 		);
 		expect(windUp).toContain("The next unit goes to a fresh session");
+		expect(windUp).not.toMatch(
+			/issue you were working is still open, comment its state on it and leave it open/,
+		);
+		expect(windUp).toContain(
+			"A unit with an unticked criterion is not finished, and no ticket comment or body note moves its boundary",
+		);
+		for (const exit of [
+			"`scripts/park-blocked.sh`",
+			"a `needs input:` park with its `**Hand-off:**` block",
+			"the 300,000 tripwire",
+			"the compaction backstop's hand-off",
+		])
+			expect(windUp).toContain(exit);
+		expect(windUp).toContain(
+			"comment its state on a still-open parent of it — spec, map or bundle — and leave that parent open",
+		);
 		expect(windUp).toContain("the cheap move is to finish and end");
 		turns(PAST_TURN_BAND);
 		const turnBand = run().reason;
@@ -704,10 +720,12 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		}
 	});
 
-	it("asks for a state comment only on an issue still open, and says what passes the repeat", () => {
+	it("asks for a state comment only on a finished unit's still-open parent, and says what passes the repeat", () => {
 		transcript([PAST_WIND_UP]);
 		const reason = run().reason;
-		expect(reason).toContain("If the issue you were working is still open");
+		expect(reason).toContain(
+			"Only once the unit is finished, comment its state on a still-open parent of it",
+		);
 		expect(reason).toContain(
 			"`waiting:` and `needs input:` pass and spend no block",
 		);

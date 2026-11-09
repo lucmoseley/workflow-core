@@ -57,7 +57,7 @@
 	"scripts/guard-paste-self-match.js": "1974395a0a998a05",
 	"scripts/guard-priced-options.js": "7ff7283370545af9",
 	"scripts/guard-selection-sum.js": "e926d105bf7d9989",
-	"scripts/guard-session-ceiling.js": "037a9deaad494a60",
+	"scripts/guard-session-ceiling.js": "ea08e1300673a449",
 	"scripts/guard-session-id-prose.js": "09c7dd149ee56f90",
 	"scripts/guard-typecheck-owed.js": "caa7f834fee5c9f1",
 	"scripts/guard-uncommitted-work.js": "5987929653dd76fe",
