@@ -323,6 +323,15 @@ describe("a run whose per-file verdicts cannot be trusted records nothing", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
+	it("records no row for a file reaching a gitignored input, which no drift watch sees rewritten", () => {
+		const dir = repo();
+		fs.appendFileSync(path.join(dir, ".gitignore"), "gen.json\n");
+		write(dir, "gen.json", "{}\n");
+		write(dir, A, 'require("../gen.json");\n');
+		expect(run(dir, [A, B])).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
 	it("neither writes nor reads the store from the lander's tester", () => {
 		const dir = repo();
 		const files = [{ file: A, outcome: "pass", imports: [] }];

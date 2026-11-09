@@ -21,24 +21,30 @@
  * "run" with one notice, and a line that will not parse runs the files it
  * names; a row whose input list is missing or empty never matches; a run
  * that errored outside its files, was interrupted or filtered by name
- * records no row; an input rewritten while the run ran, untracked or that
- * will not read records none for the files it reaches. A file whose header carries `uncached: <reason>`
+ * records no row; an input rewritten while the run ran, untracked, gitignored
+ * or that will not read records none for the files it reaches: the drift
+ * watch sees tracked paths alone, so an untracked or ignored one may hold
+ * other content than the run read. A file whose header carries `uncached: <reason>`
  * is never cached; one carrying the pragma with no reason refuses the run.
  *
  * THE STORE is a directory beside the marker stores, in the canonical
  * checkout's `.claude/tmp/markers`, so every worktree shares it: one
  * append-only JSONL shard per test file, a line per run that ran it. A
  * lookup reads only the selected files' shards (#4792).
- * Each shard is appended and pruned as the run ledger is
+ * Each shard is appended, pruned and swept under its lock
  * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
  */
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const { markersDir } = require("./marker-root.js");
-const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+const {
+	DAY_MS,
+	appendRetained,
+	removeUntouched,
+} = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { relativeUnder } = require("./is-under.js");
@@ -133,6 +139,32 @@ const gitHasher = (root) => (args, input) =>
 			}),
 		),
 	);
+
+/**
+ * Which of `paths` git ignores at `root`. A tracked path is never one. Throws
+ * where git cannot say.
+ * @param {string} root
+ * @param {string[]} paths
+ * @returns {Set<string>}
+ */
+function readIgnored(root, paths) {
+	const r = spawnSync(
+		gitBinary(),
+		["check-ignore", "--stdin", "-z"],
+		gitSpawnOptions({
+			cwd: root,
+			input: paths.map((p) => `${p}\0`).join(""),
+			encoding: "utf8",
+			stdio: ["pipe", "pipe", "ignore"],
+			timeout: GIT_TIMEOUT_MS,
+			maxBuffer: CHILD_MAX_BUFFER,
+		}),
+	);
+	// 0: some path is ignored; 1: none is.
+	if (r.error || (r.status !== 0 && r.status !== 1))
+		throw new Error(`git check-ignore exited ${r.status ?? r.error}`);
+	return new Set(String(r.stdout).split("\0").filter(Boolean));
+}
 
 /**
  * The manifest at `root`'s documents for each of `files`. Throws where it
@@ -287,14 +319,16 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 			];
 			return [{ ...f, paths }];
 		});
-		const ids = readWorkingIds(gitHasher(run.root), run.root, [
-			...shared,
-			...own.flatMap((f) => f.paths),
-		]);
+		const all = [...shared, ...own.flatMap((f) => f.paths)];
+		const ids = readWorkingIds(gitHasher(run.root), run.root, all);
+		const ignored = readIgnored(run.root, [...new Set(all)]);
 		const drifted = run.drifted === null ? null : new Set(run.drifted);
 		const known = (/** @type {string[]} */ paths) =>
 			drifted !== null &&
-			paths.every((p) => typeof ids.get(p) === "string" && !drifted.has(p));
+			paths.every(
+				(p) =>
+					typeof ids.get(p) === "string" && !drifted.has(p) && !ignored.has(p),
+			);
 		if (!known(shared)) return 0;
 		const rows = own
 			.filter((f) => known(f.paths))
@@ -305,7 +339,6 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 			}));
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
-		for (const row of rows) dropUnparsed(shardFile(storeRoot, row.file));
 		const line = {
 			at: run.at,
 			sha: run.sha,
@@ -318,6 +351,9 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 				shardFile(storeRoot, row.file),
 				{ ...line, files: [row] },
 				ARCHIVE_MS,
+				// The prune drops a line that will not parse, after which rows
+				// older than it decide again, and it may have been a newer fail.
+				{ dropOnBadLine: true },
 			),
 		).length;
 		sweepOrSay(storeRoot, err);
@@ -328,17 +364,6 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		);
 		return 0;
 	}
-}
-
-/**
- * Delete `shard` where a line in it will not parse. The prune rewrites a
- * shard without its bad lines, after which the rows older than a lost one
- * would decide again: that lost row may be a newer fail.
- * @param {string} shard
- */
-function dropUnparsed(shard) {
-	const read = readJsonl(shard);
-	if (read && read.bad.length > 0) fs.rmSync(shard, { force: true });
 }
 
 /**
@@ -366,9 +391,14 @@ function sweepShards(storeRoot) {
 	const dir = storeDir(storeRoot);
 	const before = Date.now() - ARCHIVE_MS - DAY_MS;
 	for (const name of fs.readdirSync(dir)) {
-		const shard = path.join(dir, name);
-		const stat = fs.statSync(shard, { throwIfNoEntry: false });
-		if (stat && stat.mtimeMs < before) fs.rmSync(shard, { force: true });
+		const entry = path.join(dir, name);
+		if (name.endsWith(".jsonl")) removeUntouched(entry, before);
+		// A crashed writer's lock or rewrite aside.
+		else if (
+			(fs.statSync(entry, { throwIfNoEntry: false })?.mtimeMs ?? before) <
+			before
+		)
+			fs.rmSync(entry, { recursive: true, force: true });
 	}
 }
 
